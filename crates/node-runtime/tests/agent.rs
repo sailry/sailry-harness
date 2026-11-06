@@ -136,7 +136,7 @@ use sailry_protocol::{conversation::*, *};
 use std::{sync::Arc, time::Duration};
 
 // Turn waits restart this window on each conversation update, so slower hosts
-// may take longer in total while a turn that stops publishing still fails.
+// may take longer in total, bounded by `ceiling`, while a stalled turn fails.
 const COMPLETION_BUDGET: Duration = Duration::from_secs(30);
 
 fn is_context(entry: &Entry) -> bool {
@@ -328,10 +328,23 @@ async fn finished(client: &Client, session: SessionId, turn: TurnId) -> Page {
     finished_within(client, session, turn, COMPLETION_BUDGET).await
 }
 
+/// Overall limit for progress-bounded waits, below nextest's 300 s termination.
+const WAIT_CEILING: Duration = Duration::from_secs(240);
+/// Resubscriptions a turn wait accepts before treating recovery as a loop.
+const MAX_RECOVERIES: usize = 3;
+
+/// Total limit for a wait whose steps each restart `window`. A window longer
+/// than the ceiling (production retry backoff) remains the total limit.
+fn ceiling(window: Duration) -> Duration {
+    window.max((window * 8).min(WAIT_CEILING))
+}
+
 /// Last observed state of a turn wait, reported when it stops making progress.
 struct TurnWait {
     session: SessionId,
     turn: TurnId,
+    window: Duration,
+    deadline: tokio::time::Instant,
     stage: &'static str,
     updates: usize,
     recoveries: usize,
@@ -340,10 +353,22 @@ struct TurnWait {
 }
 
 impl TurnWait {
-    fn stalled(&self, window: Duration) -> ! {
+    /// Awaits one step within the progress window and the overall ceiling.
+    async fn step<T>(&self, future: impl std::future::Future<Output = T>) -> T {
+        let limit = self.deadline.min(tokio::time::Instant::now() + self.window);
+        match tokio::time::timeout_at(limit, future).await {
+            Ok(value) => value,
+            Err(_) if limit == self.deadline => self.fail("exceeded its overall ceiling"),
+            Err(_) => self.fail("made no progress within its window"),
+        }
+    }
+
+    fn fail(&self, reason: &str) -> ! {
         let Self {
             session,
             turn,
+            window,
+            deadline: _,
             stage,
             updates,
             recoveries,
@@ -351,13 +376,15 @@ impl TurnWait {
             observed,
         } = self;
         panic!(
-            "Agent turn made no progress for {window:?} (session={session}, turn={turn}); stage={stage}; updates={updates}; recoveries={recoveries}; last_snapshot={last_snapshot:?}; observed={observed:?}"
+            "Agent turn {reason} (window={window:?}, ceiling={:?}, session={session}, turn={turn}); stage={stage}; updates={updates}; recoveries={recoveries}; last_snapshot={last_snapshot:?}; observed={observed:?}",
+            ceiling(*window)
         )
     }
 }
 
 /// Waits for a terminal run. Each awaited step restarts `window`, so the total
-/// duration follows the host's speed while a stalled turn still fails.
+/// duration follows the host's speed while a stalled turn still fails, and the
+/// whole wait stays within `ceiling(window)`.
 async fn finished_within(
     client: &Client,
     session: SessionId,
@@ -367,23 +394,22 @@ async fn finished_within(
     let mut wait = TurnWait {
         session,
         turn,
+        window,
+        deadline: tokio::time::Instant::now() + ceiling(window),
         stage: "subscribe",
         updates: 0,
         recoveries: 0,
         last_snapshot: None,
         observed: None,
     };
-    let mut updates = tokio::time::timeout(window, client.subscribe_conversation(session))
+    let mut updates = wait
+        .step(client.subscribe_conversation(session))
         .await
-        .unwrap_or_else(|_| wait.stalled(window))
         .unwrap();
     let mut projection = sailry_client::conversation::Projection::new(client.target(), session, 0);
     loop {
         wait.stage = "next update";
-        let update = tokio::time::timeout(window, updates.next())
-            .await
-            .unwrap_or_else(|_| wait.stalled(window))
-            .unwrap();
+        let update = wait.step(updates.next()).await.unwrap();
         wait.updates += 1;
         if let Update::ConversationSnapshot(value) = &update {
             wait.last_snapshot = Some((
@@ -396,9 +422,12 @@ async fn finished_within(
         if applied == sailry_client::Apply::Recover {
             wait.recoveries += 1;
             wait.stage = "recover subscription";
-            updates = tokio::time::timeout(window, client.subscribe_conversation(session))
+            if wait.recoveries > MAX_RECOVERIES {
+                wait.fail("kept requesting subscription recovery");
+            }
+            updates = wait
+                .step(client.subscribe_conversation(session))
                 .await
-                .unwrap_or_else(|_| wait.stalled(window))
                 .unwrap();
             projection = sailry_client::conversation::Projection::new(client.target(), session, 0);
             continue;
@@ -415,9 +444,7 @@ async fn finished_within(
         }) {
             // The status frame can precede other entries from its committed transaction.
             wait.stage = "canonical history";
-            let page = tokio::time::timeout(window, history(client, session))
-                .await
-                .unwrap_or_else(|_| wait.stalled(window));
+            let page = wait.step(history(client, session)).await;
             if page.runs.iter().any(|run| {
                 run.turn == turn
                     && !matches!(
@@ -978,14 +1005,24 @@ async fn observed(
     view: &mut tokio::sync::watch::Receiver<sailry_client::conversation::View>,
     ready: impl Fn(&sailry_client::conversation::View) -> bool,
 ) {
+    const WINDOW: Duration = Duration::from_secs(10);
+    let deadline = tokio::time::Instant::now() + ceiling(WINDOW);
+    let mut updates = 0;
     loop {
         if ready(&view.borrow_and_update()) {
             break;
         }
-        tokio::time::timeout(Duration::from_secs(10), view.changed())
-            .await
-            .expect("conversation update deadline")
-            .expect("conversation observer ended");
+        let limit = deadline.min(tokio::time::Instant::now() + WINDOW);
+        let Ok(changed) = tokio::time::timeout_at(limit, view.changed()).await else {
+            let bound = if limit == deadline {
+                "overall ceiling"
+            } else {
+                "progress window"
+            };
+            panic!("conversation view hit its {bound} after {updates} updates");
+        };
+        changed.expect("conversation observer ended");
+        updates += 1;
     }
 }
 

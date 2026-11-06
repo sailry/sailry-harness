@@ -134,21 +134,35 @@ impl<'a> Completion<'a> {
     /// while a turn that stops publishing still fails.
     async fn wait(&mut self, turn: TurnId) {
         const WINDOW: Duration = Duration::from_secs(10);
+        let deadline = tokio::time::Instant::now() + crate::ceiling(WINDOW);
+        let mut updates = 0;
+        let mut observed = None;
         loop {
-            let update = tokio::time::timeout(WINDOW, self.updates.next())
-                .await
-                .expect("Agent completion deadline")
-                .unwrap();
+            let limit = deadline.min(tokio::time::Instant::now() + WINDOW);
+            let Ok(update) = tokio::time::timeout_at(limit, self.updates.next()).await else {
+                let bound = if limit == deadline {
+                    "overall ceiling"
+                } else {
+                    "progress window"
+                };
+                panic!(
+                    "Agent completion hit its {bound} after {updates} updates; last run: {observed:?}"
+                );
+            };
+            let update = update.unwrap();
+            updates += 1;
             let applied = self.projection.apply(0, update).unwrap();
             assert_ne!(
                 applied,
                 sailry_client::Apply::Recover,
                 "unexpected seed reset"
             );
-            if let Some(run) = self
+            let run = self
                 .projection
                 .snapshot()
-                .and_then(|snapshot| snapshot.page.runs.iter().find(|run| run.turn == turn))
+                .and_then(|snapshot| snapshot.page.runs.iter().find(|run| run.turn == turn));
+            observed = run.map(|run| run.status);
+            if let Some(run) = run
                 && !matches!(
                     run.status,
                     Status::Queued | Status::Running | Status::Stopping
