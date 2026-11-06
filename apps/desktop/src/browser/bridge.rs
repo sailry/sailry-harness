@@ -274,12 +274,7 @@ impl Shell {
                         .owns_composer(shell.session_scope.active, source, browser, cx)
                 }) {
                     source.update(cx, |source, cx| {
-                        source.insert_browser_reference(
-                            &request.reference,
-                            request.image.clone(),
-                            window,
-                            cx,
-                        )
+                        source.insert_browser_element(&request.selection, window, cx)
                     })
                 } else {
                     Err("browser_annotation_stale")

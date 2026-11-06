@@ -5,6 +5,7 @@ use sailry_protocol::{AttachmentId, attachment::Attachment};
 use std::path::PathBuf;
 
 pub(super) use crate::content::images;
+pub(super) mod elements;
 mod render;
 mod source;
 pub(super) use render::{image_links, links, source_links};
@@ -30,6 +31,8 @@ pub(super) fn pointer_drag(
 pub(super) struct Drafts {
     next: usize,
     items: Vec<Item>,
+    chips: Vec<elements::Chip>,
+    next_chip: usize,
     pub(super) error: Option<&'static str>,
     pub(super) slots: Arc<tokio::sync::Semaphore>,
 }
@@ -39,6 +42,8 @@ impl Default for Drafts {
         Self {
             next: 0,
             items: Vec::new(),
+            chips: Vec::new(),
+            next_chip: 0,
             error: None,
             slots: Arc::new(tokio::sync::Semaphore::new(2)),
         }
@@ -52,6 +57,8 @@ struct Item {
     status: Status,
     pending: bool,
     removing: bool,
+    /// The element chip this draft belongs to.
+    chip: Option<usize>,
     cancel: CancellationToken,
 }
 
@@ -59,6 +66,7 @@ pub(super) struct Captured {
     key: usize,
     source: Option<Source>,
     attachment: Option<Attachment>,
+    chip: Option<usize>,
 }
 
 impl Drop for Item {
@@ -78,6 +86,7 @@ impl Drafts {
                     Status::Ready(attachment) => Some(attachment.clone()),
                     _ => None,
                 },
+                chip: item.chip,
             })
             .collect()
     }
@@ -111,6 +120,7 @@ impl Drafts {
                 status,
                 pending: false,
                 removing: false,
+                chip: draft.chip,
                 cancel: stop.child_token(),
             });
         }
@@ -120,6 +130,7 @@ impl Drafts {
     pub(super) fn sent_captured(&mut self, captured: &[Captured]) {
         self.items
             .retain(|item| !captured.iter().any(|draft| draft.key == item.key));
+        self.retain_chips();
     }
 
     pub(super) fn can_retarget(&self) -> bool {
@@ -133,11 +144,13 @@ impl Drafts {
         })
     }
 
-    pub(super) fn sendable(&self) -> bool {
+    /// Drafts other than `leaving` are uploaded or ready to upload.
+    pub(super) fn sendable_except(&self, leaving: &[usize]) -> bool {
         self.items.iter().all(|item| {
-            !item.pending
-                && !item.removing
-                && matches!(item.status, Status::Staged | Status::Ready(_))
+            leaving.contains(&item.key)
+                || (!item.pending
+                    && !item.removing
+                    && matches!(item.status, Status::Staged | Status::Ready(_)))
         })
     }
     pub(super) fn ready(&self) -> bool {
@@ -168,38 +181,11 @@ impl Drafts {
 
     pub(super) fn sent(&mut self, ids: &[AttachmentId]) {
         self.items.retain(|item| !matches!(&item.status, Status::Ready(attachment) if ids.contains(&attachment.id)));
+        self.retain_chips();
     }
 }
 
 impl View {
-    pub(crate) fn insert_browser_reference(
-        &mut self,
-        reference: &str,
-        bytes: Arc<[u8]>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Result<(), &'static str> {
-        if self.attachments_blocked() {
-            return Err("browser_annotation_stale");
-        }
-        if self.attachments.items.len() >= 8 {
-            return Err("chat_attachment_limit");
-        }
-        if !self.insert_quote(reference, window, cx) {
-            return Err("browser_annotation_stale");
-        }
-        self.attach_sources(
-            vec![Source::Image {
-                name: format!("browser-element-{}.jpg", self.attachments.next),
-                format: ImageFormat::Jpeg,
-                bytes,
-            }],
-            window,
-            cx,
-        );
-        Ok(())
-    }
-
     pub(super) fn restore_attachment_sources(
         &mut self,
         sources: Vec<Source>,
@@ -220,6 +206,7 @@ impl View {
                 status: Status::Staged,
                 pending: false,
                 removing: false,
+                chip: None,
                 cancel: self.stop.child_token(),
             });
         }
@@ -240,6 +227,7 @@ impl View {
                 status: Status::Ready(attachment),
                 pending: false,
                 removing: false,
+                chip: None,
                 cancel: self.stop.child_token(),
             });
         }
@@ -259,6 +247,15 @@ impl View {
             .items
             .iter()
             .filter_map(|item| item.source.clone())
+            .collect()
+    }
+
+    /// Local drafts with their chips, carried to another execution target.
+    pub(super) fn bound_sources(&self) -> Vec<(Source, Option<usize>)> {
+        self.attachments
+            .items
+            .iter()
+            .filter_map(|item| Some((item.source.clone()?, item.chip)))
             .collect()
     }
 
@@ -426,6 +423,17 @@ impl View {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let sources = sources.into_iter().map(|source| (source, None)).collect();
+        self.attach_drafts(sources, window, cx);
+    }
+
+    /// Stages drafts, binding each to its element chip when it has one.
+    pub(super) fn attach_drafts(
+        &mut self,
+        sources: Vec<(Source, Option<usize>)>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.attachments_blocked() {
             return;
         }
@@ -441,7 +449,7 @@ impl View {
         }
         self.attachments.error = None;
         let mut invalid_name = false;
-        for source in sources {
+        for (source, chip) in sources {
             let Some(name) = source.name() else {
                 invalid_name = true;
                 continue;
@@ -459,6 +467,7 @@ impl View {
                 },
                 pending: false,
                 removing: false,
+                chip,
                 cancel: self.stop.child_token(),
             });
             if self.session.is_some() {

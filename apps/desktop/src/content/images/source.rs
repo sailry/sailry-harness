@@ -80,7 +80,7 @@ impl ImageSource {
             .map(|attachment| attachment.spec.size)
             .or_else(|| match self {
                 Self::Local {
-                    source: Local::Image { bytes, .. },
+                    source: Local::Image { bytes, .. } | Local::Data { bytes, .. },
                     ..
                 } => Some(bytes.len() as u64),
                 _ => None,
@@ -189,7 +189,7 @@ impl ImageSource {
                     Local::Path(path) => {
                         crate::downloads::transfer::Source::LocalPath(path.clone())
                     }
-                    Local::Image { bytes, .. } => {
+                    Local::Image { bytes, .. } | Local::Data { bytes, .. } => {
                         crate::downloads::transfer::Source::Bytes(bytes.clone())
                     }
                 };

@@ -23,6 +23,7 @@ pub(super) struct Draft {
     references: Vec<Reference>,
     commands: BTreeMap<String, crate::plugins::contributions::Key>,
     attachments: Vec<attachments::Captured>,
+    chips: Vec<attachments::elements::Chip>,
     edited: bool,
 }
 
@@ -53,6 +54,7 @@ impl View {
             references: self.references.selected.clone(),
             commands: self.references.command_keys.clone(),
             attachments: self.attachments.capture(),
+            chips: self.attachments.chips().to_vec(),
             edited: false,
         });
         self.references.selected.clear();
@@ -183,6 +185,7 @@ impl View {
     ) {
         self.attachments
             .restore_captured(draft.attachments, &self.stop);
+        self.attachments.restore_chips(draft.chips);
         self.references.selected = draft.references;
         self.references.command_keys = draft.commands;
         self.restored_input = Some(draft.content.clone());

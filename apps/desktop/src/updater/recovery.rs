@@ -319,6 +319,20 @@ impl Capture {
                             format: format.mime_type().into(),
                         });
                     }
+                    // Generated content is restored as its named file.
+                    Local::Data { bytes, .. } => {
+                        if bytes.len() as u64 > sailry_protocol::attachment::MAX_BYTES {
+                            return Err(failed("a draft attachment exceeds its limit"));
+                        }
+                        let mut target = fs::OpenOptions::new()
+                            .create_new(true)
+                            .write(true)
+                            .open(&path)
+                            .map_err(Failure::io)?;
+                        target.write_all(&bytes).map_err(Failure::io)?;
+                        target.sync_all().map_err(Failure::io)?;
+                        attachments.push(Attachment::File { path: relative });
+                    }
                 }
             }
             records.push(Record {

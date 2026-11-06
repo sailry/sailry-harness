@@ -26,6 +26,7 @@ fn snapshot(node: NodeId, session: Option<SessionId>) -> Snapshot {
             }],
             commands: Default::default(),
             attachments: vec![],
+            chips: vec![],
             configuration: None,
             configuration_owner: node,
             mode: Some(sailry_protocol::WorkMode::Plan),
@@ -269,4 +270,55 @@ fn scoped_cache_and_drafts() {
         eprintln!("case: {scenario}");
         check(scenario);
     }
+}
+
+#[test]
+fn element_chips_keep_their_drafts() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut draft = snapshot(NodeId([4; 32]), None);
+    draft.draft.text = "Fix @PayButton ".into();
+    draft.draft.tokens = vec![crate::conversation::live::recovery::Token {
+        range: 4..14,
+        id: "element:3".into(),
+        text: "@PayButton".into(),
+        label: "@PayButton".into(),
+    }];
+    let chip = crate::conversation::live::recovery::Chip {
+        key: 3,
+        label: "PayButton".into(),
+        details: crate::browser::annotation::Details {
+            selector: "#pay".into(),
+            component: "PayButton · src/Pay.tsx:12".into(),
+            page: "Checkout".into(),
+        },
+        drafts: vec![0, 1],
+    };
+    draft.draft.chips = vec![chip.clone()];
+    draft.sources = vec![
+        Local::Image {
+            name: "browser-element-0.jpg".into(),
+            format: ImageFormat::Jpeg,
+            bytes: Arc::from(b"capture".as_slice()),
+        },
+        Local::Data {
+            name: "browser-element-0.json".into(),
+            media_type: "application/json",
+            bytes: Arc::from(br#"{"kind":"browser_element"}"#.as_slice()),
+        },
+    ];
+    Capture {
+        snapshots: vec![draft],
+        expected: Arc::new(Mutex::new(None)),
+    }
+    .save(directory.path())
+    .unwrap();
+    let (_, loaded) = load(directory.path()).unwrap();
+    let restored = &loaded[0].snapshot;
+    assert_eq!(restored.draft.chips, vec![chip]);
+    assert_eq!(restored.draft.tokens[0].id, "element:3");
+    let Local::Path(path) = &restored.sources[1] else {
+        panic!("generated context restores as its file")
+    };
+    assert_eq!(path.file_name().unwrap(), "browser-element-0.json");
+    assert_eq!(fs::read(path).unwrap(), br#"{"kind":"browser_element"}"#);
 }

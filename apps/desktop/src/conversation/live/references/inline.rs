@@ -165,7 +165,7 @@ impl View {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.busy() {
+        if self.busy() || self.activate_chip(event, window, cx) {
             return;
         }
         let input = self.input.clone();

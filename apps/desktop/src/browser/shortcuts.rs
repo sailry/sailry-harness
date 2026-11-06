@@ -2,6 +2,27 @@
 use super::*;
 
 pub(super) fn init(cx: &mut App) {
+    if cx
+        .key_bindings()
+        .borrow()
+        .bindings_for_action(&annotation::SelectElement)
+        .next()
+        .is_none()
+    {
+        cx.bind_keys([KeyBinding::load(
+            "secondary-shift-c",
+            Box::new(annotation::SelectElement),
+            Some(
+                KeyBindingContextPredicate::parse("SailryBrowser")
+                    .expect("static shortcut context")
+                    .into(),
+            ),
+            false,
+            None,
+            cx,
+        )
+        .expect("static shortcut")]);
+    }
     #[cfg(target_os = "macos")]
     if cx
         .key_bindings()
@@ -40,10 +61,13 @@ impl Browser {
 }
 
 pub(super) fn script(cx: &App) -> String {
-    let mut actions = vec![(
-        crate::shell::shortcuts::CloseFocused.boxed_clone(),
-        "close-tab",
-    )];
+    let mut actions = vec![
+        (
+            crate::shell::shortcuts::CloseFocused.boxed_clone(),
+            "close-tab",
+        ),
+        (annotation::SelectElement.boxed_clone(), "select-element"),
+    ];
     #[cfg(target_os = "macos")]
     actions.push((inspector::Inspect.boxed_clone(), "inspect"));
     let keymap = cx.key_bindings();

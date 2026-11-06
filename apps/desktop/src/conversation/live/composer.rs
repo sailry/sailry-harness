@@ -27,7 +27,7 @@ impl View {
                     || !self.configured()
                     || !self.binding.project_available(self.node.snapshot.as_ref())
                     || (self.binding.project.is_some() && self.binding.worktree.is_none())
-                    || !self.attachments.sendable()));
+                    || !self.drafts_sendable(cx)));
         let owner = cx.weak_entity();
         let toolbar = h_flex()
             .debug_selector(|| "composer-toolbar".into())
@@ -235,6 +235,7 @@ impl View {
                     .appearance(false)
                     .bordered(false)
                     .aria_label(tr("composer"))
+                    .token(self.chip_renderer())
                     .on_token_click(cx.listener(View::activate_reference)),
             )
     }

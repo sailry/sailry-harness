@@ -15,11 +15,17 @@ impl View {
         &self,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
-        if self.attachments.items.is_empty() {
+        let items: Vec<_> = self
+            .attachments
+            .items
+            .iter()
+            .filter(|item| !self.bound_draft(item))
+            .collect();
+        if items.is_empty() {
             return None;
         }
         let blocked = self.attachments_blocked();
-        let sources: Vec<_> = self.attachments.items.iter().map(draft_source).collect();
+        let sources: Vec<_> = items.iter().map(|item| draft_source(item)).collect();
         let gallery: Vec<_> = sources
             .iter()
             .filter(|source| source.kind().is_some())
@@ -28,87 +34,78 @@ impl View {
         Some(
             AttachmentGroup::new("composer-attachments")
                 .with_edge_fade(cx.theme().muted)
-                .children(
-                    self.attachments
-                        .items
-                        .iter()
-                        .zip(sources)
-                        .map(|(item, source)| {
-                            let key = item.key;
-                            let (status, detail, progress) =
-                                draft_status(&item.status, item.removing);
-                            let removable = !item.removing
-                                && !matches!(
-                                    item.status,
-                                    Status::Publishing(_)
-                                        | Status::Removing
-                                        | Status::Uncertain(_)
-                                        | Status::Rejected(_)
-                                );
-                            let retry = status.is_failed() && !item.pending && !blocked;
-                            let index = source.kind().is_some().then(|| {
-                                gallery
-                                    .iter()
-                                    .position(|value| value.id() == source.id())
-                                    .expect("image source is present in its gallery")
-                            });
-                            let card = if index.is_some() {
-                                Card::new().axis(Axis::Vertical).media(
-                                    Images::media(&self.images, source.clone(), cx)
-                                        .rounded(cx.theme().radius_2xl())
-                                        .overlay(media_bounds(key)),
-                                )
-                            } else {
-                                Card::new()
-                                    .media(
-                                        AttachmentMedia::new()
-                                            .child(crate::ui::file_icon::render(
-                                                &item.name,
-                                                &source.mime(),
-                                                rems(1.25),
-                                            ))
-                                            .overlay(media_bounds(key)),
-                                    )
-                                    .content(
-                                        AttachmentContent::new()
-                                            .title(AttachmentTitle::new(item.name.clone()))
-                                            .description(AttachmentDescription::new(
-                                                source.description(),
-                                            )),
-                                    )
-                            };
-                            let card = card
+                .children(items.into_iter().zip(sources).map(|(item, source)| {
+                    let key = item.key;
+                    let (status, detail, progress) = draft_status(&item.status, item.removing);
+                    let removable = !item.removing
+                        && !matches!(
+                            item.status,
+                            Status::Publishing(_)
+                                | Status::Removing
+                                | Status::Uncertain(_)
+                                | Status::Rejected(_)
+                        );
+                    let retry = status.is_failed() && !item.pending && !blocked;
+                    let index = source.kind().is_some().then(|| {
+                        gallery
+                            .iter()
+                            .position(|value| value.id() == source.id())
+                            .expect("image source is present in its gallery")
+                    });
+                    let card = if index.is_some() {
+                        Card::new().axis(Axis::Vertical).media(
+                            Images::media(&self.images, source.clone(), cx)
                                 .rounded(cx.theme().radius_2xl())
-                                .id(format!("composer-attachment-{key}"))
-                                .status(status)
-                                .tooltip(detail.map(tr).unwrap_or_else(|| item.name.clone().into()))
-                                .when_some(progress, Card::progress)
-                                .when(retry, |card| {
-                                    card.on_retry(cx.listener(move |view, _, window, cx| {
-                                        cx.stop_propagation();
-                                        view.upload_attachment(key, window, cx)
-                                    }))
-                                })
-                                .when(removable && !blocked, |card| {
-                                    card.on_remove(cx.listener(move |view, _, window, cx| {
-                                        cx.stop_propagation();
-                                        view.remove_attachment(key, window, cx)
-                                    }))
-                                });
-                            let card = if let Some(index) = index {
-                                Images::gallery(card, &self.images, gallery.clone(), index, cx)
-                                    .into_any_element()
-                            } else {
-                                card.into_any_element()
-                            };
-                            div()
-                                .id(("attachment-card", key))
-                                .flex_shrink_0()
-                                .debug_selector(move || format!("attachment-card-{key}"))
-                                .child(card)
-                                .into_any_element()
-                        }),
-                )
+                                .overlay(media_bounds(key)),
+                        )
+                    } else {
+                        Card::new()
+                            .media(
+                                AttachmentMedia::new()
+                                    .child(crate::ui::file_icon::render(
+                                        &item.name,
+                                        &source.mime(),
+                                        rems(1.25),
+                                    ))
+                                    .overlay(media_bounds(key)),
+                            )
+                            .content(
+                                AttachmentContent::new()
+                                    .title(AttachmentTitle::new(item.name.clone()))
+                                    .description(AttachmentDescription::new(source.description())),
+                            )
+                    };
+                    let card = card
+                        .rounded(cx.theme().radius_2xl())
+                        .id(format!("composer-attachment-{key}"))
+                        .status(status)
+                        .tooltip(detail.map(tr).unwrap_or_else(|| item.name.clone().into()))
+                        .when_some(progress, Card::progress)
+                        .when(retry, |card| {
+                            card.on_retry(cx.listener(move |view, _, window, cx| {
+                                cx.stop_propagation();
+                                view.upload_attachment(key, window, cx)
+                            }))
+                        })
+                        .when(removable && !blocked, |card| {
+                            card.on_remove(cx.listener(move |view, _, window, cx| {
+                                cx.stop_propagation();
+                                view.remove_attachment(key, window, cx)
+                            }))
+                        });
+                    let card = if let Some(index) = index {
+                        Images::gallery(card, &self.images, gallery.clone(), index, cx)
+                            .into_any_element()
+                    } else {
+                        card.into_any_element()
+                    };
+                    div()
+                        .id(("attachment-card", key))
+                        .flex_shrink_0()
+                        .debug_selector(move || format!("attachment-card-{key}"))
+                        .child(card)
+                        .into_any_element()
+                }))
                 .into_any_element(),
         )
     }
@@ -122,7 +119,7 @@ fn media_bounds(key: usize) -> Div {
         .debug_selector(move || format!("attachment-media-{key}"))
 }
 
-fn draft_source(item: &Item) -> ImageSource {
+pub(super) fn draft_source(item: &Item) -> ImageSource {
     match &item.status {
         Status::Ready(attachment) => ImageSource::from(attachment),
         _ => ImageSource::Local {
