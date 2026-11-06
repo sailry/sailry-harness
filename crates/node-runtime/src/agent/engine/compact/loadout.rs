@@ -1,4 +1,5 @@
 //! Discovered tools that remain loaded after a compaction.
+use crate::agent::plugins::search;
 use goose_provider_types::conversation::{Conversation, message::MessageContent};
 use std::collections::BTreeSet;
 
@@ -17,23 +18,21 @@ pub(super) fn retained(loaded: &[String], conversation: &Conversation) -> Vec<St
         match content {
             MessageContent::ToolRequest(request) => {
                 if let Ok(call) = &request.tool_call {
-                    if call.name == "tool_search" {
+                    if call.name == search::NAME {
                         searches.insert(request.id.as_str());
                     }
                     used.insert(call.name.to_string());
                 }
             }
             MessageContent::ToolResponse(response) if searches.contains(response.id.as_str()) => {
-                let found = response
+                if let Some(output) = response
                     .tool_result
                     .as_ref()
                     .ok()
                     .and_then(|result| result.structured_content.as_ref())
-                    .and_then(|value| value["tools"].as_array())
-                    .into_iter()
-                    .flatten()
-                    .filter_map(|tool| tool["name"].as_str());
-                used.extend(found.map(str::to_owned));
+                {
+                    used.extend(search::discovered(output).map(str::to_owned));
+                }
             }
             _ => {}
         }

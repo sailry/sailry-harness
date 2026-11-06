@@ -189,16 +189,30 @@ fn requires_captured_directory_and_exact_result() {
 
 #[test]
 fn bounds_skills_across_compactions() {
-    let skill = |name: &str| {
+    let sized = |name: &str, repeat: usize| {
         stored(
             "load_skill",
             name,
             json!({
-                "skill":name,"path":"SKILL.md","content":"Skill body ".repeat(800),
+                "skill":name,"path":"SKILL.md","content":"Skill body ".repeat(repeat),
                 "directory":format!("/package/{name}"),
             }),
         )
     };
+    let skill = |name: &str| sized(name, 800);
+    let reload = |name: &str| {
+        format!(
+            "{PREFIX}skill:{name}:SKILL.md\nOmitted to bound context. Call load_skill with skill {name} and path SKILL.md again if it is still needed."
+        )
+    };
+    let split = |parts: Vec<(String, String)>| {
+        let (omitted, full): (Vec<_>, Vec<_>) = parts
+            .into_iter()
+            .partition(|(_, part)| part.contains("\nOmitted to bound context."));
+        (full, omitted)
+    };
+    let keys =
+        |parts: &[(String, String)]| parts.iter().map(|(key, _)| key.clone()).collect::<Vec<_>>();
     let compaction = || {
         let now = chrono::Utc::now();
         Record::new(
@@ -224,13 +238,10 @@ fn bounds_skills_across_compactions() {
     records.push(skill("fixture:skill-0"));
     records.push(compaction());
     records.push(skill("fixture:current"));
-    let parts = collect(&records).parts();
+    let (full, omitted) = split(collect(&records).parts());
     // The reloaded skill is the most recent; older ones exceed the budget.
     assert_eq!(
-        parts
-            .iter()
-            .map(|(key, _)| key.as_str())
-            .collect::<Vec<_>>(),
+        keys(&full),
         [
             "plan",
             "skill:fixture:current:SKILL.md",
@@ -238,10 +249,42 @@ fn bounds_skills_across_compactions() {
             "skill:fixture:skill-19:SKILL.md",
         ]
     );
-    let earlier: usize = parts
+    let earlier: usize = full
         .iter()
         .filter(|(key, _)| key.starts_with("skill:fixture:skill-"))
         .map(|(_, part)| part.chars().count())
         .sum();
     assert!(earlier <= SKILL_CHARS, "{earlier}");
+    let mut expected: Vec<_> = (1..19)
+        .map(|index| format!("fixture:skill-{index}"))
+        .map(|name| (format!("skill:{name}:SKILL.md"), reload(&name)))
+        .collect();
+    expected.sort();
+    assert_eq!(omitted, expected);
+
+    // An oversized most recent skill stays; the older one becomes a reload
+    // line that a later compaction leaves unchanged.
+    let mut records = vec![
+        stored(
+            "update_plan",
+            "plan",
+            json!({"progress":{"title":"Plan","steps":[]}}),
+        ),
+        skill("fixture:older"),
+        compaction(),
+        sized("fixture:oversized", 3_000),
+        compaction(),
+    ];
+    let (full, omitted) = split(collect(&records).parts());
+    assert_eq!(keys(&full), ["plan", "skill:fixture:oversized:SKILL.md"]);
+    assert!(full[1].1.chars().count() > SKILL_CHARS);
+    let line = vec![(
+        "skill:fixture:older:SKILL.md".to_owned(),
+        reload("fixture:older"),
+    )];
+    assert_eq!(omitted, line);
+    records.push(compaction());
+    let (full, omitted) = split(collect(&records).parts());
+    assert_eq!(keys(&full), ["plan", "skill:fixture:oversized:SKILL.md"]);
+    assert_eq!(omitted, line);
 }

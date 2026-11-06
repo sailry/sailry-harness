@@ -414,9 +414,11 @@ summary text; the parsed file ledger is retained on the canonical compaction
 record. Summary requests have no tools and retain their captured model and account,
 with a separate low supported reasoning effort and an output limit of at most
 8,000 tokens, including reasoning where the provider counts it. The prompt asks
-for under 3,000 tokens; an accepted handoff above 4,000 rendered tokens loses the
-tail entries of its reference lists first, then has overlong entries shortened,
-and keeps goals, current state and next steps longest. There is no total
+for under 3,000 tokens. An accepted handoff above 4,000 rendered tokens first
+loses the tail entries of its references, files and decisions, then has its
+longest goal, constraint, task, state or next-step text shortened toward 500
+tokens, and only then loses goals, constraints and tasks beyond the first of
+each. There is no total
 compaction deadline; transport stall timeouts and user cancellation still apply.
 There is no background preparation, model-callable compaction tool, prefix
 checkpoint, mandatory-heading check or minimum-reduction gate.
@@ -435,8 +437,9 @@ state changes, so each request extends the previous request and provider prompt
 caches cover the history. Retained owner parts and the parts a package returns from
 `turn.initialize` are repeated only after compaction hides their earlier copy;
 package instructions stay in the stable system prompt. Skill parts loaded before
-the latest compaction share 24,000 characters, most recently loaded first; older
-skills return only when loaded again, while the latest plan is kept. Adapted
+the latest compaction share 24,000 characters, most recently loaded first, and
+the most recent one is always kept. Each older skill becomes a stable line naming
+it and its path until it is loaded again, while the latest plan is kept. Adapted
 payload estimates attribute sources only for a newly appended context within the
 verified terminal text and captured ranges.
 Compaction prepares a separate input projection from canonical history. It omits
