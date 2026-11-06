@@ -8,6 +8,8 @@ use std::{
 };
 
 const LINES: usize = 500;
+/// Reads only the active file's recent tail, well above `LINES` bounded records.
+const WINDOW: u64 = 1024 * 1024;
 
 pub(super) fn failure() -> Fault {
     Fault::new(
@@ -21,10 +23,10 @@ pub(super) fn attachment(path: Option<PathBuf>) -> Result<Attachment, Fault> {
     if let Some(path) = path {
         let mut file = std::fs::File::open(path).map_err(|_| failure())?;
         let length = file.metadata().map_err(|_| failure())?.len();
-        let start = length.saturating_sub(super::super::MAX_FILE_BYTES as u64);
+        let start = length.saturating_sub(WINDOW);
         file.seek(SeekFrom::Start(start)).map_err(|_| failure())?;
         let mut bytes = Vec::new();
-        file.take(super::super::MAX_FILE_BYTES as u64)
+        file.take(WINDOW)
             .read_to_end(&mut bytes)
             .map_err(|_| failure())?;
         let text = String::from_utf8_lossy(&bytes);

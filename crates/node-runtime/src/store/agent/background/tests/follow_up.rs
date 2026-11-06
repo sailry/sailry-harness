@@ -133,6 +133,89 @@ async fn excludes_quiet_before_batching() {
     }
 }
 
+/// Persists a completion and schedules delivery in one transaction, as the process sink does.
+async fn complete(fixture: &Fixture, snapshot: &Snapshot) -> Option<QueuedTurn> {
+    let transaction = fixture
+        .database
+        .connection
+        .unchecked_transaction()
+        .await
+        .unwrap();
+    command_finished(&transaction, snapshot, Some(1), false)
+        .await
+        .unwrap()
+        .unwrap();
+    let queued = super::super::schedule(&transaction, fixture.database.node, fixture.session)
+        .await
+        .unwrap();
+    transaction.commit().await.unwrap();
+    queued
+}
+
+#[tokio::test]
+async fn continues_consecutive_notice_turns() {
+    let mut fixture = Fixture::new().await;
+    let user = fixture.queued().await;
+    runs::start(&fixture.database.connection, user)
+        .await
+        .unwrap();
+    let invocation = claim(&mut fixture).await;
+    let mut input = fixture::message(
+        "user",
+        canonical::Role::User,
+        vec![BlockKind::Text {
+            text: "History fixture".into(),
+        }],
+    );
+    input.turn = invocation.turn.id;
+    append(&mut fixture, &invocation, input).await;
+    let mut snapshot = command(&fixture, invocation.turn.id, true).await.1;
+    let mut owner = invocation.turn.id;
+    for _ in 0..6 {
+        runs::finish(
+            &mut fixture.database,
+            owner,
+            Status::Completed,
+            None,
+            &fixture.events,
+        )
+        .await
+        .unwrap();
+        assert!(
+            queue::read(&fixture.database.connection, fixture.session)
+                .await
+                .unwrap()
+                .items
+                .is_empty()
+        );
+        let queued = complete(&fixture, &snapshot)
+            .await
+            .expect("an idle session continues with the completion");
+        let invocation = claim(&mut fixture).await;
+        assert_eq!(invocation.turn.id, queued.id);
+        assert!(invocation.notice);
+        let id = format!("command:{}", snapshot.info.id);
+        assert_eq!(
+            invocation
+                .notices
+                .iter()
+                .map(|notice| &notice.id)
+                .collect::<Vec<_>>(),
+            vec![&id]
+        );
+        append(&mut fixture, &invocation, event(&invocation)).await;
+        let task = get(&fixture.database.connection, &id)
+            .await
+            .unwrap()
+            .unwrap()
+            .task;
+        assert_eq!(task.state, State::Delivered);
+        assert_eq!(task.delivery, Some(invocation.turn.id));
+        snapshot = command(&fixture, invocation.turn.id, true).await.1;
+        owner = invocation.turn.id;
+    }
+}
+
 #[tokio::test]
 async fn retains_reserved_input_after_default_changes() {
     let mut fixture = Fixture::new().await;

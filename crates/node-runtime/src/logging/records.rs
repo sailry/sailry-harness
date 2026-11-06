@@ -65,6 +65,7 @@ pub enum Phase {
     Failed,
     Cancelled,
     Interrupted,
+    Deferred,
 }
 impl Phase {
     fn name(self) -> &'static str {
@@ -78,6 +79,7 @@ impl Phase {
             Self::Failed => "failed",
             Self::Cancelled => "cancelled",
             Self::Interrupted => "interrupted",
+            Self::Deferred => "deferred",
         }
     }
 }
