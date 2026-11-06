@@ -1,5 +1,5 @@
 use super::*;
-use std::process::Stdio;
+use std::process::{ExitStatus, Stdio};
 use tokio::io::AsyncReadExt;
 
 pub(super) async fn run(
@@ -7,7 +7,7 @@ pub(super) async fn run(
     mut command: tokio::process::Command,
     mut channel: Channel<server::Msg>,
     handle: server::Handle,
-) {
+) -> ExitStatus {
     let id = channel.id();
     let mut child = command
         .current_dir(root)
@@ -48,13 +48,18 @@ pub(super) async fn run(
     let work = async {
         let finish = async {
             let (status, (), ()) = tokio::join!(child.wait(), output, errors);
+            let status = status.expect("SSH fixture process wait failed");
             let _ = handle
-                .exit_status_request(id, status.unwrap().code().unwrap_or(255) as u32)
+                .exit_status_request(id, status.code().unwrap_or(255) as u32)
                 .await;
             let _ = handle.eof(id).await;
             let _ = handle.close(id).await;
+            status
         };
-        tokio::join!(input, finish);
+        let ((), status) = tokio::join!(input, finish);
+        status
     };
-    let _ = tokio::time::timeout(Duration::from_secs(120), work).await;
+    tokio::time::timeout(Duration::from_secs(120), work)
+        .await
+        .expect("SSH fixture process did not exit")
 }

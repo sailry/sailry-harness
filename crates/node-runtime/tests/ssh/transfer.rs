@@ -194,6 +194,7 @@ async fn requires_confirmed_close() {
         let upload = client.prepare(command(Direction::Upload, "source.bin"));
         let error = client.execute(upload.clone()).await.unwrap_err();
         assert_eq!(error.code, ErrorCode::OutcomeUnknown);
+        server.wait_processes(1).await;
         assert_eq!(
             std::fs::read(remote_files.join("unconfirmed.bin")).unwrap(),
             b"unconfirmed"
@@ -214,6 +215,7 @@ async fn requires_confirmed_close() {
             ErrorCode::OutcomeUnknown
         );
         assert!(!fixture.root.join("download.bin").exists());
+        server.wait_processes(1).await;
         assert_eq!(
             client.execute(download).await.unwrap_err().code,
             ErrorCode::OutcomeUnknown

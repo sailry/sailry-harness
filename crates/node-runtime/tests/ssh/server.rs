@@ -21,6 +21,8 @@ mod process;
 #[path = "server/terminal.rs"]
 mod terminal;
 
+const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
+
 pub fn key(seed: u8) -> PrivateKey {
     Ed25519Keypair::from_seed(&[seed; 32]).into()
 }
@@ -145,9 +147,21 @@ impl Server {
         }
     }
 
+    pub async fn wait_processes(&self, expected: usize) {
+        let tasks = std::mem::take(&mut *self.processes.lock().unwrap());
+        assert_eq!(tasks.len(), expected, "SSH fixture process count differs");
+        tokio::time::timeout(SHUTDOWN_TIMEOUT, async {
+            for task in tasks {
+                task.await.expect("SSH fixture process task failed");
+            }
+        })
+        .await
+        .expect("SSH fixture processes did not exit after client completion");
+    }
+
     pub async fn close(self) {
         self.stop.cancel();
-        tokio::time::timeout(Duration::from_secs(5), self.task)
+        tokio::time::timeout(SHUTDOWN_TIMEOUT, self.task)
             .await
             .unwrap()
             .unwrap();
@@ -312,15 +326,18 @@ impl server::Handler for Handler {
         self.subsystems.fetch_add(1, Ordering::SeqCst);
         session.channel_success(channel)?;
         let pipe = self.channels.remove(&channel).unwrap();
+        let root = self.root.clone();
+        let handle = session.handle();
         self.processes
             .lock()
             .unwrap()
-            .push(tokio::spawn(process::run(
-                self.root.clone(),
-                command,
-                pipe,
-                session.handle(),
-            )));
+            .push(tokio::spawn(async move {
+                let status = process::run(root, command, pipe, handle).await;
+                assert!(
+                    status.success(),
+                    "OpenSSH SFTP server did not exit cleanly: {status}"
+                );
+            }));
         Ok(())
     }
     #[cfg(unix)]
@@ -357,15 +374,14 @@ impl server::Handler for Handler {
                     std::env::var("PATH").unwrap()
                 ),
             );
+            let root = self.root.clone();
+            let handle = session.handle();
             self.processes
                 .lock()
                 .unwrap()
-                .push(tokio::spawn(process::run(
-                    self.root.clone(),
-                    process,
-                    pipe,
-                    session.handle(),
-                )));
+                .push(tokio::spawn(async move {
+                    process::run(root, process, pipe, handle).await;
+                }));
             return Ok(());
         }
         match command.as_str() {
