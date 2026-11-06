@@ -107,6 +107,35 @@ fn records_typed_artifact_metadata() {
 }
 
 #[test]
+fn keeps_attachment_identity_local() {
+    let directory = tempfile::tempdir().unwrap();
+    let (writer, worker) = writer(
+        directory.path(),
+        MAX_FILE_BYTES,
+        RETAINED_FILES,
+        QUEUED_LINES,
+    )
+    .unwrap();
+    let dispatch = tracing::Dispatch::new(subscriber(writer, Application::Host));
+    let attachment = sailry_protocol::AttachmentId::new();
+    tracing::dispatcher::with_default(&dispatch, || {
+        let mut entry = Entry::new(Area::Run, Phase::Failed);
+        entry.context.attachment = Some(attachment);
+        entry.operation = Some("attachment");
+        entry.code = Some(sailry_protocol::ErrorCode::NotFound);
+        entry.emit_warn();
+    });
+    drop(worker);
+    let records = lines(directory.path());
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0]["attachment_id"], attachment.to_string());
+    assert_eq!(records[0]["code"], "not_found");
+    let remote = format::remote(records[0].as_object().unwrap());
+    assert_eq!(remote["operation"], "attachment");
+    assert!(remote.get("attachment_id").is_none());
+}
+
+#[test]
 fn records_safe_model_causes_without_empty_fields() {
     let directory = tempfile::tempdir().unwrap();
     let (writer, worker) = writer(

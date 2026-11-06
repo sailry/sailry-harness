@@ -58,8 +58,12 @@ pub(super) fn open(
     profile: Option<&Path>,
     attachment: &attachment::Attachment,
 ) -> Result<std::fs::File, Fault> {
-    let dir = directory(profile.ok_or_else(unavailable)?)?;
-    let file = super::open_regular(&dir, &attachment.id.to_string())?;
+    let absent = |error: Fault| match error.code {
+        ErrorCode::NotFound => missing(attachment.id),
+        _ => error,
+    };
+    let dir = directory(profile.ok_or_else(unavailable)?).map_err(absent)?;
+    let file = super::open_regular(&dir, &attachment.id.to_string()).map_err(absent)?;
     if file.metadata().map_err(io_error)?.len() != attachment.spec.size {
         return Err(Fault::new(
             ErrorCode::RevisionConflict,
@@ -101,6 +105,14 @@ fn directory(profile: &Path) -> Result<Dir, Fault> {
 
 fn unavailable() -> Fault {
     Fault::new(ErrorCode::Unavailable, "attachment storage is unavailable")
+}
+
+/// Identifies the attachment without its name or contents.
+pub(crate) fn missing(id: AttachmentId) -> Fault {
+    Fault::new(
+        ErrorCode::NotFound,
+        format!("attachment {id} is unavailable"),
+    )
 }
 
 impl super::Files {

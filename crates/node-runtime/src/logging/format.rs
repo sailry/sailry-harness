@@ -59,6 +59,7 @@ const FIELDS: &[(&str, Disclosure)] = &[
     ("invocation", Disclosure::Local),
     ("call", Disclosure::Local),
     ("artifact_id", Disclosure::Local),
+    ("attachment_id", Disclosure::Local),
     ("revision", Disclosure::Local),
     ("command", Disclosure::Local),
     ("operation", Disclosure::Public),

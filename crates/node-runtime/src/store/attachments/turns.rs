@@ -1,6 +1,18 @@
 //! Frozen references retain inputs across execution, forks and history recovery.
 use super::*;
-use sailry_protocol::TurnId;
+use sailry_protocol::{TurnId, conversation::Run};
+
+/// A conversation reference resolved for a running turn.
+pub(crate) struct Source {
+    /// The running turn's own input, including guidance joined to it.
+    pub current: bool,
+    pub attachment: Result<Attachment, Fault>,
+}
+
+struct Miss {
+    current: bool,
+    reason: &'static str,
+}
 
 pub(in crate::store) async fn bind(
     db: &Connection,
@@ -92,7 +104,7 @@ pub(in crate::store) async fn get(
     read(
         db,
         worktree
-            .ok_or_else(missing)?
+            .ok_or_else(|| missing(id))?
             .parse()
             .map_err(storage_error)?,
         id,
@@ -129,9 +141,84 @@ pub(in crate::store) async fn source(
             Err(error) => return Err(storage_error(error)),
         }
     };
-    let (worktree, current) = selected.ok_or_else(missing)?;
+    let (worktree, current) = selected.ok_or_else(|| missing(id))?;
     let attachment = read(db, worktree.parse().map_err(storage_error)?, id).await?;
     Ok((attachment, current))
+}
+
+/// An unavailable reference keeps its fault so each caller decides whether it is fatal.
+pub(in crate::store) async fn lookup(
+    db: &Connection,
+    node: NodeId,
+    run: &Run,
+    id: AttachmentId,
+) -> Result<Source, Fault> {
+    let fault = match source(db, run.turn, id).await {
+        Ok((attachment, current)) => {
+            return Ok(Source {
+                current,
+                attachment: Ok(attachment),
+            });
+        }
+        Err(fault) if fault.code == ErrorCode::NotFound => fault,
+        Err(fault) => return Err(fault),
+    };
+    // An unclassified miss is treated as current input, which keeps it fatal.
+    let found = miss(db, run.turn, id).await.unwrap_or(Miss {
+        current: true,
+        reason: "unclassified",
+    });
+    let mut entry =
+        crate::logging::Entry::new(crate::logging::Area::Run, crate::logging::Phase::Failed);
+    entry.context = crate::logging::Context {
+        node: Some(node),
+        session: Some(run.session),
+        turn: Some(run.turn),
+        worktree: Some(run.worktree),
+        attachment: Some(id),
+        ..Default::default()
+    };
+    entry.operation = Some("attachment");
+    entry.stage = Some("lookup");
+    entry.source_kind = Some(if found.current { "input" } else { "history" });
+    entry.reason = Some(found.reason);
+    entry.code = Some(fault.code);
+    entry.emit_warn();
+    Ok(Source {
+        current: found.current,
+        attachment: Err(fault),
+    })
+}
+
+/// A miss whose conditions all hold on recheck was transient.
+async fn miss(db: &Connection, turn: TurnId, id: AttachmentId) -> Result<Miss, Fault> {
+    let mut statement = db.prepare("SELECT EXISTS(SELECT 1 FROM attachments WHERE id=?2), EXISTS(SELECT 1 FROM turn_attachments own JOIN agent_runs source ON source.turn=own.turn WHERE own.attachment=?2 AND (own.turn=?1 OR json_extract(source.body,'$.joined')=?1)), EXISTS(SELECT 1 FROM turn_attachments r JOIN conversation_turns h ON h.turn=r.turn JOIN turns t ON t.session=h.session WHERE t.id=?1 AND r.attachment=?2), EXISTS(SELECT 1 FROM turn_attachments r JOIN conversation_turns h ON h.turn=r.turn JOIN turns t ON t.session=h.session JOIN agent_pending p ON p.turn=r.turn WHERE t.id=?1 AND r.attachment=?2 AND r.turn!=t.id), EXISTS(SELECT 1 FROM turn_attachments r JOIN conversation_turns h ON h.turn=r.turn JOIN turns t ON t.session=h.session JOIN agent_runs origin ON origin.turn=r.turn WHERE t.id=?1 AND r.attachment=?2 AND r.turn!=t.id AND json_extract(origin.body,'$.status') IN ('queued','running','stopping'))").await.map_err(storage_error)?;
+    let row = statement
+        .query_row(params![turn.to_string(), id.to_string()])
+        .await
+        .map_err(storage_error)?;
+    let mapped: turso::Result<(bool, bool, bool, bool, bool)> = (|| {
+        Ok((
+            row.get(0)?,
+            row.get(1)?,
+            row.get(2)?,
+            row.get(3)?,
+            row.get(4)?,
+        ))
+    })();
+    let (stored, current, member, pending, active) = mapped.map_err(storage_error)?;
+    let reason = if !stored {
+        "missing_record"
+    } else if !member {
+        "outside_history"
+    } else if pending {
+        "pending_input"
+    } else if active {
+        "active_origin"
+    } else {
+        "visible_on_recheck"
+    };
+    Ok(Miss { current, reason })
 }
 
 #[cfg(test)]

@@ -179,3 +179,87 @@ async fn confines_history_resolution() {
         ErrorCode::NotFound
     );
 }
+
+async fn classify(db: &Connection, turn: TurnId, id: AttachmentId) -> (&'static str, bool) {
+    let found = miss(db, turn, id).await.unwrap();
+    (found.reason, found.current)
+}
+
+#[tokio::test]
+async fn classifies_unavailable_references() {
+    let engine = crate::store::database::engine(std::path::Path::new(":memory:"))
+        .await
+        .unwrap();
+    let db = crate::store::database::connect(&engine).await.unwrap();
+    db.execute_batch("CREATE TABLE turns(id TEXT,session TEXT); CREATE TABLE conversation_turns(session TEXT,turn TEXT); CREATE TABLE turn_attachments(turn TEXT,attachment TEXT); CREATE TABLE attachments(id TEXT,worktree TEXT,body BLOB); CREATE TABLE agent_runs(turn TEXT,body BLOB); CREATE TABLE agent_pending(turn TEXT);").await.unwrap();
+    let session = SessionId::new();
+    let origin = TurnId::new();
+    let current = TurnId::new();
+    let id = AttachmentId::new();
+    let fault = source(&db, current, id).await.unwrap_err();
+    assert_eq!(fault.code, ErrorCode::NotFound);
+    assert_eq!(fault.message, format!("attachment {id} is unavailable"));
+    assert_eq!(get(&db, origin, id).await.unwrap_err(), fault);
+    assert_eq!(classify(&db, current, id).await, ("missing_record", false));
+    db.execute(
+        "INSERT INTO attachments VALUES(?1,?2,?3)",
+        params![id.to_string(), WorktreeId::new().to_string(), "{}"],
+    )
+    .await
+    .unwrap();
+    assert_eq!(classify(&db, current, id).await, ("outside_history", false));
+    db.execute(
+        "INSERT INTO turns VALUES(?1,?2)",
+        params![current.to_string(), session.to_string()],
+    )
+    .await
+    .unwrap();
+    db.execute(
+        "INSERT INTO conversation_turns VALUES(?1,?2)",
+        params![session.to_string(), origin.to_string()],
+    )
+    .await
+    .unwrap();
+    db.execute(
+        "INSERT INTO turn_attachments VALUES(?1,?2)",
+        params![origin.to_string(), id.to_string()],
+    )
+    .await
+    .unwrap();
+    db.execute(
+        "INSERT INTO agent_runs VALUES(?1,?2)",
+        params![origin.to_string(), r#"{"status":"completed"}"#],
+    )
+    .await
+    .unwrap();
+    db.execute("INSERT INTO agent_pending VALUES(?1)", [origin.to_string()])
+        .await
+        .unwrap();
+    assert_eq!(classify(&db, current, id).await, ("pending_input", false));
+    db.execute(
+        "DELETE FROM agent_pending WHERE turn=?1",
+        [origin.to_string()],
+    )
+    .await
+    .unwrap();
+    db.execute(
+        "UPDATE agent_runs SET body=?1 WHERE turn=?2",
+        params![r#"{"status":"running"}"#, origin.to_string()],
+    )
+    .await
+    .unwrap();
+    assert_eq!(classify(&db, current, id).await, ("active_origin", false));
+    db.execute(
+        "UPDATE agent_runs SET body=?1 WHERE turn=?2",
+        params![
+            format!("{{\"status\":\"continued\",\"joined\":\"{current}\"}}"),
+            origin.to_string()
+        ],
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        classify(&db, current, id).await,
+        ("visible_on_recheck", true)
+    );
+}

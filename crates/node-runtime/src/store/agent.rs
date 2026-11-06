@@ -43,6 +43,7 @@ use std::sync::Arc;
 use tokio::sync::{broadcast, oneshot};
 use turso::{Connection, params};
 
+pub(crate) use super::attachments::turns::Source as AttachmentSource;
 pub(crate) use approvals::Binding as ApprovalBinding;
 pub(super) use delegation::read as delegation;
 pub(in crate::store) use feed::run as publish_run;
@@ -118,7 +119,7 @@ pub(super) enum Operation {
     Attachment {
         turn: TurnId,
         id: AttachmentId,
-        reply: oneshot::Sender<Result<(attachment::Attachment, bool), Fault>>,
+        reply: oneshot::Sender<Result<AttachmentSource, Fault>>,
     },
     Image {
         session: SessionId,
@@ -341,16 +342,14 @@ impl Ingress {
         turn: TurnId,
         id: AttachmentId,
     ) -> Result<attachment::Attachment, Fault> {
-        self.attachment_source(turn, id)
-            .await
-            .map(|(attachment, _)| attachment)
+        self.attachment_source(turn, id).await?.attachment
     }
 
     pub(crate) async fn attachment_source(
         &self,
         turn: TurnId,
         id: AttachmentId,
-    ) -> Result<(attachment::Attachment, bool), Fault> {
+    ) -> Result<AttachmentSource, Fault> {
         let (reply, response) = oneshot::channel();
         self.submit(Job::Agent(Box::new(Operation::Attachment {
             turn,
@@ -661,7 +660,8 @@ pub(super) fn execute<'a>(
         Operation::Attachment { turn, id, reply } => Box::pin(async move {
             let result = match runs::get(&database.connection, turn).await {
                 Ok(run) if run.status == Status::Running => {
-                    super::attachments::turns::source(&database.connection, turn, id).await
+                    super::attachments::turns::lookup(&database.connection, database.node, &run, id)
+                        .await
                 }
                 Ok(_) => Err(Fault::new(
                     ErrorCode::Conflict,
