@@ -166,7 +166,7 @@ pub(super) fn description(operation: Operation) -> &'static str {
             "Move a regular file within the worktree using its current revision; never replace an existing destination"
         }
         Operation::ApplyChanges => {
-            "Apply a Codex-format patch that adds, updates, moves or deletes up to 16 related files with one approval. Context lines match the current file exactly, and updated, moved or deleted files must have been read in this session. Every file is validated first; any failure rejects the whole patch without writing. Files are then written in order; a later failure stops without rollback and each file reports its status"
+            "Apply a patch in the *** Begin Patch format that adds, updates, moves or deletes up to 16 related files with one approval. Context lines match the current file exactly, and updated, moved or deleted files must have been read in this session. Every file is validated first; any failure rejects the whole patch without writing. Files are then written in order; a later failure stops without rollback and each file reports its status"
         }
         Operation::CreateDirectory => {
             "Create a directory in an existing parent; an existing directory is unchanged"
