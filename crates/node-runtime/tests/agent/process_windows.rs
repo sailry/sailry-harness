@@ -161,7 +161,10 @@ mod decoding {
     use std::path::Path;
     use windows_sys::Win32::{
         Globalization::{GetOEMCP, MB_ERR_INVALID_CHARS, MultiByteToWideChar},
-        System::{Console::GetConsoleOutputCP, Threading::CREATE_NO_WINDOW},
+        System::{
+            Console::GetConsoleOutputCP,
+            Threading::{CREATE_NO_WINDOW, DETACHED_PROCESS},
+        },
     };
 
     #[tokio::test]
@@ -177,7 +180,7 @@ mod decoding {
                         "--nocapture",
                     ])
                     .env("SAILRY_CODEPAGE_FIXTURE", "1")
-                    .creation_flags(CREATE_NO_WINDOW)
+                    .creation_flags(DETACHED_PROCESS)
                     .kill_on_drop(true)
                     .output(),
             )
