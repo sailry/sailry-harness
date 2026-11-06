@@ -401,6 +401,7 @@ impl Database {
                 | Command::EditNotebook { worktree, .. }
                 | Command::DeleteFile { worktree, .. }
                 | Command::MoveFile { worktree, .. }
+                | Command::ApplyChanges { worktree, .. }
                 | Command::FinishFileUpload { worktree, .. }
                 | Command::CreateDirectory { worktree, .. }
                 | Command::RenameEntry { worktree, .. }

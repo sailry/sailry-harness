@@ -1158,7 +1158,10 @@ impl Database {
         Box::pin(async move {
             if matches!(
                 request.command,
-                Command::WriteFile { .. } | Command::EditFile { .. } | Command::EditNotebook { .. }
+                Command::WriteFile { .. }
+                    | Command::EditFile { .. }
+                    | Command::EditNotebook { .. }
+                    | Command::ApplyChanges { .. }
             ) {
                 self.relocations
                     .lock()
@@ -1365,6 +1368,7 @@ async fn admit_in(
         Command::WriteFile { .. }
             | Command::EditFile { .. }
             | Command::EditNotebook { .. }
+            | Command::ApplyChanges { .. }
             | Command::WriteArtifact(_)
     ) {
         // The ledger owns replay identity, not another copy of project content.

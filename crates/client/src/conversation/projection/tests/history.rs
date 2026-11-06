@@ -258,6 +258,7 @@ fn preserves_live_metadata() {
         access: None,
         startup: None,
         ssh: None,
+        changes: None,
         can_remember: true,
         prefix: Some("cargo test".into()),
         choice: Some(conversation::ApprovalChoice::Session),

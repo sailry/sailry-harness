@@ -1080,6 +1080,7 @@ pub(super) fn execute<'a>(
         | Command::EditFile { .. }
         | Command::DeleteFile { .. }
         | Command::MoveFile { .. }
+        | Command::ApplyChanges { .. }
         | Command::InstallPlugin { .. }
         | Command::ReadSkillDocument { .. }
         | Command::DiscoverSkills { .. }

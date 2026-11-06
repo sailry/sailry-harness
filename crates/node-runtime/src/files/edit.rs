@@ -77,8 +77,13 @@ pub(crate) fn prepare(before: &str, edits: &[FileEdit], expected: &str) -> Resul
     apply(before, edits, expected).map(|(after, _)| after)
 }
 
+/// Numbered regions around replacement ranges returned by [`apply`].
+pub(super) fn excerpt(text: &str, changes: &[Range<usize>]) -> sailry_protocol::FileExcerpt {
+    excerpt::collect(text, changes)
+}
+
 /// Returns the edited text and the byte ranges of each replacement within it.
-fn apply(
+pub(super) fn apply(
     before: &str,
     edits: &[FileEdit],
     expected: &str,

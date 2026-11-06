@@ -1,0 +1,6 @@
+file_changes_approval: "Aplicar cambios a %{count} archivos"
+file_changes_added: "Añadido"
+file_changes_modified: "Modificado"
+file_changes_renamed: "Renombrado"
+file_changes_deleted: "Eliminado"
+file_changes_shortened: "Diff abreviado"

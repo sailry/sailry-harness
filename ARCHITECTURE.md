@@ -736,7 +736,12 @@ ownership safeguards. Each child retains its own Agent checkout scope.
 File discovery and content searches run inside Node with confined paths,
 ignore rules and bounded result pages, without requiring a system ripgrep.
 Multi-edit operations check the original file revision and publish one complete
-result. Background commands may use a PTY and accept durably admitted input;
+result. Multi-file change sets validate every entry before one approval lists each
+file and its bounded diff; any invalid entry rejects the set unwritten. Entries then
+apply in order with per-file revision checks and stop at the first failure without
+cross-file rollback. Each content entry keeps its own checkpoint under that approval;
+moves and Trash deletions keep their single-file recovery. Plugin flows cannot
+compose change sets. Background commands may use a PTY and accept durably admitted input;
 completion, stop and replay retain the original command identity.
 
 Public web reads and search run on the execution Node. Direct web reads validate

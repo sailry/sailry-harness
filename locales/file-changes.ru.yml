@@ -1,0 +1,6 @@
+file_changes_approval: "Применить изменения к файлам: %{count}"
+file_changes_added: "Добавлен"
+file_changes_modified: "Изменён"
+file_changes_renamed: "Переименован"
+file_changes_deleted: "Удалён"
+file_changes_shortened: "Diff сокращён"

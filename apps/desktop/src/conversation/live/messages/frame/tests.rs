@@ -209,6 +209,7 @@ fn execution_phases_and_timing() {
                         can_remember: false,
                         startup: None,
                         ssh: None,
+                        changes: None,
                         access: None,
                     });
                 assert_eq!(phase(&run, &page, &[]), None, "active phase lifecycle");

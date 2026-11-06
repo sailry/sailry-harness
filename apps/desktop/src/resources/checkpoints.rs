@@ -162,13 +162,12 @@ impl Restore {
                     Ok(Output::FileCheckpoints(page))
                         if page.session == session && page.turn == turn =>
                     {
-                        files.extend(page.files.into_iter().filter(|file| {
-                            matches!(
-                                &file.outcome,
-                                sailry_protocol::RequestOutcome::Completed(result)
-                                    if matches!(result.as_ref(), Ok(Output::FileWritten(_)))
-                            )
-                        }));
+                        // Change sets confirm each file separately in their shared receipt.
+                        files.extend(
+                            page.files
+                                .into_iter()
+                                .filter(|file| file.receipt() == checkpoint::Receipt::Written),
+                        );
                         before = page.next;
                         if before.is_none() {
                             return Some(files);

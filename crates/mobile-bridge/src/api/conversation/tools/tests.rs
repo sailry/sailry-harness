@@ -157,6 +157,7 @@ fn pending(view: &mut View) {
         can_remember: false,
         startup: None,
         ssh: None,
+        changes: None,
         access: None,
     };
     call.approval = Some(approval.clone());

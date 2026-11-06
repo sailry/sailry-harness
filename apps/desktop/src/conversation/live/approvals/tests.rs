@@ -195,6 +195,7 @@ fn captured_context() {
                     access: Some(Access::Unrestricted),
                     startup: None,
                     ssh: None,
+                    changes: None,
                     can_remember: false,
                     prefix: None,
                     choice: None,

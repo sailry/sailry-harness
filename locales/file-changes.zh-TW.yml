@@ -1,0 +1,6 @@
+file_changes_approval: "套用 %{count} 個檔案的變更"
+file_changes_added: "新增"
+file_changes_modified: "修改"
+file_changes_renamed: "重新命名"
+file_changes_deleted: "刪除"
+file_changes_shortened: "差異已截斷"

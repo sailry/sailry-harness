@@ -30,21 +30,13 @@ pub(super) async fn versions(
     // Checkpoints are newest first. Only join adjacent versions when no external
     // edit intervened, so a manual edit between two tool writes is never attributed.
     for file in page.files.into_iter().rev() {
-        match &file.outcome {
-            RequestOutcome::Completed(result)
-                if matches!(result.as_ref(), Ok(Output::FileWritten(written))
-                if written.path == file.path && written.revision == file.after.revision && written.size == file.after.size) =>
-                {}
-            RequestOutcome::Unknown | RequestOutcome::Admitted => {
+        match file.receipt() {
+            checkpoint::Receipt::Written => {}
+            checkpoint::Receipt::Uncertain | checkpoint::Receipt::Pending => {
                 partial = true;
                 continue;
             }
-            RequestOutcome::Completed(result) if matches!(result.as_ref(), Err(error) if error.code == ErrorCode::OutcomeUnknown) =>
-            {
-                partial = true;
-                continue;
-            }
-            _ => continue,
+            checkpoint::Receipt::Absent => continue,
         }
         if file
             .after
@@ -119,7 +111,7 @@ pub(in crate::store) async fn read(
 }
 
 /// Appends one confirmed before/after segment as unified text within a shared byte budget.
-pub(in crate::store) fn append(
+pub(crate) fn append(
     file: &mut GitDiff,
     before: Option<&str>,
     after: &str,

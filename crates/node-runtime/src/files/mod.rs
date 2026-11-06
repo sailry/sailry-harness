@@ -3,6 +3,7 @@ pub(crate) use access::{Access, Scope};
 pub(crate) mod artifacts;
 pub(crate) mod attachments;
 pub(crate) mod browser;
+pub(crate) mod changes;
 pub(crate) mod checkpoints;
 pub(crate) mod copy;
 mod create;

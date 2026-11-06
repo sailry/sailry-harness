@@ -369,6 +369,16 @@ CREATE TABLE IF NOT EXISTS file_checkpoints (
     after_text TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS file_checkpoints_turn ON file_checkpoints(turn);
+-- Later files of one change set; the approval's checkpoint row holds the first file.
+CREATE TABLE IF NOT EXISTS file_checkpoint_entries (
+    id TEXT PRIMARY KEY,
+    checkpoint TEXT NOT NULL REFERENCES file_checkpoints(id),
+    position INTEGER NOT NULL,
+    body BLOB NOT NULL,
+    before_text TEXT,
+    after_text TEXT NOT NULL,
+    UNIQUE(checkpoint,position)
+);
 CREATE TABLE IF NOT EXISTS agent_state (
     owner TEXT NOT NULL,
     key TEXT NOT NULL,

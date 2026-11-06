@@ -10,6 +10,23 @@ import '../../resources/file_navigation.dart';
 import '../../resources/file_page.dart';
 import 'presentation.dart';
 
+/// Change sets confirm each file separately in their shared receipt.
+bool _written(Map<String, dynamic> file) {
+  final outcome = object(file['outcome']);
+  if (outcome['kind'] != 'completed') return false;
+  final result = object(object(outcome['data'])['Ok']);
+  return switch (result['kind']) {
+    'file_written' => true,
+    'file_changes' => objects(object(result['data'])['files']).any(
+      (entry) =>
+          entry['path'] == file['path'] &&
+          entry['status'] == 'applied' &&
+          entry['revision'] == object(file['after'])['revision'],
+    ),
+    _ => false,
+  };
+}
+
 /// UI-owned inspection state. Diffs and recovery decisions remain on the Node.
 class ChangeReview extends ChangeNotifier {
   ChangeReview(this.host, this.session, this.turn, {this.translate = tr});
@@ -89,14 +106,7 @@ class ChangeReview extends ChangeNotifier {
           if (data['session'] != session || data['turn'] != turn) {
             throw StateError('Mismatched checkpoint page');
           }
-          files.addAll(
-            objects(data['files']).where((file) {
-              final outcome = object(file['outcome']);
-              return outcome['kind'] == 'completed' &&
-                  object(object(outcome['data'])['Ok'])['kind'] ==
-                      'file_written';
-            }),
-          );
+          files.addAll(objects(data['files']).where(_written));
           before = data['next'] as String?;
         } while (before != null && !_disposed);
         _checkpoints = files;

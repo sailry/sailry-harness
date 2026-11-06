@@ -250,6 +250,7 @@ mod tests {
             access: None,
             startup: None,
             ssh: None,
+            changes: None,
             can_remember: false,
             prefix: None,
             choice: None,

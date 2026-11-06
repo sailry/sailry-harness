@@ -6,6 +6,7 @@ use crate::store::agent::tests::{command, fixture::Fixture};
 mod diff;
 mod edit;
 mod restore;
+mod sets;
 
 async fn running(fixture: &mut Fixture) -> TurnId {
     crate::store::agent::tests::fixture::files(&fixture.database, fixture._root.path()).await;
@@ -76,6 +77,7 @@ async fn mutation(fixture: &mut Fixture, turn: TurnId, command: Command) -> Requ
                 json!({"path":path,"old_text":old_text,"new_text":new_text,"replace_all":replace_all,"expected_revision":expected_revision})
             },
         ),
+        Command::ApplyChanges { changes, .. } => ("apply_changes", json!({"changes":changes})),
         _ => panic!("file mutation expected"),
     };
     let authorization = crate::agent::canonical::ToolIdentity {

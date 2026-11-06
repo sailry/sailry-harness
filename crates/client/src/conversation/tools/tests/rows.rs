@@ -143,6 +143,7 @@ fn hides_details_when_approval_is_denied() {
         access: None,
         startup: None,
         ssh: None,
+        changes: None,
         can_remember: false,
         prefix: None,
         choice: None,

@@ -7,6 +7,8 @@ mod file_fixture;
 mod directory_pages;
 #[path = "../file_browser.rs"]
 mod file_browser;
+#[path = "../file_changes.rs"]
+mod file_changes;
 #[path = "../file_copy.rs"]
 mod file_copy;
 #[path = "../file_create.rs"]

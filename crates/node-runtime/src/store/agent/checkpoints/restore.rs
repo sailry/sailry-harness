@@ -28,31 +28,24 @@ pub(in crate::store) async fn prepare(
             "file checkpoint turn is still active",
         ));
     }
-    match &file.outcome {
-        RequestOutcome::Unknown => {}
-        RequestOutcome::Completed(result) => match result.as_ref() {
-            Ok(Output::FileWritten(written))
-                if written.path == file.path
-                    && written.revision == file.after.revision
-                    && written.size == file.after.size => {}
-            Err(error) if error.code == ErrorCode::OutcomeUnknown => {}
-            _ => {
-                return Err(Fault::new(
-                    ErrorCode::Conflict,
-                    "checkpoint write did not complete",
-                ));
-            }
-        },
-        RequestOutcome::Admitted => {
+    match file.receipt() {
+        checkpoint::Receipt::Written | checkpoint::Receipt::Uncertain => {}
+        checkpoint::Receipt::Pending => {
             return Err(Fault::new(
                 ErrorCode::Busy,
                 "checkpoint write is still pending",
             ));
         }
-        RequestOutcome::NotAdmitted => {
+        checkpoint::Receipt::Absent if file.outcome == RequestOutcome::NotAdmitted => {
             return Err(Fault::new(
                 ErrorCode::Conflict,
                 "checkpoint write was not admitted",
+            ));
+        }
+        checkpoint::Receipt::Absent => {
+            return Err(Fault::new(
+                ErrorCode::Conflict,
+                "checkpoint write did not complete",
             ));
         }
     }
