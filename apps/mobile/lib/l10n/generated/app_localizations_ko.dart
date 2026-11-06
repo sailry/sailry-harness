@@ -196,6 +196,14 @@ class AppLocalizationsKo extends AppLocalizations {
   String get conversationWaiting => '확인을 기다리는 중';
 
   @override
+  String get conversationWaitingChild => '하위 에이전트 1개 대기 중';
+
+  @override
+  String conversationWaitingChildren(String count) {
+    return '하위 에이전트 $count개 대기 중';
+  }
+
+  @override
   String get conversationCompacting => '컨텍스트 압축';
 
   @override

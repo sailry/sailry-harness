@@ -462,6 +462,18 @@ abstract class AppLocalizations {
   /// **'Awaiting confirmation'**
   String get conversationWaiting;
 
+  /// No description provided for @conversationWaitingChild.
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for 1 subagent'**
+  String get conversationWaitingChild;
+
+  /// No description provided for @conversationWaitingChildren.
+  ///
+  /// In en, this message translates to:
+  /// **'Waiting for {count} subagents'**
+  String conversationWaitingChildren(String count);
+
   /// No description provided for @conversationCompacting.
   ///
   /// In en, this message translates to:

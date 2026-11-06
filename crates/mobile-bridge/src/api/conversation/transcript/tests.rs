@@ -1,10 +1,13 @@
 use super::*;
-use sailry_client::conversation::guidance;
+use sailry_client::conversation::{
+    guidance,
+    tools::{self, Call},
+};
 use sailry_protocol::{
-    AttachmentId, NodeId, SessionId, TurnId, WorktreeId,
+    AttachmentId, Delegation, NodeId, SessionId, TurnId, WorktreeId,
     attachment::{Attachment, Spec},
     conversation::{
-        Draft, Entry, Page, Part, Pending, Run, RunKind, SentInput, Snapshot, Status,
+        Child, Draft, Entry, Page, Part, Pending, Run, RunKind, SentInput, Snapshot, Status,
         reference::{Reference, Target},
     },
 };
@@ -69,8 +72,8 @@ fn fixture() -> Page {
     }
 }
 
-fn encoded(page: &Page, drafts: Vec<Draft>) -> Value {
-    let view = View {
+fn view(page: &Page, drafts: Vec<Draft>) -> View {
+    View {
         connected: true,
         timeline: Arc::new(turns::timeline(page)),
         guidance: Arc::new(guidance::project(page)),
@@ -84,9 +87,16 @@ fn encoded(page: &Page, drafts: Vec<Draft>) -> Value {
             artifacts: Default::default(),
         })),
         ..Default::default()
-    };
-    serde_json::from_str(&super::super::tools::view(&view, None, &mut Default::default()).unwrap())
+    }
+}
+
+fn serialized(view: &View) -> Value {
+    serde_json::from_str(&super::super::tools::view(view, None, &mut Default::default()).unwrap())
         .unwrap()
+}
+
+fn encoded(page: &Page, drafts: Vec<Draft>) -> Value {
+    serialized(&view(page, drafts))
 }
 
 fn joined(primary: &Run, sequence: u64, message: &str) -> Run {
@@ -375,4 +385,88 @@ fn keeps_queued_turns_and_unloaded_owners_distinct() {
     let guide_inputs = inputs(&value, guide.turn);
     assert_eq!(guide_inputs[0]["turn"], json!(guide.turn));
     assert_eq!(guide_inputs[0]["message"]["text"], "Delivered guidance");
+}
+
+#[test]
+fn reports_waiting_children_on_latest_segment() {
+    let mut page = fixture();
+    let primary = page.runs[0].clone();
+    Arc::make_mut(&mut page.entries).extend([
+        entry(
+            primary.turn,
+            2,
+            "assistant",
+            vec![Part::ToolCall {
+                id: Some("spawn".into()),
+                name: "spawn_agent".into(),
+                summary: Box::default(),
+                presentation: Default::default(),
+                grouping: Default::default(),
+            }],
+        ),
+        entry(
+            primary.turn,
+            3,
+            "tool",
+            vec![Part::ToolResult {
+                id: Some("spawn".into()),
+                name: "spawn_agent".into(),
+                summary: Box::default(),
+                images: vec![],
+            }],
+        ),
+    ]);
+    page.children.push(Child {
+        run: Run {
+            turn: TurnId::new(),
+            session: SessionId::new(),
+            sequence: 2,
+            input: None,
+            ..primary.clone()
+        },
+        origin: Delegation {
+            session: primary.session,
+            turn: primary.turn,
+            entry: "entry-2".into(),
+            index: 0,
+            role: None,
+        },
+        name: None,
+    });
+    let call = Call {
+        turn: primary.turn,
+        id: Some("spawn".into()),
+        name: "spawn_agent".into(),
+        terminal_interaction: false,
+        presentation: Default::default(),
+        grouping: Default::default(),
+        source: tools::Reference {
+            entry: "entry-2".into(),
+            index: 0,
+        },
+        response: Some(tools::Reference {
+            entry: "entry-3".into(),
+            index: 0,
+        }),
+        state: tools::State::Returned,
+        failure: None,
+        approval: None,
+        question: None,
+        progress: None,
+        resolved: None,
+        detail: None,
+    };
+    let encode = |page: &Page| {
+        let mut view = view(page, vec![]);
+        view.calls = Arc::new(vec![call.clone()]);
+        serialized(&view)
+    };
+    let value = encode(&page);
+    let latest = segments(&value, primary.turn).last().unwrap();
+    assert_eq!(latest["waiting"], json!(1));
+    assert_eq!(latest["rows"][0]["part"]["kind"], "tool_call");
+    page.children[0].run.status = Status::Completed;
+    let value = encode(&page);
+    let latest = segments(&value, primary.turn).last().unwrap();
+    assert!(latest.get("waiting").is_none());
 }

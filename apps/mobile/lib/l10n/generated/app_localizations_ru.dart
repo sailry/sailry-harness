@@ -200,6 +200,14 @@ class AppLocalizationsRu extends AppLocalizations {
   String get conversationWaiting => 'Ожидается подтверждение';
 
   @override
+  String get conversationWaitingChild => 'Ожидание субагента';
+
+  @override
+  String conversationWaitingChildren(String count) {
+    return 'Ожидание субагентов: $count';
+  }
+
+  @override
   String get conversationCompacting => 'Сжатие контекста';
 
   @override

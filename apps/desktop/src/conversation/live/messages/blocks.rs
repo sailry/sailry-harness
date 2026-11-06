@@ -27,6 +27,8 @@ pub(super) struct Segment<'a> {
     /// One bubble per input turn; a turn's canonical entries share it.
     pub inputs: Vec<TurnId>,
     pub blocks: Vec<Block<'a>>,
+    /// Foreground children holding the turn's next model request.
+    pub waiting: Option<usize>,
 }
 
 /// Groups each segment separately; progress keeps one stable position per turn.
@@ -39,6 +41,7 @@ pub(super) fn segments(turn: TurnId, history: &View) -> Vec<Segment<'_>> {
             inputs.dedup();
             Segment {
                 inputs,
+                waiting: segment.waiting,
                 blocks: group(turn, history, segment.rows, &mut progress_shown),
             }
         })

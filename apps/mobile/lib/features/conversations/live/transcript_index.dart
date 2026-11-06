@@ -92,6 +92,11 @@ class TranscriptIndex {
   /// Whether a referenced child started by this turn is still running.
   bool hasActiveChild(Object? turn) => _activeChildTurns.contains(turn);
 
+  /// Foreground children holding the turn's next model request, as Client
+  /// reports on its latest segment.
+  int? waitingOf(Object? turn) =>
+      objects(_segments[turn]).lastOrNull?['waiting'] as int?;
+
   String worktree(Object? turn, Map<String, dynamic> session) =>
       text(_runs[turn]?['worktree'], text(session['worktree']));
 }

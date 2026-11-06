@@ -193,6 +193,14 @@ class AppLocalizationsZh extends AppLocalizations {
   String get conversationWaiting => '等待确认';
 
   @override
+  String get conversationWaitingChild => '等待 1 个子代理';
+
+  @override
+  String conversationWaitingChildren(String count) {
+    return '等待 $count 个子代理';
+  }
+
+  @override
   String get conversationCompacting => '正在压缩上下文';
 
   @override
@@ -2696,6 +2704,14 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get conversationWaiting => '等待確認';
+
+  @override
+  String get conversationWaitingChild => '等待 1 個子代理';
+
+  @override
+  String conversationWaitingChildren(String count) {
+    return '等待 $count 個子代理';
+  }
 
   @override
   String get conversationCompacting => '正在壓縮上下文';

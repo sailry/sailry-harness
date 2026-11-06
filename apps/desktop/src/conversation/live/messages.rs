@@ -461,11 +461,16 @@ impl View {
         }
         let mut last = segments.pop().unwrap_or_default();
         let tail = segments.len();
+        let waiting = last.waiting;
         // Turn status, phase and live activity belong to the latest segment.
+        // Client reports waiting only while foreground children hold the next request.
         let phase = self
             .history
             .connected
-            .then(|| frame::phase(run, &snapshot.page, &last.blocks))
+            .then(|| match waiting {
+                Some(_) => Some("turn_waiting_children"),
+                None => frame::phase(run, &snapshot.page, &last.blocks),
+            })
             .flatten();
         let continuing_tools =
             self.history.connected && frame::continuing_tools(run, &snapshot.page, &last.blocks);
@@ -559,8 +564,12 @@ impl View {
             ));
         let content = content
             .when_some(phase, |content, phase| {
-                let label = match compacting {
-                    Some(started_ms) => format!(
+                let label = match (waiting, compacting) {
+                    (Some(1), _) => tr("turn_waiting_child"),
+                    (Some(count), _) => rust_i18n::t!("turn_waiting_children", count = count)
+                        .to_string()
+                        .into(),
+                    (None, Some(started_ms)) => format!(
                         "{} {}",
                         tr(phase),
                         frame::duration(
@@ -572,7 +581,7 @@ impl View {
                         )
                     )
                     .into(),
-                    None => tr(phase),
+                    (None, None) => tr(phase),
                 };
                 content.child(
                     h_flex()

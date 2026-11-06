@@ -72,11 +72,14 @@ pub struct Delegation {
     pub worktree: Option<WorktreeId>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub invalid: bool,
+    /// A background child does not hold the parent's next model request.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub background: bool,
 }
 
 impl Delegation {
     fn is_empty(&self) -> bool {
-        self.session.is_none() && self.worktree.is_none() && !self.invalid
+        self.session.is_none() && self.worktree.is_none() && !self.invalid && !self.background
     }
 }
 

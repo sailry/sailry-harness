@@ -1,7 +1,8 @@
 //! Child selection and registered session ownership shared by controllers.
+use super::{rows::Row, tools};
 use sailry_protocol::{
     ProjectId, RoleId, Session, SessionId, Snapshot, TurnId, WorktreeId,
-    conversation::{Child, Page, Status},
+    conversation::{ApprovalState, Child, Page, Part, RunKind, Status, question},
 };
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -57,6 +58,82 @@ pub fn running(children: &[Child], parent: Option<SessionId>) -> Vec<&Child> {
     .into_iter()
     .filter(|child| child.run.status == Status::Running)
     .collect()
+}
+
+/// Unfinished foreground children that hold a running turn's next model request.
+/// Execution waits for them only after the tool calls ending the latest segment
+/// (`rows`) settle; newer model output, a pending decision or delivered input
+/// means the parent is not waiting, and background children never hold it.
+pub fn waiting(view: &super::View, turn: TurnId, rows: &[Row<'_>]) -> Option<usize> {
+    let snapshot = view.snapshot.as_deref()?;
+    let page = &snapshot.page;
+    let run = page.runs.iter().find(|run| run.turn == turn)?;
+    if run.status != Status::Running
+        || run.kind != RunKind::Task
+        || snapshot
+            .drafts
+            .iter()
+            .any(|draft| draft.turn == turn && draft.author != "user")
+        || page
+            .approvals
+            .iter()
+            .any(|item| item.turn == turn && item.state == ApprovalState::Pending)
+        || page
+            .questions
+            .iter()
+            .any(|item| item.turn == turn && item.state == question::State::Pending)
+    {
+        return None;
+    }
+    let calls: BTreeMap<_, _> = view
+        .calls
+        .iter()
+        .filter(|call| call.turn == turn)
+        .map(|call| ((call.source.entry.as_str(), call.source.index), call))
+        .collect();
+    let mut settled = false;
+    for row in rows.iter().rev() {
+        match row.part {
+            Part::ToolCall { .. } => {
+                let call = calls.get(&(row.source.entry.as_str(), row.source.index))?;
+                if matches!(call.state, tools::State::Waiting | tools::State::Running) {
+                    return None;
+                }
+                settled = true;
+            }
+            // Result images and unmatched results are tool output, not model output.
+            Part::ToolResult { .. } => {}
+            _ => break,
+        }
+    }
+    if !settled {
+        return None;
+    }
+    let count = latest(
+        page.children
+            .iter()
+            .filter(|child| child.origin.session == page.session && child.origin.turn == turn),
+    )
+    .into_iter()
+    .filter(|child| {
+        matches!(
+            child.run.status,
+            Status::Queued | Status::Running | Status::Stopping
+        ) && !background(page, child)
+    })
+    .count();
+    (count > 0).then_some(count)
+}
+
+/// The delegating call's frozen selection; an unloaded call counts as foreground.
+fn background(page: &Page, child: &Child) -> bool {
+    page.entries
+        .iter()
+        .find(|entry| entry.turn == child.origin.turn && entry.id == child.origin.entry)
+        .and_then(|entry| entry.parts.get(child.origin.index))
+        .is_some_and(
+            |part| matches!(part, Part::ToolCall { summary, .. } if summary.delegation.background),
+        )
 }
 
 pub fn selected(children: &[Child], session: SessionId) -> Option<&Child> {

@@ -29,7 +29,7 @@ fn state(phase: &str) -> Option<OrbState> {
         // Use Bezel's dotted scanning globe; the caller keeps the thinking label.
         "turn_awaiting_response" | "turn_thinking" => Some(OrbState::Searching),
         "turn_generating" => Some(OrbState::Composing),
-        "turn_tools_running" => Some(OrbState::Working),
+        "turn_tools_running" | "turn_waiting_children" => Some(OrbState::Working),
         _ => None,
     }
 }

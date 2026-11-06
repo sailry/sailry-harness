@@ -195,6 +195,14 @@ class AppLocalizationsJa extends AppLocalizations {
   String get conversationWaiting => '確認待ち';
 
   @override
+  String get conversationWaitingChild => '1 件のサブエージェントを待機中';
+
+  @override
+  String conversationWaitingChildren(String count) {
+    return '$count 件のサブエージェントを待機中';
+  }
+
+  @override
   String get conversationCompacting => 'コンパクト化文脈';
 
   @override

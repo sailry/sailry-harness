@@ -5,6 +5,8 @@ use sailry_protocol::{
 };
 use serde_json::json;
 
+mod waiting;
+
 fn child(parent: SessionId, session: SessionId, status: Status, sequence: u64) -> Child {
     Child {
         run: Run {
