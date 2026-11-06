@@ -99,6 +99,8 @@
   "conversationUnsynced": "Состояние не синхронизировано",
   "conversationGenerating": "Реагирование",
   "conversationWaiting": "Ожидается подтверждение",
+  "conversationWaitingChild": "Ожидание субагента",
+  "conversationWaitingChildren": "Ожидание субагентов: {count}",
   "conversationCompacting": "Сжатие контекста",
   "conversationForkConfirm": "Выделить чат из этой записи?",
   "conversationCompacted": "Контекст уплотнён",

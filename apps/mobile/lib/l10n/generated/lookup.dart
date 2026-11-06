@@ -67,6 +67,10 @@ String? lookupString(AppLocalizations strings, String key) => switch (key) {
   'conversationUnsynced' => strings.conversationUnsynced,
   'conversationGenerating' => strings.conversationGenerating,
   'conversationWaiting' => strings.conversationWaiting,
+  'conversationWaitingChild' => strings.conversationWaitingChild,
+  'conversationWaitingChildren' => strings.conversationWaitingChildren(
+    '{count}',
+  ),
   'conversationCompacting' => strings.conversationCompacting,
   'conversationForkConfirm' => strings.conversationForkConfirm,
   'conversationCompacted' => strings.conversationCompacted,

@@ -99,6 +99,15 @@
   "conversationUnsynced": "State not synced",
   "conversationGenerating": "Responding",
   "conversationWaiting": "Awaiting confirmation",
+  "conversationWaitingChild": "Waiting for 1 subagent",
+  "conversationWaitingChildren": "Waiting for {count} subagents",
+  "@conversationWaitingChildren": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
   "conversationCompacting": "Compacting context",
   "conversationForkConfirm": "Fork a chat from this record?",
   "conversationCompacted": "Context compacted",

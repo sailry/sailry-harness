@@ -99,6 +99,8 @@
   "conversationUnsynced": "Estado no sincronizado",
   "conversationGenerating": "Respondiendo",
   "conversationWaiting": "A la espera de confirmación",
+  "conversationWaitingChild": "Esperando a un subagente",
+  "conversationWaitingChildren": "Esperando a {count} subagentes",
   "conversationCompacting": "Compactación del contexto",
   "conversationForkConfirm": "¿Quieres crear un chat a partir de este registro?",
   "conversationCompacted": "Contexto compactado",

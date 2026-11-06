@@ -99,6 +99,8 @@
   "conversationUnsynced": "狀態未同步",
   "conversationGenerating": "正在回覆",
   "conversationWaiting": "等待確認",
+  "conversationWaitingChild": "等待 1 個子代理",
+  "conversationWaitingChildren": "等待 {count} 個子代理",
   "conversationCompacting": "正在壓縮上下文",
   "conversationForkConfirm": "從當前記錄建立分支會話？",
   "conversationCompacted": "上下文已壓縮",

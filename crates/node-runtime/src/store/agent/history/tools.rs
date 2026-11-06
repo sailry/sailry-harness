@@ -225,6 +225,7 @@ fn delegation(arguments: &Value) -> Delegation {
             || worktree.as_ref().is_some_and(Result::is_err),
         session: session.and_then(Result::ok),
         worktree: worktree.and_then(Result::ok),
+        background: arguments.get("background").and_then(Value::as_bool) == Some(true),
     }
 }
 

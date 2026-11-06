@@ -33,6 +33,7 @@ class TurnFrame extends StatefulWidget {
     required this.answer,
     this.current,
     this.phase,
+    this.waiting,
     this.segment = 0,
     this.settled = false,
   });
@@ -46,6 +47,10 @@ class TurnFrame extends StatefulWidget {
   final List<Widget> answer;
   final Widget? current;
   final String? phase;
+
+  /// Foreground children holding the next model request; shown below the
+  /// live step, which keeps the child rows and their open action.
+  final int? waiting;
 
   /// Position within the turn when delivered input divides its reply.
   final int segment;
@@ -109,6 +114,7 @@ class _TurnFrameState extends State<TurnFrame> {
                 label: context.tr(widget.phase!),
                 running: widget.phase != 'conversationWaiting',
               ));
+    final waiting = widget.waiting;
     final turn = widget.run['turn'];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -138,6 +144,19 @@ class _TurnFrameState extends State<TurnFrame> {
         ...widget.answer,
         if (live && current != null)
           Padding(padding: const EdgeInsets.only(bottom: 16), child: current),
+        if (live && waiting != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: ToolRow(
+              icon: 'spark',
+              label: waiting == 1
+                  ? context.tr('conversationWaitingChild')
+                  : context
+                        .tr('conversationWaitingChildren')
+                        .replaceAll('{count}', '$waiting'),
+              running: true,
+            ),
+          ),
       ],
     );
   }

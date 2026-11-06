@@ -29,11 +29,13 @@ fn geometry_and_motion() {
                     Some(OrbState::Composing),
                     "active phases animate"
                 );
-                assert_eq!(
-                    super::state("turn_tools_running"),
-                    Some(OrbState::Working),
-                    "active phases animate"
-                );
+                for phase in ["turn_tools_running", "turn_waiting_children"] {
+                    assert_eq!(
+                        super::state(phase),
+                        Some(OrbState::Working),
+                        "active phases animate"
+                    );
+                }
                 for phase in [
                     "turn_waiting",
                     "turn_queued",

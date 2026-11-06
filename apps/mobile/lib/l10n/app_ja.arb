@@ -99,6 +99,8 @@
   "conversationUnsynced": "同期されていない状態",
   "conversationGenerating": "応答",
   "conversationWaiting": "確認待ち",
+  "conversationWaitingChild": "1 件のサブエージェントを待機中",
+  "conversationWaitingChildren": "{count} 件のサブエージェントを待機中",
   "conversationCompacting": "コンパクト化文脈",
   "conversationForkConfirm": "このレコードからチャットをフォークする？",
   "conversationCompacted": "コンテキスト圧縮",

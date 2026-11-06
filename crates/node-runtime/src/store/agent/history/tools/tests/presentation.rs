@@ -240,6 +240,25 @@ fn preserves_storage_contracts() {
             }),
         ),
         (
+            "summarizes_delegation_background_mode",
+            (|scenario: &'static str| {
+                let mut raw = Raw::new(
+                    Some("spawn".into()),
+                    "spawn_agent".into(),
+                    json!({"task":"Inspect","background":true}),
+                );
+                assert!(raw.summary().delegation.background, "{scenario}");
+                for arguments in [
+                    json!({"task":"Inspect"}),
+                    json!({"task":"Inspect","background":false}),
+                    json!({"task":"Inspect","background":"true"}),
+                ] {
+                    raw.arguments = arguments;
+                    assert!(!raw.summary().delegation.background, "{scenario}");
+                }
+            }),
+        ),
+        (
             "selects_mcp_progress_by_format",
             (|scenario: &'static str| {
                 let arguments = json!({"title":"Task","steps":[{"description":"Inspect","state":"in_progress"}]});

@@ -124,6 +124,18 @@ void main() {
     expect(jsonEncode(view), before);
   });
 
+  test('reads waiting children from the latest Client segment', () {
+    final view = jsonDecode(jsonEncode(fixture())) as Map<String, dynamic>;
+    expect(TranscriptIndex(view).waitingOf('primary'), isNull);
+    final segments = view['segments']['primary'] as List;
+    segments.first['waiting'] = 3;
+    expect(TranscriptIndex(view).waitingOf('primary'), isNull);
+    segments.last['waiting'] = 2;
+    final index = TranscriptIndex(view);
+    expect(index.waitingOf('primary'), 2);
+    expect(index.waitingOf('first-guide'), isNull);
+  });
+
   test('does not restore rows omitted by Client', () {
     final view = fixture()..['timeline'] = <String>[];
     final index = TranscriptIndex(view);

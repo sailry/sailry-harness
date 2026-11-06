@@ -261,6 +261,7 @@ class _LiveTimelineState extends State<LiveTimeline> {
           lastCall != null &&
           ['tool_call', 'tool_result'].contains(last?.$3['kind']) &&
           object(lastCall['question']).isEmpty;
+      final waitingChildren = transcript.waitingOf(run['turn']);
       final phase = last != null && _modelRetry(last.$3)
           ? null
           : run['status'] == 'queued'
@@ -271,7 +272,10 @@ class _LiveTimelineState extends State<LiveTimeline> {
           ? 'conversationCompacting'
           : waiting
           ? 'conversationWaiting'
-          : continuingTools || running || transcript.hasActiveChild(run['turn'])
+          : waitingChildren != null ||
+                continuingTools ||
+                running ||
+                transcript.hasActiveChild(run['turn'])
           ? null
           : last?.$3['kind'] == 'text'
           ? 'conversationGenerating'
@@ -445,6 +449,7 @@ class _LiveTimelineState extends State<LiveTimeline> {
                     children: cards,
                   ),
             phase: settled ? null : phase,
+            waiting: settled ? null : waitingChildren,
           ),
         ]);
       }

@@ -1,7 +1,7 @@
 //! Chronological transcript segments shared by every controller.
 //! Delivered input divides its response owner's reply at its canonical position.
 use super::{
-    View, guidance,
+    View, children, guidance,
     rows::{self, Row},
     turns::{self, InputView},
 };
@@ -20,6 +20,9 @@ pub struct Input {
 pub struct Segment<'a> {
     pub inputs: Vec<Input>,
     pub rows: Vec<Row<'a>>,
+    /// Foreground children holding the next model request; latest segment only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub waiting: Option<usize>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -105,6 +108,7 @@ pub fn segments(view: &View, turn: TurnId) -> Vec<Segment<'_>> {
     }
     current.rows.extend(rows);
     current.inputs.extend(claimed);
+    current.waiting = children::waiting(view, turn, &current.rows);
     segments.push(current);
     segments
 }

@@ -99,6 +99,8 @@
   "conversationUnsynced": "동기화되지 않은 상태",
   "conversationGenerating": "응답 중",
   "conversationWaiting": "확인을 기다리는 중",
+  "conversationWaitingChild": "하위 에이전트 1개 대기 중",
+  "conversationWaitingChildren": "하위 에이전트 {count}개 대기 중",
   "conversationCompacting": "컨텍스트 압축",
   "conversationForkConfirm": "이 기록에서 채팅을 포크하시겠습니까?",
   "conversationCompacted": "컨텍스트 압축됨",

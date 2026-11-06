@@ -201,6 +201,14 @@ class AppLocalizationsPt extends AppLocalizations {
   String get conversationWaiting => 'Aguardando a confirmação';
 
   @override
+  String get conversationWaitingChild => 'Aguardando um subagente';
+
+  @override
+  String conversationWaitingChildren(String count) {
+    return 'Aguardando $count subagentes';
+  }
+
+  @override
   String get conversationCompacting => 'Compactando o contexto';
 
   @override
