@@ -1285,6 +1285,11 @@ class AppLocalizationsEs extends AppLocalizations {
   }
 
   @override
+  String queueGuidance(String queue) {
+    return '$queue, indicación pendiente de unirse';
+  }
+
+  @override
   String get pauseQueue => 'Pausa la cola';
 
   @override

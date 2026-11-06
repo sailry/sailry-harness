@@ -490,6 +490,14 @@
       }
     }
   },
+  "queueGuidance": "{queue}, consigne en attente d'intégration",
+  "@queueGuidance": {
+    "placeholders": {
+      "queue": {
+        "type": "String"
+      }
+    }
+  },
   "pauseQueue": "Mettre la file en pause",
   "resumeQueue": "Reprendre la file d'attente",
   "enqueue": "Ajouter à la liste d'attente",

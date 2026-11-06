@@ -490,6 +490,14 @@
       }
     }
   },
+  "queueGuidance": "{queue}、指示の合流待ち",
+  "@queueGuidance": {
+    "placeholders": {
+      "queue": {
+        "type": "String"
+      }
+    }
+  },
   "pauseQueue": "キューを一時停止",
   "resumeQueue": "キューを再開",
   "enqueue": "キューに追加",

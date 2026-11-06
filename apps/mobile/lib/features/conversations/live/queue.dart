@@ -34,6 +34,16 @@ QueueState summarize(Map<String, dynamic> view, GuidancePreview? outgoing) {
   );
 }
 
+/// Speaks the count and the icon-only pending-guidance mark.
+String describe(QueueState state, Translator tr) {
+  final queue = tr(
+    state.paused ? 'queuePaused' : 'queueCount',
+  ).replaceAll('{count}', '${state.count}');
+  return state.guiding
+      ? tr('queueGuidance').replaceAll('{queue}', queue)
+      : queue;
+}
+
 /// Queue state in the same capsule as the activity above the composer.
 class QueueChip extends StatelessWidget {
   const QueueChip({super.key, required this.state, required this.onOpen});
@@ -47,21 +57,27 @@ class QueueChip extends StatelessWidget {
     final count = '${state.count}';
     return Align(
       alignment: AlignmentDirectional.centerStart,
-      child: GlassChip(
+      child: Semantics(
+        label: describe(state, context.tr),
+        button: true,
         onTap: onOpen,
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          spacing: 6,
-          children: [
-            AppIcon('chat', size: 15, color: colors.onSurfaceVariant),
-            if (state.paused)
-              Text(context.tr('queuePaused').replaceAll('{count}', count))
-            else ...[
-              Text(context.tr('queueShort')),
-              Text(count, style: TextStyle(color: colors.onSurface)),
+        excludeSemantics: true,
+        child: GlassChip(
+          onTap: onOpen,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            spacing: 6,
+            children: [
+              AppIcon('chat', size: 15, color: colors.onSurfaceVariant),
+              if (state.paused)
+                Text(context.tr('queuePaused').replaceAll('{count}', count))
+              else ...[
+                Text(context.tr('queueShort')),
+                Text(count, style: TextStyle(color: colors.onSurface)),
+              ],
+              if (state.guiding) const GuidanceStatus(state: 'pending'),
             ],
-            if (state.guiding) const GuidanceStatus(state: 'pending'),
-          ],
+          ),
         ),
       ),
     );

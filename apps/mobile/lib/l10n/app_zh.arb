@@ -608,6 +608,14 @@
       }
     }
   },
+  "queueGuidance": "{queue}，引导等待加入",
+  "@queueGuidance": {
+    "placeholders": {
+      "queue": {
+        "type": "String"
+      }
+    }
+  },
   "pauseQueue": "暂停队列",
   "resumeQueue": "继续队列",
   "enqueue": "加入队列",

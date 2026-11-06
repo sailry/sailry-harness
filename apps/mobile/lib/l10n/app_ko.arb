@@ -490,6 +490,14 @@
       }
     }
   },
+  "queueGuidance": "{queue}, 지침 합류 대기 중",
+  "@queueGuidance": {
+    "placeholders": {
+      "queue": {
+        "type": "String"
+      }
+    }
+  },
   "pauseQueue": "대기열 일시 정지",
   "resumeQueue": "대기열 재개",
   "enqueue": "대기열에 추가",

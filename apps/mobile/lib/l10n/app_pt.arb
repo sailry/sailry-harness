@@ -490,6 +490,14 @@
       }
     }
   },
+  "queueGuidance": "{queue}, orientação aguardando inclusão",
+  "@queueGuidance": {
+    "placeholders": {
+      "queue": {
+        "type": "String"
+      }
+    }
+  },
   "pauseQueue": "Pause queue",
   "resumeQueue": "Retomar a fila",
   "enqueue": "Adicionar à lista",

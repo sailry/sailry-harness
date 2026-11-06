@@ -490,6 +490,14 @@
       }
     }
   },
+  "queueGuidance": "{queue}, указание ожидает включения",
+  "@queueGuidance": {
+    "placeholders": {
+      "queue": {
+        "type": "String"
+      }
+    }
+  },
   "pauseQueue": "Очередной перерыв",
   "resumeQueue": "Возобновление очереди",
   "enqueue": "Добавить в очередь",

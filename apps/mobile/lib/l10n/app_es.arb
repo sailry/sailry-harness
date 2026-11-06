@@ -490,6 +490,14 @@
       }
     }
   },
+  "queueGuidance": "{queue}, indicación pendiente de unirse",
+  "@queueGuidance": {
+    "placeholders": {
+      "queue": {
+        "type": "String"
+      }
+    }
+  },
   "pauseQueue": "Pausa la cola",
   "resumeQueue": "Reanudar la cola",
   "enqueue": "Añadir a la lista",

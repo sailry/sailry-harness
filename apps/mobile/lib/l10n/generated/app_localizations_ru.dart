@@ -1281,6 +1281,11 @@ class AppLocalizationsRu extends AppLocalizations {
   }
 
   @override
+  String queueGuidance(String queue) {
+    return '$queue, указание ожидает включения';
+  }
+
+  @override
   String get pauseQueue => 'Очередной перерыв';
 
   @override
