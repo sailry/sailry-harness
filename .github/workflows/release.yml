@@ -56,13 +56,13 @@ jobs:
             /.github/actions/
             /scripts/
       - name: Require a matching version tag
-        # Builds run alongside Checks; publication waits for the Desktop gate.
+        # Unsigned builds run alongside Checks; symbol upload and publication wait for the Desktop gate.
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           test "$GITHUB_EVENT_NAME" = workflow_dispatch
           test "$GITHUB_REF" = refs/heads/main
-          python3 .workflow-tools/scripts/check-release.py --source "$GITHUB_WORKSPACE" --tag "$RELEASE_TAG"
+          python3 .workflow-tools/scripts/check-release.py --source "$GITHUB_WORKSPACE" --tag "$RELEASE_TAG" --component desktop --admit
       - name: Select native producers
         id: targets
         env:

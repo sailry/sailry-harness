@@ -48,13 +48,13 @@ jobs:
             /.github/actions/
             /scripts/
       - name: Require a matching version tag
-        # Builds run alongside Checks; publication waits for the Host gate.
+        # Compilation runs alongside Checks; signing, symbols and publication wait for the Host gate.
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           test "$GITHUB_EVENT_NAME" = workflow_dispatch
           test "$GITHUB_REF" = refs/heads/main
-          python3 .workflow-tools/scripts/check-release.py --source "$GITHUB_WORKSPACE" --tag "$RELEASE_TAG"
+          python3 .workflow-tools/scripts/check-release.py --source "$GITHUB_WORKSPACE" --tag "$RELEASE_TAG" --component host --admit
 
   build:
     name: macOS Host ${{ matrix.target }}

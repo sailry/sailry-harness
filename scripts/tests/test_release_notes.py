@@ -2,6 +2,7 @@
 
 import ast
 import importlib.util
+import io
 import json
 import os
 from contextlib import chdir
@@ -546,6 +547,7 @@ class GateWaiting(unittest.TestCase):
                 self.assertNotIn("--wait-ready", admission)
                 self.assertNotIn("--published", admission)
                 self.assertNotIn("cargo build", admission)
+                self.assertIn(f"--component {component} --admit", admission)
                 self.assertIn("timeout-minutes: 320", publish)
                 gate = publish.index(f"--component {component} --wait-ready --wait-published")
                 self.assertLess(gate, publish.index("actions/download-artifact"))
@@ -598,6 +600,39 @@ class GateWaiting(unittest.TestCase):
             self.assertEqual(wait.call_args.args[2:], ("a" * 40, component))
             self.assertEqual(wait.call_args.kwargs, {"tag": "v0.1.0"})
             self.assertTrue(release.call_args.kwargs["published"])
+
+    def test_admits_mutable_main_builds(self):
+        spec = importlib.util.spec_from_file_location("admitting_release", ROOT / "scripts/check-release.py")
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        cases = (({"status": "ahead"}, None, None), ({"status": "identical"}, {"immutable": False}, None),
+                 ({"status": "diverged"}, None, "commit on main"),
+                 ({"status": "ahead"}, {"immutable": True}, "immutable"))
+        for comparison, metadata, error in cases:
+            client = Mock()
+            client.api.return_value = comparison
+            with self.subTest(comparison=comparison, metadata=metadata), \
+                    patch.object(sys, "argv", ["check-release.py", "--tag", "v0.1.0", "--component", "host", "--admit"]), \
+                    patch.dict(os.environ, {"GITHUB_REPOSITORY": "fixture/product"}), \
+                    patch.object(gate, "require_context"), \
+                    patch.object(gate.publication, "GitHub", return_value=client), \
+                    patch.object(gate.publication, "tagged_commit", return_value="a" * 40), \
+                    patch.object(gate.publication, "release", return_value=metadata), \
+                    patch.object(gate.publication, "wait_ready") as wait, \
+                    patch.object(gate.publication, "readiness") as readiness, \
+                    patch("sys.stdout", new_callable=io.StringIO):
+                if error is None:
+                    gate.main()
+                else:
+                    with self.assertRaisesRegex(ValueError, error):
+                        gate.main()
+            wait.assert_not_called()
+            readiness.assert_not_called()
+            if metadata is None or not metadata.get("immutable"):
+                client.api.assert_called_once_with("GET", f"repos/fixture/product/compare/{'a' * 40}...main")
+        with patch.object(sys, "argv", ["check-release.py", "--tag", "v0.1.0", "--admit"]), \
+                patch("sys.stderr", new_callable=io.StringIO), self.assertRaises(SystemExit):
+            gate.main()
 
     def test_missing_publication_fails_before_waiting(self):
         spec = importlib.util.spec_from_file_location("unpublished_release", ROOT / "scripts/check-release.py")

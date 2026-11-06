@@ -136,6 +136,11 @@ def remote_commit(client, repository, tag):
     return client.api("GET", f"repos/{repository}/commits/{quote(tag, safe='')}")["sha"]
 
 
+def on_main(client, repository, commit):
+    comparison = client.api("GET", f"repos/{repository}/compare/{commit}...main")
+    return comparison.get("status") in {"ahead", "identical"}
+
+
 def release(client, repository, tag, commit, published=False):
     metadata = client.api("GET", f"repos/{repository}/releases/tags/{quote(tag, safe='')}", missing=True)
     page = 1
