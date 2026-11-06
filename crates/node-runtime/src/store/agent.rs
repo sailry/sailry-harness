@@ -283,6 +283,8 @@ pub(super) enum Operation {
 
 pub(crate) struct Invocation {
     pub compaction_percent: u8,
+    /// Current Node child budget read at claim time, not a sent-turn capture.
+    pub child_concurrency: u64,
     pub instructions: Vec<super::captures::Instruction>,
     pub hooks: hooks::Settings,
     pub automatic: bool,

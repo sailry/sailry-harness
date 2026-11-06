@@ -248,6 +248,8 @@ mod tests {
         assert!(child.contains("disjoint files"));
         assert!(child.contains("verification actually run"));
         assert!(child.contains("in the language of the delegated task"));
+        assert!(child.contains("unless the delegated task explicitly assigns verification"));
+        assert!(child.contains("report the checks you skipped"));
         assert!(!child.contains("Finish with an answer to the user's request"));
         assert!(!child.contains("renders a file card"));
         assert!(recipient(false).contains("Finish with an answer to the user's request"));

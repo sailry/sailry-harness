@@ -452,6 +452,9 @@ pub(super) async fn admit(
         drop(publication);
         Ok(Invocation {
             compaction_percent,
+            child_concurrency: crate::store::teams::settings::read(&database.connection)
+                .await?
+                .child_concurrency,
             input_turn: None,
             instructions: super::super::captures::instructions(&database.connection, turn.id).await?,
             hooks: super::super::hooks::frozen(&database.connection, turn.id).await?,

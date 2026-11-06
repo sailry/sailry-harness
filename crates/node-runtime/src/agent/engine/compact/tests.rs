@@ -167,6 +167,7 @@ async fn summarize(model: &Model, messages: Vec<Message>) -> anyhow::Result<Stri
 fn invocation(node: &crate::Node) -> Arc<Invocation> {
     Arc::new(Invocation {
         compaction_percent: 80,
+        child_concurrency: sailry_protocol::team::CHILD_CONCURRENCY,
         instructions: vec![],
         hooks: Default::default(),
         automatic: false,
