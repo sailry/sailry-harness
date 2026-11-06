@@ -1,7 +1,7 @@
 //! Edited regions render as numbered text, so the model need not read the file
 //! again to verify an edit.
 use super::*;
-use sailry_protocol::FileWritten;
+use sailry_protocol::{FileExcerpt, FileWritten};
 
 pub(super) fn project(original: &Value) -> Option<String> {
     let written: FileWritten = serde_json::from_value(original.get("data")?.clone()).ok()?;
@@ -10,6 +10,11 @@ pub(super) fn project(original: &Value) -> Option<String> {
         "{}\nEdited; {} bytes; revision {}\n",
         written.path, written.size, written.revision
     );
+    render(&mut text, &excerpt);
+    Some(text)
+}
+
+pub(super) fn render(text: &mut String, excerpt: &FileExcerpt) {
     for hunk in &excerpt.hunks {
         let (Some(first), Some(last)) = (hunk.lines.first(), hunk.lines.last()) else {
             continue;
@@ -33,7 +38,6 @@ pub(super) fn project(original: &Value) -> Option<String> {
             excerpt.omitted
         ));
     }
-    Some(text)
 }
 
 #[cfg(test)]

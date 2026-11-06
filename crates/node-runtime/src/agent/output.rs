@@ -3,6 +3,7 @@ use goose_provider_types::conversation::message::{Message, MessageContentBlock};
 use rmcp::model::{CallToolResult, ContentBlock};
 use serde_json::{Value, json};
 
+mod changes;
 mod commands;
 mod edits;
 mod files;
@@ -75,13 +76,15 @@ fn preview(
         || edited
         || matches!(
             original["kind"].as_str(),
-            Some("file_lines" | "search_results")
+            Some("file_lines" | "search_results" | "file_changes")
         )
     {
         let projected = if page.is_some() {
             page
         } else if edited {
             edits::project(original)
+        } else if original["kind"] == "file_changes" {
+            changes::project(original)
         } else if original["kind"] == "file_lines" {
             files::project(original, source, reads)
         } else {

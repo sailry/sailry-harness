@@ -2622,6 +2622,7 @@
         "files.edit",
         "files.delete",
         "files.move",
+        "files.apply",
         "files.mkdir",
         "files.find",
         "files.search",

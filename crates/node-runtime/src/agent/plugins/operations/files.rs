@@ -1,7 +1,7 @@
 //! File and document capabilities use the invocation's captured worktree.
 use super::*;
 use crate::agent::tools::decode;
-use sailry_protocol::{DirectoryCursor, FileEdit, FileSearch, office};
+use sailry_protocol::{DirectoryCursor, FileChange, FileEdit, FileSearch, office};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -66,6 +66,12 @@ struct Move {
 #[serde(deny_unknown_fields)]
 struct Create {
     path: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Changes {
+    changes: Vec<FileChange>,
 }
 
 #[derive(Deserialize)]
@@ -159,6 +165,9 @@ pub(super) fn description(operation: Operation) -> &'static str {
         Operation::MoveFile => {
             "Move a regular file within the worktree using its current revision; never replace an existing destination"
         }
+        Operation::ApplyChanges => {
+            "Create, write, edit, move or delete up to 16 related files with one approval. Every entry is validated first, and any invalid entry rejects the whole set without writing. Valid sets are applied in order; a later failure stops without rollback and each file reports its status"
+        }
         Operation::CreateDirectory => {
             "Create a directory in an existing parent; an existing directory is unchanged"
         }
@@ -206,6 +215,7 @@ pub(super) fn parameters(operation: Operation) -> Value {
             vec!["path", "destination", "expected_revision"],
         ),
         Operation::CreateDirectory => (json!({"path":path}), vec!["path"]),
+        Operation::ApplyChanges => return changes_schema(),
         Operation::FindFiles => (
             json!({"globs":{"type":"array","items":{"type":"string","minLength":1},"minItems":1},"path":{"type":"string","default":""},"limit":{"type":"integer","minimum":1,"default":500},"offset":{"type":"integer","minimum":0,"default":0}}),
             vec!["globs"],
@@ -247,6 +257,32 @@ fn edit_schema() -> Value {
         {"required":["edits"],"not":{"anyOf":[{"required":["old_text"]},{"required":["new_text"]}]},
             "properties":{"replace_all":{"const":false}}}
     ]})
+}
+
+fn changes_schema() -> Value {
+    let path = json!({"type":"string"});
+    let text = json!({"type":"string"});
+    let revision = json!({"type":"string","pattern":"^[a-fA-F0-9]{64}$"});
+    let edit = json!({"type":"object","properties":{
+        "old_text":{"type":"string","minLength":1},"new_text":{"type":"string"},
+        "replace_all":{"type":"boolean","default":false}},
+        "required":["old_text","new_text"],"additionalProperties":false});
+    json!({"type":"object","properties":{"changes":{"type":"array","minItems":1,
+        "maxItems":sailry_protocol::MAX_CHANGES,"items":{"oneOf":[
+        variant("create", json!({"path":path,"text":text}), &["path", "text"]),
+        variant("write", json!({"path":path,"text":text,"expected_revision":revision}), &["path", "text", "expected_revision"]),
+        variant("edit", json!({"path":path,"expected_revision":revision,"edits":{"type":"array","minItems":1,"items":edit}}), &["path", "expected_revision", "edits"]),
+        variant("move", json!({"path":path,"destination":path,"expected_revision":revision}), &["path", "destination", "expected_revision"]),
+        variant("delete", json!({"path":path,"expected_revision":revision}), &["path", "expected_revision"]),
+    ]}}},"required":["changes"],"additionalProperties":false})
+}
+
+fn variant(kind: &str, mut properties: Value, required: &[&str]) -> Value {
+    properties["kind"] = json!({"const":kind});
+    let required: Vec<_> = std::iter::once("kind")
+        .chain(required.iter().copied())
+        .collect();
+    json!({"type":"object","properties":properties,"required":required,"additionalProperties":false})
 }
 
 pub(super) fn command(
@@ -328,6 +364,39 @@ pub(super) fn command(
                 worktree,
                 path: input.path,
             }
+        }
+        Operation::ApplyChanges => {
+            let input: Changes = decode(arguments)?;
+            // New notebooks receive the same cell identities as a whole-file write.
+            let changes = input
+                .changes
+                .into_iter()
+                .map(|change| {
+                    Ok(match change {
+                        FileChange::Create { path, text } => {
+                            let text = crate::files::notebook::prepare_creation(&path, &text)?
+                                .into_owned();
+                            FileChange::Create { path, text }
+                        }
+                        FileChange::Write {
+                            path,
+                            text,
+                            expected_revision,
+                        } => {
+                            let text = crate::files::notebook::prepare_creation(&path, &text)?
+                                .into_owned();
+                            FileChange::Write {
+                                path,
+                                text,
+                                expected_revision,
+                            }
+                        }
+                        change => change,
+                    })
+                })
+                .collect::<Result<Vec<_>, Fault>>()?;
+            crate::files::changes::shape(&changes)?;
+            Command::ApplyChanges { worktree, changes }
         }
         Operation::FindFiles => {
             let input: Find = decode(arguments)?;
@@ -424,6 +493,65 @@ mod tests {
             command(
                 Operation::SearchFiles,
                 json!({"query":"needle","mode":null}),
+                &context
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn prepares_declared_change_sets() {
+        let context = plugin::Context {
+            invocation: None,
+            turn: None,
+            surface: Default::default(),
+            package: plugin::Reference {
+                name: "files-fixture".into(),
+                digest: "a".repeat(64),
+                settings_revision: 0,
+            },
+            worktree: Some(sailry_protocol::WorktreeId::new()),
+            session: None,
+        };
+        let revision = "a".repeat(64);
+        let arguments = json!({"changes":[
+            {"kind":"create","path":"new.rs","text":"fn main() {}\n"},
+            {"kind":"edit","path":"lib.rs","expected_revision":revision,"edits":[{"old_text":"a","new_text":"b"}]},
+            {"kind":"move","path":"old.rs","destination":"renamed.rs","expected_revision":revision}
+        ]});
+        let validator = jsonschema::draft202012::options()
+            .build(&parameters(Operation::ApplyChanges))
+            .unwrap();
+        assert!(validator.is_valid(&arguments));
+        for invalid in [
+            json!({"changes":[]}),
+            json!({"changes":[{"kind":"create","path":"a"}]}),
+            json!({"changes":[{"kind":"delete","path":"a","expected_revision":"stale"}]}),
+            json!({"changes":[{"kind":"write","path":"a","text":"x","expected_revision":null}]}),
+            json!({"changes":[{"kind":"edit","path":"a","expected_revision":revision,"edits":[]}]}),
+        ] {
+            assert!(!validator.is_valid(&invalid), "{invalid}");
+        }
+        let Command::ApplyChanges { changes, .. } =
+            command(Operation::ApplyChanges, arguments, &context).unwrap()
+        else {
+            panic!("change set expected")
+        };
+        assert_eq!(changes.len(), 3);
+        assert_eq!(changes[2].destination(), Some("renamed.rs"));
+        let many: Vec<_> = (0..=sailry_protocol::MAX_CHANGES)
+            .map(|index| json!({"kind":"create","path":format!("{index}.txt"),"text":""}))
+            .collect();
+        assert_eq!(
+            command(Operation::ApplyChanges, json!({"changes":many}), &context)
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidRequest
+        );
+        assert!(
+            command(
+                Operation::ApplyChanges,
+                json!({"changes":[], "extra":true}),
                 &context
             )
             .is_err()

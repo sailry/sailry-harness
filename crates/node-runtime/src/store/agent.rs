@@ -5,7 +5,7 @@ pub(super) mod assets;
 pub(in crate::store) mod background;
 pub(crate) mod blobs;
 mod calls;
-pub(super) mod checkpoints;
+pub(crate) mod checkpoints;
 mod children;
 pub(crate) mod compaction;
 pub(crate) mod connections;
@@ -174,6 +174,16 @@ pub(super) enum Operation {
         before: Option<String>,
         reply: oneshot::Sender<Result<(), Fault>>,
     },
+    ChangeCheckpoints {
+        turn: TurnId,
+        request: Request,
+        before: Vec<Option<String>>,
+        reply: oneshot::Sender<Result<(), Fault>>,
+    },
+    ValidatePaths {
+        paths: Vec<(std::path::PathBuf, String)>,
+        reply: oneshot::Sender<Vec<Option<Fault>>>,
+    },
     Ask {
         turn: TurnId,
         request: crate::agent::canonical::ToolIdentity,
@@ -197,6 +207,7 @@ pub(super) enum Operation {
         binding: Option<ApprovalBinding>,
         ssh: Option<sailry_protocol::ssh::Trust>,
         prepared: Option<Command>,
+        changes: Option<Box<sailry_protocol::ChangePreview>>,
         reply: oneshot::Sender<Result<Decision, Fault>>,
     },
     CancelApproval {
@@ -871,6 +882,22 @@ pub(super) fn execute<'a>(
             let _ =
                 reply.send(checkpoints::capture(database, turn, &request, before.as_deref()).await);
         }),
+        Operation::ChangeCheckpoints {
+            turn,
+            request,
+            before,
+            reply,
+        } => Box::pin(async move {
+            let _ =
+                reply.send(checkpoints::changes::capture(database, turn, &request, &before).await);
+        }),
+        Operation::ValidatePaths { paths, reply } => Box::pin(async move {
+            let mut checked = Vec::with_capacity(paths.len());
+            for path in paths {
+                checked.push(database.validate_relocation(&[path]).await.err());
+            }
+            let _ = reply.send(checked);
+        }),
         Operation::Ask {
             turn,
             request,
@@ -913,6 +940,7 @@ pub(super) fn execute<'a>(
             binding,
             ssh,
             prepared,
+            changes,
             reply,
         } => Box::pin(async move {
             if reply.is_closed() || std::time::Instant::now() >= deadline {
@@ -927,6 +955,7 @@ pub(super) fn execute<'a>(
                 approvals::Capture {
                     ssh: ssh.as_ref(),
                     prepared: prepared.as_ref(),
+                    changes: changes.as_deref(),
                 },
                 events,
             )

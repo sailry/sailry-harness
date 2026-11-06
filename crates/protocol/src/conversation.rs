@@ -387,6 +387,9 @@ pub struct Approval {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ssh: Option<crate::ssh::Trust>,
     pub access: Option<crate::process::Access>,
+    /// Validated files of one change set, shown with its single approval.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub changes: Option<crate::ChangePreview>,
 }
 
 #[cfg(test)]

@@ -224,6 +224,8 @@ pub enum Operation {
     DeleteFile,
     #[serde(rename = "files.move")]
     MoveFile,
+    #[serde(rename = "files.apply")]
+    ApplyChanges,
     #[serde(rename = "files.mkdir")]
     CreateDirectory,
     #[serde(rename = "files.find")]
@@ -372,6 +374,7 @@ impl Operation {
             | Self::EditNotebook
             | Self::DeleteFile
             | Self::MoveFile
+            | Self::ApplyChanges
             | Self::CreateDirectory => Some(Action::WriteFiles),
             Self::InspectMedia => Some(Action::InspectMedia),
             Self::GenerateImage => Some(Action::GenerateImage),
@@ -430,6 +433,7 @@ impl Operation {
                 | Self::EditNotebook
                 | Self::DeleteFile
                 | Self::MoveFile
+                | Self::ApplyChanges
                 | Self::CreateDirectory
                 | Self::GenerateImage
                 | Self::GenerateVideo
@@ -518,7 +522,7 @@ impl Declaration {
                             .iter()
                             .enumerate()
                             .all(|(index, operation)| {
-                                // One file checkpoint consumes one exact approved write.
+                                // File checkpoints consume one exact approved write.
                                 !matches!(
                                     operation,
                                     Operation::Progress
@@ -529,6 +533,7 @@ impl Declaration {
                                         | Operation::WriteFile
                                         | Operation::EditFile
                                         | Operation::EditNotebook
+                                        | Operation::ApplyChanges
                                 ) && !flow.operations[..index].contains(operation)
                             })
                 })
@@ -830,6 +835,23 @@ mod flow_tests {
                 }),
             ),
             (
+                "change_sets_bind_only_a_single_operation",
+                (|scenario: &'static str| {
+                    let handler = json!({"name":"apply","parameters":{"type":"object"},"operation":"files.apply"});
+                    let declaration: Declaration = serde_json::from_value(
+                        json!({"name":"apply_changes","description":"Apply changes","handler":handler}),
+                    )
+                    .unwrap();
+                    assert!(declaration.valid(), "{scenario}");
+                    let flow: Declaration = serde_json::from_value(json!({
+                        "name":"apply_changes","description":"Apply changes",
+                        "handler":{"name":"apply","parameters":{"type":"object"},"flow":{"operations":["files.apply"]}}
+                    }))
+                    .unwrap();
+                    assert!(!flow.valid(), "{scenario}");
+                }),
+            ),
+            (
                 "rejects_unknown_operations",
                 (|scenario: &'static str| {
                     assert!(
@@ -901,6 +923,7 @@ mod flow_tests {
                         json!(["computer.read", "computer.read"]),
                         json!(["settings.read"]),
                         json!(["files.write"]),
+                        json!(["files.read", "files.apply"]),
                     ] {
                         let mut malformed = value.clone();
                         malformed["handler"]["flow"]["operations"] = change;

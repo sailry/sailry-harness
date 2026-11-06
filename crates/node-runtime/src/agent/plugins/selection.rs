@@ -200,6 +200,7 @@ fn visible_operation(operation: Operation) -> bool {
             | Operation::SearchFiles
             | Operation::WriteFile
             | Operation::EditFile
+            | Operation::ApplyChanges
             | Operation::SearchCode
             | Operation::OutlineCode
             | Operation::InspectGit
@@ -280,6 +281,7 @@ mod tests {
         for operation in [
             Operation::ReadFile,
             Operation::EditFile,
+            Operation::ApplyChanges,
             Operation::SearchFiles,
             Operation::InspectGit,
             Operation::ReadGitDiff,

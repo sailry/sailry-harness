@@ -1457,6 +1457,12 @@ pub enum Command {
         to: String,
         expected_revision: String,
     },
+    /// Validates every entry before writing any file, then applies them in order.
+    /// A later failure stops the set without rolling back earlier entries.
+    ApplyChanges {
+        worktree: WorktreeId,
+        changes: Vec<crate::FileChange>,
+    },
     /// Creates one directory in an existing parent, without replacing an entry.
     CreateDirectory {
         worktree: WorktreeId,
@@ -2147,6 +2153,7 @@ pub enum Output {
         stream: crate::StreamId,
     },
     FileWritten(crate::FileWritten),
+    FileChanges(crate::FileChanges),
     OfficeContent(crate::office::Inspection),
     NotebookPage(crate::notebook::Page),
     DirectoryCreated {

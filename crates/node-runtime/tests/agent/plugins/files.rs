@@ -3,6 +3,8 @@ use sailry_protocol::{conversation::checkpoint, plugin, tool::Operation};
 use serde_json::{Value, json};
 use std::io::{Cursor, Write as _};
 
+#[path = "files/changes.rs"]
+mod changes;
 #[path = "files/diffs.rs"]
 mod diffs;
 #[path = "files/edits.rs"]
@@ -89,6 +91,7 @@ async fn install(fixture: &process::Fixture) -> plugin::Info {
             ("read_file", "read", Some(Operation::ReadFile)),
             ("write_file", "write", Some(Operation::WriteFile)),
             ("edit_file", "edit", Some(Operation::EditFile)),
+            ("apply_changes", "apply", Some(Operation::ApplyChanges)),
             ("delete_file", "remove", Some(Operation::DeleteFile)),
             ("move_file", "move", Some(Operation::MoveFile)),
             (
@@ -469,6 +472,7 @@ async fn preserves_ask_and_plan_policy() {
             "search_files",
             "write_file",
             "edit_file",
+            "apply_changes",
         ] {
             assert!(names.contains(&visible));
         }

@@ -7,10 +7,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::borrow::Cow;
 
+pub(super) mod changes;
 mod diff;
 pub(in crate::store) mod hunks;
 mod reads;
-pub(in crate::store) use diff::{append as append_diff, read as diff};
+pub(crate) use diff::append as append_diff;
+pub(in crate::store) use diff::read as diff;
 pub(in crate::store) mod restore;
 #[cfg(test)]
 mod tests;
@@ -23,6 +25,9 @@ struct Record {
     before: Option<checkpoint::Version>,
     after: checkpoint::Version,
     digest: String,
+    /// One file of a multi-file change set; existing records describe a whole call.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    set: bool,
 }
 
 impl Ingress {
@@ -218,67 +223,22 @@ pub(super) async fn capture(
         .unchecked_transaction()
         .await
         .map_err(storage_error)?;
-    let body: Option<Vec<u8>> = {
-        let mut statement = transaction
-            .prepare("SELECT body FROM agent_approvals WHERE turn=?1 AND request=?2 AND claimed=1")
-            .await
-            .map_err(storage_error)?;
-        match statement
-            .query_row(params![turn.to_string(), request.id.to_string()])
-            .await
-        {
-            Ok(row) => {
-                let mapped: turso::Result<_> = row.get(0);
-                Some(mapped.map_err(storage_error)?)
-            }
-            Err(turso::Error::QueryReturnedNoRows) => None,
-            Err(error) => return Err(storage_error(error)),
-        }
-    };
-    let approval: Approval = serde_json::from_slice(&body.ok_or_else(|| {
-        Fault::new(
-            ErrorCode::PermissionDenied,
-            "file checkpoint has no claimed approval",
-        )
-    })?)
-    .map_err(storage_error)?;
-    let event = event(&transaction, &approval).await?;
-    let valid = match event.message().and_then(|message| {
-        message
-            .content
-            .iter()
-            .find(|block| block.index == approval.index)
-    }) {
-        Some(crate::agent::canonical::Block {
-            kind: crate::agent::canonical::BlockKind::ToolRequest(call),
-            ..
-        }) => {
-            if let Some(context) = &request.plugin {
-                let package = super::plugins::package(&transaction, request).await?;
-                // The trusted handler may prepare arguments from the exact claimed call.
-                // Retain the resulting request digest, with the same frozen package and scope.
-                context.turn == Some(turn)
-                    && context.session == Some(run.session)
-                    && context.worktree == Some(worktree)
-                    && crate::plugins::tools::operation(&package, &call.name) == Some(operation)
-            } else {
-                false
-            }
-        }
-        _ => false,
-    };
-    if approval.state != ApprovalState::Approved || !valid {
-        return Err(Fault::new(
-            ErrorCode::PermissionDenied,
-            "file checkpoint differs from the approved mutation",
-        ));
-    }
+    let approval = approved(
+        &transaction,
+        turn,
+        request,
+        run.session,
+        worktree,
+        operation,
+    )
+    .await?;
     let record = Record {
         worktree,
         path: path.to_owned(),
         before: previous,
         after: version(&text),
         digest: blake3::hash(&encode(request)?).to_hex().to_string(),
+        set: false,
     };
     let encoded = encode(&record)?;
     let previous: Option<(Vec<u8>, Option<String>, String)> = {
@@ -310,6 +270,73 @@ pub(super) async fn capture(
         ).await.map_err(storage_error)?;
     }
     transaction.commit().await.map_err(storage_error)
+}
+
+/// The claimed approval must belong to the exact canonical call, frozen package and scope.
+async fn approved(
+    db: &Connection,
+    turn: TurnId,
+    request: &Request,
+    session: SessionId,
+    worktree: WorktreeId,
+    operation: sailry_protocol::tool::Operation,
+) -> Result<Approval, Fault> {
+    let body: Option<Vec<u8>> = {
+        let mut statement = db
+            .prepare("SELECT body FROM agent_approvals WHERE turn=?1 AND request=?2 AND claimed=1")
+            .await
+            .map_err(storage_error)?;
+        match statement
+            .query_row(params![turn.to_string(), request.id.to_string()])
+            .await
+        {
+            Ok(row) => {
+                let mapped: turso::Result<_> = row.get(0);
+                Some(mapped.map_err(storage_error)?)
+            }
+            Err(turso::Error::QueryReturnedNoRows) => None,
+            Err(error) => return Err(storage_error(error)),
+        }
+    };
+    let approval: Approval = serde_json::from_slice(&body.ok_or_else(|| {
+        Fault::new(
+            ErrorCode::PermissionDenied,
+            "file checkpoint has no claimed approval",
+        )
+    })?)
+    .map_err(storage_error)?;
+    let event = event(db, &approval).await?;
+    let valid = match event.message().and_then(|message| {
+        message
+            .content
+            .iter()
+            .find(|block| block.index == approval.index)
+    }) {
+        Some(crate::agent::canonical::Block {
+            kind: crate::agent::canonical::BlockKind::ToolRequest(call),
+            ..
+        }) => {
+            if let Some(context) = &request.plugin {
+                let package = super::plugins::package(db, request).await?;
+                // The trusted handler may prepare arguments from the exact claimed call.
+                // Retain the resulting request digest, with the same frozen package and scope.
+                context.turn == Some(turn)
+                    && context.session == Some(session)
+                    && context.worktree == Some(worktree)
+                    && crate::plugins::tools::operation(&package, &call.name) == Some(operation)
+            } else {
+                false
+            }
+        }
+        _ => false,
+    };
+    if approval.state != ApprovalState::Approved || !valid {
+        return Err(Fault::new(
+            ErrorCode::PermissionDenied,
+            "file checkpoint differs from the approved mutation",
+        ));
+    }
+    Ok(approval)
 }
 
 fn version(text: &str) -> checkpoint::Version {

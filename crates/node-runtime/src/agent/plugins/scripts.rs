@@ -196,9 +196,14 @@ pub(super) async fn bind(
             });
             let descriptor = script.descriptor();
             let delegation = script.is_agent_delegation();
+            // These operations request their own approval inside the bound tool.
             let mut registration = if matches!(
                 operation,
-                Some(tool::Operation::RunSsh | tool::Operation::TransferSsh)
+                Some(
+                    tool::Operation::RunSsh
+                        | tool::Operation::TransferSsh
+                        | tool::Operation::ApplyChanges
+                )
             ) {
                 ToolRegistration::managed(descriptor, script)
             } else if operation.is_some_and(|operation| operation != tool::Operation::DelegateAgent)

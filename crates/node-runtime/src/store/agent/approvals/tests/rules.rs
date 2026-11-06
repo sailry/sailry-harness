@@ -798,6 +798,7 @@ async fn preserves_base_permission_precedence() {
             prefix: None,
             startup: None,
             ssh: None,
+            changes: None,
             can_remember: true,
             access: None,
         };

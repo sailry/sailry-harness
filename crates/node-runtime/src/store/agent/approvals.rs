@@ -24,6 +24,7 @@ mod tests;
 pub(super) struct Capture<'a> {
     pub(super) ssh: Option<&'a sailry_protocol::ssh::Trust>,
     pub(super) prepared: Option<&'a Command>,
+    pub(super) changes: Option<&'a sailry_protocol::ChangePreview>,
 }
 
 impl Ingress {
@@ -63,6 +64,37 @@ impl Ingress {
             binding,
             ssh: None,
             prepared: None,
+            changes: None,
+            reply,
+        })))
+        .await
+        .map_err(|_| super::super::unavailable())?;
+        pending.wait(response).await
+    }
+
+    /// One decision covers every validated file; the preview is not an authorization token.
+    pub(crate) async fn confirm_changes(
+        &self,
+        turn: TurnId,
+        request: ToolIdentity,
+        binding: Binding,
+        changes: sailry_protocol::ChangePreview,
+    ) -> Result<Decision, Fault> {
+        let (reply, response) = oneshot::channel();
+        let pending = waiting::Pending::new(self, turn, &request)?;
+        let _waiting = self
+            .agents
+            .timeline(turn)
+            .map(|timeline| timeline.span(crate::agent::observation::Phase::Excluded));
+        self.submit(Job::Agent(Box::new(Operation::Confirm {
+            turn,
+            owner: pending.owner,
+            deadline: pending.deadline,
+            request,
+            binding: Some(binding),
+            ssh: None,
+            prepared: None,
+            changes: Some(Box::new(changes)),
             reply,
         })))
         .await
@@ -92,6 +124,7 @@ impl Ingress {
             binding: Some(binding),
             ssh,
             prepared: Some(prepared),
+            changes: None,
             reply,
         })))
         .await
@@ -197,7 +230,11 @@ pub(super) async fn begin_for(
     capture: Capture<'_>,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<Approval, Fault> {
-    let Capture { ssh, prepared } = capture;
+    let Capture {
+        ssh,
+        prepared,
+        changes,
+    } = capture;
     let publication = database.publication.clone();
     let mut write = Some(database.write().await?);
     let result: Result<_, Fault> = async {
@@ -271,6 +308,7 @@ pub(super) async fn begin_for(
             access,
             startup: None,
             ssh: ssh.cloned(),
+            changes: changes.cloned(),
         };
         let exists: bool = {
             let mut statement = transaction

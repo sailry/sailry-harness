@@ -16,6 +16,7 @@ use sailry_protocol::{
 };
 
 mod actions;
+mod changes;
 mod choices;
 mod draft;
 #[cfg(test)]
@@ -162,6 +163,9 @@ impl View {
                                     .child(notice)
                             }),
                     )
+                    .when_some(details.changes, |row, set| {
+                        row.child(changes::preview(id, set, cx))
+                    })
                     .when_some(details.description, |row, description| {
                         let body = div()
                             .debug_selector(move || format!("live-approval-description-{id}"))
@@ -291,6 +295,7 @@ pub(super) struct Details {
     pub access: Option<SharedString>,
     pub notices: Vec<SharedString>,
     pub code: bool,
+    pub changes: Option<sailry_protocol::ChangePreview>,
 }
 
 pub(super) fn details(call: &Call, page: &Page) -> Details {
@@ -301,10 +306,15 @@ pub(super) fn details(call: &Call, page: &Page) -> Details {
     Details {
         prompt: view.prompt.map(localize),
         context: view.context,
-        description: view.description.map(localize),
+        // The validated file list replaces the package's generic change prompt.
+        description: view
+            .description
+            .filter(|_| view.changes.is_none())
+            .map(localize),
         access: view.unrestricted.then(|| tr("approval_unrestricted")),
         notices: view.notices.into_iter().map(localize).collect(),
         code: view.code,
+        changes: view.changes,
     }
 }
 

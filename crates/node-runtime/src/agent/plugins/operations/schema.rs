@@ -79,6 +79,7 @@ pub(super) fn description(operation: Operation) -> &'static str {
         | Operation::EditFile
         | Operation::DeleteFile
         | Operation::MoveFile
+        | Operation::ApplyChanges
         | Operation::CreateDirectory
         | Operation::SearchFiles
         | Operation::ReadNotebook
@@ -162,6 +163,7 @@ pub(super) fn parameters(operation: Operation) -> Value {
             | Operation::EditFile
             | Operation::DeleteFile
             | Operation::MoveFile
+            | Operation::ApplyChanges
             | Operation::CreateDirectory
             | Operation::SearchFiles
             | Operation::ReadNotebook
@@ -337,6 +339,7 @@ pub(super) fn parameters(operation: Operation) -> Value {
         | Operation::EditFile
         | Operation::DeleteFile
         | Operation::MoveFile
+        | Operation::ApplyChanges
         | Operation::CreateDirectory
         | Operation::SearchFiles
         | Operation::ReadNotebook
@@ -384,6 +387,7 @@ pub(super) fn command(
         | Operation::EditFile
         | Operation::DeleteFile
         | Operation::MoveFile
+        | Operation::ApplyChanges
         | Operation::CreateDirectory
         | Operation::SearchFiles
         | Operation::ReadNotebook
@@ -705,6 +709,7 @@ pub(super) fn command(
         | Operation::EditFile
         | Operation::DeleteFile
         | Operation::MoveFile
+        | Operation::ApplyChanges
         | Operation::CreateDirectory
         | Operation::SearchFiles
         | Operation::ReadNotebook

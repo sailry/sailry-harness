@@ -1,0 +1,6 @@
+file_changes_approval: "Apply changes to %{count} files"
+file_changes_added: "Added"
+file_changes_modified: "Modified"
+file_changes_renamed: "Renamed"
+file_changes_deleted: "Deleted"
+file_changes_shortened: "Diff shortened"

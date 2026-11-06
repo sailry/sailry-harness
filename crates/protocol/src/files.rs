@@ -276,6 +276,185 @@ pub struct FileEdit {
     pub replace_all: bool,
 }
 
+/// Entries in one change set; every path and move destination appears once.
+pub const MAX_CHANGES: usize = 16;
+/// Original and resulting text one change set may hold for validation and checkpoints.
+pub const MAX_CHANGE_BYTES: usize = 2 * MAX_EDIT_BYTES;
+/// Unified diff text shared by every file of one approval preview.
+pub const MAX_PREVIEW_BYTES: usize = 32 * 1024;
+
+/// One entry of a multi-file change set, validated with every other entry before writing.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum FileChange {
+    /// Creates a new file and missing parents without replacing an entry.
+    Create { path: String, text: String },
+    /// Replaces a whole file at its current revision.
+    Write {
+        path: String,
+        text: String,
+        expected_revision: String,
+    },
+    /// Replacements match the original file, as in a single-file edit batch.
+    Edit {
+        path: String,
+        expected_revision: String,
+        edits: Vec<FileEdit>,
+    },
+    /// Moves a regular file to an absent destination in an existing parent.
+    Move {
+        path: String,
+        destination: String,
+        expected_revision: String,
+    },
+    /// Moves a regular file to the execution Node's Trash.
+    Delete {
+        path: String,
+        expected_revision: String,
+    },
+}
+
+impl FileChange {
+    pub fn path(&self) -> &str {
+        match self {
+            Self::Create { path, .. }
+            | Self::Write { path, .. }
+            | Self::Edit { path, .. }
+            | Self::Move { path, .. }
+            | Self::Delete { path, .. } => path,
+        }
+    }
+
+    pub fn destination(&self) -> Option<&str> {
+        match self {
+            Self::Move { destination, .. } => Some(destination),
+            _ => None,
+        }
+    }
+
+    pub fn expected_revision(&self) -> Option<&str> {
+        match self {
+            Self::Create { .. } => None,
+            Self::Write {
+                expected_revision, ..
+            }
+            | Self::Edit {
+                expected_revision, ..
+            }
+            | Self::Move {
+                expected_revision, ..
+            }
+            | Self::Delete {
+                expected_revision, ..
+            } => Some(expected_revision),
+        }
+    }
+
+    pub fn kind(&self) -> ChangeKind {
+        match self {
+            Self::Create { .. } => ChangeKind::Added,
+            Self::Write { .. } | Self::Edit { .. } => ChangeKind::Modified,
+            Self::Move { .. } => ChangeKind::Renamed,
+            Self::Delete { .. } => ChangeKind::Deleted,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChangeKind {
+    Added,
+    Modified,
+    Renamed,
+    Deleted,
+}
+
+/// Rejected means nothing was written; partial means some entries were written or uncertain.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChangesStatus {
+    Applied,
+    Partial,
+    Rejected,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChangeStatus {
+    Applied,
+    Failed,
+    /// The entry may have changed the file; it is never retried automatically.
+    Unknown,
+    NotAttempted,
+}
+
+/// Entries are written in order and stop at the first failure, without cross-file rollback.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileChanges {
+    pub status: ChangesStatus,
+    pub files: Vec<ChangedFile>,
+}
+
+impl FileChanges {
+    /// The overall status follows the entries; uncertain effects are never reported as rejected.
+    pub fn new(files: Vec<ChangedFile>) -> Self {
+        let status = if files
+            .iter()
+            .all(|file| file.status == ChangeStatus::Applied)
+        {
+            ChangesStatus::Applied
+        } else if files
+            .iter()
+            .any(|file| matches!(file.status, ChangeStatus::Applied | ChangeStatus::Unknown))
+        {
+            ChangesStatus::Partial
+        } else {
+            ChangesStatus::Rejected
+        };
+        Self { status, files }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChangedFile {
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub destination: Option<String>,
+    pub kind: ChangeKind,
+    pub status: ChangeStatus,
+    /// Full revision of the confirmed file content after an applied entry.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revision: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<u64>,
+    /// Bounded numbered regions around applied edits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub excerpt: Option<FileExcerpt>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<crate::Fault>,
+}
+
+/// Approval facts for a validated change set, computed before any file is written.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChangePreview {
+    pub files: Vec<PreviewFile>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PreviewFile {
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub destination: Option<String>,
+    pub kind: ChangeKind,
+    pub additions: usize,
+    pub deletions: usize,
+    /// Unified diff text within the shared preview budget; empty without a text change.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub diff: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub truncated: bool,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -358,6 +537,99 @@ mod tests {
                             Some(crate::plugin::Action::WriteFiles),
                             "{scenario}"
                         );
+                    }
+                }),
+            ),
+            (
+                "change_sets_are_durable_typed_entries",
+                (|scenario: &'static str| {
+                    let revision = "a".repeat(64);
+                    let value = serde_json::json!({
+                        "kind":"apply_changes","data":{"worktree":crate::WorktreeId::new(),"changes":[
+                            {"kind":"create","path":"new.rs","text":"fn main() {}\n"},
+                            {"kind":"write","path":"README.md","text":"# Fixture\n","expected_revision":revision},
+                            {"kind":"edit","path":"lib.rs","expected_revision":revision,"edits":[{"old_text":"a","new_text":"b"}]},
+                            {"kind":"move","path":"old.rs","destination":"renamed.rs","expected_revision":revision},
+                            {"kind":"delete","path":"dead.rs","expected_revision":revision}
+                        ]}
+                    });
+                    let command: crate::Command = serde_json::from_value(value.clone()).unwrap();
+                    assert!(command.durable(), "{scenario}");
+                    assert_eq!(serde_json::to_value(&command).unwrap(), value, "{scenario}");
+                    let crate::Command::ApplyChanges { changes, .. } = &command else {
+                        panic!("{scenario}: change set expected")
+                    };
+                    assert_eq!(
+                        changes.iter().map(FileChange::kind).collect::<Vec<_>>(),
+                        [
+                            ChangeKind::Added,
+                            ChangeKind::Modified,
+                            ChangeKind::Modified,
+                            ChangeKind::Renamed,
+                            ChangeKind::Deleted
+                        ],
+                        "{scenario}"
+                    );
+                    assert_eq!(changes[0].expected_revision(), None, "{scenario}");
+                    assert_eq!(changes[3].destination(), Some("renamed.rs"), "{scenario}");
+                    for invalid in [
+                        serde_json::json!({"kind":"create","path":"a","text":"x","expected_revision":revision}),
+                        serde_json::json!({"kind":"write","path":"a","text":"x"}),
+                        serde_json::json!({"kind":"move","path":"a","expected_revision":revision}),
+                        serde_json::json!({"kind":"rename","path":"a","destination":"b"}),
+                    ] {
+                        assert!(
+                            serde_json::from_value::<FileChange>(invalid).is_err(),
+                            "{scenario}"
+                        );
+                    }
+                    let operation = crate::tool::Operation::ApplyChanges;
+                    assert_eq!(
+                        serde_json::to_value(operation).unwrap(),
+                        "files.apply",
+                        "{scenario}"
+                    );
+                    assert!(!operation.read_only(), "{scenario}");
+                    assert_eq!(
+                        operation.action(),
+                        Some(crate::plugin::Action::WriteFiles),
+                        "{scenario}"
+                    );
+                }),
+            ),
+            (
+                "change_status_never_hides_uncertain_effects",
+                (|scenario: &'static str| {
+                    let file = |status| ChangedFile {
+                        path: "file".into(),
+                        destination: None,
+                        kind: ChangeKind::Modified,
+                        status,
+                        revision: None,
+                        size: None,
+                        excerpt: None,
+                        error: None,
+                    };
+                    for (statuses, expected) in [
+                        (
+                            vec![ChangeStatus::Applied, ChangeStatus::Applied],
+                            ChangesStatus::Applied,
+                        ),
+                        (
+                            vec![ChangeStatus::Applied, ChangeStatus::Failed],
+                            ChangesStatus::Partial,
+                        ),
+                        (
+                            vec![ChangeStatus::Unknown, ChangeStatus::NotAttempted],
+                            ChangesStatus::Partial,
+                        ),
+                        (
+                            vec![ChangeStatus::Failed, ChangeStatus::NotAttempted],
+                            ChangesStatus::Rejected,
+                        ),
+                    ] {
+                        let changes = FileChanges::new(statuses.into_iter().map(file).collect());
+                        assert_eq!(changes.status, expected, "{scenario}");
                     }
                 }),
             ),

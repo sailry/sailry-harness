@@ -116,6 +116,7 @@ pub(super) async fn source(
                         | sailry_protocol::tool::Operation::EditNotebook
                         | sailry_protocol::tool::Operation::DeleteFile
                         | sailry_protocol::tool::Operation::MoveFile
+                        | sailry_protocol::tool::Operation::ApplyChanges
                         | sailry_protocol::tool::Operation::CreateDirectory
                 )
             ) =>

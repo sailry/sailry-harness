@@ -25,6 +25,9 @@ pub struct ApprovalView {
     pub unrestricted: bool,
     pub notices: Vec<LocalText>,
     pub code: bool,
+    /// Node-validated files and diffs of a change set awaiting one decision.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub changes: Option<sailry_protocol::ChangePreview>,
 }
 
 impl Call {
@@ -44,9 +47,14 @@ impl Call {
             .approval
             .as_ref()
             .is_some_and(|approval| approval.access == Some(Access::Unrestricted));
+        let changes = self
+            .approval
+            .as_ref()
+            .and_then(|approval| approval.changes.clone());
         let Some(display) = self.summary(page).and_then(|_| self.resolved()) else {
             return ApprovalView {
                 unrestricted,
+                changes,
                 ..Default::default()
             };
         };
@@ -83,6 +91,7 @@ impl Call {
             description,
             unrestricted,
             code,
+            changes,
         }
     }
 }

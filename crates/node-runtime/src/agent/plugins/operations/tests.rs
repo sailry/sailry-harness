@@ -116,6 +116,7 @@ impl Fixture {
             connections: Vec::new(),
             stop: CancellationToken::new(),
             managed: false,
+            mode: sailry_protocol::WorkMode::Code,
         };
         Self {
             directory,

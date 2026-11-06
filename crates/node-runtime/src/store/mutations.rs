@@ -45,6 +45,14 @@ impl Roots {
         let paths = match output {
             Output::FileWritten(file) => vec![(&self.target, file.path.as_str())],
             Output::FileRestored(file) => vec![(&self.target, file.path.as_str())],
+            // Uncertain entries may have changed their files as well.
+            Output::FileChanges(changes) => changes
+                .files
+                .iter()
+                .filter(|file| matches!(file.status, ChangeStatus::Applied | ChangeStatus::Unknown))
+                .flat_map(|file| std::iter::once(&file.path).chain(&file.destination))
+                .map(|path| (&self.target, path.as_str()))
+                .collect(),
             Output::DirectoryCreated { path } | Output::EntryTrashed { path } => {
                 vec![(&self.target, path.as_str())]
             }
@@ -95,6 +103,11 @@ impl Roots {
                 vec![(self.target.clone(), path.clone())]
             }
             Command::EditNotebook { edit, .. } => vec![(self.target.clone(), edit.path.clone())],
+            Command::ApplyChanges { changes, .. } => changes
+                .iter()
+                .flat_map(|change| std::iter::once(change.path()).chain(change.destination()))
+                .map(|path| (self.target.clone(), path.to_owned()))
+                .collect(),
             Command::ApplyTurnHunk(selection) => {
                 vec![(self.target.clone(), selection.path.clone())]
             }
@@ -257,6 +270,7 @@ pub(super) fn target(command: &Command) -> Option<Target> {
         | Command::EditNotebook { worktree, .. }
         | Command::DeleteFile { worktree, .. }
         | Command::MoveFile { worktree, .. }
+        | Command::ApplyChanges { worktree, .. }
         | Command::InstallPlugin { worktree, .. }
         | Command::RestoreFileCheckpoint { worktree, .. }
         | Command::FinishFileUpload { worktree, .. }
@@ -493,6 +507,17 @@ pub(super) fn execute(roots: &Roots, request: &Request) -> Response {
         }
         Command::EditNotebook { edit, .. } => {
             crate::files::notebook::edit(scope, edit).map(Output::FileWritten)
+        }
+        Command::ApplyChanges { changes, .. } => {
+            crate::files::changes::shape(changes)?;
+            // A rejected set is a recorded business outcome in which nothing was written.
+            let cancelled = sailry_link::CancellationToken::new();
+            Ok(Output::FileChanges(
+                match crate::files::changes::plan(scope, changes, &[], &cancelled) {
+                    Ok(planned) => crate::files::changes::apply(scope, changes, planned),
+                    Err(rejected) => rejected,
+                },
+            ))
         }
         Command::UpdateGitIndex {
             paths,

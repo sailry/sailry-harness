@@ -7,6 +7,7 @@ use sailry_protocol::{Command, Request, plugin, tool::Operation};
 use serde_json::{Value, json};
 
 mod artifacts;
+mod changes;
 mod code;
 mod commands;
 pub(super) mod connections;
@@ -116,6 +117,7 @@ pub(super) fn bind(
                     | Operation::GuideAgent
                     | Operation::WaitAgent
                     | Operation::WriteArtifact
+                    | Operation::ApplyChanges
                     | Operation::RunSsh
                     | Operation::TransferSsh
                     | Operation::ExecuteDatabase
@@ -184,6 +186,7 @@ pub(super) struct HostOperation {
     connections: Vec<sailry_protocol::connection::Resource>,
     stop: CancellationToken,
     managed: bool,
+    mode: sailry_protocol::WorkMode,
 }
 
 impl HostOperation {
@@ -280,6 +283,7 @@ impl HostOperation {
             connections: invocation.connections.resources(),
             stop: stop.clone(),
             managed: false,
+            mode: invocation.turn.config.mode,
         }
     }
 
@@ -447,6 +451,11 @@ impl HostOperation {
     ) -> Result<Value, Fault> {
         let work = async {
             let mut request = self.prepare(arguments.clone()).await?;
+            if self.operation == Operation::ApplyChanges {
+                return self
+                    .apply_changes(context.as_ref(), request, authorized_arguments)
+                    .await;
+            }
             if let Command::RunCommand { access, .. } = &mut request.command {
                 let requested: sailry_protocol::process::Access = authorized_arguments
                     .get("access")
