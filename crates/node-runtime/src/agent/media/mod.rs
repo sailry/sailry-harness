@@ -7,6 +7,7 @@ use sailry_protocol::{
 use serde_json::{Value, json};
 mod error;
 mod generation;
+pub(crate) mod output;
 pub(in crate::agent) mod screenshots;
 mod usage;
 mod vision;

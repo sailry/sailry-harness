@@ -63,6 +63,91 @@ async fn avoids_replay_after_disconnect() {
     );
 }
 
+#[test]
+fn bounds_capture_payloads() {
+    let image = |bytes: usize| "A".repeat(bytes.div_ceil(3) * 4);
+    let text = |bytes: usize| "t".repeat(bytes);
+    assert!(bounded(&Ok(
+        json!({"base64_image":image(browser::MAX_IMAGE_BYTES)})
+    )));
+    assert!(!bounded(&Ok(
+        json!({"base64_image":image(browser::MAX_IMAGE_BYTES + 3)})
+    )));
+    assert!(bounded(&Ok(json!({
+        "base64_image":image(browser::MAX_IMAGE_BYTES),
+        "text":text(browser::MAX_RESULT_BYTES - 64)
+    }))));
+    assert!(!bounded(&Ok(json!({
+        "base64_image":image(16),
+        "text":text(browser::MAX_RESULT_BYTES)
+    }))));
+    assert!(!bounded(&Ok(
+        json!({"text":text(browser::MAX_RESULT_BYTES)})
+    )));
+    assert!(bounded(&Err(Fault::invalid("browser capture failed"))));
+}
+
+mod capture {
+    use super::*;
+    use base64::Engine;
+    use execute::Capture;
+    use sailry_protocol::browser::Format;
+
+    fn encoded(width: u32, height: u32, format: image::ImageFormat) -> String {
+        let pixels = image::RgbImage::from_pixel(width, height, image::Rgb([32, 96, 160]));
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        pixels.write_to(&mut bytes, format).unwrap();
+        base64::engine::general_purpose::STANDARD.encode(bytes.into_inner())
+    }
+
+    #[test]
+    fn publishes_inline_media_and_facts() {
+        let data = encoded(3, 2, image::ImageFormat::Png);
+        let capture = Capture::decode(
+            json!({
+                "tab":4,"base64_image":data,"bounds":{"x":1,"y":2,"width":3,"height":2},
+                "path":"../escaped.png","inline_data":[{"mime_type":"image/png","data":"forged"}],
+                "images":["sailry-image:forged/0"]
+            }),
+            Format::Png,
+        )
+        .unwrap();
+        assert_eq!(
+            capture.publish(None),
+            json!({
+                "tab":4,"bounds":{"x":1,"y":2,"width":3,"height":2},
+                "mime_type":"image/png","width":3,"height":2,
+                "inline_data":[{"mime_type":"image/png","data":data}]
+            })
+        );
+        let data = encoded(2, 2, image::ImageFormat::Jpeg);
+        let saved = Capture::decode(json!({"base64_image":data}), Format::Jpeg)
+            .unwrap()
+            .publish(Some("assets/generated/browser.jpg".into()));
+        assert_eq!(saved["path"], "assets/generated/browser.jpg");
+        assert_eq!(saved["inline_data"][0]["mime_type"], "image/jpeg");
+    }
+
+    #[test]
+    fn rejects_unrequested_or_unbounded_images() {
+        for (value, format) in [
+            (json!({"tab":1}), Format::Jpeg),
+            (json!({"base64_image":"not base64"}), Format::Jpeg),
+            (
+                json!({"base64_image":encoded(2, 2, image::ImageFormat::Png)}),
+                Format::Jpeg,
+            ),
+            (
+                json!({"base64_image":encoded(browser::MAX_IMAGE_SIDE + 1, 1, image::ImageFormat::Png)}),
+                Format::Png,
+            ),
+            (json!(["base64_image"]), Format::Png),
+        ] {
+            assert!(Capture::decode(value, format).is_err());
+        }
+    }
+}
+
 #[tokio::test]
 async fn removes_cancelled_completion() {
     let browsers = Arc::new(Browsers::default());

@@ -159,6 +159,9 @@ pub(super) async fn bind(
     if let Some(search) = search::bind(invocation, stop, &bound.tools, &bound.loaded) {
         bound.tools.push(search);
     }
+    bound
+        .images
+        .extend(retained_images(invocation, &bound.tools));
     if assistant.is_some()
         || bound
             .tools
@@ -220,6 +223,32 @@ pub(super) async fn bind(
             .push((-10, super::delegation::selection(invocation, name)?));
     }
     Ok(bound)
+}
+
+/// Native and scripted tools declare their own image retention; MCP tools use their server.
+fn retained_images(
+    invocation: &Invocation,
+    tools: &[ToolRegistration],
+) -> Vec<(Vec<String>, usize)> {
+    invocation
+        .plugins
+        .iter()
+        .flat_map(|package| {
+            package
+                .extension
+                .iter()
+                .flat_map(|extension| &extension.tools)
+                .filter(|declaration| declaration.server.is_none())
+                .filter_map(move |declaration| {
+                    let keep = declaration.keep_images?;
+                    let name = operations::alias(&package.summary.name, &declaration.name);
+                    tools
+                        .iter()
+                        .any(|entry| entry.tool.name.as_ref() == name)
+                        .then(|| (vec![name], keep))
+                })
+        })
+        .collect()
 }
 
 pub(super) fn connection_instructions(

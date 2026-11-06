@@ -447,7 +447,10 @@ pub(super) fn command(
                 .insert("action".into(), browser.action.into());
             let action: sailry_protocol::browser::Action =
                 serde_json::from_value(browser.arguments.into()).map_err(invalid)?;
-            if action.requires_approval() == operation.read_only() {
+            // Captures stay readable; a read tool confirms an optional save per call.
+            if !matches!(action, sailry_protocol::browser::Action::Screenshot { .. })
+                && action.requires_approval() == operation.read_only()
+            {
                 return Err(Fault::new(
                     ErrorCode::PermissionDenied,
                     "browser action does not match the declared operation",
@@ -1049,6 +1052,36 @@ mod tests {
             .code,
             ErrorCode::InvalidRequest
         );
+    }
+
+    #[test]
+    fn browser_captures_accept_either_grant() {
+        use sailry_protocol::browser::Action;
+        let scope = scope();
+        for operation in [Operation::ReadBrowser, Operation::ControlBrowser] {
+            for save in [false, true] {
+                let arguments = json!({"action":"screenshot","arguments":{"tab":1,"save":save}});
+                assert!(matches!(
+                    command(operation, arguments, &scope).unwrap(),
+                    Command::UseBrowser { action: Action::Screenshot { save: saved, .. }, .. } if saved == save
+                ));
+            }
+        }
+        for (operation, action) in [
+            (
+                Operation::ReadBrowser,
+                json!({"action":"click","arguments":{"tab":1,"snapshot":"fixture","element":1}}),
+            ),
+            (
+                Operation::ControlBrowser,
+                json!({"action":"read","arguments":{}}),
+            ),
+        ] {
+            assert_eq!(
+                command(operation, action, &scope).unwrap_err().code,
+                ErrorCode::PermissionDenied
+            );
+        }
     }
 
     #[test]

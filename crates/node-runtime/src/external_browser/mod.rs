@@ -1,5 +1,6 @@
 //! Execution-Node ownership of managed browser sessions and their isolated profiles.
 mod bundle;
+mod capture;
 mod driver;
 mod execute;
 mod files;

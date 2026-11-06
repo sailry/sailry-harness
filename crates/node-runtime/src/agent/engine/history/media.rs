@@ -8,7 +8,7 @@ pub(super) async fn project(
     attachments: &[Attachment],
 ) -> Result<CallToolResult, Fault> {
     let mut media = Vec::new();
-    let envelope = if value["kind"] == "computer" {
+    let envelope = if crate::agent::media::output::enveloped(&value) {
         value.get_mut("data")
     } else {
         Some(&mut value)

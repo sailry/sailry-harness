@@ -40,11 +40,17 @@ impl Call {
         Ok(staging)
     }
 
-    pub(super) async fn artifact(&self, id: RequestId, value: &mut Value) -> Result<()> {
+    /// Returns a capture's inline media; saving it in the worktree is optional.
+    pub(super) async fn artifact(
+        &self,
+        id: RequestId,
+        value: &mut Value,
+        save: bool,
+    ) -> Result<Option<Value>> {
         let (field, extension) = match self.action {
             Action::Screenshot => ("base64_image", "png"),
             Action::PrintToPdf => ("pdf_base64", "pdf"),
-            _ => return Ok(()),
+            _ => return Ok(None),
         };
         let encoded = value
             .as_object_mut()
@@ -62,11 +68,33 @@ impl Call {
         if bytes.len() > 20 * 1024 * 1024 {
             return Err(Fault::invalid("browser artifact exceeds 20 MiB"));
         }
-        value["path"] = self
-            .save(format!("browser-{id}.{extension}"), bytes)
-            .await?
-            .into();
-        Ok(())
+        if self.action != Action::Screenshot {
+            value["path"] = self
+                .save(format!("browser-{id}.{extension}"), bytes)
+                .await?
+                .into();
+            return Ok(None);
+        }
+        let capture = tokio::task::spawn_blocking(move || super::capture::bound(bytes))
+            .await
+            .map_err(|_| Fault::invalid("browser capture encoding failed"))??;
+        value["mime_type"] = capture.format.mime().into();
+        value["width"] = capture.width.into();
+        value["height"] = capture.height.into();
+        value["saved_to_artifacts"] = save.into();
+        if save {
+            value["path"] = self
+                .save(
+                    format!("browser-{id}.{}", capture.format.extension()),
+                    capture.bytes.clone(),
+                )
+                .await?
+                .into();
+        }
+        Ok(Some(json!({
+            "mime_type": capture.format.mime(),
+            "data": base64::engine::general_purpose::STANDARD.encode(&capture.bytes),
+        })))
     }
 
     pub(super) async fn download(

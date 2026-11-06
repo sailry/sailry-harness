@@ -139,7 +139,7 @@ impl Browsers {
         id: RequestId,
         result: browser::Result,
     ) -> Result<(), Fault> {
-        if serde_json::to_vec(&result).map_or(true, |bytes| bytes.len() > 256 * 1024) {
+        if !bounded(&result) {
             return Err(Fault::invalid("browser result is too large"));
         }
         let connections = self.connections.lock().unwrap();
@@ -155,6 +155,18 @@ impl Browsers {
 }
 fn disconnected() -> Fault {
     Fault::new(ErrorCode::Unavailable, "browser controller is disconnected")
+}
+/// A capture's encoded image has its own bound beside the ordinary result limit.
+fn bounded(result: &browser::Result) -> bool {
+    let image = result
+        .as_ref()
+        .ok()
+        .and_then(|value| value.get("base64_image"))
+        .and_then(serde_json::Value::as_str)
+        .map_or(0, str::len);
+    image <= browser::MAX_IMAGE_BYTES.div_ceil(3) * 4
+        && serde_json::to_vec(result)
+            .is_ok_and(|bytes| bytes.len() <= browser::MAX_RESULT_BYTES + image)
 }
 impl Subscription for Calls {
     fn next(&mut self) -> Pending<'_, Result<Update, Fault>> {
