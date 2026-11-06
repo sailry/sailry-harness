@@ -25,15 +25,20 @@ pub(crate) struct Scope {
 }
 
 impl Scope {
-    /// A new conversation offers no launcher; a resource it opened stays closable.
-    pub(crate) fn panel(self, open: bool) -> bool {
-        self.session || open
+    /// Node reserves an ordinary conversation's private worktree when it creates
+    /// the session, so only its draft has nothing to launch.
+    pub(crate) fn launcher(self) -> bool {
+        self.session || self.worktree
     }
 
-    /// Only the browser opens without a worktree. Node reserves an ordinary
-    /// conversation's private worktree when it creates the session, so its draft has none.
+    /// A resource that is already open stays closable.
+    pub(crate) fn panel(self, open: bool) -> bool {
+        self.launcher() || open
+    }
+
+    /// Shortcuts follow the launcher; only the browser opens without a worktree.
     pub(crate) fn offers(self, destination: Destination) -> bool {
-        destination == Destination::Browser || self.worktree
+        self.launcher() && (destination == Destination::Browser || self.worktree)
     }
 }
 
@@ -415,32 +420,28 @@ mod scope {
     }
 
     #[test]
-    fn hides_panel_until_created() {
-        for worktree in [false, true] {
-            let draft = Scope {
-                session: false,
-                worktree,
-            };
-            assert!(!draft.panel(false));
-            assert!(draft.panel(true), "an opened resource stays closable");
-        }
-    }
-
-    #[test]
-    fn limits_unbound_drafts_to_browser() {
+    fn hides_ordinary_draft_panel() {
         let ordinary = Scope {
             session: false,
             worktree: false,
         };
-        assert_eq!(offered(ordinary), [Destination::Browser]);
+        assert!(!ordinary.launcher());
+        assert!(!ordinary.panel(false));
+        assert!(ordinary.panel(true), "an opened resource stays closable");
+        assert!(
+            offered(ordinary).is_empty(),
+            "no shortcut bypasses the toggle"
+        );
     }
 
     #[test]
-    fn keeps_project_draft_resources() {
+    fn offers_project_draft_resources() {
         let project = Scope {
             session: false,
             worktree: true,
         };
+        assert!(project.launcher());
+        assert!(project.panel(false));
         assert_eq!(offered(project), ALL);
     }
 
@@ -451,6 +452,7 @@ mod scope {
             session: true,
             worktree: true,
         };
+        assert!(session.launcher());
         assert!(session.panel(false));
         assert!(session.panel(true));
         assert_eq!(offered(session), ALL);

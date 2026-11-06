@@ -514,7 +514,7 @@ impl Shell {
         if self.page == Page::Conversation {
             let launcher = self
                 .conversation_scope(cx)
-                .is_none_or(|scope| scope.session);
+                .is_none_or(|scope| scope.launcher());
             if self.side_resource.is_some() && (self.layout.panel_open[0] || !launcher) {
                 // Closing destroys the page; reopening starts from the launcher.
                 self.close_file_panel(window, cx);
