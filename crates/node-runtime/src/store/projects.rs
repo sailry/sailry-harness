@@ -3,6 +3,7 @@ use super::database::{encode, storage_error};
 use sailry_protocol::{projects::*, *};
 use std::path::{Path, PathBuf};
 use turso::{Connection, params};
+mod path;
 pub(super) mod removal;
 
 pub(super) fn prepare(draft: &Draft) -> Result<PathBuf, Fault> {
@@ -317,21 +318,6 @@ pub(super) async fn update(
         text(&directory(Path::new(path))?)?
     };
     if path != expected.path {
-        let used: bool = {
-            let mut statement = db.prepare("SELECT EXISTS(SELECT 1 FROM sessions WHERE project=?1) OR EXISTS(SELECT 1 FROM worktrees WHERE project=?1 AND main=0) OR EXISTS(SELECT 1 FROM terminals WHERE worktree IN (SELECT id FROM worktrees WHERE project=?1))").await.map_err(storage_error)?;
-            let row = statement
-                .query_row([expected.id.to_string()])
-                .await
-                .map_err(storage_error)?;
-            let mapped: turso::Result<_> = row.get(0);
-            mapped.map_err(storage_error)?
-        };
-        if used {
-            return Err(Fault::new(
-                ErrorCode::Busy,
-                "project path is bound to existing resources",
-            ));
-        }
         let duplicate: bool = {
             let mut statement = db
                 .prepare("SELECT EXISTS(SELECT 1 FROM worktrees WHERE path=?1)")
@@ -350,6 +336,7 @@ pub(super) async fn update(
                 "directory is already registered",
             ));
         }
+        path::check(db, expected.id, &path).await?;
         db.execute(
             "UPDATE worktrees SET path=?2 WHERE project=?1 AND main=1",
             params![expected.id.to_string(), path.as_str()],

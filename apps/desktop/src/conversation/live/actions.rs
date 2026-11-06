@@ -86,6 +86,7 @@ impl View {
             self.select_mode(mode, window, cx);
             return;
         }
+        self.sync_location(cx);
         let text = self.input.read(cx).value().to_string();
         if references::commands::leading(&text).is_some_and(|(name, _, _)| name == "compact") {
             self.compact_context(compaction::focus(&text), window, cx);
@@ -95,6 +96,7 @@ impl View {
             || self.busy()
             || !self.connected()
             || !self.configured()
+            || !self.binding.project_available(self.node.snapshot.as_ref())
             || !self.attachments.sendable()
             || (self.binding.project.is_some() && self.binding.worktree.is_none())
         {

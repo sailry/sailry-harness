@@ -3,6 +3,9 @@ use sailry_link::{Link, NetworkScope};
 use sailry_node_runtime::Node;
 use sailry_protocol::*;
 
+#[path = "project_lifecycle/rebinding.rs"]
+mod rebinding;
+
 async fn snapshot(client: &Client) -> Snapshot {
     let Output::Snapshot(value) = client
         .execute(client.prepare(Command::Snapshot))
@@ -130,18 +133,31 @@ async fn edits_and_restores() {
         else {
             panic!("session expected")
         };
+        let rebound = root.join(format!("rebound-{index}"));
+        std::fs::create_dir(&rebound).unwrap();
+        let request = client.prepare(Command::UpdateProject {
+            expected: updated.clone(),
+            name: "Moved".into(),
+            path: rebound.to_str().unwrap().into(),
+            appearance: updated.appearance.clone(),
+        });
+        let result = client.execute(request.clone()).await.unwrap();
+        assert_eq!(client.execute(request).await.unwrap(), result);
+        let Output::Project(updated) = result else {
+            panic!("project expected")
+        };
+        let current = snapshot(&client).await;
+        assert_eq!(updated.id, session.project.unwrap());
+        assert_eq!(updated.path, rebound.to_str().unwrap());
+        assert!(current.sessions.contains(&session));
         assert_eq!(
-            client
-                .execute(client.prepare(Command::UpdateProject {
-                    expected: updated.clone(),
-                    name: "Move".into(),
-                    path: root.to_str().unwrap().into(),
-                    appearance: updated.appearance.clone()
-                }))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::Busy
+            current
+                .worktrees
+                .iter()
+                .find(|tree| tree.id == session.worktree)
+                .unwrap()
+                .path,
+            updated.path,
         );
         let Output::QueuedTurn(turn) = client
             .execute(client.prepare(Command::QueueTurn {

@@ -1,6 +1,8 @@
 use super::*;
 use crate::store::commands;
 
+mod rebinding;
+
 #[tokio::test]
 async fn preserves_admitted_locations() {
     let mut fixture = fixture::Fixture::new().await;

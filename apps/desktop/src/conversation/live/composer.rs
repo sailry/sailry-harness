@@ -25,6 +25,7 @@ impl View {
             || (!active
                 && (!text
                     || !self.configured()
+                    || !self.binding.project_available(self.node.snapshot.as_ref())
                     || (self.binding.project.is_some() && self.binding.worktree.is_none())
                     || !self.attachments.sendable()));
         let owner = cx.weak_entity();

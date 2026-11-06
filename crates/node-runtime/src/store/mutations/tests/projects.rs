@@ -1,6 +1,8 @@
 use super::super::super::Job;
 use super::*;
 
+mod rebinding;
+
 async fn snapshot(client: &Client) -> Snapshot {
     let Output::Snapshot(snapshot) = client
         .execute(client.prepare(Command::Snapshot))
