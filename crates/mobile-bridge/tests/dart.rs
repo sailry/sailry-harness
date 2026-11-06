@@ -150,21 +150,93 @@ fn command(script: &str, directory: &std::path::Path, ticket: &str) -> std::proc
             agent_support::plugin_tool("commands", "run_command"),
         )
         .env("SAILRY_SPAWN_TOOL", "spawn_agent")
-        .env("SAILRY_PROJECT_PATH", directory);
+        .env("SAILRY_PROJECT_PATH", directory)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
     command
 }
 
+/// Recent script output and the time of its last line.
+struct Transcript {
+    progress: std::time::Instant,
+    tail: std::collections::VecDeque<String>,
+}
+
+/// Echoes a script stream line by line while recording progress and its tail.
+fn forward(
+    stream: impl std::io::Read + Send + 'static,
+    error: bool,
+    transcript: std::sync::Arc<std::sync::Mutex<Transcript>>,
+) -> std::thread::JoinHandle<()> {
+    use std::io::BufRead;
+    std::thread::spawn(move || {
+        for line in std::io::BufReader::new(stream).split(b'\n') {
+            let Ok(line) = line else {
+                break;
+            };
+            let line = String::from_utf8_lossy(&line).into_owned();
+            if error {
+                eprintln!("{line}");
+            } else {
+                println!("{line}");
+            }
+            let mut transcript = transcript.lock().unwrap();
+            transcript.progress = std::time::Instant::now();
+            if transcript.tail.len() == 40 {
+                transcript.tail.pop_front();
+            }
+            transcript.tail.push_back(line);
+        }
+    })
+}
+
+/// Waits for a Dart contract script. Each output line restarts the progress
+/// window, the ceiling bounds the whole script, and a timeout reports the tail.
 fn wait(mut child: std::process::Child) -> std::process::ExitStatus {
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    use std::time::{Duration, Instant};
+    const WINDOW: Duration = Duration::from_secs(30);
+    const CEILING: Duration = Duration::from_secs(240);
+    let started = Instant::now();
+    let transcript = std::sync::Arc::new(std::sync::Mutex::new(Transcript {
+        progress: started,
+        tail: Default::default(),
+    }));
+    let readers = [
+        child
+            .stdout
+            .take()
+            .map(|stream| forward(stream, false, transcript.clone())),
+        child
+            .stderr
+            .take()
+            .map(|stream| forward(stream, true, transcript.clone())),
+    ];
     loop {
         if let Some(status) = child.try_wait().unwrap() {
+            // A lingering grandchild may hold the pipes open, so draining is bounded.
+            let drained = Instant::now() + Duration::from_secs(1);
+            while readers.iter().flatten().any(|reader| !reader.is_finished())
+                && Instant::now() < drained
+            {
+                std::thread::sleep(Duration::from_millis(10));
+            }
             return status;
         }
-        if std::time::Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
-            panic!("Dart contract deadline");
-        }
-        std::thread::sleep(std::time::Duration::from_millis(10));
+        let now = Instant::now();
+        let progress = transcript.lock().unwrap().progress;
+        let bound = if now >= started + CEILING {
+            "overall ceiling"
+        } else if now >= progress + WINDOW {
+            "progress window"
+        } else {
+            std::thread::sleep(Duration::from_millis(10));
+            continue;
+        };
+        let _ = child.kill();
+        let _ = child.wait();
+        let tail = Vec::from(transcript.lock().unwrap().tail.clone()).join("\n");
+        panic!(
+            "Dart contract hit its {bound} (window={WINDOW:?}, ceiling={CEILING:?}); last output:\n{tail}"
+        );
     }
 }

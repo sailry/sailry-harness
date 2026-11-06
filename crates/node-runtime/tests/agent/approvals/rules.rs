@@ -13,29 +13,46 @@ pub(crate) async fn observe(
 }
 
 /// Each update restarts `window`, so slower hosts may take longer in total while
-/// a conversation that stops publishing still fails.
+/// a conversation that stops publishing still fails; `crate::ceiling` bounds the
+/// whole wait.
 async fn observe_within(
     client: &Client,
     session: SessionId,
     predicate: impl Fn(&Page) -> bool,
     window: Duration,
 ) -> Page {
-    fn stalled(window: Duration, last: &impl std::fmt::Debug) -> ! {
-        panic!(
-            "conversation made no progress for {window:?}; last (runs, entries, approvals, questions): {last:?}"
-        )
+    async fn step<T>(
+        deadline: tokio::time::Instant,
+        window: Duration,
+        last: &impl std::fmt::Debug,
+        future: impl std::future::Future<Output = T>,
+    ) -> T {
+        let limit = deadline.min(tokio::time::Instant::now() + window);
+        let Ok(value) = tokio::time::timeout_at(limit, future).await else {
+            let bound = if limit == deadline {
+                "exceeded its overall ceiling"
+            } else {
+                "made no progress within its window"
+            };
+            panic!(
+                "conversation {bound} (window={window:?}); last (runs, entries, approvals, questions): {last:?}"
+            )
+        };
+        value
     }
+    let deadline = tokio::time::Instant::now() + crate::ceiling(window);
     let mut last = None;
-    let mut stream = tokio::time::timeout(window, client.subscribe_conversation(session))
-        .await
-        .unwrap_or_else(|_| stalled(window, &last))
-        .unwrap();
+    let mut stream = step(
+        deadline,
+        window,
+        &last,
+        client.subscribe_conversation(session),
+    )
+    .await
+    .unwrap();
     let mut projection = sailry_client::conversation::Projection::new(client.target(), session, 0);
     loop {
-        let update = tokio::time::timeout(window, stream.next())
-            .await
-            .unwrap_or_else(|_| stalled(window, &last))
-            .unwrap();
+        let update = step(deadline, window, &last, stream.next()).await.unwrap();
         assert_ne!(
             projection.apply(0, update).unwrap(),
             sailry_client::Apply::Recover
