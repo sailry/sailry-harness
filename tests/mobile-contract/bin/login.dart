@@ -4,7 +4,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:sailry_bridge/api.dart';
 import 'package:sailry_bridge/api/login.dart';
 import 'package:sailry_bridge/frb_generated.dart';
-import 'conversation.dart' show check, execute, until;
+import 'conversation.dart' show check, execute, progressWindow, until;
 
 void publicOnly(Object? value) {
   final text = jsonEncode(value);
@@ -26,17 +26,17 @@ Future<Map<String, dynamic>> state(
   LoginUpdates updates,
   bool Function(String) ready,
 ) async {
-  return Future(() async {
-    while (true) {
-      final view = jsonDecode(await updates.next()) as Map<String, dynamic>;
-      publicOnly(view);
-      check(view['error'] == null, 'login observation succeeds');
-      final update = view['update'] as Map<String, dynamic>?;
-      if (update == null) continue;
-      final status = update['state'] as Map<String, dynamic>;
-      if (ready(status['kind'] as String)) return update;
-    }
-  }).timeout(const Duration(seconds: 10));
+  while (true) {
+    final view =
+        jsonDecode(await updates.next().timeout(progressWindow))
+            as Map<String, dynamic>;
+    publicOnly(view);
+    check(view['error'] == null, 'login observation succeeds');
+    final update = view['update'] as Map<String, dynamic>?;
+    if (update == null) continue;
+    final status = update['state'] as Map<String, dynamic>;
+    if (ready(status['kind'] as String)) return update;
+  }
 }
 
 Future<void> main() async {

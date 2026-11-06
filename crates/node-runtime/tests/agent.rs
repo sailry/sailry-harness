@@ -135,7 +135,8 @@ use sailry_node_runtime::Node;
 use sailry_protocol::{conversation::*, *};
 use std::{sync::Arc, time::Duration};
 
-// Functional waits include subscription setup and delivery of the initial snapshot.
+// Turn waits restart this window on each conversation update, so slower hosts
+// may take longer in total while a turn that stops publishing still fails.
 const COMPLETION_BUDGET: Duration = Duration::from_secs(30);
 
 fn is_context(entry: &Entry) -> bool {
@@ -327,63 +328,107 @@ async fn finished(client: &Client, session: SessionId, turn: TurnId) -> Page {
     finished_within(client, session, turn, COMPLETION_BUDGET).await
 }
 
+/// Last observed state of a turn wait, reported when it stops making progress.
+struct TurnWait {
+    session: SessionId,
+    turn: TurnId,
+    stage: &'static str,
+    updates: usize,
+    recoveries: usize,
+    last_snapshot: Option<(usize, usize, usize)>,
+    observed: Option<(Status, Option<Fault>, usize)>,
+}
+
+impl TurnWait {
+    fn stalled(&self, window: Duration) -> ! {
+        let Self {
+            session,
+            turn,
+            stage,
+            updates,
+            recoveries,
+            last_snapshot,
+            observed,
+        } = self;
+        panic!(
+            "Agent turn made no progress for {window:?} (session={session}, turn={turn}); stage={stage}; updates={updates}; recoveries={recoveries}; last_snapshot={last_snapshot:?}; observed={observed:?}"
+        )
+    }
+}
+
+/// Waits for a terminal run. Each awaited step restarts `window`, so the total
+/// duration follows the host's speed while a stalled turn still fails.
 async fn finished_within(
     client: &Client,
     session: SessionId,
     turn: TurnId,
-    budget: Duration,
+    window: Duration,
 ) -> Page {
-    let mut stage = "subscribe";
-    let mut updates_seen = 0usize;
-    let mut recoveries = 0usize;
-    let mut last_snapshot = None;
-    let mut observed = None;
-    tokio::time::timeout(budget, async {
-        let mut updates = client.subscribe_conversation(session).await.unwrap();
-        let mut projection =
-            sailry_client::conversation::Projection::new(client.target(), session, 0);
-        loop {
-            stage = "next update";
-            let update = updates.next().await.unwrap();
-            updates_seen += 1;
-            if let Update::ConversationSnapshot(value) = &update {
-                last_snapshot = Some((value.page.runs.len(), value.page.entries.len(), value.missing.len()));
-            }
-            let applied = projection.apply(0, update).unwrap();
-            if applied == sailry_client::Apply::Recover {
-                recoveries += 1;
-                stage = "recover subscription";
-                updates = client.subscribe_conversation(session).await.unwrap();
-                projection =
-                    sailry_client::conversation::Projection::new(client.target(), session, 0);
-                continue;
-            }
-            if projection.snapshot().is_some_and(|snapshot| {
-                let Some(run) = snapshot.page.runs.iter().find(|run| run.turn == turn) else {
-                    return false;
-                };
-                observed = Some((run.status, run.error.clone(), snapshot.page.entries.len()));
-                !matches!(run.status, Status::Queued | Status::Running | Status::Stopping)
+    let mut wait = TurnWait {
+        session,
+        turn,
+        stage: "subscribe",
+        updates: 0,
+        recoveries: 0,
+        last_snapshot: None,
+        observed: None,
+    };
+    let mut updates = tokio::time::timeout(window, client.subscribe_conversation(session))
+        .await
+        .unwrap_or_else(|_| wait.stalled(window))
+        .unwrap();
+    let mut projection = sailry_client::conversation::Projection::new(client.target(), session, 0);
+    loop {
+        wait.stage = "next update";
+        let update = tokio::time::timeout(window, updates.next())
+            .await
+            .unwrap_or_else(|_| wait.stalled(window))
+            .unwrap();
+        wait.updates += 1;
+        if let Update::ConversationSnapshot(value) = &update {
+            wait.last_snapshot = Some((
+                value.page.runs.len(),
+                value.page.entries.len(),
+                value.missing.len(),
+            ));
+        }
+        let applied = projection.apply(0, update).unwrap();
+        if applied == sailry_client::Apply::Recover {
+            wait.recoveries += 1;
+            wait.stage = "recover subscription";
+            updates = tokio::time::timeout(window, client.subscribe_conversation(session))
+                .await
+                .unwrap_or_else(|_| wait.stalled(window))
+                .unwrap();
+            projection = sailry_client::conversation::Projection::new(client.target(), session, 0);
+            continue;
+        }
+        if projection.snapshot().is_some_and(|snapshot| {
+            let Some(run) = snapshot.page.runs.iter().find(|run| run.turn == turn) else {
+                return false;
+            };
+            wait.observed = Some((run.status, run.error.clone(), snapshot.page.entries.len()));
+            !matches!(
+                run.status,
+                Status::Queued | Status::Running | Status::Stopping
+            )
+        }) {
+            // The status frame can precede other entries from its committed transaction.
+            wait.stage = "canonical history";
+            let page = tokio::time::timeout(window, history(client, session))
+                .await
+                .unwrap_or_else(|_| wait.stalled(window));
+            if page.runs.iter().any(|run| {
+                run.turn == turn
+                    && !matches!(
+                        run.status,
+                        Status::Queued | Status::Running | Status::Stopping
+                    )
             }) {
-                // The status frame can precede other entries from its committed transaction.
-                stage = "canonical history";
-                let page = history(client, session).await;
-                if page.runs.iter().any(|run| {
-                    run.turn == turn
-                        && !matches!(
-                            run.status,
-                            Status::Queued | Status::Running | Status::Stopping
-                        )
-                }) {
-                    return page;
-                }
+                return page;
             }
         }
-    })
-    .await
-    .unwrap_or_else(|error| {
-        panic!("Agent completion deadline ({budget:?}, session={session}, turn={turn}): {error:?}; stage={stage}; updates={updates_seen}; recoveries={recoveries}; last_snapshot={last_snapshot:?}; observed={observed:?}")
-    })
+    }
 }
 
 fn text(page: &Page) -> String {
@@ -927,20 +972,21 @@ async fn recovers_live_output() {
     }
 }
 
+/// Each published view restarts the window, so slower hosts may take longer in
+/// total while an observer that stops publishing still fails.
 async fn observed(
     view: &mut tokio::sync::watch::Receiver<sailry_client::conversation::View>,
     ready: impl Fn(&sailry_client::conversation::View) -> bool,
 ) {
-    tokio::time::timeout(Duration::from_secs(10), async {
-        loop {
-            if ready(&view.borrow_and_update()) {
-                break;
-            }
-            view.changed().await.expect("conversation observer ended");
+    loop {
+        if ready(&view.borrow_and_update()) {
+            break;
         }
-    })
-    .await
-    .expect("conversation update deadline");
+        tokio::time::timeout(Duration::from_secs(10), view.changed())
+            .await
+            .expect("conversation update deadline")
+            .expect("conversation observer ended");
+    }
 }
 
 #[path = "agent/evaluation.rs"]

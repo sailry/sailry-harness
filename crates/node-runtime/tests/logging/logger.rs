@@ -1,7 +1,6 @@
-//! This process installs a pre-existing log bridge before Sailry's tracing sink.
+//! This test's process installs a pre-existing log bridge before Sailry's tracing sink.
+use super::parse;
 use sailry_node_runtime::logging::{self, Area, Entry, Phase};
-#[path = "parse.rs"]
-mod parse;
 
 #[test]
 fn retains_sink_with_existing_logger() {

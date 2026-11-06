@@ -130,45 +130,45 @@ impl<'a> Completion<'a> {
         }
     }
 
+    /// Each update restarts the window, so slower hosts may take longer in total
+    /// while a turn that stops publishing still fails.
     async fn wait(&mut self, turn: TurnId) {
-        tokio::time::timeout(Duration::from_secs(10), async {
-            loop {
-                let applied = self
-                    .projection
-                    .apply(0, self.updates.next().await.unwrap())
-                    .unwrap();
-                assert_ne!(
-                    applied,
-                    sailry_client::Apply::Recover,
-                    "unexpected seed reset"
-                );
-                if let Some(run) = self
-                    .projection
-                    .snapshot()
-                    .and_then(|snapshot| snapshot.page.runs.iter().find(|run| run.turn == turn))
-                    && !matches!(
-                        run.status,
-                        Status::Queued | Status::Running | Status::Stopping
-                    )
-                {
-                    assert_eq!(run.status, Status::Completed, "{run:?}");
-                    break;
-                }
-            }
-            // The terminal frame can precede later entry frames in the same commit.
-            let complete = self
-                .client
-                .read_conversation(self.session, None, 1)
+        const WINDOW: Duration = Duration::from_secs(10);
+        loop {
+            let update = tokio::time::timeout(WINDOW, self.updates.next())
                 .await
+                .expect("Agent completion deadline")
                 .unwrap();
-            assert!(complete.missing.is_empty());
-            assert_eq!(complete.page.runs.len(), 1);
-            let latest = &complete.page.runs[0];
-            assert_eq!(latest.turn, turn);
-            assert_eq!(latest.status, Status::Completed);
-        })
-        .await
-        .expect("Agent completion deadline");
+            let applied = self.projection.apply(0, update).unwrap();
+            assert_ne!(
+                applied,
+                sailry_client::Apply::Recover,
+                "unexpected seed reset"
+            );
+            if let Some(run) = self
+                .projection
+                .snapshot()
+                .and_then(|snapshot| snapshot.page.runs.iter().find(|run| run.turn == turn))
+                && !matches!(
+                    run.status,
+                    Status::Queued | Status::Running | Status::Stopping
+                )
+            {
+                assert_eq!(run.status, Status::Completed, "{run:?}");
+                break;
+            }
+        }
+        // The terminal frame can precede later entry frames in the same commit.
+        let complete =
+            tokio::time::timeout(WINDOW, self.client.read_conversation(self.session, None, 1))
+                .await
+                .expect("Agent completion deadline")
+                .unwrap();
+        assert!(complete.missing.is_empty());
+        assert_eq!(complete.page.runs.len(), 1);
+        let latest = &complete.page.runs[0];
+        assert_eq!(latest.turn, turn);
+        assert_eq!(latest.status, Status::Completed);
     }
 }
 

@@ -49,6 +49,25 @@ fn quote(path: &Path) -> String {
     format!("'{}'", path.to_str().unwrap().replace('\'', "'\\''"))
 }
 
+/// Git for sandboxed commands. macOS `/usr/bin/git` is an `xcrun` shim whose
+/// fresh private cache start is covered by the toolchain tests; metadata checks
+/// run the resolved binary so they do not depend on that cold start.
+fn git_command() -> String {
+    if !cfg!(target_os = "macos") {
+        return "git".into();
+    }
+    let output = std::process::Command::new("/usr/bin/xcrun")
+        .args(["--find", "git"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    quote(Path::new(String::from_utf8(output.stdout).unwrap().trim()))
+}
+
 #[tokio::test]
 async fn protects_future_checkouts() {
     let directory = tempfile::tempdir().unwrap();
@@ -136,13 +155,14 @@ async fn preserves_metadata_and_workspace_edits() {
         &root,
         &profile,
         &home,
-        String::from(
-            "git --version > version.txt || exit 90; git status --short > status.txt || exit 91; \
+        format!(
+            "{git} --version > version.txt || exit 90; {git} status --short > status.txt || exit 91; \
          printf changed > tracked.txt || exit 92; \
          if printf changed > .git/config; then exit 93; fi; \
          if printf changed > .git/hooks/pre-commit; then exit 94; fi; \
          if printf changed > .git/index; then exit 95; fi; \
          if mv .git renamed-metadata; then exit 96; fi; printf protected",
+            git = git_command(),
         ),
     )
     .await;
@@ -222,11 +242,12 @@ async fn captures_nested_and_linked_metadata() {
         &profile,
         &home,
         format!(
-            "git -C linked status --short > linked-status.txt || exit 90; \
+            "{} -C linked status --short > linked-status.txt || exit 90; \
          if printf changed > linked/.git; then exit 91; fi; \
          if printf changed > nested/.git/config; then exit 92; fi; \
          if printf changed > {}/config; then exit 93; fi; \
          printf allowed > linked/tracked.txt || exit 94; printf protected",
+            git_command(),
             quote(&common)
         ),
     )

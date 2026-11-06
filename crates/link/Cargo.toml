@@ -4,10 +4,15 @@ version = "0.1.0"
 edition.workspace = true
 publish.workspace = true
 license.workspace = true
+autotests = false
 
 # The library has no documentation examples; skip the empty rustdoc pass.
 [lib]
 doctest = false
+
+[[test]]
+name = "transport"
+path = "tests/transport.rs"
 
 [features]
 test-support = []

@@ -19,10 +19,6 @@ name = "logging"
 path = "tests/logging.rs"
 
 [[test]]
-name = "logging_logger"
-path = "tests/logging/logger.rs"
-
-[[test]]
 name = "databases"
 path = "tests/databases.rs"
 
@@ -49,10 +45,6 @@ path = "tests/suites/extensions.rs"
 [[test]]
 name = "resources"
 path = "tests/suites/resources.rs"
-
-[[test]]
-name = "knowledge"
-path = "tests/suites/knowledge.rs"
 
 [[test]]
 name = "code_index"

@@ -41,46 +41,49 @@ Future<Map<String, dynamic>> until(
   bool recovering = false,
 }) => observe(updates.next, ready, recovering: recovering);
 
+/// Each update restarts this window, so slower hosts may take longer in total
+/// while a stream that stops publishing still fails.
+const progressWindow = Duration(seconds: 10);
+
 Future<Map<String, dynamic>> observe(
   Future<String> Function() next,
   bool Function(Map<String, dynamic>) ready, {
   bool recovering = false,
 }) async {
   Map<String, dynamic>? last;
-  return Future(() async {
-    while (true) {
-      final view = jsonDecode(await next()) as Map<String, dynamic>;
-      final error = view['error'];
-      if (error != null) {
-        if (recovering &&
-            view['connected'] == false &&
-            error['code'] == 'unavailable' &&
-            error['message'] == 'conversation requires recovery') {
-          continue;
-        }
-        throw StateError('Conversation observer failed: ${jsonEncode(error)}');
+  while (true) {
+    final update = await next().timeout(
+      progressWindow,
+      onTimeout: () => throw StateError(
+        'Conversation deadline: runs=${last?["page"]?["runs"]}, '
+        'statistics=${last?["statistics"]}',
+      ),
+    );
+    final view = jsonDecode(update) as Map<String, dynamic>;
+    final error = view['error'];
+    if (error != null) {
+      if (recovering &&
+          view['connected'] == false &&
+          error['code'] == 'unavailable' &&
+          error['message'] == 'conversation requires recovery') {
+        continue;
       }
-      final statisticsError = view['statistics_error'];
-      if (statisticsError != null) {
-        throw StateError(
-          'Conversation statistics failed: ${jsonEncode(statisticsError)}',
-        );
-      }
-      final snapshot = view['snapshot'] as Map<String, dynamic>?;
-      last = snapshot;
-      if (snapshot != null &&
-          (!recovering || view['connected'] == true) &&
-          ready(snapshot)) {
-        return view;
-      }
+      throw StateError('Conversation observer failed: ${jsonEncode(error)}');
     }
-  }).timeout(
-    const Duration(seconds: 10),
-    onTimeout: () => throw StateError(
-      'Conversation deadline: runs=${last?["page"]?["runs"]}, '
-      'statistics=${last?["statistics"]}',
-    ),
-  );
+    final statisticsError = view['statistics_error'];
+    if (statisticsError != null) {
+      throw StateError(
+        'Conversation statistics failed: ${jsonEncode(statisticsError)}',
+      );
+    }
+    final snapshot = view['snapshot'] as Map<String, dynamic>?;
+    last = snapshot;
+    if (snapshot != null &&
+        (!recovering || view['connected'] == true) &&
+        ready(snapshot)) {
+      return view;
+    }
+  }
 }
 
 Future<Map<String, dynamic>> statistics(

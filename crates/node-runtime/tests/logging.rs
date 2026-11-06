@@ -1,4 +1,7 @@
-//! A separate test process owns one sink and only isolated local/remote Nodes.
+//! Each test installs the process-global sink and uses only isolated local/remote
+//! Nodes; the nextest runner gives every test its own process.
+#[path = "logging/logger.rs"]
+mod logger;
 #[path = "agent_support/mod.rs"]
 #[expect(
     dead_code,
