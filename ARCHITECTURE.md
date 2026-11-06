@@ -829,7 +829,9 @@ Background child and command completions have durable, session-owned evidence.
 An idle main session continues through the ordinary queue using its current
 configuration when a background child completes or a command explicitly requests
 `follow_up`. Commands default to retaining completion evidence without starting
-a model reply. Busy sessions collect a bounded batch on their next eligible input;
+a model reply. A running background command without output for 15 minutes is not
+stopped; it records separate stall evidence once per silent period, delivered
+under the same rules. Busy sessions collect a bounded batch on their next eligible input;
 automatic completion input includes only children and commands that opted in.
 User-initiated input can collect any pending completion evidence. Pending
 consent, paused queues and removed or archived owners prevent automatic input;

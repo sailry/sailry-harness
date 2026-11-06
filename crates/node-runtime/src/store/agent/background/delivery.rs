@@ -38,7 +38,7 @@ pub(in crate::store) async fn bind(db: &Connection, run: &mut Run) -> Result<Vec
         selected
     } else {
         let sql = if run.notice {
-            "SELECT body FROM agent_background WHERE session=?1 AND state='pending' AND delivery IS NULL AND (kind='agent' OR json_extract(body,'$.follow_up')=1) AND json_extract(body,'$.task.suppressed')=0 AND json_extract(body,'$.task.recovered')=0 AND json_extract(body,'$.task.outcome') IN ('completed','failed','timed_out','unknown') ORDER BY sequence LIMIT 17"
+            "SELECT body FROM agent_background WHERE session=?1 AND state='pending' AND delivery IS NULL AND (kind='agent' OR json_extract(body,'$.follow_up')=1) AND json_extract(body,'$.task.suppressed')=0 AND json_extract(body,'$.task.recovered')=0 AND json_extract(body,'$.task.outcome') IN ('completed','failed','timed_out','unknown','stalled') ORDER BY sequence LIMIT 17"
         } else {
             "SELECT body FROM agent_background WHERE session=?1 AND state='pending' AND delivery IS NULL ORDER BY sequence LIMIT 17"
         };
@@ -249,7 +249,7 @@ async fn admit(
         return Ok(None);
     }
     let eligible: bool = {
-        let mut statement = db.prepare("SELECT EXISTS(SELECT 1 FROM agent_background WHERE session=?1 AND state='pending' AND delivery IS NULL AND (kind='agent' OR json_extract(body,'$.follow_up')=1) AND json_extract(body,'$.task.suppressed')=0 AND json_extract(body,'$.task.recovered')=0 AND json_extract(body,'$.task.outcome') IN ('completed','failed','timed_out','unknown'))").await.map_err(storage_error)?;
+        let mut statement = db.prepare("SELECT EXISTS(SELECT 1 FROM agent_background WHERE session=?1 AND state='pending' AND delivery IS NULL AND (kind='agent' OR json_extract(body,'$.follow_up')=1) AND json_extract(body,'$.task.suppressed')=0 AND json_extract(body,'$.task.recovered')=0 AND json_extract(body,'$.task.outcome') IN ('completed','failed','timed_out','unknown','stalled'))").await.map_err(storage_error)?;
         let row = statement
             .query_row([session.to_string()])
             .await

@@ -3,7 +3,7 @@ use sailry_protocol::{
     Fault, TurnId,
     conversation::{
         Page,
-        background::{Kind, Task},
+        background::{Kind, Outcome, Task},
     },
 };
 use std::collections::BTreeSet;
@@ -28,7 +28,11 @@ fn check(page: &Page, task: &Task) -> Result<(), Fault> {
                     .strip_prefix("agent:")
                     .is_some_and(|id| id.parse::<TurnId>().is_ok())
         }
-        Kind::Command { id } => task.id == format!("command:{id}"),
+        // Stall evidence is separate from the still-running command's own record.
+        Kind::Command { id } => {
+            task.id == format!("command:{id}")
+                || (task.outcome == Some(Outcome::Stalled) && task.id == format!("stall:{id}"))
+        }
     };
     if !identity
         || task.session != page.session

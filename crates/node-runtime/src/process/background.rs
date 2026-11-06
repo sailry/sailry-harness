@@ -1,6 +1,9 @@
 //! Session-owned commands outlive Agent turns, but never the execution Node.
 mod services;
+mod stalls;
 mod subscription;
+
+pub(crate) use stalls::{STALL_WINDOW, Stalled};
 
 use super::{Environment, Launch, execute_background};
 use sailry_link::CancellationToken;
@@ -33,6 +36,8 @@ struct Entry {
     promoted: bool,
     retained: Arc<super::output::Retained>,
     accessed: std::time::Instant,
+    /// The last output instant whose following silence was already reported.
+    stalled: Option<std::time::Instant>,
 }
 
 pub(crate) struct Finished {
@@ -43,18 +48,24 @@ pub(crate) struct Finished {
 
 pub(crate) struct Commands {
     sink: OnceLock<tokio::sync::mpsc::UnboundedSender<Finished>>,
+    stalls: OnceLock<tokio::sync::mpsc::UnboundedSender<Stalled>>,
     entries: Mutex<BTreeMap<RequestId, Entry>>,
     changes: watch::Sender<()>,
     budget: Arc<super::output::Budget>,
+    #[cfg(any(test, feature = "test-support"))]
+    stall_window: Mutex<Option<std::time::Duration>>,
 }
 
 impl Default for Commands {
     fn default() -> Self {
         Self {
             sink: OnceLock::new(),
+            stalls: OnceLock::new(),
             entries: Mutex::default(),
             changes: watch::channel(()).0,
             budget: Arc::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            stall_window: Mutex::default(),
         }
     }
 }
@@ -194,6 +205,7 @@ impl Commands {
                 promoted: false,
                 retained: retained.clone(),
                 accessed: std::time::Instant::now(),
+                stalled: None,
             },
         );
         let owner = self.clone();
@@ -331,6 +343,7 @@ impl Commands {
                 promoted: false,
                 retained: retained.clone(),
                 accessed: std::time::Instant::now(),
+                stalled: None,
             },
         );
         retained

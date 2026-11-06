@@ -6,6 +6,7 @@ use serde_json::Value;
 use std::collections::BTreeSet;
 
 mod follow_up;
+mod stalls;
 
 async fn pending(fixture: &Fixture, turn: TurnId, output: &str) -> String {
     let transaction = turso::transaction::Transaction::new_unchecked(

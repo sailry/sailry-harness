@@ -283,8 +283,8 @@ pub(super) fn parameters(operation: Operation) -> Value {
             json!({
                 "command":{"type":"string"}, "access":{"type":["string","null"],"enum":["workspace","unrestricted",null],"description":"Workspace access is confined and has no network on macOS/Linux. Unrestricted access needs fresh approval in Ask/Project and runs automatically in Full."}, "description":{"type":["string","null"]}, "cwd":{"type":"string"},
                 "timeout_ms":{"type":"integer", "minimum":1, "maximum":9_007_199_254_740_991u64},
-                "background":{"type":"boolean"},
-                "follow_up":{"type":"boolean", "default":false},
+                "background":{"type":"boolean", "description":format!("Keep running after this turn without a timeout and return an ID. A listener or waiter must enforce its own timeout and exit with a failure status when it expires. After {} minutes without output, a stall notice is recorded; then stop the command, inspect its output, or deliberately keep waiting.", crate::process::background::STALL_WINDOW.as_secs() / 60)},
+                "follow_up":{"type":"boolean", "default":false, "description":"Continue the conversation automatically when this background command finishes or stalls. Required when you wait for its result; otherwise status and output are only retained."},
                 "pty":{"type":"boolean", "default":false},
                 "attachments":{"type":"array", "items":{"type":"string"}, "uniqueItems":true}
             }),
