@@ -8,4 +8,4 @@ Reicon base icons include elements from Solar Icons by 480 Design (CC BY 4.0, ht
 Lucide
 https://github.com/dux-web/gpui-component/tree/4424427e60fcc9a95cd2a7daeacd77cc51b92e85/crates/assets
 
-users.svg, crown.svg and bot.svg are unchanged Lucide 1.43.0 assets from the pinned GPUI Kit revision used by Desktop. Their ISC and Feather-derived MIT notices are retained in LICENSE-LUCIDE.txt.
+users.svg, crown.svg, bot.svg and ellipsis.svg are unchanged Lucide 1.43.0 assets from the pinned GPUI Kit revision used by Desktop. Their ISC and Feather-derived MIT notices are retained in LICENSE-LUCIDE.txt.

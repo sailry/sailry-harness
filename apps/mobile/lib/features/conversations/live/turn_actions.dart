@@ -87,7 +87,7 @@ class TurnActions extends StatelessWidget {
           IconButton(
             style: _style,
             tooltip: context.tr('messageActions'),
-            icon: const AppIcon('more', size: 16),
+            icon: const AppIcon('ellipsis', size: 16),
             onPressed: () => showTurnActions(
               context,
               onAction: onAction,

@@ -648,7 +648,7 @@ class _ConversationPageState extends State<ConversationPage> {
       ),
       actions: [
         RoundButton(
-          icon: 'more',
+          icon: 'ellipsis',
           tooltip: context.tr('more'),
           onPressed: _menu,
         ),

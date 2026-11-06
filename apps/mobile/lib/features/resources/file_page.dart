@@ -383,7 +383,7 @@ class _ResourceFilePageState extends State<ResourceFilePage> {
             ),
           Builder(
             builder: (context) => RoundButton(
-              icon: 'more',
+              icon: 'ellipsis',
               tooltip: context.tr('more'),
               onPressed: _busy
                   ? null
