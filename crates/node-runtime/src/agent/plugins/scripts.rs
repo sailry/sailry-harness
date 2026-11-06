@@ -196,6 +196,18 @@ pub(super) async fn bind(
             });
             let descriptor = script.descriptor();
             let delegation = script.is_agent_delegation();
+            // Package turn state and browser navigation change what later calls read.
+            let ordered = script.turn.is_some()
+                || handler
+                    .operation
+                    .into_iter()
+                    .chain(
+                        handler
+                            .flow
+                            .iter()
+                            .flat_map(|flow| flow.operations.iter().copied()),
+                    )
+                    .any(operations::ordered);
             let mut registration = if matches!(
                 operation,
                 Some(tool::Operation::RunSsh | tool::Operation::TransferSsh)
@@ -217,6 +229,7 @@ pub(super) async fn bind(
                 ToolRegistration::managed(descriptor, script)
             };
             registration.delegation = delegation;
+            registration.ordered = ordered;
             registration.presentation = declaration.presentation;
             registration.grouping = declaration.grouping;
             registration.plugin = Some(package.summary.name.clone());

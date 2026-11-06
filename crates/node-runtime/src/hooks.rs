@@ -48,6 +48,12 @@ impl Binding {
         })
     }
 
+    pub(crate) fn has_tool_scripts(&self) -> bool {
+        [Phase::BeforeTool, Phase::AfterTool]
+            .into_iter()
+            .any(|phase| self.settings.scripts(phase).next().is_some())
+    }
+
     pub(crate) async fn before(self: &Arc<Self>, tool: &str) -> Result<(), Fault> {
         let ordinal = self.before.fetch_add(1, Ordering::Relaxed);
         self.execute(Phase::BeforeTool, ordinal, Some(tool), None)

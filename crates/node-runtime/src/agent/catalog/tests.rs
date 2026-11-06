@@ -22,6 +22,56 @@ fn moves_context_without_changing_output() {
     assert!(json(json!({"sailry_context":{"captured":false,"loaded_tools":7}})).is_err());
 }
 
+mod concurrency {
+    use super::*;
+
+    struct Idle;
+    #[async_trait]
+    impl ToolProvider<CallContext> for Idle {
+        async fn tools(&self, _: &CallContext) -> anyhow::Result<Vec<Tool>> {
+            Ok(Vec::new())
+        }
+        async fn call(
+            &self,
+            _: &CallContext,
+            _: &str,
+            _: CallToolRequestParams,
+            _: &Emitter,
+        ) -> Result<CallToolResult, ErrorData> {
+            unreachable!("concurrency checks never dispatch")
+        }
+    }
+
+    fn registration(name: &'static str, read_only: Option<bool>) -> Registration {
+        let mut tool = Tool::new(name, name, serde_json::Map::new());
+        if let Some(read_only) = read_only {
+            tool = tool.with_annotations(rmcp::model::ToolAnnotations::new().read_only(read_only));
+        }
+        Registration::new(tool, Arc::new(Idle), Presentation::default())
+    }
+
+    #[test]
+    fn follows_read_only_registrations() {
+        let mut ordered = registration("navigate", Some(true));
+        ordered.ordered = true;
+        let mut catalog = Catalog::new("session".into(), CancellationToken::new(), None);
+        for entry in [
+            registration("read", Some(true)),
+            registration("write", Some(false)),
+            registration("unmarked", None),
+            ordered,
+        ] {
+            catalog.register(entry).unwrap();
+        }
+
+        assert!(catalog.concurrent("read"));
+        for name in ["write", "unmarked", "navigate", "missing"] {
+            assert!(!catalog.concurrent(name), "{name}");
+        }
+        assert!(catalog.entries["navigate"].read_only());
+    }
+}
+
 #[test]
 fn rejects_anonymous_calls() {
     assert!(

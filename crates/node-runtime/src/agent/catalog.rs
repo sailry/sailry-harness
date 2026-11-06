@@ -21,6 +21,9 @@ pub(super) struct Registration {
     pub managed: bool,
     pub deferred: bool,
     pub delegation: bool,
+    /// Read-only calls whose effects depend on call order, such as browser
+    /// navigation, never overlap other calls.
+    pub ordered: bool,
 }
 impl Registration {
     pub fn new(
@@ -38,6 +41,7 @@ impl Registration {
             managed: false,
             deferred: false,
             delegation: false,
+            ordered: false,
         }
     }
     pub fn managed(tool: Tool, provider: Arc<dyn ToolProvider<CallContext>>) -> Self {
@@ -52,6 +56,10 @@ impl Registration {
             .as_ref()
             .and_then(|value| value.read_only_hint)
             .unwrap_or(false)
+    }
+    /// Whether calls may run alongside adjacent read-only calls of one response.
+    pub fn concurrent(&self) -> bool {
+        self.read_only() && !self.ordered
     }
 }
 
@@ -121,6 +129,15 @@ impl Catalog {
             .iter()
             .map(|(name, entry)| (name.clone(), entry.presentation))
             .collect()
+    }
+    /// Whether a call may overlap adjacent read-only calls. Tool hook scripts
+    /// run around each call, so they keep every call in order.
+    pub fn concurrent(&self, name: &str) -> bool {
+        !self
+            .hooks
+            .as_ref()
+            .is_some_and(|hooks| hooks.has_tool_scripts())
+            && self.entries.get(name).is_some_and(Registration::concurrent)
     }
 }
 #[async_trait]
@@ -236,6 +253,9 @@ impl<S: CatalogSession + Send + Sync> ToolProvider<S> for Catalog {
             hooks.after(name, success).await;
         }
         result
+    }
+    fn read_only(&self, _: &S, name: &str) -> bool {
+        self.concurrent(name)
     }
 }
 

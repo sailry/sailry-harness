@@ -141,6 +141,19 @@ impl Fixture {
     }
 }
 
+#[test]
+fn keeps_browser_reads_in_order() {
+    assert!(Operation::ReadExternalBrowser.read_only());
+    assert!(ordered(Operation::ReadExternalBrowser));
+    for operation in [
+        Operation::ReadFile,
+        Operation::SearchFiles,
+        Operation::ReadBrowser,
+    ] {
+        assert!(!ordered(operation), "{operation:?}");
+    }
+}
+
 #[tokio::test]
 async fn checks_each_routed_read_once() {
     for remote in [false, true] {

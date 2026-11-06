@@ -127,6 +127,7 @@ pub(super) fn bind(
                 ToolRegistration::new(descriptor, tool, declaration.presentation)
             };
             registration.delegation = operation == Operation::DelegateAgent;
+            registration.ordered = ordered(operation);
             registration.presentation = declaration.presentation;
             registration.grouping = declaration.grouping;
             registration.plugin = Some(package.summary.name.clone());
@@ -140,6 +141,12 @@ pub(super) fn bind(
         }
     }
     tools
+}
+
+/// Read-only operations that change state later reads observe, such as browser
+/// navigation.
+pub(super) fn ordered(operation: Operation) -> bool {
+    operation == Operation::ReadExternalBrowser
 }
 
 pub(super) fn available(ingress: &Ingress, invocation: &Invocation, operation: Operation) -> bool {
