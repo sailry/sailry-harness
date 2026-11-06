@@ -21,7 +21,7 @@ def registered_crates():
     return crates
 
 
-def suite_features(crate, suite):
+def compiled_features(crate, suite):
     """Top-level feature files a suite compiles, through `#[path]` or sibling `mod` items."""
     path = crate / suite["path"]
     tests = crate / "tests"
@@ -53,7 +53,7 @@ class Registration(unittest.TestCase):
                 registered = []
                 for suite in suites:
                     self.assertTrue((crate / suite["path"]).is_file(), suite["path"])
-                    for feature in suite_features(crate, suite):
+                    for feature in compiled_features(crate, suite):
                         self.assertTrue(feature.is_file(), feature)
                         self.assertTrue(feature.is_relative_to(tests), feature)
                         if feature.parent == tests:
@@ -72,11 +72,11 @@ class Layouts(unittest.TestCase):
             (crate / "tests/streams.rs").write_text("")
             (crate / "tests/suites/node.rs").write_text('#[path = "../agent.rs"]\nmod agent;\n')
             (crate / "tests/single.rs").write_text("#[test]\nfn passes() {}\n")
-            self.assertEqual(suite_features(crate, {"path": "tests/transport.rs"}),
+            self.assertEqual(compiled_features(crate, {"path": "tests/transport.rs"}),
                              [crate / "tests/transport.rs", crate / "tests/connections.rs", crate / "tests/streams.rs"])
-            self.assertEqual(suite_features(crate, {"path": "tests/suites/node.rs"}),
+            self.assertEqual(compiled_features(crate, {"path": "tests/suites/node.rs"}),
                              [(crate / "tests/agent.rs").resolve()])
-            self.assertEqual(suite_features(crate, {"path": "tests/single.rs"}), [crate / "tests/single.rs"])
+            self.assertEqual(compiled_features(crate, {"path": "tests/single.rs"}), [crate / "tests/single.rs"])
 
 
 if __name__ == "__main__":
