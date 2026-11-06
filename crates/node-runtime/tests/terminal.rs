@@ -5,6 +5,8 @@ use sailry_protocol::{terminal::*, *};
 use std::{sync::Arc, time::Duration};
 #[path = "terminal/activity.rs"]
 mod activity;
+#[path = "terminal/appearance.rs"]
+mod appearance;
 #[path = "terminal/arguments.rs"]
 mod arguments;
 #[cfg(unix)]
@@ -288,6 +290,7 @@ async fn shares_process_and_input_ownership() {
         projection.apply(1, stream.next().await.unwrap()).unwrap();
         command(&client, &info, &marker("pty-", "ready")).await;
         until(&mut *stream, &mut projection, "pty-ready").await;
+        appearance::verify(&client, &info, &mut *stream, &mut projection).await;
         let invalid = vec![
             Input::Text {
                 text: "echo leaked > batch-rejected".into(),

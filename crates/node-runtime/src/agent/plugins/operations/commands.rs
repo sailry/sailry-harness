@@ -46,7 +46,7 @@ pub(super) async fn retain(
                 if preview[name].is_object()
                     && let Ok(head) = retained.page(info.clone(), stream, 0, 8 * 1024)
                 {
-                    if !head.invalid_utf8 {
+                    if !head.invalid_utf8 && preview[name]["transcoded"] != true {
                         preview[name]["head_bytes"] = json!(head.text.len());
                     }
                     preview[name]["head_invalid_utf8"] = json!(head.invalid_utf8);

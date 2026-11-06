@@ -147,6 +147,7 @@ impl Shell {
             .ghost()
             .small()
             .icon(IconName::PanelRight)
+            .when(cfg!(target_os = "windows"), |button| button.occlude())
             .selected(visible)
             .tooltip(label.clone())
             .accessibility_label(label)

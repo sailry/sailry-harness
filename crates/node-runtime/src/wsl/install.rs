@@ -31,7 +31,8 @@ impl Installation {
                 "Host requires a WSL2 distribution",
             ));
         }
-        self.run(&source, environment, PREFLIGHT, Duration::from_secs(30))
+        let preflight = deployment::normalize(PREFLIGHT);
+        self.run(&source, environment, &preflight, Duration::from_secs(30))
             .await?;
         if self.stop.is_cancelled() {
             return Err(Fault::new(
@@ -41,7 +42,7 @@ impl Installation {
         }
         let version = env!("SAILRY_HOST_VERSION");
         let script = format!(
-            "{PREFLIGHT}\n{}",
+            "{preflight}\n{}",
             deployment::script(version, false, network)?
         );
         self.progress.send_replace(InstallProgress::Installing);

@@ -403,13 +403,7 @@ pub(super) fn configure_appearance(
     for (index, color) in appearance.palette.into_iter().enumerate() {
         base.set(PaletteIndex(index as _), ghostty_color(color));
     }
-    let palette = Palette::generate(
-        Some(&base),
-        None,
-        background,
-        foreground,
-        appearance.color_scheme == ColorScheme::Light,
-    );
+    let palette = Palette::generate(Some(&base), None, background, foreground, false);
     check(
         terminal.set_default_fg_color(Some(foreground)),
         "configure Ghostty foreground",

@@ -56,6 +56,24 @@ async fn bounds_output_and_preserves_failures() {
 }
 
 #[tokio::test]
+async fn preserves_argument_line_endings() {
+    let resource = crate::host::deployment::normalize("set -eu\r\n");
+    let argument = "first\r\nsecond";
+    let script = format!("{resource}printf '%s' '{argument}'\n");
+    assert_eq!(
+        run(
+            shell(),
+            &script,
+            &CancellationToken::new(),
+            Duration::from_secs(5)
+        )
+        .await
+        .unwrap(),
+        argument
+    );
+}
+
+#[tokio::test]
 async fn stops_cancelled_and_timed_out_commands() {
     let stop = CancellationToken::new();
     stop.cancel();

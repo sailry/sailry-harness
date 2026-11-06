@@ -191,6 +191,7 @@ mod tests {
                 marker.display()
             ),
             "https://backup.example:8443".into(),
+            "https://relay.example/path\r\nnext".into(),
         ];
         let custom = Selection::Custom {
             relays: urls.clone(),
@@ -206,9 +207,9 @@ mod tests {
             ),
         ] {
             let source = script("0.1.0-alpha.1", false, selected.as_ref()).unwrap();
-            let prefix = source
-                .strip_suffix(include_str!("../host/deployment/release.sh"))
-                .unwrap();
+            let release =
+                crate::host::deployment::normalize(include_str!("../host/deployment/release.sh"));
+            let prefix = source.strip_suffix(&release).unwrap();
             let output = std::process::Command::new("sh")
                 .arg("-c")
                 .arg(format!(

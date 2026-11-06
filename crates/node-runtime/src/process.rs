@@ -251,6 +251,7 @@ async fn execute_configured(
     if stop.is_cancelled() || closed.is_cancelled() {
         return Ok(cancelled());
     }
+    let encoding = output::Encoding::command();
     let mut child = Child {
         inner: command.spawn().map_err(|error| {
             Fault::new(
@@ -273,7 +274,8 @@ async fn execute_configured(
         .take()
         .expect("command stderr was piped");
     let mut stdin = child.inner.stdin().take();
-    let mut capture = output::Drain::with_retained(stdout, stderr, progress.is_some(), retained);
+    let mut capture =
+        output::Drain::with_encoding(stdout, stderr, progress.is_some(), retained, encoding);
     let mut tick = tokio::time::interval(Duration::from_millis(100));
     let mut outcome = {
         let wait = child.wait_root();

@@ -49,14 +49,36 @@ async fn starts_quoted_script_paths() {
 #[tokio::test]
 async fn captures_unicode_and_exit_status() {
     let directory = tempfile::tempdir().unwrap();
+    std::fs::write(directory.path().join("utf8.txt"), "中文 🙂").unwrap();
     let output = run(launch(
         directory.path(),
-        "chcp 65001>nul & echo \"中文 🙂\"& echo error-marker 1>&2& exit /b 7",
+        "type utf8.txt & echo error-marker 1>&2& exit /b 7",
     ))
     .await;
     assert_eq!(output.outcome, Outcome::Exited(7));
-    assert_eq!(output.stdout.text.trim(), "\"中文 🙂\"");
+    assert_eq!(output.stdout.text, "中文 🙂");
     assert_eq!(output.stderr.text.trim(), "error-marker");
     assert!(!output.stdout.invalid_utf8);
     assert!(!output.stderr.invalid_utf8);
+}
+
+#[tokio::test]
+async fn captures_localized_system_output() {
+    let directory = tempfile::tempdir().unwrap();
+    let output = run(launch(directory.path(), "cmd.exe /d /c ver")).await;
+    let reference = std::process::Command::new(Environment::ambient().shell())
+        .args(["/d", "/u", "/c", "ver"])
+        .output()
+        .unwrap();
+    assert!(reference.status.success());
+    assert_eq!(reference.stdout.len() % 2, 0);
+    let wide: Vec<_> = reference
+        .stdout
+        .chunks_exact(2)
+        .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+        .collect();
+    assert_eq!(output.outcome, Outcome::Exited(0));
+    assert_eq!(output.stdout.text, String::from_utf16(&wide).unwrap());
+    assert!(!output.stdout.invalid_utf8);
+    assert!(output.stderr.text.is_empty() && !output.stderr.invalid_utf8);
 }

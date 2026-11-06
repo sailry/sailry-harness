@@ -191,8 +191,23 @@ pub fn init(cx: &mut App) {
 }
 
 pub fn terminal(cx: &App) -> sailry_protocol::terminal::Appearance {
+    use gpui_kit::component::{black, neutral_200, white};
     use sailry_protocol::terminal::{Appearance, ColorScheme, Rgb};
     let theme = cx.theme();
+    let normal = |color: Hsla| {
+        if theme.is_dark() {
+            color
+        } else {
+            color.darken(0.3)
+        }
+    };
+    let bright = |color: Hsla| {
+        if theme.is_dark() {
+            color
+        } else {
+            color.darken(0.5)
+        }
+    };
     let rgb = |color: Hsla| {
         // Terminal ANSI colors have no alpha channel; resolve theme overlays first.
         let color = theme.background.blend(color).to_rgb();
@@ -211,22 +226,22 @@ pub fn terminal(cx: &App) -> sailry_protocol::terminal::Appearance {
             ColorScheme::Light
         },
         palette: [
-            theme.background,
-            theme.red,
-            theme.green,
-            theme.yellow,
-            theme.blue,
-            theme.magenta,
-            theme.cyan,
-            theme.foreground,
+            black(),
+            normal(theme.red),
+            normal(theme.green),
+            normal(theme.yellow),
+            normal(theme.blue),
+            normal(theme.magenta),
+            normal(theme.cyan),
+            neutral_200(),
             theme.muted_foreground,
-            theme.red_light,
-            theme.green_light,
-            theme.yellow_light,
-            theme.blue_light,
-            theme.magenta_light,
-            theme.cyan_light,
-            theme.foreground,
+            bright(theme.red_light),
+            bright(theme.green_light),
+            bright(theme.yellow_light),
+            bright(theme.blue_light),
+            bright(theme.magenta_light),
+            bright(theme.cyan_light),
+            white(),
         ]
         .map(rgb),
     }
@@ -282,6 +297,8 @@ fn sync_window(cx: &mut App) {
 
 #[cfg(test)]
 mod tests {
+    mod terminal;
+
     use super::*;
     use gpui_kit::{TestAppContext, component::ThemeMode, gpui};
 

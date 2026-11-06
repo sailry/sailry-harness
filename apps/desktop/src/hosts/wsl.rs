@@ -94,52 +94,26 @@ impl Form {
             .flatten()
     }
 
-    pub(super) fn body(&self, disabled: bool, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn body(&self, disabled: bool, _: &mut Context<Self>) -> AnyElement {
         let empty = if self.loaded {
             "host_wsl_empty"
         } else {
             "host_wsl_distribution"
         };
-        v_flex()
-            .w_full()
-            .gap_3()
+        Field::new()
+            .label(tr("host_wsl_distribution"))
             .child(
-                v_flex()
-                    .gap_1()
-                    .text_sm()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(tr("host_wsl_requirement"))
-                    .child(tr("host_wsl_lifetime")),
-            )
-            .child(
-                Field::new().label(tr("host_wsl_distribution")).child(
-                    h_flex()
-                        .w_full()
-                        .gap_2()
-                        .child(
-                            Select::new(&self.select)
-                                .flex_1()
-                                .min_w_0()
-                                .disabled(disabled || self.loading)
-                                .placeholder(tr("host_wsl_distribution"))
-                                .accessibility_label(tr("host_wsl_distribution"))
-                                .empty(move |_, cx| {
-                                    h_flex()
-                                        .p_3()
-                                        .text_color(cx.theme().muted_foreground)
-                                        .child(tr(empty))
-                                }),
-                        )
-                        .child(
-                            Button::new("host-wsl-refresh")
-                                .label(tr("host_wsl_refresh"))
-                                .loading(self.loading)
-                                .disabled(disabled || self.loading)
-                                .on_click(
-                                    cx.listener(|this, _, window, cx| this.refresh(window, cx)),
-                                ),
-                        ),
-                ),
+                Select::new(&self.select)
+                    .w_full()
+                    .disabled(disabled || self.loading)
+                    .placeholder(tr("host_wsl_distribution"))
+                    .accessibility_label(tr("host_wsl_distribution"))
+                    .empty(move |_, cx| {
+                        h_flex()
+                            .p_3()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(tr(empty))
+                    }),
             )
             .into_any_element()
     }

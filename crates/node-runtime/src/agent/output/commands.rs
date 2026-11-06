@@ -54,7 +54,8 @@ pub(super) fn project(original: &Value, source: &Value) -> Option<Value> {
         let retained = preview["retained_bytes"].as_u64();
         let retained_end = preview["retained_end"].as_u64().or(retained);
         let retained_tail = preview["retained_tail_offset"].as_u64();
-        let readable_tail = !invalid && retained_end.is_none_or(|end| offset < end);
+        let raw_offset = preview["transcoded"] != true || has_tail && start == 0;
+        let readable_tail = !invalid && raw_offset && retained_end.is_none_or(|end| offset < end);
         let hint = super::hint(original, Some(stream), Some(0));
         let location = if readable_tail {
             format!("; preview tail starts at offset={offset}")
@@ -75,7 +76,7 @@ pub(super) fn project(original: &Value, source: &Value) -> Option<Value> {
             "retained_tail_offset":retained_tail,
             "retained_end":retained_end,
         });
-        if !invalid {
+        if !invalid && raw_offset {
             data[stream]["omitted_bytes"] = json!(offset);
         }
         changed = true;
@@ -87,6 +88,38 @@ pub(super) fn project(original: &Value, source: &Value) -> Option<Value> {
         result["output"] = source.clone();
     }
     changed.then_some(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn preserves_only_known_raw_offsets() {
+        for text in ["版本".to_owned(), "版本\n".repeat(5000)] {
+            let original = json!({
+                "stdout":{"text":text,"truncated":true,"invalid_utf8":false},
+                "sailry_command":{
+                    "id":"fixture",
+                    "stdout":{
+                        "tail":text,"tail_offset":4096,"total_bytes":40_000,
+                        "retained_end":40_000,"transcoded":true,"invalid_utf8":false,
+                    },
+                },
+            });
+            let projected = project(&original, &json!({"call":"fixture"})).unwrap();
+            let stream = &projected["stdout"];
+            assert_eq!(stream["total_bytes"], 40_000);
+            if text == "版本" {
+                assert_eq!(stream["tail_offset"], 4096);
+                assert_eq!(stream["omitted_bytes"], 4096);
+            } else {
+                assert!(stream["tail_offset"].is_null());
+                assert!(stream.get("omitted_bytes").is_none());
+                assert!(!stream["text"].as_str().unwrap().contains("tail starts at"));
+            }
+        }
+    }
 }
 
 fn tail(text: &str) -> (usize, String) {

@@ -1,6 +1,9 @@
 //! One Add Host dialog retains the pairing and deployment drafts across methods.
 use super::*;
-use gpui_kit::component::tab::{Tab, TabBar};
+use gpui_kit::component::{
+    searchable_list::SearchableListItem,
+    select::{Select, SelectEvent, SelectState},
+};
 use sailry_protocol::ssh::Authentication;
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -47,8 +50,21 @@ impl Method {
     }
 }
 
+impl SearchableListItem for Method {
+    type Value = Self;
+
+    fn title(&self) -> SharedString {
+        tr(self.label())
+    }
+
+    fn value(&self) -> &Self::Value {
+        self
+    }
+}
+
 struct Add {
     method: Method,
+    method_select: Entity<SelectState<Vec<Method>>>,
     pairing: Entity<crate::settings::Pairing>,
     installer: Entity<Installer>,
     #[cfg(windows)]
@@ -60,6 +76,18 @@ pub(crate) fn open(window: &mut Window, cx: &mut App) {
         return;
     };
     let owner = cx.new(|cx| {
+        let method_select = cx
+            .new(|cx| SelectState::new(Method::ALL.to_vec(), Some(IndexPath::new(0)), window, cx));
+        cx.subscribe_in(
+            &method_select,
+            window,
+            |view: &mut Add, _, event, window, cx| {
+                if let SelectEvent::Confirm(Some(method)) = event {
+                    view.select(*method, window, cx);
+                }
+            },
+        )
+        .detach();
         let pairing = cx.new(|cx| crate::settings::Pairing::new(window, cx));
         pairing.update(cx, |pairing, cx| pairing.prepare_network(window, cx));
         #[cfg(windows)]
@@ -83,6 +111,7 @@ pub(crate) fn open(window: &mut Window, cx: &mut App) {
         .detach();
         Add {
             method: Method::default(),
+            method_select,
             pairing,
             installer,
             #[cfg(windows)]
@@ -93,7 +122,7 @@ pub(crate) fn open(window: &mut Window, cx: &mut App) {
         let closing = owner.clone();
         dialog
             .form_title(tr("host_add"), cx)
-            .w(px(560.).min(window.viewport_size().width - px(48.)))
+            .w(px(420.).min(window.viewport_size().width - px(48.)))
             .max_h(window.viewport_size().height * 0.85)
             .overlay_closable(false)
             .on_close(move |_, _, cx| {
@@ -117,6 +146,9 @@ impl Add {
 
     fn select(&mut self, method: Method, window: &mut Window, cx: &mut Context<Self>) {
         if self.busy(cx) {
+            self.method_select.update(cx, |select, cx| {
+                select.set_selected_value(&self.method, window, cx);
+            });
             return;
         }
         self.method = method;
@@ -187,28 +219,11 @@ impl Add {
 impl Render for Add {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let busy = self.busy(cx);
-        let tabs = TabBar::new("host-add-method")
-            .segmented()
-            .menu(false)
+        let method = Select::new(&self.method_select)
+            .id("host-add-method")
             .w_full()
-            .selected_index(
-                Method::ALL
-                    .iter()
-                    .position(|method| *method == self.method)
-                    .unwrap_or_default(),
-            )
-            .children(Method::ALL.iter().map(|method| {
-                Tab::new()
-                    .flex_1()
-                    .min_w_0()
-                    .label(tr(method.label()))
-                    .disabled(busy)
-            }))
-            .on_click(cx.listener(|view, index, window, cx| {
-                if let Some(method) = Method::ALL.get(*index) {
-                    view.select(*method, window, cx);
-                }
-            }));
+            .disabled(busy)
+            .accessibility_label(tr("connection"));
         let body = if self.method == Method::Pairing {
             self.pairing
                 .update(cx, |pairing, cx| pairing.pairing_body(cx))
@@ -231,7 +246,7 @@ impl Render for Add {
                 self.pairing
                     .update(cx, |pairing, cx| pairing.target_network_fields(busy, cx)),
             )
-            .child(tabs)
+            .child(method)
             .child(body)
     }
 }

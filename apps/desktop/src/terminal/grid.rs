@@ -38,6 +38,7 @@ struct Run {
 }
 
 pub(super) struct Drawing {
+    background: Option<Hsla>,
     rows: Vec<(usize, Vec<Run>)>,
     images: Vec<super::graphics::Placement>,
     metrics: Metrics,
@@ -122,6 +123,11 @@ pub(super) fn prepare(
         }
     }
     let mut drawing = Drawing {
+        background: view
+            .state
+            .snapshot
+            .as_ref()
+            .map(|snapshot| color(snapshot.screen.background)),
         rows: Vec::new(),
         images: Vec::new(),
         metrics,
@@ -383,6 +389,9 @@ pub(super) fn paint(
     let focus = view.read(cx).focus.clone();
     window.handle_input(&focus, ElementInputHandler::new(bounds, view.clone()), cx);
     window.with_content_mask(Some(ContentMask { bounds }), |window| {
+        if let Some(background) = drawing.background {
+            window.paint_quad(fill(bounds, background));
+        }
         super::graphics::paint(&drawing.images, -1, window);
         for (row, runs) in &drawing.rows {
             let y = bounds.top() + drawing.offset + drawing.metrics.cell.height * *row as f32;

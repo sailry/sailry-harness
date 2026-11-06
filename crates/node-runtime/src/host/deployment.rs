@@ -25,8 +25,12 @@ pub(crate) fn script(
         "install_version='{version}'\ninstall_update={}\nset -- {}\n{}",
         if update { "1" } else { "0" },
         arguments.join(" "),
-        include_str!("deployment/release.sh")
+        normalize(include_str!("deployment/release.sh"))
     ))
+}
+
+pub(crate) fn normalize(source: &str) -> String {
+    source.replace("\r\n", "\n")
 }
 
 pub(crate) async fn configure_network(
@@ -103,3 +107,6 @@ pub(crate) async fn configure_network(
 fn unknown(message: &str) -> Fault {
     Fault::new(ErrorCode::OutcomeUnknown, message)
 }
+
+#[cfg(test)]
+mod tests;

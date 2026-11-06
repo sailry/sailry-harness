@@ -89,6 +89,8 @@ struct Stream {
     written: u64,
     tail: Vec<u8>,
     budget: Arc<Budget>,
+    decoder: super::Decoder,
+    finished: Option<u64>,
 }
 
 impl Stream {
@@ -117,9 +119,14 @@ impl Stream {
             written: 0,
             tail: Vec::new(),
             budget,
+            decoder: super::Decoder::default(),
+            finished: None,
         }
     }
     fn append(&mut self, bytes: &[u8]) {
+        if self.finished.is_none() {
+            self.decoder.append(bytes);
+        }
         self.total = self.total.saturating_add(bytes.len() as u64);
         if bytes.len() >= TAIL {
             self.tail.clear();
@@ -183,6 +190,10 @@ impl Stream {
     }
 
     fn finish(&mut self) {
+        if self.finished.is_none() {
+            self.decoder.finish();
+        }
+        self.finished.get_or_insert(self.total);
         if let Some(writer) = self.writer.take() {
             self.path = Some(writer.into_temp_path());
         }
@@ -230,7 +241,19 @@ impl Stream {
         let mut head = self.retained.min(self.limit.min(PREFIX_LIMIT));
         let tail_bytes = self.retained - head;
         let mut tail = (self.written as usize).saturating_sub(tail_bytes);
-        if tail_bytes > 0 && tail > head {
+        if self.decoder.native() {
+            let gap = tail_bytes > 0 && tail > head;
+            if gap || tail_bytes == 0 && self.finished.unwrap_or(self.total) > head as u64 {
+                while head > 0 && self.decoder.split(head) {
+                    head -= 1;
+                }
+            }
+            if gap {
+                while tail < self.written as usize && self.decoder.split(tail) {
+                    tail += 1;
+                }
+            }
+        } else if tail_bytes > 0 && tail > head {
             let start = head.saturating_sub(3);
             let suffix = self.read(file, start, head - start)?;
             head = start + super::edges(&suffix, suffix.len(), 0).0;
@@ -297,12 +320,12 @@ impl Stream {
         };
         let count = (end - offset).min(limit.min(PAGE).saturating_add(4));
         let bytes = self.read(&mut file, offset, count).map_err(failure)?;
-        if offset > 0 && bytes.first().is_some_and(|byte| byte & 0xc0 == 0x80) {
-            return Err(Fault::invalid(
-                "command output offset splits a UTF-8 character",
-            ));
-        }
-        let range = super::utf8_page(&bytes, 0, limit.min(PAGE))?;
+        let range = self.decoder.page(
+            &bytes,
+            offset,
+            limit.min(PAGE),
+            self.finished.is_some() && end as u64 == self.written,
+        )?;
         let next = offset + range.end;
         let next_offset = if next < end {
             Some(next)
@@ -311,7 +334,7 @@ impl Stream {
         } else {
             None
         };
-        let text = String::from_utf8_lossy(&bytes[range.clone()]).into_owned();
+        let (text, invalid_utf8) = self.decoder.decode(&bytes[range.clone()], offset);
         Ok(OutputPage {
             info,
             stream,
@@ -320,27 +343,42 @@ impl Stream {
             next_offset,
             text,
             truncated: self.total > self.retained as u64,
-            invalid_utf8: std::str::from_utf8(&bytes[range]).is_err(),
+            invalid_utf8,
         })
     }
 
-    /// The most recent bytes, trimmed to whole UTF-8 characters.
+    fn tail_range(&self) -> std::ops::Range<usize> {
+        self.decoder.bounds(
+            &self.tail,
+            self.total as usize - self.tail.len(),
+            self.finished.is_some(),
+        )
+    }
+
+    /// The most recent bytes, trimmed to whole encoded characters.
     fn recent(&self) -> sailry_protocol::process::Capture {
-        let (_, start) = super::edges(&self.tail, 0, TAIL);
-        let bytes = &self.tail[start..];
+        let range = self.tail_range();
+        let offset = self.total as usize - self.tail.len() + range.start;
+        let bytes = &self.tail[range];
+        let (text, invalid_utf8) = self.decoder.decode(bytes, offset);
         sailry_protocol::process::Capture {
-            text: String::from_utf8_lossy(bytes).into_owned(),
+            text,
             truncated: self.total > bytes.len() as u64,
-            invalid_utf8: std::str::from_utf8(bytes).is_err(),
+            invalid_utf8,
         }
     }
 
     fn preview(&self) -> Option<serde_json::Value> {
         if self.total <= (64 * 1024) as u64 {
-            return None;
+            return self.decoder.transcoded().then(|| {
+                serde_json::json!({
+                    "transcoded":true, "total_bytes":self.total,
+                })
+            });
         }
-        let (_, tail_start) = super::edges(&self.tail, 0, TAIL);
-        let tail = &self.tail[tail_start..];
+        let range = self.tail_range();
+        let offset = self.total as usize - self.tail.len() + range.start;
+        let (text, invalid_utf8) = self.decoder.decode(&self.tail[range], offset);
         let head_bytes = self.retained.min(self.limit.min(PREFIX_LIMIT));
         let tail_bytes = self.retained - head_bytes;
         let ranges = self
@@ -356,11 +394,12 @@ impl Stream {
                 self.written as usize,
             ));
         Some(serde_json::json!({
-            "tail":String::from_utf8_lossy(tail), "tail_offset":self.total.saturating_sub(tail.len() as u64),
+            "tail":text, "tail_offset":offset,
+            "transcoded":self.decoder.transcoded(),
             "total_bytes":self.total, "retained_bytes":self.retained,
             "retained_head_bytes":ranges.0, "retained_tail_offset":ranges.1,
             "retained_end":ranges.2,
-            "invalid_utf8":std::str::from_utf8(tail).is_err(),
+            "invalid_utf8":invalid_utf8,
         }))
     }
 }
@@ -396,6 +435,19 @@ impl Retained {
         Self {
             stdout: Mutex::new(Stream::new(create(), budget.clone(), STREAM_LIMIT)),
             stderr: Mutex::new(Stream::new(create(), budget, STREAM_LIMIT)),
+        }
+    }
+
+    pub(super) fn configure(&self, encoding: super::Encoding) {
+        for stream in [&self.stdout, &self.stderr] {
+            let mut stream = stream.lock().unwrap();
+            assert_eq!(
+                stream.total, 0,
+                "output encoding is captured before reading"
+            );
+            let prefix = stream.limit.min(PREFIX_LIMIT);
+            stream.decoder =
+                super::Decoder::new(encoding, prefix, (stream.limit - prefix).max(TAIL));
         }
     }
 
@@ -460,3 +512,5 @@ impl Retained {
 
 #[cfg(test)]
 mod tests;
+#[cfg(all(test, windows))]
+mod windows;

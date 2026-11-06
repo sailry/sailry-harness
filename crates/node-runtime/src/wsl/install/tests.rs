@@ -70,8 +70,12 @@ esac
         }
 
         fn run(&self, environment: &[(&str, &str)]) -> std::process::Output {
+            self.run_source(PREFLIGHT, environment)
+        }
+
+        fn run_source(&self, source: &str, environment: &[(&str, &str)]) -> std::process::Output {
             std::process::Command::new("/bin/sh")
-                .args(["-c", PREFLIGHT])
+                .args(["-c", &deployment::normalize(source)])
                 .env_clear()
                 .env("HOME", self.root.path())
                 .env("PATH", &self.bin)
@@ -79,6 +83,18 @@ esac
                 .output()
                 .unwrap()
         }
+    }
+
+    #[test]
+    fn accepts_crlf_resource() {
+        let fixture = Fixture::new();
+        let source = PREFLIGHT.replace("\r\n", "\n").replace('\n', "\r\n");
+        let output = fixture.run_source(&source, &[]);
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 
     #[test]
