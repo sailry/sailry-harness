@@ -21,8 +21,9 @@ pub use records::{Area, Context, Entry, Phase, Span};
 #[cfg(test)]
 mod tests;
 
-const MAX_FILE_BYTES: usize = 1024 * 1024;
-const RETAINED_FILES: usize = 5;
+// Bounded at 100 MiB per application while retaining several days of ordinary use.
+const MAX_FILE_BYTES: usize = 10 * 1024 * 1024;
+const RETAINED_FILES: usize = 10;
 const QUEUED_LINES: usize = 8192;
 static DIRECTORY: OnceLock<PathBuf> = OnceLock::new();
 static INSTALL: Mutex<()> = Mutex::new(());
