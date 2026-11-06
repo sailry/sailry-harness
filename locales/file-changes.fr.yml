@@ -1,4 +1,5 @@
 file_changes_approval: "Appliquer le correctif à %{count} fichiers"
+file_changes_approval_one: "Appliquer le correctif à 1 fichier"
 file_changes_added: "Ajouté"
 file_changes_modified: "Modifié"
 file_changes_renamed: "Renommé"

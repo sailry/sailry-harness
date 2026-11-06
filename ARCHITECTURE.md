@@ -737,7 +737,8 @@ File discovery and content searches run inside Node with confined paths,
 ignore rules and bounded result pages, without requiring a system ripgrep.
 Multi-edit operations check the original file revision and publish one complete
 result. Multi-file change sets validate every entry before one approval lists each
-file and its bounded diff; any invalid entry rejects the set unwritten. Entries then
+file and its bounded diff, and again after the decision; any invalid entry rejects
+the set without changing file content. Entries then
 apply in order with per-file revision checks and stop at the first failure without
 cross-file rollback. Each content entry keeps its own checkpoint under that approval;
 moves and Trash deletions keep their single-file recovery. The agent's `apply_patch`
@@ -745,7 +746,8 @@ tool accepts the Codex patch format; its Node tool layer resolves a patch into
 structured entries before approval, so the durable command keeps typed entries for
 controllers. Hunk context must match the current file exactly and identify one place.
 An updated, moved or deleted file must still have the latest revision shown by the
-session's model-visible file results; otherwise the model reads it again. Plugin
+session's model-visible results of Node file operations; otherwise the model reads
+it again. Plugin
 flows cannot compose change sets. Background commands may use a PTY and accept durably admitted input;
 completion, stop and replay retain the original command identity.
 

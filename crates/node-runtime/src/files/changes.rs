@@ -213,7 +213,7 @@ fn validate(
             expected_revision,
         } => {
             source(root, path, expected_revision, &control)?;
-            vacant_in_parent(root, destination)?;
+            absent(root, destination)?;
         }
         FileChange::Delete {
             path,
@@ -256,6 +256,7 @@ fn write(
             destination,
             expected_revision,
         } => {
+            path::create_parents(root, destination)?;
             mutations::move_file(root, path, destination, expected_revision)?;
             file.status = ChangeStatus::Applied;
             file.revision = Some(expected_revision.clone());
@@ -319,7 +320,7 @@ pub(super) fn revision(
     content::revision(&mut file, size, Some(&control.cancelled))
 }
 
-/// Missing parents are created for new files, so they also prove absence.
+/// Missing parents are created for new and moved files, so they also prove absence.
 fn absent(root: Scope<'_>, relative: &str) -> Result<(), Fault> {
     let parts = root.entries(relative)?;
     let (name, parents) = parts.split_last().unwrap();
@@ -332,13 +333,6 @@ fn absent(root: Scope<'_>, relative: &str) -> Result<(), Fault> {
         };
     }
     vacant(&dir, name)
-}
-
-/// Moves keep the single-file rule that the destination parent already exists.
-fn vacant_in_parent(root: Scope<'_>, relative: &str) -> Result<(), Fault> {
-    let parts = root.entries(relative)?;
-    let (name, parents) = parts.split_last().unwrap();
-    vacant(&path::descend(path::root(root.path())?, parents)?, name)
 }
 
 fn vacant(dir: &cap_std::fs::Dir, name: &str) -> Result<(), Fault> {

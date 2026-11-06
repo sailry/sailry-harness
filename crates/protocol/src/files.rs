@@ -301,7 +301,7 @@ pub enum FileChange {
         expected_revision: String,
         edits: Vec<FileEdit>,
     },
-    /// Moves a regular file to an absent destination in an existing parent.
+    /// Moves a regular file to an absent destination, creating missing parents.
     Move {
         path: String,
         destination: String,
@@ -369,7 +369,8 @@ pub enum ChangeKind {
     Deleted,
 }
 
-/// Rejected means nothing was written; partial means some entries were written or uncertain.
+/// Rejected means no file content changed, though a failed creation may have left new
+/// folders; partial means some entries were written or uncertain.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ChangesStatus {

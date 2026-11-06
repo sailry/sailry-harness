@@ -1,7 +1,8 @@
 //! A patch is parsed and resolved into a structured change set in this tool layer,
 //! so the durable command and its controllers keep typed entries. The set is then
-//! validated and previewed before its single approval. Rejected sets return
-//! per-file reasons without an approval or a durable write.
+//! validated and previewed before its single approval, and validated again after it
+//! because files may change while the decision is pending. Rejected sets return
+//! per-file reasons without a durable write.
 use super::*;
 use crate::files::{changes::Planned, patch};
 use sailry_protocol::{
@@ -72,7 +73,7 @@ impl HostOperation {
         let planned = match self
             .ingress
             .files
-            .plan_changes(root, changes.clone(), checked, self.stop.clone())
+            .plan_changes(root.clone(), changes.clone(), checked, self.stop.clone())
             .await?
         {
             Ok(planned) => planned,
@@ -80,7 +81,10 @@ impl HostOperation {
         };
         let mut request = Request::new(
             self.transport.target(),
-            Command::ApplyChanges { worktree, changes },
+            Command::ApplyChanges {
+                worktree,
+                changes: changes.clone(),
+            },
         )
         .with_plugin(self.context.clone());
         let preview = tokio::task::spawn_blocking(move || preview(planned))
@@ -104,6 +108,14 @@ impl HostOperation {
                 ErrorCode::PermissionDenied,
                 "file changes were denied",
             ));
+        }
+        if let Err(rejected) = self
+            .ingress
+            .files
+            .plan_changes(root, changes, Vec::new(), self.stop.clone())
+            .await?
+        {
+            return self.finish(context, Output::FileChanges(rejected));
         }
         request.id = self
             .authorize(context, authorized, Some(request.command.clone()))

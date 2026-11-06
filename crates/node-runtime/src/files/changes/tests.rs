@@ -116,15 +116,6 @@ mod validation {
                 ErrorCode::Conflict,
             ),
             (
-                "missing move parent",
-                FileChange::Move {
-                    path: "src/old.rs".into(),
-                    destination: "missing/new.rs".into(),
-                    expected_revision: revision("moved\n"),
-                },
-                ErrorCode::NotFound,
-            ),
-            (
                 "stale delete",
                 FileChange::Delete {
                     path: "src/dead.rs".into(),
@@ -260,7 +251,7 @@ mod writing {
             edit("src/lib.rs", "fn old() {}\n", "old", "renamed"),
             FileChange::Move {
                 path: "src/old.rs".into(),
-                destination: "src/moved.rs".into(),
+                destination: "src/moved/old.rs".into(),
                 expected_revision: revision("moved\n"),
             },
         ];
@@ -286,7 +277,7 @@ mod writing {
         );
         assert!(!root.join("src/old.rs").exists());
         assert_eq!(
-            std::fs::read_to_string(root.join("src/moved.rs")).unwrap(),
+            std::fs::read_to_string(root.join("src/moved/old.rs")).unwrap(),
             "moved\n"
         );
         assert_eq!(
@@ -297,7 +288,10 @@ mod writing {
         let excerpt = result.files[2].excerpt.as_ref().unwrap();
         assert_eq!(excerpt.hunks[0].lines[0].text, "fn renamed() {}\n");
         assert!(result.files[1].excerpt.is_none());
-        assert_eq!(result.files[3].destination.as_deref(), Some("src/moved.rs"));
+        assert_eq!(
+            result.files[3].destination.as_deref(),
+            Some("src/moved/old.rs")
+        );
         assert_eq!(
             result.files[3].revision.as_deref(),
             Some(revision("moved\n").as_str())

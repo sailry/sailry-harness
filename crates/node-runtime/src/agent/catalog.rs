@@ -25,6 +25,8 @@ pub(super) struct Registration {
     pub delegation: bool,
     /// The call receives the file revisions its session has observed.
     pub observes: bool,
+    /// The bound Node operation; file operation results establish observed revisions.
+    pub operation: Option<sailry_protocol::tool::Operation>,
 }
 impl Registration {
     pub fn new(
@@ -43,6 +45,7 @@ impl Registration {
             deferred: false,
             delegation: false,
             observes: false,
+            operation: None,
         }
     }
     pub fn managed(tool: Tool, provider: Arc<dyn ToolProvider<CallContext>>) -> Self {
@@ -173,7 +176,15 @@ impl<S: CatalogSession + Send + Sync> ToolProvider<S> for Catalog {
         )?;
         context.children = self.children.clone();
         if entry.observes {
-            context.observed = Some(Arc::new(Observed::collect(session.conversation())));
+            context.observed = Some(Arc::new(Observed::collect(
+                session.conversation(),
+                |name| {
+                    self.entries
+                        .get(name)
+                        .and_then(|entry| entry.operation)
+                        .is_some_and(Observed::source)
+                },
+            )));
         }
         let name = entry.tool.name.as_ref();
         let metric = self.metrics.as_ref().and_then(|(profile, invocation)| {

@@ -1,7 +1,15 @@
+//! Parsing and matching cases adapted from openai/codex
+//! 451787127c0e70247034c33e358536ffd2b89cf8 codex-rs/apply-patch/src/parser.rs and
+//! file_update.rs tests (Apache-2.0), with expectations changed where Sailry matches
+//! exactly, inserts after `@@` anchors and moves unchanged files.
 use super::*;
 use crate::files::{Access, changes, edit};
 use sailry_protocol::{ChangeKind, ChangeStatus, ChangesStatus, FileChanges};
 use std::path::Path;
+
+fn control() -> Control {
+    Control::new(CancellationToken::new())
+}
 
 fn revision(text: &str) -> String {
     blake3::hash(text.as_bytes()).to_hex().to_string()
@@ -219,11 +227,6 @@ mod parsing {
                 "invalid hunk at line 2, Update file hunk for path 'test.py' is empty".into(),
             ),
             (
-                "*** Begin Patch\n*** Update File: a\n*** Move to: b\n*** Delete File: c\n*** End Patch"
-                    .into(),
-                "invalid hunk at line 2, Update file hunk for path 'a' is empty".into(),
-            ),
-            (
                 "*** Begin Patch\n*** Update File: a\n@@\n*** End Patch".into(),
                 "invalid hunk at line 4, Update hunk does not contain any lines".into(),
             ),
@@ -253,6 +256,48 @@ mod parsing {
         }
         assert!(parse("*** Begin Patch\n*** End Patch").unwrap().is_empty());
     }
+
+    #[test]
+    fn accepts_move_only_updates() {
+        assert_eq!(
+            parse("*** Begin Patch\n*** Update File: a\n*** Move to: b\n*** Delete File: c\n*** End Patch")
+                .unwrap(),
+            [
+                Hunk::Update {
+                    path: "a".into(),
+                    destination: Some("b".into()),
+                    chunks: Vec::new(),
+                },
+                Hunk::Delete { path: "c".into() },
+            ]
+        );
+    }
+
+    #[test]
+    fn bounds_entries_before_reading() {
+        let adds: String = (0..=MAX_CHANGES)
+            .map(|index| format!("*** Add File: {index}.txt\n+{index}\n"))
+            .collect();
+        assert_eq!(
+            reason(&format!("*** Begin Patch\n{adds}*** End Patch")),
+            "a patch can change at most 16 files; a moved and edited file counts twice"
+        );
+        for (input, path) in [
+            (
+                "*** Begin Patch\n*** Update File: a.txt\n@@\n-a\n+b\n*** Add File: A.TXT\n+x\n*** End Patch",
+                "A.TXT",
+            ),
+            (
+                "*** Begin Patch\n*** Update File: a.txt\n*** Move to: b.txt\n*** Delete File: b.txt\n*** End Patch",
+                "b.txt",
+            ),
+        ] {
+            assert_eq!(
+                reason(input),
+                format!("{path} appears in more than one patch entry")
+            );
+        }
+    }
 }
 
 mod matching {
@@ -272,6 +317,40 @@ mod matching {
         assert_eq!(
             patched(functions, "@@ fn two() {\n-    x\n+    y\n").unwrap(),
             "fn one() {\n    x\n}\nfn two() {\n    y\n}\n"
+        );
+    }
+
+    #[test]
+    fn inserts_after_anchor() {
+        assert_eq!(
+            patched(
+                "fn one() {\n}\nfn two() {\n}\n",
+                "@@ fn two() {\n+    body();\n"
+            )
+            .unwrap(),
+            "fn one() {\n}\nfn two() {\n    body();\n}\n"
+        );
+        // After another chunk, the anchor is searched from that chunk's end.
+        assert_eq!(
+            patched("a\nb\nc\nb\n", "@@\n-a\n+A\n@@ c\n+d\n").unwrap(),
+            "A\nb\nc\nd\nb\n"
+        );
+        assert_eq!(
+            patched("x\na\nx\n", "@@ x\n+y\n").unwrap_err().message,
+            "hunk 1: @@ context line matches 2 locations; add context lines or an @@ line to identify one:\nx"
+        );
+    }
+
+    #[test]
+    fn appends_without_anchor() {
+        assert_eq!(patched("a\nb\n", "@@\n+c\n").unwrap(), "a\nb\nc\n");
+        assert_eq!(
+            patched("a\nb\n", "@@ a\n+c\n*** End of File\n").unwrap(),
+            "a\nb\nc\n"
+        );
+        assert_eq!(
+            patched("a\nb\n", "@@\n-a\n+A\n@@\n+c\n").unwrap(),
+            "A\nb\nc\n"
         );
     }
 
@@ -351,6 +430,10 @@ mod matching {
             patched("x\n1\nx\n2\n", "@@\n-x\n+a\n@@\n-x\n+b\n").unwrap(),
             "a\n1\nb\n2\n"
         );
+        assert_eq!(
+            patched("x\ny\nx\n", "@@\n-x\n+a\n@@\n-x\n+b\n*** End of File\n").unwrap(),
+            "a\ny\nb\n"
+        );
     }
 
     #[test]
@@ -368,7 +451,8 @@ mod matching {
             let parsed = chunks(body);
             let update = update::apply(before, &parsed).unwrap();
             let edits = update
-                .edits(before, &revision(before))
+                .edits(before, &revision(before), &control())
+                .unwrap()
                 .expect("exact edits");
             assert_eq!(edits.len(), 1, "{before:?}");
             assert_eq!(edits[0].old_text, anchor, "{before:?}");
@@ -378,7 +462,10 @@ mod matching {
         let repeated = "same\n".repeat(64);
         let tail = chunks("@@\n-same\n+other\n*** End of File\n");
         let update = update::apply(&repeated, &tail).unwrap();
-        let edits = update.edits(&repeated, &revision(&repeated)).unwrap();
+        let edits = update
+            .edits(&repeated, &revision(&repeated), &control())
+            .unwrap()
+            .unwrap();
         assert_eq!(
             edit::apply(&repeated, &edits, &revision(&repeated))
                 .unwrap()
@@ -386,13 +473,35 @@ mod matching {
             update.after
         );
         // An empty file and mixed line endings cannot be reproduced by exact edits.
-        for (before, body) in [("", "@@\n+first\n"), ("a\nb\r\nc\n", "@@\n a\n-b\n+B\n")] {
+        for (before, body, cause) in [
+            (
+                "",
+                "@@\n+first\n",
+                "an empty file has no text to anchor exact edits",
+            ),
+            (
+                "a\nb\r\nc\n",
+                "@@\n a\n-b\n+B\n",
+                "exact edits cannot reproduce the patched line endings",
+            ),
+        ] {
             let update = update::apply(before, &chunks(body)).unwrap();
-            assert!(
-                update.edits(before, &revision(before)).is_none(),
+            assert_eq!(
+                update.edits(before, &revision(before), &control()).unwrap(),
+                Err(cause.to_owned()),
                 "{before:?}"
             );
         }
+        let cancelled = CancellationToken::new();
+        cancelled.cancel();
+        let update = update::apply("a\nb\n", &chunks("@@\n-b\n+c\n")).unwrap();
+        assert_eq!(
+            update
+                .edits("a\nb\n", &revision("a\nb\n"), &Control::new(cancelled))
+                .unwrap_err()
+                .code,
+            ErrorCode::Cancelled
+        );
     }
 }
 
@@ -645,11 +754,13 @@ mod resolution {
                 (ChangeStatus::NotAttempted, None),
                 (
                     ChangeStatus::Failed,
-                    Some("file has not been read in this session; read the file again")
+                    Some(
+                        "the current revision of this file has not been read; read the file again"
+                    )
                 ),
                 (
                     ChangeStatus::Failed,
-                    Some("file changed since this session last read it; read the file again")
+                    Some("file changed since it was last read; read the file again")
                 ),
             ]
         );
@@ -669,8 +780,12 @@ mod resolution {
                 .as_ref()
                 .unwrap()
                 .message,
-            "file changed since this session last read it; read the file again"
+            "file changed since it was last read; read the file again"
         );
+        // An unread target is rejected before it is opened.
+        let missing = "*** Begin Patch\n*** Update File: missing.txt\n@@\n-a\n+b\n*** End Patch";
+        let error = run(&root, missing, &[]).files[0].error.clone().unwrap();
+        assert_eq!(error.code, ErrorCode::RevisionConflict);
     }
 
     #[test]
@@ -856,15 +971,6 @@ mod resolution {
     #[test]
     fn bounds_file_count() {
         let (_directory, root) = root();
-        let adds: String = (0..=MAX_CHANGES)
-            .map(|index| format!("*** Add File: {index}.txt\n+{index}\n"))
-            .collect();
-        let error =
-            entries(&root, &format!("*** Begin Patch\n{adds}*** End Patch"), &[]).unwrap_err();
-        assert_eq!(
-            error.message,
-            "a patch can change at most 16 files; a moved and edited file counts twice"
-        );
         let adds: String = (1..MAX_CHANGES)
             .map(|index| format!("*** Add File: {index}.txt\n+{index}\n"))
             .collect();
@@ -884,5 +990,143 @@ mod resolution {
                 .message,
             "patch contains no file changes"
         );
+    }
+
+    #[test]
+    fn moves_unchanged_files() {
+        let (_directory, root) = root();
+        std::fs::write(root.join("run.sh"), "run").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(root.join("run.sh"), std::fs::Permissions::from_mode(0o755))
+                .unwrap();
+        }
+        let observed = observed(&root, &["run.sh", "src/rename.rs"]);
+        let result = run(
+            &root,
+            "*** Begin Patch
+*** Update File: run.sh
+*** Move to: bin/tools/run.sh
+@@
+-run
++run
+*** Update File: src/rename.rs
+*** Move to: docs/renamed.rs
+*** End Patch",
+            &observed,
+        );
+        assert_eq!(result.status, ChangesStatus::Applied, "{result:?}");
+        assert!(
+            result
+                .files
+                .iter()
+                .all(|file| file.kind == ChangeKind::Renamed)
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("bin/tools/run.sh")).unwrap(),
+            "run"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("docs/renamed.rs")).unwrap(),
+            "same\n"
+        );
+        assert!(!root.join("run.sh").exists());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            let mode = std::fs::metadata(root.join("bin/tools/run.sh"))
+                .unwrap()
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o777, 0o755);
+        }
+    }
+
+    #[test]
+    fn rejects_unchanged_updates() {
+        let (_directory, root) = root();
+        let observed = observed(&root, &["src/lib.rs"]);
+        let entries = entries(
+            &root,
+            "*** Begin Patch\n*** Update File: src/lib.rs\n@@\n-fn keep() {}\n+fn keep() {}\n*** End Patch",
+            &observed,
+        )
+        .unwrap();
+        assert_eq!(
+            entries[0].1.as_ref().map(|fault| fault.message.as_str()),
+            Some("patch does not change this file")
+        );
+    }
+
+    #[test]
+    fn explains_whole_file_fallback_limits() {
+        let (_directory, root) = root();
+        let large = format!("a\nb\r\n{}", "x\n".repeat(MAX_FILE_BYTES));
+        std::fs::write(root.join("large.txt"), &large).unwrap();
+        std::fs::write(root.join("notebook.ipynb"), "a\nb\r\nc\n").unwrap();
+        let observed = observed(&root, &["large.txt", "notebook.ipynb"]);
+        let entries = entries(
+            &root,
+            "*** Begin Patch
+*** Update File: large.txt
+@@
+ a
+-b
++B
+*** Update File: notebook.ipynb
+@@
+ a
+-b
++B
+*** End Patch",
+            &observed,
+        )
+        .unwrap();
+        let large = entries[0].1.as_ref().unwrap();
+        assert!(
+            large.message.ends_with(
+                "and the file exceeds the 128 KiB whole-file write limit; use edit_file"
+            ),
+            "{large:?}"
+        );
+        // The notebook fallback is validated like write_file.
+        assert_eq!(
+            entries[1].1.as_ref().map(|fault| fault.message.as_str()),
+            Some("notebook is not valid JSON")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_symlink_targets() {
+        let (_directory, root) = root();
+        std::os::unix::fs::symlink("lib.rs", root.join("src/link.rs")).unwrap();
+        let observed = vec![
+            (
+                "src/link.rs".to_owned(),
+                revision("fn old() {}\nfn keep() {}\n"),
+            ),
+            ("README.md".to_owned(), revision("# Original\n")),
+        ];
+        let before = snapshot(&root);
+        let result = run(
+            &root,
+            "*** Begin Patch
+*** Update File: README.md
+@@
+-# Original
++# Patched
+*** Update File: src/link.rs
+@@
+-fn old() {}
++fn new() {}
+*** End Patch",
+            &observed,
+        );
+        assert_eq!(result.status, ChangesStatus::Rejected);
+        assert_eq!(result.files[0].status, ChangeStatus::NotAttempted);
+        assert_eq!(result.files[1].status, ChangeStatus::Failed);
+        assert_eq!(snapshot(&root), before);
     }
 }

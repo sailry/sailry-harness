@@ -130,6 +130,7 @@ pub(super) fn bind(
             };
             registration.delegation = operation == Operation::DelegateAgent;
             registration.observes = operation == Operation::ApplyChanges;
+            registration.operation = Some(operation);
             registration.presentation = declaration.presentation;
             registration.grouping = declaration.grouping;
             registration.plugin = Some(package.summary.name.clone());
