@@ -10,6 +10,10 @@ pub(crate) const SPAWN: &str = "spawn_agent";
 pub(crate) const GUIDE: &str = "guide_agent";
 pub(crate) const WAIT: &str = "wait_agent";
 pub(in crate::agent) const NAMES: [&str; 3] = [SPAWN, GUIDE, WAIT];
+/// Turn-context label that coordinator instructions cite.
+pub(in crate::agent) const BUDGET: &str = "Concurrency budget";
+/// Budgets at or above this never queue children in practice.
+const UNBOUNDED: u64 = u32::MAX as u64;
 
 const SPAWN_DESCRIPTION: &str = "Delegate bounded parallel work when the user or the active work mode allows it (project guides do not). Keep immediate lookups and tightly coupled steps yourself. Issue all independent spawn_agent calls of one wave in the same response; foreground children from one response run concurrently and this conversation resumes after all finish, while foreground calls in separate responses run sequentially. Supply the goal, relevant paths and excerpts, constraints, edit ownership and expected result; the child cannot see this conversation. Children skip builds and test suites unless the task assigns verification; run consolidated checks after integrating their results. Expect a summary with path:line pointers, not file contents. The default uses a bounded observation window; verify completed results before relying on them. An admitted, pending child keeps running under its returned session and turn IDs. Do not spawn it again. Use background only for work this turn does not need; completion arrives automatically. Do not poll or claim uncollected results were integrated. Queued admission is not execution or completion. Use guide_agent for new directions. Children inherit this turn's worktree, including a private worktree, mode and permission and cannot delegate. Choose an exact listed role, or omit it to inherit the model and instructions. worktree selects a registered project checkout; concurrent edits need disjoint files or separate worktrees. To reuse an idle child owned by this conversation, use its exact returned session ID and normally omit role; never reconstruct it. It keeps its history, role, model, worktree and settings.";
 const GUIDE_DESCRIPTION: &str = "Give new directions to a child owned by this conversation. Copy its exact returned session ID; never reconstruct it. Running guidance is durable: the child receives it after its entire current tool batch settles and before its next model request; an in-flight model response yields at that boundary. This returns a queued guidance receipt, not the child's final result. Explicit follow-up to an idle child starts a new task in the same session, preserving its history, role, model, worktree and permissions. The task uses current package settings and the normal bounded child observation window; a pending result keeps running under its returned session and turn IDs. Do not spawn it again. Busy queued or stopping children cannot be restarted.";
@@ -111,8 +115,14 @@ fn parameters() -> Value {
 }
 
 /// Selection metadata for the captured roster; delivered as turn context.
-pub(in crate::agent) fn context(invocation: &Invocation, tools: &[Registration]) -> String {
-    let mounted = |name: &str| tools.iter().any(|entry| entry.tool.name.as_ref() == name);
+/// Roster and revision lines follow registration because discovery can declare
+/// those tools mid-turn; the budget follows `mounted`, this request's declarations.
+pub(in crate::agent) fn context(
+    invocation: &Invocation,
+    tools: &[Registration],
+    mounted: impl Fn(&str) -> bool,
+) -> String {
+    let registered = |name: &str| tools.iter().any(|entry| entry.tool.name.as_ref() == name);
     let roster: Vec<_> = invocation
         .turn
         .roles
@@ -133,7 +143,7 @@ pub(in crate::agent) fn context(invocation: &Invocation, tools: &[Registration])
             )
         })
         .collect();
-    let mut text = if !mounted(SPAWN) {
+    let mut text = if !registered(SPAWN) {
         String::new()
     } else if roster.is_empty() {
         "No delegation roles are configured".to_owned()
@@ -144,12 +154,19 @@ pub(in crate::agent) fn context(invocation: &Invocation, tools: &[Registration])
         )
     };
     if mounted(SPAWN) {
-        text.push_str(&format!(
-            "\nConcurrency budget: up to {} children run at once in this conversation; later children queue in FIFO order.",
-            invocation.child_concurrency
-        ));
+        let limit = invocation.child_concurrency;
+        text.push_str(&if limit >= UNBOUNDED {
+            format!("\n{BUDGET}: no limit on children running at once in this conversation.")
+        } else {
+            format!(
+                "\n{BUDGET}: up to {limit} children run at once in this conversation; later children queue in FIFO order."
+            )
+        });
     }
-    if super::super::roles::APPLY.iter().any(|name| mounted(name)) {
+    if super::super::roles::APPLY
+        .iter()
+        .any(|name| registered(name))
+    {
         if !text.is_empty() {
             text.push('\n');
         }

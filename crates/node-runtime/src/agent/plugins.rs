@@ -175,9 +175,9 @@ pub(super) async fn bind(
     {
         bound.instruction.push_str(&connection_diagnostics);
     }
-    bound
-        .context
-        .push_str(&super::delegation::tools::context(invocation, &bound.tools));
+    let delegation =
+        super::delegation::tools::context(invocation, &bound.tools, |name| bound.mounted(name));
+    bound.context.push_str(&delegation);
     for package in &invocation.plugins {
         let mounted = bound.tools.iter().any(|tool| {
             bound.mounted(tool.tool.name.as_ref())

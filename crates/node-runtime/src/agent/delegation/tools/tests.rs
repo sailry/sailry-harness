@@ -3,6 +3,13 @@ use sailry_protocol::ErrorCode;
 
 const SESSION: &str = "0f0e0d0c-0b0a-4908-8706-050403020100";
 
+/// Renders turn context with the bound catalog's mounting predicate.
+fn render(invocation: &Invocation, tools: Vec<Registration>) -> String {
+    let mut bound = crate::agent::plugins::Contribution::default();
+    bound.tools = tools;
+    context(invocation, &bound.tools, |name| bound.mounted(name))
+}
+
 #[tokio::test]
 async fn model_execution_excludes_delegation() {
     let mut fixture = crate::agent::delegation::tests::Fixture::new().await;
@@ -18,24 +25,24 @@ async fn model_execution_keeps_application_context() {
         execution: sailry_protocol::conversation::Execution::Model,
         ..Default::default()
     };
-    let tools = crate::agent::roles::bind(
-        &fixture.store.ingress,
-        &fixture.invocation,
-        &CancellationToken::new(),
-    );
     for name in crate::agent::roles::APPLY {
-        let selected = tools
-            .iter()
-            .find(|entry| entry.tool.name.as_ref() == name)
-            .unwrap();
-        let text = context(&fixture.invocation, std::slice::from_ref(selected));
+        let selected: Vec<_> = crate::agent::roles::bind(
+            &fixture.store.ingress,
+            &fixture.invocation,
+            &CancellationToken::new(),
+        )
+        .into_iter()
+        .filter(|entry| entry.tool.name.as_ref() == name)
+        .collect();
+        assert_eq!(selected.len(), 1, "{name}");
+        let text = render(&fixture.invocation, selected);
         assert!(text.starts_with(&format!(
             "Captured conversation revision: {}.",
             fixture.invocation.turn.revision
         )));
         assert!(!text.contains("delegation roles"));
     }
-    assert!(context(&fixture.invocation, &[]).is_empty());
+    assert!(render(&fixture.invocation, vec![]).is_empty());
 }
 
 #[tokio::test]
@@ -47,15 +54,30 @@ async fn context_reports_concurrency_budget() {
     );
     fixture.invocation.child_concurrency = 3;
     let supervisor = crate::tasks::Supervisor::start(1);
-    let tools = bind(
-        &fixture.store.ingress,
-        &supervisor.tasks,
-        &fixture.invocation,
-        &CancellationToken::new(),
-    );
-    let text = context(&fixture.invocation, &tools);
+    let tools = |invocation: &Invocation| {
+        bind(
+            &fixture.store.ingress,
+            &supervisor.tasks,
+            invocation,
+            &CancellationToken::new(),
+        )
+    };
+    let text = render(&fixture.invocation, tools(&fixture.invocation));
+    assert!(text.contains(BUDGET), "{text}");
     assert!(text.contains("up to 3 children run at once"), "{text}");
-    assert!(!context(&fixture.invocation, &[]).contains("Concurrency budget"));
+    assert!(!render(&fixture.invocation, vec![]).contains(BUDGET));
+    // Standard and Plan register spawn_agent for discovery without declaring it.
+    let mut deferred = tools(&fixture.invocation);
+    for entry in &mut deferred {
+        entry.deferred = true;
+    }
+    let text = render(&fixture.invocation, deferred);
+    assert!(text.contains("delegation roles"), "{text}");
+    assert!(!text.contains(BUDGET), "{text}");
+    fixture.invocation.child_concurrency = u64::MAX;
+    let text = render(&fixture.invocation, tools(&fixture.invocation));
+    assert!(text.contains("no limit"), "{text}");
+    assert!(!text.contains(&u64::MAX.to_string()), "{text}");
     supervisor
         .shutdown(std::time::Duration::from_secs(5))
         .await
