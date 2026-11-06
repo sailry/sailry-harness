@@ -166,11 +166,28 @@ fn keeps_contiguous_and_rolling_boundaries() {
                 .page(tests::info(), OutputStream::Stdout, offset, PAGE - 1)
                 .unwrap();
             assert!(!page.invalid_utf8);
+            assert_eq!(page.offset, offset);
+            assert_eq!(page.truncated, raw.len() > STREAM_LIMIT);
             assert_eq!(page.total_bytes, raw.len() as u64);
+            let end = offset
+                + page
+                    .text
+                    .chars()
+                    .map(|character| if character.is_ascii() { 1 } else { 2 })
+                    .sum::<usize>();
             actual.push_str(&page.text);
-            let Some(next) = page.next_offset else { break };
+            let Some(next) = page.next_offset else {
+                assert_eq!(end, raw.len());
+                break;
+            };
             assert!(next > offset);
-            jumped |= next - offset > PAGE;
+            if next > end {
+                assert_eq!(end, PREFIX_LIMIT - 1);
+                assert_eq!(next, raw.len() - (STREAM_LIMIT - PREFIX_LIMIT));
+                jumped = true;
+            } else {
+                assert_eq!(next, end);
+            }
             offset = next;
         }
         let preview = retained.preview(tests::info().id).unwrap();
