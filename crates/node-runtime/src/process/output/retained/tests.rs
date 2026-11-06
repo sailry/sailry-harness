@@ -509,3 +509,48 @@ fn preserves_finished_page_identity() {
         run(case_name);
     }
 }
+
+mod activity {
+    use super::*;
+    use std::time::Duration;
+    use tokio::sync::Notify;
+
+    async fn woken(waiter: &Notify) -> bool {
+        tokio::time::timeout(Duration::from_millis(100), waiter.notified())
+            .await
+            .is_ok()
+    }
+
+    #[tokio::test]
+    async fn starts_at_spawn() {
+        let profile = tempfile::tempdir().unwrap();
+        let retained = Retained::new(profile.path(), Arc::default());
+        assert_eq!(retained.updated(), None);
+        let waiter = Arc::new(Notify::new());
+        retained.wake(None, &waiter);
+        assert!(!woken(&waiter).await);
+        retained.spawned();
+        assert!(woken(&waiter).await);
+        assert!(retained.updated().is_some());
+    }
+
+    #[tokio::test]
+    async fn wakes_once_on_output() {
+        let profile = tempfile::tempdir().unwrap();
+        let retained = Retained::new(profile.path(), Arc::default());
+        retained.spawned();
+        let seen = retained.updated();
+        let waiter = Arc::new(Notify::new());
+        retained.wake(seen, &waiter);
+        retained.append(OutputStream::Stdout, b"");
+        assert!(!woken(&waiter).await);
+        retained.append(OutputStream::Stdout, b"resumed");
+        assert!(woken(&waiter).await);
+        assert_ne!(retained.updated(), seen);
+        retained.append(OutputStream::Stdout, b"healthy");
+        assert!(!woken(&waiter).await);
+        // Activity between observing and waiting is not lost.
+        retained.wake(seen, &waiter);
+        assert!(woken(&waiter).await);
+    }
+}

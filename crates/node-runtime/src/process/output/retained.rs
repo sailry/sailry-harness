@@ -420,7 +420,15 @@ fn failure(error: std::io::Error) -> Fault {
 pub(crate) struct Retained {
     stdout: Mutex<Stream>,
     stderr: Mutex<Stream>,
-    updated: Mutex<std::time::Instant>,
+    activity: Mutex<Activity>,
+}
+
+#[derive(Default)]
+struct Activity {
+    /// The process spawn or latest output; unset before the process exists.
+    updated: Option<std::time::Instant>,
+    /// Woken once by the next activity after a silent period was observed.
+    waiter: Option<Arc<tokio::sync::Notify>>,
 }
 
 impl Retained {
@@ -436,7 +444,7 @@ impl Retained {
         Self {
             stdout: Mutex::new(Stream::new(create(), budget.clone(), STREAM_LIMIT)),
             stderr: Mutex::new(Stream::new(create(), budget, STREAM_LIMIT)),
-            updated: Mutex::new(std::time::Instant::now()),
+            activity: Mutex::default(),
         }
     }
 
@@ -463,13 +471,36 @@ impl Retained {
     pub(crate) fn append(&self, stream: OutputStream, bytes: &[u8]) {
         self.stream(stream).lock().unwrap().append(bytes);
         if !bytes.is_empty() {
-            *self.updated.lock().unwrap() = std::time::Instant::now();
+            self.touch();
         }
     }
 
-    /// When output last arrived, or when retention began if there was none.
-    pub(crate) fn updated(&self) -> std::time::Instant {
-        *self.updated.lock().unwrap()
+    /// Starts the silence clock once the process exists.
+    pub(crate) fn spawned(&self) {
+        self.touch();
+    }
+
+    fn touch(&self) {
+        let mut activity = self.activity.lock().unwrap();
+        activity.updated = Some(std::time::Instant::now());
+        if let Some(waiter) = activity.waiter.take() {
+            waiter.notify_one();
+        }
+    }
+
+    /// When output last arrived, or when the process was spawned if there was none.
+    pub(crate) fn updated(&self) -> Option<std::time::Instant> {
+        self.activity.lock().unwrap().updated
+    }
+
+    /// Wakes `waiter` on the first activity after `seen`, immediately if it already happened.
+    pub(crate) fn wake(&self, seen: Option<std::time::Instant>, waiter: &Arc<tokio::sync::Notify>) {
+        let mut activity = self.activity.lock().unwrap();
+        if activity.updated == seen {
+            activity.waiter = Some(waiter.clone());
+        } else {
+            waiter.notify_one();
+        }
     }
 
     pub(crate) fn finish(&self) {

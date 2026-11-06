@@ -21,7 +21,11 @@ impl Commands {
             self.stalls.set(sink).is_ok(),
             "command stall sink was already set"
         );
-        tokio::spawn(monitor(Arc::downgrade(self), self.changes.subscribe()));
+        tokio::spawn(monitor(
+            Arc::downgrade(self),
+            self.changes.subscribe(),
+            self.resumed.clone(),
+        ));
     }
 
     #[cfg(any(test, feature = "test-support"))]
@@ -39,6 +43,9 @@ impl Commands {
     }
 
     /// Reports newly silent commands and returns the next deadline to inspect.
+    ///
+    /// Unspawned and already reported commands have no deadline; their next
+    /// activity wakes the monitor once through `resumed`.
     fn inspect(&self) -> Option<Instant> {
         let sink = self.stalls.get()?;
         let window = self.stall_window();
@@ -50,15 +57,17 @@ impl Commands {
             .filter(|entry| entry.background && entry.info.status == Status::Running)
         {
             let updated = entry.retained.updated();
-            if entry.stalled == Some(updated) {
+            let Some(since) = updated.filter(|since| entry.stalled != Some(*since)) else {
+                entry.retained.wake(updated, &self.resumed);
                 continue;
-            }
-            let deadline = updated + window;
+            };
+            let deadline = since + window;
             if deadline > now {
                 next = Some(next.map_or(deadline, |next| next.min(deadline)));
                 continue;
             }
-            entry.stalled = Some(updated);
+            entry.stalled = Some(since);
+            entry.retained.wake(updated, &self.resumed);
             let (stdout, stderr) = entry.retained.recent();
             // Reporting under the entries lock never follows a terminal status.
             let _ = sink.send(Stalled {
@@ -82,7 +91,11 @@ fn elapsed(started_ms: u64) -> u64 {
         .saturating_sub(started_ms)
 }
 
-async fn monitor(commands: std::sync::Weak<Commands>, mut changes: watch::Receiver<()>) {
+async fn monitor(
+    commands: std::sync::Weak<Commands>,
+    mut changes: watch::Receiver<()>,
+    resumed: Arc<tokio::sync::Notify>,
+) {
     loop {
         let Some(next) = commands.upgrade().map(|commands| commands.inspect()) else {
             return;
@@ -99,6 +112,7 @@ async fn monitor(commands: std::sync::Weak<Commands>, mut changes: watch::Receiv
                     return;
                 }
             }
+            () = resumed.notified() => {}
             () = deadline => {}
         }
     }
@@ -178,7 +192,7 @@ mod tests {
         assert_eq!(first.snapshot.stdout.text, "");
         tokio::time::sleep(Duration::from_millis(900)).await;
         assert!(fixture.stalls.try_recv().is_err());
-        // New output starts another silent period instead of repeating the first.
+        // Output after a report re-arms the monitor for one more silent period.
         fixture
             .commands
             .write(fixture.session, id, "resumed\n")
