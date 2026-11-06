@@ -174,11 +174,12 @@ jobs:
         run: python3 scripts/ci-run.py -- python3 scripts/ci.py lint
       - name: Desktop without test features
         # Tests enable test-support features; type-check the shipped feature set.
-        # Host's shipped feature set is checked by the Linux Host job. Clippy above still
-        # type-checks Host's macOS-only code with test features, and release builds compile
-        # the shipped macOS feature set.
         if: needs.source.outputs.desktop == 'true'
         run: python3 scripts/ci.py check desktop-production
+      - name: Host without test features
+        # The Linux Host job checks its own shipped feature set; this covers macOS-only code.
+        if: needs.source.outputs.host == 'true'
+        run: python3 scripts/ci.py check host-production
       - name: Save Ghostty build inputs
         if: github.ref == 'refs/heads/main' && steps.ghostty.outcome == 'success' && steps.ghostty.outputs.hit != 'true'
         continue-on-error: true

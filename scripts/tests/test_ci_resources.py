@@ -570,10 +570,11 @@ class Workflow(unittest.TestCase):
         self.assertIn("-p sailry-host --features sailry-node-runtime/test-support --timings", build)
         self.assertIn("not (package(sailry-host) and not binary(lifecycle))", shared)
         self.assertIn("cargo check --locked -p sailry-desktop --jobs", lint)
-        # Linux Host owns the shipped-feature Host check; macOS lint does not repeat it.
+        # Each Host platform type-checks its own shipped feature set.
         self.assertIn("cargo check --locked -p sailry-host --jobs", host)
-        self.assertNotIn("sailry-host --jobs", lint)
-        self.assertNotIn("name: Host without test features", lint)
+        self.assertIn("cargo check --locked -p sailry-host --jobs", lint)
+        production = lint.split("      - name: Host without test features\n", 1)[1].split("      - ", 1)[0]
+        self.assertIn("if: needs.source.outputs.host == 'true'", production)
         self.assertIn("runs-on: ubuntu-24.04", host)
         self.assertIn("bubblewrap libx11-dev libxi-dev libxtst-dev", host)
         self.assertIn("cargo nextest run --locked -p sailry-host --timings", host)
