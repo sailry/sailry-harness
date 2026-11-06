@@ -244,6 +244,180 @@ mod insets {
     }
 }
 
+mod link_gaps {
+    use super::*;
+    use crate::markdown::{Cursor, Doc, Mark, Part, Selection, parse::parse, selectable::copied};
+    use gpui_kit::component::{Theme as Kit, ThemeColor};
+
+    const GAP: &str = "\u{a0}";
+    const ICON: &str = "\u{2001}\u{2060}";
+
+    fn decorated(source: &str) -> (Doc, Flat) {
+        let doc = parse(source);
+        let theme = Theme::from_kit(&Kit::from(&*ThemeColor::light()));
+        let text = doc.blocks[0].text_at(Part::Body).unwrap();
+        let flat = flatten(text, FontWeight::NORMAL, &theme);
+        (doc, flat)
+    }
+
+    #[test]
+    fn separates_words_only() {
+        for neighbour in ['给', '处', 'あ', '한', 'a', 'Z', '7', 'é', 'я', '🚀'] {
+            assert!(needs_gap(Some(neighbour)), "{neighbour:?}");
+        }
+        for neighbour in [
+            ' ', '\n', '\t', '\u{a0}', '\u{3000}', '(', ')', '[', ']', '"', '\'', ',', '.', ':',
+            ';', '!', '?', '-', '/', '“', '”', '‘', '’', '«', '»', '…', '—', '（', '）', '「',
+            '」', '《', '》', '【', '】', '，', '。', '、', '：', '；', '！', '？', '·',
+        ] {
+            assert!(!needs_gap(Some(neighbour)), "{neighbour:?}");
+        }
+        assert!(!needs_gap(None));
+    }
+
+    #[test]
+    fn pad_only_word_neighbours() {
+        for (source, display) in [
+            (
+                "交给[Reduce compaction cost](u)处理",
+                format!("交给{GAP}{ICON}Reduce compaction cost{GAP}处理"),
+            ),
+            ("see[docs](u)now", format!("see{GAP}{ICON}docs{GAP}now")),
+            ("see [docs](u) now", format!("see {ICON}docs now")),
+            ("see [docs](u).", format!("see {ICON}docs.")),
+            ("（[文档](u)）", format!("（{ICON}文档）")),
+            ("参见：[文档](u)，然后", format!("参见：{ICON}文档，然后")),
+            ("“[link](u)”", format!("“{ICON}link”")),
+            ("[链接](u)结束", format!("{ICON}链接{GAP}结束")),
+            ("开始[链接](u)", format!("开始{GAP}{ICON}链接")),
+            ("前\n[链接](u)\n后", format!("前\n{ICON}链接\n后")),
+            ("[a](u)[b](v)", format!("{ICON}a{GAP}{GAP}{ICON}b")),
+            (
+                "用`code`[链接](u)",
+                format!("用\u{202f}code\u{202f}{GAP}{ICON}链接"),
+            ),
+            (
+                "交给[`run`](u)处理",
+                format!("交给{GAP}{ICON}\u{202f}run\u{202f}{GAP}处理"),
+            ),
+        ] {
+            let (_, flat) = decorated(source);
+            assert_eq!(&flat.text[..], display, "{source}");
+        }
+    }
+
+    #[test]
+    fn map_gaps_to_link_edges() {
+        let theme = Theme::from_kit(&Kit::from(&*ThemeColor::light()));
+        for source in [
+            "交给[Reduce compaction cost](u)处理",
+            "see[docs](u)now",
+            "[a](u)[b](v)",
+            "交给[`run`](u)处理",
+            "前<https://example.com>后",
+        ] {
+            let (doc, mut flat) = decorated(source);
+            let text = doc.blocks[0].text_at(Part::Body).unwrap();
+            assert_eq!(
+                flat.runs.iter().map(|run| run.len).sum::<usize>(),
+                flat.text.len(),
+                "{source}"
+            );
+            for at in text
+                .text
+                .char_indices()
+                .map(|(at, _)| at)
+                .chain([text.text.len()])
+            {
+                assert_eq!(
+                    flat.offsets.source(flat.offsets.display(at)),
+                    at,
+                    "{source}"
+                );
+            }
+            let edges: Vec<usize> = text
+                .marks
+                .iter()
+                .filter(|span| matches!(span.mark, Mark::Link(_) | Mark::Mention { .. }))
+                .flat_map(|span| [span.range.start, span.range.end])
+                .collect();
+            let mut start = 0;
+            let mut gaps = 0;
+            for run in &flat.runs {
+                let range = start..start + run.len;
+                start = range.end;
+                if &flat.text[range.clone()] != GAP {
+                    continue;
+                }
+                gaps += 1;
+                let edge = flat.offsets.source(range.start);
+                assert_eq!(flat.offsets.source(range.end), edge, "{source}");
+                assert!(edges.contains(&edge), "{source}");
+                assert!(
+                    flat.links
+                        .iter()
+                        .all(|(link, _)| !link.contains(&range.start)),
+                    "{source}"
+                );
+                assert!(run.underline.is_none(), "{source}");
+                assert_eq!(run.color.a, 0., "{source}");
+                assert_eq!(run.font.family, theme.font_body, "{source}");
+            }
+            assert_eq!(gaps, 2, "{source}");
+            let label = flat.links[0].0.start + ICON.len();
+            flat.hover_link(Some(label));
+            let mut start = 0;
+            for run in &flat.runs {
+                let range = start..start + run.len;
+                start = range.end;
+                if run.underline.is_some() {
+                    assert!(
+                        flat.links[0].0.start <= range.start && range.end <= flat.links[0].0.end,
+                        "{source}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn copy_resolves_gaps_to_source() {
+        let source = "交给[Reduce compaction cost](u)处理";
+        let (doc, flat) = decorated(source);
+        let gaps: Vec<usize> = flat.text.match_indices(GAP).map(|(at, _)| at).collect();
+        let &[before, after] = gaps.as_slice() else {
+            panic!("two gaps: {source}");
+        };
+        let from = Cursor::new(0, Part::Body, flat.offsets.source(before));
+        let to = Cursor::new(0, Part::Body, flat.offsets.source(after + GAP.len()));
+        assert_eq!(
+            copied(&doc, Selection::new(from, to)),
+            "Reduce compaction cost"
+        );
+        assert_eq!(
+            copied(&doc, Selection::all(&doc)),
+            "交给Reduce compaction cost处理"
+        );
+    }
+
+    #[test]
+    fn chip_wash_starts_at_icon() {
+        let (_, flat) = decorated("前<https://example.com>后");
+        assert_eq!(
+            &flat.text[..],
+            format!("前{GAP}{ICON}https://example.com{GAP}后")
+        );
+        let [(link, _)] = flat.links.as_slice() else {
+            panic!("one link");
+        };
+        assert_eq!(flat.chips, [link.clone()]);
+        assert_eq!(
+            &flat.text[link.clone()],
+            format!("{ICON}https://example.com")
+        );
+    }
+}
+
 mod emphasis {
     use super::*;
     use crate::markdown::{self, Part, Selection, doc::BlockKind};

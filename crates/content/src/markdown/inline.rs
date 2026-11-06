@@ -5,7 +5,8 @@ use super::{
     style::Theme,
 };
 use gpui_kit::{
-    FontStyle, FontWeight, SharedString, StrikethroughStyle, TextRun, UnderlineStyle, font, px,
+    Font, FontStyle, FontWeight, SharedString, StrikethroughStyle, TextRun, UnderlineStyle, font,
+    px,
 };
 use std::ops::Range;
 
@@ -215,7 +216,10 @@ pub(super) fn flatten_with(
             .collect(),
         source_len: text.text.len(),
     }
-    .decorate()
+    .decorate(Font {
+        weight: base_weight,
+        ..font(theme.font_body.clone())
+    })
 }
 
 #[derive(Clone, Default)]
@@ -259,15 +263,23 @@ impl Offsets {
     }
 }
 
+/// At one offset, the insets of a span that ends precede those of one that starts.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Inset {
     CodeEnd,
-    Link,
+    LinkEnd,
+    LinkStart,
+    Icon,
     CodeStart,
 }
 
+/// Room between a link and the text beside it. A no-break space glues to the
+/// character before it when GPUI wraps, so it never opens a line, and takes
+/// the body font: a monospace space would be a whole cell wide.
+const LINK_GAP: &str = "\u{a0}";
+
 impl Flat {
-    fn decorate(mut self) -> Self {
+    fn decorate(mut self, gap: Font) -> Self {
         // Nonbreaking insets participate in shaping and wrapping, but the offset
         // map keeps selection, editing and clipboard content in source coordinates.
         let mut inserts = Vec::new();
@@ -276,7 +288,13 @@ impl Flat {
             inserts.push((range.end, Inset::CodeEnd, index));
         }
         for (index, (range, _)) in self.links.iter().enumerate() {
-            inserts.push((range.start, Inset::Link, index));
+            if needs_gap(self.text[..range.start].chars().next_back()) {
+                inserts.push((range.start, Inset::LinkStart, index));
+            }
+            inserts.push((range.start, Inset::Icon, index));
+            if needs_gap(self.text[range.end..].chars().next()) {
+                inserts.push((range.end, Inset::LinkEnd, index));
+            }
         }
         if inserts.is_empty() {
             return self;
@@ -301,19 +319,20 @@ impl Flat {
                     input = at;
                 }
                 let start = output.len();
-                // An em reserves the icon; word joiner keeps it with its label.
-                let spacer = if kind == Inset::Link {
-                    "\u{2001}\u{2060}"
-                } else {
-                    "\u{202f}"
+                let spacer = match kind {
+                    // An em reserves the icon; word joiner keeps it with its label.
+                    Inset::Icon => "\u{2001}\u{2060}",
+                    Inset::LinkStart | Inset::LinkEnd => LINK_GAP,
+                    Inset::CodeStart | Inset::CodeEnd => "\u{202f}",
                 };
                 output.push_str(spacer);
                 let range = start..output.len();
                 self.offsets.gaps.push((at, range.clone()));
                 match kind {
                     Inset::CodeEnd => code[index].end = range.end,
-                    Inset::Link => icons[index] = range,
+                    Inset::Icon => icons[index] = range,
                     Inset::CodeStart => code[index].start = range.start,
+                    Inset::LinkStart | Inset::LinkEnd => {}
                 }
                 // A span's start is reached at the end of the run before it, whose
                 // font sets a different inset width than the span's own.
@@ -322,8 +341,13 @@ impl Flat {
                 } else {
                     run
                 };
+                let font = match kind {
+                    Inset::LinkStart | Inset::LinkEnd => gap.clone(),
+                    _ => style.font.clone(),
+                };
                 runs.push(TextRun {
                     len: spacer.len(),
+                    font,
                     color: gpui_kit::transparent_black(),
                     underline: None,
                     strikethrough: None,
@@ -339,11 +363,20 @@ impl Flat {
                 input = end;
             }
         }
+        for range in &mut self.chips {
+            // A chip's wash starts at its icon, past the gap before the link.
+            let start = self
+                .links
+                .iter()
+                .position(|(link, _)| link.start == range.start)
+                .map_or_else(
+                    || self.offsets.before(range.start),
+                    |link| icons[link].start,
+                );
+            *range = start..self.offsets.before(range.end);
+        }
         for (index, (range, _)) in self.links.iter_mut().enumerate() {
             *range = icons[index].start..self.offsets.before(range.end);
-        }
-        for range in &mut self.chips {
-            *range = self.offsets.before(range.start)..self.offsets.before(range.end);
         }
         for (range, _) in &mut self.references {
             *range = self.offsets.display(range.start)..self.offsets.before(range.end);
@@ -354,6 +387,32 @@ impl Flat {
         self.icons = icons;
         self
     }
+}
+
+/// Whether a link needs room from the character beside it. A line edge and
+/// whitespace need none, and punctuation binds to its neighbour or carries
+/// its own full-width spacing.
+fn needs_gap(neighbour: Option<char>) -> bool {
+    neighbour.is_some_and(|c| !c.is_whitespace() && !punctuation(c))
+}
+
+fn punctuation(c: char) -> bool {
+    c.is_ascii_punctuation()
+        || matches!(
+            c,
+            '¡' | '§' | '«' | '¶' | '·' | '»' | '¿'
+                // General Punctuation: dashes, quotes, ellipses and invisible joiners.
+                | '\u{2000}'..='\u{206F}'
+                // CJK Symbols and Punctuation, then vertical and compatibility forms.
+                | '\u{3000}'..='\u{303F}'
+                | '\u{FE10}'..='\u{FE1F}'
+                | '\u{FE30}'..='\u{FE6F}'
+                // Full-width ASCII punctuation and half-width CJK marks.
+                | '\u{FF01}'..='\u{FF0F}'
+                | '\u{FF1A}'..='\u{FF20}'
+                | '\u{FF3B}'..='\u{FF40}'
+                | '\u{FF5B}'..='\u{FF65}'
+        )
 }
 
 #[cfg(test)]
