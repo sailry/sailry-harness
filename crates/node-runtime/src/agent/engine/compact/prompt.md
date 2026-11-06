@@ -40,7 +40,7 @@ Output exactly one ```json code block and nothing else, matching this schema:
     }
   ],
   "errors_and_fixes": ["exact unresolved or recently fixed error text and its status"],
-  "technical_concepts": ["exact symbols, commands, commit or task IDs, and pointers to original records"]
+  "technical_concepts": ["exact symbols, commands, commit, task or child session IDs, and pointers to original records"]
 }
 ```
 
