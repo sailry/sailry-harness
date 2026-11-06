@@ -116,6 +116,13 @@ impl Catalog {
             .filter_map(|entry| entry.display.clone())
             .collect()
     }
+    pub fn delegations(&self) -> std::collections::BTreeSet<String> {
+        self.entries
+            .iter()
+            .filter(|(_, entry)| entry.delegation)
+            .map(|(name, _)| name.clone())
+            .collect()
+    }
     pub fn presentations(&self) -> BTreeMap<String, Presentation> {
         self.entries
             .iter()

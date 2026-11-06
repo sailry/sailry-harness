@@ -288,10 +288,16 @@ fn preserves_storage_contracts() {
                     &canonical::Presentation {
                         tools: catalog,
                         groupings: grouping.clone(),
+                        delegations: ["probe".into(), "unused".into()].into(),
                         ..Default::default()
                     },
                 );
                 assert_eq!(groupings(&event).unwrap(), grouping, "{scenario}");
+                assert_eq!(
+                    delegations(&event),
+                    ["probe".to_owned()].into(),
+                    "{scenario}"
+                );
                 assert_eq!(
                     read(&event).unwrap(),
                     BTreeMap::from([("probe".into(), Presentation::Summary)]),

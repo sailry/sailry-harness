@@ -205,6 +205,24 @@ async fn delegates_from_private_workspaces() {
                 Status::Completed,
                 "{parent:?}"
             );
+            let origins: Vec<_> = parent
+                .children
+                .iter()
+                .map(|child| (child.origin.entry.as_str(), child.origin.index))
+                .collect();
+            assert_eq!(origins.len(), 1, "{parent:?}");
+            for entry in parent.entries.iter() {
+                for (index, part) in entry.parts.iter().enumerate() {
+                    if let Part::ToolCall { summary, .. } = part {
+                        let delegated = origins.contains(&(entry.id.as_str(), index));
+                        assert_eq!(
+                            summary.delegation.background,
+                            delegated && background,
+                            "remote={remote} {part:?}"
+                        );
+                    }
+                }
+            }
             let child = children(&client, session.id, 1).await.pop().unwrap();
             assert_eq!(child.project, None);
             assert_eq!(child.worktree, session.worktree);

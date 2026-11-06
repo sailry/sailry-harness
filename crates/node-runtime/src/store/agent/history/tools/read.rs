@@ -389,6 +389,8 @@ async fn call(
                     .await?,
             );
             raw.display = displays.get(&request.name).cloned();
+            raw.delegation =
+                super::super::super::presentation::delegations(event).contains(&request.name);
             raw
         }
         _ => return Ok(None),

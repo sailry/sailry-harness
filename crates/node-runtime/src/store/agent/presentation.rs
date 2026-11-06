@@ -136,6 +136,9 @@ pub(super) fn stamp(event: &mut Record, catalog: &crate::agent::canonical::Prese
     captured
         .displays
         .retain(|name, _| names.contains(name.as_str()));
+    captured
+        .delegations
+        .retain(|name| names.contains(name.as_str()));
     captured.failures = event
         .metadata
         .presentation
@@ -165,6 +168,15 @@ pub(super) fn groupings(
         .as_ref()
         .map(|value| value.groupings.clone())
         .unwrap_or_default())
+}
+
+pub(super) fn delegations(event: &Record) -> std::collections::BTreeSet<String> {
+    event
+        .metadata
+        .presentation
+        .as_ref()
+        .map(|value| value.delegations.clone())
+        .unwrap_or_default()
 }
 
 pub(super) fn displays(
