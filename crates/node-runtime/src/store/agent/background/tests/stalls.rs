@@ -20,6 +20,31 @@ async fn stalled(fixture: &Fixture, snapshot: &Snapshot) -> Option<Task> {
     task
 }
 
+/// Completes the command as the Node does and returns the stall it settled.
+async fn finish(fixture: &Fixture, snapshot: &Snapshot) -> Option<Task> {
+    let transaction = fixture
+        .database
+        .connection
+        .unchecked_transaction()
+        .await
+        .unwrap();
+    command_finished(&transaction, snapshot, Some(1), false)
+        .await
+        .unwrap()
+        .unwrap();
+    let settled = settle_stall(&transaction, snapshot.info.id).await.unwrap();
+    transaction.commit().await.unwrap();
+    settled
+}
+
+async fn state(fixture: &Fixture, id: &str) -> Task {
+    get(&fixture.database.connection, id)
+        .await
+        .unwrap()
+        .unwrap()
+        .task
+}
+
 #[tokio::test]
 async fn notifies_follow_up_session() {
     let mut fixture = Fixture::new().await;
@@ -114,18 +139,76 @@ async fn rearms_after_delivery_until_completion() {
     assert_eq!(second.delivery, None);
     assert!(second.revision > delivered.revision);
     assert_eq!(second.summary.as_deref(), Some("Second"));
-    {
-        let transaction = fixture
-            .database
-            .connection
-            .unchecked_transaction()
-            .await
-            .unwrap();
-        command_finished(&transaction, &finished, Some(1), false)
-            .await
-            .unwrap()
-            .unwrap();
-        transaction.commit().await.unwrap();
-    }
+    let settled = finish(&fixture, &finished).await.unwrap();
+    assert_eq!(settled.id, second.id);
+    assert_eq!(settled.state, State::Dismissed);
     assert!(stalled(&fixture, &silent(finished, "Late")).await.is_none());
+}
+
+mod completion {
+    use super::*;
+
+    #[tokio::test]
+    async fn settles_unreserved_stall() {
+        let mut fixture = Fixture::new().await;
+        let source = completed(&mut fixture).await;
+        let (request, finished) = command(&fixture, source, false).await;
+        let task = stalled(&fixture, &silent(finished.clone(), "Waiting"))
+            .await
+            .unwrap();
+        let settled = finish(&fixture, &finished).await.unwrap();
+        assert_eq!(settled.id, task.id);
+        assert_eq!(settled.state, State::Dismissed);
+        assert!(settled.revision > task.revision);
+        assert_eq!(state(&fixture, &task.id).await, settled);
+        let command = state(&fixture, &format!("command:{}", request.id)).await;
+        assert_eq!(command.state, State::Pending);
+        assert_eq!(command.outcome, Some(Outcome::Completed));
+        // The next input sees the completion without the superseded stall.
+        let user = fixture.queued().await;
+        runs::start(&fixture.database.connection, user)
+            .await
+            .unwrap();
+        let invocation = claim(&mut fixture).await;
+        assert_eq!(
+            invocation
+                .notices
+                .iter()
+                .map(|notice| &notice.id)
+                .collect::<Vec<_>>(),
+            vec![&command.id]
+        );
+    }
+
+    #[tokio::test]
+    async fn keeps_reserved_stall() {
+        let mut fixture = Fixture::new().await;
+        let source = completed(&mut fixture).await;
+        let (_, finished) = command(&fixture, source, true).await;
+        let task = stalled(&fixture, &silent(finished.clone(), "Waiting"))
+            .await
+            .unwrap();
+        let queued = schedule(&fixture).await.unwrap();
+        let reserved = state(&fixture, &task.id).await;
+        assert_eq!(reserved.delivery, Some(queued.id));
+        assert!(finish(&fixture, &finished).await.is_none());
+        assert_eq!(state(&fixture, &task.id).await, reserved);
+    }
+
+    #[tokio::test]
+    async fn keeps_delivered_stall() {
+        let mut fixture = Fixture::new().await;
+        let source = completed(&mut fixture).await;
+        let (_, finished) = command(&fixture, source, true).await;
+        let task = stalled(&fixture, &silent(finished.clone(), "Waiting"))
+            .await
+            .unwrap();
+        schedule(&fixture).await.unwrap();
+        let invocation = claim(&mut fixture).await;
+        append(&mut fixture, &invocation, event(&invocation)).await;
+        let delivered = state(&fixture, &task.id).await;
+        assert_eq!(delivered.state, State::Delivered);
+        assert!(finish(&fixture, &finished).await.is_none());
+        assert_eq!(state(&fixture, &task.id).await, delivered);
+    }
 }

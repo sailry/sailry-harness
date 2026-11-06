@@ -729,7 +729,6 @@ pub(super) fn execute<'a>(
             let _ = reply.send(result);
         }),
         Operation::CommandFinished(completed) => Box::pin(async move {
-            let publication = database.publication.clone();
             let result = (async || -> Result<(), Fault> {
                 let tx = database
                     .connection
@@ -743,26 +742,11 @@ pub(super) fn execute<'a>(
                     completed.explicit,
                 )
                 .await?;
+                let settled = background::settle_stall(&tx, completed.snapshot.info.id).await?;
                 let scheduled =
                     background::schedule(&tx, database.node, completed.snapshot.info.session)
                         .await?;
-                let _publication = publication.lock().await;
-                super::database::conflict::commit(tx).await?;
-                background::publish(database, task).await;
-                if let Some(turn) = scheduled {
-                    feed::run(database, runs::get(&database.connection, turn.id).await?).await;
-                    database.feeds.publish(
-                        database.node,
-                        turn.session,
-                        Change::Queue(queue::read(&database.connection, turn.session).await?),
-                    );
-                    background::publish(
-                        database,
-                        background::list(&database.connection, turn.session).await?,
-                    )
-                    .await;
-                }
-                Ok(())
+                announce(database, tx, task.into_iter().chain(settled), scheduled).await
             })()
             .await;
             if let Err(error) = result {
@@ -770,7 +754,6 @@ pub(super) fn execute<'a>(
             }
         }),
         Operation::CommandStalled(stalled) => Box::pin(async move {
-            let publication = database.publication.clone();
             let result = (async || -> Result<(), Fault> {
                 let tx = database
                     .connection
@@ -783,23 +766,7 @@ pub(super) fn execute<'a>(
                     Some(task) => background::schedule(&tx, database.node, task.session).await?,
                     None => None,
                 };
-                let _publication = publication.lock().await;
-                super::database::conflict::commit(tx).await?;
-                background::publish(database, task).await;
-                if let Some(turn) = scheduled {
-                    feed::run(database, runs::get(&database.connection, turn.id).await?).await;
-                    database.feeds.publish(
-                        database.node,
-                        turn.session,
-                        Change::Queue(queue::read(&database.connection, turn.session).await?),
-                    );
-                    background::publish(
-                        database,
-                        background::list(&database.connection, turn.session).await?,
-                    )
-                    .await;
-                }
-                Ok(())
+                announce(database, tx, task, scheduled).await
             })()
             .await;
             if let Err(error) = result {
@@ -1171,6 +1138,33 @@ pub(super) fn execute<'a>(
             let _ = reply.send(result);
         }),
     }
+}
+
+/// Commits background evidence, then publishes it with the notice turn it scheduled.
+async fn announce(
+    database: &Database,
+    transaction: turso::transaction::Transaction<'_>,
+    tasks: impl IntoIterator<Item = sailry_protocol::conversation::background::Task>,
+    scheduled: Option<QueuedTurn>,
+) -> Result<(), Fault> {
+    let publication = database.publication.clone();
+    let _publication = publication.lock().await;
+    super::database::conflict::commit(transaction).await?;
+    background::publish(database, tasks).await;
+    if let Some(turn) = scheduled {
+        feed::run(database, runs::get(&database.connection, turn.id).await?).await;
+        database.feeds.publish(
+            database.node,
+            turn.session,
+            Change::Queue(queue::read(&database.connection, turn.session).await?),
+        );
+        background::publish(
+            database,
+            background::list(&database.connection, turn.session).await?,
+        )
+        .await;
+    }
+    Ok(())
 }
 
 async fn changed(

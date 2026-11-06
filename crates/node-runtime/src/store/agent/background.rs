@@ -13,6 +13,7 @@ pub(super) use delivery::{bind, check, confirm, render};
 pub(super) use records::{child_finished, child_started, consume_child, recover, release};
 pub(in crate::store) use records::{
     command_finished, command_stalled, command_started, consume_command, finish_request,
+    settle_stall,
 };
 pub(in crate::store) use records::{dismiss, list};
 
