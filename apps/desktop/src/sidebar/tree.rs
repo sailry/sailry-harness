@@ -18,9 +18,9 @@ impl Entry {
         px(30. + self.ancestors.len() as f32 * 18.)
     }
 
-    pub fn guides(&self, id: String, cx: &App) -> Div {
+    pub fn guides(&self, id: String, status: Option<AnyElement>, cx: &App) -> Div {
         let depth = self.ancestors.len();
-        super::branch(id, self.last, px(30.), cx).children(
+        super::branch(id, self.last, px(30.), status, cx).children(
             self.ancestors
                 .iter()
                 .enumerate()

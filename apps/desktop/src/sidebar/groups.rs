@@ -49,7 +49,7 @@ impl Shell {
                     })
                 },
             )
-            .child(entry.guides(format!("split-folder-{target:?}"), cx))
+            .child(entry.guides(format!("split-folder-{target:?}"), None, cx))
             .child(
                 h_flex()
                     .w_full()

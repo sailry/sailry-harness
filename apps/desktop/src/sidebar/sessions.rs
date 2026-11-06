@@ -132,7 +132,8 @@ impl Shell {
         let activity = self.session_lane(node, &session);
         let running = indicators && activity == sailry_client::activity::Lane::Running;
         let waiting = indicators && activity == sailry_client::activity::Lane::Waiting;
-        // Idle rows show when they last ran; hover swaps in the branch, activity its status.
+        // Idle rows show when they last ran; hover swaps in the branch and busy rows
+        // keep only the status on their branch elbow.
         let busy = matches!(
             activity,
             sailry_client::activity::Lane::Running | sailry_client::activity::Lane::Waiting
@@ -158,6 +159,45 @@ impl Shell {
             .branches
             .get(&(node, session.worktree))
             .and_then(|branch| branch.label.clone());
+        let status = if running {
+            Some((
+                crate::ui::loading::mini()
+                    .debug_selector(move || format!("{prefix}-{id}-loading"))
+                    .into_any_element(),
+                "activity_running",
+            ))
+        } else if waiting {
+            Some((
+                div()
+                    .flex_shrink_0()
+                    .debug_selector(move || format!("{prefix}-{id}-waiting"))
+                    .child(
+                        Icon::new(IconName::Info)
+                            .xsmall()
+                            .text_color(cx.theme().warning),
+                    )
+                    .into_any_element(),
+                "activity_waiting",
+            ))
+        } else if unread {
+            Some((
+                div()
+                    .size_2()
+                    .flex_shrink_0()
+                    .rounded_full()
+                    .bg(cx.theme().primary)
+                    .debug_selector(move || format!("{prefix}-{id}-unread"))
+                    .into_any_element(),
+                "notification_unread",
+            ))
+        } else {
+            None
+        };
+        let accessible: SharedString = status.as_ref().map_or_else(
+            || title.clone(),
+            |(_, key)| format!("{title} · {}", tr(key)).into(),
+        );
+        let status = status.map(|(element, _)| element);
         let row = self
             .sidebar_row(
                 SharedString::from(format!("{prefix}-{id}")),
@@ -166,13 +206,20 @@ impl Shell {
                     && self.session_scope.active == Key::Session(live.selected, id),
                 cx,
             )
-            .when_some(entry, |row, entry| {
-                row.pl(entry.indent())
-                    .child(entry.guides(format!("{prefix}-{id}"), cx))
-            })
-            .when_some(branch_last, |row, last| {
-                row.pl(px(30.))
-                    .child(super::branch(format!("{prefix}-{id}"), last, px(30.), cx))
+            .accessibility_label(accessible)
+            .map(|row| match (entry, branch_last) {
+                (Some(entry), _) => {
+                    row.pl(entry.indent())
+                        .child(entry.guides(format!("{prefix}-{id}"), status, cx))
+                }
+                (None, Some(last)) => row.pl(px(30.)).child(super::branch(
+                    format!("{prefix}-{id}"),
+                    last,
+                    px(30.),
+                    status,
+                    cx,
+                )),
+                (None, None) => row,
             })
             .when(running, |row| row.text_color(cx.theme().sidebar_foreground))
             .relative()
@@ -245,37 +292,7 @@ impl Shell {
                     .when_some(branch.filter(|_| hovered), |row, branch| {
                         row.child(super::location(format!("{prefix}-{id}-branch"), branch, cx))
                     })
-                    .when(running, |row| {
-                        row.child(
-                            div()
-                                .flex_shrink_0()
-                                .debug_selector(move || format!("{prefix}-{id}-loading"))
-                                .child(crate::ui::loading::mini()),
-                        )
-                    })
-                    .when(waiting, |row| {
-                        row.child(
-                            div()
-                                .flex_shrink_0()
-                                .debug_selector(move || format!("{prefix}-{id}-waiting"))
-                                .child(
-                                    Icon::new(IconName::Info)
-                                        .size_4()
-                                        .text_color(cx.theme().warning),
-                                ),
-                        )
-                    })
-                    .when(unread && !running && !waiting, |row| {
-                        row.child(
-                            div()
-                                .size_2()
-                                .flex_shrink_0()
-                                .rounded_full()
-                                .bg(cx.theme().primary)
-                                .debug_selector(move || format!("{prefix}-{id}-unread")),
-                        )
-                    })
-                    .when(worktree && !running && !waiting, |row| {
+                    .when(worktree, |row| {
                         row.child(
                             div()
                                 .flex_shrink_0()

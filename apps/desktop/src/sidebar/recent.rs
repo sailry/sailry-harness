@@ -46,6 +46,7 @@ impl Shell {
                         format!("recent-preview-{}", key.1),
                         index + 1 == count,
                         px(30.),
+                        None,
                         cx,
                     ))
                     .debug_selector(move || format!("recent-preview-{}", key.1))

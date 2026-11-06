@@ -109,11 +109,25 @@ impl State {
     }
 }
 
-// Kit ListItem has no branch guides; decorate the existing rows without changing
-// their focus, drag or menu behavior, matching the database tree's guide style.
-pub(crate) fn branch(id: String, last: bool, indent: Pixels, cx: &App) -> Div {
+/// Width and height of the status slot centered on a branch elbow.
+const MARK: f32 = 12.;
+
+// Kit ListItem has no branch guides or leading slot; decorate the existing rows
+// without changing their focus, drag or menu behavior, matching the database tree's
+// guide style. A row status occupies the elbow and the strokes stop at its edge.
+pub(crate) fn branch(
+    id: String,
+    last: bool,
+    indent: Pixels,
+    status: Option<AnyElement>,
+    cx: &App,
+) -> Div {
     let vertical = id.clone();
     let arm = id.clone();
+    let color = cx.theme().sidebar_foreground.opacity(0.35);
+    let half = px(MARK / 2.);
+    let marked = status.is_some();
+    let stroke = move |segment: Div| segment.border_l_1().border_dashed().border_color(color);
     div()
         .debug_selector(move || format!("{id}-guide"))
         .absolute()
@@ -121,26 +135,46 @@ pub(crate) fn branch(id: String, last: bool, indent: Pixels, cx: &App) -> Div {
         .top(px(-4.))
         .bottom(px(-4.))
         .w(indent - px(18.))
-        .child(
-            div()
+        .child(match status {
+            None => stroke(
+                div()
+                    .debug_selector(move || format!("{vertical}-guide-vertical"))
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .h(if last { relative(0.5) } else { relative(1.) }),
+            ),
+            Some(status) => v_flex()
                 .debug_selector(move || format!("{vertical}-guide-vertical"))
                 .absolute()
                 .top_0()
-                .left_0()
-                .h(if last { relative(0.5) } else { relative(1.) })
-                .border_l_1()
-                .border_dashed()
-                .border_color(cx.theme().sidebar_foreground.opacity(0.35)),
-        )
+                .bottom_0()
+                .left(px(-MARK / 2.))
+                .w(px(MARK))
+                .child(stroke(div().flex_1().ml(half)))
+                .child(
+                    h_flex()
+                        .flex_none()
+                        .size(px(MARK))
+                        .justify_center()
+                        .child(status),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .when(!last, |segment| stroke(segment.ml(half))),
+                ),
+        })
         .child(
             div()
                 .debug_selector(move || format!("{arm}-guide-arm"))
                 .absolute()
                 .top(relative(0.5))
-                .w_full()
+                .left(if marked { half } else { px(0.) })
+                .right_0()
                 .border_t_1()
                 .border_dashed()
-                .border_color(cx.theme().sidebar_foreground.opacity(0.35)),
+                .border_color(color),
         )
 }
 

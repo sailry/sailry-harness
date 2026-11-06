@@ -213,6 +213,7 @@ impl Shell {
                                                     last_terminal.is_none()
                                                         && last_session == Some(key),
                                                     px(30.),
+                                                    None,
                                                     cx,
                                                 ))
                                                 .debug_selector(move || {
@@ -303,6 +304,7 @@ impl Shell {
                                                             format!("terminal-{}", key.1),
                                                             last_terminal == Some(key),
                                                             px(30.),
+                                                            None,
                                                             cx,
                                                         ))
                                                         .debug_selector(move || {
