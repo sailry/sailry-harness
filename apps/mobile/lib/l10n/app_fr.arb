@@ -135,6 +135,7 @@
   "conversationAttachmentTooLarge": "Pièce jointe illisible ou plus grande que 64 Mo",
   "conversationDownload": "Voir pièce jointe",
   "conversationImageFailed": "Impossible d'afficher l'image",
+  "conversationImageUnavailable": "Image indisponible",
   "conversationDownloadFailed": "Impossible de charger la pièce jointe",
   "conversationReadonly": "Ce chat est archivé",
   "conversationMicrophoneDenied": "Impossible d'accéder au microphone",

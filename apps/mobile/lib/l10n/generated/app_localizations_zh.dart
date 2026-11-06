@@ -303,6 +303,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get conversationImageFailed => '图片无法显示';
 
   @override
+  String get conversationImageUnavailable => '图片不可用';
+
+  @override
   String get conversationDownloadFailed => '附件加载失败';
 
   @override
@@ -2842,6 +2845,9 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get conversationImageFailed => '圖片無法顯示';
+
+  @override
+  String get conversationImageUnavailable => '圖片無法使用';
 
   @override
   String get conversationDownloadFailed => '附件載入失敗';

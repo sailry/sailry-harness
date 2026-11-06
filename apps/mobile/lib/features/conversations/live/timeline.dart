@@ -7,6 +7,7 @@ import '../../../runtime/session.dart';
 import '../user_message.dart';
 import '../../../content/markdown.dart';
 import '../../../content/attachment.dart';
+import '../../../content/image_reference.dart';
 import '../../../content/images.dart';
 import '../../../content/paths.dart';
 import '../../../content/visuals.dart';
@@ -150,7 +151,27 @@ class _LiveTimelineState extends State<LiveTimeline> {
                   documents: _documents,
                 );
               },
-              imageBuilder: (uri, _, _) => contentImage(host, worktree, uri),
+              imageBuilder: (uri, _, alt) {
+                final reference = imageReference(uri);
+                if (reference == null) return contentImage(host, worktree, uri);
+                final image = transcript.image(reference);
+                if (image == null) {
+                  return Text(
+                    [
+                      if (alt != null && alt.trim().isNotEmpty) alt.trim(),
+                      context.tr('conversationImageUnavailable'),
+                    ].join(' · '),
+                    style: TextStyle(color: colors.onSurfaceVariant),
+                  );
+                }
+                return AttachmentView(
+                  key: ValueKey(('reference', reference.call, reference.index)),
+                  host: host,
+                  attachment: object(image['attachment']),
+                  image: image,
+                  session: session['id'] as String,
+                );
+              },
             ),
           );
         case 'thinking':

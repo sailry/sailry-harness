@@ -135,6 +135,7 @@
   "conversationAttachmentTooLarge": "Anexo ilegível ou maior que 64 MB",
   "conversationDownload": "Ver anexo",
   "conversationImageFailed": "Não é possível exibir a imagem",
+  "conversationImageUnavailable": "Imagem indisponível",
   "conversationDownloadFailed": "Não foi possível carregar o anexo",
   "conversationReadonly": "Este chat está arquivado",
   "conversationMicrophoneDenied": "Não é possível acessar o microfone",

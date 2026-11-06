@@ -678,6 +678,12 @@ abstract class AppLocalizations {
   /// **'Cannot display image'**
   String get conversationImageFailed;
 
+  /// No description provided for @conversationImageUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Image unavailable'**
+  String get conversationImageUnavailable;
+
   /// No description provided for @conversationDownloadFailed.
   ///
   /// In en, this message translates to:

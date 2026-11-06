@@ -135,6 +135,7 @@
   "conversationAttachmentTooLarge": "添付ファイルが読み込めないか、64MB 以上です",
   "conversationDownload": "添付ファイルを表示",
   "conversationImageFailed": "画像を表示できません",
+  "conversationImageUnavailable": "画像を利用できません",
   "conversationDownloadFailed": "添付ファイルを読み込めません",
   "conversationReadonly": "このチャットはアーカイブされています",
   "conversationMicrophoneDenied": "マイクにアクセスできません",

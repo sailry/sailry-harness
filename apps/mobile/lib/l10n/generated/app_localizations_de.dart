@@ -316,6 +316,9 @@ class AppLocalizationsDe extends AppLocalizations {
   String get conversationImageFailed => 'Bild kann nicht angezeigt werden';
 
   @override
+  String get conversationImageUnavailable => 'Bild nicht verfügbar';
+
+  @override
   String get conversationDownloadFailed => 'Anhang konnte nicht geladen werden';
 
   @override

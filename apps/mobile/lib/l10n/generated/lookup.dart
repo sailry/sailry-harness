@@ -105,6 +105,7 @@ String? lookupString(AppLocalizations strings, String key) => switch (key) {
   'conversationAttachmentTooLarge' => strings.conversationAttachmentTooLarge,
   'conversationDownload' => strings.conversationDownload,
   'conversationImageFailed' => strings.conversationImageFailed,
+  'conversationImageUnavailable' => strings.conversationImageUnavailable,
   'conversationDownloadFailed' => strings.conversationDownloadFailed,
   'conversationReadonly' => strings.conversationReadonly,
   'conversationMicrophoneDenied' => strings.conversationMicrophoneDenied,

@@ -312,6 +312,9 @@ class AppLocalizationsRu extends AppLocalizations {
   String get conversationImageFailed => 'Не удается отобразить изображение';
 
   @override
+  String get conversationImageUnavailable => 'Изображение недоступно';
+
+  @override
   String get conversationDownloadFailed => 'Не удалось загрузить вложение';
 
   @override

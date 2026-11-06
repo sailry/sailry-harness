@@ -311,6 +311,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get conversationImageFailed => 'Cannot display image';
 
   @override
+  String get conversationImageUnavailable => 'Image unavailable';
+
+  @override
   String get conversationDownloadFailed => 'Could not load attachment';
 
   @override

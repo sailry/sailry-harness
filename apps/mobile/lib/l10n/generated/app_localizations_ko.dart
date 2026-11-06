@@ -306,6 +306,9 @@ class AppLocalizationsKo extends AppLocalizations {
   String get conversationImageFailed => '이미지를 표시할 수 없음';
 
   @override
+  String get conversationImageUnavailable => '이미지를 사용할 수 없음';
+
+  @override
   String get conversationDownloadFailed => '첨부 파일을 불러올 수 없음';
 
   @override
