@@ -20,6 +20,20 @@ const REQUEST_BYTES: u64 = 64 * 1024 * 1024;
 const READ_NOTE: &str = "Contents not included; use read_office with source {\"kind\":\"attachment\",\"value\":\"<id>\"} for PDF, Office documents and spreadsheets; use an attachment-capable tool for other files";
 const UNAVAILABLE_NOTE: &str = "Attachment unavailable; contents not included";
 
+/// Historical misses already reported during one turn run.
+#[derive(Default)]
+pub(super) struct Reported(std::sync::Mutex<std::collections::BTreeSet<AttachmentId>>);
+
+impl Reported {
+    /// Returns whether this is the first report of `id`.
+    pub(super) fn first(&self, id: AttachmentId) -> bool {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(id)
+    }
+}
+
 pub(crate) fn is_reference(uri: &str) -> bool {
     uri.starts_with(PREFIX)
 }
@@ -111,11 +125,17 @@ pub(crate) fn render(
 pub(super) async fn hydrate(
     ingress: &Ingress,
     invocation: &Invocation,
+    reported: &Reported,
     conversation: &mut Conversation,
     vision: bool,
     api: ModelApi,
     stop: &CancellationToken,
 ) -> Result<(), Fault> {
+    let report = |id: AttachmentId, reason: &'static str, fault: &Fault| {
+        if reported.first(id) {
+            omitted(ingress, invocation, id, reason, fault);
+        }
+    };
     if !vision {
         filter_images(conversation);
     }
@@ -146,7 +166,7 @@ pub(super) async fn hydrate(
                 Ok(attachment) => attachment,
                 Err(fault) if current => return Err(fault),
                 Err(fault) => {
-                    omitted(ingress, invocation, reference, &fault);
+                    report(reference, source.reason.unwrap_or("unclassified"), &fault);
                     contents.push(MessageContent::text(unavailable(
                         reference,
                         &document.mime_type,
@@ -171,7 +191,12 @@ pub(super) async fn hydrate(
                                 ErrorCode::NotFound | ErrorCode::RevisionConflict
                             ) =>
                     {
-                        omitted(ingress, invocation, reference, &fault);
+                        let reason = if fault.code == ErrorCode::NotFound {
+                            "missing_file"
+                        } else {
+                            "changed_content"
+                        };
+                        report(reference, reason, &fault);
                         contents.push(MessageContent::text(unavailable(
                             reference,
                             &attachment.spec.media_type,
@@ -260,7 +285,13 @@ fn unavailable(id: AttachmentId, media_type: &str) -> String {
     format!("Attachment reference: {value}\n{UNAVAILABLE_NOTE}")
 }
 
-fn omitted(ingress: &Ingress, invocation: &Invocation, id: AttachmentId, fault: &Fault) {
+fn omitted(
+    ingress: &Ingress,
+    invocation: &Invocation,
+    id: AttachmentId,
+    reason: &'static str,
+    fault: &Fault,
+) {
     let mut entry =
         crate::logging::Entry::new(crate::logging::Area::Run, crate::logging::Phase::Failed);
     entry.context = crate::logging::Context {
@@ -275,6 +306,7 @@ fn omitted(ingress: &Ingress, invocation: &Invocation, id: AttachmentId, fault: 
     entry.stage = Some("hydrate");
     entry.source_kind = Some("history");
     entry.recovery_decision = Some("placeholder");
+    entry.reason = Some(reason);
     entry.code = Some(fault.code);
     entry.emit_warn();
 }

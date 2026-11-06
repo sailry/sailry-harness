@@ -7,6 +7,8 @@ pub(crate) struct Source {
     /// The running turn's own input, including guidance joined to it.
     pub current: bool,
     pub attachment: Result<Attachment, Fault>,
+    /// Why an unavailable reference was missed; set only with a fault.
+    pub reason: Option<&'static str>,
 }
 
 struct Miss {
@@ -158,6 +160,7 @@ pub(in crate::store) async fn lookup(
             return Ok(Source {
                 current,
                 attachment: Ok(attachment),
+                reason: None,
             });
         }
         Err(fault) if fault.code == ErrorCode::NotFound => fault,
@@ -168,6 +171,18 @@ pub(in crate::store) async fn lookup(
         current: true,
         reason: "unclassified",
     });
+    // Recoverable history misses are reported once per turn by the requester.
+    if found.current {
+        input(node, run, id, found.reason, &fault);
+    }
+    Ok(Source {
+        current: found.current,
+        attachment: Err(fault),
+        reason: Some(found.reason),
+    })
+}
+
+fn input(node: NodeId, run: &Run, id: AttachmentId, reason: &'static str, fault: &Fault) {
     let mut entry =
         crate::logging::Entry::new(crate::logging::Area::Run, crate::logging::Phase::Failed);
     entry.context = crate::logging::Context {
@@ -180,14 +195,10 @@ pub(in crate::store) async fn lookup(
     };
     entry.operation = Some("attachment");
     entry.stage = Some("lookup");
-    entry.source_kind = Some(if found.current { "input" } else { "history" });
-    entry.reason = Some(found.reason);
+    entry.source_kind = Some("input");
+    entry.reason = Some(reason);
     entry.code = Some(fault.code);
     entry.emit_warn();
-    Ok(Source {
-        current: found.current,
-        attachment: Err(fault),
-    })
 }
 
 /// A miss whose conditions all hold on recheck was transient.

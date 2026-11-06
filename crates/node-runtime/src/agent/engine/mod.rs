@@ -133,6 +133,7 @@ pub(super) async fn run(run: Run<'_>) -> Result<Option<String>, Fault> {
         images,
         parts: parts.clone(),
         sources: binding.sources.clone(),
+        reported: Default::default(),
     });
     let manual = invocation.turn.kind == sailry_protocol::conversation::RunKind::Compaction;
     let compact = Arc::new(compact::Compaction {
