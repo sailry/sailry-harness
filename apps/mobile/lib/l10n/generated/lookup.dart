@@ -778,6 +778,7 @@ String? lookupString(AppLocalizations strings, String key) => switch (key) {
   'backgroundStopped' => strings.backgroundStopped,
   'backgroundTimedOut' => strings.backgroundTimedOut,
   'backgroundInterrupted' => strings.backgroundInterrupted,
+  'backgroundStalled' => strings.backgroundStalled,
   'backgroundUnknown' => strings.backgroundUnknown,
   'backgroundPending' => strings.backgroundPending,
   'conversationSteps' => strings.conversationSteps('{count}'),

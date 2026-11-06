@@ -2360,6 +2360,9 @@ class AppLocalizationsKo extends AppLocalizations {
   String get backgroundInterrupted => '중단됨';
 
   @override
+  String get backgroundStalled => '최근 출력 없음';
+
+  @override
   String get backgroundUnknown => '결과 불확실';
 
   @override

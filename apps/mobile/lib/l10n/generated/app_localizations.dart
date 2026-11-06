@@ -4680,6 +4680,12 @@ abstract class AppLocalizations {
   /// **'Interrupted'**
   String get backgroundInterrupted;
 
+  /// No description provided for @backgroundStalled.
+  ///
+  /// In en, this message translates to:
+  /// **'No recent output'**
+  String get backgroundStalled;
+
   /// No description provided for @backgroundUnknown.
   ///
   /// In en, this message translates to:

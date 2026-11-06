@@ -2413,6 +2413,9 @@ class AppLocalizationsFr extends AppLocalizations {
   String get backgroundInterrupted => 'Interrompu';
 
   @override
+  String get backgroundStalled => 'Aucune sortie récente';
+
+  @override
   String get backgroundUnknown => 'Résultat incertain';
 
   @override

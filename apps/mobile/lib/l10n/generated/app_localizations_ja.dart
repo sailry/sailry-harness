@@ -2357,6 +2357,9 @@ class AppLocalizationsJa extends AppLocalizations {
   String get backgroundInterrupted => '中断';
 
   @override
+  String get backgroundStalled => '最近の出力なし';
+
+  @override
   String get backgroundUnknown => '結果は不確定';
 
   @override

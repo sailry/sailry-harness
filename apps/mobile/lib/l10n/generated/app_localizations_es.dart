@@ -2406,6 +2406,9 @@ class AppLocalizationsEs extends AppLocalizations {
   String get backgroundInterrupted => 'Interrumpido';
 
   @override
+  String get backgroundStalled => 'Sin salida reciente';
+
+  @override
   String get backgroundUnknown => 'Resultado incierto';
 
   @override

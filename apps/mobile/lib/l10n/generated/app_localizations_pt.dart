@@ -2401,6 +2401,9 @@ class AppLocalizationsPt extends AppLocalizations {
   String get backgroundInterrupted => 'Interrompido';
 
   @override
+  String get backgroundStalled => 'Sem saída recente';
+
+  @override
   String get backgroundUnknown => 'Resultado incerto';
 
   @override
@@ -2628,6 +2631,9 @@ class AppLocalizationsPtBr extends AppLocalizationsPt {
 
   @override
   String get backgroundInterrupted => 'Interrompido';
+
+  @override
+  String get backgroundStalled => 'Sem saída recente';
 
   @override
   String get backgroundUnknown => 'Resultado incerto';

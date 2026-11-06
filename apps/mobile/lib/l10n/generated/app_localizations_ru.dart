@@ -2399,6 +2399,9 @@ class AppLocalizationsRu extends AppLocalizations {
   String get backgroundInterrupted => 'Прервано';
 
   @override
+  String get backgroundStalled => 'Нет нового вывода';
+
+  @override
   String get backgroundUnknown => 'Результат неизвестен';
 
   @override
