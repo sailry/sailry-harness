@@ -1,0 +1,7 @@
+host_wsl: "WSL"
+host_wsl_distribution: "發行版"
+host_wsl_requirement: "需要 WSL2、GNU Linux x64/arm64 與 systemd"
+host_wsl_empty: "尚未安裝 WSL2 發行版"
+host_wsl_lifetime: "WSL 停止時 Host 也會停止"
+host_wsl_refresh: "重新整理"
+host_wsl_load_failed: "無法載入 WSL 發行版"

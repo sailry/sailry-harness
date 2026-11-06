@@ -341,6 +341,11 @@ impl Ingress {
                     sailry_protocol::Command::ListShells => sailry_protocol::Output::Shells(
                         crate::terminal::shells::list(&self.environment, &self.closed).await?,
                     ),
+                    sailry_protocol::Command::ListWslDistributions => {
+                        sailry_protocol::Output::WslDistributions(
+                            self.wsl.list(&self.environment, &self.closed).await?,
+                        )
+                    }
                     sailry_protocol::Command::ReadHostMetrics { detailed } => {
                         sailry_protocol::Output::HostMetrics(
                             self.host.sample(self.node, detailed).await?,

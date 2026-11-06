@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::NodeId;
 
+pub mod installation;
 pub mod metrics;
 
 /// A point-in-time observation of the execution host, never controller metadata.

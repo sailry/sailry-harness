@@ -46,6 +46,7 @@ pub mod terminal;
 pub mod tool;
 pub mod usage;
 pub mod web;
+pub mod wsl;
 
 pub use config::*;
 pub use credential::*;

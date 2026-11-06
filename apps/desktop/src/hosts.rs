@@ -1,4 +1,4 @@
-//! SSH deployment presentation. Execution and credentials remain on the local Node.
+//! Host deployment presentation. Execution and credentials remain on the local Node.
 use crate::{backend::Services, shell::Shell, theme::DialogStyle as _, tr};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
@@ -24,6 +24,8 @@ mod editor;
 mod recovery;
 mod sharing;
 mod view;
+#[cfg(windows)]
+mod wsl;
 use editor::{Editor, Event};
 
 struct Installer {
@@ -171,12 +173,14 @@ impl Installer {
         }
     }
 
-    fn execute(&mut self, command: Command, window: &mut Window, cx: &mut Context<Self>) {
+    fn execute(&mut self, mut command: Command, window: &mut Window, cx: &mut Context<Self>) {
         if self.request.is_some() {
             return;
         }
-        if matches!(command, Command::SaveSsh { .. })
-            && let Some(draft) = &self.network_draft
+        if matches!(
+            command,
+            Command::SaveSsh { .. } | Command::InstallWslHost { .. }
+        ) && let Some(draft) = &self.network_draft
         {
             let Some(network) = draft.read(cx).target_network(cx) else {
                 crate::feedback::error(
@@ -188,7 +192,13 @@ impl Installer {
                 );
                 return;
             };
-            self.network = Some(network);
+            self.network = Some(network.clone());
+            if let Command::InstallWslHost {
+                network: selected, ..
+            } = &mut command
+            {
+                *selected = Some(network);
+            }
         }
         self.error = None;
         self.editor.update(cx, |editor, cx| {
@@ -198,8 +208,14 @@ impl Installer {
         let request = self.client.prepare(command);
         let install = matches!(
             request.command,
-            Command::InstallHost { .. } | Command::UpdateSshHost { .. }
+            Command::InstallHost { .. }
+                | Command::UpdateSshHost { .. }
+                | Command::InstallWslHost { .. }
         );
+        if matches!(request.command, Command::InstallWslHost { .. }) {
+            self.form = false;
+            self.progress = InstallProgress::Connecting;
+        }
         self.request = Some(request.clone());
         let client = self.client.clone();
         let job = self
@@ -225,6 +241,21 @@ impl Installer {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let result = match result {
+            Ok(Output::HostInstallation(
+                sailry_protocol::host::installation::Outcome::Installed { node },
+            )) => Ok(Output::SshOutcome(Outcome::HostInstalled { node })),
+            Ok(Output::HostInstallation(
+                sailry_protocol::host::installation::Outcome::NetworkUnconfirmed {
+                    node,
+                    selection,
+                },
+            )) => Ok(Output::SshOutcome(Outcome::HostNetworkUnconfirmed {
+                node,
+                selection,
+            })),
+            result => result,
+        };
         let trusted = self
             .request
             .as_ref()
@@ -327,7 +358,9 @@ impl Installer {
         });
     }
     fn poll(&mut self, cx: &mut Context<Self>) {
-        let id = self.request.as_ref().unwrap().id;
+        let request = self.request.as_ref().unwrap();
+        let id = request.id;
+        let wsl = matches!(request.command, Command::InstallWslHost { .. });
         let client = self.client.clone();
         let runtime = self.runtime.clone();
         self.polling = Some(cx.spawn(async move |this, cx| {
@@ -338,7 +371,11 @@ impl Installer {
                 let client = client.clone();
                 let job = runtime.spawn(async move {
                     client
-                        .execute(client.prepare(Command::ReadHostInstall { request: id }))
+                        .execute(client.prepare(if wsl {
+                            Command::ReadWslHostInstall { request: id }
+                        } else {
+                            Command::ReadHostInstall { request: id }
+                        }))
                         .await
                 });
                 if let Ok(Ok(Output::HostInstallProgress(progress))) = job.await
@@ -359,6 +396,7 @@ impl Installer {
             && matches!(
                 request.command,
                 Command::InstallHost { .. }
+                    | Command::InstallWslHost { .. }
                     | Command::UpdateSshHost { .. }
                     | Command::CheckSsh { .. }
             )
@@ -366,9 +404,17 @@ impl Installer {
             let client = self.client.clone();
             self.runtime.spawn(async move {
                 let _ = client
-                    .execute(client.prepare(Command::CancelSsh {
-                        request: request.id,
-                    }))
+                    .execute(client.prepare(
+                        if matches!(request.command, Command::InstallWslHost { .. }) {
+                            Command::CancelWslHostInstall {
+                                request: request.id,
+                            }
+                        } else {
+                            Command::CancelSsh {
+                                request: request.id,
+                            }
+                        },
+                    ))
                     .await;
             });
         }

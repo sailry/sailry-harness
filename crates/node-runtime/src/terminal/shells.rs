@@ -6,8 +6,6 @@ use std::{collections::BTreeSet, path::PathBuf};
 mod tests;
 #[cfg(windows)]
 mod windows;
-#[cfg(any(windows, test))]
-mod wsl;
 
 pub async fn list(
     environment: &crate::process::Environment,
@@ -20,9 +18,7 @@ pub async fn list(
     #[cfg(windows)]
     let shells = {
         let mut shells = shells;
-        if let Some(executable) = windows::wsl(environment) {
-            shells.extend(wsl::list(&executable, environment, stop).await?);
-        }
+        shells.extend(crate::wsl::shells(environment, stop).await?);
         shells.sort();
         shells.dedup();
         shells

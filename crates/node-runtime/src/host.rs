@@ -6,6 +6,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use sailry_protocol::{ErrorCode, Fault, HostInfo, MemoryUsage, NodeId};
 use sysinfo::System;
 
+pub(crate) mod deployment;
 mod metrics;
 pub(crate) mod processes;
 

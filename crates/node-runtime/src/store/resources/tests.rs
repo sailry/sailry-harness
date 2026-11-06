@@ -37,6 +37,7 @@ async fn admits_unrelated_resources_until_shutdown() {
                 },
             ),
             reply,
+            link: None,
         }
     };
     // Missing targets exercise the actual owner without launching a terminal.

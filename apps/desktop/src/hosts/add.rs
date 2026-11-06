@@ -10,14 +10,18 @@ enum Method {
     Password,
     PrivateKey,
     KeyFile,
+    #[cfg(windows)]
+    Wsl,
 }
 
 impl Method {
-    const ALL: [Self; 4] = [
+    const ALL: &'static [Self] = &[
         Self::Pairing,
         Self::Password,
         Self::PrivateKey,
         Self::KeyFile,
+        #[cfg(windows)]
+        Self::Wsl,
     ];
 
     fn label(self) -> &'static str {
@@ -26,12 +30,16 @@ impl Method {
             Self::Password => "ssh_password",
             Self::PrivateKey => "ssh_private_key",
             Self::KeyFile => "ssh_key_file",
+            #[cfg(windows)]
+            Self::Wsl => "host_wsl",
         }
     }
 
     fn authentication(self) -> Option<Authentication> {
         match self {
             Self::Pairing => None,
+            #[cfg(windows)]
+            Self::Wsl => None,
             Self::Password => Some(Authentication::Password),
             Self::PrivateKey => Some(Authentication::PrivateKey),
             Self::KeyFile => Some(Authentication::KeyPath),
@@ -43,6 +51,8 @@ struct Add {
     method: Method,
     pairing: Entity<crate::settings::Pairing>,
     installer: Entity<Installer>,
+    #[cfg(windows)]
+    wsl: Entity<wsl::Form>,
 }
 
 pub(crate) fn open(window: &mut Window, cx: &mut App) {
@@ -52,6 +62,10 @@ pub(crate) fn open(window: &mut Window, cx: &mut App) {
     let owner = cx.new(|cx| {
         let pairing = cx.new(|cx| crate::settings::Pairing::new(window, cx));
         pairing.update(cx, |pairing, cx| pairing.prepare_network(window, cx));
+        #[cfg(windows)]
+        let wsl = cx.new(|cx| wsl::Form::new(&services, window, cx));
+        #[cfg(windows)]
+        cx.observe(&wsl, |_, _, cx| cx.notify()).detach();
         let installer = cx.new(|cx| Installer::new(services, None, window, cx));
         installer.update(cx, |installer, cx| {
             installer.network_draft = Some(pairing.clone());
@@ -71,6 +85,8 @@ pub(crate) fn open(window: &mut Window, cx: &mut App) {
             method: Method::default(),
             pairing,
             installer,
+            #[cfg(windows)]
+            wsl,
         }
     });
     window.open_dialog(cx, move |dialog, window, cx| {
@@ -104,6 +120,10 @@ impl Add {
             return;
         }
         self.method = method;
+        #[cfg(windows)]
+        if method == Method::Wsl {
+            self.wsl.update(cx, |form, cx| form.prepare(window, cx));
+        }
         if let Some(authentication) = method.authentication() {
             let editor = self.installer.read(cx).editor.clone();
             editor.update(cx, |editor, cx| {
@@ -114,6 +134,45 @@ impl Add {
     }
 
     fn footer(&self, cx: &mut Context<Self>) -> AnyElement {
+        #[cfg(windows)]
+        if self.method == Method::Wsl {
+            let installer = self.installer.read(cx);
+            if !installer.form || installer.recovery.is_some() {
+                return self
+                    .installer
+                    .update(cx, |installer, cx| installer.footer(cx));
+            }
+            let distribution = self.wsl.read(cx).distribution(cx);
+            return DialogFooter::new()
+                .w_full()
+                .child(
+                    Button::new("host-wsl-cancel")
+                        .label(tr("settings_cancel"))
+                        .on_click(cx.listener(|_, _, window, cx| window.close_dialog(cx))),
+                )
+                .child(
+                    Button::new("host-wsl-install")
+                        .primary()
+                        .label(tr("host_install"))
+                        .disabled(distribution.is_none() || self.busy(cx))
+                        .on_click(cx.listener(move |view, _, window, cx| {
+                            let Some(distribution) = view.wsl.read(cx).distribution(cx) else {
+                                return;
+                            };
+                            view.installer.update(cx, |installer, cx| {
+                                installer.execute(
+                                    Command::InstallWslHost {
+                                        distribution,
+                                        network: None,
+                                    },
+                                    window,
+                                    cx,
+                                )
+                            });
+                        })),
+                )
+                .into_any_element();
+        }
         if self.method == Method::Pairing {
             self.pairing.update(cx, |pairing, cx| {
                 pairing.pairing_footer(cx).into_any_element()
@@ -138,7 +197,7 @@ impl Render for Add {
                     .position(|method| *method == self.method)
                     .unwrap_or_default(),
             )
-            .children(Method::ALL.map(|method| {
+            .children(Method::ALL.iter().map(|method| {
                 Tab::new()
                     .flex_1()
                     .min_w_0()
@@ -155,6 +214,13 @@ impl Render for Add {
                 .update(cx, |pairing, cx| pairing.pairing_body(cx))
                 .into_any_element()
         } else {
+            #[cfg(windows)]
+            if self.method == Method::Wsl && self.installer.read(cx).form {
+                self.wsl.update(cx, |form, cx| form.body(busy, cx))
+            } else {
+                self.installer.clone().into_any_element()
+            }
+            #[cfg(not(windows))]
             self.installer.clone().into_any_element()
         };
         v_flex()

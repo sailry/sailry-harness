@@ -85,15 +85,6 @@ fn additional(root: &Path) -> Vec<PathBuf> {
     .into()
 }
 
-pub(super) fn wsl(environment: &Environment) -> Option<PathBuf> {
-    std::env::var_os("SystemRoot")
-        .map(|root| PathBuf::from(root).join("System32/wsl.exe"))
-        .into_iter()
-        .chain(which::which_in("wsl.exe", environment.path(), "/").ok())
-        .find_map(|path| which::which_in(path, environment.path(), "/").ok())
-        .filter(|path| path.is_absolute())
-}
-
 pub(super) fn is_shell(path: &Path) -> bool {
     let name = path
         .file_name()

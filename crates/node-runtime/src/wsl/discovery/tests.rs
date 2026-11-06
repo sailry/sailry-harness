@@ -150,6 +150,64 @@ mod registration {
     }
 
     #[test]
+    fn reads_versions_only_for_listed_distributions() {
+        let transaction = windows_registry::Transaction::new().unwrap();
+        let path = format!(r"Software\SailryWslFixture-{}", uuid::Uuid::new_v4());
+        let root = windows_registry::CURRENT_USER
+            .options()
+            .read()
+            .write()
+            .create()
+            .transaction(&transaction)
+            .open(&path)
+            .unwrap();
+        for (id, name, version) in [
+            ("{aa6936d0-a384-4493-aa70-12b97cf6c028}", "Ubuntu 资料", 2),
+            ("{16317611-9e46-4076-90d8-ce9e7c9b2141}", "Legacy", 1),
+        ] {
+            let key = windows_registry::CURRENT_USER
+                .options()
+                .read()
+                .write()
+                .create()
+                .transaction(&transaction)
+                .open(format!(r"{path}\{id}"))
+                .unwrap();
+            key.set_string("DistributionName", name).unwrap();
+            key.set_u32("Version", version).unwrap();
+        }
+        assert_eq!(
+            metadata(&root, vec!["Ubuntu 资料".into()]).unwrap(),
+            vec![sailry_protocol::wsl::Distribution {
+                name: "Ubuntu 资料".into(),
+                version: 2
+            }]
+        );
+        assert_eq!(
+            metadata(&root, vec!["Legacy".into()]).unwrap()[0].version,
+            1
+        );
+        assert_eq!(
+            metadata(&root, vec!["Removed".into()]).unwrap_err().code,
+            ErrorCode::Unavailable
+        );
+        let key = windows_registry::CURRENT_USER
+            .options()
+            .read()
+            .write()
+            .transaction(&transaction)
+            .open(format!(r"{path}\{{aa6936d0-a384-4493-aa70-12b97cf6c028}}"))
+            .unwrap();
+        key.set_string("Version", "not-a-number").unwrap();
+        assert_eq!(
+            metadata(&root, vec!["Ubuntu 资料".into()])
+                .unwrap_err()
+                .code,
+            ErrorCode::Unavailable
+        );
+    }
+
+    #[test]
     fn distinguishes_absence_from_read_errors() {
         use windows_sys::Win32::Foundation::{
             ERROR_ACCESS_DENIED, ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND,

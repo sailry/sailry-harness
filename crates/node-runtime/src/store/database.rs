@@ -505,11 +505,12 @@ impl Database {
                 }
             } else if effect == Some(super::routing::Effect::Resources) {
                 match super::resources::prepare(self, &request).await {
-                    Ok(()) => {
+                    Ok(link) => {
                         return Some(Work::Resources(super::resources::Execution {
                             caller,
                             request,
                             reply: completion,
+                            link,
                         }));
                     }
                     Err(error) => {

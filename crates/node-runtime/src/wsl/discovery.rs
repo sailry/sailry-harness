@@ -12,7 +12,7 @@ pub(super) async fn list(
     executable: &std::path::Path,
     environment: &crate::process::Environment,
     stop: &CancellationToken,
-) -> Result<Vec<sailry_protocol::terminal::Shell>, Fault> {
+) -> Result<Vec<String>, Fault> {
     let registered = tokio::task::spawn_blocking(|| {
         registered(
             windows_registry::CURRENT_USER.open(r"Software\Microsoft\Windows\CurrentVersion\Lxss"),
@@ -32,16 +32,59 @@ pub(super) async fn list(
             .ok_or_else(|| failure("executable path is invalid"))?,
     );
     let bytes = query(command, stop, DEADLINE).await?;
-    let path = executable
-        .to_str()
-        .ok_or_else(|| failure("executable path is not Unicode"))?;
-    Ok(distributions(&bytes)?
+    distributions(&bytes)
+}
+
+#[cfg(windows)]
+pub(super) fn versions(
+    names: Vec<String>,
+) -> Result<Vec<sailry_protocol::wsl::Distribution>, Fault> {
+    if names.is_empty() {
+        return Ok(Vec::new());
+    }
+    let read_error = |error: windows::core::Error| {
+        failure(format!(
+            "distribution registration read failed (HRESULT 0x{:08X})",
+            error.code().0 as u32
+        ))
+    };
+    let root = windows_registry::CURRENT_USER
+        .open(r"Software\Microsoft\Windows\CurrentVersion\Lxss")
+        .map_err(read_error)?;
+    metadata(&root, names)
+}
+
+#[cfg(windows)]
+fn metadata(
+    root: &windows_registry::Key,
+    names: Vec<String>,
+) -> Result<Vec<sailry_protocol::wsl::Distribution>, Fault> {
+    let read_error = |error: windows::core::Error| {
+        failure(format!(
+            "distribution registration read failed (HRESULT 0x{:08X})",
+            error.code().0 as u32
+        ))
+    };
+    let mut versions = std::collections::BTreeMap::new();
+    for key in root.keys().map_err(read_error)? {
+        if key.len() != 38 || uuid::Uuid::parse_str(&key).is_err() {
+            continue;
+        }
+        let key = root.open(key).map_err(read_error)?;
+        let name = key.get_string("DistributionName").map_err(read_error)?;
+        if names.contains(&name) {
+            versions.insert(name, key.get_u32("Version").map_err(read_error)?);
+        }
+    }
+    names
         .into_iter()
-        .map(|name| sailry_protocol::terminal::Shell {
-            path: path.into(),
-            arguments: vec!["--distribution".into(), name],
+        .map(|name| {
+            let version = versions.remove(&name).ok_or_else(|| {
+                failure("distribution registration changed; refresh the distribution list")
+            })?;
+            Ok(sailry_protocol::wsl::Distribution { name, version })
         })
-        .collect())
+        .collect()
 }
 
 #[cfg(windows)]
