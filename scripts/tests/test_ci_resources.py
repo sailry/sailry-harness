@@ -313,6 +313,19 @@ class SharedCommands(unittest.TestCase):
                 prepare.assert_called_once_with(ROOT, None, libraries=True)
                 self.assertEqual(run.call_args.kwargs["env"]["GOOSE_PROVIDER_SKIP_BACKOFF"], "true")
 
+    def test_hides_ci_selection_from_tests(self):
+        environment = {"CHECK_SCOPE": "{}", "CHECK_PARTITION": "count:1/2", "PATH": "fixture path"}
+        for name in ("source", "mobile-check", "host"):
+            with self.subTest(name=name), \
+                    patch.object(ci, "check_commands", return_value=[{"argv": ["fixture"], "cwd": "."}]), \
+                    patch.object(ci, "parser_environment", side_effect=lambda root, env, libraries: dict(env)), \
+                    patch.object(ci.subprocess, "run", return_value=SimpleNamespace(returncode=0)) as run:
+                self.assertEqual(ci.run_check(name, env=environment), 0)
+                passed = run.call_args.kwargs["env"]
+                self.assertEqual(passed["PATH"], "fixture path")
+                self.assertFalse([key for key in passed if key.startswith("CHECK_")])
+        self.assertIn("CHECK_SCOPE", environment)
+
 
 class Archives(unittest.TestCase):
     def test_builds_the_selected_union(self):
@@ -327,10 +340,15 @@ class Archives(unittest.TestCase):
                 self.assertEqual(archive[archive.index("--build-jobs") + 1], "2")
                 self.assertEqual(len(commands), 2 if "shared" in selected else 1)
                 if "shared" in selected:
+                    # Test crates and the plugin host share one schedule; the archive then compiles nothing new.
                     build = commands[0]["argv"]
                     self.assertEqual(build[:3], ["cargo", "build", "--locked"])
-                    self.assertEqual(build[3:build.index("--example")], archive[4:archive.index("--timings")])
-                    self.assertEqual(build[build.index("--example") + 1], "plugin-test-host")
+                    self.assertEqual(build[3:build.index("--tests")], archive[4:archive.index("--timings")])
+                    self.assertEqual(build[build.index("--tests") + 1:build.index("--profile")],
+                                     ["--example", "plugin-test-host"])
+                    self.assertEqual(build[build.index("--profile") + 1], "test")
+                    self.assertIn("--timings", build)
+                    self.assertEqual(build[build.index("--jobs") + 1], "2")
 
     def test_partitions_only_ordinary_shared_tests(self):
         for selected in ({"shared"}, {"host"}, {"shared", "host"}):
@@ -373,7 +391,9 @@ class Archives(unittest.TestCase):
                 environment = {"CHECK_ARCHIVE": ci.TEST_ARCHIVE, "PATH": "fixture path"}
                 self.assertEqual(ci.run_check(name, selection=ci.outputs(ci.LANES), env=environment), 0)
                 self.assertEqual(run.call_count, 1)
-                self.assertEqual(run.call_args.kwargs["env"], {**environment, "GOOSE_PROVIDER_SKIP_BACKOFF": "true"})
+                # The archive location selects these commands but never reaches the tests.
+                self.assertEqual(run.call_args.kwargs["env"],
+                                 {"PATH": "fixture path", "GOOSE_PROVIDER_SKIP_BACKOFF": "true"})
                 self.assertNotIn("GOOSE_PROVIDER_SKIP_BACKOFF", environment)
                 if name == "plugin-contracts":
                     self.assertEqual(run.call_args.args[0], [sys.executable, "scripts/test-plugins.py",
@@ -550,8 +570,10 @@ class Workflow(unittest.TestCase):
         self.assertIn("-p sailry-host --features sailry-node-runtime/test-support --timings", build)
         self.assertIn("not (package(sailry-host) and not binary(lifecycle))", shared)
         self.assertIn("cargo check --locked -p sailry-desktop --jobs", lint)
-        for section in (host, lint):
-            self.assertIn("cargo check --locked -p sailry-host --jobs", section)
+        # Linux Host owns the shipped-feature Host check; macOS lint does not repeat it.
+        self.assertIn("cargo check --locked -p sailry-host --jobs", host)
+        self.assertNotIn("sailry-host --jobs", lint)
+        self.assertNotIn("name: Host without test features", lint)
         self.assertIn("runs-on: ubuntu-24.04", host)
         self.assertIn("bubblewrap libx11-dev libxi-dev libxtst-dev", host)
         self.assertIn("cargo nextest run --locked -p sailry-host --timings", host)
@@ -559,10 +581,8 @@ class Workflow(unittest.TestCase):
         self.assertNotIn("if: ", combined)
         databases = shared.split("      - name: Isolated database engines\n", 1)[1].split("      - ", 1)[0]
         self.assertIn("if: matrix.partition == 1 && needs.source.outputs.shared == 'true'", databases)
-        for title, lane in (("Desktop without test features", "desktop"),
-                            ("Host without test features", "host")):
-            step = lint.split(f"      - name: {title}\n", 1)[1].split("      - ", 1)[0]
-            self.assertIn(f"if: needs.source.outputs.{lane} == 'true'", step)
+        step = lint.split("      - name: Desktop without test features\n", 1)[1].split("      - ", 1)[0]
+        self.assertIn("if: needs.source.outputs.desktop == 'true'", step)
         self.assertIn("bash scripts/check-mobile-boundary.sh aarch64-apple-ios sailry-mobile-bridge --dependencies-only", workflow)
         self.assertIn("bash scripts/check-mobile-android.sh --apk", workflow)
 
@@ -583,7 +603,22 @@ class Workflow(unittest.TestCase):
         self.assertIn("--partition count:1/2 --no-tests=pass", commands[0])
         self.assertIn("binary(databases)", commands[1])
         self.assertNotIn("--partition", commands[1])
-        self.assertIn("cargo check --locked -p sailry-host", job_section(workflow, "lint"))
+        self.assertIn("cargo check --locked -p sailry-host", job_section(workflow, "host"))
+
+    def test_scopes_archive_settings_to_archived_steps(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        for name, archived in (("shared", {"Shared and macOS Host contracts", "Plugin contracts",
+                                           "Isolated database engines"}),
+                               ("desktop", {"Desktop logic and service contracts", "Desktop process lifecycle"})):
+            section = job_section(workflow, name)
+            header, steps = section.split("    steps:\n", 1)
+            self.assertNotIn("CHECK_ARCHIVE", header)
+            self.assertNotIn("CHECK_PARTITION", header)
+            for step in steps.split("      - ")[1:]:
+                title = step.split("\n", 1)[0].removeprefix("name: ")
+                with self.subTest(job=name, step=title):
+                    self.assertEqual("CHECK_ARCHIVE: .runtime/ci/tests.tar.zst" in step, title in archived)
+                    self.assertEqual("CHECK_PARTITION:" in step, title == "Shared and macOS Host contracts")
 
     def test_source_fixtures_follow_product_owners(self):
         workflow = workflow_source()
@@ -602,23 +637,34 @@ class Workflow(unittest.TestCase):
     def test_runs_selected_mobile_phases(self):
         workflow = workflow_source()
         mobile = job_section(workflow, "mobile")
+        android = job_section(workflow, "android")
         self.assertIn("flutter analyze --no-pub", mobile)
         self.assertIn("flutter test --no-pub", mobile)
         self.assertIn("flutter build ios --release --no-codesign", mobile)
         self.assertIn("runs-on: macos-15", mobile)
-        self.assertIn("--test dart --timings", mobile)
-        self.assertIn("--skip mcp_peer::stdio_peer --test-threads=4", mobile)
-        for title, lane in (("Dart FFI contract fixtures", "mobile_ffi"),
-                            ("Mobile source fixtures", "mobile"),
-                            ("Flutter analysis and logic tests", "mobile"),
-                            ("iOS Rust dependency boundary", "mobile"),
-                            ("Unsigned iOS application", "mobile")):
-            step = mobile.split(f"      - name: {title}\n", 1)[1].split("      - ", 1)[0]
+        # The Dart FFI fixture compiles its real Node on Linux rather than in the macOS Mobile job.
+        self.assertNotIn("--test dart", mobile)
+        self.assertNotIn("mobile_ffi", mobile)
+        self.assertIn("runs-on: ubuntu-24.04", android)
+        self.assertIn("--test dart --timings", android)
+        self.assertIn("--skip mcp_peer::stdio_peer --test-threads=4", android)
+        for section, title, lane in ((android, "Dart FFI contract fixtures", "mobile_ffi"),
+                                     (android, "Dart FFI prerequisites", "mobile_ffi"),
+                                     (android, "ARM64 release APK", "android"),
+                                     (android, "Rust boundary and Android initializer", "android"),
+                                     (mobile, "Mobile source fixtures", "mobile"),
+                                     (mobile, "Flutter analysis and logic tests", "mobile"),
+                                     (mobile, "iOS Rust dependency boundary", "mobile"),
+                                     (mobile, "Unsigned iOS application", "mobile")):
+            step = section.split(f"      - name: {title}\n", 1)[1].split("      - ", 1)[0]
             self.assertIn(f"needs.source.outputs.{lane} == 'true'", step)
+        contract = android.split("      - name: Dart FFI contract fixtures\n", 1)[1].split("      - ", 1)[0]
+        self.assertIn("!cancelled()", contract)
+        self.assertIn("OPENSSL_NO_VENDOR: '1'", contract)
+        self.assertNotIn("OPENSSL_NO_VENDOR", android.split("    steps:\n", 1)[0])
         script = (ROOT / "scripts/check-mobile-contract.sh").read_text()
         self.assertIn("scripts/ci.py check mobile-contract", script)
         self.assertNotIn("cargo test", script)
-        android = job_section(workflow, "android")
         self.assertIn("uses: ./.github/actions/rust-cache", android)
         self.assertLess(android.index("flutter build apk"), android.index("check-mobile-android.sh"))
 
@@ -642,21 +688,88 @@ class Workflow(unittest.TestCase):
         self.assertIn(fetch, desktop)
         self.assertLess(desktop.index(restore), desktop.index(fetch))
         self.assertLess(desktop.index(fetch), desktop.index("cargo nextest run --archive-file"))
-        for name in ("lint", "build", "mobile"):
+        self.assertIn("path: ${{ steps.identity.outputs.path }}", action)
+        # Compilation downloads only speech libraries, so jobs that do not package save that subset.
+        for name, target in (("lint", "aarch64-apple-darwin"), ("build", "aarch64-apple-darwin"),
+                             ("android", "x86_64-unknown-linux-gnu")):
             section = job_section(workflow, name)
             self.assertIn("uses: ./.github/actions/native-cache", section)
-            self.assertIn("target: aarch64-apple-darwin", section)
+            self.assertIn(f"target: {target}\n          libraries: speech", section)
             save = section.split("      - name: Save native libraries\n", 1)[1].split("      - ", 1)[0]
             self.assertIn("github.ref == 'refs/heads/main'", save)
             self.assertIn("steps.native-cache.outputs.hit != 'true'", save)
+            self.assertNotIn("llama-prebuilt", save)
+            self.assertIn("path: ${{ steps.native-cache.outputs.path }}", save)
             self.assertNotIn("always()", save)
-        for name in ("release", "release-host"):
+        self.assertNotIn("native-cache", job_section(workflow, "mobile"))
+        for name, libraries in (("release", "speech"), ("release-host", None)):
             release = (ROOT / f".github/workflows/{name}.yml").read_text()
             self.assertIn("uses: ./.workflow-tools/.github/actions/native-cache", release)
             self.assertNotIn("Save speech native libraries", release)
+            self.assertEqual("libraries: speech" in release, libraries == "speech")
             save = release.split("      - name: Save native libraries\n", 1)[1].split("      - ", 1)[0]
             self.assertIn("github.ref == 'refs/heads/main'", save)
+            self.assertIn("path: ${{ steps.native-cache.outputs.path }}", save)
             self.assertNotIn("always()", save)
+        # Host packaging downloads the decision libraries, so its complete save follows packaging.
+        host = job_section((ROOT / ".github/workflows/release-host.yml").read_text(), "build")
+        self.assertLess(host.index("name: Sign, notarize and package"), host.index("name: Save native libraries"))
+
+    def test_caches_ghostty_inputs_for_compiling_jobs(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        action = (ROOT / ".github/actions/ghostty-cache/action.yml").read_text()
+        self.assertIn("ci.py\" ghostty-key", action)
+        self.assertIn("ci.py\" ghostty-source", action)
+        for name in ("lint", "build", "host", "android", "light_linux", "light_macos"):
+            section = job_section(workflow, name)
+            with self.subTest(job=name):
+                self.assertIn("uses: ./.github/actions/ghostty-cache", section)
+                self.assertIn("use-cache: false", section)
+                save = section.split("      - name: Save Ghostty build inputs\n", 1)
+                self.assertEqual(len(save) == 2, name not in ci.LIGHT_JOBS)
+                if len(save) == 2:
+                    step = save[1].split("      - ", 1)[0]
+                    self.assertIn("github.ref == 'refs/heads/main'", step)
+                    self.assertIn("steps.ghostty.outputs.hit != 'true'", step)
+                    self.assertIn("path: ${{ steps.ghostty.outputs.path }}", step)
+        for name in ("mobile", "shared", "desktop"):
+            self.assertNotIn("ghostty", job_section(workflow, name))
+
+    def test_links_system_openssl_only_in_checks(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        for name in ("lint", "build", "host", "light_linux", "light_macos"):
+            header = job_section(workflow, name).split("    steps:\n", 1)[0]
+            with self.subTest(job=name):
+                self.assertIn("OPENSSL_NO_VENDOR: '1'", header)
+                self.assertEqual("OPENSSL_STATIC: '1'" in header, "runs-on: macos" in header)
+        for name in ("lint", "build", "light_macos"):
+            self.assertIn('echo "OPENSSL_DIR=$(brew --prefix openssl@3)"', job_section(workflow, name))
+        for name in ("host", "light_linux", "android"):
+            self.assertIn("libssl-dev", job_section(workflow, name))
+        # Mobile release builds and iOS keep the vendored library selection.
+        self.assertNotIn("OPENSSL", job_section(workflow, "mobile"))
+        for path in (ROOT / ".github/workflows").glob("release*.yml"):
+            self.assertNotIn("OPENSSL", path.read_text(), path.name)
+
+    def test_build_concurrency_matches_runner_capacity(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        for name, jobs in (("build", "3"), ("lint", "2"), ("mobile", "2"), ("light_macos", "2"),
+                           ("host", "4"), ("android", "4"), ("light_linux", "4")):
+            self.assertIn(f"CARGO_BUILD_JOBS: '{jobs}'", job_section(workflow, name).split("    steps:\n", 1)[0])
+
+    def test_pins_reported_tool_versions(self):
+        workflows = "".join(path.read_text() for path in (ROOT / ".github/workflows").glob("*.yml"))
+        for name, pattern in (("cargo-nextest", r"tool: cargo-nextest@(\S+)"),
+                              ("zig", r"(?<![\w-])version: '([^']+)'\n\s+use-cache:"),
+                              ("flutter", r"flutter-version: '([^']+)'")):
+            with self.subTest(tool=name):
+                self.assertEqual(set(re.findall(pattern, workflows)), {ci.TOOLS[name][1]})
+        self.assertIsNone(ci.TOOLS["gh"][1])
+        self.assertIsNone(ci.TOOLS["rg"][1])
+        ci_workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        for name, tools in (("source", "gh"), ("shared", "rg cargo-nextest"), ("desktop", "rg cargo-nextest"),
+                            ("mobile", "flutter"), ("android", "flutter rg")):
+            self.assertIn(f"run: python3 scripts/ci.py tools {tools}\n", job_section(ci_workflow, name))
 
     def test_omits_retired_source_cleanup(self):
         workflow = workflow_source()
@@ -966,17 +1079,169 @@ class SpeechCache(unittest.TestCase):
 
 
 class Profiles(unittest.TestCase):
-    def test_does_not_retry_or_hide_tests(self):
+    def test_retries_only_integration_binaries(self):
         config = tomllib.loads((ROOT / ".config/nextest.toml").read_text())
         for name in ("ci", "databases", "lifecycle"):
             with self.subTest(profile=name):
                 profile = config["profile"][name]
                 self.assertEqual(profile["retries"], 0)
+                retried = [override for override in profile.get("overrides", []) if "retries" in override]
+                self.assertEqual(retried, [{"filter": "kind(test)", "retries": 1}])
                 self.assertFalse(profile["fail-fast"])
                 self.assertNotIn("default-filter", profile)
                 self.assertEqual(
                     profile["slow-timeout"], {"period": "60s", "terminate-after": 5},
                 )
+
+    def test_reports_tests_that_pass_on_retry(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        for name, reports in (("shared", "target/nextest/ci/junit.xml target/nextest/databases/junit.xml"),
+                              ("desktop", "target/nextest/ci/junit.xml target/nextest/lifecycle/junit.xml"),
+                              ("host", "target/nextest/ci/junit.xml")):
+            step = job_section(workflow, name).split("      - name: Flaky tests\n", 1)[1].split("      - ", 1)[0]
+            with self.subTest(job=name):
+                self.assertIn("if: always()", step)
+                self.assertIn(f"run: python3 scripts/ci.py flaky {reports}\n", step)
+
+
+class FlakyReport(unittest.TestCase):
+    REPORT = """<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="nextest-run" tests="3" failures="0" errors="0">
+  <testsuite name="sailry-node-runtime::agent" tests="3" failures="0" errors="0">
+    <testcase name="delegation::claim::preserves_fifo" classname="sailry-node-runtime::agent" time="1.2">
+      <flakyFailure message="test failure" type="test failure">attempt 1</flakyFailure>
+    </testcase>
+    <testcase name="paging::restores_turns" classname="sailry-node-runtime::agent" time="0.4"/>
+    <testcase name="hooks::bounds_processes" classname="sailry-node-runtime::agent" time="0.1">
+      <failure message="test failure" type="test failure"/>
+      <rerunFailure message="test failure" type="test failure"/>
+    </testcase>
+  </testsuite>
+</testsuites>
+"""
+
+    def test_lists_only_tests_that_passed_on_retry(self):
+        with tempfile.TemporaryDirectory() as directory:
+            report = Path(directory) / "junit.xml"
+            report.write_text(self.REPORT)
+            summary = Path(directory) / "summary.md"
+            with patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": str(summary)}), \
+                    patch("builtins.print") as output:
+                flaky = ci.report_flaky([report, Path(directory) / "missing.xml"])
+            self.assertEqual(flaky, [("sailry-node-runtime::agent", "delegation::claim::preserves_fifo", 1)])
+            printed = [call.args[0] for call in output.call_args_list]
+            self.assertIn("::warning title=Flaky test::sailry-node-runtime::agent "
+                          "delegation::claim::preserves_fifo passed after 1 failed attempt(s)", printed)
+            self.assertIn("`sailry-node-runtime::agent delegation::claim::preserves_fifo`", summary.read_text())
+            self.assertNotIn("hooks::bounds_processes", summary.read_text())
+
+    def test_quiet_without_flaky_tests(self):
+        with tempfile.TemporaryDirectory() as directory:
+            summary = Path(directory) / "summary.md"
+            with patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": str(summary)}), patch("builtins.print"):
+                self.assertEqual(ci.report_flaky([Path(directory) / "missing.xml"]), [])
+            self.assertFalse(summary.exists())
+
+
+class ToolVersions(unittest.TestCase):
+    def outputs(self, values):
+        def run(command, **options):
+            name = next(name for name, (argv, _) in ci.TOOLS.items() if tuple(command) == argv)
+            if values.get(name) is None:
+                raise FileNotFoundError(command[0])
+            return SimpleNamespace(stdout=values[name])
+        return run
+
+    def test_parses_each_tool_banner(self):
+        banners = {"cargo-nextest": "cargo-nextest 0.9.143 (abc 2026-10-01)\n", "zig": "0.16.0\n",
+                   "flutter": '{"frameworkVersion": "3.44.7", "dartSdkVersion": "3.11.0"}\n',
+                   "rg": "ripgrep 14.1.0\n\nfeatures:+pcre2\n", "gh": "gh version 2.96.0 (2026-07-02)\n"}
+        with patch.object(ci.subprocess, "run", side_effect=self.outputs(banners)):
+            versions = ci.tool_versions(ci.TOOLS)
+        self.assertEqual(versions, {"cargo-nextest": "0.9.143", "zig": "0.16.0", "flutter": "3.44.7",
+                                    "rg": "14.1.0", "gh": "2.96.0"})
+        self.assertEqual(ci.tool_mismatches(versions), [])
+
+    def test_rejects_only_pinned_differences(self):
+        versions = {"cargo-nextest": "0.9.140", "zig": None, "flutter": "3.44.7", "rg": "13.0.0", "gh": None}
+        self.assertEqual(ci.tool_mismatches(versions), [
+            "cargo-nextest 0.9.140 (CI uses 0.9.143)", "zig unavailable (CI uses 0.16.0)",
+        ])
+
+    def test_reports_versions_for_ci(self):
+        with tempfile.TemporaryDirectory() as directory:
+            summary = Path(directory) / "summary.md"
+            with patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": str(summary)}), \
+                    patch.object(ci.subprocess, "run", side_effect=self.outputs({"gh": "gh version 2.96.0\n"})), \
+                    patch("builtins.print"):
+                self.assertTrue(ci.report_tools(["gh"]))
+                self.assertFalse(ci.report_tools(["zig"]))
+            self.assertIn("Tool versions: gh: 2.96.0", summary.read_text())
+
+    def test_plans_only_tools_its_commands_use(self):
+        commands = [{"argv": argv} for argv in (["cargo", "fmt", "--all"], [sys.executable, "scripts/check-names.py"],
+                                                ["cargo", "clippy", "--locked"], ["flutter", "test"])]
+        self.assertEqual(ci.planned_tools(commands), ["flutter", "zig"])
+        self.assertEqual(ci.planned_tools([{"argv": ["cargo", "nextest", "run"]}]), ["cargo-nextest", "zig"])
+
+
+class GhosttyInputs(unittest.TestCase):
+    def git(self, *arguments, cwd):
+        return subprocess.run(["git", *arguments], cwd=cwd, check=True, capture_output=True, text=True).stdout.strip()
+
+    def repository(self, root, name, files):
+        path = root / name
+        path.mkdir()
+        self.git("init", "--quiet", "--initial-branch=main", "--template=", cwd=path)
+        self.git("config", "user.email", "fixture@example.invalid", cwd=path)
+        self.git("config", "user.name", "Fixture", cwd=path)
+        self.git("config", "uploadpack.allowAnySHA1InWant", "true", cwd=path)
+        for relative, text in files.items():
+            (path / relative).parent.mkdir(parents=True, exist_ok=True)
+            (path / relative).write_text(text)
+        self.git("add", ".", cwd=path)
+        self.git("commit", "--quiet", "-m", "Fixture", cwd=path)
+        return path, self.git("rev-parse", "HEAD", cwd=path)
+
+    def lockfile(self, root, source):
+        (root / "Cargo.lock").write_text(f'version = 4\n\n[[package]]\nname = "libghostty-vt-sys"\n'
+                                         f'version = "0.2.1"\nsource = "{source}"\n')
+
+    def test_keys_by_runner_zig_and_locked_revision(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            revision = "b" * 40
+            self.lockfile(root, f"git+https://github.com/example/libghostty-rs.git?rev={revision}#{revision}")
+            self.assertEqual(ci.ghostty_cache_key(root, "macOS", "ARM64", "0.16.0"),
+                             f"ghostty-v1-macOS-ARM64-zig-0.16.0-{revision}")
+            for invalid in ("git+https://github.com/example/libghostty-rs.git?branch=main#" + revision,
+                            f"git+https://github.com/example/libghostty-rs.git?rev={revision}#{'c' * 40}"):
+                self.lockfile(root, invalid)
+                with self.subTest(source=invalid), self.assertRaises(ValueError):
+                    ci.ghostty_revision(root)
+            with self.assertRaises(ValueError):
+                ci.ghostty_cache_key(root, "mac OS", "ARM64", "0.16.0")
+
+    def test_checks_out_pinned_commit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            ghostty, commit = self.repository(root, "ghostty", {"build.zig": "// pinned\n"})
+            (ghostty / "build.zig").write_text("// later\n")
+            self.git("commit", "--quiet", "-am", "Later", cwd=ghostty)
+            script = (f'const GHOSTTY_REPO: &str = "{ghostty.as_uri()}";\n'
+                      f'const GHOSTTY_COMMIT: &str = "{commit}";\n')
+            bindings, revision = self.repository(root, "bindings", {"crates/libghostty-vt-sys/build.rs": script})
+            workspace = root / "workspace"
+            workspace.mkdir()
+            self.lockfile(workspace, f"git+{bindings.as_uri()}?rev={revision}#{revision}")
+            source = workspace / ci.GHOSTTY_CACHE / "source"
+            self.assertTrue(ci.ghostty_source(workspace, source))
+            self.assertEqual(self.git("rev-parse", "HEAD", cwd=source), commit)
+            self.assertEqual((source / "build.zig").read_text(), "// pinned\n")
+            self.assertFalse(source.with_name("source.partial").exists())
+            # A restored checkout is reused without contacting either repository.
+            with patch.object(ci.subprocess, "run", side_effect=AssertionError("unexpected fetch")):
+                self.assertFalse(ci.ghostty_source(workspace, source))
 
 
 if __name__ == "__main__":

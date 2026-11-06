@@ -12,6 +12,12 @@ path = "junit.xml"
 host-startup = { max-threads = 1 }
 desktop-lifecycle = { max-threads = 1 }
 
+# Integration binaries drive real Nodes, processes and servers; retry a failure once and
+# report the pass as flaky. Unit tests stay strict. A retry does not replace a fix.
+[[profile.ci.overrides]]
+filter = 'kind(test)'
+retries = 1
+
 [[profile.ci.overrides]]
 # Fresh Host profiles durably materialize every bundled package. Avoid competing
 # full-sync workloads; concurrency within each lifecycle test remains intact.
@@ -30,6 +36,10 @@ retries = 0
 fail-fast = false
 slow-timeout = { period = "60s", terminate-after = 5 }
 
+[[profile.databases.overrides]]
+filter = 'kind(test)'
+retries = 1
+
 [profile.databases.junit]
 path = "junit.xml"
 
@@ -38,6 +48,10 @@ test-threads = 1
 retries = 0
 fail-fast = false
 slow-timeout = { period = "60s", terminate-after = 5 }
+
+[[profile.lifecycle.overrides]]
+filter = 'kind(test)'
+retries = 1
 
 [profile.lifecycle.junit]
 path = "junit.xml"

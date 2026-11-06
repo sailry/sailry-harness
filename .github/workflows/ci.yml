@@ -67,6 +67,8 @@ jobs:
       - name: Select affected checks
         id: scope
         run: python3 scripts/ci.py select
+      - name: Tool versions
+        run: python3 scripts/ci.py tools gh
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.0.0
         with:
           go-version: '1.26.1'
@@ -128,6 +130,9 @@ jobs:
       CARGO_BUILD_JOBS: '2'
       CHECK_SCOPE: ${{ toJSON(needs.source.outputs) }}
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+      # Checks link the runner's OpenSSL instead of compiling the vendored copy; releases stay vendored.
+      OPENSSL_NO_VENDOR: '1'
+      OPENSSL_STATIC: '1'
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
@@ -144,9 +149,17 @@ jobs:
           test "$(rustc -vV | awk '/^host: / {print $2}')" = aarch64-apple-darwin
           xcodebuild -version
           xcrun --sdk macosx --show-sdk-version
+      - name: System OpenSSL
+        run: |
+          brew install openssl@3
+          echo "OPENSSL_DIR=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
       - name: Rust dependency caches
         id: rust-cache
         uses: ./.github/actions/rust-cache
+      - name: Ghostty build inputs
+        id: ghostty
+        continue-on-error: true
+        uses: ./.github/actions/ghostty-cache
       - name: Native library cache
         if: needs.source.outputs.shared == 'true' || needs.source.outputs.desktop == 'true' || needs.source.outputs.mobile == 'true'
         id: native-cache
@@ -154,25 +167,31 @@ jobs:
         uses: ./.github/actions/native-cache
         with:
           target: aarch64-apple-darwin
+          libraries: speech
       - name: Formatting
         run: python3 scripts/ci.py check format
       - name: Strict lint for selected packages
         run: python3 scripts/ci-run.py -- python3 scripts/ci.py lint
       - name: Desktop without test features
         # Tests enable test-support features; type-check the shipped feature set.
+        # Host's shipped feature set is checked by the Linux Host job. Clippy above still
+        # type-checks Host's macOS-only code with test features, and release builds compile
+        # the shipped macOS feature set.
         if: needs.source.outputs.desktop == 'true'
         run: python3 scripts/ci.py check desktop-production
-      - name: Host without test features
-        if: needs.source.outputs.host == 'true'
-        run: python3 scripts/ci.py check host-production
-      - name: Save native libraries
-        if: github.ref == 'refs/heads/main' && steps.native-cache.outcome == 'success' && steps.native-cache.outputs.hit != 'true' && hashFiles('target/sherpa-onnx-prebuilt/**/*') != '' && hashFiles('target/llama-prebuilt/**/*') != ''
+      - name: Save Ghostty build inputs
+        if: github.ref == 'refs/heads/main' && steps.ghostty.outcome == 'success' && steps.ghostty.outputs.hit != 'true'
         continue-on-error: true
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: |
-            target/sherpa-onnx-prebuilt
-            target/llama-prebuilt
+          path: ${{ steps.ghostty.outputs.path }}
+          key: ${{ steps.ghostty.outputs.key }}
+      - name: Save native libraries
+        if: github.ref == 'refs/heads/main' && steps.native-cache.outcome == 'success' && steps.native-cache.outputs.hit != 'true' && hashFiles('target/sherpa-onnx-prebuilt/**/*') != ''
+        continue-on-error: true
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.native-cache.outputs.path }}
           key: ${{ steps.native-cache.outputs.key }}
       - name: Compiler cache statistics
         if: always()
@@ -193,9 +212,13 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 180
     env:
-      CARGO_BUILD_JOBS: '2'
+      # The 3-core, 7 GB runner fits three rustc processes, including ~2 GiB test crates.
+      CARGO_BUILD_JOBS: '3'
       CHECK_SCOPE: ${{ toJSON(needs.source.outputs) }}
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+      # Static linking keeps archived test binaries independent of the test runner's Homebrew.
+      OPENSSL_NO_VENDOR: '1'
+      OPENSSL_STATIC: '1'
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
@@ -212,6 +235,10 @@ jobs:
           test "$(rustc -vV | awk '/^host: / {print $2}')" = aarch64-apple-darwin
           xcodebuild -version
           xcrun --sdk macosx --show-sdk-version
+      - name: System OpenSSL
+        run: |
+          brew install openssl@3
+          echo "OPENSSL_DIR=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
       - name: Rust dependency caches
         id: rust-cache
         uses: ./.github/actions/rust-cache
@@ -220,17 +247,24 @@ jobs:
         with:
           tool: cargo-nextest@0.9.143
           fallback: none
+      - name: Tool versions
+        run: python3 scripts/ci.py tools zig cargo-nextest
       - name: Fetch locked workspace sources
         id: workspace-sources
         continue-on-error: true
         if: github.ref == 'refs/heads/main' && steps.rust-cache.outputs.source-key != '' && steps.rust-cache.outputs.source-hit != 'true'
         run: cargo fetch --locked
+      - name: Ghostty build inputs
+        id: ghostty
+        continue-on-error: true
+        uses: ./.github/actions/ghostty-cache
       - name: Native library cache
         id: native-cache
         continue-on-error: true
         uses: ./.github/actions/native-cache
         with:
           target: aarch64-apple-darwin
+          libraries: speech
       - name: Compile selected macOS tests once
         run: python3 scripts/ci-run.py -- python3 scripts/ci.py check archive
       - name: Test archive
@@ -264,14 +298,19 @@ jobs:
           path: .cargo-sources
           key: ${{ steps.rust-cache.outputs.source-key }}
           enableCrossOsArchive: true
-      - name: Save native libraries
-        if: github.ref == 'refs/heads/main' && steps.native-cache.outcome == 'success' && steps.native-cache.outputs.hit != 'true' && hashFiles('target/sherpa-onnx-prebuilt/**/*') != '' && hashFiles('target/llama-prebuilt/**/*') != ''
+      - name: Save Ghostty build inputs
+        if: github.ref == 'refs/heads/main' && steps.ghostty.outcome == 'success' && steps.ghostty.outputs.hit != 'true'
         continue-on-error: true
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: |
-            target/sherpa-onnx-prebuilt
-            target/llama-prebuilt
+          path: ${{ steps.ghostty.outputs.path }}
+          key: ${{ steps.ghostty.outputs.key }}
+      - name: Save native libraries
+        if: github.ref == 'refs/heads/main' && steps.native-cache.outcome == 'success' && steps.native-cache.outputs.hit != 'true' && hashFiles('target/sherpa-onnx-prebuilt/**/*') != ''
+        continue-on-error: true
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.native-cache.outputs.path }}
           key: ${{ steps.native-cache.outputs.key }}
       - name: Compiler cache statistics
         if: always()
@@ -298,8 +337,6 @@ jobs:
       matrix: ${{ fromJSON(needs.source.outputs.reuse_shared_matrix) }}
     env:
       CHECK_SCOPE: ${{ toJSON(needs.source.outputs) }}
-      CHECK_ARCHIVE: .runtime/ci/tests.tar.zst
-      CHECK_PARTITION: count:${{ matrix.partition }}/2
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
@@ -318,6 +355,8 @@ jobs:
         with:
           tool: cargo-nextest@0.9.143
           fallback: none
+      - name: Tool versions
+        run: python3 scripts/ci.py tools rg cargo-nextest
       - name: Test archive
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
@@ -326,16 +365,27 @@ jobs:
           github-token: ${{ github.token }}
           run-id: ${{ needs.source.outputs.reuse_archive_run || github.run_id }}
       - name: Shared and macOS Host contracts
+        # Archive settings stay on the steps that run archived binaries.
+        env:
+          CHECK_ARCHIVE: .runtime/ci/tests.tar.zst
+          CHECK_PARTITION: count:${{ matrix.partition }}/2
         run: python3 scripts/ci-run.py -- python3 scripts/ci.py check shared
       - name: Plugin contracts
         if: matrix.partition == 2 && needs.source.outputs.shared == 'true'
+        env:
+          CHECK_ARCHIVE: .runtime/ci/tests.tar.zst
         run: python3 scripts/ci.py check plugin-contracts
       - name: Isolated database engines
         if: matrix.partition == 1 && needs.source.outputs.shared == 'true'
+        env:
+          CHECK_ARCHIVE: .runtime/ci/tests.tar.zst
         run: |
           brew install postgresql@17 mysql@8.4
           export PATH="$(brew --prefix postgresql@17)/bin:$(brew --prefix mysql@8.4)/bin:$PATH"
           python3 scripts/ci.py check shared-databases
+      - name: Flaky tests
+        if: always()
+        run: python3 scripts/ci.py flaky target/nextest/ci/junit.xml target/nextest/databases/junit.xml
       - name: Test reports
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -358,7 +408,6 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 60
     env:
-      CHECK_ARCHIVE: .runtime/ci/tests.tar.zst
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
@@ -374,6 +423,8 @@ jobs:
         with:
           tool: cargo-nextest@0.9.143
           fallback: none
+      - name: Tool versions
+        run: python3 scripts/ci.py tools rg cargo-nextest
       - name: Rust dependency sources
         uses: ./.github/actions/rust-cache
       - name: Restore locked source checkouts
@@ -389,9 +440,16 @@ jobs:
         run: python3 scripts/ci.py check desktop-source
       - name: Desktop logic and service contracts
         # Process isolation permits bounded concurrency without shared global state.
+        env:
+          CHECK_ARCHIVE: .runtime/ci/tests.tar.zst
         run: python3 scripts/ci.py check desktop
       - name: Desktop process lifecycle
+        env:
+          CHECK_ARCHIVE: .runtime/ci/tests.tar.zst
         run: python3 scripts/ci.py check desktop-lifecycle
+      - name: Flaky tests
+        if: always()
+        run: python3 scripts/ci.py flaky target/nextest/ci/junit.xml target/nextest/lifecycle/junit.xml
       - name: Test reports
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -410,7 +468,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 150
     env:
-      CARGO_BUILD_JOBS: '2'
+      CARGO_BUILD_JOBS: '4'
+      OPENSSL_NO_VENDOR: '1'
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
@@ -428,7 +487,7 @@ jobs:
       - name: Linux build and sandbox prerequisites
         run: |
           sudo apt-get update
-          sudo apt-get install --no-install-recommends --yes build-essential pkg-config clang ripgrep bubblewrap libx11-dev libxi-dev libxtst-dev
+          sudo apt-get install --no-install-recommends --yes build-essential pkg-config clang libssl-dev ripgrep bubblewrap libx11-dev libxi-dev libxtst-dev
       - name: Rust dependency caches
         id: rust-cache
         uses: ./.github/actions/rust-cache
@@ -437,12 +496,28 @@ jobs:
         with:
           tool: cargo-nextest@0.9.143
           fallback: none
+      - name: Tool versions
+        run: python3 scripts/ci.py tools rg cargo-nextest zig
+      - name: Ghostty build inputs
+        id: ghostty
+        continue-on-error: true
+        uses: ./.github/actions/ghostty-cache
       - name: Host source fixtures
         run: python3 scripts/ci.py check host-source
       - name: Host logic and service contracts
         run: python3 scripts/ci.py check host
       - name: Host without test features
         run: python3 scripts/ci.py check host-production
+      - name: Flaky tests
+        if: always()
+        run: python3 scripts/ci.py flaky target/nextest/ci/junit.xml
+      - name: Save Ghostty build inputs
+        if: github.ref == 'refs/heads/main' && steps.ghostty.outcome == 'success' && steps.ghostty.outputs.hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.ghostty.outputs.path }}
+          key: ${{ steps.ghostty.outputs.key }}
       - name: Compilation timings
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -468,11 +543,9 @@ jobs:
   mobile:
     name: Mobile
     needs: source
-    if: >-
-      needs.source.outputs.mode == 'full' && (needs.source.outputs.mobile == 'true' || needs.source.outputs.mobile_ffi == 'true') &&
-      needs.source.outputs.reuse_mobile != 'true'
+    if: needs.source.outputs.mode == 'full' && needs.source.outputs.mobile == 'true' && needs.source.outputs.reuse_mobile != 'true'
     runs-on: macos-15
-    timeout-minutes: 240
+    timeout-minutes: 120
     env:
       CARGO_BUILD_JOBS: '2'
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
@@ -481,14 +554,12 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
-      - uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
-        with:
-          version: '0.16.0'
-          use-cache: false
       - uses: subosito/flutter-action@fd55f4c5af5b953cc57a2be44cb082c8f6635e8e # v2.21.0
         with:
           flutter-version: '3.44.7'
           channel: stable
+      - name: Tool versions
+        run: python3 scripts/ci.py tools flutter
       - name: Pinned Flutter dependencies
         if: needs.source.outputs.mobile == 'true'
         working-directory: apps/mobile
@@ -520,28 +591,6 @@ jobs:
         run: |
           flutter build ios --release --no-codesign --build-name="$(python3 ../../scripts/package/versions.py --apple)"
           git diff --exit-code -- pubspec.lock
-      - name: Native library cache
-        if: needs.source.outputs.mobile_ffi == 'true'
-        id: native-cache
-        continue-on-error: true
-        uses: ./.github/actions/native-cache
-        with:
-          target: aarch64-apple-darwin
-      - name: Dart FFI contract fixtures
-        if: needs.source.outputs.mobile_ffi == 'true'
-        run: |
-          brew install postgresql@17 mysql@8.4
-          export PATH="$(brew --prefix postgresql@17)/bin:$(brew --prefix mysql@8.4)/bin:$PATH"
-          python3 scripts/ci.py check mobile-contract
-      - name: Save native libraries
-        if: github.ref == 'refs/heads/main' && steps.native-cache.outcome == 'success' && steps.native-cache.outputs.hit != 'true' && hashFiles('target/sherpa-onnx-prebuilt/**/*') != '' && hashFiles('target/llama-prebuilt/**/*') != ''
-        continue-on-error: true
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            target/sherpa-onnx-prebuilt
-            target/llama-prebuilt
-          key: ${{ steps.native-cache.outputs.key }}
       - name: Compiler cache statistics
         if: always()
         continue-on-error: true
@@ -555,17 +604,21 @@ jobs:
   android:
     name: Mobile Android
     needs: source
-    if: needs.source.outputs.mode == 'full' && needs.source.outputs.android == 'true' && needs.source.outputs.reuse_android != 'true'
+    # Linux hosts the Dart FFI fixture: its real Node compiles faster on four cores and frees macOS capacity.
+    if: >-
+      needs.source.outputs.mode == 'full' && (needs.source.outputs.android == 'true' || needs.source.outputs.mobile_ffi == 'true') &&
+      needs.source.outputs.reuse_android != 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 120
     env:
-      CARGO_BUILD_JOBS: '2'
+      CARGO_BUILD_JOBS: '4'
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
           persist-credentials: false
           submodules: recursive
       - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.0.0
+        if: needs.source.outputs.android == 'true'
         with:
           distribution: temurin
           java-version: '17'
@@ -574,37 +627,95 @@ jobs:
           flutter-version: '3.44.7'
           channel: stable
       - name: Android toolchain
+        if: needs.source.outputs.android == 'true'
         uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.0
         with:
           cmdline-tools-version: '15859902'
           packages: 'platform-tools platforms;android-36 build-tools;36.0.0 ndk;28.2.13676358'
+      - uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        if: needs.source.outputs.mobile_ffi == 'true'
+        with:
+          version: '0.16.0'
+          use-cache: false
       - name: Android native prerequisites
+        if: needs.source.outputs.android == 'true'
         run: |
           printf 'ANDROID_NDK_HOME=%s/ndk/28.2.13676358\n' "$ANDROID_HOME" >> "$GITHUB_ENV"
           rustup toolchain install
           rustup target add aarch64-linux-android
           sudo apt-get update
           sudo apt-get install --no-install-recommends --yes ripgrep
+      - name: Dart FFI prerequisites
+        if: needs.source.outputs.mobile_ffi == 'true'
+        run: |
+          rustup toolchain install
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes build-essential pkg-config clang libssl-dev ripgrep bubblewrap libx11-dev libxi-dev libxtst-dev
+          # Fixtures run private servers under /tmp; Ubuntu's mysqld profile only permits service paths.
+          if test -e /etc/apparmor.d/usr.sbin.mysqld; then sudo apparmor_parser --remove /etc/apparmor.d/usr.sbin.mysqld || true; fi
+          # The runner image provides PostgreSQL and MySQL; initdb and postgres are not on PATH.
+          ls -d /usr/lib/postgresql/*/bin | sort -V | tail -n 1 >> "$GITHUB_PATH"
+      - name: Tool versions
+        run: python3 scripts/ci.py tools flutter rg
       - name: Rust dependency caches
         uses: ./.github/actions/rust-cache
+      - name: Ghostty build inputs
+        if: needs.source.outputs.mobile_ffi == 'true'
+        id: ghostty
+        continue-on-error: true
+        uses: ./.github/actions/ghostty-cache
+      - name: Native library cache
+        if: needs.source.outputs.mobile_ffi == 'true'
+        id: native-cache
+        continue-on-error: true
+        uses: ./.github/actions/native-cache
+        with:
+          target: x86_64-unknown-linux-gnu
+          libraries: speech
       - name: Pinned Flutter dependencies
+        if: needs.source.outputs.android == 'true'
         working-directory: apps/mobile
         run: flutter pub get --enforce-lockfile
       - name: ARM64 release APK
+        if: needs.source.outputs.android == 'true'
         working-directory: apps/mobile
         # CI uses a disposable debug certificate; distribution signing is tag-only.
         # Pub setup regenerates release registrants without test-only plugins.
         run: flutter build apk --release --target-platform android-arm64
       - name: Rust boundary and Android initializer
+        if: needs.source.outputs.android == 'true'
         env:
           SAILRY_ANDROID_API: '36'
         run: bash scripts/check-mobile-android.sh --apk apps/mobile/build/app/outputs/flutter-apk/app-release.apk
       - name: Bundled native libraries
+        if: needs.source.outputs.android == 'true'
         run: |
           git diff --exit-code -- apps/mobile/pubspec.lock
           python3 scripts/package/verify-android.py apps/mobile/build/app/outputs/flutter-apk/app-release.apk \
             --version "$(python3 scripts/package/versions.py)" \
             --code "$(python3 scripts/package/versions.py --android-code)"
+      - name: Dart FFI contract fixtures
+        if: ${{ !cancelled() && needs.source.outputs.mobile_ffi == 'true' }}
+        env:
+          OPENSSL_NO_VENDOR: '1'
+        run: |
+          initdb --version
+          mysqld --version
+          python3 scripts/ci.py check mobile-contract
+      - name: Save Ghostty build inputs
+        if: github.ref == 'refs/heads/main' && steps.ghostty.outcome == 'success' && steps.ghostty.outputs.hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.ghostty.outputs.path }}
+          key: ${{ steps.ghostty.outputs.key }}
+      - name: Save native libraries
+        if: github.ref == 'refs/heads/main' && steps.native-cache.outcome == 'success' && steps.native-cache.outputs.hit != 'true' && hashFiles('target/sherpa-onnx-prebuilt/**/*') != ''
+        continue-on-error: true
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.native-cache.outputs.path }}
+          key: ${{ steps.native-cache.outputs.key }}
 
   light_linux:
     name: Rust lint Linux
@@ -613,8 +724,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
-      CARGO_BUILD_JOBS: '2'
+      CARGO_BUILD_JOBS: '4'
       CHECK_SCOPE: ${{ toJSON(needs.source.outputs) }}
+      OPENSSL_NO_VENDOR: '1'
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
@@ -630,12 +742,16 @@ jobs:
           rustup show active-toolchain
           test "$(rustc -vV | awk '/^host: / {print $2}')" = x86_64-unknown-linux-gnu
       - name: Linux build prerequisites
+        # Source fixtures search with ripgrep, as they do in the test jobs.
         run: |
           sudo apt-get update
-          sudo apt-get install --no-install-recommends --yes build-essential pkg-config clang libx11-dev libxi-dev libxtst-dev
+          sudo apt-get install --no-install-recommends --yes build-essential pkg-config clang libssl-dev ripgrep libx11-dev libxi-dev libxtst-dev
       - name: Rust dependency caches
         id: rust-cache
         uses: ./.github/actions/rust-cache
+      - name: Ghostty build inputs
+        continue-on-error: true
+        uses: ./.github/actions/ghostty-cache
       - name: Formatting
         run: python3 scripts/ci.py check format
       - name: Host source fixtures
@@ -666,6 +782,8 @@ jobs:
       CARGO_BUILD_JOBS: '2'
       CHECK_SCOPE: ${{ toJSON(needs.source.outputs) }}
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+      OPENSSL_NO_VENDOR: '1'
+      OPENSSL_STATIC: '1'
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
@@ -682,15 +800,23 @@ jobs:
           test "$(rustc -vV | awk '/^host: / {print $2}')" = aarch64-apple-darwin
           xcodebuild -version
           xcrun --sdk macosx --show-sdk-version
+      - name: System OpenSSL and search prerequisite
+        run: |
+          brew install openssl@3 ripgrep
+          echo "OPENSSL_DIR=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
       - name: Rust dependency caches
         id: rust-cache
         uses: ./.github/actions/rust-cache
+      - name: Ghostty build inputs
+        continue-on-error: true
+        uses: ./.github/actions/ghostty-cache
       - name: Native library cache
         id: native-cache
         continue-on-error: true
         uses: ./.github/actions/native-cache
         with:
           target: aarch64-apple-darwin
+          libraries: speech
       - name: Desktop source fixtures
         if: needs.source.outputs.desktop == 'true'
         run: python3 scripts/ci.py check desktop-source

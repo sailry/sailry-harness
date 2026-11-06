@@ -102,6 +102,8 @@ standard library. Pairing-service dependencies and checks have their own
 ```sh
 just ci fast        # Selected source and formatting checks
 just ci affected    # Add affected lint, tests and production checks
+just ci pre-push    # Before handing off: everything changed since the origin/main merge base
+just tools          # Compare local tool versions with CI
 just check          # Rust formatting and Clippy with warnings denied
 just test-source    # Public guides, publication boundaries and source fixtures
 just test-plugins   # Deterministic package JavaScript tests
@@ -138,11 +140,21 @@ just ci affected --candidate --base <base-commit> --head <candidate-commit>
 The checkout must match the candidate. Equal base and head require `--all`;
 `origin/main` after a push is therefore not a useful comparison baseline.
 `--event pull_request` selects merge-base comparison. The runner does not switch
-worktrees or stash changes. Local builds and tests share the repository's root
+worktrees or stash changes.
+
+`just ci pre-push` compares committed and uncommitted changes with the merge base
+of `origin/main`; `--target <branch>` selects another branch. It always runs
+formatting and the source, name and locale checks, runs Clippy with CI's flags for
+the affected packages, then runs the affected product checks. It fails when nothing
+changed since the merge base or when a pinned tool version differs from CI. Off
+macOS, it reports Clippy for macOS-only packages as not run.
+
+Local builds and tests share the repository's root
 `target` directory; builds from another worktree select that same directory with
 `CARGO_TARGET_DIR`. An explicit `--target-dir` selects the shared cache, and
 `--jobs N` controls build concurrency. Local commands leave concurrency to Cargo
-by default; CI defaults to two Cargo jobs. `CARGO_BUILD_JOBS` remains an explicit
+by default. CI uses three Cargo jobs for the macOS test build, two for other macOS
+jobs and four on Linux. `CARGO_BUILD_JOBS` remains an explicit
 override and is passed through to Cargo, including `default` and negative values.
 The recipes and CI share command definitions; these entries do not install hooks.
 Changes limited to the release workflows and covered publication helpers run
@@ -257,7 +269,7 @@ Desktop logic and service-contract tests, and production-feature checks on Apple
 silicon with an explicit Xcode SDK. Intel packaging and compilation run in the
 release workflow.
 Mobile checks include Flutter analysis and controller logic tests, plus Dart FFI
-contracts against isolated real Nodes. Android builds an ARM64 release
+contracts against isolated real Nodes on Linux. Android builds an ARM64 release
 APK and checks its native libraries; iOS builds an unsigned application. Both
 mobile builds check the Rust dependency boundary. Actions and toolchains are
 pinned; Rust and Flutter use committed lockfiles. `Checks passed` requires every
@@ -265,7 +277,7 @@ job selected by the coverage mode to succeed; skipped or cancelled jobs
 do not establish acceptance. Signed release packaging builds exact version tags;
 Mobile also accepts an explicitly selected, checked main commit.
 
-Node integration features share eight compiled suites instead of linking a
+Node integration features share twelve compiled suites instead of linking a
 binary per feature. Keep feature files focused and register new files in the
 appropriate suite; the source check rejects missing or duplicate registrations.
 Rust caches retain registry index metadata, compressed crate archives and Git
@@ -276,37 +288,52 @@ cache budget. Cargo validates fingerprints and rebuilds changed inputs.
 The pinned sccache compiler cache reuses Rust library compilation by content;
 test executables still need linking. Main produces compiler objects; tag and
 other branch runs read them. SDKs, targets and profile flags remain part of
-compiler identity; release and test objects are not interchangeable. Cache statistics and repository usage
-are recorded in each run, with a warning at 9 GiB. GitHub evicts least recently
+compiler identity; release and test objects are not interchangeable. Each run
+records cache statistics and repository usage in its summary. GitHub evicts least recently
 used entries at the repository limit; this budget cannot keep every platform and
 profile hot simultaneously. `SCCACHE_CACHE_SIZE` does not cap remote storage.
 Checks omit debug information and preserve the workspace's optimization settings,
 including the GPUI hot-path overrides. Development and release profiles are unchanged.
-Compilation and execution are separate steps; compilation timings are uploaded
-for the backend and Desktop jobs. The pinned nextest runner executes each Desktop
+The test build compiles every test crate and the plugin test host in one Cargo
+invocation, so the largest unit-test crates start early, then archives them for
+the test jobs. Compilation timings are uploaded for the test build and Host jobs.
+The pinned nextest runner executes each Desktop
 and backend test in its own process without compiling a binary per test.
-Desktop runs two tests concurrently;
-failures are not retried. Hung tests fail after five 60-second timeout periods.
+Desktop runs two tests concurrently. Integration-test binaries retry a failed test
+once and the job summary lists tests that passed only on retry; unit tests are not
+retried. A retry pass does not replace diagnosing the flaky test. Hung tests fail
+after five 60-second timeout periods.
 Unit tests precede production-feature checks; the lifecycle suite builds its own
 required application executable. JUnit reports remain separate and include
 individual test durations.
 Full checks include macOS lint, the shared test build, shared Node with Host
-lifecycle, Desktop, and Mobile with Dart FFI and iOS phases. Manual and release
-dispatches select the complete platform coverage.
+lifecycle, Desktop, Host on Linux, Mobile with iOS phases, and Mobile Android with
+the Dart FFI contracts on Linux. Manual and release dispatches select the complete
+platform coverage.
 Backend and Desktop share downloaded dependency sources, with backend as the
 cache producer; Mobile reuses that source cache. Sccache caches eligible library
-metadata. Downloaded speech and decision libraries share a target-specific cache
-keyed by their pinned identities. Only successful jobs on `main` save complete
-library archives; tag and other branch runs only restore them.
-Rust compilation uses two Cargo jobs to bound memory on the standard macOS runner.
-These CLI limits preserve the shared dependency cache identity. Backend tests run
+metadata. Downloaded speech libraries use a target-specific cache keyed by their
+pinned identity; Host release packaging also caches the decision libraries. The
+pinned Ghostty source and Zig global cache used by `libghostty-vt-sys` are cached
+by runner, Zig version and locked `libghostty-rs` revision. Only successful jobs on
+`main` save these caches; tag and other branch runs only restore them. Checks link
+Homebrew or Ubuntu OpenSSL instead of compiling the vendored copy; release builds
+keep the vendored library.
+The macOS test build uses three Cargo jobs within its 7 GB runner; other macOS jobs
+use two and Linux jobs four. These limits preserve the shared dependency cache
+identity. Backend tests run
 four isolated processes concurrently to bound real-Node fixture contention.
+CI installs pinned nextest, Zig and Flutter versions and prints the runner's gh and
+ripgrep versions in job summaries; `just tools` compares the same tools locally.
+CI selection variables such as `CHECK_ARCHIVE` are scoped to the steps that need
+them and are removed from test process environments.
 When both are selected, Shared Node and macOS Host lifecycle tests use one Cargo
 package graph and one JUnit report; Host lifecycle tests remain serialized.
 Plugin contracts and the isolated database step reuse that same package graph,
 avoiding a second compilation with different feature unification. Host-only
 changes keep the dedicated lifecycle target. Production checks still verify the
-shipped feature set separately from test-support builds.
+shipped feature set separately from test-support builds: Desktop on macOS and
+Host on Linux.
 
 CI does not supply model credentials, production profiles or OS permissions.
 Live-service and device tests stay opt-in. Real GGUF goldens, cancellation and
@@ -325,7 +352,7 @@ Flutter run do not establish iOS or Android device acceptance.
 tag is pushed and dispatches version publication on `main`. It also accepts manual
 dispatch from `main` with an exact `tag` input. The tag must match every
 application's version, such as `v0.1.0` for version `0.1.0`, and its source must be
-an ancestor of the pinned main workflow commit. The entry first requires a
+an ancestor of the pinned main workflow commit. Publication requires a
 completed, successful full Checks run at that exact SHA, including every product
 readiness gate and the final `Checks passed` result.
 It verifies full lane selection and any reused job evidence. If no successful
@@ -335,13 +362,16 @@ hours; missing, failed, cancelled or incomplete Checks stop publication. A retry
 can reuse successful exact-source results; failed dispatches are not silently
 replayed. The remote tag is checked again after waiting.
 
-Only then does the entry generate notes, publish the version release and
-independently start [Desktop](.github/workflows/release.yml),
-[Host](.github/workflows/release-host.yml), Mobile and the changelog. Every product
-build still requires its exact-source readiness gate, including strict lint and
-shared Node checks, from main or the selected tag's Checks. Product packaging can
-finish independently. The release can contain only notes while these builds are
-running, but not while its initial full Checks are pending.
+Once Checks are found or queued, the entry starts the
+[Desktop](.github/workflows/release.yml) and [Host](.github/workflows/release-host.yml)
+builds, which run alongside Checks. After full Checks pass, it generates notes,
+publishes the version release and starts Mobile and the changelog, because
+TestFlight upload and the changelog are publications. Desktop and Host build and
+package without waiting; each publish job then waits for its exact-source readiness
+gate, including strict lint and shared Node checks, and for the published version
+before uploading assets. It stops when the exact-source Checks end without full
+success. The release can contain only notes while products are still packaging,
+but it is not published while its initial full Checks are pending.
 
 Desktop and Host recovery workflows select `main` and supply the exact version
 tag as their `tag` input. Every product job checks out its selected source; the
@@ -456,6 +486,8 @@ Desktop native recovery reuses preserved binaries for the exact product tag and
 builds only missing architectures. Each artifact retains its original workflow
 run, revision and checksum through formal signing. Symbol files are preserved
 before upload; an upload failure reports a warning without blocking packaging.
+macOS Host packaging runs `dsymutil` once; the required symbol collection after
+packaging reuses that result when the binary and symbol UUIDs match.
 
 For local verification, build native Desktop and Host, then package into a
 fresh `dist/` directory:

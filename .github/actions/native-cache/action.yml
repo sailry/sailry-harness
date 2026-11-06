@@ -4,10 +4,17 @@ inputs:
   target:
     description: Native target triple
     required: true
+  libraries:
+    description: Libraries the job populates before saving, speech or all
+    required: false
+    default: all
 outputs:
   key:
     description: Exact library identity
     value: ${{ steps.identity.outputs.key }}
+  path:
+    description: Cached library directories; saves must use the same list
+    value: ${{ steps.identity.outputs.path }}
   hit:
     description: Whether the exact library archive was restored
     value: ${{ steps.restore.outputs.cache-hit }}
@@ -19,12 +26,20 @@ runs:
       shell: bash
       env:
         PACKAGE_TARGET: ${{ inputs.target }}
-      run: python3 "$GITHUB_ACTION_PATH/../../../scripts/ci.py" native-key "$PACKAGE_TARGET" shared
+        PACKAGE_LIBRARIES: ${{ inputs.libraries }}
+      run: |
+        # Compilation downloads speech libraries; only packaging downloads decision libraries.
+        if test "$PACKAGE_LIBRARIES" = speech; then
+          python3 "$GITHUB_ACTION_PATH/../../../scripts/ci.py" speech-key "$PACKAGE_TARGET" shared
+          echo 'path=target/sherpa-onnx-prebuilt' >> "$GITHUB_OUTPUT"
+        else
+          test "$PACKAGE_LIBRARIES" = all
+          python3 "$GITHUB_ACTION_PATH/../../../scripts/ci.py" native-key "$PACKAGE_TARGET" shared
+          printf 'path<<EOF\ntarget/sherpa-onnx-prebuilt\ntarget/llama-prebuilt\nEOF\n' >> "$GITHUB_OUTPUT"
+        fi
     - name: Restore native libraries
       id: restore
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
-        path: |
-          target/sherpa-onnx-prebuilt
-          target/llama-prebuilt
+        path: ${{ steps.identity.outputs.path }}
         key: ${{ steps.identity.outputs.key }}

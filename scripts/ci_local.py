@@ -26,6 +26,11 @@ def revision(root, value):
     return resolved
 
 
+def merge_base(root, target):
+    """The commit where the current branch diverged from the branch it will be pushed to."""
+    return git(root, "merge-base", "HEAD", revision(root, target)).decode().strip()
+
+
 def paths(value):
     return {os.fsdecode(path) for path in value.split(b"\0") if path}
 

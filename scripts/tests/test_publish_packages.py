@@ -941,5 +941,51 @@ class ChecksRecovery(unittest.TestCase):
                 sleep.assert_not_called()
 
 
+class PublicationWait(unittest.TestCase):
+    """Products built alongside Checks upload only after the version entry publishes."""
+
+    def setUp(self):
+        self.runs = [{"id": 42, "head_sha": COMMIT, "head_branch": TAG, "event": "workflow_dispatch",
+                      "status": "in_progress", "conclusion": None}]
+        self.ready = None
+        self.enterContext(patch.object(publication, "ready_run", side_effect=lambda *_, **__: self.ready))
+        self.enterContext(patch.object(publication.ci_reuse, "pages", side_effect=lambda *_: copy.deepcopy(self.runs)))
+        self.enterContext(patch("builtins.print"))
+
+    def test_waits_for_checks_then_publication(self):
+        client = FakeGitHub(metadata(draft=True))
+        steps = iter((lambda: setattr(self, "ready", 42),
+                      lambda: client.release.update(draft=False, published_at="2026-10-15T00:00:00Z")))
+        with patch.object(publication.time, "sleep", side_effect=lambda _: next(steps)()) as sleep, \
+                patch.object(publication.time, "monotonic", return_value=0):
+            published = publication.wait_published(client, REPOSITORY, TAG, COMMIT)
+        self.assertFalse(published["draft"])
+        self.assertEqual(sleep.call_count, 2)
+
+    def test_returns_existing_publication_immediately(self):
+        with patch.object(publication.time, "sleep") as sleep:
+            self.assertEqual(publication.wait_published(FakeGitHub(metadata()), REPOSITORY, TAG, COMMIT)["id"], 12)
+        sleep.assert_not_called()
+
+    def test_stops_when_checks_end_without_success(self):
+        self.runs[0].update(status="completed", conclusion="failure")
+        with patch.object(publication.time, "sleep") as sleep, \
+                self.assertRaisesRegex(ValueError, "ended without success"):
+            publication.wait_published(FakeGitHub(None), REPOSITORY, TAG, COMMIT)
+        sleep.assert_not_called()
+
+    def test_bounds_publication_after_checks_pass(self):
+        self.ready = 42
+        with patch.object(publication.time, "sleep") as sleep, \
+                patch.object(publication.time, "monotonic", side_effect=[0, 0, 60, 1800]), \
+                self.assertRaisesRegex(TimeoutError, "not published"):
+            publication.wait_published(FakeGitHub(None), REPOSITORY, TAG, COMMIT)
+        sleep.assert_called_once_with(60)
+
+    def test_rejects_moved_tag(self):
+        with self.assertRaisesRegex(ValueError, "differs"):
+            publication.wait_published(FakeGitHub(metadata()), REPOSITORY, TAG, "b" * 40)
+
+
 if __name__ == "__main__":
     unittest.main()

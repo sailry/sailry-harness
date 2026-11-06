@@ -510,7 +510,7 @@ class InputEquivalence(unittest.TestCase):
             ("'runner': 'macos-15-intel'", "'runner': 'macos-15'"),
             ("RESUME_NATIVE_FROM: ${{ inputs.resume_native_from }}", "RESUME_NATIVE_FROM: ''"),
             ("targets = targets[1:]", "targets = []"),
-            ("--component desktop --wait-ready --published", "--component desktop --published"),
+            ("--component desktop --wait-ready --wait-published", "--component desktop --wait-published"),
             ("name: native-${{ matrix.target }}", "name: replacement-native-${{ matrix.target }}"),
             ("path: ${{ runner.temp }}/native-${{ matrix.target }}.tar.gz", "path: replacement.tar.gz"),
             ('--source-sha "$(git rev-parse HEAD)"', '--source-sha "$PRODUCER_REVISION"'),
