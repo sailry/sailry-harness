@@ -9,7 +9,7 @@ mod models;
 mod parse;
 use sailry_client::Client;
 use sailry_link::{Link, NetworkScope};
-use sailry_node_runtime::{Node, logging};
+use sailry_node_runtime::{Node, logging, telemetry};
 use sailry_protocol::{conversation::*, *};
 use serde_json::json;
 use std::{path::Path, time::Duration};
@@ -151,7 +151,12 @@ async fn observes_shared_lifecycles_without_payloads() {
     let directory = tempfile::tempdir().unwrap();
     let profile = directory.path().join("profile");
     assert!(!profile.exists());
-    let guard = logging::install(&profile, logging::Application::Host).unwrap();
+    let guard = logging::install(
+        &profile,
+        logging::Application::Host,
+        telemetry::Build::default(),
+    )
+    .unwrap();
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt as _;
@@ -178,7 +183,8 @@ async fn observes_shared_lifecycles_without_payloads() {
     assert!(
         logging::install(
             &another.path().join("profile"),
-            logging::Application::Desktop
+            logging::Application::Desktop,
+            telemetry::Build::default(),
         )
         .is_err()
     );

@@ -62,6 +62,11 @@ async fn run() -> Result<u8, Box<dyn std::error::Error>> {
     let _logging = match sailry_node_runtime::logging::install(
         &options.data_dir,
         sailry_node_runtime::logging::Application::Host,
+        sailry_node_runtime::telemetry::Build {
+            revision: option_env!("SAILRY_GIT_SHA"),
+            dsn: option_env!("SAILRY_SENTRY_DSN"),
+            key: option_env!("SAILRY_TELEMETRY_KEY"),
+        },
     ) {
         Ok(guard) => Some(guard),
         Err(_) => {

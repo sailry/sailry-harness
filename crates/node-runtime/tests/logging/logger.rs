@@ -1,5 +1,8 @@
 //! This process installs a pre-existing log bridge before Sailry's tracing sink.
-use sailry_node_runtime::logging::{self, Area, Entry, Phase};
+use sailry_node_runtime::{
+    logging::{self, Area, Entry, Phase},
+    telemetry,
+};
 #[path = "parse.rs"]
 mod parse;
 
@@ -8,7 +11,12 @@ fn retains_sink_with_existing_logger() {
     tracing_log::LogTracer::init().unwrap();
     let directory = tempfile::tempdir().unwrap();
     let profile = directory.path().join("profile");
-    let guard = logging::install(&profile, logging::Application::Host).unwrap();
+    let guard = logging::install(
+        &profile,
+        logging::Application::Host,
+        telemetry::Build::default(),
+    )
+    .unwrap();
     let mut entry = Entry::new(Area::Desktop, Phase::Begin);
     entry.reason = Some("fixture");
     entry.emit();

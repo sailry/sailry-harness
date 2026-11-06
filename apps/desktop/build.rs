@@ -1,4 +1,8 @@
+#[path = "../revision.rs"]
+mod revision;
+
 fn main() {
+    revision::embed();
     println!("cargo:rerun-if-changed=../../locales");
     println!("cargo:rerun-if-changed=windows/app.rc");
     println!("cargo:rerun-if-changed=../../assets/branding/sailry.ico");

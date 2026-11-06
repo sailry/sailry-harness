@@ -118,14 +118,18 @@ fn latest_file(directory: &Path) -> std::io::Result<Option<PathBuf>> {
     Ok(latest.map(|(_, path)| path))
 }
 
-pub fn install(profile: &Path, application: Application) -> Result<Guard, InitError> {
-    install_with(profile, application, true)
+pub fn install(
+    profile: &Path,
+    application: Application,
+    build: crate::telemetry::Build,
+) -> Result<Guard, InitError> {
+    install_with(profile, application, Some(build))
 }
 
 fn install_with(
     profile: &Path,
     application: Application,
-    telemetry: bool,
+    telemetry: Option<crate::telemetry::Build>,
 ) -> Result<Guard, InitError> {
     let _install = INSTALL.lock().map_err(|_| InitError)?;
     if DIRECTORY.get().is_some() {
@@ -134,9 +138,9 @@ fn install_with(
     crate::profile::private_directory(profile).map_err(|_| InitError)?;
     let directory = profile.join("logs").join(application.name());
     let (writer, mut guard) = writer(&directory, MAX_FILE_BYTES, RETAINED_FILES, QUEUED_LINES)?;
-    if telemetry {
-        let control = crate::telemetry::start(profile, application);
-        let dsn = crate::telemetry::dsn();
+    if let Some(build) = telemetry {
+        let control = crate::telemetry::start(profile, application, &build);
+        let dsn = crate::telemetry::dsn(&build);
         guard.report = report::Report::new(control, dsn.as_deref()).map(Arc::new);
         if let Some(report) = &guard.report {
             crate::telemetry::attach_report(report.clone());
@@ -187,7 +191,7 @@ pub fn preview() -> Result<Guard, InitError> {
     let mut guard = install_with(
         &temporary.path().join("profile"),
         Application::Desktop,
-        false,
+        None,
     )?;
     guard._temporary = Some(temporary);
     Ok(guard)

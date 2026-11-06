@@ -60,6 +60,11 @@ pub(crate) fn run(#[cfg(feature = "workload-tests")] workload: workload::Scenari
         startup::Launch::Node(options) => sailry_node_runtime::logging::install(
             &options.data_dir,
             sailry_node_runtime::logging::Application::Desktop,
+            sailry_node_runtime::telemetry::Build {
+                revision: option_env!("SAILRY_GIT_SHA"),
+                dsn: option_env!("SAILRY_SENTRY_DSN"),
+                key: option_env!("SAILRY_TELEMETRY_KEY"),
+            },
         )
         .map(Some),
         startup::Launch::Preview => sailry_node_runtime::logging::preview().map(Some),
