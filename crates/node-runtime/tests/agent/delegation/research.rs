@@ -108,16 +108,14 @@ async fn loads_the_skill_without_expanding_authority() {
                     .any(|tool| tool["function"]["name"] == "spawn_agent")
             })
             .expect("coordinator model request");
-        assert!(
-            prompt(parent_request).contains("Flagship enables delegation; it does not require it")
-        );
+        assert!(prompt(parent_request).contains("You coordinate delegated children"));
         let instructions = request["messages"]
             .as_array()
             .unwrap()
             .iter()
             .map(|message| message_text(&message["content"]))
             .collect::<String>();
-        assert!(!instructions.contains("Flagship enables delegation"));
+        assert!(!instructions.contains("You coordinate delegated children"));
         assert!(instructions.contains("Selected skill web-search:research"));
         assert!(instructions.contains("Search snippets identify candidates"));
         assert!(instructions.contains("six queries and eight distinct fetched sources"));

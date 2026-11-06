@@ -469,6 +469,9 @@ async fn claim_with(
     let background = super::background::bind(&transaction, &mut run).await?;
     let invocation = Invocation {
         compaction_percent: crate::store::compaction::captured(&transaction, run.turn).await?,
+        child_concurrency: crate::store::teams::settings::read(&transaction)
+            .await?
+            .child_concurrency,
         instructions: super::super::captures::instructions(&transaction, run.turn).await?,
         notice_input: super::background::render(&transaction, &run.notices).await?,
         notices: run.notices.clone(),

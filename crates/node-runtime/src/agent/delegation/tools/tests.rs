@@ -38,6 +38,31 @@ async fn model_execution_keeps_application_context() {
     assert!(context(&fixture.invocation, &[]).is_empty());
 }
 
+#[tokio::test]
+async fn context_reports_concurrency_budget() {
+    let mut fixture = crate::agent::delegation::tests::Fixture::new().await;
+    assert_eq!(
+        fixture.invocation.child_concurrency,
+        sailry_protocol::team::CHILD_CONCURRENCY
+    );
+    fixture.invocation.child_concurrency = 3;
+    let supervisor = crate::tasks::Supervisor::start(1);
+    let tools = bind(
+        &fixture.store.ingress,
+        &supervisor.tasks,
+        &fixture.invocation,
+        &CancellationToken::new(),
+    );
+    let text = context(&fixture.invocation, &tools);
+    assert!(text.contains("up to 3 children run at once"), "{text}");
+    assert!(!context(&fixture.invocation, &[]).contains("Concurrency budget"));
+    supervisor
+        .shutdown(std::time::Duration::from_secs(5))
+        .await
+        .unwrap();
+    fixture.store.shutdown().await.unwrap();
+}
+
 mod prepare {
     use super::*;
 
