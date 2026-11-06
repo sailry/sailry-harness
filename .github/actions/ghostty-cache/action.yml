@@ -1,0 +1,29 @@
+name: Ghostty build inputs
+description: Restore the pinned Ghostty source and Zig global cache used by libghostty-vt-sys
+outputs:
+  key:
+    description: Exact runner, Zig and libghostty-rs identity
+    value: ${{ steps.identity.outputs.key }}
+  path:
+    description: Cached directory; saves must use the same path
+    value: ${{ steps.identity.outputs.path }}
+  hit:
+    description: Whether the exact inputs were restored
+    value: ${{ steps.restore.outputs.cache-hit }}
+runs:
+  using: composite
+  steps:
+    - name: Ghostty input identity
+      id: identity
+      shell: bash
+      run: python3 "$GITHUB_ACTION_PATH/../../../scripts/ci.py" ghostty-key
+    - name: Restore Ghostty inputs
+      id: restore
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.identity.outputs.path }}
+        key: ${{ steps.identity.outputs.key }}
+    - name: Prepare Ghostty source
+      shell: bash
+      # Sets GHOSTTY_SOURCE_DIR and ZIG_GLOBAL_CACHE_DIR for later Cargo builds.
+      run: python3 "$GITHUB_ACTION_PATH/../../../scripts/ci.py" ghostty-source

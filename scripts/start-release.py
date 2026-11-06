@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Require full exact-source Checks before publishing and starting product builds."""
+"""Start product builds alongside full exact-source Checks, then publish the passing version."""
 
 import argparse
 from datetime import datetime, timezone
@@ -46,28 +46,31 @@ def latest_flag(tag):
     return "false" if versions.parse(tag[1:]).group("preview") else "legacy"
 
 
-def dispatch(client, repository, tag):
-    workflows = (
-        ("release.yml", {"tag": tag}),
-        ("release-host.yml", {"tag": tag}),
-        ("release-mobile.yml", {"tag": tag, "platform": "both", "upload_testflight": "true"}),
-        ("changelog.yml", {"tag": tag}),
-    )
+# Desktop and Host build alongside Checks; their uploads wait for the published version.
+BUILDS = ("release.yml", "release-host.yml")
+# TestFlight upload and the public changelog are publications themselves.
+FOLLOW_UPS = ("release-mobile.yml", "changelog.yml")
+
+
+def dispatch(client, repository, tag, workflows):
     failed = []
-    for workflow, inputs in workflows:
+    for workflow in workflows:
+        inputs = {"tag": tag, **({"platform": "both", "upload_testflight": "true"}
+                                 if workflow == "release-mobile.yml" else {})}
         try:
             client.api("POST", f"repos/{repository}/actions/workflows/{workflow}/dispatches",
                        {"ref": "main", "inputs": inputs})
         except RuntimeError:
+            print(f"::warning::{workflow} could not be dispatched for {tag}", flush=True)
             failed.append(workflow)
-    if failed:
-        raise RuntimeError("The version release is published; workflow dispatch failed: " + ", ".join(failed))
+    return failed
 
 
-def require_checks(client, repository, tag, commit):
+def queue_checks(client, repository, tag, commit):
+    """Find successful full Checks, or queue them once; returns runs that cannot become ready."""
     ready = publication.ready_run(client, repository, commit, "checks", tag=tag)
     if ready is not None:
-        return ready
+        return ready, set()
     runs = publication.ci_reuse.pages(
         client, f"repos/{repository}/actions/workflows/ci.yml/runs?head_sha={commit}", "workflow_runs")
     matching = [run for run in runs if publication.checks_run(run, commit, tag)]
@@ -75,6 +78,13 @@ def require_checks(client, repository, tag, commit):
     if len(completed) == len(matching):
         client.api("POST", f"repos/{repository}/actions/workflows/ci.yml/dispatches", {"ref": tag})
         print(f"Queued full Checks for {tag} at exact source {commit}", flush=True)
+    return None, completed
+
+
+def require_checks(client, repository, tag, commit, queued):
+    ready, completed = queued
+    if ready is not None:
+        return ready
     return publication.wait_ready(client, repository, commit, "checks", tag=tag, ignored_runs=completed)
 
 
@@ -85,7 +95,9 @@ def start(tag, source, tooling, environment, client=None):
     metadata = publication.release(client, repository, tag, commit)
     if metadata is not None and metadata.get("immutable"):
         raise ValueError("Product packages require a mutable version release")
-    checked = require_checks(client, repository, tag, commit)
+    queued = queue_checks(client, repository, tag, commit)
+    failed = dispatch(client, repository, tag, BUILDS)
+    checked = require_checks(client, repository, tag, commit, queued)
     metadata = publication.release(client, repository, tag, commit)
     if metadata is not None and metadata.get("immutable"):
         raise ValueError("Product packages require a mutable version release")
@@ -104,8 +116,10 @@ def start(tag, source, tooling, environment, client=None):
     metadata = publication.release(client, repository, tag, commit, published=True)
     if metadata.get("immutable"):
         raise ValueError("Product packages require a mutable version release")
-    dispatch(client, repository, tag)
-    print(f"Published {tag} at source {commit}; queued Desktop, Host, Mobile and changelog workflows")
+    failed += dispatch(client, repository, tag, FOLLOW_UPS)
+    if failed:
+        raise RuntimeError("The version release is published; workflow dispatch failed: " + ", ".join(failed))
+    print(f"Published {tag} at source {commit}; Desktop and Host build since admission; queued Mobile and changelog")
     return metadata
 
 

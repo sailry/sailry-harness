@@ -12,8 +12,10 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import tomllib
 import unittest
+from xml.etree import ElementTree
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,10 +27,21 @@ CHECK_JOBS = {
     "shared": {"shared", "host"},
     "desktop": {"desktop"},
     "host": {"host"},
-    "mobile": {"mobile", "mobile_ffi"},
-    "android": {"android"},
+    "mobile": {"mobile"},
+    # Linux compiles the Dart FFI fixture and its real Node without using macOS capacity.
+    "android": {"android", "mobile_ffi"},
     "services": {"services"},
 }
+# Versions CI installs. Runner images supply gh and ripgrep, so CI prints their versions
+# for comparison instead of pinning them.
+TOOLS = {
+    "cargo-nextest": (("cargo", "nextest", "--version"), "0.9.143"),
+    "zig": (("zig", "version"), "0.16.0"),
+    "flutter": (("flutter", "--version", "--machine"), "3.44.7"),
+    "rg": (("rg", "--version"), None),
+    "gh": (("gh", "--version"), None),
+}
+GHOSTTY_CACHE = Path(".runtime/ci/ghostty")
 PRODUCTS = {
     "desktop": {"shared", "desktop"},
     "host": {"shared", "host"},
@@ -36,7 +49,7 @@ PRODUCTS = {
 }
 FIXTURES = {
     "shared": {
-        "test_ci_local", "test_ci_resources", "test_ci_reuse", "test_ci_selection", "test_desktop_adhoc", "test_desktop_build", "test_desktop_recovery", "test_locales", "test_macos_package",
+        "test_ci_local", "test_ci_resources", "test_ci_reuse", "test_ci_run", "test_ci_selection", "test_desktop_adhoc", "test_desktop_build", "test_desktop_recovery", "test_locales", "test_macos_package",
         "test_names", "test_ocu_helper", "test_onnx_runtime", "test_llama_runtime", "test_code_parsers", "test_public_source", "test_publish_packages", "test_host_recovery",
         "test_python_launcher", "test_python_runtime", "test_release_notes", "test_mobile_release", "test_publish_update_feed",
         "test_release_versions", "test_start_release", "test_suites", "test_debug_symbols", "test_telemetry_env", "test_ui_tasks",
@@ -361,6 +374,7 @@ def check_commands(name, jobs=None, root=ROOT, selection=None, env=None, threads
             ([python, "scripts/check-locales.py", "--product", "desktop"], "."),
         ],
         "host-source": [([python, "scripts/ci.py", "fixtures", "host"], ".")],
+        "locales": [([python, "scripts/check-locales.py"], ".")],
         "mobile-source": [([python, "scripts/ci.py", "fixtures", "mobile"], "."), ([python, "scripts/check-locales.py", "--product", "mobile"], ".")],
         "mobile-contract": [
             (["dart", "pub", "get", "--enforce-lockfile"], "tests/mobile-contract"),
@@ -373,7 +387,9 @@ def check_commands(name, jobs=None, root=ROOT, selection=None, env=None, threads
         "services": [(["pnpm", task], "services/pairing-relay") for task in ("typecheck", "test", "build", "build:edgeone")],
     }
     if name == "lint":
-        return [{"argv": lint_command(selection, jobs), "cwd": "."}]
+        # An explicit non-macOS platform lints the packages CI also lints on Linux.
+        command = lint_command(selection, jobs, None if system in {None, "Darwin"} else "linux")
+        return [] if command is None else [{"argv": command, "cwd": "."}]
     if name in {"tests", "archive", "shared", "shared-databases"}:
         # One build for every selected product avoids rebuilding the graph per feature set.
         if (not isinstance(selection, dict) or set(selection) != LANES
@@ -397,7 +413,11 @@ def check_commands(name, jobs=None, root=ROOT, selection=None, env=None, threads
             raise ValueError("Database tests require the shared package selection")
         if name == "archive":
             selected = package_arguments(selected)
-            steps = (plugin_contracts(selected)[:1] if "shared" in scope else []) + [
+            # One invocation schedules every test crate with the plugin host, so the largest
+            # unit-test crates start early; nextest then archives the fresh outputs.
+            build = ["cargo", "build", "--locked", *selected, "--tests", "--example", "plugin-test-host",
+                     "--profile", "test", "--timings", *cargo_jobs]
+            steps = ([(build, ".")] if "shared" in scope else []) + [
                 (["cargo", "nextest", "archive", "--locked", *selected, "--timings", *nextest_jobs,
                   "--archive-file", str(root / TEST_ARCHIVE)], "."),
             ]
@@ -468,8 +488,14 @@ def parser_environment(root, env, libraries):
     return environment
 
 
-def run_check(name, jobs=None, root=ROOT, selection=None, env=None, threads=None):
-    commands = check_commands(name, jobs, root, selection, env, threads)
+def child_environment(env):
+    """CI selection variables configure the runner; checks and their tests must not observe them."""
+    return {name: value for name, value in (os.environ if env is None else env).items()
+            if not name.startswith("CHECK_")}
+
+
+def run_check(name, jobs=None, root=ROOT, selection=None, env=None, threads=None, system=None):
+    commands = check_commands(name, jobs, root, selection, env, threads, system)
     if name == "archive":
         (root / TEST_ARCHIVE).parent.mkdir(parents=True, exist_ok=True)
     if name in {"tests", "archive", "shared", "shared-databases", "plugin-contracts", "backend", "databases", "desktop", "desktop-lifecycle", "host", "host-mac", "mobile-contract"}:
@@ -483,6 +509,7 @@ def run_check(name, jobs=None, root=ROOT, selection=None, env=None, threads=None
         env.setdefault("GOOSE_PROVIDER_SKIP_BACKOFF", "true")
     elif name in {"lint", "desktop-production", "host-production"}:
         env = parser_environment(root, env, libraries=False)
+    env = child_environment(env)
     for command in commands:
         print(f"Check {name}: " + " ".join(command["argv"]), flush=True)
         code = subprocess.run(command["argv"], cwd=root / command["cwd"], env=env, check=False).returncode
@@ -494,8 +521,10 @@ def run_check(name, jobs=None, root=ROOT, selection=None, env=None, threads=None
 def local_checks(selected, tier, system):
     checks = ["source", "names", "scripts", "workflows"]
     remaining = []
-    if lint_packages(selected):
+    if lint_packages(selected) or tier == "pre-push":
         checks.append("format")
+    if tier == "pre-push":
+        checks.append("locales")
     for lane in ("desktop", "host", "mobile"):
         if lane in selected:
             checks.append(f"{lane}-source")
@@ -503,9 +532,11 @@ def local_checks(selected, tier, system):
         checks.append("mobile-format")
     if tier == "fast" and selected:
         remaining.append("Affected product tests and strict Rust lint were not requested by the fast tier")
-    if tier == "affected":
+    if tier in {"affected", "pre-push"}:
         if lint_packages(selected):
             checks.append("lint")
+            if tier == "pre-push" and system != "Darwin" and lint_packages(selected, "macos"):
+                remaining.append("Clippy for macOS-only packages requires macOS")
         scope = tested_products(selected, system)
         if scope:
             checks.append("tests")
@@ -538,9 +569,10 @@ def local(arguments):
     import ci_local
 
     parser = argparse.ArgumentParser(description="Validate development changes or an explicitly checked-out candidate")
-    parser.add_argument("tier", nargs="?", choices=("fast", "affected"), default="fast")
+    parser.add_argument("tier", nargs="?", choices=("fast", "affected", "pre-push"), default="fast")
     parser.add_argument("--base")
     parser.add_argument("--head")
+    parser.add_argument("--target", help="Pre-push comparison branch (default: origin/main)")
     parser.add_argument("--candidate", action="store_true")
     parser.add_argument("--event", choices=("push", "pull_request"), default="push")
     parser.add_argument("--all", action="store_true", dest="full")
@@ -551,15 +583,26 @@ def local(arguments):
     args = parser.parse_args(arguments)
     if not args.candidate and args.head is not None:
         parser.error("--head requires --candidate")
+    prepush = args.tier == "pre-push"
+    if prepush and (args.base is not None or args.candidate or args.full):
+        parser.error("pre-push compares the merge base with --target; omit --base, --candidate and --all")
+    if args.target is not None and not prepush:
+        parser.error("--target selects the pre-push comparison branch")
     target = args.target_dir.resolve() if args.target_dir else Path(os.getenv("CARGO_TARGET_DIR", str(ROOT / "target"))).resolve()
     env = {**os.environ, "CARGO_TARGET_DIR": str(target)}
+    system = platform.system() if prepush else None
     try:
-        source = ci_local.inspect_source(ROOT, "candidate" if args.candidate else "worktree", args.base, args.head, args.full, args.event)
+        base = ci_local.merge_base(ROOT, args.target or "origin/main") if prepush else args.base
+        source = ci_local.inspect_source(ROOT, "candidate" if args.candidate else "worktree", base, args.head, args.full, args.event)
         selected = {name for name, value in source["selection"].items() if value == "true"}
         plan = local_checks(selected, args.tier, platform.system())
         commands = [{"check": name, **command} for name in plan["checks"]
-                    for command in check_commands(name, args.jobs, ROOT, source["selection"], env, args.test_threads)]
-    except (OSError, ValueError, subprocess.CalledProcessError) as error:
+                    for command in check_commands(name, args.jobs, ROOT, source["selection"], env, args.test_threads, system)]
+    except subprocess.CalledProcessError as error:
+        if prepush:
+            parser.error(f"Cannot compare with {args.target or 'origin/main'}; fetch it or pass --target")
+        parser.error(str(error))
+    except (OSError, ValueError) as error:
         parser.error(str(error))
     environment = {name: os.getenv(name) for name in (
         "SDKROOT", "DEVELOPER_DIR", "RUSTFLAGS", "RUSTDOCFLAGS", "PKG_CONFIG_PATH",
@@ -571,15 +614,27 @@ def local(arguments):
     missing = sorted({command["argv"][0] for command in commands
                       if shutil.which(command["argv"][0]) is None})
     report["missing_tools"] = missing
+    mismatched = []
+    if prepush:
+        versions = tool_versions(planned_tools(commands))
+        report["tool_versions"] = versions
+        mismatched = tool_mismatches(versions)
     print(json.dumps(report, indent=2), flush=True)
+    if prepush and not source["paths"]:
+        print(f"No changes since the merge base with {args.target or 'origin/main'}; nothing was validated",
+              file=sys.stderr)
+        return 1
     if args.plan:
         return 0
     if missing:
         print("Required local tools are unavailable: " + ", ".join(missing), file=sys.stderr)
         return 1
+    if mismatched:
+        print("Local tool versions differ from CI: " + "; ".join(mismatched), file=sys.stderr)
+        return 1
     for name in plan["checks"]:
         try:
-            code = run_check(name, args.jobs, ROOT, source["selection"], env, args.test_threads)
+            code = run_check(name, args.jobs, ROOT, source["selection"], env, args.test_threads, system)
         except OSError as error:
             print(f"Check {name} could not run: {error}", file=sys.stderr)
             return 1
@@ -595,7 +650,7 @@ def local(arguments):
             print("Candidate changed during validation", file=sys.stderr)
             return 1
     print("Local checks passed; this is not cross-platform CI acceptance")
-    if not selected:
+    if not selected and not prepush:
         print("No affected product checks selected; committed changes need an explicit --base or --all")
     for item in plan["not_run"]:
         print("Not run: " + item)
@@ -658,6 +713,117 @@ def native_cache_key(root, target, mode):
     speech = speech_cache_key(root, target, mode)
     llama = hashlib.sha256((root / "scripts/package/llama-runtime.lock.json").read_bytes()).hexdigest()
     return f"native-libraries-v1-{speech}-llama-{llama}"
+
+
+def ghostty_revision(root):
+    """The libghostty-rs repository and revision whose build script pins Ghostty."""
+    packages = tomllib.loads((root / "Cargo.lock").read_text(encoding="utf-8"))["package"]
+    sources = [package.get("source", "") for package in packages if package.get("name") == "libghostty-vt-sys"]
+    match = re.fullmatch(r"git\+([^?#\s]+)\?rev=([0-9a-f]{40})#\2", sources[0]) if len(sources) == 1 else None
+    if match is None:
+        raise ValueError("libghostty-vt-sys must be locked to one exact Git revision")
+    return match.group(1), match.group(2)
+
+
+def ghostty_cache_key(root, system, machine, zig):
+    if any(not re.fullmatch(r"[A-Za-z0-9._+-]+", value) for value in (system, machine, zig)):
+        raise ValueError("Invalid Ghostty cache identity")
+    return f"ghostty-v1-{system}-{machine}-zig-{zig}-{ghostty_revision(root)[1]}"
+
+
+def ghostty_source(root, directory):
+    """Check out the Ghostty source that libghostty-vt-sys would otherwise clone per build."""
+    if (directory / "build.zig").is_file():
+        return False
+    repository, revision = ghostty_revision(root)
+    with tempfile.TemporaryDirectory() as temporary:
+        for command in (["init", "--quiet"], ["fetch", "--quiet", "--depth=1", repository, revision]):
+            subprocess.run(["git", *command], cwd=temporary, check=True)
+        script = subprocess.run(["git", "show", f"{revision}:crates/libghostty-vt-sys/build.rs"], cwd=temporary,
+                                check=True, capture_output=True, text=True).stdout
+    url = re.search(r'^const GHOSTTY_REPO: &str = "([^"\s]+)";$', script, re.MULTILINE)
+    commit = re.search(r'^const GHOSTTY_COMMIT: &str = "([0-9a-f]{40})";$', script, re.MULTILINE)
+    if url is None or commit is None:
+        raise ValueError("The libghostty-vt-sys build script no longer names its Ghostty source")
+    partial = directory.with_name(directory.name + ".partial")
+    shutil.rmtree(partial, ignore_errors=True)
+    partial.parent.mkdir(parents=True, exist_ok=True)
+    # Match the build script's own fetch so both paths compile the same tree.
+    subprocess.run(["git", "clone", "--quiet", "--config", "core.longpaths=true", "--filter=blob:none",
+                    "--no-checkout", url.group(1), str(partial)], check=True)
+    subprocess.run(["git", "checkout", "--quiet", commit.group(1)], cwd=partial, check=True)
+    partial.rename(directory)
+    return True
+
+
+def tool_versions(names):
+    versions = {}
+    for name in names:
+        try:
+            output = subprocess.run(TOOLS[name][0], capture_output=True, text=True, timeout=300, check=True).stdout
+        except (OSError, subprocess.SubprocessError):
+            output = ""
+        match = re.search(r"\d+\.\d+\.\d+", output)
+        versions[name] = match.group(0) if match else None
+    return versions
+
+
+def tool_mismatches(versions):
+    return [f"{name} {version or 'unavailable'} (CI uses {TOOLS[name][1]})"
+            for name, version in versions.items() if TOOLS[name][1] not in {None, version}]
+
+
+def planned_tools(commands):
+    """Pinned tools whose version affects the planned local commands."""
+    names = set()
+    for command in commands:
+        argv = command["argv"]
+        if argv[:2] == ["cargo", "nextest"]:
+            names.add("cargo-nextest")
+        if argv[0] == "cargo" and argv[1] in {"build", "check", "clippy", "nextest", "test"}:
+            names.add("zig")  # libghostty-vt-sys compiles Ghostty with the pinned Zig.
+        if argv[0] == "flutter":
+            names.add("flutter")
+    return sorted(names)
+
+
+def flaky_tests(paths):
+    """Tests that passed only after a retry, from nextest JUnit reports."""
+    flaky = []
+    for path in paths:
+        if not path.is_file():
+            continue
+        for case in ElementTree.parse(path).getroot().iter("testcase"):
+            attempts = sum(child.tag in {"flakyFailure", "flakyError"} for child in case)
+            if attempts:
+                flaky.append((case.get("classname", ""), case.get("name", ""), attempts))
+    return flaky
+
+
+def report_flaky(paths):
+    flaky = flaky_tests(paths)
+    for suite, name, attempts in flaky:
+        print(f"::warning title=Flaky test::{suite} {name} passed after {attempts} failed attempt(s)")
+    if flaky and os.getenv("GITHUB_STEP_SUMMARY"):
+        lines = ["### Flaky tests", "", "These passed only on retry. Diagnose them; a retry is not a fix.", ""]
+        lines += [f"- `{suite} {name}`: {attempts} failed attempt(s)" for suite, name, attempts in flaky]
+        with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as output:
+            output.write("\n".join(lines) + "\n\n")
+    print(f"Flaky tests: {len(flaky)}")
+    return flaky
+
+
+def report_tools(names):
+    versions = tool_versions(names)
+    rows = [f"{name}: {version or 'unavailable'}" for name, version in versions.items()]
+    print("\n".join(rows))
+    if os.getenv("GITHUB_STEP_SUMMARY"):
+        with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as output:
+            output.write("Tool versions: " + ", ".join(rows) + "\n\n")
+    mismatched = tool_mismatches(versions)
+    for item in mismatched:
+        print(f"Tool version differs from CI: {item}", file=sys.stderr)
+    return not mismatched
 
 
 def require_results(results, product=None):
@@ -787,6 +953,34 @@ def main():
         except (OSError, ValueError, KeyError, TypeError) as error:
             raise SystemExit(str(error)) from error
         print(key)
+    elif sys.argv[1:] == ["ghostty-key"]:
+        try:
+            workspace = Path(os.getenv("GITHUB_WORKSPACE", str(ROOT)))
+            zig = subprocess.run(["zig", "version"], capture_output=True, text=True, check=True).stdout.strip()
+            key = ghostty_cache_key(workspace, os.environ["RUNNER_OS"], os.environ["RUNNER_ARCH"], zig)
+            with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as target:
+                target.write(f"key={key}\npath={GHOSTTY_CACHE}\n")
+        except (OSError, ValueError, KeyError, subprocess.CalledProcessError) as error:
+            raise SystemExit(str(error)) from error
+        print(key)
+    elif sys.argv[1:] == ["ghostty-source"]:
+        try:
+            workspace = Path(os.getenv("GITHUB_WORKSPACE", str(ROOT)))
+            cache = (workspace / GHOSTTY_CACHE).absolute()
+            fetched = ghostty_source(workspace, cache / "source")
+            (cache / "zig").mkdir(parents=True, exist_ok=True)
+            with Path(os.environ["GITHUB_ENV"]).open("a", encoding="utf-8") as target:
+                target.write(f"GHOSTTY_SOURCE_DIR={cache / 'source'}\nZIG_GLOBAL_CACHE_DIR={cache / 'zig'}\n")
+        except (OSError, ValueError, KeyError, subprocess.CalledProcessError) as error:
+            raise SystemExit(str(error)) from error
+        print("Fetched pinned Ghostty source" if fetched else "Reused cached Ghostty source")
+    elif len(sys.argv) >= 2 and sys.argv[1] == "flaky":
+        try:
+            report_flaky([Path(path) for path in sys.argv[2:]])
+        except (OSError, ElementTree.ParseError) as error:
+            raise SystemExit(f"Test reports could not be read: {error}") from error
+    elif len(sys.argv) >= 2 and sys.argv[1] == "tools" and set(sys.argv[2:]) <= set(TOOLS):
+        raise SystemExit(0 if report_tools(sys.argv[2:] or list(TOOLS)) else 1)
     elif len(sys.argv) == 3 and sys.argv[1] == "fixtures" and sys.argv[2] in FIXTURES:
         raise SystemExit(0 if run_fixtures(sys.argv[2]) else 1)
     elif sys.argv[1:] == ["report"] or (
@@ -805,8 +999,8 @@ def main():
             print("Checks deferred" if mode == "skip" else "Checks passed")
     else:
         raise SystemExit(
-            "Usage: ci.py local [fast|affected] [options]|check <name>|source-key <lockfile>|source-cache <save|restore>|cache-usage|select|lint [linux|macos]|report [desktop|host|mobile]|fixtures <owner>|"
-            "speech-key|native-key <target> <shared|static>"
+            "Usage: ci.py local [fast|affected|pre-push] [options]|check <name>|source-key <lockfile>|source-cache <save|restore>|cache-usage|select|lint [linux|macos]|report [desktop|host|mobile]|fixtures <owner>|"
+            "speech-key|native-key <target> <shared|static>|ghostty-key|ghostty-source|flaky <junit>...|tools [name...]"
         )
 
 

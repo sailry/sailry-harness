@@ -111,7 +111,7 @@ class ReleaseWorkflows(unittest.TestCase):
         self.assertIn("workflow_dispatch", trigger)
         self.assertNotIn("push:", trigger)
         self.assertNotIn("component:", trigger)
-        self.assertIn('--component desktop --wait-ready --published', workflow)
+        self.assertIn('--component desktop --wait-ready --wait-published', workflow)
         self.assertNotIn("pull_request", trigger)
         self.assertNotIn("--generate-notes", workflow)
 
@@ -277,7 +277,7 @@ class ReleaseWorkflows(unittest.TestCase):
         self.assertNotIn("push:", trigger)
         self.assertNotIn("release:", trigger)
         self.assertIn("group: host-release-${{ github.event_name }}-${{ inputs.tag || github.ref_name }}", workflow)
-        self.assertIn("--component host --published", workflow)
+        self.assertIn("--component host --wait-ready --wait-published", workflow)
         mac = workflow.split("  build:\n", 1)[1].split("  host:\n", 1)[0]
         linux = workflow.split("  host:\n", 1)[1].split("  publish:\n", 1)[0]
         publish = workflow.split("  publish:\n", 1)[1]
@@ -537,16 +537,49 @@ class GateWaiting(unittest.TestCase):
             self.gate.wait_ready(self.client, "fixture/product", "a" * 40, "desktop")
         sleep.assert_not_called()
 
-    def test_products_wait_before_compilation(self):
+    def test_products_wait_before_publication(self):
         for workflow, component in (("release", "desktop"), ("release-host", "host")):
             source = (ROOT / f".github/workflows/{workflow}.yml").read_text()
-            gate = source.split("  version:\n", 1)[1].split("  build:\n", 1)[0]
+            admission = source.split("  version:\n", 1)[1].split("  build:\n", 1)[0]
+            publish = source.split("  publish:\n", 1)[1]
             with self.subTest(component=component):
-                self.assertIn("timeout-minutes: 310", gate)
-                self.assertIn(f"--component {component}", gate)
-                self.assertIn("--wait-ready", gate)
-                self.assertIn("--published", gate)
-                self.assertNotIn("cargo build", gate)
+                self.assertNotIn("--wait-ready", admission)
+                self.assertNotIn("--published", admission)
+                self.assertNotIn("cargo build", admission)
+                self.assertIn("timeout-minutes: 320", publish)
+                gate = publish.index(f"--component {component} --wait-ready --wait-published")
+                self.assertLess(gate, publish.index("actions/download-artifact"))
+                self.assertLess(gate, publish.index("publish-packages.py"))
+
+    def test_waits_for_publication_after_readiness(self):
+        spec = importlib.util.spec_from_file_location("publishing_release", ROOT / "scripts/check-release.py")
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        order = []
+        with patch.object(sys, "argv", ["check-release.py", "--tag", "v0.1.0", "--wait-ready", "--wait-published",
+                                        "--component", "host"]), \
+                patch.dict(os.environ, {"GITHUB_REPOSITORY": "fixture/product"}), \
+                patch.object(gate, "require_context"), patch.object(gate.publication, "GitHub"), \
+                patch.object(gate.publication, "tagged_commit", return_value="a" * 40), \
+                patch.object(gate.publication, "release", return_value=None) as release, \
+                patch.object(gate.publication, "wait_ready", side_effect=lambda *_, **__: order.append("ready")), \
+                patch.object(gate.publication, "wait_published",
+                             side_effect=lambda *_: order.append("published") or {"immutable": False}) as published, \
+                patch.object(gate.publication, "readiness", side_effect=lambda *_, **__: order.append("verified") or 7):
+            gate.main()
+        self.assertEqual(order, ["ready", "published", "verified"])
+        self.assertFalse(release.call_args.kwargs["published"])
+        self.assertEqual(published.call_args.args[2:], ("v0.1.0", "a" * 40))
+        with patch.object(sys, "argv", ["check-release.py", "--tag", "v0.1.0", "--wait-published", "--component", "host"]), \
+                patch.dict(os.environ, {"GITHUB_REPOSITORY": "fixture/product"}), \
+                patch.object(gate, "require_context"), patch.object(gate.publication, "GitHub"), \
+                patch.object(gate.publication, "tagged_commit", return_value="a" * 40), \
+                patch.object(gate.publication, "release", return_value=None), \
+                patch.object(gate.publication, "wait_published", return_value={"immutable": True}), \
+                patch.object(gate.publication, "readiness") as readiness, \
+                self.assertRaisesRegex(ValueError, "immutable"):
+            gate.main()
+        readiness.assert_not_called()
 
     def test_published_products_can_wait_for_checks(self):
         spec = importlib.util.spec_from_file_location("waiting_release", ROOT / "scripts/check-release.py")

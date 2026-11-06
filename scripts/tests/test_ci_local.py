@@ -1,10 +1,12 @@
 """Local selection distinguishes mutable development inputs from candidate commits."""
 
+import json
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -131,6 +133,56 @@ class Candidate(unittest.TestCase):
             self.assertEqual(lanes(report), {"desktop"})
             with self.assertRaises(subprocess.CalledProcessError):
                 ci_local.inspect_source(root, "candidate", base, head)
+
+
+class PrePush(unittest.TestCase):
+    def plan(self, root, *arguments):
+        with patch.object(ci_local.ci, "ROOT", root), \
+                patch.object(ci_local.ci, "tool_versions", return_value={}), \
+                patch("builtins.print") as output:
+            code = ci_local.ci.local(["pre-push", "--plan", *arguments])
+        return code, json.loads(output.call_args_list[0].args[0])
+
+    def test_includes_commits_since_target_merge_base(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            initialize(root)
+            git(root, "update-ref", "refs/remotes/origin/main", "HEAD")
+            git(root, "switch", "--quiet", "-c", "feature")
+            write(root, "apps/host/src/main.rs")
+            commit(root)
+            git(root, "switch", "--quiet", "main")
+            write(root, "apps/desktop/src/main.rs")
+            git(root, "update-ref", "refs/remotes/origin/main", commit(root))
+            git(root, "switch", "--quiet", "feature")
+            write(root, "docs/hosts.md")
+            code, report = self.plan(root)
+            self.assertEqual(code, 0)
+            self.assertEqual(report["source"]["paths"], ["apps/host/src/main.rs", "docs/hosts.md"])
+            self.assertEqual(lanes(report["source"]), {"host"})
+            for check in ("format", "locales", "lint", "tests", "host-production"):
+                self.assertIn(check, report["checks"])
+
+    def test_fails_when_nothing_changed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            initialize(root)
+            git(root, "update-ref", "refs/remotes/release", "HEAD")
+            code, report = self.plan(root, "--target", "release")
+            self.assertEqual(code, 1)
+            self.assertEqual(report["source"]["paths"], [])
+            self.assertEqual(report["source"]["base"], report["source"]["head"])
+
+    def test_requires_known_target_without_other_baselines(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            initialize(root)
+            for arguments in ((), ("--base", "HEAD"), ("--all",)):
+                with self.subTest(arguments=arguments), patch("sys.stderr"), self.assertRaises(SystemExit):
+                    self.plan(root, *arguments)
+            with patch("sys.stderr"), self.assertRaises(SystemExit):
+                with patch.object(ci_local.ci, "ROOT", root):
+                    ci_local.ci.local(["affected", "--target", "main"])
 
 
 class Submodules(unittest.TestCase):

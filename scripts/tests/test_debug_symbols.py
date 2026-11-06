@@ -32,6 +32,9 @@ class Collection(unittest.TestCase):
         self.assertTrue(options["check"])
         if "--debug-info" in command:
             return SimpleNamespace(stdout=b"DW_TAG_compile_unit\nDW_AT_stmt_list (0)")
+        if "--uuid" in command:
+            uuid = getattr(self, "uuids", {}).get(Path(command[-1]).suffix, "0" * 8 + "-0000-0000-0000-" + "0" * 12)
+            return SimpleNamespace(stdout=f"UUID: {uuid} (arm64) {command[-1]}\n".encode())
         destination = Path(command[-1])
         if command[0] == "dsymutil":
             destination.mkdir()
@@ -116,13 +119,35 @@ class Collection(unittest.TestCase):
         self.assertEqual(existing.read_bytes(), b"preserved previous build")
         self.assertEqual(list(self.output.iterdir()), [existing])
 
-    def test_replaces_only_completed_target(self):
+    def test_replaces_symbols_for_another_build(self):
+        self.uuids = {"": "1A2B3C4D-0000-0000-0000-000000000001", ".dSYM": "1A2B3C4D-0000-0000-0000-000000000002"}
         with patch.object(SYMBOLS.shutil, "which", return_value="dwarfdump"), \
                 patch.object(SYMBOLS.subprocess, "run", side_effect=self.tools):
             destination = SYMBOLS.collect(self.binary, "aarch64-apple-darwin", self.output)
             (destination / "obsolete").write_bytes(b"old")
             SYMBOLS.collect(self.binary, "aarch64-apple-darwin", self.output)
         self.assertFalse((destination / "obsolete").exists())
+        self.assertEqual(self.binary.read_bytes(), b"native executable")
+
+    def test_reuses_symbols_for_same_build(self):
+        with patch.object(SYMBOLS.shutil, "which", return_value="dwarfdump"), \
+                patch.object(SYMBOLS.subprocess, "run", side_effect=self.tools) as run:
+            destination = SYMBOLS.collect(self.binary, "aarch64-apple-darwin", self.output)
+            run.reset_mock()
+            self.assertEqual(SYMBOLS.collect(self.binary, "aarch64-apple-darwin", self.output, True), destination)
+        self.assertEqual([call.args[0][:2] for call in run.call_args_list], [["dwarfdump", "--uuid"]] * 2)
+        self.assertEqual((destination / "fixture").read_bytes(), b"DWARF")
+
+    def test_regenerates_without_readable_uuids(self):
+        def unreadable(command, **options):
+            if "--uuid" in command:
+                raise subprocess.CalledProcessError(1, command)
+            return self.tools(command, **options)
+        with patch.object(SYMBOLS.shutil, "which", return_value="dwarfdump"), \
+                patch.object(SYMBOLS.subprocess, "run", side_effect=unreadable) as run:
+            SYMBOLS.collect(self.binary, "aarch64-apple-darwin", self.output)
+            SYMBOLS.collect(self.binary, "aarch64-apple-darwin", self.output)
+        self.assertEqual(sum(call.args[0][0] == "dsymutil" for call in run.call_args_list), 2)
 
 
 class Cli(unittest.TestCase):

@@ -29,9 +29,9 @@ env:
 
 jobs:
   version:
-    name: Verify Host readiness and published tag
+    name: Verify Host tag
     runs-on: ubuntu-24.04
-    timeout-minutes: 310
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
@@ -47,13 +47,14 @@ jobs:
           sparse-checkout: |
             /.github/actions/
             /scripts/
-      - name: Require a matching version tag and Host gate
+      - name: Require a matching version tag
+        # Builds run alongside Checks; publication waits for the Host gate.
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           test "$GITHUB_EVENT_NAME" = workflow_dispatch
           test "$GITHUB_REF" = refs/heads/main
-          python3 .workflow-tools/scripts/check-release.py --source "$GITHUB_WORKSPACE" --tag "$RELEASE_TAG" --component host --published --wait-ready
+          python3 .workflow-tools/scripts/check-release.py --source "$GITHUB_WORKSPACE" --tag "$RELEASE_TAG"
 
   build:
     name: macOS Host ${{ matrix.target }}
@@ -141,45 +142,6 @@ jobs:
           SAILRY_TELEMETRY_KEY: ${{ secrets.SAILRY_TELEMETRY_KEY }}
         run: |
           python3 .workflow-tools/scripts/ci-run.py --parsers -- cargo build --locked --release --timings -p sailry-host
-      - name: Collect Host debug symbols
-        id: symbols
-        env:
-          PACKAGE_TARGET: ${{ matrix.target }}
-        run: |
-          python3 .workflow-tools/scripts/package/debug-symbols.py collect \
-            --binary target/release/sailry-host --target "$PACKAGE_TARGET" \
-            --output "target/debug-symbols/host/$PACKAGE_TARGET"
-      - name: Preserve Host debug symbols
-        if: always() && steps.symbols.outcome == 'success'
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: debug-symbols-host-${{ matrix.target }}
-          path: target/debug-symbols/host/${{ matrix.target }}
-          if-no-files-found: error
-          retention-days: 14
-      - name: Upload Host debug symbols
-        id: symbol-upload
-        continue-on-error: true
-        env:
-          PACKAGE_TARGET: ${{ matrix.target }}
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-          SENTRY_ORG: ${{ vars.SENTRY_ORG || secrets.SENTRY_ORG }}
-          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT || secrets.SENTRY_PROJECT }}
-        run: |
-          python3 .workflow-tools/scripts/package/debug-symbols.py upload \
-            --symbols "target/debug-symbols/host/$PACKAGE_TARGET"
-      - name: Report symbol upload failure
-        if: steps.symbol-upload.outcome == 'failure'
-        run: echo '::warning::Host debug symbols were preserved, but Sentry upload failed'
-      - name: Save native libraries
-        if: github.ref == 'refs/heads/main' && steps.native-cache.outcome == 'success' && steps.native-cache.outputs.hit != 'true' && hashFiles('target/sherpa-onnx-prebuilt/**/*') != '' && hashFiles('target/llama-prebuilt/**/*') != ''
-        continue-on-error: true
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            target/sherpa-onnx-prebuilt
-            target/llama-prebuilt
-          key: ${{ steps.native-cache.outputs.key }}
       - name: Compiler cache statistics
         if: always()
         continue-on-error: true
@@ -240,6 +202,46 @@ jobs:
             ${{ steps.package.outputs.directory }}/SHA256SUMS-*
           if-no-files-found: error
           retention-days: 14
+      - name: Collect Host debug symbols
+        # Packaging already ran dsymutil for this binary; matching UUIDs reuse that result
+        # instead of a second pass before packaging.
+        id: symbols
+        env:
+          PACKAGE_TARGET: ${{ matrix.target }}
+        run: |
+          python3 .workflow-tools/scripts/package/debug-symbols.py collect \
+            --binary target/release/sailry-host --target "$PACKAGE_TARGET" \
+            --output "target/debug-symbols/host/$PACKAGE_TARGET"
+      - name: Preserve Host debug symbols
+        if: always() && steps.symbols.outcome == 'success'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: debug-symbols-host-${{ matrix.target }}
+          path: target/debug-symbols/host/${{ matrix.target }}
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload Host debug symbols
+        id: symbol-upload
+        continue-on-error: true
+        env:
+          PACKAGE_TARGET: ${{ matrix.target }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG || secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT || secrets.SENTRY_PROJECT }}
+        run: |
+          python3 .workflow-tools/scripts/package/debug-symbols.py upload \
+            --symbols "target/debug-symbols/host/$PACKAGE_TARGET"
+      - name: Report symbol upload failure
+        if: steps.symbol-upload.outcome == 'failure'
+        run: echo '::warning::Host debug symbols were preserved, but Sentry upload failed'
+      - name: Save native libraries
+        # Packaging downloads the decision libraries; compilation alone provides only speech.
+        if: github.ref == 'refs/heads/main' && steps.native-cache.outcome == 'success' && steps.native-cache.outputs.hit != 'true' && hashFiles('target/sherpa-onnx-prebuilt/**/*') != '' && hashFiles('target/llama-prebuilt/**/*') != ''
+        continue-on-error: true
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.native-cache.outputs.path }}
+          key: ${{ steps.native-cache.outputs.key }}
       - name: Remove temporary signing credentials
         if: always()
         run: python3 .workflow-tools/scripts/package/signing-credentials.py cleanup
@@ -373,7 +375,7 @@ jobs:
     needs: [build, host]
     if: ${{ always() && needs.build.result == 'success' && (needs.host.result == 'success' || (needs.host.result == 'skipped' && inputs.linux_run != '')) }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 320
     permissions:
       contents: write
       actions: read
@@ -392,6 +394,10 @@ jobs:
           sparse-checkout: |
             /.github/actions/
             /scripts/
+      - name: Require the Host gate and published version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .workflow-tools/scripts/check-release.py --source "$GITHUB_WORKSPACE" --tag "$RELEASE_TAG" --component host --wait-ready --wait-published
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           pattern: host-*

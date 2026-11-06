@@ -347,6 +347,33 @@ def wait_ready(client, repository, commit, component, tag=None, ignored_runs=())
         time.sleep(min(60, remaining))
 
 
+def wait_published(client, repository, tag, commit, grace=30 * 60):
+    """Wait for version publication, which follows the exact-source full Checks.
+
+    Products build alongside Checks, so their uploads wait here. The wait ends early
+    when exact-source Checks finish without full success, and allows a bounded
+    grace period for the version entry to publish after they pass.
+    """
+    deadline = time.monotonic() + 5 * 60 * 60
+    passed = None
+    while True:
+        metadata = release(client, repository, tag, commit)
+        if metadata is not None and metadata.get("draft") is False and metadata.get("published_at"):
+            return release(client, repository, tag, commit, published=True)
+        if passed is None and ready_run(client, repository, commit, "checks", tag=tag) is not None:
+            passed = time.monotonic()
+        if passed is None:
+            payload = ci_reuse.pages(client, f"repos/{repository}/actions/workflows/ci.yml/runs?head_sha={commit}", "workflow_runs")
+            runs = [run for run in payload if checks_run(run, commit, tag)]
+            if runs and all(run.get("status") == "completed" for run in runs):
+                raise ValueError("The exact-source full Checks ended without success; the version will not be published")
+        now = time.monotonic()
+        if now >= deadline or (passed is not None and now - passed >= grace):
+            raise TimeoutError("The version release was not published after its exact-source Checks")
+        print(f"Waiting for publication of {tag} at exact source {commit}", flush=True)
+        time.sleep(min(60, deadline - now))
+
+
 def native_binary(path, target):
     metadata = path.lstat()
     if not stat.S_ISREG(metadata.st_mode) or not metadata.st_mode & 0o111:

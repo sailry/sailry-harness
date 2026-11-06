@@ -16,7 +16,7 @@
 - Review and audit subagents use `gpt-6-astra` with `xhigh` reasoning.
 - Development and execution subagents inherit the primary agent's current model.
 - Implementation subagents perform only static checks and self-review.
-- Do not run a standalone build or Clippy after tests unless the user explicitly requests it.
+- Before handing off a change, run `just ci pre-push`, which includes formatting and Clippy. During routine iteration, do not run a standalone build or Clippy after tests.
 
 ## Scope and sequence
 
@@ -38,7 +38,7 @@
 - Use an existing task as the delivery unit. Complete its cohesive implementation before final validation; do not create a separate build/test cycle for each field, helper, or small UI change. Keep commits reviewable without fragmenting acceptance.
 - Once the task's stated acceptance criteria and relevant checks pass, self-review, commit, and advance to the next authorized task. Do not add completion gates or reopen finished work without a concrete change, failure, or evidence gap. Report the commit hash and actual verification results to the user.
 - Choose validation from the actual change and affected behavior or dependency boundaries. Reuse existing tests and fixtures; add coverage for changed behavior or a demonstrated defect. Broaden beyond the relevant checks only for a concrete uncovered risk or failure. A stage boundary alone does not require workspace-wide tests, all-target builds, or every Mobile contract. Preserve relevant logic, protocol and local/remote service-contract coverage. Changes limited to prose instructions need diff review, not product builds or tests.
-- Reuse passing results while the code and validation inputs relevant to those results remain unchanged. Rerun after an affected implementation, dependency, configuration, or environment change, a relevant failure, or evidence invalidating the earlier result. Diagnose failed checks and verify the correction; do not weaken assertions or mark unverified behavior complete to reduce testing.
+- Reuse passing results while the code and validation inputs relevant to those results remain unchanged. Rerun after an affected implementation, dependency, configuration, or environment change, a relevant failure, or evidence invalidating the earlier result. Diagnose failed checks and verify the correction; do not weaken assertions or mark unverified behavior complete to reduce testing. CI retries a failed integration test once and reports a retry pass as flaky; diagnose that test rather than treating the retry as a fix.
 - Keep feature-stage commits small enough to review; never leave an entire reconstruction as an uncommitted working tree.
 - A compile pass, model response, or mocked transport test proves only its own scope. Do not report full integration or performance acceptance from narrower evidence.
 - Stage only files owned by the current task. Preserve unrelated changes. Commit locally unless the user explicitly requests a push or PR.

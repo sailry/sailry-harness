@@ -10,6 +10,10 @@ preview:
 ci *args:
     bash scripts/python.sh scripts/ci.py local "$@"
 
+# Compare local tools with the versions CI pins and print runner-provided ones.
+tools:
+    bash scripts/python.sh scripts/ci.py tools
+
 check:
     bash scripts/python.sh scripts/ci.py check format
     bash scripts/python.sh scripts/ci.py check lint

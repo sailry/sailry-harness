@@ -1,4 +1,4 @@
-"""Full exact-source Checks precede publication and independent product builds."""
+"""Product builds start with full exact-source Checks; publication waits for them."""
 
 import copy
 import importlib.util
@@ -121,7 +121,7 @@ class Publication(unittest.TestCase):
         return [(path.rsplit("/", 2)[1], payload)
                 for method, path, payload in client.calls if path.endswith("/dispatches")]
 
-    def test_checks_precede_publication_and_product_dispatches(self):
+    def test_builds_start_before_checked_publication(self):
         client = FakeGitHub(self.commit)
         with patch.object(starter.publication, "wait_ready") as wait, \
                 patch.object(starter.publication, "readiness") as ready:
@@ -145,12 +145,28 @@ class Publication(unittest.TestCase):
                 "tag": TAG, "platform": "both", "upload_testflight": "true"}}),
             ("changelog.yml", {"ref": "main", "inputs": {"tag": TAG}}),
         ])
-        first = next(index for index, call in enumerate(client.calls) if call[1].endswith("/dispatches"))
-        self.assertLess(client.calls.index(creation), first)
+        indexes = [index for index, call in enumerate(client.calls) if call[1].endswith("/dispatches")]
         checked = next(index for index, call in enumerate(client.calls) if "/jobs?" in call[1])
-        self.assertLess(checked, client.calls.index(creation))
+        # Desktop and Host build alongside Checks; Mobile and the changelog publish, so they follow.
+        self.assertLess(checked, indexes[0])
+        self.assertLess(indexes[1], client.calls.index(creation))
+        self.assertLess(client.calls.index(creation), indexes[2])
         self.assertTrue(any(call[0] == "GET" and "/releases/tags/" in call[1]
-                            for call in client.calls[client.calls.index(creation) + 1:first]))
+                            for call in client.calls[client.calls.index(creation) + 1:indexes[2]]))
+
+    def test_builds_run_while_checks_are_pending(self):
+        client = FakeGitHub(self.commit)
+        client.runs[0].update(status="in_progress", conclusion=None)
+        def finish(*_, **__):
+            self.assertEqual([name for name, _ in self.dispatches(client)], ["release.yml", "release-host.yml"])
+            self.assertIsNone(client.release)
+            client.runs[0].update(status="completed", conclusion="success")
+            return 42
+        with patch.object(starter.publication, "wait_ready", side_effect=finish) as wait:
+            self.start(client)
+        wait.assert_called_once_with(client, REPOSITORY, self.commit, "checks", tag=TAG, ignored_runs=set())
+        self.assertFalse(client.release["draft"])
+        self.assertEqual(len(self.dispatches(client)), 4)
 
     def test_draft_publication_preserves_existing_assets(self):
         release = metadata(draft=True)
@@ -227,15 +243,24 @@ class Publication(unittest.TestCase):
         self.assertFalse(self.dispatches(client))
         self.assertTrue(all(call[0] == "GET" for call in client.calls))
 
-    def test_failed_checks_never_publish_or_queue_products(self):
-        for error in (ValueError("Checks failed"), TimeoutError("Checks timed out"),
-                      RuntimeError("Checks dispatch failed")):
+    def test_failed_checks_never_publish_or_follow_up(self):
+        for error in (ValueError("Checks failed"), TimeoutError("Checks timed out")):
             client = FakeGitHub(self.commit)
             with self.subTest(error=type(error).__name__), \
                     patch.object(starter, "require_checks", side_effect=error), self.assertRaises(type(error)):
                 self.start(client)
             self.assertIsNone(client.release)
-            self.assertTrue(all(method == "GET" for method, _, _ in client.calls))
+            # Builds already started; their publish jobs stop at the same failed gate.
+            self.assertEqual([name for name, _ in self.dispatches(client)], ["release.yml", "release-host.yml"])
+            self.assertTrue(all(method == "GET" or path.endswith("/dispatches") for method, path, _ in client.calls))
+
+    def test_unqueued_checks_start_no_builds(self):
+        client = FakeGitHub(self.commit)
+        with patch.object(starter, "queue_checks", side_effect=RuntimeError("Checks dispatch failed")), \
+                self.assertRaises(RuntimeError):
+            self.start(client)
+        self.assertIsNone(client.release)
+        self.assertFalse(self.dispatches(client))
 
     def test_rechecks_tag_after_waiting(self):
         client = FakeGitHub(self.commit)
@@ -246,7 +271,7 @@ class Publication(unittest.TestCase):
                 self.assertRaisesRegex(ValueError, "remote release tag differs"):
             self.start(client)
         self.assertIsNone(client.release)
-        self.assertTrue(all(method == "GET" for method, _, _ in client.calls))
+        self.assertTrue(all(method == "GET" or path.endswith("/dispatches") for method, path, _ in client.calls))
 
     def test_latest_uses_server_side_version_selection(self):
         self.assertEqual(starter.latest_flag("v1.0.0"), "legacy")
@@ -267,7 +292,8 @@ class FullChecks(unittest.TestCase):
         return starter.publication.ready_run(self.client, REPOSITORY, self.commit, "checks", tag=TAG)
 
     def require(self):
-        return starter.require_checks(self.client, REPOSITORY, TAG, self.commit)
+        queued = starter.queue_checks(self.client, REPOSITORY, TAG, self.commit)
+        return starter.require_checks(self.client, REPOSITORY, TAG, self.commit, queued)
 
     def writes(self):
         return [call for call in self.client.calls if call[0] != "GET"]
@@ -399,7 +425,19 @@ class Workflows(unittest.TestCase):
         self.assertIn("ref: ${{ github.workflow_sha }}", entry)
         self.assertIn('scripts/start-release.py --source "$GITHUB_WORKSPACE" --tag "$RELEASE_TAG"', entry)
         self.assertIn("timeout-minutes: 310", entry)
-        self.assertIn("Require full Checks before publication and product builds", entry)
+        self.assertIn("Start product builds and require full Checks before publication", entry)
+        for name, component in (("release", "desktop"), ("release-host", "host")):
+            workflow = (ROOT / f".github/workflows/{name}.yml").read_text()
+            version = workflow.split("\n  version:\n", 1)[1].split("\n  build:\n", 1)[0]
+            publish = workflow.split("\n  publish:\n", 1)[1]
+            with self.subTest(workflow=name):
+                # Builds start at admission; only publication waits for the exact-source gate.
+                self.assertNotIn("--wait-ready", version)
+                self.assertNotIn("--published", version)
+                self.assertIn("timeout-minutes: 15", version)
+                self.assertIn(f"--component {component} --wait-ready --wait-published", publish)
+                self.assertIn("timeout-minutes: 320", publish)
+                self.assertLess(publish.index("--wait-published"), publish.index("publish-packages.py"))
         self.assertNotIn("cargo build", entry)
         self.assertNotIn("secrets.", entry)
         for name in ("release", "release-host", "release-mobile"):

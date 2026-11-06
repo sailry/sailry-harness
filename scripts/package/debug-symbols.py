@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -39,6 +40,9 @@ def collect(binary, target, output, optional=False):
         name = binary.name + ".dSYM"
         command = ["dsymutil", str(binary), "-o"]
         inspector = shutil.which("dwarfdump")
+        if inspector and (output / name).is_dir() and same_uuids(inspector, binary, output / name):
+            # Release packaging and its workflow request the same symbols; dsymutil is slow.
+            return output / name
     elif target.endswith("-linux-gnu"):
         name = binary.name + ".debug"
         tool = shutil.which("llvm-objcopy") or shutil.which("objcopy")
@@ -78,6 +82,18 @@ def collect(binary, target, output, optional=False):
             destination.unlink()
         staging.replace(destination)
         return destination
+
+
+def same_uuids(inspector, binary, symbols):
+    """Whether completed symbols already describe every architecture of this executable."""
+    def uuids(path):
+        try:
+            result = subprocess.run([inspector, "--uuid", str(path)], capture_output=True, check=True)
+        except (OSError, subprocess.CalledProcessError):
+            return set()
+        return set(re.findall(rb"UUID: ([0-9A-F-]{36}) \((\w+)\)", result.stdout))
+    expected = uuids(binary)
+    return bool(expected) and uuids(symbols) == expected
 
 
 def cli(cache):

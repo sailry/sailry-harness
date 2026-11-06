@@ -476,7 +476,7 @@ class Commands(unittest.TestCase):
             run.return_value.returncode = 7
             self.assertEqual(ci.run_check("mobile-check", root=ROOT), 7)
             run.assert_called_once_with(["flutter", "analyze", "--no-pub"],
-                                        cwd=ROOT / "apps/mobile", env=None, check=False)
+                                        cwd=ROOT / "apps/mobile", env=ci.child_environment(None), check=False)
 
     def test_fast_excludes_product_builds(self):
         plan = ci.local_checks(ci.LANES, "fast", "Darwin")
@@ -516,6 +516,29 @@ class Commands(unittest.TestCase):
         self.assertIn(f"--test-threads={ci.CI_TEST_THREADS}", linux[0]["argv"])
         with self.assertRaises(ValueError):
             ci.check_commands("tests", selection=ci.outputs({"desktop"}), system="Linux")
+
+    def test_prepush_adds_format_locales_and_lint(self):
+        for selected in (set(), {"desktop"}, ci.LANES):
+            with self.subTest(selected=selected):
+                plan = ci.local_checks(selected, "pre-push", "Darwin")
+                affected = ci.local_checks(selected, "affected", "Darwin")
+                self.assertIn("format", plan["checks"])
+                self.assertIn("locales", plan["checks"])
+                self.assertEqual("lint" in plan["checks"], bool(ci.lint_packages(selected)))
+                self.assertEqual([name for name in plan["checks"] if name not in {"format", "locales"}],
+                                 [name for name in affected["checks"] if name != "format"])
+
+    def test_prepush_lints_linux_packages_off_macos(self):
+        linux = ci.local_checks(ci.LANES, "pre-push", "Linux")
+        self.assertIn("Clippy for macOS-only packages requires macOS", linux["not_run"])
+        self.assertNotIn("Clippy for macOS-only packages requires macOS",
+                         ci.local_checks(ci.LANES, "pre-push", "Darwin")["not_run"])
+        commands = ci.check_commands("lint", selection=ci.outputs(ci.LANES), system="Linux")
+        self.assertEqual(commands, [{"argv": ci.lint_command(ci.outputs(ci.LANES), None, "linux"), "cwd": "."}])
+        self.assertEqual(ci.check_commands("lint", selection=ci.outputs({"desktop"}), system="Linux"), [])
+        for system in (None, "Darwin"):
+            self.assertEqual(ci.check_commands("lint", selection=ci.outputs(ci.LANES), system=system)[0]["argv"],
+                             ci.lint_command(ci.outputs(ci.LANES), None))
 
     def test_rejects_unknown_checks_and_invalid_jobs(self):
         for name, jobs in [("missing", "1"), ("backend", "0"), ("backend", "1; false")]:

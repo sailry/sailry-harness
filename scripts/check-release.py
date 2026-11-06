@@ -29,6 +29,8 @@ def main():
     parser.add_argument("--component", choices=("desktop", "host", "mobile"))
     parser.add_argument("--published", action="store_true")
     parser.add_argument("--wait-ready", action="store_true")
+    parser.add_argument("--wait-published", action="store_true",
+                        help="Wait until the version entry publishes this tag after its full Checks")
     parser.add_argument("--event", type=Path)
     args = parser.parse_args()
     require_context(args.tag)
@@ -42,11 +44,15 @@ def main():
         if args.component is None:
             parser.error("Waiting requires a product component")
         publication.wait_ready(client, repository, commit, args.component, tag=args.tag)
+    if args.wait_published:
+        metadata = publication.wait_published(client, repository, args.tag, commit)
+        if args.component and metadata.get("immutable"):
+            raise ValueError("Packages cannot be appended to an immutable release")
     if args.component:
         run = publication.readiness(client, repository, commit, args.component, tag=args.tag)
         print(f"Verified {args.component.title()} ready in Checks run {run}")
     if args.event:
-        if not args.published:
+        if not (args.published or args.wait_published):
             raise ValueError("A publication event requires a published release")
         args.event.write_text(json.dumps(publication.event(metadata, repository)) + "\n")
 
