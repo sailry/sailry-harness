@@ -91,7 +91,7 @@ LINT_PACKAGES = {
     "host": ("sailry-host",),
     "mobile": ("sailry-mobile-bridge",),
 }
-# Pull requests compile and lint on Linux; these packages have no Linux build in Checks.
+# Clippy runs these packages only on macOS: the full lint job and the pull request macOS job.
 MACOS_LINT = {"sailry-speech", "sailry-content", "sailry-desktop", "sailry-mobile-bridge"}
 # Full selection on pull requests; drafts and other labels defer to the next run.
 FULL_LABEL = "full-ci"
@@ -592,16 +592,21 @@ def local(arguments):
     env = {**os.environ, "CARGO_TARGET_DIR": str(target)}
     system = platform.system() if prepush else None
     try:
-        base = ci_local.merge_base(ROOT, args.target or "origin/main") if prepush else args.base
+        if prepush:
+            target_branch = args.target or "origin/main"
+            try:
+                ci_local.revision(ROOT, target_branch)
+            except subprocess.CalledProcessError:
+                parser.error(f"Cannot resolve {target_branch}; fetch it or pass --target")
+        base = ci_local.merge_base(ROOT, target_branch) if prepush else args.base
         source = ci_local.inspect_source(ROOT, "candidate" if args.candidate else "worktree", base, args.head, args.full, args.event)
         selected = {name for name, value in source["selection"].items() if value == "true"}
         plan = local_checks(selected, args.tier, platform.system())
         commands = [{"check": name, **command} for name in plan["checks"]
                     for command in check_commands(name, args.jobs, ROOT, source["selection"], env, args.test_threads, system)]
     except subprocess.CalledProcessError as error:
-        if prepush:
-            parser.error(f"Cannot compare with {args.target or 'origin/main'}; fetch it or pass --target")
-        parser.error(str(error))
+        detail = error.stderr.decode(errors="replace").strip() if isinstance(error.stderr, bytes) else error.stderr
+        parser.error(f"Git failed while inspecting changes: {detail or error}")
     except (OSError, ValueError) as error:
         parser.error(str(error))
     environment = {name: os.getenv(name) for name in (

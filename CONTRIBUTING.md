@@ -102,7 +102,7 @@ standard library. Pairing-service dependencies and checks have their own
 ```sh
 just ci fast        # Selected source and formatting checks
 just ci affected    # Add affected lint, tests and production checks
-just ci pre-push    # Before handing off: everything changed since the origin/main merge base
+just ci pre-push    # Before a push or PR: everything changed since the origin/main merge base
 just tools          # Compare local tool versions with CI
 just check          # Rust formatting and Clippy with warnings denied
 just test-source    # Public guides, publication boundaries and source fixtures
@@ -147,7 +147,10 @@ of `origin/main`; `--target <branch>` selects another branch. It always runs
 formatting and the source, name and locale checks, runs Clippy with CI's flags for
 the affected packages, then runs the affected product checks. It fails when nothing
 changed since the merge base or when a pinned tool version differs from CI. Off
-macOS, it reports Clippy for macOS-only packages as not run.
+macOS, it reports Clippy for macOS-only packages as not run. Run it once before a
+push or PR and reuse the passing result while its inputs are unchanged; prose-only
+changes select only the source checks. Agent subagents keep to static checks and
+leave this lane to the coordinating agent.
 
 Local builds and tests share the repository's root
 `target` directory; builds from another worktree select that same directory with
@@ -277,9 +280,10 @@ job selected by the coverage mode to succeed; skipped or cancelled jobs
 do not establish acceptance. Signed release packaging builds exact version tags;
 Mobile also accepts an explicitly selected, checked main commit.
 
-Node integration features share twelve compiled suites instead of linking a
+Node integration features share a small set of compiled suites instead of linking a
 binary per feature. Keep feature files focused and register new files in the
-appropriate suite; the source check rejects missing or duplicate registrations.
+appropriate suite; the source check rejects missing or duplicate registrations in
+every crate that disables automatic test discovery.
 Rust caches retain registry index metadata, compressed crate archives and Git
 databases; Cargo recreates unpacked sources and checkouts. A single backend
 producer fetches the locked workspace sources, shared by Checks and release jobs.
@@ -333,7 +337,7 @@ Plugin contracts and the isolated database step reuse that same package graph,
 avoiding a second compilation with different feature unification. Host-only
 changes keep the dedicated lifecycle target. Production checks still verify the
 shipped feature set separately from test-support builds: Desktop on macOS and
-Host on Linux.
+Host on both macOS and Linux.
 
 CI does not supply model credentials, production profiles or OS permissions.
 Live-service and device tests stay opt-in. Real GGUF goldens, cancellation and

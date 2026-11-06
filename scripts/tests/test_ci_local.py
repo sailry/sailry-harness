@@ -1,5 +1,6 @@
 """Local selection distinguishes mutable development inputs from candidate commits."""
 
+import io
 import json
 from pathlib import Path
 import subprocess
@@ -183,6 +184,30 @@ class PrePush(unittest.TestCase):
             with patch("sys.stderr"), self.assertRaises(SystemExit):
                 with patch.object(ci_local.ci, "ROOT", root):
                     ci_local.ci.local(["affected", "--target", "main"])
+
+    def test_names_unresolved_target(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            initialize(root)
+            with patch("sys.stderr", new_callable=io.StringIO) as error, self.assertRaises(SystemExit):
+                self.plan(root, "--target", "missing")
+            self.assertIn("Cannot resolve missing; fetch it or pass --target", error.getvalue())
+
+    def test_stops_on_tool_version_mismatch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            initialize(root)
+            git(root, "update-ref", "refs/remotes/origin/main", "HEAD")
+            write(root, "apps/host/src/main.rs")
+            mismatch = {"cargo-nextest": "0.9.1"}
+            with patch.object(ci_local.ci, "ROOT", root), \
+                    patch.object(ci_local.ci, "tool_versions", return_value=mismatch), \
+                    patch.object(ci_local.ci.shutil, "which", return_value="/usr/bin/tool"), \
+                    patch.object(ci_local.ci, "run_check") as run, \
+                    patch("builtins.print") as output:
+                self.assertEqual(ci_local.ci.local(["pre-push"]), 1)
+            run.assert_not_called()
+            self.assertIn("cargo-nextest 0.9.1 (CI uses 0.9.143)", output.call_args.args[0])
 
 
 class Submodules(unittest.TestCase):
