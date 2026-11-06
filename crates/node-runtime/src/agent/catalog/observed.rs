@@ -166,7 +166,7 @@ mod tests {
                     .into_iter()
                     .chain([message])
             })
-            .collect();
+            .collect::<Vec<_>>();
         Observed::collect(Some(&Conversation::new_unvalidated(messages)), |name| {
             name == "read_file"
         })
