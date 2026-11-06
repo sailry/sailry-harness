@@ -1051,10 +1051,15 @@ async fn batches_inputs_with_one_output_owner() {
             .await
             .unwrap();
         let pending = history(&fixture.client, fixture.session.id).await;
+        let states = sailry_client::conversation::guidance::project(&pending);
         assert_eq!(
-            sailry_client::conversation::turns::guided(&pending)
+            pending
+                .queue
+                .items
                 .iter()
-                .map(|run| run.turn)
+                .map(|item| item.turn)
+                .filter(|turn| states.get(turn)
+                    == Some(&sailry_client::conversation::guidance::State::Pending))
                 .collect::<Vec<_>>(),
             [first.id, second.id]
         );
@@ -1099,7 +1104,11 @@ async fn batches_inputs_with_one_output_owner() {
                 .iter()
                 .any(|part| matches!(part, Part::Attachment(value) if value.id == attachment.id))
         );
-        assert!(sailry_client::conversation::turns::guided(&page).is_empty());
+        assert!(
+            !sailry_client::conversation::guidance::project(&page)
+                .values()
+                .any(|state| *state == sailry_client::conversation::guidance::State::Pending)
+        );
         assert!(
             !page
                 .entries

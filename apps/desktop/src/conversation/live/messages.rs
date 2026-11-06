@@ -29,6 +29,13 @@ use crate::conversation::links::Mode;
 use blocks::Block;
 pub(super) use user::{Editing, sent_input};
 
+/// Live activity shown on the final block of a running turn.
+#[derive(Clone, Copy, Default)]
+struct Tail {
+    continuing: bool,
+    retrying: bool,
+}
+
 impl View {
     pub(super) fn user_content(
         &self,
@@ -257,128 +264,69 @@ impl View {
             })
     }
 
-    pub(super) fn message(
-        &mut self,
-        index: usize,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let Some(turn) = self.rows.get(index).copied() else {
-            return div().into_any_element();
-        };
-        if self
-            .outgoing
-            .as_ref()
-            .is_some_and(|message| message.row == turn)
-            && self.history.snapshot.as_ref().is_none_or(|snapshot| {
-                !snapshot.page.runs.iter().any(|run| {
-                    run.turn == turn && run.status != Status::Queued && run.input.is_some()
-                })
-            })
-        {
-            return self.outgoing_message(cx);
-        }
-        let footers = self
-            .turn_changes(turn, window, cx)
-            .map(IntoElement::into_any_element);
-        let Some(snapshot) = &self.history.snapshot else {
-            return div().into_any_element();
-        };
-        let Some(run) = snapshot.page.runs.iter().find(|run| run.turn == turn) else {
-            return div().into_any_element();
-        };
-        if run.kind == sailry_protocol::conversation::RunKind::Compaction {
-            return self.compaction_turn(run, &snapshot.page, cx);
-        }
-        let grouped = sailry_client::conversation::turns::group(&snapshot.page, turn);
-        let notices = notices::message(&grouped, cx);
-        let users: Vec<_> = notices
-            .into_iter()
-            .chain(
-                grouped
-                    .into_iter()
-                    .filter(|run| run.continuation.is_none() && !run.notice)
-                    .filter_map(|run| {
-                        let turn = run.turn;
-                        let sent_ms = snapshot
-                            .page
-                            .entries
-                            .iter()
-                            .find(|entry| entry.turn == turn && entry.author == "user")
-                            .map(|entry| entry.timestamp_ms);
-                        let input = sailry_client::conversation::turns::input(&snapshot.page, turn);
-                        let mut prompt = input
-                            .as_ref()
-                            .map(|input| input.message.text.clone())
-                            .unwrap_or_default();
-                        let mut references = input
-                            .as_ref()
-                            .map(|input| input.message.references.clone())
-                            .unwrap_or_default();
-                        let mut attachments: Vec<_> = input
-                            .as_ref()
-                            .into_iter()
-                            .flat_map(|input| &input.attachments)
-                            .map(attachments::images::ImageSource::from)
-                            .collect();
-                        // Admission and canonical user content arrive independently.
-                        if sent_ms.is_none()
-                            && run.input.is_none()
-                            && let Some(outgoing) = self
-                                .outgoing
-                                .as_ref()
-                                .filter(|outgoing| outgoing.turn == Some(turn))
-                                .or_else(|| self.sent.get(&turn))
-                        {
-                            prompt = outgoing.input.text.clone();
-                            references = outgoing.input.references.clone();
-                            attachments = outgoing.attachments.clone();
-                        }
-                        if prompt.is_empty() && attachments.is_empty() && references.is_empty() {
-                            return None;
-                        }
-                        Some(
-                            Message::new()
-                                .alignment(MessageAlignment::End)
-                                .footer(self.user_footer(turn, &prompt, sent_ms, cx))
-                                .content(self.user_content(
-                                    turn,
-                                    prompt,
-                                    &references,
-                                    attachments,
-                                    cx,
-                                )),
-                        )
-                    }),
-            )
-            .collect();
-        let blocks = blocks::collect(turn, &self.history);
-        let phase = self
-            .history
-            .connected
-            .then(|| frame::phase(run, &snapshot.page, &blocks))
-            .flatten();
-        let continuing_tools =
-            self.history.connected && frame::continuing_tools(run, &snapshot.page, &blocks);
-        let compacting = frame::compacting(&blocks);
-        let mut blocks = blocks::compact(blocks);
-        // The phase row presents compaction; it is not a content row.
-        blocks.retain(|block| !matches!(block, Block::Compacting(_)));
-        let copy = blocks
+    /// One sent input's bubble; a turn's canonical entries share it.
+    fn sent_message(&self, turn: TurnId, cx: &mut Context<Self>) -> Option<Message> {
+        let page = &self.history.snapshot.as_ref()?.page;
+        let run = page.runs.iter().find(|run| run.turn == turn)?;
+        let sent_ms = page
+            .entries
             .iter()
-            .filter_map(|block| match block {
-                Block::Text(_, text) => Some(text.to_string()),
-                Block::Search(entry) => Some(grounding::answer(entry)),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .join("\n\n");
-        let retrying = frame::active(run.status) && self.history.connected;
+            .find(|entry| entry.turn == turn && entry.author == "user")
+            .map(|entry| entry.timestamp_ms);
+        let input = sailry_client::conversation::turns::input(page, turn);
+        let mut prompt = input
+            .as_ref()
+            .map(|input| input.message.text.clone())
+            .unwrap_or_default();
+        let mut references = input
+            .as_ref()
+            .map(|input| input.message.references.clone())
+            .unwrap_or_default();
+        let mut attachments: Vec<_> = input
+            .as_ref()
+            .into_iter()
+            .flat_map(|input| &input.attachments)
+            .map(attachments::images::ImageSource::from)
+            .collect();
+        // Admission and canonical user content arrive independently.
+        if sent_ms.is_none()
+            && run.input.is_none()
+            && let Some(outgoing) = self
+                .outgoing
+                .as_ref()
+                .filter(|outgoing| outgoing.turn == Some(turn))
+                .or_else(|| self.sent.get(&turn))
+        {
+            prompt = outgoing.input.text.clone();
+            references = outgoing.input.references.clone();
+            attachments = outgoing.attachments.clone();
+        }
+        if prompt.is_empty() && attachments.is_empty() && references.is_empty() {
+            return None;
+        }
+        Some(
+            Message::new()
+                .alignment(MessageAlignment::End)
+                .footer(self.user_footer(turn, &prompt, sent_ms, cx))
+                .content(self.user_content(turn, prompt, &references, attachments, cx)),
+        )
+    }
+
+    /// Renders one segment's blocks; live activity marks only the turn's final block.
+    fn reply(
+        &self,
+        turn: TurnId,
+        blocks: Vec<Block<'_>>,
+        answer_from: usize,
+        tail: Tail,
+        recovered: &std::collections::BTreeSet<String>,
+        cx: &mut Context<Self>,
+    ) -> Vec<AnyElement> {
+        let Some(snapshot) = &self.history.snapshot else {
+            return Vec::new();
+        };
         let last_block = blocks.len().saturating_sub(1);
-        let recovered = retry::recovered(&blocks);
-        let answer_from = work::answer_from(&blocks);
-        let work_open = self.work_open(turn, frame::active(run.status));
-        let rows = blocks
+        blocks
             .into_iter()
             .enumerate()
             .map(|(index, block)| match block {
@@ -433,18 +381,16 @@ impl View {
                         .into_any_element()
                 }
                 Block::Tools(calls) => {
-                    self.tools(&calls, continuing_tools && index == last_block, cx)
+                    self.tools(&calls, tail.continuing && index == last_block, cx)
                 }
                 Block::Children(children) => {
-                    self.child_summary(turn, &children, continuing_tools && index == last_block, cx)
+                    self.child_summary(turn, &children, tail.continuing && index == last_block, cx)
                 }
                 Block::Compaction(key, text) => self.compaction(turn, key, text, cx),
                 Block::CompactionFailure(key, failure) => {
                     self.compaction_failure(turn, key, &failure, cx)
                 }
-                Block::Question(call) => {
-                    self.question_history(call, &self.history.snapshot.as_ref().unwrap().page, cx)
-                }
+                Block::Question(call) => self.question_history(call, &snapshot.page, cx),
                 Block::Compacting(_) => unreachable!("compaction progress is a phase"),
                 Block::Resource => div()
                     .text_sm()
@@ -458,12 +404,151 @@ impl View {
                         key,
                         retry,
                         recovered,
-                        retrying && index == last_block,
+                        tail.retrying && index == last_block,
                         cx,
                     )
                 }
             })
-            .collect();
+            .collect()
+    }
+
+    pub(super) fn message(
+        &mut self,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let Some(turn) = self.rows.get(index).copied() else {
+            return div().into_any_element();
+        };
+        if self
+            .outgoing
+            .as_ref()
+            .is_some_and(|message| message.row == turn)
+            && self.history.snapshot.as_ref().is_none_or(|snapshot| {
+                !snapshot.page.runs.iter().any(|run| {
+                    run.turn == turn && run.status != Status::Queued && run.input.is_some()
+                })
+            })
+        {
+            return self.outgoing_message(cx);
+        }
+        let footers = self
+            .turn_changes(turn, window, cx)
+            .map(IntoElement::into_any_element);
+        let Some(snapshot) = &self.history.snapshot else {
+            return div().into_any_element();
+        };
+        let Some(run) = snapshot.page.runs.iter().find(|run| run.turn == turn) else {
+            return div().into_any_element();
+        };
+        if run.kind == sailry_protocol::conversation::RunKind::Compaction {
+            return self.compaction_turn(run, &snapshot.page, cx);
+        }
+        let grouped = sailry_client::conversation::turns::group(&snapshot.page, turn);
+        let notices = notices::message(&grouped, cx);
+        let mut segments = blocks::segments(turn, &self.history);
+        // Admission and canonical user content arrive independently; a local
+        // submission can stand in for the response owner's input.
+        if run.continuation.is_none()
+            && !run.notice
+            && !segments
+                .iter()
+                .any(|segment| segment.inputs.contains(&turn))
+            && let Some(first) = segments.first_mut()
+        {
+            first.inputs.insert(0, turn);
+        }
+        let mut last = segments.pop().unwrap_or_default();
+        let tail = segments.len();
+        // Turn status, phase and live activity belong to the latest segment.
+        let phase = self
+            .history
+            .connected
+            .then(|| frame::phase(run, &snapshot.page, &last.blocks))
+            .flatten();
+        let continuing_tools =
+            self.history.connected && frame::continuing_tools(run, &snapshot.page, &last.blocks);
+        let compacting = frame::compacting(&last.blocks);
+        for segment in segments.iter_mut().chain(std::iter::once(&mut last)) {
+            segment.blocks = blocks::compact(std::mem::take(&mut segment.blocks));
+            // The phase row presents compaction; it is not a content row.
+            segment
+                .blocks
+                .retain(|block| !matches!(block, Block::Compacting(_)));
+        }
+        let copy = segments
+            .iter()
+            .chain(std::iter::once(&last))
+            .flat_map(|segment| &segment.blocks)
+            .filter_map(|block| match block {
+                Block::Text(_, text) => Some(text.to_string()),
+                Block::Search(entry) => Some(grounding::answer(entry)),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        let recovered = retry::recovered(
+            segments
+                .iter()
+                .chain(std::iter::once(&last))
+                .flat_map(|segment| &segment.blocks),
+        );
+        let mut messages: Vec<_> = notices.into_iter().collect();
+        for (position, segment) in segments.into_iter().enumerate() {
+            messages.extend(
+                segment
+                    .inputs
+                    .iter()
+                    .filter_map(|input| self.sent_message(*input, cx)),
+            );
+            if run.joined.is_some() || segment.blocks.is_empty() {
+                continue;
+            }
+            let answer_from = work::answer_from(&segment.blocks);
+            let open = self.work_open(turn, position, false);
+            let header = (answer_from > 0).then(|| work::header(turn, position, open, cx));
+            let rows = self.reply(
+                turn,
+                segment.blocks,
+                answer_from,
+                Tail::default(),
+                &recovered,
+                cx,
+            );
+            let content = MessageContent::new()
+                .gap(cx.theme().spacing_tokens().lg)
+                .children(crate::conversation::surface::work(
+                    rows,
+                    answer_from,
+                    open,
+                    cx,
+                ));
+            messages.push(
+                Message::new()
+                    .when_some(header, |message, header| message.header(header))
+                    .content(crate::theme::messages::assistant(content, cx)),
+            );
+        }
+        messages.extend(
+            last.inputs
+                .iter()
+                .filter_map(|input| self.sent_message(*input, cx)),
+        );
+        let retrying = frame::active(run.status) && self.history.connected;
+        let answer_from = work::answer_from(&last.blocks);
+        let work_open = self.work_open(turn, tail, frame::active(run.status));
+        let rows = self.reply(
+            turn,
+            last.blocks,
+            answer_from,
+            Tail {
+                continuing: continuing_tools,
+                retrying,
+            },
+            &recovered,
+            cx,
+        );
         let content = MessageContent::new()
             .gap(cx.theme().spacing_tokens().lg)
             .children(crate::conversation::surface::work(
@@ -585,6 +670,7 @@ impl View {
             )
             .child(tr(status))
             .children(elapsed);
+        let key = work::key(tail);
         let header = if answer_from > 0 {
             crate::conversation::surface::trigger(
                 format!("live-turn-work-{turn}"),
@@ -593,9 +679,9 @@ impl View {
                 work_open,
                 cx,
             )
-            .on_click(cx.listener(move |view, _, _, cx| {
-                view.expand(turn, "work".to_owned(), !work_open, cx)
-            }))
+            .on_click(
+                cx.listener(move |view, _, _, cx| view.expand(turn, key.clone(), !work_open, cx)),
+            )
             .into_any_element()
         } else {
             status_row.into_any_element()
@@ -677,7 +763,7 @@ impl View {
                 MessageGroup::new()
                     .gap(px(10.))
                     .pb(px(28.))
-                    .children(users)
+                    .children(messages)
                     .when(run.joined.is_none(), |group| {
                         group.child(
                             Message::new()

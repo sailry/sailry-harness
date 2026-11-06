@@ -10,9 +10,9 @@ void main() {
   };
   final reference = {'target': 'project', 'label': 'Captured project'};
   test('reads the Client input projection without fallback', () {
-    final view = {
-      'inputs': {
-        'turn': [
+    final segments = [
+      {
+        'inputs': [
           {
             'turn': 'turn',
             'message': {
@@ -29,10 +29,12 @@ void main() {
             'canonical': true,
           },
         ],
+        'rows': [],
       },
-    };
-    final before = jsonEncode(view);
-    final inputs = turnInputs(view, 'turn');
+    ];
+    final before = jsonEncode(segments);
+    final contents = segmentContents(segments, entries: {}, drafts: {});
+    final inputs = contents.single.inputs;
     expect(inputs.first.turn, 'turn');
     expect(inputs.first.text, 'Original input 中文 🙂');
     expect(inputs.first.references, [reference]);
@@ -41,8 +43,9 @@ void main() {
     expect(inputs.last.turn, 'joined-turn');
     expect(inputs.last.text, isEmpty);
     expect(inputs.last.canonical, isTrue);
-    expect(turnInputs(view, 'other'), isEmpty);
-    expect(jsonEncode(view), before);
+    expect(contents.single.rows, isEmpty);
+    expect(segmentContents(null, entries: {}, drafts: {}), isEmpty);
+    expect(jsonEncode(segments), before);
   });
 
   test('search uses the Client response owner', () {

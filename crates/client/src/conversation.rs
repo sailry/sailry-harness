@@ -14,6 +14,7 @@ pub mod reply;
 pub mod rows;
 pub mod search;
 pub mod tools;
+pub mod transcript;
 pub mod turns;
 pub use assets::unique as unique_assets;
 pub use projection::Projection;

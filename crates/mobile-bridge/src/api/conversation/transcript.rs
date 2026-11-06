@@ -1,22 +1,12 @@
-use sailry_client::conversation::{View, guidance, turns};
-use sailry_protocol::TurnId;
+use sailry_client::conversation::{View, transcript, turns};
 use serde_json::Value;
 use std::collections::BTreeMap;
-
-#[derive(serde::Serialize)]
-struct Input {
-    turn: TurnId,
-    #[serde(flatten)]
-    content: turns::InputView,
-}
 
 pub(super) fn project(view: &View, value: &mut Value) -> Result<(), String> {
     let Some(snapshot) = &view.snapshot else {
         return Ok(());
     };
     let page = &snapshot.page;
-    let pending = |turn: &TurnId| view.guidance.get(turn) == Some(&guidance::State::Pending);
-    let visible = turns::visible_turns(page, &snapshot.drafts);
     value["owners"] = serde_json::to_value(
         page.runs
             .iter()
@@ -24,35 +14,15 @@ pub(super) fn project(view: &View, value: &mut Value) -> Result<(), String> {
             .collect::<BTreeMap<_, _>>(),
     )
     .map_err(super::error)?;
-    value["timeline"] = serde_json::to_value(
-        view.timeline
+    let timeline = transcript::owners(view);
+    value["segments"] = serde_json::to_value(
+        timeline
             .iter()
-            .copied()
-            .filter(|turn| visible.contains(turn) && !pending(turn))
-            .collect::<Vec<_>>(),
-    )
-    .map_err(super::error)?;
-    value["inputs"] = serde_json::to_value(
-        page.runs
-            .iter()
-            .map(|run| {
-                let inputs: Vec<_> = turns::group(page, run.turn)
-                    .into_iter()
-                    .filter(|run| run.continuation.is_none() && !run.notice && !pending(&run.turn))
-                    .flat_map(|run| {
-                        turns::inputs(page, run.turn)
-                            .into_iter()
-                            .map(move |content| Input {
-                                turn: run.turn,
-                                content,
-                            })
-                    })
-                    .collect();
-                (run.turn, inputs)
-            })
+            .map(|turn| (*turn, transcript::segments(view, *turn)))
             .collect::<BTreeMap<_, _>>(),
     )
     .map_err(super::error)?;
+    value["timeline"] = serde_json::to_value(timeline).map_err(super::error)?;
     Ok(())
 }
 

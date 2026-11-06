@@ -33,6 +33,8 @@ class TurnFrame extends StatefulWidget {
     required this.answer,
     this.current,
     this.phase,
+    this.segment = 0,
+    this.settled = false,
   });
 
   final Map<String, dynamic> run;
@@ -44,6 +46,12 @@ class TurnFrame extends StatefulWidget {
   final List<Widget> answer;
   final Widget? current;
   final String? phase;
+
+  /// Position within the turn when delivered input divides its reply.
+  final int segment;
+
+  /// An earlier segment shows neither the turn's timing nor its live step.
+  final bool settled;
 
   @override
   State<TurnFrame> createState() => _TurnFrameState();
@@ -66,6 +74,7 @@ class _TurnFrameState extends State<TurnFrame> {
 
   void _syncTimer() {
     final ticking =
+        !widget.settled &&
         widget.connected &&
         activeRun(widget.run) &&
         widget.run['started_ms'] != null &&
@@ -90,7 +99,7 @@ class _TurnFrameState extends State<TurnFrame> {
   @override
   Widget build(BuildContext context) {
     final active = activeRun(widget.run);
-    final live = active && widget.connected;
+    final live = active && widget.connected && !widget.settled;
     final current =
         widget.current ??
         (widget.phase == null
@@ -100,18 +109,25 @@ class _TurnFrameState extends State<TurnFrame> {
                 label: context.tr(widget.phase!),
                 running: widget.phase != 'conversationWaiting',
               ));
+    final turn = widget.run['turn'];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (widget.count > 0) ...[
           StepDisclosure(
-            key: ValueKey('work-${widget.run['turn']}'),
+            key: ValueKey(
+              widget.segment == 0
+                  ? 'work-$turn'
+                  : 'work-$turn-${widget.segment}',
+            ),
             label: widget.count == 1
                 ? context.tr('conversationStep')
                 : context
                       .tr('conversationSteps')
                       .replaceAll('{count}', '${widget.count}'),
-            detail: !active || widget.connected
+            detail: widget.settled
+                ? null
+                : !active || widget.connected
                 ? elapsed(widget.run, DateTime.now().millisecondsSinceEpoch)
                 : null,
             children: widget.steps,

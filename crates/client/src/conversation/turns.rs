@@ -12,26 +12,6 @@ pub fn pending(queue: &Queue, request: RequestId) -> Option<&Pending> {
         .find(|item| item.request == Some(request))
 }
 
-/// Pending guidance follows queue order until its canonical user entry arrives.
-pub fn guided(page: &Page) -> Vec<&Run> {
-    page.queue
-        .items
-        .iter()
-        .filter(|item| item.guidance.is_some())
-        .filter_map(|item| {
-            page.runs.iter().find(|run| {
-                run.turn == item.turn
-                    && run.status == Status::Queued
-                    && run.input.is_some()
-                    && !page
-                        .entries
-                        .iter()
-                        .any(|entry| entry.turn == run.turn && entry.author == "user")
-            })
-        })
-        .collect()
-}
-
 /// Joined inputs share their response's row while retaining their source turns.
 pub fn owner(page: &Page, turn: TurnId) -> TurnId {
     page.runs

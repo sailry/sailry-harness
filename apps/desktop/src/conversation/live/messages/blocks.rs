@@ -1,4 +1,4 @@
-use sailry_client::conversation::{View, tools::Call};
+use sailry_client::conversation::{View, rows::Row, tools::Call, transcript};
 use sailry_protocol::{
     TurnId,
     conversation::{Child, Entry, Part},
@@ -21,8 +21,37 @@ pub(super) enum Block<'a> {
     Retry(String, sailry_protocol::conversation::recovery::Retry),
 }
 
+/// One Client transcript segment: its input turns, then its own reply blocks.
+#[derive(Default)]
+pub(super) struct Segment<'a> {
+    /// One bubble per input turn; a turn's canonical entries share it.
+    pub inputs: Vec<TurnId>,
+    pub blocks: Vec<Block<'a>>,
+}
+
+/// Groups each segment separately; progress keeps one stable position per turn.
+pub(super) fn segments(turn: TurnId, history: &View) -> Vec<Segment<'_>> {
+    let mut progress_shown = false;
+    transcript::segments(history, turn)
+        .into_iter()
+        .map(|segment| {
+            let mut inputs: Vec<_> = segment.inputs.iter().map(|input| input.turn).collect();
+            inputs.dedup();
+            Segment {
+                inputs,
+                blocks: group(turn, history, segment.rows, &mut progress_shown),
+            }
+        })
+        .collect()
+}
+
 /// Visual grouping only; call identities and results come from the shared Client.
-pub(super) fn collect(turn: TurnId, history: &View) -> Vec<Block<'_>> {
+fn group<'a>(
+    turn: TurnId,
+    history: &'a View,
+    rows: Vec<Row<'a>>,
+    progress_shown: &mut bool,
+) -> Vec<Block<'a>> {
     let Some(snapshot) = &history.snapshot else {
         return Vec::new();
     };
@@ -37,8 +66,6 @@ pub(super) fn collect(turn: TurnId, history: &View) -> Vec<Block<'_>> {
         .iter()
         .rev()
         .find(|call| call.turn == turn && call.progress.is_some());
-    let mut progress_shown = false;
-    let rows = sailry_client::conversation::rows::collect(snapshot, &history.calls, turn);
     let mut blocks = Vec::new();
     let mut searches = std::collections::BTreeSet::new();
     for row in rows {
@@ -130,10 +157,10 @@ pub(super) fn collect(turn: TurnId, history: &View) -> Vec<Block<'_>> {
             Part::ToolCall { .. } | Part::ToolResult { .. } => {
                 if let Some(call) = calls.get(&key) {
                     if call.progress.is_some() {
-                        if progress_shown {
+                        if *progress_shown {
                             continue;
                         }
-                        progress_shown = true;
+                        *progress_shown = true;
                         // Keep one stable position while rendering the latest successful
                         // snapshot. The canonical tool history remains unchanged.
                         blocks.push(Block::Tools(vec![latest_progress.unwrap()]));
