@@ -35,7 +35,7 @@ pub(super) fn request(
         Some(ImageRoute::Images) => ("images/generations", json!({"model":model,"prompt":prompt})),
         None => ("videos", json!({"model":model,"prompt":prompt})),
         Some(ImageRoute::Native) => {
-            unreachable!("native image generation is unavailable in GDK")
+            unreachable!("native image generation is unavailable on this route")
         }
     }
 }

@@ -227,7 +227,7 @@ pub(crate) struct Maintenance {
     pub failure: Option<compaction::Failure>,
 }
 
-/// Only execution state used by the GDK pipeline is stored here.
+/// Only execution state used by the Node pipeline is stored here.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct Runtime {
     /// The execution engine's original timestamp remains in seconds at its boundary.
@@ -266,7 +266,7 @@ impl Default for Runtime {
     }
 }
 
-/// Durable decisions used when Goose reloads the conversation between operations.
+/// Durable decisions used when Node reloads the conversation between operations.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub(crate) struct OperationNotes {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]

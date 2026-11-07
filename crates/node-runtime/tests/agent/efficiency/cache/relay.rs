@@ -1,4 +1,4 @@
-//! One billable fixture observes native HTTP requests without changing GDK retries.
+//! One billable fixture observes native HTTP requests without changing Node retries.
 use futures::StreamExt;
 use sailry_link::CancellationToken;
 use serde_json::Value;

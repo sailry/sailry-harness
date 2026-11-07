@@ -115,7 +115,7 @@ async fn reports_errors_and_rejects_partial_transactions() {
     let outputs: Vec<_> = results(&fixture.client, &page).await;
     assert_eq!(outputs.len(), 4);
     // The final handler attempts a forbidden durable SDK command; its native
-    // permission classification must survive JavaScript and GDK projection.
+    // permission classification must survive JavaScript and model projection.
     for (output, code) in outputs.iter().zip([
         ErrorCode::InvalidRequest,
         ErrorCode::InvalidRequest,

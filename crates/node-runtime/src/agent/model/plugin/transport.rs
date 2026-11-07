@@ -194,7 +194,7 @@ pub(super) async fn send(
 }
 
 // Adapted from adk-model 675c02b6, Apache-2.0 (third_party_licenses/adk-LICENSE).
-// Only the RFC Retry-After parser is retained; retry policy belongs to GDK.
+// Only the RFC Retry-After parser is retained; retry policy belongs to Node.
 pub(super) fn retry_after(headers: &HeaderMap) -> Option<std::time::Duration> {
     let value = headers
         .get("retry-after")?

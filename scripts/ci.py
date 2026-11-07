@@ -539,8 +539,7 @@ def run_check(name, jobs=None, root=ROOT, selection=None, env=None, threads=None
         }
         env = dict(environment) if archived else parser_environment(root, env, libraries=True)
         # Fixture servers verify recovery without waiting minutes for each failure.
-        # The GDK's paused-clock tests verify the fixed production retry timing.
-        env.setdefault("GOOSE_PROVIDER_SKIP_BACKOFF", "true")
+        env.setdefault("SAILRY_MODEL_SKIP_BACKOFF", "true")
     elif name in {"lint", "desktop-production", "host-production"}:
         env = parser_environment(root, env, libraries=False)
     env = child_environment(env)

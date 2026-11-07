@@ -1,4 +1,4 @@
-//! Product admission and lifecycle around Goose GDK's execution pipeline.
+//! Product admission and lifecycle around the Node execution pipeline.
 mod approval;
 pub(crate) mod attachments;
 pub(crate) mod canonical;

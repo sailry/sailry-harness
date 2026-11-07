@@ -101,7 +101,7 @@ impl Media {
             }
             None
         };
-        // GDK does not expose native generated image blocks on this route.
+        // This route does not expose native generated image blocks.
         if route == Some(ImageRoute::Native) {
             return Err(Failure::unsupported());
         }

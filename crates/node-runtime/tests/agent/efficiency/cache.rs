@@ -316,9 +316,9 @@ async fn reports_selected_model_cache() {
         println!(
             "{}",
             json!({"suite":"selected-model-cache","model":MODEL,"effort":"high","turn":index+1,
-            "provider_responses":usage,"gdk_calls":requests.len(),"observed_http_attempts":wire.len(),
+            "provider_responses":usage,"model_calls":requests.len(),"observed_http_attempts":wire.len(),
             "extra_http_attempts":wire.len().saturating_sub(requests.len()),"request_metrics":metrics,
-            "tool_names":trace(&records).iter().map(|call|&call["name"]).collect::<Vec<_>>(),"note":"Cache is controlled by the provider. Zero cached tokens is an observation, not failure. Compare post-load system/tools/cache-key prefix stability. GDK retries are unchanged; the relay does not retry or follow redirects."})
+            "tool_names":trace(&records).iter().map(|call|&call["name"]).collect::<Vec<_>>(),"note":"Cache is controlled by the provider. Zero cached tokens is an observation, not failure. Compare post-load system/tools/cache-key prefix stability. Node retries are unchanged; the relay does not retry or follow redirects."})
         );
         let page = outcome
             .expect("bounded real-model request")
@@ -420,7 +420,7 @@ async fn reports_selected_model_cache() {
         json!({"suite":"selected-model-cache","stage":"complete","model":MODEL,"effort":"high",
         "turns":3,"input":totals.0,"output":totals.1,"cached_input":totals.2,"hit_percent":100.0*totals.2 as f64/totals.0 as f64,
         "output_limit":OUTPUT_LIMIT,
-        "gdk_calls":replies,"observed_http_attempts":relay.snapshot().len(),"source_bytes":file.len(),"skill_bytes":skill.len(),
+        "model_calls":replies,"observed_http_attempts":relay.snapshot().len(),"source_bytes":file.len(),"skill_bytes":skill.len(),
         "source_digest":blake3::hash(file.as_bytes()).to_hex().to_string(),"skill_digest":blake3::hash(skill.as_bytes()).to_hex().to_string()})
     );
     node.shutdown().await.unwrap();

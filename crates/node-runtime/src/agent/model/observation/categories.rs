@@ -78,7 +78,7 @@ pub(super) fn estimate(
             );
         }
     }
-    // Gemini's GDK adapter wraps declarations in an object; other adapters
+    // Gemini's native adapter wraps declarations in an object; other adapters
     // send an array of tools, including Gemini-compatible package adapters.
     let tools = body.get("tools");
     let declarations = tools.and_then(|tools| {

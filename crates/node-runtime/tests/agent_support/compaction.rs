@@ -26,7 +26,7 @@ pub fn is_summary(body: &Value) -> bool {
     })
 }
 
-/// Wraps fixture text in GDK's structured summary contract; raw prose is rejected.
+/// Wraps fixture text in the structured summary contract; raw prose is rejected.
 pub fn handoff(text: &str) -> String {
     format!(
         "<analysis>Fixture handoff</analysis>\n```json\n{}\n```",

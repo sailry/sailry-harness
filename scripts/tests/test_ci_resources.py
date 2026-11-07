@@ -324,7 +324,7 @@ class SharedCommands(unittest.TestCase):
                     patch.object(ci.subprocess, "run", return_value=SimpleNamespace(returncode=0)) as run:
                 self.assertEqual(ci.run_check(name), 0)
                 prepare.assert_called_once_with(ROOT, None, libraries=True)
-                self.assertEqual(run.call_args.kwargs["env"]["GOOSE_PROVIDER_SKIP_BACKOFF"], "true")
+                self.assertEqual(run.call_args.kwargs["env"]["SAILRY_MODEL_SKIP_BACKOFF"], "true")
 
     def test_hides_ci_selection_from_tests(self):
         environment = {"CHECK_SCOPE": "{}", "CHECK_PARTITION": "count:1/2", "PATH": "fixture path"}
@@ -432,8 +432,8 @@ class Archives(unittest.TestCase):
                 self.assertEqual(run.call_count, 1)
                 # The archive location selects these commands but never reaches the tests.
                 self.assertEqual(run.call_args.kwargs["env"],
-                                 {"PATH": "fixture path", "GOOSE_PROVIDER_SKIP_BACKOFF": "true"})
-                self.assertNotIn("GOOSE_PROVIDER_SKIP_BACKOFF", environment)
+                                 {"PATH": "fixture path", "SAILRY_MODEL_SKIP_BACKOFF": "true"})
+                self.assertNotIn("SAILRY_MODEL_SKIP_BACKOFF", environment)
                 if name == "plugin-contracts":
                     self.assertEqual(run.call_args.args[0], [sys.executable, "scripts/test-plugins.py",
                                                             "--runtime-host", str(ROOT / "target/debug/examples/plugin-test-host")])

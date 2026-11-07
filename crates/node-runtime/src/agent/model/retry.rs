@@ -12,14 +12,12 @@ pub(super) struct Policy {
 impl Policy {
     pub(super) fn new(retries: usize, delay: Duration, buffered: bool) -> Self {
         #[cfg(any(test, feature = "test-support"))]
-        let delay = if std::env::var_os("SAILRY_MODEL_SKIP_BACKOFF")
-            .is_some_and(|value| value == "true")
-            || std::env::var_os("GOOSE_PROVIDER_SKIP_BACKOFF").is_some_and(|value| value == "true")
-        {
-            Duration::ZERO
-        } else {
-            delay
-        };
+        let delay =
+            if std::env::var_os("SAILRY_MODEL_SKIP_BACKOFF").is_some_and(|value| value == "true") {
+                Duration::ZERO
+            } else {
+                delay
+            };
         Self {
             retries,
             delay,

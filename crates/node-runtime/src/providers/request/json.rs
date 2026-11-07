@@ -17,7 +17,7 @@ pub(super) fn apply(prepared: &Prepared, body: &mut Value) -> Result<(), Fault> 
     let siwc =
         prepared.api == ModelApi::Responses && prepared.authentication == Authentication::ChatGpt;
     if siwc {
-        // Public SIWC HTTP requirements differ from the GDK generation policy.
+        // Direct SIWC requests apply the public HTTP requirements.
         // https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations
         for name in [
             "background",

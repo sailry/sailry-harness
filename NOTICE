@@ -13,8 +13,8 @@ TRADEMARKS.md.
 
 Third-party materials retain their own licenses and attribution. See
 third_party_licenses/ and the notices alongside bundled assets.
-These include GPUI Kit/GPUI, Goose GDK, retained ADK source, Ghostty, fonts,
-icons and other dependencies.
+These include GPUI Kit/GPUI, Rig, retained Goose and ADK source, Ghostty,
+fonts, icons and other dependencies.
 Imported Ghostty shell integration contains GPL-3.0-or-later material; the root
 Apache-2.0 license does not relicense those scripts. Relevant notices and GPL text
 remain in third_party_licenses/.
@@ -67,11 +67,19 @@ Copyright 2025 OpenAI). Provenance, the original NOTICE and the license text are
 in third_party_licenses/codex.md, third_party_licenses/codex-NOTICE and
 third_party_licenses/codex-LICENSE.
 
-Goose GDK agent and provider libraries
-Sailry uses goose-agent, goose-provider-types, goose-providers and
-goose-context-management from https://github.com/aaif-goose/goose at
-commit ee8500d5e060eea6f2bcee92e8a5e351f12c3a70 (Apache-2.0).
-The retained token-counter adaptation uses the same source revision.
+Rig provider transport
+Sailry uses rig-core 0.46.0 from https://github.com/0xPlaygrounds/rig at
+commit 6e039cd24994bc1e7d963af6f6278df73a81b130 (MIT).
+Node owns the Agent loop; Rig supplies provider transport, not an Agent runner.
+Provenance and the original Copyright 2024 Playgrounds Analytics Inc. notice are
+in third_party_licenses/rig.md and third_party_licenses/rig-MIT.txt.
+
+Retained Goose-derived Agent operations and provider adaptations
+Source derives from https://github.com/aaif-goose/goose at
+ee8500d5e060eea6f2bcee92e8a5e351f12c3a70 and https://github.com/sailry/goose at
+14741e9a7639810840b43767bd1218a6a43e87ec (Apache-2.0).
+The earlier operation and token-counter adaptations retain their original revision.
+Goose GDK libraries are not runtime dependencies.
 Provenance and the original Copyright 2024 Block, Inc. license notice are in
 third_party_licenses/goose.md and third_party_licenses/goose-Apache-2.0.txt.
 

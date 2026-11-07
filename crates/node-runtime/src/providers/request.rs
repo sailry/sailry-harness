@@ -1,4 +1,4 @@
-//! Generation authorization policy shared by GDK and direct provider requests.
+//! Generation authorization policy shared by model and direct provider requests.
 use super::login::{self, Grant};
 use crate::store::Ingress;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
@@ -152,7 +152,7 @@ pub(crate) fn headers(provider: &Provider, credentials: &Credentials) -> Result<
         Credentials::ApiKey(key) => {
             let mut headers = HeaderMap::new();
             let auth = auth(provider, key.as_ref().map_or("", Secret::expose));
-            // Google's dedicated GDK provider owns this header separately.
+            // Google API keys use a provider-specific header.
             let auth = match (provider.api, auth) {
                 (ModelApi::Gemini, KeyAuth::Bearer(value)) => KeyAuth::Header {
                     name: "x-goog-api-key".into(),
@@ -289,7 +289,7 @@ pub(crate) enum KeyAuth {
     Header { name: String, value: String },
 }
 
-/// Preserve GDK client key injection without depending on its HTTP client types.
+/// Resolve captured API-key injection without provider HTTP client types.
 pub(crate) fn auth(provider: &Provider, key: &str) -> KeyAuth {
     if provider.authentication != Authentication::ApiKey || key.is_empty() {
         return KeyAuth::None;

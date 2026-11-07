@@ -90,6 +90,12 @@ class DependencyBoundary(unittest.TestCase):
                 ("goose-providers v0.1.0", False),
                 ("goose-context-management v0.1.0", False),
                 ("goose_agent v0.1.0", False),
+                ("rig-core v0.1.0", False),
+                ("rig-http v0.1.0", False),
+                ("rig-agent v0.1.0", False),
+                ("rig_core v0.1.0", False),
+                ("rig_http v0.1.0", False),
+                ("rig_agent v0.1.0", False),
             ):
                 with self.subTest(dependency=dependency):
                     calls.write_text("")

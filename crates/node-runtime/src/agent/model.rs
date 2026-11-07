@@ -81,7 +81,7 @@ pub(super) async fn provider(
     )
     .await?;
     if compaction {
-        // Both GDK summary paths use fixed prompts without Node owner parts.
+        // Both summary paths use fixed prompts without Node owner parts.
         binding.sources.replace(Vec::new());
         binding.config.max_tokens = Some(summary::max_tokens(provider, &config) as u64);
     }

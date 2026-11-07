@@ -128,7 +128,7 @@ async fn preserves_native_outcomes() {
             .filter(|request| request.path == "/responses")
             .count();
         assert!(retries.is_empty(), "remote=outcome={outcome}");
-        // Goose retries an empty inference three times; a received partial
+        // Node retries an empty inference three times; a received partial
         // answer or provider error is never replayed by Sailry.
         assert_eq!(
             requests,

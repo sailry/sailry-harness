@@ -171,7 +171,7 @@ fn conforms_to_chatgpt_preview_limits() {
         fixture::metadata("fixture-model", "Captured system", &[]),
     )
     .unwrap();
-    // The GDK policy remains the pre-refactor baseline; only direct JSON adapts SIWC.
+    // Generation retains native system placement; direct JSON adapts SIWC.
     assert_eq!(prepared.system.placement, Placement::Native);
     assert!(prepared.parameters.is_empty());
     assert_eq!(prepared.remove_params, &["max_tokens", "temperature"]);

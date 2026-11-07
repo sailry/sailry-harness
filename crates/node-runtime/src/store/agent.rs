@@ -1,4 +1,4 @@
-//! GDK uses the existing Node storage worker and canonical conversation owner.
+//! Agent execution uses the Node storage worker and canonical conversation owner.
 pub(super) mod activity;
 pub(super) mod approvals;
 pub(super) mod assets;

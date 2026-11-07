@@ -428,14 +428,14 @@ class Lint(unittest.TestCase):
 
 class Commands(unittest.TestCase):
     def test_skips_fixture_backoff_without_mutating_environment(self):
-        for configured, expected in (({}, "true"), ({"GOOSE_PROVIDER_SKIP_BACKOFF": "false"}, "false")):
+        for configured, expected in (({}, "true"), ({"SAILRY_MODEL_SKIP_BACKOFF": "false"}, "false")):
             environment = {"FIXTURE_SETTING": "preserved", **configured}
             with patch.object(ci, "check_commands", return_value=[{"argv": ["fixture"], "cwd": "."}]), \
                     patch.object(ci, "parser_environment", side_effect=lambda root, env, libraries: dict(env)), \
                     patch.object(ci.subprocess, "run") as run:
                 run.return_value.returncode = 0
                 self.assertEqual(ci.run_check("backend", env=environment), 0)
-                self.assertEqual(run.call_args.kwargs["env"], {**environment, "GOOSE_PROVIDER_SKIP_BACKOFF": expected})
+                self.assertEqual(run.call_args.kwargs["env"], {**environment, "SAILRY_MODEL_SKIP_BACKOFF": expected})
                 self.assertEqual(environment, {"FIXTURE_SETTING": "preserved", **configured})
 
     def test_uses_cargo_default_locally(self):

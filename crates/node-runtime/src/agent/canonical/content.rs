@@ -43,7 +43,7 @@ pub(crate) struct ToolRequest {
     pub id: String,
     pub name: String,
     pub arguments: Value,
-    /// GDK's provider-owned ToolRequest.metadata must round-trip unchanged.
+    /// Provider-owned tool-call metadata must round-trip unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<Map<String, Value>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
