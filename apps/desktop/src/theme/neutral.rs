@@ -97,8 +97,9 @@ pub(super) fn configure(colors: &mut ThemeConfigColors, dark: bool) {
     }
     // Kit's semantic primary is the configurable emphasis color. Its accent
     // token is a hover surface; filled controls retain their neutral overrides.
-    colors.link = Some(if dark { "blue-300" } else { "blue-600" }.into());
-    colors.link_active = Some(if dark { "blue-200" } else { "blue-700" }.into());
+    colors.link = None;
+    colors.link_hover = None;
+    colors.link_active = None;
     colors.primary = Some(if dark { "blue-400" } else { "blue-600" }.into());
     colors.primary_hover = Some(if dark { "blue-300" } else { "blue-500" }.into());
     colors.primary_active = Some(if dark { "blue-500" } else { "blue-700" }.into());
@@ -142,7 +143,6 @@ pub(super) fn configure(colors: &mut ThemeConfigColors, dark: bool) {
     colors.tab_bar_segmented = Some(if dark { "#ffffff12" } else { "#00000008" }.into());
     colors.tab_active = Some(if dark { "#454545" } else { "#ffffff" }.into());
     colors.tab_active_foreground = Some(if dark { "#ffffff" } else { "#181818" }.into());
-    colors.link_hover = Some(if dark { "#ffffff" } else { "#000000" }.into());
     // Overlays need stronger fills to separate their text from content underneath.
     colors.popover = Some(if dark { "#242424" } else { base }.into());
     colors.tab = Some("#00000000".into());

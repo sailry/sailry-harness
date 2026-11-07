@@ -174,3 +174,94 @@ mod slider {
         });
     }
 }
+
+mod links {
+    use super::*;
+
+    const PRIMARY: [(ThemeMode, &str); 2] =
+        [(ThemeMode::Light, "#7a3e9d"), (ThemeMode::Dark, "#d3a8ec")];
+
+    fn package(directory: &std::path::Path, link: Option<&'static str>) -> Package {
+        let source = crate::theme::fixture::write(directory, "links");
+        let mut package = Package::preview(&Loaded::read(&source, true).unwrap());
+        for (config, (_, primary)) in [&mut package.light, &mut package.dark]
+            .into_iter()
+            .zip(PRIMARY)
+        {
+            let colors = &mut Rc::make_mut(config).colors;
+            colors.primary = Some(primary.into());
+            colors.link = link.map(Into::into);
+        }
+        package
+    }
+
+    #[gpui::test]
+    fn follow_package_primary(cx: &mut TestAppContext) {
+        let directory = tempfile::tempdir().unwrap();
+        let package = package(directory.path(), None);
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            crate::theme::init(cx);
+            apply_colors(package, None, cx);
+            for (mode, primary) in PRIMARY {
+                Theme::change(mode, None, cx);
+                let theme = cx.theme();
+                let primary = Hsla::parse_hex(primary).unwrap();
+                assert_eq!(theme.primary, primary, "{mode:?}");
+                for color in [theme.link, theme.link_hover, theme.link_active] {
+                    assert_eq!(color, primary, "{mode:?}");
+                }
+            }
+        });
+    }
+
+    #[gpui::test]
+    fn keep_package_link(cx: &mut TestAppContext) {
+        let directory = tempfile::tempdir().unwrap();
+        let package = package(directory.path(), Some("#2f7d5b"));
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            crate::theme::init(cx);
+            apply_colors(package, None, cx);
+            let link = Hsla::parse_hex("#2f7d5b").unwrap();
+            for (mode, _) in PRIMARY {
+                Theme::change(mode, None, cx);
+                let theme = cx.theme();
+                assert_ne!(theme.primary, link, "{mode:?}");
+                for color in [theme.link, theme.link_hover, theme.link_active] {
+                    assert_eq!(color, link, "{mode:?}");
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn preserve_state_overrides() {
+        let mut defaults = ThemeConfigColors::default();
+        defaults.primary = Some("#2563eb".into());
+        defaults.primary_hover = Some("#3b82f6".into());
+        defaults.primary_active = Some("#1d4ed8".into());
+        for primary in [None, Some("#7a3e9d")] {
+            let mut package = ThemeConfigColors::default();
+            package.primary = primary.map(Into::into);
+            package.primary_hover = Some("#9c52c6".into());
+            package.primary_active = Some("#643482".into());
+            let base = primary.unwrap_or("#2563eb");
+            assert_eq!(
+                super::super::links(&package, &defaults),
+                [base, "#9c52c6", "#643482"].map(|color| Some(SharedString::from(color)))
+            );
+            package.link_hover = Some("#37b298".into());
+            package.link_active = Some("#168267".into());
+            assert_eq!(
+                super::super::links(&package, &defaults),
+                [base, "#37b298", "#168267"].map(|color| Some(SharedString::from(color)))
+            );
+            package.link = Some("#2f7d5b".into());
+            assert_eq!(
+                super::super::links(&package, &defaults),
+                ["#2f7d5b", "#37b298", "#168267"].map(|color| Some(SharedString::from(color)))
+            );
+        }
+    }
+}

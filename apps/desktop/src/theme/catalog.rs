@@ -1,6 +1,9 @@
 use super::package::Loaded;
 use gpui_kit::{
-    component::{theme::ThemeConfig, *},
+    component::{
+        theme::{ThemeConfig, ThemeConfigColors},
+        *,
+    },
     *,
 };
 use serde::{Deserialize, Serialize};
@@ -213,6 +216,7 @@ pub fn apply_colors(package: Package, window: Option<&mut Window>, cx: &mut App)
         let overrides = serde_json::to_value(&config_mut.colors).expect("Kit color serialization");
         let slider_bar = config_mut.colors.slider_bar.clone();
         let slider_thumb = config_mut.colors.slider_thumb.clone();
+        let links = links(&config_mut.colors, &defaults.colors);
         for (key, value) in overrides.as_object().expect("Kit color object") {
             if !value.is_null() {
                 colors[key] = value.clone();
@@ -224,6 +228,11 @@ pub fn apply_colors(package: Package, window: Option<&mut Window>, cx: &mut App)
         config_mut.colors.slider_bar = slider_bar;
         config_mut.colors.slider_thumb =
             slider_thumb.or_else(|| defaults.colors.slider_thumb.clone());
+        [
+            config_mut.colors.link,
+            config_mut.colors.link_hover,
+            config_mut.colors.link_active,
+        ] = links;
         config_mut.font_size = config_mut.font_size.or(defaults.font_size);
         config_mut.font_family = config_mut
             .font_family
@@ -245,6 +254,34 @@ pub fn apply_colors(package: Package, window: Option<&mut Window>, cx: &mut App)
     theme.dark_theme = complete(package.dark, builtin.dark);
     Theme::change(mode, window, cx);
     super::sync_window(cx);
+}
+
+fn links(package: &ThemeConfigColors, defaults: &ThemeConfigColors) -> [Option<SharedString>; 3] {
+    if package.link.is_some() {
+        return [
+            package.link.clone(),
+            package.link_hover.clone(),
+            package.link_active.clone(),
+        ];
+    }
+    let emphasis = if package.primary.is_some() {
+        package
+    } else {
+        defaults
+    };
+    [
+        emphasis.primary.clone(),
+        package
+            .link_hover
+            .clone()
+            .or_else(|| package.primary_hover.clone())
+            .or_else(|| emphasis.primary_hover.clone()),
+        package
+            .link_active
+            .clone()
+            .or_else(|| package.primary_active.clone())
+            .or_else(|| emphasis.primary_active.clone()),
+    ]
 }
 
 pub fn remove(id: &str, window: &mut Window, cx: &mut App) -> Result<(), String> {

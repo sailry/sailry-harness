@@ -10,15 +10,20 @@ enum AccentTone { blue, green, yellow, purple }
 abstract final class SailryTheme {
   static final sheetBackdrop = ImageFilter.blur(sigmaX: 5, sigmaY: 5);
 
-  static Color accentColor(BuildContext context, AccentTone tone) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
+  static Color accentColor(BuildContext context, AccentTone tone) =>
+      _accent(Theme.of(context).brightness, tone);
+
+  static Color link(Brightness brightness) =>
+      _accent(brightness, AccentTone.blue);
+
+  static Color _accent(Brightness brightness, AccentTone tone) {
     final (light, night) = switch (tone) {
       AccentTone.blue => (0xff2563eb, 0xff60a5fa),
       AccentTone.green => (0xff15803d, 0xff4ade80),
       AccentTone.yellow => (0xffa16207, 0xfffacc15),
       AccentTone.purple => (0xff9333ea, 0xffc084fc),
     };
-    return Color(dark ? night : light);
+    return Color(brightness == Brightness.dark ? night : light);
   }
 
   static Color statusColor(BuildContext context, StatusTone tone) {

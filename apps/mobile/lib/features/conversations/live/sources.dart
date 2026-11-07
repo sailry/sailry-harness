@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../l10n/strings.dart';
 import '../../../runtime/json.dart';
+import '../../../ui/theme.dart';
 import '../../../ui/toast.dart';
 
 /// Provider metadata accompanies the unchanged answer. HTML is parsed into
@@ -63,13 +64,18 @@ class _SourceLink extends StatelessWidget {
     link: uri != null,
     child: TextButton(
       onPressed: uri == null ? null : () => _open(context, uri!),
-      style: TextButton.styleFrom(
-        alignment: Alignment.centerLeft,
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        minimumSize: const Size(0, 36),
-        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        disabledForegroundColor: Theme.of(context).colorScheme.onSurfaceVariant,
-      ),
+      style:
+          TextButton.styleFrom(
+            alignment: Alignment.centerLeft,
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            minimumSize: const Size(0, 36),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ).copyWith(
+            foregroundColor: ButtonStyleButton.defaultColor(
+              SailryTheme.link(Theme.of(context).brightness),
+              Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
