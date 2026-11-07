@@ -6,6 +6,8 @@ use sailry_client::Client;
 use sailry_protocol::{Command, ErrorCode, Output, WorktreeId, code_index};
 use std::path::PathBuf;
 
+#[path = "code_index/graph.rs"]
+mod graph;
 #[path = "code_index/queries.rs"]
 mod queries;
 #[path = "code_index/revisions.rs"]

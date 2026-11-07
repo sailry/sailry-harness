@@ -160,6 +160,7 @@ mod concurrency {
             Operation::SearchFiles,
             Operation::ReadGitDiff,
             Operation::SearchCode,
+            Operation::GraphCode,
             Operation::FetchWeb,
         ] {
             assert!(operation.read_only(), "{operation:?}");

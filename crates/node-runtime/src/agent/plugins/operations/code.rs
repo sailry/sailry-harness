@@ -4,7 +4,10 @@ use crate::agent::tools::decode;
 use sailry_protocol::code_index::{Outline, SearchPage, Symbol};
 
 pub(super) fn handles(operation: Operation) -> bool {
-    matches!(operation, Operation::SearchCode | Operation::OutlineCode)
+    matches!(
+        operation,
+        Operation::SearchCode | Operation::OutlineCode | Operation::GraphCode
+    )
 }
 
 pub(super) fn description(operation: Operation) -> &'static str {
@@ -13,6 +16,9 @@ pub(super) fn description(operation: Operation) -> &'static str {
             "Find where symbols are defined in the captured worktree; lines are one-based"
         }
         Operation::OutlineCode => "List one file's declarations with one-based line ranges",
+        Operation::GraphCode => {
+            "Trace name-matched callers, callees, impact or a ranked file map; lines are zero-based and matches are heuristic"
+        }
         _ => unreachable!("code operation expected"),
     }
 }
@@ -24,6 +30,9 @@ pub(super) fn parameters(operation: Operation) -> Value {
         }
         Operation::OutlineCode => {
             json!({"type":"object","additionalProperties":false,"properties":{"path":{"type":"string","minLength":1}},"required":["path"]})
+        }
+        Operation::GraphCode => {
+            json!({"type":"object","additionalProperties":false,"properties":{"view":{"type":"string","enum":["callers","callees","context","impact","map"]},"name":{"type":"string","maxLength":512,"description":"Exact definition name"},"paths":{"type":"array","maxItems":64,"items":{"type":"string"},"description":"Worktree-relative files or directories: narrow definitions, seed impact or focus the map"},"line":{"type":"integer","minimum":0,"description":"Zero-based line inside the definition of a single path"},"depth":{"type":"integer","minimum":1,"maximum":3},"offset":{"type":"integer","minimum":0,"maximum":10000},"limit":{"type":"integer","minimum":1,"maximum":200}},"required":["view"]})
         }
         _ => unreachable!("code operation expected"),
     }
@@ -54,6 +63,10 @@ pub(super) fn command(
                 path: input.path,
             })
         }
+        Operation::GraphCode => Ok(Command::GraphCode {
+            worktree,
+            query: decode(arguments)?,
+        }),
         _ => Err(Fault::invalid("code operation expected")),
     }
 }
@@ -129,7 +142,7 @@ impl Cancellation {
     ) -> Option<Self> {
         matches!(
             request.command,
-            Command::SearchCode { .. } | Command::OutlineCode { .. }
+            Command::SearchCode { .. } | Command::OutlineCode { .. } | Command::GraphCode { .. }
         )
         .then(|| Self {
             queries: ingress.code_queries.clone(),

@@ -526,19 +526,35 @@ async fn removed_default(name: &str, enabled: bool) {
             vec![
                 Some(Operation::SearchCode),
                 Some(Operation::OutlineCode),
+                None,
+                None,
                 None
             ]
         );
+        let flows: Vec<_> = extension.tools[2..]
+            .iter()
+            .map(|tool| {
+                tool.handler
+                    .as_ref()
+                    .unwrap()
+                    .flow
+                    .as_ref()
+                    .unwrap()
+                    .operations
+                    .clone()
+            })
+            .collect();
         assert_eq!(
-            extension.tools[2]
-                .handler
-                .as_ref()
-                .unwrap()
-                .flow
-                .as_ref()
-                .unwrap()
-                .operations,
-            [Operation::SearchCode, Operation::ReadFileLines]
+            flows,
+            [
+                vec![
+                    Operation::SearchCode,
+                    Operation::GraphCode,
+                    Operation::ReadFileLines
+                ],
+                vec![Operation::GraphCode],
+                vec![Operation::GraphCode],
+            ]
         );
         assert!(extension.tools.iter().all(|tool| tool.server.is_none()));
     } else if let Some(desktop) = &installed.extension.as_ref().unwrap().desktop {

@@ -375,7 +375,9 @@ impl Database {
                 {
                     (Some(Action::SaveSearchSettings), None, None)
                 }
-                Command::SearchCode { worktree, .. } | Command::OutlineCode { worktree, .. } => {
+                Command::SearchCode { worktree, .. }
+                | Command::OutlineCode { worktree, .. }
+                | Command::GraphCode { worktree, .. } => {
                     (Some(Action::ReadCodeIndex), Some(*worktree), None)
                 }
                 Command::CancelCodeIndexQuery { .. } => (

@@ -601,8 +601,16 @@ revision conflict returns no source from the changed file. The existing 128 KiB
 `readFile` preview is not complete index input. Indexing reads a complete bounded
 file separately, with a 1 MiB default limit.
 
-The `code` package composes `code_context` with ordinary `code.search` and
-`files.read_lines` flow operations. It selects at most 20 symbols and five merged
+The `code.graph` flow operation also requires `code.index.read`. It reads the
+`callers`, `callees`, `context`, `impact` or `map` view of name-resolved references
+for an exact name, a single path and zero-based line, changed paths or map focus
+paths. Pages are bounded to 200 items with offsets; impact follows at most three
+reverse hops. Each reference reports a `local`, `imported`, `directory` or
+`workspace` confidence and whether several definitions share that tier.
+
+The `code` package composes `code_context` with ordinary `code.search`,
+`code.graph` and `files.read_lines` flow operations. It selects at most 20 symbols,
+the first symbol's callers, callees and impacted files, and five merged
 source snippets within 16 KiB of UTF-8 JSON, preserving file/index revisions and
 incomplete-result flags. File reads check each selected revision; stale ranges
 never expand against new source. Abandoning a Client search or outline sends its

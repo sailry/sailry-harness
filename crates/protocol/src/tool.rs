@@ -131,6 +131,8 @@ pub enum Operation {
     SearchCode,
     #[serde(rename = "code.outline")]
     OutlineCode,
+    #[serde(rename = "code.graph")]
+    GraphCode,
     // Historical declarations still deserialize, but cannot be installed or executed.
     #[schemars(skip)]
     #[serde(rename = "code.packages")]
@@ -331,7 +333,7 @@ impl Operation {
                 Some(Action::ReadArtifacts)
             }
             Self::WriteArtifact => Some(Action::WriteArtifacts),
-            Self::SearchCode | Self::OutlineCode => Some(Action::ReadCodeIndex),
+            Self::SearchCode | Self::OutlineCode | Self::GraphCode => Some(Action::ReadCodeIndex),
             Self::InstallCodeServer
             | Self::UninstallCodeServer
             | Self::StartCodeServer

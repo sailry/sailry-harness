@@ -1,6 +1,7 @@
 use super::*;
 
 mod budgets;
+mod graph;
 mod performance;
 mod updates;
 

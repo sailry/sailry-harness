@@ -4,6 +4,14 @@ use sailry_protocol::conversation::reference;
 use serde_json::{Value, json};
 
 const SOURCE: &str = "pub fn observed_symbol() -> usize {\n    7\n}\n";
+const CALLER: &str = "pub fn caller() -> usize {\n    observed_symbol()\n}\n";
+const TOOLS: [&str; 5] = [
+    "code_search",
+    "code_outline",
+    "code_context",
+    "code_impact",
+    "code_map",
+];
 
 async fn execute(fixture: &process::Fixture, command: Command) -> Output {
     fixture
@@ -70,7 +78,7 @@ async fn submit(fixture: &process::Fixture, package: &str) -> QueuedTurn {
 fn schemas(server: &Server) {
     let requests = server.requests.lock().unwrap();
     let tools = requests.first().unwrap()["tools"].as_array().unwrap();
-    for name in ["code_search", "code_outline", "code_context"] {
+    for name in TOOLS {
         let schema = tools
             .iter()
             .find(|tool| tool["function"]["name"] == name)
@@ -119,7 +127,7 @@ async fn capture(fixture: &process::Fixture, turn: &QueuedTurn) {
         panic!("captured package expected");
     };
     assert_eq!(info.summary.digest, reference.digest);
-    assert_eq!(info.summary.version.as_deref(), Some("0.1.12"));
+    assert_eq!(info.summary.version.as_deref(), Some("0.1.13"));
     assert_eq!(
         info.extension
             .unwrap()
@@ -127,7 +135,7 @@ async fn capture(fixture: &process::Fixture, turn: &QueuedTurn) {
             .iter()
             .map(|tool| tool.name.as_str())
             .collect::<Vec<_>>(),
-        ["code_search", "code_outline", "code_context"]
+        TOOLS
     );
 }
 
@@ -151,22 +159,29 @@ async fn executes_in_existing_worktrees() {
                 plugin_tool("code", "code_outline"),
                 json!({"path":"missing.rs"}),
             ),
+            (
+                plugin_tool("code", "code_impact"),
+                json!({"name":"observed_symbol"}),
+            ),
+            (plugin_tool("code", "code_map"), json!({})),
         ])
         .await;
         let mut fixture = process::Fixture::packages(&server, &["code"]).await;
         if !assigned {
             unassigned(&mut fixture).await;
         }
-        execute(
-            &fixture,
-            Command::WriteFile {
-                worktree: fixture.session.worktree,
-                path: "source.rs".into(),
-                text: SOURCE.into(),
-                expected_revision: None,
-            },
-        )
-        .await;
+        for (path, text) in [("source.rs", SOURCE), ("caller.rs", CALLER)] {
+            execute(
+                &fixture,
+                Command::WriteFile {
+                    worktree: fixture.session.worktree,
+                    path: path.into(),
+                    text: text.into(),
+                    expected_revision: None,
+                },
+            )
+            .await;
+        }
         let turn = submit(&fixture, "code").await;
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;
         assert_eq!(
@@ -211,6 +226,25 @@ async fn executes_in_existing_worktrees() {
         assert_eq!(snippets[0]["file_revision"], revision);
         assert_eq!(snippets[0]["text"], SOURCE);
         assert!(serde_json::to_vec(&context).unwrap().len() <= 16 * 1024);
+        assert_eq!(
+            context["callers"],
+            json!([{"path":"caller.rs","line":2,"kind":"call","scope":"caller","confidence":"directory"}]),
+            "{context:?}"
+        );
+        assert_eq!(context["impact"]["total"], 1, "{context:?}");
+        assert_eq!(context["impact"]["files"][0]["path"], "caller.rs");
+        let impact = result(&fixture.client, &page, "code_impact").await;
+        assert_eq!(impact["targets"][0]["name"], "observed_symbol");
+        assert_eq!(impact["targets"][0]["start_line"], 1);
+        assert_eq!(impact["files"][0]["path"], "caller.rs", "{impact:?}");
+        assert_eq!(impact["files"][0]["depth"], 1);
+        assert_eq!(impact["files"][0]["symbols"][0]["name"], "caller");
+        assert_eq!(impact["total"], 1);
+        let map = result(&fixture.client, &page, "code_map").await;
+        assert_eq!(map["files"][0]["path"], "source.rs", "{map:?}");
+        assert_eq!(map["files"][0]["score"], 1000);
+        assert_eq!(map["files"][0]["symbols"][0]["name"], "observed_symbol");
+        assert_eq!(map["total"], 2);
         let missing = tool_details(&fixture.client, &page)
             .await
             .into_iter()
@@ -259,6 +293,7 @@ async fn reports_removed_context_sources() {
     let fixture = process::Fixture::packages(&server, &["code"]).await;
     std::fs::write(fixture.root.join("source.rs"), SOURCE).unwrap();
     let (searched, resume_search) = fixture.node.hold_plugin_tool_fixture(&tool, None);
+    let (related, resume_graph) = fixture.node.hold_plugin_tool_fixture(&tool, None);
     let (reading, resume_read) = fixture.node.hold_plugin_tool_fixture(&tool, None);
     let turn = submit(&fixture, "code").await;
     let request = tokio::time::timeout(Duration::from_secs(10), searched)
@@ -267,6 +302,21 @@ async fn reports_removed_context_sources() {
         .unwrap();
     assert!(matches!(request.command, Command::SearchCode { .. }));
     resume_search.cancel();
+    let request = tokio::time::timeout(Duration::from_secs(10), related)
+        .await
+        .unwrap()
+        .unwrap();
+    let Command::GraphCode { worktree, query } = request.command else {
+        panic!("graph context expected");
+    };
+    assert_eq!(worktree, fixture.session.worktree);
+    assert_eq!(query.view, sailry_protocol::code_index::View::Context);
+    assert_eq!(query.name.as_deref(), Some("observed_symbol"));
+    assert_eq!(
+        (query.paths, query.line),
+        (vec!["source.rs".to_owned()], Some(0))
+    );
+    resume_graph.cancel();
     let request = tokio::time::timeout(Duration::from_secs(10), reading)
         .await
         .unwrap()

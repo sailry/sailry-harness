@@ -79,6 +79,7 @@ pub(super) fn route(command: &Command) -> Route {
         }
         Command::SearchCode { .. }
         | Command::OutlineCode { .. }
+        | Command::GraphCode { .. }
         | Command::CancelCodeIndexQuery { .. } => Route::ReadCodeIndex,
         Command::ListCommands { .. }
         | Command::ReadCommand { .. }

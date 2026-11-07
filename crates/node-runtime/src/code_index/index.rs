@@ -12,6 +12,8 @@ use turso::{params, transaction::TransactionBehavior};
 
 pub(super) const BATCH_SYMBOLS: usize = 512;
 
+mod references;
+pub(super) use references::Reader;
 #[cfg(test)]
 mod tests;
 
@@ -177,7 +179,9 @@ impl Index {
             tx.execute("DELETE FROM symbols WHERE path=?1", [file.path.as_str()])
                 .await
                 .map_err(error)?;
+            references::forget(&tx, &file.path).await?;
         }
+        references::record(&tx, files, stop).await?;
         // Turso 0.8.3 publishes native FTS at each statement boundary.
         // Multi-row inserts bound that work to 512 rows / 4096 parameters.
         let prefix = "INSERT INTO symbols(path,name,language,body,field0,field1,cjk0,cjk1) VALUES ";
@@ -259,6 +263,7 @@ impl Index {
             tx.execute("DELETE FROM symbols WHERE path=?1", [path.as_str()])
                 .await
                 .map_err(error)?;
+            references::forget(&tx, path).await?;
             tx.execute("DELETE FROM files WHERE path=?1", [path.as_str()])
                 .await
                 .map_err(error)?;
@@ -315,6 +320,23 @@ impl Index {
         drop(rows);
         tx.commit().await.map_err(error)?;
         Ok(outline)
+    }
+
+    /// Runs one graph view against a single read transaction.
+    pub(super) async fn graph(
+        &self,
+        query: &Graph,
+        stop: &CancellationToken,
+    ) -> Result<GraphPage, Fault> {
+        let mut lease = self.lease(true).await?;
+        let tx = lease.connection_mut().transaction().await.map_err(error)?;
+        let reader = Reader::new(&tx, stop);
+        let mut page = super::graph::run(&reader, query).await?;
+        page.partial |= reader.limited();
+        page.truncated |= reader.limited();
+        page.index_revision = revision(&tx).await?;
+        tx.commit().await.map_err(error)?;
+        Ok(page)
     }
 
     pub(super) async fn search(

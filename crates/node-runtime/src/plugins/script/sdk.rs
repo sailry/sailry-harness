@@ -475,6 +475,7 @@ fn allowed(command: &Command) -> bool {
             | Command::ReadFile { .. }
             | Command::SearchCode { .. }
             | Command::OutlineCode { .. }
+            | Command::GraphCode { .. }
             | Command::CancelCodeIndexQuery { .. }
             | Command::ReadFileLines { .. }
             | Command::FindFiles { .. }

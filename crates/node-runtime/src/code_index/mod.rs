@@ -9,6 +9,7 @@ use std::{
 };
 use tokio::sync::{OnceCell, Semaphore};
 
+mod graph;
 mod index;
 mod parser;
 mod queries;

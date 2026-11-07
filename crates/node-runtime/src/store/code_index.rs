@@ -22,7 +22,9 @@ impl Ingress {
                 self.code_queries.cancel(caller, *request);
                 let _ = reply.send(Ok(Output::CodeIndexQueryCancelled { request: *request }));
             }
-            Command::SearchCode { .. } | Command::OutlineCode { .. } => {
+            Command::SearchCode { .. }
+            | Command::OutlineCode { .. }
+            | Command::GraphCode { .. } => {
                 let active = self.code_queries.begin(caller, id, &self.closed)?;
                 let ingress = self.clone();
                 // Admission is memory-only. Business work runs under the existing
@@ -49,6 +51,14 @@ impl Ingress {
                                         .outline(worktree, root, &path, &active.stop)
                                         .await
                                         .map(Output::CodeOutline)
+                                }
+                                Command::GraphCode { worktree, query } => {
+                                    let root = ingress.worktree_root(worktree).await?;
+                                    ingress
+                                        .code_index
+                                        .graph(worktree, root, &query, &active.stop)
+                                        .await
+                                        .map(Output::CodeGraph)
                                 }
                                 _ => unreachable!("admitted code query expected"),
                             }

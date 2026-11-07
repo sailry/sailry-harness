@@ -162,6 +162,7 @@ fn concurrent(operation: Operation) -> bool {
             | Operation::ReadNotebook
             | Operation::SearchCode
             | Operation::OutlineCode
+            | Operation::GraphCode
             | Operation::InspectGit
             | Operation::ReadGitDiff
             | Operation::ReadGitLog

@@ -34,7 +34,7 @@ pub(super) fn description(operation: Operation) -> &'static str {
         | Operation::KnowledgeCreate
         | Operation::KnowledgeRebuild
         | Operation::KnowledgeRemove => unreachable!("knowledge operation handled above"),
-        Operation::SearchCode | Operation::OutlineCode => {
+        Operation::SearchCode | Operation::OutlineCode | Operation::GraphCode => {
             unreachable!("code operation handled above")
         }
         Operation::CodePackages
@@ -192,7 +192,7 @@ pub(super) fn parameters(operation: Operation) -> Value {
         | Operation::KnowledgeCreate
         | Operation::KnowledgeRebuild
         | Operation::KnowledgeRemove => unreachable!("knowledge operation handled above"),
-        Operation::SearchCode | Operation::OutlineCode => {
+        Operation::SearchCode | Operation::OutlineCode | Operation::GraphCode => {
             unreachable!("code operation handled above")
         }
         Operation::CodePackages
@@ -621,7 +621,7 @@ pub(super) fn command(
         | Operation::KnowledgeCreate
         | Operation::KnowledgeRebuild
         | Operation::KnowledgeRemove => unreachable!("knowledge operation handled above"),
-        Operation::SearchCode | Operation::OutlineCode => {
+        Operation::SearchCode | Operation::OutlineCode | Operation::GraphCode => {
             unreachable!("code operation handled above")
         }
         Operation::CodePackages

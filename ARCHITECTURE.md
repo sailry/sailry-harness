@@ -754,7 +754,18 @@ Dirty generations retain changes that arrive during parsing. File ranges use zer
 UTF-8 byte coordinates, and source expansion checks the indexed full-content revision
 before slicing. Partial and truncated results state their actual limits.
 
-The code package owns `code_search`, `code_outline` and `code_context` orchestration.
+The language pack keeps its extraction tree private, so one bounded syntax tree per
+file serves embedded regions and the pack's bundled tags query. References, their
+innermost enclosing declaration and import keys commit with the file's symbols.
+Graph reads resolve names against one index revision, preferring the same file, then
+imported files, the directory and the worktree; they record that confidence and keep
+several equally near definitions ambiguous instead of choosing one. Callers, callees,
+impact of at most three reverse hops and a personalized PageRank map are bounded,
+name-based heuristics without type information. Languages without tags queries
+contribute declarations but no references.
+
+The code package owns `code_search`, `code_outline`, `code_context`, `code_impact`
+and `code_map` orchestration.
 Its enable switch binds to the generic Node code-index service while retaining the
 installed enable choice. Local and remote controllers use the same Protocol, Client
 and SDK commands. Context composition stays in the plugin, with bounded symbol and
