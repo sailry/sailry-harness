@@ -230,6 +230,7 @@ impl Connection {
                 roots,
                 settings,
                 python,
+                computer,
             } => {
                 let mut command = tokio::process::Command::new(command);
                 environment.apply(&mut command);
@@ -240,6 +241,12 @@ impl Connection {
                     .stdin(Stdio::piped())
                     .stdout(Stdio::piped())
                     .stderr(Stdio::null());
+                #[cfg(target_os = "macos")]
+                if computer {
+                    crate::computer::helper::disclaim(&mut command);
+                }
+                #[cfg(not(target_os = "macos"))]
+                let _ = computer;
                 let mut command = crate::process::command(command);
                 if turn_stop.is_cancelled() {
                     return Err(unavailable());

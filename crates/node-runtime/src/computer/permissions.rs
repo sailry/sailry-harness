@@ -16,20 +16,19 @@ pub(crate) async fn read(
     #[cfg(target_os = "macos")]
     let state = {
         let launch = launch.ok_or_else(unconfigured)?;
-        let bytes = run(&launch, environment, true, stop, DEADLINE).await?;
-        Some(parse(&bytes)?)
+        parse(&run(&launch, environment, false, stop, DEADLINE).await?)?
     };
     #[cfg(not(target_os = "macos"))]
-    let state: Option<Grants> = {
+    let state = {
         let _ = (launch, environment, stop);
-        None
+        Grants::default()
     };
     Ok(Permissions {
         node,
         platform: std::env::consts::OS.into(),
         local: node == caller,
-        screen_capture: state.as_ref().map(|state| state.screen_capture),
-        accessibility: state.as_ref().map(|state| state.accessibility),
+        screen_capture: state.screen_capture,
+        accessibility: state.accessibility,
     })
 }
 
@@ -50,22 +49,23 @@ pub(crate) async fn request(
     #[cfg(target_os = "macos")]
     {
         let launch = launch.ok_or_else(unconfigured)?;
-        let current = parse(&run(&launch, environment, true, stop, DEADLINE).await?)?;
+        let current = parse(&run(&launch, environment, false, stop, DEADLINE).await?)?;
         let granted = match permission {
             Permission::ScreenCapture => current.screen_capture,
             Permission::Accessibility => current.accessibility,
         };
-        if granted {
+        if granted != Some(false) {
             return Ok(Permissions {
                 node,
                 platform: std::env::consts::OS.into(),
                 local: true,
-                screen_capture: Some(current.screen_capture),
-                accessibility: Some(current.accessibility),
+                screen_capture: current.screen_capture,
+                accessibility: current.accessibility,
             });
         }
-        // This upstream command opens overall onboarding, not one TCC pane.
-        run(&launch, environment, false, stop, DEADLINE).await?;
+        // The helper prompts for every missing grant; a fresh process reads the
+        // result because Screen Recording state is fixed at process launch.
+        run(&launch, environment, true, stop, DEADLINE).await?;
         read(node, caller, Some(launch), environment, stop).await
     }
     #[cfg(not(target_os = "macos"))]
@@ -78,24 +78,54 @@ pub(crate) async fn request(
     }
 }
 
-#[derive(serde::Deserialize)]
+/// Grants the helper reports; `None` means not required or undetermined.
+#[derive(Debug, Default, PartialEq, Eq)]
 struct Grants {
-    #[serde(rename = "screenCaptureGranted")]
-    screen_capture: bool,
-    #[serde(rename = "accessibilityTrusted")]
-    accessibility: bool,
+    screen_capture: Option<bool>,
+    accessibility: Option<bool>,
 }
 
 #[cfg(any(test, target_os = "macos"))]
 const DEADLINE: std::time::Duration = std::time::Duration::from_secs(15);
 
+/// Read the `agent-desktop permissions` JSON envelope.
 #[cfg(any(test, target_os = "macos"))]
 fn parse(bytes: &[u8]) -> Result<Grants, Fault> {
-    serde_json::from_slice(bytes).map_err(|_| {
+    #[derive(serde::Deserialize)]
+    struct Envelope {
+        ok: bool,
+        command: String,
+        data: Option<Report>,
+    }
+    #[derive(serde::Deserialize)]
+    struct Report {
+        accessibility: State,
+        screen_recording: State,
+    }
+    #[derive(serde::Deserialize)]
+    struct State {
+        state: String,
+    }
+    let malformed = || {
         Fault::new(
             ErrorCode::Unavailable,
             "computer permission diagnostics are malformed",
         )
+    };
+    let envelope: Envelope = serde_json::from_slice(bytes).map_err(|_| malformed())?;
+    if !envelope.ok || envelope.command != "permissions" {
+        return Err(malformed());
+    }
+    let report = envelope.data.ok_or_else(malformed)?;
+    let grant = |state: State| match state.state.as_str() {
+        "granted" => Ok(Some(true)),
+        "denied" => Ok(Some(false)),
+        "not_required" | "unknown" => Ok(None),
+        _ => Err(malformed()),
+    };
+    Ok(Grants {
+        screen_capture: grant(report.screen_recording)?,
+        accessibility: grant(report.accessibility)?,
     })
 }
 
@@ -111,7 +141,7 @@ pub(crate) fn unconfigured() -> Fault {
 async fn run(
     launch: &Launch,
     environment: &Environment,
-    json: bool,
+    request: bool,
     stop: &CancellationToken,
     deadline: std::time::Duration,
 ) -> Result<Vec<u8>, Fault> {
@@ -126,7 +156,11 @@ async fn run(
         )
     };
     let Launch::Stdio {
-        command, env, cwd, ..
+        command,
+        env,
+        cwd,
+        computer,
+        ..
     } = launch
     else {
         return Err(Fault::invalid(
@@ -142,16 +176,22 @@ async fn run(
     let mut command = tokio::process::Command::new(command);
     environment.apply(&mut command);
     command
-        .arg("doctor")
+        .arg("permissions")
         .envs(env)
         .current_dir(cwd)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .kill_on_drop(true);
-    if json {
-        command.arg("--json");
+    if request {
+        command.arg("--request");
     }
+    #[cfg(target_os = "macos")]
+    if *computer {
+        crate::computer::helper::disclaim(&mut command);
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = computer;
     let mut child = command.spawn().map_err(|_| failure())?;
     let operation = async {
         let mut bytes = Vec::new();

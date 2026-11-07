@@ -117,17 +117,20 @@ async fn isolated() {
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path().canonicalize().unwrap();
     let helpers = root.join("helpers");
-    let executable = helpers.join("Sailry Computer Use.app/Contents/MacOS/OpenComputerUse");
+    let executable = helpers.join("Sailry Computer Use.app/Contents/MacOS/agent-desktop");
     std::fs::create_dir_all(executable.parent().unwrap()).unwrap();
     std::fs::write(&executable, r#"#!/bin/sh
 fixture="$(cd "$(dirname "$0")/../../../.." && pwd)"
-printf '%s|%s|%s\n' "$*" "$OPEN_COMPUTER_USE_AGENT_SOCKET_NAMESPACE" "$OPEN_COMPUTER_USE_CONFIG_FILE" >> "$fixture/calls"
+printf '%s|%s\n' "$*" "$AGENT_DESKTOP_HOME" >> "$fixture/calls"
+report() {
+  printf '{"version":"2.6","ok":true,"command":"permissions","data":{"accessibility":{"state":"%s"},"automation":{"state":"unknown"},"screen_recording":{"state":"%s"}}}' "$1" "$1"
+}
 case "$*" in
-  'doctor') printf 'permission setup\n' ;;
-  'doctor --json')
+  'permissions --request') report denied ;;
+  'permissions')
     case "$(cat "$fixture/mode")" in
-      missing) printf '{"screenCaptureGranted":false,"accessibilityTrusted":false}' ;;
-      granted) printf '{"screenCaptureGranted":true,"accessibilityTrusted":true}' ;;
+      missing) report denied ;;
+      granted) report granted ;;
       malformed) printf 'private diagnostic content' ;;
       failed) printf 'private diagnostic content' >&2; exit 17 ;;
       *) exit 64 ;;
@@ -146,7 +149,7 @@ esac
                 "--nocapture",
             ])
             .env("SAILRY_HELPERS_DIR", helpers)
-            .env("SAILRY_TEST_OCU_PERMISSIONS", root)
+            .env("SAILRY_TEST_COMPUTER_PERMISSIONS", root)
             .kill_on_drop(true)
             .output(),
     )
@@ -167,7 +170,8 @@ esac
 fn diagnostics_peer() {
     tokio::runtime::Runtime::new().unwrap().block_on(async {
         let root = std::path::PathBuf::from(
-            std::env::var_os("SAILRY_TEST_OCU_PERMISSIONS").expect("isolated permission fixture"),
+            std::env::var_os("SAILRY_TEST_COMPUTER_PERMISSIONS")
+                .expect("isolated permission fixture"),
         );
         for remote in [false, true] {
             let (directory, node, controller, client, _worktree) =
@@ -229,23 +233,14 @@ fn diagnostics_peer() {
             }
             let calls = std::fs::read_to_string(root.join("calls")).unwrap();
             assert_eq!(calls.lines().count(), 2);
-            let namespace = directory
+            let state = directory
                 .path()
                 .join("node/plugins/data/computer")
                 .canonicalize()
-                .unwrap();
-            let config = directory
-                .path()
-                .join("node/plugins/packages")
-                .join(&context.package.digest)
-                .join("ocu.json")
-                .canonicalize()
-                .unwrap();
+                .unwrap()
+                .join("agent-desktop");
             for call in calls.lines() {
-                assert_eq!(
-                    call,
-                    format!("doctor --json|{}|{}", namespace.display(), config.display())
-                );
+                assert_eq!(call, format!("permissions|{}", state.display()));
             }
             let request = client
                 .prepare(Command::RequestComputerPermission {
@@ -269,14 +264,31 @@ fn diagnostics_peer() {
                 assert_eq!(permissions.accessibility, Some(true));
                 let current = std::fs::read_to_string(root.join("calls")).unwrap();
                 assert_eq!(current.lines().count(), 3);
-                assert!(
-                    current
+                assert!(current.lines().nth(2).unwrap().starts_with("permissions|"));
+                assert!(!current.lines().any(|line| line.contains("--request")));
+                // A missing grant prompts once, then a fresh process reads the result.
+                std::fs::write(root.join("mode"), "missing").unwrap();
+                let request = client
+                    .prepare(Command::RequestComputerPermission {
+                        permission: sailry_protocol::computer::Permission::ScreenCapture,
+                    })
+                    .with_plugin(context.clone());
+                let Output::ComputerPermissions(permissions) =
+                    client.execute(request).await.unwrap()
+                else {
+                    panic!("permissions expected")
+                };
+                assert_eq!(permissions.screen_capture, Some(false));
+                assert_eq!(permissions.accessibility, Some(false));
+                let prompted = std::fs::read_to_string(root.join("calls")).unwrap();
+                assert_eq!(
+                    prompted
                         .lines()
-                        .nth(2)
-                        .unwrap()
-                        .starts_with("doctor --json|")
+                        .skip(3)
+                        .map(|line| line.split('|').next().unwrap())
+                        .collect::<Vec<_>>(),
+                    ["permissions", "permissions --request", "permissions"]
                 );
-                assert!(!current.lines().any(|line| line.starts_with("doctor|")));
             }
             for mode in ["malformed", "failed"] {
                 std::fs::write(root.join("mode"), mode).unwrap();

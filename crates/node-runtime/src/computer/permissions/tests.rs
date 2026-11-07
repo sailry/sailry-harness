@@ -1,30 +1,70 @@
 use super::*;
 
+fn envelope(accessibility: serde_json::Value, screen: serde_json::Value) -> serde_json::Value {
+    serde_json::json!({
+        "version": "2.6",
+        "ok": true,
+        "command": "permissions",
+        "data": {
+            "accessibility": accessibility,
+            "automation": {"state": "unknown"},
+            "screen_recording": screen
+        }
+    })
+}
+
 #[test]
 fn maps_reported_grants() {
+    use serde_json::json;
     assert_eq!(DEADLINE, std::time::Duration::from_secs(15));
-    for screen in [false, true] {
-        for accessibility in [false, true] {
-            let state = parse(
-                &serde_json::to_vec(&serde_json::json!({
-                    "screenCaptureGranted": screen,
-                    "accessibilityTrusted": accessibility,
-                    "otherDiagnostic": "ignored"
-                }))
-                .unwrap(),
-            )
-            .unwrap();
-            assert_eq!(state.screen_capture, screen);
-            assert_eq!(state.accessibility, accessibility);
-        }
-    }
-    for malformed in [
-        b"not json".as_slice(),
-        br#"{"screenCaptureGranted":false}"#,
-        br#"{"screenCaptureGranted":false,"accessibilityTrusted":null}"#,
+    let denied = json!({"state": "denied", "suggestion": "Run agent-desktop permissions --guide"});
+    for (state, expected) in [
+        (json!({"state": "granted"}), Some(true)),
+        (denied, Some(false)),
+        (json!({"state": "not_required"}), None),
+        (json!({"state": "unknown"}), None),
     ] {
-        assert_eq!(parse(malformed).err().unwrap().code, ErrorCode::Unavailable);
+        let bytes =
+            serde_json::to_vec(&envelope(state.clone(), json!({"state": "granted"}))).unwrap();
+        assert_eq!(
+            parse(&bytes).unwrap(),
+            Grants {
+                screen_capture: Some(true),
+                accessibility: expected
+            }
+        );
+        let bytes = serde_json::to_vec(&envelope(json!({"state": "granted"}), state)).unwrap();
+        assert_eq!(
+            parse(&bytes).unwrap(),
+            Grants {
+                screen_capture: expected,
+                accessibility: Some(true)
+            }
+        );
     }
+    let granted = envelope(json!({"state": "granted"}), json!({"state": "granted"}));
+    let failed = json!({
+        "version": "2.6",
+        "ok": false,
+        "command": "permissions",
+        "error": {"code": "INTERNAL", "message": "failed", "disposition": {"delivery": "not_delivered", "retry": "safe"}}
+    });
+    let mut other = granted.clone();
+    other["command"] = "status".into();
+    let mut missing = granted.clone();
+    missing["data"]
+        .as_object_mut()
+        .unwrap()
+        .remove("screen_recording");
+    let mut renamed = granted.clone();
+    renamed["data"]["accessibility"]["state"] = "trusted".into();
+    let mut empty = granted;
+    empty["data"]["accessibility"] = serde_json::Value::Null;
+    for malformed in [failed, other, missing, renamed, empty] {
+        let bytes = serde_json::to_vec(&malformed).unwrap();
+        assert_eq!(parse(&bytes).unwrap_err().code, ErrorCode::Unavailable);
+    }
+    assert_eq!(parse(b"not json").unwrap_err().code, ErrorCode::Unavailable);
 }
 
 #[tokio::test]
@@ -91,19 +131,14 @@ mod process {
             command: path,
             args: vec!["mcp".into()],
             env: BTreeMap::from([
-                (
-                    "OPEN_COMPUTER_USE_AGENT_SOCKET_NAMESPACE".into(),
-                    "owned namespace".into(),
-                ),
-                (
-                    "OPEN_COMPUTER_USE_CONFIG_FILE".into(),
-                    "literal ${HOME}/ocu.json".into(),
-                ),
+                ("AGENT_DESKTOP_HOME".into(), "owned state".into()),
+                ("SAILRY_FIXTURE".into(), "literal ${HOME}/value".into()),
             ]),
             cwd: root,
             roots: (handle.try_clone().unwrap(), handle),
             settings: None,
             python: None,
+            computer: true,
         };
         (directory, launch)
     }
@@ -129,16 +164,16 @@ mod process {
     #[tokio::test]
     async fn preserves_captured_configuration() {
         let (_directory, launch) = fixture(
-            "printf '%s|%s|%s|%s' \"$*\" \"$OPEN_COMPUTER_USE_AGENT_SOCKET_NAMESPACE\" \"$OPEN_COMPUTER_USE_CONFIG_FILE\" \"$PWD\"",
+            "printf '%s|%s|%s|%s' \"$*\" \"$AGENT_DESKTOP_HOME\" \"$SAILRY_FIXTURE\" \"$PWD\"",
         );
         let Launch::Stdio { cwd, .. } = &launch else {
             unreachable!()
         };
-        for json in [false, true] {
+        for request in [false, true] {
             let bytes = run(
                 &launch,
                 &Environment::ambient(),
-                json,
+                request,
                 &CancellationToken::new(),
                 DEADLINE,
             )
@@ -147,8 +182,12 @@ mod process {
             assert_eq!(
                 String::from_utf8(bytes).unwrap(),
                 format!(
-                    "{}|owned namespace|literal ${{HOME}}/ocu.json|{}",
-                    if json { "doctor --json" } else { "doctor" },
+                    "{}|owned state|literal ${{HOME}}/value|{}",
+                    if request {
+                        "permissions --request"
+                    } else {
+                        "permissions"
+                    },
                     cwd.display()
                 )
             );
