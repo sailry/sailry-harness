@@ -98,6 +98,7 @@ sailry-link.workspace = true
 sailry-local-models.workspace = true
 sailry-office.workspace = true
 sailry-runtime-core.workspace = true
+sailry-ssh.workspace = true
 sailry-vt.workspace = true
 turso.workspace = true
 tree-sitter.workspace = true

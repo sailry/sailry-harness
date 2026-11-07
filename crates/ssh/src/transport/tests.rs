@@ -1,8 +1,8 @@
 use super::*;
-#[cfg(target_os = "macos")]
-use sailry_link::CancellationToken;
 use std::future::ready;
 use tokio::time::Instant;
+#[cfg(target_os = "macos")]
+use tokio_util::sync::CancellationToken;
 
 #[cfg(target_os = "macos")]
 #[tokio::test(start_paused = true)]

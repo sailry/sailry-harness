@@ -1,0 +1,24 @@
+[package]
+name = "sailry-ssh"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+# The library has no documentation examples; skip the empty rustdoc pass.
+[lib]
+doctest = false
+
+[dependencies]
+russh.workspace = true
+sailry-protocol.workspace = true
+tokio = { workspace = true, features = ["fs", "net"] }
+tokio-util.workspace = true
+tracing.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+
+[lints]
+workspace = true

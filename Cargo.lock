@@ -14611,6 +14611,7 @@ dependencies = [
  "sailry-office",
  "sailry-protocol",
  "sailry-runtime-core",
+ "sailry-ssh",
  "sailry-vt",
  "schemars 1.2.2",
  "semver",
@@ -14752,6 +14753,18 @@ dependencies = [
  "thiserror 2.0.20",
  "tokio",
  "tokio-util",
+]
+
+[[package]]
+name = "sailry-ssh"
+version = "0.1.0"
+dependencies = [
+ "russh",
+ "sailry-protocol",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "zeroize",
 ]
 
 [[package]]
