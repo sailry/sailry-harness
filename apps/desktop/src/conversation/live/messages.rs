@@ -146,6 +146,10 @@ impl View {
         crate::content::markdown::View::new(&state)
             .link_hover_underline(true)
             .link_underline(false)
+            .link_chip(|url| {
+                use gpui_kit::component::{IconName, IconNamed};
+                sailry_client::conversation::links::session(url).map(|_| IconName::Bot.path())
+            })
             .foreground(crate::theme::messages::foreground("assistant", cx))
             .strong_color(answer.then_some(cx.theme().primary))
             .typography(

@@ -21,6 +21,7 @@ class MarkdownContent extends StatelessWidget {
     this.selectable = true,
     this.imageBuilder,
     this.onOpenFile,
+    this.onOpenLink,
   });
 
   final String data;
@@ -30,6 +31,9 @@ class MarkdownContent extends StatelessWidget {
   final bool selectable;
   final MarkdownImageBuilder? imageBuilder;
   final Future<void> Function(Uri uri)? onOpenFile;
+
+  /// Opens a tapped link before the defaults and reports whether it did.
+  final bool Function(String link)? onOpenLink;
 
   @override
   Widget build(BuildContext context) {
@@ -91,6 +95,7 @@ class MarkdownContent extends StatelessWidget {
         ),
       ),
       onTapLink: (_, href, _) async {
+        if (href != null && onOpenLink?.call(href) == true) return;
         final uri = Uri.tryParse(href ?? '');
         try {
           if (uri != null) {

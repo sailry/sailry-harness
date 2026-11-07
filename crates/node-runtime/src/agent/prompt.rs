@@ -173,8 +173,14 @@ mod tests {
         for (left, right) in [(baseline(), parent), (baseline(), child), (parent, child)] {
             assert!(lines(left).is_disjoint(&lines(right)));
         }
-        // Only the user-facing recipient asks the user, resumes sessions or renders charts.
-        for capability in ["ask_user", "list_sessions", "```chart"] {
+        // Only the user-facing recipient asks the user, resumes sessions, renders
+        // charts or links its children.
+        for capability in [
+            "ask_user",
+            "list_sessions",
+            "```chart",
+            "(sailry://session/<session-id>)",
+        ] {
             assert!(parent.contains(capability), "{capability}");
             assert!(!child.contains(capability), "{capability}");
         }

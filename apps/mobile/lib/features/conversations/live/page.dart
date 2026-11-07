@@ -31,6 +31,7 @@ import 'voice.dart';
 import 'message_data.dart';
 import 'message_editor.dart';
 import 'search.dart';
+import 'session_links.dart';
 import 'turn_frame.dart';
 import '../../resources/artifact/submission.dart';
 
@@ -401,6 +402,25 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
     );
   }
 
+  bool _openReplyLink(String link) {
+    final linked = linkedSession(link, _view.value);
+    if (linked == null) return false;
+    final child = linked.child;
+    if (child != null) {
+      _openChild(child);
+      return true;
+    }
+    final session = objects(
+      widget.host.snapshot['sessions'],
+    ).where((session) => session['id'] == linked.id).firstOrNull;
+    if (session == null) {
+      _failure(context.tr('conversationUnavailable'));
+    } else {
+      _openSession(session);
+    }
+    return true;
+  }
+
   void _configuration() => showAppSheet(
     context,
     context.tr('modelPicker'),
@@ -709,6 +729,7 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
                           command: _command,
                           toolOutput: _trackTools,
                           onOpenChild: _openChild,
+                          onOpenLink: _openReplyLink,
                           onTurnAction: _canUseHistory ? _turnAction : null,
                           canChangeHistory: _canChangeHistory,
                           sending: _sending || _pendingSend != null,

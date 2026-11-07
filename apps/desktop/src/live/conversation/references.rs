@@ -2,7 +2,7 @@
 use super::*;
 
 impl Shell {
-    pub(super) fn open_session_reference(
+    pub(crate) fn open_session_reference(
         &mut self,
         source: &Entity<Chat>,
         id: SessionId,

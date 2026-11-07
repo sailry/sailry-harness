@@ -1,6 +1,6 @@
 use super::*;
 use children::{active as is_running, key, latest, running};
-use sailry_client::conversation::children;
+use sailry_client::conversation::{children, links};
 use sailry_protocol::conversation::Child;
 
 mod panel;
@@ -31,7 +31,12 @@ impl View {
         children::session(snapshot, self.binding.project, child).cloned()
     }
 
-    pub(in crate::conversation) fn open_child(&mut self, id: SessionId, cx: &mut Context<Self>) {
+    /// Classify a session a reply links to against this conversation's children.
+    pub(crate) fn linked_session(&self, session: SessionId) -> links::Reference {
+        links::Reference::new(session, &self.history.children)
+    }
+
+    pub(crate) fn open_child(&mut self, id: SessionId, cx: &mut Context<Self>) {
         if self.child(id).is_some() {
             if self.child_session(id).is_some() {
                 if self.error == Some("chat_child_unavailable") {
