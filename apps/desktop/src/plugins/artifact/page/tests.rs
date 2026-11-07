@@ -308,7 +308,13 @@ fn wraps_preview_without_business_bridge(cx: &mut TestAppContext) {
     let mut content = content();
     content.artifact.kind = sailry_protocol::artifact::Kind::Preview;
     content.html = "<!doctype html><html><head><style>body{display:grid}</style></head><body><button onclick='count++'>Count</button><script>let count=0;</script></body></html>".into();
-    let html = cx.update(|cx| crate::content::files::html::surface::document(&content.html, cx));
+    let html = cx.update(|cx| {
+        crate::content::files::html::surface::artifact(
+            &content.html,
+            &crate::theme::css::Palette::of(cx),
+        )
+    });
+    assert!(html.contains("--sailry-background:"));
     assert!(html.contains("sandbox=\"allow-scripts\""));
     assert!(html.contains("frame-src about:"));
     assert!(html.contains("frame-src 'none'"));

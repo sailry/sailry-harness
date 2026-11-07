@@ -40,7 +40,7 @@ impl View {
                 }
                 if let Block::Artifact { artifact } = block {
                     if documents.insert(artifact.id) {
-                        cards.push(self.document_card(artifact.clone(), cx));
+                        cards.push(self.document_card(artifact.clone(), turn, cx));
                     }
                     continue;
                 }

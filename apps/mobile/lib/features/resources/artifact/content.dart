@@ -42,6 +42,66 @@ Map<String, String> artifactTheme(BuildContext context) {
   };
 }
 
+// The frame's own policy only tightens the inherited one; frame-src on the page
+// also blocks navigation of the authored frame.
+const _previewPolicy =
+    "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'none'; form-action 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; webrtc 'block'";
+const _previewTheme =
+    "addEventListener('message',event=>{const rule=event.data&&event.data.sailryTheme;if(event.source!==parent||typeof rule!=='string')return;const style=document.getElementById('sailry-theme');if(style)style.textContent=rule;});";
+
+/// Theme values as `--sailry-*` variables that authored CSS may override.
+String artifactThemeRule(Map<String, String> theme, {required bool dark}) {
+  final rule = StringBuffer(':root{color-scheme:${dark ? 'dark' : 'light'};');
+  for (final entry in theme.entries) {
+    if (!RegExp(r'^[a-z_]+$').hasMatch(entry.key)) continue;
+    final value = entry.value.replaceAll('<', r'\3c ').replaceAll('>', r'\3e ');
+    rule.write('--sailry-${entry.key.replaceAll('_', '-')}:$value;');
+  }
+  rule.write('}');
+  return rule.toString();
+}
+
+/// Self-contained preview code runs in an opaque-origin frame, without the
+/// package template or any page channel, matching the Desktop wrapper.
+String artifactPreviewPage(
+  String html,
+  Map<String, String> theme, {
+  required bool dark,
+}) {
+  if (html.trim().isEmpty ||
+      html.contains('\u0000') ||
+      utf8.encode(html).length > artifactLimit) {
+    throw const FormatException('Invalid artifact preview');
+  }
+  final rule = artifactThemeRule(theme, dark: dark);
+  final frame =
+      '<meta http-equiv="Content-Security-Policy" content="$_previewPolicy; frame-src \'none\'">'
+      '<meta name=color-scheme content=${dark ? 'dark' : 'light'}>'
+      '<style id=sailry-theme>$rule</style><script>$_previewTheme</script>$html';
+  final escaped = frame
+      .replaceAll('&', '&amp;')
+      .replaceAll('"', '&quot;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;');
+  return '<!doctype html><html><head><meta charset=utf-8>'
+      '<meta name=viewport content="width=device-width,initial-scale=1">'
+      '<meta http-equiv="Content-Security-Policy" content="$_previewPolicy; frame-src about:">'
+      '<style id=sailry-theme>$rule</style>'
+      '<style>html,body{margin:0;height:100%;overflow:hidden;background:var(--sailry-background);color:var(--sailry-foreground)}'
+      'iframe{position:absolute;inset:0;border:0;width:100%;height:100%}</style></head>'
+      '<body><iframe id=preview sandbox="allow-scripts" '
+      'allow="camera \'none\'; microphone \'none\'; geolocation \'none\'; clipboard-read \'none\'" '
+      'referrerpolicy="no-referrer" srcdoc="$escaped"></iframe></body></html>';
+}
+
+/// Moves a mounted preview to new theme values without reloading authored state.
+String artifactPreviewRetheme(Map<String, String> theme, {required bool dark}) {
+  final rule = jsonEncode(artifactThemeRule(theme, dark: dark));
+  return "(()=>{const rule=$rule;const style=document.getElementById('sailry-theme');"
+      "if(style)style.textContent=rule;"
+      "document.getElementById('preview')?.contentWindow?.postMessage({sailryTheme:rule},'*');})();";
+}
+
 String artifactAnswers(
   Map<String, dynamic> event,
   Map<String, dynamic> artifact,

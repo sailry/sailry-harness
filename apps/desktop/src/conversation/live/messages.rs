@@ -23,6 +23,7 @@ pub(super) use frame::{duration, elapsed};
 mod grounding;
 mod notices;
 mod retry;
+mod thumbnail;
 mod user;
 mod work;
 use crate::conversation::links::Mode;

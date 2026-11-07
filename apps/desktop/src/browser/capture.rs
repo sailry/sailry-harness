@@ -16,7 +16,8 @@ impl Browser {
         else {
             return Task::ready(Err(failed()));
         };
-        let Ok(receive) = crate::ui::webview_capture::capture(page.read(cx).raw(), Some(960.))
+        let Ok(receive) =
+            crate::ui::webview_capture::capture(page.read(cx).raw(), Some(960.), false)
         else {
             return Task::ready(Err(failed()));
         };

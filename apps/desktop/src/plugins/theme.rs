@@ -1,7 +1,7 @@
 //! Kit b79f4ce's script theme snapshot drops alpha from every color. Expose the
 //! same semantic theme through Sailry's host module, preserving RGBA instead of
 //! asking plugins to maintain another palette or flatten translucent surfaces.
-use gpui_kit::{App, Hsla, Rgba, component::ActiveTheme};
+use gpui_kit::{App, component::ActiveTheme};
 use gpui_shell::{HostObject, HostValue};
 
 pub(super) fn snapshot(cx: &App) -> HostValue {
@@ -46,17 +46,7 @@ pub(super) fn snapshot(cx: &App) -> HostValue {
         .into()
 }
 
-pub(super) fn rgba(color: Hsla) -> String {
-    let color = Rgba::from(color);
-    let byte = |value: f32| (value.clamp(0., 1.) * 255.).round() as u8;
-    format!(
-        "#{:02x}{:02x}{:02x}{:02x}",
-        byte(color.r),
-        byte(color.g),
-        byte(color.b),
-        byte(color.a)
-    )
-}
+pub(super) use crate::theme::css::rgba;
 
 #[cfg(test)]
 mod tests {

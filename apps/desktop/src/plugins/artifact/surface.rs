@@ -326,9 +326,9 @@ impl View {
     ) -> Result<PreparedNative, ()> {
         if content.artifact.kind == sailry_protocol::artifact::Kind::Preview {
             let builder = wry::WebViewBuilder::new()
-                .with_html(crate::content::files::html::surface::document(
+                .with_html(crate::content::files::html::surface::artifact(
                     &content.html,
-                    cx,
+                    &crate::theme::css::Palette::of(cx),
                 ))
                 .with_navigation_handler(|url| url == "about:blank" || url == "about:srcdoc");
             let builder = if let Some(ready) = ready {
@@ -790,10 +790,8 @@ impl Render for View {
                     let script = if self.content.as_ref().is_some_and(|content| {
                         content.artifact.kind == sailry_protocol::artifact::Kind::Preview
                     }) {
-                        // Only fixed wrapper colors change; authored code stays in srcdoc.
-                        format!(
-                            "for(const element of [document.documentElement,document.body])Object.assign(element.style,{{background:{},color:{}}});",
-                            theme["background"], theme["foreground"]
+                        crate::content::files::html::surface::retheme(
+                            &crate::theme::css::Palette::of(cx),
                         )
                     } else {
                         format!("window.sailryDocument?.retheme({theme});")
