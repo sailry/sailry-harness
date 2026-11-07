@@ -149,8 +149,8 @@ impl RoleForm {
             return;
         }
         if self.creating {
-            self.original.max_turns = preset.max_turns();
-            self.original.skills = preset.skills();
+            self.original.max_turns = None;
+            self.original.skills = Vec::new();
             self.appearance = Some(preset.appearance());
             self.read_only = preset.read_only();
             self.model.update(cx, |model, cx| model.set(None, cx));

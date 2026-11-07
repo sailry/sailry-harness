@@ -82,12 +82,11 @@ mod efforts {
 }
 
 #[test]
-fn research_preset_keeps_plugin_template() {
-    let preset = Preset::Research;
-    assert!(preset.read_only());
-    assert_eq!(preset.max_turns(), Some(8));
-    assert_eq!(preset.skills(), ["web-search:research"]);
-    assert!(valid_key(preset.key()));
+fn presets_avoid_builtin_keys() {
+    for preset in Preset::ALL {
+        assert!(valid_key(preset.key()), "{preset:?}");
+        assert!(role::Builtin::find(preset.key()).is_none(), "{preset:?}");
+    }
 }
 
 mod builtin_labels {

@@ -731,14 +731,10 @@ role_instructions: 提示词
 role_appearance: 图标和颜色
 role_presets: 预设
 role_preset_review: 代码审查
-role_preset_research: 调查分析
 role_preset_implement: 开发实现
 role_prompt_review: |-
   审查指定范围内的代码和变更，重点检查正确性、边界条件、回归风险和现有规范。
   先阅读相关实现与测试，再报告有证据支持的问题，注明位置、影响和建议。不要自行修改文件；没有发现问题时如实说明。
-role_prompt_research: |-
-  围绕交付的目标开展调查，优先阅读现有资料、代码和可靠的一手来源。
-  区分已确认事实、推断和待验证问题，给出简洁结论及依据。需要进一步信息时明确指出，不编造结果。
 role_prompt_implement: |-
   完成交付范围内的实现，先理解现有架构、代码规范和验收要求。
   复用已有能力，保持改动聚焦，验证受影响的行为。报告实际完成的内容、检查结果和仍存在的限制。

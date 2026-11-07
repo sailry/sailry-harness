@@ -6,30 +6,23 @@ use sailry_protocol::{Effort, projects::Appearance, role};
 use std::collections::BTreeSet;
 
 /// Complete templates for new roles; editing an existing role replaces only its instructions.
+/// Research is a seeded Node role, so it has no template.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Preset {
     Review,
     Test,
     Implement,
-    Research,
     Docs,
 }
 
 impl Preset {
-    pub const ALL: [Self; 5] = [
-        Self::Review,
-        Self::Test,
-        Self::Implement,
-        Self::Research,
-        Self::Docs,
-    ];
+    pub const ALL: [Self; 4] = [Self::Review, Self::Test, Self::Implement, Self::Docs];
 
     pub fn label(self) -> &'static str {
         match self {
             Self::Review => "role_preset_review",
             Self::Test => "role_preset_test",
             Self::Implement => "role_preset_implement",
-            Self::Research => "role_preset_research",
             Self::Docs => "role_preset_docs",
         }
     }
@@ -39,7 +32,6 @@ impl Preset {
             Self::Review => "role_review_description",
             Self::Test => "role_test_description",
             Self::Implement => "role_implement_description",
-            Self::Research => "role_research_description",
             Self::Docs => "role_docs_description",
         }
     }
@@ -49,7 +41,6 @@ impl Preset {
             Self::Review => "role_prompt_review",
             Self::Test => "role_prompt_test",
             Self::Implement => "role_prompt_implement",
-            Self::Research => "role_prompt_research",
             Self::Docs => "role_prompt_docs",
         }
     }
@@ -59,7 +50,6 @@ impl Preset {
             Self::Review => "reviewer",
             Self::Test => "verifier",
             Self::Implement => "implementer",
-            Self::Research => "research",
             Self::Docs => "writer",
         }
     }
@@ -69,7 +59,6 @@ impl Preset {
             Self::Review => ("code", "blue"),
             Self::Test => ("science", "green"),
             Self::Implement => ("tools", "orange"),
-            Self::Research => ("ai", "cyan"),
             Self::Docs => ("writing", "violet"),
         };
         Appearance {
@@ -79,19 +68,7 @@ impl Preset {
     }
 
     pub fn read_only(self) -> bool {
-        matches!(self, Self::Review | Self::Research)
-    }
-
-    pub fn max_turns(self) -> Option<u32> {
-        (self == Self::Research).then_some(8)
-    }
-
-    pub fn skills(self) -> Vec<String> {
-        if self == Self::Research {
-            vec!["web-search:research".into()]
-        } else {
-            Vec::new()
-        }
+        self == Self::Review
     }
 }
 
