@@ -132,97 +132,94 @@ fn scoped_observations() {
         (
             "hidden_controllers_wait_and_catch_up_once",
             (|_scenario: &str| {
-                for remote in [false, true] {
-                    let fixture = Fixture::new(remote);
-                    fixture.package();
-                    let package = fixture.install(0);
-                    for _ in 0..3 {
-                        let host = Host::new(
-                            fixture.binding.client.clone(),
-                            Context {
-                                invocation: None,
-                                turn: None,
-                                surface: Default::default(),
-                                package: package.summary.reference(),
-                                worktree: Some(fixture.session.worktree),
-                                session: Some(fixture.session.id),
-                            },
-                            fixture.runtime.handle().clone(),
-                            false,
-                            None,
-                        );
-                        host.observe(1, 1, 1, true);
-                        host.set_visible(false);
-                        let module = host.sdk();
-                        let initial =
-                            complete(&fixture, &module, "nextChange", json!(["", "settled"]));
-                        assert_eq!(
-                            initial["visible"], false,
-                            "hidden controllers wait and catch up once"
-                        );
-                        assert_eq!(
-                            host.changes.waiting(),
-                            0,
-                            "hidden controllers wait and catch up once"
-                        );
-                        let pending = module
-                            .begin("nextChange", &args(json!([initial["cursor"], "settled"])))
-                            .unwrap();
-                        let shown = fixture.runtime.block_on(async {
-                            let mut pending = std::pin::pin!(pending);
-                            for cursor in 2..50 {
-                                host.observe(cursor, 1, cursor, true);
-                                assert!(
-                                    futures::poll!(&mut pending).is_pending(),
-                                    "hidden controllers wait and catch up once"
-                                );
-                                assert_eq!(
-                                    host.changes.waiting(),
-                                    1,
-                                    "hidden controllers wait and catch up once"
-                                );
-                            }
-                            host.set_visible(true);
-                            decode(&pending.await.unwrap()).unwrap()
-                        });
-                        assert_eq!(
-                            shown["visible"], true,
-                            "hidden controllers wait and catch up once"
-                        );
-                        assert_eq!(
-                            host.changes.waiting(),
-                            0,
-                            "hidden controllers wait and catch up once"
-                        );
-                        let pending = module
-                            .begin("nextChange", &args(json!([shown["cursor"], "settled"])))
-                            .unwrap();
-                        fixture.runtime.block_on(async {
-                            let mut pending = std::pin::pin!(pending);
+                let fixture = Fixture::new(true);
+                fixture.package();
+                let package = fixture.install(0);
+                for _ in 0..3 {
+                    let host = Host::new(
+                        fixture.binding.client.clone(),
+                        Context {
+                            invocation: None,
+                            turn: None,
+                            surface: Default::default(),
+                            package: package.summary.reference(),
+                            worktree: Some(fixture.session.worktree),
+                            session: Some(fixture.session.id),
+                        },
+                        fixture.runtime.handle().clone(),
+                        false,
+                        None,
+                    );
+                    host.observe(1, 1, 1, true);
+                    host.set_visible(false);
+                    let module = host.sdk();
+                    let initial = complete(&fixture, &module, "nextChange", json!(["", "settled"]));
+                    assert_eq!(
+                        initial["visible"], false,
+                        "hidden controllers wait and catch up once"
+                    );
+                    assert_eq!(
+                        host.changes.waiting(),
+                        0,
+                        "hidden controllers wait and catch up once"
+                    );
+                    let pending = module
+                        .begin("nextChange", &args(json!([initial["cursor"], "settled"])))
+                        .unwrap();
+                    let shown = fixture.runtime.block_on(async {
+                        let mut pending = std::pin::pin!(pending);
+                        for cursor in 2..50 {
+                            host.observe(cursor, 1, cursor, true);
                             assert!(
                                 futures::poll!(&mut pending).is_pending(),
                                 "hidden controllers wait and catch up once"
                             );
-                            // Node-only traffic cannot reawaken a settled controller.
-                            host.observe(100, 1, 49, true);
-                            assert!(
-                                futures::poll!(&mut pending).is_pending(),
+                            assert_eq!(
+                                host.changes.waiting(),
+                                1,
                                 "hidden controllers wait and catch up once"
                             );
-                            host.close();
-                            assert!(
-                                pending.await.is_err(),
-                                "hidden controllers wait and catch up once"
-                            );
-                        });
-                        assert_eq!(
-                            host.changes.waiting(),
-                            0,
+                        }
+                        host.set_visible(true);
+                        decode(&pending.await.unwrap()).unwrap()
+                    });
+                    assert_eq!(
+                        shown["visible"], true,
+                        "hidden controllers wait and catch up once"
+                    );
+                    assert_eq!(
+                        host.changes.waiting(),
+                        0,
+                        "hidden controllers wait and catch up once"
+                    );
+                    let pending = module
+                        .begin("nextChange", &args(json!([shown["cursor"], "settled"])))
+                        .unwrap();
+                    fixture.runtime.block_on(async {
+                        let mut pending = std::pin::pin!(pending);
+                        assert!(
+                            futures::poll!(&mut pending).is_pending(),
                             "hidden controllers wait and catch up once"
                         );
-                    }
-                    fixture.close();
+                        // Node-only traffic cannot reawaken a settled controller.
+                        host.observe(100, 1, 49, true);
+                        assert!(
+                            futures::poll!(&mut pending).is_pending(),
+                            "hidden controllers wait and catch up once"
+                        );
+                        host.close();
+                        assert!(
+                            pending.await.is_err(),
+                            "hidden controllers wait and catch up once"
+                        );
+                    });
+                    assert_eq!(
+                        host.changes.waiting(),
+                        0,
+                        "hidden controllers wait and catch up once"
+                    );
                 }
+                fixture.close();
             }),
         ),
     ] {

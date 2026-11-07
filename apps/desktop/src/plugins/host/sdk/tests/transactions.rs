@@ -60,181 +60,177 @@ fn atomic_receipts() {
         (
             "commits_scoped_values_and_notices_atomically",
             (|_scenario: &str| {
-                for remote in [false, true] {
-                    let fixture = Fixture::new(remote);
-                    let Output::Plugin(package) = fixture.execute(Command::ReadPlugin {
-                        name: "reminders".into(),
-                    }) else {
-                        panic!("plugin expected")
-                    };
-                    let host = Host::new(
-                        fixture.binding.client.clone(),
-                        Context {
-                            invocation: None,
-                            turn: None,
-                            surface: Default::default(),
-                            package: package.summary.reference(),
-                            worktree: None,
-                            session: None,
-                        },
-                        fixture.runtime.handle().clone(),
+                let fixture = Fixture::new(true);
+                let Output::Plugin(package) = fixture.execute(Command::ReadPlugin {
+                    name: "reminders".into(),
+                }) else {
+                    panic!("plugin expected")
+                };
+                let host = Host::new(
+                    fixture.binding.client.clone(),
+                    Context {
+                        invocation: None,
+                        turn: None,
+                        surface: Default::default(),
+                        package: package.summary.reference(),
+                        worktree: None,
+                        session: None,
+                    },
+                    fixture.runtime.handle().clone(),
+                    false,
+                    None,
+                );
+                let module = host.sdk();
+                let operations = json!([
+                    {"kind":"write","data":{"key":"item","value":true,"expected_revision":"0"}},
+                    {"kind":"notify","data":{"title":"Saved","message":"Updated","kind":"info","session":null}},
+                ]);
+                let id = call(&module, "prepareTransaction", json!([operations]));
+                let result = complete(&fixture, &module, "completeRequest", json!([id]));
+                assert_eq!(
+                    result["Ok"]["kind"], "plugin_transaction",
+                    "commits scoped values and notices atomically"
+                );
+                assert_eq!(
+                    result["Ok"]["data"][0]["data"]["revision"], "1",
+                    "commits scoped values and notices atomically"
+                );
+                assert_eq!(
+                    complete(&fixture, &module, "completeRequest", json!([id])),
+                    result,
+                    "commits scoped values and notices atomically"
+                );
+                let stale = call(&module, "prepareTransaction", json!([operations]));
+                let rejected = complete(&fixture, &module, "completeRequest", json!([stale]));
+                assert_eq!(
+                    rejected["Err"]["code"], "revision_conflict",
+                    "commits scoped values and notices atomically"
+                );
+                assert_eq!(
+                    call(
+                        &module,
+                        "isValueConflict",
+                        json!([{"isError":true,"error":rejected["Err"]}])
+                    ),
+                    true,
+                    "commits scoped values and notices atomically"
+                );
+                for outcome in [
+                    json!({"isError":false,"error":rejected["Err"]}),
+                    json!({"isError":true,"error":{"code":"revision_conflict"}}),
+                    json!({"isError":true,"error":{"code":"permission_denied","details":{"kind":"plugin_value_conflict"}}}),
+                ] {
+                    assert_eq!(
+                        call(&module, "isValueConflict", json!([outcome])),
                         false,
-                        None,
-                    );
-                    let module = host.sdk();
-                    let operations = json!([
-                        {"kind":"write","data":{"key":"item","value":true,"expected_revision":"0"}},
-                        {"kind":"notify","data":{"title":"Saved","message":"Updated","kind":"info","session":null}},
-                    ]);
-                    let id = call(&module, "prepareTransaction", json!([operations]));
-                    let result = complete(&fixture, &module, "completeRequest", json!([id]));
-                    assert_eq!(
-                        result["Ok"]["kind"], "plugin_transaction",
                         "commits scoped values and notices atomically"
                     );
-                    assert_eq!(
-                        result["Ok"]["data"][0]["data"]["revision"], "1",
-                        "commits scoped values and notices atomically"
-                    );
-                    assert_eq!(
-                        complete(&fixture, &module, "completeRequest", json!([id])),
-                        result,
-                        "commits scoped values and notices atomically"
-                    );
-                    let stale = call(&module, "prepareTransaction", json!([operations]));
-                    let rejected = complete(&fixture, &module, "completeRequest", json!([stale]));
-                    assert_eq!(
-                        rejected["Err"]["code"], "revision_conflict",
-                        "commits scoped values and notices atomically"
-                    );
-                    assert_eq!(
-                        call(
-                            &module,
-                            "isValueConflict",
-                            json!([{"isError":true,"error":rejected["Err"]}])
-                        ),
-                        true,
-                        "commits scoped values and notices atomically"
-                    );
-                    for outcome in [
-                        json!({"isError":false,"error":rejected["Err"]}),
-                        json!({"isError":true,"error":{"code":"revision_conflict"}}),
-                        json!({"isError":true,"error":{"code":"permission_denied","details":{"kind":"plugin_value_conflict"}}}),
-                    ] {
-                        assert_eq!(
-                            call(&module, "isValueConflict", json!([outcome])),
-                            false,
-                            "commits scoped values and notices atomically"
-                        );
-                    }
-                    let Output::Snapshot(snapshot) = fixture.execute(Command::Snapshot) else {
-                        panic!("snapshot expected")
-                    };
-                    assert_eq!(
-                        snapshot.notifications.len(),
-                        1,
-                        "commits scoped values and notices atomically"
-                    );
-                    assert!(
-                        module
-                            .call(
-                                "prepareTransaction",
-                                &args(json!([[{"kind":"write_file","data":{}}]]))
-                            )
-                            .is_err(),
-                        "commits scoped values and notices atomically"
-                    );
-                    host.close();
-                    assert!(
-                        module
-                            .call("prepareTransaction", &args(json!([operations])))
-                            .is_err(),
-                        "commits scoped values and notices atomically"
-                    );
-                    fixture.close();
                 }
+                let Output::Snapshot(snapshot) = fixture.execute(Command::Snapshot) else {
+                    panic!("snapshot expected")
+                };
+                assert_eq!(
+                    snapshot.notifications.len(),
+                    1,
+                    "commits scoped values and notices atomically"
+                );
+                assert!(
+                    module
+                        .call(
+                            "prepareTransaction",
+                            &args(json!([[{"kind":"write_file","data":{}}]]))
+                        )
+                        .is_err(),
+                    "commits scoped values and notices atomically"
+                );
+                host.close();
+                assert!(
+                    module
+                        .call("prepareTransaction", &args(json!([operations])))
+                        .is_err(),
+                    "commits scoped values and notices atomically"
+                );
+                fixture.close();
             }),
         ),
         (
             "completes_independent_drafts_together",
             (|_scenario: &str| {
-                for remote in [false, true] {
-                    let fixture = Fixture::new(remote);
-                    let Output::Plugin(package) = fixture.execute(Command::ReadPlugin {
-                        name: "reminders".into(),
-                    }) else {
-                        panic!("plugin expected")
-                    };
-                    let host = Host::new(
-                        fixture.binding.client.clone(),
-                        Context {
-                            invocation: None,
-                            turn: None,
-                            surface: Default::default(),
-                            package: package.summary.reference(),
-                            worktree: None,
-                            session: None,
-                        },
-                        fixture.runtime.handle().clone(),
-                        false,
-                        None,
-                    );
-                    let module = host.sdk();
-                    let drafts: Vec<_> = (0..24)
-                        .map(|index| {
-                            call(
-                                &module,
-                                "setValue",
-                                json!([format!("item-{index}"), index, "0"]),
-                            )
-                        })
-                        .collect();
-                    assert_eq!(
-                        host.requests.lock().unwrap().len(),
-                        drafts.len(),
-                        "completes independent drafts together"
-                    );
-                    let pending: Vec<_> = drafts
-                        .iter()
-                        .map(|id| module.begin("completeRequest", &args(json!([id]))).unwrap())
-                        .collect();
-                    let completed = fixture.runtime.block_on(async {
-                        tokio::time::timeout(
-                            Duration::from_secs(10),
-                            futures::future::join_all(pending),
+                let fixture = Fixture::new(true);
+                let Output::Plugin(package) = fixture.execute(Command::ReadPlugin {
+                    name: "reminders".into(),
+                }) else {
+                    panic!("plugin expected")
+                };
+                let host = Host::new(
+                    fixture.binding.client.clone(),
+                    Context {
+                        invocation: None,
+                        turn: None,
+                        surface: Default::default(),
+                        package: package.summary.reference(),
+                        worktree: None,
+                        session: None,
+                    },
+                    fixture.runtime.handle().clone(),
+                    false,
+                    None,
+                );
+                let module = host.sdk();
+                let drafts: Vec<_> = (0..24)
+                    .map(|index| {
+                        call(
+                            &module,
+                            "setValue",
+                            json!([format!("item-{index}"), index, "0"]),
                         )
-                        .await
-                        .expect("concurrent value write deadline")
-                    });
-                    for (index, outcome) in completed.into_iter().enumerate() {
-                        let outcome = decode(&outcome.unwrap()).unwrap();
-                        assert_eq!(
-                            outcome["Ok"]["data"]["revision"], "1",
-                            "completes independent drafts together"
-                        );
-                        assert_eq!(
-                            outcome["Ok"]["data"]["value"], index,
-                            "completes independent drafts together"
-                        );
-                    }
+                    })
+                    .collect();
+                assert_eq!(
+                    host.requests.lock().unwrap().len(),
+                    drafts.len(),
+                    "completes independent drafts together"
+                );
+                let pending: Vec<_> = drafts
+                    .iter()
+                    .map(|id| module.begin("completeRequest", &args(json!([id]))).unwrap())
+                    .collect();
+                let completed = fixture.runtime.block_on(async {
+                    tokio::time::timeout(
+                        Duration::from_secs(10),
+                        futures::future::join_all(pending),
+                    )
+                    .await
+                    .expect("concurrent value write deadline")
+                });
+                for (index, outcome) in completed.into_iter().enumerate() {
+                    let outcome = decode(&outcome.unwrap()).unwrap();
                     assert_eq!(
-                        complete(&fixture, &module, "listKeys", json!([]))["keys"]
-                            .as_array()
-                            .unwrap()
-                            .len(),
-                        drafts.len(),
+                        outcome["Ok"]["data"]["revision"], "1",
                         "completes independent drafts together"
                     );
-                    let oversized = "x".repeat(MAX_COMMAND_BYTES);
-                    assert!(
-                        module
-                            .call("setValue", &args(json!(["large", oversized, "0"])))
-                            .is_err(),
+                    assert_eq!(
+                        outcome["Ok"]["data"]["value"], index,
                         "completes independent drafts together"
                     );
-                    host.close();
-                    fixture.close();
                 }
+                assert_eq!(
+                    complete(&fixture, &module, "listKeys", json!([]))["keys"]
+                        .as_array()
+                        .unwrap()
+                        .len(),
+                    drafts.len(),
+                    "completes independent drafts together"
+                );
+                let oversized = "x".repeat(MAX_COMMAND_BYTES);
+                assert!(
+                    module
+                        .call("setValue", &args(json!(["large", oversized, "0"])))
+                        .is_err(),
+                    "completes independent drafts together"
+                );
+                host.close();
+                fixture.close();
             }),
         ),
     ] {

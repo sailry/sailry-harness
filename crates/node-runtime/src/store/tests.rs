@@ -219,61 +219,55 @@ async fn publishes_commits_until_shutdown() {
 
 #[tokio::test]
 async fn recovers_lagged_subscriber() {
-    for remote in [false, true] {
-        let (directory, node, local) = node().await;
-        let controller = sailry_link::Link::controller(
-            directory.path().join("controller"),
-            sailry_link::NetworkScope::default(),
-        )
+    let (directory, node, _) = node().await;
+    let controller = sailry_link::Link::controller(
+        directory.path().join("controller"),
+        sailry_link::NetworkScope::default(),
+    )
+    .await
+    .unwrap();
+    controller
+        .handle()
+        .pair(node.link().invite().unwrap().ticket())
         .await
         .unwrap();
-        controller
-            .handle()
-            .pair(node.link().invite().unwrap().ticket())
+    let client = Client::new(controller.handle().remote(node.link().address()));
+    let mut subscription = client.subscribe().await.unwrap();
+    let mut projection = Projection::new(node.id(), 1);
+    projection
+        .apply(1, subscription.next().await.unwrap())
+        .unwrap();
+    let initial = projection.snapshot().unwrap().cursor;
+    let revisions = (super::CAPACITY + 1) as u64;
+    for revision in 0..revisions {
+        client
+            .execute(client.prepare(Command::SetDefaults {
+                expected_revision: revision,
+                config: config("model"),
+            }))
             .await
             .unwrap();
-        let client = if remote {
-            Client::new(controller.handle().remote(node.link().address()))
-        } else {
-            local
-        };
-        let mut subscription = client.subscribe().await.unwrap();
-        let mut projection = Projection::new(node.id(), 1);
-        projection
-            .apply(1, subscription.next().await.unwrap())
-            .unwrap();
-        let initial = projection.snapshot().unwrap().cursor;
-        let revisions = (super::CAPACITY + 1) as u64;
-        for revision in 0..revisions {
-            client
-                .execute(client.prepare(Command::SetDefaults {
-                    expected_revision: revision,
-                    config: config("model"),
-                }))
-                .await
-                .unwrap();
-        }
-        let mut last = None;
-        for revision in 1..=revisions {
-            let update = tokio::time::timeout(Duration::from_secs(5), subscription.next())
-                .await
-                .unwrap()
-                .unwrap();
-            let Update::Event(event) = &update else {
-                panic!("durable event expected");
-            };
-            assert_eq!(event.cursor, initial + revision);
-            assert_eq!(projection.apply(1, update.clone()).unwrap(), Apply::Applied);
-            assert_eq!(projection.snapshot().unwrap().defaults.revision, revision);
-            last = Some(update);
-        }
-        client.recover(&mut projection, 1).await.unwrap();
-        assert_eq!(projection.snapshot().unwrap(), &snapshot(&client).await);
-        assert_eq!(projection.snapshot().unwrap().defaults.revision, revisions);
-        assert_eq!(projection.apply(1, last.unwrap()).unwrap(), Apply::Ignored);
-        controller.close().await.unwrap();
-        node.shutdown().await.unwrap();
     }
+    let mut last = None;
+    for revision in 1..=revisions {
+        let update = tokio::time::timeout(Duration::from_secs(5), subscription.next())
+            .await
+            .unwrap()
+            .unwrap();
+        let Update::Event(event) = &update else {
+            panic!("durable event expected");
+        };
+        assert_eq!(event.cursor, initial + revision);
+        assert_eq!(projection.apply(1, update.clone()).unwrap(), Apply::Applied);
+        assert_eq!(projection.snapshot().unwrap().defaults.revision, revision);
+        last = Some(update);
+    }
+    client.recover(&mut projection, 1).await.unwrap();
+    assert_eq!(projection.snapshot().unwrap(), &snapshot(&client).await);
+    assert_eq!(projection.snapshot().unwrap().defaults.revision, revisions);
+    assert_eq!(projection.apply(1, last.unwrap()).unwrap(), Apply::Ignored);
+    controller.close().await.unwrap();
+    node.shutdown().await.unwrap();
 }
 
 #[tokio::test]

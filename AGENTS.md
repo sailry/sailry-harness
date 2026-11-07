@@ -62,7 +62,7 @@
 - Goose GDK is the Agent execution engine. Node assembles its state machine and integrates effects through one authoritative canonical history writer; session loading and UI projections are read-only derivatives, not another runner or history writer.
 - A durable command must reach durable Node admission before Link acknowledges safe receipt. Keep transport receipt distinct from business completion; reuse stable request IDs and report uncertain side effects without automatic replay. Do not add a second durable inbox by default.
 - Desktop does not use Flutter Rust Bridge. The Mobile bridge only adapts shared Rust client contracts, handles and async subscriptions; it must not copy business rules or become another persistence layer.
-- Keep feature modules inside their owning crate. Create another crate only for a demonstrated dependency, binary, platform, or testing boundary.
+- Keep feature modules inside their owning crate. Create another crate only for a demonstrated dependency, binary, platform, compile-time, or testing boundary.
 - Pin external dependencies and commit applicable lockfiles. GDK dependency selection belongs in the root Cargo workspace with its resolved Git revision in Cargo.lock, not absolute developer-machine paths.
 - Do not add a JavaScript runtime merely because the UI framework offers scripting. The application Shell layout is unrelated to enabling `gpui-shell`.
 

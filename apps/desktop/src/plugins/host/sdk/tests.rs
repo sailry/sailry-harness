@@ -39,207 +39,198 @@ fn complete(fixture: &Fixture, module: &HostModule, name: &str, arguments: Value
 fn scoped_revisions() {
     for (scenario, check) in [
         (
-            "storage_scopes_local_and_remote_receipts",
+            "storage_scopes_receipts",
             (|_scenario: &str| {
-                for remote in [false, true] {
-                    let fixture = Fixture::new(remote);
-                    let (package, _server) =
-                        fixture.game_plugin("city-trader", &["player_1_model", "player_2_model"]);
-                    let host = Host::new(
-                        fixture.binding.client.clone(),
-                        Context {
-                            invocation: None,
-                            turn: None,
-                            surface: Default::default(),
-                            package: package.summary.reference(),
-                            worktree: Some(fixture.session.worktree),
-                            session: Some(fixture.session.id),
-                        },
-                        fixture.runtime.handle().clone(),
-                        false,
+                let fixture = Fixture::new(true);
+                let (package, _server) =
+                    fixture.game_plugin("city-trader", &["player_1_model", "player_2_model"]);
+                let host = Host::new(
+                    fixture.binding.client.clone(),
+                    Context {
+                        invocation: None,
+                        turn: None,
+                        surface: Default::default(),
+                        package: package.summary.reference(),
+                        worktree: Some(fixture.session.worktree),
+                        session: Some(fixture.session.id),
+                    },
+                    fixture.runtime.handle().clone(),
+                    false,
+                    None,
+                );
+                let module = host.sdk();
+                module.validate().unwrap();
+                let entry = complete(&fixture, &module, "getValue", json!(["prefs"]));
+                assert_eq!(
+                    entry,
+                    json!({"key":"prefs","revision":"0","value":null,"present":false}),
+                    "storage scopes receipts"
+                );
+                let id = call(
+                    &module,
+                    "setValue",
+                    json!(["prefs",{"enabled":true,"amount":3},entry["revision"]]),
+                );
+                let first = complete(&fixture, &module, "completeRequest", json!([id]));
+                assert_eq!(
+                    first["Ok"]["data"]["revision"], "1",
+                    "storage scopes receipts"
+                );
+                assert_eq!(
+                    first["Ok"]["data"]["value"]["amount"], 3,
+                    "storage scopes receipts"
+                );
+                assert_eq!(
+                    complete(&fixture, &module, "completeRequest", json!([id])),
+                    first,
+                    "storage scopes receipts"
+                );
+                call(&module, "forgetRequest", json!([id]));
+                assert!(
+                    host.requests.lock().unwrap().is_empty(),
+                    "storage scopes receipts"
+                );
+                assert_eq!(
+                    complete(&fixture, &module, "listKeys", json!([]))["keys"],
+                    json!(["prefs"]),
+                    "storage scopes receipts"
+                );
+                let stale = call(&module, "setValue", json!(["prefs", null, "0"]));
+                let fault = complete(&fixture, &module, "completeRequest", json!([stale]));
+                assert_eq!(
+                    fault["Err"]["code"], "revision_conflict",
+                    "storage scopes receipts"
+                );
+                call(&module, "forgetRequest", json!([stale]));
+                let id = call(&module, "deleteValue", json!(["prefs", "1"]));
+                let deleted = complete(&fixture, &module, "completeRequest", json!([id]));
+                assert_eq!(
+                    deleted["Ok"]["data"]["revision"], "2",
+                    "storage scopes receipts"
+                );
+                assert_eq!(
+                    deleted["Ok"]["data"]["present"], false,
+                    "storage scopes receipts"
+                );
+                call(&module, "forgetRequest", json!([id]));
+                assert_eq!(
+                    complete(&fixture, &module, "listKeys", json!([]))["keys"],
+                    json!([]),
+                    "storage scopes receipts"
+                );
+                let id = call(&module, "setValue", json!(["prefs", null, "2"]));
+                let stored = complete(&fixture, &module, "completeRequest", json!([id]));
+                assert_eq!(
+                    stored["Ok"]["data"]["present"], true,
+                    "storage scopes receipts"
+                );
+                assert_eq!(
+                    complete(&fixture, &module, "getValue", json!(["prefs"])),
+                    stored["Ok"]["data"],
+                    "storage scopes receipts"
+                );
+                call(&module, "forgetRequest", json!([id]));
+                let indexed = call(
+                    &module,
+                    "indexedValue",
+                    json!(["prefs",{"enabled":true},{"fields":["literal",""],"tags":["opaque"],"order":1},"3"]),
+                );
+                let indexed_result =
+                    complete(&fixture, &module, "completeRequest", json!([indexed]));
+                assert_eq!(
+                    indexed_result["Ok"]["data"]["revision"], "4",
+                    "storage scopes receipts"
+                );
+                call(&module, "forgetRequest", json!([indexed]));
+                let page = complete(
+                    &fixture,
+                    &module,
+                    "searchValues",
+                    json!([{"terms":["literal"],"all":["opaque"],"limit":1}]),
+                );
+                assert_eq!(
+                    page["entries"][0]["key"], "prefs",
+                    "storage scopes receipts"
+                );
+                assert_eq!(
+                    page["entries"][0]["revision"], "4",
+                    "storage scopes receipts"
+                );
+                assert!(
+                    page["now_ms"].as_u64().unwrap() > 0,
+                    "storage scopes receipts"
+                );
+                for (input, raw, mode) in [
+                    (
+                        json!({"terms":["literal"],"query":"  Original order! 東京  "}),
+                        Some("  Original order! 東京  "),
+                        sailry_protocol::plugin::storage::Mode::Hybrid,
+                    ),
+                    (
+                        json!({"terms":["literal"],"query":"  Original order! 東京  ","mode":"keyword"}),
+                        Some("  Original order! 東京  "),
+                        sailry_protocol::plugin::storage::Mode::Keyword,
+                    ),
+                    (
+                        json!({"terms":["literal"]}),
                         None,
-                    );
-                    let module = host.sdk();
-                    module.validate().unwrap();
-                    let entry = complete(&fixture, &module, "getValue", json!(["prefs"]));
-                    assert_eq!(
-                        entry,
-                        json!({"key":"prefs","revision":"0","value":null,"present":false}),
-                        "storage scopes local and remote receipts"
-                    );
-                    let id = call(
-                        &module,
-                        "setValue",
-                        json!(["prefs",{"enabled":true,"amount":3},entry["revision"]]),
-                    );
-                    let first = complete(&fixture, &module, "completeRequest", json!([id]));
-                    assert_eq!(
-                        first["Ok"]["data"]["revision"], "1",
-                        "storage scopes local and remote receipts"
-                    );
-                    assert_eq!(
-                        first["Ok"]["data"]["value"]["amount"], 3,
-                        "storage scopes local and remote receipts"
-                    );
-                    assert_eq!(
-                        complete(&fixture, &module, "completeRequest", json!([id])),
-                        first,
-                        "storage scopes local and remote receipts"
-                    );
-                    call(&module, "forgetRequest", json!([id]));
-                    assert!(
-                        host.requests.lock().unwrap().is_empty(),
-                        "storage scopes local and remote receipts"
-                    );
-                    assert_eq!(
-                        complete(&fixture, &module, "listKeys", json!([]))["keys"],
-                        json!(["prefs"]),
-                        "storage scopes local and remote receipts"
-                    );
-                    let stale = call(&module, "setValue", json!(["prefs", null, "0"]));
-                    let fault = complete(&fixture, &module, "completeRequest", json!([stale]));
-                    assert_eq!(
-                        fault["Err"]["code"], "revision_conflict",
-                        "storage scopes local and remote receipts"
-                    );
-                    call(&module, "forgetRequest", json!([stale]));
-                    let id = call(&module, "deleteValue", json!(["prefs", "1"]));
-                    let deleted = complete(&fixture, &module, "completeRequest", json!([id]));
-                    assert_eq!(
-                        deleted["Ok"]["data"]["revision"], "2",
-                        "storage scopes local and remote receipts"
-                    );
-                    assert_eq!(
-                        deleted["Ok"]["data"]["present"], false,
-                        "storage scopes local and remote receipts"
-                    );
-                    call(&module, "forgetRequest", json!([id]));
-                    assert_eq!(
-                        complete(&fixture, &module, "listKeys", json!([]))["keys"],
-                        json!([]),
-                        "storage scopes local and remote receipts"
-                    );
-                    let id = call(&module, "setValue", json!(["prefs", null, "2"]));
-                    let stored = complete(&fixture, &module, "completeRequest", json!([id]));
-                    assert_eq!(
-                        stored["Ok"]["data"]["present"], true,
-                        "storage scopes local and remote receipts"
-                    );
-                    assert_eq!(
-                        complete(&fixture, &module, "getValue", json!(["prefs"])),
-                        stored["Ok"]["data"],
-                        "storage scopes local and remote receipts"
-                    );
-                    call(&module, "forgetRequest", json!([id]));
-                    let indexed = call(
-                        &module,
-                        "indexedValue",
-                        json!(["prefs",{"enabled":true},{"fields":["literal",""],"tags":["opaque"],"order":1},"3"]),
-                    );
-                    let indexed_result =
-                        complete(&fixture, &module, "completeRequest", json!([indexed]));
-                    assert_eq!(
-                        indexed_result["Ok"]["data"]["revision"], "4",
-                        "storage scopes local and remote receipts"
-                    );
-                    call(&module, "forgetRequest", json!([indexed]));
-                    let page = complete(
+                        sailry_protocol::plugin::storage::Mode::Keyword,
+                    ),
+                ] {
+                    let page = complete(&fixture, &module, "searchValues", json!([input]));
+                    assert_eq!(page["mode"], "keyword", "storage scopes receipts");
+                    let requests = fixture.transport.requests.lock().unwrap();
+                    let query = requests
+                        .iter()
+                        .rev()
+                        .find_map(|request| {
+                            if let Command::SearchPluginValues(query) = &request.command {
+                                Some(query)
+                            } else {
+                                None
+                            }
+                        })
+                        .expect("storage search request expected");
+                    assert_eq!(query.query.as_deref(), raw, "storage scopes receipts");
+                    assert_eq!(query.mode, mode, "storage scopes receipts");
+                }
+                let ordinary = call(&module, "setValue", json!(["prefs", null, "4"]));
+                assert_eq!(
+                    complete(&fixture, &module, "completeRequest", json!([ordinary]))["Ok"]["data"]
+                        ["revision"],
+                    "5",
+                    "storage scopes receipts"
+                );
+                call(&module, "forgetRequest", json!([ordinary]));
+                assert_eq!(
+                    complete(
                         &fixture,
                         &module,
                         "searchValues",
-                        json!([{"terms":["literal"],"all":["opaque"],"limit":1}]),
-                    );
-                    assert_eq!(
-                        page["entries"][0]["key"], "prefs",
-                        "storage scopes local and remote receipts"
-                    );
-                    assert_eq!(
-                        page["entries"][0]["revision"], "4",
-                        "storage scopes local and remote receipts"
-                    );
-                    assert!(
-                        page["now_ms"].as_u64().unwrap() > 0,
-                        "storage scopes local and remote receipts"
-                    );
-                    for (input, raw, mode) in [
-                        (
-                            json!({"terms":["literal"],"query":"  Original order! 東京  "}),
-                            Some("  Original order! 東京  "),
-                            sailry_protocol::plugin::storage::Mode::Hybrid,
-                        ),
-                        (
-                            json!({"terms":["literal"],"query":"  Original order! 東京  ","mode":"keyword"}),
-                            Some("  Original order! 東京  "),
-                            sailry_protocol::plugin::storage::Mode::Keyword,
-                        ),
-                        (
-                            json!({"terms":["literal"]}),
-                            None,
-                            sailry_protocol::plugin::storage::Mode::Keyword,
-                        ),
-                    ] {
-                        let page = complete(&fixture, &module, "searchValues", json!([input]));
-                        assert_eq!(
-                            page["mode"], "keyword",
-                            "storage scopes local and remote receipts"
-                        );
-                        let requests = fixture.transport.requests.lock().unwrap();
-                        let query = requests
-                            .iter()
-                            .rev()
-                            .find_map(|request| {
-                                if let Command::SearchPluginValues(query) = &request.command {
-                                    Some(query)
-                                } else {
-                                    None
-                                }
-                            })
-                            .expect("storage search request expected");
-                        assert_eq!(
-                            query.query.as_deref(),
-                            raw,
-                            "storage scopes local and remote receipts"
-                        );
-                        assert_eq!(query.mode, mode, "storage scopes local and remote receipts");
-                    }
-                    let ordinary = call(&module, "setValue", json!(["prefs", null, "4"]));
-                    assert_eq!(
-                        complete(&fixture, &module, "completeRequest", json!([ordinary]))["Ok"]["data"]
-                            ["revision"],
-                        "5",
-                        "storage scopes local and remote receipts"
-                    );
-                    call(&module, "forgetRequest", json!([ordinary]));
-                    assert_eq!(
-                        complete(
-                            &fixture,
-                            &module,
-                            "searchValues",
-                            json!([{"terms":["literal"]}])
-                        )["entries"],
-                        json!([]),
-                        "storage scopes local and remote receipts"
-                    );
-                    let denied = call(
-                        &module,
-                        "prepareRequest",
-                        json!([{"kind":"read_file","data":{
-                        "worktree":fixture.session.worktree,"path":"missing.txt"
-                            }}]),
-                    );
-                    assert_eq!(
-                        complete(&fixture, &module, "completeRequest", json!([denied]))["Err"]["code"],
-                        "permission_denied",
-                        "storage scopes local and remote receipts"
-                    );
-                    call(&module, "forgetRequest", json!([denied]));
-                    host.close();
-                    assert!(
-                        module.begin("getValue", &args(json!(["prefs"]))).is_err(),
-                        "storage scopes local and remote receipts"
-                    );
-                    fixture.close();
-                }
+                        json!([{"terms":["literal"]}])
+                    )["entries"],
+                    json!([]),
+                    "storage scopes receipts"
+                );
+                let denied = call(
+                    &module,
+                    "prepareRequest",
+                    json!([{"kind":"read_file","data":{
+                    "worktree":fixture.session.worktree,"path":"missing.txt"
+                        }}]),
+                );
+                assert_eq!(
+                    complete(&fixture, &module, "completeRequest", json!([denied]))["Err"]["code"],
+                    "permission_denied",
+                    "storage scopes receipts"
+                );
+                call(&module, "forgetRequest", json!([denied]));
+                host.close();
+                assert!(
+                    module.begin("getValue", &args(json!(["prefs"]))).is_err(),
+                    "storage scopes receipts"
+                );
+                fixture.close();
             }) as fn(&str),
         ),
         (

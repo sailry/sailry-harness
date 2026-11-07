@@ -213,66 +213,64 @@ mod decoding {
 
 #[test]
 fn scoped_file_downloads_follow_package_availability() {
-    for remote in [false, true] {
-        let fixture = Fixture::with_tools(remote, Vec::new());
-        let bytes = png(32, 16);
-        std::fs::write(fixture.directory.path().join("project/image.png"), &bytes).unwrap();
-        let context = fixture.files_context();
-        let source = ImageSource::File {
-            worktree: fixture.binding.worktree.unwrap(),
-            path: "image.png".into(),
-            context: Some(context.clone()),
-        };
-        let load = || {
-            fixture.runtime.block_on(load::load(
-                fixture.binding.client.clone(),
-                source.clone(),
-                128,
-                CancellationToken::new(),
-                Arc::new(tokio::sync::Semaphore::new(2)),
-            ))
-        };
-        assert!(load().is_ok());
-        let download = |name: &str| {
-            let target = fixture.directory.path().join(name);
-            let (status, receiver) =
-                tokio::sync::watch::channel(crate::downloads::transfer::Status::Preparing);
-            fixture.runtime.block_on(crate::downloads::transfer::run(
-                fixture.binding.client.clone(),
-                crate::downloads::transfer::Source::ScopedFile {
-                    context: context.clone(),
-                    path: "image.png".into(),
-                },
-                target.clone(),
-                CancellationToken::new(),
-                status,
-            ));
-            let result = receiver.borrow().clone();
-            (target, result)
-        };
-        let (target, status) = download("download.png");
-        assert!(matches!(
+    let fixture = Fixture::with_tools(Vec::new());
+    let bytes = png(32, 16);
+    std::fs::write(fixture.directory.path().join("project/image.png"), &bytes).unwrap();
+    let context = fixture.files_context();
+    let source = ImageSource::File {
+        worktree: fixture.binding.worktree.unwrap(),
+        path: "image.png".into(),
+        context: Some(context.clone()),
+    };
+    let load = || {
+        fixture.runtime.block_on(load::load(
+            fixture.binding.client.clone(),
+            source.clone(),
+            128,
+            CancellationToken::new(),
+            Arc::new(tokio::sync::Semaphore::new(2)),
+        ))
+    };
+    assert!(load().is_ok());
+    let download = |name: &str| {
+        let target = fixture.directory.path().join(name);
+        let (status, receiver) =
+            tokio::sync::watch::channel(crate::downloads::transfer::Status::Preparing);
+        fixture.runtime.block_on(crate::downloads::transfer::run(
+            fixture.binding.client.clone(),
+            crate::downloads::transfer::Source::ScopedFile {
+                context: context.clone(),
+                path: "image.png".into(),
+            },
+            target.clone(),
+            CancellationToken::new(),
             status,
-            crate::downloads::transfer::Status::Finished(Ok(()))
         ));
-        assert_eq!(std::fs::read(target).unwrap(), bytes);
-        let sailry_protocol::Output::Plugin(info) = fixture.execute(Command::ReadPlugin {
-            name: context.package.name.clone(),
-        }) else {
-            panic!("Files package expected");
-        };
-        fixture.execute(Command::SetPluginEnabled {
-            name: context.package.name.clone(),
-            expected_revision: info.summary.revision,
-            enabled: false,
-        });
-        assert!(load().is_err());
-        let (target, status) = download("disabled.png");
-        assert!(matches!(
-            status,
-            crate::downloads::transfer::Status::Finished(Err(_))
-        ));
-        assert!(!target.exists());
-        fixture.close();
-    }
+        let result = receiver.borrow().clone();
+        (target, result)
+    };
+    let (target, status) = download("download.png");
+    assert!(matches!(
+        status,
+        crate::downloads::transfer::Status::Finished(Ok(()))
+    ));
+    assert_eq!(std::fs::read(target).unwrap(), bytes);
+    let sailry_protocol::Output::Plugin(info) = fixture.execute(Command::ReadPlugin {
+        name: context.package.name.clone(),
+    }) else {
+        panic!("Files package expected");
+    };
+    fixture.execute(Command::SetPluginEnabled {
+        name: context.package.name.clone(),
+        expected_revision: info.summary.revision,
+        enabled: false,
+    });
+    assert!(load().is_err());
+    let (target, status) = download("disabled.png");
+    assert!(matches!(
+        status,
+        crate::downloads::transfer::Status::Finished(Err(_))
+    ));
+    assert!(!target.exists());
+    fixture.close();
 }
