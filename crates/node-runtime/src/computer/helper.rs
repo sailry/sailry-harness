@@ -143,8 +143,8 @@ mod disclaimed {
                     .chain(std::iter::once(std::ptr::null_mut()))
                     .collect::<Vec<_>>()
             };
-            let argv = pointers(&arguments);
-            let envp = pointers(&environment);
+            let argv = pointers(arguments.as_slice());
+            let envp = pointers(environment.as_slice());
             let mut attributes: libc::posix_spawnattr_t = std::ptr::null_mut();
             // SAFETY: attributes is a valid out-pointer for initialization.
             if unsafe { libc::posix_spawnattr_init(&mut attributes) } != 0 {
