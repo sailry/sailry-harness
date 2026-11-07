@@ -1,48 +1,29 @@
-//! Captured credentials are removed from provider diagnostics before publication.
+use super::types::{Error, ErrorKind, Model, ModelStream, Request};
 use async_trait::async_trait;
 use futures::StreamExt;
-use goose_provider_types::{
-    base::{MessageStream, Provider},
-    conversation::message::Message,
-    errors::ProviderError,
-    model::ModelConfig,
-};
 use sailry_protocol::{Fault, Secret};
 use std::sync::Arc;
+use tokio_util::sync::CancellationToken;
 
 struct Protected {
-    inner: Arc<dyn Provider>,
+    inner: Arc<dyn Model>,
     secrets: Vec<Secret>,
 }
 
-pub(super) fn wrap(inner: Arc<dyn Provider>, secrets: Vec<Secret>) -> Arc<dyn Provider> {
+pub(super) fn wrap(inner: Arc<dyn Model>, secrets: Vec<Secret>) -> Arc<dyn Model> {
     Arc::new(Protected { inner, secrets })
 }
 
 #[async_trait]
-impl Provider for Protected {
-    fn get_name(&self) -> &str {
-        self.inner.get_name()
-    }
-
-    fn manages_own_context(&self) -> bool {
-        self.inner.manages_own_context()
-    }
-
-    async fn get_context_limit(&self, model: &str, override_limit: Option<usize>) -> usize {
-        self.inner.get_context_limit(model, override_limit).await
-    }
-
-    async fn stream(
+impl Model for Protected {
+    async fn call(
         &self,
-        config: &ModelConfig,
-        system: &str,
-        messages: &[Message],
-        tools: &[rmcp::model::Tool],
-    ) -> Result<MessageStream, ProviderError> {
+        request: Request,
+        cancel: CancellationToken,
+    ) -> Result<ModelStream, Error> {
         let stream = self
             .inner
-            .stream(config, system, messages, tools)
+            .call(request, cancel)
             .await
             .map_err(|error| redact(error, &self.secrets))?;
         let secrets = self.secrets.clone();
@@ -52,19 +33,8 @@ impl Provider for Protected {
     }
 }
 
-pub(super) fn redact(mut error: ProviderError, secrets: &[Secret]) -> ProviderError {
-    if let Some(details) = error.details_mut() {
-        *details = safe(details, secrets);
-    }
-    if let ProviderError::CreditsExhausted { top_up_url, .. } = &mut error
-        && top_up_url.as_ref().is_some_and(|value| {
-            secrets
-                .iter()
-                .any(|secret| !secret.expose().is_empty() && value.contains(secret.expose()))
-        })
-    {
-        *top_up_url = None;
-    }
+pub(super) fn redact(mut error: Error, secrets: &[Secret]) -> Error {
+    error.message = safe(&error.message, secrets);
     error
 }
 
@@ -82,48 +52,40 @@ pub(in crate::agent) fn safe(value: &str, secrets: &[Secret]) -> String {
     value
 }
 
-/// GDK uses the same retryable variant for transport and stream decoding.
-/// Its `stream_decode_error` helper owns this fixed prefix; it is not a
-/// classification inferred from arbitrary upstream diagnostic text.
-pub(super) fn network(error: &ProviderError) -> bool {
-    matches!(error, ProviderError::NetworkError(message)
-        if !message.starts_with("Stream decode error: "))
+pub(super) fn network(error: &Error) -> bool {
+    error.kind == ErrorKind::Network
 }
 
-pub(in crate::agent) fn fault(error: ProviderError) -> Fault {
+pub(in crate::agent) fn fault(error: Error) -> Fault {
     use sailry_protocol::{ErrorCode, FaultDetails, ModelFailure};
-    let code = if matches!(error, ProviderError::NotConfigured) {
+    let code = if error.kind == ErrorKind::NotConfigured {
         ErrorCode::NotConfigured
     } else {
         ErrorCode::Unavailable
     };
-    let reason = match error {
-        ProviderError::Authentication(_) => ModelFailure::Unauthorized,
-        ProviderError::RateLimitExceeded { .. } | ProviderError::CreditsExhausted { .. } => {
-            ModelFailure::RateLimited
-        }
+    let reason = match error.kind {
+        ErrorKind::Authentication => ModelFailure::Unauthorized,
+        ErrorKind::RateLimited | ErrorKind::Quota => ModelFailure::RateLimited,
         _ => ModelFailure::Request,
     };
-    let mut fault = Fault::new(code, error.to_string());
+    let mut fault = Fault::new(code, error.message);
     fault.details = Some(FaultDetails::ModelRequest { reason });
     fault
 }
 
-pub(super) fn provider(error: Fault) -> ProviderError {
-    if error.code == sailry_protocol::ErrorCode::Unavailable
-        && matches!(error.details, Some(sailry_protocol::FaultDetails::Network))
-    {
-        return ProviderError::NetworkError(error.message);
-    }
-    match error.code {
-        sailry_protocol::ErrorCode::Cancelled => ProviderError::ExecutionError(error.message),
-        sailry_protocol::ErrorCode::InvalidRequest => ProviderError::InvalidValue(error.message),
-        sailry_protocol::ErrorCode::NotConfigured => ProviderError::NotConfigured,
-        sailry_protocol::ErrorCode::PermissionDenied => {
-            ProviderError::Authentication(error.message)
+pub(super) fn provider(error: Fault) -> Error {
+    use sailry_protocol::{ErrorCode, FaultDetails};
+    let kind = match error.code {
+        ErrorCode::Unavailable if matches!(error.details, Some(FaultDetails::Network)) => {
+            ErrorKind::Network
         }
-        _ => ProviderError::RequestFailed(error.message),
-    }
+        ErrorCode::Cancelled => ErrorKind::Cancelled,
+        ErrorCode::InvalidRequest => ErrorKind::InvalidRequest,
+        ErrorCode::NotConfigured => ErrorKind::NotConfigured,
+        ErrorCode::PermissionDenied => ErrorKind::Authentication,
+        _ => ErrorKind::Other,
+    };
+    Error::new(kind, error.message)
 }
 
 #[cfg(test)]
@@ -132,36 +94,30 @@ mod tests {
 
     #[test]
     fn distinguishes_transport_from_decode_failures() {
-        assert!(network(&ProviderError::NetworkError(
-            "connection failed".into()
+        assert!(network(&Error::new(
+            ErrorKind::Network,
+            "connection failed"
         )));
-        assert!(!network(&ProviderError::stream_decode_error(
-            "invalid stream frame"
-        )));
-        assert!(!network(&ProviderError::RequestFailed(
-            "network unavailable".into()
-        )));
-        assert!(!network(&ProviderError::ExecutionError(
-            "unavailable".into()
-        )));
-        assert!(!network(&ProviderError::ServerError(
-            "provider unavailable".into()
-        )));
+        for kind in [
+            ErrorKind::InvalidResponse,
+            ErrorKind::Other,
+            ErrorKind::Unavailable,
+        ] {
+            assert!(!network(&Error::new(kind, "network unavailable")));
+        }
     }
 
     #[test]
     fn redacts_overlapping_credentials() {
         let error = redact(
-            ProviderError::Authentication("access-refresh and access".into()),
+            Error::new(ErrorKind::Authentication, "access-refresh and access"),
             &[
                 Secret::new("access".into()),
                 Secret::new("access-refresh".into()),
             ],
         );
-        assert_eq!(
-            error,
-            ProviderError::Authentication("[redacted] and [redacted]".into())
-        );
+        assert_eq!(error.message, "[redacted] and [redacted]");
+        assert_eq!(error.kind, ErrorKind::Authentication);
     }
 
     #[test]
@@ -170,50 +126,20 @@ mod tests {
             sailry_protocol::ErrorCode::Cancelled,
             sailry_protocol::ErrorCode::InvalidRequest,
         ] {
-            let error = provider(Fault::new(code, "request was rejected"));
-            assert!(!goose_provider_types::retry::should_retry(
-                &error,
-                &goose_provider_types::retry::RetryConfig::default(),
-            ));
+            assert!(!provider(Fault::new(code, "request was rejected")).retryable());
         }
     }
-}
-
-#[cfg(test)]
-mod streaming_tests {
-    use super::*;
 
     struct Rejected;
+
     #[async_trait]
-    impl Provider for Rejected {
-        fn get_name(&self) -> &str {
-            "fixture"
+    impl Model for Rejected {
+        async fn call(&self, _: Request, _: CancellationToken) -> Result<ModelStream, Error> {
+            Ok(Box::pin(futures::stream::iter([Err(Error::new(
+                ErrorKind::Network,
+                "stream included private-access",
+            ))])))
         }
-
-        async fn get_context_limit(&self, _: &str, override_limit: Option<usize>) -> usize {
-            override_limit.unwrap_or(245_760)
-        }
-        async fn stream(
-            &self,
-            _: &ModelConfig,
-            _: &str,
-            _: &[Message],
-            _: &[rmcp::model::Tool],
-        ) -> Result<MessageStream, ProviderError> {
-            Ok(Box::pin(futures::stream::iter([Err(
-                ProviderError::NetworkError("stream included private-access".into()),
-            )])))
-        }
-    }
-
-    #[tokio::test]
-    async fn forwards_context_discovery() {
-        let provider = wrap(Arc::new(Rejected), vec![]);
-        assert_eq!(provider.get_context_limit("model", None).await, 245_760);
-        assert_eq!(
-            provider.get_context_limit("model", Some(64_000)).await,
-            64_000
-        );
     }
 
     #[tokio::test]
@@ -223,13 +149,13 @@ mod streaming_tests {
             vec![Secret::new("private-access".into())],
         );
         let mut stream = provider
-            .stream(&ModelConfig::new("model"), "", &[], &[])
+            .call(Request::default(), CancellationToken::new())
             .await
             .unwrap();
         let error = stream.next().await.unwrap().unwrap_err();
         assert_eq!(
             error,
-            ProviderError::NetworkError("stream included [redacted]".into())
+            Error::new(ErrorKind::Network, "stream included [redacted]")
         );
     }
 }

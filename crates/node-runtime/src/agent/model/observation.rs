@@ -1,10 +1,8 @@
 //! Aggregate adapted payloads in request scope; never retain the logger's input.
-use goose_provider_types::request_log::{self, RequestLogHandle, RequestLogger};
 use sailry_protocol::conversation::observation::{Category, CategoryKind};
-use serde::Deserialize;
 use std::{
     future::Future,
-    sync::{Arc, Mutex, Once},
+    sync::{Arc, Mutex},
     time::Instant,
 };
 
@@ -14,8 +12,6 @@ mod fingerprints;
 pub(in crate::agent) use context::Context;
 #[cfg(test)]
 mod tests;
-
-type LogError = Box<dyn std::error::Error + Send + Sync>;
 
 #[derive(Clone)]
 pub(in crate::agent) struct Source {
@@ -169,16 +165,6 @@ impl Payload {
     }
 }
 
-pub(super) fn install() {
-    static INSTALL: Once = Once::new();
-    INSTALL.call_once(|| {
-        if request_log::install_logger(Logger).is_err() {
-            // The GDK hook cannot be replaced. Another owner's logger stays intact.
-            tracing::warn!("GDK request payload observation is unavailable: a request logger is already installed");
-        }
-    });
-}
-
 /// Package preparation has already selected its wire body, before protected auth.
 pub(super) fn prepared(body: Option<&str>) {
     let _ = CURRENT.try_with(|payload| {
@@ -201,37 +187,4 @@ pub(super) fn headers(status: u16) {
             headers_us: u64::try_from(state.started.elapsed().as_micros()).unwrap_or(u64::MAX),
         });
     });
-}
-
-struct Logger;
-struct Handle {
-    payload: Option<Payload>,
-}
-
-impl RequestLogger for Logger {
-    fn start(&self) -> Result<Box<dyn RequestLogHandle>, LogError> {
-        Ok(Box::new(Handle {
-            payload: CURRENT.try_with(Clone::clone).ok(),
-        }))
-    }
-}
-
-impl RequestLogHandle for Handle {
-    fn write(&mut self, input: &str) -> Result<(), LogError> {
-        let Some(payload) = self.payload.take() else {
-            return Ok(());
-        };
-        // GDK also serializes config (including possible auth headers) in this
-        // envelope. Deserialize only input, then discard it after aggregation.
-        #[derive(Deserialize)]
-        struct Prepared {
-            input: serde_json::Value,
-        }
-        if let Ok(body) = serde_json::from_str::<Prepared>(input) {
-            payload.prepared(&body.input);
-        }
-        // Later writes contain response content or errors, never request input.
-        // Observation must not fail generation even if an input is unrecognized.
-        Ok(())
-    }
 }

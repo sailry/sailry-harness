@@ -32,10 +32,8 @@ async fn preserves_large_inline_payloads() {
         })
         .collect();
     let input = super::super::request::convert(
-        &ModelConfig::new("example"),
-        "",
-        &messages,
-        &tools,
+        &crate::agent::model::gdk::request(&ModelConfig::new("example"), "", &messages, &tools)
+            .unwrap(),
         super::super::request::Context {
             endpoint: "https://example.test",
             session: "example",

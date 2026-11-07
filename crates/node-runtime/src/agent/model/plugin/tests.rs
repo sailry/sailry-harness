@@ -1,7 +1,7 @@
-use super::{framing, request, response, transport, worker};
+use super::super::types::{Error, ErrorKind, Event};
+use super::{framing, request as translation, response, transport, worker};
 use goose_provider_types::{
     conversation::message::{Message, MessageContentBlock},
-    errors::ProviderError,
     model::ModelConfig,
 };
 use rmcp::model::{CallToolRequestParams, CallToolResult, ContentBlock as Content, Tool};
@@ -17,6 +17,23 @@ use serde_json::json;
 
 mod exposure;
 mod input_evidence;
+
+mod request {
+    use super::*;
+    pub(super) use translation::Context;
+
+    pub(super) fn convert(
+        config: &ModelConfig,
+        system: &str,
+        messages: &[Message],
+        tools: &[Tool],
+        context: Context<'_>,
+    ) -> Result<wire::Request, sailry_protocol::Fault> {
+        let request = crate::agent::model::gdk::request(config, system, messages, tools)
+            .map_err(crate::agent::model::error)?;
+        translation::convert(&request, context)
+    }
+}
 
 fn capabilities() -> Capabilities {
     Capabilities {
@@ -186,20 +203,25 @@ fn joins_calls_and_keeps_unknown_usage() {
             &[],
         )
         .unwrap();
-    assert_eq!(chunks.len(), 1);
+    assert_eq!(chunks.len(), 3);
+    assert!(
+        !chunks
+            .iter()
+            .any(|event| matches!(event, Event::ToolCall { .. }))
+    );
     let final_chunks = output.finish("captured").unwrap();
-    let (message, usage) = final_chunks.last().unwrap();
-    let MessageContentBlock::ToolRequest(request) = &message.as_ref().unwrap().content[0] else {
+    let Event::ToolCall { call, .. } = &final_chunks[0] else {
         panic!("tool request expected")
     };
-    assert_eq!(request.id, "call");
-    let call = request.tool_call.as_ref().unwrap();
+    assert_eq!(call.id, "call");
     assert_eq!(call.name, "lookup");
-    assert_eq!(call.arguments.as_ref().unwrap()["path"], "file");
-    let usage = usage.as_ref().unwrap();
-    assert_eq!(usage.usage.input_tokens, None);
-    assert_eq!(usage.usage.output_tokens, Some(3));
-    assert_eq!(usage.usage.total_tokens, None);
+    assert_eq!(call.arguments["path"], "file");
+    let Event::Usage(usage) = &final_chunks[1] else {
+        panic!("usage expected")
+    };
+    assert_eq!(usage.input, None);
+    assert_eq!(usage.output, Some(3));
+    assert_eq!(usage.total, None);
 }
 
 #[test]
@@ -242,6 +264,58 @@ fn marks_buffered_deltas_as_output() {
 }
 
 #[test]
+fn joins_replay_fragments_before_signing_reasoning() {
+    let mut accumulator = response::Accumulator::default();
+    let events = accumulator
+        .push(
+            vec![
+                Delta::Reasoning {
+                    text: Some("Plan".into()),
+                    replay: Some("first-".into()),
+                },
+                Delta::Reasoning {
+                    text: None,
+                    replay: Some("second".into()),
+                },
+            ],
+            &[],
+        )
+        .unwrap();
+    let [
+        Event::ReasoningDelta {
+            index,
+            text: Some(text),
+            signature: None,
+        },
+    ] = events.as_slice()
+    else {
+        panic!("only unsigned reasoning should escape before the boundary")
+    };
+    assert_eq!(text, "Plan");
+    let completed = accumulator
+        .push(
+            vec![Delta::Text {
+                text: "Answer".into(),
+            }],
+            &[],
+        )
+        .unwrap();
+    let [
+        Event::ReasoningDelta {
+            index: completed_index,
+            text: None,
+            signature: Some(signature),
+        },
+        Event::TextDelta { .. },
+    ] = completed.as_slice()
+    else {
+        panic!("complete signature must precede the answer")
+    };
+    assert_eq!(completed_index, index);
+    assert_eq!(signature, "first-second");
+}
+
+#[test]
 fn retains_optional_reasoning_counts() {
     for tokens in [None, Some(0), Some(2)] {
         let mut output = response::Accumulator::default();
@@ -262,8 +336,9 @@ fn retains_optional_reasoning_counts() {
             )
             .unwrap();
         let chunks = output.finish("fixture").unwrap();
-        let source = chunks.last().unwrap().1.as_ref().unwrap();
-        let usage = crate::agent::engine::history::provider_usage(source).unwrap();
+        let Event::Usage(usage) = &chunks[0] else {
+            panic!("usage expected")
+        };
         assert_eq!(usage.reasoning, tokens);
         assert_eq!((usage.input, usage.output), (Some(12), Some(3)));
     }
@@ -289,11 +364,10 @@ fn marks_invalid_arguments_without_substitution() {
         )
         .unwrap();
     let chunks = output.finish("model").unwrap();
-    let MessageContentBlock::ToolRequest(request) = &chunks[0].0.as_ref().unwrap().content[0]
-    else {
+    let Event::ToolCall { call, .. } = &chunks[0] else {
         panic!("tool request expected")
     };
-    assert!(request.tool_call.is_err());
+    assert!(call.error.is_some());
 }
 
 #[test]
@@ -301,7 +375,7 @@ fn keeps_failures_and_private_diagnostics() {
     let error = response::Accumulator::default()
         .finish("model")
         .unwrap_err();
-    assert!(matches!(error, ProviderError::NetworkError(_)));
+    assert_eq!(error.kind, ErrorKind::InvalidResponse);
     assert!(!super::super::errors::network(&error));
     let secret = Secret::new("private-token".into());
     let error = response::classified(
@@ -312,9 +386,10 @@ fn keeps_failures_and_private_diagnostics() {
     );
     assert_eq!(
         error,
-        ProviderError::RateLimitExceeded {
-            details: "[redacted] quota".into(),
-            retry_delay: Some(std::time::Duration::from_secs(2))
+        Error {
+            kind: ErrorKind::RateLimited,
+            message: "[redacted] quota".into(),
+            retry_after: Some(std::time::Duration::from_secs(2))
         }
     );
 }
@@ -325,10 +400,7 @@ fn keeps_provider_rejections_distinct_from_network() {
         let error = response::classified(class, "provider unavailable", None, &[]);
         assert!(!super::super::errors::network(&error));
         // Preserve the existing transient retry policy for these responses.
-        assert!(goose_provider_types::retry::should_retry(
-            &error,
-            &goose_provider_types::retry::RetryConfig::default().transient_only(),
-        ));
+        assert!(error.retryable());
     }
     assert!(super::super::errors::network(
         &transport::Failure::Network.model()

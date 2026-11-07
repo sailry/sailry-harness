@@ -1,5 +1,6 @@
 use super::*;
 use crate::agent::canonical::{self as records, BlockKind, Kind, Record};
+use crate::agent::model;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -71,8 +72,8 @@ pub(super) enum Input {
 
 #[derive(Clone)]
 pub(super) struct Summary {
-    pub message: goose_provider_types::conversation::message::Message,
-    pub usage: goose_provider_types::conversation::token_usage::ProviderUsage,
+    pub message: model::Message,
+    pub usage: model::Usage,
     pub boundary: String,
     pub start: chrono::DateTime<chrono::Utc>,
     pub end: chrono::DateTime<chrono::Utc>,
@@ -82,8 +83,8 @@ pub(super) struct Summary {
 
 #[derive(Clone)]
 pub(super) struct Message {
-    pub message: goose_provider_types::conversation::message::Message,
-    pub usage: Option<goose_provider_types::conversation::token_usage::ProviderUsage>,
+    pub message: model::Message,
+    pub usage: Option<model::Usage>,
     pub calls: BTreeMap<String, String>,
     pub presentation: records::Presentation,
     pub timeline: Option<Arc<crate::agent::observation::Timeline>>,
@@ -294,14 +295,11 @@ async fn write(
     unreachable!("the final attempt returns its result")
 }
 
-fn capture_usage(
-    record: &mut Record,
-    usage: &goose_provider_types::conversation::token_usage::ProviderUsage,
-) -> Result<(), Fault> {
+fn capture_usage(record: &mut Record, usage: &model::Usage) -> Result<(), Fault> {
     let Some(message) = record.message_mut() else {
         return Ok(());
     };
-    message.model = Some(usage.model.clone());
+    message.model = usage.model.clone();
     message.usage = Some(crate::agent::engine::history::provider_usage(usage)?);
     Ok(())
 }

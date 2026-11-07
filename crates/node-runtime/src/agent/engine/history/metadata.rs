@@ -1,6 +1,6 @@
 use super::*;
 
-pub(super) fn capture(source: &gdk::MessageMetadata, created: i64) -> Metadata {
+pub(super) fn capture(source: &model::Metadata, created: i64) -> Metadata {
     let inference = source.inference.as_ref().map(|inference| Inference {
         provider: inference.provider.clone(),
         requested_model: inference.requested_model.clone(),
@@ -64,21 +64,21 @@ pub(super) fn capture(source: &gdk::MessageMetadata, created: i64) -> Metadata {
     }
 }
 
-pub(super) fn usage(source: &gdk::MessageUsage) -> Usage {
-    let count = |value: Option<i32>| value.and_then(|value| u64::try_from(value).ok());
+pub(super) fn usage(source: &model::Usage) -> Usage {
     Usage {
-        input: count(source.input_tokens),
-        output: count(source.output_tokens),
-        total: count(source.total_tokens),
-        cache_read: count(source.cache_read_tokens),
-        cache_write: count(source.cache_write_tokens),
+        input: source.input,
+        output: source.output,
+        total: source.total,
+        cache_read: source.cache_read,
+        cache_write: source.cache_write,
+        reasoning: source.reasoning,
         cost: source.cost,
-        ..Usage::default()
+        provider: source.provider.clone(),
     }
 }
 
-pub(super) fn project(record: &Record) -> gdk::MessageMetadata {
-    let mut output = gdk::MessageMetadata::default();
+pub(super) fn project(record: &Record) -> model::Metadata {
+    let mut output = model::Metadata::default();
     if let Some(runtime) = &record.metadata.runtime {
         if let Some(after) = &runtime.after {
             output.set_operation_note("tool_pair_compaction", "after", json!(after));
@@ -92,7 +92,7 @@ pub(super) fn project(record: &Record) -> gdk::MessageMetadata {
         output.inference = runtime
             .inference
             .as_ref()
-            .map(|inference| gdk::InferenceMetadata {
+            .map(|inference| model::Inference {
                 provider: inference.provider.clone(),
                 requested_model: inference.requested_model.clone(),
                 resolved_model: inference.resolved_model.clone(),
@@ -122,19 +122,25 @@ pub(super) fn project(record: &Record) -> gdk::MessageMetadata {
         output.agent_visible = true;
     }
     if let Some(usage) = record.usage() {
-        let count = |value: Option<u64>| value.and_then(|value| i32::try_from(value).ok());
         let timing = record
             .metadata
             .execution
             .as_ref()
             .and_then(|execution| execution.timing.as_ref());
-        output.usage = Some(Box::new(gdk::MessageUsage {
-            input_tokens: count(usage.input),
-            output_tokens: count(usage.output),
-            total_tokens: count(usage.total),
-            cache_read_tokens: count(usage.cache_read),
-            cache_write_tokens: count(usage.cache_write),
+        output.usage = Some(Box::new(model::Usage {
+            model: match &record.kind {
+                Kind::Message(message) => message.model.clone(),
+                Kind::Compaction(compaction) => compaction.summary.model.clone(),
+                _ => None,
+            },
+            input: usage.input,
+            output: usage.output,
+            total: usage.total,
+            cache_read: usage.cache_read,
+            cache_write: usage.cache_write,
+            reasoning: usage.reasoning,
             cost: usage.cost,
+            provider: usage.provider.clone(),
             elapsed_ms: timing
                 .and_then(|timing| timing.elapsed_us)
                 .map(|value| value / 1000),
@@ -147,7 +153,7 @@ pub(super) fn project(record: &Record) -> gdk::MessageMetadata {
                     .execution
                     .as_ref()
                     .is_some_and(|execution| execution.purpose == Some(Purpose::Compaction)),
-            ..gdk::MessageUsage::default()
+            ..model::Usage::default()
         }));
     }
     output

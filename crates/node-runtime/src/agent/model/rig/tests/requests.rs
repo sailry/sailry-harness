@@ -17,6 +17,7 @@ async fn preserves_anthropic_cache_breakpoints() {
             content: vec![Content::Text {
                 text: format!("Message {index}"),
             }],
+            ..Message::default()
         })
         .collect();
     collect(&model, input, CancellationToken::new())

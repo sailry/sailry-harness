@@ -2,55 +2,6 @@
 use super::*;
 
 #[tokio::test]
-#[ignore = "requires explicit permission and incurs one real model request"]
-async fn probes_one_request_without_tools() {
-    use goose_provider_types::{
-        base::{Provider, collect_stream},
-        conversation::message::Message,
-        model::ModelConfig,
-    };
-    struct Key(String);
-    impl goose_providers::declarative::KeyResolver for Key {
-        type Error = std::convert::Infallible;
-        fn resolve_key(&self, _: &str) -> Result<String, Self::Error> {
-            Ok(self.0.clone())
-        }
-    }
-    const MODEL: &str = "deepseek-v4.1-flash";
-    let (provider, secret) = provider_fixture::load(MODEL);
-    assert_eq!(provider.api, ModelApi::OpenCodeGo);
-    assert_eq!(
-        provider.endpoint.trim_end_matches('/'),
-        "https://opencode.ai/zen/go/v1"
-    );
-    let mut definition = goose_providers::declarative::fixed_provider_configs()
-        .unwrap()
-        .into_iter()
-        .find(|config| config.name == "opencode_go")
-        .unwrap();
-    definition.base_url = provider.endpoint;
-    let model = goose_providers::openai::from_declarative_config(
-        definition,
-        None,
-        Key(secret.expose().to_owned()),
-    )
-    .unwrap()
-    .build();
-    let config = ModelConfig::new(MODEL).with_max_tokens(Some(128));
-    let contents = [Message::user().with_text("Reply with OK")];
-    let result = tokio::time::timeout(Duration::from_secs(120), async {
-        let stream = model.stream(&config, "", &contents, &[]).await?;
-        collect_stream(stream).await
-    })
-    .await;
-    match result {
-        Ok(Ok((message, _))) => assert!(!message.as_concat_text().is_empty()),
-        Ok(Err(_)) => panic!("GDK model request failed"),
-        Err(_) => panic!("GDK model request timed out"),
-    }
-}
-
-#[tokio::test]
 #[ignore = "requires SAILRY_ACCEPTANCE_PROFILE and incurs real model usage"]
 async fn deepseek_reads_local_and_remote_files() {
     const MODEL: &str = "deepseek-v4.1-flash";

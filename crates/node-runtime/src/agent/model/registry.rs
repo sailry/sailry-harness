@@ -1,34 +1,79 @@
-//! Session-owned GDK providers and shared HTTP clients for captured configurations.
+//! Session-owned models and shared HTTP clients for captured configurations.
 use super::*;
-use goose_provider_types::base::Provider as GdkProvider;
-use goose_providers::api_client::{
-    ApiClient, DEFAULT_CONNECT_TIMEOUT_SECS, DEFAULT_PROVIDER_TIMEOUT_SECS,
-};
 use sailry_protocol::SessionId;
 use std::{collections::BTreeMap, sync::Mutex, time::Duration};
 use tokio::time::Instant;
 
 const IDLE: Duration = Duration::from_secs(15 * 60);
 const CAPACITY: usize = 128;
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
+pub(super) const READ_TIMEOUT: Duration = Duration::from_secs(600);
 
 #[derive(Default)]
 pub(crate) struct Registry {
     entries: Mutex<BTreeMap<(SessionId, String), Entry>>,
     http: Mutex<BTreeMap<String, reqwest::Client>>,
+    limits: Mutex<BTreeMap<(SessionId, String), Limit>>,
 }
 
 struct Entry {
-    provider: Arc<dyn GdkProvider>,
+    provider: Arc<dyn Model>,
+    used: Instant,
+}
+
+struct Limit {
+    value: Option<usize>,
+    failed: bool,
     used: Instant,
 }
 
 impl Registry {
+    pub(super) fn context(&self, session: SessionId, fingerprint: &str) -> Option<Option<usize>> {
+        let mut limits = self.limits.lock().unwrap();
+        limits.retain(|_, limit| {
+            limit.used.elapsed()
+                < if limit.failed {
+                    Duration::from_secs(60)
+                } else {
+                    IDLE
+                }
+        });
+        limits
+            .get(&(session, fingerprint.to_owned()))
+            .map(|limit| limit.value)
+    }
+
+    pub(super) fn remember(
+        &self,
+        session: SessionId,
+        fingerprint: String,
+        value: Option<usize>,
+        failed: bool,
+    ) {
+        let mut limits = self.limits.lock().unwrap();
+        if limits.len() >= CAPACITY
+            && let Some(oldest) = limits
+                .iter()
+                .min_by_key(|(_, limit)| limit.used)
+                .map(|(key, _)| key.clone())
+        {
+            limits.remove(&oldest);
+        }
+        limits.insert(
+            (session, fingerprint),
+            Limit {
+                value,
+                failed,
+                used: Instant::now(),
+            },
+        );
+    }
     pub(super) fn get(
         &self,
         session: SessionId,
         fingerprint: String,
-        create: impl FnOnce() -> Result<Arc<dyn GdkProvider>, Fault>,
-    ) -> Result<Arc<dyn GdkProvider>, Fault> {
+        create: impl FnOnce() -> Result<Arc<dyn Model>, Fault>,
+    ) -> Result<Arc<dyn Model>, Fault> {
         let now = Instant::now();
         let mut entries = self.entries.lock().unwrap();
         Self::prune(&mut entries, now);
@@ -69,8 +114,8 @@ impl Registry {
             // third_party_licenses/goose-Apache-2.0.txt). ApiClient's
             // decorator must not replace its authenticated transport with a looser one.
             reqwest::Client::builder()
-                .connect_timeout(Duration::from_secs(DEFAULT_CONNECT_TIMEOUT_SECS))
-                .read_timeout(Duration::from_secs(DEFAULT_PROVIDER_TIMEOUT_SECS))
+                .connect_timeout(CONNECT_TIMEOUT)
+                .read_timeout(READ_TIMEOUT)
                 .redirect(reqwest::redirect::Policy::custom(move |attempt| {
                     if attempt.previous().len() >= 10 {
                         return attempt.error("too many redirects");
@@ -84,13 +129,21 @@ impl Registry {
                 .build()
                 .map_err(factory::unavailable)?
         } else {
-            ApiClient::http_client(None).map_err(factory::unavailable)?
+            reqwest::Client::builder()
+                .connect_timeout(CONNECT_TIMEOUT)
+                .read_timeout(READ_TIMEOUT)
+                .build()
+                .map_err(factory::unavailable)?
         };
         clients.insert(key, client.clone());
         Ok(client)
     }
 
     pub(crate) fn evict(&self, session: SessionId) {
+        self.limits
+            .lock()
+            .unwrap()
+            .retain(|(owner, _), _| *owner != session);
         self.entries
             .lock()
             .unwrap()
@@ -98,6 +151,7 @@ impl Registry {
     }
 
     pub(crate) fn clear(&self) {
+        self.limits.lock().unwrap().clear();
         self.entries.lock().unwrap().clear();
     }
 

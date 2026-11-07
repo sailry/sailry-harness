@@ -1,10 +1,7 @@
-//! Tool-free plugin requests use GDK and the Node's frozen authorization.
+//! Tool-free plugin requests use the Node's frozen model authorization.
 use super::*;
 use futures::StreamExt;
-use goose_provider_types::{
-    base::collect_stream,
-    conversation::message::{Message, MessageContentBlock},
-};
+use model::{Content, Event, Message, Role};
 use sailry_protocol::{SessionConfig, conversation::Provider, plugin::Text};
 
 async fn responsive<T>(future: impl std::future::Future<Output = T>) -> Result<T, Fault> {
@@ -29,42 +26,48 @@ pub(crate) async fn generate(
         stop,
     )
     .await?;
-    let messages = [Message::user().with_text(prompt)];
-    let stream = tokio::select! { biased;
+    let messages = vec![Message {
+        role: Role::User,
+        content: vec![Content::Text { text: prompt }],
+        ..Message::default()
+    }];
+    let request = binding.config.request(String::new(), messages, Vec::new());
+    let mut stream = tokio::select! { biased;
         _ = stop.cancelled() => return Err(Fault::new(ErrorCode::Cancelled, "plugin model request was cancelled")),
-        stream = responsive(binding.provider.stream(&binding.config, "", &messages, &[])) => stream?.map_err(model::error)?,
+        stream = responsive(binding.provider.call(request, stop.clone())) => stream?.map_err(model::error)?,
     };
-    // GDK owns delta assembly. Only a stalled stream expires; reasoning remains progress.
-    let responses = futures::stream::unfold(stream, |mut stream| async move {
-        match responsive(stream.next()).await {
-            Ok(Some(response)) => Some((response, stream)),
-            Ok(None) => None,
-            Err(error) => Some((
-                Err(goose_provider_types::errors::ProviderError::NetworkError(
-                    error.message,
-                )),
-                stream,
-            )),
+    let mut text = String::new();
+    let mut text_block = false;
+    let mut tokens = 0;
+    let mut non_text = false;
+    loop {
+        let response = tokio::select! { biased;
+            _ = stop.cancelled() => return Err(Fault::new(ErrorCode::Cancelled, "plugin model request was cancelled")),
+            response = responsive(stream.next()) => response?,
+        };
+        let Some(response) = response else {
+            break;
+        };
+        match response.map_err(model::error)? {
+            Event::TextDelta { text: delta, .. } => {
+                if !text_block && !text.is_empty() {
+                    text.push('\n');
+                }
+                text.push_str(&delta);
+                text_block = true;
+            }
+            Event::Usage(usage) => tokens = usage.total.unwrap_or(0),
+            Event::ToolCall { .. } | Event::ToolCallDelta { .. } => non_text = true,
+            Event::ReasoningDelta { .. } | Event::RedactedThinking { .. } => text_block = false,
+            Event::Finish(_) => {}
         }
-    });
-    let (message, usage) = tokio::select! { biased;
-        _ = stop.cancelled() => return Err(Fault::new(ErrorCode::Cancelled, "plugin model request was cancelled")),
-        response = collect_stream(Box::pin(responses)) => response.map_err(model::error)?,
-    };
-    if message.content.iter().any(|part| {
-        !matches!(
-            part,
-            MessageContentBlock::Text(_)
-                | MessageContentBlock::Thinking(_)
-                | MessageContentBlock::RedactedThinking(_)
-        )
-    }) {
+    }
+    if non_text {
         return Err(Fault::new(
             ErrorCode::Unavailable,
             "plugin model returned non-text output",
         ));
     }
-    let text = message.as_concat_text();
     if text.len() > 64 * 1024 {
         return Err(Fault::new(
             ErrorCode::Unavailable,
@@ -80,11 +83,7 @@ pub(crate) async fn generate(
     Ok(Text {
         text,
         model: config.model.clone(),
-        tokens: usage
-            .usage
-            .total_tokens
-            .and_then(|value| u64::try_from(value).ok())
-            .unwrap_or(0),
+        tokens,
     })
 }
 

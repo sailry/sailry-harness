@@ -416,7 +416,7 @@ async fn preserves_unsupported_account() {
     assert_eq!(error.code, ErrorCode::NotConfigured);
     assert_eq!(
         error.message,
-        "GDK does not support this ChatGPT authorization endpoint"
+        "model transport does not support this ChatGPT authorization endpoint"
     );
     assert_eq!(server.requests.lock().unwrap().len(), requests);
     assert_eq!(

@@ -1,21 +1,13 @@
-//! Package deltas become the same messages and usage returned by native GDK providers.
-use goose_provider_types::{
-    conversation::{
-        message::{Message, MessageContentBlock},
-        token_usage::{ProviderUsage, Usage},
-    },
-    errors::ProviderError,
-};
-use rmcp::model::{CallToolRequestParams, ErrorData};
+use super::super::types::{Error, ErrorKind, Event, Finish as Reason, ToolCall, ToolError, Usage};
 use sailry_protocol::{
     Fault, Secret,
     plugin::model_adapter::wire::{Class, Delta, Finish},
 };
 use std::collections::BTreeMap;
 
-pub(super) type Chunk = (Option<Message>, Option<ProviderUsage>);
 #[derive(Default)]
 struct Call {
+    index: usize,
     id: String,
     name: String,
     arguments: String,
@@ -23,12 +15,12 @@ struct Call {
 
 #[derive(Default)]
 pub(super) struct Accumulator {
-    thinking: String,
-    signature: String,
     calls: BTreeMap<u64, Call>,
     usage: Usage,
-    reasoning: Option<u64>,
     finish: Option<Finish>,
+    index: usize,
+    content: Option<bool>,
+    signature: String,
 }
 
 impl Accumulator {
@@ -36,26 +28,42 @@ impl Accumulator {
         self.finish.is_some()
     }
 
+    fn part(&mut self, thinking: bool) -> usize {
+        if self.content != Some(thinking) {
+            self.index += 1;
+            self.content = Some(thinking);
+        }
+        self.index
+    }
+
     pub(super) fn push(
         &mut self,
         deltas: Vec<Delta>,
         secrets: &[Secret],
-    ) -> Result<Vec<Chunk>, ProviderError> {
+    ) -> Result<Vec<Event>, Error> {
         let mut output = Vec::new();
         for delta in deltas {
             match delta {
                 Delta::Reasoning { text, replay } => {
-                    if let Some(text) = text {
-                        self.thinking.push_str(&text);
-                    }
+                    let index = self.part(true);
                     if let Some(signature) = replay {
                         self.signature.push_str(&signature);
                     }
+                    if let Some(text) = text {
+                        output.push(Event::ReasoningDelta {
+                            index,
+                            text: Some(text),
+                            signature: None,
+                        });
+                    }
                 }
                 Delta::Text { text } => {
-                    self.flush_thinking(&mut output);
+                    self.flush(&mut output);
                     if !text.is_empty() {
-                        output.push((Some(Message::assistant().with_text(text)), None));
+                        output.push(Event::TextDelta {
+                            index: self.part(false),
+                            text,
+                        });
                     }
                 }
                 Delta::ToolCall {
@@ -64,17 +72,30 @@ impl Accumulator {
                     name,
                     arguments_delta,
                 } => {
-                    self.flush_thinking(&mut output);
-                    let call = self.calls.entry(index).or_default();
-                    if let Some(id) = id {
-                        call.id = id;
+                    self.flush(&mut output);
+                    let call = self.calls.entry(index).or_insert_with(|| {
+                        self.index += 1;
+                        self.content = None;
+                        Call {
+                            index: self.index,
+                            ..Call::default()
+                        }
+                    });
+                    if let Some(id) = &id {
+                        call.id.clone_from(id);
                     }
-                    if let Some(name) = name {
-                        call.name.push_str(&name);
+                    if let Some(name) = &name {
+                        call.name.push_str(name);
                     }
-                    if let Some(arguments) = arguments_delta {
-                        call.arguments.push_str(&arguments);
+                    if let Some(arguments) = &arguments_delta {
+                        call.arguments.push_str(arguments);
                     }
+                    output.push(Event::ToolCallDelta {
+                        index: call.index,
+                        id,
+                        name,
+                        arguments: arguments_delta.unwrap_or_default(),
+                    });
                 }
                 Delta::Usage {
                     input_tokens,
@@ -82,20 +103,23 @@ impl Accumulator {
                     cached_input_tokens,
                     reasoning_tokens,
                 } => {
-                    if let Some(value) = input_tokens {
-                        self.usage.input_tokens = Some(count(value)?);
+                    if input_tokens.is_some() {
+                        self.usage.input = input_tokens;
                     }
-                    if let Some(value) = output_tokens {
-                        self.usage.output_tokens = Some(count(value)?);
+                    if output_tokens.is_some() {
+                        self.usage.output = output_tokens;
                     }
-                    if let Some(value) = cached_input_tokens {
-                        self.usage.cache_read_input_tokens = Some(count(value)?);
+                    if cached_input_tokens.is_some() {
+                        self.usage.cache_read = cached_input_tokens;
                     }
-                    if let Some(value) = reasoning_tokens {
-                        self.reasoning = Some(value);
+                    if reasoning_tokens.is_some() {
+                        self.usage.reasoning = reasoning_tokens;
                     }
                 }
-                Delta::Finish { reason } => self.finish = Some(reason),
+                Delta::Finish { reason } => {
+                    self.flush(&mut output);
+                    self.finish = Some(reason);
+                }
                 Delta::Error {
                     class,
                     message,
@@ -107,66 +131,68 @@ impl Accumulator {
         Ok(output)
     }
 
-    fn flush_thinking(&mut self, output: &mut Vec<Chunk>) {
-        if self.thinking.is_empty() && self.signature.is_empty() {
-            return;
+    fn flush(&mut self, output: &mut Vec<Event>) {
+        if !self.signature.is_empty() {
+            output.push(Event::ReasoningDelta {
+                index: self.index,
+                text: None,
+                signature: Some(std::mem::take(&mut self.signature)),
+            });
         }
-        output.push((
-            Some(
-                Message::assistant().with_content(MessageContentBlock::thinking(
-                    std::mem::take(&mut self.thinking),
-                    std::mem::take(&mut self.signature),
-                )),
-            ),
-            None,
-        ));
     }
 
-    pub(super) fn finish(mut self, model: &str) -> Result<Vec<Chunk>, ProviderError> {
+    pub(super) fn finish(mut self, model: &str) -> Result<Vec<Event>, Error> {
         let reason = self.finish.ok_or_else(|| {
-            ProviderError::stream_decode_error("model stream ended before completion")
+            Error::new(
+                ErrorKind::InvalidResponse,
+                "model stream ended before completion",
+            )
         })?;
         let mut output = Vec::new();
-        self.flush_thinking(&mut output);
-        let mut message = Message::assistant();
         for (_, call) in self.calls {
-            let arguments =
+            let parsed =
                 serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&call.arguments);
-            let result = arguments
-                .map(|arguments| CallToolRequestParams::new(call.name).with_arguments(arguments))
-                .map_err(|_| {
-                    ErrorData::invalid_params("tool arguments must be a JSON object", None)
-                });
-            message
-                .content
-                .push(MessageContentBlock::tool_request(call.id, result));
+            let (arguments, error) = match parsed {
+                Ok(arguments) => (serde_json::Value::Object(arguments), None),
+                Err(_) => (
+                    serde_json::Value::Null,
+                    Some(ToolError {
+                        code: -32602,
+                        message: "tool arguments must be a JSON object".into(),
+                        data: None,
+                    }),
+                ),
+            };
+            output.push(Event::ToolCall {
+                index: call.index,
+                call: ToolCall {
+                    id: call.id,
+                    name: call.name,
+                    arguments,
+                    error,
+                    metadata: None,
+                    tool_meta: None,
+                },
+            });
         }
-        self.usage.total_tokens = self
+        self.usage.model = Some(model.into());
+        self.usage.total = self
             .usage
-            .input_tokens
-            .zip(self.usage.output_tokens)
+            .input
+            .zip(self.usage.output)
             .map(|(input, output)| input.saturating_add(output));
-        let mut usage = ProviderUsage::new(model.into(), self.usage).with_finish_reasons(vec![
-            match reason {
-                Finish::Stop => "stop",
-                Finish::ToolCalls => "tool_calls",
-                Finish::Length => "length",
-                Finish::ContentFilter => "content_filter",
-                Finish::Other => "other",
-            }
-            .into(),
-        ]);
-        usage.additional_data = self.reasoning.map(|tokens| {
-            [("reasoning_tokens".into(), tokens.into())]
-                .into_iter()
-                .collect()
-        });
-        output.push((Some(message), Some(usage)));
+        output.push(Event::Usage(self.usage));
+        output.push(Event::Finish(match reason {
+            Finish::Stop => Reason::Stop,
+            Finish::ToolCalls => Reason::ToolCalls,
+            Finish::Length => Reason::Length,
+            Finish::ContentFilter => Reason::ContentFilter,
+            Finish::Other => Reason::Other("other".into()),
+        }));
         Ok(output)
     }
 }
 
-/// Any generated content delta marks the time to first token.
 pub(super) fn output(delta: &Delta) -> bool {
     match delta {
         Delta::Text { text } => !text.is_empty(),
@@ -195,39 +221,32 @@ pub(super) fn classified(
     message: &str,
     retry_after_ms: Option<u64>,
     secrets: &[Secret],
-) -> ProviderError {
-    let message = super::super::errors::safe(message, secrets);
-    match class {
-        Class::Authentication | Class::Permission => ProviderError::Authentication(message),
-        Class::RateLimited => ProviderError::RateLimitExceeded {
-            details: message,
-            retry_delay: retry_after_ms.map(std::time::Duration::from_millis),
-        },
-        Class::Quota => ProviderError::CreditsExhausted {
-            details: message,
-            top_up_url: None,
-        },
-        Class::ContextOverflow => ProviderError::ContextLengthExceeded(message),
-        Class::InvalidRequest => ProviderError::InvalidValue(message),
-        Class::Unsupported => ProviderError::NotImplemented(message),
-        // The provider returned an error response. Retain the retryable class
-        // without misidentifying a business response as a transport failure.
-        _ => ProviderError::ServerError(message),
+) -> Error {
+    let kind = match class {
+        Class::Authentication | Class::Permission => ErrorKind::Authentication,
+        Class::RateLimited => ErrorKind::RateLimited,
+        Class::Quota => ErrorKind::Quota,
+        Class::ContextOverflow => ErrorKind::ContextOverflow,
+        Class::InvalidRequest => ErrorKind::InvalidRequest,
+        Class::Unsupported => ErrorKind::Unsupported,
+        _ => ErrorKind::Unavailable,
+    };
+    Error {
+        kind,
+        message: super::super::errors::safe(message, secrets),
+        retry_after: retry_after_ms.map(std::time::Duration::from_millis),
     }
 }
 
-pub(super) fn fault(error: Fault) -> ProviderError {
+pub(super) fn fault(error: Fault) -> Error {
     super::super::errors::provider(error)
 }
-pub(super) fn resource() -> ProviderError {
-    ProviderError::ExecutionError("model adapter resource budget exceeded".into())
+pub(super) fn resource() -> Error {
+    Error::new(ErrorKind::Other, "model adapter resource budget exceeded")
 }
-pub(super) fn translation(error: Fault) -> ProviderError {
+pub(super) fn translation(error: Fault) -> Error {
     fault(error)
 }
-pub(super) fn invalid(message: &'static str) -> ProviderError {
-    ProviderError::InvalidValue(message.into())
-}
-fn count(value: u64) -> Result<i32, ProviderError> {
-    i32::try_from(value).map_err(|_| invalid("model usage count is not representable"))
+pub(super) fn invalid(message: &'static str) -> Error {
+    Error::new(ErrorKind::InvalidRequest, message)
 }

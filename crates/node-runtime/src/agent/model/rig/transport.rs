@@ -83,16 +83,39 @@ impl Transport {
         }
         headers.extend(self.headers.clone());
         let mut body = body.into();
-        if matches!(self.api, ModelApi::ChatCompletions | ModelApi::DeepSeek)
-            || self.deployment.is_some()
+        if matches!(
+            self.api,
+            ModelApi::ChatCompletions
+                | ModelApi::DeepSeek
+                | ModelApi::Gemini
+                | ModelApi::Anthropic
+                | ModelApi::Responses
+        ) || self.deployment.is_some()
         {
             let mut value = serde_json::from_slice(&body).map_err(Error::instance)?;
+            super::media::restore(&mut value, self.api).map_err(Error::instance)?;
             if matches!(self.api, ModelApi::ChatCompletions | ModelApi::DeepSeek) {
                 super::schema::chat(&mut value);
+            }
+            if self.api == ModelApi::Gemini {
+                if let Some(tools) = value.get_mut("tools")
+                    && let Some(first) = tools
+                        .as_array()
+                        .and_then(|tools| (tools.len() == 1).then(|| tools[0].clone()))
+                {
+                    *tools = first;
+                }
+                if let Some(system) = value
+                    .get_mut("systemInstruction")
+                    .and_then(serde_json::Value::as_object_mut)
+                {
+                    system.remove("role");
+                }
             }
             if let Some(deployment) = &self.deployment {
                 value["model"] = deployment.clone().into();
             }
+            super::wire::prepare(&mut value, self.api);
             body = serde_json::to_vec(&value).map_err(Error::instance)?.into();
         }
         let mut request = self
@@ -106,6 +129,12 @@ impl Transport {
             crate::providers::claude::decorate(&mut request, agent)
                 .map_err(|error| Error::instance(std::io::Error::other(error.message)))?;
         }
+        super::super::observation::prepared(
+            request
+                .body()
+                .and_then(reqwest::Body::as_bytes)
+                .and_then(|bytes| std::str::from_utf8(bytes).ok()),
+        );
         Ok(request)
     }
 }
@@ -123,6 +152,7 @@ impl HttpClientExt for Transport {
         let client = self.client.clone();
         async move {
             let response = client.execute(request?).await.map_err(Error::instance)?;
+            super::super::observation::headers(response.status().as_u16());
             let mut builder = Response::builder().status(response.status());
             *builder.headers_mut().ok_or(Error::NoHeaders)? = response.headers().clone();
             let body: LazyBody<U> =
@@ -156,14 +186,78 @@ impl HttpClientExt for Transport {
     {
         let request = self.prepare(request);
         let client = self.client.clone();
+        let api = self.api;
         async move {
-            let response = client.execute(request?).await.map_err(Error::instance)?;
+            let request = request?;
+            let replay = (api == ModelApi::Responses)
+                .then(|| request.try_clone())
+                .flatten();
+            let mut response = client.execute(request).await.map_err(Error::instance)?;
+            if response.status() == reqwest::StatusCode::BAD_REQUEST
+                && let Some(mut request) = replay
+            {
+                let status = response.status();
+                let headers = response.headers().clone();
+                let bytes = response.bytes().await.map_err(Error::instance)?;
+                let error = serde_json::from_slice::<serde_json::Value>(&bytes).ok();
+                let rejected = error
+                    .as_ref()
+                    .and_then(|error| error.pointer("/error/message"))
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_lowercase)
+                    .is_some_and(|message| {
+                        message.contains("encrypted content")
+                            && message.contains("could not be verified")
+                    });
+                if rejected {
+                    let mut body: serde_json::Value = serde_json::from_slice(
+                        request
+                            .body()
+                            .and_then(reqwest::Body::as_bytes)
+                            .unwrap_or_default(),
+                    )
+                    .map_err(Error::instance)?;
+                    if let Some(input) = body["input"].as_array_mut() {
+                        input.retain(|item| item["type"] != "reasoning");
+                    }
+                    let bytes = serde_json::to_vec(&body).map_err(Error::instance)?;
+                    super::super::observation::prepared(std::str::from_utf8(&bytes).ok());
+                    request
+                        .headers_mut()
+                        .remove(reqwest::header::CONTENT_LENGTH);
+                    *request.body_mut() = Some(bytes.into());
+                    response = client.execute(request).await.map_err(Error::instance)?;
+                } else {
+                    super::super::observation::headers(status.as_u16());
+                    let mut builder = Response::builder().status(status);
+                    *builder.headers_mut().ok_or(Error::NoHeaders)? = headers;
+                    let stream = futures::stream::once(async { Ok(bytes) });
+                    return Ok(
+                        builder.body(Box::pin(stream) as rig_core::http_client::BoxedStream)?
+                    );
+                }
+            }
+            super::super::observation::headers(response.status().as_u16());
             let mut builder = Response::builder().status(response.status());
             *builder.headers_mut().ok_or(Error::NoHeaders)? = response.headers().clone();
+            let responses =
+                api == ModelApi::Responses && response.status() == reqwest::StatusCode::OK;
+            if responses {
+                builder.headers_mut().ok_or(Error::NoHeaders)?.insert(
+                    reqwest::header::CONTENT_TYPE,
+                    HeaderValue::from_static("text/event-stream"),
+                );
+            }
             let stream = response
                 .bytes_stream()
                 .map(|result| result.map_err(Error::instance));
-            Ok(builder.body(Box::pin(stream) as rig_core::http_client::BoxedStream)?)
+            let stream = Box::pin(stream) as rig_core::http_client::BoxedStream;
+            let stream = if responses {
+                super::responses::framing::stream(stream)
+            } else {
+                stream
+            };
+            Ok(builder.body(stream)?)
         }
     }
 }

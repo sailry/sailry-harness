@@ -77,8 +77,8 @@ async fn preserves_large_images() {
 
 #[tokio::test]
 async fn projects_json_media() {
+    use crate::agent::model::types::{Content, Message, Role, ToolResult};
     use crate::agent::{canonical::ToolFormat, engine::history as conversion};
-    use goose_provider_types::conversation::message::{Message, MessageContent};
     use rmcp::model::{CallToolResult, ContentBlock};
     use std::collections::BTreeMap;
 
@@ -95,9 +95,17 @@ async fn projects_json_media() {
         if computer {
             value = serde_json::json!({"kind":"computer","data":value});
         }
-        let source = Message::user()
-            .with_generated_id()
-            .with_tool_response("capture", Ok(CallToolResult::structured(value.clone())));
+        let source = Message {
+            id: Some(uuid::Uuid::new_v4().to_string()),
+            role: Role::User,
+            content: vec![Content::ToolResult(ToolResult {
+                id: "capture".into(),
+                name: "capture".into(),
+                result: Ok(CallToolResult::structured(value.clone())),
+                metadata: None,
+            })],
+            ..Message::default()
+        };
         let record = conversion::capture(
             &fixture.database.connection,
             TurnId::new(),
@@ -171,10 +179,10 @@ async fn projects_json_media() {
             .await
             .unwrap()
             .unwrap();
-        let MessageContent::ToolResponse(response) = &projected.content[0] else {
+        let Content::ToolResult(response) = &projected.content[0] else {
             panic!("outgoing tool result expected")
         };
-        let result = response.tool_result.as_ref().unwrap();
+        let result = response.result.as_ref().unwrap();
         assert_eq!(
             result
                 .content

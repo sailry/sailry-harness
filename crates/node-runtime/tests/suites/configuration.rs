@@ -38,8 +38,6 @@ mod discovery;
 mod github;
 #[path = "../login.rs"]
 mod login;
-#[path = "../model_requests.rs"]
-mod model_requests;
 #[path = "../presets.rs"]
 mod presets;
 #[path = "../roles.rs"]

@@ -111,7 +111,7 @@ async fn distinguishes_network_failures() {
 async fn redacts_captured_credentials() {
     let body = json!({"error":{
         "code":"invalid_api_key","message":"Rejected credential captured-key"
-    }});
+    }, "request":{"private":"private-request-sentinel"}});
     for reply in [
         fixtures::rejection(401, body.clone(), ""),
         fixtures::sse([json!({"type":"error","error":body["error"]})]),
@@ -123,6 +123,7 @@ async fn redacts_captured_credentials() {
             .await
             .unwrap_err();
         assert!(!error.message.contains("captured-key"));
+        assert!(!error.message.contains("private-request-sentinel"));
         assert!(error.message.contains("[redacted]"));
         assert_eq!(server.finish().await.len(), 1);
     }

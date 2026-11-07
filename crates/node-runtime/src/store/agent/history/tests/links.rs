@@ -216,20 +216,29 @@ async fn preserves_captured_reads() {
     let fixture = Fixture::open(directory.path()).await;
     let session = fixture.session(directory.path()).await;
     let turn = fixture.start(&fixture.local, &session).await;
-    use goose_provider_types::conversation::message::{Message, MessageContent};
-    use rmcp::model::{CallToolRequestParams, CallToolResult, ContentBlock};
+    use crate::agent::model::types::{Content, Message, Role, ToolCall, ToolResult};
+    use rmcp::model::{CallToolResult, ContentBlock};
     use std::collections::BTreeMap;
 
-    let mut source = Message::assistant()
-        .with_text("Before the call")
-        .with_tool_request(
-            "saved-call",
-            Ok(CallToolRequestParams::new("read_file").with_arguments(
-                serde_json::from_value(serde_json::json!({"path":"saved.txt"})).unwrap(),
-            )),
-        );
-    source.id = Some("saved-call-entry".into());
-    let MessageContent::ToolRequest(request) = &mut source.content[1] else {
+    let mut source = Message {
+        id: Some("saved-call-entry".into()),
+        role: Role::Assistant,
+        content: vec![
+            Content::Text {
+                text: "Before the call".into(),
+            },
+            Content::ToolCall(ToolCall {
+                id: "saved-call".into(),
+                name: "read_file".into(),
+                arguments: serde_json::json!({"path":"saved.txt"}),
+                metadata: None,
+                tool_meta: None,
+                error: None,
+            }),
+        ],
+        ..Message::default()
+    };
+    let Content::ToolCall(request) = &mut source.content[1] else {
         panic!("tool request expected")
     };
     request.metadata = Some(
@@ -268,10 +277,22 @@ async fn preserves_captured_reads() {
         .content
         .push(ContentBlock::image("AAEC/f7/", "image/png"));
     let encoded = serde_json::to_value(&tool_result).unwrap();
-    let mut result_source = Message::user()
-        .with_text("Before the result")
-        .with_tool_response("saved-call", Ok(tool_result));
-    result_source.id = Some("saved-result-entry".into());
+    let result_source = Message {
+        id: Some("saved-result-entry".into()),
+        role: Role::User,
+        content: vec![
+            Content::Text {
+                text: "Before the result".into(),
+            },
+            Content::ToolResult(ToolResult {
+                id: "saved-call".into(),
+                name: "read_file".into(),
+                result: Ok(tool_result),
+                metadata: None,
+            }),
+        ],
+        ..Message::default()
+    };
     let mut result = conversion::capture(
         &transaction,
         turn,

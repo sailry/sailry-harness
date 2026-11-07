@@ -13,41 +13,35 @@ fn tokens(payload: &Payload, kind: Kind) -> Option<u64> {
         .tokens
 }
 
-fn input(text: &str) -> String {
-    json!({"model_config":{"request_headers":{"authorization":"PRIVATE_AUTH"}},
-        "input":{"instructions":text,"input":[{"role":"user","content":"task"}]}})
-    .to_string()
+fn input(text: &str) -> serde_json::Value {
+    json!({"instructions":text,"input":[{"role":"user","content":"task"}]})
 }
 
 #[tokio::test]
 async fn isolates_interleaved_request_handles() {
     let first = Sources::default().capture("", Instant::now());
     let second = Sources::default().capture("", Instant::now());
-    let (mut first_handle, mut second_handle) = tokio::join!(
+    let (first_handle, second_handle) = tokio::join!(
         first.scope(async {
-            let handle = Logger.start().unwrap();
+            let handle = current().unwrap();
             tokio::task::yield_now().await;
             handle
         }),
         second.scope(async {
             tokio::task::yield_now().await;
-            Logger.start().unwrap()
+            current().unwrap()
         }),
     );
     // Handles retain their own request even while a different request is current.
     second
-        .scope(async { first_handle.write(&input("first")).unwrap() })
+        .scope(async { first_handle.prepared(&input("first")) })
         .await;
     first
-        .scope(async { second_handle.write(&input("second payload")).unwrap() })
+        .scope(async { second_handle.prepared(&input("second payload")) })
         .await;
     assert_eq!(tokens(&first, Kind::System), Some(2));
     assert_eq!(tokens(&second, Kind::System), Some(4));
     let before = first.snapshot();
-    first_handle
-        .write(&input("later response text must be ignored"))
-        .unwrap();
-    first_handle.write("not JSON; PRIVATE_RESPONSE").unwrap();
     assert_eq!(first.snapshot(), before);
     let recorded = serde_json::to_string(&before.0).unwrap();
     for secret in ["PRIVATE_AUTH", "PRIVATE_RESPONSE", "first"] {
@@ -57,7 +51,6 @@ async fn isolates_interleaved_request_handles() {
 
 #[tokio::test]
 async fn covers_creation_and_lazy_polling() {
-    install();
     let sources = Sources::default();
     sources.replace(vec![Source {
         kind: Kind::Skills,
@@ -70,14 +63,13 @@ async fn covers_creation_and_lazy_polling() {
     }]);
     let mut replies = payload
         .scope(async {
-            request_log::start_log(json!({}), json!({"instructions":"skill source"})).unwrap();
+            prepared(Some(&json!({"instructions":"skill source"}).to_string()));
             assert_eq!(tokens(&payload, Kind::Skills), Some(3));
             stream::once(async {
-                request_log::start_log(
-                    json!({}),
-                    json!({"instructions":"skill source", "previous_response_id":"previous"}),
-                )
-                .unwrap();
+                prepared(Some(
+                    &json!({"instructions":"skill source", "previous_response_id":"previous"})
+                        .to_string(),
+                ));
             })
             .boxed()
         })
@@ -118,18 +110,13 @@ async fn freezes_context_inventory() {
     let second = sources.capture("base", Instant::now());
     let body =
         json!({"system":"base","messages":[{"role":"user","content":context.text()}]}).to_string();
-    let (mut first_handle, mut second_handle) = tokio::join!(
-        first.scope(async { Logger.start().unwrap() }),
-        second.scope(async { Logger.start().unwrap() }),
+    let (first_handle, second_handle) = tokio::join!(
+        first.scope(async { current().unwrap() }),
+        second.scope(async { current().unwrap() }),
     );
-    let envelope =
-        json!({"input":serde_json::from_str::<serde_json::Value>(&body).unwrap()}).to_string();
-    second
-        .scope(async { first_handle.write(&envelope).unwrap() })
-        .await;
-    first
-        .scope(async { second_handle.write(&envelope).unwrap() })
-        .await;
+    let body = serde_json::from_str::<serde_json::Value>(&body).unwrap();
+    second.scope(async { first_handle.prepared(&body) }).await;
+    first.scope(async { second_handle.prepared(&body) }).await;
     assert_eq!(tokens(&first, Kind::Skills), Some(5));
     assert!(tokens(&first, Kind::Injected).unwrap() > 0);
     assert_eq!(tokens(&second, Kind::Skills), None);
@@ -144,21 +131,21 @@ async fn cancellation_leaves_no_current_request() {
     let task = tokio::spawn(async move {
         captured
             .scope(async {
-                sender.send(Logger.start().unwrap()).ok().unwrap();
+                sender.send(current().unwrap()).ok().unwrap();
                 std::future::pending::<()>().await;
             })
             .await;
     });
-    let mut held = receiver.await.unwrap();
+    let held = receiver.await.unwrap();
     task.abort();
     assert!(task.await.unwrap_err().is_cancelled());
     let next = Sources::default().capture("", Instant::now());
-    next.scope(async { held.write(&input("cancelled input")).unwrap() })
+    next.scope(async { held.prepared(&input("cancelled input")) })
         .await;
     assert_eq!(tokens(&payload, Kind::System), Some(4));
     assert!(next.snapshot().0.iter().all(|row| row.tokens.is_none()));
     assert!(CURRENT.try_with(|_| ()).is_err());
-    Logger.start().unwrap().write(&input("unscoped")).unwrap();
+    prepared(Some(&input("unscoped").to_string()));
     assert!(next.snapshot().0.iter().all(|row| row.tokens.is_none()));
 }
 
@@ -298,50 +285,15 @@ async fn marks_both_continuation_layouts() {
     }
 }
 
-#[test]
-fn preserves_an_existing_logger() {
-    // Use a fresh process: the GDK slot is process-wide and cannot be reset.
-    const CHILD: &str = "SAILRY_LOGGER_OWNERSHIP_TEST";
-    if std::env::var_os(CHILD).is_none() {
-        let name = std::thread::current().name().unwrap().to_owned();
-        let result = std::process::Command::new(std::env::current_exe().unwrap())
-            .args(["--exact", &name, "--nocapture"])
-            .env(CHILD, "1")
-            .output()
-            .unwrap();
-        assert!(
-            result.status.success(),
-            "{}",
-            String::from_utf8_lossy(&result.stderr)
-        );
-        return;
-    }
-    struct Existing;
-    struct Noop;
-    impl RequestLogger for Existing {
-        fn start(&self) -> Result<Box<dyn RequestLogHandle>, LogError> {
-            Ok(Box::new(Noop))
-        }
-    }
-    impl RequestLogHandle for Noop {
-        fn write(&mut self, _: &str) -> Result<(), LogError> {
-            Ok(())
-        }
-    }
-    request_log::install_logger(Existing).unwrap();
-    install();
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap();
-    runtime.block_on(async {
-        let payload = Sources::default().capture("", Instant::now());
-        payload
-            .scope(async {
-                request_log::start_log(json!({}), json!({"instructions":"owned elsewhere"}))
-                    .unwrap();
-            })
-            .await;
-        assert!(payload.snapshot().0.iter().all(|row| row.tokens.is_none()));
-    });
+#[tokio::test]
+async fn requires_the_owning_request_scope() {
+    let payload = Sources::default().capture("", Instant::now());
+    prepared(Some(&input("unscoped").to_string()));
+    assert!(payload.snapshot().0.iter().all(|row| row.tokens.is_none()));
+    payload
+        .scope(async {
+            prepared(Some(&input("owned request").to_string()));
+        })
+        .await;
+    assert!(tokens(&payload, Kind::System).is_some());
 }

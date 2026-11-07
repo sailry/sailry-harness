@@ -1,6 +1,5 @@
 use super::*;
 use crate::plugins::tools::alias;
-use goose_provider_types::conversation::message::ToolConfirmationRequest;
 use rmcp::model::{CallToolRequestParams, CallToolResult, ContentBlock};
 use sailry_link::CancellationToken;
 use serde_json::{Value, json};
@@ -16,7 +15,7 @@ fn exposure(declared: &[(&str, &str)], registered: &[&str]) -> Exposure {
 }
 
 fn tool(name: impl Into<String>) -> Tool {
-    Tool::new(name.into(), "description", serde_json::Map::new())
+    rmcp::model::Tool::new(name.into(), "description", serde_json::Map::new()).into()
 }
 
 fn call(id: &str, name: impl Into<String>) -> Message {
@@ -24,17 +23,17 @@ fn call(id: &str, name: impl Into<String>) -> Message {
 }
 
 fn called(message: &Message) -> &str {
-    let MessageContentBlock::ToolRequest(request) = &message.content[0] else {
+    let Content::ToolCall(request) = &message.content[0] else {
         panic!("tool call expected")
     };
-    request.tool_call.as_ref().unwrap().name.as_ref()
+    &request.name
 }
 
 fn result(message: &Message) -> &CallToolResult {
-    let MessageContentBlock::ToolResponse(response) = &message.content[0] else {
+    let Content::ToolResult(response) = &message.content[0] else {
         panic!("tool result expected")
     };
-    response.tool_result.as_ref().unwrap()
+    response.result.as_ref().unwrap()
 }
 
 #[test]
@@ -72,26 +71,16 @@ fn restores_exact_discovery_queries() {
         ),
     ] {
         let mut message = call("search", "tool_search");
-        let MessageContentBlock::ToolRequest(request) = &mut message.content[0] else {
+        let Content::ToolCall(request) = &mut message.content[0] else {
             unreachable!()
         };
-        request.tool_call.as_mut().unwrap().arguments =
-            Some(serde_json::from_value(json!({"query":query,"limit":3})).unwrap());
+        request.arguments = json!({"query":query,"limit":3});
         let original = message.clone();
         names.restore(&mut message);
-        let MessageContentBlock::ToolRequest(request) = &message.content[0] else {
+        let Content::ToolCall(request) = &message.content[0] else {
             unreachable!()
         };
-        assert_eq!(
-            request
-                .tool_call
-                .as_ref()
-                .unwrap()
-                .arguments
-                .as_ref()
-                .unwrap()["query"],
-            expected
-        );
+        assert_eq!(request.arguments["query"], expected);
         assert_eq!(names.messages(&[message]).as_ref(), &[original]);
     }
 }
@@ -135,7 +124,8 @@ fn reserves_historical_core_names() {
     .unwrap()];
     let canonical = alias("fixture", "read");
     let mut registration = crate::agent::title::bind("session".into(), CancellationToken::new());
-    registration.tool = tool(canonical.clone());
+    registration.tool =
+        rmcp::model::Tool::new(canonical.clone(), "description", serde_json::Map::new());
     registration.plugin = Some("fixture".into());
     let tools = [registration];
     let historical = ["read".into()].into();
@@ -166,7 +156,8 @@ fn captures_only_eligible_package_declarations() {
     };
     let registration = |owner: &str| {
         let mut entry = crate::agent::title::bind("session".into(), CancellationToken::new());
-        entry.tool = tool(alias(owner, "read"));
+        entry.tool =
+            rmcp::model::Tool::new(alias(owner, "read"), "description", serde_json::Map::new());
         entry.plugin = Some(owner.into());
         entry.deferred = true;
         entry
@@ -227,27 +218,15 @@ fn reserves_only_exact_internal_namespace() {
 }
 
 #[test]
-fn preserves_body_arguments_and_confirmation_prompts() {
+fn preserves_body_and_arguments() {
     let canonical = alias("files", "read_file");
     let names = exposure(&[("files", "read_file")], &[]);
     let text = format!("User, skill, file, command and MCP text: {canonical}");
     let mut request = call("file", canonical.clone());
-    let MessageContentBlock::ToolRequest(block) = &mut request.content[0] else {
+    let Content::ToolCall(block) = &mut request.content[0] else {
         unreachable!()
     };
-    block.tool_call.as_mut().unwrap().arguments =
-        Some(serde_json::from_value(json!({"path":canonical})).unwrap());
-    let mut confirmation = Message::assistant();
-    confirmation
-        .content
-        .push(MessageContentBlock::ToolConfirmationRequest(
-            ToolConfirmationRequest {
-                id: "confirm".into(),
-                tool_name: canonical.clone(),
-                arguments: serde_json::from_value(json!({"text":text})).unwrap(),
-                prompt: Some(text.clone()),
-            },
-        ));
+    block.arguments = json!({"path":canonical});
     let history = [
         Message::user().with_text(text.clone()),
         Message::assistant()
@@ -258,30 +237,15 @@ fn preserves_body_arguments_and_confirmation_prompts() {
             "file",
             Ok(CallToolResult::success(vec![ContentBlock::text(text)])),
         ),
-        confirmation,
     ];
     let mut sent = names.messages(&history).into_owned();
     assert_eq!(&sent[..2], &history[..2]);
     assert_eq!(sent[3], history[3]);
-    let MessageContentBlock::ToolRequest(block) = &sent[2].content[0] else {
+    let Content::ToolCall(block) = &sent[2].content[0] else {
         unreachable!()
     };
-    assert_eq!(
-        block
-            .tool_call
-            .as_ref()
-            .unwrap()
-            .arguments
-            .as_ref()
-            .unwrap()["path"],
-        canonical
-    );
-    let MessageContentBlock::ToolConfirmationRequest(block) = &sent[4].content[0] else {
-        unreachable!()
-    };
-    assert_eq!(block.tool_name, "read_file");
+    assert_eq!(block.arguments["path"], canonical);
     names.restore(&mut sent[2]);
-    names.restore(&mut sent[4]);
     assert_eq!(sent, history);
 }
 
@@ -348,7 +312,7 @@ mod mcp {
 
     fn bound(plugin: &str, server: &str, name: &str) -> Registration {
         let mut entry = crate::agent::title::bind("session".into(), CancellationToken::new());
-        entry.tool = Tool::new(
+        entry.tool = rmcp::model::Tool::new(
             alias(plugin, server, name),
             format!("MCP {plugin}/{server}/{name}\nRemote description"),
             serde_json::Map::new(),

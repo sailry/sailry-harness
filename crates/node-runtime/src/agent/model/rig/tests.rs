@@ -15,9 +15,14 @@ use tokio_util::sync::CancellationToken;
 
 mod cancellation;
 mod cloud;
+mod eof;
 mod errors;
 mod fixtures;
+mod framing;
+mod gemini;
+mod history;
 mod parity;
+mod provider_contracts;
 mod requests;
 #[path = "../factory/tests/server.rs"]
 mod server;
@@ -44,6 +49,7 @@ fn request(model: &str) -> Request {
             content: vec![Content::Text {
                 text: "Read the file".into(),
             }],
+            ..Message::default()
         }],
         tools: vec![Tool {
             name: "read".into(),
@@ -118,5 +124,6 @@ fn result(id: &str) -> Message {
             ])),
             metadata: None,
         })],
+        ..Message::default()
     }
 }

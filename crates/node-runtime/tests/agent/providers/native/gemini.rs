@@ -108,6 +108,7 @@ async fn idless_mcp_results_keep_execution_facts() {
     {
         let requests = model.requests.lock().unwrap();
         assert_eq!(requests.len(), 2);
+        assert!(requests[1].body.get("__sailry_tool_ids").is_none());
         assert!(
             requests[1].body["contents"]
                 .as_array()

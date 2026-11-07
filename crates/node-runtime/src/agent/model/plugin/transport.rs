@@ -33,11 +33,12 @@ impl Failure {
         }
     }
 
-    pub(super) fn model(self) -> goose_provider_types::errors::ProviderError {
+    pub(super) fn model(self) -> super::super::types::Error {
         match self {
             Self::Request(fault) => super::response::fault(fault),
-            Self::Network => goose_provider_types::errors::ProviderError::NetworkError(
-                "model connection failed".into(),
+            Self::Network => super::super::types::Error::new(
+                super::super::types::ErrorKind::Network,
+                "model connection failed",
             ),
         }
     }
@@ -71,9 +72,7 @@ pub(super) fn client() -> Result<Client, Fault> {
         .retry(reqwest::retry::never())
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(std::time::Duration::from_secs(30))
-        .read_timeout(std::time::Duration::from_secs(
-            goose_providers::api_client::DEFAULT_PROVIDER_TIMEOUT_SECS,
-        ))
+        .read_timeout(super::super::registry::READ_TIMEOUT)
         .build()
         .map_err(|_| Fault::new(ErrorCode::Unavailable, "model HTTP client is unavailable"))
 }

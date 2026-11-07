@@ -49,13 +49,8 @@ impl Failure {
         .into()
     }
 
-    pub(super) fn model(error: goose_provider_types::errors::ProviderError, initial: bool) -> Self {
-        if initial
-            && matches!(
-                error,
-                goose_provider_types::errors::ProviderError::NotImplemented(_)
-            )
-        {
+    pub(super) fn model(error: model::Error, initial: bool) -> Self {
+        if initial && error.kind == model::ErrorKind::Unsupported {
             return Self::unsupported();
         }
         model::error(error).into()
@@ -154,7 +149,6 @@ fn rejects_capability(status: u16, code: Option<&str>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use goose_provider_types::errors::ProviderError;
 
     #[test]
     fn requires_a_definite_initial_rejection() {
@@ -254,8 +248,9 @@ mod tests {
         for initial in [true, false] {
             assert!(matches!(
                 Failure::model(
-                    ProviderError::RequestFailed(
-                        "unsupported_capability private credential".into()
+                    model::Error::new(
+                        model::ErrorKind::Other,
+                        "unsupported_capability private credential",
                     ),
                     initial
                 ),
@@ -263,11 +258,17 @@ mod tests {
             ));
         }
         assert!(matches!(
-            Failure::model(ProviderError::NotImplemented("image output".into()), true),
+            Failure::model(
+                model::Error::new(model::ErrorKind::Unsupported, "image output"),
+                true,
+            ),
             Failure::Unsupported(_)
         ));
         assert!(matches!(
-            Failure::model(ProviderError::NotImplemented("image output".into()), false),
+            Failure::model(
+                model::Error::new(model::ErrorKind::Unsupported, "image output"),
+                false,
+            ),
             Failure::Failed(_)
         ));
     }

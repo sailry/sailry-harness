@@ -3,6 +3,7 @@ use super::*;
 use crate::agent::{
     canonical::*,
     engine::{Effect, history as conversion},
+    model::gdk,
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -439,6 +440,7 @@ async fn snapshot(db: &Connection, turn: TurnId, query: Query) -> Result<Session
             }
         }
         if let Some(message) = conversion::project(db, record).await? {
+            let message = gdk::to_message(&message);
             if let Some(after) = record
                 .metadata
                 .runtime
@@ -635,8 +637,8 @@ pub(super) async fn effects(
             .with_visibility(false, false);
         message.metadata.usage = Some(Box::new(MessageUsage::from_provider_usage(&usage, false)));
         pending.push(history::Input::Message(history::Message {
-            message,
-            usage: Some(usage),
+            message: gdk::from_message(&message),
+            usage: Some(gdk::from_usage(&usage)),
             calls: calls.clone(),
             presentation: presentation.clone(),
             timeline: timeline.clone(),
@@ -663,8 +665,10 @@ pub(super) async fn effects(
                     }
                 }
                 pending.push(history::Input::Message(history::Message {
-                    message,
-                    usage: (last == Some(index)).then(|| usage.clone()).flatten(),
+                    message: gdk::from_message(&message),
+                    usage: (last == Some(index))
+                        .then(|| usage.as_ref().map(gdk::from_usage))
+                        .flatten(),
                     calls: calls.clone(),
                     presentation: presentation.clone(),
                     timeline: timeline.clone(),
@@ -761,8 +765,8 @@ fn summary_input(
     };
     summary.metadata.usage = Some(Box::new(MessageUsage::from_provider_usage(&usage, true)));
     Ok(history::Summary {
-        message: summary,
-        usage,
+        message: gdk::from_message(&summary),
+        usage: gdk::from_usage(&usage),
         boundary: boundary.id.clone(),
         start: current
             .records

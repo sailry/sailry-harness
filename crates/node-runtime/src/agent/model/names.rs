@@ -1,15 +1,11 @@
 //! Package aliases remain canonical; only the captured model boundary exposes names.
 //! Plugin tools use their declared names and MCP tools `mcp__{server}__{tool}`.
 //! Adapted from the reviewed Sailry tool exposure WIP 8305566a.
+use super::types::{Content, Error, ErrorKind, Event, Message, Tool};
 use crate::{
     agent::{catalog::Registration, plugins},
     store::agent::Invocation,
 };
-use goose_provider_types::{
-    conversation::message::{Message, MessageContentBlock},
-    errors::ProviderError,
-};
-use rmcp::model::Tool;
 use sailry_protocol::{Fault, plugin::Info};
 use std::{
     borrow::Cow,
@@ -34,12 +30,15 @@ impl Registry {
         Ok(exposure)
     }
 
-    pub(super) fn get(&self, purpose: super::Purpose) -> Result<Arc<Exposure>, ProviderError> {
+    pub(super) fn get(&self, purpose: super::Purpose) -> Result<Arc<Exposure>, Error> {
         if matches!(purpose, super::Purpose::Compaction) {
             return Ok(Arc::new(Exposure::default()));
         }
         self.0.get().cloned().ok_or_else(|| {
-            ProviderError::InvalidValue("tool exposure has not been captured".into())
+            Error::new(
+                ErrorKind::InvalidRequest,
+                "tool exposure has not been captured",
+            )
         })
     }
 }
@@ -137,7 +136,7 @@ impl Exposure {
                 .iter()
                 .cloned()
                 .map(|mut tool| {
-                    tool.name = self.name(&tool.name).to_owned().into();
+                    tool.name = self.name(&tool.name).to_owned();
                     tool
                 })
                 .collect(),
@@ -152,25 +151,22 @@ impl Exposure {
         let mut calls = BTreeMap::new();
         for content in messages.iter_mut().flat_map(|message| &mut message.content) {
             match content {
-                MessageContentBlock::ToolRequest(request) => {
-                    if let Ok(call) = &mut request.tool_call {
-                        calls.insert(request.id.clone(), call.name.to_string());
-                        if call.name.as_ref() == plugins::search::NAME {
-                            self.query(call.arguments.as_mut(), true);
+                Content::ToolCall(call) => {
+                    if call.error.is_none() {
+                        calls.insert(call.id.clone(), call.name.clone());
+                        if call.name == plugins::search::NAME {
+                            self.query(call.arguments.as_object_mut(), true);
                         }
-                        call.name = self.name(&call.name).to_owned().into();
+                        call.name = self.name(&call.name).to_owned();
                     }
                 }
-                MessageContentBlock::ToolResponse(response)
-                    if calls.get(&response.id).map(String::as_str)
-                        == Some(plugins::search::NAME) =>
-                {
-                    if let Ok(result) = &mut response.tool_result {
+                Content::ToolResult(response) => {
+                    if calls.get(&response.id).map(String::as_str) == Some(plugins::search::NAME)
+                        && let Ok(result) = &mut response.result
+                    {
                         plugins::search::project(result, |name| self.name(name).to_owned());
                     }
-                }
-                MessageContentBlock::ToolConfirmationRequest(request) => {
-                    request.tool_name = self.name(&request.tool_name).to_owned();
+                    response.name = self.name(&response.name).to_owned();
                 }
                 _ => {}
             }
@@ -181,23 +177,39 @@ impl Exposure {
     pub(super) fn restore(&self, message: &mut Message) {
         for content in &mut message.content {
             match content {
-                MessageContentBlock::ToolRequest(request) => {
-                    if let Ok(call) = &mut request.tool_call {
-                        if let Some(alias) = self.reverse.get(call.name.as_ref()) {
-                            call.name = alias.clone().into();
+                Content::ToolCall(call) => {
+                    if call.error.is_none() {
+                        if let Some(alias) = self.reverse.get(&call.name) {
+                            call.name.clone_from(alias);
                         }
-                        if call.name.as_ref() == plugins::search::NAME {
-                            self.query(call.arguments.as_mut(), false);
+                        if call.name == plugins::search::NAME {
+                            self.query(call.arguments.as_object_mut(), false);
                         }
-                    }
-                }
-                MessageContentBlock::ToolConfirmationRequest(request) => {
-                    if let Some(alias) = self.reverse.get(&request.tool_name) {
-                        request.tool_name = alias.clone();
                     }
                 }
                 _ => {}
             }
+        }
+    }
+
+    pub(super) fn restore_event(&self, event: &mut Event) {
+        match event {
+            Event::ToolCall { call, .. } if call.error.is_none() => {
+                if let Some(alias) = self.reverse.get(&call.name) {
+                    call.name.clone_from(alias);
+                }
+                if call.name == plugins::search::NAME {
+                    self.query(call.arguments.as_object_mut(), false);
+                }
+            }
+            Event::ToolCallDelta {
+                name: Some(name), ..
+            } => {
+                if let Some(alias) = self.reverse.get(name) {
+                    name.clone_from(alias);
+                }
+            }
+            _ => {}
         }
     }
 

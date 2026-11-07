@@ -1,14 +1,10 @@
-//! A captured package receives neutral messages from the GDK provider boundary.
-use goose_provider_types::{
-    conversation::message::{Message, MessageContentBlock},
-    model::ModelConfig,
-};
+use super::super::types::{Content, Image, Request, Role};
 use sailry_protocol::{
     Effort, Fault,
     plugin::model_adapter::{Capabilities, Dialect, wire},
 };
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub(super) struct Context<'a> {
     pub endpoint: &'a str,
@@ -19,13 +15,7 @@ pub(super) struct Context<'a> {
     pub dialect: Dialect,
 }
 
-pub(super) fn convert(
-    config: &ModelConfig,
-    system: &str,
-    messages: &[Message],
-    tools: &[rmcp::model::Tool],
-    context: Context<'_>,
-) -> Result<wire::Request, Fault> {
+pub(super) fn convert(source: &Request, context: Context<'_>) -> Result<wire::Request, Fault> {
     let Context {
         endpoint,
         session,
@@ -35,123 +25,109 @@ pub(super) fn convert(
         dialect,
     } = context;
     if (!capabilities.reasoning && !matches!(effort, Effort::Default | Effort::Disabled))
-        || (!capabilities.tools && !tools.is_empty())
+        || (!capabilities.tools && !source.tools.is_empty())
     {
         return Err(unsupported());
     }
-    if config.temperature.is_some_and(|value| !value.is_finite())
-        || config
-            .request_param::<f64>("top_p")
+    if source.temperature.is_some_and(|value| !value.is_finite())
+        || source
+            .params
+            .get("top_p")
+            .and_then(Value::as_f64)
             .is_some_and(|value| !value.is_finite())
     {
         return Err(Fault::invalid("model request options are invalid"));
     }
-    let schemas: Vec<Value> = match dialect {
-        Dialect::OpenAi => goose_provider_types::formats::openai::format_tools(tools)
-            .map_err(|_| Fault::invalid("model tool schema is invalid"))?
-            .into_iter()
-            .filter_map(|tool| tool.get("function").cloned())
-            .collect(),
-        Dialect::Gemini => goose_provider_types::formats::google::format_tools(tools),
-        Dialect::Generic => Vec::new(),
-    };
-    let tools = tools
+    let mut names = BTreeSet::new();
+    let tools = source
+        .tools
         .iter()
-        .enumerate()
-        .map(|(index, tool)| {
-            let schema = schemas.get(index);
-            wire::Tool {
-                name: tool.name.to_string(),
-                description: tool.description.as_ref().map(ToString::to_string),
-                parameters: schema
-                    .and_then(|schema| {
-                        schema
-                            .get("parameters")
-                            .or_else(|| schema.get("parametersJsonSchema"))
-                    })
-                    .cloned()
-                    .unwrap_or_else(|| serde_json::to_value(&tool.input_schema).unwrap()),
+        .map(|tool| {
+            if dialect == Dialect::OpenAi && !names.insert(&tool.name) {
+                return Err(Fault::invalid("model tool schema is invalid"));
             }
+            Ok(wire::Tool {
+                name: tool.name.clone(),
+                description: tool.description.clone(),
+                parameters: tool.parameters.clone(),
+            })
         })
-        .collect();
+        .collect::<Result<_, Fault>>()?;
     let mut output = Vec::new();
     let mut calls = BTreeMap::new();
-    for message in messages {
-        let assistant = message.role == rmcp::model::Role::Assistant;
+    for message in &source.messages {
+        if !message.metadata.agent_visible {
+            continue;
+        }
+        let assistant = message.role == Role::Assistant;
         let mut parts = Vec::new();
         for block in &message.content {
             match block {
-                MessageContentBlock::Thinking(_) | MessageContentBlock::RedactedThinking(_)
+                Content::Thinking { .. } | Content::RedactedThinking { .. }
                     if !capabilities.reasoning =>
                 {
                     return Err(unsupported());
                 }
-                MessageContentBlock::Image(_) if !capabilities.vision => return Err(unsupported()),
-                MessageContentBlock::Document(_) if !capabilities.files => {
-                    return Err(unsupported());
-                }
-                MessageContentBlock::ToolRequest(_) | MessageContentBlock::ToolResponse(_)
-                    if !capabilities.tools =>
-                {
+                Content::Image { .. } if !capabilities.vision => return Err(unsupported()),
+                Content::Document { .. } if !capabilities.files => return Err(unsupported()),
+                Content::ToolCall(_) | Content::ToolResult(_) if !capabilities.tools => {
                     return Err(unsupported());
                 }
                 _ => {}
             }
             match block {
-                MessageContentBlock::Text(text) => parts.push(wire::Part::Text {
-                    text: text.text.clone(),
+                Content::Text { text } => parts.push(wire::Part::Text { text: text.clone() }),
+                Content::Thinking { text, signature } => parts.push(wire::Part::Reasoning {
+                    text: Some(text.clone()),
+                    replay: signature.clone().filter(|signature| !signature.is_empty()),
                 }),
-                MessageContentBlock::Thinking(thinking) => parts.push(wire::Part::Reasoning {
-                    text: Some(thinking.thinking.clone()),
-                    replay: (!thinking.signature.is_empty()).then(|| thinking.signature.clone()),
+                Content::RedactedThinking { data } => parts.push(wire::Part::Reasoning {
+                    text: None,
+                    replay: Some(data.clone()),
                 }),
-                MessageContentBlock::RedactedThinking(thinking) => {
-                    parts.push(wire::Part::Reasoning {
-                        text: None,
-                        replay: Some(thinking.data.clone()),
-                    })
-                }
-                MessageContentBlock::Image(image) => parts.push(wire::Part::Image {
-                    media_type: image.mime_type.clone(),
-                    data: if image.data.starts_with("https://") || image.data.starts_with("http://")
-                    {
-                        wire::Image::Url {
-                            url: image.data.clone(),
-                        }
-                    } else {
-                        wire::Image::Inline {
-                            data_base64: image.data.clone(),
-                        }
+                Content::Image {
+                    media_type, data, ..
+                } => parts.push(wire::Part::Image {
+                    media_type: media_type.clone(),
+                    data: match data {
+                        Image::Inline { data_base64 } => wire::Image::Inline {
+                            data_base64: data_base64.clone(),
+                        },
+                        Image::Url { url } => wire::Image::Url { url: url.clone() },
                     },
                 }),
-                MessageContentBlock::Document(document) => parts.push(wire::Part::File {
-                    media_type: document.mime_type.clone(),
-                    name: document.name.clone(),
-                    data_base64: document.data.clone(),
+                Content::Document {
+                    media_type,
+                    name,
+                    data_base64,
+                } => parts.push(wire::Part::File {
+                    media_type: media_type.clone(),
+                    name: name.clone(),
+                    data_base64: data_base64.clone(),
                 }),
-                MessageContentBlock::ToolRequest(request) => {
-                    if let Ok(call) = &request.tool_call {
-                        calls.insert(request.id.clone(), call.name.to_string());
-                        parts.push(wire::Part::ToolCall {
-                            id: request.id.clone(),
-                            name: call.name.to_string(),
-                            arguments: serde_json::to_value(&call.arguments).unwrap_or(Value::Null),
-                        });
-                    }
+                Content::ToolCall(call) if call.error.is_none() => {
+                    calls.insert(call.id.clone(), call.name.clone());
+                    parts.push(wire::Part::ToolCall {
+                        id: call.id.clone(),
+                        name: call.name.clone(),
+                        arguments: call.arguments.clone(),
+                    });
                 }
-                MessageContentBlock::ToolResponse(response) => {
+                Content::ToolResult(response) => {
                     flush(&mut output, &mut parts, assistant);
-                    let (value, is_error) = match &response.tool_result {
+                    let (value, is_error) = match &response.result {
                         Ok(result) => (
                             serde_json::to_value(result).unwrap(),
                             result.is_error.unwrap_or(false),
                         ),
                         Err(error) => (serde_json::to_value(error).unwrap(), true),
                     };
-                    let name = calls.get(&response.id).cloned().unwrap_or_default();
                     output.push(wire::Message::Tool {
                         call_id: response.id.clone(),
-                        name,
+                        name: calls
+                            .get(&response.id)
+                            .cloned()
+                            .unwrap_or_else(|| response.name.clone()),
                         parts: vec![wire::Part::Json { value }],
                         is_error,
                     });
@@ -161,31 +137,36 @@ pub(super) fn convert(
         }
         flush(&mut output, &mut parts, assistant);
     }
-    let mut params = config.request_params.clone().unwrap_or_default();
+    let mut params = source.params.clone();
     params.retain(|key, _| {
-        !goose_provider_types::model::is_goose_internal_request_param(key)
-            && !matches!(
-                key.as_str(),
-                "thinking_budget" | "budget_tokens" | "enable_thinking"
-            )
+        !matches!(
+            key.as_str(),
+            "thinking_effort"
+                | "disable_prompt_cache"
+                | "cache_ttl"
+                | "emit_clear_thinking"
+                | "preserve_thinking_context"
+                | "preserve_unsigned_thinking"
+                | "thinking_budget"
+                | "budget_tokens"
+                | "enable_thinking"
+                | "sailry_effort"
+        )
     });
     Ok(wire::Request {
         version: "v1".into(),
-        model: config.model_name.clone(),
+        model: source.model.clone(),
         messages: output,
-        system: (!system.is_empty()).then(|| system.into()),
+        system: (!source.system.is_empty()).then(|| source.system.clone()),
         tools,
-        // The v1 package input retains this field; Sailry never selects a tool.
         tool_choice: wire::Choice::Auto,
         reasoning: wire::Reasoning {
             effort,
             replay: capabilities.reasoning,
         },
         features,
-        max_output_tokens: config
-            .max_tokens
-            .and_then(|value| u64::try_from(value).ok()),
-        temperature: config.temperature.map(f64::from),
+        max_output_tokens: source.max_tokens,
+        temperature: source.temperature,
         top_p: params.get("top_p").and_then(Value::as_f64),
         stop: params
             .get("stop")

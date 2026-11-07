@@ -468,10 +468,9 @@ async fn confines_generation_credentials() {
             }
             if !redirect && api == ModelApi::Responses {
                 let error = page.runs.last().unwrap().error.as_ref().unwrap();
-                assert_eq!(
-                    error.message,
-                    "Ran into this error: Rate limit exceeded: [redacted].\n\nPlease retry if you think this is a transient or recoverable error."
-                );
+                assert_eq!(error.code, sailry_protocol::ErrorCode::Unavailable);
+                assert!(error.message.contains("429"), "{error:?}");
+                assert!(error.message.contains("[redacted]"), "{error:?}");
             }
             assert!(page.entries.iter().flat_map(|entry| &entry.parts).all(
                 |part| !matches!(part, Part::Resource(value) if value["type"] == "model_retry")

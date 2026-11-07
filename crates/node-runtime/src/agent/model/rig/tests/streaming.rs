@@ -39,6 +39,7 @@ async fn preserves_response_calls_and_usage() {
     input.messages.push(Message {
         role: Role::Assistant,
         content: vec![Content::ToolCall(call.clone())],
+        ..Message::default()
     });
     input.messages.push(result(&call.id));
     let next = collect(&model, input, CancellationToken::new())
@@ -148,6 +149,7 @@ async fn preserves_anthropic_signed_thinking() {
             },
             Content::ToolCall(call),
         ],
+        ..Message::default()
     });
     input.messages.push(result("stable-call"));
     collect(&model, input, CancellationToken::new())
@@ -195,6 +197,7 @@ async fn preserves_gemini_tool_signatures() {
     input.messages.push(Message {
         role: Role::Assistant,
         content: vec![Content::ToolCall(call)],
+        ..Message::default()
     });
     input.messages.push(result("stable-call"));
     collect(&model, input, CancellationToken::new())
@@ -247,13 +250,70 @@ async fn rejects_unfinished_tool_calls() {
 }
 
 #[tokio::test]
+async fn retains_usage_on_clean_eof() {
+    let cases = [
+        (
+            ModelApi::Anthropic,
+            "claude-opus-4-8",
+            fixtures::sse([
+                json!({
+                    "type":"message_start",
+                    "message":{"id":"partial","type":"message","role":"assistant",
+                        "model":"claude-opus-4-8","content":[],
+                        "usage":{"input_tokens":12,"output_tokens":3,
+                            "cache_read_input_tokens":8,"cache_creation_input_tokens":4,
+                            "output_tokens_details":{"thinking_tokens":2}}}
+                }),
+                json!({"type":"content_block_start","index":0,
+                    "content_block":{"type":"text","text":""}}),
+                json!({"type":"content_block_delta","index":0,
+                    "delta":{"type":"text_delta","text":fixtures::ANSWER}}),
+            ]),
+            (24, 3, 27, Some(4)),
+        ),
+        (
+            ModelApi::Gemini,
+            "gemini-2.5-flash",
+            fixtures::sse([json!({
+                "candidates":[{"content":{"role":"model","parts":[{"text":fixtures::ANSWER}]}}],
+                "usageMetadata":{"promptTokenCount":12,"toolUsePromptTokenCount":4,
+                    "candidatesTokenCount":3,"thoughtsTokenCount":2,
+                    "cachedContentTokenCount":8},
+                "modelVersion":"gemini-2.5-flash"
+            })]),
+            (16, 5, 21, None),
+        ),
+    ];
+    for (api, name, body, expected) in cases {
+        let server = Server::start(vec![body]).await;
+        let provider = provider(api, server.endpoint.clone());
+        let model = native(&provider, name, "key", HeaderMap::new());
+        let events = collect(&model, request(name), CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(text(&events), fixtures::ANSWER, "{api:?}");
+        assert_eq!(events.last(), Some(&Event::Finish(Finish::Stop)), "{api:?}");
+        let usage = events
+            .iter()
+            .rev()
+            .find_map(|event| match event {
+                Event::Usage(usage) => Some(usage),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(usage.input, Some(expected.0), "{api:?}");
+        assert_eq!(usage.output, Some(expected.1), "{api:?}");
+        assert_eq!(usage.total, Some(expected.2), "{api:?}");
+        assert_eq!(usage.cache_write, expected.3, "{api:?}");
+        assert_eq!(usage.cache_read, Some(8), "{api:?}");
+        assert_eq!(usage.reasoning, Some(2), "{api:?}");
+        assert_eq!(server.finish().await.len(), 1, "{api:?}");
+    }
+}
+
+#[tokio::test]
 async fn keeps_unclosed_calls_nonexecutable() {
     use futures::StreamExt;
-    use goose_provider_types::{
-        base::collect_stream,
-        conversation::message::{Message as LegacyMessage, MessageContentBlock},
-        model::ModelConfig,
-    };
 
     for (reason, arguments) in ["max_tokens", "end_turn"].into_iter().flat_map(|reason| {
         ["{\"path\":\"file\"}", "{\"path\":", ""]
@@ -275,38 +335,8 @@ async fn keeps_unclosed_calls_nonexecutable() {
                 "usage":{"output_tokens":3}}),
             json!({"type":"message_stop"}),
         ]);
-        let server = Server::start(vec![body.clone(), body]).await;
+        let server = Server::start(vec![body]).await;
         let provider = provider(ModelApi::Anthropic, server.endpoint.clone());
-        let legacy = crate::agent::model::factory::native(
-            &registry::Registry::default(),
-            &provider,
-            "claude-opus-4-8",
-            SessionId::new(),
-            "key",
-            HeaderMap::new(),
-        )
-        .unwrap();
-        let (legacy, _) = collect_stream(
-            legacy
-                .stream(
-                    &ModelConfig::new("claude-opus-4-8").with_max_tokens(Some(512)),
-                    "Captured instructions",
-                    &[LegacyMessage::user().with_text("Read the file")],
-                    &[],
-                )
-                .await
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-        assert_eq!(
-            legacy
-                .content
-                .iter()
-                .filter(|content| matches!(content, MessageContentBlock::ToolRequest(call) if call.id == "unfinished" && call.tool_call.is_err()))
-                .count(),
-            1
-        );
         let model = native(&provider, "claude-opus-4-8", "key", HeaderMap::new());
         let mut stream = model
             .call(request("claude-opus-4-8"), CancellationToken::new())
@@ -340,6 +370,6 @@ async fn keeps_unclosed_calls_nonexecutable() {
             })
         );
         assert!(failure.is_none());
-        assert_eq!(server.finish().await.len(), 2);
+        assert_eq!(server.finish().await.len(), 1);
     }
 }

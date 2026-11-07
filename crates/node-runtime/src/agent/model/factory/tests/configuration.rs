@@ -1,4 +1,13 @@
-use super::*;
+use super::{Server, provider, response};
+use crate::agent::model::{Config, Message, factory, registry};
+use futures::TryStreamExt;
+use reqwest::header::HeaderMap;
+use sailry_protocol::{
+    Authentication, Effort, SessionConfig, SessionId,
+    conversation::{ModelApi, Provider},
+};
+use serde_json::{Value, json};
+use tokio_util::sync::CancellationToken;
 
 fn metadata(id: &str) -> sailry_protocol::conversation::Model {
     sailry_protocol::conversation::Model {
@@ -26,8 +35,76 @@ fn session(provider: &Provider, model: &str, effort: Effort) -> SessionConfig {
     .unwrap()
 }
 
-#[test]
-fn preserves_compatible_reasoning() {
+async fn wire(provider: &Provider, config: &Config, message: Message) -> Value {
+    let reply = match provider.api {
+        ModelApi::Responses => response(false),
+        ModelApi::ChatCompletions | ModelApi::DeepSeek => {
+            let event = json!({
+                "id":"answer","object":"chat.completion.chunk","created":1,
+                "model":config.model_name,
+                "choices":[{"index":0,"delta":{"content":"Done"},"finish_reason":"stop"}]
+            });
+            format!("data: {event}\n\ndata: [DONE]\n\n")
+        }
+        ModelApi::Gemini => {
+            let event = json!({
+                "candidates":[{"content":{"role":"model","parts":[{"text":"Done"}]},
+                    "finishReason":"STOP","index":0}],
+                "modelVersion":config.model_name
+            });
+            format!("data: {event}\n\n")
+        }
+        ModelApi::Anthropic => [
+            json!({"type":"message_start","message":{"id":"answer","type":"message",
+                "role":"assistant","model":config.model_name,"content":[],
+                "stop_reason":null,"stop_sequence":null,
+                "usage":{"input_tokens":1,"output_tokens":0}}}),
+            json!({"type":"content_block_start","index":0,
+                "content_block":{"type":"text","text":"Done"}}),
+            json!({"type":"content_block_stop","index":0}),
+            json!({"type":"message_delta","delta":{"stop_reason":"end_turn",
+                "stop_sequence":null},"usage":{"output_tokens":1}}),
+            json!({"type":"message_stop"}),
+        ]
+        .into_iter()
+        .map(|event| {
+            format!(
+                "event: {}\ndata: {event}\n\n",
+                event["type"].as_str().unwrap()
+            )
+        })
+        .collect(),
+        _ => unreachable!(),
+    };
+    let server = Server::start(vec![reply]).await;
+    let mut provider = provider.clone();
+    provider.endpoint = server.endpoint.clone();
+    let model = factory::native(
+        &registry::Registry::default(),
+        &provider,
+        &config.model_name,
+        SessionId::new(),
+        "captured-key",
+        HeaderMap::new(),
+    )
+    .unwrap();
+    model
+        .call(
+            config.request(String::new(), vec![message], Vec::new()),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap()
+        .try_collect::<Vec<_>>()
+        .await
+        .unwrap();
+    let mut requests = server.finish().await;
+    assert_eq!(requests.len(), 1);
+    requests.pop().unwrap().body
+}
+
+#[tokio::test]
+async fn preserves_compatible_reasoning() {
     for (api, model, choices) in [
         (
             ModelApi::ChatCompletions,
@@ -51,20 +128,12 @@ fn preserves_compatible_reasoning() {
         let mut provider = provider(api, "https://example.test/v1".into());
         provider.models = vec![metadata(model)];
         for (effort, expected) in choices {
-            let config = config(
+            let config = factory::config(
                 &provider,
                 &session(&provider, model, effort),
                 SessionId::new(),
             );
-            let payload = goose_provider_types::formats::openai::create_request(
-                &config,
-                "",
-                &[],
-                &[],
-                &goose_provider_types::images::ImageFormat::OpenAi,
-                true,
-            )
-            .unwrap();
+            let payload = wire(&provider, &config, Message::user().with_text("Hello")).await;
             if expected.is_empty() {
                 assert!(payload.get("reasoning_effort").is_none());
             } else {
@@ -85,19 +154,18 @@ fn preserves_compatible_reasoning() {
     }
 }
 
-#[test]
-fn preserves_native_effort_levels() {
+#[tokio::test]
+async fn preserves_native_effort_levels() {
     let mut provider = provider(ModelApi::Anthropic, "https://example.test".into());
     provider.models = vec![sailry_protocol::conversation::Model {
         output: 16000,
         ..metadata("claude-opus-4-8")
     }];
     let selected = session(&provider, "claude-opus-4-8", Effort::XHigh);
-    let config = config(&provider, &selected, SessionId::new());
-    assert_eq!(
-        config.request_param::<Value>("output_config").unwrap()["effort"],
-        "xhigh"
-    );
+    let config = factory::config(&provider, &selected, SessionId::new());
+    assert_eq!(config.request_params["output_config"]["effort"], "xhigh");
+    let payload = wire(&provider, &config, Message::user().with_text("Hello")).await;
+    assert_eq!(payload["output_config"]["effort"], "xhigh");
 
     provider.api = ModelApi::Gemini;
     for (model, effort, expected) in [
@@ -135,10 +203,9 @@ fn preserves_native_effort_levels() {
     ] {
         provider.models = vec![metadata(model)];
         let selected = session(&provider, model, effort);
-        let config = super::config(&provider, &selected, SessionId::new());
-        assert!(config.request_param::<Value>("thinking_level").is_none());
-        let payload =
-            goose_provider_types::formats::google::create_request(&config, "", &[], &[]).unwrap();
+        let config = factory::config(&provider, &selected, SessionId::new());
+        assert!(!config.request_params.contains_key("thinking_level"));
+        let payload = wire(&provider, &config, Message::user().with_text("Hello")).await;
         assert_eq!(
             payload["generationConfig"]["thinkingConfig"], expected,
             "{model}, {effort:?}"
@@ -185,40 +252,46 @@ fn scopes_optional_request_fields() {
             for (choice, tier) in [("ultrafast", "ultrafast"), ("fast", "priority")] {
                 selected.features.insert("speed".into(), choice.into());
                 assert_eq!(
-                    config(&provider, &selected, SessionId::new())
-                        .request_param::<String>("service_tier"),
-                    sends.then(|| tier.to_owned()),
+                    factory::config(&provider, &selected, SessionId::new())
+                        .request_params
+                        .get("service_tier")
+                        .and_then(Value::as_str),
+                    sends.then_some(tier),
                     "{choice}"
                 );
             }
-            let config = config(&provider, &selected, SessionId::new());
+            let config = factory::config(&provider, &selected, SessionId::new());
             assert_eq!(
-                config.request_param::<String>("prompt_cache_key").is_some(),
+                config
+                    .request_params
+                    .get("prompt_cache_key")
+                    .and_then(Value::as_str)
+                    .is_some(),
                 authentication == Authentication::ApiKey
                     && matches!(api, ModelApi::Responses | ModelApi::ChatCompletions)
             );
             provider.models[0].capabilities = None;
             assert!(
-                super::config(&provider, &selected, SessionId::new())
-                    .request_param::<String>("service_tier")
+                factory::config(&provider, &selected, SessionId::new())
+                    .request_params
+                    .get("service_tier")
                     .is_none()
             );
         }
     }
 }
 
-#[test]
-fn sends_images_without_model_metadata() {
+#[tokio::test]
+async fn sends_images_without_model_metadata() {
     let mut provider = provider(ModelApi::Responses, "https://example.test/v1".into());
     let selected = session(&provider, "uncatalogued", Effort::Default);
-    let config = config(&provider, &selected, SessionId::new());
-    let payload = goose_provider_types::formats::openai_responses::create_responses_request(
+    let config = factory::config(&provider, &selected, SessionId::new());
+    let payload = wire(
+        &provider,
         &config,
-        "",
-        &[Message::user().with_image("aW1hZ2U=", "image/png")],
-        &[],
+        Message::user().with_image("aW1hZ2U=", "image/png"),
     )
-    .unwrap();
+    .await;
     assert!(
         payload["input"]
             .to_string()
@@ -226,7 +299,7 @@ fn sends_images_without_model_metadata() {
     );
     provider.models = vec![metadata("uncatalogued")];
     assert_eq!(
-        super::config(&provider, &selected, SessionId::new()).supports_vision,
+        factory::config(&provider, &selected, SessionId::new()).supports_vision,
         Some(false)
     );
 }

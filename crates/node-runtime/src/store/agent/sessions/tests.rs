@@ -169,7 +169,7 @@ async fn keeps_summary_before_current_output() {
             turn,
             Kind::Message(crate::agent::canonical::Message {
                 model: Some("fixture".into()),
-                usage: Some(conversion::provider_usage(&usage()).unwrap()),
+                usage: Some(conversion::provider_usage(&gdk::from_usage(&usage())).unwrap()),
                 ..Default::default()
             }),
         );

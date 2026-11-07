@@ -1,6 +1,7 @@
 use super::*;
 use crate::agent::canonical::BlockKind;
 use crate::agent::engine::history;
+use crate::agent::model::gdk;
 use rmcp::model::CallToolResult;
 use std::collections::BTreeMap;
 
@@ -388,7 +389,7 @@ mod canonical {
         let record = history::capture(
             db,
             sailry_protocol::TurnId::new(),
-            original,
+            &gdk::from_message(original),
             &BTreeMap::from([("call".into(), "plugin_tool".into())]),
         )
         .await
@@ -400,7 +401,7 @@ mod canonical {
             .await
             .unwrap();
         // The reloaded copy projects to the same notice as the live copy.
-        let reloaded = history::project(db, &record).await.unwrap().unwrap();
+        let reloaded = gdk::to_message(&history::project(db, &record).await.unwrap().unwrap());
         assert_eq!(projected(&reloaded).content, projected(original).content);
         (response.revision.clone(), value.to_string())
     }
@@ -466,12 +467,12 @@ async fn references_canonical_data_after_media_projection() {
     let record = history::capture(
         &db,
         sailry_protocol::TurnId::new(),
-        &original,
+        &gdk::from_message(&original),
         &BTreeMap::new(),
     )
     .await
     .unwrap();
-    let reloaded = history::project(&db, &record).await.unwrap().unwrap();
+    let reloaded = gdk::to_message(&history::project(&db, &record).await.unwrap().unwrap());
     assert!(
         result(&reloaded)
             .content
@@ -502,9 +503,14 @@ async fn references_canonical_data_after_media_projection() {
             .iter()
             .any(|content| matches!(content, ContentBlock::Image(_)))
     );
-    let captured = history::capture(&db, record.turn, &reloaded, &BTreeMap::new())
-        .await
-        .unwrap();
+    let captured = history::capture(
+        &db,
+        record.turn,
+        &gdk::from_message(&reloaded),
+        &BTreeMap::new(),
+    )
+    .await
+    .unwrap();
     assert!(captured.metadata.runtime.as_ref().unwrap().notes.is_none());
     assert!(matches!(captured.kind, Kind::Message(_)));
 }

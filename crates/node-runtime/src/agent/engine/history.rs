@@ -1,121 +1,101 @@
-//! Conversion at the GDK execution boundary. Durable history remains Sailry-owned.
+//! Conversion between canonical history and the Sailry model boundary.
 mod media;
 mod metadata;
 #[cfg(test)]
 mod tests;
 
 use crate::agent::canonical::*;
+use crate::agent::model::types::{self as model, Content};
 use crate::store::{agent::blobs, database::storage_error};
 use base64::Engine as _;
-use goose_provider_types::conversation::message::{self as gdk, MessageContent};
-use rmcp::model::{CallToolRequestParams, CallToolResult, ErrorData};
+use rmcp::model::CallToolResult;
 use sailry_protocol::{Fault, TurnId};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use turso::Connection;
 
-fn diagnostic(error: &gdk::ErrorContent) -> &str {
-    let message = error.message.as_str();
-    // GDK's from_provider_error adds this instruction to typed network errors.
-    // Keep the provider diagnostic intact and leave ordinary text blocks alone.
-    if error.kind == gdk::MessageErrorKind::Other && message.starts_with("Network error: ") {
-        message
-            .strip_suffix("\n\nPlease resend your message to try again.")
-            .unwrap_or(message)
-    } else {
-        message
-    }
-}
-
-pub(crate) fn provider_usage(
-    source: &goose_provider_types::conversation::token_usage::ProviderUsage,
-) -> Result<Usage, Fault> {
-    let mut usage = metadata::usage(&gdk::MessageUsage::from_provider_usage(source, false));
-    usage.reasoning = source
-        .additional_data
-        .as_ref()
-        .and_then(|data| data.get("reasoning_tokens"))
-        .and_then(Value::as_u64);
-    Ok(usage)
+pub(crate) fn provider_usage(source: &model::Usage) -> Result<Usage, Fault> {
+    Ok(metadata::usage(source))
 }
 
 pub(crate) async fn capture(
     db: &Connection,
     turn: TurnId,
-    source: &gdk::Message,
+    source: &model::Message,
     calls: &BTreeMap<String, String>,
 ) -> Result<Record, Fault> {
     let mut metadata = metadata::capture(&source.metadata, source.created);
     let mut message = Message {
-        role: if source.role == rmcp::model::Role::User {
+        role: if source.role == model::Role::User {
             Role::User
         } else {
             Role::Assistant
         },
         part_count: source.content.len(),
+        model: source
+            .metadata
+            .usage
+            .as_deref()
+            .and_then(|usage| usage.model.clone()),
         usage: source.metadata.usage.as_deref().map(metadata::usage),
         ..Message::default()
     };
     for (index, content) in source.content.iter().enumerate() {
         let kind = match content {
-            MessageContent::Text(text) => BlockKind::Text {
-                text: text.text.clone(),
-            },
-            MessageContent::Image(image) => {
+            Content::Text { text } => BlockKind::Text { text: text.clone() },
+            Content::Image {
+                media_type,
+                data,
+                annotations,
+            } => {
+                let model::Image::Inline { data_base64 } = data else {
+                    return Err(Fault::invalid("history image requires inline data"));
+                };
                 let bytes = base64::engine::general_purpose::STANDARD
-                    .decode(&image.data)
+                    .decode(data_base64)
                     .map_err(storage_error)?;
-                let mut asset = blobs::put(db, &image.mime_type, &bytes).await?;
-                asset.annotations = image
-                    .annotations
-                    .as_ref()
-                    .map(serde_json::to_value)
-                    .transpose()
-                    .map_err(storage_error)?;
+                let mut asset = blobs::put(db, media_type, &bytes).await?;
+                asset.annotations = annotations.clone();
                 BlockKind::Image { asset }
             }
-            MessageContent::Document(document) => {
+            Content::Document {
+                media_type,
+                name,
+                data_base64,
+            } => {
                 let bytes = base64::engine::general_purpose::STANDARD
-                    .decode(&document.data)
+                    .decode(data_base64)
                     .map_err(storage_error)?;
-                let mut asset = blobs::put(db, &document.mime_type, &bytes).await?;
-                asset.uri = document.name.clone();
+                let mut asset = blobs::put(db, media_type, &bytes).await?;
+                asset.uri = name.clone();
                 BlockKind::Document { asset }
             }
-            MessageContent::ToolRequest(request) => {
+            Content::ToolCall(request) => {
                 if request.id.is_empty() {
                     return Err(Fault::invalid("tool call identity is missing"));
                 }
-                let (name, arguments, error) = match &request.tool_call {
-                    Ok(call) => (
-                        call.name.to_string(),
-                        Value::Object(call.arguments.clone().unwrap_or_default()),
-                        None,
-                    ),
-                    Err(error) => {
-                        let value = serde_json::to_value(error).map_err(storage_error)?;
-                        (
-                            String::new(),
-                            Value::Null,
-                            Some(serde_json::from_value(value).map_err(storage_error)?),
-                        )
-                    }
-                };
                 BlockKind::ToolRequest(ToolRequest {
                     id: request.id.clone(),
-                    name,
-                    arguments,
+                    name: request.name.clone(),
+                    arguments: request.arguments.clone(),
                     provider: request.metadata.clone(),
                     tool_meta: request.tool_meta.clone(),
-                    error,
+                    error: request.error.as_ref().map(|error| ToolError {
+                        code: i64::from(error.code),
+                        message: error.message.clone(),
+                        data: error.data.clone(),
+                    }),
                 })
             }
-            MessageContent::ToolResponse(response) => {
+            Content::ToolResult(response) => {
                 if response.id.is_empty() {
                     return Err(Fault::invalid("tool response identity is missing"));
                 }
-                let name = calls.get(&response.id).cloned().unwrap_or_default();
-                let (value, format, status, meta) = match &response.tool_result {
+                let name = calls
+                    .get(&response.id)
+                    .cloned()
+                    .unwrap_or_else(|| response.name.clone());
+                let (value, format, status, meta) = match &response.result {
                     Ok(result) => {
                         let mut result = result.clone();
                         if let Some(value) = result
@@ -167,7 +147,7 @@ pub(crate) async fn capture(
                 let payload = blobs::capture(db, value).await?;
                 let mut attachments = Vec::new();
                 if format == ToolFormat::Mcp
-                    && let Ok(result) = &response.tool_result
+                    && let Ok(result) = &response.result
                 {
                     for (index, content) in result.content.iter().enumerate() {
                         let rmcp::model::ContentBlock::Image(image) = content else {
@@ -201,36 +181,23 @@ pub(crate) async fn capture(
                     meta,
                 })
             }
-            MessageContent::Thinking(thinking) => BlockKind::Thinking {
-                text: thinking.thinking.clone(),
-                signature: Some(thinking.signature.clone()),
+            Content::Thinking { text, signature } => BlockKind::Thinking {
+                text: text.clone(),
+                signature: signature.clone(),
             },
-            MessageContent::RedactedThinking(thinking) => BlockKind::RedactedThinking {
-                data: vec![thinking.data.clone()],
+            Content::RedactedThinking { data } => BlockKind::RedactedThinking {
+                data: vec![data.clone()],
                 before: vec![source.content.get(index + 1).map(|_| index + 1)],
             },
-            MessageContent::Error(error) => {
+            Content::Error {
+                code,
+                message: text,
+            } => {
                 message.error = Some(ResponseError {
-                    code: serde_json::to_value(error.kind)
-                        .ok()
-                        .and_then(|value| value.as_str().map(str::to_owned)),
-                    message: diagnostic(error).to_owned(),
+                    code: code.clone(),
+                    message: text.clone(),
                 });
                 message.finish = Some(Finish::Failed);
-                continue;
-            }
-            // Approval/elicitation requests have their own typed Node notice owner.
-            MessageContent::ToolConfirmationRequest(_) | MessageContent::ActionRequired(_) => {
-                continue;
-            }
-            MessageContent::SystemNotification(notification) => {
-                if notification.notification_type == gdk::SystemNotificationType::CreditsExhausted {
-                    message.error = Some(ResponseError {
-                        code: Some("credits_exhausted".into()),
-                        message: notification.msg.clone(),
-                    });
-                    message.finish = Some(Finish::Failed);
-                }
                 continue;
             }
         };
@@ -241,8 +208,8 @@ pub(crate) async fn capture(
         .id
         .clone()
         .ok_or_else(|| Fault::invalid("message identity is missing"))?;
-    // Canonical receipt time keeps its precision; GDK's created field is seconds only.
-    // GDK roles describe model input; these effects are generated by the agent.
+    // Canonical receipt time keeps its precision; model timestamps are seconds only.
+    // Model roles describe input; these effects are generated by the agent.
     // Admitted human inputs retain their own canonical user provenance.
     record.provenance.author = "assistant".into();
     record.metadata = metadata;
@@ -252,16 +219,19 @@ pub(crate) async fn capture(
 pub(crate) async fn project(
     db: &Connection,
     record: &Record,
-) -> Result<Option<gdk::Message>, Fault> {
+) -> Result<Option<model::Message>, Fault> {
     let message = match &record.kind {
         Kind::Message(message) => message,
         Kind::Compaction(compaction) => &compaction.summary,
         _ => return Ok(None),
     };
-    let mut output = if message.role == Role::User {
-        gdk::Message::user()
-    } else {
-        gdk::Message::assistant()
+    let mut output = model::Message {
+        role: if message.role == Role::User {
+            model::Role::User
+        } else {
+            model::Role::Assistant
+        },
+        ..model::Message::default()
     };
     output.id = Some(record.id.clone());
     output.created = record
@@ -290,9 +260,7 @@ pub(crate) async fn project(
     }
     for index in 0..=message.part_count {
         for data in redacted.remove(&index).unwrap_or_default() {
-            output.content.push(MessageContent::RedactedThinking(
-                gdk::RedactedThinkingContentBlock { data },
-            ));
+            output.content.push(Content::RedactedThinking { data });
         }
         let Some(block) = message.content.iter().find(|block| block.index == index) else {
             continue;
@@ -308,60 +276,52 @@ pub(crate) async fn project(
                 {
                     continue;
                 }
-                MessageContent::text(text)
+                Content::Text { text: text.clone() }
             }
             BlockKind::Image { asset } => {
                 let bytes = blobs::get(db, &asset.digest).await?;
-                let mut image = rmcp::model::ImageContent::new(
-                    base64::engine::general_purpose::STANDARD.encode(bytes),
-                    asset.mime.clone(),
-                );
-                image.annotations = asset
-                    .annotations
-                    .as_ref()
-                    .map(|value| serde_json::from_value(value.clone()))
-                    .transpose()
-                    .map_err(storage_error)?;
-                MessageContent::Image(image)
+                Content::Image {
+                    media_type: asset.mime.clone(),
+                    data: model::Image::Inline {
+                        data_base64: base64::engine::general_purpose::STANDARD.encode(bytes),
+                    },
+                    annotations: asset.annotations.clone(),
+                }
             }
-            BlockKind::Document { asset } => MessageContent::Document(gdk::DocumentContent {
-                data: base64::engine::general_purpose::STANDARD
+            BlockKind::Document { asset } => Content::Document {
+                data_base64: base64::engine::general_purpose::STANDARD
                     .encode(blobs::get(db, &asset.digest).await?),
-                mime_type: asset.mime.clone(),
+                media_type: asset.mime.clone(),
                 name: asset.uri.clone(),
-            }),
+            },
             // SessionLoader resolves Node attachments outside the storage actor.
-            BlockKind::File { file } => MessageContent::Document(gdk::DocumentContent {
-                data: file.uri.clone(),
-                mime_type: file.mime.clone().unwrap_or_default(),
+            BlockKind::File { file } => Content::Document {
+                data_base64: file.uri.clone(),
+                media_type: file.mime.clone().unwrap_or_default(),
                 name: None,
+            },
+            BlockKind::Thinking { text, signature } => Content::Thinking {
+                text: text.clone(),
+                signature: signature.clone(),
+            },
+            BlockKind::ToolRequest(request) => Content::ToolCall(model::ToolCall {
+                id: request.id.clone(),
+                name: request.name.clone(),
+                arguments: request.arguments.clone(),
+                metadata: request.provider.clone(),
+                tool_meta: request.tool_meta.clone(),
+                error: request
+                    .error
+                    .as_ref()
+                    .map(|error| {
+                        Ok::<_, Fault>(model::ToolError {
+                            code: i32::try_from(error.code).map_err(storage_error)?,
+                            message: error.message.clone(),
+                            data: error.data.clone(),
+                        })
+                    })
+                    .transpose()?,
             }),
-            BlockKind::Thinking { text, signature } => {
-                MessageContent::Thinking(gdk::ThinkingContentBlock {
-                    thinking: text.clone(),
-                    signature: signature.clone().unwrap_or_default(),
-                })
-            }
-            BlockKind::ToolRequest(request) => {
-                let id = &request.id;
-                let tool_call = match &request.error {
-                    Some(error) => Err(serde_json::from_value::<ErrorData>(
-                        serde_json::to_value(error).map_err(storage_error)?,
-                    )
-                    .map_err(storage_error)?),
-                    None => Ok(
-                        CallToolRequestParams::new(request.name.clone()).with_arguments(
-                            request.arguments.as_object().cloned().unwrap_or_default(),
-                        ),
-                    ),
-                };
-                MessageContent::ToolRequest(gdk::ToolRequest {
-                    id: id.clone(),
-                    tool_call,
-                    metadata: request.provider.clone(),
-                    tool_meta: request.tool_meta.clone(),
-                })
-            }
             BlockKind::ToolResponse(response) => {
                 // A derived reference survives media hydration without hashing a
                 // modified payload. The canonical writer ignores this note.
@@ -386,9 +346,10 @@ pub(crate) async fn project(
                         Ok(result)
                     }
                 };
-                MessageContent::ToolResponse(gdk::ToolResponse {
+                Content::ToolResult(model::ToolResult {
                     id: id.clone(),
-                    tool_result,
+                    name: response.name.clone(),
+                    result: tool_result,
                     metadata: response.provider.clone(),
                 })
             }
@@ -397,18 +358,13 @@ pub(crate) async fn project(
         output.content.push(content);
     }
     if let Some(error) = &message.error {
-        output
-            .content
-            .push(MessageContent::Error(gdk::ErrorContent {
-                kind: error
-                    .code
-                    .as_ref()
-                    .and_then(|code| serde_json::from_value(json!(code)).ok())
-                    .unwrap_or(gdk::MessageErrorKind::Other),
-                message: error.message.clone(),
-            }));
+        output.content.push(Content::Error {
+            code: error.code.clone(),
+            message: error.message.clone(),
+        });
     }
-    if output.content.is_empty() && !output.is_user_visible() && !output.is_agent_visible() {
+    if output.content.is_empty() && !output.metadata.user_visible && !output.metadata.agent_visible
+    {
         return Ok(None);
     }
     Ok(Some(output))

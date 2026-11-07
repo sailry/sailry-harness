@@ -459,13 +459,11 @@ async fn executes_tools_with_history() {
             Some(0)
         );
         assert!(attempt.complete_context);
-        assert!(
-            !attempt.reasoning_reported,
-            "native GDK usage does not retain this field"
-        );
-        assert_eq!(attempt.status, None);
-        assert_eq!(attempt.headers_us, None);
-        assert_eq!(attempt.response_us, None);
+        assert!(!attempt.reasoning_reported);
+        assert_eq!(attempt.status, Some(200));
+        let headers = attempt.headers_us.expect("HTTP header timing expected");
+        let response = attempt.response_us.expect("HTTP response timing expected");
+        assert!(headers <= response);
         let wire = serde_json::to_string(observed).unwrap();
         assert!(!wire.contains(server::KEY));
         assert!(!wire.contains("工具内容"));

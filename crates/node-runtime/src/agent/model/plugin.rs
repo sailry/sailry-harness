@@ -1,14 +1,7 @@
-//! Captured package translations implement GDK's Provider contract; Node owns HTTP and credentials.
+//! Captured package translations use the model boundary; Node owns HTTP and credentials.
 use super::*;
 use async_trait::async_trait;
 use futures::StreamExt;
-use goose_provider_types::{
-    base::{MessageStream, Provider as GdkProvider},
-    conversation::message::Message,
-    errors::ProviderError,
-    model::ModelConfig,
-    retry::ProviderRetry,
-};
 use sailry_protocol::plugin::model_adapter::{self, Declaration, wire};
 use std::{
     pin::Pin,
@@ -64,7 +57,7 @@ impl Model {
         input: &wire::Request,
         credentials: &Credentials,
         stop: &CancellationToken,
-    ) -> Result<(reqwest::Response, worker::Worker, model_adapter::Framing), ProviderError> {
+    ) -> Result<(reqwest::Response, worker::Worker, model_adapter::Framing), Error> {
         let worker = worker::Worker::new(clone_bundle(&self.bundle), stop, usize::MAX)
             .await
             .map_err(response::translation)?;
@@ -94,18 +87,12 @@ impl Model {
 }
 
 #[async_trait]
-impl GdkProvider for Model {
-    fn get_name(&self) -> &str {
-        "sailry_plugin"
-    }
-
-    async fn stream(
+impl types::Model for Model {
+    async fn call(
         &self,
-        config: &ModelConfig,
-        system: &str,
-        messages: &[Message],
-        tools: &[rmcp::model::Tool],
-    ) -> Result<MessageStream, ProviderError> {
+        request: Request,
+        cancel: CancellationToken,
+    ) -> Result<ModelStream, Error> {
         let credentials = credentials(
             &self.ingress,
             &self.provider,
@@ -116,10 +103,7 @@ impl GdkProvider for Model {
         .await
         .map_err(response::fault)?;
         let input = request::convert(
-            config,
-            system,
-            messages,
-            tools,
+            &request,
             request::Context {
                 endpoint: &self.provider.endpoint,
                 session: &self.session.to_string(),
@@ -127,7 +111,7 @@ impl GdkProvider for Model {
                     self.provider
                         .models
                         .iter()
-                        .find(|model| model.id == config.model_name)
+                        .find(|model| model.id == request.model)
                         .map_or(Effort::Default, |model| model.default_effort)
                 } else {
                     self.config.effort
@@ -138,16 +122,14 @@ impl GdkProvider for Model {
             },
         )
         .map_err(response::fault)?;
-        let stop = self.stop.child_token();
-        let (received, worker, framing) = self
-            .with_retry(|| self.ready(&input, &credentials, &stop))
-            .await?;
+        let stop = cancel.child_token();
+        let (received, worker, framing) = self.ready(&input, &credentials, &stop).await?;
         let status = received.status().as_u16();
         let headers =
             transport::headers(received.headers(), &credentials).map_err(response::fault)?;
         let (sender, receiver) = mpsc::channel(1);
         let cancelled = stop.clone();
-        let model = config.model_name.clone();
+        let model = request.model;
         // Decoding continues on its own task, outside the request scope.
         let observed = super::observation::current();
         tokio::spawn(async move {
@@ -189,7 +171,7 @@ async fn classify(
     worker: &worker::Worker,
     credentials: &Credentials,
     stop: &CancellationToken,
-) -> Result<ProviderError, ProviderError> {
+) -> Result<Error, Error> {
     let status = received.status().as_u16();
     let retry = transport::retry_after(received.headers())
         .and_then(|delay| u64::try_from(delay.as_millis()).ok());
@@ -240,7 +222,7 @@ async fn classify(
 struct StreamContext<'a> {
     credentials: &'a Credentials,
     stop: &'a CancellationToken,
-    sender: &'a mpsc::Sender<Result<response::Chunk, ProviderError>>,
+    sender: &'a mpsc::Sender<Result<Event, Error>>,
     observed: Option<&'a super::observation::Payload>,
 }
 
@@ -252,7 +234,7 @@ async fn produce(
     headers: std::collections::BTreeMap<String, Vec<String>>,
     context: StreamContext<'_>,
     accumulator: &mut response::Accumulator,
-) -> Result<(), ProviderError> {
+) -> Result<(), Error> {
     let mut bytes = received.bytes_stream();
     let mut decoder = framing::Decoder::new(framing, RESPONSE_BYTES);
     let mut state = serde_json::Value::Null;
@@ -308,11 +290,11 @@ async fn produce(
 }
 
 struct Output {
-    receiver: mpsc::Receiver<Result<response::Chunk, ProviderError>>,
+    receiver: mpsc::Receiver<Result<Event, Error>>,
     stop: CancellationToken,
 }
 impl futures::Stream for Output {
-    type Item = Result<response::Chunk, ProviderError>;
+    type Item = Result<Event, Error>;
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         self.receiver.poll_recv(cx)
     }

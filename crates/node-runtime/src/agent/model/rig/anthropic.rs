@@ -1,8 +1,8 @@
 //! Retain Goose 14741e9's incomplete-tool semantics at Rig's Messages boundary.
 use rig_core::{
-    completion::CompletionRequest,
+    completion::{CompletionRequest, FinishReason},
     error::{EncodeError, ProviderError},
-    operation::Completion,
+    operation::{Completion, Finish},
     providers::anthropic::{
         streaming::{MessagesDecoder, MessagesEvent},
         wire::Messages as NativeMessages,
@@ -86,6 +86,13 @@ impl<'id> Decode<'id, Completion> for Decoder {
     }
 
     fn eof(&mut self, out: Out<'id, Completion>) -> Result<Flow, ProviderError> {
-        self.inner.eof(out)
+        if self.calls.is_empty() {
+            self.inner.eof(out)
+        } else {
+            Ok(out.end(Finish {
+                reason: Some(FinishReason::Stop),
+                ..Finish::default()
+            }))
+        }
     }
 }

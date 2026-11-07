@@ -10,7 +10,7 @@ use rig_core::{
         openai::{
             OpenAIConfig,
             responses_api::wire::Responses,
-            wire::{Chat, DEEPSEEK, Dialect, OPENAI},
+            wire::{Chat, DEEPSEEK, OPENAI, OutputCap},
         },
     },
 };
@@ -36,7 +36,7 @@ pub(super) async fn bind(
     if provider.authentication == Authentication::ChatGpt {
         return Err(Error::new(
             ErrorKind::NotConfigured,
-            "this ChatGPT authorization endpoint is not supported",
+            "model transport does not support this ChatGPT authorization endpoint",
         ));
     }
     let mut endpoint =
@@ -109,22 +109,18 @@ pub(super) async fn bind(
             let mut config = OpenAIConfig::new("").with_base_url(base);
             config.dialect.quirks.responses.reasoning_ciphertext = false;
             let wire = Responses::new(config, &underlying);
-            rig_core::Model::new(wire, transport)
+            rig_core::Model::new(super::responses::Responses(wire), transport)
                 .with_idle_timeout(None)
                 .erase()
         }
         ModelApi::ChatCompletions | ModelApi::DeepSeek => {
             let base = base.strip_suffix("/chat/completions").unwrap_or(base);
-            let dialect = if api == ModelApi::DeepSeek {
+            let mut dialect = if api == ModelApi::DeepSeek {
                 DEEPSEEK
             } else {
                 OPENAI
             };
-            let mut dialect = if matches!(provider.api, ModelApi::AzureOpenAi | ModelApi::AzureAi) {
-                Dialect::gateway("azure", "", "")
-            } else {
-                dialect
-            };
+            dialect.quirks.output_cap = OutputCap::Legacy;
             if matches!(
                 provider.api,
                 ModelApi::ChatCompletions

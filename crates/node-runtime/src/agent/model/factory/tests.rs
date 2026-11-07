@@ -1,10 +1,31 @@
 use super::*;
 use goose_provider_types::{
-    base::collect_stream,
+    base::{Provider as GdkProvider, collect_stream},
     conversation::message::{Message, MessageContentBlock},
+    model::ModelConfig,
+    thinking::ThinkingEffort,
 };
 use rmcp::model::{CallToolResult, ContentBlock as Content, Tool};
+use sailry_protocol::conversation::connection::Options;
 use serde_json::{Value, json};
+
+const ANTHROPIC_API_VERSION: &str = "2023-06-01";
+
+fn config(provider: &Provider, session: &SessionConfig, owner: SessionId) -> ModelConfig {
+    crate::agent::model::gdk::config(&super::config(provider, session, owner))
+}
+
+fn native(
+    registry: &registry::Registry,
+    provider: &Provider,
+    model: &str,
+    session: SessionId,
+    key: &str,
+    headers: HeaderMap,
+) -> Result<Arc<dyn GdkProvider>, Fault> {
+    super::native(registry, provider, model, session, key, headers)
+        .map(|inner| crate::agent::model::gdk::provider(inner, format!("sailry:{}", provider.id)))
+}
 
 mod configuration;
 mod google;
@@ -151,7 +172,7 @@ async fn responses_use_sse_and_stable_calls() {
 
 #[tokio::test]
 async fn google_keeps_signed_tool_metadata() {
-    let event = json!({"candidates":[{"content":{"role":"model","parts":[{"functionCall":{"id":"signed-call","name":"read","args":{"path":"file"}},"thoughtSignature":"signed-thought"}]},"finishReason":"STOP","index":0}],"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":3,"totalTokenCount":13},"modelVersion":"gemini-3.5-pro"});
+    let event = json!({"candidates":[{"content":{"role":"model","parts":[{"functionCall":{"id":"signed-call","name":"read","args":{"path":"file"}},"thoughtSignature":"c2lnbmVkLXRob3VnaHQ="}]},"finishReason":"STOP","index":0}],"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":3,"totalTokenCount":13},"modelVersion":"gemini-3.5-pro"});
     let server = Server::start(vec![
         format!("data: {event}\n\n"),
         format!("data: {event}\n\n"),
@@ -191,7 +212,7 @@ async fn google_keeps_signed_tool_metadata() {
     assert_eq!(request.id, "signed-call");
     assert_eq!(
         request.metadata.as_ref().unwrap()["thoughtSignature"],
-        "signed-thought"
+        "c2lnbmVkLXRob3VnaHQ="
     );
     request.tool_meta = Some(json!({"title":"Retained metadata"}));
     let serialized = serde_json::to_value(&call).unwrap();
@@ -230,7 +251,7 @@ async fn google_keeps_signed_tool_metadata() {
             .iter()
             .flat_map(|message| message["parts"].as_array().unwrap())
             .any(|part| part["functionCall"]["name"] == "read"
-                && part["thoughtSignature"] == "signed-thought")
+                && part["thoughtSignature"] == "c2lnbmVkLXRob3VnaHQ=")
     );
 }
 
@@ -427,12 +448,12 @@ async fn shared_clients_keep_credentials_separate() {
 }
 
 #[tokio::test]
-async fn uses_gdk_rate_limit_retry() {
+async fn retries_rate_limits_before_output() {
     let rejected = "HTTP/1.1 429 Rate limited\r\nContent-Type: application/json\r\nRetry-After: 0\r\nContent-Length: 28\r\nConnection: close\r\n\r\n{\"error\":{\"message\":\"Wait\"}}";
     let server = Server::start(vec![rejected.into(), response(false)]).await;
     let registry = registry::Registry::default();
     let provider = provider(ModelApi::Responses, server.endpoint.clone());
-    let native = native(
+    let native = super::native(
         &registry,
         &provider,
         "model",
@@ -441,22 +462,27 @@ async fn uses_gdk_rate_limit_retry() {
         HeaderMap::new(),
     )
     .unwrap();
-    let (message, _) = collect_stream(
-        native
-            .stream(
-                &ModelConfig::new("model"),
-                "",
-                &[Message::user().with_text("Hello")],
-                &[],
-            )
-            .await
-            .unwrap(),
+    let request = crate::agent::model::gdk::request(
+        &ModelConfig::new("model"),
+        "",
+        &[Message::user().with_text("Hello")],
+        &[],
     )
+    .unwrap();
+    let events: Vec<_> = futures::TryStreamExt::try_collect(crate::agent::model::retry::stream(
+        native,
+        request,
+        crate::agent::model::retry::Policy {
+            retries: 1,
+            delay: std::time::Duration::ZERO,
+            buffered: false,
+        },
+        CancellationToken::new(),
+        CancellationToken::new(),
+    ))
     .await
     .unwrap();
-    assert!(message.content.iter().any(
-        |block| matches!(block, MessageContentBlock::Text(text) if text.text=="Read complete")
-    ));
+    assert!(events.iter().any(|event| matches!(event, crate::agent::model::Event::TextDelta { text, .. } if text == "Read complete")));
     assert_eq!(server.finish().await.len(), 2);
 }
 

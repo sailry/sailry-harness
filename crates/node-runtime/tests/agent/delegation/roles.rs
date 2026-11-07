@@ -369,8 +369,11 @@ async fn validates_role_requirements() {
                 Some(ErrorCode::InvalidRequest)
             );
             assert_eq!(fault.code, ErrorCode::InvalidRequest);
-            assert_eq!(fault.message, "skill is not listed in this turn's catalog");
+            assert_eq!(fault.message, "Select a configured delegation role");
             assert_eq!(error.message, fault.message);
+            let context = parent.requests.lock().unwrap()[0]["messages"].to_string();
+            assert!(context.contains("No delegation roles are configured"));
+            assert!(!context.contains(&format!("{} ({})", role.key, role.name)));
             assert_eq!(child.requests.lock().unwrap().len(), 0);
             assert!(children(&client, session.id, 0).await.is_empty());
         } else {

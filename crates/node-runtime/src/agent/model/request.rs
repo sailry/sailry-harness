@@ -1,30 +1,19 @@
-//! Apply request recovery and observe the GDK stream without replaying agent work.
+//! Apply request recovery and observe the model stream without replaying agent work.
 use super::*;
 use crate::agent::{canonical, observation::Phase};
 use async_trait::async_trait;
 use futures::{StreamExt, stream};
-use goose_provider_types::{
-    base::{MessageStream, Provider as GdkProvider},
-    conversation::{
-        message::{Message, MessageContentBlock},
-        token_usage::ProviderUsage,
-    },
-    errors::ProviderError,
-    model::ModelConfig,
-    retry::{StreamRetry, stream_with_retry},
-};
 use sailry_protocol::{
     SessionId,
     conversation::{
-        Usage,
-        observation::{Attempt, Outcome, Request},
+        Usage as Counts,
+        observation::{Attempt, Outcome, Request as Observation},
     },
 };
 use std::time::{Duration, Instant};
 
 pub(super) struct Model {
-    inner: Arc<dyn GdkProvider>,
-    owner: String,
+    inner: Arc<dyn types::Model>,
     ingress: Arc<Ingress>,
     turn: TurnId,
     session: SessionId,
@@ -38,18 +27,16 @@ pub(super) struct Model {
 
 impl Model {
     pub(super) fn wrap(
-        inner: Arc<dyn GdkProvider>,
+        inner: Arc<dyn types::Model>,
         ingress: &Arc<Ingress>,
         invocation: &Invocation,
         purpose: Purpose,
         stop: &CancellationToken,
         sources: observation::Sources,
         names: names::Registry,
-    ) -> Arc<dyn GdkProvider> {
-        observation::install();
+    ) -> Arc<dyn types::Model> {
         Arc::new(Self {
             inner,
-            owner: format!("sailry:{}", invocation.turn.config.provider),
             ingress: ingress.clone(),
             turn: invocation.turn.id,
             session: invocation.turn.session,
@@ -85,49 +72,30 @@ impl Model {
 }
 
 #[async_trait]
-impl GdkProvider for Model {
-    fn get_name(&self) -> &str {
-        // GDK persists this owner with signed thinking and checks it before replay.
-        &self.owner
-    }
-    fn manages_own_context(&self) -> bool {
-        self.inner.manages_own_context()
-    }
-    async fn get_context_limit(&self, model: &str, limit: Option<usize>) -> usize {
-        self.inner.get_context_limit(model, limit).await
-    }
-    async fn fetch_model_info(
+impl types::Model for Model {
+    async fn call(
         &self,
-        model: &str,
-    ) -> Result<goose_provider_types::base::ModelInfo, ProviderError> {
-        self.inner.fetch_model_info(model).await
-    }
-    async fn stream(
-        &self,
-        config: &ModelConfig,
-        system: &str,
-        messages: &[Message],
-        tools: &[rmcp::model::Tool],
-    ) -> Result<MessageStream, ProviderError> {
+        mut request: Request,
+        cancel: CancellationToken,
+    ) -> Result<ModelStream, Error> {
         let exposure = self.names.get(self.purpose)?;
-        let messages = exposure.messages(messages);
-        let tools = exposure.tools(tools);
-        let capture = Capture::new(self, config, system)?;
+        request.messages = exposure.messages(&request.messages).into_owned();
+        request.tools = exposure.tools(&request.tools).into_owned();
+        let capture = Capture::new(self, &request)?;
         let policy = match self.purpose {
             // Summary output stays buffered until an attempt succeeds and is
             // retried at most once; dropping the stream cancels the request.
             Purpose::Compaction => {
-                StreamRetry::fixed(super::summary::RETRIES, super::summary::RETRY_DELAY).buffered()
+                retry::Policy::new(super::summary::RETRIES, super::summary::RETRY_DELAY, true)
             }
-            Purpose::Main => StreamRetry::fixed(5, Duration::from_secs(60)),
+            Purpose::Main => retry::Policy::new(5, Duration::from_secs(60), false),
         };
-        let responses = stream_with_retry(
+        let responses = retry::stream(
             self.inner.clone(),
-            config.clone(),
-            system.to_owned(),
-            messages.into_owned(),
-            tools.into_owned(),
+            request,
             policy,
+            cancel,
+            self.stop.clone(),
         );
         Ok(Box::pin(stream::unfold(
             Some((responses, capture, exposure)),
@@ -141,12 +109,19 @@ impl GdkProvider for Model {
                     .clone();
                 let response = payload.scope(responses.next()).await;
                 match response {
-                    Some(Ok((mut message, mut usage))) => {
-                        if let Some(message) = &mut message {
-                            exposure.restore(message);
+                    Some(Ok(mut event)) => {
+                        exposure.restore_event(&mut event);
+                        capture.receive(&mut event);
+                        if matches!(event, Event::Finish(_)) {
+                            return Some((
+                                capture
+                                    .finish(Outcome::Succeeded, None)
+                                    .await
+                                    .map(|()| event),
+                                None,
+                            ));
                         }
-                        capture.receive(message.as_ref(), usage.as_mut());
-                        Some((Ok((message, usage)), Some((responses, capture, exposure))))
+                        Some((Ok(event), Some((responses, capture, exposure))))
                     }
                     Some(Err(error)) => {
                         capture.record_failure(&error).await;
@@ -168,11 +143,11 @@ struct Capture {
 struct State {
     ingress: Arc<Ingress>,
     session: SessionId,
-    request: Request,
+    request: Observation,
     purpose: Purpose,
     started: Instant,
     first_token: Option<u64>,
-    usage: Option<Usage>,
+    usage: Option<Counts>,
     tokens: crate::telemetry::metrics::Tokens,
     metric: Option<(crate::telemetry::Capture, crate::telemetry::metrics::Model)>,
     cache_reported: bool,
@@ -193,19 +168,22 @@ impl Drop for Lease {
     }
 }
 impl Capture {
-    async fn record_failure(&mut self, error: &ProviderError) {
+    async fn record_failure(&mut self, error: &Error) {
         if let Err(recording) = self.finish(Outcome::Failed, Some(error)).await {
             tracing::error!(error = %recording, "model request observation could not be recorded");
         }
     }
 
-    fn new(model: &Model, config: &ModelConfig, system: &str) -> Result<Self, ProviderError> {
+    fn new(model: &Model, request: &Request) -> Result<Self, Error> {
         model
             .ingress
             .agents
             .begin_operation(model.turn)
             .ok_or_else(|| {
-                ProviderError::RequestFailed("turn is no longer accepting model requests".into())
+                Error::new(
+                    ErrorKind::Other,
+                    "turn is no longer accepting model requests",
+                )
             })?;
         let mut identity = model.identity.clone();
         identity.call = Some(sailry_protocol::RequestId::new());
@@ -219,18 +197,20 @@ impl Capture {
         });
         entry.stage = Some("provider");
         entry.stream = Some(true);
-        entry.budget = config.max_tokens.map(i64::from);
+        entry.budget = request
+            .max_tokens
+            .and_then(|value| i64::try_from(value).ok());
         let span = crate::logging::Span::begin(entry, started).cancel_when(model.stop.clone());
         Ok(Self {
             state: Some(State {
                 ingress: model.ingress.clone(),
                 session: model.session,
-                request: Request {
+                request: Observation {
                     id: identity.call.unwrap().to_string(),
                     turn: model.turn,
                     turn_index: None,
-                    model: config.model_name.clone(),
-                    context_limit: config
+                    model: request.model.clone(),
+                    context_limit: request
                         .context_limit
                         .and_then(|value| u32::try_from(value).ok()),
                     timestamp_ms: chrono::Utc::now().timestamp_millis(),
@@ -251,7 +231,7 @@ impl Capture {
                 reasoning_streamed: false,
                 payload: model
                     .sources
-                    .capture(system, started)
+                    .capture(&request.system, started)
                     .with_identity(identity),
                 stop: model.stop.clone(),
                 lease: Lease {
@@ -262,46 +242,39 @@ impl Capture {
             }),
         })
     }
-    fn receive(&mut self, message: Option<&Message>, usage: Option<&mut ProviderUsage>) {
+    fn receive(&mut self, event: &mut Event) {
         let state = self.state.as_mut().expect("active request");
-        mark(&mut state.first_token, message, state.started);
+        mark(&mut state.first_token, event, state.started);
         earliest(&mut state.first_token, state.payload.first_output());
-        state.reasoning_streamed |=
-            message.is_some_and(|message| message.content.iter().any(reasoning));
-        if let Some(usage) = usage {
-            let stats = usage.stats.get_or_insert_with(Default::default);
-            stats
+        state.reasoning_streamed |= reasoning(event);
+        if let Event::Usage(usage) = event {
+            usage
                 .elapsed_ms
                 .get_or_insert_with(|| millis(state.started.elapsed()));
-            if stats.time_to_first_token_ms.is_none() {
-                stats.time_to_first_token_ms = state.first_token.map(|value| value / 1000);
+            if usage.time_to_first_token_ms.is_none() {
+                usage.time_to_first_token_ms = state.first_token.map(|value| value / 1000);
             }
-            state.cache_reported = usage.usage.cache_read_input_tokens.is_some();
-            if let Ok(usage) = crate::agent::engine::history::provider_usage(usage) {
-                state.tokens = crate::telemetry::metrics::Tokens {
-                    input: usage.input.unwrap_or_default(),
-                    output: usage.output.unwrap_or_default(),
-                    cache_read: usage.cache_read.unwrap_or_default(),
-                    cache_write: usage.cache_write.unwrap_or_default(),
-                };
-                state.reasoning_reported = usage.reasoning.is_some();
-                state.usage = counts(&usage);
-            }
+            state.cache_reported = usage.cache_read.is_some();
+            state.tokens = crate::telemetry::metrics::Tokens {
+                input: usage.input.unwrap_or_default(),
+                output: usage.output.unwrap_or_default(),
+                cache_read: usage.cache_read.unwrap_or_default(),
+                cache_write: usage.cache_write.unwrap_or_default(),
+            };
+            state.reasoning_reported = usage.reasoning.is_some();
+            state.usage = counts(usage);
         }
     }
-    async fn finish(
-        &mut self,
-        outcome: Outcome,
-        error: Option<&ProviderError>,
-    ) -> Result<(), ProviderError> {
+    async fn finish(&mut self, outcome: Outcome, error: Option<&Error>) -> Result<(), Error> {
         if let Some(state) = self.state.take() {
             let error = error.cloned();
             // A cancelled caller must not cancel the already-owned history append.
             tokio::spawn(async move { state.persist(outcome, error.as_ref()).await })
                 .await
                 .map_err(|_| {
-                    ProviderError::ExecutionError(
-                        "model request observation could not be recorded".into(),
+                    Error::new(
+                        ErrorKind::Other,
+                        "model request observation could not be recorded",
                     )
                 })?
         } else {
@@ -322,25 +295,22 @@ impl Drop for Capture {
     }
 }
 impl State {
-    async fn persist(
-        mut self,
-        outcome: Outcome,
-        error: Option<&ProviderError>,
-    ) -> Result<(), ProviderError> {
+    async fn persist(mut self, outcome: Outcome, error: Option<&Error>) -> Result<(), Error> {
         let elapsed = self.started.elapsed();
         // Raw output may precede every emitted block, e.g. when cancelled
         // during buffered reasoning or tool arguments.
         earliest(&mut self.first_token, self.payload.first_output());
-        let outcome = if self.stop.is_cancelled() {
+        let outcome = if self.stop.is_cancelled()
+            || error.is_some_and(|error| error.kind == ErrorKind::Cancelled)
+        {
             Outcome::Cancelled
         } else {
             outcome
         };
-        // Package HTTP reports its latest prepared request; native HTTP stays opaque.
         let (categories, complete_context, http) = self.payload.snapshot();
         self.request.attempts.push(Attempt {
             index: 1,
-            transport: "gdk".into(),
+            transport: "model".into(),
             reused: None,
             headers_us: http.map(|receipt| receipt.headers_us),
             response_us: http.map(|receipt| receipt.headers_us),
@@ -390,7 +360,6 @@ impl State {
                 },
                 status: StatusClass::from(http.map(|receipt| receipt.status)),
                 error: code,
-                // GDK does not expose its private HTTP retry count.
                 retries: None,
                 tokens: self.tokens,
             });
@@ -435,7 +404,10 @@ impl State {
         // Explicitly retain the lease through the storage acknowledgement.
         drop(self.lease);
         result.map_err(|_| {
-            ProviderError::ExecutionError("model request observation could not be recorded".into())
+            Error::new(
+                ErrorKind::Other,
+                "model request observation could not be recorded",
+            )
         })
     }
 }
@@ -443,7 +415,7 @@ fn finish_span(
     span: &mut crate::logging::Span,
     phase: crate::logging::Phase,
     code: Option<ErrorCode>,
-    error: Option<&ProviderError>,
+    error: Option<&Error>,
 ) {
     if matches!(phase, crate::logging::Phase::Failed)
         && code == Some(ErrorCode::Unavailable)
@@ -457,11 +429,9 @@ fn finish_span(
 
 /// Records the time to first token at the first streamed output message.
 ///
-/// GDK streams text deltas but buffers reasoning until its block ends and tool
-/// calls until completion, so this is only a fallback for transports that do
-/// not report their raw deltas through [`earliest`].
-fn mark(first: &mut Option<u64>, message: Option<&Message>, started: Instant) {
-    if first.is_none() && message.is_some_and(|message| message.content.iter().any(output)) {
+/// This is a fallback for transports that do not report raw output through [`earliest`].
+fn mark(first: &mut Option<u64>, event: &Event, started: Instant) {
+    if first.is_none() && output(event) {
         *first = Some(micros(started.elapsed()));
     }
 }
@@ -474,37 +444,33 @@ fn earliest(first: &mut Option<u64>, observed: Option<u64>) {
 }
 
 /// Streamed model output of any kind marks the time to first token.
-fn output(content: &MessageContentBlock) -> bool {
-    match content {
-        MessageContentBlock::Text(text) => !text.text.is_empty(),
-        MessageContentBlock::Thinking(thinking) => {
-            !thinking.thinking.is_empty() || !thinking.signature.is_empty()
+fn output(event: &Event) -> bool {
+    match event {
+        Event::TextDelta { text, .. } => !text.is_empty(),
+        Event::ReasoningDelta {
+            text, signature, ..
+        } => {
+            text.as_ref().is_some_and(|text| !text.is_empty())
+                || signature
+                    .as_ref()
+                    .is_some_and(|signature| !signature.is_empty())
         }
-        MessageContentBlock::RedactedThinking(thinking) => !thinking.data.is_empty(),
-        MessageContentBlock::ToolRequest(_)
-        | MessageContentBlock::Image(_)
-        | MessageContentBlock::Document(_) => true,
-        MessageContentBlock::ToolResponse(_)
-        | MessageContentBlock::ToolConfirmationRequest(_)
-        | MessageContentBlock::ActionRequired(_)
-        | MessageContentBlock::SystemNotification(_)
-        | MessageContentBlock::Error(_) => false,
+        Event::RedactedThinking { data, .. } => !data.is_empty(),
+        Event::ToolCall { .. } | Event::ToolCallDelta { .. } => true,
+        Event::Usage(_) | Event::Finish(_) => false,
     }
 }
 
 /// Streamed reasoning shares the output window measured after the first token.
-fn reasoning(content: &MessageContentBlock) -> bool {
-    match content {
-        MessageContentBlock::Thinking(thinking) => {
-            !thinking.thinking.is_empty() || !thinking.signature.is_empty()
-        }
-        MessageContentBlock::RedactedThinking(thinking) => !thinking.data.is_empty(),
-        _ => false,
-    }
+fn reasoning(event: &Event) -> bool {
+    matches!(
+        event,
+        Event::ReasoningDelta { .. } | Event::RedactedThinking { .. }
+    ) && output(event)
 }
 
-fn counts(usage: &canonical::Usage) -> Option<Usage> {
-    Some(Usage {
+fn counts(usage: &types::Usage) -> Option<Counts> {
+    Some(Counts {
         input: usage.input?,
         output: usage.output?,
         cached_input: usage.cache_read.unwrap_or(0),
@@ -545,13 +511,13 @@ mod tests {
         use super::*;
 
         /// Feeds deltas in order and returns the TTFT after each one.
-        fn observe(deltas: &[Option<Message>]) -> Vec<Option<u64>> {
+        fn observe(deltas: &[Event]) -> Vec<Option<u64>> {
             let started = Instant::now() - Duration::from_millis(5);
             let mut first = None;
             deltas
                 .iter()
                 .map(|delta| {
-                    mark(&mut first, delta.as_ref(), started);
+                    mark(&mut first, delta, started);
                     first
                 })
                 .collect()
@@ -559,11 +525,20 @@ mod tests {
 
         #[test]
         fn records_tool_call_only_response() {
-            let call = Message::assistant().with_tool_request(
-                "call",
-                Ok(rmcp::model::CallToolRequestParams::new("read_file")),
-            );
-            let marks = observe(&[None, Some(Message::assistant().with_text("")), Some(call)]);
+            let call = Event::ToolCallDelta {
+                index: 0,
+                id: Some("call".into()),
+                name: Some("read_file".into()),
+                arguments: String::new(),
+            };
+            let marks = observe(&[
+                Event::Usage(Usage::default()),
+                Event::TextDelta {
+                    index: 0,
+                    text: String::new(),
+                },
+                call,
+            ]);
             assert_eq!(marks[..2], [None, None]);
             assert!(marks[2].is_some_and(|value| value >= 5_000));
         }
@@ -571,9 +546,20 @@ mod tests {
         #[test]
         fn records_reasoning_before_text() {
             let marks = observe(&[
-                Some(Message::assistant().with_thinking("", "")),
-                Some(Message::assistant().with_thinking("Plan", "")),
-                Some(Message::assistant().with_text("Answer")),
+                Event::ReasoningDelta {
+                    index: 0,
+                    text: Some(String::new()),
+                    signature: None,
+                },
+                Event::ReasoningDelta {
+                    index: 0,
+                    text: Some("Plan".into()),
+                    signature: None,
+                },
+                Event::TextDelta {
+                    index: 1,
+                    text: "Answer".into(),
+                },
             ]);
             assert_eq!(marks[0], None);
             assert!(marks[1].is_some());
@@ -601,12 +587,14 @@ mod tests {
             // The package decoder saw tool arguments 10 ms in; the complete
             // call reaches the stream only at completion.
             payload.output(started + Duration::from_millis(10));
-            let call = Message::assistant().with_tool_request(
-                "call",
-                Ok(rmcp::model::CallToolRequestParams::new("read_file")),
-            );
+            let call = Event::ToolCallDelta {
+                index: 0,
+                id: Some("call".into()),
+                name: Some("read_file".into()),
+                arguments: String::new(),
+            };
             let mut first = None;
-            mark(&mut first, Some(&call), started);
+            mark(&mut first, &call, started);
             assert!(first.is_some_and(|value| value >= 50_000));
             earliest(&mut first, payload.first_output());
             assert_eq!(first, Some(10_000));
@@ -620,9 +608,9 @@ mod tests {
             tracing_subscriber::registry().with(levels.clone()),
             || {
                 for error in [
-                    ProviderError::NetworkError("connection failed".into()),
-                    ProviderError::stream_decode_error("invalid response"),
-                    ProviderError::ExecutionError("provider unavailable".into()),
+                    Error::new(ErrorKind::Network, "connection failed"),
+                    Error::new(ErrorKind::InvalidResponse, "invalid response"),
+                    Error::new(ErrorKind::Other, "provider unavailable"),
                 ] {
                     let mut span = Span::new(Entry::new(Area::Model, Phase::Begin));
                     finish_span(

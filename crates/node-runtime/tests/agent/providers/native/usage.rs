@@ -115,13 +115,14 @@ async fn normalizes_cache_and_thoughts() {
             .iter()
             .filter_map(|entry| entry.usage.clone())
             .collect();
+        let reasoning = u64::from(api != ModelApi::Anthropic);
         assert_eq!(
             reported,
             vec![Usage {
                 input: 16,
                 output: 4,
                 cached_input: 6,
-                reasoning: 0,
+                reasoning,
             }]
         );
         let profile = fixture.node.profile().to_owned();
@@ -147,7 +148,14 @@ async fn normalizes_cache_and_thoughts() {
         if api == ModelApi::Anthropic {
             assert_eq!(usage["cache_write"], 2);
         }
-        assert_eq!(usage["reasoning"], serde_json::Value::Null);
+        assert_eq!(
+            usage["reasoning"],
+            if api == ModelApi::Anthropic {
+                serde_json::Value::Null
+            } else {
+                serde_json::json!(reasoning)
+            }
+        );
         assert!(record["metadata"]["execution"]["timing"]["elapsed_us"].is_u64());
         drop(db);
         drop(database);

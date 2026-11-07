@@ -178,10 +178,10 @@ async fn finalizes_terminal_and_cancelled_streams() {
             Some(0)
         );
         if !cancel {
-            assert_eq!(attempt.transport, "gdk");
-            assert_eq!(attempt.status, None);
-            assert_eq!(attempt.response_us, None);
-            assert_eq!(attempt.headers_us, None);
+            assert_eq!(attempt.transport, "model");
+            assert_eq!(attempt.status, Some(200));
+            assert!(attempt.response_us.is_some());
+            assert!(attempt.headers_us.is_some());
             assert!(attempt.first_token_us.is_some());
         }
         assert_eq!(

@@ -1,14 +1,7 @@
-//! Each request resolves the turn's captured authorization through the Node owner.
 use super::*;
 use crate::providers::request::{self as policy, Metadata, Placement, Prepared};
 use async_trait::async_trait;
-use futures::StreamExt;
-use goose_provider_types::{
-    base::{MessageStream, Provider as GdkProvider},
-    conversation::message::{Message, MessageContentBlock},
-    errors::ProviderError,
-    model::ModelConfig,
-};
+use futures::{StreamExt, stream};
 use sailry_protocol::{RequestId, SessionId};
 
 #[cfg(test)]
@@ -44,276 +37,212 @@ impl Model {
 }
 
 #[async_trait]
-impl GdkProvider for Model {
-    fn get_name(&self) -> &str {
-        "sailry_authorized"
-    }
-
-    async fn get_context_limit(&self, model: &str, override_limit: Option<usize>) -> usize {
-        if let Some(limit) = override_limit {
-            return limit;
-        }
-        let resolved = async {
-            let resolved = policy::current(
-                &self.ingress,
-                &self.provider,
-                self.config.credential.as_ref(),
-                &self.stop,
-            )
-            .await?;
-            let headers = policy::headers(&resolved.provider, &resolved.credentials)?;
-            let fingerprint =
-                registry::fingerprint(&resolved.provider, &self.config, resolved.revision)?;
-            self.ingress
-                .model_clients
-                .get(self.session, fingerprint, || {
-                    factory::native(
-                        &self.ingress.model_clients,
-                        &resolved.provider,
-                        &self.config.model,
-                        self.session,
-                        "",
-                        headers,
-                    )
-                })
-        }
-        .await;
-        match resolved {
-            Ok(provider) => provider.get_context_limit(model, None).await,
-            Err(_) => {
-                goose_provider_types::context_limit::ContextLimitResolver::new(self.get_name())
-                    .resolve_local(model, None)
-            }
-        }
-    }
-
-    async fn stream(
+impl types::Model for Model {
+    async fn call(
         &self,
-        config: &ModelConfig,
-        system: &str,
-        messages: &[Message],
-        tools: &[rmcp::model::Tool],
-    ) -> Result<MessageStream, ProviderError> {
-        let resolved = policy::current(
-            &self.ingress,
-            &self.provider,
-            self.config.credential.as_ref(),
-            &self.stop,
-        )
-        .await
-        .map_err(errors::provider)?;
-        let tool_names = request_names(
-            tools,
-            messages,
-            resolved.provider.authentication == Authentication::ClaudeOAuth,
-        );
-        let user = messages
+        mut request: Request,
+        cancel: CancellationToken,
+    ) -> Result<ModelStream, Error> {
+        let resolved = tokio::select! {
+            biased;
+            _ = cancel.cancelled() => return Err(Error::new(ErrorKind::Cancelled, "model request was cancelled")),
+            result = policy::current(&self.ingress, &self.provider, self.config.credential.as_ref(), &self.stop) => result.map_err(errors::provider)?,
+        };
+        let claude = resolved.provider.authentication == Authentication::ClaudeOAuth;
+        let tool_names = request_names(&request.tools, &request.messages, claude);
+        let user = request
+            .messages
             .iter()
             .rev()
-            .find(|message| !message.is_turn_context())
+            .find(|message| !message.metadata.turn_context)
             .is_some_and(|message| {
-                message.role == rmcp::model::Role::User && !message.is_tool_response()
+                message.role == Role::User
+                    && !message
+                        .content
+                        .iter()
+                        .any(|block| matches!(block, Content::ToolResult(_)))
             });
         let prepared = policy::prepare(
             &resolved.provider,
             &resolved.credentials,
             Metadata {
-                model: &config.model_name,
+                model: &request.model,
                 session: self.session,
                 request: RequestId::new(),
-                system,
+                system: &request.system,
                 tool_names: &tool_names,
                 delegated: self.delegated,
                 user,
-                vision: messages
+                vision: request
+                    .messages
                     .iter()
                     .flat_map(|message| &message.content)
-                    .any(|block| matches!(block, MessageContentBlock::Image(_))),
+                    .any(|block| matches!(block, Content::Image { .. })),
             },
         )
         .map_err(errors::provider)?;
-        let fingerprint =
-            registry::fingerprint(&resolved.provider, &self.config, resolved.revision)
-                .map_err(errors::provider)?;
-        let mut config = config.clone();
-        if resolved.provider.authentication == Authentication::ClaudeOAuth {
-            let first = messages
+        if claude {
+            let first = request
+                .messages
                 .iter()
                 .filter(|message| {
-                    !message.is_turn_context()
-                        && message.role == rmcp::model::Role::User
-                        && !message.is_tool_response()
+                    !message.metadata.turn_context
+                        && message.role == Role::User
+                        && !message
+                            .content
+                            .iter()
+                            .any(|block| matches!(block, Content::ToolResult(_)))
                 })
                 .find_map(|message| {
                     message
                         .content
                         .iter()
                         .find_map(|block| match block {
-                            MessageContentBlock::Text(text) if !text.text.trim().is_empty() => {
-                                Some(text.text.clone())
-                            }
+                            Content::Text { text } if !text.trim().is_empty() => Some(text.clone()),
                             _ => None,
                         })
                         .or_else(|| {
                             message
                                 .content
                                 .iter()
-                                .any(|block| matches!(block, MessageContentBlock::Image(_)))
+                                .any(|block| matches!(block, Content::Image { .. }))
                                 .then(String::new)
                         })
                 })
                 .unwrap_or_default();
-            config = config.with_merged_request_params(
-                [("sailry_claude_first_user".into(), serde_json::json!(first))].into(),
-            );
+            request
+                .params
+                .insert("sailry_claude_first_user".into(), first.into());
         }
-        let mut system = system.to_owned();
-        let mut messages = messages.to_vec();
-        let mut tools = tools.to_vec();
-        apply(
-            &prepared,
-            &mut config,
-            &mut system,
-            &mut messages,
-            &mut tools,
-        )?;
-        let provider = self
-            .ingress
-            .model_clients
-            .get(self.session, fingerprint, || {
-                factory::native(
-                    &self.ingress.model_clients,
-                    &resolved.provider,
-                    &self.config.model,
-                    self.session,
-                    "",
-                    prepared.cached_headers,
-                )
-            })
-            .map_err(errors::provider)?;
+        apply(&prepared, &mut request);
+        let provider = factory::native(
+            &self.ingress.model_clients,
+            &resolved.provider,
+            &self.config.model,
+            self.session,
+            "",
+            prepared.cached_headers.clone(),
+        )
+        .map_err(errors::provider)?;
         let provider = errors::wrap(provider, prepared.secrets);
-        let mut retried = false;
-        let responses = loop {
+        let mut repaired = false;
+        let (first, responses) = loop {
             let sent_version = crate::providers::claude::version::current();
-            let request_config = if resolved.provider.authentication == Authentication::ClaudeOAuth
-            {
-                config.clone().with_merged_request_params(
-                    [(
-                        "sailry_claude_version".into(),
-                        serde_json::json!(sent_version),
-                    )]
-                    .into(),
-                )
-            } else {
-                config.clone()
-            };
-            match provider
-                .stream(&request_config, &system, &messages, &tools)
-                .await
-            {
+            if claude {
+                request
+                    .params
+                    .insert("sailry_claude_version".into(), sent_version.clone().into());
+            }
+            let started = provider.call(request.clone(), cancel.clone()).await;
+            let mut responses = match started {
                 Err(error)
-                    if !retried
-                        && resolved.provider.authentication == Authentication::ClaudeOAuth
-                        && !self.stop.is_cancelled()
+                    if claude
+                        && !repaired
+                        && !cancel.is_cancelled()
                         && crate::providers::claude::version::adopt(
                             &error.to_string(),
                             &sent_version,
                         ) =>
                 {
-                    retried = true;
+                    repaired = true;
                     continue;
                 }
-                result => break result?,
+                result => result?,
+            };
+            let first = tokio::select! {
+                biased;
+                _ = cancel.cancelled() => return Err(Error::new(ErrorKind::Cancelled, "model request was cancelled")),
+                first = responses.next() => first,
+            };
+            if let Some(Err(error)) = &first
+                && claude
+                && !repaired
+                && !cancel.is_cancelled()
+                && crate::providers::claude::version::adopt(&error.to_string(), &sent_version)
+            {
+                repaired = true;
+                continue;
             }
+            break (first, responses);
         };
         let names = prepared.names.reverse;
-        Ok(Box::pin(responses.map(move |item| {
-            item.map(|(mut message, usage)| {
-                if let Some(message) = &mut message {
-                    for block in &mut message.content {
-                        if let MessageContentBlock::ToolRequest(request) = block
-                            && let Ok(call) = &mut request.tool_call
-                            && let Some(original) = names.get(call.name.as_ref())
-                        {
-                            call.name = original.clone().into();
+        Ok(Box::pin(stream::iter(first).chain(responses).map(
+            move |event| {
+                event.map(|mut event| {
+                    match &mut event {
+                        Event::ToolCall { call, .. } => {
+                            if let Some(original) = names.get(&call.name) {
+                                call.name.clone_from(original);
+                            }
                         }
+                        Event::ToolCallDelta {
+                            name: Some(name), ..
+                        } => {
+                            if let Some(original) = names.get(name) {
+                                name.clone_from(original);
+                            }
+                        }
+                        _ => {}
                     }
-                }
-                (message, usage)
-            })
-        })))
+                    event
+                })
+            },
+        )))
     }
 }
 
-fn request_names<'a>(
-    tools: &'a [rmcp::model::Tool],
-    messages: &'a [Message],
-    claude: bool,
-) -> Vec<&'a str> {
-    let mut names: Vec<_> = tools.iter().map(|tool| tool.name.as_ref()).collect();
+fn request_names<'a>(tools: &'a [Tool], messages: &'a [Message], claude: bool) -> Vec<&'a str> {
+    let mut names: Vec<_> = tools.iter().map(|tool| tool.name.as_str()).collect();
     if claude {
-        // Historical tool calls retain the same wire prefix after a tool is removed.
         for block in messages.iter().flat_map(|message| &message.content) {
-            if let MessageContentBlock::ToolRequest(request) = block
-                && let Ok(call) = &request.tool_call
-                && !names.contains(&call.name.as_ref())
+            if let Content::ToolCall(call) = block
+                && call.error.is_none()
+                && !names.contains(&call.name.as_str())
             {
-                names.push(call.name.as_ref());
+                names.push(&call.name);
             }
         }
     }
     names
 }
 
-fn apply(
-    prepared: &Prepared,
-    config: &mut ModelConfig,
-    system: &mut String,
-    messages: &mut [Message],
-    tools: &mut [rmcp::model::Tool],
-) -> Result<(), ProviderError> {
+fn apply(prepared: &Prepared, request: &mut Request) {
     for name in prepared.remove_params {
         match *name {
-            "max_tokens" => config.max_tokens = None,
-            "temperature" => config.temperature = None,
+            "max_tokens" => request.max_tokens = None,
+            "temperature" => request.temperature = None,
+            _ => {}
+        }
+        request.params.remove(*name);
+    }
+    request.params.extend(prepared.parameters.clone());
+    match prepared.system.placement {
+        Placement::Instructions => request.system.clear(),
+        Placement::Native => request.system.clone_from(&prepared.system.text),
+    }
+    for tool in &mut request.tools {
+        if let Some(wire) = prepared.names.forward.get(&tool.name) {
+            tool.name.clone_from(wire);
+        }
+    }
+    for block in request
+        .messages
+        .iter_mut()
+        .flat_map(|message| &mut message.content)
+    {
+        match block {
+            Content::ToolCall(call) if call.error.is_none() => {
+                if let Some(wire) = prepared.names.forward.get(&call.name) {
+                    call.name.clone_from(wire);
+                }
+            }
+            Content::ToolResult(result) => {
+                if let Some(wire) = prepared.names.forward.get(&result.name) {
+                    result.name.clone_from(wire);
+                }
+            }
             _ => {}
         }
     }
-    if !prepared.parameters.is_empty() {
-        *config = config
-            .clone()
-            .with_merged_request_params(prepared.parameters.clone().into_iter().collect());
-    }
-    match prepared.system.placement {
-        Placement::Instructions => system.clear(),
-        Placement::Native => system.clone_from(&prepared.system.text),
-    }
-    for tool in tools {
-        if let Some(wire) = prepared.names.forward.get(tool.name.as_ref()) {
-            tool.name = wire.clone().into();
-        }
-    }
-    for message in messages {
-        for block in &mut message.content {
-            if let MessageContentBlock::ToolRequest(request) = block
-                && let Ok(call) = &mut request.tool_call
-                && let Some(wire) = prepared.names.forward.get(call.name.as_ref())
-            {
-                call.name = wire.clone().into();
-            }
-        }
-    }
-    let headers = config.request_headers.get_or_insert_with(Default::default);
-    for (name, value) in &prepared.headers {
-        headers.insert(
-            name.as_str().into(),
-            value
-                .to_str()
-                .map_err(|_| {
-                    ProviderError::InvalidValue("model authorization header is invalid".into())
-                })?
-                .into(),
-        );
-    }
-    Ok(())
+    request.headers.extend(prepared.headers.clone());
 }

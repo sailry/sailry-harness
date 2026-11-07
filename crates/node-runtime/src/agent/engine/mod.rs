@@ -108,10 +108,9 @@ pub(super) async fn run(run: Run<'_>) -> Result<Option<String>, Fault> {
     } = run;
     let startup = crate::agent::diagnostics::Startup::new(ingress.node, invocation, &stop);
     let setup = std::time::Instant::now();
-    let context = binding
-        .provider
-        .get_context_limit(&binding.config.model_name, binding.config.context_limit)
-        .await;
+    let provider = model::gdk::provider(binding.provider, binding.owner);
+    let config = model::gdk::config(&binding.config);
+    let context = model::context_limit(ingress, invocation, &stop).await;
     startup.record(startup.entry("context_limit", setup, None));
     let configured = invocation
         .provider
@@ -137,8 +136,8 @@ pub(super) async fn run(run: Run<'_>) -> Result<Option<String>, Fault> {
     });
     let manual = invocation.turn.kind == sailry_protocol::conversation::RunKind::Compaction;
     let compact = Arc::new(compact::Compaction {
-        provider: summary.provider,
-        config: summary.config,
+        provider: model::gdk::provider(summary.provider, summary.owner),
+        config: model::gdk::config(&summary.config),
         context,
         threshold,
         preparer: preparer.clone(),
@@ -146,7 +145,7 @@ pub(super) async fn run(run: Run<'_>) -> Result<Option<String>, Fault> {
     });
     let sessions = Sessions::new(ingress.clone(), invocation.turn.id)
         .with_invocation(invocation.clone())
-        .with_thinking(binding.config.thinking_effort())
+        .with_thinking(config.thinking_effort())
         .with_groupings(catalog.groupings())
         .with_displays(catalog.displays())
         .with_delegations(catalog.delegations())
@@ -200,7 +199,7 @@ pub(super) async fn run(run: Run<'_>) -> Result<Option<String>, Fault> {
             steps.push(Step::Operation(callback));
         }
         steps.push(Step::Inference(Arc::new(
-            InferenceRunner::new(binding.provider, binding.config).with_request_preparer(preparer),
+            InferenceRunner::new(provider, config).with_request_preparer(preparer),
         )));
         steps
     };

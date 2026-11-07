@@ -27,14 +27,18 @@ fn carries_exact_tool_identity_and_unchanged_bodies() {
         canonical.clone(),
         serde_json::Map::new(),
     )];
-    let projected = names.messages(&messages);
-    let tools = names.tools(&tools);
+    let mut input = crate::agent::model::gdk::request(
+        &ModelConfig::new("fixture"),
+        &canonical,
+        &messages,
+        &tools,
+    )
+    .unwrap();
+    input.messages = names.messages(&input.messages).into_owned();
+    input.tools = names.tools(&input.tools).into_owned();
     for dialect in [Dialect::Generic, Dialect::OpenAi, Dialect::Gemini] {
-        let wire = request::convert(
-            &ModelConfig::new("fixture"),
-            &canonical,
-            &projected,
-            &tools,
+        let wire = translation::convert(
+            &input,
             request::Context {
                 endpoint: "https://fixture.invalid",
                 session: "fixture",
@@ -118,12 +122,12 @@ fn pairs_reused_ids_with_current_owner() {
             )])),
         ),
     ];
-    let projected = names.messages(&messages);
-    let wire = request::convert(
-        &ModelConfig::new("fixture"),
-        "",
-        &projected,
-        &[],
+    let mut input =
+        crate::agent::model::gdk::request(&ModelConfig::new("fixture"), "", &messages, &[])
+            .unwrap();
+    input.messages = names.messages(&input.messages).into_owned();
+    let wire = translation::convert(
+        &input,
         request::Context {
             endpoint: "https://fixture.invalid",
             session: "fixture",

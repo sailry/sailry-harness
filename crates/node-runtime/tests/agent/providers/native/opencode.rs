@@ -160,7 +160,7 @@ async fn retains_errors_and_status() {
             .collect();
         assert_eq!(requests.len(), 1);
         assert_eq!(requests[0].attempts.len(), 1);
-        assert_eq!(requests[0].attempts[0].status, None);
+        assert_eq!(requests[0].attempts[0].status, Some(status));
         assert_eq!(
             requests[0].attempts[0].outcome,
             sailry_protocol::conversation::observation::Outcome::Failed

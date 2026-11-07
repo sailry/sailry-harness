@@ -1,27 +1,33 @@
 use super::*;
 mod authorization;
+mod context;
 mod errors;
 mod factory;
+pub(crate) mod gdk;
 mod names;
 pub(in crate::agent) mod observation;
 pub(super) mod plugin;
 pub(crate) mod registry;
 mod request;
-#[cfg(test)]
+mod retry;
 mod rig;
 pub(in crate::agent) mod summary;
-#[cfg(test)]
-mod types;
+pub(crate) mod types;
+pub(in crate::agent) use context::limit as context_limit;
 pub(in crate::agent) use errors::{fault as error, safe};
-use goose_provider_types::{base::Provider as GdkProvider, model::ModelConfig};
 use sailry_protocol::{
     Authentication, Effort, SessionConfig,
     conversation::{ModelApi, Provider},
 };
+pub(crate) use types::{
+    Config, Content, Error, ErrorKind, Event, Finish, Message, Model, ModelStream, Request, Role,
+    Tool, Usage,
+};
 
 pub(super) struct Binding {
-    pub provider: Arc<dyn GdkProvider>,
-    pub config: ModelConfig,
+    pub provider: Arc<dyn Model>,
+    pub config: Config,
+    pub owner: String,
     pub sources: observation::Sources,
     pub names: names::Registry,
 }
@@ -76,7 +82,7 @@ pub(super) async fn provider(
     if compaction {
         // Both GDK summary paths use fixed prompts without Node owner parts.
         binding.sources.replace(Vec::new());
-        binding.config.max_tokens = Some(summary::max_tokens(provider, &config));
+        binding.config.max_tokens = Some(summary::max_tokens(provider, &config) as u64);
     }
     binding.provider = request::Model::wrap(
         binding.provider,
@@ -108,12 +114,12 @@ pub(super) async fn binding(
         ));
     }
     let model_config = factory::config(provider, config, session);
-    let inner: Arc<dyn GdkProvider> = if provider.api == ModelApi::Plugin {
+    let inner: Arc<dyn Model> = if provider.api == ModelApi::Plugin {
         Arc::new(plugin::Model::new(ingress, provider, config, session, stop).await?)
     } else if provider.authentication == Authentication::ChatGpt {
         return Err(Fault::new(
             ErrorCode::NotConfigured,
-            "GDK does not support this ChatGPT authorization endpoint",
+            "model transport does not support this ChatGPT authorization endpoint",
         ));
     } else if provider.authentication == Authentication::ApiKey {
         let credential = match &config.credential {
@@ -153,6 +159,7 @@ pub(super) async fn binding(
     };
     Ok(Binding {
         provider: inner,
+        owner: format!("sailry:{}", provider.id),
         config: model_config,
         sources: observation::Sources::default(),
         names: names::Registry::default(),

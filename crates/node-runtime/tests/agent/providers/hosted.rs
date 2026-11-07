@@ -217,7 +217,7 @@ async fn preserves_regional_routes_and_usage() {
             input: 16,
             output: 4,
             cached_input: 6,
-            reasoning: 0,
+            reasoning: 1,
         };
         let reported: Vec<_> = page
             .entries

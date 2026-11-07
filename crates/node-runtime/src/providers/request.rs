@@ -205,8 +205,19 @@ pub(crate) fn prepare(
     };
     match grant.as_ref() {
         Grant::ChatGptOAuth { .. } => {
-            prepared.remove_params = &["max_tokens", "temperature"];
+            prepared.remove_params = &[
+                "max_tokens",
+                "max_output_tokens",
+                "max_tool_calls",
+                "temperature",
+                "top_p",
+                "previous_response_id",
+                "prompt_cache_retention",
+                "stream_options",
+                "user",
+            ];
             prepared.system.placement = Placement::Instructions;
+            prepared.parameters.insert("store".into(), json!(false));
             prepared
                 .parameters
                 .insert("instructions".into(), json!(metadata.system));

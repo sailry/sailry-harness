@@ -147,14 +147,19 @@ fn instruction(api: ModelApi, body: &Value) -> String {
             } else {
                 &body["messages"]
             };
-            messages
+            let mut instructions = messages
                 .as_array()
                 .unwrap()
                 .iter()
                 .filter(|message| matches!(message["role"].as_str(), Some("system" | "developer")))
                 .map(|message| content(&message["content"]))
-                .collect::<Vec<_>>()
-                .join("\n")
+                .collect::<Vec<_>>();
+            if api == ModelApi::Responses
+                && let Some(text) = body["instructions"].as_str()
+            {
+                instructions.push(text.into());
+            }
+            instructions.join("\n")
         }
         _ => unreachable!(),
     }

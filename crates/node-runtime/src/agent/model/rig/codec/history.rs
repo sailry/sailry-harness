@@ -14,16 +14,42 @@ use unicode_normalization::UnicodeNormalization;
 pub(super) fn messages(
     source: Vec<types::Message>,
     origin: &Origin,
+    media: &mut super::super::media::Media,
 ) -> Result<Vec<Message>, Error> {
     let mut messages = Vec::new();
     let mut calls = BTreeMap::<String, ToolName>::new();
-    for message in source {
+    let active = source.iter().rposition(|message| {
+        message.metadata.agent_visible
+            && message.role == Role::User
+            && message
+                .content
+                .iter()
+                .any(|content| !matches!(content, Content::ToolResult(_)))
+    });
+    for (position, message) in source.into_iter().enumerate() {
+        if !message.metadata.agent_visible {
+            continue;
+        }
         let mut assistant = Vec::new();
         let mut user = Vec::new();
+        let keep_thinking = thinking(&message, origin);
+        let keep_signature = active.is_none_or(|active| position >= active);
+        let mut first_call = true;
         for content in message.content {
+            if matches!(content, Content::Error { .. }) {
+                continue;
+            }
+            if !keep_thinking
+                && matches!(
+                    content,
+                    Content::Thinking { .. } | Content::RedactedThinking { .. }
+                )
+            {
+                continue;
+            }
             if let Content::ToolResult(result) = content {
                 flush(&mut messages, &mut assistant, &mut user, origin);
-                let result = result_content(result, &calls)?;
+                let result = result_content(result, &calls, origin, media)?;
                 messages.push(Message::User {
                     content: vec![UserContent::ToolResult(result)],
                 });
@@ -31,7 +57,9 @@ pub(super) fn messages(
             }
             match message.role {
                 Role::Assistant => {
-                    let block = assistant_content(content, origin)?;
+                    let tool = matches!(content, Content::ToolCall(_));
+                    let block = assistant_content(content, origin, keep_signature, first_call)?;
+                    first_call &= !tool;
                     if let AssistantContent::ToolCall(call) = &block {
                         calls.insert(call.id.to_string(), call.function.name.clone());
                     }
@@ -43,6 +71,23 @@ pub(super) fn messages(
         flush(&mut messages, &mut assistant, &mut user, origin);
     }
     Ok(messages)
+}
+
+fn thinking(message: &types::Message, origin: &Origin) -> bool {
+    if !matches!(
+        origin.api.as_str(),
+        "anthropic.messages" | "openai.responses"
+    ) {
+        return true;
+    }
+    let Some(inference) = &message.metadata.inference else {
+        return origin.api.as_str() != "openai.responses";
+    };
+    let requested = inference.requested_model.as_str();
+    let resolved = inference.resolved_model.as_deref().unwrap_or("");
+    (requested.is_empty() && resolved.is_empty())
+        || origin.model == requested
+        || origin.model == resolved
 }
 
 fn flush(
@@ -63,9 +108,24 @@ fn flush(
     }
 }
 
-fn assistant_content(content: Content, origin: &Origin) -> Result<AssistantContent, Error> {
+fn assistant_content(
+    content: Content,
+    origin: &Origin,
+    keep_signature: bool,
+    first_call: bool,
+) -> Result<AssistantContent, Error> {
     Ok(match content {
-        Content::Text { text } => AssistantContent::Text(Text::new(text)),
+        Content::Text { text } => {
+            let block = AssistantContent::Text(Text::new(text.clone()));
+            if origin.api.as_str() == "openai.responses" {
+                block.with_native(json!({
+                    "type":"message","role":"assistant","status":"completed",
+                    "content":[{"type":"output_text","text":text,"annotations":[]}],
+                }))
+            } else {
+                block
+            }
+        }
         Content::Thinking { text, signature } => {
             let mut block = AssistantContent::Reasoning(Reasoning::new(text.clone()));
             if let Some(signature) = signature.filter(|signature| !signature.is_empty()) {
@@ -75,6 +135,18 @@ fn assistant_content(content: Content, origin: &Origin) -> Result<AssistantConte
                     }
                     "gemini.generate_content" => {
                         Some(json!({"text": text, "thought": true, "thoughtSignature": signature}))
+                    }
+                    "openai.responses" => {
+                        let summary = if text.is_empty() {
+                            Vec::new()
+                        } else {
+                            vec![json!({"type":"summary_text","text":text})]
+                        };
+                        Some(json!({
+                            "type":"reasoning",
+                            "summary":summary,
+                            "encrypted_content":signature,
+                        }))
                     }
                     _ => None,
                 };
@@ -97,7 +169,11 @@ fn assistant_content(content: Content, origin: &Origin) -> Result<AssistantConte
             })
             .with_native(json!({"type": "redacted_thinking", "data": data}))
         }
-        Content::ToolCall(call) => {
+        Content::ToolCall(mut call) => {
+            if call.error.is_some() && call.name.is_empty() {
+                call.name = "unparseable_tool_call".to_owned();
+                call.arguments = json!({});
+            }
             let name = ToolName::new(call.name.clone()).map_err(invalid)?;
             let id = identity(&call.id)?;
             let mut function = ToolFunction::new(name, call.arguments.clone());
@@ -108,6 +184,12 @@ fn assistant_content(content: Content, origin: &Origin) -> Result<AssistantConte
             match origin.api.as_str() {
                 "gemini.generate_content" => {
                     let mut part = call.metadata.unwrap_or_default();
+                    if !keep_signature {
+                        part.remove("thoughtSignature");
+                    }
+                    if keep_signature && first_call {
+                        part.insert(super::super::wire::SIGNATURE.into(), Value::Bool(true));
+                    }
                     part.insert(
                         "functionCall".into(),
                         json!({"id": call.id, "name": call.name, "args": call.arguments}),
@@ -124,6 +206,10 @@ fn assistant_content(content: Content, origin: &Origin) -> Result<AssistantConte
                     );
                     block.with_native(Value::Object(part))
                 }
+                "openai.responses" => block.with_native(json!({
+                    "type":"function_call","call_id":call.id,"name":call.name,
+                    "arguments":call.arguments.to_string(),"status":"completed",
+                })),
                 _ => block,
             }
         }
@@ -137,6 +223,7 @@ fn assistant_content(content: Content, origin: &Origin) -> Result<AssistantConte
             ));
         }
         Content::ToolResult(_) => return Err(invalid("tool results require user content")),
+        Content::Error { .. } => return Err(invalid("diagnostics are not model input")),
     })
 }
 
@@ -185,6 +272,8 @@ fn identity(value: &str) -> Result<CallId, Error> {
 fn result_content(
     source: types::ToolResult,
     calls: &BTreeMap<String, ToolName>,
+    origin: &Origin,
+    media: &mut super::super::media::Media,
 ) -> Result<ToolResult, Error> {
     let name = if source.name.is_empty() {
         calls
@@ -203,14 +292,47 @@ fn result_content(
                         content.push(ToolResultContent::Text(Text::new(text.text)));
                     }
                     ContentBlock::Image(value) => {
-                        content.push(ToolResultContent::Image(image(
-                            value.mime_type,
-                            types::Image::Inline {
-                                data_base64: value.data,
-                            },
-                        )?));
+                        if origin.api.as_str() == "gemini.generate_content" {
+                            content.push(media.capture(value.mime_type, value.data));
+                        } else {
+                            content.push(ToolResultContent::Image(image(
+                                value.mime_type,
+                                types::Image::Inline {
+                                    data_base64: value.data,
+                                },
+                            )?));
+                        }
                     }
                     ContentBlock::Resource(resource) => {
+                        if let ResourceContents::BlobResourceContents {
+                            blob,
+                            mime_type: Some(mime),
+                            ..
+                        } = &resource.resource
+                        {
+                            if origin.api.as_str() == "anthropic.messages"
+                                && matches!(
+                                    mime.as_str(),
+                                    "image/png" | "image/jpeg" | "image/gif" | "image/webp"
+                                )
+                            {
+                                content.push(ToolResultContent::Image(image(
+                                    mime.clone(),
+                                    types::Image::Inline {
+                                        data_base64: blob.clone(),
+                                    },
+                                )?));
+                                continue;
+                            }
+                            if (origin.api.as_str() == "anthropic.messages"
+                                && mime == "application/pdf")
+                                || (origin.api.as_str() == "gemini.generate_content"
+                                    && !mime.is_empty())
+                            {
+                                content.push(media.capture(mime.clone(), blob.clone()));
+                                continue;
+                            }
+                        }
                         content.push(ToolResultContent::Text(Text::new(resource_text(
                             resource.resource,
                         ))));
@@ -266,4 +388,57 @@ fn resource_text(resource: ResourceContents) -> String {
     text.nfc()
         .filter(|character| !('\u{e0000}'..='\u{e007f}').contains(character))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pairs_malformed_calls_with_their_result() {
+        let call = types::Message::assistant().with_tool_request(
+            "invalid",
+            Err(rmcp::model::ErrorData::invalid_params(
+                "arguments are not JSON",
+                None,
+            )),
+        );
+        let result = types::Message::user().with_tool_response(
+            "invalid",
+            Err(rmcp::model::ErrorData::invalid_params(
+                "arguments are not JSON",
+                None,
+            )),
+        );
+        let projected = messages(
+            vec![call.clone(), result],
+            &Origin::new("openai.chat", "openai", "fixture"),
+            &mut super::super::super::media::Media::default(),
+        )
+        .unwrap();
+        let Message::Assistant(assistant) = &projected[0] else {
+            panic!("assistant message expected")
+        };
+        let AssistantContent::ToolCall(projected_call) = &assistant.content[0] else {
+            panic!("tool call expected")
+        };
+        assert_eq!(
+            projected_call.function.name.as_str(),
+            "unparseable_tool_call"
+        );
+        assert!(projected_call.function.arguments.is_empty());
+        let Message::User { content } = &projected[1] else {
+            panic!("tool result expected")
+        };
+        let UserContent::ToolResult(result) = &content[0] else {
+            panic!("tool result expected")
+        };
+        assert_eq!(result.call, projected_call.id);
+        assert_eq!(result.name, projected_call.function.name);
+        let Content::ToolCall(call) = &call.content[0] else {
+            panic!("canonical tool call expected")
+        };
+        assert!(call.name.is_empty());
+        assert!(call.error.is_some());
+    }
 }

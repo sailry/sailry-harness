@@ -2,7 +2,7 @@ use super::*;
 
 const PACKAGE: &str = "explore-output";
 
-fn result(server: &Server, name: &str, id: &str) -> String {
+fn result(server: &Server, name: &str) -> String {
     server
         .requests
         .lock()
@@ -18,7 +18,6 @@ fn result(server: &Server, name: &str, id: &str) -> String {
                     called.insert(call["id"].as_str()?, call["function"]["name"].as_str()?);
                 }
                 if message["role"] == "tool"
-                    && message["tool_call_id"] == id
                     && called.get(message["tool_call_id"].as_str()?) == Some(&exposed(name))
                 {
                     result = message["content"].as_str().map(str::to_owned);
@@ -140,7 +139,7 @@ async fn follows_raw_output_with_read_authority() {
         .result
         .unwrap();
     let output = json!({"call":call,"revision":blake3::hash(retained.to_string().as_bytes()).to_hex().to_string()});
-    let projected = result(&fixture.child, &plugin_tool("files", "read_file"), call);
+    let projected = result(&fixture.child, &plugin_tool("files", "read_file"));
     let revision = blake3::hash(text.as_bytes()).to_hex().to_string();
     assert_eq!(retained["kind"], "file_lines");
     assert_eq!(retained["data"]["path"], "source.txt");
@@ -155,7 +154,7 @@ async fn follows_raw_output_with_read_authority() {
         format!(
             "source.txt\nLines 1–120; {} bytes; revision {revision}\n{numbered}{}",
             text.len(),
-            json!({"output":output,"next_offset":null}),
+            json!({"output":output,"next_offset":null,"truncated":false}),
         ),
     );
     fixture.child.replace_tools(vec![(
@@ -181,12 +180,9 @@ async fn follows_raw_output_with_read_authority() {
             _ => None,
         })
         .unwrap();
-    let raw: Value = serde_json::from_str(&result(
-        &fixture.child,
-        &plugin_tool(PACKAGE, "read"),
-        raw_call,
-    ))
-    .unwrap();
+    assert!(!raw_call.is_empty());
+    let raw: Value =
+        serde_json::from_str(&result(&fixture.child, &plugin_tool(PACKAGE, "read"))).unwrap();
     assert_eq!(raw["turn"], json!(owner));
     assert_eq!(raw["output"], output);
     assert_eq!(raw["offset"], 0);

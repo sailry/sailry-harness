@@ -64,8 +64,11 @@ impl Media {
             &self.stop,
         )
         .await?;
-        binding.config.max_tokens =
-            Some(metadata.map_or(8192, |model| model.output.min(8192)) as i32);
+        binding.config.max_tokens = Some(u64::from(
+            metadata.map_or(8192, |model| model.output.min(8192)),
+        ));
+        let config = model::gdk::config(&binding.config);
+        let provider = model::gdk::provider(binding.provider, binding.owner);
         let messages = [Message::user().with_text(prompt).with_image(
             base64::engine::general_purpose::STANDARD.encode(bytes),
             format.media_type(),
@@ -73,11 +76,11 @@ impl Media {
         let started = Instant::now();
         let responses = tokio::select! { biased;
             _ = self.stop.cancelled() => return Err(Fault::new(ErrorCode::Cancelled, "vision request was cancelled").into()),
-            result = binding.provider.stream(&binding.config, "", &messages, &[]) => result.map_err(|error| Failure::model(error, true))?,
+            result = provider.stream(&config, "", &messages, &[]) => result.map_err(|error| Failure::model(model::gdk::error(error), true))?,
         };
         let (response, mut usage) = tokio::select! { biased;
             _ = self.stop.cancelled() => return Err(Fault::new(ErrorCode::Cancelled, "vision request was cancelled").into()),
-            result = collect_stream(responses) => result.map_err(|error| Failure::model(error, false))?,
+            result = collect_stream(responses) => result.map_err(|error| Failure::model(model::gdk::error(error), false))?,
         };
         usage
             .stats
@@ -88,7 +91,9 @@ impl Media {
             });
         let native = serde_json::to_value(&usage).ok();
         self.record_usage(
-            Some(crate::agent::engine::history::provider_usage(&usage)?),
+            Some(crate::agent::engine::history::provider_usage(
+                &model::gdk::from_usage(&usage),
+            )?),
             usage
                 .stats
                 .as_ref()

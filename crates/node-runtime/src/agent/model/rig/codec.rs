@@ -11,7 +11,7 @@ use serde_json::Value;
 use std::sync::Arc;
 use types::{Content, Error, ErrorKind, Finish, Request, Usage};
 
-pub(super) fn request(source: Request, api: ModelApi) -> Result<CompletionRequest, Error> {
+pub(super) fn request(mut source: Request, api: ModelApi) -> Result<CompletionRequest, Error> {
     let (wire, provider) = match api {
         ModelApi::Responses => ("openai.responses", "openai"),
         ModelApi::ChatCompletions => ("openai.chat", "openai"),
@@ -21,7 +21,82 @@ pub(super) fn request(source: Request, api: ModelApi) -> Result<CompletionReques
         _ => return Err(invalid("model route was not resolved")),
     };
     let origin = Origin::new(wire, provider, source.model.clone());
-    let mut request = CompletionRequest::from(history::messages(source.messages, &origin)?);
+    source.params.remove(super::wire::HISTORY_TOOLS);
+    source.params.remove(super::wire::SYSTEM_ROLE);
+    source.params.remove(super::wire::TOOL_IDS);
+    if matches!(api, ModelApi::ChatCompletions | ModelApi::DeepSeek)
+        && let Some(reasoning) = source.reasoning
+    {
+        source.params.insert(
+            super::wire::SYSTEM_ROLE.into(),
+            if reasoning { "developer" } else { "system" }.into(),
+        );
+    }
+    let mut media = super::media::Media::default();
+    let messages = history::messages(source.messages, &origin, &mut media)?;
+    let messages = if api == ModelApi::Gemini {
+        rig_core::conversation::pairing::pair(
+            messages.into_iter().map(Some).collect(),
+            rig_core::conversation::pairing::Pairing::canonical(),
+        )
+        .messages
+    } else {
+        messages
+    };
+    let mut request = CompletionRequest::from(messages);
+    if api == ModelApi::Gemini && !source.params.contains_key("contents") {
+        use rig_core::message::{Message, UserContent};
+        let mut calls = Vec::new();
+        let mut results = Vec::new();
+        for message in &request.chat_history {
+            match message.as_ref() {
+                Message::Assistant(assistant) => {
+                    calls.extend(assistant.tool_calls().map(|call| call.id.to_string()));
+                }
+                Message::User { content } => {
+                    results.extend(content.iter().filter_map(|content| match content {
+                        UserContent::ToolResult(result) => Some(result.call.to_string()),
+                        _ => None,
+                    }));
+                }
+                _ => {}
+            }
+        }
+        if !calls.is_empty() || !results.is_empty() {
+            source.params.insert(
+                super::wire::TOOL_IDS.into(),
+                serde_json::json!({"calls":calls,"results":results}),
+            );
+        }
+    }
+    if source.tools.is_empty()
+        && source
+            .params
+            .get("tools")
+            .and_then(Value::as_array)
+            .is_none_or(Vec::is_empty)
+        && !(api == ModelApi::Gemini
+            && ["cachedContent", "cached_content"].iter().any(|field| {
+                source
+                    .params
+                    .get(*field)
+                    .is_some_and(|value| !value.is_null())
+            }))
+        && request.chat_history.iter().any(|message| {
+            matches!(message.as_ref(), rig_core::message::Message::Assistant(assistant)
+                if assistant.tool_calls().next().is_some())
+        })
+    {
+        source
+            .params
+            .insert(super::wire::HISTORY_TOOLS.into(), Value::Bool(true));
+        source.tools.push(types::Tool {
+            name: "sailry_history".into(),
+            description: None,
+            parameters: serde_json::json!({"type":"object","properties":{}}),
+        });
+    }
+    media.attach(&mut source.params, &source.model);
     if !source.system.is_empty() {
         request = request.preamble(source.system);
     }
@@ -72,27 +147,31 @@ pub(super) fn content(source: AssistantContent) -> Result<Content, Error> {
 
 pub(super) fn usage(source: &CompletionResponse) -> Usage {
     let usage = source.usage;
-    Usage {
-        model: source
-            .model()
-            .map(str::to_owned)
-            .or_else(|| Some(source.origin.model.clone())),
-        input: usage.input_tokens,
-        output: usage.output_tokens,
-        total: usage.total_tokens,
-        cache_read: usage.cached_input_tokens,
-        cache_write: usage.cache_creation_input_tokens,
-        reasoning: usage.reasoning_tokens,
-        cost: usage
-            .cost
-            .filter(|cost| cost.is_complete())
-            .map(|cost| cost.total),
-        provider: source
-            .raw
-            .get("usage")
-            .or_else(|| source.raw.get("usageMetadata"))
-            .cloned(),
-    }
+    output::partial_usage(
+        source,
+        Usage {
+            model: source
+                .model()
+                .map(str::to_owned)
+                .or_else(|| Some(source.origin.model.clone())),
+            input: usage.input_tokens,
+            output: usage.output_tokens,
+            total: usage.total_tokens,
+            cache_read: usage.cached_input_tokens,
+            cache_write: usage.cache_creation_input_tokens,
+            reasoning: usage.reasoning_tokens,
+            cost: usage
+                .cost
+                .filter(|cost| cost.is_complete())
+                .map(|cost| cost.total),
+            provider: source
+                .raw
+                .get("usage")
+                .or_else(|| source.raw.get("usageMetadata"))
+                .cloned(),
+            ..Usage::default()
+        },
+    )
 }
 
 pub(super) fn finish(source: Option<rig_core::completion::FinishReason>) -> Finish {

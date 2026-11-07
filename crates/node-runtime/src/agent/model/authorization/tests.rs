@@ -1,10 +1,9 @@
 use super::*;
 use crate::providers::request::fixture;
-use rmcp::model::Tool;
 use serde_json::json;
 
 fn tool(name: &str) -> Tool {
-    Tool::new(name.to_owned(), "", serde_json::Map::new())
+    rmcp::model::Tool::new(name.to_owned(), "", serde_json::Map::new()).into()
 }
 
 #[test]
@@ -23,8 +22,7 @@ fn rejects_duplicate_names() {
 }
 
 #[test]
-fn matches_captured_gdk_request_baselines() {
-    // Frozen pre-refactor stream inputs; GDK's unchanged formatter owns the wire body.
+fn matches_captured_request_baselines() {
     for authentication in [
         Authentication::ApiKey,
         Authentication::ChatGpt,
@@ -46,12 +44,7 @@ fn matches_captured_gdk_request_baselines() {
             fixture::metadata("fixture-model", "Captured system", &["read", "custom"]),
         )
         .unwrap();
-        let mut config = ModelConfig::new("fixture-model").with_max_tokens(Some(64));
-        config.temperature = Some(0.25);
-        config.request_params = Some([("captured_parameter".into(), json!(7))].into());
-        config.request_headers = Some([("x-captured-header".into(), "kept".into())].into());
-        let mut system = "Captured system".to_owned();
-        let mut messages = vec![
+        let messages = vec![
             Message::assistant()
                 .with_tool_request("call", Ok(rmcp::model::CallToolRequestParams::new("read"))),
             Message::assistant().with_tool_request(
@@ -59,29 +52,41 @@ fn matches_captured_gdk_request_baselines() {
                 Ok(rmcp::model::CallToolRequestParams::new("READ")),
             ),
         ];
-        let mut tools = vec![tool("read"), tool("custom")];
-        apply(
-            &prepared,
-            &mut config,
-            &mut system,
-            &mut messages,
-            &mut tools,
-        )
-        .unwrap();
-        let history: Vec<_> = messages
+        let mut request = Request {
+            model: "fixture-model".into(),
+            max_tokens: Some(64),
+            temperature: Some(0.25),
+            params: [("captured_parameter".into(), json!(7))]
+                .into_iter()
+                .collect(),
+            headers: [(
+                reqwest::header::HeaderName::from_static("x-captured-header"),
+                reqwest::header::HeaderValue::from_static("kept"),
+            )]
+            .into_iter()
+            .collect(),
+            system: "Captured system".into(),
+            messages,
+            tools: vec![tool("read"), tool("custom")],
+            ..Request::default()
+        };
+        apply(&prepared, &mut request);
+        let history: Vec<_> = request
+            .messages
             .iter()
             .flat_map(|message| &message.content)
             .filter_map(|block| {
-                block
-                    .as_tool_request()
-                    .and_then(|request| request.tool_call.as_ref().ok())
-                    .map(|call| call.name.as_ref())
+                if let Content::ToolCall(call) = block {
+                    Some(call.name.as_str())
+                } else {
+                    None
+                }
             })
             .collect();
         let actual = json!({
-            "max_tokens":config.max_tokens, "temperature":config.temperature,
-            "parameters":config.request_params, "headers":config.request_headers,
-            "system":system, "tools":tools.iter().map(|tool| tool.name.as_ref()).collect::<Vec<_>>(),
+            "max_tokens":request.max_tokens, "temperature":request.temperature,
+            "parameters":request.params, "headers":request.headers.iter().map(|(key,value)| (key.as_str(),value.to_str().unwrap())).collect::<std::collections::BTreeMap<_,_>>(),
+            "system":request.system, "tools":request.tools.iter().map(|tool| tool.name.as_str()).collect::<Vec<_>>(),
             "history":history,
         });
         let mut headers = fixture::headers(authentication);
@@ -100,6 +105,7 @@ fn matches_captured_gdk_request_baselines() {
                 expected["temperature"] = serde_json::Value::Null;
                 expected["parameters"]["instructions"] = json!("Captured system");
                 expected["parameters"]["prompt_cache_key"] = json!(fixture::SESSION);
+                expected["parameters"]["store"] = json!(false);
                 expected["system"] = json!("");
             }
             Authentication::ClaudeOAuth => {
@@ -120,7 +126,7 @@ fn matches_captured_gdk_request_baselines() {
 #[test]
 fn prefixes_retired_tools_without_rewriting_content() {
     let tools = [tool("current")];
-    let mut messages = [Message::assistant().with_text("retired").with_tool_request(
+    let messages = [Message::assistant().with_text("retired").with_tool_request(
         "old",
         Ok(rmcp::model::CallToolRequestParams::new("retired")),
     )];
@@ -134,20 +140,18 @@ fn prefixes_retired_tools_without_rewriting_content() {
         fixture::metadata("fixture-model", "Captured system", &names),
     )
     .unwrap();
-    apply(
-        &prepared,
-        &mut ModelConfig::new("fixture-model"),
-        &mut String::new(),
-        &mut messages,
-        &mut [],
-    )
-    .unwrap();
-    let MessageContentBlock::ToolRequest(request) = &messages[0].content[1] else {
+    let mut request = Request {
+        model: "fixture-model".into(),
+        messages: messages.to_vec(),
+        ..Request::default()
+    };
+    apply(&prepared, &mut request);
+    let Content::ToolCall(call) = &request.messages[0].content[1] else {
         panic!("tool request expected")
     };
-    assert_eq!(request.tool_call.as_ref().unwrap().name, "_retired");
-    let MessageContentBlock::Text(text) = &messages[0].content[0] else {
+    assert_eq!(call.name, "_retired");
+    let Content::Text { text } = &request.messages[0].content[0] else {
         panic!("text expected")
     };
-    assert_eq!(text.text, "retired");
+    assert_eq!(text, "retired");
 }

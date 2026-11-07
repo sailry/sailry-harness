@@ -2,21 +2,17 @@ use super::*;
 
 #[test]
 fn preserves_optional_reasoning_usage() {
-    use goose_provider_types::conversation::token_usage::{ProviderUsage, Usage};
-    let mut source = ProviderUsage::new("fixture".into(), Usage::new(Some(12), Some(3), Some(15)));
-    assert_eq!(provider_usage(&source).unwrap().reasoning, None);
-    for (value, expected) in [
-        (json!(0), Some(0)),
-        (json!(2), Some(2)),
-        (json!(u64::MAX), Some(u64::MAX)),
-        (Value::Null, None),
-        (json!(-1), None),
-        (json!(1.5), None),
-        (json!("2"), None),
-    ] {
-        source.additional_data = Some([("reasoning_tokens".into(), value)].into_iter().collect());
+    for reasoning in [None, Some(0), Some(2), Some(u64::MAX)] {
+        let source = model::Usage {
+            model: Some("fixture".into()),
+            input: Some(12),
+            output: Some(3),
+            total: Some(15),
+            reasoning,
+            ..model::Usage::default()
+        };
         let usage = provider_usage(&source).unwrap();
-        assert_eq!(usage.reasoning, expected);
+        assert_eq!(usage.reasoning, reasoning);
         assert_eq!((usage.input, usage.output), (Some(12), Some(3)));
     }
 }
@@ -33,7 +29,25 @@ async fn database() -> (turso::Database, Connection) {
     (database, db)
 }
 
-fn without_output_notes(mut message: gdk::Message) -> gdk::Message {
+fn message(role: model::Role, content: Vec<Content>) -> model::Message {
+    model::Message {
+        id: Some("message".into()),
+        role,
+        content,
+        ..model::Message::default()
+    }
+}
+
+fn result(id: &str, name: &str, result: CallToolResult) -> Content {
+    Content::ToolResult(model::ToolResult {
+        id: id.into(),
+        name: name.into(),
+        result: Ok(result),
+        metadata: None,
+    })
+}
+
+fn without_output_notes(mut message: model::Message) -> model::Message {
     if let Some(notes) = message.metadata.operations.as_mut() {
         notes.remove("tool_output");
         if notes.is_empty() {
@@ -45,7 +59,9 @@ fn without_output_notes(mut message: gdk::Message) -> gdk::Message {
 
 #[tokio::test]
 async fn removes_synthetic_resend_instruction() {
-    use goose_provider_types::errors::ProviderError;
+    use goose_provider_types::{
+        conversation::message::Message as GdkMessage, errors::ProviderError,
+    };
 
     let (_database, db) = database().await;
     for reason in [
@@ -54,7 +70,9 @@ async fn removes_synthetic_resend_instruction() {
         "Provider diagnostic\n\nPlease resend your message to try again.",
     ] {
         let error = ProviderError::NetworkError(reason.into());
-        let source = gdk::Message::from_provider_error(&error).with_generated_id();
+        let source = crate::agent::model::gdk::from_message(
+            &GdkMessage::from_provider_error(&error).with_generated_id(),
+        );
         let record = capture(&db, TurnId::new(), &source, &BTreeMap::new())
             .await
             .unwrap();
@@ -63,12 +81,7 @@ async fn removes_synthetic_resend_instruction() {
         let failure = stored.error.as_ref().unwrap();
         assert_eq!(failure.code.as_deref(), Some("other"));
         assert_eq!(failure.message, error.to_string());
-        let mut expected = source;
-        let MessageContent::Error(failure) = &mut expected.content[0] else {
-            panic!("provider error expected")
-        };
-        failure.message = error.to_string();
-        assert_eq!(project(&db, &record).await.unwrap().unwrap(), expected);
+        assert_eq!(project(&db, &record).await.unwrap().unwrap(), source);
     }
 }
 
@@ -77,19 +90,33 @@ async fn preserves_other_failure_content() {
     let (_database, db) = database().await;
     let text = "Network error: quoted diagnostic\n\nPlease resend your message to try again.";
     for source in [
-        gdk::Message::user().with_text(text),
-        gdk::Message::assistant().with_text(text),
-        gdk::Message::assistant().with_error(gdk::MessageErrorKind::Authentication, text),
-        gdk::Message::assistant().with_error(
-            gdk::MessageErrorKind::Other,
-            "Other diagnostic\n\nPlease resend your message to try again.",
+        message(model::Role::User, vec![Content::Text { text: text.into() }]),
+        message(
+            model::Role::Assistant,
+            vec![Content::Text { text: text.into() }],
         ),
-        gdk::Message::assistant().with_error(
-            gdk::MessageErrorKind::Other,
-            format!("{text}\nAdditional provider details"),
+        message(
+            model::Role::Assistant,
+            vec![Content::Error {
+                code: Some("authentication".into()),
+                message: text.into(),
+            }],
+        ),
+        message(
+            model::Role::Assistant,
+            vec![Content::Error {
+                code: Some("other".into()),
+                message: "Other diagnostic\n\nPlease resend your message to try again.".into(),
+            }],
+        ),
+        message(
+            model::Role::Assistant,
+            vec![Content::Error {
+                code: Some("other".into()),
+                message: format!("{text}\nAdditional provider details"),
+            }],
         ),
     ] {
-        let source = source.with_generated_id();
         let record = capture(&db, TurnId::new(), &source, &BTreeMap::new())
             .await
             .unwrap();
@@ -105,14 +132,18 @@ async fn preserves_prompt_context() {
             state: "session-state".into(),
             retained,
         };
-        let mut message = gdk::Message::user()
-            .with_generated_id()
-            .with_text("<turn-context>\nEnvironment\n\nPart\n</turn-context>")
-            .with_metadata(gdk::MessageMetadata::agent_only().with_turn_context());
-        message
+        let mut source = message(
+            model::Role::User,
+            vec![Content::Text {
+                text: "<turn-context>\nEnvironment\n\nPart\n</turn-context>".into(),
+            }],
+        );
+        source.metadata.user_visible = false;
+        source.metadata.turn_context = true;
+        source
             .metadata
             .set_operation_note("prompt", "context", json!(context));
-        let record = capture(&db, TurnId::new(), &message, &BTreeMap::new())
+        let record = capture(&db, TurnId::new(), &source, &BTreeMap::new())
             .await
             .unwrap();
         let stored: Record = serde_json::from_slice(&serde_json::to_vec(&record).unwrap()).unwrap();
@@ -129,64 +160,145 @@ async fn preserves_prompt_context() {
                 .as_ref(),
             Some(&context)
         );
-        assert_eq!(project(&db, &stored).await.unwrap().unwrap(), message);
+        assert_eq!(project(&db, &stored).await.unwrap().unwrap(), source);
     }
+}
+
+#[tokio::test]
+async fn preserves_runtime_metadata() {
+    let (_database, db) = database().await;
+    let mut source = message(
+        model::Role::Assistant,
+        vec![
+            Content::RedactedThinking {
+                data: "sealed".into(),
+            },
+            Content::Thinking {
+                text: "Thinking".into(),
+                signature: Some("signed".into()),
+            },
+            Content::Text {
+                text: "Answer".into(),
+            },
+        ],
+    );
+    source.created = 1_700_000_000;
+    source.metadata = model::Metadata {
+        user_visible: false,
+        output_token_limit_reached: true,
+        steer: true,
+        turn_context: true,
+        inference: Some(model::Inference {
+            provider: "provider".into(),
+            requested_model: "requested".into(),
+            resolved_model: Some("resolved".into()),
+            provider_session_id: Some("provider-session".into()),
+        }),
+        usage: Some(Box::new(model::Usage {
+            model: Some("resolved".into()),
+            input: Some(u64::from(u32::MAX)),
+            output: Some(7),
+            total: Some(u64::from(u32::MAX) + 7),
+            cache_read: Some(9),
+            cache_write: Some(3),
+            reasoning: Some(2),
+            cost: Some(0.25),
+            provider: Some(json!({"opaque":true})),
+            elapsed_ms: Some(150),
+            time_to_first_token_ms: Some(12),
+            ..model::Usage::default()
+        })),
+        operation_logs: vec!["operation".into()],
+        ..model::Metadata::default()
+    };
+    for (operation, key, value) in [
+        ("tool_pair_compaction", "after", json!("previous")),
+        ("inference", "empty_response", json!(true)),
+        ("foreground_subagent", "delivered", json!("child")),
+        ("foreground_subagent", "cancelled", json!(["cancelled"])),
+    ] {
+        source.metadata.set_operation_note(operation, key, value);
+    }
+    let record = capture(&db, TurnId::new(), &source, &BTreeMap::new())
+        .await
+        .unwrap();
+    let stored: Record = serde_json::from_slice(&serde_json::to_vec(&record).unwrap()).unwrap();
+    assert_eq!(project(&db, &stored).await.unwrap().unwrap(), source);
 }
 
 #[tokio::test]
 async fn preserves_call_metadata() {
     let (_database, db) = database().await;
-    let mut message = gdk::Message::assistant()
-        .with_generated_id()
-        .with_tool_request(
-            "call-1",
-            Ok(CallToolRequestParams::new("read_file")
-                .with_arguments(serde_json::from_value(json!({"path":"one"})).unwrap())),
-        );
-    let MessageContent::ToolRequest(call) = &mut message.content[0] else {
-        unreachable!()
-    };
-    call.metadata = Some(
+    let provider = Some(
         serde_json::from_value(json!({"thoughtSignature":"signed","nested":{"opaque":[1,true]}}))
             .unwrap(),
     );
-    call.tool_meta = Some(json!({"title":"Read","foreign":{"count":2}}));
-    message
+    let mut source = message(
+        model::Role::Assistant,
+        vec![Content::ToolCall(model::ToolCall {
+            id: "call-1".into(),
+            name: "read_file".into(),
+            arguments: json!({"path":"one"}),
+            metadata: provider.clone(),
+            tool_meta: Some(json!({"title":"Read","foreign":{"count":2},"goose.executable":true})),
+            error: None,
+        })],
+    );
+    source
         .metadata
         .set_operation_note("foreground_subagent", "delivered", json!("child"));
-    let record = capture(&db, TurnId::new(), &message, &BTreeMap::new())
+    let record = capture(&db, TurnId::new(), &source, &BTreeMap::new())
         .await
         .unwrap();
     let stored: Record = serde_json::from_slice(&serde_json::to_vec(&record).unwrap()).unwrap();
     assert_eq!(stored.provenance.author, "assistant");
-    let projected = project(&db, &stored).await.unwrap().unwrap();
-    assert_eq!(projected, message);
+    assert_eq!(project(&db, &stored).await.unwrap().unwrap(), source);
     let BlockKind::ToolRequest(call) = &stored.message().unwrap().content[0].kind else {
         unreachable!()
     };
     assert_eq!(call.id.as_str(), "call-1");
-    assert_eq!(
-        call.provider,
-        message.content[0].as_tool_request().unwrap().metadata
-    );
+    assert_eq!(call.provider, provider);
     let value = serde_json::to_value(call).unwrap();
     assert!(value.get("signature").is_none());
     assert_eq!(value["provider"]["thoughtSignature"], "signed");
 }
 
 #[tokio::test]
+async fn preserves_unnamed_invalid_calls() {
+    let (_database, db) = database().await;
+    let source = message(
+        model::Role::Assistant,
+        vec![Content::ToolCall(model::ToolCall {
+            id: "call".into(),
+            name: String::new(),
+            arguments: Value::Null,
+            metadata: Some(serde_json::from_value(json!({"opaque":true})).unwrap()),
+            tool_meta: None,
+            error: Some(model::ToolError {
+                code: -32602,
+                message: "incomplete arguments".into(),
+                data: Some(json!({"received":"{"})),
+            }),
+        })],
+    );
+    let record = capture(&db, TurnId::new(), &source, &BTreeMap::new())
+        .await
+        .unwrap();
+    let stored: Record = serde_json::from_slice(&serde_json::to_vec(&record).unwrap()).unwrap();
+    assert_eq!(project(&db, &stored).await.unwrap().unwrap(), source);
+}
+
+#[tokio::test]
 async fn preserves_structured_output() {
     let (_database, db) = database().await;
     let value = json!({"result":"exact","inline":{"mime_type":"image/png","data":"AQID"}});
-    let mut result = CallToolResult::structured(value.clone());
-    result.meta = Some(
+    let mut output = CallToolResult::structured(value.clone());
+    output.meta = Some(
         serde_json::from_value(json!({"foreground_subagent":true,"subagent_session_id":"child"}))
             .unwrap(),
     );
-    let mut message = gdk::Message::user()
-        .with_generated_id()
-        .with_tool_response("call", Ok(result));
-    let MessageContent::ToolResponse(response) = &mut message.content[0] else {
+    let mut source = message(model::Role::User, vec![result("call", "read_file", output)]);
+    let Content::ToolResult(response) = &mut source.content[0] else {
         panic!("tool response expected")
     };
     response.metadata =
@@ -194,7 +306,7 @@ async fn preserves_structured_output() {
     let record = capture(
         &db,
         TurnId::new(),
-        &message,
+        &source,
         &BTreeMap::from([("call".into(), "read_file".into())]),
     )
     .await
@@ -215,18 +327,16 @@ async fn preserves_structured_output() {
     assert_eq!(blobs::hydrate(&db, &response.result).await.unwrap(), value);
     assert_eq!(
         without_output_notes(project(&db, &record).await.unwrap().unwrap()),
-        message
+        source
     );
 }
 
 #[tokio::test]
 async fn preserves_mcp_blocks() {
     let (_database, db) = database().await;
-    let result:CallToolResult=serde_json::from_value(json!({"content":[{"type":"text","text":"different"},{"type":"image","mimeType":"image/png","data":"AQID"}],"structuredContent":{"value":1},"_meta":{"opaque":"same"}})).unwrap();
-    let message = gdk::Message::user()
-        .with_generated_id()
-        .with_tool_response("call", Ok(result));
-    let record = capture(&db, TurnId::new(), &message, &BTreeMap::new())
+    let output: CallToolResult = serde_json::from_value(json!({"content":[{"type":"text","text":"different"},{"type":"image","mimeType":"image/png","data":"AQID"}],"structuredContent":{"value":1},"_meta":{"opaque":"same"}})).unwrap();
+    let source = message(model::Role::User, vec![result("call", "", output)]);
+    let record = capture(&db, TurnId::new(), &source, &BTreeMap::new())
         .await
         .unwrap();
     let BlockKind::ToolResponse(response) = &record.message().unwrap().content[0].kind else {
@@ -239,7 +349,7 @@ async fn preserves_mcp_blocks() {
     assert_eq!(blobs::get(&db, &asset.digest).await.unwrap(), [1, 2, 3]);
     assert_eq!(
         without_output_notes(project(&db, &record).await.unwrap().unwrap()),
-        message
+        source
     );
 }
 
@@ -252,16 +362,14 @@ async fn preserves_result_flags() {
         (Some(false), false, ToolFormat::Mcp),
         (Some(true), true, ToolFormat::Mcp),
     ] {
-        let mut result = CallToolResult::structured(serde_json::Value::Null);
-        result.is_error = is_error;
+        let mut output = CallToolResult::structured(Value::Null);
+        output.is_error = is_error;
         if !result_type {
-            result.result_type = None;
+            output.result_type = None;
         }
-        result.meta = Some(serde_json::from_value(json!({"opaque":null})).unwrap());
-        let message = gdk::Message::user()
-            .with_generated_id()
-            .with_tool_response("call", Ok(result));
-        let record = capture(&db, TurnId::new(), &message, &BTreeMap::new())
+        output.meta = Some(serde_json::from_value(json!({"opaque":null})).unwrap());
+        let source = message(model::Role::User, vec![result("call", "", output)]);
+        let record = capture(&db, TurnId::new(), &source, &BTreeMap::new())
             .await
             .unwrap();
         let stored: Record = serde_json::from_slice(&serde_json::to_vec(&record).unwrap()).unwrap();
@@ -281,7 +389,7 @@ async fn preserves_result_flags() {
         }
         assert_eq!(
             without_output_notes(project(&db, &stored).await.unwrap().unwrap()),
-            message
+            source
         );
     }
 }
@@ -289,11 +397,19 @@ async fn preserves_result_flags() {
 #[tokio::test]
 async fn rejects_missing_call_identity() {
     let (_database, db) = database().await;
-    let message = gdk::Message::assistant()
-        .with_generated_id()
-        .with_tool_request("", Ok(CallToolRequestParams::new("read_file")));
+    let source = message(
+        model::Role::Assistant,
+        vec![Content::ToolCall(model::ToolCall {
+            id: String::new(),
+            name: "read_file".into(),
+            arguments: json!({}),
+            metadata: None,
+            tool_meta: None,
+            error: None,
+        })],
+    );
     assert!(
-        capture(&db, TurnId::new(), &message, &BTreeMap::new())
+        capture(&db, TurnId::new(), &source, &BTreeMap::new())
             .await
             .is_err()
     );
@@ -303,13 +419,18 @@ async fn rejects_missing_call_identity() {
 async fn projects_declared_tool_media() {
     let (_database, db) = database().await;
     let value = json!({"response":{"text":"Exact metadata"},"inline_data":[{"mime_type":"image/png","data":[1,2,3]}]});
-    let message = gdk::Message::user()
-        .with_generated_id()
-        .with_tool_response("capture", Ok(CallToolResult::structured(value.clone())));
+    let source = message(
+        model::Role::User,
+        vec![result(
+            "capture",
+            "computer",
+            CallToolResult::structured(value.clone()),
+        )],
+    );
     let record = capture(
         &db,
         TurnId::new(),
-        &message,
+        &source,
         &BTreeMap::from([("capture".into(), "computer".into())]),
     )
     .await
@@ -325,10 +446,10 @@ async fn projects_declared_tool_media() {
             .to_string()
     );
     let projected = project(&db, &record).await.unwrap().unwrap();
-    let MessageContent::ToolResponse(response) = &projected.content[0] else {
+    let Content::ToolResult(response) = &projected.content[0] else {
         unreachable!()
     };
-    let result = response.tool_result.as_ref().unwrap();
+    let result = response.result.as_ref().unwrap();
     assert!(
         result.content[0]
             .as_text()
@@ -353,22 +474,24 @@ async fn projects_declared_tool_media() {
 #[tokio::test]
 async fn preserves_media_metadata() {
     let (_database, db) = database().await;
-    let mut message = gdk::Message::user().with_generated_id();
-    message.content.push(MessageContent::Image(
-        serde_json::from_value(json!({
-            "type":"image", "data":"AQID", "mimeType":"image/png",
-            "annotations":{"audience":["user"], "priority":0.8}
-        }))
-        .unwrap(),
-    ));
-    message
-        .content
-        .push(MessageContent::Document(gdk::DocumentContent {
-            data: "BAU=".into(),
-            mime_type: "application/pdf".into(),
-            name: Some("report.pdf".into()),
-        }));
-    let record = capture(&db, TurnId::new(), &message, &BTreeMap::new())
+    let source = message(
+        model::Role::User,
+        vec![
+            Content::Image {
+                media_type: "image/png".into(),
+                data: model::Image::Inline {
+                    data_base64: "AQID".into(),
+                },
+                annotations: Some(json!({"audience":["user"], "priority":0.8})),
+            },
+            Content::Document {
+                data_base64: "BAU=".into(),
+                media_type: "application/pdf".into(),
+                name: Some("report.pdf".into()),
+            },
+        ],
+    );
+    let record = capture(&db, TurnId::new(), &source, &BTreeMap::new())
         .await
         .unwrap();
     let stored: Record = serde_json::from_slice(&serde_json::to_vec(&record).unwrap()).unwrap();
@@ -383,5 +506,5 @@ async fn preserves_media_metadata() {
         panic!("document expected")
     };
     assert_eq!(asset.uri.as_deref(), Some("report.pdf"));
-    assert_eq!(project(&db, &stored).await.unwrap().unwrap(), message);
+    assert_eq!(project(&db, &stored).await.unwrap().unwrap(), source);
 }

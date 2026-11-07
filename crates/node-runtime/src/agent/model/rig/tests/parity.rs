@@ -1,7 +1,4 @@
 use super::*;
-use goose_provider_types::{
-    base::collect_stream, conversation::message::Message as LegacyMessage, model::ModelConfig,
-};
 
 #[tokio::test]
 async fn preserves_existing_tool_schemas() {
@@ -35,34 +32,8 @@ async fn preserves_existing_tool_schemas() {
             fixtures::gemini(false),
         ),
     ] {
-        let server = Server::start(vec![reply.clone(), reply]).await;
+        let server = Server::start(vec![reply]).await;
         let provider = provider(api, server.endpoint.clone());
-        let registry = registry::Registry::default();
-        let legacy = crate::agent::model::factory::native(
-            &registry,
-            &provider,
-            name,
-            SessionId::new(),
-            "captured-key",
-            HeaderMap::new(),
-        )
-        .unwrap();
-        let legacy_tool =
-            rmcp::model::Tool::new("read", "Read a file", schema.as_object().unwrap().clone());
-        let config = ModelConfig::new(name).with_max_tokens(Some(512));
-        collect_stream(
-            legacy
-                .stream(
-                    &config,
-                    "Captured instructions",
-                    &[LegacyMessage::user().with_text("Read the file")],
-                    &[legacy_tool],
-                )
-                .await
-                .unwrap(),
-        )
-        .await
-        .unwrap();
         let model = native(&provider, name, "captured-key", HeaderMap::new());
         let mut input = request(name);
         input.tools[0].parameters = schema.clone();
@@ -70,12 +41,43 @@ async fn preserves_existing_tool_schemas() {
             .await
             .unwrap();
         let captured = server.finish().await;
-        assert_eq!(captured.len(), 2, "{api:?}");
+        assert_eq!(captured.len(), 1, "{api:?}");
         assert_eq!(
-            declaration(api, &captured[1].body),
             declaration(api, &captured[0].body),
+            expected(api, &schema),
             "{api:?}"
         );
+    }
+}
+
+fn expected(api: ModelApi, schema: &Value) -> Value {
+    match api {
+        ModelApi::Responses => {
+            json!({"type":"function","name":"read","description":"Read a file","parameters":schema,"strict":false})
+        }
+        ModelApi::Anthropic => {
+            json!({"name":"read","description":"Read a file","input_schema":schema,"cache_control":{"type":"ephemeral"}})
+        }
+        ModelApi::Gemini => {
+            json!({"name":"read","description":"Read a file","parametersJsonSchema":schema})
+        }
+        ModelApi::ChatCompletions => json!({
+            "name":"read","description":"Read a file","strict":false,
+            "parameters":{
+                "type":"object","properties":{
+                    "action":{"type":"string","enum":["read","write"]},
+                    "path":{"type":"string","default":null},
+                    "options":{"$ref":"#/$defs/Options"}
+                },
+                "required":["action"],
+                "anyOf":[
+                    {"properties":{"action":{"const":"read"}}},
+                    {"properties":{"action":{"const":"write"}},"required":["path"]}
+                ],
+                "$defs":{"Options":{"type":"object","properties":{"timeout":{"type":"integer","format":"uint64"}},"required":[]}}
+            }
+        }),
+        _ => unreachable!(),
     }
 }
 
