@@ -13,7 +13,7 @@ use std::{
     collections::BTreeMap,
     sync::{
         Mutex,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
 };
 use tokio::{
@@ -28,6 +28,7 @@ enum Reply {
     RepeatedJson,
     HeldInitialization,
     Expired,
+    ListExpiry(Arc<AtomicBool>),
     #[cfg(feature = "test-support")]
     Unauthorized,
     #[cfg(feature = "test-support")]
@@ -375,6 +376,17 @@ async fn respond(
         .to_string();
         return stream.write_all(format!("HTTP/1.1 200 Fixture\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await;
     }
+    if let Reply::ListExpiry(failed) = &reply
+        && request["method"] == "tools/list"
+        && failed.load(Ordering::SeqCst)
+    {
+        let body = json!({
+            "jsonrpc":"2.0", "id":request["id"],
+            "error":{"code":-32603,"message":"Tool listing is unavailable"}
+        })
+        .to_string();
+        return stream.write_all(format!("HTTP/1.1 200 Fixture\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await;
+    }
     if matches!(reply, Reply::HeldInitialization) && request["method"] == "initialize" {
         std::future::pending::<()>().await;
     }
@@ -404,7 +416,14 @@ async fn respond(
                     ),
                 )
             }
-            "tools/list" => (200, Some(peer::listed(&request["params"]["cursor"]))),
+            "tools/list" => {
+                let mut listed = peer::listed(&request["params"]["cursor"]);
+                if matches!(reply, Reply::ListExpiry(_)) {
+                    listed.as_object_mut().unwrap().remove("nextCursor");
+                    listed["ttlMs"] = json!(10);
+                }
+                (200, Some(listed))
+            }
             "tools/call" => {
                 effects.fetch_add(1, Ordering::SeqCst);
                 if matches!(reply, Reply::Expired) {
@@ -576,6 +595,66 @@ async fn closes_sessions_between_turns() {
     }
     fixture.node.shutdown().await.unwrap();
     assert_eq!(http.deletes(), 2);
+    fixture.controller.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn rejects_expired_lists_after_failed_refresh() {
+    let failed = Arc::new(AtomicBool::new(false));
+    let http = Http::start(Reply::ListExpiry(failed.clone())).await;
+    let tool = alias("remote", "read");
+    let exposed = peer::exposed("remote", "read");
+    let model = Server::scripted_tools(vec![(tool, json!({"value":"first"}))]).await;
+    let fixture = process::Fixture::packages(&model, &[]).await;
+    package(
+        &fixture.root,
+        json!({"remote":{"type":"streamable-http","url":http.endpoint}}),
+        "expiring list",
+    );
+    install(&fixture, 0).await;
+    let (_, turn) = submit(&fixture, false).await;
+    let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+    assert_eq!(page.runs.last().unwrap().status, Status::Completed);
+    assert_eq!(
+        results(&fixture.client, &page).await[0]["structuredContent"]["value"],
+        "first"
+    );
+    assert_eq!(http.count("tools/list"), 1);
+    assert_eq!(http.count("tools/call"), 1);
+    assert_eq!(http.deletes(), 0);
+    assert!(
+        model.requests.lock().unwrap().last().unwrap()["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|declaration| declaration["function"]["name"] == exposed)
+    );
+
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    failed.store(true, Ordering::SeqCst);
+    model.replace_tools(vec![]);
+    let (_, turn) = submit(&fixture, false).await;
+    let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+    assert_eq!(page.runs.last().unwrap().status, Status::Completed);
+    assert_eq!(http.count("initialize"), 1);
+    assert_eq!(http.count("tools/list"), 2);
+    assert_eq!(http.count("tools/call"), 1);
+    assert_eq!(http.deletes(), 1);
+    let request = model.requests.lock().unwrap().last().unwrap().clone();
+    assert!(
+        request["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|declaration| declaration["function"]["name"] != exposed)
+    );
+    assert!(
+        request["messages"]
+            .to_string()
+            .contains("MCP server example/remote is unavailable")
+    );
+    fixture.node.shutdown().await.unwrap();
+    assert_eq!(http.deletes(), 1);
     fixture.controller.close().await.unwrap();
 }
 

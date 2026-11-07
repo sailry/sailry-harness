@@ -358,7 +358,7 @@ impl Target<'_> {
                 let handler = Arc::new(input::Handler::new());
                 let (mut transport, service) = transport::Connection::open(launch, connector.clone(), stop, handler.clone(), !reuse, &ingress.environment).await?;
                 // Reuse legacy lists until invalidation or the SDK's 24-hour cap.
-                service.peer().set_response_cache_config(rmcp::ClientCacheConfig::default().with_default_ttl(rmcp::MAX_CLIENT_CACHE_TTL)).await;
+                service.peer().set_response_cache_config(rmcp::ClientCacheConfig::default().with_default_ttl(rmcp::MAX_CLIENT_CACHE_TTL).with_serve_stale_on_error(false)).await;
                 let peer = service.peer().clone();
                 let toolset = remote::Remote::new(service);
                 transport.track_tasks(toolset.clone());

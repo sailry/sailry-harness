@@ -221,7 +221,21 @@ async fn replaces_changed_credentials() {
             };
             assert_eq!(updated.id, row.id);
             assert_eq!(updated.revision, row.revision + 1);
-            assert_eq!(updated.state, State::Connected);
+            assert_eq!(updated.state, State::NotConnected);
+            let reconnected = connectors::connected(
+                &fixture.client,
+                fixture.client.prepare(Command::StartConnectorLogin {
+                    package: package.clone(),
+                    connector: "service".into(),
+                    connection: Some(updated.id),
+                    expected_revision: Some(updated.revision),
+                    method: Kind::Secret,
+                    input: Input::default(),
+                }),
+            )
+            .await;
+            assert_eq!(reconnected.id, row.id);
+            assert_eq!(reconnected.state, State::Connected);
         }
         let (_, turn) = submit(&fixture, false).await;
         assert!(turn.plugins.contains(&package));
