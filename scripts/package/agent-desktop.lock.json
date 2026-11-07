@@ -1,0 +1,129 @@
+{
+  "version": 1,
+  "release": "1.2.0",
+  "repository": "https://github.com/vercel-labs/agent-desktop",
+  "revision": "2b0a7334fc111730454b726e6800aa41cdafc093",
+  "source": "https://github.com/vercel-labs/agent-desktop/releases/download/v1.2.0/",
+  "targets": {
+    "aarch64-apple-darwin": {
+      "platform": "macos",
+      "arch": "arm64",
+      "archive": "agent-desktop-v1.2.0-aarch64-apple-darwin.tar.gz",
+      "size": 2230641,
+      "sha256": "219813428bb1ad8decae172faed05c5964a2415170df402e2786ccfa6452ba82",
+      "executable": "agent-desktop",
+      "files": [
+        {
+          "name": "agent-desktop",
+          "member": "agent-desktop",
+          "size": 3824448,
+          "sha256": "dec75e0bba0d1f9b589bdb88188770ad1a199cde9e02cf0a5b94175491f738e9"
+        },
+        {
+          "name": "agent-desktop-macos-helper",
+          "member": "agent-desktop-macos-helper",
+          "size": 529616,
+          "sha256": "4a795a40ba7fc93b726b0834342f0225779c30d83e28f1f219db479860c38a78"
+        }
+      ]
+    },
+    "x86_64-apple-darwin": {
+      "platform": "macos",
+      "arch": "x86_64",
+      "archive": "agent-desktop-v1.2.0-x86_64-apple-darwin.tar.gz",
+      "size": 2359765,
+      "sha256": "d9dc50226f28d7fc86a2f5b0945f0c206dff6c31e418907749f493b6f9e773e6",
+      "executable": "agent-desktop",
+      "files": [
+        {
+          "name": "agent-desktop",
+          "member": "agent-desktop",
+          "size": 4486048,
+          "sha256": "5dae755fee4af37d1a245f058139b262d358352cce15aeb49d0100ff46b12156"
+        },
+        {
+          "name": "agent-desktop-macos-helper",
+          "member": "agent-desktop-macos-helper",
+          "size": 571156,
+          "sha256": "bdf060658b93f326efa06ac24d521e88025bf88109cecc257fa7fa40e65801cd"
+        }
+      ]
+    },
+    "x86_64-pc-windows-msvc": {
+      "platform": "windows",
+      "arch": "amd64",
+      "archive": "agent-desktop-v1.2.0-x86_64-pc-windows-msvc.tar.gz",
+      "size": 1759368,
+      "sha256": "a4199f741a441cedd349bf56c5eba01783b1261258b498efeb7ec9945220c3e8",
+      "executable": "agent-desktop.exe",
+      "files": [
+        {
+          "name": "agent-desktop.exe",
+          "member": "agent-desktop.exe",
+          "size": 3827200,
+          "sha256": "d274667031322e50b9c2b1ab81c2ca46835d52cc932769a5c34bd4d481fd94c3"
+        }
+      ]
+    },
+    "aarch64-pc-windows-msvc": {
+      "platform": "windows",
+      "arch": "arm64",
+      "archive": "agent-desktop-v1.2.0-aarch64-pc-windows-msvc.tar.gz",
+      "size": 1706239,
+      "sha256": "d6d8643310c2c13eace2261444d9e4c0d16ca09581f38500983104903604caa6",
+      "executable": "agent-desktop.exe",
+      "files": [
+        {
+          "name": "agent-desktop.exe",
+          "member": "agent-desktop.exe",
+          "size": 3373056,
+          "sha256": "f1577d9f8cb6c9b1e767584fed96c72fbe1591fefbd67100965607d1a337a2fb"
+        }
+      ]
+    },
+    "x86_64-unknown-linux-gnu": {
+      "platform": "linux",
+      "arch": "x86_64",
+      "archive": "agent-desktop-v1.2.0-x86_64-unknown-linux-gnu.tar.gz",
+      "size": 3458001,
+      "sha256": "591ae7f4a38479dc045df97e27447c0c8b530441730ab6b990e27c813162af44",
+      "executable": "agent-desktop",
+      "files": [
+        {
+          "name": "agent-desktop",
+          "member": "agent-desktop",
+          "size": 7172664,
+          "sha256": "da52a1eb2152cdc21b756ab20e6208d242da8062c73cd20bc8a8ae2a0384392c"
+        },
+        {
+          "name": "agent-desktop-linux-clipboard-owner",
+          "member": "agent-desktop-linux-clipboard-owner",
+          "size": 586512,
+          "sha256": "3e96f92b805c0d1f9de309935d62f4189b8e11e1385ad022bb878487bb3942ec"
+        }
+      ]
+    },
+    "aarch64-unknown-linux-gnu": {
+      "platform": "linux",
+      "arch": "aarch64",
+      "archive": "agent-desktop-v1.2.0-aarch64-unknown-linux-gnu.tar.gz",
+      "size": 3333305,
+      "sha256": "68e8ebbb4f80e44485d2f1cf972943a38ee43108e2e0ce56bdfa641fd1599f68",
+      "executable": "agent-desktop",
+      "files": [
+        {
+          "name": "agent-desktop",
+          "member": "agent-desktop",
+          "size": 5804456,
+          "sha256": "915de59a8b3d22c9ad33023740bbcc5fe0b4fa830de9587bbf761237eafeb76f"
+        },
+        {
+          "name": "agent-desktop-linux-clipboard-owner",
+          "member": "agent-desktop-linux-clipboard-owner",
+          "size": 512640,
+          "sha256": "a6bfde6778dadcf9fd04ba94de17cdf205eb0b23b643c3f34073d264d2117cc3"
+        }
+      ]
+    }
+  }
+}

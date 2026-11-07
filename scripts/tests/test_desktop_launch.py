@@ -73,7 +73,7 @@ class NativeAssets(unittest.TestCase):
             destination = self.project / name
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_text("resource fixture")
-        (self.project / "scripts/package/ocu-helper.py").write_text("# The dedicated helper suite verifies native staging and signing.\n")
+        (self.project / "scripts/package/agent-desktop.py").write_text("# The dedicated helper suite verifies native staging and signing.\n")
         (self.project / "scripts/package/code-parsers.py").write_text('''
 # The dedicated parser suite verifies archive checksums and native signing.
 import argparse
@@ -202,7 +202,7 @@ printf '%s' 'signature fixture' >> "$task_target"
                   ("python-runtime.py", app / "Contents/MacOS"),
                   ("python-runtime.py", app / "Contents/MacOS"), ("onnx-runtime.py", app / "Contents/MacOS"),
                   ("onnx-runtime.py", app / "Contents/MacOS"), ("llama-runtime.py", app / "Contents/MacOS"),
-                  ("ocu-helper.py", app / "Contents/Helpers")]
+                  ("agent-desktop.py", app / "Contents/Helpers")]
         self.assertEqual(self.old_calls.read_text().splitlines(), ["-c"] * (len(stages) + 1))
         self.assertEqual(len(calls), len(stages))
         for arguments, (script, output) in zip(calls, stages):
@@ -283,34 +283,35 @@ printf '%s' 'signature fixture' >> "$task_target"
             self.assertNotEqual(file["sha256"], file["source_sha256"])
             self.assertEqual(file["size"], len(content + b"signature fixture"))
 
-    def test_stages_windows_helpers_before_execution(self):
-        target = "x86_64-pc-windows-msvc"
-        self.program("rustc", f"#!/bin/sh\nprintf '%s\\n' 'host: {target}'\n", python=False)
-        self.program("uname", "#!/bin/sh\nprintf '%s\\n' MINGW64_NT\n", python=False)
+    def test_stages_helpers_before_execution(self):
         for name in ("onnx-runtime.py", "llama-runtime.py", "python-runtime.py"):
             (self.project / "scripts/package" / name).write_text("# Runtime staging fixture\n")
         (self.target / "debug").mkdir(parents=True)
-        environment = {key: value for key, value in os.environ.items() if not key.startswith("SAILRY_")}
-        environment.update({"PATH": str(self.bin) + os.pathsep + "/usr/bin:/bin",
-                            "CARGO_TARGET_DIR": str(self.target),
-                            "TSLP_OFFLINE": "1", "TSLP_LANGUAGES": "all"})
-        result = subprocess.run(["/bin/bash", str(self.project / "scripts/run-desktop.sh")],
-                                env=environment, capture_output=True, text=True, timeout=20)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        calls = self.arguments(self.calls)
-        self.assertEqual(calls[-1], [str(self.project / "scripts/telemetry-env.py"),
-                                     "cargo", "run", "--locked", "-p", "sailry-desktop", "--"])
-        helper = calls[-2]
-        self.assertEqual(helper[0], str(self.project / "scripts/package/ocu-helper.py"))
-        self.assertEqual(helper[helper.index("--target") + 1], target)
-        self.assertEqual(helper[helper.index("--output") + 1], str(self.target / "debug/helpers"))
-        build = json.loads(self.build.read_text())
-        self.assertEqual(build["args"], ["run", "--locked", "-p", "sailry-desktop", "--"])
-        self.assertEqual(build["parsers"],
-                         "file://" + str(self.project / ".runtime/code-index/resources/synthetic-query.fixture"))
-        self.assertIsNone(build["offline"])
-        self.assertIsNone(build["languages"])
-        self.assertFalse(self.signatures.exists())
+        for target, system in (("x86_64-pc-windows-msvc", "MINGW64_NT"), ("x86_64-unknown-linux-gnu", "Linux")):
+            with self.subTest(target=target):
+                self.program("rustc", f"#!/bin/sh\nprintf '%s\\n' 'host: {target}'\n", python=False)
+                self.program("uname", f"#!/bin/sh\nprintf '%s\\n' {system}\n", python=False)
+                environment = {key: value for key, value in os.environ.items() if not key.startswith("SAILRY_")}
+                environment.update({"PATH": str(self.bin) + os.pathsep + "/usr/bin:/bin",
+                                    "CARGO_TARGET_DIR": str(self.target),
+                                    "TSLP_OFFLINE": "1", "TSLP_LANGUAGES": "all"})
+                result = subprocess.run(["/bin/bash", str(self.project / "scripts/run-desktop.sh")],
+                                        env=environment, capture_output=True, text=True, timeout=20)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                calls = self.arguments(self.calls)
+                self.assertEqual(calls[-1], [str(self.project / "scripts/telemetry-env.py"),
+                                             "cargo", "run", "--locked", "-p", "sailry-desktop", "--"])
+                helper = calls[-2]
+                self.assertEqual(helper[0], str(self.project / "scripts/package/agent-desktop.py"))
+                self.assertEqual(helper[helper.index("--target") + 1], target)
+                self.assertEqual(helper[helper.index("--output") + 1], str(self.target / "debug/helpers"))
+                build = json.loads(self.build.read_text())
+                self.assertEqual(build["args"], ["run", "--locked", "-p", "sailry-desktop", "--"])
+                self.assertEqual(build["parsers"],
+                                 "file://" + str(self.project / ".runtime/code-index/resources/synthetic-query.fixture"))
+                self.assertIsNone(build["offline"])
+                self.assertIsNone(build["languages"])
+                self.assertFalse(self.signatures.exists())
 
 
 if __name__ == "__main__":

@@ -33,6 +33,8 @@ bash "$task_root/scripts/python.sh" "$task_root/scripts/package/onnx-runtime.py"
 bash "$task_root/scripts/python.sh" "$task_root/scripts/package/llama-runtime.py" --target "$task_target" \
   --output "$task_output/host" --source "$task_root/target/host-artifacts/$task_target" \
   --cache "$task_root/target/llama-prebuilt"
+bash "$task_root/scripts/python.sh" "$task_root/scripts/package/agent-desktop.py" --target "$task_target" \
+  --output "$task_output/host/helpers" --cache "$task_root/target/agent-desktop-cache"
 cp "$task_root/scripts/host-command.sh" "$task_output/host/sailry"
 cp "$task_root/scripts/install-host.sh" "$task_output/host/install-host.sh"
 cp "$task_root/crates/node-runtime/src/ssh/install/service.sh" "$task_output/host/service.sh"

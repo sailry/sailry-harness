@@ -57,8 +57,8 @@ task_package_args=()
 task_python_outputs=()
 task_metadata=()
 # Developer ID signing covers the runtime later; other bundles sign it while staging.
-task_ocu=(--target "$task_target" --cache "$task_root/target/ocu-helper-cache")
-if test "$task_signing" != developer-id; then task_ocu+=(--sign -); fi
+task_computer=(--target "$task_target" --cache "$task_root/target/agent-desktop-cache")
+if test "$task_signing" != developer-id; then task_computer+=(--sign -); fi
 task_llama=(--target "$task_target" --cache "$task_root/target/llama-prebuilt" --source "$task_build")
 if test "$task_signing" != developer-id; then task_llama+=(--sign -); fi
 task_parsers=(--target "$task_target" --cache "$task_root/.runtime/code-index/resources")
@@ -75,7 +75,7 @@ if test "$task_desktop" = 1; then
     --output "$task_app/Contents/MacOS" --source "$task_build" --cache "$task_root/target/sherpa-onnx-prebuilt" --speech
   bash "$task_root/scripts/python.sh" "$task_root/scripts/package/llama-runtime.py" "${task_llama[@]}" \
     --output "$task_app/Contents/MacOS"
-  bash "$task_root/scripts/python.sh" "$task_root/scripts/package/ocu-helper.py" "${task_ocu[@]}" \
+  bash "$task_root/scripts/python.sh" "$task_root/scripts/package/agent-desktop.py" "${task_computer[@]}" \
     --output "$task_app/Contents/Helpers"
   cp "$task_root/apps/desktop/macos/Info.plist" "$task_app/Contents/Info.plist"
   cp -R "$task_root/apps/desktop/macos/zh_CN.lproj" "$task_app/Contents/Resources/"
@@ -101,7 +101,7 @@ if test "$task_host" = 1; then
     --output "$task_output/host" --source "$task_build" --cache "$task_root/target/sherpa-onnx-prebuilt"
   bash "$task_root/scripts/python.sh" "$task_root/scripts/package/llama-runtime.py" "${task_llama[@]}" \
     --output "$task_output/host"
-  bash "$task_root/scripts/python.sh" "$task_root/scripts/package/ocu-helper.py" "${task_ocu[@]}" \
+  bash "$task_root/scripts/python.sh" "$task_root/scripts/package/agent-desktop.py" "${task_computer[@]}" \
     --output "$task_output/host/helpers"
   cp "$task_root/scripts/host-launchd.sh" "$task_output/host/host-launchd.sh"
   cp "$task_root/scripts/host-command.sh" "$task_output/host/sailry"
