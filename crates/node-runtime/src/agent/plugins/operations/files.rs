@@ -154,7 +154,10 @@ pub(super) fn absent(command: &Command) -> Option<Value> {
 pub(super) fn description(operation: Operation) -> &'static str {
     match operation {
         Operation::ListDirectory => "List a directory in the captured worktree",
-        Operation::ReadFile | Operation::ReadFileLines => {
+        Operation::ReadFile => {
+            "Read numbered lines with a full file revision; offset defaults to 0 and limit to 2000. A PNG, JPEG, GIF, WebP or BMP file returns the image itself, up to 5 MiB and downscaled to a 1568-pixel long side"
+        }
+        Operation::ReadFileLines => {
             "Read numbered lines with a full file revision; offset defaults to 0 and limit to 2000"
         }
         Operation::WriteFile => "Write UTF-8 text using the expected file revision",
@@ -287,6 +290,17 @@ pub(super) fn command(
         }
         Operation::ReadFile | Operation::ReadFileLines => {
             let input: File = decode(arguments)?;
+            if operation == Operation::ReadFile && crate::files::images::named(&input.path) {
+                if input.expected_revision.is_some() {
+                    return Err(Fault::invalid(
+                        "expected_revision applies only to text reads",
+                    ));
+                }
+                return Ok(Command::ReadImage {
+                    worktree,
+                    path: input.path,
+                });
+            }
             Command::ReadFileLines {
                 worktree,
                 path: input.path,
@@ -452,6 +466,55 @@ mod tests {
                 &context
             )
             .is_err()
+        );
+    }
+
+    #[test]
+    fn routes_image_paths_to_image_reads() {
+        let worktree = sailry_protocol::WorktreeId::new();
+        let context = plugin::Context {
+            invocation: None,
+            turn: None,
+            surface: Default::default(),
+            package: plugin::Reference {
+                name: "files-fixture".into(),
+                digest: "a".repeat(64),
+                settings_revision: 0,
+            },
+            worktree: Some(worktree),
+            session: None,
+        };
+        assert_eq!(
+            command(
+                Operation::ReadFile,
+                json!({"path":"assets/Logo.PNG","offset":3,"limit":1}),
+                &context
+            )
+            .unwrap(),
+            Command::ReadImage {
+                worktree,
+                path: "assets/Logo.PNG".into(),
+            }
+        );
+        for (operation, path) in [
+            (Operation::ReadFile, "notes.txt"),
+            (Operation::ReadFile, "vector.svg"),
+            (Operation::ReadFileLines, "photo.jpg"),
+        ] {
+            assert!(
+                matches!(
+                    command(operation, json!({"path":path}), &context).unwrap(),
+                    Command::ReadFileLines { .. }
+                ),
+                "{path}"
+            );
+        }
+        let revision = json!({"path":"photo.jpg","expected_revision":"a".repeat(64)});
+        assert_eq!(
+            command(Operation::ReadFile, revision, &context)
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidRequest
         );
     }
 

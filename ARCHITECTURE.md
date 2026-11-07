@@ -1141,6 +1141,13 @@ operation results with images return `sailry-image:<tool-call-id>/<index>`
 references for assistant Markdown. Client resolves them only against images in
 the same conversation for Desktop, Mobile and exports.
 
+The files package's `read_file` reads PNG, JPEG, GIF, WebP and BMP worktree files
+through the Node's confined image read and returns them as the same tool media.
+Files up to 5 MiB that providers accept pass through unchanged; larger sides,
+bitmaps and animations are downscaled to 1568 pixels and re-encoded. The source
+revision counts as a model-visible read, and models without vision receive the
+format, dimensions and size.
+
 System voice reading and global selection shortcuts remain controller-local.
 Selection insertion rechecks the captured Node, worktree and conversation before
 changing a draft; neither reading nor selection starts an Agent turn.
