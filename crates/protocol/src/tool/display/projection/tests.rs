@@ -171,6 +171,23 @@ fn preserves_wire_and_validation() {
                         "{scenario}"
                     );
                 }
+                let image = serde_json::to_value(crate::Output::FileImage(crate::FileImage {
+                    path: "image.png".into(),
+                    revision: "a".repeat(64),
+                    source: crate::ImageFacts {
+                        mime_type: "image/png".into(),
+                        width: 1,
+                        height: 1,
+                        size: 68,
+                    },
+                    sent: None,
+                    inline_data: Vec::new(),
+                }))
+                .unwrap();
+                assert!(
+                    read.notices(&Value::Null, &image, "en").is_empty(),
+                    "{scenario}: image"
+                );
                 let args =
                     json!({"path":"file.txt","text":"\t<literal>\n","expected_revision":null});
                 let body = display("write_file").output.unwrap().body.unwrap();
