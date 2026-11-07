@@ -381,7 +381,7 @@ async fn preserves_roles_across_reopen() {
     } = fixture;
     database.close().await.unwrap();
     let database = Database::open(
-        &_root.path().canonicalize().unwrap().join("node.turso"),
+        &crate::store::agent::tests::fixture::path(&_root),
         node,
         None,
     )
