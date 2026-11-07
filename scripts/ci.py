@@ -27,6 +27,8 @@ CHECK_JOBS = {
     "shared": {"shared", "host"},
     "desktop": {"desktop"},
     "host": {"host"},
+    # Windows lints and unit-tests the shared and Desktop packages that Windows Desktop ships.
+    "windows": {"shared", "desktop"},
     # macOS runs only the Dart FFI checkpoint contract that depends on the platform Trash.
     "mobile": {"mobile", "mobile_ffi"},
     # Linux compiles the remaining Dart FFI fixtures and their real Node without using macOS capacity.
@@ -53,12 +55,15 @@ PRODUCTS = {
     "host": {"shared", "host"},
     "mobile": {"shared", "mobile", "mobile_ffi", "android"},
 }
+# Jobs for one product's additional platform; other products' readiness does not wait for them.
+PLATFORM_JOBS = {"windows": "desktop"}
 FIXTURES = {
     "shared": {
         "test_ci_local", "test_ci_resources", "test_ci_reuse", "test_ci_run", "test_ci_selection", "test_desktop_adhoc", "test_desktop_build", "test_desktop_recovery", "test_locales", "test_macos_package",
         "test_names", "test_agent_desktop", "test_onnx_runtime", "test_llama_runtime", "test_code_parsers", "test_public_source", "test_publish_packages", "test_host_recovery",
         "test_python_launcher", "test_python_runtime", "test_release_notes", "test_mobile_release", "test_publish_update_feed",
         "test_release_versions", "test_start_release", "test_suites", "test_debug_symbols", "test_telemetry_env", "test_ui_tasks",
+        "test_windows_installer",
     },
     "desktop": {
         "test_app_icons", "test_desktop_launch",
@@ -87,6 +92,8 @@ SOURCE_ONLY = {
     "scripts/start-release.py", "scripts/release-notes.py", "scripts/check-release.py",
     "scripts/publish-packages.py", "scripts/publish-update-feed.py",
     "scripts/package/publication.py", "scripts/package/mobile-release.py", "scripts/package/ios-signing.py",
+    "scripts/package/windows-installer.py", "scripts/package/windows-installer.iss",
+    "scripts/package/installer-art.py", "scripts/package/inno-setup.lock.json",
 }
 LINT_PACKAGES = {
     "shared": (
@@ -99,7 +106,7 @@ LINT_PACKAGES = {
     "host": ("sailry-host",),
     "mobile": ("sailry-mobile-bridge",),
 }
-# Clippy runs these packages only on macOS: the full lint job and the pull request macOS job.
+# Linux Clippy skips these packages. macOS lints all of them; Windows lints those of its lanes.
 MACOS_LINT = {"sailry-speech", "sailry-content", "sailry-desktop", "sailry-mobile-bridge"}
 # Full selection on pull requests; drafts and other labels defer to the next run.
 FULL_LABEL = "full-ci"
@@ -244,6 +251,8 @@ def light_jobs(selected, mode):
 
 
 def lint_packages(selected, system=None):
+    if system == "windows":
+        selected = selected & CHECK_JOBS["windows"]
     packages = {package for lane in selected for package in LINT_PACKAGES.get(lane, ())}
     if system == "macos":
         packages &= MACOS_LINT
@@ -271,7 +280,7 @@ def lint_command(selection, jobs, system=None):
         raise ValueError("Missing lint selection")
     if jobs is not None and not re.fullmatch(r"[1-9][0-9]*", jobs):
         raise ValueError("Invalid lint job count")
-    if system not in {None, *LIGHT_JOBS.values()}:
+    if system not in {None, "windows", *LIGHT_JOBS.values()}:
         raise ValueError("Invalid lint platform")
     packages = lint_packages({lane for lane in LANES if selection[lane] == "true"}, system)
     if not packages:
@@ -407,12 +416,20 @@ def check_commands(name, jobs=None, root=ROOT, selection=None, env=None, threads
         # An explicit non-macOS platform lints the packages CI also lints on Linux.
         command = lint_command(selection, jobs, None if system in {None, "Darwin"} else "linux")
         return [] if command is None else [{"argv": command, "cwd": "."}]
-    if name in {"tests", "archive", "shared", "shared-databases"}:
+    if name in {"tests", "archive", "shared", "shared-databases", "windows"}:
         # One build for every selected product avoids rebuilding the graph per feature set.
         if (not isinstance(selection, dict) or set(selection) != LANES
                 or any(value not in {"true", "false"} for value in selection.values())):
             raise ValueError("Missing test selection")
         lanes = {lane for lane in LANES if selection[lane] == "true"}
+        if name == "windows":
+            # Strict Windows lint type-checks every target; real-Node suites stay on macOS and Linux.
+            selected = lint_packages(lanes, "windows")
+            if not selected:
+                raise ValueError("No product tests selected")
+            run = ["cargo", "nextest", "run", "--locked", *package_arguments(selected), "--lib", "--bins",
+                   "--timings", *nextest_jobs, "--profile", "ci", f"--test-threads={threads}"]
+            return [{"argv": run, "cwd": "."}]
         test_system = platform.system() if system is None else system
         if name == "archive":
             # One macOS build serves the Shared and Desktop test jobs.
@@ -515,7 +532,7 @@ def run_check(name, jobs=None, root=ROOT, selection=None, env=None, threads=None
     commands = check_commands(name, jobs, root, selection, env, threads, system)
     if name == "archive":
         (root / TEST_ARCHIVE).parent.mkdir(parents=True, exist_ok=True)
-    if name in {"tests", "archive", "shared", "shared-databases", "plugin-contracts", "backend", "databases", "desktop", "desktop-lifecycle", "host", "host-mac", "mobile-contract", "mobile-checkpoints"}:
+    if name in {"tests", "archive", "shared", "shared-databases", "plugin-contracts", "backend", "databases", "desktop", "desktop-lifecycle", "host", "host-mac", "mobile-contract", "mobile-checkpoints", "windows"}:
         environment = os.environ if env is None else env
         archived = environment.get("CHECK_ARCHIVE") and name in {
             "tests", "shared", "shared-databases", "plugin-contracts", "desktop", "desktop-lifecycle",
@@ -877,9 +894,16 @@ def report_tools(names):
     return not mismatched
 
 
+def required_jobs(product=None):
+    """Check jobs covering every lane, or only those one product's readiness waits for."""
+    lanes = PRODUCTS[product] if product else LANES
+    return {name for name, covered in CHECK_JOBS.items()
+            if covered & lanes and (product is None or PLATFORM_JOBS.get(name, product) == product)}
+
+
 def require_results(results, product=None):
     required = PRODUCTS[product] if product else LANES
-    jobs = {name for name, lanes in CHECK_JOBS.items() if lanes & required}
+    jobs = required_jobs(product)
     light = set() if product else set(LIGHT_JOBS)
     if not isinstance(results, dict) or any(not isinstance(results.get(job), dict)
                                            for job in {"source", "lint", *jobs, *light}):
@@ -968,7 +992,7 @@ def main():
     elif len(sys.argv) == 3 and sys.argv[1] == "check":
         try:
             selection = (lane_scope(json.loads(os.environ.get("CHECK_SCOPE", json.dumps(outputs(LANES)))))
-                         if sys.argv[2] in {"lint", "archive", "shared", "shared-databases"} else None)
+                         if sys.argv[2] in {"lint", "archive", "shared", "shared-databases", "windows"} else None)
             raise SystemExit(run_check(sys.argv[2], selection=selection))
         except (ValueError, OSError, KeyError, subprocess.CalledProcessError) as error:
             raise SystemExit(str(error)) from error
@@ -983,7 +1007,7 @@ def main():
     elif sys.argv[1:] == ["cache-usage"]:
         cache_usage()
     elif sys.argv[1:] == ["lint"] or (len(sys.argv) == 3 and sys.argv[1] == "lint"
-                                       and sys.argv[2] in LIGHT_JOBS.values()):
+                                       and sys.argv[2] in {"windows", *LIGHT_JOBS.values()}):
         try:
             system = sys.argv[2] if len(sys.argv) == 3 else None
             raise SystemExit(lint(lane_scope(json.loads(os.environ["CHECK_SCOPE"])), system=system))
@@ -1054,7 +1078,7 @@ def main():
             print("Checks deferred" if mode == "skip" else "Checks passed")
     else:
         raise SystemExit(
-            "Usage: ci.py local [fast|affected|pre-push] [options]|check <name>|source-key <lockfile>|source-cache <save|restore>|cache-usage|select|lint [linux|macos]|report [desktop|host|mobile]|fixtures <owner>|"
+            "Usage: ci.py local [fast|affected|pre-push] [options]|check <name>|source-key <lockfile>|source-cache <save|restore>|cache-usage|select|lint [linux|macos|windows]|report [desktop|host|mobile]|fixtures <owner>|"
             "speech-key|native-key <target> <shared|static>|ghostty-key|ghostty-source|flaky <junit[=outcome]>...|tools [name...]"
         )
 

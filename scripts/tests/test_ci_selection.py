@@ -132,7 +132,10 @@ class Selection(unittest.TestCase):
             "scripts/start-release.py", "scripts/release-notes.py", "scripts/check-release.py",
             "scripts/publish-packages.py", "scripts/publish-update-feed.py",
             "scripts/package/publication.py", "scripts/package/mobile-release.py", "scripts/package/ios-signing.py",
+            "scripts/package/windows-installer.py", "scripts/package/windows-installer.iss",
+            "scripts/package/installer-art.py", "scripts/package/inno-setup.lock.json",
             "scripts/tests/test_mobile_release.py", "scripts/tests/test_publish_update_feed.py",
+            "scripts/tests/test_windows_installer.py",
         )
         for path in paths:
             with self.subTest(path=path):
@@ -365,14 +368,28 @@ class Lint(unittest.TestCase):
                          ["--all-targets", "--jobs", "2", "--", "-D", "warnings"])
         self.assertIsNone(ci.lint_command(ci.outputs({"desktop"}), None, "linux"))
         with self.assertRaises(ValueError):
-            ci.lint_command(ci.outputs({"desktop"}), None, "windows")
+            ci.lint_command(ci.outputs({"desktop"}), None, "freebsd")
         with patch.object(ci.subprocess, "run") as run, patch("builtins.print"):
             self.assertEqual(ci.lint(ci.outputs({"desktop"}), system="linux"), 0)
             run.assert_not_called()
 
+    def test_covers_windows_desktop_packages(self):
+        windows = ci.lint_packages(ci.LANES, "windows")
+        self.assertEqual(windows, ci.lint_packages({"shared", "desktop"}))
+        self.assertIn("sailry-speech", windows)
+        self.assertNotIn("sailry-host", windows)
+        self.assertNotIn("sailry-mobile-bridge", windows)
+        self.assertEqual(ci.lint_packages({"desktop", "host"}, "windows"), ["sailry-content", "sailry-desktop"])
+        self.assertIsNone(ci.lint_command(ci.outputs({"host", "mobile", "android"}), None, "windows"))
+        command = ci.lint_command(ci.outputs(ci.LANES), "4", "windows")
+        self.assertEqual([command[index + 1] for index, value in enumerate(command) if value == "-p"], windows)
+        self.assertEqual(command[command.index("--all-targets"):],
+                         ["--all-targets", "--jobs", "4", "--", "-D", "warnings"])
+
     def test_reads_lane_scope_with_mode(self):
         scope = {**ci.outputs({"host"}), "mode": "light", "light_linux": "true", "light_macos": "false"}
-        for argv, system in ((["ci.py", "lint"], None), (["ci.py", "lint", "linux"], "linux")):
+        for argv, system in ((["ci.py", "lint"], None), (["ci.py", "lint", "linux"], "linux"),
+                             (["ci.py", "lint", "windows"], "windows")):
             with self.subTest(argv=argv), patch.dict(os.environ, {"CHECK_SCOPE": json.dumps(scope)}), \
                     patch.object(sys, "argv", argv), patch.object(ci, "lint", return_value=0) as lint:
                 with self.assertRaises(SystemExit) as outcome:

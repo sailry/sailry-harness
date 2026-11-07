@@ -51,6 +51,7 @@ jobs:
       reuse_shared: ${{ steps.reuse.outputs.shared }}
       reuse_shared_matrix: ${{ steps.reuse.outputs.shared_matrix }}
       reuse_desktop: ${{ steps.reuse.outputs.desktop }}
+      reuse_windows: ${{ steps.reuse.outputs.windows }}
       reuse_host: ${{ steps.reuse.outputs.host }}
       reuse_mobile: ${{ steps.reuse.outputs.mobile }}
       reuse_android: ${{ steps.reuse.outputs.android }}
@@ -469,6 +470,107 @@ jobs:
             target/nextest/lifecycle/junit.xml
           if-no-files-found: ignore
           retention-days: 7
+
+  windows:
+    name: Desktop Windows
+    needs: source
+    if: >-
+      needs.source.outputs.mode == 'full' && (needs.source.outputs.shared == 'true' || needs.source.outputs.desktop == 'true') &&
+      needs.source.outputs.reuse_windows != 'true'
+    runs-on: windows-2025
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: bash
+    env:
+      CARGO_BUILD_JOBS: '4'
+      CHECK_SCOPE: ${{ toJSON(needs.source.outputs) }}
+    steps:
+      - name: Repository line endings
+        # Git for Windows otherwise checks out CRLF, so fixtures and embedded text would differ from other platforms.
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          # Python 3.14 extracts the zstd parser archives without a platform tar.
+          python-version: '3.14.6'
+      - uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: '0.16.0'
+          use-cache: false
+      - name: Pinned Rust toolchain
+        run: |
+          rustup toolchain install
+          rustup show active-toolchain
+          test "$(rustc -vV | awk '/^host: / {print $2}')" = x86_64-pc-windows-msvc
+      - name: Rust dependency caches
+        id: rust-cache
+        uses: ./.github/actions/rust-cache
+      - name: Process-isolated test runner
+        uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
+        with:
+          tool: cargo-nextest@0.9.143
+          fallback: none
+      - name: Tool versions
+        run: python3 scripts/ci.py tools zig cargo-nextest
+      - name: Ghostty build inputs
+        id: ghostty
+        continue-on-error: true
+        uses: ./.github/actions/ghostty-cache
+      - name: Native library cache
+        id: native-cache
+        continue-on-error: true
+        uses: ./.github/actions/native-cache
+        with:
+          target: x86_64-pc-windows-msvc
+          libraries: speech
+      - name: Strict lint for Windows packages
+        run: python3 scripts/ci-run.py -- python3 scripts/ci.py lint windows
+      - name: Desktop without test features
+        if: needs.source.outputs.desktop == 'true'
+        run: python3 scripts/ci.py check desktop-production
+      - name: Windows unit tests
+        id: tests
+        run: python3 scripts/ci-run.py -- python3 scripts/ci.py check windows
+      - name: Flaky tests
+        if: always()
+        run: python3 scripts/ci.py flaky "target/nextest/ci/junit.xml=${{ steps.tests.outcome }}"
+      - name: Test reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: nextest-windows
+          path: |
+            target/nextest/ci/junit.xml
+            target/cargo-timings
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Save Ghostty build inputs
+        if: github.ref == 'refs/heads/main' && steps.ghostty.outcome == 'success' && steps.ghostty.outputs.hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.ghostty.outputs.path }}
+          key: ${{ steps.ghostty.outputs.key }}
+      - name: Save native libraries
+        if: github.ref == 'refs/heads/main' && steps.native-cache.outcome == 'success' && steps.native-cache.outputs.hit != 'true' && hashFiles('target/sherpa-onnx-prebuilt/**/*') != ''
+        continue-on-error: true
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.native-cache.outputs.path }}
+          key: ${{ steps.native-cache.outputs.key }}
+      - name: Compiler cache statistics
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          sccache --show-stats || true
+          python3 scripts/ci.py cache-usage
 
   host:
     name: Host
@@ -904,8 +1006,9 @@ jobs:
       (needs.lint.result == 'success' || (needs.lint.result == 'skipped' && needs.source.outputs.reuse_lint == 'true')) &&
       (needs.build.result == 'success' || (needs.build.result == 'skipped' && needs.source.outputs.reuse_build == 'true')) &&
       (needs.shared.result == 'success' || (needs.shared.result == 'skipped' && needs.source.outputs.reuse_shared == 'true')) &&
-      (needs.desktop.result == 'success' || (needs.desktop.result == 'skipped' && needs.source.outputs.reuse_desktop == 'true'))
-    needs: [source, lint, build, shared, desktop]
+      (needs.desktop.result == 'success' || (needs.desktop.result == 'skipped' && needs.source.outputs.reuse_desktop == 'true')) &&
+      (needs.windows.result == 'success' || (needs.windows.result == 'skipped' && needs.source.outputs.reuse_windows == 'true'))
+    needs: [source, lint, build, shared, desktop, windows]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -972,7 +1075,7 @@ jobs:
   checks:
     name: Checks passed
     if: ${{ !cancelled() }}
-    needs: [source, lint, build, shared, desktop, host, mobile, android, services, light_linux, light_macos]
+    needs: [source, lint, build, shared, desktop, windows, host, mobile, android, services, light_linux, light_macos]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

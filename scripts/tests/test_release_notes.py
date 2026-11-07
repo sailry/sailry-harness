@@ -192,7 +192,7 @@ class ReleaseWorkflows(unittest.TestCase):
         workflow = self.workflow("release")
         build = workflow.split("  build:\n", 1)[1].split("  package:\n", 1)[0]
         packaging = workflow.split("  package:\n", 1)[1].split("  publish:\n", 1)[0]
-        publish = workflow.split("  publish:\n", 1)[1]
+        publish = workflow.split("  publish:\n", 1)[1].split("  windows_notices:\n", 1)[0]
         self.assertIn("-p sailry-desktop -p sailry-release", build)
         self.assertNotIn("-p sailry-host", build)
         self.assertIn("name: Preserve native Desktop", build)
@@ -210,7 +210,19 @@ class ReleaseWorkflows(unittest.TestCase):
         self.assertNotIn("pattern: native-*", publish)
         self.assertIn("--component desktop-adhoc", publish)
         self.assertNotIn("*.apk", workflow)
-        self.assertNotIn("windows", workflow.lower())
+        self.assertNotIn("windows", (build + packaging + publish).lower())
+        windows = workflow.split("  windows:\n", 1)[1].split("  windows_publish:\n", 1)[0]
+        self.assertIn("needs: [version, windows_notices]", windows)
+        self.assertIn("cargo build --locked --release --timings -p sailry-desktop\n", windows)
+        self.assertEqual(set(re.findall(r"secrets\.([A-Z_]+)", windows)), {"SAILRY_SENTRY_DSN", "SAILRY_TELEMETRY_KEY"})
+        self.assertIn("./scripts/package-windows.ps1", windows)
+        self.assertNotIn("name: packages-", windows)
+        windows_publish = workflow.split("  windows_publish:\n", 1)[1]
+        self.assertIn("needs: windows", windows_publish)
+        self.assertLess(windows_publish.index("--wait-ready --wait-published"),
+                        windows_publish.index("--component desktop-windows"))
+        self.assertEqual(set(re.findall(r"secrets\.([A-Z_]+)", windows_publish)),
+                         {"SENTRY_AUTH_TOKEN", "SENTRY_ORG", "SENTRY_PROJECT"})
         formal = self.workflow("release-desktop-formal")
         signing = formal.split("  sign:\n", 1)[1].split("  publish:\n", 1)[0]
         self.assertIn("scripts/package-macos.sh release desktop", signing)

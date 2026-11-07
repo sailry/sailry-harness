@@ -217,6 +217,24 @@ class PackagePublication(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.publish(component, FakeGitHub(), files)
 
+    def test_windows_appends_portable_archive(self):
+        windows = self.assets("desktop-windows")
+        self.assertEqual({path.name for path in windows},
+                         {"Sailry-x86_64-pc-windows-msvc.zip", "Sailry-x86_64-pc-windows-msvc-setup.exe",
+                          "SHA256SUMS-desktop-x86_64-pc-windows-msvc"})
+        release = self.public_desktop()
+        original = copy.deepcopy(release["assets"])
+        client = FakeGitHub(release)
+        self.publish("desktop-windows", client, windows)
+        self.assertEqual(client.uploads, [path.name for path in windows])
+        self.assertEqual(client.release["assets"][:len(original)], original)
+        self.assertTrue(all(call[0] == "GET" for call in client.calls))
+        for files in (windows[:1], windows + self.desktop, self.desktop):
+            with self.subTest(count=len(files)), self.assertRaises(ValueError):
+                self.publish("desktop-windows", FakeGitHub(metadata()), files)
+        with self.assertRaisesRegex(ValueError, "[Pp]ublish"):
+            self.publish("desktop-windows", FakeGitHub(metadata(draft=True)), windows)
+
     def test_published_preview_flags_preserve_existing_assets(self):
         for preview_flag in (False, True):
             with self.subTest(prerelease=preview_flag):

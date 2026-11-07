@@ -20,7 +20,8 @@ ci_reuse = importlib.util.module_from_spec(_reuse_spec)
 _reuse_spec.loader.exec_module(ci_reuse)
 
 PREREQUISITES = {
-    "desktop": ("Source", "Rust strict lint", "Test build", "Shared Node (1/2)", "Shared Node (2/2)", "Desktop"),
+    "desktop": ("Source", "Rust strict lint", "Test build", "Shared Node (1/2)", "Shared Node (2/2)", "Desktop",
+                "Desktop Windows"),
     "host": ("Source", "Rust strict lint", "Test build", "Shared Node (1/2)", "Shared Node (2/2)", "Host"),
     "mobile": ("Source", "Rust strict lint", "Test build", "Shared Node (1/2)", "Shared Node (2/2)", "Mobile", "Mobile Android"),
 }

@@ -18,7 +18,7 @@ from unittest.mock import Mock, patch
 
 
 ROOT = Path(__file__).resolve().parents[2]
-JOBS = ("source", "lint", "build", "shared", "desktop", "host", "mobile", "android", "services")
+JOBS = ("source", "lint", "build", "shared", "desktop", "windows", "host", "mobile", "android", "services")
 spec = importlib.util.spec_from_file_location("ci", ROOT / "scripts/ci.py")
 ci = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ci)
@@ -204,10 +204,10 @@ class CheckResults(unittest.TestCase):
                 self.assertNotEqual(self.summarize(results).returncode, 0)
 
     def test_products_require_actual_success(self):
-        for product, lanes in ci.PRODUCTS.items():
+        for product in ci.PRODUCTS:
             with self.subTest(product=product):
                 results = self.results(ci.LANES)
-                needed = {"source", "lint"} | {name for name, selected in ci.CHECK_JOBS.items() if lanes & selected}
+                needed = {"source", "lint"} | ci.required_jobs(product)
                 for name in set(JOBS) - needed:
                     results[name]["result"] = "failure"
                 result = self.summarize(results, product)
@@ -218,6 +218,19 @@ class CheckResults(unittest.TestCase):
                             changed = copy.deepcopy(results)
                             changed[name]["result"] = status
                             self.assertNotEqual(self.summarize(changed, product).returncode, 0)
+
+    def test_windows_gates_only_desktop(self):
+        self.assertIn("windows", ci.required_jobs())
+        self.assertIn("windows", ci.required_jobs("desktop"))
+        results = self.results(ci.LANES)
+        results["windows"]["result"] = "failure"
+        self.assertNotEqual(self.summarize(results).returncode, 0)
+        self.assertNotEqual(self.summarize(results, "desktop").returncode, 0)
+        for product in ("host", "mobile"):
+            with self.subTest(product=product):
+                self.assertNotIn("windows", ci.required_jobs(product))
+                result = self.summarize(results, product)
+                self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_products_reject_partial_selection(self):
         for product, lanes in ci.PRODUCTS.items():
@@ -294,7 +307,7 @@ class SharedCommands(unittest.TestCase):
 
     def test_reads_scope_from_the_cli(self):
         selection = ci.outputs({"shared", "host"})
-        for name in ("archive", "shared", "shared-databases"):
+        for name in ("archive", "shared", "shared-databases", "windows"):
             with self.subTest(name=name), patch.dict(os.environ, {"CHECK_SCOPE": json.dumps(selection)}), \
                     patch.object(sys, "argv", ["ci.py", "check", name]), \
                     patch.object(ci, "run_check", return_value=0) as run:
@@ -304,7 +317,7 @@ class SharedCommands(unittest.TestCase):
                 run.assert_called_once_with(name, selection=selection)
 
     def test_prepares_the_native_test_environment(self):
-        for name in ("shared", "shared-databases"):
+        for name in ("shared", "shared-databases", "windows"):
             with self.subTest(name=name), \
                     patch.object(ci, "check_commands", return_value=[{"argv": ["fixture"], "cwd": "."}]), \
                     patch.object(ci, "parser_environment", return_value={}) as prepare, \
@@ -325,6 +338,32 @@ class SharedCommands(unittest.TestCase):
                 self.assertEqual(passed["PATH"], "fixture path")
                 self.assertFalse([key for key in passed if key.startswith("CHECK_")])
         self.assertIn("CHECK_SCOPE", environment)
+
+
+class WindowsCommands(unittest.TestCase):
+    def test_runs_unit_tests_of_selected_packages(self):
+        for selected in ({"shared"}, {"desktop"}, {"desktop", "host", "mobile"}, ci.LANES):
+            with self.subTest(selected=selected):
+                commands = ci.check_commands("windows", "4", selection=ci.outputs(selected), threads="3")
+                self.assertEqual(len(commands), 1)
+                run = commands[0]["argv"]
+                self.assertEqual(run[:4], ["cargo", "nextest", "run", "--locked"])
+                packages = [run[index + 1] for index, value in enumerate(run) if value == "-p"]
+                self.assertEqual(packages, ci.lint_packages(selected, "windows"))
+                self.assertNotIn("sailry-host", packages)
+                self.assertNotIn("sailry-mobile-bridge", packages)
+                self.assertEqual("--features" in run, "shared" in selected)
+                for option in ("--lib", "--bins", "--timings", "--test-threads=3"):
+                    self.assertIn(option, run)
+                self.assertEqual(run[run.index("--profile") + 1], "ci")
+                self.assertEqual(run[run.index("--build-jobs") + 1], "4")
+                self.assertNotIn("--archive-file", run)
+
+    def test_requires_windows_lanes(self):
+        for selection in (None, ci.outputs(set()), ci.outputs({"host", "mobile", "android"}),
+                          {**ci.outputs({"desktop"}), "shared": "yes"}):
+            with self.subTest(selection=selection), self.assertRaises(ValueError):
+                ci.check_commands("windows", selection=selection)
 
 
 class Archives(unittest.TestCase):
@@ -427,7 +466,7 @@ class Workflow(unittest.TestCase):
             self.assertIn("needs: [source, build]" if name in {"shared", "desktop"} else "needs: source", section)
             for lane in lanes:
                 self.assertIn(f"needs.source.outputs.{lane} == 'true'", section)
-        self.assertIn("needs: [source, lint, build, shared, desktop, host, mobile, android, services, light_linux, light_macos]", workflow)
+        self.assertIn("needs: [source, lint, build, shared, desktop, windows, host, mobile, android, services, light_linux, light_macos]", workflow)
         self.assertIn("run: python3 scripts/ci_reuse.py report", workflow)
 
     def test_lints_every_workspace_member(self):
@@ -443,7 +482,8 @@ class Workflow(unittest.TestCase):
         self.assertNotIn("cargo clippy", workflow)
         for line in ("run: python3 scripts/ci-run.py -- python3 scripts/ci.py lint\n",
                      "run: python3 scripts/ci-run.py -- python3 scripts/ci.py lint linux\n",
-                     "run: python3 scripts/ci-run.py -- python3 scripts/ci.py lint macos\n"):
+                     "run: python3 scripts/ci-run.py -- python3 scripts/ci.py lint macos\n",
+                     "run: python3 scripts/ci-run.py -- python3 scripts/ci.py lint windows\n"):
             self.assertEqual(workflow.count(line), 1)
         for name in ci.CHECK_JOBS:
             self.assertNotIn("needs: [source, lint]", job_section(workflow, name))
@@ -510,9 +550,9 @@ class Workflow(unittest.TestCase):
                 self.assertIn("needs.lint.result == 'success'", section)
                 for lane in lanes:
                     self.assertIn(f"needs.source.outputs.{lane} == 'true'", section)
-                for name, selected in ci.CHECK_JOBS.items():
-                    if lanes & selected:
-                        self.assertIn(f"needs.{name}.result == 'success'", section)
+                for name in ci.CHECK_JOBS:
+                    self.assertEqual(f"needs.{name}.result == 'success'" in section,
+                                     name in ci.required_jobs(product))
                 self.assertIn(f"python3 scripts/ci_reuse.py report {product}", section)
                 self.assertIn("CHECK_REUSE_PROOF: ${{ needs.source.outputs.reuse_proof }}", section)
                 self.assertIn("fetch-depth: 0", section)
@@ -520,7 +560,7 @@ class Workflow(unittest.TestCase):
 
     def test_separates_light_and_full_lanes(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
-        for name in ("lint", "build", "shared", "desktop", "host", "mobile", "android"):
+        for name in ("lint", "build", "shared", "desktop", "windows", "host", "mobile", "android"):
             header = job_section(workflow, name).split("    steps:\n", 1)[0]
             self.assertIn("needs.source.outputs.mode == 'full' && ", header)
         self.assertNotIn("outputs.mode", job_section(workflow, "services"))
@@ -555,6 +595,29 @@ class Workflow(unittest.TestCase):
         checks = job_section(workflow, "checks")
         self.assertIn("name: Checks passed", checks)
         self.assertIn("if: ${{ !cancelled() }}", checks)
+
+    def test_runs_windows_desktop_lane(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        header, steps = job_section(workflow, "windows").split("    steps:\n", 1)
+        for line in ("name: Desktop Windows", "runs-on: windows-2025", "shell: bash",
+                     "CHECK_SCOPE: ${{ toJSON(needs.source.outputs) }}",
+                     "needs.source.outputs.reuse_windows != 'true'"):
+            self.assertIn(line, header)
+        self.assertNotIn("OPENSSL", header)
+        self.assertLess(steps.index("git config --global core.autocrlf false"), steps.index("actions/checkout@"))
+        self.assertIn("python-version: '3.14.6'", steps)
+        self.assertIn("target: x86_64-pc-windows-msvc\n          libraries: speech", steps)
+        self.assertIn("rustc -vV | awk '/^host: / {print $2}')\" = x86_64-pc-windows-msvc", steps)
+        lint = steps.index("run: python3 scripts/ci-run.py -- python3 scripts/ci.py lint windows\n")
+        tests = steps.index("run: python3 scripts/ci-run.py -- python3 scripts/ci.py check windows\n")
+        self.assertLess(lint, tests)
+        production = steps.split("      - name: Desktop without test features\n", 1)[1].split("      - ", 1)[0]
+        self.assertIn("if: needs.source.outputs.desktop == 'true'", production)
+        self.assertIn("run: python3 scripts/ci.py check desktop-production", production)
+        self.assertIn("reuse_windows: ${{ steps.reuse.outputs.windows }}", job_section(workflow, "source"))
+        self.assertIn("needs: [source, lint, build, shared, desktop, windows]", job_section(workflow, "desktop_ready"))
+        for name in ("host_ready", "mobile_ready"):
+            self.assertNotIn("windows", job_section(workflow, name))
 
     def test_merges_host_lifecycle_into_shared(self):
         workflow = workflow_source()
@@ -712,7 +775,8 @@ class Workflow(unittest.TestCase):
         self.assertIn("path: ${{ steps.identity.outputs.path }}", action)
         # Compilation downloads only speech libraries, so jobs that do not package save that subset.
         for name, target in (("lint", "aarch64-apple-darwin"), ("build", "aarch64-apple-darwin"),
-                             ("mobile", "aarch64-apple-darwin"), ("android", "x86_64-unknown-linux-gnu")):
+                             ("mobile", "aarch64-apple-darwin"), ("android", "x86_64-unknown-linux-gnu"),
+                             ("windows", "x86_64-pc-windows-msvc")):
             section = job_section(workflow, name)
             self.assertIn("uses: ./.github/actions/native-cache", section)
             self.assertIn(f"target: {target}\n          libraries: speech", section)
@@ -740,7 +804,7 @@ class Workflow(unittest.TestCase):
         action = (ROOT / ".github/actions/ghostty-cache/action.yml").read_text()
         self.assertIn("ci.py\" ghostty-key", action)
         self.assertIn("ci.py\" ghostty-source", action)
-        for name in ("lint", "build", "host", "mobile", "android", "light_linux", "light_macos"):
+        for name in ("lint", "build", "windows", "host", "mobile", "android", "light_linux", "light_macos"):
             section = job_section(workflow, name)
             with self.subTest(job=name):
                 self.assertIn("uses: ./.github/actions/ghostty-cache", section)
@@ -780,7 +844,7 @@ class Workflow(unittest.TestCase):
     def test_build_concurrency_matches_runner_capacity(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
         for name, jobs in (("build", "3"), ("lint", "2"), ("mobile", "2"), ("light_macos", "2"),
-                           ("host", "4"), ("android", "4"), ("light_linux", "4")):
+                           ("host", "4"), ("android", "4"), ("light_linux", "4"), ("windows", "4")):
             self.assertIn(f"CARGO_BUILD_JOBS: '{jobs}'", job_section(workflow, name).split("    steps:\n", 1)[0])
 
     def test_pins_reported_tool_versions(self):
@@ -794,7 +858,7 @@ class Workflow(unittest.TestCase):
         self.assertIsNone(ci.TOOLS["rg"][1])
         ci_workflow = (ROOT / ".github/workflows/ci.yml").read_text()
         for name, tools in (("source", "gh"), ("shared", "rg cargo-nextest"), ("desktop", "rg cargo-nextest"),
-                            ("mobile", "flutter"), ("android", "flutter rg")):
+                            ("windows", "zig cargo-nextest"), ("mobile", "flutter"), ("android", "flutter rg")):
             self.assertIn(f"run: python3 scripts/ci.py tools {tools}\n", job_section(ci_workflow, name))
 
     def test_omits_retired_source_cleanup(self):
@@ -1123,7 +1187,7 @@ class Profiles(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
         for name, reports in (("shared", {"ci": "tests", "databases": "databases"}),
                               ("desktop", {"ci": "tests", "lifecycle": "lifecycle"}),
-                              ("host", {"ci": "tests"})):
+                              ("windows", {"ci": "tests"}), ("host", {"ci": "tests"})):
             job = job_section(workflow, name)
             step = job.split("      - name: Flaky tests\n", 1)[1].split("      - ", 1)[0]
             command = " ".join(step.split("run:", 1)[1].replace(">-", "").split())

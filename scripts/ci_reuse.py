@@ -25,6 +25,7 @@ JOB_NAMES = {
     "lint": "Rust strict lint",
     "build": "Test build",
     "desktop": "Desktop",
+    "windows": "Desktop Windows",
     "host": "Host",
     "mobile": "Mobile",
     "android": "Mobile Android",
@@ -369,7 +370,7 @@ def release_inputs(source):
     if jobs[:1] != [(0, "jobs:", ())]:
         raise ValueError("Missing release workflow jobs")
     declared = fields(jobs[1:], 2)
-    if set(declared) != {"version", "build", "package", "publish"}:
+    if set(declared) != {"version", "build", "package", "publish", "windows_notices", "windows", "windows_publish"}:
         raise ValueError("Unexpected release job set")
     package = declared.pop("package")
     if package[0] != (2, "package:", ()):

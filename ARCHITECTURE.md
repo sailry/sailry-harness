@@ -1220,7 +1220,9 @@ Desktop appends explicitly named ad-hoc macOS arm64 and x64 packages, then start
 formal signing from its preserved native artifacts. Formal signing adds signed
 and notarized canonical packages and publishes the release's signed
 `update-v1.json` catalog only after the complete signed set is available. Apple
-signing failures leave the initial public packages available. Host appends macOS
+signing failures leave the initial public packages available. Desktop separately
+appends an unsigned portable Windows x64 archive, a per-user installer of the same
+bundle and their checksums after the same gate; both are outside the update catalog. Host appends macOS
 and Linux arm64 and x64 archives independently of Desktop. Published tags and
 existing asset bytes are preserved; release immutability remains disabled while
 these assets are appended. Host installation is available once its assets appear.

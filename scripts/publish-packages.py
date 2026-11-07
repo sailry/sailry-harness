@@ -12,6 +12,7 @@ import versions
 
 MACOS = ("aarch64-apple-darwin", "x86_64-apple-darwin")
 LINUX = ("aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu")
+WINDOWS = ("x86_64-pc-windows-msvc",)
 
 
 def desktop_files(target, adhoc=False):
@@ -27,6 +28,10 @@ def filenames(component, signed_arm=False):
     if component == "desktop-adhoc":
         return set().union(*(desktop_files(target, adhoc=not (signed_arm and target == MACOS[0]))
                              for target in MACOS))
+    if component == "desktop-windows":
+        # Portable archives and per-user installers without Authenticode or updater signatures.
+        return {name for target in WINDOWS for name in (
+            f"Sailry-{target}.zip", f"Sailry-{target}-setup.exe", f"SHA256SUMS-desktop-{target}")}
     return {"install-host.sh", "SHA256SUMS-installer"} | {
         name for target in (*MACOS, *LINUX) for name in (
             f"sailry-host-{target}.tar.gz", f"SHA256SUMS-{target}")}
@@ -49,7 +54,7 @@ def publish(component, tag, assets, repository, commit, client=None, signed_arm=
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--component", choices=("desktop", "desktop-adhoc", "host"), required=True)
+    parser.add_argument("--component", choices=("desktop", "desktop-adhoc", "desktop-windows", "host"), required=True)
     parser.add_argument("--tag", required=True)
     parser.add_argument("--directory", type=Path, required=True)
     parser.add_argument("--source", type=Path)

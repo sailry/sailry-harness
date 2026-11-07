@@ -446,7 +446,7 @@ jobs:
         continue-on-error: true
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          pattern: debug-symbols-desktop-*
+          pattern: debug-symbols-desktop-*-apple-darwin
           path: symbols
       - name: Recover signed ARM debug symbols
         if: inputs.resume_intel_from != ''
@@ -468,3 +468,237 @@ jobs:
       - name: Report symbol upload failure
         if: steps.symbol-upload.outcome == 'failure'
         run: echo '::warning::Desktop debug symbols were preserved, but Sentry upload failed'
+
+  windows_notices:
+    name: Windows Desktop notices
+    needs: version
+    # Recovery inputs select macOS artifacts; rebuilt Windows bytes would collide with published assets.
+    if: inputs.resume_intel_from == '' && inputs.resume_native_from == ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          persist-credentials: false
+          ref: refs/tags/${{ env.RELEASE_TAG }}
+      - name: Workflow tooling
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+          path: .workflow-tools
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/actions/
+            /scripts/
+      - name: Pinned Rust toolchain
+        run: rustup toolchain install
+      - name: Rust dependency sources
+        uses: ./.workflow-tools/.github/actions/rust-cache
+      - name: Notice prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes ripgrep jq
+      - name: Collect Windows Desktop notices
+        # The collector resolves Cargo metadata paths with POSIX tools, so it runs on Linux.
+        run: |
+          mkdir -p target
+          bash scripts/package/licenses.sh sailry-desktop x86_64-pc-windows-msvc "$RUNNER_TEMP/notices"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: notices-x86_64-pc-windows-msvc
+          path: ${{ runner.temp }}/notices
+          if-no-files-found: error
+          retention-days: 14
+
+  windows:
+    name: Build Windows Desktop x86_64-pc-windows-msvc
+    needs: [version, windows_notices]
+    runs-on: windows-2025
+    timeout-minutes: 360
+    defaults:
+      run:
+        shell: bash
+    env:
+      PACKAGE_TARGET: x86_64-pc-windows-msvc
+      CARGO_BUILD_JOBS: '4'
+    steps:
+      - name: Repository line endings
+        # Git for Windows otherwise checks out CRLF, so embedded text would differ from other platforms.
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          persist-credentials: false
+          ref: refs/tags/${{ env.RELEASE_TAG }}
+          submodules: recursive
+      - name: Workflow tooling
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+          path: .workflow-tools
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/actions/
+            /scripts/
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          # Python 3.14 extracts the zstd parser archives without a platform tar.
+          python-version: '3.14.6'
+      - uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: '0.16.0'
+          use-cache: false
+      - name: Verify target and release version
+        run: |
+          rustup toolchain install
+          test "$(rustc -vV | awk '/^host: / {print $2}')" = "$PACKAGE_TARGET"
+          python3 scripts/package/versions.py --tag "$RELEASE_TAG"
+      - name: Rust dependency caches
+        uses: ./.workflow-tools/.github/actions/rust-cache
+      - name: Native library cache
+        # Packaging runs in this job, so the cache also covers the decision libraries.
+        id: native-cache
+        continue-on-error: true
+        uses: ./.workflow-tools/.github/actions/native-cache
+        with:
+          target: x86_64-pc-windows-msvc
+      - name: Build native Desktop
+        env:
+          # Preserve line tables for symbolication without changing development profiles.
+          CARGO_PROFILE_RELEASE_DEBUG: line-tables-only
+          CARGO_PROFILE_RELEASE_STRIP: none
+          SAILRY_SENTRY_DSN: ${{ secrets.SAILRY_SENTRY_DSN }}
+          SAILRY_TELEMETRY_KEY: ${{ secrets.SAILRY_TELEMETRY_KEY }}
+        run: |
+          python3 .workflow-tools/scripts/ci-run.py --parsers -- cargo build --locked --release --timings -p sailry-desktop
+      - name: Collect Desktop debug symbols
+        id: symbols
+        run: |
+          python3 .workflow-tools/scripts/package/debug-symbols.py collect \
+            --binary target/release/sailry-desktop.exe --target "$PACKAGE_TARGET" \
+            --output "target/debug-symbols/desktop/$PACKAGE_TARGET"
+      - name: Preserve Desktop debug symbols
+        if: always() && steps.symbols.outcome == 'success'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: debug-symbols-desktop-x86_64-pc-windows-msvc
+          path: target/debug-symbols/desktop/x86_64-pc-windows-msvc
+          if-no-files-found: error
+          retention-days: 14
+      - name: Desktop notices
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: notices-x86_64-pc-windows-msvc
+          path: target/notices
+      - name: Assemble portable Desktop
+        id: portable
+        shell: pwsh
+        run: |
+          & ./scripts/package-windows.ps1 -Target $env:PACKAGE_TARGET -LicensesDirectory target/notices |
+            Tee-Object -Variable packaging
+          $reported = $packaging | Select-String -Pattern '^Local package: (.+)$' | Select-Object -Last 1
+          if (-not $reported) { throw 'Windows packaging did not report its output' }
+          $package = $reported.Matches[0].Groups[1].Value
+          $assets = New-Item -ItemType Directory -Path dist/windows-assets
+          Move-Item -LiteralPath (Join-Path $package "Sailry-$env:PACKAGE_TARGET.zip") -Destination $assets.FullName
+          "bundle=$(Join-Path $package 'Sailry')" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+      - name: Build Windows installer
+        env:
+          PACKAGE_BUNDLE: ${{ steps.portable.outputs.bundle }}
+        run: |
+          python3 .workflow-tools/scripts/package/windows-installer.py build --source "$GITHUB_WORKSPACE" \
+            --bundle "$PACKAGE_BUNDLE" --target "$PACKAGE_TARGET" --output dist/windows-assets \
+            --cache target/tooling/inno-setup
+      # Authenticode signing belongs here, before checksums; the installer build accepts --sign-tool.
+      - name: Record Windows checksums
+        run: python3 .workflow-tools/scripts/package/windows-installer.py checksums --directory dist/windows-assets --target "$PACKAGE_TARGET"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-package-x86_64-pc-windows-msvc
+          path: dist/windows-assets/*
+          if-no-files-found: error
+          retention-days: 14
+      - name: Save native libraries
+        if: github.ref == 'refs/heads/main' && steps.native-cache.outcome == 'success' && steps.native-cache.outputs.hit != 'true' && hashFiles('target/sherpa-onnx-prebuilt/**/*') != ''
+        continue-on-error: true
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.native-cache.outputs.path }}
+          key: ${{ steps.native-cache.outputs.key }}
+      - name: Compiler cache statistics
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          sccache --show-stats || true
+          python3 .workflow-tools/scripts/ci.py cache-usage
+      - name: Compilation timings
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: timings-x86_64-pc-windows-msvc
+          path: target/cargo-timings/*.html
+          if-no-files-found: ignore
+          retention-days: 14
+
+  windows_publish:
+    name: Publish Windows Desktop
+    needs: windows
+    runs-on: ubuntu-24.04
+    timeout-minutes: 320
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          persist-credentials: false
+          ref: refs/tags/${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+      - name: Workflow tooling
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+          path: .workflow-tools
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/actions/
+            /scripts/
+      - name: Require the Desktop gate and published version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .workflow-tools/scripts/check-release.py --source "$GITHUB_WORKSPACE" --tag "$RELEASE_TAG" --component desktop --wait-ready --wait-published
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: windows-package-x86_64-pc-windows-msvc
+          path: packages
+      - name: Verify archive and append Windows Desktop
+        # Unsigned zip and installer: no Authenticode certificate is configured; the update catalog covers macOS only.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          (cd packages && sha256sum --check SHA256SUMS-desktop-*)
+          python3 .workflow-tools/scripts/publish-packages.py --source "$GITHUB_WORKSPACE" \
+            --component desktop-windows --tag "$RELEASE_TAG" --directory packages
+      - name: Restore Windows debug symbols
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: debug-symbols-desktop-x86_64-pc-windows-msvc
+          path: symbols/debug-symbols-desktop-x86_64-pc-windows-msvc
+      - name: Upload Windows debug symbols
+        id: symbol-upload
+        continue-on-error: true
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG || secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT || secrets.SENTRY_PROJECT }}
+        run: python3 .workflow-tools/scripts/package/debug-symbols.py upload --symbols symbols
+      - name: Report symbol upload failure
+        if: steps.symbol-upload.outcome == 'failure'
+        run: echo '::warning::Windows debug symbols were preserved, but Sentry upload failed'

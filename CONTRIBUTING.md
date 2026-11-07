@@ -283,7 +283,10 @@ protection. Release and website synchronization triggers remain independent.
 Native validation runs strict Rust checks, backend integration and transport
 contracts, Desktop logic and service-contract tests, and production-feature checks
 on Apple silicon with an explicit Xcode SDK. Intel packaging and compilation run in
-the release workflow.
+the release workflow. A Windows x64 runner applies strict lint to every target of the
+shared and Desktop packages, type-checks Desktop's shipped features and runs their
+unit tests; real-Node integration suites stay on macOS and Linux. Host and Mobile
+readiness do not wait for it.
 Mobile checks include Flutter analysis and controller logic tests, plus Dart FFI
 contracts against isolated real Nodes on Linux with PostgreSQL 17 and MySQL 8.4,
 the database versions the macOS Shared job installs. The macOS Mobile job runs the
@@ -329,7 +332,7 @@ Unit tests precede production-feature checks; the lifecycle suite builds its own
 required application executable. JUnit reports remain separate and include
 individual test durations.
 Full checks include macOS lint, the shared test build, shared Node with Host
-lifecycle, Desktop, Host on Linux, Mobile with iOS phases, and Mobile Android with
+lifecycle, Desktop on macOS and Windows, Host on Linux, Mobile with iOS phases, and Mobile Android with
 the Dart FFI contracts on Linux. Manual and release dispatches select the complete
 platform coverage.
 Backend and Desktop share downloaded dependency sources, with backend as the
@@ -508,6 +511,15 @@ exact hashes before applying that ceiling, without changing Host or ORT limits.
 Linux link inputs are checksum-pinned in
 [`linux-sysroot.lock.json`](scripts/package/linux-sysroot.lock.json); the build
 does not install cross-compilation packages into the host system.
+A Windows x64 runner builds Desktop and packages it with `scripts/package-windows.ps1`,
+using license notices collected on Linux. `scripts/package/windows-installer.py` then
+compiles the same bundle into a per-user installer with the pinned Inno Setup from
+`scripts/package/inno-setup.lock.json` and wizard images drawn
+from the brand mark. The installer places the bundle in
+`%LOCALAPPDATA%\Programs\Sailry\app`, where the in-app updater can replace it without
+administrator rights; uninstalling keeps `~/.sailry`. Neither the portable archive nor the
+installer is Authenticode-signed, and neither is an update candidate; the update catalog
+covers macOS only. Windows ARM64 is not built.
 
 Desktop native recovery reuses preserved binaries for the exact product tag and
 builds only missing architectures. Each artifact retains its original workflow
@@ -534,7 +546,8 @@ Distribution signs nested native code inside out with hardened runtime and secur
 timestamps, submits Desktop and Host for notarization, staples Desktop's ticket,
 and verifies Gatekeeper before creating archives. Standalone executables cannot
 carry stapled tickets. The DMG is separately signed, notarized, stapled and checked
-before distribution. The Desktop publisher attaches only macOS Desktop assets.
+before distribution. The Desktop publishers attach the macOS packages and,
+independently, the Windows archive and installer with their checksums.
 The Host publisher waits for the macOS and Linux Host packages, then
 attaches their verified assets to the same published release. Neither publisher
 overwrites public tags or existing assets. Verify both products' completed

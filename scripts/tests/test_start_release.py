@@ -18,7 +18,7 @@ TAG = "v0.1.0-alpha.1"
 REPOSITORY = "fixture/product"
 CHECK_JOBS = (
     "Source", "Rust strict lint", "Test build", "Shared Node (1/2)", "Shared Node (2/2)",
-    "Desktop", "Host", "Mobile", "Mobile Android", "Pairing service",
+    "Desktop", "Host", "Mobile", "Mobile Android", "Pairing service", "Desktop Windows",
     "Desktop ready", "Host ready", "Mobile ready", "Checks passed",
 )
 

@@ -397,7 +397,7 @@ def job(workflow, name):
 
 class Workflow(unittest.TestCase):
     def test_collects_symbols_alongside_checks(self):
-        for name, build in [("release.yml", "build"), ("release-host.yml", "build"),
+        for name, build in [("release.yml", "build"), ("release.yml", "windows"), ("release-host.yml", "build"),
                             ("release-host.yml", "host")]:
             with self.subTest(workflow=name, job=build):
                 section = job(name, build)
@@ -415,10 +415,11 @@ class Workflow(unittest.TestCase):
                 self.assertNotIn("debug-symbols/", section.split("      - name: Build", 1)[0])
 
     def test_uploads_symbols_after_gate(self):
-        for name, upload in [("release.yml", "publish"), ("release-host.yml", "symbols")]:
+        for name, upload in [("release.yml", "publish"), ("release.yml", "windows_publish"),
+                             ("release-host.yml", "symbols")]:
             with self.subTest(workflow=name, job=upload):
                 section = job(name, upload)
-                if upload == "publish":
+                if name == "release.yml":
                     gate = section.index("--wait-ready")
                 else:
                     self.assertIn("needs: [gate, build, host]", section)
