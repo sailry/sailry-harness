@@ -1,68 +1,186 @@
-use super::{Effect, Session};
-use crate::agent::controls::Controls;
-use async_trait::async_trait;
-use goose_agent::{
-    operation::{Emitter, Operation, OperationResult},
-    tool::ToolOperation,
+//! Ordered cancellation recovery adapted from Goose 14741e9a tool.rs (Apache-2.0).
+//! See third_party_licenses/goose-Apache-2.0.txt.
+use super::{Effect, Session, conversation, operation::*};
+use crate::agent::{
+    catalog::ToolProvider,
+    controls::Controls,
+    model::{
+        Content, Message,
+        types::{ToolCall, ToolResult},
+    },
 };
-use goose_provider_types::conversation::Conversation;
+use futures::{StreamExt, stream};
+use rmcp::model::{CallToolRequestParams, CallToolResult, ErrorData, Tool};
 use sailry_protocol::TurnId;
-use std::sync::Arc;
+use std::{
+    collections::BTreeSet,
+    sync::{Arc, Mutex},
+};
 
-pub(super) struct Tools {
-    pub inner: ToolOperation<Session>,
-    pub controls: Arc<Controls>,
-    pub turn: TurnId,
+const MAX_CONCURRENT_READS: usize = 8;
+
+struct Slot {
+    request: ToolCall,
+    result: Option<Result<CallToolResult, ErrorData>>,
 }
 
-#[async_trait]
-impl Operation<Session, Effect> for Tools {
-    fn name(&self) -> &'static str {
-        "tools"
+pub(in crate::agent) struct Tools {
+    provider: Arc<dyn ToolProvider<Session>>,
+    controls: Arc<Controls>,
+    turn: TurnId,
+    responses: Mutex<Vec<Slot>>,
+}
+
+impl Tools {
+    pub(in crate::agent) fn new(
+        provider: Arc<dyn ToolProvider<Session>>,
+        controls: Arc<Controls>,
+        turn: TurnId,
+    ) -> Self {
+        Self {
+            provider,
+            controls,
+            turn,
+            responses: Mutex::default(),
+        }
     }
 
-    async fn inference_tools(&self, session: &Session) -> anyhow::Result<Vec<rmcp::model::Tool>> {
-        <ToolOperation<Session> as Operation<Session, Effect>>::inference_tools(
-            &self.inner,
-            session,
-        )
-        .await
+    pub(super) async fn definitions(&self, session: &Session) -> anyhow::Result<Vec<Tool>> {
+        self.provider.tools(session).await
     }
 
-    async fn finalize_cancellation(
+    async fn dispatch(&self, session: &Session, index: usize, request: &ToolCall, emit: &Emitter) {
+        let result = if let Some(error) = &request.error {
+            Err(ErrorData {
+                code: rmcp::model::ErrorCode(error.code),
+                message: error.message.clone().into(),
+                data: error.data.clone(),
+            })
+        } else {
+            self.provider
+                .call(session, &request.id, parameters(request), emit)
+                .await
+        };
+        self.responses.lock().unwrap()[index].result = Some(result);
+    }
+
+    fn take(&self, interrupted: bool) -> Vec<Effect> {
+        let slots = std::mem::take(&mut *self.responses.lock().unwrap());
+        let mut answered: BTreeSet<_> = slots
+            .iter()
+            .filter(|slot| slot.result.is_some())
+            .map(|slot| slot.request.id.clone())
+            .collect();
+        let content = slots
+            .into_iter()
+            .filter_map(|slot| {
+                let result = match slot.result {
+                    Some(result) => result,
+                    None if interrupted && answered.insert(slot.request.id.clone()) => {
+                        interrupted_call()
+                    }
+                    None => return None,
+                };
+                Some(Content::ToolResult(ToolResult {
+                    id: slot.request.id,
+                    name: slot.request.name,
+                    metadata: slot.request.metadata,
+                    result,
+                }))
+            })
+            .collect::<Vec<_>>();
+        if content.is_empty() {
+            Vec::new()
+        } else {
+            vec![
+                Message {
+                    content,
+                    ..Message::user()
+                }
+                .into(),
+            ]
+        }
+    }
+
+    pub(in crate::agent) fn finalize_cancellation(&self) -> Vec<Effect> {
+        self.take(true)
+    }
+
+    pub(in crate::agent) async fn run(
         &self,
         session: &Session,
-        conversation: &Conversation,
+        messages: &[Message],
         emit: &Emitter,
-    ) -> Vec<Effect> {
-        self.inner
-            .finalize_cancellation(session, conversation, emit)
-            .await
-    }
-
-    async fn run(
-        &self,
-        session: &Session,
-        conversation: &Conversation,
-        emit: &Emitter,
-    ) -> anyhow::Result<OperationResult<Effect>> {
+    ) -> anyhow::Result<Outcome> {
+        let definitions = self.definitions(session).await?;
+        let names: BTreeSet<_> = definitions.iter().map(|tool| tool.name.as_ref()).collect();
+        let requests: Vec<_> = conversation::pending(messages)?
+            .into_iter()
+            .filter(|call| {
+                call.error.is_some()
+                    || (conversation::request_executable(call) == Some(true)
+                        && names.contains(call.name.as_str()))
+            })
+            .cloned()
+            .collect();
+        if requests.is_empty() {
+            return not_applicable();
+        }
+        *self.responses.lock().unwrap() = requests
+            .iter()
+            .cloned()
+            .map(|request| Slot {
+                request,
+                result: None,
+            })
+            .collect();
         let token = self
             .controls
             .tool_token(self.turn)
             .unwrap_or_else(|| emit.cancel_token().clone());
-        let (sender, mut events) = tokio::sync::mpsc::unbounded_channel();
-        let scoped = Emitter::new(sender, token);
-        let work = self.inner.run(session, conversation, &scoped);
-        tokio::pin!(work);
-        let result = loop {
-            tokio::select! {
-                result = &mut work => break result,
-                Some(event) = events.recv() => emit.emit(event),
+        let scoped = emit.scoped(token.clone());
+        let dispatch = async {
+            let mut start = 0;
+            while start < requests.len() {
+                if token.is_cancelled() {
+                    break;
+                }
+                let concurrent = |request: &ToolCall| {
+                    request.error.is_none()
+                        && self.provider.concurrent(session, &parameters(request))
+                };
+                let end = if concurrent(&requests[start]) {
+                    requests[start..]
+                        .iter()
+                        .position(|request| !concurrent(request))
+                        .map_or(requests.len(), |offset| start + offset)
+                } else {
+                    start + 1
+                };
+                stream::iter(start..end)
+                    .for_each_concurrent(MAX_CONCURRENT_READS, |index| {
+                        self.dispatch(session, index, &requests[index], &scoped)
+                    })
+                    .await;
+                start = end;
             }
         };
-        while let Ok(event) = events.try_recv() {
-            emit.emit(event);
+        tokio::select! {
+            biased;
+            _ = token.cancelled() => {}
+            _ = dispatch => {}
         }
-        result
+        applied(self.take(token.is_cancelled()))
     }
+}
+
+fn parameters(request: &ToolCall) -> CallToolRequestParams {
+    CallToolRequestParams::new(request.name.clone())
+        .with_arguments(request.arguments.as_object().cloned().unwrap_or_default())
+}
+
+pub(super) fn interrupted_call() -> Result<CallToolResult, ErrorData> {
+    Ok(CallToolResult::error(vec![
+        rmcp::model::ContentBlock::text("Tool call was interrupted before completing"),
+    ]))
 }

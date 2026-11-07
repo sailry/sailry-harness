@@ -19,7 +19,7 @@ fn persisted(parts: &[&str]) -> Message {
 
 fn select(messages: Vec<Message>, parts: &[&str]) -> Vec<String> {
     pending(
-        &Conversation::new_unvalidated(messages),
+        &messages,
         &[SKILL, PLAN, MEMORY, OTHER],
         parts.iter().map(|part| (*part).to_owned()).collect(),
     )
@@ -121,7 +121,7 @@ fn keeps_state_beside_plugin_parts() {
 #[test]
 fn restores_hidden_plugin_parts() {
     let mut hidden = persisted(&[ENVIRONMENT, MEMORY]);
-    hidden.metadata = hidden.metadata.with_agent_invisible();
+    hidden.metadata.agent_visible = false;
     assert_eq!(
         select(
             vec![Message::user().with_text("Task"), hidden],
@@ -134,7 +134,7 @@ fn restores_hidden_plugin_parts() {
 #[test]
 fn restores_hidden_owner_parts() {
     let mut hidden = persisted(&[ENVIRONMENT, SKILL]);
-    hidden.metadata = hidden.metadata.with_agent_invisible();
+    hidden.metadata.agent_visible = false;
     assert_eq!(
         select(
             vec![Message::user().with_text("Task"), hidden],
@@ -151,12 +151,12 @@ fn keeps_distinct_substrings() {
         ("Do not deploy to production", "deploy to production"),
         ("First paragraph\n\nSecond paragraph", "Second paragraph"),
     ] {
-        let history = Conversation::new_unvalidated(vec![
+        let history = vec![
             Message::user().with_text("Task"),
             message(&[ENVIRONMENT.into(), previous.into()], &[previous]).unwrap(),
             Message::assistant().with_text("Done"),
             Message::user().with_text("Next task"),
-        ]);
+        ];
         let parts = pending(
             &history,
             &[current],
@@ -169,10 +169,10 @@ fn keeps_distinct_substrings() {
 #[test]
 fn ignores_state_substrings() {
     let part = "Do not deploy";
-    let history = Conversation::new_unvalidated(vec![
+    let history = vec![
         Message::user().with_text("Task"),
         message(&["Environment\nDo not deploy on Fridays".into()], &[]).unwrap(),
-    ]);
+    ];
     assert_eq!(
         pending(&history, &[part], vec![ENVIRONMENT.into(), part.into()]),
         [ENVIRONMENT, part]
@@ -184,10 +184,10 @@ fn compares_state_without_prefix_matching() {
     let part = "Do not deploy";
     let previous = "Environment\nDo not deploy in staging";
     let current = "Environment\nDo not deploy in production";
-    let history = Conversation::new_unvalidated(vec![
+    let history = vec![
         Message::user().with_text("Task"),
         message(&[previous.into(), part.into()], &[part]).unwrap(),
-    ]);
+    ];
     assert_eq!(
         pending(&history, &[part], vec![current.into(), part.into()]),
         [current]
@@ -197,21 +197,20 @@ fn compares_state_without_prefix_matching() {
 #[test]
 fn requires_persisted_identity() {
     let mut earlier = persisted(&[ENVIRONMENT, MEMORY]);
-    earlier.metadata = MessageMetadata::agent_only().with_turn_context();
-    let mut history =
-        Conversation::new_unvalidated(vec![Message::user().with_text("Task"), earlier]);
+    earlier.metadata.operations = None;
+    let mut history = vec![Message::user().with_text("Task"), earlier];
     let selected = pending(&history, &[MEMORY], vec![ENVIRONMENT.into(), MEMORY.into()]);
     assert_eq!(selected, [ENVIRONMENT, MEMORY]);
     history.push(message(&selected, &[MEMORY]).unwrap());
-    assert!(select(history.messages().to_vec(), &[ENVIRONMENT, MEMORY]).is_empty());
+    assert!(select(history, &[ENVIRONMENT, MEMORY]).is_empty());
 }
 
 #[test]
 fn compares_state_without_owned_parts() {
-    let mut history = Conversation::new_unvalidated(vec![
+    let mut history = vec![
         Message::user().with_text("Task"),
         message(&[ENVIRONMENT.into()], &[]).unwrap(),
-    ]);
+    ];
     assert!(pending(&history, &[], vec![ENVIRONMENT.into()]).is_empty());
     assert_eq!(
         pending(&history, &[], vec!["Moved environment".into()]),
@@ -227,7 +226,7 @@ fn compares_state_without_owned_parts() {
 
 #[test]
 fn keeps_first_occurrence() {
-    let history = Conversation::new_unvalidated(vec![Message::user().with_text("Task")]);
+    let history = vec![Message::user().with_text("Task")];
     assert_eq!(
         pending(
             &history,
@@ -246,7 +245,7 @@ fn keeps_first_occurrence() {
 #[test]
 fn restores_only_hidden_parts() {
     let mut original = persisted(&[ENVIRONMENT, MEMORY]);
-    original.metadata = original.metadata.with_agent_invisible();
+    original.metadata.agent_visible = false;
     let history = vec![
         Message::user().with_text("Task"),
         original,

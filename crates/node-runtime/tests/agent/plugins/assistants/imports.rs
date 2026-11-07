@@ -418,7 +418,23 @@ async fn selected(unrestricted: bool, permission: Permission) {
         json!({"kind":"exited","data":0})
     );
     note(&fixture.client, &page).await;
-    assert!(result(&fixture.client, &page, "load_skill").await["error"].is_object());
+    let error: rmcp::ErrorData =
+        serde_json::from_value(result(&fixture.client, &page, "load_skill").await).unwrap();
+    let fault: Fault = serde_json::from_value(error.data.unwrap()).unwrap();
+    assert_eq!(fault.code, ErrorCode::InvalidRequest);
+    assert_eq!(fault.message, "skill is not listed in this turn's catalog");
+    let failures: Vec<_> = page
+        .entries
+        .iter()
+        .flat_map(|entry| &entry.parts)
+        .filter_map(|part| match part {
+            Part::ToolResult { name, summary, .. } if name == "load_skill" => {
+                Some(summary.failure.as_ref().and_then(|failure| failure.code))
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(failures, [Some(ErrorCode::InvalidRequest), None]);
     assert_eq!(
         std::fs::read_to_string(scratch.join("imported.txt")).unwrap(),
         "imported"

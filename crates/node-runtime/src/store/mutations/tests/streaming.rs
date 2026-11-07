@@ -1,9 +1,9 @@
 use super::*;
+use crate::agent::model::Message as ModelMessage;
 use crate::{
     agent::canonical::{Block, BlockKind, Kind, Message, Record, Role},
     store::{Job, agent::Operation},
 };
-use goose_provider_types::conversation::message::Message as GdkMessage;
 use sailry_protocol::conversation::{Change, Part, Status};
 use tokio::sync::oneshot;
 
@@ -25,8 +25,8 @@ fn record(turn: TurnId, id: &str, text: &str) -> Record {
     record
 }
 
-fn draft(id: &str, text: &str) -> GdkMessage {
-    let mut message = GdkMessage::assistant().with_text(text);
+fn draft(id: &str, text: &str) -> ModelMessage {
+    let mut message = ModelMessage::assistant().with_text(text);
     message.id = Some(id.into());
     message
 }

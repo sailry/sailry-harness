@@ -1,6 +1,4 @@
 use super::*;
-use goose_agent::events::AgentEvent;
-use goose_provider_types::conversation::message::ActionRequiredData;
 use rmcp::model::{CallToolRequestParams, ErrorData};
 use sailry_link::CancellationToken;
 use sailry_protocol::TurnId;
@@ -20,7 +18,7 @@ fn session(messages: impl IntoIterator<Item = Message>) -> Session {
 async fn evaluate(
     approval: &Approval,
     session: &Session,
-) -> (OperationResult<Effect>, mpsc::UnboundedReceiver<AgentEvent>) {
+) -> (Outcome, mpsc::UnboundedReceiver<Message>) {
     let (sender, receiver) = mpsc::unbounded_channel();
     let emit = Emitter::new(sender, CancellationToken::new());
     let result = approval
@@ -53,7 +51,7 @@ async fn marks_allowed_calls_before_requesting_approval() {
             bindings: BTreeMap::new(),
         };
         let (result, mut events) = evaluate(&approval, &session).await;
-        let OperationResult::Applied(result) = result else {
+        let Outcome::Applied(result) = result else {
             panic!("allowed calls should be marked");
         };
         assert_eq!(result.status, RunStatus::Continuing);
@@ -111,7 +109,7 @@ async fn keeps_required_calls_in_order() {
             bindings: BTreeMap::new(),
         };
         let (result, mut events) = evaluate(&approval, &session).await;
-        let OperationResult::Applied(result) = result else {
+        let Outcome::Applied(result) = result else {
             panic!("the first unapproved call should require approval");
         };
         assert_eq!(result.status, RunStatus::Yielded);
@@ -123,16 +121,6 @@ async fn keeps_required_calls_in_order() {
         assert_eq!(request.name, "write");
         assert_eq!(request.arguments, arguments);
         assert!(binding.is_none());
-        let AgentEvent::Message(message) = events.try_recv().unwrap() else {
-            panic!("approval should emit its action notice");
-        };
-        assert!(message.is_user_visible());
-        assert!(!message.is_agent_visible());
-        assert!(matches!(
-            &message.content[0],
-            MessageContent::ActionRequired(action)
-                if matches!(&action.data, ActionRequiredData::ToolConfirmation { id, .. } if id == "write-1")
-        ));
         assert!(events.try_recv().is_err());
     }
 }
@@ -196,7 +184,7 @@ async fn skips_closed_external_and_previous_calls() {
         bindings: BTreeMap::new(),
     };
     let (result, mut events) = evaluate(&approval, &session).await;
-    assert!(matches!(result, OperationResult::NotApplicable));
+    assert!(matches!(result, Outcome::NotApplicable));
     assert!(events.try_recv().is_err());
     assert_eq!(session.conversation, before);
 }

@@ -1,6 +1,6 @@
 //! Adapted from Goose ee8500d5, crates/goose/src/token_counter.rs (Apache-2.0).
 //! The shared tokenizer is retained; an application token cache is unnecessary here.
-use goose_provider_types::conversation::message::Message;
+use crate::agent::model::{Content, Message};
 use std::sync::OnceLock;
 static TOKENIZER: OnceLock<tiktoken_rs::CoreBPE> = OnceLock::new();
 pub(crate) fn text(text: &str) -> usize {
@@ -15,20 +15,37 @@ pub(super) fn chat(system: &str, messages: &[Message]) -> usize {
     } else {
         text(system) + 4
     };
-    for message in messages.iter().filter(|message| message.is_agent_visible()) {
+    for message in messages
+        .iter()
+        .filter(|message| message.metadata.agent_visible)
+    {
         tokens += 4;
         for content in &message.content {
-            if let Some(value) = content.as_text() {
-                tokens += text(value);
-            } else if let Some(request) = content.as_tool_request() {
-                if let Ok(call) = &request.tool_call {
+            match content {
+                Content::Text { text: value } => tokens += text(value),
+                Content::ToolCall(call) if call.error.is_none() => {
                     tokens += text(&format!(
                         "{}:{}:{:?}",
-                        request.id, call.name, call.arguments
+                        call.id,
+                        call.name,
+                        call.arguments.as_object()
                     ));
                 }
-            } else if let Some(value) = content.as_tool_response_text() {
-                tokens += text(&value);
+                Content::ToolResult(response) => {
+                    if let Ok(result) = &response.result {
+                        let values: Vec<_> = result
+                            .content
+                            .iter()
+                            .filter_map(|content| {
+                                content.as_text().map(|value| value.text.as_str())
+                            })
+                            .collect();
+                        if !values.is_empty() {
+                            tokens += text(&values.join("\n"));
+                        }
+                    }
+                }
+                _ => {}
             }
         }
     }

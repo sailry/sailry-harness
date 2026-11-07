@@ -1,11 +1,9 @@
 //! Execution-owned attachments are materialized at the model request boundary.
 use super::*;
 use crate::agent::canonical::{Block, BlockKind, FileRef, Kind, Message, Record, Role};
+use crate::agent::model::{Content, Message as ModelMessage, types::Image};
+use crate::store::agent::AttachmentSource;
 use base64::Engine as _;
-use goose_provider_types::conversation::{
-    Conversation,
-    message::{DocumentContent, MessageContent},
-};
 use sailry_protocol::{
     AttachmentId,
     attachment::Attachment,
@@ -20,17 +18,41 @@ const REQUEST_BYTES: u64 = 64 * 1024 * 1024;
 const READ_NOTE: &str = "Contents not included; use read_office with source {\"kind\":\"attachment\",\"value\":\"<id>\"} for PDF, Office documents and spreadsheets; use an attachment-capable tool for other files";
 const UNAVAILABLE_NOTE: &str = "Attachment unavailable; contents not included";
 
-/// Historical misses already reported during one turn run.
-#[derive(Default)]
-pub(super) struct Reported(std::sync::Mutex<std::collections::BTreeSet<AttachmentId>>);
+#[derive(Clone, Default)]
+pub(super) struct Cache {
+    entries: Arc<tokio::sync::Mutex<std::collections::BTreeMap<AttachmentId, Entry>>>,
+}
 
-impl Reported {
-    /// Returns whether this is the first report of `id`.
-    pub(super) fn first(&self, id: AttachmentId) -> bool {
-        self.0
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert(id)
+impl Cache {
+    pub(super) async fn promote(&self, ids: impl IntoIterator<Item = AttachmentId>) {
+        let mut entries = self.entries.lock().await;
+        for id in ids {
+            if let Some(entry) = entries.get_mut(&id) {
+                entry.source.current = true;
+            }
+        }
+    }
+}
+
+struct Entry {
+    source: AttachmentSource,
+    materialized: Option<Result<Option<Content>, Fault>>,
+    reported: bool,
+}
+
+impl Entry {
+    fn report(
+        &mut self,
+        ingress: &Ingress,
+        invocation: &Invocation,
+        id: AttachmentId,
+        reason: &'static str,
+        fault: &Fault,
+    ) {
+        if !self.reported {
+            omitted(ingress, invocation, id, reason, fault);
+            self.reported = true;
+        }
     }
 }
 
@@ -125,65 +147,82 @@ pub(crate) fn render(
 pub(super) async fn hydrate(
     ingress: &Ingress,
     invocation: &Invocation,
-    reported: &Reported,
-    conversation: &mut Conversation,
+    cache: &Cache,
+    conversation: &mut [ModelMessage],
     vision: bool,
     api: ModelApi,
     stop: &CancellationToken,
 ) -> Result<(), Fault> {
-    let report = |id: AttachmentId, reason: &'static str, fault: &Fault| {
-        if reported.first(id) {
-            omitted(ingress, invocation, id, reason, fault);
-        }
-    };
     if !vision {
         filter_images(conversation);
     }
+    let mut entries = cache.entries.lock().await;
     let mut remaining = REQUEST_BYTES;
-    for message in conversation.messages_mut() {
+    for message in conversation {
         let mut contents = Vec::new();
         for content in std::mem::take(&mut message.content) {
-            let MessageContent::Document(document) = &content else {
-                if !vision && matches!(&content, MessageContent::Image(_)) {
-                    contents.push(MessageContent::text(
-                        "Image output omitted because the current model does not support images",
-                    ));
-                } else {
-                    contents.push(content);
-                }
+            let Content::Document {
+                data_base64,
+                media_type,
+                ..
+            } = &content
+            else {
+                contents.push(content);
                 continue;
             };
-            if !is_reference(&document.data) {
+            if !is_reference(data_base64) {
                 contents.push(content);
                 continue;
             }
-            let reference = id(&document.data)?;
-            let source = ingress
-                .attachment_source(invocation.turn.id, reference)
-                .await?;
-            let current = source.current;
-            let attachment = match source.attachment {
+            let reference = id(data_base64)?;
+            let entry = match entries.entry(reference) {
+                std::collections::btree_map::Entry::Occupied(entry) => entry.into_mut(),
+                std::collections::btree_map::Entry::Vacant(entry) => entry.insert(Entry {
+                    source: ingress
+                        .attachment_source(invocation.turn.id, reference)
+                        .await?,
+                    materialized: None,
+                    reported: false,
+                }),
+            };
+            let current = entry.source.current;
+            let attachment = match entry.source.attachment.clone() {
                 Ok(attachment) => attachment,
                 Err(fault) if current => return Err(fault),
                 Err(fault) => {
-                    report(reference, source.reason.unwrap_or("unclassified"), &fault);
-                    contents.push(MessageContent::text(unavailable(
+                    entry.report(
+                        ingress,
+                        invocation,
                         reference,
-                        &document.mime_type,
-                    )));
+                        entry.source.reason.unwrap_or("unclassified"),
+                        &fault,
+                    );
+                    contents.push(Content::Text {
+                        text: unavailable(reference, media_type),
+                    });
                     continue;
                 }
             };
-            if document.mime_type != attachment.spec.media_type {
+            if *media_type != attachment.spec.media_type {
                 return Err(Fault::invalid("attachment media type mismatch"));
             }
             let mut materialized = None;
             if attachment.spec.size <= remaining {
-                let bytes = match ingress
-                    .attachment_bytes(attachment.clone(), stop.clone())
-                    .await
-                {
-                    Ok(bytes) => bytes,
+                if entry.materialized.is_none() {
+                    entry.materialized = Some(
+                        ingress
+                            .attachment_bytes(attachment.clone(), stop.clone())
+                            .await
+                            .map(|bytes| inline(&attachment, bytes, true, ModelApi::Responses)),
+                    );
+                }
+                match entry.materialized.as_ref().unwrap() {
+                    Ok(content) => {
+                        materialized = content
+                            .as_ref()
+                            .filter(|content| supported(content, vision, api))
+                            .cloned();
+                    }
                     Err(fault)
                         if !current
                             && matches!(
@@ -196,16 +235,15 @@ pub(super) async fn hydrate(
                         } else {
                             "changed_content"
                         };
-                        report(reference, reason, &fault);
-                        contents.push(MessageContent::text(unavailable(
-                            reference,
-                            &attachment.spec.media_type,
-                        )));
+                        let fault = fault.clone();
+                        entry.report(ingress, invocation, reference, reason, &fault);
+                        contents.push(Content::Text {
+                            text: unavailable(reference, &attachment.spec.media_type),
+                        });
                         continue;
                     }
-                    Err(fault) => return Err(fault),
-                };
-                materialized = inline(&attachment, bytes, vision, api);
+                    Err(fault) => return Err(fault.clone()),
+                }
                 if materialized.is_some() {
                     remaining -= attachment.spec.size;
                 }
@@ -214,45 +252,33 @@ pub(super) async fn hydrate(
             if let Some(content) = materialized {
                 contents.push(content);
             }
-            contents.push(MessageContent::text(file(
-                &attachment,
-                if included { None } else { Some(READ_NOTE) },
-            )));
+            contents.push(Content::Text {
+                text: file(&attachment, if included { None } else { Some(READ_NOTE) }),
+            });
         }
         message.content = contents;
     }
     Ok(())
 }
 
-fn inline(
-    attachment: &Attachment,
-    bytes: Vec<u8>,
-    vision: bool,
-    api: ModelApi,
-) -> Option<MessageContent> {
+fn inline(attachment: &Attachment, bytes: Vec<u8>, vision: bool, api: ModelApi) -> Option<Content> {
     let format = file_format::FileFormat::from_bytes(&bytes);
     let mime = format.media_type();
-    let data = base64::engine::general_purpose::STANDARD.encode(&bytes);
-    if mime.starts_with("image/") && vision {
-        return Some(MessageContent::image(data, mime));
-    }
-    if mime == "application/pdf"
-        && matches!(
-            api,
-            ModelApi::Responses
-                | ModelApi::ChatCompletions
-                | ModelApi::Anthropic
-                | ModelApi::Gemini
-                | ModelApi::AzureOpenAi
-        )
-    {
-        return Some(MessageContent::Document(DocumentContent {
-            data,
-            mime_type: mime.into(),
+    let content = if mime.starts_with("image/") {
+        Content::Image {
+            media_type: mime.into(),
+            data: Image::Inline {
+                data_base64: base64::engine::general_purpose::STANDARD.encode(&bytes),
+            },
+            annotations: None,
+        }
+    } else if mime == "application/pdf" {
+        Content::Document {
+            data_base64: base64::engine::general_purpose::STANDARD.encode(&bytes),
+            media_type: mime.into(),
             name: Some(attachment.spec.name.clone()),
-        }));
-    }
-    if bytes.len() <= 1024 * 1024
+        }
+    } else if bytes.len() <= 1024 * 1024
         && (mime.starts_with("text/")
             || matches!(
                 mime,
@@ -263,14 +289,31 @@ fn inline(
             ))
     {
         let text = std::str::from_utf8(&bytes).ok()?;
-        if !text.contains('\0') {
-            return Some(MessageContent::text(format!(
-                "Attachment: {}\n{text}",
-                attachment.spec.name
-            )));
+        if text.contains('\0') {
+            return None;
         }
+        Content::Text {
+            text: format!("Attachment: {}\n{text}", attachment.spec.name),
+        }
+    } else {
+        return None;
+    };
+    supported(&content, vision, api).then_some(content)
+}
+
+fn supported(content: &Content, vision: bool, api: ModelApi) -> bool {
+    match content {
+        Content::Image { .. } => vision,
+        Content::Document { .. } => matches!(
+            api,
+            ModelApi::Responses
+                | ModelApi::ChatCompletions
+                | ModelApi::Anthropic
+                | ModelApi::Gemini
+                | ModelApi::AzureOpenAi
+        ),
+        _ => true,
     }
-    None
 }
 fn file(attachment: &Attachment, note: Option<&str>) -> String {
     let value = serde_json::json!({"id":attachment.id,"name":attachment.spec.name,"media_type":attachment.spec.media_type,"size":attachment.spec.size});
@@ -311,18 +354,20 @@ fn omitted(
     entry.emit_warn();
 }
 
-fn filter_images(conversation: &mut Conversation) {
+fn filter_images(conversation: &mut [ModelMessage]) {
     use rmcp::model::ContentBlock;
-    for message in conversation.messages_mut() {
+    for message in conversation {
         for content in &mut message.content {
             match content {
-                MessageContent::Image(_) => {
-                    *content = MessageContent::text(
-                        "Image output omitted because the current model does not support images",
-                    )
+                Content::Image { .. } => {
+                    *content = Content::Text {
+                        text:
+                            "Image output omitted because the current model does not support images"
+                                .into(),
+                    }
                 }
-                MessageContent::ToolResponse(response) => {
-                    if let Ok(result) = &mut response.tool_result {
+                Content::ToolResult(response) => {
+                    if let Ok(result) = &mut response.result {
                         for content in &mut result.content {
                             if matches!(content, ContentBlock::Image(_)) {
                                 *content = ContentBlock::text(

@@ -1,7 +1,8 @@
 use super::*;
-use goose_provider_types::conversation::message::Message as GdkMessage;
 use rmcp::model::{CallToolResult, ContentBlock};
 use sailry_protocol::{WorktreeId, attachment::Spec};
+
+mod cache;
 
 fn attachment(media: &str) -> Attachment {
     Attachment {
@@ -20,15 +21,18 @@ fn attachment(media: &str) -> Attachment {
 fn detects_image_content() {
     let metadata = attachment("text/plain");
     let bytes = b"\x89PNG\r\n\x1a\n".to_vec();
-    let Some(MessageContent::Image(image)) =
-        inline(&metadata, bytes.clone(), true, ModelApi::Responses)
+    let Some(Content::Image {
+        media_type,
+        data: Image::Inline { data_base64 },
+        ..
+    }) = inline(&metadata, bytes.clone(), true, ModelApi::Responses)
     else {
         panic!("image expected")
     };
-    assert_eq!(image.mime_type, "image/png");
+    assert_eq!(media_type, "image/png");
     assert_eq!(
         base64::engine::general_purpose::STANDARD
-            .decode(&image.data)
+            .decode(&data_base64)
             .unwrap(),
         bytes
     );
@@ -40,7 +44,7 @@ fn detects_image_content() {
             true,
             ModelApi::Gemini
         ),
-        Some(MessageContent::Image(_))
+        Some(Content::Image { .. })
     ));
 }
 
@@ -56,16 +60,19 @@ fn separates_documents_from_vision() {
         ModelApi::AzureOpenAi,
     ] {
         for vision in [false, true] {
-            let Some(MessageContent::Document(document)) =
-                inline(&metadata, bytes.clone(), vision, api)
+            let Some(Content::Document {
+                media_type,
+                name,
+                data_base64,
+            }) = inline(&metadata, bytes.clone(), vision, api)
             else {
                 panic!("document expected")
             };
-            assert_eq!(document.mime_type, "application/pdf");
-            assert_eq!(document.name.as_deref(), Some("input"));
+            assert_eq!(media_type, "application/pdf");
+            assert_eq!(name.as_deref(), Some("input"));
             assert_eq!(
                 base64::engine::general_purpose::STANDARD
-                    .decode(document.data)
+                    .decode(data_base64)
                     .unwrap(),
                 bytes
             );
@@ -78,7 +85,7 @@ fn separates_documents_from_vision() {
             true,
             ModelApi::Responses
         ),
-        Some(MessageContent::Document(_))
+        Some(Content::Document { .. })
     ));
 }
 
@@ -111,7 +118,7 @@ fn retains_unsupported_media_references() {
 fn preserves_text_and_defers_attachments() {
     let metadata = attachment("application/octet-stream");
     assert!(
-        matches!(inline(&metadata, "输入 🙂".as_bytes().to_vec(), false, ModelApi::Responses), Some(MessageContent::Text(text)) if text.text.ends_with("输入 🙂"))
+        matches!(inline(&metadata, "输入 🙂".as_bytes().to_vec(), false, ModelApi::Responses), Some(Content::Text { text }) if text.ends_with("输入 🙂"))
     );
     assert!(
         inline(
@@ -151,19 +158,8 @@ fn accepts_only_owned_references() {
 }
 
 #[test]
-fn reports_each_miss_once() {
-    let reported = Reported::default();
-    let missing = AttachmentId::new();
-    let other = AttachmentId::new();
-    assert!(reported.first(missing));
-    assert!(!reported.first(missing));
-    assert!(reported.first(other));
-    assert!(!reported.first(missing));
-}
-
-#[test]
 fn filters_images_for_text_models() {
-    let message = GdkMessage::assistant()
+    let message = ModelMessage::assistant()
         .with_text("Generated image")
         .with_image("AQID", "image/png");
     let result = CallToolResult::success(vec![
@@ -171,26 +167,21 @@ fn filters_images_for_text_models() {
         ContentBlock::image("AQID", "image/png"),
         ContentBlock::audio("AQID", "audio/wav"),
     ]);
-    let canonical = Conversation::new_unvalidated(vec![
+    let canonical = vec![
         message,
-        GdkMessage::user().with_tool_response("generate", Ok(result)),
-    ]);
+        ModelMessage::user().with_tool_response("generate", Ok(result)),
+    ];
     let mut request = canonical.clone();
     filter_images(&mut request);
-    assert!(matches!(
-        &canonical.messages()[0].content[1],
-        MessageContent::Image(_)
-    ));
+    assert!(matches!(&canonical[0].content[1], Content::Image { .. }));
+    assert!(matches!(&request[0].content[0],Content::Text { text } if text=="Generated image"));
     assert!(
-        matches!(&request.messages()[0].content[0],MessageContent::Text(text) if text.text=="Generated image")
+        matches!(&request[0].content[1],Content::Text { text } if text.contains("does not support images"))
     );
-    assert!(
-        matches!(&request.messages()[0].content[1],MessageContent::Text(text) if text.text.contains("does not support images"))
-    );
-    let MessageContent::ToolResponse(response) = &request.messages()[1].content[0] else {
+    let Content::ToolResult(response) = &request[1].content[0] else {
         unreachable!()
     };
-    let result = response.tool_result.as_ref().unwrap();
+    let result = response.result.as_ref().unwrap();
     assert_eq!(result.content[0].as_text().unwrap().text, "original result");
     assert!(
         result.content[1]
@@ -200,11 +191,46 @@ fn filters_images_for_text_models() {
             .contains("does not support images")
     );
     assert!(matches!(&result.content[2], ContentBlock::Audio(_)));
-    let MessageContent::ToolResponse(response) = &canonical.messages()[1].content[0] else {
+    let Content::ToolResult(response) = &canonical[1].content[0] else {
         unreachable!()
     };
     assert!(matches!(
-        &response.tool_result.as_ref().unwrap().content[1],
+        &response.result.as_ref().unwrap().content[1],
         ContentBlock::Image(_)
     ));
+}
+
+#[test]
+fn reuses_content_across_model_capabilities() {
+    for (media, bytes) in [
+        ("image/png", b"\x89PNG\r\n\x1a\n".as_slice()),
+        ("application/pdf", b"%PDF-1.7".as_slice()),
+        ("text/plain", b"Text attachment".as_slice()),
+    ] {
+        let attachment = attachment(media);
+        let cached = inline(&attachment, bytes.to_vec(), true, ModelApi::Responses);
+        for api in [
+            ModelApi::Responses,
+            ModelApi::ChatCompletions,
+            ModelApi::Anthropic,
+            ModelApi::Gemini,
+            ModelApi::AzureOpenAi,
+            ModelApi::AzureAi,
+            ModelApi::DeepSeek,
+            ModelApi::OpenCodeGo,
+            ModelApi::OpenCodeZen,
+            ModelApi::Plugin,
+        ] {
+            for vision in [false, true] {
+                assert_eq!(
+                    cached
+                        .as_ref()
+                        .filter(|content| supported(content, vision, api))
+                        .cloned(),
+                    inline(&attachment, bytes.to_vec(), vision, api),
+                    "{api:?} {vision} {media}",
+                );
+            }
+        }
+    }
 }

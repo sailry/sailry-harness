@@ -44,10 +44,10 @@ fn source(name: &str, id: &str, directory: &str, content: &str) -> (Record, Mess
 }
 
 fn result(message: &Message) -> &CallToolResult {
-    let MessageContent::ToolResponse(response) = &message.content[0] else {
+    let Content::ToolResult(response) = &message.content[0] else {
         panic!("tool response expected")
     };
-    response.tool_result.as_ref().unwrap()
+    response.result.as_ref().unwrap()
 }
 
 #[test]
@@ -92,9 +92,9 @@ fn deduplicates_matching_receipts() {
         );
         assert!(!text.text.contains("Exact full skill"));
     }
-    let projected = serde_json::to_value(&messages).unwrap();
+    let projected = messages.clone();
     owners.project(&mut messages);
-    assert_eq!(serde_json::to_value(&messages).unwrap(), projected);
+    assert_eq!(messages, projected);
     assert_eq!(serde_json::to_value(&records).unwrap(), original);
 }
 
@@ -168,11 +168,11 @@ fn requires_captured_directory_and_exact_result() {
         "/package/digest/analysis",
         "Exact full skill",
     );
-    let MessageContent::ToolResponse(response) = &mut message.content[0] else {
+    let Content::ToolResult(response) = &mut message.content[0] else {
         panic!("tool response expected")
     };
     response
-        .tool_result
+        .result
         .as_mut()
         .unwrap()
         .structured_content

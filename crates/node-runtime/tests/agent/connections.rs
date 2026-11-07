@@ -160,11 +160,22 @@ async fn scopes_database_approvals() {
     let (_, approval) = approvals::pending(&client, session.id).await;
     let requests = server.requests.lock().unwrap().clone();
     let tools = requests[0]["tools"].as_array().unwrap();
+    let deferred: Vec<_> = agent_support::turn_context(&requests[0])
+        .unwrap()
+        .split_once("Deferred tools\n")
+        .unwrap()
+        .1
+        .lines()
+        .next()
+        .unwrap()
+        .split(", ")
+        .collect();
     for name in ["list_sessions", "read_session", "search_session"] {
         assert!(
-            tools.iter().any(|tool| tool["function"]["name"] == name),
+            tools.iter().all(|tool| tool["function"]["name"] != name),
             "{name}"
         );
+        assert!(deferred.contains(&name), "{name}");
     }
     for denied in [
         "read_file",

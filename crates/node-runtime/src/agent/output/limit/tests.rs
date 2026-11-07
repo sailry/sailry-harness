@@ -1,21 +1,26 @@
 use super::*;
 use crate::agent::canonical::BlockKind;
 use crate::agent::engine::history;
-use crate::agent::model::gdk;
+use crate::agent::model::types::ToolResult;
 use rmcp::model::CallToolResult;
 use std::collections::BTreeMap;
 
 fn message(result: CallToolResult) -> Message {
     Message::user()
         .with_generated_id()
-        .with_tool_response("call", Ok(result))
+        .with_content(Content::ToolResult(ToolResult {
+            id: "call".into(),
+            name: "plugin_tool".into(),
+            result: Ok(result),
+            metadata: None,
+        }))
 }
 
 fn result(message: &Message) -> &CallToolResult {
-    let MessageContentBlock::ToolResponse(response) = &message.content[0] else {
+    let Content::ToolResult(response) = &message.content[0] else {
         panic!("tool response expected")
     };
-    response.tool_result.as_ref().unwrap()
+    response.result.as_ref().unwrap()
 }
 
 fn texts(result: &CallToolResult) -> Vec<&str> {
@@ -242,7 +247,7 @@ fn preserves_result_projection() {
                 let mut original = message(CallToolResult::success(vec![ContentBlock::text(
                     "x".repeat(MAX_BYTES * 2),
                 )]));
-                let MessageContentBlock::ToolResponse(response) = &mut original.content[0] else {
+                let Content::ToolResult(response) = &mut original.content[0] else {
                     unreachable!()
                 };
                 response.id = "call".repeat(1024);
@@ -307,12 +312,10 @@ fn preserves_result_projection() {
                 );
                 let original = Message::user().with_tool_response("failure", Err(error.clone()));
                 let outgoing = projected(&original);
-                let failure = outgoing.content[0]
-                    .as_tool_response()
-                    .unwrap()
-                    .tool_result
-                    .as_ref()
-                    .unwrap_err();
+                let Content::ToolResult(response) = &outgoing.content[0] else {
+                    panic!("tool response expected")
+                };
+                let failure = response.result.as_ref().unwrap_err();
                 assert_eq!(failure.code, error.code, "{scenario}");
                 assert!(
                     failure.message.starts_with("Failure headline"),
@@ -330,50 +333,10 @@ fn preserves_result_projection() {
                     "{scenario}"
                 );
                 assert_eq!(projected(&outgoing), outgoing, "{scenario}");
-                assert_eq!(
-                    original.content[0]
-                        .as_tool_response()
-                        .unwrap()
-                        .tool_result
-                        .as_ref()
-                        .unwrap_err(),
-                    &error,
-                    "{scenario}"
-                );
-            }),
-        ),
-        (
-            "excludes_private_reference_notes_from_requests",
-            (|scenario: &'static str| {
-                use goose_provider_types::{
-                    formats::openai, images::ImageFormat, model::ModelConfig,
+                let Content::ToolResult(response) = &original.content[0] else {
+                    panic!("tool response expected")
                 };
-                let mut original = message(CallToolResult::success(vec![ContentBlock::text(
-                    "x".repeat(MAX_BYTES * 2),
-                )]));
-                original
-                    .metadata
-                    .set_operation_note("tool_output", "call", json!("a".repeat(64)));
-                let messages = [
-                    Message::assistant().with_tool_request(
-                        "call",
-                        Ok(rmcp::model::CallToolRequestParams::new("report")),
-                    ),
-                    projected(&original),
-                ];
-                let request = openai::create_request(
-                    &ModelConfig::new("fixture"),
-                    "",
-                    &messages,
-                    &[],
-                    &ImageFormat::OpenAi,
-                    true,
-                )
-                .unwrap();
-                let encoded = request.to_string();
-                assert!(!encoded.contains("operations"), "{scenario}");
-                assert!(!encoded.contains("tool_output\":{\"call"), "{scenario}");
-                assert!(encoded.contains(&"a".repeat(64)), "{scenario}");
+                assert_eq!(response.result.as_ref().unwrap_err(), &error, "{scenario}");
             }),
         ),
     ] {
@@ -389,7 +352,7 @@ mod canonical {
         let record = history::capture(
             db,
             sailry_protocol::TurnId::new(),
-            &gdk::from_message(original),
+            original,
             &BTreeMap::from([("call".into(), "plugin_tool".into())]),
         )
         .await
@@ -401,7 +364,7 @@ mod canonical {
             .await
             .unwrap();
         // The reloaded copy projects to the same notice as the live copy.
-        let reloaded = gdk::to_message(&history::project(db, &record).await.unwrap().unwrap());
+        let reloaded = history::project(db, &record).await.unwrap().unwrap();
         assert_eq!(projected(&reloaded).content, projected(original).content);
         (response.revision.clone(), value.to_string())
     }
@@ -467,12 +430,12 @@ async fn references_canonical_data_after_media_projection() {
     let record = history::capture(
         &db,
         sailry_protocol::TurnId::new(),
-        &gdk::from_message(&original),
+        &original,
         &BTreeMap::new(),
     )
     .await
     .unwrap();
-    let reloaded = gdk::to_message(&history::project(&db, &record).await.unwrap().unwrap());
+    let reloaded = history::project(&db, &record).await.unwrap().unwrap();
     assert!(
         result(&reloaded)
             .content
@@ -503,14 +466,9 @@ async fn references_canonical_data_after_media_projection() {
             .iter()
             .any(|content| matches!(content, ContentBlock::Image(_)))
     );
-    let captured = history::capture(
-        &db,
-        record.turn,
-        &gdk::from_message(&reloaded),
-        &BTreeMap::new(),
-    )
-    .await
-    .unwrap();
+    let captured = history::capture(&db, record.turn, &reloaded, &BTreeMap::new())
+        .await
+        .unwrap();
     assert!(captured.metadata.runtime.as_ref().unwrap().notes.is_none());
     assert!(matches!(captured.kind, Kind::Message(_)));
 }

@@ -1,17 +1,13 @@
 //! Offline estimates use the same tokenizer as context management, never provider usage.
 use super::owners;
-use crate::agent::{canonical, engine::tokens, output};
-use goose_provider_types::{
-    conversation::{
-        Conversation, fix_conversation, merge_consecutive_messages_for_request,
-        message::{Message, MessageContentBlock},
-    },
-    formats::{anthropic, google, openai, openai_responses},
-    images::ImageFormat,
-    model::ModelConfig,
+use crate::agent::{
+    canonical,
+    engine::tokens,
+    model::{self, Content, Message},
+    output,
 };
 use rmcp::model::{CallToolRequestParams, CallToolResult, Tool};
-use sailry_protocol::{FileLines, TurnId};
+use sailry_protocol::{FileLines, TurnId, conversation::ModelApi};
 use serde_json::{Value, json};
 
 const FILE_MARKER: &str = "FILE_BODY_SENTINEL";
@@ -153,44 +149,33 @@ pub(crate) fn inputs() -> (Input, Input) {
     )
 }
 
-fn payloads(input: &Input) -> [(&'static str, Value); 4] {
-    let config = ModelConfig::new("fixture-input").with_max_tokens(Some(8192));
-    let Input {
-        system,
-        messages,
-        tools,
-    } = input;
-    [
-        (
-            "chat",
-            openai::create_request(&config, system, messages, tools, &ImageFormat::OpenAi, true)
-                .unwrap(),
-        ),
-        (
-            "responses",
-            openai_responses::create_responses_request(&config, system, messages, tools).unwrap(),
-        ),
-        (
-            "anthropic",
-            anthropic::create_request(
-                "anthropic",
-                &config,
-                system,
-                messages,
-                tools,
-                Default::default(),
-            )
-            .unwrap(),
-        ),
-        (
-            "google",
-            google::create_request(&config, system, messages, tools).unwrap(),
-        ),
-    ]
+async fn payloads(input: &Input) -> Vec<(&'static str, Value)> {
+    let mut payloads = Vec::new();
+    for (name, api) in [
+        ("chat", ModelApi::ChatCompletions),
+        ("responses", ModelApi::Responses),
+        ("anthropic", ModelApi::Anthropic),
+        ("google", ModelApi::Gemini),
+    ] {
+        let wire = model::testing::capture(
+            api,
+            model::Request {
+                model: "fixture-input".into(),
+                system: input.system.clone(),
+                messages: input.messages.clone(),
+                tools: input.tools.iter().cloned().map(Into::into).collect(),
+                max_tokens: Some(8192),
+                ..Default::default()
+            },
+        )
+        .await;
+        payloads.push((name, wire));
+    }
+    payloads
 }
 
-#[test]
-fn keeps_context_after_tool_pairs() {
+#[tokio::test]
+async fn keeps_context_after_tool_pairs() {
     for paired in [false, true] {
         let mut messages = vec![Message::user().with_text("INITIAL_TASK")];
         if paired {
@@ -215,19 +200,16 @@ fn keeps_context_after_tool_pairs() {
             message.created = 0;
             message.id = Some(format!("fixture-order-{index}"));
         }
-        let original = serde_json::to_value(&messages).unwrap();
-        // Match the pinned inference path, including consecutive-user merging.
-        let (fixed, issues) = fix_conversation(Conversation::new_unvalidated(messages.clone()));
-        assert!(issues.is_empty(), "{issues:?}");
+        let original = messages.clone();
         let input = Input {
             system: "Fixed fixture system instructions".into(),
-            messages: merge_consecutive_messages_for_request(fixed.messages().clone()),
+            messages: super::super::inference::projection::prepare(messages.clone(), "fixture"),
             tools: Vec::new(),
         };
         if !paired {
             assert_eq!(input.messages.len(), 1);
         }
-        for (name, body) in payloads(&input) {
+        for (name, body) in payloads(&input).await {
             let field = match name {
                 "responses" => "input",
                 "google" => "contents",
@@ -259,7 +241,7 @@ fn keeps_context_after_tool_pairs() {
                 );
             }
         }
-        assert_eq!(serde_json::to_value(&messages).unwrap(), original);
+        assert_eq!(messages, original);
     }
 }
 
@@ -275,14 +257,15 @@ pub(crate) fn counts(wire: &Value, system: &Value, messages: &Value) -> Value {
 
 fn segments(name: &str, wire: &Value) -> Value {
     match name {
-        "chat" | "responses" => {
-            let key = if name == "chat" { "messages" } else { "input" };
+        "chat" => {
+            let key = "messages";
             let (system, messages): (Vec<_>, Vec<_>) =
                 wire[key].as_array().unwrap().iter().partition(|message| {
                     matches!(message["role"].as_str(), Some("system" | "developer"))
                 });
             counts(wire, &json!(system), &json!(messages))
         }
+        "responses" => counts(wire, &wire["instructions"], &wire["input"]),
         "anthropic" => counts(wire, &wire["system"], &wire["messages"]),
         "google" => counts(wire, &wire["systemInstruction"], &wire["contents"]),
         _ => unreachable!(),
@@ -294,11 +277,13 @@ fn history_tokens(messages: &[Message], prefix: &str) -> usize {
         .iter()
         .flat_map(|message| &message.content)
         .filter_map(|content| {
-            let response = content.as_tool_response()?;
+            let Content::ToolResult(response) = content else {
+                return None;
+            };
             response
                 .id
                 .starts_with(prefix)
-                .then(|| content.as_tool_response_text().unwrap())
+                .then(|| response_text(content).unwrap())
         })
         .map(|text| tokens::text(&text))
         .sum()
@@ -310,12 +295,14 @@ fn skill_body_tokens(input: &Input) -> usize {
         .iter()
         .flat_map(|message| &message.content)
         .filter_map(|content| {
-            let response = content.as_tool_response()?;
+            let Content::ToolResult(response) = content else {
+                return None;
+            };
             response
                 .id
                 .starts_with("skill-")
                 .then_some(response)?
-                .tool_result
+                .result
                 .as_ref()
                 .ok()?
                 .structured_content
@@ -326,15 +313,12 @@ fn skill_body_tokens(input: &Input) -> usize {
         .sum()
 }
 
-#[test]
-fn compares_native_requests() {
+#[tokio::test]
+async fn compares_native_requests() {
     let (before, after) = inputs();
     let (repeat, _) = inputs();
-    assert_eq!(
-        serde_json::to_value(&before.messages).unwrap(),
-        serde_json::to_value(&repeat.messages).unwrap()
-    );
-    let files = file_totals(&synthetic().0);
+    assert_eq!(before.messages, repeat.messages);
+    let files = file_totals(&synthetic().0).await;
     assert_eq!(files["source_lines"], 800);
     assert_eq!(files["shown_lines"], 800);
     assert_eq!(files["unshown_lines"], 0);
@@ -344,7 +328,11 @@ fn compares_native_requests() {
         serde_json::to_value(&before.tools).unwrap(),
         serde_json::to_value(&after.tools).unwrap()
     );
-    for ((name, original), (_, projected)) in payloads(&before).into_iter().zip(payloads(&after)) {
+    for ((name, original), (_, projected)) in payloads(&before)
+        .await
+        .into_iter()
+        .zip(payloads(&after).await)
+    {
         let original_text = original.to_string();
         let projected_text = projected.to_string();
         assert_eq!(original_text.matches(FILE_MARKER).count(), 1, "{name}");
@@ -410,12 +398,30 @@ fn tool_text(message: &Message) -> String {
     message
         .content
         .iter()
-        .filter_map(MessageContentBlock::as_tool_response_text)
+        .filter_map(response_text)
         .collect::<Vec<_>>()
         .join("\n")
 }
 
-fn file_totals(records: &[canonical::Record]) -> Value {
+fn response_text(content: &Content) -> Option<String> {
+    let Content::ToolResult(response) = content else {
+        return None;
+    };
+    Some(match &response.result {
+        Ok(result) => result
+            .content
+            .iter()
+            .filter_map(|content| match content {
+                rmcp::model::ContentBlock::Text(text) => Some(text.text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+        Err(error) => error.message.to_string(),
+    })
+}
+
+async fn file_totals(records: &[canonical::Record]) -> Value {
     let mut pages = 0;
     let mut source_lines = 0;
     let mut shown_lines = 0;
@@ -473,16 +479,27 @@ fn file_totals(records: &[canonical::Record]) -> Value {
         numbered_tokens += tokens::text(&unbounded(value, id));
         projected_tokens += tokens::text(&projected);
         escaped_tokens += tokens::text(&serde_json::to_string(&projected).unwrap());
-        let payload = openai::create_request(
-            &ModelConfig::new("fixture-input"),
-            "",
-            &messages,
-            &[],
-            &ImageFormat::OpenAi,
-            true,
+        let payload = model::testing::capture(
+            ModelApi::ChatCompletions,
+            model::Request {
+                model: "fixture-input".into(),
+                messages: vec![
+                    Message::user().with_text("Read the file"),
+                    Message::assistant()
+                        .with_tool_request(id, Ok(CallToolRequestParams::new("read_file"))),
+                    messages[0].clone(),
+                ],
+                ..Default::default()
+            },
         )
-        .unwrap();
-        wire_tokens += tokens::text(&payload["messages"].to_string());
+        .await;
+        let results: Vec<_> = payload["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|message| message["role"] == "tool")
+            .collect();
+        wire_tokens += tokens::text(&json!(results).to_string());
     }
     json!({"pages":pages,"source_lines":source_lines,"shown_lines":shown_lines,
         "unshown_lines":source_lines-shown_lines,"long_line_omissions":long_lines,
@@ -491,9 +508,9 @@ fn file_totals(records: &[canonical::Record]) -> Value {
         "budgeted_escaped_string_tokens":escaped_tokens,"isolated_chat_messages_tokens":wire_tokens})
 }
 
-#[test]
+#[tokio::test]
 #[ignore = "Requires explicit private records; emits only aggregate offline estimates"]
-fn measures_private_records() {
+async fn measures_private_records() {
     let path = std::env::var_os("SAILRY_TOKEN_RECORDS")
         .expect("set SAILRY_TOKEN_RECORDS to a private records JSONL file");
     let input = std::fs::read_to_string(path).expect("read private records");
@@ -544,7 +561,7 @@ fn measures_private_records() {
         "{}",
         json!({"scope":"private_recoverable_subsets","note":NOTE,
         "final_request":"Unavailable: captured system and tool catalog are absent; historical provider usage is unchanged",
-        "files":file_totals(&records),"skills":{"results":messages.len(),"raw_history_tokens":before,
+        "files":file_totals(&records).await,"skills":{"results":messages.len(),"raw_history_tokens":before,
             "projected_history_tokens":after,"retained_owner_context_tokens":owners.parts().iter().filter(|(key,_)|key.starts_with("skill:")).map(|(_,text)|tokens::text(text)).sum::<usize>()}})
     );
 }

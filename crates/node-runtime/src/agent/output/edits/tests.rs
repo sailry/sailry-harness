@@ -24,10 +24,10 @@ fn rendered(value: Value) -> CallToolResult {
     let mut messages =
         [Message::user().with_tool_response("edit", Ok(CallToolResult::structured(value)))];
     super::super::project(&mut messages);
-    let MessageContentBlock::ToolResponse(response) = &messages[0].content[0] else {
+    let Content::ToolResult(response) = &messages[0].content[0] else {
         panic!("tool response expected")
     };
-    response.tool_result.clone().unwrap()
+    response.result.clone().unwrap()
 }
 
 fn text(result: &CallToolResult) -> &str {

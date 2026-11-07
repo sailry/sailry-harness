@@ -1,5 +1,5 @@
 //! Omit configured MCP images only in the transient model projection.
-use goose_provider_types::conversation::message::{Message, MessageContentBlock};
+use crate::agent::model::{Content, Message};
 use rmcp::model::ContentBlock;
 use std::collections::BTreeMap;
 
@@ -10,11 +10,9 @@ pub(in crate::agent) fn omit(messages: &mut [Message], servers: &[(Vec<String>, 
         .iter()
         .flat_map(|message| &message.content)
         .filter_map(|content| match content {
-            MessageContentBlock::ToolRequest(request) => request
-                .tool_call
-                .as_ref()
-                .ok()
-                .map(|call| (request.id.clone(), call.name.to_string())),
+            Content::ToolCall(request) if request.error.is_none() => {
+                Some((request.id.clone(), request.name.clone()))
+            }
             _ => None,
         })
         .collect();
@@ -23,12 +21,12 @@ pub(in crate::agent) fn omit(messages: &mut [Message], servers: &[(Vec<String>, 
             .iter_mut()
             .flat_map(|message| &mut message.content)
             .filter_map(|content| match content {
-                MessageContentBlock::ToolResponse(response)
+                Content::ToolResult(response)
                     if calls
                         .get(&response.id)
                         .is_some_and(|name| aliases.contains(name)) =>
                 {
-                    response.tool_result.as_mut().ok()
+                    response.result.as_mut().ok()
                 }
                 _ => None,
             })
@@ -115,10 +113,10 @@ mod tests {
                 let original = messages.clone();
                 omit(&mut messages, &[(vec!["configured".into()], keep)]);
                 let removed = count.saturating_sub(keep) / BATCH * BATCH;
-                let MessageContentBlock::ToolResponse(response) = &messages[1].content[0] else {
+                let Content::ToolResult(response) = &messages[1].content[0] else {
                     unreachable!()
                 };
-                let result = response.tool_result.as_ref().unwrap();
+                let result = response.result.as_ref().unwrap();
                 assert_eq!(
                     result
                         .content

@@ -1,6 +1,6 @@
 use super::super::types::{Error, ErrorKind};
 use rig_core::error::{ErrorKind as RigKind, ProviderError};
-use sailry_protocol::{ErrorCode, Fault, FaultDetails, ModelFailure, Secret};
+use sailry_protocol::{ErrorCode, Fault, FaultDetails, Secret};
 use std::time::SystemTime;
 
 pub(super) fn provider(error: ProviderError, secrets: &[Secret]) -> Error {
@@ -143,20 +143,4 @@ pub(super) fn local(error: Fault) -> Error {
         _ => ErrorKind::Other,
     };
     Error::new(kind, error.message)
-}
-
-pub(super) fn fault(error: Error) -> Fault {
-    let code = if error.kind == ErrorKind::NotConfigured {
-        ErrorCode::NotConfigured
-    } else {
-        ErrorCode::Unavailable
-    };
-    let reason = match error.kind {
-        ErrorKind::Authentication => ModelFailure::Unauthorized,
-        ErrorKind::RateLimited | ErrorKind::Quota => ModelFailure::RateLimited,
-        _ => ModelFailure::Request,
-    };
-    let mut fault = Fault::new(code, error.message);
-    fault.details = Some(FaultDetails::ModelRequest { reason });
-    fault
 }

@@ -567,35 +567,25 @@ impl Fixture {
 }
 
 fn discovery() -> Vec<(String, serde_json::Value)> {
-    // Each search admits at most eight schemas; together these capabilities
-    // exercise all 49 declarations without executing or provisioning a browser.
-    [
-        "upload",
-        "for",
-        "window",
-        "element",
-        "to",
-        "text",
-        "page",
-        "tab",
-        "load",
-        "wait",
-        "scroll",
-        "screenshot",
-        "refresh",
-        "navigate",
-        "links",
-        "hover",
-        "handle",
-        "get",
-        // Core management tools share the limit for broad capability searches.
-        "delete_cookie",
-        "evaluate",
-        "focus",
-    ]
-    .into_iter()
-    .map(|query| ("tool_search".into(), json!({"query":query,"limit":8})))
-    .collect()
+    let manifest: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../plugins/external-browser/plugin.json"
+    ))
+    .unwrap();
+    let names: Vec<_> = manifest["extensions"]["dev.sailry.platform"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|tool| tool["name"].as_str().unwrap())
+        .collect();
+    names
+        .chunks(8)
+        .map(|names| {
+            (
+                "tool_search".into(),
+                json!({"query":format!("select:{}", names.join(",")),"limit":8}),
+            )
+        })
+        .collect()
 }
 
 fn tool(name: &str) -> String {

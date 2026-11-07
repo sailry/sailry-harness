@@ -1,4 +1,5 @@
 //! Conversion between canonical history and the Sailry model boundary.
+mod cache;
 mod media;
 mod metadata;
 #[cfg(test)]
@@ -13,6 +14,8 @@ use sailry_protocol::{Fault, TurnId};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use turso::Connection;
+
+pub(crate) use cache::Cache;
 
 pub(crate) fn provider_usage(source: &model::Usage) -> Result<Usage, Fault> {
     Ok(metadata::usage(source))

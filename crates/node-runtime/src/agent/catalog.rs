@@ -1,6 +1,6 @@
-//! Captured tool declarations and handlers join the GDK tool operation.
+//! Captured tool declarations and handlers for the Node execution loop.
+use crate::agent::engine::Emitter;
 use async_trait::async_trait;
-use goose_agent::{operation::Emitter, tool::ToolProvider};
 use rmcp::model::{CallToolRequestParams, CallToolResult, ErrorData, Tool};
 use sailry_link::CancellationToken;
 use sailry_protocol::{Fault, tool::Presentation};
@@ -12,6 +12,21 @@ pub(crate) use context::CatalogSession;
 pub(super) mod display;
 mod observed;
 pub(in crate::agent) use observed::Observed;
+
+#[async_trait]
+pub(crate) trait ToolProvider<S>: Send + Sync {
+    async fn tools(&self, session: &S) -> anyhow::Result<Vec<Tool>>;
+    async fn call(
+        &self,
+        session: &S,
+        id: &str,
+        call: CallToolRequestParams,
+        emit: &Emitter,
+    ) -> Result<CallToolResult, ErrorData>;
+    fn concurrent(&self, _: &S, _: &CallToolRequestParams) -> bool {
+        false
+    }
+}
 
 pub(super) struct Registration {
     pub tool: Tool,
@@ -374,7 +389,7 @@ macro_rules! provider {
             }
         }
         #[async_trait::async_trait]
-        impl goose_agent::tool::ToolProvider<crate::agent::catalog::CallContext> for $kind {
+        impl crate::agent::catalog::ToolProvider<crate::agent::catalog::CallContext> for $kind {
             async fn tools(
                 &self,
                 _: &crate::agent::catalog::CallContext,
@@ -386,7 +401,7 @@ macro_rules! provider {
                 context: &crate::agent::catalog::CallContext,
                 _: &str,
                 call: rmcp::model::CallToolRequestParams,
-                _: &goose_agent::operation::Emitter,
+                _: &crate::agent::engine::Emitter,
             ) -> Result<rmcp::model::CallToolResult, rmcp::model::ErrorData> {
                 self.execute(
                     std::sync::Arc::new(context.clone()),

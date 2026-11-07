@@ -225,7 +225,7 @@ async fn reveals_empty_response(fixture: &mut Fixture, case_name: &str) {
     assert!(run.error.is_none(), "{case_name}");
     assert_eq!(
         response(&page),
-        goose_agent::inference::EMPTY_RESPONSE_MESSAGE,
+        "The model returned an empty response. Please resend your message to continue.",
         "{case_name}"
     );
     assert_eq!(server.requests.lock().unwrap().len(), 4, "{case_name}");

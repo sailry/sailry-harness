@@ -1,64 +1,34 @@
 //! Adapted from Goose ee8500d5, agents/state_machine/ops_{tool_approval,
 //! remaining_tool_calls,empty_response,exit_on_error,maxturns}.rs (Apache-2.0).
 //! Durable approval belongs to the existing Node effect owner.
+use super::{ConversationEffect, conversation::*, operation::*};
 use super::{Effect, Session};
+use crate::agent::model::Message;
 use crate::{agent::canonical::ToolIdentity, store::agent::ApprovalBinding};
-use async_trait::async_trait;
-use goose_agent::{
-    inference::is_empty_response_marker,
-    operation::*,
-    tool_call_state::{EXECUTABLE_KEY, request_executable},
-};
-use goose_provider_types::conversation::{
-    Conversation,
-    message::{Message, MessageContent, ToolRequest},
-};
 use rmcp::model::{CallToolResult, ContentBlock};
 use std::collections::{BTreeMap, BTreeSet};
 
 #[cfg(test)]
 mod tests;
 
-pub(super) fn pending(conversation: &Conversation) -> anyhow::Result<Vec<&ToolRequest>> {
-    let messages = messages_since_kickoff(conversation)?;
-    let answered: BTreeSet<_> = messages
-        .iter()
-        .flat_map(Message::get_tool_response_ids)
-        .collect();
-    Ok(messages
-        .iter()
-        .flat_map(|message| &message.content)
-        .filter_map(MessageContent::as_tool_request)
-        .filter(|request| {
-            !request.was_executed_externally() && !answered.contains(request.id.as_str())
-        })
-        .collect())
-}
-
 pub(super) struct Approval {
     pub required: BTreeSet<String>,
     pub bindings: BTreeMap<String, ApprovalBinding>,
 }
-#[async_trait]
-impl Operation<Session, Effect> for Approval {
-    fn name(&self) -> &'static str {
-        "tool_approval"
-    }
-    async fn run(
+impl Approval {
+    pub(super) async fn run(
         &self,
         _: &Session,
-        conversation: &Conversation,
-        emit: &Emitter,
-    ) -> anyhow::Result<OperationResult<Effect>> {
+        conversation: &[Message],
+        _: &Emitter,
+    ) -> anyhow::Result<Outcome> {
         let requests = pending(conversation)?;
         let mut allowed = Vec::new();
         for request in &requests {
-            let Ok(call) = &request.tool_call else {
+            if request.error.is_some() {
                 continue;
-            };
-            if self.required.contains(call.name.as_ref())
-                || request_executable(request) == Some(true)
-            {
+            }
+            if self.required.contains(&request.name) || request_executable(request) == Some(true) {
                 continue;
             }
             allowed.push(
@@ -73,32 +43,19 @@ impl Operation<Session, Effect> for Approval {
             return applied(allowed);
         }
         for request in requests {
-            let Ok(call) = &request.tool_call else {
-                continue;
-            };
-            if !self.required.contains(call.name.as_ref())
-                || request_executable(request) == Some(true)
-            {
+            if request.error.is_some() {
                 continue;
             }
-            let action = Message::assistant()
-                .with_action_required(
-                    request.id.clone(),
-                    call.name.to_string(),
-                    call.arguments.clone().unwrap_or_default(),
-                    None,
-                )
-                .user_only();
-            emit.message(action);
+            if !self.required.contains(&request.name) || request_executable(request) == Some(true) {
+                continue;
+            }
             return yielded_with([Effect::Approval {
                 request: ToolIdentity {
                     id: Some(request.id.clone()),
-                    name: call.name.to_string(),
-                    arguments: serde_json::Value::Object(
-                        call.arguments.clone().unwrap_or_default(),
-                    ),
+                    name: request.name.clone(),
+                    arguments: request.arguments.clone(),
                 },
-                binding: self.bindings.get(call.name.as_ref()).cloned(),
+                binding: self.bindings.get(&request.name).cloned(),
             }]);
         }
         not_applicable()
@@ -106,17 +63,13 @@ impl Operation<Session, Effect> for Approval {
 }
 
 pub(super) struct PlanReview;
-#[async_trait]
-impl Operation<Session, Effect> for PlanReview {
-    fn name(&self) -> &'static str {
-        "plan_review"
-    }
-    async fn run(
+impl PlanReview {
+    pub(super) async fn run(
         &self,
         session: &Session,
-        _: &Conversation,
+        _: &[Message],
         _: &Emitter,
-    ) -> anyhow::Result<OperationResult<Effect>> {
+    ) -> anyhow::Result<Outcome> {
         if session.reviewed {
             yielded()
         } else {
@@ -126,17 +79,13 @@ impl Operation<Session, Effect> for PlanReview {
 }
 
 pub(super) struct Remaining;
-#[async_trait]
-impl Operation<Session, Effect> for Remaining {
-    fn name(&self) -> &'static str {
-        "remaining_tool_calls"
-    }
-    async fn run(
+impl Remaining {
+    pub(super) async fn run(
         &self,
         _: &Session,
-        conversation: &Conversation,
+        conversation: &[Message],
         emit: &Emitter,
-    ) -> anyhow::Result<OperationResult<Effect>> {
+    ) -> anyhow::Result<Outcome> {
         let requests = pending(conversation)?;
         if requests.is_empty() {
             return not_applicable();
@@ -156,20 +105,22 @@ impl Operation<Session, Effect> for Remaining {
 }
 
 pub(super) struct EmptyResponse;
-#[async_trait]
-impl Operation<Session, Effect> for EmptyResponse {
-    fn name(&self) -> &'static str {
-        "empty_response"
-    }
-    async fn run(
+impl EmptyResponse {
+    pub(super) async fn run(
         &self,
         _: &Session,
-        conversation: &Conversation,
+        conversation: &[Message],
         emit: &Emitter,
-    ) -> anyhow::Result<OperationResult<Effect>> {
+    ) -> anyhow::Result<Outcome> {
         let Some(message) = messages_since_kickoff(conversation)?
             .last()
-            .filter(|message| is_empty_response_marker(message) && !message.is_user_visible())
+            .filter(|message| {
+                message
+                    .metadata
+                    .operation_note("inference", "empty_response")
+                    .is_some()
+                    && !message.is_user_visible()
+            })
         else {
             return not_applicable();
         };
@@ -188,17 +139,13 @@ impl Operation<Session, Effect> for EmptyResponse {
 }
 
 pub(super) struct ExitOnError;
-#[async_trait]
-impl Operation<Session, Effect> for ExitOnError {
-    fn name(&self) -> &'static str {
-        "exit_on_error"
-    }
-    async fn run(
+impl ExitOnError {
+    pub(super) async fn run(
         &self,
         _: &Session,
-        conversation: &Conversation,
+        conversation: &[Message],
         _: &Emitter,
-    ) -> anyhow::Result<OperationResult<Effect>> {
+    ) -> anyhow::Result<Outcome> {
         if trailing_error(conversation).is_some() {
             yielded()
         } else {
@@ -208,28 +155,20 @@ impl Operation<Session, Effect> for ExitOnError {
 }
 
 pub(super) struct MaxTurns(pub u32);
-#[async_trait]
-impl Operation<Session, Effect> for MaxTurns {
-    fn name(&self) -> &'static str {
-        "max_turns"
-    }
-    async fn moim_parts(
-        &self,
-        _: &Session,
-        conversation: &Conversation,
-    ) -> anyhow::Result<Vec<String>> {
+impl MaxTurns {
+    pub(super) async fn contexts(&self, conversation: &[Message]) -> anyhow::Result<Vec<String>> {
         let used = assistant_turn_count(messages_since_kickoff(conversation)?);
         Ok((self.0 > 0 && used.saturating_mul(2) >= self.0)
             .then(|| format!("<turn-budget>{used}/{} used</turn-budget>", self.0))
             .into_iter()
             .collect())
     }
-    async fn run(
+    pub(super) async fn run(
         &self,
         _: &Session,
-        conversation: &Conversation,
+        conversation: &[Message],
         emit: &Emitter,
-    ) -> anyhow::Result<OperationResult<Effect>> {
+    ) -> anyhow::Result<Outcome> {
         if assistant_turn_count(messages_since_kickoff(conversation)?) < self.0 {
             return not_applicable();
         }

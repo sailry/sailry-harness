@@ -19,6 +19,92 @@ mod native_server;
 mod provider_fixture;
 
 #[tokio::test]
+async fn sends_one_preview_body() {
+    for (api, name, reply) in [
+        (ModelApi::Responses, "fixture", fixtures::responses(false)),
+        (ModelApi::ChatCompletions, "fixture", fixtures::chat()),
+        (
+            ModelApi::Anthropic,
+            "claude-opus-4-8",
+            fixtures::anthropic(false),
+        ),
+        (
+            ModelApi::Gemini,
+            "gemini-3-flash-preview",
+            fixtures::gemini(false),
+        ),
+    ] {
+        let server = Server::start(vec![reply]).await;
+        let provider = provider(api, server.endpoint.clone());
+        let model = native(&provider, name, "captured-key", HeaderMap::new());
+        let mut messages = vec![
+            Message::user().with_text("Find matching lines"),
+            Message::assistant()
+                .with_tool_request("search", Ok(CallToolRequestParams::new("search_files"))),
+            Message::user().with_tool_response(
+                "search",
+                Ok(CallToolResult::structured(json!({
+                    "kind":"search_results",
+                    "data":sailry_protocol::SearchResults {
+                        matches: vec![sailry_protocol::SearchMatch {
+                            path:"src/fixture.rs".into(),
+                            line_number:1,
+                            line:"MATCH_BODY_SENTINEL".into(),
+                            matched:true,
+                            truncated:false,
+                        }],
+                        ..Default::default()
+                    }
+                }))),
+            ),
+        ];
+        crate::agent::output::Cache::default().project(&mut messages);
+        let mut request = request(name);
+        request.messages = messages;
+        collect(&model, request, CancellationToken::new())
+            .await
+            .unwrap();
+        let captured = server.finish().await;
+        let encoded = captured[0].body.to_string();
+        assert_eq!(encoded.matches("MATCH_BODY_SENTINEL").count(), 1, "{api:?}");
+        assert!(!encoded.contains("\\\"matches\\\":"), "{api:?}");
+        assert!(!encoded.contains("structuredContent"), "{api:?}");
+    }
+}
+
+#[tokio::test]
+async fn excludes_private_reference_notes() {
+    let server = Server::start(vec![fixtures::chat()]).await;
+    let provider = provider(ModelApi::ChatCompletions, server.endpoint.clone());
+    let model = native(&provider, "fixture", "captured-key", HeaderMap::new());
+    let mut original = Message::user().with_tool_response(
+        "call",
+        Ok(CallToolResult::success(vec![ContentBlock::text(
+            "x".repeat(crate::agent::output::MAX_BYTES * 2),
+        )])),
+    );
+    original
+        .metadata
+        .set_operation_note("tool_output", "call", json!("a".repeat(64)));
+    let mut messages = vec![
+        Message::user().with_text("Read the report"),
+        Message::assistant().with_tool_request("call", Ok(CallToolRequestParams::new("report"))),
+        original,
+    ];
+    crate::agent::output::Cache::default().project(&mut messages);
+    let mut request = request("fixture");
+    request.messages = messages;
+    collect(&model, request, CancellationToken::new())
+        .await
+        .unwrap();
+    let captured = server.finish().await;
+    let encoded = captured[0].body.to_string();
+    assert!(!encoded.contains("operations"));
+    assert!(!encoded.contains("tool_output\":{\"call"));
+    assert!(encoded.contains(&"a".repeat(64)));
+}
+
+#[tokio::test]
 async fn never_restarts_a_partial_stream() {
     let server = discovery::Server::start_with_request(ModelApi::Anthropic, |_| {
         let body = concat!(

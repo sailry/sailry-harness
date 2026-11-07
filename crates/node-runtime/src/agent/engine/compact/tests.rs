@@ -1,11 +1,8 @@
 use super::*;
+use crate::agent::model::{Event, ModelStream, Request};
 use crate::store::agent::Invocation;
-use goose_agent::machine::{StateMachine, Step};
-use goose_provider_types::{
-    base::MessageStream,
-    conversation::{message::MessageUsage, token_usage::Usage},
-};
-use rmcp::model::{CallToolRequestParams, CallToolResult, Tool};
+use async_trait::async_trait;
+use rmcp::model::{CallToolRequestParams, CallToolResult};
 use sailry_link::CancellationToken;
 use sailry_protocol::{conversation::RunKind, *};
 use std::{
@@ -14,31 +11,15 @@ use std::{
 };
 
 #[derive(Default)]
-struct Managed {
+struct Unexpected {
     requests: AtomicUsize,
 }
 
 #[async_trait]
-impl Provider for Managed {
-    fn get_name(&self) -> &str {
-        "managed-fixture"
-    }
-
-    fn manages_own_context(&self) -> bool {
-        true
-    }
-
-    async fn stream(
-        &self,
-        _: &ModelConfig,
-        _: &str,
-        _: &[Message],
-        _: &[Tool],
-    ) -> Result<MessageStream, ProviderError> {
+impl model::Model for Unexpected {
+    async fn call(&self, _: Request, _: CancellationToken) -> Result<ModelStream, Error> {
         self.requests.fetch_add(1, Ordering::SeqCst);
-        Err(ProviderError::RequestFailed(
-            "unexpected summary request".into(),
-        ))
+        Err(Error::new(ErrorKind::Other, "unexpected summary request"))
     }
 }
 
@@ -68,38 +49,24 @@ impl Scripted {
 }
 
 #[async_trait]
-impl Provider for Scripted {
-    fn get_name(&self) -> &str {
-        "scripted-fixture"
-    }
-
-    async fn stream(
-        &self,
-        _: &ModelConfig,
-        system: &str,
-        messages: &[Message],
-        _: &[Tool],
-    ) -> Result<MessageStream, ProviderError> {
-        self.systems.lock().unwrap().push(system.into());
-        self.requests.lock().unwrap().push(messages.to_vec());
+impl model::Model for Scripted {
+    async fn call(&self, request: Request, _: CancellationToken) -> Result<ModelStream, Error> {
+        self.systems.lock().unwrap().push(request.system);
+        self.requests.lock().unwrap().push(request.messages);
         let reply = self.replies.lock().unwrap().pop_front().unwrap();
-        let id = "summary-response";
-        let mut chunks = vec![Ok((
-            Some(Message::assistant().with_id(id).with_text(reply.text)),
-            None,
-        ))];
+        let mut chunks = vec![Ok(Event::TextDelta {
+            index: 0,
+            text: reply.text,
+        })];
         if reply.limited {
-            let mut limit = Message::assistant().with_id(id);
-            limit.metadata.output_token_limit_reached = true;
-            chunks.push(Ok((Some(limit), None)));
+            chunks.push(Ok(Event::Finish(Finish::Length)));
         }
-        chunks.push(Ok((
-            None,
-            Some(
-                ProviderUsage::new("scripted-fixture".into(), reply.usage)
-                    .with_finish_reasons(vec![reply.finish.into()]),
-            ),
-        )));
+        chunks.push(Ok(Event::Usage(reply.usage)));
+        chunks.push(Ok(Event::Finish(match reply.finish {
+            "stop" => Finish::Stop,
+            "length" => Finish::Length,
+            reason => Finish::Other(reason.into()),
+        })));
         Ok(Box::pin(futures::stream::iter(chunks)))
     }
 }
@@ -119,25 +86,15 @@ impl Drop for Guard {
 }
 
 #[async_trait]
-impl Provider for Pending {
-    fn get_name(&self) -> &str {
-        "pending-fixture"
-    }
-
-    async fn stream(
-        &self,
-        _: &ModelConfig,
-        _: &str,
-        _: &[Message],
-        _: &[Tool],
-    ) -> Result<MessageStream, ProviderError> {
+impl model::Model for Pending {
+    async fn call(&self, _: Request, _: CancellationToken) -> Result<ModelStream, Error> {
         self.started.notify_one();
         let guard = Guard(self.dropped.clone());
         Ok(Box::pin(futures::stream::unfold(
             guard,
             |guard| async move {
                 std::future::pending::<()>().await;
-                Some((Ok((None, None)), guard))
+                Some((Ok(Event::Finish(Finish::Stop)), guard))
             },
         )))
     }
@@ -156,11 +113,19 @@ fn reply(text: String) -> Reply {
     }
 }
 
-fn model(provider: Arc<dyn Provider>) -> Model {
+fn config(name: &str) -> Config {
+    Config {
+        model_name: name.into(),
+        ..Config::default()
+    }
+}
+
+fn model(provider: Arc<dyn model::Model>) -> Model {
     Model {
         provider,
-        config: ModelConfig::new("scripted-fixture"),
+        config: config("scripted-fixture"),
         files: Mutex::default(),
+        stop: CancellationToken::new(),
     }
 }
 
@@ -196,7 +161,7 @@ fn invocation(node: &crate::Node) -> Arc<Invocation> {
                 assistant: None,
                 resource: None,
                 provider: ProviderId::new(),
-                model: "managed-fixture".into(),
+                model: "fixture".into(),
                 effort: Effort::Low,
                 features: Default::default(),
                 mode: WorkMode::Code,
@@ -234,12 +199,13 @@ fn preparer(
         images: vec![],
         parts: vec![],
         sources: Default::default(),
-        reported: Default::default(),
+        attachments: Default::default(),
+        output: Default::default(),
     })
 }
 
 #[tokio::test]
-async fn yields_managed_context_after_previous_error() {
+async fn ignores_previous_turn_error() {
     let directory = tempfile::tempdir().unwrap();
     let node = crate::Node::start_empty(directory.path().join("node"))
         .await
@@ -248,33 +214,39 @@ async fn yields_managed_context_after_previous_error() {
     let invocation = invocation(&node);
     let preparer = preparer(&node, &invocation, &stop);
     let previous = TurnId::new();
-    let session = super::super::tests::session(vec![(
-        previous,
-        Message::assistant()
-            .with_generated_id()
-            .with_error(MessageErrorKind::Authentication, "Previous request failed"),
-    )]);
+    let session = super::super::tests::session(vec![
+        (
+            previous,
+            Message::user()
+                .with_generated_id()
+                .with_text("Earlier task"),
+        ),
+        (
+            previous,
+            Message::assistant()
+                .with_generated_id()
+                .with_error(ErrorKind::Authentication, "Previous request failed"),
+        ),
+    ]);
     assert!(super::super::last_error(&session, previous).is_some());
-    let provider = Arc::new(Managed::default());
+    let provider = Arc::new(Unexpected::default());
     let (sender, _) = tokio::sync::mpsc::unbounded_channel();
     let emit = Emitter::new(sender, stop.clone());
-    for manual in [false, true] {
-        let operation = Compaction {
-            provider: provider.clone(),
-            config: ModelConfig::new("managed-fixture"),
-            context: 64_000,
-            threshold: 0.8,
-            preparer: preparer.clone(),
-            manual,
-        };
-        let machine = StateMachine::new(vec![Step::Operation(Arc::new(operation))], stop.clone());
-        let result = machine.step(&session, &emit).await.unwrap();
-        assert_eq!(result.status, RunStatus::Yielded);
-        assert!(result.applied_step.is_none());
-        assert!(result.effects.is_empty());
-        assert!(super::super::last_error(&session, invocation.turn.id).is_none());
-        assert!(super::super::output(&session, invocation.turn.id).is_none());
-    }
+    let operation = Compaction {
+        provider: provider.clone(),
+        config: config("fixture"),
+        context: 64_000,
+        threshold: 0.8,
+        preparer,
+        manual: false,
+    };
+    let result = operation
+        .run(&session, &session.conversation, &emit)
+        .await
+        .unwrap();
+    assert!(matches!(result, Outcome::NotApplicable));
+    assert!(super::super::last_error(&session, invocation.turn.id).is_none());
+    assert!(super::super::output(&session, invocation.turn.id).is_none());
     assert_eq!(provider.requests.load(Ordering::SeqCst), 0);
     node.shutdown().await.unwrap();
 }
@@ -316,10 +288,7 @@ fn keeps_tools_used_since_compaction() {
     .flatten()
     .collect();
     let loaded = ["alpha", "beta", "delta", "gamma"].map(String::from);
-    assert_eq!(
-        loadout::retained(&loaded, &Conversation::new_unvalidated(messages)),
-        ["beta", "gamma"]
-    );
+    assert_eq!(loadout::retained(&loaded, &messages), ["beta", "gamma"]);
 }
 
 #[tokio::test]
@@ -334,7 +303,7 @@ async fn drops_stale_tools_and_summaries() {
         .with_generated_id()
         .with_text("Earlier handoff")
         .with_visibility(false, true);
-    earlier.metadata.usage = Some(Box::new(MessageUsage {
+    earlier.metadata.usage = Some(Box::new(Usage {
         is_compaction: true,
         ..Default::default()
     }));
@@ -360,7 +329,7 @@ async fn drops_stale_tools_and_summaries() {
         provider: Scripted::new([reply(structured(
             serde_json::json!({"user_intent":["Fix the parser"]}),
         ))]),
-        config: ModelConfig::new("scripted-fixture"),
+        config: config("scripted-fixture"),
         context: 64_000,
         threshold: 0.8,
         preparer: preparer(&node, &invocation, &stop),
@@ -408,7 +377,7 @@ async fn keeps_tools_called_earlier_in_turn() {
         provider: Scripted::new([reply(structured(
             serde_json::json!({"user_intent":["Use beta on every source file"]}),
         ))]),
-        config: ModelConfig::new("scripted-fixture"),
+        config: config("scripted-fixture"),
         context: 64_000,
         threshold: 0.01,
         preparer: preparer(&node, &invocation, &stop),
@@ -417,7 +386,7 @@ async fn keeps_tools_called_earlier_in_turn() {
     let (sender, _) = tokio::sync::mpsc::unbounded_channel();
     let emit = Emitter::new(sender, stop.clone());
     // The turn continues after its tool result, so compaction runs mid-turn.
-    let OperationResult::Applied(result) = operation
+    let Outcome::Applied(result) = operation
         .run(&session, &session.conversation, &emit)
         .await
         .unwrap()
@@ -432,6 +401,69 @@ async fn keeps_tools_called_earlier_in_turn() {
     node.shutdown().await.unwrap();
 }
 
+mod collection {
+    use super::*;
+
+    struct Events(Vec<Result<Event, Error>>);
+
+    #[async_trait]
+    impl model::Model for Events {
+        async fn call(&self, _: Request, _: CancellationToken) -> Result<ModelStream, Error> {
+            Ok(Box::pin(futures::stream::iter(self.0.clone())))
+        }
+    }
+
+    #[tokio::test]
+    async fn joins_text_around_usage() {
+        let usage = Usage {
+            model: Some("fixture".into()),
+            input: Some(123),
+            output: Some(45),
+            total: Some(168),
+            ..Usage::default()
+        };
+        let provider = Arc::new(Events(vec![
+            Ok(Event::ReasoningDelta {
+                index: 0,
+                text: Some("Private reasoning".into()),
+                signature: None,
+            }),
+            Ok(Event::TextDelta {
+                index: 1,
+                text: "```json\n{\"user_intent\":[\"Fix ".into(),
+            }),
+            Ok(Event::Usage(usage.clone())),
+            Ok(Event::TextDelta {
+                index: 1,
+                text: "the parser\"]}\n```".into(),
+            }),
+            Ok(Event::Finish(Finish::Stop)),
+        ]));
+        let (message, reported) = model(provider).complete("", &[]).await.unwrap();
+        assert!(message.as_concat_text().contains("Fix the parser"));
+        assert!(!message.as_concat_text().contains("Private reasoning"));
+        assert_eq!(reported, usage);
+    }
+
+    #[tokio::test]
+    async fn discards_incomplete_stream() {
+        let failure = Error::new(ErrorKind::Network, "response interrupted");
+        let provider = Arc::new(Events(vec![
+            Ok(Event::TextDelta {
+                index: 0,
+                text: structured(serde_json::json!({
+                    "user_intent":["Fix the parser"],
+                    "files":[{"path":"src/parser.rs","summary":"Updated"}]
+                })),
+            }),
+            Err(failure.clone()),
+        ]));
+        let model = model(provider);
+        assert_eq!(model.complete("", &[]).await.unwrap_err(), failure);
+        assert!(model.files.lock().unwrap().is_empty());
+    }
+}
+
 mod summary {
     use super::*;
 
@@ -442,22 +474,13 @@ mod summary {
     }
 
     #[async_trait]
-    impl Provider for Overflowing {
-        fn get_name(&self) -> &str {
-            "overflow-fixture"
-        }
-
-        async fn stream(
-            &self,
-            _: &ModelConfig,
-            system: &str,
-            _: &[Message],
-            _: &[Tool],
-        ) -> Result<MessageStream, ProviderError> {
+    impl model::Model for Overflowing {
+        async fn call(&self, request: Request, _: CancellationToken) -> Result<ModelStream, Error> {
             self.requests.fetch_add(1, Ordering::SeqCst);
-            *self.system.lock().unwrap() = Some(system.to_owned());
-            Err(ProviderError::ContextLengthExceeded(
-                "summary context exceeded".to_owned(),
+            *self.system.lock().unwrap() = Some(request.system);
+            Err(Error::new(
+                ErrorKind::ContextOverflow,
+                "summary context exceeded",
             ))
         }
     }
@@ -503,7 +526,12 @@ mod summary {
     #[tokio::test]
     async fn rejects_truncated_output() {
         let valid = structured(serde_json::json!({"user_intent":["Fix the parser"]}));
-        for (limited, finish) in [(true, "stop"), (false, "length"), (false, "max_tokens")] {
+        for (limited, finish) in [
+            (true, "stop"),
+            (false, "length"),
+            (false, "max_tokens"),
+            (false, "max_output_tokens"),
+        ] {
             let provider = Scripted::new([Reply {
                 text: valid.clone(),
                 limited,
@@ -561,19 +589,16 @@ mod summary {
             request[0].as_concat_text(),
             "Please summarize the conversation history provided in the system prompt."
         );
-        let expected_input = tokens::chat(&system, &request) as i32;
-        let expected_output = tokens::text(&MessageContent::text(normalized).to_string()) as i32;
-        assert_eq!(usage.usage.input_tokens, Some(expected_input));
-        assert_eq!(usage.usage.output_tokens, Some(expected_output));
-        assert_eq!(
-            usage.usage.total_tokens,
-            Some(expected_input + expected_output)
-        );
+        let expected_input = tokens::chat(&system, &request) as u64;
+        let expected_output = tokens::text(&normalized) as u64;
+        assert_eq!(usage.input, Some(expected_input));
+        assert_eq!(usage.output, Some(expected_output));
+        assert_eq!(usage.total, Some(expected_input + expected_output));
         assert_ne!(
             expected_output,
-            tokens::text(&summary.as_concat_text()) as i32
+            tokens::text(&summary.as_concat_text()) as u64
         );
-        assert_eq!(summary.role, rmcp::model::Role::User);
+        assert_eq!(summary.role, model::Role::User);
     }
 
     #[tokio::test]
@@ -581,9 +606,9 @@ mod summary {
         for (input, output) in [(Some(123), None), (None, Some(45)), (Some(123), Some(45))] {
             let provider = Scripted::new([Reply {
                 usage: Usage {
-                    input_tokens: input,
-                    output_tokens: output,
-                    total_tokens: Some(999),
+                    input,
+                    output,
+                    total: Some(999),
                     ..Usage::default()
                 },
                 ..reply(structured(
@@ -595,14 +620,14 @@ mod summary {
                 .await
                 .unwrap();
             if let Some(input) = input {
-                assert_eq!(usage.usage.input_tokens, Some(input));
+                assert_eq!(usage.input, Some(input));
             }
             if let Some(output) = output {
-                assert_eq!(usage.usage.output_tokens, Some(output));
+                assert_eq!(usage.output, Some(output));
             }
             assert_eq!(
-                usage.usage.total_tokens,
-                Some(usage.usage.input_tokens.unwrap() + usage.usage.output_tokens.unwrap())
+                usage.total,
+                Some(usage.input.unwrap() + usage.output.unwrap())
             );
         }
     }
@@ -751,7 +776,7 @@ mod summary {
         let provider = Arc::new(Pending::default());
         let operation = Compaction {
             provider: provider.clone(),
-            config: ModelConfig::new("pending-fixture"),
+            config: config("pending-fixture"),
             context: 64_000,
             threshold: 0.8,
             preparer: preparer(&node, &invocation, &stop),
@@ -765,7 +790,6 @@ mod summary {
         )]);
         let (sender, _) = tokio::sync::mpsc::unbounded_channel();
         let emit = Emitter::new(sender, stop.clone());
-        let machine = StateMachine::new(vec![Step::Operation(Arc::new(operation))], stop.clone());
         let cancel = {
             let provider = provider.clone();
             let stop = stop.clone();
@@ -774,7 +798,13 @@ mod summary {
                 stop.cancel();
             })
         };
-        let result = machine.step(&session, &emit).await.unwrap();
+        let Outcome::Applied(result) = operation
+            .run(&session, &session.conversation, &emit)
+            .await
+            .unwrap()
+        else {
+            panic!("manual compaction expected")
+        };
         cancel.await.unwrap();
         assert_eq!(result.status, RunStatus::Cancelled);
         assert!(result.effects.is_empty());

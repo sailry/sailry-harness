@@ -5,6 +5,13 @@ use rig_core::message::{
     DocumentSourceKind, Image, ImageMediaType, Message, MimeType, Origin, ProviderCallId,
     Reasoning, Text, ToolCall, ToolFunction, ToolName, ToolResult, ToolResultContent, UserContent,
 };
+use rig_core::{
+    completion::{Media, Place, ReplayTarget, history::TOOL_IMAGE_OMITTED},
+    providers::openai::{
+        OpenAIConfig,
+        wire::{Chat, DEEPSEEK, OPENAI},
+    },
+};
 use rmcp::model::{ContentBlock, ResourceContents};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -18,6 +25,14 @@ pub(super) fn messages(
 ) -> Result<Vec<Message>, Error> {
     let mut messages = Vec::new();
     let mut calls = BTreeMap::<String, ToolName>::new();
+    let chat = (origin.api.as_str() == "openai.chat").then(|| {
+        let dialect = if origin.provider == "deepseek" {
+            DEEPSEEK
+        } else {
+            OPENAI
+        };
+        Chat::new(OpenAIConfig::with_key(&dialect, ""), &origin.model)
+    });
     let active = source.iter().rposition(|message| {
         message.metadata.agent_visible
             && message.role == Role::User
@@ -49,10 +64,18 @@ pub(super) fn messages(
             }
             if let Content::ToolResult(result) = content {
                 flush(&mut messages, &mut assistant, &mut user, origin);
-                let result = result_content(result, &calls, origin, media)?;
+                let mut result = result_content(result, &calls, origin, media)?;
+                let images = if let Some(chat) = &chat {
+                    chat_result(&mut result, chat)
+                } else {
+                    Vec::new()
+                };
                 messages.push(Message::User {
                     content: vec![UserContent::ToolResult(result)],
                 });
+                if !images.is_empty() {
+                    messages.push(Message::User { content: images });
+                }
                 continue;
             }
             match message.role {
@@ -198,6 +221,7 @@ fn assistant_content(
                 }
                 "openai.chat" => {
                     let mut part = call.metadata.unwrap_or_default();
+                    part.insert(super::super::wire::CALL_ID.into(), call.id.clone().into());
                     part.insert("id".into(), call.id.into());
                     part.insert("type".into(), "function".into());
                     part.insert(
@@ -363,6 +387,31 @@ fn result_content(
         content,
         is_error,
     })
+}
+
+fn chat_result(result: &mut ToolResult, target: &Chat) -> Vec<UserContent> {
+    let mut text = Vec::new();
+    let mut images = Vec::new();
+    let accepts_images = target.accepts(target.model()).user_images;
+    for content in std::mem::take(&mut result.content) {
+        match content {
+            ToolResultContent::Text(content) => text.push(content.text),
+            ToolResultContent::Json { value } => text.push(value.to_string()),
+            ToolResultContent::Image(image) => {
+                let note = if accepts_images
+                    && target.encodes(target.model(), Media::Image(&image, Place::User))
+                {
+                    images.push(UserContent::Image(image));
+                    "This tool result included an image that is uploaded in the next message."
+                } else {
+                    TOOL_IMAGE_OMITTED
+                };
+                text.push(note.into());
+            }
+        }
+    }
+    result.content = vec![ToolResultContent::Text(Text::new(text.join(" ")))];
+    images
 }
 
 // Resource projection preserves Goose 14741e9a's mcp_utils behavior (Apache-2.0).

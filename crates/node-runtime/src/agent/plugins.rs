@@ -21,15 +21,7 @@ pub(super) struct Contribution {
     pub context: String,
     /// Discrete plugin script parts. The Node persists each once per conversation.
     pub parts: Vec<String>,
-    pub callbacks: Vec<(
-        i16,
-        Arc<
-            dyn goose_agent::operation::Operation<
-                    crate::store::agent::RuntimeSession,
-                    super::engine::Effect,
-                >,
-        >,
-    )>,
+    pub callbacks: Vec<(i16, Arc<dyn super::engine::Callback>)>,
     pub images: Vec<(Vec<String>, usize)>,
     pub completion: Arc<AtomicBool>,
     loaded: BTreeSet<String>,

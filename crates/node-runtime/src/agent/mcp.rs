@@ -14,9 +14,9 @@ mod transport;
 use super::catalog::Registration;
 use super::*;
 use crate::agent::{canonical::ToolIdentity, catalog::CallContext};
+use crate::agent::{catalog::ToolProvider, engine::Emitter};
 use crate::plugins::mcp::MAX_TOOLS;
 use async_trait::async_trait;
-use goose_agent::{operation::Emitter, tool::ToolProvider};
 use rmcp::model::{CallToolRequestParams, CallToolResult, ErrorData};
 use rmcp::{
     RoleClient,

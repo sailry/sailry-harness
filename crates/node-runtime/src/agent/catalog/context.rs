@@ -1,10 +1,11 @@
 //! A tool call uses one immutable Node identity and captured session context.
 use super::*;
 use crate::agent::canonical::{Context, ToolIdentity};
-use goose_agent::machine::MachineSession;
 use rmcp::model::CallToolRequestParams;
 
-pub(crate) trait CatalogSession: MachineSession {
+pub(crate) trait CatalogSession {
+    fn id(&self) -> &str;
+    fn conversation(&self) -> Option<&[crate::agent::model::Message]>;
     fn context(&self) -> &Context;
 }
 

@@ -1,24 +1,11 @@
-//! Goose reloads and effects use the existing Node storage worker.
+//! Session reloads and effects use the existing Node storage worker.
 use super::*;
 use crate::agent::{
     canonical::*,
-    engine::{Effect, history as conversion},
-    model::gdk,
+    engine::{ConversationEffect, Effect, history as conversion},
+    model::{self, Content, Message as ModelMessage},
 };
-use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use goose_agent::{
-    machine::{EffectHandler, MachineSession, SessionLoader},
-    operation::{ConversationEffect, Emitter},
-};
-use goose_provider_types::{
-    conversation::{
-        Conversation,
-        message::{Message as GdkMessage, MessageContent, MessageUsage},
-        token_usage::ProviderUsage,
-    },
-    thinking::ThinkingEffort,
-};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 mod presentation;
@@ -42,10 +29,11 @@ pub(crate) struct Sessions {
     notices: Vec<sailry_protocol::conversation::background::Notice>,
     notice_input: Option<String>,
     presentation: Presentation,
-    thinking: Option<ThinkingEffort>,
+    thinking: Option<sailry_protocol::Effort>,
     invocation: Option<Arc<Invocation>>,
     bindings: BTreeMap<String, ApprovalBinding>,
     connections: Vec<sailry_protocol::connection::Resource>,
+    projection: Arc<tokio::sync::Mutex<conversion::Cache>>,
 }
 
 impl Sessions {
@@ -64,6 +52,7 @@ impl Sessions {
             invocation: None,
             bindings: BTreeMap::new(),
             connections: Vec::new(),
+            projection: Arc::default(),
         }
     }
     pub(crate) fn with_input_turn(mut self, turn: TurnId) -> Self {
@@ -98,7 +87,7 @@ impl Sessions {
         self.presentation.delegations = delegations;
         self
     }
-    pub(crate) fn with_thinking(mut self, thinking: Option<ThinkingEffort>) -> Self {
+    pub(crate) fn with_thinking(mut self, thinking: Option<sailry_protocol::Effort>) -> Self {
         self.thinking = thinking;
         self
     }
@@ -123,6 +112,7 @@ impl Sessions {
             .submit(Job::Agent(Box::new(super::Operation::Get {
                 turn: self.turn,
                 request: query,
+                projection: self.projection.clone(),
                 reply,
             })))
             .await
@@ -222,37 +212,30 @@ pub(crate) struct Session {
     pub id: String,
     pub records: Vec<Record>,
     pub tool_names: BTreeSet<String>,
-    pub conversation: Conversation,
+    pub conversation: Vec<ModelMessage>,
     pub context: Context,
     pub capability: Option<String>,
     pub reviewed: bool,
     #[cfg(test)]
     pub state: std::collections::HashMap<String, Value>,
-    pub thinking: Option<ThinkingEffort>,
+    pub thinking: Option<sailry_protocol::Effort>,
     pub invocation: Option<Arc<Invocation>>,
 }
 
-impl MachineSession for Session {
+impl crate::agent::catalog::CatalogSession for Session {
     fn id(&self) -> &str {
         &self.id
     }
-    fn conversation(&self) -> Option<&Conversation> {
+    fn conversation(&self) -> Option<&[ModelMessage]> {
         Some(&self.conversation)
     }
-    fn thinking_effort(&self) -> Option<ThinkingEffort> {
-        self.thinking
-    }
-}
-
-impl crate::agent::catalog::CatalogSession for Session {
     fn context(&self) -> &Context {
         &self.context
     }
 }
 
-#[async_trait]
-impl SessionLoader<Session> for Sessions {
-    async fn load(&self, session: &str) -> anyhow::Result<Session> {
+impl Sessions {
+    pub(crate) async fn load(&self, session: &str) -> anyhow::Result<Session> {
         let mut session = self
             .get(Query {
                 session: session.parse().map_err(anyhow::Error::msg)?,
@@ -266,13 +249,11 @@ impl SessionLoader<Session> for Sessions {
     }
 }
 
-#[async_trait]
-impl EffectHandler<Session, Effect> for Sessions {
-    async fn apply_effects(
+impl Sessions {
+    pub(crate) async fn apply_effects(
         &self,
         session: &Session,
         effects: &mut [Effect],
-        _: &Emitter,
     ) -> anyhow::Result<()> {
         let mut pending = Vec::new();
         for effect in effects.iter() {
@@ -331,7 +312,7 @@ impl EffectHandler<Session, Effect> for Sessions {
                             }
                             _ => "Tool execution was denied.".to_owned(),
                         };
-                        let message = GdkMessage::user().with_generated_id().with_tool_response(
+                        let message = ModelMessage::user().with_generated_id().with_tool_response(
                             request
                                 .id
                                 .clone()
@@ -354,13 +335,8 @@ impl EffectHandler<Session, Effect> for Sessions {
                     .content
                     .iter()
                     .filter_map(|content| match content {
-                        MessageContent::ToolRequest(request) => {
-                            request.tool_call.as_ref().ok().map(|call| {
-                                (
-                                    call.name.to_string(),
-                                    Value::Object(call.arguments.clone().unwrap_or_default()),
-                                )
-                            })
+                        Content::ToolCall(request) if request.error.is_none() => {
+                            Some((request.name.clone(), request.arguments.clone()))
                         }
                         _ => None,
                     })
@@ -387,13 +363,28 @@ impl EffectHandler<Session, Effect> for Sessions {
     }
 }
 
+#[cfg(test)]
 pub(super) async fn get(db: &Connection, turn: TurnId, query: Query) -> Result<Session, Fault> {
+    get_cached(db, turn, query, &mut conversion::Cache::default()).await
+}
+
+pub(super) async fn get_cached(
+    db: &Connection,
+    turn: TurnId,
+    query: Query,
+    projection: &mut conversion::Cache,
+) -> Result<Session, Fault> {
     let transaction = crate::store::database::conflict::begin_read(db).await?;
-    let result = snapshot(&transaction, turn, query).await;
+    let result = snapshot(&transaction, turn, query, Some(projection)).await;
     crate::store::database::conflict::finish_read(transaction, result).await
 }
 
-async fn snapshot(db: &Connection, turn: TurnId, query: Query) -> Result<Session, Fault> {
+async fn snapshot(
+    db: &Connection,
+    turn: TurnId,
+    query: Query,
+    mut projection: Option<&mut conversion::Cache>,
+) -> Result<Session, Fault> {
     check_session(db, query.session).await?;
     let owns: bool = db
         .query(
@@ -409,11 +400,12 @@ async fn snapshot(db: &Connection, turn: TurnId, query: Query) -> Result<Session
     if !owns {
         return Err(Fault::invalid("session does not belong to this invocation"));
     }
-    let mut rows = db.query("SELECT e.body FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1 ORDER BY h.sequence",[query.session.to_string()]).await.map_err(storage_error)?;
+    let mut rows = db.query("SELECT e.sequence,e.body FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1 ORDER BY h.sequence",[query.session.to_string()]).await.map_err(storage_error)?;
     let mut records = Vec::new();
     let mut tool_names = BTreeSet::new();
     while let Some(row) = rows.next().await.map_err(storage_error)? {
-        let body: Vec<u8> = row.get(0).map_err(storage_error)?;
+        let sequence: i64 = row.get(0).map_err(storage_error)?;
+        let body: Vec<u8> = row.get(1).map_err(storage_error)?;
         let record: Record = serde_json::from_slice(&body).map_err(storage_error)?;
         for block in record
             .message()
@@ -425,22 +417,24 @@ async fn snapshot(db: &Connection, turn: TurnId, query: Query) -> Result<Session
             }
         }
         if query.after.is_none_or(|after| record.created >= after) {
-            records.push(record);
+            records.push((sequence, record));
         }
     }
     if let Some(recent) = query.recent {
         records = records.into_iter().rev().take(recent).collect();
         records.reverse();
     }
-    let mut messages: Vec<GdkMessage> = Vec::new();
-    for record in &records {
+    let mut messages: Vec<ModelMessage> = Vec::new();
+    for (sequence, record) in &records {
+        let Some(projection) = projection.as_deref_mut() else {
+            break;
+        };
         if matches!(&record.kind, Kind::Compaction(_)) {
             for message in &mut messages {
                 message.metadata.agent_visible = false;
             }
         }
-        if let Some(message) = conversion::project(db, record).await? {
-            let message = gdk::to_message(&message);
+        if let Some(message) = projection.project(db, *sequence, record).await? {
             if let Some(after) = record
                 .metadata
                 .runtime
@@ -467,9 +461,9 @@ async fn snapshot(db: &Connection, turn: TurnId, query: Query) -> Result<Session
     let state = history::state(db, query.session).await?;
     Ok(Session {
         id: query.session.to_string(),
-        records,
+        records: records.into_iter().map(|(_, record)| record).collect(),
         tool_names,
-        conversation: Conversation::new_unvalidated(messages),
+        conversation: messages,
         context: Context::from_state(&state),
         capability: capability(db, query.session).await?,
         reviewed: super::questions::reviewed(db, turn).await?,
@@ -521,7 +515,7 @@ async fn capability(db: &Connection, session: SessionId) -> Result<Option<String
         }))
 }
 
-fn apply_operation(messages: &mut [GdkMessage], operation: &crate::agent::canonical::Operation) {
+fn apply_operation(messages: &mut [ModelMessage], operation: &crate::agent::canonical::Operation) {
     use crate::agent::canonical::Operation as Change;
     match operation {
         Change::Visibility {
@@ -539,7 +533,7 @@ fn apply_operation(messages: &mut [GdkMessage], operation: &crate::agent::canoni
         }
         Change::ToolMeta { call, patch } => {
             for content in messages.iter_mut().flat_map(|message| &mut message.content) {
-                if let MessageContent::ToolRequest(request) = content
+                if let Content::ToolCall(request) = content
                     && request.id == *call
                 {
                     let meta = request.tool_meta.get_or_insert_with(|| json!({}));
@@ -581,27 +575,30 @@ pub(super) async fn effects(
     timeline: Option<Arc<crate::agent::observation::Timeline>>,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<(), Fault> {
-    let current = get(
-        &database.connection,
+    let transaction = crate::store::database::conflict::begin_read(&database.connection).await?;
+    let current = snapshot(
+        &transaction,
         turn,
         Query {
             session,
             recent: None,
             after: None,
         },
+        None,
     )
-    .await?;
+    .await;
+    let current = crate::store::database::conflict::finish_read(transaction, current).await?;
     let mut calls = BTreeMap::new();
-    for content in current
-        .conversation
-        .messages()
+    for block in current
+        .records
         .iter()
+        .filter_map(Record::message)
         .flat_map(|message| &message.content)
     {
-        if let MessageContent::ToolRequest(request) = content
-            && let Ok(call) = &request.tool_call
+        if let BlockKind::ToolRequest(request) = &block.kind
+            && request.error.is_none()
         {
-            calls.insert(request.id.clone(), call.name.to_string());
+            calls.insert(request.id.clone(), request.name.clone());
         }
     }
     // Every inference attempt is billed separately, including empty responses.
@@ -613,32 +610,41 @@ pub(super) async fn effects(
         })
         .collect();
     let usage = attempts.pop();
-    let last = effects.iter().rposition(|effect| matches!(effect,
-        Effect::Conversation(ConversationEffect::AppendMessage(message))
-            if message.role == rmcp::model::Role::Assistant && message.error_kind().is_none()
-    )).or_else(|| effects.iter().rposition(|effect| matches!(effect,
-        Effect::Conversation(ConversationEffect::AppendMessage(message))
-            if message.role == rmcp::model::Role::Assistant
-    )));
+    let last = effects
+        .iter()
+        .rposition(|effect| {
+            matches!(effect,
+                Effect::Conversation(ConversationEffect::AppendMessage(message))
+                    if message.role == model::Role::Assistant && message.error_kind().is_none()
+            )
+        })
+        .or_else(|| {
+            effects.iter().rposition(|effect| {
+                matches!(effect,
+                    Effect::Conversation(ConversationEffect::AppendMessage(message))
+                        if message.role == model::Role::Assistant
+                )
+            })
+        });
     if let Some(usage) = &usage
         && let Some(index) = last
         && let Effect::Conversation(ConversationEffect::AppendMessage(message)) =
             &mut effects[index]
     {
-        message.metadata.usage = Some(Box::new(MessageUsage::from_provider_usage(usage, false)));
+        message.metadata.usage = Some(Box::new(usage.clone()));
     }
     let mut pending = Vec::new();
     if last.is_none() {
         attempts.extend(usage.iter().cloned());
     }
     for usage in attempts {
-        let mut message = GdkMessage::assistant()
+        let mut message = ModelMessage::assistant()
             .with_generated_id()
             .with_visibility(false, false);
-        message.metadata.usage = Some(Box::new(MessageUsage::from_provider_usage(&usage, false)));
+        message.metadata.usage = Some(Box::new(usage.clone()));
         pending.push(history::Input::Message(history::Message {
-            message: gdk::from_message(&message),
-            usage: Some(gdk::from_usage(&usage)),
+            message,
+            usage: Some(usage),
             calls: calls.clone(),
             presentation: presentation.clone(),
             timeline: timeline.clone(),
@@ -658,17 +664,15 @@ pub(super) async fn effects(
             }
             Effect::Conversation(ConversationEffect::AppendMessage(message)) => {
                 for content in &message.content {
-                    if let MessageContent::ToolRequest(request) = content
-                        && let Ok(call) = &request.tool_call
+                    if let Content::ToolCall(request) = content
+                        && request.error.is_none()
                     {
-                        calls.insert(request.id.clone(), call.name.to_string());
+                        calls.insert(request.id.clone(), request.name.clone());
                     }
                 }
                 pending.push(history::Input::Message(history::Message {
-                    message: gdk::from_message(&message),
-                    usage: (last == Some(index))
-                        .then(|| usage.as_ref().map(gdk::from_usage))
-                        .flatten(),
+                    message,
+                    usage: (last == Some(index)).then(|| usage.clone()).flatten(),
                     calls: calls.clone(),
                     presentation: presentation.clone(),
                     timeline: timeline.clone(),
@@ -682,11 +686,6 @@ pub(super) async fn effects(
             } => pending.push(history::Input::Summary(summary_input(
                 &current, *summary, usage, files, tools,
             )?)),
-            Effect::Conversation(ConversationEffect::ReplaceConversation(_)) => {
-                return Err(Fault::invalid(
-                    "conversation replacement requires a compaction checkpoint",
-                ));
-            }
             Effect::Conversation(effect) => {
                 let operation = match effect {
                     ConversationEffect::SetMessageVisibility {
@@ -705,34 +704,9 @@ pub(super) async fn effects(
                         call: tool_call_id,
                         patch,
                     },
-                    ConversationEffect::SetMessageOperationNote {
-                        message_id,
-                        operation,
-                        key,
-                        value,
-                    } => {
-                        let note = match (operation.as_str(), key.as_str()) {
-                            ("inference", "empty_response") => OperationNote::EmptyResponse,
-                            ("foreground_subagent", "delivered") => {
-                                OperationNote::SubagentDelivered {
-                                    session: serde_json::from_value(value)
-                                        .map_err(storage_error)?,
-                                }
-                            }
-                            ("foreground_subagent", "cancelled") => {
-                                OperationNote::SubagentsCancelled {
-                                    sessions: serde_json::from_value(value)
-                                        .map_err(storage_error)?,
-                                }
-                            }
-                            _ => return Err(Fault::invalid("operation note is unsupported")),
-                        };
-                        crate::agent::canonical::Operation::Note {
-                            message: message_id,
-                            note,
-                        }
+                    ConversationEffect::AppendMessage(_) => {
+                        unreachable!("append handled above")
                     }
-                    _ => unreachable!("append and replace handled above"),
                 };
                 let mut record = Record::new(turn, Kind::Operation(operation));
                 record.provenance.author = "system".into();
@@ -750,8 +724,8 @@ pub(super) async fn effects(
 
 fn summary_input(
     current: &Session,
-    mut summary: GdkMessage,
-    usage: ProviderUsage,
+    mut summary: ModelMessage,
+    mut usage: model::Usage,
     files: Vec<CompactedFile>,
     tools: Vec<String>,
 ) -> Result<history::Summary, Fault> {
@@ -763,10 +737,11 @@ fn summary_input(
     else {
         return Err(Fault::invalid("compaction history is empty"));
     };
-    summary.metadata.usage = Some(Box::new(MessageUsage::from_provider_usage(&usage, true)));
+    usage.is_compaction = true;
+    summary.metadata.usage = Some(Box::new(usage.clone()));
     Ok(history::Summary {
-        message: gdk::from_message(&summary),
-        usage: gdk::from_usage(&usage),
+        message: summary,
+        usage,
         boundary: boundary.id.clone(),
         start: current
             .records

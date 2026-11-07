@@ -27,13 +27,13 @@ fn carries_exact_tool_identity_and_unchanged_bodies() {
         canonical.clone(),
         serde_json::Map::new(),
     )];
-    let mut input = crate::agent::model::gdk::request(
-        &ModelConfig::new("fixture"),
-        &canonical,
-        &messages,
-        &tools,
-    )
-    .unwrap();
+    let mut input = Request {
+        model: "fixture".into(),
+        system: canonical.clone(),
+        messages: messages.to_vec(),
+        tools: tools.into_iter().map(Into::into).collect(),
+        ..Default::default()
+    };
     input.messages = names.messages(&input.messages).into_owned();
     input.tools = names.tools(&input.tools).into_owned();
     for dialect in [Dialect::Generic, Dialect::OpenAi, Dialect::Gemini] {
@@ -122,9 +122,11 @@ fn pairs_reused_ids_with_current_owner() {
             )])),
         ),
     ];
-    let mut input =
-        crate::agent::model::gdk::request(&ModelConfig::new("fixture"), "", &messages, &[])
-            .unwrap();
+    let mut input = Request {
+        model: "fixture".into(),
+        messages: messages.to_vec(),
+        ..Default::default()
+    };
     input.messages = names.messages(&input.messages).into_owned();
     let wire = translation::convert(
         &input,
@@ -150,8 +152,8 @@ fn pairs_reused_ids_with_current_owner() {
         })
         .collect();
     assert_eq!(actual, [old.as_str(), "read"]);
-    let MessageContentBlock::ToolRequest(request) = &messages[3].content[0] else {
+    let Part::ToolCall(request) = &messages[3].content[0] else {
         unreachable!()
     };
-    assert_eq!(request.tool_call.as_ref().unwrap().name, current);
+    assert_eq!(request.name, current);
 }

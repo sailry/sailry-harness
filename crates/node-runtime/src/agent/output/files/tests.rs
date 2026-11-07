@@ -27,10 +27,10 @@ fn response(value: Value) -> Message {
 }
 
 fn result(message: &Message) -> &CallToolResult {
-    let MessageContentBlock::ToolResponse(response) = &message.content[0] else {
+    let Content::ToolResult(response) = &message.content[0] else {
         panic!("tool response expected")
     };
-    response.tool_result.as_ref().unwrap()
+    response.result.as_ref().unwrap()
 }
 
 fn text(result: &CallToolResult) -> &str {
@@ -218,10 +218,10 @@ fn preserves_result_projection() {
             "removes_only_the_raw_mirror",
             (|scenario: &'static str| {
                 let mut original = response(original("source evidence\n", 0));
-                let MessageContentBlock::ToolResponse(response) = &mut original.content[0] else {
+                let Content::ToolResult(response) = &mut original.content[0] else {
                     unreachable!()
                 };
-                let result = response.tool_result.as_mut().unwrap();
+                let result = response.result.as_mut().unwrap();
                 let ContentBlock::Text(mirror) = &mut result.content[0] else {
                     unreachable!()
                 };
@@ -433,7 +433,7 @@ mod unchanged {
                 (|scenario: &'static str| {
                     let full = original(TEXT, 0);
                     let mut hidden = read("hidden", &full);
-                    hidden.metadata = hidden.metadata.with_agent_invisible();
+                    hidden.metadata.agent_visible = false;
                     let mut messages = vec![hidden, read("visible", &full)];
                     super::super::super::project(&mut messages);
                     assert!(shown(&messages, 1).contains("\n1\talpha\n"), "{scenario}");

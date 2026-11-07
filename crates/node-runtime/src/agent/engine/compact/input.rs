@@ -1,5 +1,5 @@
 //! Bounded summary input; canonical history and the latest turn stay intact.
-use super::{Message, MessageContent, PROMPT, format, templates::render, tokens};
+use super::{Content, Message, PROMPT, Role, format, templates::render, tokens};
 
 const EDGE_CHARS: usize = 1_000;
 // Covers the summary request, role wrappers and token-estimation boundaries.
@@ -91,19 +91,17 @@ fn turns(messages: &[Message]) -> Vec<&[Message]> {
 }
 
 fn user_input(message: &Message) -> bool {
-    message.role == rmcp::model::Role::User
+    message.role == Role::User
         && message.content.iter().any(|content| {
             matches!(
                 content,
-                MessageContent::Text(_) | MessageContent::Image(_) | MessageContent::Document(_)
+                Content::Text { .. } | Content::Image { .. } | Content::Document { .. }
             )
         })
-        && !message.content.iter().any(|content| {
-            matches!(
-                content,
-                MessageContent::ToolRequest(_) | MessageContent::ToolResponse(_)
-            )
-        })
+        && !message
+            .content
+            .iter()
+            .any(|content| matches!(content, Content::ToolCall(_) | Content::ToolResult(_)))
 }
 
 fn transcript(messages: &[Message], detail: Option<Detail>) -> String {
@@ -118,30 +116,37 @@ fn transcript(messages: &[Message], detail: Option<Detail>) -> String {
         for content in &message.content {
             if matches!(
                 content,
-                MessageContent::Thinking(_) | MessageContent::RedactedThinking(_)
+                Content::Thinking { .. } | Content::RedactedThinking { .. }
             ) {
                 continue;
             }
-            let mut projected = Message::new(message.role.clone(), 0, vec![content.clone()]);
+            let mut projected = Message {
+                role: message.role,
+                created: 0,
+                content: vec![content.clone()],
+                ..Message::default()
+            };
             if matches!(detail, Some(Detail::WithoutTools))
-                && matches!(content, MessageContent::ToolResponse(_))
+                && matches!(content, Content::ToolResult(_))
             {
-                projected.content = vec![MessageContent::text("tool_response: [omitted]")];
+                projected.content = vec![Content::Text {
+                    text: "tool_response: [omitted]".into(),
+                }];
             }
             let formatted = format::message(&projected);
             let formatted = match (detail, content) {
-                (Some(Detail::Preview), MessageContent::ToolResponse(_)) => {
+                (Some(Detail::Preview), Content::ToolResult(_)) => {
                     match formatted.split_once("tool_response: ") {
                         Some((role, body)) => format!("{role}tool_response: {}", edges(body)),
                         None => formatted,
                     }
                 }
-                (Some(Detail::WithoutTools), MessageContent::ToolRequest(_)) => edges(&formatted),
+                (Some(Detail::WithoutTools), Content::ToolCall(_)) => edges(&formatted),
                 _ => formatted,
             };
             parts.push(formatted);
-            if let MessageContent::ToolResponse(response) = content
-                && let Ok(result) = &response.tool_result
+            if let Content::ToolResult(response) = content
+                && let Ok(result) = &response.result
             {
                 let source = message.metadata.operation_note("tool_output", &response.id)
                     .and_then(serde_json::Value::as_str)

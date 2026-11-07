@@ -93,7 +93,9 @@ async fn preserves_native_outcomes() {
             "eof" | "done" => "Draft",
             "completed" | "incomplete" | "absent" | "unknown" => "Authorized Codex response",
             "failed" => "",
-            "empty" => goose_agent::inference::EMPTY_RESPONSE_MESSAGE,
+            "empty" => {
+                "The model returned an empty response. Please resend your message to continue."
+            }
             _ => unreachable!(),
         };
         assert_eq!(answer(&page, turn.id), expected, "{outcome}");

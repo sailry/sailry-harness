@@ -68,7 +68,7 @@ fn preserves_latest_tool_rounds() {
         input
             .iter()
             .flat_map(|message| &message.content)
-            .all(|content| matches!(content, MessageContent::Text(_)))
+            .all(|content| matches!(content, Content::Text { .. }))
     );
 }
 

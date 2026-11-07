@@ -2,11 +2,15 @@ use super::*;
 use crate::agent::engine::prompt::input_evidence::{Input, counts, inputs};
 
 fn convert(input: &Input, dialect: Dialect) -> wire::Request {
-    request::convert(
-        &ModelConfig::new("fixture-input").with_max_tokens(Some(8192)),
-        &input.system,
-        &input.messages,
-        &input.tools,
+    translation::convert(
+        &crate::agent::model::Request {
+            model: "fixture-input".into(),
+            system: input.system.clone(),
+            messages: input.messages.clone(),
+            tools: input.tools.iter().cloned().map(Into::into).collect(),
+            max_tokens: Some(8192),
+            ..Default::default()
+        },
         request::Context {
             endpoint: "https://fixture.invalid",
             session: "fixed-fixture-session",

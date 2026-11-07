@@ -1,28 +1,36 @@
-//! Sailry's captured instructions and tool discovery enter GDK's prompt hooks.
+//! Sailry's captured instructions and tool discovery form each model request.
 //! Stable instructions form the system prompt so provider prompt caches survive
 //! across requests; per-turn state is persisted as agent-only turn context.
-use super::{Effect, Session};
+use super::Session;
 use crate::{
     agent::{
         attachments,
         canonical::{BlockKind, Kind},
+        model::Message,
         model::observation::{Context, Source},
         prompt::instructions,
     },
     store::{Ingress, agent::Invocation},
 };
-use async_trait::async_trait;
-use goose_agent::{
-    inference::{InferenceRequestPreparer, PreparedInferenceRequest},
-    operation::{InferenceInput, Operation},
-};
-use goose_provider_types::conversation::Conversation;
 use sailry_link::CancellationToken;
 use sailry_protocol::conversation::observation::CategoryKind;
 use std::{collections::BTreeSet, sync::Arc};
 
 mod contexts;
 mod owners;
+
+#[derive(Default)]
+pub(super) struct InferenceInput {
+    pub tools: Vec<rmcp::model::Tool>,
+    pub instructions: Vec<(String, String)>,
+    pub contexts: Vec<String>,
+}
+
+pub(crate) struct PreparedInferenceRequest {
+    pub system_prompt: String,
+    pub tools: Vec<rmcp::model::Tool>,
+    pub additional_messages: Vec<Message>,
+}
 
 pub(super) struct Prompt {
     pub instruction: String,
@@ -32,15 +40,10 @@ pub(super) struct Prompt {
     pub parts: Vec<String>,
 }
 
-#[async_trait]
-impl Operation<Session, Effect> for Prompt {
-    fn name(&self) -> &'static str {
-        "prompt"
-    }
-    async fn prompt_parts(
+impl Prompt {
+    pub(super) async fn instructions(
         &self,
         session: &Session,
-        _: &Conversation,
     ) -> anyhow::Result<Vec<(String, String)>> {
         let context = &session.context;
         let mut parts = vec![("instruction".into(), self.instruction.clone())];
@@ -68,7 +71,7 @@ impl Operation<Session, Effect> for Prompt {
         Ok(parts)
     }
 
-    async fn moim_parts(&self, session: &Session, _: &Conversation) -> anyhow::Result<Vec<String>> {
+    pub(super) async fn contexts(&self, session: &Session) -> anyhow::Result<Vec<String>> {
         let mut parts: Vec<_> = [session.context.environment.as_ref(), Some(&self.context)]
             .into_iter()
             .flatten()
@@ -99,23 +102,23 @@ pub(super) struct Preparer {
     pub parts: Vec<String>,
     pub sources: crate::agent::model::observation::Sources,
     /// Unavailable history warns once per attachment across this turn's requests.
-    pub reported: attachments::Reported,
+    pub attachments: attachments::Cache,
+    pub output: tokio::sync::Mutex<crate::agent::output::Cache>,
 }
-#[async_trait]
-impl InferenceRequestPreparer<Session> for Preparer {
-    async fn prepare_session(&self, session: &Session) -> anyhow::Result<Option<Session>> {
-        let mut session = session.clone();
-        self.hydrate(&mut session.conversation).await?;
-        crate::agent::output::project(session.conversation.messages_mut());
+impl Preparer {
+    pub(super) async fn prepare_messages(&self, session: &Session) -> anyhow::Result<Vec<Message>> {
+        let mut messages = session.conversation.clone();
+        self.hydrate(&mut messages).await?;
+        self.output.lock().await.project(&mut messages);
         // Compaction hydrates without these owner prompt parts, so it retains
         // full skill results. Only ordinary inference receives the receipts.
-        owners::collect(&session.records).project(session.conversation.messages_mut());
-        Ok(Some(session))
+        owners::collect(&session.records).project(&mut messages);
+        Ok(messages)
     }
-    async fn prepare(
+    pub(super) async fn prepare(
         &self,
         session: &Session,
-        conversation: &Conversation,
+        conversation: &[Message],
         input: InferenceInput,
     ) -> anyhow::Result<PreparedInferenceRequest> {
         let retained = owners::collect(&session.records);
@@ -127,17 +130,16 @@ impl InferenceRequestPreparer<Session> for Preparer {
             .chain(self.parts.iter().map(String::as_str))
             .collect();
         let mut input = input;
-        input.moim_parts =
-            contexts::pending(conversation, &owned, std::mem::take(&mut input.moim_parts));
+        input.contexts =
+            contexts::pending(conversation, &owned, std::mem::take(&mut input.contexts));
         let mut contexts: Vec<_> = conversation
-            .messages()
             .iter()
             .filter(|message| message.is_turn_context() && message.is_agent_visible())
             .map(|message| Context::persisted(message.as_concat_text(), &skills))
             .collect();
         contexts.extend(Context::new(
             input
-                .moim_parts
+                .contexts
                 .iter()
                 .map(|text| Source {
                     kind: if owners
@@ -154,7 +156,7 @@ impl InferenceRequestPreparer<Session> for Preparer {
         ));
         self.sources.replace_with_contexts(
             input
-                .prompt_parts
+                .instructions
                 .iter()
                 .filter(|(name, _)| name != "instruction")
                 .map(|(_, text)| Source {
@@ -195,7 +197,7 @@ fn loaded(session: &Session) -> Vec<String> {
 impl Preparer {
     pub(super) async fn hydrate(
         &self,
-        conversation: &mut Conversation,
+        conversation: &mut [Message],
     ) -> Result<(), sailry_protocol::Fault> {
         let model = self.invocation.provider.as_ref().and_then(|provider| {
             provider
@@ -212,14 +214,14 @@ impl Preparer {
         attachments::hydrate(
             &self.ingress,
             &self.invocation,
-            &self.reported,
+            &self.attachments,
             conversation,
             model.is_some_and(|model| model.vision),
             api,
             &self.stop,
         )
         .await?;
-        crate::agent::media::screenshots::omit(conversation.messages_mut(), &self.images);
+        crate::agent::media::screenshots::omit(conversation, &self.images);
         Ok(())
     }
 }
@@ -245,14 +247,14 @@ fn prepare(
         }
     }
     let parts: Vec<_> = input
-        .prompt_parts
+        .instructions
         .into_iter()
         .map(|(_, part)| part)
         .collect();
     PreparedInferenceRequest {
         system_prompt: parts.join("\n\n"),
         tools,
-        additional_messages: contexts::message(&input.moim_parts, owned)
+        additional_messages: contexts::message(&input.contexts, owned)
             .into_iter()
             .collect(),
     }
@@ -267,14 +269,8 @@ pub(crate) async fn prepared(session: &Session) -> PreparedInferenceRequest {
     };
     prepare(
         InferenceInput {
-            prompt_parts: prompt
-                .prompt_parts(session, &session.conversation)
-                .await
-                .unwrap(),
-            moim_parts: prompt
-                .moim_parts(session, &session.conversation)
-                .await
-                .unwrap(),
+            instructions: prompt.instructions(session).await.unwrap(),
+            contexts: prompt.contexts(session).await.unwrap(),
             ..Default::default()
         },
         &[],
@@ -321,8 +317,8 @@ mod tests {
             tools: ["always", "loaded", "deferred"]
                 .map(|name| Tool::new(name, "Fixture", serde_json::Map::new()))
                 .to_vec(),
-            prompt_parts: vec![("owner".into(), "Current policy".into())],
-            moim_parts: vec!["Current task".into()],
+            instructions: vec![("owner".into(), "Current policy".into())],
+            contexts: vec!["Current task".into()],
         };
         let deferred = ["loaded".into(), "deferred".into()].into();
         let request = prepare(declarations(), &["loaded".into()], &deferred, &[]);

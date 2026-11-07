@@ -25,13 +25,12 @@ fn moves_context_without_changing_output() {
 mod concurrency {
     use super::*;
     use crate::agent::canonical::Context;
-    use goose_agent::{
-        machine::{EffectHandler, MachineSession, SessionLoader, StateMachine, Step},
-        operation::ConversationEffect,
-        tool::ToolOperation,
-        tool_call_state::EXECUTABLE_KEY,
+    use crate::agent::{
+        controls::Controls,
+        engine::{ConversationEffect, Effect, Outcome, conversation::EXECUTABLE_KEY, tools::Tools},
+        model::{Content, Message},
     };
-    use goose_provider_types::conversation::{Conversation, message::Message};
+    use crate::store::agent::RuntimeSession as Session;
     use std::{
         sync::{
             Mutex,
@@ -149,51 +148,6 @@ mod concurrency {
         assert!(!catalog.concurrent(&CallToolRequestParams::new("read")));
     }
 
-    #[derive(Clone)]
-    struct Session {
-        conversation: Conversation,
-        context: Context,
-    }
-    impl MachineSession for Session {
-        fn id(&self) -> &str {
-            "session"
-        }
-        fn conversation(&self) -> Option<&Conversation> {
-            Some(&self.conversation)
-        }
-    }
-    impl CatalogSession for Session {
-        fn context(&self) -> &Context {
-            &self.context
-        }
-    }
-
-    /// Holds the canonical conversation that the machine reloads and appends to.
-    struct History(Mutex<Session>);
-    #[async_trait]
-    impl SessionLoader<Session> for History {
-        async fn load(&self, _: &str) -> anyhow::Result<Session> {
-            Ok(self.0.lock().unwrap().clone())
-        }
-    }
-    #[async_trait]
-    impl EffectHandler<Session, ConversationEffect> for History {
-        async fn apply_effects(
-            &self,
-            _: &Session,
-            effects: &mut [ConversationEffect],
-            _: &Emitter,
-        ) -> anyhow::Result<()> {
-            for effect in effects {
-                let ConversationEffect::AppendMessage(message) = effect else {
-                    panic!("unexpected effect");
-                };
-                self.0.lock().unwrap().conversation.push(message.clone());
-            }
-            Ok(())
-        }
-    }
-
     /// Answers `(id, tool)` requests through the catalog and returns the saved
     /// results, stopping the run once `stop_after` reads have finished.
     async fn execute(
@@ -211,45 +165,58 @@ mod concurrency {
                     Some(json!({EXECUTABLE_KEY: true})),
                 )
             });
-        let history = Arc::new(History(Mutex::new(Session {
-            conversation: Conversation::new_unvalidated([
-                Message::user().with_text("use tools"),
-                request,
-            ]),
+        let session = Session {
+            id: "session".into(),
+            conversation: vec![Message::user().with_text("use tools"), request],
             context: Context::default(),
-        })));
-        let operation = ToolOperation::<Session>::new().with_provider(Arc::new(catalog(probe)));
+            records: Vec::new(),
+            tool_names: Default::default(),
+            capability: None,
+            reviewed: false,
+            state: Default::default(),
+            thinking: None,
+            invocation: None,
+        };
+        let operation = Tools::new(
+            Arc::new(catalog(probe)),
+            Arc::new(Controls::default()),
+            sailry_protocol::TurnId::new(),
+        );
         let stop = CancellationToken::new();
         let (sender, _receiver) = mpsc::unbounded_channel();
         let emit = Emitter::new(sender, stop.clone());
-        let run = tokio::spawn({
-            let history = history.clone();
-            let stop = stop.clone();
-            async move {
-                let machine = StateMachine::new(vec![Step::Operation(Arc::new(operation))], stop);
-                machine.run(history.as_ref(), "session", &emit).await
-            }
-        });
+        let run =
+            tokio::spawn(
+                async move { operation.run(&session, &session.conversation, &emit).await },
+            );
         if let Some(reads) = stop_after {
             while probe.reads.load(Ordering::SeqCst) < reads {
                 tokio::task::yield_now().await;
             }
             stop.cancel();
         }
-        let session = tokio::time::timeout(Duration::from_secs(5), run)
+        let outcome = tokio::time::timeout(Duration::from_secs(5), run)
             .await
             .expect("the tool step should finish")
             .unwrap()
             .unwrap();
-        let messages = session.conversation.messages();
-        assert_eq!(messages.len(), 3, "results are saved in one message");
-        messages[2]
+        let Outcome::Applied(transition) = outcome else {
+            panic!("tool requests must produce durable effects");
+        };
+        let [Effect::Conversation(ConversationEffect::AppendMessage(message))] =
+            transition.effects.as_slice()
+        else {
+            panic!("results must be saved in one message");
+        };
+        message
             .content
             .iter()
             .map(|content| {
-                let response = content.as_tool_response().unwrap();
+                let Content::ToolResult(response) = content else {
+                    panic!("tool result expected");
+                };
                 let finished = response
-                    .tool_result
+                    .result
                     .as_ref()
                     .is_ok_and(|result| result.is_error != Some(true));
                 (response.id.clone(), finished)

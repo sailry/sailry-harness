@@ -10,10 +10,29 @@ fn pid(data: &Path) -> i32 {
 pub(super) fn requests(data: &Path, method: &str) -> usize {
     fs::read_to_string(data.join("requests.jsonl"))
         .unwrap()
-        .lines()
+        .split_inclusive('\n')
+        .filter_map(|line| line.strip_suffix('\n'))
         .map(|line| serde_json::from_str::<Value>(line).unwrap())
         .filter(|request| request["method"] == method)
         .count()
+}
+
+#[test]
+fn ignores_unfinished_log_record() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("requests.jsonl");
+    fs::write(
+        &path,
+        "{\"method\":\"tools/list\"}\n{\"method\":\"tools/",
+    )
+    .unwrap();
+    assert_eq!(requests(directory.path(), "tools/list"), 1);
+    fs::write(
+        path,
+        "{\"method\":\"tools/list\"}\n{\"method\":\"tools/list\"}\n",
+    )
+    .unwrap();
+    assert_eq!(requests(directory.path(), "tools/list"), 2);
 }
 
 #[tokio::test]

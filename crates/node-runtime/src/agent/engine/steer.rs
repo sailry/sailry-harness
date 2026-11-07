@@ -1,17 +1,15 @@
 //! Adapted from Goose ee8500d5, ops_steer.rs (Apache-2.0).
 //! Node owns admission and recovery of every drained input.
-use super::{Effect, Session};
+use super::{Effect, Session, conversation::*, operation::*};
 use crate::{
     agent::{
         canonical::{Configuration, Context, Guide, Kind, Record},
         inputs,
+        model::Message,
         prompt::instructions::{self, Scope},
     },
     store::{Ingress, agent::Invocation},
 };
-use async_trait::async_trait;
-use goose_agent::operation::*;
-use goose_provider_types::conversation::{Conversation, EffectiveRole};
 use std::{
     collections::BTreeMap,
     sync::{Arc, Mutex},
@@ -22,19 +20,11 @@ pub(super) struct Steer {
     pub invocation: Arc<Invocation>,
     pub resources: Arc<crate::plugins::resources::Resources>,
     pub tools: BTreeMap<String, Vec<String>>,
+    pub attachments: crate::agent::attachments::Cache,
     pub drained: Mutex<Vec<Record>>,
 }
-#[async_trait]
-impl Operation<Session, Effect> for Steer {
-    fn name(&self) -> &'static str {
-        "steer"
-    }
-    async fn finalize_cancellation(
-        &self,
-        _: &Session,
-        _: &Conversation,
-        _: &Emitter,
-    ) -> Vec<Effect> {
+impl Steer {
+    pub(super) fn finalize_cancellation(&self) -> Vec<Effect> {
         let records = std::mem::take(&mut *self.drained.lock().unwrap());
         if records.is_empty() {
             Vec::new()
@@ -42,12 +32,12 @@ impl Operation<Session, Effect> for Steer {
             vec![Effect::Records(records)]
         }
     }
-    async fn run(
+    pub(super) async fn run(
         &self,
         session: &Session,
-        conversation: &Conversation,
+        conversation: &[Message],
         emit: &Emitter,
-    ) -> anyhow::Result<OperationResult<Effect>> {
+    ) -> anyhow::Result<Outcome> {
         let messages = messages_since_kickoff(conversation)?;
         if !ends_turn(messages) && last_effective_role(messages)? != EffectiveRole::Tool {
             return not_applicable();
@@ -106,6 +96,13 @@ impl Operation<Session, Effect> for Steer {
                 records.push(record);
             }
         }
+        self.attachments
+            .promote(
+                inputs
+                    .iter()
+                    .flat_map(|input| input.message.attachments.iter().copied()),
+            )
+            .await;
         // Cancellation may commit only input whose preparation fully succeeded.
         *self.drained.lock().unwrap() = records;
         applied([Effect::Records(std::mem::take(

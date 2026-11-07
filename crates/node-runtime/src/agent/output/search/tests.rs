@@ -19,12 +19,10 @@ fn message(value: Value) -> Message {
 }
 
 fn result(message: &Message) -> &CallToolResult {
-    message.content[0]
-        .as_tool_response()
-        .unwrap()
-        .tool_result
-        .as_ref()
-        .unwrap()
+    let Content::ToolResult(response) = &message.content[0] else {
+        panic!("tool response expected")
+    };
+    response.result.as_ref().unwrap()
 }
 
 fn text(result: &CallToolResult) -> &str {
@@ -234,13 +232,8 @@ fn preserves_result_projection() {
             }),
         ),
         (
-            "sends_one_body_through_native_formats",
+            "serializes_one_body",
             (|scenario: &'static str| {
-                use goose_provider_types::{
-                    formats::{anthropic, google, openai, openai_responses},
-                    images::ImageFormat,
-                    model::ModelConfig,
-                };
                 let value = original(SearchResults {
                     matches: vec![row(1, "MATCH_BODY_SENTINEL")],
                     ..Default::default()
@@ -253,33 +246,14 @@ fn preserves_result_projection() {
                     message(value),
                 ];
                 super::super::project(&mut messages);
-                let config = ModelConfig::new("fixture-search").with_max_tokens(Some(8192));
-                for wire in [
-                    openai::create_request(&config, "", &messages, &[], &ImageFormat::OpenAi, true)
-                        .unwrap(),
-                    openai_responses::create_responses_request(&config, "", &messages, &[])
-                        .unwrap(),
-                    anthropic::create_request(
-                        "anthropic",
-                        &config,
-                        "",
-                        &messages,
-                        &[],
-                        Default::default(),
-                    )
-                    .unwrap(),
-                    google::create_request(&config, "", &messages, &[]).unwrap(),
-                    serde_json::to_value(result(&messages[1])).unwrap(),
-                ] {
-                    let encoded = wire.to_string();
-                    assert_eq!(
-                        encoded.matches("MATCH_BODY_SENTINEL").count(),
-                        1,
-                        "{scenario}"
-                    );
-                    assert!(!encoded.contains("\\\"matches\\\":"), "{scenario}");
-                    assert!(!encoded.contains("structuredContent"), "{scenario}");
-                }
+                let encoded = serde_json::to_string(result(&messages[1])).unwrap();
+                assert_eq!(
+                    encoded.matches("MATCH_BODY_SENTINEL").count(),
+                    1,
+                    "{scenario}"
+                );
+                assert!(!encoded.contains("\\\"matches\\\":"), "{scenario}");
+                assert!(!encoded.contains("structuredContent"), "{scenario}");
             }),
         ),
         (

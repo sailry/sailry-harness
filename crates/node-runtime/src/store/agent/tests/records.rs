@@ -62,11 +62,11 @@ async fn keeps_configuration_out_of_messages() {
     );
     assert_eq!(restored.conversation.len(), 1);
     assert_eq!(
-        restored.conversation.messages()[0].id.as_deref(),
+        restored.conversation[0].id.as_deref(),
         Some(ordinary.id.as_str())
     );
     assert_eq!(
-        restored.conversation.messages()[0].as_concat_text(),
+        restored.conversation[0].as_concat_text(),
         "Other system content"
     );
     assert!(
@@ -281,10 +281,14 @@ async fn restores_current_history() {
     .await
     .unwrap();
     assert_eq!(restored.records.len(), 4);
-    assert_eq!(restored.conversation.agent_visible_messages().len(), 1);
-    let visible = restored.conversation.agent_visible_messages();
+    let visible = restored
+        .conversation
+        .iter()
+        .filter(|message| message.is_agent_visible() && !message.content.is_empty())
+        .collect::<Vec<_>>();
+    assert_eq!(visible.len(), 1);
     assert_eq!(visible[0].id.as_deref(), Some(summary.id.as_str()));
-    assert_eq!(visible[0].role, rmcp::model::Role::User);
+    assert_eq!(visible[0].role, crate::agent::model::Role::User);
     history::rebuild(&mut fixture.database.connection)
         .await
         .unwrap();

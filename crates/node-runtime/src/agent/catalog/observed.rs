@@ -3,7 +3,7 @@
 //! forked or compacted conversation keeps only what the model can still see. Only
 //! results of tools bound to Node file operations count; other tools may return
 //! lookalike values.
-use goose_provider_types::conversation::{Conversation, message::MessageContent};
+use crate::agent::model::{Content, Message};
 use sailry_protocol::tool::Operation;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -34,21 +34,18 @@ impl Observed {
     /// The newest result for each path wins. A move, deletion or uncertain outcome
     /// is recorded without a revision. `source` names the tools whose results count.
     pub(in crate::agent) fn collect(
-        conversation: Option<&Conversation>,
+        conversation: Option<&[Message]>,
         source: impl Fn(&str) -> bool,
     ) -> Self {
         let mut observed = HashMap::new();
-        let messages =
-            conversation.map_or(&[][..], |conversation| conversation.messages().as_slice());
+        let messages = conversation.unwrap_or_default();
         let calls: HashMap<&str, &str> = messages
             .iter()
             .flat_map(|message| &message.content)
             .filter_map(|content| match content {
-                MessageContent::ToolRequest(request) => request
-                    .tool_call
-                    .as_ref()
-                    .ok()
-                    .map(|call| (request.id.as_str(), &*call.name)),
+                Content::ToolCall(request) if request.error.is_none() => {
+                    Some((request.id.as_str(), request.name.as_str()))
+                }
                 _ => None,
             })
             .collect();
@@ -57,7 +54,7 @@ impl Observed {
                 continue;
             }
             for content in message.content.iter().rev() {
-                let MessageContent::ToolResponse(response) = content else {
+                let Content::ToolResult(response) = content else {
                     continue;
                 };
                 if !calls
@@ -66,7 +63,7 @@ impl Observed {
                 {
                     continue;
                 }
-                let Ok(result) = &response.tool_result else {
+                let Ok(result) = &response.result else {
                     continue;
                 };
                 let Some(value) = result
@@ -137,7 +134,6 @@ fn facts(value: &Value) -> Vec<(String, Option<String>)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use goose_provider_types::conversation::message::Message;
     use rmcp::model::{CallToolRequestParams, CallToolResult};
     use serde_json::json;
 
@@ -159,7 +155,7 @@ mod tests {
             .into_iter()
             .flat_map(|message| {
                 let id = message.content.iter().find_map(|content| match content {
-                    MessageContent::ToolResponse(response) => Some(response.id.clone()),
+                    Content::ToolResult(response) => Some(response.id.clone()),
                     _ => None,
                 });
                 id.map(|id| call(&id, "read_file"))
@@ -167,9 +163,7 @@ mod tests {
                     .chain([message])
             })
             .collect::<Vec<_>>();
-        Observed::collect(Some(&Conversation::new_unvalidated(messages)), |name| {
-            name == "read_file"
-        })
+        Observed::collect(Some(&messages), |name| name == "read_file")
     }
 
     fn revision(text: &str) -> String {
@@ -266,9 +260,7 @@ mod tests {
             result("mcp", lookalike.clone()),
             result("orphan", lookalike),
         ];
-        let observed = Observed::collect(Some(&Conversation::new_unvalidated(messages)), |name| {
-            name == "read_file"
-        });
+        let observed = Observed::collect(Some(&messages), |name| name == "read_file");
         assert_eq!(observed.revision("mcp.rs"), None);
     }
 }

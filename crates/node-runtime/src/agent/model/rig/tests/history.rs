@@ -3,6 +3,133 @@ use crate::agent::model::types::Inference;
 use rmcp::model::{CallToolRequestParams, CallToolResult, ContentBlock, ResourceContents};
 
 #[tokio::test]
+async fn preserves_repeated_call_identities() {
+    for api in [ModelApi::ChatCompletions, ModelApi::DeepSeek] {
+        let server = Server::start(vec![fixtures::chat()]).await;
+        let provider = provider(api, server.endpoint.clone());
+        let model = native(&provider, "fixture", "key", HeaderMap::new());
+        let mut input = request("fixture");
+        for reason in ["First denial", "Second denial", "Completed"] {
+            input.messages.extend([
+                Message::user().with_text("Next task"),
+                Message::assistant().with_tool_request(
+                    "call-fixture-0",
+                    Ok(CallToolRequestParams::new("read")
+                        .with_arguments(json!({"path":reason}).as_object().unwrap().clone())),
+                ),
+                Message::user().with_tool_response(
+                    "call-fixture-0",
+                    Ok(CallToolResult::error(vec![ContentBlock::text(reason)])),
+                ),
+                Message::assistant().with_text("Finished"),
+            ]);
+        }
+        let original = input.messages.clone();
+        collect(&model, input.clone(), CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(input.messages, original);
+        let captured = server.finish().await;
+        let body = &captured[0].body;
+        let messages = body["messages"].as_array().unwrap();
+        let calls: Vec<_> = messages
+            .iter()
+            .filter_map(|message| message["tool_calls"].as_array())
+            .flatten()
+            .collect();
+        let results: Vec<_> = messages
+            .iter()
+            .filter(|message| message["role"] == "tool")
+            .collect();
+        assert_eq!(calls.len(), 3, "{api:?}");
+        assert_eq!(results.len(), 3, "{api:?}");
+        for ((call, result), reason) in
+            calls
+                .iter()
+                .zip(&results)
+                .zip(["First denial", "Second denial", "Completed"])
+        {
+            assert_eq!(call["id"], "call-fixture-0", "{api:?}");
+            assert_eq!(result["tool_call_id"], "call-fixture-0", "{api:?}");
+            assert_eq!(result["content"], reason, "{api:?}");
+            assert_eq!(
+                serde_json::from_str::<Value>(call["function"]["arguments"].as_str().unwrap())
+                    .unwrap(),
+                json!({"path":reason}),
+                "{api:?}"
+            );
+        }
+        assert!(!body.to_string().contains("__sailry"), "{api:?}");
+    }
+}
+
+#[tokio::test]
+async fn preserves_tool_image_positions() {
+    for (api, name, uploaded) in [
+        (ModelApi::ChatCompletions, "gpt-4o", true),
+        (ModelApi::ChatCompletions, "gpt-3.5-turbo", false),
+        (ModelApi::DeepSeek, "deepseek-chat", false),
+    ] {
+        let server = Server::start(vec![fixtures::chat()]).await;
+        let provider = provider(api, server.endpoint.clone());
+        let model = native(&provider, name, "key", HeaderMap::new());
+        let mut input = request(name);
+        input.messages.extend([
+            Message::assistant()
+                .with_tool_request("images", Ok(CallToolRequestParams::new("read"))),
+            Message::user().with_tool_response(
+                "images",
+                Ok(CallToolResult::success(vec![
+                    ContentBlock::text("Before"),
+                    ContentBlock::image("Zmlyc3Q=", "image/png"),
+                    ContentBlock::text("After"),
+                    ContentBlock::image("c2Vjb25k", "image/jpeg"),
+                ])),
+            ),
+        ]);
+        collect(&model, input, CancellationToken::new())
+            .await
+            .unwrap();
+        let captured = server.finish().await;
+        let messages = captured[0].body["messages"].as_array().unwrap();
+        let result = messages
+            .iter()
+            .find(|message| message["role"] == "tool")
+            .unwrap();
+        let note = if uploaded {
+            "This tool result included an image that is uploaded in the next message."
+        } else {
+            "(tool image omitted: model does not support images)"
+        };
+        assert_eq!(
+            result["content"],
+            format!("Before {note} After {note}"),
+            "{api:?} {name}"
+        );
+        let images: Vec<_> = messages
+            .iter()
+            .filter(|message| message["role"] == "user")
+            .filter_map(|message| message["content"].as_array())
+            .flatten()
+            .filter(|part| part["type"] == "image_url")
+            .map(|part| part["image_url"]["url"].as_str().unwrap())
+            .collect();
+        if uploaded {
+            assert_eq!(
+                images,
+                [
+                    "data:image/png;base64,Zmlyc3Q=",
+                    "data:image/jpeg;base64,c2Vjb25k",
+                ],
+                "{api:?} {name}"
+            );
+        } else {
+            assert!(images.is_empty(), "{api:?} {name}");
+        }
+    }
+}
+
+#[tokio::test]
 async fn replays_encrypted_reasoning_through_history() {
     let response = fixtures::sse([
         json!({

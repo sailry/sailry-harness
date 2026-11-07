@@ -1,4 +1,5 @@
-//! GDK foreground execution consumes the Node's already admitted child exactly once.
+//! Foreground execution consumes the Node's already admitted child exactly once.
+use crate::agent::model::{Content, Message};
 use crate::{
     agent::delegation,
     store::{
@@ -7,13 +8,7 @@ use crate::{
     },
     tasks::Tasks,
 };
-use async_trait::async_trait;
-use futures::stream;
-use goose_agent::{
-    operation::OperationStream,
-    subagent::{SubagentOutcome, SubagentRunner, SubagentUpdate},
-};
-use goose_provider_types::conversation::message::{Message, MessageContent};
+use futures::future::BoxFuture;
 use sailry_link::CancellationToken;
 use sailry_protocol::{Fault, SessionId, conversation::Status};
 use std::{
@@ -28,6 +23,13 @@ pub(crate) struct Children {
     parent: SessionId,
     turn: sailry_protocol::TurnId,
     pending: Arc<Mutex<BTreeMap<String, Invocation>>>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum ChildOutcome {
+    Completed(String),
+    Failed(String),
+    Cancelled,
 }
 impl Children {
     pub(crate) fn new(ingress: Arc<Ingress>, tasks: Tasks, invocation: &Invocation) -> Self {
@@ -77,9 +79,8 @@ impl Drop for Owner {
             .finish_child(self.parent, self.child, self.turn);
     }
 }
-#[async_trait]
-impl SubagentRunner<RuntimeSession> for Children {
-    fn requested_subagent_session_ids(
+impl Children {
+    pub(in crate::agent) fn requested_subagent_session_ids(
         &self,
         session: &RuntimeSession,
         message: &Message,
@@ -93,10 +94,10 @@ impl SubagentRunner<RuntimeSession> for Children {
             .content
             .iter()
             .filter_map(|content| {
-                let MessageContent::ToolResponse(response) = content else {
+                let Content::ToolResult(response) = content else {
                     return None;
                 };
-                let meta = response.tool_result.as_ref().ok()?.meta.as_ref()?;
+                let meta = response.result.as_ref().ok()?.meta.as_ref()?;
                 (meta
                     .get("foreground_subagent")
                     .and_then(serde_json::Value::as_bool)
@@ -110,15 +111,14 @@ impl SubagentRunner<RuntimeSession> for Children {
             })
             .collect()
     }
-    async fn start(
+    pub(super) fn start(
         &self,
-        _: &RuntimeSession,
         id: &str,
         cancel: CancellationToken,
-    ) -> OperationStream<'static, SubagentUpdate> {
+    ) -> BoxFuture<'static, ChildOutcome> {
         let this = self.clone();
         let id = id.to_owned();
-        Box::pin(stream::once(async move {
+        Box::pin(async move {
             let owner = cancel.child_token();
             let observer = owner.clone().drop_guard();
             let execute_owner = owner.clone();
@@ -128,7 +128,7 @@ impl SubagentRunner<RuntimeSession> for Children {
                 .spawn_child(&this.ingress.agents.stopped.clone(), async move {
                     let invocation = this.pending.lock().unwrap().remove(&id);
                     let Some(invocation) = invocation else {
-                        return SubagentOutcome::Failed(
+                        return ChildOutcome::Failed(
                             "child invocation is unavailable; execution was not replayed".into(),
                         );
                     };
@@ -155,15 +155,13 @@ impl SubagentRunner<RuntimeSession> for Children {
                     .await;
                     let outcome = match result {
                         Ok((Status::Completed, output)) => {
-                            SubagentOutcome::Completed(output.unwrap_or_default())
+                            ChildOutcome::Completed(output.unwrap_or_default())
                         }
-                        Ok((Status::Cancelled | Status::Interrupted, _)) => {
-                            SubagentOutcome::Cancelled
-                        }
+                        Ok((Status::Cancelled | Status::Interrupted, _)) => ChildOutcome::Cancelled,
                         Ok((status, _)) => {
-                            SubagentOutcome::Failed(format!("child ended with {status:?}"))
+                            ChildOutcome::Failed(format!("child ended with {status:?}"))
                         }
-                        Err(error) => SubagentOutcome::Failed(error.message),
+                        Err(error) => ChildOutcome::Failed(error.message),
                     };
                     if let Ok(session) = id.parse()
                         && let Ok(state) = this.ingress.child_state(this.turn, session).await
@@ -177,12 +175,12 @@ impl SubagentRunner<RuntimeSession> for Children {
                 })
                 .await;
             let _observer = observer;
-            SubagentUpdate::Finished(match task {
+            match task {
                 Ok(task) => task.await.unwrap_or_else(|_| {
-                    SubagentOutcome::Failed("child execution outcome is unavailable".into())
+                    ChildOutcome::Failed("child execution outcome is unavailable".into())
                 }),
-                Err(_) => SubagentOutcome::Failed("child supervisor is unavailable".into()),
-            })
-        }))
+                Err(_) => ChildOutcome::Failed("child supervisor is unavailable".into()),
+            }
+        })
     }
 }

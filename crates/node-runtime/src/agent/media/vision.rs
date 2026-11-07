@@ -1,9 +1,7 @@
 use super::*;
 use base64::Engine as _;
-use goose_provider_types::{
-    base::collect_stream,
-    conversation::message::{Message, MessageContentBlock},
-};
+use futures::StreamExt;
+use model::{Event, Finish, Message, Usage};
 use sailry_protocol::SessionConfig;
 use std::time::Instant;
 
@@ -67,52 +65,36 @@ impl Media {
         binding.config.max_tokens = Some(u64::from(
             metadata.map_or(8192, |model| model.output.min(8192)),
         ));
-        let config = model::gdk::config(&binding.config);
-        let provider = model::gdk::provider(binding.provider, binding.owner);
-        let messages = [Message::user().with_text(prompt).with_image(
+        let messages = vec![Message::user().with_text(prompt).with_image(
             base64::engine::general_purpose::STANDARD.encode(bytes),
             format.media_type(),
         )];
         let started = Instant::now();
         let responses = tokio::select! { biased;
             _ = self.stop.cancelled() => return Err(Fault::new(ErrorCode::Cancelled, "vision request was cancelled").into()),
-            result = provider.stream(&config, "", &messages, &[]) => result.map_err(|error| Failure::model(model::gdk::error(error), true))?,
+            result = binding.provider.call(
+                binding.config.request(String::new(), messages, vec![]),
+                self.stop.clone(),
+            ) => result.map_err(|error| Failure::model(error, true))?,
         };
-        let (response, mut usage) = tokio::select! { biased;
+        let (text, mut usage, finish) = tokio::select! { biased;
             _ = self.stop.cancelled() => return Err(Fault::new(ErrorCode::Cancelled, "vision request was cancelled").into()),
-            result = collect_stream(responses) => result.map_err(|error| Failure::model(model::gdk::error(error), false))?,
+            result = collect(responses) => result.map_err(|error| Failure::model(error, false))?,
         };
-        usage
-            .stats
-            .get_or_insert_with(Default::default)
-            .elapsed_ms
-            .get_or_insert_with(|| {
-                u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX)
-            });
-        let native = serde_json::to_value(&usage).ok();
+        usage.elapsed_ms.get_or_insert_with(|| {
+            u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX)
+        });
+        let native = reported(&usage, finish);
         self.record_usage(
-            Some(crate::agent::engine::history::provider_usage(
-                &model::gdk::from_usage(&usage),
-            )?),
-            usage
-                .stats
-                .as_ref()
-                .map(|stats| crate::agent::canonical::Timing {
-                    elapsed_us: stats.elapsed_ms.map(|value| value.saturating_mul(1000)),
-                    first_token_us: stats
-                        .time_to_first_token_ms
-                        .map(|value| value.saturating_mul(1000)),
-                }),
+            Some(crate::agent::engine::history::provider_usage(&usage)?),
+            Some(crate::agent::canonical::Timing {
+                elapsed_us: usage.elapsed_ms.map(|value| value.saturating_mul(1000)),
+                first_token_us: usage
+                    .time_to_first_token_ms
+                    .map(|value| value.saturating_mul(1000)),
+            }),
         )
         .await?;
-        if response
-            .content
-            .iter()
-            .any(|part| matches!(part, MessageContentBlock::Error(_)))
-        {
-            return Err(Fault::new(ErrorCode::Unavailable, "vision request failed").into());
-        }
-        let text = response.as_concat_text();
         if text.len() > 64 * 1024 {
             return Err(Fault::invalid("vision response exceeds the size limit").into());
         }
@@ -121,6 +103,81 @@ impl Media {
         }
         Ok(json!({"text":text,"usage":native}))
     }
+}
+
+async fn collect(
+    mut stream: model::ModelStream,
+) -> Result<(String, Usage, Option<Finish>), model::Error> {
+    let mut text = Vec::<String>::new();
+    let mut separate = true;
+    let mut usage = Usage::default();
+    let mut finish = None;
+    while let Some(event) = stream.next().await {
+        match event? {
+            Event::TextDelta { text: delta, .. } => {
+                if separate {
+                    text.push(delta);
+                } else {
+                    text.last_mut()
+                        .expect("text block was started")
+                        .push_str(&delta);
+                }
+                separate = false;
+            }
+            Event::ReasoningDelta { .. }
+            | Event::RedactedThinking { .. }
+            | Event::ToolCall { .. } => separate = true,
+            Event::Usage(current) => usage = current,
+            Event::Finish(reason) => {
+                finish = Some(reason);
+                break;
+            }
+            _ => {}
+        }
+    }
+    Ok((text.join("\n"), usage, finish))
+}
+
+fn reported(usage: &Usage, finish: Option<Finish>) -> Value {
+    let mut value = json!({
+        "model": usage.model.as_deref().unwrap_or_default(),
+        "usage": {
+            "input_tokens": usage.input,
+            "output_tokens": usage.output,
+            "total_tokens": usage.total,
+            "cache_read_input_tokens": usage.cache_read,
+            "cache_write_input_tokens": usage.cache_write,
+        },
+        "stats": {
+            "elapsed_ms": usage.elapsed_ms,
+            "time_to_first_token_ms": usage.time_to_first_token_ms,
+            "model_load_ms": null,
+            "output_tokens": null,
+            "draft": null,
+        },
+    });
+    if let Some(cost) = usage.cost {
+        value["cost"] = json!(cost);
+    }
+    if let Some(finish) = finish {
+        value["finish_reasons"] = json!([match finish {
+            Finish::Stop => "stop".to_owned(),
+            Finish::ToolCalls => "tool_calls".into(),
+            Finish::Length => "length".into(),
+            Finish::ContentFilter => "content_filter".into(),
+            Finish::Other(reason) => reason,
+        }]);
+    }
+    let mut additional = usage.provider.as_ref().and_then(Value::as_object).cloned();
+    if let Some(reasoning) = usage.reasoning {
+        additional
+            .get_or_insert_with(Default::default)
+            .insert("reasoning_tokens".into(), json!(reasoning));
+    }
+    if let Some(additional) = additional {
+        value["additional_data"] = Value::Object(additional);
+    }
+    value
 }
 
 pub(super) fn configuration(
@@ -156,6 +213,68 @@ mod tests {
         Authentication, CredentialId, CredentialRef, Effort, Permission, ProviderId, WorkMode,
         conversation::{Model, ModelApi, Provider},
     };
+
+    #[tokio::test]
+    async fn collects_text_and_latest_usage() {
+        let events = vec![
+            Ok(Event::TextDelta {
+                index: 1,
+                text: "Second".into(),
+            }),
+            Ok(Event::ReasoningDelta {
+                index: 2,
+                text: Some("Analysis".into()),
+                signature: None,
+            }),
+            Ok(Event::TextDelta {
+                index: 0,
+                text: "First".into(),
+            }),
+            Ok(Event::Usage(Usage {
+                output: Some(1),
+                ..Default::default()
+            })),
+            Ok(Event::TextDelta {
+                index: 0,
+                text: " block".into(),
+            }),
+            Ok(Event::Usage(Usage {
+                output: Some(4),
+                ..Default::default()
+            })),
+        ];
+        let (text, usage, finish) = collect(Box::pin(futures::stream::iter(events)))
+            .await
+            .unwrap();
+        assert_eq!(text, "Second\nFirst block");
+        assert_eq!(usage.output, Some(4));
+        assert_eq!(finish, None);
+    }
+
+    #[test]
+    fn preserves_usage_result_shape() {
+        let value = reported(
+            &Usage {
+                model: Some("vision".into()),
+                input: Some(12),
+                output: Some(3),
+                reasoning: Some(2),
+                provider: Some(json!({"fixture":"retained"})),
+                elapsed_ms: Some(8),
+                ..Default::default()
+            },
+            Some(Finish::Stop),
+        );
+        assert_eq!(value["model"], "vision");
+        assert_eq!(value["usage"]["input_tokens"], 12);
+        assert_eq!(value["usage"]["output_tokens"], 3);
+        assert!(value["usage"]["cache_read_input_tokens"].is_null());
+        assert_eq!(value["stats"]["elapsed_ms"], 8);
+        assert_eq!(value["additional_data"]["reasoning_tokens"], 2);
+        assert_eq!(value["additional_data"]["fixture"], "retained");
+        assert_eq!(value["finish_reasons"], json!(["stop"]));
+        assert!(value.get("cost").is_none());
+    }
 
     fn fixture() -> (SessionConfig, crate::store::media::Model) {
         let provider = Provider {

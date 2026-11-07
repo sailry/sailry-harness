@@ -6,10 +6,10 @@ fn response(value: Value) -> Message {
 }
 
 fn result(message: &Message) -> &CallToolResult {
-    let MessageContentBlock::ToolResponse(response) = &message.content[0] else {
+    let Content::ToolResult(response) = &message.content[0] else {
         panic!("tool response expected")
     };
-    response.tool_result.as_ref().unwrap()
+    response.result.as_ref().unwrap()
 }
 
 fn value(message: &Message) -> Value {

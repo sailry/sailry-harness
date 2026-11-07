@@ -22,14 +22,20 @@ async fn preserves_key_request_baseline() {
         HeaderMap::new(),
     )
     .unwrap();
-    let config = ModelConfig::new("gemini-fixture").with_max_tokens(Some(64));
-    let (answer, _) = collect_stream(
+    let config = Config {
+        model_name: "gemini-fixture".into(),
+        max_tokens: Some(64),
+        ..Default::default()
+    };
+    let (answer, _) = collect(
         native
-            .stream(
-                &config,
-                "Captured system",
-                &[Message::user().with_text("Read")],
-                &[tool()],
+            .call(
+                config.request(
+                    "Captured system".into(),
+                    vec![Message::user().with_text("Read")],
+                    vec![tool().into()],
+                ),
+                CancellationToken::new(),
             )
             .await
             .unwrap(),

@@ -130,6 +130,32 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn preserves_rate_limit_through_history() {
+        use crate::agent::model::{Content, Message, testing};
+        use sailry_protocol::{ErrorCode, FaultDetails, ModelFailure};
+
+        let message = Message::assistant()
+            .with_generated_id()
+            .with_error(ErrorKind::RateLimited, "Request rate exceeded");
+        assert_eq!(message.error_kind(), Some(ErrorKind::RateLimited));
+        let restored = testing::roundtrip(&message).await;
+        assert_eq!(restored, message);
+        let [Content::Error { code, message }] = restored.content.as_slice() else {
+            panic!("provider failure expected");
+        };
+        assert_eq!(code.as_deref(), Some("rate_limited"));
+        let failure = fault(Error::new(restored.error_kind().unwrap(), message));
+        assert_eq!(failure.code, ErrorCode::Unavailable);
+        assert_eq!(failure.message, "Request rate exceeded");
+        assert_eq!(
+            failure.details,
+            Some(FaultDetails::ModelRequest {
+                reason: ModelFailure::RateLimited,
+            })
+        );
+    }
+
     struct Rejected;
 
     #[async_trait]

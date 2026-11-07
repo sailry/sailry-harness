@@ -1,9 +1,5 @@
-use super::super::types::{Error, ErrorKind, Event};
+use super::super::types::{Config, Content as Part, Error, ErrorKind, Event, Message, Request};
 use super::{framing, request as translation, response, transport, worker};
-use goose_provider_types::{
-    conversation::message::{Message, MessageContentBlock},
-    model::ModelConfig,
-};
 use rmcp::model::{CallToolRequestParams, CallToolResult, ContentBlock as Content, Tool};
 use sailry_link::CancellationToken;
 use sailry_protocol::{
@@ -23,14 +19,17 @@ mod request {
     pub(super) use translation::Context;
 
     pub(super) fn convert(
-        config: &ModelConfig,
+        config: &Config,
         system: &str,
         messages: &[Message],
         tools: &[Tool],
         context: Context<'_>,
     ) -> Result<wire::Request, sailry_protocol::Fault> {
-        let request = crate::agent::model::gdk::request(config, system, messages, tools)
-            .map_err(crate::agent::model::error)?;
+        let request = config.request(
+            system.to_owned(),
+            messages.to_vec(),
+            tools.iter().cloned().map(Into::into).collect(),
+        );
         translation::convert(&request, context)
     }
 }
@@ -62,19 +61,21 @@ fn retains_neutral_messages_and_schemas() {
             Ok(CallToolResult::success(vec![Content::text("result")])),
         ),
     ];
-    let config = ModelConfig::new("captured")
-        .with_max_tokens(Some(128))
-        .with_merged_request_params(
-            [
-                ("top_p".into(), json!(0.9)),
-                ("custom".into(), json!("frozen")),
-                ("thinking_effort".into(), json!("high")),
-                ("budget_tokens".into(), json!(4096)),
-                ("preserve_thinking_context".into(), json!(true)),
-                ("stop".into(), json!(["END"])),
-            ]
-            .into(),
-        );
+    let config = Config {
+        model_name: "captured".into(),
+        max_tokens: Some(128),
+        request_params: [
+            ("top_p".into(), json!(0.9)),
+            ("custom".into(), json!("frozen")),
+            ("thinking_effort".into(), json!("high")),
+            ("budget_tokens".into(), json!(4096)),
+            ("preserve_thinking_context".into(), json!(true)),
+            ("stop".into(), json!(["END"])),
+        ]
+        .into_iter()
+        .collect(),
+        ..Default::default()
+    };
     let tools = [Tool::new(
         "lookup",
         "Read",
@@ -146,7 +147,10 @@ fn rejects_undeclared_capabilities() {
         ),
     ] {
         let error = request::convert(
-            &ModelConfig::new("captured"),
+            &Config {
+                model_name: "captured".into(),
+                ..Default::default()
+            },
             "",
             &messages,
             &[],

@@ -29,6 +29,22 @@ fn called(message: &Message) -> &str {
     &request.name
 }
 
+fn restore(names: &Exposure, message: &mut Message) {
+    for (index, content) in message.content.iter_mut().enumerate() {
+        if let Content::ToolCall(call) = content {
+            let mut event = Event::ToolCall {
+                index,
+                call: call.clone(),
+            };
+            names.restore_event(&mut event);
+            let Event::ToolCall { call: restored, .. } = event else {
+                panic!("tool call event expected");
+            };
+            *call = restored;
+        }
+    }
+}
+
 fn result(message: &Message) -> &CallToolResult {
     let Content::ToolResult(response) = &message.content[0] else {
         panic!("tool result expected")
@@ -46,12 +62,40 @@ fn unique_names_round_trip_exactly() {
     let history = [call("file", alias("files", "read_file"))];
     let mut sent = names.messages(&history).into_owned();
     assert_eq!(called(&sent[0]), "read_file");
-    names.restore(&mut sent[0]);
+    restore(&names, &mut sent[0]);
     assert_eq!(sent, history);
     for unknown in ["READ_FILE", "read_file_suffix", "missing"] {
         let mut response = call("unknown", unknown);
-        names.restore(&mut response);
+        restore(&names, &mut response);
         assert_eq!(called(&response), unknown);
+    }
+}
+
+#[test]
+fn restores_streamed_names() {
+    let canonical = alias("files", "read_file");
+    let names = exposure(&[("files", "read_file")], &[]);
+    for (name, expected) in [
+        ("read_file", canonical.as_str()),
+        ("READ_FILE", "READ_FILE"),
+        ("missing", "missing"),
+    ] {
+        let mut event = Event::ToolCallDelta {
+            index: 3,
+            id: Some("file".into()),
+            name: Some(name.into()),
+            arguments: "{\"path\":\"read_file\"}".into(),
+        };
+        names.restore_event(&mut event);
+        assert_eq!(
+            event,
+            Event::ToolCallDelta {
+                index: 3,
+                id: Some("file".into()),
+                name: Some(expected.into()),
+                arguments: "{\"path\":\"read_file\"}".into(),
+            }
+        );
     }
 }
 
@@ -76,7 +120,7 @@ fn restores_exact_discovery_queries() {
         };
         request.arguments = json!({"query":query,"limit":3});
         let original = message.clone();
-        names.restore(&mut message);
+        restore(&names, &mut message);
         let Content::ToolCall(request) = &message.content[0] else {
             unreachable!()
         };
@@ -137,7 +181,7 @@ fn reserves_historical_core_names() {
     assert_eq!(names.messages(&history).as_ref(), history);
     for mut response in history {
         let original = response.clone();
-        names.restore(&mut response);
+        restore(&names, &mut response);
         assert_eq!(response, original);
     }
     let names = Exposure::capture(&plugins, &tools, &BTreeSet::new());
@@ -245,7 +289,7 @@ fn preserves_body_and_arguments() {
         unreachable!()
     };
     assert_eq!(block.arguments["path"], canonical);
-    names.restore(&mut sent[2]);
+    restore(&names, &mut sent[2]);
     assert_eq!(sent, history);
 }
 
@@ -285,11 +329,11 @@ fn preserves_case_sensitive_names() {
     for (package, name) in [("first", "read"), ("second", "Read")] {
         assert_eq!(names.name(&alias(package, name)), name);
         let mut response = call("read", name);
-        names.restore(&mut response);
+        restore(&names, &mut response);
         assert_eq!(called(&response), alias(package, name));
     }
     let mut response = call("other", "READ");
-    names.restore(&mut response);
+    restore(&names, &mut response);
     assert_eq!(called(&response), "READ");
 }
 
@@ -332,7 +376,7 @@ mod mcp {
         let names = capture(&[bound("github", "github", "actions_run_trigger")], &[]);
         assert_eq!(names.name(&canonical), "mcp__github__actions_run_trigger");
         let mut response = call("run", "mcp__github__actions_run_trigger");
-        names.restore(&mut response);
+        restore(&names, &mut response);
         assert_eq!(called(&response), canonical);
         let history = [call("old", canonical.clone())];
         assert_eq!(
@@ -383,7 +427,7 @@ mod mcp {
             (alias("second", "service", "read"), second),
         ] {
             let mut response = call("read", exposed);
-            names.restore(&mut response);
+            restore(&names, &mut response);
             assert_eq!(called(&response), canonical);
         }
     }

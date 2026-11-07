@@ -1,6 +1,52 @@
 use super::*;
+
+mod cancellation {
+    use super::*;
+
+    #[tokio::test]
+    async fn normalizes_interrupted_stage_failure() {
+        let stop = CancellationToken::new();
+        let work = async {
+            stop.cancel();
+            Err(anyhow::anyhow!("operation was interrupted"))
+        };
+        let (transition, approval) = advance(work, &stop).await.unwrap();
+        assert_eq!(transition.status, RunStatus::Cancelled);
+        assert!(transition.effects.is_empty());
+        assert!(!approval);
+    }
+
+    #[tokio::test]
+    async fn preserves_unrelated_stage_failure() {
+        let stop = CancellationToken::new();
+        let error = advance(async { Err(anyhow::anyhow!("operation failed")) }, &stop)
+            .await
+            .err()
+            .unwrap();
+        assert_eq!(error.to_string(), "operation failed");
+        assert!(!stop.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn keeps_effects_completed_before_stop() {
+        let stop = CancellationToken::new();
+        let work = async {
+            stop.cancel();
+            Ok((
+                operation::Transition {
+                    effects: vec![model::Message::assistant().with_text("Completed").into()],
+                    status: RunStatus::Continuing,
+                },
+                false,
+            ))
+        };
+        let (transition, _) = advance(work, &stop).await.unwrap();
+        assert_eq!(transition.status, RunStatus::Continuing);
+        assert_eq!(transition.effects.len(), 1);
+    }
+}
 use crate::agent::canonical::{Kind, Message as StoredMessage, Record};
-use goose_provider_types::conversation::{Conversation, message::Message};
+use crate::agent::model::Message;
 use sailry_protocol::TurnId;
 
 pub(super) fn session(messages: Vec<(TurnId, Message)>) -> Session {
@@ -16,9 +62,7 @@ pub(super) fn session(messages: Vec<(TurnId, Message)>) -> Session {
         id: "output-fixture".into(),
         records,
         tool_names: Default::default(),
-        conversation: Conversation::new_unvalidated(
-            messages.into_iter().map(|(_, message)| message),
-        ),
+        conversation: messages.into_iter().map(|(_, message)| message).collect(),
         context: Default::default(),
         capability: None,
         reviewed: false,
@@ -90,10 +134,9 @@ fn returns_only_current_error() {
     let turn = TurnId::new();
     let session = session(vec![(
         turn,
-        Message::assistant().with_generated_id().with_error(
-            goose_provider_types::conversation::message::MessageErrorKind::Authentication,
-            "Current request failed",
-        ),
+        Message::assistant()
+            .with_generated_id()
+            .with_error(model::ErrorKind::Authentication, "Current request failed"),
     )]);
     assert!(last_error(&session, turn).is_some());
     assert!(last_error(&session, TurnId::new()).is_none());

@@ -89,6 +89,18 @@ async fn tools() {
         .await;
         let fixture = process::Fixture::packages(&server, &["files"]).await;
         let info = package(&fixture).await;
+        let data = fixture.node.profile().join("plugins/data").join(PACKAGE);
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while !std::fs::read(data.join("launches")).is_ok_and(|launches| launches.len() >= 2) {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("MCP warm-up deadline");
+        assert_eq!(
+            std::fs::read_to_string(data.join("launches")).unwrap(),
+            "xx"
+        );
         let resource = connection(&fixture, kind).await;
         let mut config = fixture.session.config.clone();
         config.resource = Some(resource);
@@ -147,8 +159,10 @@ async fn tools() {
                 "read_tool_output".into(),
             ])
         );
-        let data = fixture.node.profile().join("plugins/data").join(PACKAGE);
-        assert_eq!(std::fs::read_to_string(data.join("launches")).unwrap(), "x");
+        assert_eq!(
+            std::fs::read_to_string(data.join("launches")).unwrap(),
+            "xx"
+        );
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }

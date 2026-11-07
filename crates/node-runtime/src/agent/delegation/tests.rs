@@ -1,4 +1,5 @@
 use super::*;
+use crate::agent::{catalog::ToolProvider, engine::Emitter};
 use crate::{
     agent::{
         canonical::{Block, BlockKind, Kind, Message, Record, ToolIdentity, ToolRequest},
@@ -8,7 +9,6 @@ use crate::{
     store::{Store, agent::SessionQuery},
     tasks::Supervisor,
 };
-use goose_agent::{operation::Emitter, tool::ToolProvider};
 use sailry_client::Client;
 use sailry_link::{Identity, Local};
 use sailry_protocol::{Command, Output, Permission, ProviderId, SessionConfig, WorkMode};
@@ -263,8 +263,7 @@ async fn completes_handoff_after_caller_drop() {
 
 #[tokio::test]
 async fn ignores_previous_turn_child_requests() {
-    use goose_agent::subagent::SubagentRunner;
-    use goose_provider_types::conversation::message::Message as GdkMessage;
+    use crate::agent::model::Message as ModelMessage;
     let fixture = Box::pin(Fixture::new()).await;
     let supervisor = Supervisor::start(1);
     let ingress = &fixture.store.ingress;
@@ -288,7 +287,7 @@ async fn ignores_previous_turn_child_requests() {
         serde_json::from_value(json!({"foreground_subagent":true,"subagent_session_id":"child"}))
             .unwrap(),
     );
-    let message = GdkMessage::user()
+    let message = ModelMessage::user()
         .with_generated_id()
         .with_tool_response("call-child", Ok(result));
     let mut record = Record::new(turn, Kind::Message(Message::default()));

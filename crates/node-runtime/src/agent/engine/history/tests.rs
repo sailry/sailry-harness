@@ -58,21 +58,16 @@ fn without_output_notes(mut message: model::Message) -> model::Message {
 }
 
 #[tokio::test]
-async fn removes_synthetic_resend_instruction() {
-    use goose_provider_types::{
-        conversation::message::Message as GdkMessage, errors::ProviderError,
-    };
-
+async fn preserves_provider_failure() {
     let (_database, db) = database().await;
     for reason in [
         "Could not connect to example.test — check your network connection and try again.",
         "Request timed out — check your network connection and try again.",
         "Provider diagnostic\n\nPlease resend your message to try again.",
     ] {
-        let error = ProviderError::NetworkError(reason.into());
-        let source = crate::agent::model::gdk::from_message(
-            &GdkMessage::from_provider_error(&error).with_generated_id(),
-        );
+        let source = model::Message::assistant()
+            .with_generated_id()
+            .with_error(model::ErrorKind::Network, reason);
         let record = capture(&db, TurnId::new(), &source, &BTreeMap::new())
             .await
             .unwrap();
@@ -80,7 +75,7 @@ async fn removes_synthetic_resend_instruction() {
         assert_eq!(stored.finish, Some(Finish::Failed));
         let failure = stored.error.as_ref().unwrap();
         assert_eq!(failure.code.as_deref(), Some("other"));
-        assert_eq!(failure.message, error.to_string());
+        assert_eq!(failure.message, reason);
         assert_eq!(project(&db, &record).await.unwrap().unwrap(), source);
     }
 }
@@ -507,4 +502,37 @@ async fn preserves_media_metadata() {
     };
     assert_eq!(asset.uri.as_deref(), Some("report.pdf"));
     assert_eq!(project(&db, &stored).await.unwrap().unwrap(), source);
+}
+
+#[tokio::test]
+async fn caches_immutable_projection() {
+    let (_database, db) = database().await;
+    let source = model::Message::user()
+        .with_generated_id()
+        .with_image("AQID", "image/png")
+        .with_tool_response(
+            "result",
+            Ok(CallToolResult::success(vec![
+                rmcp::model::ContentBlock::image("BAU=", "image/png"),
+            ])),
+        );
+    let record = capture(&db, TurnId::new(), &source, &BTreeMap::new())
+        .await
+        .unwrap();
+    let mut cache = Cache::default();
+    let expected = cache.project(&db, 1, &record).await.unwrap().unwrap();
+    db.execute("DELETE FROM agent_blobs", ()).await.unwrap();
+    assert!(project(&db, &record).await.is_err());
+    let mut first = cache.project(&db, 1, &record).await.unwrap().unwrap();
+    assert_eq!(first, expected);
+    first.metadata.agent_visible = false;
+    first.content.clear();
+    assert_eq!(
+        cache.project(&db, 1, &record).await.unwrap().unwrap(),
+        expected
+    );
+    assert!(cache.project(&db, 2, &record).await.is_err());
+    let mut other = record.clone();
+    other.id = "another-record".into();
+    assert!(cache.project(&db, 1, &other).await.is_err());
 }

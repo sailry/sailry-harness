@@ -278,11 +278,10 @@ async fn aggregates_five_tables_and_honors_consent() {
     assert!(contains(&payloads, "search_requests", "success"));
     let models = rows(&payloads, "model_requests");
     assert!(!models.is_empty());
-    // This native GDK provider does not expose its HTTP receipts or retries.
     assert!(models.iter().all(|row| {
         row["model"] == "custom"
             && row["api"] == "chat_completions"
-            && row["http_status_class"] == "unknown"
+            && row["http_status_class"] == "2xx"
             && row.get("retries") == Some(&Value::Null)
     }));
     assert!(

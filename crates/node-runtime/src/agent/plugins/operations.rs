@@ -1,7 +1,7 @@
 //! Declared host operations run without a controller-side script or MCP process.
 use super::*;
 use crate::agent::catalog::CallContext;
-use goose_agent::tool::ToolProvider;
+use crate::agent::catalog::ToolProvider;
 use sailry_link::{Local, Transport};
 use sailry_protocol::{Command, Request, plugin, tool::Operation};
 use serde_json::{Value, json};

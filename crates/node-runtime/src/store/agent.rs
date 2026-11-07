@@ -251,6 +251,7 @@ pub(super) enum Operation {
     Get {
         turn: TurnId,
         request: sessions::Query,
+        projection: Arc<tokio::sync::Mutex<crate::agent::engine::history::Cache>>,
         reply: oneshot::Sender<Result<sessions::Session, Fault>>,
     },
     Effects {
@@ -403,7 +404,7 @@ impl Ingress {
         &self,
         session: SessionId,
         turn: TurnId,
-        message: goose_provider_types::conversation::message::Message,
+        message: crate::agent::model::Message,
     ) -> Result<(), Fault> {
         if self.closed.is_cancelled() {
             return Err(super::unavailable());
@@ -415,12 +416,8 @@ impl Ingress {
             .content
             .into_iter()
             .filter_map(|content| match content {
-                goose_provider_types::conversation::message::MessageContent::Text(text) => {
-                    Some(Part::Text(text.text))
-                }
-                goose_provider_types::conversation::message::MessageContent::Thinking(thinking) => {
-                    Some(Part::Thinking(thinking.thinking))
-                }
+                crate::agent::model::Content::Text { text } => Some(Part::Text(text)),
+                crate::agent::model::Content::Thinking { text, .. } => Some(Part::Thinking(text)),
                 _ => None,
             })
             .collect();
@@ -1055,9 +1052,18 @@ pub(super) fn execute<'a>(
         Operation::Get {
             turn,
             request,
+            projection,
             reply,
         } => Box::pin(async move {
-            let _ = reply.send(sessions::get(&database.connection, turn, request).await);
+            let _ = reply.send(
+                sessions::get_cached(
+                    &database.connection,
+                    turn,
+                    request,
+                    &mut *projection.lock().await,
+                )
+                .await,
+            );
         }),
         Operation::Effects {
             session,

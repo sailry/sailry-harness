@@ -1,4 +1,4 @@
-//! Delegated work uses the existing Node admission and GDK child operation.
+//! Delegated work uses the existing Node admission and child execution owner.
 use super::*;
 use crate::agent::catalog::CallContext;
 use sailry_protocol::conversation::Input;
@@ -20,15 +20,7 @@ fn selected_call(turn: TurnId) -> String {
 pub(super) fn selection(
     invocation: &Invocation,
     name: String,
-) -> Result<
-    Arc<
-        dyn goose_agent::operation::Operation<
-                crate::store::agent::RuntimeSession,
-                super::engine::Effect,
-            >,
-    >,
-    Fault,
-> {
+) -> Result<Arc<dyn super::engine::Callback>, Fault> {
     Ok(Arc::new(Selection {
         arguments: selected::arguments(invocation)?,
         name,
@@ -43,32 +35,25 @@ struct Selection {
 }
 
 #[async_trait::async_trait]
-impl goose_agent::operation::Operation<crate::store::agent::RuntimeSession, super::engine::Effect>
-    for Selection
-{
-    fn name(&self) -> &'static str {
-        "selected_role"
-    }
-
+impl super::engine::Callback for Selection {
     async fn run(
         &self,
         _: &crate::store::agent::RuntimeSession,
-        conversation: &goose_provider_types::conversation::Conversation,
-        _: &goose_agent::operation::Emitter,
-    ) -> anyhow::Result<goose_agent::operation::OperationResult<super::engine::Effect>> {
-        use goose_provider_types::conversation::message::{Message, MessageContentBlock};
-        if conversation.messages().iter().flat_map(|message| &message.content).any(|block| {
-            matches!(block, MessageContentBlock::ToolRequest(request) if request.id == self.call)
-        }) {
-            return goose_agent::operation::not_applicable();
+        conversation: &[super::model::Message],
+        _: &super::engine::Emitter,
+    ) -> anyhow::Result<super::engine::Outcome> {
+        use super::model::{Content, Message};
+        if conversation
+            .iter()
+            .flat_map(|message| &message.content)
+            .any(|block| matches!(block, Content::ToolCall(request) if request.id == self.call))
+        {
+            return super::engine::operation::not_applicable();
         }
         let call = rmcp::model::CallToolRequestParams::new(self.name.clone())
             .with_arguments(self.arguments.as_object().cloned().unwrap_or_default());
-        let message = Message::assistant().with_content(MessageContentBlock::tool_request(
-            self.call.clone(),
-            Ok(call),
-        ));
-        goose_agent::operation::applied([message.into()])
+        let message = Message::assistant().with_tool_request(self.call.clone(), Ok(call));
+        super::engine::operation::applied([message.into()])
     }
 }
 

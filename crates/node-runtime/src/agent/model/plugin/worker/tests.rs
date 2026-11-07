@@ -1,6 +1,6 @@
 use super::*;
+use crate::agent::model::{Message, Request};
 use base64::{Engine, engine::general_purpose::STANDARD};
-use goose_provider_types::{conversation::message::Message, model::ModelConfig};
 use rmcp::model::Tool;
 use sailry_protocol::{
     Effort,
@@ -32,8 +32,12 @@ async fn preserves_large_inline_payloads() {
         })
         .collect();
     let input = super::super::request::convert(
-        &crate::agent::model::gdk::request(&ModelConfig::new("example"), "", &messages, &tools)
-            .unwrap(),
+        &Request {
+            model: "example".into(),
+            messages: messages.to_vec(),
+            tools: tools.into_iter().map(Into::into).collect(),
+            ..Default::default()
+        },
         super::super::request::Context {
             endpoint: "https://example.test",
             session: "example",

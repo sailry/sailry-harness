@@ -1,31 +1,13 @@
 use super::*;
-use goose_provider_types::{
-    base::{Provider as GdkProvider, collect_stream},
-    conversation::message::{Message, MessageContentBlock},
-    model::ModelConfig,
-    thinking::ThinkingEffort,
+use crate::agent::model::{
+    Content as Part, Message, Model,
+    testing::{collect, roundtrip},
 };
 use rmcp::model::{CallToolResult, ContentBlock as Content, Tool};
 use sailry_protocol::conversation::connection::Options;
 use serde_json::{Value, json};
 
 const ANTHROPIC_API_VERSION: &str = "2023-06-01";
-
-fn config(provider: &Provider, session: &SessionConfig, owner: SessionId) -> ModelConfig {
-    crate::agent::model::gdk::config(&super::config(provider, session, owner))
-}
-
-fn native(
-    registry: &registry::Registry,
-    provider: &Provider,
-    model: &str,
-    session: SessionId,
-    key: &str,
-    headers: HeaderMap,
-) -> Result<Arc<dyn GdkProvider>, Fault> {
-    super::native(registry, provider, model, session, key, headers)
-        .map(|inner| crate::agent::model::gdk::provider(inner, format!("sailry:{}", provider.id)))
-}
 
 mod configuration;
 mod google;
@@ -81,19 +63,24 @@ async fn responses_use_sse_and_stable_calls() {
         HeaderMap::new(),
     )
     .unwrap();
-    let mut config = ModelConfig::new("gpt-6.1-sol")
-        .with_context_limit(Some(100_000))
-        .with_max_tokens(Some(512))
-        .with_thinking_effort(ThinkingEffort::High);
-    config.reasoning = Some(true);
+    let config = Config {
+        model_name: "gpt-6.1-sol".into(),
+        context_limit: Some(100_000),
+        max_tokens: Some(512),
+        thinking_effort: Effort::High,
+        reasoning: Some(true),
+        ..Default::default()
+    };
     let user = Message::user().with_text("Read the file");
-    let (call, usage) = collect_stream(
+    let (call, usage) = collect(
         native
-            .stream(
-                &config,
-                "Captured instructions",
-                std::slice::from_ref(&user),
-                &[tool()],
+            .call(
+                config.request(
+                    "Captured instructions".into(),
+                    vec![user.clone()],
+                    vec![tool().into()],
+                ),
+                CancellationToken::new(),
             )
             .await
             .unwrap(),
@@ -103,33 +90,29 @@ async fn responses_use_sse_and_stable_calls() {
     let request = call
         .content
         .iter()
-        .find_map(|block| block.as_tool_request())
+        .find_map(|block| match block {
+            Part::ToolCall(call) => Some(call),
+            _ => None,
+        })
         .unwrap();
     assert_eq!(request.id, "stable-call");
-    assert_eq!(
-        request
-            .tool_call
-            .as_ref()
-            .unwrap()
-            .arguments
-            .as_ref()
-            .unwrap()["path"],
-        "file"
-    );
-    assert_eq!(usage.usage.cache_read_input_tokens, Some(8));
+    assert_eq!(request.arguments["path"], "file");
+    assert_eq!(usage.cache_read, Some(8));
     let result = Message::user().with_tool_response(
         request.id.clone(),
         Ok(CallToolResult::success(vec![Content::text(
             "File contents",
         )])),
     );
-    let _ = collect_stream(
+    let _ = collect(
         native
-            .stream(
-                &config,
-                "Captured instructions",
-                &[user, call, result],
-                &[tool()],
+            .call(
+                config.request(
+                    "Captured instructions".into(),
+                    vec![user, call, result],
+                    vec![tool().into()],
+                ),
+                CancellationToken::new(),
             )
             .await
             .unwrap(),
@@ -192,10 +175,20 @@ async fn google_keeps_signed_tool_metadata() {
         HeaderMap::new(),
     )
     .unwrap();
-    let config = ModelConfig::new("gemini-3.5-pro");
-    let (mut call, _) = collect_stream(
+    let config = Config {
+        model_name: "gemini-3.5-pro".into(),
+        ..Default::default()
+    };
+    let (mut call, _) = collect(
         native
-            .stream(&config, "", &[Message::user().with_text("Read")], &[tool()])
+            .call(
+                config.request(
+                    String::new(),
+                    vec![Message::user().with_text("Read")],
+                    vec![tool().into()],
+                ),
+                CancellationToken::new(),
+            )
             .await
             .unwrap(),
     )
@@ -205,7 +198,7 @@ async fn google_keeps_signed_tool_metadata() {
         .content
         .iter_mut()
         .find_map(|block| match block {
-            MessageContentBlock::ToolRequest(request) => Some(request),
+            Part::ToolCall(request) => Some(request),
             _ => None,
         })
         .unwrap();
@@ -215,12 +208,14 @@ async fn google_keeps_signed_tool_metadata() {
         "c2lnbmVkLXRob3VnaHQ="
     );
     request.tool_meta = Some(json!({"title":"Retained metadata"}));
-    let serialized = serde_json::to_value(&call).unwrap();
-    let call: Message = serde_json::from_value(serialized).unwrap();
+    let call = roundtrip(&call).await;
     let request = call
         .content
         .iter()
-        .find_map(|block| block.as_tool_request())
+        .find_map(|block| match block {
+            Part::ToolCall(call) => Some(call),
+            _ => None,
+        })
         .unwrap();
     assert_eq!(
         request.tool_meta.as_ref().unwrap()["title"],
@@ -230,9 +225,12 @@ async fn google_keeps_signed_tool_metadata() {
         "signed-call",
         Ok(CallToolResult::success(vec![Content::text("Done")])),
     );
-    let _ = collect_stream(
+    let _ = collect(
         native
-            .stream(&config, "", &[call, result], &[tool()])
+            .call(
+                config.request(String::new(), vec![call, result], vec![tool().into()]),
+                CancellationToken::new(),
+            )
             .await
             .unwrap(),
     )
@@ -293,31 +291,43 @@ async fn anthropic_keeps_signed_and_redacted_thinking() {
             HeaderMap::new(),
         )
         .unwrap();
-        let config = ModelConfig::new("claude-sonnet-4-6")
-            .with_max_tokens(Some(4096))
-            .with_thinking_effort(ThinkingEffort::High);
-        let (message, _) = collect_stream(
+        let config = Config {
+            model_name: "claude-sonnet-4-6".into(),
+            max_tokens: Some(4096),
+            thinking_effort: Effort::High,
+            ..Default::default()
+        };
+        let (message, _) = collect(
             native
-                .stream(
-                    &config,
-                    "System",
-                    &[Message::user().with_text("Read")],
-                    &[tool()],
+                .call(
+                    config.request(
+                        "System".into(),
+                        vec![Message::user().with_text("Read")],
+                        vec![tool().into()],
+                    ),
+                    CancellationToken::new(),
                 )
                 .await
                 .unwrap(),
         )
         .await
         .unwrap();
-        assert!(message.content.iter().any(|block|matches!(block,MessageContentBlock::Thinking(thinking) if thinking.signature=="signed-thinking")));
-        assert!(message.content.iter().any(|block|matches!(block,MessageContentBlock::RedactedThinking(thinking) if thinking.data=="redacted-data")));
+        assert!(message.content.iter().any(|block|matches!(block,Part::Thinking { signature, .. } if signature.as_deref()==Some("signed-thinking"))));
+        assert!(
+            message.content.iter().any(
+                |block| matches!(block,Part::RedactedThinking { data } if data=="redacted-data")
+            )
+        );
         let result = Message::user().with_tool_response(
             "call",
             Ok(CallToolResult::success(vec![Content::text("Done")])),
         );
-        let _ = collect_stream(
+        let _ = collect(
             native
-                .stream(&config, "System", &[message, result], &[tool()])
+                .call(
+                    config.request("System".into(), vec![message, result], vec![tool().into()]),
+                    CancellationToken::new(),
+                )
                 .await
                 .unwrap(),
         )
@@ -371,13 +381,15 @@ async fn azure_uses_captured_deployment_and_version() {
         HeaderMap::new(),
     )
     .unwrap();
-    let _ = collect_stream(
+    let _ = collect(
         native
-            .stream(
-                &ModelConfig::new("deployment"),
-                "",
-                &[Message::user().with_text("Hello")],
-                &[],
+            .call(
+                crate::agent::model::Request {
+                    model: "deployment".into(),
+                    messages: vec![Message::user().with_text("Hello")],
+                    ..Default::default()
+                },
+                CancellationToken::new(),
             )
             .await
             .unwrap(),
@@ -416,19 +428,26 @@ async fn shared_clients_keep_credentials_separate() {
         HeaderMap::new(),
     )
     .unwrap();
-    let mut config = ModelConfig::new("model");
-    config.request_headers = Some(
-        [
-            ("authorization".into(), "untrusted-override".into()),
-            ("x-policy".into(), "captured".into()),
-        ]
-        .into(),
-    );
-    let messages = [Message::user().with_text("Hello")];
-    let send = async |provider: Arc<dyn GdkProvider>| {
-        collect_stream(provider.stream(&config, "", &messages, &[]).await.unwrap())
-            .await
-            .unwrap()
+    let mut request = crate::agent::model::Request {
+        model: "model".into(),
+        messages: vec![Message::user().with_text("Hello")],
+        ..Default::default()
+    };
+    request
+        .headers
+        .insert("authorization", "untrusted-override".parse().unwrap());
+    request
+        .headers
+        .insert("x-policy", "captured".parse().unwrap());
+    let send = async |provider: Arc<dyn Model>| {
+        collect(
+            provider
+                .call(request.clone(), CancellationToken::new())
+                .await
+                .unwrap(),
+        )
+        .await
+        .unwrap()
     };
     let _ = tokio::join!(send(first), send(second));
     let requests = server.finish().await;
@@ -462,13 +481,11 @@ async fn retries_rate_limits_before_output() {
         HeaderMap::new(),
     )
     .unwrap();
-    let request = crate::agent::model::gdk::request(
-        &ModelConfig::new("model"),
-        "",
-        &[Message::user().with_text("Hello")],
-        &[],
-    )
-    .unwrap();
+    let request = crate::agent::model::Request {
+        model: "model".into(),
+        messages: vec![Message::user().with_text("Hello")],
+        ..Default::default()
+    };
     let events: Vec<_> = futures::TryStreamExt::try_collect(crate::agent::model::retry::stream(
         native,
         request,
@@ -500,20 +517,17 @@ fn maps_captured_effort_and_output() {
     assert_eq!(frozen.model_name, "captured");
     assert_eq!(frozen.max_tokens, Some(4096));
     assert_eq!(frozen.context_limit, Some(100_000));
-    assert_eq!(frozen.thinking_effort(), Some(ThinkingEffort::Max));
+    assert_eq!(frozen.thinking_effort, Effort::Max);
     session.effort = Effort::Low;
     let next = config(&provider, &session, owner);
-    assert_eq!(next.thinking_effort(), Some(ThinkingEffort::Low));
-    assert_eq!(frozen.thinking_effort(), Some(ThinkingEffort::Max));
+    assert_eq!(next.thinking_effort, Effort::Low);
+    assert_eq!(frozen.thinking_effort, Effort::Max);
     session.effort = Effort::Disabled;
     assert_eq!(
-        config(&provider, &session, owner).thinking_effort(),
-        Some(ThinkingEffort::Off)
+        config(&provider, &session, owner).thinking_effort,
+        Effort::Disabled
     );
-    assert_eq!(
-        frozen.request_param::<String>("prompt_cache_key"),
-        Some(owner.to_string())
-    );
+    assert_eq!(frozen.request_params["prompt_cache_key"], owner.to_string());
     provider.binding = Some(Box::new(sailry_protocol::conversation::presets::Binding {
         policies: vec![sailry_protocol::conversation::presets::RequestPolicy {
             models: vec![session.model.clone()],
@@ -526,8 +540,8 @@ fn maps_captured_effort_and_output() {
         ..Default::default()
     }));
     assert_eq!(
-        config(&provider, &session, owner).request_param::<String>("prompt_cache_key"),
-        Some("captured-policy".into())
+        config(&provider, &session, owner).request_params["prompt_cache_key"],
+        "captured-policy"
     );
 }
 
@@ -547,13 +561,23 @@ async fn keeps_explicit_chat_routes() {
             HeaderMap::new(),
         )
         .unwrap();
-        let mut config = ModelConfig::new("gpt-6.1-sol")
-            .with_max_tokens(Some(8192))
-            .with_thinking_effort(ThinkingEffort::High);
-        config.reasoning = Some(true);
-        let _ = collect_stream(
+        let config = Config {
+            model_name: "gpt-6.1-sol".into(),
+            max_tokens: Some(8192),
+            thinking_effort: Effort::High,
+            reasoning: Some(true),
+            ..Default::default()
+        };
+        let _ = collect(
             native
-                .stream(&config, "", &[Message::user().with_text("Hello")], &[])
+                .call(
+                    config.request(
+                        String::new(),
+                        vec![Message::user().with_text("Hello")],
+                        vec![],
+                    ),
+                    CancellationToken::new(),
+                )
                 .await
                 .unwrap(),
         )

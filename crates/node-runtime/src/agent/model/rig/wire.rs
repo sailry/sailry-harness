@@ -1,10 +1,12 @@
 use sailry_protocol::conversation::ModelApi;
 use serde_json::Value;
+use std::collections::BTreeMap;
 
 pub(super) const HISTORY_TOOLS: &str = "__sailry_history_tools";
 pub(super) const SYSTEM_ROLE: &str = "__sailry_system_role";
 pub(super) const TOOL_IDS: &str = "__sailry_tool_ids";
 pub(super) const SIGNATURE: &str = "__sailry_tool_signature";
+pub(super) const CALL_ID: &str = "__sailry_call_id";
 
 pub(super) fn prepare(body: &mut Value, api: ModelApi) {
     let role = body
@@ -25,7 +27,28 @@ pub(super) fn prepare(body: &mut Value, api: ModelApi) {
 }
 
 fn chat(body: &mut Value, role: Option<Value>) {
+    let mut calls = BTreeMap::new();
     for message in body["messages"].as_array_mut().into_iter().flatten() {
+        for call in message
+            .get_mut("tool_calls")
+            .and_then(Value::as_array_mut)
+            .into_iter()
+            .flatten()
+        {
+            if let Some(original) = call.as_object_mut().and_then(|call| call.remove(CALL_ID))
+                && let Some(identity) = call["id"].as_str()
+            {
+                calls.insert(identity.to_owned(), original.clone());
+                call["id"] = original;
+            }
+        }
+        if message["role"] == "tool"
+            && let Some(original) = message["tool_call_id"]
+                .as_str()
+                .and_then(|identity| calls.get(identity))
+        {
+            message["tool_call_id"] = original.clone();
+        }
         if let Some(role) = &role
             && matches!(message["role"].as_str(), Some("system" | "developer"))
         {

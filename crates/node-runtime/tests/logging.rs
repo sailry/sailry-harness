@@ -367,17 +367,14 @@ async fn observes_shared_lifecycles_without_payloads() {
     assert_eq!(rate_run.status, Status::Failed);
     let error = rate_run.error.as_ref().unwrap();
     assert_eq!(error.code, ErrorCode::Unavailable);
-    assert_eq!(
-        error.message,
-        "Ran into this error: Rate limit exceeded: fixture unavailable.\n\nPlease retry if you think this is a transient or recoverable error."
-    );
+    assert_eq!(error.message, "fixture unavailable (HTTP 429)");
     assert!(matches!(
         error.details.as_ref(),
         Some(FaultDetails::ModelRequest {
-            reason: ModelFailure::Request
+            reason: ModelFailure::RateLimited
         })
     ));
-    // The shared GDK policy permits five retries after the first request.
+    // The request policy permits five retries after the first request.
     assert_eq!(rate_model.requests.lock().unwrap().len(), 6);
     retry_node.shutdown().await.unwrap();
     retry_controller.close().await.unwrap();
@@ -427,8 +424,11 @@ async fn observes_shared_lifecycles_without_payloads() {
     assert_eq!(parse_run.status, Status::Failed);
     let error = parse_run.error.as_ref().unwrap();
     assert_eq!(error.code, ErrorCode::Unavailable);
-    assert!(error.message.contains("Stream decode error"));
-    assert!(error.message.contains("missing field `output_index`"));
+    assert!(error.message.contains("JsonError:"), "{error:?}");
+    assert!(
+        error.message.contains("EOF while parsing an object"),
+        "{error:?}"
+    );
     assert!(matches!(
         error.details.as_ref(),
         Some(FaultDetails::ModelRequest {
@@ -562,7 +562,7 @@ async fn observes_shared_lifecycles_without_payloads() {
             .iter()
             .any(|record| record["phase"] == "first_token")
     );
-    // GDK retries HTTP internally; Sailry observes one provider request lifecycle.
+    // HTTP retries retain one logical provider request lifecycle.
     for (turn, phase) in [
         (retry_turn.id, "completed"),
         (rate_turn.id, "failed"),

@@ -1,11 +1,8 @@
 use super::*;
 use crate::store::agent::tests::fixture::Fixture;
-use goose_provider_types::conversation::{
-    message::MessageErrorKind,
-    token_usage::{ProviderUsage, Usage as GdkUsage},
-};
 use rmcp::model::{CallToolRequestParams, CallToolResult, ContentBlock};
 
+mod cache;
 pub(super) mod snapshots;
 
 async fn running() -> (Fixture, TurnId) {
@@ -53,19 +50,19 @@ async fn load(fixture: &Fixture, turn: TurnId) -> Session {
     .unwrap()
 }
 
-fn usage() -> ProviderUsage {
-    let mut usage =
-        ProviderUsage::new("fixture".into(), GdkUsage::new(Some(12), Some(3), Some(15)));
-    usage.additional_data = Some(
-        [("reasoning_tokens".into(), json!(2))]
-            .into_iter()
-            .collect(),
-    );
-    usage
+fn usage() -> model::Usage {
+    model::Usage {
+        model: Some("fixture".into()),
+        input: Some(12),
+        output: Some(3),
+        total: Some(15),
+        reasoning: Some(2),
+        ..model::Usage::default()
+    }
 }
 
-fn summary(after: &str) -> GdkMessage {
-    let mut message = GdkMessage::user()
+fn summary(after: &str) -> ModelMessage {
+    let mut message = ModelMessage::user()
         .with_generated_id()
         .with_text("Tool summary")
         .with_visibility(false, true);
@@ -82,12 +79,12 @@ async fn retains_names_outside_requested_history() {
         &mut fixture,
         turn,
         vec![
-            GdkMessage::assistant()
+            ModelMessage::assistant()
                 .with_generated_id()
                 .with_tool_request("old", Ok(CallToolRequestParams::new("read_file")))
                 .with_visibility(false, false)
                 .into(),
-            GdkMessage::user()
+            ModelMessage::user()
                 .with_generated_id()
                 .with_tool_response("old", Ok(CallToolResult::success(vec![])))
                 .with_visibility(false, false)
@@ -115,10 +112,10 @@ async fn retains_names_outside_requested_history() {
 async fn keeps_summary_before_current_output() {
     for failed in [false, true] {
         let (mut fixture, turn) = running().await;
-        let request = GdkMessage::assistant()
+        let request = ModelMessage::assistant()
             .with_generated_id()
             .with_tool_request("call", Ok(CallToolRequestParams::new("read_file")));
-        let response = GdkMessage::user().with_generated_id().with_tool_response(
+        let response = ModelMessage::user().with_generated_id().with_tool_response(
             "call",
             Ok(CallToolResult::success(vec![ContentBlock::text(
                 "Raw tool output",
@@ -127,16 +124,16 @@ async fn keeps_summary_before_current_output() {
         let request_id = request.id.clone().unwrap();
         let response_id = response.id.clone().unwrap();
         let terminal = if failed {
-            GdkMessage::assistant()
+            ModelMessage::assistant()
                 .with_generated_id()
-                .with_error(MessageErrorKind::Authentication, "Authentication failed")
+                .with_error(model::ErrorKind::Authentication, "Authentication failed")
         } else {
-            GdkMessage::assistant()
+            ModelMessage::assistant()
                 .with_generated_id()
                 .with_text("Final answer")
         };
         let terminal_id = terminal.id.clone().unwrap();
-        let next = GdkMessage::user()
+        let next = ModelMessage::user()
             .with_generated_id()
             .with_text("Next task");
         let next_id = next.id.clone().unwrap();
@@ -144,7 +141,7 @@ async fn keeps_summary_before_current_output() {
             &mut fixture,
             turn,
             vec![
-                GdkMessage::user()
+                ModelMessage::user()
                     .with_generated_id()
                     .with_text("Old task")
                     .into(),
@@ -169,7 +166,7 @@ async fn keeps_summary_before_current_output() {
             turn,
             Kind::Message(crate::agent::canonical::Message {
                 model: Some("fixture".into()),
-                usage: Some(conversion::provider_usage(&gdk::from_usage(&usage())).unwrap()),
+                usage: Some(conversion::provider_usage(&usage()).unwrap()),
                 ..Default::default()
             }),
         );
@@ -205,7 +202,6 @@ async fn keeps_summary_before_current_output() {
         let session = load(&fixture, turn).await;
         let ids: Vec<_> = session
             .conversation
-            .messages()
             .iter()
             .filter_map(|message| message.id.as_deref())
             .collect();
@@ -245,10 +241,14 @@ async fn keeps_summary_before_current_output() {
             failed
         );
         assert_eq!(
-            goose_agent::operation::ends_turn(session.conversation.messages()),
+            crate::agent::engine::conversation::ends_turn(&session.conversation),
             !failed
         );
-        let projected = session.conversation.agent_visible_messages();
+        let projected = session
+            .conversation
+            .iter()
+            .filter(|message| message.metadata.agent_visible)
+            .collect::<Vec<_>>();
         assert!(
             !projected
                 .iter()
@@ -288,7 +288,7 @@ async fn keeps_summary_before_current_output() {
         )
         .await
         .unwrap();
-        assert!(bounded.conversation.messages().is_empty());
+        assert!(bounded.conversation.is_empty());
         runs::finish(
             &mut fixture.database,
             turn,
@@ -313,7 +313,7 @@ async fn keeps_summary_before_current_output() {
 #[tokio::test]
 async fn rolls_back_visibility_with_rejected_summary() {
     let (mut fixture, turn) = running().await;
-    let original = GdkMessage::assistant()
+    let original = ModelMessage::assistant()
         .with_generated_id()
         .with_text("Original output");
     let id = original.id.clone().unwrap();
@@ -357,9 +357,9 @@ async fn rolls_back_visibility_with_rejected_summary() {
 #[tokio::test]
 async fn retains_error_only_usage() {
     let (mut fixture, turn) = running().await;
-    let error = GdkMessage::assistant()
+    let error = ModelMessage::assistant()
         .with_generated_id()
-        .with_error(MessageErrorKind::Other, "Stream failed");
+        .with_error(model::ErrorKind::Other, "Stream failed");
     let id = error.id.clone().unwrap();
     apply(
         &mut fixture,
@@ -382,25 +382,27 @@ async fn retains_error_only_usage() {
     );
     let projected = session.conversation.last().unwrap();
     assert!(projected.error_kind().is_some());
-    assert_eq!(
-        projected.metadata.usage.as_deref().unwrap().input_tokens,
-        Some(12)
-    );
+    assert_eq!(projected.metadata.usage.as_deref().unwrap().input, Some(12));
 }
 
 #[tokio::test]
 async fn retains_each_attempt() {
     for failed in [false, true] {
         let (mut fixture, turn) = running().await;
-        let answer = GdkMessage::assistant().with_generated_id();
+        let answer = ModelMessage::assistant().with_generated_id();
         let answer = if failed {
-            answer.with_error(MessageErrorKind::Other, "Stream failed")
+            answer.with_error(model::ErrorKind::Other, "Stream failed")
         } else {
             answer.with_text("Final answer")
         };
         let id = answer.id.clone().unwrap();
-        let completed =
-            ProviderUsage::new("fixture".into(), GdkUsage::new(Some(20), Some(5), Some(25)));
+        let completed = model::Usage {
+            model: Some("fixture".into()),
+            input: Some(20),
+            output: Some(5),
+            total: Some(25),
+            ..model::Usage::default()
+        };
         apply(
             &mut fixture,
             turn,
@@ -432,15 +434,12 @@ async fn retains_each_attempt() {
         assert_eq!(records[2].id, id);
         let usage = records[2].usage().unwrap();
         assert_eq!((usage.input, usage.output), (Some(20), Some(5)));
-        assert_eq!(session.conversation.messages().len(), 1);
+        assert_eq!(session.conversation.len(), 1);
         let projected = session.conversation.last().unwrap();
         assert_eq!(projected.id.as_deref(), Some(id.as_str()));
         assert_eq!(projected.error_kind().is_some(), failed);
         let usage = projected.metadata.usage.as_deref().unwrap();
-        assert_eq!(
-            (usage.input_tokens, usage.output_tokens),
-            (Some(20), Some(5))
-        );
+        assert_eq!((usage.input, usage.output), (Some(20), Some(5)));
         let statistics =
             crate::store::agent::statistics::read(&fixture.database.connection, fixture.session)
                 .await
@@ -454,7 +453,7 @@ async fn retains_each_attempt() {
 #[tokio::test]
 async fn retains_usage_without_output() {
     let (mut fixture, turn) = running().await;
-    let input = GdkMessage::user()
+    let input = ModelMessage::user()
         .with_generated_id()
         .with_text("Current task");
     let id = input.id.clone().unwrap();
@@ -490,7 +489,7 @@ async fn retains_usage_without_output() {
 #[tokio::test]
 async fn retains_completed_and_compacted_reasoning() {
     let (mut fixture, turn) = running().await;
-    let answer = GdkMessage::assistant()
+    let answer = ModelMessage::assistant()
         .with_generated_id()
         .with_text("Final answer");
     let id = answer.id.clone().unwrap();
@@ -498,7 +497,7 @@ async fn retains_completed_and_compacted_reasoning() {
         &mut fixture,
         turn,
         vec![
-            GdkMessage::user()
+            ModelMessage::user()
                 .with_generated_id()
                 .with_text("Task")
                 .into(),
@@ -520,7 +519,7 @@ async fn retains_completed_and_compacted_reasoning() {
             .reasoning,
         Some(2)
     );
-    let summary = GdkMessage::user()
+    let summary = ModelMessage::user()
         .with_generated_id()
         .with_text("Compacted handoff");
     let id = summary.id.clone().unwrap();
@@ -552,8 +551,8 @@ async fn retains_completed_and_compacted_reasoning() {
 async fn replaces_loaded_tools_at_compaction() {
     let (mut fixture, turn) = running().await;
     let calls = |names: &[&str]| -> Vec<Effect> {
-        let mut request = GdkMessage::assistant().with_generated_id();
-        let mut response = GdkMessage::user().with_generated_id();
+        let mut request = ModelMessage::assistant().with_generated_id();
+        let mut response = ModelMessage::user().with_generated_id();
         for name in names {
             let id = format!("{name}-call");
             request = request
@@ -563,7 +562,7 @@ async fn replaces_loaded_tools_at_compaction() {
         vec![request.into(), response.into()]
     };
     let mut changes: Vec<Effect> = vec![
-        GdkMessage::user()
+        ModelMessage::user()
             .with_generated_id()
             .with_text("Task")
             .into(),
@@ -574,7 +573,9 @@ async fn replaces_loaded_tools_at_compaction() {
         load(&fixture, turn).await.context.loaded_tools,
         Some(vec!["alpha".into(), "beta".into()])
     );
-    let summary = GdkMessage::user().with_generated_id().with_text("Handoff");
+    let summary = ModelMessage::user()
+        .with_generated_id()
+        .with_text("Handoff");
     let id = summary.id.clone().unwrap();
     apply(
         &mut fixture,
@@ -608,7 +609,7 @@ async fn replaces_loaded_tools_at_compaction() {
 #[tokio::test]
 async fn keeps_precise_receipt_time_on_retry() {
     let (mut fixture, turn) = running().await;
-    let mut message = GdkMessage::assistant()
+    let mut message = ModelMessage::assistant()
         .with_generated_id()
         .with_text("Current output");
     message.created = 1;

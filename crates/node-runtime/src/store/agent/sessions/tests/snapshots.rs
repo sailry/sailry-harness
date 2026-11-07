@@ -18,7 +18,7 @@ pub(in crate::store::agent::sessions) async fn before_state() -> Result<(), Faul
 #[tokio::test]
 async fn pins_history_and_state() {
     let (mut fixture, turn) = running().await;
-    let message = GdkMessage::assistant()
+    let message = ModelMessage::assistant()
         .with_generated_id()
         .with_tool_request("first", Ok(CallToolRequestParams::new("read_file")));
     apply(&mut fixture, turn, vec![message.into()])

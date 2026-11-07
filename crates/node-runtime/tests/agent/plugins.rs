@@ -121,6 +121,7 @@ async fn scopes_tool_switches_to_the_execution_node() {
     // search_memory starts visible; review_memories still requires discovery.
     let memory = plugin_tool("memory", "review_memories");
     let initial_memory = plugin_tool("memory", "search_memory");
+    let history = ["list_sessions", "read_session", "search_session"];
     let common = [
         ("git", "git_status"),
         ("commands", "run_command"),
@@ -147,7 +148,13 @@ async fn scopes_tool_switches_to_the_execution_node() {
                     .unwrap();
             }
         }
-        let mut calls = vec![("tool_search".into(), json!({"query":memory,"limit":1}))];
+        let mut calls = vec![
+            (
+                "tool_search".into(),
+                json!({"query":format!("select:{}", history.join(",")),"limit":history.len()}),
+            ),
+            ("tool_search".into(), json!({"query":memory,"limit":1})),
+        ];
         if enabled {
             calls.push((memory.clone(), json!({})));
         }
@@ -259,14 +266,12 @@ async fn scopes_tool_switches_to_the_execution_node() {
         assert!(!node_context(request, "Work mode").contains("Session environment"));
         assert!(environment.contains("Model:"));
         assert!(environment.contains("Git repository: no"));
-        for name in [
-            "ask_user",
-            "set_session_title",
-            "list_sessions",
-            "read_session",
-            "search_session",
-        ] {
+        for name in ["ask_user", "set_session_title"] {
             assert!(tools.contains(name), "core tool {name}");
+        }
+        for name in history {
+            assert_eq!(initial.contains(name), index > 0, "deferred tool {name}");
+            assert!(tools.contains(name), "discovered core tool {name}");
         }
     }
     node.shutdown().await.unwrap();

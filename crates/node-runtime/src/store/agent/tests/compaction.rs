@@ -1,6 +1,7 @@
 use super::super::compaction as context;
 use super::{fixture::Fixture, *};
 use crate::agent::canonical::{self as records, BlockKind, Kind, Record, Role};
+use crate::agent::model::{Content, Message};
 use fixture::{message, record, request, response};
 use serde_json::json;
 
@@ -67,6 +68,13 @@ async fn load(fixture: &Fixture, turn: TurnId) -> sessions::Session {
     )
     .await
     .unwrap()
+}
+
+fn visible(messages: &[Message]) -> Vec<&Message> {
+    messages
+        .iter()
+        .filter(|message| message.is_agent_visible() && !message.content.is_empty())
+        .collect()
 }
 
 #[tokio::test]
@@ -221,7 +229,7 @@ async fn preserves_compacted_history() {
                 let turn = fixture.append([compacted.clone()]).await;
                 let session = load(&fixture, turn).await;
                 assert_eq!(session.records.last().unwrap().created, compacted.created, "{scenario}");
-                let visible = session.conversation.agent_visible_messages();
+                let visible = visible(&session.conversation);
                 assert_eq!(visible.len(), 1, "{scenario}");
                 assert_eq!(visible[0].created, compacted.created.timestamp(), "{scenario}");
             }).await,
@@ -297,7 +305,7 @@ async fn preserves_compacted_history() {
                         serde_json::to_value(&original.metadata.input).unwrap()
                     , "{scenario}");
                 }
-                let active = first.conversation.agent_visible_messages();
+                let active = visible(&first.conversation);
                 assert_eq!(active.len(), 1, "{scenario}");
                 assert_eq!(active[0].as_concat_text(), "Summary 中文 🙂", "{scenario}");
                 let serialized = serde_json::to_string(&compacted).unwrap();
@@ -325,7 +333,7 @@ async fn preserves_compacted_history() {
                     serde_json::to_value(&reloaded.records).unwrap()
                 , "{scenario}");
                 assert_eq!(
-                    reloaded.conversation.agent_visible_messages()[0].as_concat_text(),
+                    visible(&reloaded.conversation)[0].as_concat_text(),
         "Summary 中文 🙂"
                 , "{scenario}");
                 let saved = reloaded
@@ -464,7 +472,7 @@ async fn preserves_compacted_history() {
                         .index,
                     0
                 , "{scenario}");
-                assert_eq!(loaded.conversation.agent_visible_messages().len(), 1, "{scenario}");
+                assert_eq!(visible(&loaded.conversation).len(), 1, "{scenario}");
                 assert_eq!(
                     loaded.capability.as_deref(),
                     Some("Exact capability survives guidance")
@@ -480,10 +488,12 @@ async fn preserves_compacted_history() {
                 assert!(
                     !loaded
                         .conversation
-                        .messages()
                         .iter()
                         .flat_map(|message| &message.content)
-                        .filter_map(|content| content.as_text())
+                        .filter_map(|content| match content {
+                            Content::Text { text } => Some(text),
+                            _ => None,
+                        })
                         .any(|text| text.contains("Exact capability survives guidance"))
                 , "{scenario}");
                 fixture.database.connection.execute(
@@ -571,7 +581,7 @@ async fn preserves_compacted_history() {
                 let anchored: String = fixture.database.connection.prepare("SELECT e.id FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1 AND h.sequence=?2")
                     .await.unwrap().query_row(params![fixture.session.to_string(), boundary]).await.unwrap().get(0).unwrap();
                 assert_eq!(anchored, anchor.id, "{scenario}");
-                assert_eq!(loaded.conversation.agent_visible_messages().len(), 1, "{scenario}");
+                assert_eq!(visible(&loaded.conversation).len(), 1, "{scenario}");
             }).await,
             "merges_disjoint_discovered_tools" => Box::pin(async {
                 let discovered = |name: &str| {
@@ -628,11 +638,11 @@ async fn preserves_compacted_history() {
                         .collect::<Vec<_>>(),
                     [&original.id, &recent.id, &current.id, &compacted.id]
                 , "{scenario}");
-                let active = loaded.conversation.agent_visible_messages();
+                let active = visible(&loaded.conversation);
                 assert_eq!(active.len(), 1, "{scenario}");
                 assert_eq!(active[0].id.as_deref(), Some(compacted.id.as_str()), "{scenario}");
                 assert!(
-                    loaded.conversation.messages()[..3]
+                    loaded.conversation[..3]
                         .iter()
                         .all(|message| !message.is_agent_visible())
                 , "{scenario}");
@@ -714,7 +724,7 @@ async fn preserves_compacted_history() {
                 let branch_turn = fixture.queued().await;
                 let branch = load(&fixture, branch_turn).await;
                 assert_eq!(
-                    branch.conversation.agent_visible_messages()[0]
+                    visible(&branch.conversation)[0]
                         .id
                         .as_deref(),
                     Some(compacted.id.as_str())
@@ -740,7 +750,7 @@ async fn preserves_compacted_history() {
                 assert_eq!(loaded.records.len(), 1, "{scenario}");
                 assert_eq!(loaded.records[0].id, original.id, "{scenario}");
                 assert_eq!(
-                    loaded.conversation.agent_visible_messages()[0]
+                    visible(&loaded.conversation)[0]
                         .id
                         .as_deref(),
                     Some(original.id.as_str())
@@ -748,10 +758,7 @@ async fn preserves_compacted_history() {
                 fixture.session = retained.id;
                 let backup_turn = fixture.queued().await;
                 assert_eq!(
-                    load(&fixture, backup_turn)
-                        .await
-                        .conversation
-                        .agent_visible_messages()[0]
+                    visible(&load(&fixture, backup_turn).await.conversation)[0]
                         .id
                         .as_deref(),
                     Some(compacted.id.as_str())
@@ -762,7 +769,7 @@ async fn preserves_compacted_history() {
                 let turn = fixture.completed(&["Preserved"; 300]).await;
                 let loaded = load(&fixture, turn).await;
                 assert_eq!(loaded.records.len(), 300, "{scenario}");
-                assert_eq!(loaded.conversation.agent_visible_messages().len(), 300, "{scenario}");
+                assert_eq!(visible(&loaded.conversation).len(), 300, "{scenario}");
             }).await,
             "retains_tool_batches" => Box::pin(async {
                 let turn = fixture.queued().await;
@@ -828,7 +835,7 @@ async fn preserves_compacted_history() {
                 .await
                 .unwrap();
                 let loaded = load(&fixture, turn).await;
-                let active = loaded.conversation.agent_visible_messages();
+                let active = visible(&loaded.conversation);
                 assert_eq!(
                     active
                         .iter()
@@ -914,9 +921,9 @@ async fn retains_input_capabilities() {
                 Some(1)
             );
         }
-        assert_eq!(loaded.conversation.agent_visible_messages().len(), 1);
+        assert_eq!(visible(&loaded.conversation).len(), 1);
         assert_eq!(
-            loaded.conversation.agent_visible_messages()[0].as_concat_text(),
+            visible(&loaded.conversation)[0].as_concat_text(),
             "Summary 中文 🙂"
         );
     }

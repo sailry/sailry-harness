@@ -72,7 +72,9 @@ fn assert_totals(statistics: &Statistics, turns: u64, responses: u64) {
             .all(|request| request.model == "fixture-a" && request.context_limit == Some(128_000))
     );
     assert!(observations.latency.elapsed_us.is_some());
-    assert_eq!(observations.latency.response_us, None);
+    let response = observations.latency.response_us.unwrap();
+    assert!(response <= observations.latency.first_token_us.unwrap());
+    assert!(response <= observations.latency.elapsed_us.unwrap());
     assert!(observations.latency.first_token_us.is_some());
 }
 

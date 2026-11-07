@@ -5,6 +5,9 @@ use crate::providers::request as policy;
 use serde_json::Value;
 use std::time::Duration;
 
+mod catalog;
+pub(super) use catalog::limit as fallback;
+
 pub(in crate::agent) async fn limit(
     ingress: &Arc<Ingress>,
     invocation: &Invocation,
@@ -22,7 +25,7 @@ pub(in crate::agent) async fn limit(
     {
         return limit;
     }
-    let fallback = gdk::context(provider.api, &config.model);
+    let fallback = fallback(provider.api, &config.model);
     if !matches!(
         provider.api,
         ModelApi::Responses

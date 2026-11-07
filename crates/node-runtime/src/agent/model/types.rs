@@ -51,6 +51,82 @@ impl Default for Message {
 }
 
 impl Message {
+    pub(crate) fn ensure_id(&mut self) {
+        if self.id.is_none() {
+            self.id = Some(format!("msg_{}", uuid::Uuid::new_v4()));
+        }
+    }
+
+    pub(crate) fn with_generated_id(mut self) -> Self {
+        self.id = None;
+        self.ensure_id();
+        self
+    }
+
+    pub(crate) fn with_id(mut self, id: impl Into<String>) -> Self {
+        self.id = Some(id.into());
+        self
+    }
+
+    pub(crate) fn with_visibility(mut self, user: bool, agent: bool) -> Self {
+        self.metadata.user_visible = user;
+        self.metadata.agent_visible = agent;
+        self
+    }
+
+    pub(crate) fn is_user_visible(&self) -> bool {
+        self.metadata.user_visible
+    }
+
+    pub(crate) fn is_agent_visible(&self) -> bool {
+        self.metadata.agent_visible
+    }
+
+    pub(crate) fn is_turn_context(&self) -> bool {
+        self.metadata.turn_context
+    }
+
+    pub(crate) fn as_concat_text(&self) -> String {
+        self.content
+            .iter()
+            .filter_map(|content| match content {
+                Content::Text { text } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    pub(crate) fn error_kind(&self) -> Option<ErrorKind> {
+        self.content.iter().find_map(|content| match content {
+            Content::Error { code, .. } => Some(match code.as_deref() {
+                Some("authentication") => ErrorKind::Authentication,
+                Some("contextLengthExceeded" | "context_overflow") => ErrorKind::ContextOverflow,
+                Some("rate_limited") => ErrorKind::RateLimited,
+                Some("creditsExhausted" | "credits_exhausted") => ErrorKind::Quota,
+                _ => ErrorKind::Other,
+            }),
+            _ => None,
+        })
+    }
+
+    pub(crate) fn with_error(self, kind: ErrorKind, message: impl Into<String>) -> Self {
+        self.with_content(Content::Error {
+            code: Some(
+                match kind {
+                    ErrorKind::Authentication => "authentication",
+                    ErrorKind::ContextOverflow => "contextLengthExceeded",
+                    ErrorKind::RateLimited => "rate_limited",
+                    ErrorKind::Quota => "creditsExhausted",
+                    _ => "other",
+                }
+                .into(),
+            ),
+            message: message.into(),
+        })
+        .with_visibility(true, false)
+    }
+
     pub(crate) fn user() -> Self {
         Self {
             role: Role::User,
@@ -67,6 +143,7 @@ impl Message {
     pub(crate) fn with_text(self, text: impl Into<String>) -> Self {
         self.with_content(Content::Text { text: text.into() })
     }
+    #[cfg(test)]
     pub(crate) fn with_thinking(
         self,
         text: impl Into<String>,
@@ -90,6 +167,7 @@ impl Message {
             annotations: None,
         })
     }
+    #[cfg(test)]
     pub(crate) fn with_document(
         self,
         data_base64: impl Into<String>,
@@ -143,6 +221,36 @@ impl Message {
             result,
             metadata: None,
         }))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_tool_request_with_metadata(
+        mut self,
+        id: impl Into<String>,
+        call: Result<rmcp::model::CallToolRequestParams, rmcp::model::ErrorData>,
+        metadata: Option<Map<String, Value>>,
+        tool_meta: Option<Value>,
+    ) -> Self {
+        self = self.with_tool_request(id, call);
+        if let Some(Content::ToolCall(call)) = self.content.last_mut() {
+            call.metadata = metadata;
+            call.tool_meta = tool_meta;
+        }
+        self
+    }
+
+    pub(crate) fn add_tool_response_with_metadata(
+        &mut self,
+        id: impl Into<String>,
+        result: Result<rmcp::model::CallToolResult, rmcp::model::ErrorData>,
+        metadata: Option<&Map<String, Value>>,
+    ) {
+        self.content.push(Content::ToolResult(ToolResult {
+            id: id.into(),
+            name: String::new(),
+            result,
+            metadata: metadata.cloned(),
+        }));
     }
 }
 
@@ -333,6 +441,14 @@ pub(crate) struct Usage {
     pub elapsed_ms: Option<u64>,
     pub time_to_first_token_ms: Option<u64>,
     pub is_compaction: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum BlockKind {
+    Text,
+    Thinking,
+    RedactedThinking,
+    ToolCall,
 }
 
 #[derive(Clone, Debug, PartialEq)]

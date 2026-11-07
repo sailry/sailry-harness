@@ -3,7 +3,6 @@ mod authorization;
 mod context;
 mod errors;
 mod factory;
-pub(crate) mod gdk;
 mod names;
 pub(in crate::agent) mod observation;
 pub(super) mod plugin;
@@ -12,6 +11,8 @@ mod request;
 mod retry;
 mod rig;
 pub(in crate::agent) mod summary;
+#[cfg(test)]
+pub(crate) mod testing;
 pub(crate) mod types;
 pub(in crate::agent) use context::limit as context_limit;
 pub(in crate::agent) use errors::{fault as error, safe};

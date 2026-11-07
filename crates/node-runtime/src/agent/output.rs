@@ -1,8 +1,9 @@
-//! Tool previews restored from Sailry fb70fdc1, only in outgoing GDK messages.
-use goose_provider_types::conversation::message::{Message, MessageContentBlock};
+//! Tool previews restored from Sailry fb70fdc1, only in outgoing model messages.
+use crate::agent::model::{Content, Message, types::ToolResult};
 use rmcp::model::{CallToolResult, ContentBlock};
 use serde_json::{Value, json};
 
+mod cache;
 mod changes;
 mod commands;
 mod edits;
@@ -12,6 +13,8 @@ mod pages;
 mod search;
 mod terminal;
 
+pub(in crate::agent) use cache::Cache;
+
 /// Model-facing line ceiling for one tool result, as in OpenCode 3ba597f
 /// `tool-output.ts` and Pi 90b42bc `truncate.ts`. The canonical result keeps
 /// every line and stays readable through `read_tool_output`.
@@ -19,6 +22,7 @@ pub(super) const MAX_LINES: usize = 2_000;
 /// Model-facing UTF-8 byte ceiling for one tool result; see [`MAX_LINES`].
 pub(super) const MAX_BYTES: usize = 50 * 1024;
 
+#[cfg(test)]
 pub(in crate::agent) fn project(messages: &mut [Message]) {
     // Only results still visible to the model, such as those after the latest
     // compaction boundary, can stand in for a later unchanged read.
@@ -26,35 +30,37 @@ pub(in crate::agent) fn project(messages: &mut [Message]) {
     for message in messages {
         let visible = message.is_agent_visible();
         for content in &mut message.content {
-            let MessageContentBlock::ToolResponse(response) = content else {
+            let Content::ToolResult(response) = content else {
                 continue;
             };
-            let result = match &mut response.tool_result {
-                Ok(result) => result,
-                Err(error) => {
-                    limit::error(
-                        &response.id,
-                        error,
-                        message.metadata.operation_note("tool_output", &response.id),
-                    );
-                    continue;
-                }
-            };
-            let source = limit::reference(
-                &response.id,
-                result,
-                message.metadata.operation_note("tool_output", &response.id),
-            );
-            let tail = result.structured_content.as_ref().is_some_and(|value| {
-                matches!(
-                    value["kind"].as_str(),
-                    Some("command_result" | "command_output")
-                )
-            });
-            preview(&response.id, result, &source, visible.then_some(&mut reads));
-            limit::bound(result, &source, tail);
+            let revision = message.metadata.operation_note("tool_output", &response.id);
+            response_projection(response, revision, visible, &mut reads);
         }
     }
+}
+
+fn response_projection(
+    response: &mut ToolResult,
+    revision: Option<&Value>,
+    visible: bool,
+    reads: &mut files::Reads,
+) {
+    let result = match &mut response.result {
+        Ok(result) => result,
+        Err(error) => {
+            limit::error(&response.id, error, revision);
+            return;
+        }
+    };
+    let source = limit::reference(&response.id, result, revision);
+    let tail = result.structured_content.as_ref().is_some_and(|value| {
+        matches!(
+            value["kind"].as_str(),
+            Some("command_result" | "command_output")
+        )
+    });
+    preview(&response.id, result, &source, visible.then_some(reads));
+    limit::bound(result, &source, tail);
 }
 
 fn preview(

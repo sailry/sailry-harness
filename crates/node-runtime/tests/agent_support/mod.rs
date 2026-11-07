@@ -743,13 +743,16 @@ async fn respond(
                     b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n",
                 )
                 .await?;
-            let event = json!({
+            let mut event = json!({
                 "type":"response.output_text.delta",
                 "sequence_number":0,
                 "item_id":"msg",
+                "output_index":0,
                 "content_index":0,
                 "delta":"PRIVATE_SENTINEL"
-            });
+            })
+            .to_string();
+            assert_eq!(event.pop(), Some('}'));
             stream
                 .write_all(format!("data: {event}\n\n").as_bytes())
                 .await?;

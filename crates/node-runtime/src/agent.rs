@@ -597,15 +597,7 @@ async fn execute_with(
     let callbacks = extensions
         .callbacks
         .into_iter()
-        .map(|(_, callback)| {
-            callback
-                as Arc<
-                    dyn goose_agent::operation::Operation<
-                            crate::store::agent::RuntimeSession,
-                            engine::Effect,
-                        >,
-                >
-        })
+        .map(|(_, callback)| callback)
         .collect();
     let summary = startup
         .measure(
@@ -645,7 +637,6 @@ async fn execute_with(
             .await?;
         let messages: Vec<_> = session
             .conversation
-            .messages()
             .iter()
             .filter(|message| {
                 session.records.iter().any(|record| {
@@ -662,7 +653,7 @@ async fn execute_with(
                 .into_iter()
                 .rev()
                 .find(|message| {
-                    message.role == rmcp::model::Role::Assistant
+                    message.role == model::Role::Assistant
                         && message.is_user_visible()
                         && !message.as_concat_text().is_empty()
                 })

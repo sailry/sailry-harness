@@ -174,24 +174,6 @@ impl Exposure {
         Cow::Owned(messages)
     }
 
-    pub(super) fn restore(&self, message: &mut Message) {
-        for content in &mut message.content {
-            match content {
-                Content::ToolCall(call) => {
-                    if call.error.is_none() {
-                        if let Some(alias) = self.reverse.get(&call.name) {
-                            call.name.clone_from(alias);
-                        }
-                        if call.name == plugins::search::NAME {
-                            self.query(call.arguments.as_object_mut(), false);
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-
     pub(super) fn restore_event(&self, event: &mut Event) {
         match event {
             Event::ToolCall { call, .. } if call.error.is_none() => {

@@ -1,6 +1,6 @@
 //! Retained canonical owner context and matching request-only skill receipts.
 use crate::agent::canonical::{BlockKind, Kind, Record, ToolResponse, ToolStatus};
-use goose_provider_types::conversation::message::{Message, MessageContent};
+use crate::agent::model::{Content, Message};
 use rmcp::model::ContentBlock;
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -104,7 +104,7 @@ impl Owners<'_> {
                 continue;
             };
             for content in &mut message.content {
-                let MessageContent::ToolResponse(response) = content else {
+                let Content::ToolResult(response) = content else {
                     continue;
                 };
                 let Some(source) = self.sources.get(&(id, response.id.as_str())) else {
@@ -125,7 +125,7 @@ impl Owners<'_> {
                 {
                     continue;
                 }
-                let Ok(result) = &mut response.tool_result else {
+                let Ok(result) = &mut response.result else {
                     continue;
                 };
                 if result.structured_content.as_ref() != Some(original) {

@@ -40,7 +40,10 @@ pub(super) async fn context(
     headers: HeaderMap,
 ) -> Result<usize, Error> {
     let route = cloud::resolve(client, provider, model, "", &headers).await?;
-    Ok(super::gdk::context(ModelApi::AzureAi, &route.underlying))
+    Ok(super::context::fallback(
+        ModelApi::AzureAi,
+        &route.underlying,
+    ))
 }
 
 #[cfg(test)]

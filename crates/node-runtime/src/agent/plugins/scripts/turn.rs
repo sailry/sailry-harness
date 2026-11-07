@@ -1,10 +1,16 @@
 //! Bounded package policy shares one ephemeral owner with its captured tool handlers.
 //! It can inspect its own visible results, never modify model messages or history.
 use super::*;
-use crate::{agent::engine::Effect, store::agent::RuntimeSession};
-use goose_agent::operation::{Emitter, Operation, OperationResult};
-use goose_provider_types::conversation::message::MessageContentBlock;
-use goose_provider_types::conversation::{Conversation, EffectiveRole, effective_role};
+use crate::{
+    agent::{
+        engine::{
+            conversation::{EffectiveRole, effective_role},
+            operation::{Callback, Emitter, Outcome, not_applicable, yielded},
+        },
+        model::{Content, Message},
+    },
+    store::agent::RuntimeSession,
+};
 use std::{
     collections::BTreeMap,
     sync::atomic::{AtomicBool, Ordering},
@@ -251,44 +257,37 @@ pub(super) struct Observer {
 }
 
 #[async_trait::async_trait]
-impl Operation<RuntimeSession, Effect> for Observer {
-    fn name(&self) -> &'static str {
-        "plugin_turn"
-    }
-
+impl Callback for Observer {
     async fn run(
         &self,
         _: &RuntimeSession,
-        conversation: &Conversation,
+        conversation: &[Message],
         _: &Emitter,
-    ) -> anyhow::Result<OperationResult<Effect>> {
+    ) -> anyhow::Result<Outcome> {
         if conversation
             .last()
             .is_none_or(|last| effective_role(last) == EffectiveRole::Assistant)
         {
-            return goose_agent::operation::not_applicable();
+            return not_applicable();
         }
         let calls: BTreeMap<_, _> = conversation
-            .messages()
             .iter()
             .flat_map(|message| &message.content)
             .filter_map(|block| {
-                let MessageContentBlock::ToolRequest(request) = block else {
+                let Content::ToolCall(request) = block else {
                     return None;
                 };
                 request
-                    .tool_call
-                    .as_ref()
-                    .ok()
-                    .map(|call| (request.id.as_str(), call.name.as_ref()))
+                    .error
+                    .is_none()
+                    .then_some((request.id.as_str(), request.name.as_str()))
             })
             .collect();
         let responses: Vec<_> = conversation
-            .messages()
             .iter()
             .flat_map(|message| &message.content)
             .filter_map(|block| match block {
-                MessageContentBlock::ToolResponse(response) => Some(response),
+                Content::ToolResult(response) => Some(response),
                 _ => None,
             })
             .collect();
@@ -309,7 +308,7 @@ impl Operation<RuntimeSession, Effect> for Observer {
             .into_iter()
             .filter_map(|response| {
                 let name = self.owner.names.get(*calls.get(response.id.as_str())?)?;
-                let value = match &response.tool_result {
+                let value = match &response.result {
                     Ok(result) => result
                         .structured_content
                         .clone()
@@ -325,9 +324,9 @@ impl Operation<RuntimeSession, Effect> for Observer {
             .await?;
         if result.get("stop").and_then(Value::as_bool) == Some(true) {
             self.completion.store(true, Ordering::Release);
-            return goose_agent::operation::yielded();
+            return yielded();
         }
-        goose_agent::operation::not_applicable()
+        not_applicable()
     }
 }
 

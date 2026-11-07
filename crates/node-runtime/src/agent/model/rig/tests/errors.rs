@@ -140,7 +140,7 @@ fn retains_public_failure_categories() {
         (ErrorKind::ContextOverflow, ModelFailure::Request),
         (ErrorKind::Network, ModelFailure::Request),
     ] {
-        let fault = super::super::errors::fault(Error::new(kind, "Captured rejection"));
+        let fault = crate::agent::model::error(Error::new(kind, "Captured rejection"));
         assert_eq!(fault.code, ErrorCode::Unavailable);
         assert_eq!(fault.message, "Captured rejection");
         assert_eq!(fault.details, Some(FaultDetails::ModelRequest { reason }));

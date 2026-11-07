@@ -3,25 +3,16 @@ use crate::agent::{
     canonical::PromptContext,
     model::observation::{Context, Source},
 };
-use goose_agent::operation::messages_since_kickoff;
-use goose_provider_types::conversation::{
-    Conversation,
-    message::{Message, MessageMetadata},
-};
+use crate::agent::{engine::conversation::messages_since_kickoff, model::Message};
 use sailry_protocol::conversation::observation::CategoryKind;
 use serde_json::json;
 use std::collections::BTreeSet;
 
 /// Session state repeats once per turn or when changed. Retained owner and
 /// plugin parts repeat only after compaction hides their earlier copy.
-pub(super) fn pending(
-    conversation: &Conversation,
-    owned: &[&str],
-    parts: Vec<String>,
-) -> Vec<String> {
+pub(super) fn pending(conversation: &[Message], owned: &[&str], parts: Vec<String>) -> Vec<String> {
     let visible = |message: &&Message| message.is_turn_context() && message.is_agent_visible();
     let mut retained: BTreeSet<_> = conversation
-        .messages()
         .iter()
         .filter(visible)
         .filter_map(identity)
@@ -60,7 +51,8 @@ pub(super) fn message(parts: &[String], owned: &[&str]) -> Option<Message> {
     )?;
     let mut message = Message::user()
         .with_text(context.text())
-        .with_metadata(MessageMetadata::agent_only().with_turn_context());
+        .with_visibility(false, true);
+    message.metadata.turn_context = true;
     message
         .metadata
         .set_operation_note("prompt", "context", json!(capture(parts, owned)));
