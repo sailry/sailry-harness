@@ -154,14 +154,13 @@ async fn submit(fixture: &process::Fixture, queued: bool) -> (Request, QueuedTur
 #[cfg(unix)]
 async fn case_fixture<'a>(
     shared: &'a mut Option<process::Fixture>,
-    remote: bool,
     model: &Server,
     name: &str,
 ) -> &'a mut process::Fixture {
     if let Some(fixture) = shared {
         select_case(fixture, model, name).await;
     } else {
-        *shared = Some(process::Fixture::packages(remote, model, &[]).await);
+        *shared = Some(process::Fixture::packages(model, &[]).await);
     }
     shared.as_mut().unwrap()
 }

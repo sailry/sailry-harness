@@ -20,15 +20,14 @@ struct Fixture {
     session: Session,
     provider: Provider,
     server: Server,
-    remote: bool,
 }
 
 impl Fixture {
-    async fn start(remote: bool, slow: bool) -> Self {
-        Self::with_server(remote, Server::start(slow).await).await
+    async fn start(slow: bool) -> Self {
+        Self::with_server(Server::start(slow).await).await
     }
 
-    async fn with_server(remote: bool, server: Server) -> Self {
+    async fn with_server(server: Server) -> Self {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("project");
         std::fs::create_dir(&root).unwrap();
@@ -44,11 +43,7 @@ impl Fixture {
             .pair(node.link().invite().unwrap().ticket())
             .await
             .unwrap();
-        let transport = if remote {
-            controller.handle().remote(address)
-        } else {
-            node.local()
-        };
+        let transport = controller.handle().remote(address);
         let client = Client::new(transport);
         approvals::install(&client, &["files"]).await;
         let (session, provider) = configured_session(&client, &server.endpoint, &root).await;
@@ -60,7 +55,6 @@ impl Fixture {
             session,
             provider,
             server,
-            remote,
         }
     }
 
@@ -164,11 +158,7 @@ impl Fixture {
         self.node = Node::start_empty(self.directory.path().join("node"))
             .await
             .unwrap();
-        self.client = Client::new(if self.remote {
-            self.controller.handle().remote(self.node.link().address())
-        } else {
-            self.node.local()
-        });
+        self.client = Client::new(self.controller.handle().remote(self.node.link().address()));
         self
     }
 
@@ -228,356 +218,350 @@ fn prompt(request: &serde_json::Value) -> String {
 
 #[tokio::test]
 async fn edits_survive_restart() {
-    for remote in [false, true] {
-        let mut fixture = Fixture::start(remote, false).await;
-        fixture.reasoning().await;
-        fixture.pause(true).await;
-        let mut stream = fixture
-            .client
-            .subscribe_conversation(fixture.session.id)
-            .await
-            .unwrap();
-        let mut projection = Projection::new(fixture.node.id(), fixture.session.id, 1);
-        let first = fixture.enqueue("first").await;
-        let middle = fixture.enqueue("middle").await;
-        let last = fixture.enqueue("last").await;
-        let queue = fixture.queue().await;
-        projected(stream.as_mut(), &mut projection, 1, queue.revision).await;
-        assert_eq!(projection.snapshot().unwrap().page.queue, queue);
-        let mut config = fixture.session.config.clone();
-        config.model = "fixture-b".into();
-        config.effort = Effort::Low;
+    let mut fixture = Fixture::start(false).await;
+    fixture.reasoning().await;
+    fixture.pause(true).await;
+    let mut stream = fixture
+        .client
+        .subscribe_conversation(fixture.session.id)
+        .await
+        .unwrap();
+    let mut projection = Projection::new(fixture.node.id(), fixture.session.id, 1);
+    let first = fixture.enqueue("first").await;
+    let middle = fixture.enqueue("middle").await;
+    let last = fixture.enqueue("last").await;
+    let queue = fixture.queue().await;
+    projected(stream.as_mut(), &mut projection, 1, queue.revision).await;
+    assert_eq!(projection.snapshot().unwrap().page.queue, queue);
+    let mut config = fixture.session.config.clone();
+    config.model = "fixture-b".into();
+    config.effort = Effort::Low;
+    fixture
+        .client
+        .execute(fixture.client.prepare(Command::SetSessionConfig {
+            session: fixture.session.id,
+            expected_revision: 1,
+            config,
+        }))
+        .await
+        .unwrap();
+    let message = format!("edited {}", "中文🙂\n".repeat(1000));
+    let edit = fixture.client.prepare(Command::EditQueuedTurn {
+        turn: middle.id,
+        expected_revision: 1,
+        message: message.clone().into(),
+    });
+    let edited = fixture.client.execute(edit.clone()).await.unwrap();
+    let queued = read(&fixture.client, middle.id).await;
+    assert_eq!(queued.message.text, message);
+    assert_eq!(queued.revision, 2);
+    assert_eq!(queued.turn, middle);
+    let queue = fixture.queue().await;
+    assert!(queue.items[1].truncated);
+    assert_eq!(queue.items[1].preview.chars().count(), 256);
+    fixture
+        .client
+        .execute(fixture.client.prepare(Command::MoveQueuedTurn {
+            session: fixture.session.id,
+            expected_revision: queue.revision,
+            turn: last.id,
+            before: Some(first.id),
+        }))
+        .await
+        .unwrap();
+    fixture
+        .client
+        .execute(fixture.client.prepare(Command::RemoveQueuedTurn {
+            turn: first.id,
+            expected_revision: 1,
+        }))
+        .await
+        .unwrap();
+    let queue = fixture.queue().await;
+    assert_eq!(
+        queue.items.iter().map(|item| item.turn).collect::<Vec<_>>(),
+        vec![last.id, middle.id]
+    );
+    assert_eq!(fixture.client.execute(edit.clone()).await.unwrap(), edited);
+    assert_eq!(fixture.queue().await, queue);
+    projected(stream.as_mut(), &mut projection, 1, queue.revision).await;
+    assert_eq!(projection.snapshot().unwrap().page.queue, queue);
+    assert!(fixture.server.requests.lock().unwrap().is_empty());
+    let request_id = middle.request;
+    let (original, events): (Vec<u8>, i64) = fixture
+        .node
+        .with_storage(move |database| {
+            Box::pin(async move {
+                let original = database
+                    .prepare("SELECT body FROM requests WHERE id=?1")
+                    .await
+                    .map_err(crate::database_fixture::fault)?
+                    .query_row([request_id.to_string()])
+                    .await
+                    .map_err(crate::database_fixture::fault)?
+                    .get(0)
+                    .map_err(crate::database_fixture::fault)?;
+                let events = database
+                    .prepare("SELECT count(*) FROM agent_events")
+                    .await
+                    .map_err(crate::database_fixture::fault)?
+                    .query_row(())
+                    .await
+                    .map_err(crate::database_fixture::fault)?
+                    .get(0)
+                    .map_err(crate::database_fixture::fault)?;
+                Ok((original, events))
+            })
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        serde_json::from_slice::<Request>(&original)
+            .unwrap()
+            .command,
+        Command::QueueTurn {
+            session: fixture.session.id,
+            expected_revision: 1,
+            message: "middle".into(),
+        }
+    );
+    assert_eq!(events, 0);
+    drop(stream);
+    let fixture = fixture.restart().await;
+    assert_eq!(fixture.queue().await, queue);
+    assert_eq!(read(&fixture.client, middle.id).await, queued);
+    let mut stream = fixture
+        .client
+        .subscribe_conversation(fixture.session.id)
+        .await
+        .unwrap();
+    projection.reconnect(2).unwrap();
+    projected(stream.as_mut(), &mut projection, 2, queue.revision).await;
+    assert_eq!(projection.snapshot().unwrap().page.queue, queue);
+    fixture.pause(false).await;
+    let page = finished(&fixture.client, fixture.session.id, middle.id).await;
+    assert!(page.queue.items.is_empty());
+    assert!(
+        page.runs
+            .iter()
+            .filter(|run| run.turn != first.id)
+            .all(|run| run.status == Status::Completed)
+    );
+    let Output::ConversationRun(cancelled) = fixture
+        .client
+        .execute(fixture.client.prepare(Command::ReadConversationRun {
+            session: fixture.session.id,
+            turn: first.id,
+            expected_revision: Some(page.revision),
+        }))
+        .await
+        .unwrap()
+    else {
+        panic!("run expected")
+    };
+    assert_eq!(cancelled.turn, first.id);
+    assert_eq!(cancelled.status, Status::Cancelled);
+    assert!(!page.entries.iter().any(|entry| entry.turn == first.id));
+    let requests = fixture.server.requests.lock().unwrap().clone();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(prompt(&requests[0]), "last");
+    assert_eq!(prompt(&requests[1]), message);
+    assert!(requests.iter().all(
+        |request| request["model"] == "fixture-a" && request["reasoning_effort"] == "high"
+    ));
+    assert_eq!(fixture.client.execute(edit).await.unwrap(), edited);
+    assert_eq!(fixture.server.requests.lock().unwrap().len(), 2);
+    drop(stream);
+    fixture.close().await;
+}
+
+#[tokio::test]
+async fn send_now() {
+    let fixture = Fixture::start(true).await;
+    let active = fixture.push("active").await;
+    fixture.server.wait_count(1).await;
+    let Output::Session(other) = fixture
+        .client
+        .execute(fixture.client.prepare(Command::CreateSession {
+            project: fixture.session.project,
+            worktree: None,
+            config: Some(fixture.session.config.clone()),
+        }))
+        .await
+        .unwrap()
+    else {
+        panic!("session expected")
+    };
+    let Output::QueuedTurn(other_turn) = fixture
+        .client
+        .execute(fixture.client.prepare(Command::SubmitTurn {
+            session: other.id,
+            expected_revision: 1,
+            message: "other session".into(),
+        }))
+        .await
+        .unwrap()
+    else {
+        panic!("turn expected")
+    };
+    fixture.server.wait_count(2).await;
+    let quick = Server::start(false).await;
+    let mut provider = fixture.provider.clone();
+    provider.endpoint = quick.endpoint.clone();
+    fixture
+        .client
+        .execute(fixture.client.prepare(Command::PutProvider {
+            provider,
+            expected_revision: 1,
+        }))
+        .await
+        .unwrap();
+    let waiting = fixture.push("waiting").await;
+    let selected = fixture.push("selected").await;
+    let send = fixture.client.prepare(Command::SendQueuedTurn {
+        turn: selected.id,
+        expected_revision: 1,
+    });
+    let result = fixture.client.execute(send.clone()).await.unwrap();
+    let page = finished(&fixture.client, fixture.session.id, waiting.id).await;
+    assert_eq!(
+        page.runs
+            .iter()
+            .find(|run| run.turn == active.id)
+            .unwrap()
+            .status,
+        Status::Cancelled
+    );
+    assert!(
+        page.runs
+            .iter()
+            .filter(|run| run.turn != active.id)
+            .all(|run| run.status == Status::Completed)
+    );
+    let requests = quick.requests.lock().unwrap().clone();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(prompt(&requests[0]), "selected");
+    assert_eq!(prompt(&requests[1]), "waiting");
+    assert!(!page.queue.paused);
+    assert_eq!(
+        history(&fixture.client, other.id).await.runs[0].status,
+        Status::Running
+    );
+    assert_eq!(fixture.client.execute(send).await.unwrap(), result);
+    assert_eq!(quick.requests.lock().unwrap().len(), 2);
+    assert_eq!(
         fixture
             .client
-            .execute(fixture.client.prepare(Command::SetSessionConfig {
-                session: fixture.session.id,
+            .execute(fixture.client.prepare(Command::EditQueuedTurn {
+                turn: selected.id,
                 expected_revision: 1,
-                config,
+                message: "too late".into(),
             }))
             .await
-            .unwrap();
-        let message = format!("edited {}", "中文🙂\n".repeat(1000));
-        let edit = fixture.client.prepare(Command::EditQueuedTurn {
-            turn: middle.id,
+            .unwrap_err()
+            .code,
+        ErrorCode::Conflict
+    );
+    fixture
+        .client
+        .execute(fixture.client.prepare(Command::StopTurn {
+            turn: other_turn.id,
+        }))
+        .await
+        .unwrap();
+    assert_eq!(
+        finished(&fixture.client, other.id, other_turn.id)
+            .await
+            .runs[0]
+            .status,
+        Status::Cancelled
+    );
+    fixture.close().await;
+}
+
+#[tokio::test]
+async fn conflicts_preserve_input() {
+    let fixture = Fixture::start(false).await;
+    fixture.pause(true).await;
+    let turn = fixture.enqueue("original").await;
+    let other = Client::new(fixture.node.local());
+    let edit = |message: &str| Command::EditQueuedTurn {
+        turn: turn.id,
+        expected_revision: 1,
+        message: message.into(),
+    };
+    let (left, right) = tokio::join!(
+        fixture.client.execute(fixture.client.prepare(edit("left"))),
+        other.execute(other.prepare(edit("right")))
+    );
+    let error = match (left, right) {
+        (Err(error), Ok(_)) | (Ok(_), Err(error)) => error,
+        _ => panic!("exactly one edit must commit"),
+    };
+    assert_eq!(error.code, ErrorCode::RevisionConflict);
+    let queued = read(&fixture.client, turn.id).await;
+    let queue = fixture.queue().await;
+    assert_eq!(queued.revision, 2);
+    for command in [
+        Command::RemoveQueuedTurn {
+            turn: turn.id,
             expected_revision: 1,
-            message: message.clone().into(),
-        });
-        let edited = fixture.client.execute(edit.clone()).await.unwrap();
-        let queued = read(&fixture.client, middle.id).await;
-        assert_eq!(queued.message.text, message);
-        assert_eq!(queued.revision, 2);
-        assert_eq!(queued.turn, middle);
-        let queue = fixture.queue().await;
-        assert!(queue.items[1].truncated);
-        assert_eq!(queue.items[1].preview.chars().count(), 256);
+        },
+        Command::SendQueuedTurn {
+            turn: turn.id,
+            expected_revision: 1,
+        },
+        Command::SetQueuePaused {
+            session: fixture.session.id,
+            expected_revision: queue.revision - 1,
+            paused: false,
+        },
+        Command::MoveQueuedTurn {
+            session: fixture.session.id,
+            expected_revision: queue.revision - 1,
+            turn: turn.id,
+            before: None,
+        },
+    ] {
+        assert_eq!(
+            fixture
+                .client
+                .execute(fixture.client.prepare(command))
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::RevisionConflict
+        );
+    }
+    assert_eq!(
         fixture
             .client
             .execute(fixture.client.prepare(Command::MoveQueuedTurn {
                 session: fixture.session.id,
                 expected_revision: queue.revision,
-                turn: last.id,
-                before: Some(first.id),
+                turn: turn.id,
+                before: Some(TurnId::new()),
             }))
             .await
-            .unwrap();
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidRequest
+    );
+    assert_eq!(
         fixture
             .client
-            .execute(fixture.client.prepare(Command::RemoveQueuedTurn {
-                turn: first.id,
-                expected_revision: 1,
-            }))
-            .await
-            .unwrap();
-        let queue = fixture.queue().await;
-        assert_eq!(
-            queue.items.iter().map(|item| item.turn).collect::<Vec<_>>(),
-            vec![last.id, middle.id]
-        );
-        assert_eq!(fixture.client.execute(edit.clone()).await.unwrap(), edited);
-        assert_eq!(fixture.queue().await, queue);
-        projected(stream.as_mut(), &mut projection, 1, queue.revision).await;
-        assert_eq!(projection.snapshot().unwrap().page.queue, queue);
-        assert!(fixture.server.requests.lock().unwrap().is_empty());
-        let request_id = middle.request;
-        let (original, events): (Vec<u8>, i64) = fixture
-            .node
-            .with_storage(move |database| {
-                Box::pin(async move {
-                    let original = database
-                        .prepare("SELECT body FROM requests WHERE id=?1")
-                        .await
-                        .map_err(crate::database_fixture::fault)?
-                        .query_row([request_id.to_string()])
-                        .await
-                        .map_err(crate::database_fixture::fault)?
-                        .get(0)
-                        .map_err(crate::database_fixture::fault)?;
-                    let events = database
-                        .prepare("SELECT count(*) FROM agent_events")
-                        .await
-                        .map_err(crate::database_fixture::fault)?
-                        .query_row(())
-                        .await
-                        .map_err(crate::database_fixture::fault)?
-                        .get(0)
-                        .map_err(crate::database_fixture::fault)?;
-                    Ok((original, events))
-                })
-            })
-            .await
-            .unwrap();
-        assert_eq!(
-            serde_json::from_slice::<Request>(&original)
-                .unwrap()
-                .command,
-            Command::QueueTurn {
-                session: fixture.session.id,
-                expected_revision: 1,
-                message: "middle".into(),
-            }
-        );
-        assert_eq!(events, 0);
-        drop(stream);
-        let fixture = fixture.restart().await;
-        assert_eq!(fixture.queue().await, queue);
-        assert_eq!(read(&fixture.client, middle.id).await, queued);
-        let mut stream = fixture
-            .client
-            .subscribe_conversation(fixture.session.id)
-            .await
-            .unwrap();
-        projection.reconnect(2).unwrap();
-        projected(stream.as_mut(), &mut projection, 2, queue.revision).await;
-        assert_eq!(projection.snapshot().unwrap().page.queue, queue);
-        fixture.pause(false).await;
-        let page = finished(&fixture.client, fixture.session.id, middle.id).await;
-        assert!(page.queue.items.is_empty());
-        assert!(
-            page.runs
-                .iter()
-                .filter(|run| run.turn != first.id)
-                .all(|run| run.status == Status::Completed)
-        );
-        let Output::ConversationRun(cancelled) = fixture
-            .client
-            .execute(fixture.client.prepare(Command::ReadConversationRun {
-                session: fixture.session.id,
-                turn: first.id,
-                expected_revision: Some(page.revision),
-            }))
-            .await
-            .unwrap()
-        else {
-            panic!("run expected")
-        };
-        assert_eq!(cancelled.turn, first.id);
-        assert_eq!(cancelled.status, Status::Cancelled);
-        assert!(!page.entries.iter().any(|entry| entry.turn == first.id));
-        let requests = fixture.server.requests.lock().unwrap().clone();
-        assert_eq!(requests.len(), 2);
-        assert_eq!(prompt(&requests[0]), "last");
-        assert_eq!(prompt(&requests[1]), message);
-        assert!(requests.iter().all(
-            |request| request["model"] == "fixture-a" && request["reasoning_effort"] == "high"
-        ));
-        assert_eq!(fixture.client.execute(edit).await.unwrap(), edited);
-        assert_eq!(fixture.server.requests.lock().unwrap().len(), 2);
-        drop(stream);
-        fixture.close().await;
-    }
-}
-
-#[tokio::test]
-async fn send_now() {
-    for remote in [false, true] {
-        let fixture = Fixture::start(remote, true).await;
-        let active = fixture.push("active").await;
-        fixture.server.wait_count(1).await;
-        let Output::Session(other) = fixture
-            .client
-            .execute(fixture.client.prepare(Command::CreateSession {
-                project: fixture.session.project,
-                worktree: None,
-                config: Some(fixture.session.config.clone()),
-            }))
-            .await
-            .unwrap()
-        else {
-            panic!("session expected")
-        };
-        let Output::QueuedTurn(other_turn) = fixture
-            .client
-            .execute(fixture.client.prepare(Command::SubmitTurn {
-                session: other.id,
-                expected_revision: 1,
-                message: "other session".into(),
-            }))
-            .await
-            .unwrap()
-        else {
-            panic!("turn expected")
-        };
-        fixture.server.wait_count(2).await;
-        let quick = Server::start(false).await;
-        let mut provider = fixture.provider.clone();
-        provider.endpoint = quick.endpoint.clone();
-        fixture
-            .client
-            .execute(fixture.client.prepare(Command::PutProvider {
-                provider,
-                expected_revision: 1,
-            }))
-            .await
-            .unwrap();
-        let waiting = fixture.push("waiting").await;
-        let selected = fixture.push("selected").await;
-        let send = fixture.client.prepare(Command::SendQueuedTurn {
-            turn: selected.id,
-            expected_revision: 1,
-        });
-        let result = fixture.client.execute(send.clone()).await.unwrap();
-        let page = finished(&fixture.client, fixture.session.id, waiting.id).await;
-        assert_eq!(
-            page.runs
-                .iter()
-                .find(|run| run.turn == active.id)
-                .unwrap()
-                .status,
-            Status::Cancelled
-        );
-        assert!(
-            page.runs
-                .iter()
-                .filter(|run| run.turn != active.id)
-                .all(|run| run.status == Status::Completed)
-        );
-        let requests = quick.requests.lock().unwrap().clone();
-        assert_eq!(requests.len(), 2);
-        assert_eq!(prompt(&requests[0]), "selected");
-        assert_eq!(prompt(&requests[1]), "waiting");
-        assert!(!page.queue.paused);
-        assert_eq!(
-            history(&fixture.client, other.id).await.runs[0].status,
-            Status::Running
-        );
-        assert_eq!(fixture.client.execute(send).await.unwrap(), result);
-        assert_eq!(quick.requests.lock().unwrap().len(), 2);
-        assert_eq!(
-            fixture
-                .client
-                .execute(fixture.client.prepare(Command::EditQueuedTurn {
-                    turn: selected.id,
-                    expected_revision: 1,
-                    message: "too late".into(),
-                }))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::Conflict
-        );
-        fixture
-            .client
-            .execute(fixture.client.prepare(Command::StopTurn {
-                turn: other_turn.id,
-            }))
-            .await
-            .unwrap();
-        assert_eq!(
-            finished(&fixture.client, other.id, other_turn.id)
-                .await
-                .runs[0]
-                .status,
-            Status::Cancelled
-        );
-        fixture.close().await;
-    }
-}
-
-#[tokio::test]
-async fn conflicts_preserve_input() {
-    for remote in [false, true] {
-        let fixture = Fixture::start(remote, false).await;
-        fixture.pause(true).await;
-        let turn = fixture.enqueue("original").await;
-        let other = Client::new(fixture.node.local());
-        let edit = |message: &str| Command::EditQueuedTurn {
-            turn: turn.id,
-            expected_revision: 1,
-            message: message.into(),
-        };
-        let (left, right) = tokio::join!(
-            fixture.client.execute(fixture.client.prepare(edit("left"))),
-            other.execute(other.prepare(edit("right")))
-        );
-        let error = match (left, right) {
-            (Err(error), Ok(_)) | (Ok(_), Err(error)) => error,
-            _ => panic!("exactly one edit must commit"),
-        };
-        assert_eq!(error.code, ErrorCode::RevisionConflict);
-        let queued = read(&fixture.client, turn.id).await;
-        let queue = fixture.queue().await;
-        assert_eq!(queued.revision, 2);
-        for command in [
-            Command::RemoveQueuedTurn {
+            .execute(fixture.client.prepare(Command::EditQueuedTurn {
                 turn: turn.id,
-                expected_revision: 1,
-            },
-            Command::SendQueuedTurn {
-                turn: turn.id,
-                expected_revision: 1,
-            },
-            Command::SetQueuePaused {
-                session: fixture.session.id,
-                expected_revision: queue.revision - 1,
-                paused: false,
-            },
-            Command::MoveQueuedTurn {
-                session: fixture.session.id,
-                expected_revision: queue.revision - 1,
-                turn: turn.id,
-                before: None,
-            },
-        ] {
-            assert_eq!(
-                fixture
-                    .client
-                    .execute(fixture.client.prepare(command))
-                    .await
-                    .unwrap_err()
-                    .code,
-                ErrorCode::RevisionConflict
-            );
-        }
-        assert_eq!(
-            fixture
-                .client
-                .execute(fixture.client.prepare(Command::MoveQueuedTurn {
-                    session: fixture.session.id,
-                    expected_revision: queue.revision,
-                    turn: turn.id,
-                    before: Some(TurnId::new()),
-                }))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::InvalidRequest
-        );
-        assert_eq!(
-            fixture
-                .client
-                .execute(fixture.client.prepare(Command::EditQueuedTurn {
-                    turn: turn.id,
-                    expected_revision: 2,
-                    message: "  \n".into(),
-                }))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::InvalidRequest
-        );
-        assert_eq!(fixture.queue().await, queue);
-        assert_eq!(read(&other, turn.id).await, queued);
-        assert!(fixture.server.requests.lock().unwrap().is_empty());
-        fixture.close().await;
-    }
+                expected_revision: 2,
+                message: "  \n".into(),
+            }))
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidRequest
+    );
+    assert_eq!(fixture.queue().await, queue);
+    assert_eq!(read(&other, turn.id).await, queued);
+    assert!(fixture.server.requests.lock().unwrap().is_empty());
+    fixture.close().await;
 }

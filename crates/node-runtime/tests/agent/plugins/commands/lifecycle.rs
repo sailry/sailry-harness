@@ -41,261 +41,248 @@ async fn update(fixture: &Fixture, revision: u64) -> plugin::Info {
 
 #[tokio::test]
 async fn preserves_frozen_transforms_and_known_results() {
-    for remote in [false, true] {
-        let server = Server::tools(vec![(
-            name("run_command"),
-            json!({"command":"printf original >> once.txt"}),
-        )])
-        .await;
-        let mut fixture = Fixture::packages(remote, &server, &["commands"]).await;
-        package(&fixture).await;
-        let original =
-            include_str!("../../../../../../plugins/commands/dev.sailry.platform/host/main.js");
-        let failing = original.replace(
-            "export function result({ output }) {",
-            "export function result({ output }) { throw new Error('Presentation failed');",
-        );
-        assert_ne!(failing, original);
-        source(&fixture, &failing);
-        let old = update(&fixture, 1).await;
-        planning::configure(&mut fixture, WorkMode::Code).await;
-        let Output::QueuedTurn(turn) = execute(
-            &fixture,
-            Command::QueueTurn {
-                session: fixture.session.id,
-                expected_revision: fixture.session.revision,
-                message: "Run the requested command".into(),
-            },
-        )
+    let server = Server::tools(vec![(
+        name("run_command"),
+        json!({"command":"printf original >> once.txt"}),
+    )])
+    .await;
+    let mut fixture = Fixture::packages(&server, &["commands"]).await;
+    package(&fixture).await;
+    let original =
+        include_str!("../../../../../../plugins/commands/dev.sailry.platform/host/main.js");
+    let failing = original.replace(
+        "export function result({ output }) {",
+        "export function result({ output }) { throw new Error('Presentation failed');",
+    );
+    assert_ne!(failing, original);
+    source(&fixture, &failing);
+    let old = update(&fixture, 1).await;
+    planning::configure(&mut fixture, WorkMode::Code).await;
+    let Output::QueuedTurn(turn) = execute(
+        &fixture,
+        Command::QueueTurn {
+            session: fixture.session.id,
+            expected_revision: fixture.session.revision,
+            message: "Run the requested command".into(),
+        },
+    )
+    .await
+    else {
+        panic!()
+    };
+    assert!(turn.plugins.contains(&old.summary.reference()));
+    let transformed = original.replace(
+        "return { command, description, cwd",
+        "return { command: 'touch changed.txt', description, cwd",
+    );
+    assert_ne!(transformed, original);
+    source(&fixture, &transformed);
+    update(&fixture, 2).await;
+    execute(
+        &fixture,
+        Command::SetPluginEnabled {
+            name: "commands".into(),
+            expected_revision: 3,
+            enabled: false,
+        },
+    )
+    .await;
+    execute(
+        &fixture,
+        Command::RemovePlugin {
+            name: "commands".into(),
+            expected_revision: 4,
+        },
+    )
+    .await;
+    execute(&fixture, Command::StartQueuedTurn { turn: turn.id }).await;
+    let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+    let result = results(&fixture.client, &page).await;
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0]["output"]["kind"], "command_result", "{page:?}");
+    assert_eq!(
+        result[0]["output"]["data"]["outcome"],
+        json!({"kind":"exited","data":0})
+    );
+    let presentation: Fault =
+        serde_json::from_value(result[0]["presentation_error"].clone()).unwrap();
+    assert_eq!(presentation.code, ErrorCode::InvalidRequest);
+    assert_eq!(presentation.message, "plugin callback failed");
+    assert!(matches!(
+        presentation.details,
+        Some(sailry_protocol::FaultDetails::SystemDiagnostic(_))
+    ));
+    assert!(!result[0].to_string().contains("Presentation failed"));
+    assert_eq!(
+        std::fs::read_to_string(fixture.root.join("once.txt")).unwrap(),
+        "original"
+    );
+    assert!(!fixture.root.join("changed.txt").exists());
+    let profile = fixture.node.profile().to_owned();
+    fixture.node.shutdown().await.unwrap();
+    let node = Node::start_empty(profile).await.unwrap();
+    let client = Client::new(fixture.controller.handle().remote(node.link().address()));
+    assert_eq!(history(&client, fixture.session.id).await, page);
+    let Output::Plugins(packages) = client
+        .execute(client.prepare(Command::ListPlugins))
         .await
-        else {
-            panic!()
-        };
-        assert!(turn.plugins.contains(&old.summary.reference()));
-        let transformed = original.replace(
-            "return { command, description, cwd",
-            "return { command: 'touch changed.txt', description, cwd",
-        );
-        assert_ne!(transformed, original);
-        source(&fixture, &transformed);
-        update(&fixture, 2).await;
-        execute(
-            &fixture,
-            Command::SetPluginEnabled {
-                name: "commands".into(),
-                expected_revision: 3,
-                enabled: false,
-            },
-        )
-        .await;
-        execute(
-            &fixture,
-            Command::RemovePlugin {
-                name: "commands".into(),
-                expected_revision: 4,
-            },
-        )
-        .await;
-        execute(&fixture, Command::StartQueuedTurn { turn: turn.id }).await;
-        let page = finished(&fixture.client, fixture.session.id, turn.id).await;
-        let result = results(&fixture.client, &page).await;
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0]["output"]["kind"], "command_result", "{page:?}");
-        assert_eq!(
-            result[0]["output"]["data"]["outcome"],
-            json!({"kind":"exited","data":0})
-        );
-        let presentation: Fault =
-            serde_json::from_value(result[0]["presentation_error"].clone()).unwrap();
-        assert_eq!(presentation.code, ErrorCode::InvalidRequest);
-        assert_eq!(presentation.message, "plugin callback failed");
-        assert!(matches!(
-            presentation.details,
-            Some(sailry_protocol::FaultDetails::SystemDiagnostic(_))
-        ));
-        assert!(!result[0].to_string().contains("Presentation failed"));
-        assert_eq!(
-            std::fs::read_to_string(fixture.root.join("once.txt")).unwrap(),
-            "original"
-        );
-        assert!(!fixture.root.join("changed.txt").exists());
-        let profile = fixture.node.profile().to_owned();
-        fixture.node.shutdown().await.unwrap();
-        let node = Node::start_empty(profile).await.unwrap();
-        let client = Client::new(if remote {
-            fixture.controller.handle().remote(node.link().address())
-        } else {
-            node.local()
-        });
-        assert_eq!(history(&client, fixture.session.id).await, page);
-        let Output::Plugins(packages) = client
-            .execute(client.prepare(Command::ListPlugins))
-            .await
-            .unwrap()
-        else {
-            panic!()
-        };
-        assert!(!packages.iter().any(|package| package.name == "commands"));
-        assert_eq!(
-            std::fs::read_to_string(fixture.root.join("once.txt")).unwrap(),
-            "original"
-        );
-        node.shutdown().await.unwrap();
-        fixture.controller.close().await.unwrap();
-    }
+        .unwrap()
+    else {
+        panic!()
+    };
+    assert!(!packages.iter().any(|package| package.name == "commands"));
+    assert_eq!(
+        std::fs::read_to_string(fixture.root.join("once.txt")).unwrap(),
+        "original"
+    );
+    node.shutdown().await.unwrap();
+    fixture.controller.close().await.unwrap();
 }
 
 #[tokio::test]
 async fn guards_prepared_escape_before_claiming() {
     use crate::approvals::rules;
     use sailry_protocol::process::Access;
-    for remote in [false, true] {
-        for requested in [Access::Workspace, Access::Unrestricted] {
-            for prepared in [Access::Workspace, Access::Unrestricted] {
-                let server = Server::tools(vec![(
-                    name("run_command"),
-                    json!({"access":requested,"command":"touch actual.txt"}),
-                )])
-                .await;
-                let mut fixture = Fixture::packages(remote, &server, &["commands"]).await;
-                let original = include_str!(
-                    "../../../../../../plugins/commands/dev.sailry.platform/host/main.js"
-                );
-                let replacement = if prepared == Access::Workspace {
-                    "workspace"
-                } else {
-                    "unrestricted"
-                };
-                let transformed = original.replace(
-                    "attachments, access };",
-                    &format!("attachments, access: '{replacement}' }};"),
-                );
-                assert_ne!(transformed, original);
-                source(&fixture, &transformed);
-                let installed = update(&fixture, 1).await;
-                let mut config = fixture.session.config.clone();
-                config.permission = Permission::Full;
-                let Output::Session(session) = execute(
-                    &fixture,
-                    Command::SetSessionConfig {
-                        session: fixture.session.id,
-                        expected_revision: fixture.session.revision,
-                        config,
-                    },
-                )
-                .await
-                else {
-                    panic!("session expected")
-                };
-                fixture.session = session;
-                let turn = rules::submit(&fixture.client, &fixture.session).await;
-                assert!(turn.plugins.contains(&installed.summary.reference()));
-                let page = rules::completed(&fixture.client, fixture.session.id, turn.id).await;
-                let result = results(&fixture.client, &page).await;
-                assert_eq!(result.len(), 1);
-                assert_eq!(page.approvals.len(), 1);
-                let approval = &page.approvals[0];
-                assert_eq!(approval.access, Some(requested));
-                let allowed = prepared == requested;
-                assert_eq!(rules::claimed(&fixture.node, approval).await.1, allowed);
-                assert_eq!(fixture.root.join("actual.txt").exists(), allowed);
-                if requested == Access::Unrestricted {
-                    assert_eq!(approval.source, ApprovalSource::Full);
-                    assert_eq!(approval.choice, None);
-                    assert!(!approval.can_remember);
-                    assert_eq!(approval.prefix, None);
-                } else {
-                    assert_eq!(approval.source, ApprovalSource::Sandbox);
-                }
-                if allowed {
-                    assert!(result[0].get("isError").is_none(), "{}", result[0]);
-                } else {
-                    assert_eq!(result[0]["isError"], true);
-                    assert_eq!(result[0]["error"]["code"], "permission_denied");
-                    assert_eq!(
-                        result[0]["error"]["message"],
-                        "prepared command access differs from approval"
-                    );
-                }
-                fixture.node.shutdown().await.unwrap();
-                fixture.controller.close().await.unwrap();
+    for requested in [Access::Workspace, Access::Unrestricted] {
+        for prepared in [Access::Workspace, Access::Unrestricted] {
+            let server = Server::tools(vec![(
+                name("run_command"),
+                json!({"access":requested,"command":"touch actual.txt"}),
+            )])
+            .await;
+            let mut fixture = Fixture::packages(&server, &["commands"]).await;
+            let original =
+                include_str!("../../../../../../plugins/commands/dev.sailry.platform/host/main.js");
+            let replacement = if prepared == Access::Workspace {
+                "workspace"
+            } else {
+                "unrestricted"
+            };
+            let transformed = original.replace(
+                "attachments, access };",
+                &format!("attachments, access: '{replacement}' }};"),
+            );
+            assert_ne!(transformed, original);
+            source(&fixture, &transformed);
+            let installed = update(&fixture, 1).await;
+            let mut config = fixture.session.config.clone();
+            config.permission = Permission::Full;
+            let Output::Session(session) = execute(
+                &fixture,
+                Command::SetSessionConfig {
+                    session: fixture.session.id,
+                    expected_revision: fixture.session.revision,
+                    config,
+                },
+            )
+            .await
+            else {
+                panic!("session expected")
+            };
+            fixture.session = session;
+            let turn = rules::submit(&fixture.client, &fixture.session).await;
+            assert!(turn.plugins.contains(&installed.summary.reference()));
+            let page = rules::completed(&fixture.client, fixture.session.id, turn.id).await;
+            let result = results(&fixture.client, &page).await;
+            assert_eq!(result.len(), 1);
+            assert_eq!(page.approvals.len(), 1);
+            let approval = &page.approvals[0];
+            assert_eq!(approval.access, Some(requested));
+            let allowed = prepared == requested;
+            assert_eq!(rules::claimed(&fixture.node, approval).await.1, allowed);
+            assert_eq!(fixture.root.join("actual.txt").exists(), allowed);
+            if requested == Access::Unrestricted {
+                assert_eq!(approval.source, ApprovalSource::Full);
+                assert_eq!(approval.choice, None);
+                assert!(!approval.can_remember);
+                assert_eq!(approval.prefix, None);
+            } else {
+                assert_eq!(approval.source, ApprovalSource::Sandbox);
             }
+            if allowed {
+                assert!(result[0].get("isError").is_none(), "{}", result[0]);
+            } else {
+                assert_eq!(result[0]["isError"], true);
+                assert_eq!(result[0]["error"]["code"], "permission_denied");
+                assert_eq!(
+                    result[0]["error"]["message"],
+                    "prepared command access differs from approval"
+                );
+            }
+            fixture.node.shutdown().await.unwrap();
+            fixture.controller.close().await.unwrap();
         }
     }
 }
 
 #[tokio::test]
 async fn waiting_releases_vm_capacity() {
-    for remote in [false, true] {
-        let server = Server::tools(vec![(
-            name("run_command"),
-            json!({"access":"unrestricted","command":"sleep 60 & task_pid=$!; printf '%s' \"$task_pid\" > child.pid; printf started > running.txt; wait \"$task_pid\""}),
-        )])
-        .await;
-        let fixture = Fixture::packages(remote, &server, &["commands"]).await;
-        let info = package(&fixture).await;
-        let other_root = fixture.directory.path().join("other");
-        std::fs::create_dir(&other_root).unwrap();
-        let other = approvals::prepare_packages(&fixture.client, &server, &other_root, &[]).await;
-        let mut running = Vec::new();
-        for session in [fixture.session.id, other.id] {
-            let turn = approvals::submit(&fixture.client, session).await;
-            let (_, approval) = approvals::pending(&fixture.client, session).await;
-            process::decide(&fixture.client, &approval, Decision::Approve).await;
-            running.push((session, turn));
+    let server = Server::tools(vec![(
+        name("run_command"),
+        json!({"access":"unrestricted","command":"sleep 60 & task_pid=$!; printf '%s' \"$task_pid\" > child.pid; printf started > running.txt; wait \"$task_pid\""}),
+    )])
+    .await;
+    let fixture = Fixture::packages(&server, &["commands"]).await;
+    let info = package(&fixture).await;
+    let other_root = fixture.directory.path().join("other");
+    std::fs::create_dir(&other_root).unwrap();
+    let other = approvals::prepare_packages(&fixture.client, &server, &other_root, &[]).await;
+    let mut running = Vec::new();
+    for session in [fixture.session.id, other.id] {
+        let turn = approvals::submit(&fixture.client, session).await;
+        let (_, approval) = approvals::pending(&fixture.client, session).await;
+        process::decide(&fixture.client, &approval, Decision::Approve).await;
+        running.push((session, turn));
+    }
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while !fixture.root.join("running.txt").exists() || !other_root.join("running.txt").exists()
+        {
+            tokio::time::sleep(Duration::from_millis(10)).await;
         }
-        tokio::time::timeout(Duration::from_secs(5), async {
-            while !fixture.root.join("running.txt").exists()
-                || !other_root.join("running.txt").exists()
-            {
+    })
+    .await
+    .unwrap();
+    let children: Vec<i32> = [&fixture.root, &other_root]
+        .into_iter()
+        .map(|root| {
+            std::fs::read_to_string(root.join("child.pid"))
+                .unwrap()
+                .parse()
+                .unwrap()
+        })
+        .collect();
+    // Both foreground processes are running. A third, ordinary JS callback must still run.
+    let request = fixture
+        .client
+        .prepare(Command::CallPlugin {
+            handler: "read".into(),
+            input: json!({}),
+        })
+        .with_plugin(scope(&fixture, &info));
+    let response = tokio::time::timeout(Duration::from_secs(5), fixture.client.execute(request))
+        .await
+        .expect("process waits exhausted the VM pool")
+        .unwrap();
+    assert_eq!(response, Output::PluginResult(json!({})));
+    for (session, turn) in running {
+        execute(&fixture, Command::StopTurn { turn }).await;
+        let page = finished(&fixture.client, session, turn).await;
+        assert_eq!(page.runs.last().unwrap().status, Status::Cancelled);
+    }
+    // Node shutdown joins process cleanup; no long-lived fixture commands survive it.
+    tokio::time::timeout(Duration::from_secs(5), fixture.node.shutdown())
+        .await
+        .unwrap()
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(3), async {
+        for child in children {
+            // SAFETY: signal 0 only probes the exact isolated fixture PID, with no pointers.
+            while unsafe { libc::kill(child, 0) } == 0 {
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
-        })
-        .await
-        .unwrap();
-        let children: Vec<i32> = [&fixture.root, &other_root]
-            .into_iter()
-            .map(|root| {
-                std::fs::read_to_string(root.join("child.pid"))
-                    .unwrap()
-                    .parse()
-                    .unwrap()
-            })
-            .collect();
-        // Both foreground processes are running. A third, ordinary JS callback must still run.
-        let request = fixture
-            .client
-            .prepare(Command::CallPlugin {
-                handler: "read".into(),
-                input: json!({}),
-            })
-            .with_plugin(scope(&fixture, &info));
-        let response =
-            tokio::time::timeout(Duration::from_secs(5), fixture.client.execute(request))
-                .await
-                .expect("process waits exhausted the VM pool")
-                .unwrap();
-        assert_eq!(response, Output::PluginResult(json!({})));
-        for (session, turn) in running {
-            execute(&fixture, Command::StopTurn { turn }).await;
-            let page = finished(&fixture.client, session, turn).await;
-            assert_eq!(page.runs.last().unwrap().status, Status::Cancelled);
         }
-        // Node shutdown joins process cleanup; no long-lived fixture commands survive it.
-        tokio::time::timeout(Duration::from_secs(5), fixture.node.shutdown())
-            .await
-            .unwrap()
-            .unwrap();
-        tokio::time::timeout(Duration::from_secs(3), async {
-            for child in children {
-                // SAFETY: signal 0 only probes the exact isolated fixture PID, with no pointers.
-                while unsafe { libc::kill(child, 0) } == 0 {
-                    tokio::time::sleep(Duration::from_millis(10)).await;
-                }
-            }
-        })
-        .await
-        .expect("cancelled command left a running child");
-        fixture.controller.close().await.unwrap();
-    }
+    })
+    .await
+    .expect("cancelled command left a running child");
+    fixture.controller.close().await.unwrap();
 }

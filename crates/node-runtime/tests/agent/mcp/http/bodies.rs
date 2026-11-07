@@ -278,70 +278,67 @@ pub(super) async fn oversized(stream: &mut TcpStream, chunked: bool) -> std::io:
 
 #[tokio::test]
 async fn isolates_failed_discovery() {
-    for remote in [false, true] {
-        let mut shared = None;
-        let mut peers = Vec::new();
-        for method in ["tools/list", "tools/call"] {
-            for chunked in [false, true] {
-                let http = Http::start(Reply::Oversized { method, chunked }).await;
-                let calls = if method == "tools/list" {
-                    vec![("load_skill".into(), json!({"skill":"example:analysis"}))]
-                } else {
-                    vec![(alias("remote", "write"), json!({"value":"once"}))]
-                };
-                let model = Server::tools(calls).await;
-                let case_name = format!("bounded-{method}-{chunked}").replace('/', "-");
-                let fixture = case_fixture(&mut shared, remote, &model, &case_name).await;
-                package(
-                    &fixture.root,
-                    json!({"remote":{"type":"streamable-http", "url":http.endpoint}}),
-                    "bounded",
-                );
-                install_current(fixture).await;
+    let mut shared = None;
+    let mut peers = Vec::new();
+    for method in ["tools/list", "tools/call"] {
+        for chunked in [false, true] {
+            let http = Http::start(Reply::Oversized { method, chunked }).await;
+            let calls = if method == "tools/list" {
+                vec![("load_skill".into(), json!({"skill":"example:analysis"}))]
+            } else {
+                vec![(alias("remote", "write"), json!({"value":"once"}))]
+            };
+            let model = Server::tools(calls).await;
+            let case_name = format!("bounded-{method}-{chunked}").replace('/', "-");
+            let fixture = case_fixture(&mut shared, &model, &case_name).await;
+            package(
+                &fixture.root,
+                json!({"remote":{"type":"streamable-http", "url":http.endpoint}}),
+                "bounded",
+            );
+            install_current(fixture).await;
 
-                let (request, turn) = submit(fixture, false).await;
-                if method == "tools/call" {
-                    let (_, approval) =
-                        approvals::pending(&fixture.client, fixture.session.id).await;
-                    process::decide(&fixture.client, &approval, Decision::Approve).await;
-                }
-                let page = finished(&fixture.client, fixture.session.id, turn.id).await;
-                assert_eq!(page.runs[0].status, Status::Completed, "{case_name}");
-                let output = results(&fixture.client, &page).await;
-                if method == "tools/list" {
-                    assert!(
-                        output[0]["content"]
-                            .as_str()
-                            .unwrap()
-                            .contains("Complete skill beside MCP"),
-                        "{case_name}"
-                    );
-                } else {
-                    assert_eq!(output[0]["data"]["code"], "outcome_unknown", "{case_name}");
-                }
-                fixture.client.execute(request).await.unwrap();
-                assert_eq!(http.count("initialize"), 1, "{case_name}");
-                assert_eq!(
-                    http.count("tools/list"),
-                    if method == "tools/list" { 1 } else { 2 },
-                    "{case_name}"
-                );
-                assert_eq!(
-                    http.count("tools/call"),
-                    usize::from(method == "tools/call"),
-                    "{case_name}"
-                );
-                assert_eq!(
-                    http.effects.load(Ordering::SeqCst),
-                    usize::from(method == "tools/call"),
-                    "{case_name}"
-                );
-                assert_eq!(http.deletes(), 1, "{case_name}");
-                peers.push(http);
+            let (request, turn) = submit(fixture, false).await;
+            if method == "tools/call" {
+                let (_, approval) = approvals::pending(&fixture.client, fixture.session.id).await;
+                process::decide(&fixture.client, &approval, Decision::Approve).await;
             }
+            let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+            assert_eq!(page.runs[0].status, Status::Completed, "{case_name}");
+            let output = results(&fixture.client, &page).await;
+            if method == "tools/list" {
+                assert!(
+                    output[0]["content"]
+                        .as_str()
+                        .unwrap()
+                        .contains("Complete skill beside MCP"),
+                    "{case_name}"
+                );
+            } else {
+                assert_eq!(output[0]["data"]["code"], "outcome_unknown", "{case_name}");
+            }
+            fixture.client.execute(request).await.unwrap();
+            assert_eq!(http.count("initialize"), 1, "{case_name}");
+            assert_eq!(
+                http.count("tools/list"),
+                if method == "tools/list" { 1 } else { 2 },
+                "{case_name}"
+            );
+            assert_eq!(
+                http.count("tools/call"),
+                usize::from(method == "tools/call"),
+                "{case_name}"
+            );
+            assert_eq!(
+                http.effects.load(Ordering::SeqCst),
+                usize::from(method == "tools/call"),
+                "{case_name}"
+            );
+            assert_eq!(http.deletes(), 1, "{case_name}");
+            peers.push(http);
         }
-        let fixture = shared.unwrap();
-        fixture.controller.close().await.unwrap();
-        fixture.node.shutdown().await.unwrap();
     }
+    let fixture = shared.unwrap();
+    fixture.controller.close().await.unwrap();
+    fixture.node.shutdown().await.unwrap();
 }

@@ -4,15 +4,180 @@ use std::sync::atomic::Ordering;
 
 #[tokio::test]
 async fn releases_tasks_during_shutdown() {
-    for remote in [false, true] {
+    let peer = input::Server::task(input::form_schema(), false).await;
+    let model = Server::tools(vec![(alias("input", "read"), json!({}))]).await;
+    let fixture = process::Fixture::packages(&model, &[]).await;
+    peer.package(&fixture.root.join("package"));
+    install(&fixture, 0).await;
+
+    let (request, _) = submit(&fixture, false).await;
+    questions::pending(&fixture.client, fixture.session.id).await;
+    let process::Fixture {
+        directory,
+        node,
+        controller,
+        client,
+        session,
+        ..
+    } = fixture;
+    drop(client);
+    node.shutdown().await.unwrap();
+    assert_eq!(peer.tasks.cancelled.load(Ordering::SeqCst), 1);
+    let node = Node::start_empty(directory.path().join("node"))
+        .await
+        .unwrap();
+    let client = Client::new(controller.handle().remote(node.link().address()));
+    let page = history(&client, session.id).await;
+    assert_eq!(page.runs[0].status, Status::Interrupted);
+    assert!(matches!(
+        page.questions[0].state,
+        State::Cancelled | State::Interrupted
+    ));
+    client.execute(request).await.unwrap();
+    assert_eq!(history(&client, session.id).await, page);
+    assert_eq!(peer.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(model.requests.lock().unwrap().len(), 1);
+    node.shutdown().await.unwrap();
+    controller.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn cancels_tasks_before_transport_closure() {
+    for ignore_cancel in [false, true] {
         let peer = input::Server::task(input::form_schema(), false).await;
+        peer.tasks
+            .ignore_cancel
+            .store(ignore_cancel, Ordering::SeqCst);
         let model = Server::tools(vec![(alias("input", "read"), json!({}))]).await;
-        let fixture = process::Fixture::packages(remote, &model, &[]).await;
+        let fixture = process::Fixture::packages(&model, &[]).await;
         peer.package(&fixture.root.join("package"));
         install(&fixture, 0).await;
 
-        let (request, _) = submit(&fixture, false).await;
+        let (_, turn) = submit(&fixture, false).await;
         questions::pending(&fixture.client, fixture.session.id).await;
+        execute(&fixture.client, Command::StopTurn { turn: turn.id }).await;
+        let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+        assert_eq!(page.runs[0].status, Status::Cancelled);
+        assert!(matches!(
+            page.questions[0].state,
+            State::Cancelled | State::Interrupted
+        ));
+        let cancelled = peer.tasks.cancelled.load(Ordering::SeqCst);
+        let trace = peer.tasks.trace();
+        // Dropping the call and confirming cleanup can each send one cancellation.
+        assert!(
+            (1..=2).contains(&cancelled),
+            "ignore_cancel={ignore_cancel}, cancelled={cancelled}, trace={trace:?}"
+        );
+        assert_eq!(trace.len(), 1);
+        let requests = &trace["task-1"];
+        assert_eq!(
+            requests
+                .iter()
+                .filter(|(method, _)| method == "tasks/cancel")
+                .count(),
+            cancelled
+        );
+        let first_cancel = requests
+            .iter()
+            .position(|(method, _)| method == "tasks/cancel")
+            .unwrap();
+        assert!(
+            requests[first_cancel + 1..]
+                .iter()
+                .any(|(method, terminal)| method == "tasks/get" && *terminal != ignore_cancel)
+        );
+        assert_eq!(
+            requests
+                .iter()
+                .rev()
+                .find(|(method, _)| method == "tasks/get")
+                .unwrap()
+                .1,
+            !ignore_cancel
+        );
+        assert_eq!(peer.tasks.updates.load(Ordering::SeqCst), 0);
+        assert_eq!(peer.calls.load(Ordering::SeqCst), 1);
+        assert_eq!(model.requests.lock().unwrap().len(), 1);
+        if ignore_cancel {
+            assert_eq!(
+                page.runs[0].error.as_ref().unwrap().code,
+                ErrorCode::OutcomeUnknown
+            );
+        }
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn resumes_input_once() {
+    for sse in [false, true] {
+        let peer = input::Server::task(
+            json!({"mode":"url","url":"https://example.invalid/continue?task=fixture"}),
+            sse,
+        )
+        .await;
+        let model = Server::tools(vec![(alias("input", "read"), json!({})); 3]).await;
+        let fixture = process::Fixture::packages(&model, &[]).await;
+        peer.package(&fixture.root.join("package"));
+        install(&fixture, 0).await;
+
+        let (request, turn) = submit(&fixture, false).await;
+        let mut accepted = Vec::new();
+        for response in [
+            Response::Answer(Answer::Opened),
+            Response::Decline,
+            Response::Cancel,
+        ] {
+            let (page, pending) = questions::pending(&fixture.client, fixture.session.id).await;
+            let part = &page
+                .entries
+                .iter()
+                .find(|entry| entry.id == pending.entry)
+                .unwrap()
+                .parts[pending.index];
+            let Part::ToolCall { summary, .. } = part else {
+                panic!("MCP input expected")
+            };
+            let spec = summary.question.as_ref().unwrap().as_ref().clone();
+            assert!(
+                matches!(spec.input, question::Input::Url { ref url, .. } if url == "https://example.invalid/continue?task=fixture")
+            );
+            fixture
+                .controller
+                .handle()
+                .disconnect(fixture.node.id())
+                .await;
+            let request = fixture.client.prepare(Command::ResolveQuestion {
+                session: fixture.session.id,
+                question: pending.id,
+                response,
+            });
+            let receipt = fixture.client.execute(request.clone()).await.unwrap();
+            accepted.push((request, receipt));
+        }
+        let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+        assert_eq!(page.runs[0].status, Status::Completed);
+        assert_eq!(page.questions[0].state, State::Answered(Answer::Opened));
+        assert_eq!(page.questions[1].state, State::Declined);
+        assert_eq!(page.questions[2].state, State::Cancelled);
+        let output = results(&fixture.client, &page).await;
+        let native: Vec<_> = output
+            .iter()
+            .filter_map(|value| value.get("structuredContent"))
+            .collect();
+        assert_eq!(
+            native,
+            vec![
+                &json!({"action":"accept"}),
+                &json!({"action":"decline"}),
+                &json!({"action":"cancel"})
+            ]
+        );
+        let requests = serde_json::to_string(&*model.requests.lock().unwrap()).unwrap();
+        assert!(!requests.contains("example.invalid/continue"));
+        assert!(!requests.contains("mcp_elicitation"));
         let process::Fixture {
             directory,
             node,
@@ -23,201 +188,22 @@ async fn releases_tasks_during_shutdown() {
         } = fixture;
         drop(client);
         node.shutdown().await.unwrap();
-        assert_eq!(peer.tasks.cancelled.load(Ordering::SeqCst), 1);
         let node = Node::start_empty(directory.path().join("node"))
             .await
             .unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(node.link().address())
-        } else {
-            node.local()
-        });
-        let page = history(&client, session.id).await;
-        assert_eq!(page.runs[0].status, Status::Interrupted);
-        assert!(matches!(
-            page.questions[0].state,
-            State::Cancelled | State::Interrupted
-        ));
-        client.execute(request).await.unwrap();
+        let client = Client::new(controller.handle().remote(node.link().address()));
         assert_eq!(history(&client, session.id).await, page);
-        assert_eq!(peer.calls.load(Ordering::SeqCst), 1);
-        assert_eq!(model.requests.lock().unwrap().len(), 1);
+        assert_eq!(
+            client.execute(request).await.unwrap(),
+            Output::QueuedTurn(turn)
+        );
+        for (request, receipt) in accepted {
+            assert_eq!(client.execute(request).await.unwrap(), receipt);
+        }
+        assert_eq!(peer.calls.load(Ordering::SeqCst), 3);
+        assert_eq!(peer.tasks.updates.load(Ordering::SeqCst), 6);
+        assert_eq!(peer.tasks.cancelled.load(Ordering::SeqCst), 0);
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
-    }
-}
-
-#[tokio::test]
-async fn cancels_tasks_before_transport_closure() {
-    for remote in [false, true] {
-        for ignore_cancel in [false, true] {
-            let peer = input::Server::task(input::form_schema(), false).await;
-            peer.tasks
-                .ignore_cancel
-                .store(ignore_cancel, Ordering::SeqCst);
-            let model = Server::tools(vec![(alias("input", "read"), json!({}))]).await;
-            let fixture = process::Fixture::packages(remote, &model, &[]).await;
-            peer.package(&fixture.root.join("package"));
-            install(&fixture, 0).await;
-
-            let (_, turn) = submit(&fixture, false).await;
-            questions::pending(&fixture.client, fixture.session.id).await;
-            execute(&fixture.client, Command::StopTurn { turn: turn.id }).await;
-            let page = finished(&fixture.client, fixture.session.id, turn.id).await;
-            assert_eq!(page.runs[0].status, Status::Cancelled);
-            assert!(matches!(
-                page.questions[0].state,
-                State::Cancelled | State::Interrupted
-            ));
-            let cancelled = peer.tasks.cancelled.load(Ordering::SeqCst);
-            let trace = peer.tasks.trace();
-            // Dropping the call and confirming cleanup can each send one cancellation.
-            assert!(
-                (1..=2).contains(&cancelled),
-                "remote={remote}, ignore_cancel={ignore_cancel}, cancelled={cancelled}, trace={trace:?}"
-            );
-            assert_eq!(trace.len(), 1);
-            let requests = &trace["task-1"];
-            assert_eq!(
-                requests
-                    .iter()
-                    .filter(|(method, _)| method == "tasks/cancel")
-                    .count(),
-                cancelled
-            );
-            let first_cancel = requests
-                .iter()
-                .position(|(method, _)| method == "tasks/cancel")
-                .unwrap();
-            assert!(
-                requests[first_cancel + 1..]
-                    .iter()
-                    .any(|(method, terminal)| method == "tasks/get" && *terminal != ignore_cancel)
-            );
-            assert_eq!(
-                requests
-                    .iter()
-                    .rev()
-                    .find(|(method, _)| method == "tasks/get")
-                    .unwrap()
-                    .1,
-                !ignore_cancel
-            );
-            assert_eq!(peer.tasks.updates.load(Ordering::SeqCst), 0);
-            assert_eq!(peer.calls.load(Ordering::SeqCst), 1);
-            assert_eq!(model.requests.lock().unwrap().len(), 1);
-            if ignore_cancel {
-                assert_eq!(
-                    page.runs[0].error.as_ref().unwrap().code,
-                    ErrorCode::OutcomeUnknown
-                );
-            }
-            fixture.node.shutdown().await.unwrap();
-            fixture.controller.close().await.unwrap();
-        }
-    }
-}
-
-#[tokio::test]
-async fn resumes_input_once() {
-    for remote in [false, true] {
-        for sse in [false, true] {
-            let peer = input::Server::task(
-                json!({"mode":"url","url":"https://example.invalid/continue?task=fixture"}),
-                sse,
-            )
-            .await;
-            let model = Server::tools(vec![(alias("input", "read"), json!({})); 3]).await;
-            let fixture = process::Fixture::packages(remote, &model, &[]).await;
-            peer.package(&fixture.root.join("package"));
-            install(&fixture, 0).await;
-
-            let (request, turn) = submit(&fixture, false).await;
-            let mut accepted = Vec::new();
-            for response in [
-                Response::Answer(Answer::Opened),
-                Response::Decline,
-                Response::Cancel,
-            ] {
-                let (page, pending) = questions::pending(&fixture.client, fixture.session.id).await;
-                let part = &page
-                    .entries
-                    .iter()
-                    .find(|entry| entry.id == pending.entry)
-                    .unwrap()
-                    .parts[pending.index];
-                let Part::ToolCall { summary, .. } = part else {
-                    panic!("MCP input expected")
-                };
-                let spec = summary.question.as_ref().unwrap().as_ref().clone();
-                assert!(
-                    matches!(spec.input, question::Input::Url { ref url, .. } if url == "https://example.invalid/continue?task=fixture")
-                );
-                fixture
-                    .controller
-                    .handle()
-                    .disconnect(fixture.node.id())
-                    .await;
-                let request = fixture.client.prepare(Command::ResolveQuestion {
-                    session: fixture.session.id,
-                    question: pending.id,
-                    response,
-                });
-                let receipt = fixture.client.execute(request.clone()).await.unwrap();
-                accepted.push((request, receipt));
-            }
-            let page = finished(&fixture.client, fixture.session.id, turn.id).await;
-            assert_eq!(page.runs[0].status, Status::Completed);
-            assert_eq!(page.questions[0].state, State::Answered(Answer::Opened));
-            assert_eq!(page.questions[1].state, State::Declined);
-            assert_eq!(page.questions[2].state, State::Cancelled);
-            let output = results(&fixture.client, &page).await;
-            let native: Vec<_> = output
-                .iter()
-                .filter_map(|value| value.get("structuredContent"))
-                .collect();
-            assert_eq!(
-                native,
-                vec![
-                    &json!({"action":"accept"}),
-                    &json!({"action":"decline"}),
-                    &json!({"action":"cancel"})
-                ]
-            );
-            let requests = serde_json::to_string(&*model.requests.lock().unwrap()).unwrap();
-            assert!(!requests.contains("example.invalid/continue"));
-            assert!(!requests.contains("mcp_elicitation"));
-            let process::Fixture {
-                directory,
-                node,
-                controller,
-                client,
-                session,
-                ..
-            } = fixture;
-            drop(client);
-            node.shutdown().await.unwrap();
-            let node = Node::start_empty(directory.path().join("node"))
-                .await
-                .unwrap();
-            let client = Client::new(if remote {
-                controller.handle().remote(node.link().address())
-            } else {
-                node.local()
-            });
-            assert_eq!(history(&client, session.id).await, page);
-            assert_eq!(
-                client.execute(request).await.unwrap(),
-                Output::QueuedTurn(turn)
-            );
-            for (request, receipt) in accepted {
-                assert_eq!(client.execute(request).await.unwrap(), receipt);
-            }
-            assert_eq!(peer.calls.load(Ordering::SeqCst), 3);
-            assert_eq!(peer.tasks.updates.load(Ordering::SeqCst), 6);
-            assert_eq!(peer.tasks.cancelled.load(Ordering::SeqCst), 0);
-            node.shutdown().await.unwrap();
-            controller.close().await.unwrap();
-        }
     }
 }

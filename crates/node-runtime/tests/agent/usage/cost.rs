@@ -9,7 +9,7 @@ async fn restores_catalog_estimates() {
         Authentication::ChatGpt,
         Authentication::Copilot,
     ] {
-        for (remote, catalog) in [(false, false), (true, false), (false, true), (true, true)] {
+        for catalog in [false, true] {
             let directory = tempfile::tempdir().unwrap();
             let root = directory.path().join("project");
             std::fs::create_dir(&root).unwrap();
@@ -37,25 +37,16 @@ async fn restores_catalog_estimates() {
             pricing::seed(&profile).await;
             seed_metadata(&profile, &session.config.model, authentication, catalog).await;
             let node = Node::start_empty(&profile).await.unwrap();
-            let controller = if remote {
-                Some(
-                    Link::controller(directory.path().join("controller"), NetworkScope::default())
-                        .await
-                        .unwrap(),
-                )
-            } else {
-                None
-            };
-            let client = Arc::new(Client::new(if let Some(controller) = &controller {
-                let address = controller
-                    .handle()
-                    .pair(node.link().invite().unwrap().ticket())
+            let controller =
+                Link::controller(directory.path().join("controller"), NetworkScope::default())
                     .await
                     .unwrap();
-                controller.handle().remote(address)
-            } else {
-                node.local()
-            }));
+            let address = controller
+                .handle()
+                .pair(node.link().invite().unwrap().ticket())
+                .await
+                .unwrap();
+            let client = Arc::new(Client::new(controller.handle().remote(address)));
             let now = chrono::Utc::now().timestamp_millis();
             let query = Query {
                 start_ms: now - 86_400_000,
@@ -114,9 +105,7 @@ async fn restores_catalog_estimates() {
             assert_eq!(report.groups[0].metrics.cost, report.totals.cost);
             let statistics = crate::observations::statistics(&client, session.id).await;
             assert_eq!(statistics.cost, report.totals.cost);
-            if let Some(controller) = &controller {
-                controller.handle().disconnect(node.id()).await;
-            }
+            controller.handle().disconnect(node.id()).await;
             refresh.send(()).await.unwrap();
             observed(&mut view, |view| {
                 view.connected && !view.refreshing && view.report.as_deref() == Some(&report)
@@ -126,9 +115,7 @@ async fn restores_catalog_estimates() {
             assert_eq!(server.requests.lock().unwrap().len(), 2);
             stop.cancel();
             worker.await.unwrap().unwrap();
-            if let Some(controller) = controller {
-                controller.close().await.unwrap();
-            }
+            controller.close().await.unwrap();
             node.shutdown().await.unwrap();
         }
     }

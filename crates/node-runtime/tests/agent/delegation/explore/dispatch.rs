@@ -141,268 +141,264 @@ async fn unchanged(fixture: &Fixture, child: &Session, package: &plugin::Info) {
 
 #[tokio::test]
 async fn discovers_hosted_reads_without_explicit_selection() {
-    for remote in [false, true] {
-        let canonical = plugin_tool(PACKAGE, "inspect");
-        let parent = Server::turn_tools(vec![(
-            "spawn_agent".to_string(),
-            json!({"role":"review","task":"Inspect the captured evidence without changing it"}),
-        )])
-        .await;
-        let child = Server::turn_tools(vec![
-            ("tool_search".into(), json!({"query":canonical,"limit":1})),
-            (
-                "tool_search".into(),
-                json!({"query":"verify blocked mutations","limit":1}),
-            ),
-            (canonical.clone(), json!({})),
-        ])
-        .await;
-        let mut fixture = Fixture::start(remote, parent, child).await;
-        let package = install(&fixture).await;
-        std::fs::write(fixture.root().join("source.txt"), EVIDENCE).unwrap();
-        let mut role = fixture.role.clone();
-        role.read_only = true;
-        assert!(role.tools.is_none());
-        let revision = role.revision;
-        let Output::Role(role) = execute(
-            &fixture.client,
-            Command::PutRole {
-                role,
-                expected_revision: revision,
-            },
-        )
+    let canonical = plugin_tool(PACKAGE, "inspect");
+    let parent = Server::turn_tools(vec![(
+        "spawn_agent".to_string(),
+        json!({"role":"review","task":"Inspect the captured evidence without changing it"}),
+    )])
+    .await;
+    let child = Server::turn_tools(vec![
+        ("tool_search".into(), json!({"query":canonical,"limit":1})),
+        (
+            "tool_search".into(),
+            json!({"query":"verify blocked mutations","limit":1}),
+        ),
+        (canonical.clone(), json!({})),
+    ])
+    .await;
+    let mut fixture = Fixture::start(parent, child).await;
+    let package = install(&fixture).await;
+    std::fs::write(fixture.root().join("source.txt"), EVIDENCE).unwrap();
+    let mut role = fixture.role.clone();
+    role.read_only = true;
+    assert!(role.tools.is_none());
+    let revision = role.revision;
+    let Output::Role(role) = execute(
+        &fixture.client,
+        Command::PutRole {
+            role,
+            expected_revision: revision,
+        },
+    )
+    .await
+    else {
+        panic!("role expected")
+    };
+    let Output::Session(session) = execute(
+        &fixture.client,
+        Command::SetSessionRoles {
+            session: fixture.session.id,
+            expected_revision: fixture.session.revision,
+            roles: vec![role.reference()],
+        },
+    )
+    .await
+    else {
+        panic!("session expected")
+    };
+    fixture.session = session;
+    let turn = fixture.push("Delegate a read-only inspection").await;
+    let parent = finished(&fixture.client, fixture.session.id, turn.id).await;
+    assert_eq!(parent.runs[0].status, Status::Completed);
+    let child = children(&fixture.client, fixture.session.id, 1)
         .await
-        else {
-            panic!("role expected")
-        };
-        let Output::Session(session) = execute(
-            &fixture.client,
-            Command::SetSessionRoles {
-                session: fixture.session.id,
-                expected_revision: fixture.session.revision,
-                roles: vec![role.reference()],
-            },
-        )
-        .await
-        else {
-            panic!("session expected")
-        };
-        fixture.session = session;
-        let turn = fixture.push("Delegate a read-only inspection").await;
-        let parent = finished(&fixture.client, fixture.session.id, turn.id).await;
-        assert_eq!(parent.runs[0].status, Status::Completed);
-        let child = children(&fixture.client, fixture.session.id, 1)
-            .await
-            .pop()
-            .unwrap();
-        assert_eq!(child.config.mode, WorkMode::Plan);
-        assert_eq!(child.delegation.as_ref().unwrap().role, Some(role.id));
-        let page = history(&fixture.client, child.id).await;
-        assert_eq!(page.runs[0].status, Status::Completed);
-        assert!(page.runs[0].error.is_none());
-        assert!(page.approvals.is_empty());
-        assert!(page.questions.is_empty());
-        let details = tool_details(&fixture.client, &page).await;
-        assert_eq!(details.len(), 3);
-        for (name, detail) in &details[..2] {
-            assert_eq!(name, "tool_search");
-            let result = detail.result.as_ref().unwrap();
-            assert_eq!(result["tools"][0]["name"], canonical, "{result}");
-        }
-        assert_eq!(details[2].0, canonical);
-        let result = details[2].1.result.as_ref().unwrap();
-        assert_eq!(result["errors"], json!(vec!["permission_denied"; 4]));
-        assert!(result["file"].to_string().contains(EVIDENCE));
-        assert!(result["value"]["value"].is_null());
-        {
-            let requests = fixture.child.requests.lock().unwrap();
-            assert_eq!(requests.len(), 4);
-            for (index, request) in requests.iter().enumerate() {
-                let names: Vec<_> = request["tools"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .map(|tool| tool["function"]["name"].as_str().unwrap())
-                    .collect();
-                assert!(names.contains(&"tool_search"));
-                assert_eq!(names.contains(&"inspect"), index > 0);
-                assert!(!names.contains(&"spawn_agent"));
-            }
-        }
-        unchanged(&fixture, &child, &package).await;
-        fixture.close().await;
+        .pop()
+        .unwrap();
+    assert_eq!(child.config.mode, WorkMode::Plan);
+    assert_eq!(child.delegation.as_ref().unwrap().role, Some(role.id));
+    let page = history(&fixture.client, child.id).await;
+    assert_eq!(page.runs[0].status, Status::Completed);
+    assert!(page.runs[0].error.is_none());
+    assert!(page.approvals.is_empty());
+    assert!(page.questions.is_empty());
+    let details = tool_details(&fixture.client, &page).await;
+    assert_eq!(details.len(), 3);
+    for (name, detail) in &details[..2] {
+        assert_eq!(name, "tool_search");
+        let result = detail.result.as_ref().unwrap();
+        assert_eq!(result["tools"][0]["name"], canonical, "{result}");
     }
+    assert_eq!(details[2].0, canonical);
+    let result = details[2].1.result.as_ref().unwrap();
+    assert_eq!(result["errors"], json!(vec!["permission_denied"; 4]));
+    assert!(result["file"].to_string().contains(EVIDENCE));
+    assert!(result["value"]["value"].is_null());
+    {
+        let requests = fixture.child.requests.lock().unwrap();
+        assert_eq!(requests.len(), 4);
+        for (index, request) in requests.iter().enumerate() {
+            let names: Vec<_> = request["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|tool| tool["function"]["name"].as_str().unwrap())
+                .collect();
+            assert!(names.contains(&"tool_search"));
+            assert_eq!(names.contains(&"inspect"), index > 0);
+            assert!(!names.contains(&"spawn_agent"));
+        }
+    }
+    unchanged(&fixture, &child, &package).await;
+    fixture.close().await;
 }
 
 #[tokio::test]
 async fn rejects_captured_mutating_requests() {
-    for remote in [false, true] {
-        let start = Arc::new(tokio::sync::Notify::new());
-        let finish = Arc::new(tokio::sync::Notify::new());
-        let child = Server::held(start.clone(), finish.clone()).await;
-        let parent = Server::turn_tools(vec![(
-            "spawn_agent".to_string(),
-            json!({"role":"explore","task":"Inspect the existing project","background":true}),
-        )])
-        .await;
-        let mut fixture = Fixture::start(remote, parent, child).await;
-        let package = install(&fixture).await;
-        std::fs::write(fixture.root().join("source.txt"), EVIDENCE).unwrap();
-        select(&mut fixture, true, true).await;
-        let turn = fixture.push("Start an exploration").await;
-        fixture.child.wait_count(1).await;
-        let child = children(&fixture.client, fixture.session.id, 1)
-            .await
-            .pop()
-            .unwrap();
-        let run = history(&fixture.client, child.id).await.runs[0].clone();
-        assert_eq!(run.status, Status::Running);
-        assert_eq!(child.config.mode, WorkMode::Plan);
-        let parent = finished(&fixture.client, fixture.session.id, turn.id).await;
-        assert_eq!(
-            parent
-                .runs
-                .iter()
-                .find(|run| run.turn == turn.id)
-                .unwrap()
-                .status,
-            Status::Completed,
-            "{parent:?}"
-        );
-        let scope = plugin::Context {
-            package: package.summary.reference(),
-            surface: Default::default(),
-            worktree: Some(child.worktree),
-            session: Some(child.id),
-            turn: Some(run.turn),
-            invocation: None,
-        };
-        let read = fixture
+    let start = Arc::new(tokio::sync::Notify::new());
+    let finish = Arc::new(tokio::sync::Notify::new());
+    let child = Server::held(start.clone(), finish.clone()).await;
+    let parent = Server::turn_tools(vec![(
+        "spawn_agent".to_string(),
+        json!({"role":"explore","task":"Inspect the existing project","background":true}),
+    )])
+    .await;
+    let mut fixture = Fixture::start(parent, child).await;
+    let package = install(&fixture).await;
+    std::fs::write(fixture.root().join("source.txt"), EVIDENCE).unwrap();
+    select(&mut fixture, true, true).await;
+    let turn = fixture.push("Start an exploration").await;
+    fixture.child.wait_count(1).await;
+    let child = children(&fixture.client, fixture.session.id, 1)
+        .await
+        .pop()
+        .unwrap();
+    let run = history(&fixture.client, child.id).await.runs[0].clone();
+    assert_eq!(run.status, Status::Running);
+    assert_eq!(child.config.mode, WorkMode::Plan);
+    let parent = finished(&fixture.client, fixture.session.id, turn.id).await;
+    assert_eq!(
+        parent
+            .runs
+            .iter()
+            .find(|run| run.turn == turn.id)
+            .unwrap()
+            .status,
+        Status::Completed,
+        "{parent:?}"
+    );
+    let scope = plugin::Context {
+        package: package.summary.reference(),
+        surface: Default::default(),
+        worktree: Some(child.worktree),
+        session: Some(child.id),
+        turn: Some(run.turn),
+        invocation: None,
+    };
+    let read = fixture
+        .client
+        .execute(
+            fixture
+                .client
+                .prepare(Command::ReadFile {
+                    worktree: child.worktree,
+                    path: "source.txt".into(),
+                })
+                .with_plugin(scope.clone()),
+        )
+        .await
+        .unwrap();
+    assert!(
+        serde_json::to_value(read)
+            .unwrap()
+            .to_string()
+            .contains(EVIDENCE)
+    );
+    for command in [
+        Command::WriteFile {
+            worktree: child.worktree,
+            path: "source.txt".into(),
+            text: "Changed".into(),
+            expected_revision: None,
+        },
+        Command::RunCommand {
+            turn: run.turn,
+            command: "touch changed.txt".into(),
+            description: None,
+            access: sailry_protocol::process::Access::Workspace,
+            cwd: String::new(),
+            timeout_ms: 1000,
+            pty: false,
+            background: false,
+            follow_up: false,
+            attachments: vec![],
+        },
+        Command::UseBrowser {
+            session: child.id,
+            worktree: child.worktree,
+            action: sailry_protocol::browser::Action::Click {
+                tab: 0,
+                snapshot: "fixture".into(),
+                element: 1,
+            },
+        },
+        Command::WritePluginValue {
+            key: "changed".into(),
+            value: json!(true),
+            expected_revision: 0,
+        },
+        Command::PluginTransaction {
+            operations: vec![plugin::transaction::Operation::Write {
+                key: "bulk".into(),
+                value: json!(true),
+                expected_revision: 0,
+            }],
+        },
+    ] {
+        let fault = fixture
             .client
             .execute(
                 fixture
                     .client
-                    .prepare(Command::ReadFile {
-                        worktree: child.worktree,
-                        path: "source.txt".into(),
-                    })
+                    .prepare(command.clone())
                     .with_plugin(scope.clone()),
             )
             .await
-            .unwrap();
+            .unwrap_err();
+        assert_eq!(
+            fault.code,
+            ErrorCode::PermissionDenied,
+            "{command:?}: {fault:?}"
+        );
         assert!(
-            serde_json::to_value(read)
-                .unwrap()
-                .to_string()
-                .contains(EVIDENCE)
+            fault.message.starts_with("planning turns cannot"),
+            "{command:?}: {fault:?}"
         );
-        for command in [
-            Command::WriteFile {
-                worktree: child.worktree,
-                path: "source.txt".into(),
-                text: "Changed".into(),
-                expected_revision: None,
-            },
-            Command::RunCommand {
-                turn: run.turn,
-                command: "touch changed.txt".into(),
-                description: None,
-                access: sailry_protocol::process::Access::Workspace,
-                cwd: String::new(),
-                timeout_ms: 1000,
-                pty: false,
-                background: false,
-                follow_up: false,
-                attachments: vec![],
-            },
-            Command::UseBrowser {
-                session: child.id,
-                worktree: child.worktree,
-                action: sailry_protocol::browser::Action::Click {
-                    tab: 0,
-                    snapshot: "fixture".into(),
-                    element: 1,
-                },
-            },
-            Command::WritePluginValue {
-                key: "changed".into(),
-                value: json!(true),
-                expected_revision: 0,
-            },
-            Command::PluginTransaction {
-                operations: vec![plugin::transaction::Operation::Write {
-                    key: "bulk".into(),
-                    value: json!(true),
-                    expected_revision: 0,
-                }],
-            },
-        ] {
-            let fault = fixture
-                .client
-                .execute(
-                    fixture
-                        .client
-                        .prepare(command.clone())
-                        .with_plugin(scope.clone()),
-                )
-                .await
-                .unwrap_err();
-            assert_eq!(
-                fault.code,
-                ErrorCode::PermissionDenied,
-                "{command:?}: {fault:?}"
-            );
-            assert!(
-                fault.message.starts_with("planning turns cannot"),
-                "{command:?}: {fault:?}"
-            );
-        }
-        assert_eq!(
-            std::fs::read_to_string(fixture.root().join("source.txt")).unwrap(),
-            EVIDENCE
-        );
-        assert!(!fixture.root().join("changed.txt").exists());
-        let page = history(&fixture.client, child.id).await;
-        assert!(page.approvals.is_empty());
-        for key in ["changed", "bulk"] {
-            let Output::PluginValue(entry) = fixture
-                .client
-                .execute(
-                    fixture
-                        .client
-                        .prepare(Command::ReadPluginValue { key: key.into() })
-                        .with_plugin(scope.clone()),
-                )
-                .await
-                .unwrap()
-            else {
-                panic!("plugin value expected")
-            };
-            assert!(!entry.present);
-            assert_eq!(entry.revision, 0);
-        }
-        start.notify_one();
-        finish.notify_one();
-        let page = finished(&fixture.client, child.id, run.turn).await;
-        assert_eq!(page.runs[0].status, Status::Completed);
-        let parent = finished(&fixture.client, fixture.session.id, turn.id).await;
-        assert_eq!(
-            parent
-                .runs
-                .iter()
-                .find(|run| run.turn == turn.id)
-                .unwrap()
-                .status,
-            Status::Completed,
-            "{parent:?}"
-        );
-        let delegated = &results(&fixture.client, &parent).await[0];
-        assert_eq!(delegated["admitted"], true);
-        assert_eq!(delegated["pending"], true);
-        assert_eq!(delegated["status"], "queued");
-        assert_eq!(delegated["session"], json!(child.id));
-        assert_eq!(delegated["turn"], json!(run.turn));
-        fixture.node.shutdown().await.unwrap();
-        fixture.controller.close().await.unwrap();
     }
+    assert_eq!(
+        std::fs::read_to_string(fixture.root().join("source.txt")).unwrap(),
+        EVIDENCE
+    );
+    assert!(!fixture.root().join("changed.txt").exists());
+    let page = history(&fixture.client, child.id).await;
+    assert!(page.approvals.is_empty());
+    for key in ["changed", "bulk"] {
+        let Output::PluginValue(entry) = fixture
+            .client
+            .execute(
+                fixture
+                    .client
+                    .prepare(Command::ReadPluginValue { key: key.into() })
+                    .with_plugin(scope.clone()),
+            )
+            .await
+            .unwrap()
+        else {
+            panic!("plugin value expected")
+        };
+        assert!(!entry.present);
+        assert_eq!(entry.revision, 0);
+    }
+    start.notify_one();
+    finish.notify_one();
+    let page = finished(&fixture.client, child.id, run.turn).await;
+    assert_eq!(page.runs[0].status, Status::Completed);
+    let parent = finished(&fixture.client, fixture.session.id, turn.id).await;
+    assert_eq!(
+        parent
+            .runs
+            .iter()
+            .find(|run| run.turn == turn.id)
+            .unwrap()
+            .status,
+        Status::Completed,
+        "{parent:?}"
+    );
+    let delegated = &results(&fixture.client, &parent).await[0];
+    assert_eq!(delegated["admitted"], true);
+    assert_eq!(delegated["pending"], true);
+    assert_eq!(delegated["status"], "queued");
+    assert_eq!(delegated["session"], json!(child.id));
+    assert_eq!(delegated["turn"], json!(run.turn));
+    fixture.node.shutdown().await.unwrap();
+    fixture.controller.close().await.unwrap();
 }

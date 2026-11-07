@@ -17,397 +17,384 @@ async fn managed_interactions() {
 }
 
 async fn workflow(capture: bool) {
-    for remote in [false, true] {
-        let pages = pages::Pages::start().await;
-        let mut calls = vec![
-            ("external_browser_navigate".into(), json!({"url":pages.url})),
+    let pages = pages::Pages::start().await;
+    let mut calls = vec![
+        ("external_browser_navigate".into(), json!({"url":pages.url})),
+        (
+            "external_browser_type".into(),
+            json!({"selector":"#name","text":"Alice"}),
+        ),
+        (
+            "external_browser_select".into(),
+            json!({"selector":"#choice","value":"b"}),
+        ),
+        (
+            "external_browser_click".into(),
+            json!({"selector":"#submit"}),
+        ),
+        (
+            "external_browser_extract_text".into(),
+            json!({"selector":"#result"}),
+        ),
+        (
+            "external_browser_switch_to_frame".into(),
+            json!({"selector":"#frame"}),
+        ),
+        (
+            "external_browser_type".into(),
+            json!({"selector":"#inside","text":"Frame input"}),
+        ),
+        (
+            "external_browser_evaluate_js".into(),
+            json!({"script":"return document.querySelector('#inside').value"}),
+        ),
+        (
+            "external_browser_switch_to_default_content".into(),
+            json!({}),
+        ),
+        (
+            "external_browser_file_upload".into(),
+            json!({"selector":"#upload","file_path":"upload.txt"}),
+        ),
+        (
+            "external_browser_wait_for_text".into(),
+            json!({"text":"Uploaded","timeout":5}),
+        ),
+        (
+            "external_browser_click".into(),
+            json!({"selector":"#download"}),
+        ),
+        ("external_browser_wait".into(), json!({"seconds":1})),
+        ("external_browser_downloads".into(), json!({})),
+        (
+            "external_browser_save_download".into(),
+            json!({"name":"fixture.txt"}),
+        ),
+        (
+            "external_browser_evaluate_js".into(),
+            json!({"script":"localStorage.setItem('fixture','persisted');return true"}),
+        ),
+        ("external_browser_close_session".into(), json!({})),
+        ("external_browser_navigate".into(), json!({"url":pages.url})),
+        (
+            "external_browser_evaluate_js".into(),
+            json!({"script":"return localStorage.getItem('fixture')"}),
+        ),
+        (
+            "external_browser_file_upload".into(),
+            json!({"selector":"#upload","file_path":"../outside.txt"}),
+        ),
+        (
+            "external_browser_save_download".into(),
+            json!({"name":"../profile/Preferences"}),
+        ),
+    ];
+    if capture {
+        calls.extend([
+            ("external_browser_screenshot".into(), json!({})),
             (
-                "external_browser_type".into(),
-                json!({"selector":"#name","text":"Alice"}),
+                "external_browser_screenshot".into(),
+                json!({"selector":"#name","save_to_artifacts":true}),
             ),
-            (
-                "external_browser_select".into(),
-                json!({"selector":"#choice","value":"b"}),
-            ),
-            (
-                "external_browser_click".into(),
-                json!({"selector":"#submit"}),
-            ),
-            (
-                "external_browser_extract_text".into(),
-                json!({"selector":"#result"}),
-            ),
-            (
-                "external_browser_switch_to_frame".into(),
-                json!({"selector":"#frame"}),
-            ),
-            (
-                "external_browser_type".into(),
-                json!({"selector":"#inside","text":"Frame input"}),
-            ),
-            (
-                "external_browser_evaluate_js".into(),
-                json!({"script":"return document.querySelector('#inside').value"}),
-            ),
-            (
-                "external_browser_switch_to_default_content".into(),
-                json!({}),
-            ),
-            (
-                "external_browser_file_upload".into(),
-                json!({"selector":"#upload","file_path":"upload.txt"}),
-            ),
-            (
-                "external_browser_wait_for_text".into(),
-                json!({"text":"Uploaded","timeout":5}),
-            ),
-            (
-                "external_browser_click".into(),
-                json!({"selector":"#download"}),
-            ),
-            ("external_browser_wait".into(), json!({"seconds":1})),
-            ("external_browser_downloads".into(), json!({})),
-            (
-                "external_browser_save_download".into(),
-                json!({"name":"fixture.txt"}),
-            ),
-            (
-                "external_browser_evaluate_js".into(),
-                json!({"script":"localStorage.setItem('fixture','persisted');return true"}),
-            ),
-            ("external_browser_close_session".into(), json!({})),
-            ("external_browser_navigate".into(), json!({"url":pages.url})),
-            (
-                "external_browser_evaluate_js".into(),
-                json!({"script":"return localStorage.getItem('fixture')"}),
-            ),
-            (
-                "external_browser_file_upload".into(),
-                json!({"selector":"#upload","file_path":"../outside.txt"}),
-            ),
-            (
-                "external_browser_save_download".into(),
-                json!({"name":"../profile/Preferences"}),
-            ),
-        ];
-        if capture {
-            calls.extend([
-                ("external_browser_screenshot".into(), json!({})),
-                (
-                    "external_browser_screenshot".into(),
-                    json!({"selector":"#name","save_to_artifacts":true}),
-                ),
-            ]);
-        }
-        let count = calls.len();
-        let fixture = Fixture::start(remote, calls).await;
-        let Fixture {
-            client,
-            session,
-            turn,
-            root,
-            node,
-            ..
-        } = &fixture;
-        let page = tokio::time::timeout(Duration::from_secs(600), async {
-            loop {
-                let page = history(client, *session).await;
-                if page.runs.iter().any(|run| {
-                    run.turn == *turn
-                        && !matches!(
-                            run.status,
-                            Status::Queued | Status::Running | Status::Stopping
-                        )
-                }) {
-                    break page;
-                }
-                tokio::time::sleep(Duration::from_millis(100)).await;
-            }
-        })
-        .await
-        .expect("managed browser workflow deadline");
-        let results: Vec<_> = results(client, &page).await;
-        assert_eq!(
-            page.runs.last().unwrap().status,
-            Status::Completed,
-            "{results:?}"
-        );
-        assert_eq!(results.len(), count, "{results:?}");
-        for part in page.entries.iter().flat_map(|entry| &entry.parts) {
-            if let Part::ToolCall { name, summary, .. } = part {
-                assert!(name.starts_with(&plugin_tool("external-browser", "browser_")));
-                let display = summary.resolved.as_ref().expect("packaged browser display");
-                assert!(
-                    display
-                        .label
-                        .as_ref()
-                        .unwrap()
-                        .label
-                        .starts_with("External browser")
-                );
-                assert_eq!(
-                    summary.icon,
-                    Some(sailry_protocol::plugin::desktop::Icon::Name(
-                        "reicon:map/globe".into()
-                    ))
-                );
-            }
-        }
-        for result in &results[..19] {
-            assert_eq!(result["execution_node"], json!(node.id()), "{result}");
-        }
-        assert_eq!(results[4]["result"]["text"], "Alice:b");
-        assert_eq!(results[7]["result"]["result"], "Frame input");
-        assert_eq!(results[9]["result"]["uploaded_file"], "upload.txt");
-        assert_eq!(*pages.upload.lock().unwrap(), b"upload fixture");
-        assert!(
-            results[13]["files"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|file| file["name"] == "fixture.txt")
-        );
-        let saved = results[14]["path"].as_str().unwrap();
-        assert!(saved.starts_with("assets/generated/browser-"), "{saved}");
-        assert_eq!(
-            std::fs::read_to_string(root.join(saved)).unwrap(),
-            "download fixture"
-        );
-        assert_eq!(results[18]["result"]["result"], "persisted");
-        for result in &results[19..21] {
-            assert!(result.get("error").is_some(), "{result}");
-        }
-        for (index, result) in results[21..].iter().enumerate() {
-            let response = &result["response"];
-            assert_eq!(response["execution_node"], json!(node.id()), "{result}");
-            assert_eq!(response["result"]["success"], true, "{result}");
-            assert!(response["result"].get("base64_image").is_none());
-            assert_eq!(response["result"]["mime_type"], "image/png");
-            assert!(
-                response["images"][0]
-                    .as_str()
-                    .unwrap()
-                    .starts_with("sailry-image:")
-            );
-            assert_eq!(result["inline_data"][0]["mime_type"], "image/png");
-            let saved = response["result"]["path"].as_str();
-            assert_eq!(response["result"]["saved_to_artifacts"], index == 1);
-            let Some(saved) = saved else {
-                assert_eq!(index, 0);
-                continue;
-            };
-            assert!(saved.starts_with("assets/generated/browser-"), "{saved}");
-            let bytes = std::fs::read(root.join(saved)).unwrap();
-            assert_eq!(
-                image::guess_format(&bytes).unwrap(),
-                image::ImageFormat::Png
-            );
-            let image = image::load_from_memory(&bytes).unwrap();
-            assert!(image.width() > 0 && image.height() > 0);
-        }
-        assert_eq!(*pages.upload.lock().unwrap(), b"upload fixture");
-        let persistent = fixture
-            .profile()
-            .join("browser/sessions")
-            .join(session.to_string());
-        assert!(persistent.join("profile").is_dir());
-        assert!(!persistent.join("downloads").exists());
-        let temporary: Vec<_> = std::fs::read_dir(fixture.profile().join("tmp"))
-            .unwrap()
-            .map(|entry| entry.unwrap().path())
-            .filter(|path| {
-                path.file_name()
-                    .unwrap()
-                    .to_string_lossy()
-                    .starts_with("browser-")
-            })
-            .collect();
-        assert_eq!(temporary.len(), 1);
-        assert!(temporary[0].join("downloads").is_dir());
-        assert_eq!(
-            std::fs::read_dir(temporary[0].join("downloads"))
-                .unwrap()
-                .count(),
-            0
-        );
-        assert!(!processes(&fixture.profile()).is_empty());
-        fixture.shutdown().await;
+        ]);
     }
+    let count = calls.len();
+    let fixture = Fixture::start(calls).await;
+    let Fixture {
+        client,
+        session,
+        turn,
+        root,
+        node,
+        ..
+    } = &fixture;
+    let page = tokio::time::timeout(Duration::from_secs(600), async {
+        loop {
+            let page = history(client, *session).await;
+            if page.runs.iter().any(|run| {
+                run.turn == *turn
+                    && !matches!(
+                        run.status,
+                        Status::Queued | Status::Running | Status::Stopping
+                    )
+            }) {
+                break page;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await
+    .expect("managed browser workflow deadline");
+    let results: Vec<_> = results(client, &page).await;
+    assert_eq!(
+        page.runs.last().unwrap().status,
+        Status::Completed,
+        "{results:?}"
+    );
+    assert_eq!(results.len(), count, "{results:?}");
+    for part in page.entries.iter().flat_map(|entry| &entry.parts) {
+        if let Part::ToolCall { name, summary, .. } = part {
+            assert!(name.starts_with(&plugin_tool("external-browser", "browser_")));
+            let display = summary.resolved.as_ref().expect("packaged browser display");
+            assert!(
+                display
+                    .label
+                    .as_ref()
+                    .unwrap()
+                    .label
+                    .starts_with("External browser")
+            );
+            assert_eq!(
+                summary.icon,
+                Some(sailry_protocol::plugin::desktop::Icon::Name(
+                    "reicon:map/globe".into()
+                ))
+            );
+        }
+    }
+    for result in &results[..19] {
+        assert_eq!(result["execution_node"], json!(node.id()), "{result}");
+    }
+    assert_eq!(results[4]["result"]["text"], "Alice:b");
+    assert_eq!(results[7]["result"]["result"], "Frame input");
+    assert_eq!(results[9]["result"]["uploaded_file"], "upload.txt");
+    assert_eq!(*pages.upload.lock().unwrap(), b"upload fixture");
+    assert!(
+        results[13]["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|file| file["name"] == "fixture.txt")
+    );
+    let saved = results[14]["path"].as_str().unwrap();
+    assert!(saved.starts_with("assets/generated/browser-"), "{saved}");
+    assert_eq!(
+        std::fs::read_to_string(root.join(saved)).unwrap(),
+        "download fixture"
+    );
+    assert_eq!(results[18]["result"]["result"], "persisted");
+    for result in &results[19..21] {
+        assert!(result.get("error").is_some(), "{result}");
+    }
+    for (index, result) in results[21..].iter().enumerate() {
+        let response = &result["response"];
+        assert_eq!(response["execution_node"], json!(node.id()), "{result}");
+        assert_eq!(response["result"]["success"], true, "{result}");
+        assert!(response["result"].get("base64_image").is_none());
+        assert_eq!(response["result"]["mime_type"], "image/png");
+        assert!(
+            response["images"][0]
+                .as_str()
+                .unwrap()
+                .starts_with("sailry-image:")
+        );
+        assert_eq!(result["inline_data"][0]["mime_type"], "image/png");
+        let saved = response["result"]["path"].as_str();
+        assert_eq!(response["result"]["saved_to_artifacts"], index == 1);
+        let Some(saved) = saved else {
+            assert_eq!(index, 0);
+            continue;
+        };
+        assert!(saved.starts_with("assets/generated/browser-"), "{saved}");
+        let bytes = std::fs::read(root.join(saved)).unwrap();
+        assert_eq!(
+            image::guess_format(&bytes).unwrap(),
+            image::ImageFormat::Png
+        );
+        let image = image::load_from_memory(&bytes).unwrap();
+        assert!(image.width() > 0 && image.height() > 0);
+    }
+    assert_eq!(*pages.upload.lock().unwrap(), b"upload fixture");
+    let persistent = fixture
+        .profile()
+        .join("browser/sessions")
+        .join(session.to_string());
+    assert!(persistent.join("profile").is_dir());
+    assert!(!persistent.join("downloads").exists());
+    let temporary: Vec<_> = std::fs::read_dir(fixture.profile().join("tmp"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| {
+            path.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("browser-")
+        })
+        .collect();
+    assert_eq!(temporary.len(), 1);
+    assert!(temporary[0].join("downloads").is_dir());
+    assert_eq!(
+        std::fs::read_dir(temporary[0].join("downloads"))
+            .unwrap()
+            .count(),
+        0
+    );
+    assert!(!processes(&fixture.profile()).is_empty());
+    fixture.shutdown().await;
 }
 
 #[tokio::test]
 #[ignore = "downloads pinned Chrome for Testing and runs real browser processes"]
 async fn cancellation_closes_processes() {
-    for remote in [false, true] {
-        let pages = pages::Pages::start().await;
-        let fixture = Fixture::start(
-            remote,
-            vec![
-                ("external_browser_navigate".into(), json!({"url":pages.url})),
-                (
-                    "external_browser_evaluate_js".into(),
-                    json!({"script":"fetch('/waiting');", "async":true}),
-                ),
-            ],
+    let pages = pages::Pages::start().await;
+    let fixture = Fixture::start(vec![
+        ("external_browser_navigate".into(), json!({"url":pages.url})),
+        (
+            "external_browser_evaluate_js".into(),
+            json!({"script":"fetch('/waiting');", "async":true}),
+        ),
+    ])
+    .await;
+    tokio::time::timeout(Duration::from_secs(600), pages.waiting.notified())
+        .await
+        .expect("browser reached the cancellable script");
+    assert!(!processes(&fixture.profile()).is_empty());
+    fixture
+        .client
+        .execute(
+            fixture
+                .client
+                .prepare(Command::StopTurn { turn: fixture.turn }),
         )
-        .await;
-        tokio::time::timeout(Duration::from_secs(600), pages.waiting.notified())
-            .await
-            .expect("browser reached the cancellable script");
-        assert!(!processes(&fixture.profile()).is_empty());
-        fixture
-            .client
-            .execute(
-                fixture
-                    .client
-                    .prepare(Command::StopTurn { turn: fixture.turn }),
-            )
-            .await
-            .unwrap();
-        let page = finished(&fixture.client, fixture.session, fixture.turn).await;
-        assert_eq!(page.runs.last().unwrap().status, Status::Cancelled);
-        stopped(&fixture.profile()).await;
-        fixture.shutdown().await;
-    }
+        .await
+        .unwrap();
+    let page = finished(&fixture.client, fixture.session, fixture.turn).await;
+    assert_eq!(page.runs.last().unwrap().status, Status::Cancelled);
+    stopped(&fixture.profile()).await;
+    fixture.shutdown().await;
 }
 
 #[tokio::test]
 async fn filters_without_provisioning() {
-    for remote in [false, true] {
-        for enabled in [false, true] {
-            for mode in [WorkMode::Code, WorkMode::Plan] {
-                let denied = enabled && mode == WorkMode::Plan;
-                let mut calls = if enabled { discovery() } else { vec![] };
-                if denied {
-                    calls.push((
-                        "external_browser_click".into(),
-                        json!({"selector":"#submit"}),
-                    ));
-                }
-                let fixture =
-                    Fixture::configured(remote, calls, mode, Permission::Full, enabled, true).await;
-                let page = if mode == WorkMode::Plan {
-                    questions::finish_plan(&fixture.client, fixture.session, fixture.turn).await
-                } else {
-                    finished(&fixture.client, fixture.session, fixture.turn).await
-                };
-                if denied {
-                    planning_denial(&fixture.client, &page, fixture.turn).await;
-                } else {
-                    assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-                }
-                assert!(page.approvals.is_empty());
-                {
-                    let requests = fixture._server.requests.lock().unwrap();
-                    // Only this package declares browser tools, so they use bare names.
-                    let prefix = plugin_tool("external-browser", "browser_");
-                    let external = |tool: &serde_json::Value| {
-                        tool["function"]["name"].as_str().is_some_and(|name| {
-                            name.starts_with(&prefix) || name.starts_with("browser_")
-                        })
-                    };
-                    assert!(
-                        !requests[0]["tools"]
-                            .as_array()
-                            .unwrap()
-                            .iter()
-                            .any(external)
-                    );
-                    let tools = requests.last().unwrap()["tools"].as_array().unwrap();
-                    let count = tools.iter().filter(|tool| external(tool)).count();
-                    assert_eq!(count, if enabled { 49 } else { 0 });
-                    let contains = |name| {
-                        tools
-                            .iter()
-                            .any(|entry| entry["function"]["name"] == exposed(&tool(name)))
-                    };
-                    assert_eq!(contains("external_browser_navigate"), enabled);
-                    assert_eq!(contains("external_browser_click"), enabled);
-                    assert_eq!(contains("external_browser_file_upload"), enabled);
-                    assert!(!fixture.profile().join("tools/chromium").exists());
-                }
-                fixture.shutdown().await;
+    for enabled in [false, true] {
+        for mode in [WorkMode::Code, WorkMode::Plan] {
+            let denied = enabled && mode == WorkMode::Plan;
+            let mut calls = if enabled { discovery() } else { vec![] };
+            if denied {
+                calls.push((
+                    "external_browser_click".into(),
+                    json!({"selector":"#submit"}),
+                ));
             }
+            let fixture = Fixture::configured(calls, mode, Permission::Full, enabled, true).await;
+            let page = if mode == WorkMode::Plan {
+                questions::finish_plan(&fixture.client, fixture.session, fixture.turn).await
+            } else {
+                finished(&fixture.client, fixture.session, fixture.turn).await
+            };
+            if denied {
+                planning_denial(&fixture.client, &page, fixture.turn).await;
+            } else {
+                assert_eq!(page.runs.last().unwrap().status, Status::Completed);
+            }
+            assert!(page.approvals.is_empty());
+            {
+                let requests = fixture._server.requests.lock().unwrap();
+                // Only this package declares browser tools, so they use bare names.
+                let prefix = plugin_tool("external-browser", "browser_");
+                let external = |tool: &serde_json::Value| {
+                    tool["function"]["name"].as_str().is_some_and(|name| {
+                        name.starts_with(&prefix) || name.starts_with("browser_")
+                    })
+                };
+                assert!(
+                    !requests[0]["tools"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .any(external)
+                );
+                let tools = requests.last().unwrap()["tools"].as_array().unwrap();
+                let count = tools.iter().filter(|tool| external(tool)).count();
+                assert_eq!(count, if enabled { 49 } else { 0 });
+                let contains = |name| {
+                    tools
+                        .iter()
+                        .any(|entry| entry["function"]["name"] == exposed(&tool(name)))
+                };
+                assert_eq!(contains("external_browser_navigate"), enabled);
+                assert_eq!(contains("external_browser_click"), enabled);
+                assert_eq!(contains("external_browser_file_upload"), enabled);
+                assert!(!fixture.profile().join("tools/chromium").exists());
+            }
+            fixture.shutdown().await;
         }
     }
 }
 
 #[tokio::test]
 async fn requires_provisioning_authority() {
-    for remote in [false, true] {
-        for disable in [false, true] {
-            let fixture = Fixture::configured(
-                remote,
-                vec![
-                    (
-                        "tool_search".into(),
-                        json!({"query":"browser click","limit":8}),
-                    ),
-                    (
-                        "external_browser_click".into(),
-                        json!({"selector":"#submit"}),
-                    ),
-                ],
-                WorkMode::Code,
-                Permission::Ask,
-                true,
-                true,
-            )
-            .await;
-            let (_, approval) = super::approvals::pending(&fixture.client, fixture.session).await;
-            if disable {
-                let package = package(&fixture.client).await;
-                fixture
-                    .client
-                    .execute(fixture.client.prepare(Command::SetPluginEnabled {
-                        name: package.name,
-                        expected_revision: package.revision,
-                        enabled: false,
-                    }))
-                    .await
-                    .unwrap();
-            }
+    for disable in [false, true] {
+        let fixture = Fixture::configured(
+            vec![
+                (
+                    "tool_search".into(),
+                    json!({"query":"browser click","limit":8}),
+                ),
+                (
+                    "external_browser_click".into(),
+                    json!({"selector":"#submit"}),
+                ),
+            ],
+            WorkMode::Code,
+            Permission::Ask,
+            true,
+            true,
+        )
+        .await;
+        let (_, approval) = super::approvals::pending(&fixture.client, fixture.session).await;
+        if disable {
+            let package = package(&fixture.client).await;
             fixture
                 .client
-                .execute(fixture.client.prepare(Command::ResolveApproval {
-                    session: fixture.session,
-                    approval: approval.id,
-                    decision: if disable {
-                        Decision::Approve
-                    } else {
-                        Decision::Deny
-                    },
+                .execute(fixture.client.prepare(Command::SetPluginEnabled {
+                    name: package.name,
+                    expected_revision: package.revision,
+                    enabled: false,
                 }))
                 .await
                 .unwrap();
-            let page = finished(&fixture.client, fixture.session, fixture.turn).await;
-            assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-            let details = tool_details(&fixture.client, &page).await;
-            let result = details
-                .iter()
-                .find(|(name, _)| *name == tool("external_browser_click"))
-                .unwrap()
-                .1
-                .result
-                .as_ref()
-                .unwrap();
-            if disable {
-                assert_eq!(result["isError"], true, "{result}");
-                let fault: Fault = serde_json::from_value(result["error"].clone()).unwrap();
-                assert_eq!(fault.code, ErrorCode::NotConfigured);
-                assert_eq!(fault.message, "plugin is disabled");
-            } else {
-                assert_eq!(
-                    result,
-                    &serde_json::to_value(rmcp::model::CallToolResult::error(vec![
-                        rmcp::model::ContentBlock::text("Tool execution was denied."),
-                    ]))
-                    .unwrap()
-                );
-            }
-            assert!(!fixture.profile().join("tools/chromium").exists());
-            fixture.shutdown().await;
         }
+        fixture
+            .client
+            .execute(fixture.client.prepare(Command::ResolveApproval {
+                session: fixture.session,
+                approval: approval.id,
+                decision: if disable {
+                    Decision::Approve
+                } else {
+                    Decision::Deny
+                },
+            }))
+            .await
+            .unwrap();
+        let page = finished(&fixture.client, fixture.session, fixture.turn).await;
+        assert_eq!(page.runs.last().unwrap().status, Status::Completed);
+        let details = tool_details(&fixture.client, &page).await;
+        let result = details
+            .iter()
+            .find(|(name, _)| *name == tool("external_browser_click"))
+            .unwrap()
+            .1
+            .result
+            .as_ref()
+            .unwrap();
+        if disable {
+            assert_eq!(result["isError"], true, "{result}");
+            let fault: Fault = serde_json::from_value(result["error"].clone()).unwrap();
+            assert_eq!(fault.code, ErrorCode::NotConfigured);
+            assert_eq!(fault.message, "plugin is disabled");
+        } else {
+            assert_eq!(
+                result,
+                &serde_json::to_value(rmcp::model::CallToolResult::error(vec![
+                    rmcp::model::ContentBlock::text("Tool execution was denied."),
+                ]))
+                .unwrap()
+            );
+        }
+        assert!(!fixture.profile().join("tools/chromium").exists());
+        fixture.shutdown().await;
     }
 }
 
@@ -423,12 +410,11 @@ struct Fixture {
 }
 
 impl Fixture {
-    async fn start(remote: bool, calls: Vec<(String, serde_json::Value)>) -> Self {
-        Self::configured(remote, calls, WorkMode::Code, Permission::Full, true, false).await
+    async fn start(calls: Vec<(String, serde_json::Value)>) -> Self {
+        Self::configured(calls, WorkMode::Code, Permission::Full, true, false).await
     }
 
     async fn configured(
-        remote: bool,
         calls: Vec<(String, serde_json::Value)>,
         mode: WorkMode,
         permission: Permission,
@@ -455,11 +441,7 @@ impl Fixture {
             .pair(node.link().invite().unwrap().ticket())
             .await
             .unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(address)
-        } else {
-            node.local()
-        });
+        let client = Client::new(controller.handle().remote(address));
         if minimal {
             let Output::Plugin(package) = client
                 .execute(client.prepare(Command::InstallBundledPlugin {

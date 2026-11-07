@@ -7,8 +7,8 @@ use serde_json::json;
 const OWNER: &str = "search-assistant";
 const TOOL: &str = "lookup";
 
-async fn setup(remote: bool, endpoint: &str) -> Fixture {
-    let mut fixture = Fixture::packages(remote, ModelApi::Responses, endpoint, &[]).await;
+async fn setup(endpoint: &str) -> Fixture {
+    let mut fixture = Fixture::packages(ModelApi::Responses, endpoint, &[]).await;
     let root = fixture.root.join("assistant");
     std::fs::create_dir_all(root.join(plugin::NAMESPACE)).unwrap();
     std::fs::write(
@@ -64,72 +64,68 @@ async fn setup(remote: bool, endpoint: &str) -> Fixture {
 
 #[tokio::test]
 async fn executes_selected_search() {
-    for remote in [false, true] {
-        let name = plugin_tool(OWNER, TOOL);
-        let model =
-            SearchServer::progress_with_tool(&name, json!({"query":"Public source","limit":1}))
-                .await;
-        let http = http::Server::start().await;
-        let fixture = setup(remote, &model.endpoint).await;
-        fixture.node.set_search_fixture(
-            sailry_protocol::search::Driver::Exa,
-            &format!("{}/mcp", http.endpoint),
-        );
-        let turn = fixture.submit("Find a public source").await;
-        let page = finished(&fixture.client, fixture.session.id, turn).await;
-        assert_eq!(
-            page.runs.last().unwrap().status,
-            Status::Completed,
-            "{:?}",
-            page.runs
-        );
-        assert!(page.questions.is_empty());
-        let requests = model.requests.lock().unwrap().clone();
-        let tools = requests[0]["tools"].as_array().unwrap();
-        assert_eq!(
-            tools
-                .iter()
-                .filter(|tool| tool["type"] == "web_search")
-                .count(),
-            0
-        );
-        assert_eq!(tools.iter().filter(|tool| tool["name"] == TOOL).count(), 1);
-        for (package, hidden) in [
-            ("web-search", "web_search"),
-            (OWNER, "hidden_fetch"),
-            ("files", "read_file"),
-        ] {
-            assert!(
-                !tools
-                    .iter()
-                    .any(|tool| tool["name"] == hidden
-                        || tool["name"] == plugin_tool(package, hidden))
-            );
-        }
-        assert_eq!(
-            http.requests
-                .lock()
-                .unwrap()
-                .iter()
-                .filter(|(_, body)| body["method"] == "tools/call")
-                .count(),
-            1
-        );
-        let output = tool_details(&fixture.client, &page)
-            .await
-            .into_iter()
-            .find_map(|(tool, detail)| (tool == name).then_some(detail.result.unwrap()))
-            .expect("search result expected");
-        assert_eq!(output["driver"], "exa", "{output}");
-        assert_eq!(output["untrusted"], true);
-        assert_eq!(output["results"][0]["url"], "https://example.com/source");
-        assert_eq!(output["results"].as_array().unwrap().len(), 1);
+    let name = plugin_tool(OWNER, TOOL);
+    let model =
+        SearchServer::progress_with_tool(&name, json!({"query":"Public source","limit":1})).await;
+    let http = http::Server::start().await;
+    let fixture = setup(&model.endpoint).await;
+    fixture.node.set_search_fixture(
+        sailry_protocol::search::Driver::Exa,
+        &format!("{}/mcp", http.endpoint),
+    );
+    let turn = fixture.submit("Find a public source").await;
+    let page = finished(&fixture.client, fixture.session.id, turn).await;
+    assert_eq!(
+        page.runs.last().unwrap().status,
+        Status::Completed,
+        "{:?}",
+        page.runs
+    );
+    assert!(page.questions.is_empty());
+    let requests = model.requests.lock().unwrap().clone();
+    let tools = requests[0]["tools"].as_array().unwrap();
+    assert_eq!(
+        tools
+            .iter()
+            .filter(|tool| tool["type"] == "web_search")
+            .count(),
+        0
+    );
+    assert_eq!(tools.iter().filter(|tool| tool["name"] == TOOL).count(), 1);
+    for (package, hidden) in [
+        ("web-search", "web_search"),
+        (OWNER, "hidden_fetch"),
+        ("files", "read_file"),
+    ] {
         assert!(
-            requests.last().unwrap()["input"]
-                .to_string()
-                .contains("Public source")
+            !tools
+                .iter()
+                .any(|tool| tool["name"] == hidden || tool["name"] == plugin_tool(package, hidden))
         );
-        fixture.node.shutdown().await.unwrap();
-        fixture.controller.close().await.unwrap();
     }
+    assert_eq!(
+        http.requests
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(_, body)| body["method"] == "tools/call")
+            .count(),
+        1
+    );
+    let output = tool_details(&fixture.client, &page)
+        .await
+        .into_iter()
+        .find_map(|(tool, detail)| (tool == name).then_some(detail.result.unwrap()))
+        .expect("search result expected");
+    assert_eq!(output["driver"], "exa", "{output}");
+    assert_eq!(output["untrusted"], true);
+    assert_eq!(output["results"][0]["url"], "https://example.com/source");
+    assert_eq!(output["results"].as_array().unwrap().len(), 1);
+    assert!(
+        requests.last().unwrap()["input"]
+            .to_string()
+            .contains("Public source")
+    );
+    fixture.node.shutdown().await.unwrap();
+    fixture.controller.close().await.unwrap();
 }

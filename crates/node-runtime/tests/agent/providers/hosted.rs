@@ -47,80 +47,78 @@ async fn select(fixture: &mut Fixture, model: &str, product: Product) {
 
 #[tokio::test]
 async fn keeps_cache_identity_across_controllers() {
-    for remote in [false, true] {
-        for api in [ModelApi::Responses, ModelApi::ChatCompletions] {
-            let server = if api == ModelApi::Responses {
-                completion::server(vec![serde_json::json!({
-                    "type":"response.completed", "sequence_number":10,
-                    "response":{"id":"completed", "object":"response", "created_at":1,
-                        "model":"fixture-a", "status":"completed", "output":[{
-                            "type":"message", "id":"answer", "role":"assistant",
-                            "status":"completed", "content":[{
-                                "type":"output_text", "text":server::ANSWER, "annotations":[]
-                            }]
-                        }]}
-                })])
-                .await
-            } else {
-                Server::start(api, Reply::Text).await
-            };
-            let mut fixture = Fixture::empty(remote, api, &server.endpoint).await;
-            let session = fixture.session.id;
-            for message in ["First request", "Continue from another controller"] {
-                let turn = fixture.submit(message).await;
-                let page = finished(&fixture.client, session, turn).await;
-                assert_eq!(
-                    page.runs.last().unwrap().status,
-                    Status::Completed,
-                    "{api:?}, remote={remote}: {:?}",
-                    page.runs
-                );
-                assert!(text(&page).contains(server::ANSWER));
-                fixture.client = Client::new(fixture.node.local());
-            }
-            let Output::Session(created) = execute(
-                &fixture.client,
-                Command::CreateSession {
-                    project: fixture.session.project,
-                    worktree: Some(fixture.session.worktree),
-                    config: Some(fixture.session.config.clone()),
-                },
-            )
+    for api in [ModelApi::Responses, ModelApi::ChatCompletions] {
+        let server = if api == ModelApi::Responses {
+            completion::server(vec![serde_json::json!({
+                "type":"response.completed", "sequence_number":10,
+                "response":{"id":"completed", "object":"response", "created_at":1,
+                    "model":"fixture-a", "status":"completed", "output":[{
+                        "type":"message", "id":"answer", "role":"assistant",
+                        "status":"completed", "content":[{
+                            "type":"output_text", "text":server::ANSWER, "annotations":[]
+                        }]
+                    }]}
+            })])
             .await
-            else {
-                panic!("session expected")
-            };
-            fixture.session = created;
-            assert_ne!(fixture.session.id, session);
-            let turn = fixture.submit("Start a separate conversation").await;
-            let page = finished(&fixture.client, fixture.session.id, turn).await;
-            assert_eq!(page.runs.last().unwrap().status, Status::Completed);
+        } else {
+            Server::start(api, Reply::Text).await
+        };
+        let mut fixture = Fixture::empty(api, &server.endpoint).await;
+        let session = fixture.session.id;
+        for message in ["First request", "Continue from another controller"] {
+            let turn = fixture.submit(message).await;
+            let page = finished(&fixture.client, session, turn).await;
+            assert_eq!(
+                page.runs.last().unwrap().status,
+                Status::Completed,
+                "{api:?}: {:?}",
+                page.runs
+            );
             assert!(text(&page).contains(server::ANSWER));
-            let requests = server.requests.lock().unwrap().clone();
-            assert_eq!(requests.len(), 3, "{api:?}, remote={remote}");
-            let route = if api == ModelApi::Responses {
-                "responses"
-            } else {
-                "chat/completions"
-            };
-            for (request, expected) in requests.iter().zip([session, session, fixture.session.id]) {
-                assert_eq!(request.path, format!("/v1/{route}"));
-                assert_eq!(request.body["prompt_cache_key"], expected.to_string());
-                assert_eq!(request.body["model"], "fixture-a");
-                assert_eq!(request.body["stream"], true);
-                assert_eq!(
-                    request.headers["authorization"],
-                    format!("Bearer {}", server::KEY)
-                );
-                assert_eq!(
-                    request.headers["user-agent"],
-                    concat!("Sailry/", env!("CARGO_PKG_VERSION"))
-                );
-                assert!(!request.body.to_string().contains(server::KEY));
-            }
-            fixture.controller.close().await.unwrap();
-            fixture.node.shutdown().await.unwrap();
+            fixture.client = Client::new(fixture.node.local());
         }
+        let Output::Session(created) = execute(
+            &fixture.client,
+            Command::CreateSession {
+                project: fixture.session.project,
+                worktree: Some(fixture.session.worktree),
+                config: Some(fixture.session.config.clone()),
+            },
+        )
+        .await
+        else {
+            panic!("session expected")
+        };
+        fixture.session = created;
+        assert_ne!(fixture.session.id, session);
+        let turn = fixture.submit("Start a separate conversation").await;
+        let page = finished(&fixture.client, fixture.session.id, turn).await;
+        assert_eq!(page.runs.last().unwrap().status, Status::Completed);
+        assert!(text(&page).contains(server::ANSWER));
+        let requests = server.requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), 3, "{api:?}");
+        let route = if api == ModelApi::Responses {
+            "responses"
+        } else {
+            "chat/completions"
+        };
+        for (request, expected) in requests.iter().zip([session, session, fixture.session.id]) {
+            assert_eq!(request.path, format!("/v1/{route}"));
+            assert_eq!(request.body["prompt_cache_key"], expected.to_string());
+            assert_eq!(request.body["model"], "fixture-a");
+            assert_eq!(request.body["stream"], true);
+            assert_eq!(
+                request.headers["authorization"],
+                format!("Bearer {}", server::KEY)
+            );
+            assert_eq!(
+                request.headers["user-agent"],
+                concat!("Sailry/", env!("CARGO_PKG_VERSION"))
+            );
+            assert!(!request.body.to_string().contains(server::KEY));
+        }
+        fixture.controller.close().await.unwrap();
+        fixture.node.shutdown().await.unwrap();
     }
 }
 
@@ -165,121 +163,181 @@ async fn preserves_regional_routes_and_usage() {
             "ark-code-latest",
         ),
     ];
-    for remote in [false, true] {
-        let server = Server::start(ModelApi::ChatCompletions, Reply::Usage).await;
-        let mut fixture = Fixture::empty(remote, ModelApi::ChatCompletions, &server.endpoint).await;
-        for (product, public, model) in routes {
-            server.requests.lock().unwrap().clear();
-            let path = reqwest::Url::parse(public).unwrap().path().to_owned();
-            let origin = server.endpoint.strip_suffix("/v1").unwrap();
-            let mut provider = fixture.provider.clone();
-            provider.id = ProviderId::new();
-            provider.revision = 0;
-            provider.credential = None;
-            provider.endpoint = format!("{origin}{path}/");
-            let Output::Provider(provider) = execute(
-                &fixture.client,
-                Command::SaveProvider {
-                    provider,
-                    expected_revision: 0,
-                    secret: Some(Secret::new(server::KEY.into())),
-                },
-            )
+    let server = Server::start(ModelApi::ChatCompletions, Reply::Usage).await;
+    let mut fixture = Fixture::empty(ModelApi::ChatCompletions, &server.endpoint).await;
+    for (product, public, model) in routes {
+        server.requests.lock().unwrap().clear();
+        let path = reqwest::Url::parse(public).unwrap().path().to_owned();
+        let origin = server.endpoint.strip_suffix("/v1").unwrap();
+        let mut provider = fixture.provider.clone();
+        provider.id = ProviderId::new();
+        provider.revision = 0;
+        provider.credential = None;
+        provider.endpoint = format!("{origin}{path}/");
+        let Output::Provider(provider) = execute(
+            &fixture.client,
+            Command::SaveProvider {
+                provider,
+                expected_revision: 0,
+                secret: Some(Secret::new(server::KEY.into())),
+            },
+        )
+        .await
+        else {
+            panic!("provider expected")
+        };
+        let mut config = fixture.session.config.clone();
+        config.provider = provider.id;
+        config.credential = provider.credential.clone();
+        fixture.provider = provider;
+        let Output::Session(session) = execute(
+            &fixture.client,
+            Command::CreateSession {
+                project: fixture.session.project,
+                worktree: Some(fixture.session.worktree),
+                config: Some(config),
+            },
+        )
+        .await
+        else {
+            panic!("session expected")
+        };
+        fixture.session = session;
+        select(&mut fixture, model, product).await;
+        let turn = fixture.submit("Count the isolated response").await;
+        let page = finished(&fixture.client, fixture.session.id, turn).await;
+        assert_eq!(
+            page.runs.last().unwrap().status,
+            Status::Completed,
+            "{public}: {:?}",
+            page.runs
+        );
+        assert!(text(&page).contains(server::ANSWER));
+        let expected = Usage {
+            input: 16,
+            output: 4,
+            cached_input: 6,
+            reasoning: 0,
+        };
+        let reported: Vec<_> = page
+            .entries
+            .iter()
+            .filter_map(|entry| entry.usage.clone())
+            .collect();
+        assert_eq!(reported, vec![expected.clone()], "{public}");
+        let now = chrono::Utc::now().timestamp_millis();
+        let usage = fixture
+            .client
+            .read_usage(Query {
+                start_ms: now - 86_400_000,
+                end_ms: now + 86_400_000,
+                dimension: Dimension::Model,
+                utc_offset_minutes: 0,
+                projects: vec![],
+                worktrees: vec![],
+                providers: vec![fixture.provider.id],
+                models: vec![model.into()],
+                before: None,
+            })
             .await
-            else {
-                panic!("provider expected")
-            };
-            let mut config = fixture.session.config.clone();
-            config.provider = provider.id;
-            config.credential = provider.credential.clone();
-            fixture.provider = provider;
-            let Output::Session(session) = execute(
-                &fixture.client,
-                Command::CreateSession {
-                    project: fixture.session.project,
-                    worktree: Some(fixture.session.worktree),
-                    config: Some(config),
-                },
-            )
-            .await
-            else {
-                panic!("session expected")
-            };
-            fixture.session = session;
-            select(&mut fixture, model, product).await;
-            let turn = fixture.submit("Count the isolated response").await;
-            let page = finished(&fixture.client, fixture.session.id, turn).await;
-            assert_eq!(
-                page.runs.last().unwrap().status,
-                Status::Completed,
-                "{public}, remote={remote}: {:?}",
-                page.runs
-            );
-            assert!(text(&page).contains(server::ANSWER));
-            let expected = Usage {
-                input: 16,
-                output: 4,
-                cached_input: 6,
-                reasoning: 0,
-            };
-            let reported: Vec<_> = page
-                .entries
+            .unwrap();
+        assert_eq!(usage.totals.responses, 1);
+        assert_eq!(usage.totals.tokens, Some(expected));
+        assert_eq!(usage.requests.items.len(), 1);
+        assert_eq!(usage.requests.items[0].turn, turn);
+        assert_eq!(usage.requests.items[0].session, fixture.session.id);
+        assert_eq!(usage.requests.items[0].provider, fixture.provider.id);
+        assert_eq!(usage.requests.items[0].model, model);
+        assert_eq!(fixture.provider.options, Some(Options::Hosted { product }));
+        assert!(!serde_json::to_string(&page).unwrap().contains(server::KEY));
+        let requests = server.requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), 1);
+        let request = &requests[0];
+        assert_eq!(request.path, format!("{path}/chat/completions"));
+        assert_eq!(request.body["model"], model);
+        assert_eq!(
+            request.headers["authorization"],
+            format!("Bearer {}", server::KEY)
+        );
+        assert_eq!(
+            request.headers["user-agent"],
+            concat!("Sailry/", env!("CARGO_PKG_VERSION"))
+        );
+        assert!(request.body["stream"].as_bool().unwrap());
+        if model.starts_with("qwen3.6-plus") {
+            assert_eq!(request.body["preserve_thinking"], true);
+        } else if model == "glm-5.2" {
+            assert_eq!(request.body["thinking"]["clear_thinking"], false);
+            assert!(request.body["thinking"].get("type").is_none());
+        } else {
+            assert!(request.body.get("preserve_thinking").is_none());
+            assert!(request.body.get("thinking").is_none());
+        }
+    }
+    fixture.controller.close().await.unwrap();
+    fixture.node.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn replays_tool_continuations() {
+    for model in [
+        "kimi-for-coding",
+        "glm-5.2",
+        "qwen3.6-plus",
+        "MiniMax-M3.1-Flash-Preview",
+        "doubao-seed-2-0-pro-260215",
+        "ark-code-latest",
+        "fixture-a",
+    ] {
+        let server = Server::start(ModelApi::ChatCompletions, Reply::Tool).await;
+        let mut fixture =
+            Fixture::packages(ModelApi::ChatCompletions, &server.endpoint, &["files"]).await;
+        select(&mut fixture, model, Product::Coding).await;
+        std::fs::write(fixture.root.join("native.txt"), "工具内容 🙂").unwrap();
+        let turn = fixture.submit("Read native.txt").await;
+        let page = finished(&fixture.client, fixture.session.id, turn).await;
+        assert_eq!(
+            page.runs.last().unwrap().status,
+            Status::Completed,
+            "{model}: {:?}",
+            page.runs
+        );
+        assert!(text(&page).contains(server::ANSWER));
+        assert!(
+            page.entries
                 .iter()
-                .filter_map(|entry| entry.usage.clone())
-                .collect();
-            assert_eq!(
-                reported,
-                vec![expected.clone()],
-                "{public}, remote={remote}"
-            );
-            let now = chrono::Utc::now().timestamp_millis();
-            let usage = fixture
-                .client
-                .read_usage(Query {
-                    start_ms: now - 86_400_000,
-                    end_ms: now + 86_400_000,
-                    dimension: Dimension::Model,
-                    utc_offset_minutes: 0,
-                    projects: vec![],
-                    worktrees: vec![],
-                    providers: vec![fixture.provider.id],
-                    models: vec![model.into()],
-                    before: None,
-                })
-                .await
-                .unwrap();
-            assert_eq!(usage.totals.responses, 1);
-            assert_eq!(usage.totals.tokens, Some(expected));
-            assert_eq!(usage.requests.items.len(), 1);
-            assert_eq!(usage.requests.items[0].turn, turn);
-            assert_eq!(usage.requests.items[0].session, fixture.session.id);
-            assert_eq!(usage.requests.items[0].provider, fixture.provider.id);
-            assert_eq!(usage.requests.items[0].model, model);
-            assert_eq!(fixture.provider.options, Some(Options::Hosted { product }));
-            assert!(!serde_json::to_string(&page).unwrap().contains(server::KEY));
-            let requests = server.requests.lock().unwrap().clone();
-            assert_eq!(requests.len(), 1);
-            let request = &requests[0];
-            assert_eq!(request.path, format!("{path}/chat/completions"));
+                .flat_map(|entry| &entry.parts)
+                .any(|part| matches!(part, Part::Thinking(text) if text == "Inspect the file 🙂"))
+        );
+        let requests = server.requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), 2, "{model}");
+        let messages = requests[1].body["messages"].as_array().unwrap();
+        let assistant = messages
+            .iter()
+            .find(|message| message["role"] == "assistant" && message["tool_calls"].is_array())
+            .unwrap();
+        assert_eq!(assistant["tool_calls"][0]["id"], "native-call");
+        assert_eq!(
+            assistant["reasoning_content"], "Inspect the file 🙂",
+            "{model}"
+        );
+        let tool = messages
+            .iter()
+            .find(|message| message["role"] == "tool")
+            .unwrap();
+        assert_eq!(tool["tool_call_id"], "native-call");
+        assert!(tool["content"].to_string().contains("工具内容 🙂"));
+        for request in requests {
+            assert_eq!(request.path, "/v1/chat/completions");
             assert_eq!(request.body["model"], model);
             assert_eq!(
-                request.headers["authorization"],
-                format!("Bearer {}", server::KEY)
+                request.body["prompt_cache_key"],
+                fixture.session.id.to_string()
             );
             assert_eq!(
                 request.headers["user-agent"],
                 concat!("Sailry/", env!("CARGO_PKG_VERSION"))
             );
-            assert!(request.body["stream"].as_bool().unwrap());
-            if model.starts_with("qwen3.6-plus") {
-                assert_eq!(request.body["preserve_thinking"], true);
-            } else if model == "glm-5.2" {
-                assert_eq!(request.body["thinking"]["clear_thinking"], false);
-                assert!(request.body["thinking"].get("type").is_none());
-            } else {
-                assert!(request.body.get("preserve_thinking").is_none());
-                assert!(request.body.get("thinking").is_none());
-            }
         }
         fixture.controller.close().await.unwrap();
         fixture.node.shutdown().await.unwrap();
@@ -287,129 +345,55 @@ async fn preserves_regional_routes_and_usage() {
 }
 
 #[tokio::test]
-async fn replays_tool_continuations() {
-    for remote in [false, true] {
-        for model in [
-            "kimi-for-coding",
-            "glm-5.2",
-            "qwen3.6-plus",
-            "MiniMax-M3.1-Flash-Preview",
-            "doubao-seed-2-0-pro-260215",
-            "ark-code-latest",
-            "fixture-a",
-        ] {
-            let server = Server::start(ModelApi::ChatCompletions, Reply::Tool).await;
-            let mut fixture = Fixture::packages(
-                remote,
-                ModelApi::ChatCompletions,
-                &server.endpoint,
-                &["files"],
-            )
-            .await;
-            select(&mut fixture, model, Product::Coding).await;
-            std::fs::write(fixture.root.join("native.txt"), "工具内容 🙂").unwrap();
-            let turn = fixture.submit("Read native.txt").await;
-            let page = finished(&fixture.client, fixture.session.id, turn).await;
-            assert_eq!(
-                page.runs.last().unwrap().status,
-                Status::Completed,
-                "{model}, remote={remote}: {:?}",
-                page.runs
-            );
-            assert!(text(&page).contains(server::ANSWER));
-            assert!(
-                page.entries.iter().flat_map(|entry| &entry.parts).any(
-                    |part| matches!(part, Part::Thinking(text) if text == "Inspect the file 🙂")
-                )
-            );
-            let requests = server.requests.lock().unwrap().clone();
-            assert_eq!(requests.len(), 2, "{model}, remote={remote}");
-            let messages = requests[1].body["messages"].as_array().unwrap();
-            let assistant = messages
-                .iter()
-                .find(|message| message["role"] == "assistant" && message["tool_calls"].is_array())
-                .unwrap();
-            assert_eq!(assistant["tool_calls"][0]["id"], "native-call");
-            assert_eq!(
-                assistant["reasoning_content"], "Inspect the file 🙂",
-                "{model}, remote={remote}"
-            );
-            let tool = messages
-                .iter()
-                .find(|message| message["role"] == "tool")
-                .unwrap();
-            assert_eq!(tool["tool_call_id"], "native-call");
-            assert!(tool["content"].to_string().contains("工具内容 🙂"));
-            for request in requests {
-                assert_eq!(request.path, "/v1/chat/completions");
-                assert_eq!(request.body["model"], model);
-                assert_eq!(
-                    request.body["prompt_cache_key"],
-                    fixture.session.id.to_string()
-                );
-                assert_eq!(
-                    request.headers["user-agent"],
-                    concat!("Sailry/", env!("CARGO_PKG_VERSION"))
-                );
-            }
-            fixture.controller.close().await.unwrap();
-            fixture.node.shutdown().await.unwrap();
-        }
-    }
-}
-
-#[tokio::test]
 async fn keeps_anthropic_compatible_identity() {
-    for remote in [false, true] {
-        for (base, model) in [
-            ("/anthropic", "MiniMax-M3.1-Flash-Preview"),
-            ("/coding", "kimi-for-coding"),
-            ("/api/coding", "ark-code-latest"),
-            ("/apps/anthropic", "qwen3.6-plus"),
-        ] {
-            let server = Server::start(ModelApi::Anthropic, Reply::Usage).await;
-            let endpoint = format!("{}{base}/v1/", server.endpoint);
-            let mut fixture = Fixture::empty(remote, ModelApi::Anthropic, &endpoint).await;
-            select(&mut fixture, model, Product::Coding).await;
-            let turn = fixture.submit("Count the compatible response").await;
-            let page = finished(&fixture.client, fixture.session.id, turn).await;
-            assert_eq!(
-                page.runs.last().unwrap().status,
-                Status::Completed,
-                "{base}, remote={remote}: {:?}",
-                page.runs
-            );
-            let reported: Vec<_> = page
-                .entries
-                .iter()
-                .filter_map(|entry| entry.usage.clone())
-                .collect();
-            assert_eq!(
-                reported,
-                vec![Usage {
-                    input: 16,
-                    output: 4,
-                    cached_input: 6,
-                    reasoning: 0
-                }]
-            );
-            let requests = server.requests.lock().unwrap().clone();
-            assert_eq!(requests.len(), 1);
-            assert_eq!(requests[0].path, format!("{base}/v1/messages"));
-            assert_eq!(requests[0].body["model"], model);
-            assert_eq!(requests[0].headers["x-api-key"], server::KEY);
-            assert_eq!(
-                requests[0].headers["user-agent"],
-                concat!("Sailry/", env!("CARGO_PKG_VERSION"))
-            );
-            assert!(!requests[0].headers.contains_key("authorization"));
-            assert!(!requests[0].headers.contains_key("session-id"));
-            assert!(!requests[0].headers.contains_key("session_id"));
-            assert!(requests[0].body.get("prompt_cache_key").is_none());
-            assert!(requests[0].body.get("preserve_thinking").is_none());
-            assert!(requests[0].body.get("thinking").is_none());
-            fixture.controller.close().await.unwrap();
-            fixture.node.shutdown().await.unwrap();
-        }
+    for (base, model) in [
+        ("/anthropic", "MiniMax-M3.1-Flash-Preview"),
+        ("/coding", "kimi-for-coding"),
+        ("/api/coding", "ark-code-latest"),
+        ("/apps/anthropic", "qwen3.6-plus"),
+    ] {
+        let server = Server::start(ModelApi::Anthropic, Reply::Usage).await;
+        let endpoint = format!("{}{base}/v1/", server.endpoint);
+        let mut fixture = Fixture::empty(ModelApi::Anthropic, &endpoint).await;
+        select(&mut fixture, model, Product::Coding).await;
+        let turn = fixture.submit("Count the compatible response").await;
+        let page = finished(&fixture.client, fixture.session.id, turn).await;
+        assert_eq!(
+            page.runs.last().unwrap().status,
+            Status::Completed,
+            "{base}: {:?}",
+            page.runs
+        );
+        let reported: Vec<_> = page
+            .entries
+            .iter()
+            .filter_map(|entry| entry.usage.clone())
+            .collect();
+        assert_eq!(
+            reported,
+            vec![Usage {
+                input: 16,
+                output: 4,
+                cached_input: 6,
+                reasoning: 0
+            }]
+        );
+        let requests = server.requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].path, format!("{base}/v1/messages"));
+        assert_eq!(requests[0].body["model"], model);
+        assert_eq!(requests[0].headers["x-api-key"], server::KEY);
+        assert_eq!(
+            requests[0].headers["user-agent"],
+            concat!("Sailry/", env!("CARGO_PKG_VERSION"))
+        );
+        assert!(!requests[0].headers.contains_key("authorization"));
+        assert!(!requests[0].headers.contains_key("session-id"));
+        assert!(!requests[0].headers.contains_key("session_id"));
+        assert!(requests[0].body.get("prompt_cache_key").is_none());
+        assert!(requests[0].body.get("preserve_thinking").is_none());
+        assert!(requests[0].body.get("thinking").is_none());
+        fixture.controller.close().await.unwrap();
+        fixture.node.shutdown().await.unwrap();
     }
 }

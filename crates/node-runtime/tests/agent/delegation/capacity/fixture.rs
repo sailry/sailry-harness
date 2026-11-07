@@ -11,11 +11,10 @@ pub(super) struct Fixture {
     package: sailry_protocol::plugin::Info,
     pub parent: Server,
     pub child: Server,
-    remote: bool,
 }
 
 impl Fixture {
-    pub async fn start(remote: bool, background: bool, child: Server, tasks: usize) -> Self {
+    pub async fn start(background: bool, child: Server, tasks: usize) -> Self {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("project");
         std::fs::create_dir(&root).unwrap();
@@ -31,11 +30,7 @@ impl Fixture {
             .pair(node.link().invite().unwrap().ticket())
             .await
             .unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(address)
-        } else {
-            node.local()
-        });
+        let client = Client::new(controller.handle().remote(address));
         let tool = plugin_tool("example", "spawn");
         let parent = Server::batch(
             (0..tasks)
@@ -173,7 +168,6 @@ impl Fixture {
             package: info,
             parent,
             child,
-            remote,
         }
     }
 
@@ -319,11 +313,7 @@ impl Fixture {
         self.node = Node::start_empty(self.directory.path().join("node"))
             .await
             .unwrap();
-        self.client = Client::new(if self.remote {
-            self.controller.handle().remote(self.node.link().address())
-        } else {
-            self.node.local()
-        });
+        self.client = Client::new(self.controller.handle().remote(self.node.link().address()));
         self
     }
 

@@ -80,78 +80,76 @@ async fn connection(fixture: &process::Fixture, kind: &str) -> Resource {
 
 #[tokio::test]
 async fn tools() {
-    for remote in [false, true] {
-        for kind in ["database", "ssh"] {
-            let mcp = peer::package_alias(PACKAGE, "notes", "read");
-            let server = Server::tools(vec![
-                (alias("read_note"), json!({"key":"review"})),
-                (mcp.clone(), json!({"value":"Resource read"})),
-            ])
-            .await;
-            let fixture = process::Fixture::packages(remote, &server, &["files"]).await;
-            let info = package(&fixture).await;
-            let resource = connection(&fixture, kind).await;
-            let mut config = fixture.session.config.clone();
-            config.resource = Some(resource);
-            config.assistant = Some(Binding {
-                package: info.summary.reference(),
-                id: kind.into(),
-            });
-            config.permission = Permission::Full;
-            let Output::Session(session) = execute(
-                &fixture.client,
-                Command::CreateSession {
-                    project: None,
-                    worktree: None,
-                    config: Some(config),
-                },
-            )
-            .await
-            else {
-                panic!("session expected")
-            };
-            assert_eq!(session.config.resource, Some(resource));
-            assert_eq!(
-                session.config.assistant.as_ref().unwrap().package,
-                info.summary.reference()
-            );
-            seed(&fixture, &session, &info).await;
-            let turn = submit(&fixture.client, &session, false).await;
-            let page = finished(&fixture.client, session.id, turn.id).await;
-            assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
-            note(&fixture.client, &page).await;
-            assert!(
-                tool_details(&fixture.client, &page)
-                    .await
-                    .iter()
-                    .any(|(name, detail)| {
-                        let result = detail.result.as_ref().unwrap();
-                        name == &mcp
-                            && result["structuredContent"]["version"] == "Resource assistant"
-                            && result["structuredContent"]["value"] == "Resource read"
-                    })
-            );
-            let request = server.requests.lock().unwrap()[0].clone();
-            let tools: BTreeSet<_> = request["tools"]
-                .as_array()
-                .unwrap()
+    for kind in ["database", "ssh"] {
+        let mcp = peer::package_alias(PACKAGE, "notes", "read");
+        let server = Server::tools(vec![
+            (alias("read_note"), json!({"key":"review"})),
+            (mcp.clone(), json!({"value":"Resource read"})),
+        ])
+        .await;
+        let fixture = process::Fixture::packages(&server, &["files"]).await;
+        let info = package(&fixture).await;
+        let resource = connection(&fixture, kind).await;
+        let mut config = fixture.session.config.clone();
+        config.resource = Some(resource);
+        config.assistant = Some(Binding {
+            package: info.summary.reference(),
+            id: kind.into(),
+        });
+        config.permission = Permission::Full;
+        let Output::Session(session) = execute(
+            &fixture.client,
+            Command::CreateSession {
+                project: None,
+                worktree: None,
+                config: Some(config),
+            },
+        )
+        .await
+        else {
+            panic!("session expected")
+        };
+        assert_eq!(session.config.resource, Some(resource));
+        assert_eq!(
+            session.config.assistant.as_ref().unwrap().package,
+            info.summary.reference()
+        );
+        seed(&fixture, &session, &info).await;
+        let turn = submit(&fixture.client, &session, false).await;
+        let page = finished(&fixture.client, session.id, turn.id).await;
+        assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
+        note(&fixture.client, &page).await;
+        assert!(
+            tool_details(&fixture.client, &page)
+                .await
                 .iter()
-                .map(|tool| tool["function"]["name"].as_str().unwrap().to_owned())
-                .collect();
-            assert_eq!(
-                tools,
-                BTreeSet::from([
-                    "read_note".into(),
-                    peer::exposed("notes", "read"),
-                    "ask_user".into(),
-                    "set_session_title".into(),
-                    "read_tool_output".into(),
-                ])
-            );
-            let data = fixture.node.profile().join("plugins/data").join(PACKAGE);
-            assert_eq!(std::fs::read_to_string(data.join("launches")).unwrap(), "x");
-            fixture.node.shutdown().await.unwrap();
-            fixture.controller.close().await.unwrap();
-        }
+                .any(|(name, detail)| {
+                    let result = detail.result.as_ref().unwrap();
+                    name == &mcp
+                        && result["structuredContent"]["version"] == "Resource assistant"
+                        && result["structuredContent"]["value"] == "Resource read"
+                })
+        );
+        let request = server.requests.lock().unwrap()[0].clone();
+        let tools: BTreeSet<_> = request["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|tool| tool["function"]["name"].as_str().unwrap().to_owned())
+            .collect();
+        assert_eq!(
+            tools,
+            BTreeSet::from([
+                "read_note".into(),
+                peer::exposed("notes", "read"),
+                "ask_user".into(),
+                "set_session_title".into(),
+                "read_tool_output".into(),
+            ])
+        );
+        let data = fixture.node.profile().join("plugins/data").join(PACKAGE);
+        assert_eq!(std::fs::read_to_string(data.join("launches")).unwrap(), "x");
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
     }
 }

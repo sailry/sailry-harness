@@ -10,8 +10,8 @@ mod execution;
 #[path = "goals/packages.rs"]
 mod packages;
 
-async fn fixture(remote: bool, server: &Server) -> Fixture {
-    let fixture = Fixture::packages(remote, server, &["goals", "files"]).await;
+async fn fixture(server: &Server) -> Fixture {
+    let fixture = Fixture::packages(server, &["goals", "files"]).await;
     let Output::Plugin(package) = fixture
         .client
         .execute(fixture.client.prepare(Command::ReadPlugin {

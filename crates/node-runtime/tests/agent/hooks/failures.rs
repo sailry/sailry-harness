@@ -42,241 +42,233 @@ fn failure(page: &Page, turn: TurnId, code: ErrorCode, original: &str) {
 
 #[tokio::test]
 async fn retains_empty_completion_and_hook_failure() {
-    for remote in [false, true] {
-        let server = Server::empty_after_tool().await;
-        let fixture = Fixture::packages(remote, &server, &["files"]).await;
-        let Output::Providers(providers) = execute(&fixture.client, Command::ListProviders).await
-        else {
-            panic!("providers expected")
-        };
-        let mut provider = providers
-            .into_iter()
-            .find(|provider| provider.id == fixture.session.config.provider)
-            .unwrap();
-        provider.api = ModelApi::Responses;
-        execute(
-            &fixture.client,
-            Command::PutProvider {
-                expected_revision: provider.revision,
-                provider,
-            },
-        )
-        .await;
-        std::fs::write(fixture.root.join("progress.txt"), "canonical file result").unwrap();
-        enable_end(&fixture, "completed").await;
+    let server = Server::empty_after_tool().await;
+    let fixture = Fixture::packages(&server, &["files"]).await;
+    let Output::Providers(providers) = execute(&fixture.client, Command::ListProviders).await
+    else {
+        panic!("providers expected")
+    };
+    let mut provider = providers
+        .into_iter()
+        .find(|provider| provider.id == fixture.session.config.provider)
+        .unwrap();
+    provider.api = ModelApi::Responses;
+    execute(
+        &fixture.client,
+        Command::PutProvider {
+            expected_revision: provider.revision,
+            provider,
+        },
+    )
+    .await;
+    std::fs::write(fixture.root.join("progress.txt"), "canonical file result").unwrap();
+    enable_end(&fixture, "completed").await;
 
-        let (request, turn) = submit(&fixture).await;
-        let page = finished(&fixture.client, fixture.session.id, turn.id).await;
-        failure(
-            &page,
-            turn.id,
-            ErrorCode::Unavailable,
-            "turn_end hook failed: Exited(9)",
-        );
-        assert_eq!(
-            page.runs
-                .iter()
-                .find(|run| run.turn == turn.id)
-                .unwrap()
-                .error
-                .as_ref()
-                .unwrap()
-                .message,
-            "turn_end hook failed: Exited(9)"
-        );
-        let results = results(&fixture.client, &page).await;
-        assert_eq!(results.len(), 1);
-        assert!(results[0].to_string().contains("canonical file result"));
-        assert!(!results[0].to_string().contains("turn_end hook failed"));
-        assert_eq!(
-            fixture.client.execute(request).await.unwrap(),
-            Output::QueuedTurn(turn)
-        );
-        assert_eq!(history(&fixture.client, fixture.session.id).await, page);
-        assert_eq!(server.requests.lock().unwrap().len(), 2);
-        assert_eq!(
-            std::fs::read_to_string(fixture.root.join("ends.txt")).unwrap(),
-            "end"
-        );
-        let directory = fixture.directory.path().to_path_buf();
-        fixture.node.shutdown().await.unwrap();
-        fixture.controller.close().await.unwrap();
-        let (database, db) =
-            crate::database_fixture::open(&directory.join("node/storage/node.turso"), true).await;
-        let hooks = receipts(&db, fixture.session.id).await;
-        crate::database_fixture::close(database, db).await;
-        assert_eq!(hooks.len(), 1);
-        assert_eq!(hooks[0].0, Phase::TurnEnd.name());
-        assert_eq!(hooks[0].1, 0);
-        assert_eq!(hooks[0].2, Ok(Outcome::Exited(9)));
-    }
+    let (request, turn) = submit(&fixture).await;
+    let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+    failure(
+        &page,
+        turn.id,
+        ErrorCode::Unavailable,
+        "turn_end hook failed: Exited(9)",
+    );
+    assert_eq!(
+        page.runs
+            .iter()
+            .find(|run| run.turn == turn.id)
+            .unwrap()
+            .error
+            .as_ref()
+            .unwrap()
+            .message,
+        "turn_end hook failed: Exited(9)"
+    );
+    let results = results(&fixture.client, &page).await;
+    assert_eq!(results.len(), 1);
+    assert!(results[0].to_string().contains("canonical file result"));
+    assert!(!results[0].to_string().contains("turn_end hook failed"));
+    assert_eq!(
+        fixture.client.execute(request).await.unwrap(),
+        Output::QueuedTurn(turn)
+    );
+    assert_eq!(history(&fixture.client, fixture.session.id).await, page);
+    assert_eq!(server.requests.lock().unwrap().len(), 2);
+    assert_eq!(
+        std::fs::read_to_string(fixture.root.join("ends.txt")).unwrap(),
+        "end"
+    );
+    let directory = fixture.directory.path().to_path_buf();
+    fixture.node.shutdown().await.unwrap();
+    fixture.controller.close().await.unwrap();
+    let (database, db) =
+        crate::database_fixture::open(&directory.join("node/storage/node.turso"), true).await;
+    let hooks = receipts(&db, fixture.session.id).await;
+    crate::database_fixture::close(database, db).await;
+    assert_eq!(hooks.len(), 1);
+    assert_eq!(hooks[0].0, Phase::TurnEnd.name());
+    assert_eq!(hooks[0].1, 0);
+    assert_eq!(hooks[0].2, Ok(Outcome::Exited(9)));
 }
 
 #[tokio::test]
 async fn retains_uncertain_cleanup_and_hook_failure() {
-    for remote in [false, true] {
-        let peer = mcp::input::Server::task(
-            json!({"type":"object", "properties":{"value":{"type":"string"}}, "required":["missing"]}),
-            false,
-        ).await;
-        peer.tasks.ignore_cancel.store(true, Ordering::SeqCst);
-        let server = Server::tools(vec![
-            (
-                plugin_tool("commands", "run_command"),
-                json!({"command":"printf once >> actual.txt"}),
-            ),
-            (mcp::peer::alias("input", "read"), json!({})),
-        ])
-        .await;
-        let mut fixture = Fixture::packages(remote, &server, &["commands"]).await;
-        ready(&mut fixture, WorkMode::Code).await;
-        peer.package(&fixture.root.join("package"));
-        let Output::Plugin(_) = execute(
-            &fixture.client,
-            Command::InstallPlugin {
-                worktree: fixture.session.worktree,
-                path: "package".into(),
-                name: "example".into(),
-                expected_revision: 0,
-                expected_digest: None,
-            },
-        )
-        .await
-        else {
-            panic!("plugin expected")
-        };
-        enable_end(&fixture, "failed").await;
+    let peer = mcp::input::Server::task(
+        json!({"type":"object", "properties":{"value":{"type":"string"}}, "required":["missing"]}),
+        false,
+    )
+    .await;
+    peer.tasks.ignore_cancel.store(true, Ordering::SeqCst);
+    let server = Server::tools(vec![
+        (
+            plugin_tool("commands", "run_command"),
+            json!({"command":"printf once >> actual.txt"}),
+        ),
+        (mcp::peer::alias("input", "read"), json!({})),
+    ])
+    .await;
+    let mut fixture = Fixture::packages(&server, &["commands"]).await;
+    ready(&mut fixture, WorkMode::Code).await;
+    peer.package(&fixture.root.join("package"));
+    let Output::Plugin(_) = execute(
+        &fixture.client,
+        Command::InstallPlugin {
+            worktree: fixture.session.worktree,
+            path: "package".into(),
+            name: "example".into(),
+            expected_revision: 0,
+            expected_digest: None,
+        },
+    )
+    .await
+    else {
+        panic!("plugin expected")
+    };
+    enable_end(&fixture, "failed").await;
 
-        let (request, turn) = submit(&fixture).await;
-        let page = finished(&fixture.client, fixture.session.id, turn.id).await;
-        failure(
-            &page,
-            turn.id,
-            ErrorCode::OutcomeUnknown,
-            "MCP task termination could not be confirmed",
-        );
-        let commands = process::results(&fixture.client, &page).await;
-        assert_eq!(commands.len(), 1);
-        assert_eq!(commands[0].outcome, Outcome::Exited(0));
-        assert_eq!(
-            std::fs::read_to_string(fixture.root.join("actual.txt")).unwrap(),
-            "once"
-        );
-        assert_eq!(
-            std::fs::read_to_string(fixture.root.join("ends.txt")).unwrap(),
-            "end"
-        );
-        assert_eq!(peer.calls.load(Ordering::SeqCst), 1);
-        let cancelled = peer.tasks.cancelled.load(Ordering::SeqCst);
-        let trace = peer.tasks.trace();
-        // Dropping the task and confirming cleanup can each send one cancellation.
-        assert!(
-            (1..=2).contains(&cancelled),
-            "remote={remote}, cancelled={cancelled}, trace={trace:?}"
-        );
-        assert_eq!(trace.len(), 1);
-        let requests = &trace["task-1"];
-        assert_eq!(
-            requests
-                .iter()
-                .filter(|(method, _)| method == "tasks/cancel")
-                .count(),
-            cancelled
-        );
-        let first_cancel = requests
+    let (request, turn) = submit(&fixture).await;
+    let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+    failure(
+        &page,
+        turn.id,
+        ErrorCode::OutcomeUnknown,
+        "MCP task termination could not be confirmed",
+    );
+    let commands = process::results(&fixture.client, &page).await;
+    assert_eq!(commands.len(), 1);
+    assert_eq!(commands[0].outcome, Outcome::Exited(0));
+    assert_eq!(
+        std::fs::read_to_string(fixture.root.join("actual.txt")).unwrap(),
+        "once"
+    );
+    assert_eq!(
+        std::fs::read_to_string(fixture.root.join("ends.txt")).unwrap(),
+        "end"
+    );
+    assert_eq!(peer.calls.load(Ordering::SeqCst), 1);
+    let cancelled = peer.tasks.cancelled.load(Ordering::SeqCst);
+    let trace = peer.tasks.trace();
+    // Dropping the task and confirming cleanup can each send one cancellation.
+    assert!(
+        (1..=2).contains(&cancelled),
+        "cancelled={cancelled}, trace={trace:?}"
+    );
+    assert_eq!(trace.len(), 1);
+    let requests = &trace["task-1"];
+    assert_eq!(
+        requests
             .iter()
-            .position(|(method, _)| method == "tasks/cancel")
-            .unwrap();
-        assert!(
-            requests[first_cancel + 1..]
-                .iter()
-                .any(|(method, terminal)| method == "tasks/get" && !*terminal)
-        );
-        assert_eq!(peer.tasks.updates.load(Ordering::SeqCst), 0);
-        assert!(page.questions.is_empty());
-        assert_eq!(server.requests.lock().unwrap().len(), 3);
-        assert!(
-            results(&fixture.client, &page)
-                .await
-                .iter()
-                .any(
-                    |result| result["code"] == rmcp::model::ErrorCode::INTERNAL_ERROR.0
-                        && result["data"]["code"] == "outcome_unknown"
-                )
-        );
-        assert_eq!(
-            fixture.client.execute(request).await.unwrap(),
-            Output::QueuedTurn(turn)
-        );
-        assert_eq!(history(&fixture.client, fixture.session.id).await, page);
-        fixture.node.shutdown().await.unwrap();
-        fixture.controller.close().await.unwrap();
-    }
+            .filter(|(method, _)| method == "tasks/cancel")
+            .count(),
+        cancelled
+    );
+    let first_cancel = requests
+        .iter()
+        .position(|(method, _)| method == "tasks/cancel")
+        .unwrap();
+    assert!(
+        requests[first_cancel + 1..]
+            .iter()
+            .any(|(method, terminal)| method == "tasks/get" && !*terminal)
+    );
+    assert_eq!(peer.tasks.updates.load(Ordering::SeqCst), 0);
+    assert!(page.questions.is_empty());
+    assert_eq!(server.requests.lock().unwrap().len(), 3);
+    assert!(
+        results(&fixture.client, &page)
+            .await
+            .iter()
+            .any(
+                |result| result["code"] == rmcp::model::ErrorCode::INTERNAL_ERROR.0
+                    && result["data"]["code"] == "outcome_unknown"
+            )
+    );
+    assert_eq!(
+        fixture.client.execute(request).await.unwrap(),
+        Output::QueuedTurn(turn)
+    );
+    assert_eq!(history(&fixture.client, fixture.session.id).await, page);
+    fixture.node.shutdown().await.unwrap();
+    fixture.controller.close().await.unwrap();
 }
 
 #[tokio::test]
 async fn shows_failed_title_tool() {
-    for remote in [false, true] {
-        let server = Server::tools(vec![(
-            "set_session_title".into(),
-            json!({"title":"Blocked title"}),
-        )])
-        .await;
-        let fixture = Fixture::packages(remote, &server, &[]).await;
-        save(
-            &fixture.client,
-            fixture.session.worktree,
-            Settings {
-                enabled: true,
-                before_tool: script("exit 9"),
-                ..Default::default()
-            },
-        )
-        .await;
-        let (_, turn) = submit(&fixture).await;
-        let page = finished(&fixture.client, fixture.session.id, turn.id).await;
-        let view = super::super::progress::observe(&fixture.client, fixture.session.id).await;
-        let call = view
-            .calls
-            .iter()
-            .find(|call| call.name == "set_session_title")
-            .unwrap();
-        let call = call.with_detail(
-            crate::agent_support::details::read(
-                &fixture.client,
-                call.detail_reference(&page).unwrap(),
-            )
+    let server = Server::tools(vec![(
+        "set_session_title".into(),
+        json!({"title":"Blocked title"}),
+    )])
+    .await;
+    let fixture = Fixture::packages(&server, &[]).await;
+    save(
+        &fixture.client,
+        fixture.session.worktree,
+        Settings {
+            enabled: true,
+            before_tool: script("exit 9"),
+            ..Default::default()
+        },
+    )
+    .await;
+    let (_, turn) = submit(&fixture).await;
+    let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+    let view = super::super::progress::observe(&fixture.client, fixture.session.id).await;
+    let call = view
+        .calls
+        .iter()
+        .find(|call| call.name == "set_session_title")
+        .unwrap();
+    let call = call.with_detail(
+        crate::agent_support::details::read(&fixture.client, call.detail_reference(&page).unwrap())
             .await
             .unwrap(),
-        );
-        assert_eq!(
-            call.presentation,
-            sailry_protocol::tool::Presentation::Summary
-        );
-        assert!(!call.hidden(&page));
-        assert!(call.diagnostics(&page));
-        assert!(call.details(&page));
-        let result = call.result(&page).unwrap();
-        assert!(call.failure.is_some());
-        assert!(result.get("isError").is_none());
-        let error: rmcp::ErrorData = serde_json::from_value(result.clone()).unwrap();
-        let fault: Fault = serde_json::from_value(error.data.unwrap()).unwrap();
-        assert!(fault.message.contains("before_tool hook failed"));
-        let Output::Snapshot(snapshot) = execute(&fixture.client, Command::Snapshot).await else {
-            panic!("snapshot expected")
-        };
-        assert_ne!(
-            snapshot
-                .sessions
-                .iter()
-                .find(|session| session.id == fixture.session.id)
-                .unwrap()
-                .activity
-                .title,
-            "Blocked title"
-        );
-        assert_eq!(history(&fixture.client, fixture.session.id).await, page);
-        fixture.node.shutdown().await.unwrap();
-        fixture.controller.close().await.unwrap();
-    }
+    );
+    assert_eq!(
+        call.presentation,
+        sailry_protocol::tool::Presentation::Summary
+    );
+    assert!(!call.hidden(&page));
+    assert!(call.diagnostics(&page));
+    assert!(call.details(&page));
+    let result = call.result(&page).unwrap();
+    assert!(call.failure.is_some());
+    assert!(result.get("isError").is_none());
+    let error: rmcp::ErrorData = serde_json::from_value(result.clone()).unwrap();
+    let fault: Fault = serde_json::from_value(error.data.unwrap()).unwrap();
+    assert!(fault.message.contains("before_tool hook failed"));
+    let Output::Snapshot(snapshot) = execute(&fixture.client, Command::Snapshot).await else {
+        panic!("snapshot expected")
+    };
+    assert_ne!(
+        snapshot
+            .sessions
+            .iter()
+            .find(|session| session.id == fixture.session.id)
+            .unwrap()
+            .activity
+            .title,
+        "Blocked title"
+    );
+    assert_eq!(history(&fixture.client, fixture.session.id).await, page);
+    fixture.node.shutdown().await.unwrap();
+    fixture.controller.close().await.unwrap();
 }

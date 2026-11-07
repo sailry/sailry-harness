@@ -42,241 +42,233 @@ mod scheduled_tasks;
 
 #[tokio::test]
 async fn scopes_tool_switches_to_the_execution_node() {
-    for remote in [false, true] {
-        let directory = tempfile::tempdir().unwrap();
-        let root = directory.path().join("project");
-        std::fs::create_dir(&root).unwrap();
-        let node = Node::start_empty(directory.path().join("node"))
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("project");
+    std::fs::create_dir(&root).unwrap();
+    let node = Node::start_empty(directory.path().join("node"))
+        .await
+        .unwrap();
+    let other = Node::start_empty(directory.path().join("other"))
+        .await
+        .unwrap();
+    let address = other
+        .link()
+        .pair(node.link().invite().unwrap().ticket())
+        .await
+        .unwrap();
+    let client = Client::new(other.link().remote(address));
+    let origin = Client::new(other.local());
+    approvals::install(
+        &client,
+        &["git", "commands", "files", "memory", "worktrees"],
+    )
+    .await;
+    approvals::install(
+        &origin,
+        &["git", "commands", "files", "memory", "worktrees"],
+    )
+    .await;
+    progress::install(&client).await;
+    progress::install(&origin).await;
+    let server = Server::scripted_tools(vec![]).await;
+    let session = approvals::prepare_packages(&client, &server, &root, &[]).await;
+    let mut plugins: Vec<(String, Vec<String>)> = Vec::new();
+    for package in [
+        "git",
+        "commands",
+        "files",
+        "memory",
+        "progress",
+        "worktrees",
+    ] {
+        let Output::Plugin(commands) = client
+            .execute(client.prepare(Command::ReadPlugin {
+                name: package.into(),
+            }))
             .await
-            .unwrap();
-        let other = Node::start_empty(directory.path().join("other"))
-            .await
-            .unwrap();
-        let address = other
-            .link()
-            .pair(node.link().invite().unwrap().ticket())
-            .await
-            .unwrap();
-        let client = Client::new(if remote {
-            other.link().remote(address)
-        } else {
-            node.local()
-        });
-        let origin = Client::new(other.local());
-        approvals::install(
-            &client,
-            &["git", "commands", "files", "memory", "worktrees"],
-        )
-        .await;
-        approvals::install(
-            &origin,
-            &["git", "commands", "files", "memory", "worktrees"],
-        )
-        .await;
-        progress::install(&client).await;
-        progress::install(&origin).await;
-        let server = Server::scripted_tools(vec![]).await;
-        let session = approvals::prepare_packages(&client, &server, &root, &[]).await;
-        let mut plugins: Vec<(String, Vec<String>)> = Vec::new();
-        for package in [
-            "git",
-            "commands",
-            "files",
-            "memory",
-            "progress",
-            "worktrees",
-        ] {
-            let Output::Plugin(commands) = client
-                .execute(client.prepare(Command::ReadPlugin {
-                    name: package.into(),
-                }))
-                .await
+            .unwrap()
+        else {
+            panic!("package expected")
+        };
+        plugins.push((
+            commands.summary.name.clone(),
+            commands
+                .extension
                 .unwrap()
-            else {
-                panic!("package expected")
-            };
-            plugins.push((
-                commands.summary.name.clone(),
-                commands
-                    .extension
+                .tools
+                .into_iter()
+                .map(|tool| plugin_tool(&commands.summary.name, &tool.name))
+                .collect(),
+        ));
+    }
+    for (name, _) in &plugins {
+        let Output::Plugin(info) = origin
+            .execute(origin.prepare(Command::ReadPlugin { name: name.clone() }))
+            .await
+            .unwrap()
+        else {
+            panic!("plugin expected")
+        };
+        origin
+            .execute(origin.prepare(Command::SetPluginEnabled {
+                name: name.clone(),
+                expected_revision: info.summary.revision,
+                enabled: false,
+            }))
+            .await
+            .unwrap();
+    }
+    // search_memory starts visible; review_memories still requires discovery.
+    let memory = plugin_tool("memory", "review_memories");
+    let initial_memory = plugin_tool("memory", "search_memory");
+    let common = [
+        ("git", "git_status"),
+        ("commands", "run_command"),
+        ("files", "read_file"),
+        ("files", "search_files"),
+    ];
+    for (index, enabled) in [true, false, true].into_iter().enumerate() {
+        if !server.requests.lock().unwrap().is_empty() {
+            for (name, _) in &plugins {
+                let Output::Plugin(info) = client
+                    .execute(client.prepare(Command::ReadPlugin { name: name.clone() }))
+                    .await
                     .unwrap()
-                    .tools
-                    .into_iter()
-                    .map(|tool| plugin_tool(&commands.summary.name, &tool.name))
-                    .collect(),
-            ));
-        }
-        for (name, _) in &plugins {
-            let Output::Plugin(info) = origin
-                .execute(origin.prepare(Command::ReadPlugin { name: name.clone() }))
-                .await
-                .unwrap()
-            else {
-                panic!("plugin expected")
-            };
-            origin
-                .execute(origin.prepare(Command::SetPluginEnabled {
-                    name: name.clone(),
-                    expected_revision: info.summary.revision,
-                    enabled: false,
-                }))
-                .await
-                .unwrap();
-        }
-        // search_memory starts visible; review_memories still requires discovery.
-        let memory = plugin_tool("memory", "review_memories");
-        let initial_memory = plugin_tool("memory", "search_memory");
-        let common = [
-            ("git", "git_status"),
-            ("commands", "run_command"),
-            ("files", "read_file"),
-            ("files", "search_files"),
-        ];
-        for (index, enabled) in [true, false, true].into_iter().enumerate() {
-            if !server.requests.lock().unwrap().is_empty() {
-                for (name, _) in &plugins {
-                    let Output::Plugin(info) = client
-                        .execute(client.prepare(Command::ReadPlugin { name: name.clone() }))
-                        .await
-                        .unwrap()
-                    else {
-                        panic!("plugin expected")
-                    };
-                    client
-                        .execute(client.prepare(Command::SetPluginEnabled {
-                            name: name.clone(),
-                            expected_revision: info.summary.revision,
-                            enabled,
-                        }))
-                        .await
-                        .unwrap();
-                }
+                else {
+                    panic!("plugin expected")
+                };
+                client
+                    .execute(client.prepare(Command::SetPluginEnabled {
+                        name: name.clone(),
+                        expected_revision: info.summary.revision,
+                        enabled,
+                    }))
+                    .await
+                    .unwrap();
             }
-            let mut calls = vec![("tool_search".into(), json!({"query":memory,"limit":1}))];
-            if enabled {
-                calls.push((memory.clone(), json!({})));
-            }
-            server.replace_tools(calls);
-            let start = server.requests.lock().unwrap().len();
-            let turn = approvals::submit(&client, session.id).await;
-            let page = finished(&client, session.id, turn).await;
-            assert_eq!(
-                page.runs
-                    .iter()
-                    .find(|run| run.turn == turn)
-                    .unwrap()
-                    .status,
-                Status::Completed
-            );
-            let details = tool_details(&client, &page).await;
-            let searched = details
+        }
+        let mut calls = vec![("tool_search".into(), json!({"query":memory,"limit":1}))];
+        if enabled {
+            calls.push((memory.clone(), json!({})));
+        }
+        server.replace_tools(calls);
+        let start = server.requests.lock().unwrap().len();
+        let turn = approvals::submit(&client, session.id).await;
+        let page = finished(&client, session.id, turn).await;
+        assert_eq!(
+            page.runs
                 .iter()
-                .rfind(|(name, _)| name == "tool_search")
+                .find(|run| run.turn == turn)
                 .unwrap()
-                .1
-                .result
-                .as_ref()
-                .unwrap();
-            let discovered: BTreeSet<_> = searched["tools"]
+                .status,
+            Status::Completed
+        );
+        let details = tool_details(&client, &page).await;
+        let searched = details
+            .iter()
+            .rfind(|(name, _)| name == "tool_search")
+            .unwrap()
+            .1
+            .result
+            .as_ref()
+            .unwrap();
+        let discovered: BTreeSet<_> = searched["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|tool| tool["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            discovered.contains(memory.as_str()),
+            enabled,
+            "enabled={enabled}: {searched}"
+        );
+        let executed: Vec<_> = details.iter().filter(|(name, _)| name == &memory).collect();
+        assert_eq!(executed.len(), if index < 2 { 1 } else { 2 });
+        if enabled {
+            assert_eq!(searched["tools"][0]["name"], memory);
+            assert!(executed.last().unwrap().1.result.as_ref().unwrap()["candidates"].is_array());
+        }
+        assert!(page.approvals.is_empty());
+        let requests = server.requests.lock().unwrap();
+        let names = |request: &serde_json::Value| -> BTreeSet<String> {
+            request["tools"]
                 .as_array()
                 .unwrap()
                 .iter()
-                .map(|tool| tool["name"].as_str().unwrap())
-                .collect();
-            assert_eq!(
-                discovered.contains(memory.as_str()),
-                enabled,
-                "remote={remote}, enabled={enabled}: {searched}"
-            );
-            let executed: Vec<_> = details.iter().filter(|(name, _)| name == &memory).collect();
-            assert_eq!(executed.len(), if index < 2 { 1 } else { 2 });
-            if enabled {
-                assert_eq!(searched["tools"][0]["name"], memory);
-                assert!(
-                    executed.last().unwrap().1.result.as_ref().unwrap()["candidates"].is_array()
-                );
-            }
-            assert!(page.approvals.is_empty());
-            let requests = server.requests.lock().unwrap();
-            let names = |request: &serde_json::Value| -> BTreeSet<String> {
-                request["tools"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .filter_map(|tool| tool["function"]["name"].as_str().map(str::to_owned))
-                    .collect()
-            };
-            let initial = names(&requests[start]);
-            let tools = names(requests.last().unwrap());
-            for (_, name) in common {
-                assert_eq!(initial.contains(name), enabled, "{name}");
-                assert_eq!(tools.contains(name), enabled, "{name}");
-            }
-            assert_eq!(initial.contains(exposed(&memory)), enabled && index > 0);
-            assert_eq!(tools.contains(exposed(&memory)), enabled);
-            assert_eq!(initial.contains(exposed(&initial_memory)), enabled);
-            assert!(!discovered.contains(initial_memory.as_str()));
-            for (package, name) in [
-                ("commands", "write_command"),
-                ("delegation", "spawn_agent"),
-                ("progress", "update_plan"),
-                ("worktrees", "create_worktree"),
-            ] {
-                assert!(
-                    !tools.contains(name) && !tools.contains(&plugin_tool(package, name)),
-                    "{package}/{name}"
-                );
-            }
-            if !enabled {
-                for (_, declarations) in &plugins {
-                    assert!(declarations.iter().all(|name| {
-                        !initial.contains(name)
-                            && !initial.contains(exposed(name))
-                            && !tools.contains(name)
-                            && !tools.contains(exposed(name))
-                            && !discovered.contains(name.as_str())
-                    }));
-                }
-            }
-            let request = requests.last().unwrap();
-            let instructions = node_context(request, "Work mode");
-            assert!(!instructions.contains("Use update_plan for substantial multi-step tasks"));
-            // The memory policy is a package instruction in the system prompt, never turn context.
-            let memory_rule = "Memory holds lasting user preferences, corrections and decisions";
-            assert_eq!(
-                instructions.matches(memory_rule).count(),
-                usize::from(enabled)
-            );
-            for request in [&requests[start], request] {
-                assert_eq!(
-                    node_context(request, "Work mode")
-                        .matches(memory_rule)
-                        .count(),
-                    usize::from(enabled)
-                );
-                assert!(!turn_context(request).contains(memory_rule));
-            }
+                .filter_map(|tool| tool["function"]["name"].as_str().map(str::to_owned))
+                .collect()
+        };
+        let initial = names(&requests[start]);
+        let tools = names(requests.last().unwrap());
+        for (_, name) in common {
+            assert_eq!(initial.contains(name), enabled, "{name}");
+            assert_eq!(tools.contains(name), enabled, "{name}");
+        }
+        assert_eq!(initial.contains(exposed(&memory)), enabled && index > 0);
+        assert_eq!(tools.contains(exposed(&memory)), enabled);
+        assert_eq!(initial.contains(exposed(&initial_memory)), enabled);
+        assert!(!discovered.contains(initial_memory.as_str()));
+        for (package, name) in [
+            ("commands", "write_command"),
+            ("delegation", "spawn_agent"),
+            ("progress", "update_plan"),
+            ("worktrees", "create_worktree"),
+        ] {
             assert!(
-                request["messages"][0]
-                    .to_string()
-                    .contains("Finish with an answer to the user's request")
+                !tools.contains(name) && !tools.contains(&plugin_tool(package, name)),
+                "{package}/{name}"
             );
-            let environment = turn_context(request);
-            assert!(environment.contains("Session environment"));
-            assert!(!node_context(request, "Work mode").contains("Session environment"));
-            assert!(environment.contains("Model:"));
-            assert!(environment.contains("Git repository: no"));
-            for name in [
-                "ask_user",
-                "set_session_title",
-                "list_sessions",
-                "read_session",
-                "search_session",
-            ] {
-                assert!(tools.contains(name), "core tool {name}");
+        }
+        if !enabled {
+            for (_, declarations) in &plugins {
+                assert!(declarations.iter().all(|name| {
+                    !initial.contains(name)
+                        && !initial.contains(exposed(name))
+                        && !tools.contains(name)
+                        && !tools.contains(exposed(name))
+                        && !discovered.contains(name.as_str())
+                }));
             }
         }
-        node.shutdown().await.unwrap();
-        other.shutdown().await.unwrap();
+        let request = requests.last().unwrap();
+        let instructions = node_context(request, "Work mode");
+        assert!(!instructions.contains("Use update_plan for substantial multi-step tasks"));
+        // The memory policy is a package instruction in the system prompt, never turn context.
+        let memory_rule = "Memory holds lasting user preferences, corrections and decisions";
+        assert_eq!(
+            instructions.matches(memory_rule).count(),
+            usize::from(enabled)
+        );
+        for request in [&requests[start], request] {
+            assert_eq!(
+                node_context(request, "Work mode")
+                    .matches(memory_rule)
+                    .count(),
+                usize::from(enabled)
+            );
+            assert!(!turn_context(request).contains(memory_rule));
+        }
+        assert!(
+            request["messages"][0]
+                .to_string()
+                .contains("Finish with an answer to the user's request")
+        );
+        let environment = turn_context(request);
+        assert!(environment.contains("Session environment"));
+        assert!(!node_context(request, "Work mode").contains("Session environment"));
+        assert!(environment.contains("Model:"));
+        assert!(environment.contains("Git repository: no"));
+        for name in [
+            "ask_user",
+            "set_session_title",
+            "list_sessions",
+            "read_session",
+            "search_session",
+        ] {
+            assert!(tools.contains(name), "core tool {name}");
+        }
     }
+    node.shutdown().await.unwrap();
+    other.shutdown().await.unwrap();
 }

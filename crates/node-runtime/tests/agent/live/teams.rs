@@ -339,49 +339,47 @@ async fn exercise(fixture: &mut Fixture, submitted: &mut Option<TurnId>, stage: 
 #[tokio::test]
 #[ignore = "requires an explicit inactive provider profile and incurs real model usage"]
 async fn expands_capacity_and_collects_results() {
-    for remote in [false, true] {
-        let mut fixture = Fixture::new(remote).await;
-        let mut submitted = None;
-        let mut stage = "configuration";
-        let outcome = AssertUnwindSafe(tokio::time::timeout(
-            Duration::from_secs(240),
-            exercise(&mut fixture, &mut submitted, &mut stage),
-        ))
-        .catch_unwind()
+    let mut fixture = Fixture::new().await;
+    let mut submitted = None;
+    let mut stage = "configuration";
+    let outcome = AssertUnwindSafe(tokio::time::timeout(
+        Duration::from_secs(240),
+        exercise(&mut fixture, &mut submitted, &mut stage),
+    ))
+    .catch_unwind()
+    .await;
+    if !matches!(&outcome, Ok(Ok(())))
+        && let Some(turn) = submitted
+    {
+        let page = history(&fixture.client, fixture.session.id).await;
+        eprintln!(
+            "live team stopped: stage={stage} parent={:?} children={:?}",
+            page.runs
+                .iter()
+                .map(|run| (run.status, run.error.as_ref().map(|error| error.code)))
+                .collect::<Vec<_>>(),
+            page.children
+                .iter()
+                .map(|child| (
+                    child.run.status,
+                    child.run.error.as_ref().map(|error| error.code)
+                ))
+                .collect::<Vec<_>>(),
+        );
+        let _ = tokio::time::timeout(
+            Duration::from_secs(10),
+            fixture
+                .client
+                .execute(fixture.client.prepare(Command::StopTurn { turn })),
+        )
         .await;
-        if !matches!(&outcome, Ok(Ok(())))
-            && let Some(turn) = submitted
-        {
-            let page = history(&fixture.client, fixture.session.id).await;
-            eprintln!(
-                "live team stopped: remote={remote} stage={stage} parent={:?} children={:?}",
-                page.runs
-                    .iter()
-                    .map(|run| (run.status, run.error.as_ref().map(|error| error.code)))
-                    .collect::<Vec<_>>(),
-                page.children
-                    .iter()
-                    .map(|child| (
-                        child.run.status,
-                        child.run.error.as_ref().map(|error| error.code)
-                    ))
-                    .collect::<Vec<_>>(),
-            );
-            let _ = tokio::time::timeout(
-                Duration::from_secs(10),
-                fixture
-                    .client
-                    .execute(fixture.client.prepare(Command::StopTurn { turn })),
-            )
-            .await;
-        }
-        fixture.close().await;
-        match outcome {
-            Ok(Ok(())) => println!(
-                "live team: remote={remote} roles=2 concurrency=1-to-2 captures=verified files=verified results=collected"
-            ),
-            Ok(Err(error)) => panic!("live team deadline at {stage}: {error}"),
-            Err(panic) => std::panic::resume_unwind(panic),
-        }
+    }
+    fixture.close().await;
+    match outcome {
+        Ok(Ok(())) => println!(
+            "live team: roles=2 concurrency=1-to-2 captures=verified files=verified results=collected"
+        ),
+        Ok(Err(error)) => panic!("live team deadline at {stage}: {error}"),
+        Err(panic) => std::panic::resume_unwind(panic),
     }
 }

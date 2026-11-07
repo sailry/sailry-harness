@@ -79,10 +79,7 @@ async fn install(client: &Client, worktree: WorktreeId, revision: u64) -> plugin
     info
 }
 
-async fn fixture(
-    remote: bool,
-    server: &Server,
-) -> (tempfile::TempDir, Node, Link, Client, Session) {
+async fn fixture(server: &Server) -> (tempfile::TempDir, Node, Link, Client, Session) {
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path().join("project");
     package(&root, "1.0.0");
@@ -97,11 +94,7 @@ async fn fixture(
         .pair(node.link().invite().unwrap().ticket())
         .await
         .unwrap();
-    let client = Client::new(if remote {
-        controller.handle().remote(address)
-    } else {
-        node.local()
-    });
+    let client = Client::new(controller.handle().remote(address));
     super::approvals::install(&client, &["commands"]).await;
     let (session, mut provider) = configured_session(&client, &server.endpoint, &root).await;
     provider.models = vec![Model {

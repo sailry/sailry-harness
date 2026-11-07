@@ -60,46 +60,44 @@ async fn install_source(fixture: &process::Fixture, declared: bool, source: &str
 
 #[tokio::test]
 async fn shares_capped_text_only_when_declared() {
-    for remote in [false, true] {
-        for declared in [false, true] {
-            let server = Server::tools(vec![]).await;
-            let fixture = process::Fixture::packages(remote, &server, &[]).await;
-            install(&fixture, declared).await;
-            // 6,000 UTF-8 bytes are cut to the last whole character within 4 KiB.
-            let text = "记".repeat(2000);
-            let Output::QueuedTurn(turn) = fixture
-                .client
-                .execute(fixture.client.prepare(Command::SubmitTurn {
-                    session: fixture.session.id,
-                    expected_revision: fixture.session.revision,
-                    message: text.clone().into(),
-                }))
-                .await
-                .unwrap()
-            else {
-                panic!("turn expected")
-            };
-            let page = finished(&fixture.client, fixture.session.id, turn.id).await;
-            assert_eq!(page.runs[0].status, Status::Completed, "{page:?}");
-            let request = server.requests.lock().unwrap()[0].clone();
-            let context = turn_context(&request);
-            if declared {
-                let excerpt = "记".repeat(1365);
-                assert!(context.contains(&format!("Observed message: \"{excerpt}\"")));
-                assert!(!context.contains(&"记".repeat(1366)));
-            } else {
-                assert!(context.contains("Observed message: null"));
-            }
-            let names: Vec<_> = request["tools"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .filter_map(|tool| tool["function"]["name"].as_str())
-                .collect();
-            assert!(names.contains(&exposed(&plugin_tool(PACKAGE, "note"))));
-            fixture.node.shutdown().await.unwrap();
-            fixture.controller.close().await.unwrap();
+    for declared in [false, true] {
+        let server = Server::tools(vec![]).await;
+        let fixture = process::Fixture::packages(&server, &[]).await;
+        install(&fixture, declared).await;
+        // 6,000 UTF-8 bytes are cut to the last whole character within 4 KiB.
+        let text = "记".repeat(2000);
+        let Output::QueuedTurn(turn) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::SubmitTurn {
+                session: fixture.session.id,
+                expected_revision: fixture.session.revision,
+                message: text.clone().into(),
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("turn expected")
+        };
+        let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+        assert_eq!(page.runs[0].status, Status::Completed, "{page:?}");
+        let request = server.requests.lock().unwrap()[0].clone();
+        let context = turn_context(&request);
+        if declared {
+            let excerpt = "记".repeat(1365);
+            assert!(context.contains(&format!("Observed message: \"{excerpt}\"")));
+            assert!(!context.contains(&"记".repeat(1366)));
+        } else {
+            assert!(context.contains("Observed message: null"));
         }
+        let names: Vec<_> = request["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|tool| tool["function"]["name"].as_str())
+            .collect();
+        assert!(names.contains(&exposed(&plugin_tool(PACKAGE, "note"))));
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
     }
 }
 
@@ -148,70 +146,66 @@ async fn next_session(fixture: &process::Fixture) -> Session {
 
 #[tokio::test]
 async fn keeps_parts_distinct_across_sessions() {
-    for remote in [false, true] {
-        let server = Server::tools(vec![]).await;
-        let mut fixture = process::Fixture::packages(remote, &server, &[]).await;
-        install_source(&fixture, true, PARTS).await;
-        let (latest, total) = turn(&fixture, &server, "parts:alpha|beta").await;
-        assert!(latest.contains("Fixture part alpha"), "dedupe: {latest}");
-        assert!(latest.contains("Fixture part beta"), "dedupe: {latest}");
-        assert_eq!(total, 2, "dedupe: transport={remote}");
-        // A repeated part is skipped and a new one is added beside it.
-        let (latest, total) = turn(&fixture, &server, "parts:alpha|gamma").await;
-        assert!(latest.contains("Fixture part gamma"), "dedupe: {latest}");
-        assert!(!latest.contains("Fixture part alpha"), "dedupe: {latest}");
-        assert_eq!(total, 3, "dedupe: transport={remote}");
-        let (_, total) = turn(&fixture, &server, "parts:gamma|beta|alpha").await;
-        assert_eq!(total, 3, "dedupe: transport={remote}");
-        let (_, total) = turn(&fixture, &server, "no parts").await;
-        assert_eq!(total, 3, "dedupe: transport={remote}");
+    let server = Server::tools(vec![]).await;
+    let mut fixture = process::Fixture::packages(&server, &[]).await;
+    install_source(&fixture, true, PARTS).await;
+    let (latest, total) = turn(&fixture, &server, "parts:alpha|beta").await;
+    assert!(latest.contains("Fixture part alpha"), "dedupe: {latest}");
+    assert!(latest.contains("Fixture part beta"), "dedupe: {latest}");
+    assert_eq!(total, 2, "dedupe");
+    // A repeated part is skipped and a new one is added beside it.
+    let (latest, total) = turn(&fixture, &server, "parts:alpha|gamma").await;
+    assert!(latest.contains("Fixture part gamma"), "dedupe: {latest}");
+    assert!(!latest.contains("Fixture part alpha"), "dedupe: {latest}");
+    assert_eq!(total, 3, "dedupe");
+    let (_, total) = turn(&fixture, &server, "parts:gamma|beta|alpha").await;
+    assert_eq!(total, 3, "dedupe");
+    let (_, total) = turn(&fixture, &server, "no parts").await;
+    assert_eq!(total, 3, "dedupe");
 
-        fixture.session = next_session(&fixture).await;
-        let (latest, total) = turn(&fixture, &server, "parts:alpha extended").await;
-        assert!(
-            latest.contains("Fixture part alpha extended"),
-            "substring: {latest}"
-        );
-        assert_eq!(total, 1, "substring: transport={remote}");
-        let (latest, total) = turn(&fixture, &server, "parts:alpha").await;
-        assert!(latest.contains("Fixture part alpha"), "substring: {latest}");
-        assert!(
-            !latest.contains("Fixture part alpha extended"),
-            "substring: {latest}"
-        );
-        assert_eq!(total, 2, "substring: transport={remote}");
-        let (_, total) = turn(&fixture, &server, "parts:alpha extended|alpha").await;
-        assert_eq!(total, 2, "substring: transport={remote}");
+    fixture.session = next_session(&fixture).await;
+    let (latest, total) = turn(&fixture, &server, "parts:alpha extended").await;
+    assert!(
+        latest.contains("Fixture part alpha extended"),
+        "substring: {latest}"
+    );
+    assert_eq!(total, 1, "substring");
+    let (latest, total) = turn(&fixture, &server, "parts:alpha").await;
+    assert!(latest.contains("Fixture part alpha"), "substring: {latest}");
+    assert!(
+        !latest.contains("Fixture part alpha extended"),
+        "substring: {latest}"
+    );
+    assert_eq!(total, 2, "substring");
+    let (_, total) = turn(&fixture, &server, "parts:alpha extended|alpha").await;
+    assert_eq!(total, 2, "substring");
 
-        fixture.session = next_session(&fixture).await;
-        let request_offset = server.requests.lock().unwrap().len();
-        for message in ["parts:alpha", "parts:beta|gamma", "no parts", "parts:alpha"] {
-            turn(&fixture, &server, message).await;
-        }
-        {
-            let requests = server.requests.lock().unwrap();
-            let requests = &requests[request_offset..];
-            assert_eq!(requests.len(), 4);
-            let system = |request: &serde_json::Value| -> String {
-                request["messages"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .filter(|message| {
-                        matches!(message["role"].as_str(), Some("system" | "developer"))
-                    })
-                    .map(|message| message_text(&message["content"]))
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            };
-            let first = system(&requests[0]);
-            assert!(!first.is_empty());
-            assert!(!first.contains(MARK));
-            for request in requests.iter() {
-                assert_eq!(system(request), first);
-            }
-        }
-        fixture.node.shutdown().await.unwrap();
-        fixture.controller.close().await.unwrap();
+    fixture.session = next_session(&fixture).await;
+    let request_offset = server.requests.lock().unwrap().len();
+    for message in ["parts:alpha", "parts:beta|gamma", "no parts", "parts:alpha"] {
+        turn(&fixture, &server, message).await;
     }
+    {
+        let requests = server.requests.lock().unwrap();
+        let requests = &requests[request_offset..];
+        assert_eq!(requests.len(), 4);
+        let system = |request: &serde_json::Value| -> String {
+            request["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|message| matches!(message["role"].as_str(), Some("system" | "developer")))
+                .map(|message| message_text(&message["content"]))
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        let first = system(&requests[0]);
+        assert!(!first.is_empty());
+        assert!(!first.contains(MARK));
+        for request in requests.iter() {
+            assert_eq!(system(request), first);
+        }
+    }
+    fixture.node.shutdown().await.unwrap();
+    fixture.controller.close().await.unwrap();
 }

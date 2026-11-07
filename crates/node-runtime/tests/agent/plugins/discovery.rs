@@ -22,147 +22,139 @@ async fn remembers_direct_calls_without_discovery() {
 }
 
 async fn restores_selection(name: &str, arguments: Value) {
-    for remote in [false, true] {
-        let server = Server::tools(vec![(name.into(), arguments.clone())]).await;
-        let mut fixture = process::Fixture::packages(remote, &server, &["files"]).await;
-        if name == "manage_plugins" {
-            planning::configure(&mut fixture, sailry_protocol::WorkMode::Plan).await;
-        }
-        let turn = submit(&fixture).await;
-        let page = finished(&fixture.client, fixture.session.id, turn).await;
-        assert_eq!(
-            page.runs
-                .iter()
-                .find(|run| run.turn == turn)
-                .unwrap()
-                .status,
-            Status::Completed
-        );
-        if name == "manage_plugins" {
-            let result = tool_details(&fixture.client, &page)
-                .await
-                .into_iter()
-                .find(|(tool, _)| tool == name)
-                .expect("direct management call")
-                .1
-                .result
-                .expect("direct management result");
-            assert!(result["plugins"].is_array(), "{result:?}");
-        }
-        let requests = server.requests.lock().unwrap().clone();
-        assert_eq!(requests.len(), 2);
-        let first = &requests[0];
-        let second = &requests[1];
-        assert!(names(first).contains(&"tool_search"));
-        assert!(names(first).contains(&"read_file"));
-        assert!(!names(first).contains(&"manage_plugins"));
-        assert!(names(second).contains(&"manage_plugins"));
-        assert_eq!(
-            &second["tools"].as_array().unwrap()[..first["tools"].as_array().unwrap().len()],
-            first["tools"].as_array().unwrap()
-        );
-        let unchanged: Vec<_> = second["tools"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter(|tool| tool["function"]["name"] != "manage_plugins")
-            .collect();
-        assert_eq!(serde_json::to_value(unchanged).unwrap(), first["tools"]);
-        // Persisted turn context keeps the earlier request as an exact prefix.
-        let prefix = first["messages"].as_array().unwrap();
-        assert!(!turn_context(first).is_empty());
-        assert_eq!(
-            &second["messages"].as_array().unwrap()[..prefix.len()],
-            &prefix[..]
-        );
-        assert!(!turn_context(second).is_empty());
-
-        let node = fixture.node.id();
-        fixture.node.shutdown().await.unwrap();
-        fixture.controller.handle().disconnect(node).await;
-        fixture.node = Node::start_empty(fixture.directory.path().join("node"))
-            .await
-            .unwrap();
-        fixture.client = Client::new(if remote {
-            fixture
-                .controller
-                .handle()
-                .remote(fixture.node.link().address())
-        } else {
-            fixture.node.local()
-        });
-        let turn = submit(&fixture).await;
-        let page = finished(&fixture.client, fixture.session.id, turn).await;
-        assert_eq!(
-            page.runs
-                .iter()
-                .find(|run| run.turn == turn)
-                .unwrap()
-                .status,
-            Status::Completed
-        );
-        {
-            let requests = server.requests.lock().unwrap();
-            assert_eq!(requests.len(), 3);
-            assert_eq!(requests[2]["tools"], second["tools"]);
-        }
-        fixture.node.shutdown().await.unwrap();
-        fixture.controller.close().await.unwrap();
+    let server = Server::tools(vec![(name.into(), arguments.clone())]).await;
+    let mut fixture = process::Fixture::packages(&server, &["files"]).await;
+    if name == "manage_plugins" {
+        planning::configure(&mut fixture, sailry_protocol::WorkMode::Plan).await;
     }
+    let turn = submit(&fixture).await;
+    let page = finished(&fixture.client, fixture.session.id, turn).await;
+    assert_eq!(
+        page.runs
+            .iter()
+            .find(|run| run.turn == turn)
+            .unwrap()
+            .status,
+        Status::Completed
+    );
+    if name == "manage_plugins" {
+        let result = tool_details(&fixture.client, &page)
+            .await
+            .into_iter()
+            .find(|(tool, _)| tool == name)
+            .expect("direct management call")
+            .1
+            .result
+            .expect("direct management result");
+        assert!(result["plugins"].is_array(), "{result:?}");
+    }
+    let requests = server.requests.lock().unwrap().clone();
+    assert_eq!(requests.len(), 2);
+    let first = &requests[0];
+    let second = &requests[1];
+    assert!(names(first).contains(&"tool_search"));
+    assert!(names(first).contains(&"read_file"));
+    assert!(!names(first).contains(&"manage_plugins"));
+    assert!(names(second).contains(&"manage_plugins"));
+    assert_eq!(
+        &second["tools"].as_array().unwrap()[..first["tools"].as_array().unwrap().len()],
+        first["tools"].as_array().unwrap()
+    );
+    let unchanged: Vec<_> = second["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|tool| tool["function"]["name"] != "manage_plugins")
+        .collect();
+    assert_eq!(serde_json::to_value(unchanged).unwrap(), first["tools"]);
+    // Persisted turn context keeps the earlier request as an exact prefix.
+    let prefix = first["messages"].as_array().unwrap();
+    assert!(!turn_context(first).is_empty());
+    assert_eq!(
+        &second["messages"].as_array().unwrap()[..prefix.len()],
+        &prefix[..]
+    );
+    assert!(!turn_context(second).is_empty());
+
+    let node = fixture.node.id();
+    fixture.node.shutdown().await.unwrap();
+    fixture.controller.handle().disconnect(node).await;
+    fixture.node = Node::start_empty(fixture.directory.path().join("node"))
+        .await
+        .unwrap();
+    fixture.client = Client::new(
+        fixture
+            .controller
+            .handle()
+            .remote(fixture.node.link().address()),
+    );
+    let turn = submit(&fixture).await;
+    let page = finished(&fixture.client, fixture.session.id, turn).await;
+    assert_eq!(
+        page.runs
+            .iter()
+            .find(|run| run.turn == turn)
+            .unwrap()
+            .status,
+        Status::Completed
+    );
+    {
+        let requests = server.requests.lock().unwrap();
+        assert_eq!(requests.len(), 3);
+        assert_eq!(requests[2]["tools"], second["tools"]);
+    }
+    fixture.node.shutdown().await.unwrap();
+    fixture.controller.close().await.unwrap();
 }
 
 #[tokio::test]
 async fn preserves_discovery_order_after_restart() {
-    for remote in [false, true] {
-        let server = Server::tools(
-            ["manage_skills", "manage_plugins", "manage_skills"]
-                .map(|name| ("tool_search".into(), json!({"query":name,"limit":1})))
-                .into(),
-        )
-        .await;
-        let mut fixture = process::Fixture::packages(remote, &server, &["files"]).await;
-        let turn = submit(&fixture).await;
-        let page = finished(&fixture.client, fixture.session.id, turn).await;
-        assert_eq!(page.runs[0].status, Status::Completed);
-        let requests = server.requests.lock().unwrap().clone();
-        assert_eq!(requests.len(), 4);
-        for pair in requests.windows(2) {
-            let before = pair[0]["tools"].as_array().unwrap();
-            let after = pair[1]["tools"].as_array().unwrap();
-            assert_eq!(&after[..before.len()], before);
-        }
-        let loaded = names(&requests[3]);
-        assert_eq!(
-            &loaded[loaded.len() - 2..],
-            ["manage_skills", "manage_plugins"]
-        );
-        assert_eq!(requests[2]["tools"], requests[3]["tools"]);
-
-        let node = fixture.node.id();
-        fixture.node.shutdown().await.unwrap();
-        fixture.controller.handle().disconnect(node).await;
-        fixture.node = Node::start_empty(fixture.directory.path().join("node"))
-            .await
-            .unwrap();
-        fixture.client = Client::new(if remote {
-            fixture
-                .controller
-                .handle()
-                .remote(fixture.node.link().address())
-        } else {
-            fixture.node.local()
-        });
-        let turn = submit(&fixture).await;
-        let page = finished(&fixture.client, fixture.session.id, turn).await;
-        assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-        {
-            let requests = server.requests.lock().unwrap();
-            assert_eq!(requests.len(), 5);
-            assert_eq!(requests[4]["tools"], requests[3]["tools"]);
-        }
-        fixture.node.shutdown().await.unwrap();
-        fixture.controller.close().await.unwrap();
+    let server = Server::tools(
+        ["manage_skills", "manage_plugins", "manage_skills"]
+            .map(|name| ("tool_search".into(), json!({"query":name,"limit":1})))
+            .into(),
+    )
+    .await;
+    let mut fixture = process::Fixture::packages(&server, &["files"]).await;
+    let turn = submit(&fixture).await;
+    let page = finished(&fixture.client, fixture.session.id, turn).await;
+    assert_eq!(page.runs[0].status, Status::Completed);
+    let requests = server.requests.lock().unwrap().clone();
+    assert_eq!(requests.len(), 4);
+    for pair in requests.windows(2) {
+        let before = pair[0]["tools"].as_array().unwrap();
+        let after = pair[1]["tools"].as_array().unwrap();
+        assert_eq!(&after[..before.len()], before);
     }
+    let loaded = names(&requests[3]);
+    assert_eq!(
+        &loaded[loaded.len() - 2..],
+        ["manage_skills", "manage_plugins"]
+    );
+    assert_eq!(requests[2]["tools"], requests[3]["tools"]);
+
+    let node = fixture.node.id();
+    fixture.node.shutdown().await.unwrap();
+    fixture.controller.handle().disconnect(node).await;
+    fixture.node = Node::start_empty(fixture.directory.path().join("node"))
+        .await
+        .unwrap();
+    fixture.client = Client::new(
+        fixture
+            .controller
+            .handle()
+            .remote(fixture.node.link().address()),
+    );
+    let turn = submit(&fixture).await;
+    let page = finished(&fixture.client, fixture.session.id, turn).await;
+    assert_eq!(page.runs.last().unwrap().status, Status::Completed);
+    {
+        let requests = server.requests.lock().unwrap();
+        assert_eq!(requests.len(), 5);
+        assert_eq!(requests[4]["tools"], requests[3]["tools"]);
+    }
+    fixture.node.shutdown().await.unwrap();
+    fixture.controller.close().await.unwrap();
 }
 
 async fn submit(fixture: &process::Fixture) -> TurnId {

@@ -11,8 +11,8 @@ mod loadout;
 #[path = "compaction/manual.rs"]
 mod manual;
 
-async fn fixture(remote: bool, server: &Server) -> Fixture {
-    let fixture = Fixture::files(remote, server).await;
+async fn fixture(server: &Server) -> Fixture {
+    let fixture = Fixture::files(server).await;
     let mut provider = configuration::snapshot(&fixture.client).await.providers[0].clone();
     // Fit the immutable tool catalog while keeping compaction fixtures small.
     provider.models[0].context = 64_000;
@@ -80,175 +80,167 @@ async fn usage_total(client: &Client, responses: u64, input: u64) {
 
 #[tokio::test]
 async fn incorporates_previous_summaries() {
-    for remote in [false, true] {
-        let server = Server::automatic_compaction(false).await;
-        let fixture = fixture(remote, &server).await;
-        std::fs::write(
-            fixture.root.join("source.txt"),
-            "Repeated summary evidence\n".repeat(400),
+    let server = Server::automatic_compaction(false).await;
+    let fixture = fixture(&server).await;
+    std::fs::write(
+        fixture.root.join("source.txt"),
+        "Repeated summary evidence\n".repeat(400),
+    )
+    .unwrap();
+    for index in 1usize..=6 {
+        let (_, _, page) = submit(
+            &fixture.client,
+            fixture.session.id,
+            format!("Turn {index} requirement ").repeat(100),
         )
-        .unwrap();
-        for index in 1usize..=6 {
-            let (_, _, page) = submit(
-                &fixture.client,
-                fixture.session.id,
-                format!("Turn {index} requirement ").repeat(100),
-            )
-            .await;
-            assert_eq!(
-                page.entries
-                    .iter()
-                    .flat_map(|entry| &entry.parts)
-                    .filter(|part| matches!(part, Part::Compaction(_)))
-                    .count(),
-                index.saturating_sub(3)
+        .await;
+        assert_eq!(
+            page.entries
+                .iter()
+                .flat_map(|entry| &entry.parts)
+                .filter(|part| matches!(part, Part::Compaction(_)))
+                .count(),
+            index.saturating_sub(3)
+        );
+    }
+    let requests = server.requests.lock().unwrap().clone();
+    for request in &requests {
+        if agent_support::compaction::is_summary(request) {
+            assert!(!request.to_string().contains("<turn-context>"));
+        } else {
+            assert!(request.get("turn_context").is_none());
+            assert!(agent_support::turn_context(request).is_some());
+            // Each retained turn keeps its persisted context.
+            assert!(
+                request["messages"]
+                    .to_string()
+                    .matches("<turn-context>\\n")
+                    .count()
+                    >= 1
             );
         }
-        let requests = server.requests.lock().unwrap().clone();
-        for request in &requests {
-            if agent_support::compaction::is_summary(request) {
-                assert!(!request.to_string().contains("<turn-context>"));
-            } else {
-                assert!(request.get("turn_context").is_none());
-                assert!(agent_support::turn_context(request).is_some());
-                // Each retained turn keeps its persisted context.
-                assert!(
-                    request["messages"]
-                        .to_string()
-                        .matches("<turn-context>\\n")
-                        .count()
-                        >= 1
-                );
-            }
-        }
-        observations::assert_context_hidden(&fixture.node, fixture.session.id).await;
-        let summaries: Vec<_> = requests
-            .iter()
-            .filter(|request| agent_support::compaction::is_summary(request))
-            .collect();
-        assert_eq!(summaries.len(), 3);
-        for (index, summary) in summaries.iter().enumerate() {
-            assert!(summary["tools"].as_array().is_none_or(Vec::is_empty));
-            assert!(messages(summary).contains(&format!("Turn {} requirement", index + 4)));
-            if index > 0 {
-                assert!(messages(summary).contains("Context summary fixture"));
-            }
-        }
-        fixture.node.shutdown().await.unwrap();
-        fixture.controller.close().await.unwrap();
     }
+    observations::assert_context_hidden(&fixture.node, fixture.session.id).await;
+    let summaries: Vec<_> = requests
+        .iter()
+        .filter(|request| agent_support::compaction::is_summary(request))
+        .collect();
+    assert_eq!(summaries.len(), 3);
+    for (index, summary) in summaries.iter().enumerate() {
+        assert!(summary["tools"].as_array().is_none_or(Vec::is_empty));
+        assert!(messages(summary).contains(&format!("Turn {} requirement", index + 4)));
+        if index > 0 {
+            assert!(messages(summary).contains("Context summary fixture"));
+        }
+    }
+    fixture.node.shutdown().await.unwrap();
+    fixture.controller.close().await.unwrap();
 }
 
 #[tokio::test]
 async fn resumes_compacted_context() {
-    for remote in [false, true] {
-        let server = Server::compaction_sequence(
-            false,
-            "Context summary fixture: retained source facts".into(),
-            vec![100, 100, 100, 26000, 100],
-        )
-        .await;
-        let fixture = fixture(remote, &server).await;
-        std::fs::write(
-            fixture.root.join("source.txt"),
-            "Original tool evidence 中文 🙂\n".repeat(200),
-        )
+    let server = Server::compaction_sequence(
+        false,
+        "Context summary fixture: retained source facts".into(),
+        vec![100, 100, 100, 26000, 100],
+    )
+    .await;
+    let fixture = fixture(&server).await;
+    std::fs::write(
+        fixture.root.join("source.txt"),
+        "Original tool evidence 中文 🙂\n".repeat(200),
+    )
+    .unwrap();
+    let original = "Original constraint 中文 🙂 ".repeat(100);
+    let (_, first, _) = submit(&fixture.client, fixture.session.id, original.clone()).await;
+    submit(
+        &fixture.client,
+        fixture.session.id,
+        "Second recent turn".into(),
+    )
+    .await;
+    let (request, third, before) = submit(
+        &fixture.client,
+        fixture.session.id,
+        "Third recent turn".into(),
+    )
+    .await;
+    assert_eq!(server.requests.lock().unwrap().len(), 4);
+    assert!(
+        server
+            .requests
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|request| !agent_support::compaction::is_summary(request))
+    );
+    usage_total(&fixture.client, 4, 26000 + 3 * 100).await;
+    let Output::Session(branch) = fixture
+        .client
+        .execute(fixture.client.prepare(Command::ForkConversation {
+            session: fixture.session.id,
+            through: third,
+            expected_revision: 1,
+        }))
+        .await
+        .unwrap()
+    else {
+        panic!("fork expected")
+    };
+    let Output::Session(early) = fixture
+        .client
+        .execute(fixture.client.prepare(Command::ForkConversation {
+            session: fixture.session.id,
+            through: first,
+            expected_revision: 1,
+        }))
+        .await
+        .unwrap()
+    else {
+        panic!("fork expected")
+    };
+    fixture.node.shutdown().await.unwrap();
+    let node = Node::start_empty(fixture.directory.path().join("node"))
+        .await
         .unwrap();
-        let original = "Original constraint 中文 🙂 ".repeat(100);
-        let (_, first, _) = submit(&fixture.client, fixture.session.id, original.clone()).await;
-        submit(
-            &fixture.client,
-            fixture.session.id,
-            "Second recent turn".into(),
-        )
-        .await;
-        let (request, third, before) = submit(
-            &fixture.client,
-            fixture.session.id,
-            "Third recent turn".into(),
-        )
-        .await;
-        assert_eq!(server.requests.lock().unwrap().len(), 4);
-        assert!(
-            server
-                .requests
-                .lock()
-                .unwrap()
-                .iter()
-                .all(|request| !agent_support::compaction::is_summary(request))
-        );
-        usage_total(&fixture.client, 4, 26000 + 3 * 100).await;
-        let Output::Session(branch) = fixture
-            .client
-            .execute(fixture.client.prepare(Command::ForkConversation {
-                session: fixture.session.id,
-                through: third,
-                expected_revision: 1,
-            }))
-            .await
-            .unwrap()
-        else {
-            panic!("fork expected")
-        };
-        let Output::Session(early) = fixture
-            .client
-            .execute(fixture.client.prepare(Command::ForkConversation {
-                session: fixture.session.id,
-                through: first,
-                expected_revision: 1,
-            }))
-            .await
-            .unwrap()
-        else {
-            panic!("fork expected")
-        };
-        fixture.node.shutdown().await.unwrap();
-        let node = Node::start_empty(fixture.directory.path().join("node"))
-            .await
-            .unwrap();
-        let client = Client::new(if remote {
-            fixture.controller.handle().remote(node.link().address())
-        } else {
-            node.local()
-        });
-        assert_eq!(
-            history(&client, fixture.session.id).await.entries,
-            before.entries
-        );
-        client.execute(request).await.unwrap();
-        assert_eq!(server.requests.lock().unwrap().len(), 4);
-        for session in [fixture.session.id, branch.id] {
-            let prior = history(&client, session).await.entries;
-            let (_, _, after) = submit(&client, session, "Continue after restart".into()).await;
-            assert_eq!(&after.entries[..prior.len()], prior.as_slice());
-            let requests = server.requests.lock().unwrap().clone();
-            let summary = &requests[requests.len() - 2];
-            assert!(agent_support::compaction::is_summary(summary));
-            assert!(summary["tools"].as_array().is_none_or(Vec::is_empty));
-            let transcript = messages(summary);
-            for text in [
-                "Original constraint",
-                "Original tool evidence 中文 🙂",
-                "read_file",
-                "Second recent turn",
-                "Third recent turn",
-            ] {
-                assert!(transcript.contains(text), "{text}");
-            }
-            let current = messages(requests.last().unwrap());
-            assert!(current.contains("Context summary fixture"));
-            assert!(current.contains("Continue after restart"));
-            assert!(!current.contains("Original tool evidence"));
-            assert!(!current.contains("evidence-call"));
+    let client = Client::new(fixture.controller.handle().remote(node.link().address()));
+    assert_eq!(
+        history(&client, fixture.session.id).await.entries,
+        before.entries
+    );
+    client.execute(request).await.unwrap();
+    assert_eq!(server.requests.lock().unwrap().len(), 4);
+    for session in [fixture.session.id, branch.id] {
+        let prior = history(&client, session).await.entries;
+        let (_, _, after) = submit(&client, session, "Continue after restart".into()).await;
+        assert_eq!(&after.entries[..prior.len()], prior.as_slice());
+        let requests = server.requests.lock().unwrap().clone();
+        let summary = &requests[requests.len() - 2];
+        assert!(agent_support::compaction::is_summary(summary));
+        assert!(summary["tools"].as_array().is_none_or(Vec::is_empty));
+        let transcript = messages(summary);
+        for text in [
+            "Original constraint",
+            "Original tool evidence 中文 🙂",
+            "read_file",
+            "Second recent turn",
+            "Third recent turn",
+        ] {
+            assert!(transcript.contains(text), "{text}");
         }
-        submit(&client, early.id, "Continue early branch".into()).await;
-        let current = server.requests.lock().unwrap().last().unwrap().clone();
-        assert!(messages(&current).contains("Original constraint"));
-        assert!(messages(&current).contains("Original tool evidence 中文 🙂"));
-        assert!(!messages(&current).contains("Context summary fixture"));
-        node.shutdown().await.unwrap();
-        fixture.controller.close().await.unwrap();
+        let current = messages(requests.last().unwrap());
+        assert!(current.contains("Context summary fixture"));
+        assert!(current.contains("Continue after restart"));
+        assert!(!current.contains("Original tool evidence"));
+        assert!(!current.contains("evidence-call"));
     }
+    submit(&client, early.id, "Continue early branch".into()).await;
+    let current = server.requests.lock().unwrap().last().unwrap().clone();
+    assert!(messages(&current).contains("Original constraint"));
+    assert!(messages(&current).contains("Original tool evidence 中文 🙂"));
+    assert!(!messages(&current).contains("Context summary fixture"));
+    node.shutdown().await.unwrap();
+    fixture.controller.close().await.unwrap();
 }
 
 #[path = "compaction/recovery.rs"]

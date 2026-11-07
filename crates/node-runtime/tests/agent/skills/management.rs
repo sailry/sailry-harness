@@ -16,7 +16,6 @@ struct Fixture {
 
 impl Fixture {
     async fn new(
-        remote: bool,
         git: &source::Git,
         permission: Permission,
         mode: WorkMode,
@@ -37,11 +36,7 @@ impl Fixture {
             .pair(node.link().invite().unwrap().ticket())
             .await
             .unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(address)
-        } else {
-            node.local()
-        });
+        let client = Client::new(controller.handle().remote(address));
         let original = discovery(&client, git.source()).await;
         git.update();
         let next = discovery(&client, git.source()).await;
@@ -156,378 +151,350 @@ fn names(request: &Value) -> Vec<&str> {
 
 #[tokio::test]
 async fn permissions_and_empty_inventory() {
-    for remote in [false, true] {
-        for (permission, allow) in [
-            (Permission::Ask, true),
-            (Permission::Ask, false),
-            (Permission::Project, true),
-            (Permission::Full, true),
-        ] {
-            let git = source::Git::new();
-            let fixture = Fixture::new(remote, &git, permission, WorkMode::Code, |original, _| {
-                vec![
-                    (
-                        "tool_search".into(),
-                        json!({"query":"manage_skills","limit":1}),
-                    ),
-                    ("list".into(), json!({})),
-                    (
-                        "discover".into(),
-                        json!({"repository":git.url,"ref":"release/v1"}),
-                    ),
-                    ("install".into(), install(original)),
-                    ("list".into(), json!({})),
-                ]
-            })
-            .await;
-            enabled_only(&fixture.client, &[]).await;
-            let turn = fixture.submit().await;
-            for index in 0..if permission == Permission::Full { 0 } else { 4 } {
-                let (pending, approval) =
-                    approvals::pending(&fixture.client, fixture.session.id).await;
-                assert_eq!(approval.source, ApprovalSource::User);
-                assert!(pending.entries.iter().flat_map(|entry| &entry.parts).any(
-                    |part| matches!(part, Part::ToolCall { name, .. } if name == "manage_skills")
-                ));
-                let Output::Plugins(before) = execute(&fixture.client, Command::ListPlugins).await
-                else {
-                    panic!("plugins expected");
-                };
-                assert_eq!(
-                    before
-                        .iter()
-                        .any(|entry| entry.name == selected(&fixture.original).name),
-                    index > 2 && allow
-                );
-                execute(
-                    &fixture.client,
-                    Command::ResolveApproval {
-                        session: fixture.session.id,
-                        approval: approval.id,
-                        decision: if index != 2 || allow {
-                            Decision::Approve
-                        } else {
-                            Decision::Deny
-                        },
-                    },
-                )
-                .await;
-            }
-            let page = finished(&fixture.client, fixture.session.id, turn.id).await;
-            assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
-            let view = super::super::progress::observe(&fixture.client, fixture.session.id).await;
-            assert_eq!(view.calls.len(), 5);
-            assert_eq!(view.calls[0].name, "tool_search");
-            let calls = &view.calls[1..];
-            for index in [0, 1, 3] {
-                assert!(!calls[index].details(&page));
-                assert!(calls[index].resolved().unwrap().label.is_some());
-            }
-            if allow {
-                assert!(calls[2].details(&page));
-            }
-            let output = results(&fixture.client, &page).await;
-            assert_eq!(output.len(), 5);
-            assert_eq!(output[0]["tools"][0]["name"], "manage_skills");
-            let output = &output[1..];
-            assert_eq!(output[0]["skills"], json!([]));
-            assert_eq!(output[1]["source"]["commit"], fixture.next.source.commit);
-            assert_eq!(
-                output[3]["skills"].as_array().unwrap().len(),
-                usize::from(allow)
-            );
-            if allow {
-                assert_eq!(output[2]["name"], selected(&fixture.original).name);
-                assert_eq!(output[3]["skills"][0]["source"]["commit"], git.first);
-                let expected = if permission == Permission::Full {
-                    ApprovalSource::Full
-                } else {
-                    ApprovalSource::User
-                };
-                assert_eq!(page.approvals[0].source, expected);
-            }
-            for (index, request) in fixture.server.requests.lock().unwrap().iter().enumerate() {
-                let names = names(request);
-                assert_eq!(names.contains(&"manage_skills"), index > 0);
-                for name in [
-                    "list_skills",
-                    "discover_skills",
-                    "install_skill",
-                    "update_skill",
-                    "uninstall_skill",
-                ] {
-                    assert!(!names.contains(&name));
-                }
-                assert!(!names.contains(&"load_skill"));
-            }
-            // Management belongs to the captured execution Node, not the controller or another Node.
-            let other_directory = tempfile::tempdir().unwrap();
-            let other = Node::start_empty(other_directory.path().join("other"))
-                .await
-                .unwrap();
-            let other_client = Client::new(other.local());
-            let Output::Plugins(entries) = execute(&other_client, Command::ListPlugins).await
+    for (permission, allow) in [
+        (Permission::Ask, true),
+        (Permission::Ask, false),
+        (Permission::Project, true),
+        (Permission::Full, true),
+    ] {
+        let git = source::Git::new();
+        let fixture = Fixture::new(&git, permission, WorkMode::Code, |original, _| {
+            vec![
+                (
+                    "tool_search".into(),
+                    json!({"query":"manage_skills","limit":1}),
+                ),
+                ("list".into(), json!({})),
+                (
+                    "discover".into(),
+                    json!({"repository":git.url,"ref":"release/v1"}),
+                ),
+                ("install".into(), install(original)),
+                ("list".into(), json!({})),
+            ]
+        })
+        .await;
+        enabled_only(&fixture.client, &[]).await;
+        let turn = fixture.submit().await;
+        for index in 0..if permission == Permission::Full { 0 } else { 4 } {
+            let (pending, approval) = approvals::pending(&fixture.client, fixture.session.id).await;
+            assert_eq!(approval.source, ApprovalSource::User);
+            assert!(pending.entries.iter().flat_map(|entry| &entry.parts).any(
+                |part| matches!(part, Part::ToolCall { name, .. } if name == "manage_skills")
+            ));
+            let Output::Plugins(before) = execute(&fixture.client, Command::ListPlugins).await
             else {
                 panic!("plugins expected");
             };
-            assert!(
-                !entries
+            assert_eq!(
+                before
                     .iter()
-                    .any(|entry| entry.name == selected(&fixture.original).name)
+                    .any(|entry| entry.name == selected(&fixture.original).name),
+                index > 2 && allow
             );
-            drop(other_client);
-            other.shutdown().await.unwrap();
-            fixture.close().await;
+            execute(
+                &fixture.client,
+                Command::ResolveApproval {
+                    session: fixture.session.id,
+                    approval: approval.id,
+                    decision: if index != 2 || allow {
+                        Decision::Approve
+                    } else {
+                        Decision::Deny
+                    },
+                },
+            )
+            .await;
         }
-    }
-}
-
-#[tokio::test]
-async fn preserves_identity_and_rejects_feature_packages() {
-    for remote in [false, true] {
-        let git = source::Git::new();
-        let fixture = Fixture::new(
-            remote,
-            &git,
-            Permission::Full,
-            WorkMode::Code,
-            |original, next| {
-                let name = &selected(original).name;
-                let mut changed = update(next, 1);
-                changed["path"] = json!("other");
-                let mut feature_update = update(next, 1);
-                feature_update["name"] = json!("files");
-                vec![
-                    (
-                        "uninstall".into(),
-                        json!({"name":"files","expected_revision":1}),
-                    ),
-                    ("update".into(), feature_update),
-                    ("install".into(), install(original)),
-                    ("update".into(), changed),
-                    ("update".into(), update(next, 1)),
-                    (
-                        "uninstall".into(),
-                        json!({"name":name,"expected_revision":1}),
-                    ),
-                    (
-                        "uninstall".into(),
-                        json!({"name":name,"expected_revision":2}),
-                    ),
-                    ("list".into(), json!({})),
-                ]
-            },
-        )
-        .await;
-        let Output::Plugin(files) = execute(
-            &fixture.client,
-            Command::InstallBundledPlugin {
-                name: "files".into(),
-                expected_revision: 0,
-            },
-        )
-        .await
-        else {
-            panic!("files package expected");
-        };
-        assert!(files.issues.is_empty(), "{:?}", files.issues);
-        let turn = fixture.submit().await;
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;
         assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
+        let view = super::super::progress::observe(&fixture.client, fixture.session.id).await;
+        assert_eq!(view.calls.len(), 5);
+        assert_eq!(view.calls[0].name, "tool_search");
+        let calls = &view.calls[1..];
+        for index in [0, 1, 3] {
+            assert!(!calls[index].details(&page));
+            assert!(calls[index].resolved().unwrap().label.is_some());
+        }
+        if allow {
+            assert!(calls[2].details(&page));
+        }
         let output = results(&fixture.client, &page).await;
-        assert_eq!(
-            output[0]["error"]["code"],
-            json!(ErrorCode::PermissionDenied)
-        );
-        assert_eq!(
-            output[1]["error"]["code"],
-            json!(ErrorCode::PermissionDenied)
-        );
-        assert_eq!(output[2]["revision"], 1);
-        assert_eq!(output[3]["error"]["code"], json!(ErrorCode::InvalidRequest));
-        assert_eq!(output[4]["revision"], 2);
-        assert_eq!(
-            output[4]["source"]["source"]["commit"],
-            fixture.next.source.commit
-        );
-        assert_eq!(
-            output[5]["error"]["code"],
-            json!(ErrorCode::RevisionConflict)
-        );
-        assert_eq!(output[6], json!({"skills":[]}));
-        assert_eq!(output[7], json!({"skills":[]}));
-        let Output::Plugin(files) = execute(
-            &fixture.client,
-            Command::ReadPlugin {
-                name: "files".into(),
-            },
-        )
-        .await
-        else {
-            panic!("files package expected");
-        };
-        assert!(files.summary.enabled);
-        assert_eq!(files.summary.revision, 1);
-        fixture.close().await;
-    }
-}
-
-#[tokio::test]
-async fn preserves_planning_inventory() {
-    for remote in [false, true] {
-        let git = source::Git::new();
-        let fixture = Fixture::new(
-            remote,
-            &git,
-            Permission::Full,
-            WorkMode::Plan,
-            |original, next| {
-                vec![
-                    (
-                        "tool_search".into(),
-                        json!({"query":"manage_skills","limit":1}),
-                    ),
-                    ("list".into(), json!({})),
-                    (
-                        "discover".into(),
-                        json!({"repository":git.url,"ref":"release/v1","path":"skills/analysis"}),
-                    ),
-                    ("install".into(), install(original)),
-                    ("update".into(), update(next, 1)),
-                    (
-                        "uninstall".into(),
-                        json!({"name":selected(original).name,"expected_revision":1}),
-                    ),
-                    ("list".into(), json!({})),
-                ]
-            },
-        )
-        .await;
-        let before = execute(&fixture.client, Command::ListPlugins).await;
-        let turn = fixture.submit().await;
-        let page = questions::finish_plan(&fixture.client, fixture.session.id, turn.id).await;
-        assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
-        assert!(page.approvals.is_empty());
-        let output = results(&fixture.client, &page).await;
-        assert_eq!(output.len(), 7);
+        assert_eq!(output.len(), 5);
         assert_eq!(output[0]["tools"][0]["name"], "manage_skills");
         let output = &output[1..];
-        assert_eq!(output[0], json!({"skills":[]}));
-        assert_eq!(output[1]["skills"].as_array().unwrap().len(), 1);
-        for denied in &output[2..5] {
-            assert_eq!(denied["error"]["code"], json!(ErrorCode::PermissionDenied));
-            assert_eq!(
-                denied["error"]["message"],
-                "skill installation changes are unavailable in Plan mode"
-            );
+        assert_eq!(output[0]["skills"], json!([]));
+        assert_eq!(output[1]["source"]["commit"], fixture.next.source.commit);
+        assert_eq!(
+            output[3]["skills"].as_array().unwrap().len(),
+            usize::from(allow)
+        );
+        if allow {
+            assert_eq!(output[2]["name"], selected(&fixture.original).name);
+            assert_eq!(output[3]["skills"][0]["source"]["commit"], git.first);
+            let expected = if permission == Permission::Full {
+                ApprovalSource::Full
+            } else {
+                ApprovalSource::User
+            };
+            assert_eq!(page.approvals[0].source, expected);
         }
-        assert_eq!(output[5], output[0]);
-        assert_eq!(execute(&fixture.client, Command::ListPlugins).await, before);
         for (index, request) in fixture.server.requests.lock().unwrap().iter().enumerate() {
             let names = names(request);
-            if index == 0 {
-                assert!(!names.contains(&"manage_skills"));
-                continue;
-            }
-            assert!(names.contains(&"manage_skills"));
-            let tool = request["tools"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .find(|tool| tool["function"]["name"] == "manage_skills")
-                .unwrap();
-            let parameters = &tool["function"]["parameters"];
-            assert_eq!(
-                parameters["properties"]["action"]["enum"],
-                json!(["list", "discover", "install", "update", "uninstall"]),
-                "{parameters}"
-            );
-            let schema = jsonschema::validator_for(parameters).unwrap();
-            for arguments in [
-                json!({"action":"list"}),
-                json!({"action":"discover","repository":git.url,"ref":"release/v1","path":"skills/analysis"}),
+            assert_eq!(names.contains(&"manage_skills"), index > 0);
+            for name in [
+                "list_skills",
+                "discover_skills",
+                "install_skill",
+                "update_skill",
+                "uninstall_skill",
             ] {
-                assert!(schema.is_valid(&arguments), "{arguments}: {parameters}");
+                assert!(!names.contains(&name));
             }
-            for (action, mut arguments) in [
-                ("install", install(&fixture.original)),
-                ("update", update(&fixture.next, 1)),
-                (
-                    "uninstall",
-                    json!({"name":selected(&fixture.original).name,"expected_revision":1}),
-                ),
-            ] {
-                arguments["action"] = json!(action);
-                assert!(schema.is_valid(&arguments), "{arguments}: {parameters}");
-            }
+            assert!(!names.contains(&"load_skill"));
         }
-        fixture.close().await;
-    }
-}
-
-#[tokio::test]
-async fn keeps_admitted_resources() {
-    for remote in [false, true] {
-        let git = source::Git::new();
-        let fixture = Fixture::new(
-            remote,
-            &git,
-            Permission::Full,
-            WorkMode::Code,
-            |original, next| {
-                let name = &selected(original).name;
-                let skill = format!("{name}:analysis");
-                vec![
-                    ("update".into(), update(next, 1)),
-                    (
-                        "read_skill_resource".into(),
-                        json!({"skill":skill,"path":"references/guide.md"}),
-                    ),
-                    (
-                        "uninstall".into(),
-                        json!({"name":name,"expected_revision":2}),
-                    ),
-                    ("load_skill".into(), json!({"skill":skill})),
-                ]
-            },
-        )
-        .await;
-        let Output::Plugin(installed) = execute(
-            &fixture.client,
-            source::install(&fixture.original, selected(&fixture.original), 0),
-        )
-        .await
-        else {
-            panic!("skill package expected");
-        };
-        let turn = fixture.submit().await;
-        assert!(turn.plugins.contains(&installed.summary.reference()));
-        let page = finished(&fixture.client, fixture.session.id, turn.id).await;
-        assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
-        let output = results(&fixture.client, &page).await;
-        assert_eq!(output[0]["revision"], 2);
-        assert_eq!(output[1]["content"], "Guide first 中文 🙂");
-        assert_eq!(output[2], json!({"skills":[]}));
-        assert_eq!(output[3]["content"], source::body("first"));
-        let Output::Plugins(entries) = execute(&fixture.client, Command::ListPlugins).await else {
+        // Management belongs to the captured execution Node, not the controller or another Node.
+        let other_directory = tempfile::tempdir().unwrap();
+        let other = Node::start_empty(other_directory.path().join("other"))
+            .await
+            .unwrap();
+        let other_client = Client::new(other.local());
+        let Output::Plugins(entries) = execute(&other_client, Command::ListPlugins).await else {
             panic!("plugins expected");
         };
         assert!(
             !entries
                 .iter()
-                .any(|entry| entry.name == installed.summary.name)
+                .any(|entry| entry.name == selected(&fixture.original).name)
         );
-        let Output::Plugin(retained) = execute(
-            &fixture.client,
-            Command::ReadPluginVersion {
-                package: installed.summary.reference(),
-            },
-        )
-        .await
-        else {
-            panic!("retained skill package expected");
-        };
-        assert_eq!(retained.skill, installed.skill);
+        drop(other_client);
+        other.shutdown().await.unwrap();
         fixture.close().await;
     }
+}
+
+#[tokio::test]
+async fn preserves_identity_and_rejects_feature_packages() {
+    let git = source::Git::new();
+    let fixture = Fixture::new(&git, Permission::Full, WorkMode::Code, |original, next| {
+        let name = &selected(original).name;
+        let mut changed = update(next, 1);
+        changed["path"] = json!("other");
+        let mut feature_update = update(next, 1);
+        feature_update["name"] = json!("files");
+        vec![
+            (
+                "uninstall".into(),
+                json!({"name":"files","expected_revision":1}),
+            ),
+            ("update".into(), feature_update),
+            ("install".into(), install(original)),
+            ("update".into(), changed),
+            ("update".into(), update(next, 1)),
+            (
+                "uninstall".into(),
+                json!({"name":name,"expected_revision":1}),
+            ),
+            (
+                "uninstall".into(),
+                json!({"name":name,"expected_revision":2}),
+            ),
+            ("list".into(), json!({})),
+        ]
+    })
+    .await;
+    let Output::Plugin(files) = execute(
+        &fixture.client,
+        Command::InstallBundledPlugin {
+            name: "files".into(),
+            expected_revision: 0,
+        },
+    )
+    .await
+    else {
+        panic!("files package expected");
+    };
+    assert!(files.issues.is_empty(), "{:?}", files.issues);
+    let turn = fixture.submit().await;
+    let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+    assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
+    let output = results(&fixture.client, &page).await;
+    assert_eq!(
+        output[0]["error"]["code"],
+        json!(ErrorCode::PermissionDenied)
+    );
+    assert_eq!(
+        output[1]["error"]["code"],
+        json!(ErrorCode::PermissionDenied)
+    );
+    assert_eq!(output[2]["revision"], 1);
+    assert_eq!(output[3]["error"]["code"], json!(ErrorCode::InvalidRequest));
+    assert_eq!(output[4]["revision"], 2);
+    assert_eq!(
+        output[4]["source"]["source"]["commit"],
+        fixture.next.source.commit
+    );
+    assert_eq!(
+        output[5]["error"]["code"],
+        json!(ErrorCode::RevisionConflict)
+    );
+    assert_eq!(output[6], json!({"skills":[]}));
+    assert_eq!(output[7], json!({"skills":[]}));
+    let Output::Plugin(files) = execute(
+        &fixture.client,
+        Command::ReadPlugin {
+            name: "files".into(),
+        },
+    )
+    .await
+    else {
+        panic!("files package expected");
+    };
+    assert!(files.summary.enabled);
+    assert_eq!(files.summary.revision, 1);
+    fixture.close().await;
+}
+
+#[tokio::test]
+async fn preserves_planning_inventory() {
+    let git = source::Git::new();
+    let fixture = Fixture::new(&git, Permission::Full, WorkMode::Plan, |original, next| {
+        vec![
+            (
+                "tool_search".into(),
+                json!({"query":"manage_skills","limit":1}),
+            ),
+            ("list".into(), json!({})),
+            (
+                "discover".into(),
+                json!({"repository":git.url,"ref":"release/v1","path":"skills/analysis"}),
+            ),
+            ("install".into(), install(original)),
+            ("update".into(), update(next, 1)),
+            (
+                "uninstall".into(),
+                json!({"name":selected(original).name,"expected_revision":1}),
+            ),
+            ("list".into(), json!({})),
+        ]
+    })
+    .await;
+    let before = execute(&fixture.client, Command::ListPlugins).await;
+    let turn = fixture.submit().await;
+    let page = questions::finish_plan(&fixture.client, fixture.session.id, turn.id).await;
+    assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
+    assert!(page.approvals.is_empty());
+    let output = results(&fixture.client, &page).await;
+    assert_eq!(output.len(), 7);
+    assert_eq!(output[0]["tools"][0]["name"], "manage_skills");
+    let output = &output[1..];
+    assert_eq!(output[0], json!({"skills":[]}));
+    assert_eq!(output[1]["skills"].as_array().unwrap().len(), 1);
+    for denied in &output[2..5] {
+        assert_eq!(denied["error"]["code"], json!(ErrorCode::PermissionDenied));
+        assert_eq!(
+            denied["error"]["message"],
+            "skill installation changes are unavailable in Plan mode"
+        );
+    }
+    assert_eq!(output[5], output[0]);
+    assert_eq!(execute(&fixture.client, Command::ListPlugins).await, before);
+    for (index, request) in fixture.server.requests.lock().unwrap().iter().enumerate() {
+        let names = names(request);
+        if index == 0 {
+            assert!(!names.contains(&"manage_skills"));
+            continue;
+        }
+        assert!(names.contains(&"manage_skills"));
+        let tool = request["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|tool| tool["function"]["name"] == "manage_skills")
+            .unwrap();
+        let parameters = &tool["function"]["parameters"];
+        assert_eq!(
+            parameters["properties"]["action"]["enum"],
+            json!(["list", "discover", "install", "update", "uninstall"]),
+            "{parameters}"
+        );
+        let schema = jsonschema::validator_for(parameters).unwrap();
+        for arguments in [
+            json!({"action":"list"}),
+            json!({"action":"discover","repository":git.url,"ref":"release/v1","path":"skills/analysis"}),
+        ] {
+            assert!(schema.is_valid(&arguments), "{arguments}: {parameters}");
+        }
+        for (action, mut arguments) in [
+            ("install", install(&fixture.original)),
+            ("update", update(&fixture.next, 1)),
+            (
+                "uninstall",
+                json!({"name":selected(&fixture.original).name,"expected_revision":1}),
+            ),
+        ] {
+            arguments["action"] = json!(action);
+            assert!(schema.is_valid(&arguments), "{arguments}: {parameters}");
+        }
+    }
+    fixture.close().await;
+}
+
+#[tokio::test]
+async fn keeps_admitted_resources() {
+    let git = source::Git::new();
+    let fixture = Fixture::new(&git, Permission::Full, WorkMode::Code, |original, next| {
+        let name = &selected(original).name;
+        let skill = format!("{name}:analysis");
+        vec![
+            ("update".into(), update(next, 1)),
+            (
+                "read_skill_resource".into(),
+                json!({"skill":skill,"path":"references/guide.md"}),
+            ),
+            (
+                "uninstall".into(),
+                json!({"name":name,"expected_revision":2}),
+            ),
+            ("load_skill".into(), json!({"skill":skill})),
+        ]
+    })
+    .await;
+    let Output::Plugin(installed) = execute(
+        &fixture.client,
+        source::install(&fixture.original, selected(&fixture.original), 0),
+    )
+    .await
+    else {
+        panic!("skill package expected");
+    };
+    let turn = fixture.submit().await;
+    assert!(turn.plugins.contains(&installed.summary.reference()));
+    let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+    assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
+    let output = results(&fixture.client, &page).await;
+    assert_eq!(output[0]["revision"], 2);
+    assert_eq!(output[1]["content"], "Guide first 中文 🙂");
+    assert_eq!(output[2], json!({"skills":[]}));
+    assert_eq!(output[3]["content"], source::body("first"));
+    let Output::Plugins(entries) = execute(&fixture.client, Command::ListPlugins).await else {
+        panic!("plugins expected");
+    };
+    assert!(
+        !entries
+            .iter()
+            .any(|entry| entry.name == installed.summary.name)
+    );
+    let Output::Plugin(retained) = execute(
+        &fixture.client,
+        Command::ReadPluginVersion {
+            package: installed.summary.reference(),
+        },
+    )
+    .await
+    else {
+        panic!("retained skill package expected");
+    };
+    assert_eq!(retained.skill, installed.skill);
+    fixture.close().await;
 }

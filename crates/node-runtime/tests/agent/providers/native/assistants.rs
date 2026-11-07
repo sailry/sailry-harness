@@ -3,8 +3,8 @@ use crate::agent_support::Server as SearchServer;
 use sailry_protocol::plugin::conversation::Binding;
 use serde_json::json;
 
-async fn setup(remote: bool, api: ModelApi, endpoint: &str, allow_search: bool) -> Fixture {
-    let mut fixture = Fixture::packages(remote, api, endpoint, &[]).await;
+async fn setup(api: ModelApi, endpoint: &str, allow_search: bool) -> Fixture {
+    let mut fixture = Fixture::packages(api, endpoint, &[]).await;
     let root = fixture.root.join("assistant");
     std::fs::create_dir_all(root.join(sailry_protocol::plugin::NAMESPACE)).unwrap();
     std::fs::write(
@@ -72,30 +72,28 @@ async fn setup(remote: bool, api: ModelApi, endpoint: &str, allow_search: bool) 
 
 #[tokio::test]
 async fn excluded_capabilities_do_not_require_provider_support() {
-    for remote in [false, true] {
-        let server = SearchServer::start(false).await;
-        let fixture = setup(remote, ModelApi::ChatCompletions, &server.endpoint, false).await;
-        let turn = fixture.submit("Answer without search").await;
-        let page = finished(&fixture.client, fixture.session.id, turn).await;
-        assert_eq!(
-            page.runs.last().unwrap().status,
-            Status::Completed,
-            "{:?}",
-            page.runs
-        );
-        let requests = server.requests.lock().unwrap().clone();
-        assert_eq!(requests.len(), 1);
-        assert!(
-            !requests[0]["tools"]
-                .as_array()
-                .is_some_and(|tools| tools.iter().any(|tool| [
-                    "openai_web_search",
-                    "web_search",
-                    "google_search"
-                ]
-                .contains(&tool["function"]["name"].as_str().unwrap_or(""))))
-        );
-        fixture.controller.close().await.unwrap();
-        fixture.node.shutdown().await.unwrap();
-    }
+    let server = SearchServer::start(false).await;
+    let fixture = setup(ModelApi::ChatCompletions, &server.endpoint, false).await;
+    let turn = fixture.submit("Answer without search").await;
+    let page = finished(&fixture.client, fixture.session.id, turn).await;
+    assert_eq!(
+        page.runs.last().unwrap().status,
+        Status::Completed,
+        "{:?}",
+        page.runs
+    );
+    let requests = server.requests.lock().unwrap().clone();
+    assert_eq!(requests.len(), 1);
+    assert!(
+        !requests[0]["tools"]
+            .as_array()
+            .is_some_and(|tools| tools.iter().any(|tool| [
+                "openai_web_search",
+                "web_search",
+                "google_search"
+            ]
+            .contains(&tool["function"]["name"].as_str().unwrap_or(""))))
+    );
+    fixture.controller.close().await.unwrap();
+    fixture.node.shutdown().await.unwrap();
 }

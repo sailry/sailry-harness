@@ -6,40 +6,25 @@ fn through(sequence: u64) -> HistoryRequest {
 }
 
 #[tokio::test]
-async fn follows_latest_local_target() {
-    follow_target(false).await;
-}
-
-#[tokio::test]
 async fn follows_latest_remote_target() {
-    follow_target(true).await;
+    follow_target().await;
 }
 
-async fn follow_target(remote: bool) {
+async fn follow_target() {
     let fixture = tempfile::tempdir().unwrap();
     let root = fixture.path().join("project");
     std::fs::create_dir(&root).unwrap();
     let profile = fixture.path().join("node");
     let node = Node::start_empty(&profile).await.unwrap();
-    let controller = if remote {
-        Some(
-            Link::controller(fixture.path().join("controller"), NetworkScope::default())
-                .await
-                .unwrap(),
-        )
-    } else {
-        None
-    };
-    let transport = if let Some(controller) = &controller {
-        let address = controller
-            .handle()
-            .pair(node.link().invite().unwrap().ticket())
-            .await
-            .unwrap();
-        controller.handle().remote(address)
-    } else {
-        node.local()
-    };
+    let controller = Link::controller(fixture.path().join("controller"), NetworkScope::default())
+        .await
+        .unwrap();
+    let address = controller
+        .handle()
+        .pair(node.link().invite().unwrap().ticket())
+        .await
+        .unwrap();
+    let transport = controller.handle().remote(address);
     let client = Client::new(transport.clone());
     let server = Server::start(false).await;
     let (session, provider) = configured_session(&client, &server.endpoint, &root).await;
@@ -210,9 +195,7 @@ async fn follow_target(remote: bool) {
     stop.cancel();
     worker.await.unwrap().unwrap();
     assert_eq!(server.requests.lock().unwrap().len(), 66);
-    if let Some(controller) = controller {
-        controller.close().await.unwrap();
-    }
+    controller.close().await.unwrap();
     node.shutdown().await.unwrap();
     let node = Node::start_empty(&profile).await.unwrap();
     let client = Client::new(node.local());

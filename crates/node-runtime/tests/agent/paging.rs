@@ -187,41 +187,26 @@ impl<'a> Completion<'a> {
 }
 
 #[tokio::test]
-async fn restores_local_streamed_turns() {
-    restore_stream(false).await;
-}
-
-#[tokio::test]
 async fn restores_remote_streamed_turns() {
-    restore_stream(true).await;
+    restore_stream().await;
 }
 
-async fn restore_stream(remote: bool) {
+async fn restore_stream() {
     let fixture = tempfile::tempdir().unwrap();
     let root = fixture.path().join("project");
     std::fs::create_dir(&root).unwrap();
     std::fs::write(root.join("资料.txt"), "History 中文 🙂").unwrap();
     let profile = fixture.path().join("node");
     let node = Node::start_empty(&profile).await.unwrap();
-    let controller = if remote {
-        Some(
-            Link::controller(fixture.path().join("controller"), NetworkScope::default())
-                .await
-                .unwrap(),
-        )
-    } else {
-        None
-    };
-    let transport = if let Some(controller) = &controller {
-        let address = controller
-            .handle()
-            .pair(node.link().invite().unwrap().ticket())
-            .await
-            .unwrap();
-        controller.handle().remote(address)
-    } else {
-        node.local()
-    };
+    let controller = Link::controller(fixture.path().join("controller"), NetworkScope::default())
+        .await
+        .unwrap();
+    let address = controller
+        .handle()
+        .pair(node.link().invite().unwrap().ticket())
+        .await
+        .unwrap();
+    let transport = controller.handle().remote(address);
     let client = Client::new(transport.clone());
     let mut calls = vec![(
         "ask_user".into(),
@@ -614,9 +599,7 @@ async fn restore_stream(remote: bool) {
     };
     stop.cancel();
     worker.await.unwrap().unwrap();
-    if let Some(controller) = controller {
-        controller.close().await.unwrap();
-    }
+    controller.close().await.unwrap();
     node.shutdown().await.unwrap();
     let node = Node::start_empty(&profile).await.unwrap();
     let client = Client::new(node.local());

@@ -186,8 +186,8 @@ pub(super) fn assert_lifecycle(data: &Path) {
     assert_eq!(fs::read_to_string(data.join("launches")).unwrap(), "x");
 }
 
-async fn fixture(remote: bool, model: &Server) -> process::Fixture {
-    let fixture = process::Fixture::packages(remote, model, &[]).await;
+async fn fixture(model: &Server) -> process::Fixture {
+    let fixture = process::Fixture::packages(model, &[]).await;
     package(
         &fixture.root,
         json!({"native":peer::config("mcp::modern::stdio_peer", "input")}),
@@ -204,156 +204,153 @@ fn values() -> Value {
 
 #[tokio::test]
 async fn handles_answers_and_stopped_input() {
-    for remote in [false, true] {
-        let models = [
-            Server::tools(vec![(alias("native", "read"), json!({}))]).await,
-            Server::tools(vec![(alias("native", "read"), json!({}))]).await,
-            Server::tools(vec![(alias("native", "read"), json!({}))]).await,
-        ];
-        let mut fixture = fixture(remote, &models[0]).await;
-        let data = fixture.node.profile().join("plugins/data/example");
-        let mut children = Vec::new();
-        for (index, case_name) in ["accept", "cancel", "stop"].into_iter().enumerate() {
-            let model = &models[index];
-            if index > 0 {
-                select_case(&mut fixture, model, &format!("modern-{case_name}")).await;
-            }
-            let offset = if data.join("requests.jsonl").exists() {
-                requests(&data).len()
-            } else {
-                0
-            };
-            if case_name == "stop" {
-                let (_, turn) = submit(&fixture, false).await;
-                let (_, question) = questions::pending(&fixture.client, fixture.session.id).await;
-                execute(&fixture.client, Command::StopTurn { turn: turn.id }).await;
-                let page = finished(&fixture.client, fixture.session.id, turn.id).await;
-                assert_eq!(
-                    page.runs[0].status,
-                    Status::Cancelled,
-                    "{case_name}: {}",
-                    format_args!("{page:?}")
-                );
-                assert!(
-                    matches!(
-                        page.questions[0].state,
-                        State::Cancelled | State::Interrupted
-                    ),
-                    "{case_name}"
-                );
-                assert_eq!(
-                    fixture
-                        .client
-                        .execute(fixture.client.prepare(Command::ResolveQuestion {
-                            session: fixture.session.id,
-                            question: question.id,
-                            response: Response::Answer(Answer::Form(
-                                values().as_object().unwrap().clone()
-                            )),
-                        }))
-                        .await
-                        .unwrap_err()
-                        .code,
-                    ErrorCode::Conflict,
-                    "{case_name}"
-                );
-                assert_eq!(model.requests.lock().unwrap().len(), 1, "{case_name}");
-                assert_handshake(&requests(&data)[offset..], case_name);
-                assert_eq!(
-                    fs::read_to_string(data.join("launches")).unwrap(),
-                    "x".repeat(index + 1),
-                    "{case_name}"
-                );
-                reaped(&data);
-            } else {
-                let cancel = case_name == "cancel";
-                let (_, turn) = submit(&fixture, false).await;
-                let (page, question) =
-                    questions::pending(&fixture.client, fixture.session.id).await;
-                assert!(page.approvals.is_empty(), "{case_name}");
-                assert_eq!(model.requests.lock().unwrap().len(), 1, "{case_name}");
-                execute(
-                    &fixture.client,
-                    Command::ResolveQuestion {
+    let models = [
+        Server::tools(vec![(alias("native", "read"), json!({}))]).await,
+        Server::tools(vec![(alias("native", "read"), json!({}))]).await,
+        Server::tools(vec![(alias("native", "read"), json!({}))]).await,
+    ];
+    let mut fixture = fixture(&models[0]).await;
+    let data = fixture.node.profile().join("plugins/data/example");
+    let mut children = Vec::new();
+    for (index, case_name) in ["accept", "cancel", "stop"].into_iter().enumerate() {
+        let model = &models[index];
+        if index > 0 {
+            select_case(&mut fixture, model, &format!("modern-{case_name}")).await;
+        }
+        let offset = if data.join("requests.jsonl").exists() {
+            requests(&data).len()
+        } else {
+            0
+        };
+        if case_name == "stop" {
+            let (_, turn) = submit(&fixture, false).await;
+            let (_, question) = questions::pending(&fixture.client, fixture.session.id).await;
+            execute(&fixture.client, Command::StopTurn { turn: turn.id }).await;
+            let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+            assert_eq!(
+                page.runs[0].status,
+                Status::Cancelled,
+                "{case_name}: {}",
+                format_args!("{page:?}")
+            );
+            assert!(
+                matches!(
+                    page.questions[0].state,
+                    State::Cancelled | State::Interrupted
+                ),
+                "{case_name}"
+            );
+            assert_eq!(
+                fixture
+                    .client
+                    .execute(fixture.client.prepare(Command::ResolveQuestion {
                         session: fixture.session.id,
                         question: question.id,
-                        response: if cancel {
-                            Response::Cancel
-                        } else {
-                            Response::Answer(Answer::Form(values().as_object().unwrap().clone()))
-                        },
-                    },
-                )
-                .await;
-                let page = finished(&fixture.client, fixture.session.id, turn.id).await;
-                assert_eq!(
-                    page.runs[0].status,
-                    Status::Completed,
-                    "{case_name}: {}",
-                    format_args!("{page:?}")
-                );
-                assert_eq!(page.questions.len(), 1, "{case_name}");
-                let output: Vec<_> = tool_details(&fixture.client, &page)
+                        response: Response::Answer(Answer::Form(
+                            values().as_object().unwrap().clone()
+                        )),
+                    }))
                     .await
-                    .into_iter()
-                    .filter(|(name, _)| name == &alias("native", "read"))
-                    .map(|(_, detail)| detail.result.unwrap())
-                    .collect();
+                    .unwrap_err()
+                    .code,
+                ErrorCode::Conflict,
+                "{case_name}"
+            );
+            assert_eq!(model.requests.lock().unwrap().len(), 1, "{case_name}");
+            assert_handshake(&requests(&data)[offset..], case_name);
+            assert_eq!(
+                fs::read_to_string(data.join("launches")).unwrap(),
+                "x".repeat(index + 1),
+                "{case_name}"
+            );
+            reaped(&data);
+        } else {
+            let cancel = case_name == "cancel";
+            let (_, turn) = submit(&fixture, false).await;
+            let (page, question) = questions::pending(&fixture.client, fixture.session.id).await;
+            assert!(page.approvals.is_empty(), "{case_name}");
+            assert_eq!(model.requests.lock().unwrap().len(), 1, "{case_name}");
+            execute(
+                &fixture.client,
+                Command::ResolveQuestion {
+                    session: fixture.session.id,
+                    question: question.id,
+                    response: if cancel {
+                        Response::Cancel
+                    } else {
+                        Response::Answer(Answer::Form(values().as_object().unwrap().clone()))
+                    },
+                },
+            )
+            .await;
+            let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+            assert_eq!(
+                page.runs[0].status,
+                Status::Completed,
+                "{case_name}: {}",
+                format_args!("{page:?}")
+            );
+            assert_eq!(page.questions.len(), 1, "{case_name}");
+            let output: Vec<_> = tool_details(&fixture.client, &page)
+                .await
+                .into_iter()
+                .filter(|(name, _)| name == &alias("native", "read"))
+                .map(|(_, detail)| detail.result.unwrap())
+                .collect();
+            assert_eq!(
+                output.len(),
+                1,
+                "{case_name}: {}",
+                format_args!("{output:?}")
+            );
+            if cancel {
+                assert_eq!(page.questions[0].state, State::Cancelled, "{case_name}");
                 assert_eq!(
-                    output.len(),
-                    1,
-                    "{case_name}: {}",
-                    format_args!("{output:?}")
+                    output[0]["structuredContent"]["action"], "cancel",
+                    "{case_name}"
                 );
-                if cancel {
-                    assert_eq!(page.questions[0].state, State::Cancelled, "{case_name}");
-                    assert_eq!(
-                        output[0]["structuredContent"]["action"], "cancel",
-                        "{case_name}"
-                    );
-                } else {
-                    assert!(
-                        matches!(page.questions[0].state, State::Answered(_)),
-                        "{case_name}"
-                    );
-                    assert_eq!(
-                        output[0]["structuredContent"],
-                        json!({"action":"accept","content":values()}),
-                        "{case_name}"
-                    );
-                }
-                assert_eq!(model.requests.lock().unwrap().len(), 2, "{case_name}");
-                assert_handshake(&requests(&data)[offset..], case_name);
-                assert_eq!(
-                    fs::read_to_string(data.join("launches")).unwrap(),
-                    "x".repeat(index + 1),
+            } else {
+                assert!(
+                    matches!(page.questions[0].state, State::Answered(_)),
                     "{case_name}"
                 );
                 assert_eq!(
-                    requests(&data)[offset..]
-                        .iter()
-                        .filter(|request| request["method"] == "tools/call")
-                        .count(),
-                    2,
+                    output[0]["structuredContent"],
+                    json!({"action":"accept","content":values()}),
                     "{case_name}"
                 );
             }
-            children.push(
-                fs::read_to_string(data.join("pid"))
-                    .unwrap()
-                    .parse::<i32>()
-                    .unwrap(),
+            assert_eq!(model.requests.lock().unwrap().len(), 2, "{case_name}");
+            assert_handshake(&requests(&data)[offset..], case_name);
+            assert_eq!(
+                fs::read_to_string(data.join("launches")).unwrap(),
+                "x".repeat(index + 1),
+                "{case_name}"
+            );
+            assert_eq!(
+                requests(&data)[offset..]
+                    .iter()
+                    .filter(|request| request["method"] == "tools/call")
+                    .count(),
+                2,
+                "{case_name}"
             );
         }
-        fixture.node.shutdown().await.unwrap();
-        for (case_name, pid) in ["accept", "cancel", "stop"].into_iter().zip(children) {
-            // SAFETY: signal 0 only probes a PID captured from this fixture.
-            assert_ne!(
-                unsafe { libc::kill(pid, 0) },
-                0,
-                "remote={remote}, {case_name}: child must be reaped after shutdown"
-            );
-        }
-        fixture.controller.close().await.unwrap();
+        children.push(
+            fs::read_to_string(data.join("pid"))
+                .unwrap()
+                .parse::<i32>()
+                .unwrap(),
+        );
     }
+    fixture.node.shutdown().await.unwrap();
+    for (case_name, pid) in ["accept", "cancel", "stop"].into_iter().zip(children) {
+        // SAFETY: signal 0 only probes a PID captured from this fixture.
+        assert_ne!(
+            unsafe { libc::kill(pid, 0) },
+            0,
+            "{case_name}: child must be reaped after shutdown"
+        );
+    }
+    fixture.controller.close().await.unwrap();
 }
