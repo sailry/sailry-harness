@@ -1331,6 +1331,6 @@ Changed shared behavior requires domain evidence through the paired remote clien
 a change to the command or subscription boundary itself also needs the transport
 contract suite, which runs each contract through both clients. Local-only behavior
 keeps the local client. UI interaction, native OS acceptance, real-service
-integration and performance are separate results. Isolated fixtures never mutate user profiles. Build success is not device
-or whole-product acceptance; local pairing fixtures and bundling do not prove
-cloud deployment. Test conventions are in [CONTRIBUTING.md](CONTRIBUTING.md).
+integration and performance are separate results. Isolated fixtures never mutate
+user profiles. Build success is not device or whole-product acceptance; local
+pairing fixtures and bundling do not prove cloud deployment. Test conventions are in [CONTRIBUTING.md](CONTRIBUTING.md).
