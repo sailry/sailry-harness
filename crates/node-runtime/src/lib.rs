@@ -7,7 +7,6 @@ mod backup;
 mod browser;
 mod code_index;
 mod computer;
-mod databases;
 mod dispatch;
 mod external_browser;
 mod files;
@@ -42,6 +41,7 @@ use tokio::task::JoinHandle;
 pub use plugins::script::fixture as plugin_test;
 #[cfg(any(test, feature = "test-support"))]
 pub use process::environment::EnvironmentFixture;
+use sailry_databases as databases;
 pub use sailry_link::{EndpointAddr, NetworkScope};
 use sailry_local_models::{decision, installation, models, ocr};
 use sailry_runtime_core::profile::{self, Profile};

@@ -1,22 +1,24 @@
 //! Database execution adapted from sailry-code 67ae9fa0 sailry-connections.
-use sailry_link::CancellationToken;
 use sailry_protocol::{ErrorCode, Fault, Secret, database::*};
+use sailry_runtime_core::files;
+use sailry_ssh as ssh;
 use std::{path::PathBuf, time::Duration};
+use tokio_util::sync::CancellationToken;
 
-pub(crate) mod catalog;
+mod catalog;
 mod mysql;
 mod postgres;
 mod sqlite;
 mod tls;
 mod transport;
-pub(crate) use transport::Ssh;
+pub use transport::Ssh;
 
-pub(crate) struct Query {
+pub struct Query {
     pub sql: String,
     pub row_limit: usize,
     pub timeout_ms: u64,
 }
-pub(crate) struct Operation {
+pub struct Operation {
     pub profile: Profile,
     pub password: Secret,
     pub ssh: Option<Ssh>,
@@ -25,7 +27,7 @@ pub(crate) struct Operation {
     pub storage: Option<PathBuf>,
 }
 
-pub(crate) async fn execute(
+pub async fn execute(
     operation: Operation,
     stop: &CancellationToken,
     closed: &CancellationToken,

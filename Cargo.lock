@@ -14288,6 +14288,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "sailry-databases"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "futures",
+ "libsqlite3-sys",
+ "rustls-native-certs",
+ "sailry-protocol",
+ "sailry-runtime-core",
+ "sailry-ssh",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
 name = "sailry-decision"
 version = "0.1.0"
 dependencies = [
@@ -14575,7 +14592,6 @@ dependencies = [
  "jsonwebtoken",
  "libc",
  "libghostty-vt",
- "libsqlite3-sys",
  "lopdf",
  "md-5 0.10.6",
  "notify 9.0.0-rc.6",
@@ -14602,8 +14618,8 @@ dependencies = [
  "russh",
  "russh-sftp",
  "rustls",
- "rustls-native-certs",
  "sailry-client",
+ "sailry-databases",
  "sailry-embedding",
  "sailry-link",
  "sailry-local-models",

@@ -3,7 +3,7 @@ use sailry_protocol::ssh;
 use tokio::{net::TcpListener, task::JoinSet};
 
 #[derive(Clone)]
-pub(crate) struct Ssh {
+pub struct Ssh {
     pub profile: ssh::Profile,
     pub credential: ssh::Credential,
 }
