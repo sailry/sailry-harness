@@ -346,19 +346,12 @@ async fn reports_removed_context_sources() {
     );
     let outputs = results(&fixture.client, &page).await;
     assert_eq!(outputs.len(), 1, "{outputs:?}");
-    let missing = &outputs[0];
-    assert_eq!(missing["isError"], true, "{missing:?}");
-    assert_eq!(missing["error"]["code"], "not_found", "{missing:?}");
-    assert_eq!(
-        missing["error"]["details"]["kind"],
-        "worktree_path_not_found"
-    );
-    assert_eq!(missing["sailry_result"]["expected"], "file_not_found");
-    assert_eq!(missing["sailry_result"]["diagnostics"][0]["error"], false);
-    assert_eq!(
-        missing["sailry_result"]["diagnostics"][0]["text"],
-        missing["error"]["message"]
-    );
+    let context = &outputs[0];
+    assert!(context.get("error").is_none(), "{context:?}");
+    assert_eq!(context["partial"], true, "{context:?}");
+    assert_eq!(context["snippets"], json!([]), "{context:?}");
+    assert_eq!(context["symbols"][0]["name"], "observed_symbol");
+    assert_eq!(context["symbols"][0]["path"], "source.rs");
     fixture.controller.close().await.unwrap();
     fixture.node.shutdown().await.unwrap();
 }
