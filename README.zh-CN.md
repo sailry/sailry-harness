@@ -19,7 +19,7 @@
   <a href="https://github.com/sailry/sailry-harness/stargazers"><img src="https://img.shields.io/github/stars/sailry/sailry-harness?style=flat-square&color=yellow" alt="GitHub Stars"></a>
 </p>
 
-Sailry 是一个开源的 AI 工作区，直接运行在你的代码和数据所在的机器上。装在任意一台 Mac 或 Linux 机器上，用桌面端或手机来驱动它，让智能体团队用[你选择的模型](docs/models.md)操作文件、终端、浏览器、Git、数据库和文档。
+Sailry 是一个开源的 AI Harness——不只是智能体，而是直接运行在你的代码和数据所在机器上的原生工作区。装在任意一台 Mac 或 Linux 机器上，用桌面端或手机来驱动它，让智能体团队用[你选择的模型](docs/models.md)操作文件、终端、浏览器、Git、数据库和文档。
 
 > [!NOTE]
 > **早期预览版。** Sailry 版本之间变化较快。让智能体修改重要文件前请先备份。遇到问题欢迎[提交反馈](https://github.com/sailry/sailry-harness/issues)，你的反馈会直接影响后续开发。
@@ -38,7 +38,7 @@ Sailry 是一个开源的 AI 工作区，直接运行在你的代码和数据所
 
 一个会话，一整套工具：
 
-- **编程**：标准、计划、旗舰三种模式，`apply_patch` 多文件修改，内置代码图谱查调用方和改动影响，Git 与 worktree、终端、代码审查。
+- **编程**：标准、计划、旗舰三种模式，`apply_patch` 多文件修改，Git 与 worktree、终端、代码审查。
 - **浏览与操作**：智能体能阅读、点击、截图的内置浏览器；页面元素一键选进对话；桌面电脑操作。
 - **办公**：读取 Word、Excel、PowerPoint 和 PDF（支持 OCR），撰写文档和可交互的 HTML 预览，生成图片和视频，搜索网络和知识库。
 - **持续推进**：长期记忆、做完才停的目标、提醒和定时任务，以及 Notion、Figma、Google Workspace、Microsoft 365、钉钉、企业微信、语雀等连接器。
@@ -46,13 +46,22 @@ Sailry 是一个开源的 AI 工作区，直接运行在你的代码和数据所
 Sailry 更进一步的地方：
 
 - **智能体团队，一个位置一个模型。** 旗舰模式把任务分给并行的子代理，每个子代理用自己的模型——DeepSeek 写代码、Claude 出方案、Codex 攻难题，每一步都在会话里看得见。
-- **内置数据库和 SSH。** 不离开会话就能查询 PostgreSQL、MySQL、SQLite，或在远程服务器上干活。
 - **可检索的历史。** 智能体能找到并复用你之前的会话。
 - **本地语音和 OCR。** 语音输入和文字识别都在你自己的机器上完成。
 
 <p align="center">
   <img src="assets/readme/files.png" width="100%" alt="Sailry 会话把发布笔记整理成周计划，旁边是正在编辑的 Markdown 文档。">
 </p>
+
+## 不只是智能体，更是 AI Harness
+
+Sailry 给模型套上了一层为工程实战打造的 harness。编码插件开箱即用，打开项目就能用，不用另装语言服务器、驱动或扩展：
+
+- **代码图谱**：内置解析器为项目建立索引，支持符号搜索、文件大纲、调用方与被调用方、改动影响分析，以及按引用排序的项目地图，智能体直接读到该读的代码，不用全仓库盲搜。
+- **数据库**：通过保存的连接访问 PostgreSQL、MySQL 和 SQLite。查询走只读连接；写操作遵循会话的权限策略。
+- **SSH**：在保存的服务器上执行命令、通过 SFTP 传输文件，并固定校验主机密钥。
+
+凭据只保存在执行任务的主机上。智能体通过连接 ID 使用连接，看不到密码和私钥；结构化工具只返回智能体需要的结果，而不是一大段原始 shell 输出。
 
 ## 手机就是你的遥控器
 

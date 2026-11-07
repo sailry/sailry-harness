@@ -19,10 +19,10 @@
   <a href="https://github.com/sailry/sailry-harness/stargazers"><img src="https://img.shields.io/github/stars/sailry/sailry-harness?style=flat-square&color=yellow" alt="GitHub Stars"></a>
 </p>
 
-Sailry is an open-source AI workspace that runs where your code and data already live.
-Install it on any Mac or Linux machine, drive it from the desktop app or your phone, and let
-agent teams work with your files, terminals, browser, Git, databases and documents — on the
-[models you choose](docs/models.md).
+Sailry is an open-source AI harness — more than an agent, a native workspace that runs where your
+code and data already live. Install it on any Mac or Linux machine, drive it from the desktop app
+or your phone, and let agent teams work with your files, terminals, browser, Git, databases and
+documents — on the [models you choose](docs/models.md).
 
 > [!NOTE]
 > **Early preview.** Sailry changes quickly between releases. Back up important work before
@@ -47,8 +47,8 @@ forwarding, VPN or cloud account. Close the laptop and the work keeps running on
 
 One conversation, a complete toolbox:
 
-- **Code** — Standard, Plan and Flagship modes, multi-file `apply_patch` edits, a built-in code
-  graph for callers and change impact, Git and worktrees, terminals and code review.
+- **Code** — Standard, Plan and Flagship modes, multi-file `apply_patch` edits, Git and
+  worktrees, terminals and code review.
 - **Browse and operate** — a built-in browser the agent reads, clicks and screenshots; pick page
   elements straight into the conversation; desktop computer use.
 - **Office work** — read Word, Excel, PowerPoint and PDF (with OCR), write documents and
@@ -62,14 +62,28 @@ Where Sailry goes further:
 - **Agent teams, one model per seat.** Flagship mode fans work out to parallel subagents, each on
   its own model — DeepSeek writes the code, Claude plans, Codex takes the hard problems — and
   every step stays visible in the conversation.
-- **Databases and SSH built in.** Query PostgreSQL, MySQL and SQLite or work on remote servers
-  without leaving the session.
 - **Searchable history.** Agents find and reuse your earlier conversations.
 - **Local speech and OCR.** Voice input and text recognition run on your own machine.
 
 <p align="center">
   <img src="assets/readme/files.png" width="100%" alt="A Sailry conversation turning launch notes into a weekly plan next to the Markdown document it edits.">
 </p>
+
+## A harness, not just an agent
+
+Sailry wraps the model in a harness built for engineering work. Coding plugins come built in and
+work the moment you open a project — no language servers, drivers or extensions to install:
+
+- **Code graph** — bundled parsers index the project for symbol search, file outlines, callers and
+  callees, change impact and a ranked project map, so agents read the right code instead of
+  searching the whole tree.
+- **Databases** — PostgreSQL, MySQL and SQLite through saved connections. Queries run on a
+  read-only connection; writes follow the session's permission policy.
+- **SSH** — run commands and transfer files over SFTP on saved servers, with pinned host keys.
+
+Credentials stay on the Host that runs the work. Agents use connections by ID and never see
+passwords or private keys, and structured tools return the result the agent needs instead of
+raw shell output.
 
 ## Your phone is the remote control
 

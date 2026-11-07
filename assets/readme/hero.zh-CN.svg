@@ -5,7 +5,7 @@
   <rect width="1200" height="440" rx="28" fill="#0F1217"/>
 
   <g id="title-block">
-    <text x="64" y="76" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" letter-spacing="3" fill="#9AA4B2">原生 AI 工作区 · 开源</text>
+    <text x="64" y="76" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" letter-spacing="3" fill="#9AA4B2">原生 AI Harness · 开源</text>
     <circle cx="79" cy="108" r="4.1" fill="#79C9F1"/>
     <circle cx="90" cy="108" r="4.1" fill="#79C9F1"/>
     <circle cx="101" cy="108" r="4.1" fill="#79C9F1"/>
