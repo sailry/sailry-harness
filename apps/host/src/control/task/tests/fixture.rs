@@ -1,5 +1,4 @@
 use super::*;
-use sailry_link::{Link, NetworkScope};
 use sailry_node_runtime::Node;
 use tokio::{net::UnixStream, task::JoinHandle};
 
@@ -12,42 +11,27 @@ pub(super) struct Fixture {
     pub session: Session,
     pub model: models::Server,
     pub loss: Option<Arc<super::transport::Lost>>,
-    controller: Option<Link>,
     stop: CancellationToken,
     service: JoinHandle<()>,
 }
 
 impl Fixture {
-    pub async fn new(remote: bool, model: models::Server) -> Self {
-        Self::setup(remote, model, false).await
+    pub async fn new(model: models::Server) -> Self {
+        Self::setup(model, false).await
     }
 
-    pub async fn with_loss(remote: bool, model: models::Server) -> Self {
-        Self::setup(remote, model, true).await
+    pub async fn with_loss(model: models::Server) -> Self {
+        Self::setup(model, true).await
     }
 
-    async fn setup(remote: bool, model: models::Server, lose: bool) -> Self {
+    async fn setup(model: models::Server, lose: bool) -> Self {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("project");
         std::fs::create_dir(&root).unwrap();
         let node = Node::start_empty(directory.path().join("node"))
             .await
             .unwrap();
-        let (controller, transport): (Option<Link>, Arc<dyn Transport>) = if remote {
-            let controller =
-                Link::controller(directory.path().join("controller"), NetworkScope::default())
-                    .await
-                    .unwrap();
-            let address = controller
-                .handle()
-                .pair(node.link().invite().unwrap().ticket())
-                .await
-                .unwrap();
-            let transport = controller.handle().remote(address);
-            (Some(controller), transport)
-        } else {
-            (None, node.local())
-        };
+        let transport = node.local();
         let loss = lose.then(|| Arc::new(super::transport::Lost::new(transport.clone())));
         let transport: Arc<dyn Transport> = match &loss {
             Some(loss) => loss.clone(),
@@ -118,7 +102,6 @@ impl Fixture {
             session,
             model,
             loss,
-            controller,
             stop,
             service,
         }
@@ -200,9 +183,6 @@ impl Fixture {
         self.stop.cancel();
         self.service.await.unwrap();
         self.node.shutdown().await.unwrap();
-        if let Some(controller) = self.controller {
-            controller.close().await.unwrap();
-        }
     }
 }
 
