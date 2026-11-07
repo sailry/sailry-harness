@@ -2,7 +2,7 @@
 use super::*;
 use sailry_protocol::hooks::{Phase, Script, Settings};
 
-async fn fixture(remote: bool) -> (Fixture, sailry_link::CancellationToken) {
+async fn fixture() -> (Fixture, sailry_link::CancellationToken) {
     let release = sailry_link::CancellationToken::new();
     let parent = Server::turn_tools(vec![(
         "spawn_agent".to_string(),
@@ -10,7 +10,7 @@ async fn fixture(remote: bool) -> (Fixture, sailry_link::CancellationToken) {
     )])
     .await;
     let child = Server::markdown_held("Final child evidence".into(), release.clone()).await;
-    (Fixture::start(remote, parent, child).await, release)
+    (Fixture::start(parent, child).await, release)
 }
 
 async fn configure(fixture: &Fixture, phase: Phase, failure: bool) {
@@ -65,66 +65,62 @@ async fn waiting(fixture: &Fixture, active: &QueuedTurn) -> Session {
 
 #[tokio::test]
 async fn successful_hook_keeps_background_child() {
-    for remote in [false, true] {
-        let (fixture, release) = fixture(remote).await;
-        configure(&fixture, Phase::TurnEnd, false).await;
-        let active = fixture.push("Complete after the owned hook").await;
+    let (fixture, release) = fixture().await;
+    configure(&fixture, Phase::TurnEnd, false).await;
+    let active = fixture.push("Complete after the owned hook").await;
+    let child = waiting(&fixture, &active).await;
+    std::fs::write(fixture.root().join("hook-release.txt"), "release").unwrap();
+    let parent = finished(&fixture.client, fixture.session.id, active.id).await;
+    assert_eq!(status(&parent, active.id), Status::Completed);
+    assert_eq!(parent.children[0].run.status, Status::Running);
+    assert_eq!(fixture.parent.requests.lock().unwrap().len(), 2);
+    assert_eq!(
+        std::fs::read_to_string(fixture.root().join("hook.txt")).unwrap(),
+        "once"
+    );
+    release.cancel();
+    let page = history(&fixture.client, child.id).await;
+    let page = finished(&fixture.client, child.id, page.runs[0].turn).await;
+    assert_eq!(page.runs[0].status, Status::Completed);
+    fixture.close().await;
+}
+
+#[tokio::test]
+async fn failures_settle_background_child() {
+    for phase in [Phase::AfterTool, Phase::TurnEnd] {
+        let (fixture, release) = fixture().await;
+        configure(&fixture, phase, true).await;
+        let active = fixture.push("Retain the actual hook failure").await;
         let child = waiting(&fixture, &active).await;
         std::fs::write(fixture.root().join("hook-release.txt"), "release").unwrap();
         let parent = finished(&fixture.client, fixture.session.id, active.id).await;
-        assert_eq!(status(&parent, active.id), Status::Completed);
-        assert_eq!(parent.children[0].run.status, Status::Running);
+        assert_eq!(status(&parent, active.id), Status::Failed);
+        let run = parent
+            .runs
+            .iter()
+            .find(|run| run.turn == active.id)
+            .unwrap();
+        assert_eq!(run.error.as_ref().unwrap().code, ErrorCode::Unavailable);
+        assert!(
+            run.error
+                .as_ref()
+                .unwrap()
+                .message
+                .contains(&format!("{} hook failed: Exited(9)", phase.name()))
+        );
         assert_eq!(fixture.parent.requests.lock().unwrap().len(), 2);
+        assert_eq!(parent.children[0].run.status, Status::Cancelled);
+        let response = results(&fixture.client, &parent).await;
+        assert_eq!(response.len(), 1);
+        assert_eq!(response[0]["session"], json!(child.id));
+        assert!(!response[0].to_string().contains("hook failed"));
+        let child = history(&fixture.client, child.id).await;
+        assert_eq!(child.runs[0].status, Status::Cancelled);
         assert_eq!(
             std::fs::read_to_string(fixture.root().join("hook.txt")).unwrap(),
             "once"
         );
         release.cancel();
-        let page = history(&fixture.client, child.id).await;
-        let page = finished(&fixture.client, child.id, page.runs[0].turn).await;
-        assert_eq!(page.runs[0].status, Status::Completed);
         fixture.close().await;
-    }
-}
-
-#[tokio::test]
-async fn failures_settle_background_child() {
-    for remote in [false, true] {
-        for phase in [Phase::AfterTool, Phase::TurnEnd] {
-            let (fixture, release) = fixture(remote).await;
-            configure(&fixture, phase, true).await;
-            let active = fixture.push("Retain the actual hook failure").await;
-            let child = waiting(&fixture, &active).await;
-            std::fs::write(fixture.root().join("hook-release.txt"), "release").unwrap();
-            let parent = finished(&fixture.client, fixture.session.id, active.id).await;
-            assert_eq!(status(&parent, active.id), Status::Failed);
-            let run = parent
-                .runs
-                .iter()
-                .find(|run| run.turn == active.id)
-                .unwrap();
-            assert_eq!(run.error.as_ref().unwrap().code, ErrorCode::Unavailable);
-            assert!(
-                run.error
-                    .as_ref()
-                    .unwrap()
-                    .message
-                    .contains(&format!("{} hook failed: Exited(9)", phase.name()))
-            );
-            assert_eq!(fixture.parent.requests.lock().unwrap().len(), 2);
-            assert_eq!(parent.children[0].run.status, Status::Cancelled);
-            let response = results(&fixture.client, &parent).await;
-            assert_eq!(response.len(), 1);
-            assert_eq!(response[0]["session"], json!(child.id));
-            assert!(!response[0].to_string().contains("hook failed"));
-            let child = history(&fixture.client, child.id).await;
-            assert_eq!(child.runs[0].status, Status::Cancelled);
-            assert_eq!(
-                std::fs::read_to_string(fixture.root().join("hook.txt")).unwrap(),
-                "once"
-            );
-            release.cancel();
-            fixture.close().await;
-        }
     }
 }

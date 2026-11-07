@@ -4,16 +4,12 @@ const CONTENT: &[u8] = b"\0private attachment fixture\xff\n";
 
 #[tokio::test]
 async fn rebuilds_unmarked_storage() {
-    for remote in [false, true] {
-        restart(remote, true).await;
-    }
+    restart(true).await;
 }
 
 #[tokio::test]
 async fn preserves_current_configuration() {
-    for remote in [false, true] {
-        restart(remote, false).await;
-    }
+    restart(false).await;
 }
 
 #[tokio::test]
@@ -52,7 +48,7 @@ async fn rejects_unowned_unmarked_storage() {
     }
 }
 
-async fn restart(remote: bool, rebuild: bool) {
+async fn restart(rebuild: bool) {
     let directory = tempfile::tempdir().unwrap();
     let profile = directory.path().join("node");
     let node = Node::start(&profile).await.unwrap();
@@ -65,11 +61,7 @@ async fn restart(remote: bool, rebuild: bool) {
         .pair(node.link().invite().unwrap().ticket())
         .await
         .unwrap();
-    let client = Client::new(if remote {
-        controller.handle().remote(address)
-    } else {
-        node.local()
-    });
+    let client = Client::new(controller.handle().remote(address));
     let attachment = seed(&client, directory.path()).await;
     let attachment_path = profile.join("attachments").join(attachment.id.to_string());
     assert_eq!(std::fs::read(&attachment_path).unwrap(), CONTENT);
@@ -136,11 +128,7 @@ async fn restart(remote: bool, rebuild: bool) {
         .pair(node.link().invite().unwrap().ticket())
         .await
         .unwrap();
-    let client = Client::new(if remote {
-        controller.handle().remote(address)
-    } else {
-        node.local()
-    });
+    let client = Client::new(controller.handle().remote(address));
     let Output::Snapshot(after) = execute(&client, Command::Snapshot).await else {
         panic!("snapshot expected")
     };
@@ -201,11 +189,7 @@ async fn restart(remote: bool, rebuild: bool) {
     }
     let node = Node::start(&profile).await.unwrap();
     assert_eq!(node.id(), identity);
-    let client = Client::new(if remote {
-        controller.handle().remote(node.link().address())
-    } else {
-        node.local()
-    });
+    let client = Client::new(controller.handle().remote(node.link().address()));
     let Output::Snapshot(restarted) = execute(&client, Command::Snapshot).await else {
         panic!("snapshot expected")
     };

@@ -44,137 +44,133 @@ async fn queued(fixture: &Fixture, session: &Session) -> QueuedTurn {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn captures_effective_defaults_without_changing_provider() {
-    for remote in [false, true] {
-        for (authentication, api) in [
-            (Authentication::ChatGpt, ModelApi::Responses),
-            (Authentication::Copilot, ModelApi::Responses),
-            (Authentication::Copilot, ModelApi::ChatCompletions),
-        ] {
-            let server = Server::start_with_request(ModelApi::Anthropic, standard).await;
-            let fixture = Fixture::empty(remote, &server).await;
-            let provider = signed_in(&fixture, authentication, api).await;
-            let session = session(&fixture, &provider).await;
-            let turn = queued(&fixture, &session).await;
-            assert_eq!(
-                captured(&fixture, &turn).await.oauth,
-                Options::defaults(authentication)
-            );
-            let Output::Providers(providers) = fixture
-                .client
-                .execute(fixture.client.prepare(Command::ListProviders))
-                .await
-                .unwrap()
-            else {
-                panic!("providers expected")
-            };
-            assert_eq!(
-                providers.iter().find(|value| value.id == provider.id),
-                Some(&provider)
-            );
-            assert_eq!(provider.oauth, None);
-            fixture.close().await;
-        }
+    for (authentication, api) in [
+        (Authentication::ChatGpt, ModelApi::Responses),
+        (Authentication::Copilot, ModelApi::Responses),
+        (Authentication::Copilot, ModelApi::ChatCompletions),
+    ] {
+        let server = Server::start_with_request(ModelApi::Anthropic, standard).await;
+        let fixture = Fixture::empty(&server).await;
+        let provider = signed_in(&fixture, authentication, api).await;
+        let session = session(&fixture, &provider).await;
+        let turn = queued(&fixture, &session).await;
+        assert_eq!(
+            captured(&fixture, &turn).await.oauth,
+            Options::defaults(authentication)
+        );
+        let Output::Providers(providers) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::ListProviders))
+            .await
+            .unwrap()
+        else {
+            panic!("providers expected")
+        };
+        assert_eq!(
+            providers.iter().find(|value| value.id == provider.id),
+            Some(&provider)
+        );
+        assert_eq!(provider.oauth, None);
+        fixture.close().await;
     }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn keeps_captured_headers_through_restart_and_refresh() {
-    for remote in [false, true] {
-        for (authentication, api) in [
-            (Authentication::Copilot, ModelApi::Responses),
-            (Authentication::Copilot, ModelApi::ChatCompletions),
-        ] {
-            let options = super::super::oauth::options(authentication, "captured");
-            let expected = options.clone();
-            let exchanges = Arc::new(AtomicUsize::new(0));
-            let count = exchanges.clone();
-            let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
-                assert_eq!(request.headers["user-agent"], expected.user_agent());
-                if exchange(request) {
-                    if authentication == Authentication::Copilot {
-                        super::super::oauth::headers(request, &expected);
-                    }
-                    let fresh = count.fetch_add(1, Ordering::SeqCst) > 0;
-                    Reply::Json(exchanged(request, authentication, fresh))
-                } else if request.path.starts_with("/models") {
+    for (authentication, api) in [
+        (Authentication::Copilot, ModelApi::Responses),
+        (Authentication::Copilot, ModelApi::ChatCompletions),
+    ] {
+        let options = super::super::oauth::options(authentication, "captured");
+        let expected = options.clone();
+        let exchanges = Arc::new(AtomicUsize::new(0));
+        let count = exchanges.clone();
+        let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
+            assert_eq!(request.headers["user-agent"], expected.user_agent());
+            if exchange(request) {
+                if authentication == Authentication::Copilot {
                     super::super::oauth::headers(request, &expected);
-                    if authentication == Authentication::ChatGpt {
-                        assert_eq!(request.path, "/models");
-                    }
-                    Reply::Json(catalog::models(authentication))
-                } else if matches!(request.path.as_str(), "/responses" | "/chat/completions") {
-                    super::super::oauth::headers(request, &expected);
-                    generation(request, authentication, true)
-                } else {
-                    standard(request)
                 }
-            })
-            .await;
-            let fixture = Fixture::packages(remote, &server, &["files"]).await;
-            let provider = configured(&fixture, authentication, api, Some(options.clone())).await;
-            let session = session(&fixture, &provider).await;
-            let turn = queued(&fixture, &session).await;
-            assert_eq!(captured(&fixture, &turn).await.oauth, Some(options));
-            let mut changed = provider.clone();
-            changed.oauth = Some(super::super::oauth::options(authentication, "current"));
-            let Output::Provider(saved) = fixture
-                .client
-                .execute(fixture.client.prepare(Command::PutProvider {
-                    expected_revision: provider.revision,
-                    provider: changed,
-                }))
-                .await
-                .unwrap()
-            else {
-                panic!("provider expected")
-            };
-            let fixture = renewals::restart(fixture, &server, remote).await;
-            assert_eq!(
-                captured(&fixture, &turn).await.oauth,
-                Some(super::super::oauth::options(authentication, "captured"))
-            );
-            let Output::Snapshot(snapshot) = fixture
-                .client
-                .execute(fixture.client.prepare(Command::Snapshot))
-                .await
-                .unwrap()
-            else {
-                panic!("snapshot expected")
-            };
-            assert_eq!(
-                snapshot.providers.iter().find(|value| value.id == saved.id),
-                Some(&saved)
-            );
-            fixture
-                .client
-                .execute(
-                    fixture
-                        .client
-                        .prepare(Command::StartQueuedTurn { turn: turn.id }),
-                )
-                .await
-                .unwrap();
-            let queue = fixture
-                .client
-                .read_conversation(turn.session, None, 10)
-                .await
-                .unwrap()
-                .page
-                .queue;
-            assert!(queue.paused);
-            fixture
-                .client
-                .execute(fixture.client.prepare(Command::SetQueuePaused {
-                    session: turn.session,
-                    expected_revision: queue.revision,
-                    paused: false,
-                }))
-                .await
-                .unwrap();
-            finished(&fixture.client, &turn, Status::Completed).await;
-            assert_eq!(exchanges.load(Ordering::SeqCst), 2);
-            assert_eq!(server.requests.lock().unwrap().len(), 7);
-            fixture.close().await;
-        }
+                let fresh = count.fetch_add(1, Ordering::SeqCst) > 0;
+                Reply::Json(exchanged(request, authentication, fresh))
+            } else if request.path.starts_with("/models") {
+                super::super::oauth::headers(request, &expected);
+                if authentication == Authentication::ChatGpt {
+                    assert_eq!(request.path, "/models");
+                }
+                Reply::Json(catalog::models(authentication))
+            } else if matches!(request.path.as_str(), "/responses" | "/chat/completions") {
+                super::super::oauth::headers(request, &expected);
+                generation(request, authentication, true)
+            } else {
+                standard(request)
+            }
+        })
+        .await;
+        let fixture = Fixture::packages(&server, &["files"]).await;
+        let provider = configured(&fixture, authentication, api, Some(options.clone())).await;
+        let session = session(&fixture, &provider).await;
+        let turn = queued(&fixture, &session).await;
+        assert_eq!(captured(&fixture, &turn).await.oauth, Some(options));
+        let mut changed = provider.clone();
+        changed.oauth = Some(super::super::oauth::options(authentication, "current"));
+        let Output::Provider(saved) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::PutProvider {
+                expected_revision: provider.revision,
+                provider: changed,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("provider expected")
+        };
+        let fixture = renewals::restart(fixture, &server).await;
+        assert_eq!(
+            captured(&fixture, &turn).await.oauth,
+            Some(super::super::oauth::options(authentication, "captured"))
+        );
+        let Output::Snapshot(snapshot) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::Snapshot))
+            .await
+            .unwrap()
+        else {
+            panic!("snapshot expected")
+        };
+        assert_eq!(
+            snapshot.providers.iter().find(|value| value.id == saved.id),
+            Some(&saved)
+        );
+        fixture
+            .client
+            .execute(
+                fixture
+                    .client
+                    .prepare(Command::StartQueuedTurn { turn: turn.id }),
+            )
+            .await
+            .unwrap();
+        let queue = fixture
+            .client
+            .read_conversation(turn.session, None, 10)
+            .await
+            .unwrap()
+            .page
+            .queue;
+        assert!(queue.paused);
+        fixture
+            .client
+            .execute(fixture.client.prepare(Command::SetQueuePaused {
+                session: turn.session,
+                expected_revision: queue.revision,
+                paused: false,
+            }))
+            .await
+            .unwrap();
+        finished(&fixture.client, &turn, Status::Completed).await;
+        assert_eq!(exchanges.load(Ordering::SeqCst), 2);
+        assert_eq!(server.requests.lock().unwrap().len(), 7);
+        fixture.close().await;
     }
 }

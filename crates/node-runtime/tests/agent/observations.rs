@@ -59,185 +59,178 @@ pub(super) async fn assert_context_hidden(node: &Node, session: SessionId) -> i6
 
 #[tokio::test]
 async fn finalizes_terminal_and_cancelled_streams() {
-    for remote in [false, true] {
-        let directory = tempfile::tempdir().unwrap();
-        let node = Node::start_empty(directory.path().join("node"))
-            .await
-            .unwrap();
-        let controller =
-            Link::controller(directory.path().join("controller"), NetworkScope::default())
-                .await
-                .unwrap();
-        let address = controller
-            .handle()
-            .pair(node.link().invite().unwrap().ticket())
-            .await
-            .unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(address)
+    let directory = tempfile::tempdir().unwrap();
+    let node = Node::start_empty(directory.path().join("node"))
+        .await
+        .unwrap();
+    let controller = Link::controller(directory.path().join("controller"), NetworkScope::default())
+        .await
+        .unwrap();
+    let address = controller
+        .handle()
+        .pair(node.link().invite().unwrap().ticket())
+        .await
+        .unwrap();
+    let client = Client::new(controller.handle().remote(address));
+    for cancel in [false, true] {
+        let root = directory.path().join(if cancel {
+            "cancelled-project"
         } else {
-            node.local()
+            "completed-project"
         });
-        for cancel in [false, true] {
-            let root = directory.path().join(if cancel {
-                "cancelled-project"
-            } else {
-                "completed-project"
-            });
-            std::fs::create_dir(&root).unwrap();
-            let server = Server::start(cancel).await;
-            let (session, _) = configured_session(&client, &server.endpoint, &root).await;
-            let Output::QueuedTurn(turn) = client
-                .execute(client.prepare(Command::SubmitTurn {
-                    session: session.id,
-                    expected_revision: session.revision,
-                    message: "PRIVATE_REQUEST_MARKER".into(),
-                }))
-                .await
-                .unwrap()
-            else {
-                panic!("turn expected")
-            };
+        std::fs::create_dir(&root).unwrap();
+        let server = Server::start(cancel).await;
+        let (session, _) = configured_session(&client, &server.endpoint, &root).await;
+        let Output::QueuedTurn(turn) = client
+            .execute(client.prepare(Command::SubmitTurn {
+                session: session.id,
+                expected_revision: session.revision,
+                message: "PRIVATE_REQUEST_MARKER".into(),
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("turn expected")
+        };
+        if cancel {
+            tokio::time::timeout(Duration::from_secs(5), async {
+                while server.requests.lock().unwrap().is_empty() {
+                    tokio::task::yield_now().await;
+                }
+                client
+                    .execute(client.prepare(Command::StopTurn { turn: turn.id }))
+                    .await
+                    .unwrap();
+            })
+            .await
+            .unwrap();
+        }
+        let page = finished(&client, session.id, turn.id).await;
+        let stored = assert_context_hidden(&node, session.id).await;
+        assert!(cancel || stored == 1, "one turn context expected");
+        {
+            let requests = server.requests.lock().unwrap();
+            let request = requests.last().unwrap();
+            assert!(request.get("turn_context").is_none());
+            let context = turn_context(request);
+            assert!(context.contains("Session environment"));
+            assert_eq!(
+                request["messages"]
+                    .to_string()
+                    .matches("<turn-context>\\n")
+                    .count(),
+                1
+            );
+        }
+        assert_eq!(
+            page.runs.last().unwrap().status,
             if cancel {
-                tokio::time::timeout(Duration::from_secs(5), async {
-                    while server.requests.lock().unwrap().is_empty() {
-                        tokio::task::yield_now().await;
-                    }
-                    client
-                        .execute(client.prepare(Command::StopTurn { turn: turn.id }))
-                        .await
-                        .unwrap();
-                })
-                .await
-                .unwrap();
+                Status::Cancelled
+            } else {
+                Status::Completed
             }
-            let page = finished(&client, session.id, turn.id).await;
-            let stored = assert_context_hidden(&node, session.id).await;
-            assert!(cancel || stored == 1, "one turn context expected");
-            {
-                let requests = server.requests.lock().unwrap();
-                let request = requests.last().unwrap();
-                assert!(request.get("turn_context").is_none());
-                let context = turn_context(request);
-                assert!(context.contains("Session environment"));
-                assert_eq!(
-                    request["messages"]
-                        .to_string()
-                        .matches("<turn-context>\\n")
-                        .count(),
-                    1
-                );
+        );
+        assert!(
+            page.entries
+                .iter()
+                .filter(|entry| !is_context(entry))
+                .all(|entry| !entry.parts.is_empty())
+        );
+        let stats = statistics(&client, session.id).await;
+        let observations = &stats.observations;
+        assert_eq!(observations.calls, 1);
+        let call = observations.recent.last().unwrap();
+        let attempt = call.attempts.last().unwrap();
+        assert_eq!(
+            attempt.outcome,
+            if cancel {
+                Outcome::Cancelled
+            } else {
+                Outcome::Succeeded
             }
-            assert_eq!(
-                page.runs.last().unwrap().status,
-                if cancel {
-                    Status::Cancelled
-                } else {
-                    Status::Completed
-                }
-            );
+        );
+        assert!(attempt.elapsed_us.is_some());
+        use sailry_protocol::conversation::observation::CategoryKind;
+        assert!(attempt.complete_context);
+        for kind in [
+            CategoryKind::System,
+            CategoryKind::User,
+            CategoryKind::Injected,
+        ] {
             assert!(
-                page.entries
-                    .iter()
-                    .filter(|entry| !is_context(entry))
-                    .all(|entry| !entry.parts.is_empty())
-            );
-            let stats = statistics(&client, session.id).await;
-            let observations = &stats.observations;
-            assert_eq!(observations.calls, 1);
-            let call = observations.recent.last().unwrap();
-            let attempt = call.attempts.last().unwrap();
-            assert_eq!(
-                attempt.outcome,
-                if cancel {
-                    Outcome::Cancelled
-                } else {
-                    Outcome::Succeeded
-                }
-            );
-            assert!(attempt.elapsed_us.is_some());
-            use sailry_protocol::conversation::observation::CategoryKind;
-            assert!(attempt.complete_context);
-            for kind in [
-                CategoryKind::System,
-                CategoryKind::User,
-                CategoryKind::Injected,
-            ] {
-                assert!(
-                    attempt
-                        .categories
-                        .iter()
-                        .find(|row| row.kind == kind)
-                        .unwrap()
-                        .tokens
-                        .unwrap()
-                        > 0
-                );
-            }
-            assert_eq!(
                 attempt
                     .categories
                     .iter()
-                    .find(|row| row.kind == CategoryKind::Skills)
+                    .find(|row| row.kind == kind)
                     .unwrap()
-                    .tokens,
-                Some(0)
-            );
-            if !cancel {
-                assert_eq!(attempt.transport, "gdk");
-                assert_eq!(attempt.status, None);
-                assert_eq!(attempt.response_us, None);
-                assert_eq!(attempt.headers_us, None);
-                assert!(attempt.first_token_us.is_some());
-            }
-            assert_eq!(
-                call.boundary,
-                page.entries
-                    .iter()
-                    .find(|entry| entry.turn == turn.id && entry.author == "user")
-                    .map(|entry| entry.sequence)
-            );
-            assert!(
-                !serde_json::to_string(observations)
+                    .tokens
                     .unwrap()
-                    .contains("PRIVATE_REQUEST_MARKER")
+                    > 0
             );
-            assert_eq!(
-                statistics(&client, session.id).await,
-                stats,
-                "re-reading does not duplicate attempts"
-            );
-            // A newly subscribed controller receives the same canonical projection.
-            let mut updates = client.subscribe_conversation(session.id).await.unwrap();
-            let mut projection =
-                sailry_client::conversation::Projection::new(client.target(), session.id, 0);
-            tokio::time::timeout(Duration::from_secs(10), async {
-                loop {
-                    assert_ne!(
-                        projection.apply(0, updates.next().await.unwrap()).unwrap(),
-                        sailry_client::Apply::Recover,
-                    );
-                    assert_eq!(projection.statistics_error(), None);
-                    if let Some(snapshot) = projection.snapshot()
-                        && let Some(statistics) = &snapshot.statistics
-                    {
-                        assert!(
-                            snapshot
-                                .page
-                                .entries
-                                .iter()
-                                .filter(|entry| !is_context(entry))
-                                .all(|entry| !entry.parts.is_empty())
-                        );
-                        assert_eq!(statistics.observations, *observations);
-                        break;
-                    }
-                }
-            })
-            .await
-            .expect("subscribed statistics deadline");
         }
-        controller.close().await.unwrap();
-        node.shutdown().await.unwrap();
+        assert_eq!(
+            attempt
+                .categories
+                .iter()
+                .find(|row| row.kind == CategoryKind::Skills)
+                .unwrap()
+                .tokens,
+            Some(0)
+        );
+        if !cancel {
+            assert_eq!(attempt.transport, "gdk");
+            assert_eq!(attempt.status, None);
+            assert_eq!(attempt.response_us, None);
+            assert_eq!(attempt.headers_us, None);
+            assert!(attempt.first_token_us.is_some());
+        }
+        assert_eq!(
+            call.boundary,
+            page.entries
+                .iter()
+                .find(|entry| entry.turn == turn.id && entry.author == "user")
+                .map(|entry| entry.sequence)
+        );
+        assert!(
+            !serde_json::to_string(observations)
+                .unwrap()
+                .contains("PRIVATE_REQUEST_MARKER")
+        );
+        assert_eq!(
+            statistics(&client, session.id).await,
+            stats,
+            "re-reading does not duplicate attempts"
+        );
+        // A newly subscribed controller receives the same canonical projection.
+        let mut updates = client.subscribe_conversation(session.id).await.unwrap();
+        let mut projection =
+            sailry_client::conversation::Projection::new(client.target(), session.id, 0);
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                assert_ne!(
+                    projection.apply(0, updates.next().await.unwrap()).unwrap(),
+                    sailry_client::Apply::Recover,
+                );
+                assert_eq!(projection.statistics_error(), None);
+                if let Some(snapshot) = projection.snapshot()
+                    && let Some(statistics) = &snapshot.statistics
+                {
+                    assert!(
+                        snapshot
+                            .page
+                            .entries
+                            .iter()
+                            .filter(|entry| !is_context(entry))
+                            .all(|entry| !entry.parts.is_empty())
+                    );
+                    assert_eq!(statistics.observations, *observations);
+                    break;
+                }
+            }
+        })
+        .await
+        .expect("subscribed statistics deadline");
     }
+    controller.close().await.unwrap();
+    node.shutdown().await.unwrap();
 }

@@ -48,12 +48,89 @@ async fn catalog(client: &Client) -> Vec<role::Profile> {
 #[tokio::test]
 async fn scopes_skill_policy_to_admitted_inventory() {
     use sailry_protocol::conversation::reference::{Reference, Target};
-    for remote in [false, true] {
-        let server = Server::tools(vec![]).await;
-        let unused = Server::tools(vec![]).await;
-        let fixture = super::fixture::Fixture::start(remote, server, unused).await;
-        super::super::approvals::install(&fixture.client, &["web-search"]).await;
-        for name in ["web-search", "worktrees"] {
+    let server = Server::tools(vec![]).await;
+    let unused = Server::tools(vec![]).await;
+    let fixture = super::fixture::Fixture::start(server, unused).await;
+    super::super::approvals::install(&fixture.client, &["web-search"]).await;
+    for name in ["web-search", "worktrees"] {
+        let Output::Plugin(info) = fixture
+            .client
+            .execute(
+                fixture
+                    .client
+                    .prepare(Command::ReadPlugin { name: name.into() }),
+            )
+            .await
+            .unwrap()
+        else {
+            panic!("plugin expected")
+        };
+        fixture
+            .client
+            .execute(fixture.client.prepare(Command::SetPluginEnabled {
+                name: name.into(),
+                expected_revision: info.summary.revision,
+                enabled: true,
+            }))
+            .await
+            .unwrap();
+    }
+    let mut message = Input::default();
+    message.references.push(Reference {
+        target: Target::Skill {
+            package: "web-search".into(),
+            name: "research".into(),
+        },
+        label: "Research".into(),
+    });
+    let Output::QueuedTurn(selected) = fixture
+        .client
+        .execute(fixture.client.prepare(Command::SubmitTurn {
+            session: fixture.session.id,
+            expected_revision: fixture.session.revision,
+            message,
+        }))
+        .await
+        .unwrap()
+    else {
+        panic!("turn expected")
+    };
+    let page = finished(&fixture.client, fixture.session.id, selected.id).await;
+    assert_eq!(
+        page.runs
+            .iter()
+            .find(|run| run.turn == selected.id)
+            .unwrap()
+            .status,
+        Status::Completed
+    );
+    let request = fixture.parent.requests.lock().unwrap()[0].clone();
+    let instruction = prompt(&request);
+    assert_eq!(instruction.matches("<selected_skill>").count(), 1);
+    assert!(instruction.contains("Search snippets identify candidates"));
+    assert!(
+        instruction
+            .contains("unless the full instructions are already supplied; do not load them again")
+    );
+    assert!(
+        request["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|message| message["role"] == "user")
+            .all(|message| !message_text(&message["content"]).contains("<selected_skill>"))
+    );
+    assert!(
+        !page
+            .entries
+            .iter()
+            .flat_map(|entry| &entry.parts)
+            .any(|part| { matches!(part, Part::Text(text) if text.contains("<selected_skill>")) })
+    );
+
+    for stage in ["enabled", "disabled", "removed"] {
+        if stage != "enabled" {
+            let name = "web-search";
             let Output::Plugin(info) = fixture
                 .client
                 .execute(
@@ -66,547 +143,446 @@ async fn scopes_skill_policy_to_admitted_inventory() {
             else {
                 panic!("plugin expected")
             };
-            fixture
-                .client
-                .execute(fixture.client.prepare(Command::SetPluginEnabled {
+            let command = if stage.ends_with("removed") {
+                Command::RemovePlugin {
                     name: name.into(),
                     expected_revision: info.summary.revision,
-                    enabled: true,
-                }))
+                }
+            } else {
+                Command::SetPluginEnabled {
+                    name: name.into(),
+                    expected_revision: info.summary.revision,
+                    enabled: false,
+                }
+            };
+            fixture
+                .client
+                .execute(fixture.client.prepare(command))
                 .await
                 .unwrap();
         }
-        let mut message = Input::default();
-        message.references.push(Reference {
-            target: Target::Skill {
-                package: "web-search".into(),
-                name: "research".into(),
-            },
-            label: "Research".into(),
-        });
-        let Output::QueuedTurn(selected) = fixture
-            .client
-            .execute(fixture.client.prepare(Command::SubmitTurn {
-                session: fixture.session.id,
-                expected_revision: fixture.session.revision,
-                message,
-            }))
-            .await
-            .unwrap()
-        else {
-            panic!("turn expected")
-        };
-        let page = finished(&fixture.client, fixture.session.id, selected.id).await;
+        let offset = fixture.parent.requests.lock().unwrap().len();
+        let turn = fixture
+            .push("Inspect the currently available capabilities")
+            .await;
+        let page = finished(&fixture.client, fixture.session.id, turn.id).await;
         assert_eq!(
             page.runs
                 .iter()
-                .find(|run| run.turn == selected.id)
+                .find(|run| run.turn == turn.id)
                 .unwrap()
                 .status,
-            Status::Completed
+            Status::Completed,
+            "{stage}"
         );
-        let request = fixture.parent.requests.lock().unwrap()[0].clone();
+        let request = fixture.parent.requests.lock().unwrap()[offset].clone();
+        let tools: std::collections::BTreeSet<_> = request["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|tool| tool["function"]["name"].as_str())
+            .collect();
         let instruction = prompt(&request);
-        assert_eq!(instruction.matches("<selected_skill>").count(), 1);
-        assert!(instruction.contains("Search snippets identify candidates"));
+        assert!(instruction.contains("1. Review this catalog and select the smallest set"));
+        assert!(instruction.contains("When load_skill is available in this turn's tool catalog"));
         assert!(
-            instruction.contains(
-                "unless the full instructions are already supplied; do not load them again"
-            )
+            instruction
+                .contains("do not invent capabilities or install anything without authorization")
         );
-        assert!(
-            request["messages"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .filter(|message| message["role"] == "user")
-                .all(|message| !message_text(&message["content"]).contains("<selected_skill>"))
+        assert!(tools.contains("load_skill"));
+        assert!(tools.contains("tool_search"));
+        let available = stage == "enabled";
+        assert_eq!(
+            instruction.contains("web-search:research"),
+            available,
+            "{stage}"
         );
-        assert!(
-            !page
-                .entries
+        assert_eq!(
+            turn.plugins
                 .iter()
-                .flat_map(|entry| &entry.parts)
-                .any(|part| {
-                    matches!(part, Part::Text(text) if text.contains("<selected_skill>"))
-                })
+                .any(|package| package.name == "web-search"),
+            available,
+            "{stage}"
         );
-
-        for stage in ["enabled", "disabled", "removed"] {
-            if stage != "enabled" {
-                let name = "web-search";
-                let Output::Plugin(info) = fixture
-                    .client
-                    .execute(
-                        fixture
-                            .client
-                            .prepare(Command::ReadPlugin { name: name.into() }),
-                    )
-                    .await
-                    .unwrap()
-                else {
-                    panic!("plugin expected")
-                };
-                let command = if stage.ends_with("removed") {
-                    Command::RemovePlugin {
-                        name: name.into(),
-                        expected_revision: info.summary.revision,
-                    }
-                } else {
-                    Command::SetPluginEnabled {
-                        name: name.into(),
-                        expected_revision: info.summary.revision,
-                        enabled: false,
-                    }
-                };
-                fixture
-                    .client
-                    .execute(fixture.client.prepare(command))
-                    .await
-                    .unwrap();
-            }
-            let offset = fixture.parent.requests.lock().unwrap().len();
-            let turn = fixture
-                .push("Inspect the currently available capabilities")
-                .await;
-            let page = finished(&fixture.client, fixture.session.id, turn.id).await;
-            assert_eq!(
-                page.runs
-                    .iter()
-                    .find(|run| run.turn == turn.id)
-                    .unwrap()
-                    .status,
-                Status::Completed,
-                "{stage}"
-            );
-            let request = fixture.parent.requests.lock().unwrap()[offset].clone();
-            let tools: std::collections::BTreeSet<_> = request["tools"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .filter_map(|tool| tool["function"]["name"].as_str())
-                .collect();
-            let instruction = prompt(&request);
-            assert!(instruction.contains("1. Review this catalog and select the smallest set"));
+        for name in ["spawn_agent", "guide_agent", "wait_agent"] {
             assert!(
-                instruction.contains("When load_skill is available in this turn's tool catalog")
+                !tools.contains(name) && !tools.contains(tool(name).as_str()),
+                "{stage} {name}"
             );
+        }
+        for name in ["create_worktree", "register_worktree"] {
             assert!(
-                instruction.contains(
-                    "do not invent capabilities or install anything without authorization"
-                )
+                !tools.contains(name) && !tools.contains(plugin_tool("worktrees", name).as_str()),
+                "{stage} {name}"
             );
-            assert!(tools.contains("load_skill"));
-            assert!(tools.contains("tool_search"));
-            let available = stage == "enabled";
-            assert_eq!(
-                instruction.contains("web-search:research"),
-                available,
-                "{stage}"
-            );
-            assert_eq!(
-                turn.plugins
-                    .iter()
-                    .any(|package| package.name == "web-search"),
-                available,
-                "{stage}"
-            );
-            for name in ["spawn_agent", "guide_agent", "wait_agent"] {
-                assert!(
-                    !tools.contains(name) && !tools.contains(tool(name).as_str()),
-                    "{stage} {name}"
-                );
-            }
-            for name in ["create_worktree", "register_worktree"] {
-                assert!(
-                    !tools.contains(name)
-                        && !tools.contains(plugin_tool("worktrees", name).as_str()),
-                    "{stage} {name}"
-                );
-            }
-            assert!(
-                turn.plugins
-                    .iter()
-                    .any(|package| package.name == "worktrees"),
-                "{stage}"
-            );
-            assert!(!instruction.contains("<selected_skill>"));
-            assert!(results(&fixture.client, &page).await.is_empty());
         }
         assert!(
-            selected
-                .plugins
+            turn.plugins
                 .iter()
-                .any(|package| package.name == "web-search")
+                .any(|package| package.name == "worktrees"),
+            "{stage}"
         );
-        assert!(fixture.child.requests.lock().unwrap().is_empty());
-        fixture.node.shutdown().await.unwrap();
-        fixture.controller.close().await.unwrap();
+        assert!(!instruction.contains("<selected_skill>"));
+        assert!(results(&fixture.client, &page).await.is_empty());
     }
+    assert!(
+        selected
+            .plugins
+            .iter()
+            .any(|package| package.name == "web-search")
+    );
+    assert!(fixture.child.requests.lock().unwrap().is_empty());
+    fixture.node.shutdown().await.unwrap();
+    fixture.controller.close().await.unwrap();
 }
 
 #[tokio::test]
 async fn edits_catalog_and_applies_future_capture() {
-    for remote in [false, true] {
-        let directory = tempfile::tempdir().unwrap();
-        let root = directory.path().join("project");
-        std::fs::create_dir(&root).unwrap();
-        let node = Node::start_empty(directory.path().join("node"))
-            .await
-            .unwrap();
-        let controller =
-            Link::controller(directory.path().join("controller"), NetworkScope::default())
-                .await
-                .unwrap();
-        let address = controller
-            .handle()
-            .pair(node.link().invite().unwrap().ticket())
-            .await
-            .unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(address)
-        } else {
-            node.local()
-        });
-        let server=Server::scripted_tools(vec![
-            discover("add_agent"),
-            (tool("add_agent"),json!({"key":"catalog-review","name":"Catalog review","instructions":"Inspect catalog changes","read_only":true,"max_turns":3})),
-            discover("list_agents"),
-            (tool("list_agents"),json!({})),
-        ]).await;
-        install(&client).await;
-        let (session, _) = configured_session(&client, &server.endpoint, &root).await;
-        let mut config = session.config.clone();
-        config.permission = Permission::Full;
-        let Output::Session(mut session) = client
-            .execute(client.prepare(Command::SetSessionConfig {
-                session: session.id,
-                expected_revision: session.revision,
-                config,
-            }))
-            .await
-            .unwrap()
-        else {
-            panic!("session expected")
-        };
-        let original = session.roles.clone();
-        let turn = submit(&client, &session, "Add a catalog definition").await;
-        let page = finished(&client, session.id, turn.id).await;
-        let output = results(&client, &page).await;
-        assert_eq!(output.len(), 4, "{output:?}");
-        assert_eq!(output[0]["tools"][0]["name"], tool("add_agent"));
-        assert_eq!(output[1]["revision"], "1", "{output:?}");
-        assert_eq!(output[2]["tools"][0]["name"], tool("list_agents"));
-        assert_eq!(
-            output[3]["agents"].as_array().unwrap().len(),
-            catalog(&client).await.len()
-        );
-        let added = catalog(&client)
-            .await
-            .into_iter()
-            .find(|role| role.key == "catalog-review")
-            .unwrap();
-        assert_eq!(read(&client, session.id).await.roles, original);
-        assert_eq!(turn.roles, original);
-        server.replace_tools(vec![
-            discover("edit_agent"),
-            (
-                tool("edit_agent"),
-                json!({"id":added.id,"expected_revision":"1","name":"Edited catalog review"}),
-            ),
-            (
-                tool("edit_agent"),
-                json!({"id":added.id,"expected_revision":"1","instructions":"Must conflict"}),
-            ),
-        ]);
-        let turn = submit(&client, &session, "Edit the catalog definition").await;
-        let page = finished(&client, session.id, turn.id).await;
-        let output = results(&client, &page).await;
-        assert_eq!(output[output.len() - 2]["revision"], "2");
-        assert_eq!(output.last().unwrap()["error"]["code"], "revision_conflict");
-        let edited = catalog(&client)
-            .await
-            .into_iter()
-            .find(|role| role.id == added.id)
-            .unwrap();
-        assert_eq!(edited.instructions, added.instructions);
-        assert_eq!(edited.max_turns, added.max_turns);
-        assert_eq!(edited.read_only, added.read_only);
-        assert_eq!(read(&client, session.id).await.roles, original);
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("project");
+    std::fs::create_dir(&root).unwrap();
+    let node = Node::start_empty(directory.path().join("node"))
+        .await
+        .unwrap();
+    let controller = Link::controller(directory.path().join("controller"), NetworkScope::default())
+        .await
+        .unwrap();
+    let address = controller
+        .handle()
+        .pair(node.link().invite().unwrap().ticket())
+        .await
+        .unwrap();
+    let client = Client::new(controller.handle().remote(address));
+    let server=Server::scripted_tools(vec![
+        discover("add_agent"),
+        (tool("add_agent"),json!({"key":"catalog-review","name":"Catalog review","instructions":"Inspect catalog changes","read_only":true,"max_turns":3})),
+        discover("list_agents"),
+        (tool("list_agents"),json!({})),
+    ]).await;
+    install(&client).await;
+    let (session, _) = configured_session(&client, &server.endpoint, &root).await;
+    let mut config = session.config.clone();
+    config.permission = Permission::Full;
+    let Output::Session(mut session) = client
+        .execute(client.prepare(Command::SetSessionConfig {
+            session: session.id,
+            expected_revision: session.revision,
+            config,
+        }))
+        .await
+        .unwrap()
+    else {
+        panic!("session expected")
+    };
+    let original = session.roles.clone();
+    let turn = submit(&client, &session, "Add a catalog definition").await;
+    let page = finished(&client, session.id, turn.id).await;
+    let output = results(&client, &page).await;
+    assert_eq!(output.len(), 4, "{output:?}");
+    assert_eq!(output[0]["tools"][0]["name"], tool("add_agent"));
+    assert_eq!(output[1]["revision"], "1", "{output:?}");
+    assert_eq!(output[2]["tools"][0]["name"], tool("list_agents"));
+    assert_eq!(
+        output[3]["agents"].as_array().unwrap().len(),
+        catalog(&client).await.len()
+    );
+    let added = catalog(&client)
+        .await
+        .into_iter()
+        .find(|role| role.key == "catalog-review")
+        .unwrap();
+    assert_eq!(read(&client, session.id).await.roles, original);
+    assert_eq!(turn.roles, original);
+    server.replace_tools(vec![
+        discover("edit_agent"),
+        (
+            tool("edit_agent"),
+            json!({"id":added.id,"expected_revision":"1","name":"Edited catalog review"}),
+        ),
+        (
+            tool("edit_agent"),
+            json!({"id":added.id,"expected_revision":"1","instructions":"Must conflict"}),
+        ),
+    ]);
+    let turn = submit(&client, &session, "Edit the catalog definition").await;
+    let page = finished(&client, session.id, turn.id).await;
+    let output = results(&client, &page).await;
+    assert_eq!(output[output.len() - 2]["revision"], "2");
+    assert_eq!(output.last().unwrap()["error"]["code"], "revision_conflict");
+    let edited = catalog(&client)
+        .await
+        .into_iter()
+        .find(|role| role.id == added.id)
+        .unwrap();
+    assert_eq!(edited.instructions, added.instructions);
+    assert_eq!(edited.max_turns, added.max_turns);
+    assert_eq!(edited.read_only, added.read_only);
+    assert_eq!(read(&client, session.id).await.roles, original);
 
-        let mut config = session.config.clone();
-        config.permission = Permission::Ask;
-        let Output::Session(updated) = client
-            .execute(client.prepare(Command::SetSessionConfig {
-                session: session.id,
-                expected_revision: session.revision,
-                config,
-            }))
-            .await
-            .unwrap()
-        else {
-            panic!("session expected")
-        };
-        session = updated;
-        server.replace_tools(vec![discover("apply_agents"),(tool("apply_agents"),json!({"agents":[{"id":edited.id,"revision":edited.revision.to_string()}],"expected_session_revision":session.revision.to_string()}))]);
-        let applying = submit(&client, &session, "Apply this exact selection").await;
-        let (_, approval) = super::super::approvals::pending(&client, session.id).await;
-        let Output::QueuedTurn(queued) = client
-            .execute(client.prepare(Command::QueueTurn {
-                session: session.id,
-                expected_revision: session.revision,
-                message: "Already queued capture".into(),
-            }))
-            .await
-            .unwrap()
-        else {
-            panic!("queued turn expected")
-        };
-        assert_eq!(queued.roles, original);
-        client
-            .execute(client.prepare(Command::ResolveApproval {
-                session: session.id,
-                approval: approval.id,
-                decision: sailry_protocol::conversation::Decision::Approve,
-            }))
-            .await
-            .unwrap();
-        let page = finished(&client, session.id, applying.id).await;
-        let output = results(&client, &page).await;
-        let applied = output.last().unwrap();
-        assert_eq!(applied["session"], session.id.to_string());
-        assert_eq!(applied["revision"], (session.revision + 1).to_string());
-        assert_eq!(
-            applied["roles"],
-            json!([{"id":edited.id,"revision":edited.revision.to_string()}])
-        );
-        assert!(applied.get("config").is_none());
-        assert!(applied.get("providers").is_none());
-        assert_eq!(applying.roles, original);
-        session = read(&client, session.id).await;
-        assert_eq!(session.roles.profiles, vec![edited.clone()]);
+    let mut config = session.config.clone();
+    config.permission = Permission::Ask;
+    let Output::Session(updated) = client
+        .execute(client.prepare(Command::SetSessionConfig {
+            session: session.id,
+            expected_revision: session.revision,
+            config,
+        }))
+        .await
+        .unwrap()
+    else {
+        panic!("session expected")
+    };
+    session = updated;
+    server.replace_tools(vec![discover("apply_agents"),(tool("apply_agents"),json!({"agents":[{"id":edited.id,"revision":edited.revision.to_string()}],"expected_session_revision":session.revision.to_string()}))]);
+    let applying = submit(&client, &session, "Apply this exact selection").await;
+    let (_, approval) = super::super::approvals::pending(&client, session.id).await;
+    let Output::QueuedTurn(queued) = client
+        .execute(client.prepare(Command::QueueTurn {
+            session: session.id,
+            expected_revision: session.revision,
+            message: "Already queued capture".into(),
+        }))
+        .await
+        .unwrap()
+    else {
+        panic!("queued turn expected")
+    };
+    assert_eq!(queued.roles, original);
+    client
+        .execute(client.prepare(Command::ResolveApproval {
+            session: session.id,
+            approval: approval.id,
+            decision: sailry_protocol::conversation::Decision::Approve,
+        }))
+        .await
+        .unwrap();
+    let page = finished(&client, session.id, applying.id).await;
+    let output = results(&client, &page).await;
+    let applied = output.last().unwrap();
+    assert_eq!(applied["session"], session.id.to_string());
+    assert_eq!(applied["revision"], (session.revision + 1).to_string());
+    assert_eq!(
+        applied["roles"],
+        json!([{"id":edited.id,"revision":edited.revision.to_string()}])
+    );
+    assert!(applied.get("config").is_none());
+    assert!(applied.get("providers").is_none());
+    assert_eq!(applying.roles, original);
+    session = read(&client, session.id).await;
+    assert_eq!(session.roles.profiles, vec![edited.clone()]);
 
-        server.replace_tools(vec![
-            discover("spawn_agent"),
-            (
-                tool("spawn_agent"),
-                json!({"role":edited.key,"task":"Must retain the queued roster"}),
-            ),
-        ]);
-        client
-            .execute(client.prepare(Command::StartQueuedTurn { turn: queued.id }))
-            .await
-            .unwrap();
-        let page = finished(&client, session.id, queued.id).await;
-        assert_eq!(
-            results(&client, &page).await.last().unwrap()["error"]["code"],
-            "invalid_request"
-        );
-        assert_eq!(queued.roles, original);
-        server.replace_tools(vec![]);
-        let fresh = submit(&client, &session, "Inspect the applied roster").await;
-        assert_eq!(fresh.roles.profiles, vec![edited.clone()]);
-        finished(&client, session.id, fresh.id).await;
-        {
-            let requests = server.requests.lock().unwrap();
-            let declaration = requests.last().unwrap()["tools"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .find(|entry| entry["function"]["name"] == "spawn_agent")
-                .unwrap();
-            let role = &declaration["function"]["parameters"]["properties"]["role"];
-            assert!(role.get("enum").is_none());
-            assert_eq!(role["type"], json!("string"));
-            let first = requests
-                .iter()
-                .find_map(|request| {
-                    request["tools"]
-                        .as_array()?
-                        .iter()
-                        .find(|entry| entry["function"]["name"] == "spawn_agent")
-                })
-                .unwrap();
-            assert_eq!(
-                declaration["function"]["parameters"],
-                first["function"]["parameters"]
-            );
-            let request = requests.last().unwrap();
-            let label = format!("{} ({})", edited.key, edited.name);
-            assert_eq!(turn_context(request).matches(&label).count(), 1);
-            assert!(!prompt(request).contains(&label));
-        }
-
-        server.replace_tools(vec![
-            discover("delete_agent"),
-            (
-                tool("delete_agent"),
-                json!({"id":edited.id,"expected_revision":edited.revision.to_string()}),
-            ),
-        ]);
-        let deleting = submit(&client, &session, "Delete only this catalog definition").await;
-        let (_, approval) = super::super::approvals::pending(&client, session.id).await;
-        client
-            .execute(client.prepare(Command::ResolveApproval {
-                session: session.id,
-                approval: approval.id,
-                decision: sailry_protocol::conversation::Decision::Approve,
-            }))
-            .await
-            .unwrap();
-        finished(&client, session.id, deleting.id).await;
-        assert!(
-            !catalog(&client)
-                .await
-                .iter()
-                .any(|role| role.id == edited.id)
-        );
-        assert_eq!(
-            read(&client, session.id).await.roles.profiles,
-            vec![edited.clone()]
-        );
-        assert_eq!(deleting.roles.profiles, vec![edited.clone()]);
-        let Output::Session(new) = client
-            .execute(client.prepare(Command::CreateSession {
-                project: session.project,
-                worktree: Some(session.worktree),
-                config: Some(session.config.clone()),
-            }))
-            .await
+    server.replace_tools(vec![
+        discover("spawn_agent"),
+        (
+            tool("spawn_agent"),
+            json!({"role":edited.key,"task":"Must retain the queued roster"}),
+        ),
+    ]);
+    client
+        .execute(client.prepare(Command::StartQueuedTurn { turn: queued.id }))
+        .await
+        .unwrap();
+    let page = finished(&client, session.id, queued.id).await;
+    assert_eq!(
+        results(&client, &page).await.last().unwrap()["error"]["code"],
+        "invalid_request"
+    );
+    assert_eq!(queued.roles, original);
+    server.replace_tools(vec![]);
+    let fresh = submit(&client, &session, "Inspect the applied roster").await;
+    assert_eq!(fresh.roles.profiles, vec![edited.clone()]);
+    finished(&client, session.id, fresh.id).await;
+    {
+        let requests = server.requests.lock().unwrap();
+        let declaration = requests.last().unwrap()["tools"]
+            .as_array()
             .unwrap()
-        else {
-            panic!("new session expected")
-        };
-        assert!(!new.roles.profiles.iter().any(|role| role.id == edited.id));
-        controller.close().await.unwrap();
-        node.shutdown().await.unwrap();
+            .iter()
+            .find(|entry| entry["function"]["name"] == "spawn_agent")
+            .unwrap();
+        let role = &declaration["function"]["parameters"]["properties"]["role"];
+        assert!(role.get("enum").is_none());
+        assert_eq!(role["type"], json!("string"));
+        let first = requests
+            .iter()
+            .find_map(|request| {
+                request["tools"]
+                    .as_array()?
+                    .iter()
+                    .find(|entry| entry["function"]["name"] == "spawn_agent")
+            })
+            .unwrap();
+        assert_eq!(
+            declaration["function"]["parameters"],
+            first["function"]["parameters"]
+        );
+        let request = requests.last().unwrap();
+        let label = format!("{} ({})", edited.key, edited.name);
+        assert_eq!(turn_context(request).matches(&label).count(), 1);
+        assert!(!prompt(request).contains(&label));
     }
+
+    server.replace_tools(vec![
+        discover("delete_agent"),
+        (
+            tool("delete_agent"),
+            json!({"id":edited.id,"expected_revision":edited.revision.to_string()}),
+        ),
+    ]);
+    let deleting = submit(&client, &session, "Delete only this catalog definition").await;
+    let (_, approval) = super::super::approvals::pending(&client, session.id).await;
+    client
+        .execute(client.prepare(Command::ResolveApproval {
+            session: session.id,
+            approval: approval.id,
+            decision: sailry_protocol::conversation::Decision::Approve,
+        }))
+        .await
+        .unwrap();
+    finished(&client, session.id, deleting.id).await;
+    assert!(
+        !catalog(&client)
+            .await
+            .iter()
+            .any(|role| role.id == edited.id)
+    );
+    assert_eq!(
+        read(&client, session.id).await.roles.profiles,
+        vec![edited.clone()]
+    );
+    assert_eq!(deleting.roles.profiles, vec![edited.clone()]);
+    let Output::Session(new) = client
+        .execute(client.prepare(Command::CreateSession {
+            project: session.project,
+            worktree: Some(session.worktree),
+            config: Some(session.config.clone()),
+        }))
+        .await
+        .unwrap()
+    else {
+        panic!("new session expected")
+    };
+    assert!(!new.roles.profiles.iter().any(|role| role.id == edited.id));
+    controller.close().await.unwrap();
+    node.shutdown().await.unwrap();
 }
 
 #[tokio::test]
 async fn applies_teams_for_future_capture() {
-    for remote in [false, true] {
-        let directory = tempfile::tempdir().unwrap();
-        let root = directory.path().join("project");
-        std::fs::create_dir(&root).unwrap();
-        let node = Node::start_empty(directory.path().join("node"))
-            .await
-            .unwrap();
-        let controller =
-            Link::controller(directory.path().join("controller"), NetworkScope::default())
-                .await
-                .unwrap();
-        let address = controller
-            .handle()
-            .pair(node.link().invite().unwrap().ticket())
-            .await
-            .unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(address)
-        } else {
-            node.local()
-        });
-        let Output::Role(member) = client
-            .execute(client.prepare(Command::PutRole {
-                role: role::Profile {
-                    id: sailry_protocol::RoleId::new(),
-                    revision: 0,
-                    key: "team-review".into(),
-                    name: "Team review".into(),
-                    appearance: None,
-                    description: String::new(),
-                    read_only: true,
-                    model: None,
-                    max_turns: None,
-                    skills: vec![],
-                    tools: None,
-                    instructions: "Review team work".into(),
-                },
-                expected_revision: 0,
-            }))
-            .await
-            .unwrap()
-        else {
-            panic!("role expected")
-        };
-        let server = Server::scripted_tools(vec![
-            discover("add_team"),
-            (
-                tool("add_team"),
-                json!({"key":"review-team","name":"Review team","instructions":"Lead the review","members":[member.id]}),
-            ),
-            discover("list_teams"),
-            (tool("list_teams"), json!({})),
-        ])
-        .await;
-        install(&client).await;
-        let (session, _) = configured_session(&client, &server.endpoint, &root).await;
-        let mut config = session.config.clone();
-        config.permission = Permission::Full;
-        let Output::Session(mut session) = client
-            .execute(client.prepare(Command::SetSessionConfig {
-                session: session.id,
-                expected_revision: session.revision,
-                config,
-            }))
-            .await
-            .unwrap()
-        else {
-            panic!("session expected")
-        };
-        let turn = submit(&client, &session, "Add a team").await;
-        let page = finished(&client, session.id, turn.id).await;
-        let output = results(&client, &page).await;
-        assert_eq!(output.len(), 4, "{output:?}");
-        assert_eq!(output[1]["revision"], "1", "{output:?}");
-        assert_eq!(output[1]["members"], json!([member.id]));
-        let teams = output[3]["teams"].as_array().unwrap();
-        assert_eq!(teams.len(), 1);
-        assert!(teams.iter().all(|team| team["key"] != "default"));
-        let added: sailry_protocol::TeamId =
-            serde_json::from_value(teams[0]["id"].clone()).unwrap();
-        assert_eq!(turn.roles.team, None);
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("project");
+    std::fs::create_dir(&root).unwrap();
+    let node = Node::start_empty(directory.path().join("node"))
+        .await
+        .unwrap();
+    let controller = Link::controller(directory.path().join("controller"), NetworkScope::default())
+        .await
+        .unwrap();
+    let address = controller
+        .handle()
+        .pair(node.link().invite().unwrap().ticket())
+        .await
+        .unwrap();
+    let client = Client::new(controller.handle().remote(address));
+    let Output::Role(member) = client
+        .execute(client.prepare(Command::PutRole {
+            role: role::Profile {
+                id: sailry_protocol::RoleId::new(),
+                revision: 0,
+                key: "team-review".into(),
+                name: "Team review".into(),
+                appearance: None,
+                description: String::new(),
+                read_only: true,
+                model: None,
+                max_turns: None,
+                skills: vec![],
+                tools: None,
+                instructions: "Review team work".into(),
+            },
+            expected_revision: 0,
+        }))
+        .await
+        .unwrap()
+    else {
+        panic!("role expected")
+    };
+    let server = Server::scripted_tools(vec![
+        discover("add_team"),
+        (
+            tool("add_team"),
+            json!({"key":"review-team","name":"Review team","instructions":"Lead the review","members":[member.id]}),
+        ),
+        discover("list_teams"),
+        (tool("list_teams"), json!({})),
+    ])
+    .await;
+    install(&client).await;
+    let (session, _) = configured_session(&client, &server.endpoint, &root).await;
+    let mut config = session.config.clone();
+    config.permission = Permission::Full;
+    let Output::Session(mut session) = client
+        .execute(client.prepare(Command::SetSessionConfig {
+            session: session.id,
+            expected_revision: session.revision,
+            config,
+        }))
+        .await
+        .unwrap()
+    else {
+        panic!("session expected")
+    };
+    let turn = submit(&client, &session, "Add a team").await;
+    let page = finished(&client, session.id, turn.id).await;
+    let output = results(&client, &page).await;
+    assert_eq!(output.len(), 4, "{output:?}");
+    assert_eq!(output[1]["revision"], "1", "{output:?}");
+    assert_eq!(output[1]["members"], json!([member.id]));
+    let teams = output[3]["teams"].as_array().unwrap();
+    assert_eq!(teams.len(), 1);
+    assert!(teams.iter().all(|team| team["key"] != "default"));
+    let added: sailry_protocol::TeamId = serde_json::from_value(teams[0]["id"].clone()).unwrap();
+    assert_eq!(turn.roles.team, None);
 
-        server.replace_tools(vec![
-            discover("apply_team"),
-            (
-                tool("apply_team"),
-                json!({"team":{"id":added,"revision":"1"},"expected_session_revision":session.revision.to_string()}),
-            ),
-            (
-                tool("apply_team"),
-                json!({"team":null,"expected_session_revision":session.revision.to_string()}),
-            ),
-        ]);
-        let applying = submit(&client, &session, "Use the review team").await;
-        let page = finished(&client, session.id, applying.id).await;
-        let output = results(&client, &page).await;
-        let applied = &output[output.len() - 2];
-        assert_eq!(applied["revision"], (session.revision + 1).to_string());
-        assert_eq!(applied["team"], json!({"id":added,"revision":"1"}));
-        assert_eq!(
-            applied["roles"],
-            json!([{"id":member.id,"revision":member.revision.to_string()}])
-        );
-        assert!(applied.get("providers").is_none());
-        // The stale session revision is a conflict, never a silent rebase.
-        assert_eq!(output.last().unwrap()["error"]["code"], "revision_conflict");
-        assert_eq!(applying.roles.team, None);
-        session = read(&client, session.id).await;
-        assert_eq!(
-            session.roles.team,
-            Some(sailry_protocol::team::Reference {
-                id: added,
-                revision: 1
-            })
-        );
-        assert_eq!(session.roles.instructions, "Lead the review");
-        assert_eq!(session.roles.profiles, vec![member.clone()]);
-        server.replace_tools(vec![]);
-        let fresh = submit(&client, &session, "Inspect the applied team").await;
-        assert_eq!(fresh.roles.team, session.roles.team);
-        finished(&client, session.id, fresh.id).await;
-        controller.close().await.unwrap();
-        node.shutdown().await.unwrap();
-    }
+    server.replace_tools(vec![
+        discover("apply_team"),
+        (
+            tool("apply_team"),
+            json!({"team":{"id":added,"revision":"1"},"expected_session_revision":session.revision.to_string()}),
+        ),
+        (
+            tool("apply_team"),
+            json!({"team":null,"expected_session_revision":session.revision.to_string()}),
+        ),
+    ]);
+    let applying = submit(&client, &session, "Use the review team").await;
+    let page = finished(&client, session.id, applying.id).await;
+    let output = results(&client, &page).await;
+    let applied = &output[output.len() - 2];
+    assert_eq!(applied["revision"], (session.revision + 1).to_string());
+    assert_eq!(applied["team"], json!({"id":added,"revision":"1"}));
+    assert_eq!(
+        applied["roles"],
+        json!([{"id":member.id,"revision":member.revision.to_string()}])
+    );
+    assert!(applied.get("providers").is_none());
+    // The stale session revision is a conflict, never a silent rebase.
+    assert_eq!(output.last().unwrap()["error"]["code"], "revision_conflict");
+    assert_eq!(applying.roles.team, None);
+    session = read(&client, session.id).await;
+    assert_eq!(
+        session.roles.team,
+        Some(sailry_protocol::team::Reference {
+            id: added,
+            revision: 1
+        })
+    );
+    assert_eq!(session.roles.instructions, "Lead the review");
+    assert_eq!(session.roles.profiles, vec![member.clone()]);
+    server.replace_tools(vec![]);
+    let fresh = submit(&client, &session, "Inspect the applied team").await;
+    assert_eq!(fresh.roles.team, session.roles.team);
+    finished(&client, session.id, fresh.id).await;
+    controller.close().await.unwrap();
+    node.shutdown().await.unwrap();
 }

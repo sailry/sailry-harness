@@ -37,140 +37,138 @@ async fn captured(node: &Node, turn: TurnId) -> Provider {
 
 #[tokio::test]
 async fn freezes_updates_at_turn_admission() {
-    for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = support::empty(remote).await;
-        let source = directory.path().join("source/package");
-        declare(&source, 1);
-        let server = model_fixture::Server::start(false).await;
-        let first = info(execute(&client, install(worktree, 0)).await);
-        assert!(first.issues.is_empty(), "{:?}", first.issues);
-        let Output::ChannelPresets(listing) = execute(
-            &client,
-            Command::ListChannelPresets {
-                refresh_partners: false,
-            },
-        )
-        .await
-        else {
-            panic!("channel catalog expected")
-        };
-        let entry = listing
-            .entries
-            .iter()
-            .find(|entry| matches!(&entry.source,Source::Package{name} if name=="example"))
-            .unwrap();
-        assert_eq!(entry.package, Some(first.summary.reference()));
-        let reference = PresetRef {
-            source: entry.source.clone(),
-            id: entry.preset.id.clone(),
-            route: Some(entry.preset.routes[0].key()),
-        };
-        let mut provider:Provider=serde_json::from_value(json!({"id":ProviderId::new(),"revision":0,"name":"Example","api":"chat_completions","authentication":"api_key","endpoint":"http://localhost:11434/v1","enabled":true,"models":[],"default_model":"","credential":null,"preset":reference})).unwrap();
-        provider.endpoint = server.endpoint.clone();
-        let Output::Provider(provider) = execute(
-            &client,
-            Command::PutProvider {
-                provider,
-                expected_revision: 0,
-            },
-        )
-        .await
-        else {
-            panic!("provider expected")
-        };
-        assert!(provider.binding.is_none());
-        let Output::Snapshot(snapshot) = execute(&client, Command::Snapshot).await else {
-            panic!("snapshot expected")
-        };
-        let project = snapshot
-            .worktrees
-            .iter()
-            .find(|item| item.id == worktree)
+    let (directory, node, controller, client, worktree) = support::empty().await;
+    let source = directory.path().join("source/package");
+    declare(&source, 1);
+    let server = model_fixture::Server::start(false).await;
+    let first = info(execute(&client, install(worktree, 0)).await);
+    assert!(first.issues.is_empty(), "{:?}", first.issues);
+    let Output::ChannelPresets(listing) = execute(
+        &client,
+        Command::ListChannelPresets {
+            refresh_partners: false,
+        },
+    )
+    .await
+    else {
+        panic!("channel catalog expected")
+    };
+    let entry = listing
+        .entries
+        .iter()
+        .find(|entry| matches!(&entry.source,Source::Package{name} if name=="example"))
+        .unwrap();
+    assert_eq!(entry.package, Some(first.summary.reference()));
+    let reference = PresetRef {
+        source: entry.source.clone(),
+        id: entry.preset.id.clone(),
+        route: Some(entry.preset.routes[0].key()),
+    };
+    let mut provider:Provider=serde_json::from_value(json!({"id":ProviderId::new(),"revision":0,"name":"Example","api":"chat_completions","authentication":"api_key","endpoint":"http://localhost:11434/v1","enabled":true,"models":[],"default_model":"","credential":null,"preset":reference})).unwrap();
+    provider.endpoint = server.endpoint.clone();
+    let Output::Provider(provider) = execute(
+        &client,
+        Command::PutProvider {
+            provider,
+            expected_revision: 0,
+        },
+    )
+    .await
+    else {
+        panic!("provider expected")
+    };
+    assert!(provider.binding.is_none());
+    let Output::Snapshot(snapshot) = execute(&client, Command::Snapshot).await else {
+        panic!("snapshot expected")
+    };
+    let project = snapshot
+        .worktrees
+        .iter()
+        .find(|item| item.id == worktree)
+        .unwrap()
+        .project;
+    let Output::Session(session) = execute(
+        &client,
+        Command::CreateSession {
+            project,
+            worktree: Some(worktree),
+            config: Some(SessionConfig {
+                features: Default::default(),
+                assistant: None,
+                resource: None,
+                provider: provider.id,
+                credential: None,
+                model: "fixture".into(),
+                effort: Effort::Default,
+                mode: WorkMode::Code,
+                permission: Permission::Ask,
+                options: Default::default(),
+            }),
+        },
+    )
+    .await
+    else {
+        panic!("session expected")
+    };
+    let queue = || Command::SubmitTurn {
+        session: session.id,
+        expected_revision: session.revision,
+        message: "Capture the declaration".into(),
+    };
+    let Output::QueuedTurn(first_turn) = execute(&client, queue()).await else {
+        panic!("turn expected")
+    };
+    finish(&client, session.id, first_turn.id).await;
+    let original = captured(&node, first_turn.id).await;
+    assert_eq!(
+        original.binding.as_ref().unwrap().package,
+        Some(first.summary.reference())
+    );
+    declare(&source, 2);
+    let second = info(execute(&client, install(worktree, first.summary.revision)).await);
+    let Output::QueuedTurn(second_turn) = execute(&client, queue()).await else {
+        panic!("turn expected")
+    };
+    finish(&client, session.id, second_turn.id).await;
+    let current = captured(&node, second_turn.id).await;
+    assert_eq!(
+        current.binding.as_ref().unwrap().package,
+        Some(second.summary.reference())
+    );
+    assert_eq!(
+        current
+            .binding
+            .as_ref()
             .unwrap()
-            .project;
-        let Output::Session(session) = execute(
-            &client,
-            Command::CreateSession {
-                project,
-                worktree: Some(worktree),
-                config: Some(SessionConfig {
-                    features: Default::default(),
-                    assistant: None,
-                    resource: None,
-                    provider: provider.id,
-                    credential: None,
-                    model: "fixture".into(),
-                    effort: Effort::Default,
-                    mode: WorkMode::Code,
-                    permission: Permission::Ask,
-                    options: Default::default(),
-                }),
-            },
-        )
-        .await
-        else {
-            panic!("session expected")
-        };
-        let queue = || Command::SubmitTurn {
-            session: session.id,
-            expected_revision: session.revision,
-            message: "Capture the declaration".into(),
-        };
-        let Output::QueuedTurn(first_turn) = execute(&client, queue()).await else {
-            panic!("turn expected")
-        };
-        finish(&client, session.id, first_turn.id).await;
-        let original = captured(&node, first_turn.id).await;
-        assert_eq!(
-            original.binding.as_ref().unwrap().package,
-            Some(first.summary.reference())
-        );
-        declare(&source, 2);
-        let second = info(execute(&client, install(worktree, first.summary.revision)).await);
-        let Output::QueuedTurn(second_turn) = execute(&client, queue()).await else {
-            panic!("turn expected")
-        };
-        finish(&client, session.id, second_turn.id).await;
-        let current = captured(&node, second_turn.id).await;
-        assert_eq!(
-            current.binding.as_ref().unwrap().package,
-            Some(second.summary.reference())
-        );
-        assert_eq!(
-            current
-                .binding
-                .as_ref()
-                .unwrap()
-                .policies
-                .last()
-                .unwrap()
-                .body["example"],
-            2
-        );
-        assert_eq!(captured(&node, first_turn.id).await, original);
-        assert_eq!(server.requests.lock().unwrap()[0]["example"], 1);
-        assert_eq!(server.requests.lock().unwrap()[1]["example"], 2);
-        execute(
-            &client,
-            Command::SetPluginEnabled {
-                name: "example".into(),
-                expected_revision: second.summary.revision,
-                enabled: false,
-            },
-        )
-        .await;
-        assert_eq!(
-            client
-                .execute(client.prepare(queue()))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::NotConfigured
-        );
-        assert_eq!(captured(&node, first_turn.id).await, original);
-        controller.close().await.unwrap();
-        node.shutdown().await.unwrap();
-    }
+            .policies
+            .last()
+            .unwrap()
+            .body["example"],
+        2
+    );
+    assert_eq!(captured(&node, first_turn.id).await, original);
+    assert_eq!(server.requests.lock().unwrap()[0]["example"], 1);
+    assert_eq!(server.requests.lock().unwrap()[1]["example"], 2);
+    execute(
+        &client,
+        Command::SetPluginEnabled {
+            name: "example".into(),
+            expected_revision: second.summary.revision,
+            enabled: false,
+        },
+    )
+    .await;
+    assert_eq!(
+        client
+            .execute(client.prepare(queue()))
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::NotConfigured
+    );
+    assert_eq!(captured(&node, first_turn.id).await, original);
+    controller.close().await.unwrap();
+    node.shutdown().await.unwrap();
 }
 
 async fn finish(client: &Client, session: SessionId, turn: TurnId) {

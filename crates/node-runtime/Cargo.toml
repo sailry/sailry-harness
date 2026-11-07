@@ -54,6 +54,10 @@ path = "tests/suites/resources.rs"
 name = "code_index"
 path = "tests/code_index.rs"
 
+[[test]]
+name = "transport"
+path = "tests/transport.rs"
+
 [features]
 test-support = ["sailry-link/test-support", "sailry-local-models/test-support"]
 

@@ -57,151 +57,143 @@ async fn install(fixture: &Fixture, name: &str, revision: u64) -> plugin::Info {
 
 #[tokio::test]
 async fn retains_captured_code_and_history_after_removal() {
-    for remote in [false, true] {
-        let name = "outcomes";
-        let server = Server::tools(vec![(
-            plugin_tool(name, "create_goal"),
-            json!({"description":"Evidence"}),
-        )])
-        .await;
-        let fixture = Fixture::packages(remote, &server, &[]).await;
-        source(&fixture, name, " original");
-        let original = install(&fixture, name, 0).await;
-        let Output::Plugins(packages) = execute(&fixture, Command::ListPlugins).await else {
-            panic!("plugins expected")
-        };
-        let others: Vec<_> = packages
-            .iter()
-            .filter(|package| package.enabled && package.name != name)
-            .map(|package| package.name.as_str())
-            .collect();
-        disable_tools(&fixture.client, &others).await;
-        let Output::QueuedTurn(queued) = execute(
-            &fixture,
-            Command::QueueTurn {
-                session: fixture.session.id,
-                expected_revision: 1,
-                message: "Record the requested goal".into(),
-            },
-        )
+    let name = "outcomes";
+    let server = Server::tools(vec![(
+        plugin_tool(name, "create_goal"),
+        json!({"description":"Evidence"}),
+    )])
+    .await;
+    let fixture = Fixture::packages(&server, &[]).await;
+    source(&fixture, name, " original");
+    let original = install(&fixture, name, 0).await;
+    let Output::Plugins(packages) = execute(&fixture, Command::ListPlugins).await else {
+        panic!("plugins expected")
+    };
+    let others: Vec<_> = packages
+        .iter()
+        .filter(|package| package.enabled && package.name != name)
+        .map(|package| package.name.as_str())
+        .collect();
+    disable_tools(&fixture.client, &others).await;
+    let Output::QueuedTurn(queued) = execute(
+        &fixture,
+        Command::QueueTurn {
+            session: fixture.session.id,
+            expected_revision: 1,
+            message: "Record the requested goal".into(),
+        },
+    )
+    .await
+    else {
+        panic!("queued turn expected")
+    };
+    assert_eq!(queued.plugins, [original.summary.reference()]);
+    source(&fixture, name, " updated");
+    install(&fixture, name, 1).await;
+    execute(&fixture, Command::StartQueuedTurn { turn: queued.id }).await;
+    let page = finished(&fixture.client, fixture.session.id, queued.id).await;
+    assert_eq!(page.runs.last().unwrap().status, Status::Completed);
+    let saved = results(&fixture.client, &page)
         .await
-        else {
-            panic!("queued turn expected")
-        };
-        assert_eq!(queued.plugins, [original.summary.reference()]);
-        source(&fixture, name, " updated");
-        install(&fixture, name, 1).await;
-        execute(&fixture, Command::StartQueuedTurn { turn: queued.id }).await;
-        let page = finished(&fixture.client, fixture.session.id, queued.id).await;
-        assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-        let saved = results(&fixture.client, &page)
-            .await
-            .iter()
-            .find(|(tool, _)| *tool == plugin_tool(name, "create_goal"))
-            .unwrap()
-            .1
-            .clone();
-        assert_eq!(saved["goal"]["description"], "Evidence original");
-        assert!(page.entries.iter().flat_map(|entry| &entry.parts).any(|part| matches!(part,
-            Part::ToolCall {summary,..} if summary.resolved.as_ref().and_then(|resolved| resolved.label.as_ref())
-                .is_some_and(|label| label.label == "Record original"))));
-        execute(
-            &fixture,
-            Command::RemovePlugin {
-                name: name.into(),
-                expected_revision: 2,
-            },
-        )
-        .await;
-        let profile = fixture.node.profile().to_owned();
-        fixture.node.shutdown().await.unwrap();
-        let node = Node::start_empty(profile).await.unwrap();
-        let client = Client::new(if remote {
-            fixture.controller.handle().remote(node.link().address())
-        } else {
-            node.local()
-        });
-        assert_eq!(history(&client, fixture.session.id).await, page);
-        let Output::Plugins(packages) = client
-            .execute(client.prepare(Command::ListPlugins))
-            .await
-            .unwrap()
-        else {
-            panic!("plugins expected")
-        };
-        assert!(!packages.iter().any(|package| package.name == name));
-        node.shutdown().await.unwrap();
-        fixture.controller.close().await.unwrap();
-    }
+        .iter()
+        .find(|(tool, _)| *tool == plugin_tool(name, "create_goal"))
+        .unwrap()
+        .1
+        .clone();
+    assert_eq!(saved["goal"]["description"], "Evidence original");
+    assert!(page.entries.iter().flat_map(|entry| &entry.parts).any(|part| matches!(part,
+        Part::ToolCall {summary,..} if summary.resolved.as_ref().and_then(|resolved| resolved.label.as_ref())
+            .is_some_and(|label| label.label == "Record original"))));
+    execute(
+        &fixture,
+        Command::RemovePlugin {
+            name: name.into(),
+            expected_revision: 2,
+        },
+    )
+    .await;
+    let profile = fixture.node.profile().to_owned();
+    fixture.node.shutdown().await.unwrap();
+    let node = Node::start_empty(profile).await.unwrap();
+    let client = Client::new(fixture.controller.handle().remote(node.link().address()));
+    assert_eq!(history(&client, fixture.session.id).await, page);
+    let Output::Plugins(packages) = client
+        .execute(client.prepare(Command::ListPlugins))
+        .await
+        .unwrap()
+    else {
+        panic!("plugins expected")
+    };
+    assert!(!packages.iter().any(|package| package.name == name));
+    node.shutdown().await.unwrap();
+    fixture.controller.close().await.unwrap();
 }
 
 #[tokio::test]
 async fn commands_and_new_turns_follow_enablement() {
-    for remote in [false, true] {
-        let server = Server::scripted_tools(vec![]).await;
-        let fixture = Fixture::packages(remote, &server, &[]).await;
-        source(&fixture, "outcomes", "");
-        install(&fixture, "outcomes", 0).await;
-        let command = || {
-            fixture.client.prepare(Command::SubmitTurn {
-                session: fixture.session.id,
-                expected_revision: 1,
-                message: "/outcomes".into(),
-            })
-        };
-        let Output::PluginResult(value) = fixture.client.execute(command()).await.unwrap() else {
-            panic!("registered command expected")
-        };
-        assert_eq!(value["ui_intent"], "goal");
-        for (revision, enabled) in [(1, false), (2, true)] {
-            execute(
-                &fixture,
-                Command::SetPluginEnabled {
-                    name: "outcomes".into(),
-                    expected_revision: revision,
-                    enabled,
-                },
-            )
-            .await;
-            server.replace_tools(if enabled {
-                vec![("tool_search".into(), json!({"query":"goal","limit":6}))]
-            } else {
-                vec![]
-            });
-            let previous = server.requests.lock().unwrap().len();
-            let turn = approvals::submit(&fixture.client, fixture.session.id).await;
-            finished(&fixture.client, fixture.session.id, turn).await;
-            let requests = server.requests.lock().unwrap();
-            assert_eq!(requests.len() - previous, if enabled { 2 } else { 1 });
-            let tools = requests.last().unwrap()["tools"].as_array().unwrap();
-            for name in [
-                "create_goal",
-                "get_goal",
-                "update_goal",
-                "resume_goal",
-                "pause_goal",
-                "clear_goal",
-            ] {
-                assert_eq!(
-                    tools.iter().any(|tool| tool["function"]["name"] == name),
-                    enabled
-                );
-            }
-        }
+    let server = Server::scripted_tools(vec![]).await;
+    let fixture = Fixture::packages(&server, &[]).await;
+    source(&fixture, "outcomes", "");
+    install(&fixture, "outcomes", 0).await;
+    let command = || {
+        fixture.client.prepare(Command::SubmitTurn {
+            session: fixture.session.id,
+            expected_revision: 1,
+            message: "/outcomes".into(),
+        })
+    };
+    let Output::PluginResult(value) = fixture.client.execute(command()).await.unwrap() else {
+        panic!("registered command expected")
+    };
+    assert_eq!(value["ui_intent"], "goal");
+    for (revision, enabled) in [(1, false), (2, true)] {
         execute(
             &fixture,
-            Command::RemovePlugin {
+            Command::SetPluginEnabled {
                 name: "outcomes".into(),
-                expected_revision: 3,
+                expected_revision: revision,
+                enabled,
             },
         )
         .await;
-        server.replace_tools(vec![]);
-        let Output::QueuedTurn(turn) = fixture.client.execute(command()).await.unwrap() else {
-            panic!("unregistered slash input must remain ordinary text")
-        };
-        finished(&fixture.client, fixture.session.id, turn.id).await;
-        fixture.node.shutdown().await.unwrap();
-        fixture.controller.close().await.unwrap();
+        server.replace_tools(if enabled {
+            vec![("tool_search".into(), json!({"query":"goal","limit":6}))]
+        } else {
+            vec![]
+        });
+        let previous = server.requests.lock().unwrap().len();
+        let turn = approvals::submit(&fixture.client, fixture.session.id).await;
+        finished(&fixture.client, fixture.session.id, turn).await;
+        let requests = server.requests.lock().unwrap();
+        assert_eq!(requests.len() - previous, if enabled { 2 } else { 1 });
+        let tools = requests.last().unwrap()["tools"].as_array().unwrap();
+        for name in [
+            "create_goal",
+            "get_goal",
+            "update_goal",
+            "resume_goal",
+            "pause_goal",
+            "clear_goal",
+        ] {
+            assert_eq!(
+                tools.iter().any(|tool| tool["function"]["name"] == name),
+                enabled
+            );
+        }
     }
+    execute(
+        &fixture,
+        Command::RemovePlugin {
+            name: "outcomes".into(),
+            expected_revision: 3,
+        },
+    )
+    .await;
+    server.replace_tools(vec![]);
+    let Output::QueuedTurn(turn) = fixture.client.execute(command()).await.unwrap() else {
+        panic!("unregistered slash input must remain ordinary text")
+    };
+    finished(&fixture.client, fixture.session.id, turn.id).await;
+    fixture.node.shutdown().await.unwrap();
+    fixture.controller.close().await.unwrap();
 }

@@ -126,271 +126,110 @@ pub(super) async fn upload(
 
 #[tokio::test]
 async fn uses_reported_tokens() {
-    for remote in [false, true] {
-        let server = Server::loop_usage(vec![Some(84_000)], 100).await;
-        let fixture = fixture(remote, &server).await;
-        evidence(&fixture, 1000);
-        model(&fixture, 1_050_000, 128_000, true).await;
-        let attachment = image(&fixture).await;
-        let Output::QueuedTurn(turn) = fixture
-            .client
-            .execute(fixture.client.prepare(Command::SubmitTurn {
-                session: fixture.session.id,
-                expected_revision: 1,
-                message: Input {
-                    text: "Inspect the image and preserve evidence from all six files".into(),
-                    attachments: vec![attachment],
-                    ..Default::default()
-                },
-            }))
-            .await
-            .unwrap()
-        else {
-            panic!("turn expected")
-        };
-        let page = finished(&fixture.client, fixture.session.id, turn.id).await;
-        assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
+    let server = Server::loop_usage(vec![Some(84_000)], 100).await;
+    let fixture = fixture(&server).await;
+    evidence(&fixture, 1000);
+    model(&fixture, 1_050_000, 128_000, true).await;
+    let attachment = image(&fixture).await;
+    let Output::QueuedTurn(turn) = fixture
+        .client
+        .execute(fixture.client.prepare(Command::SubmitTurn {
+            session: fixture.session.id,
+            expected_revision: 1,
+            message: Input {
+                text: "Inspect the image and preserve evidence from all six files".into(),
+                attachments: vec![attachment],
+                ..Default::default()
+            },
+        }))
+        .await
+        .unwrap()
+    else {
+        panic!("turn expected")
+    };
+    let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+    assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
+    assert_eq!(summaries(&page), 0);
+    for text in ["Second recent turn", "Third recent turn"] {
+        let (_, _, page) = submit(&fixture.client, fixture.session.id, text.into()).await;
         assert_eq!(summaries(&page), 0);
-        for text in ["Second recent turn", "Third recent turn"] {
-            let (_, _, page) = submit(&fixture.client, fixture.session.id, text.into()).await;
-            assert_eq!(summaries(&page), 0);
-        }
-        let requests = server.requests.lock().unwrap().clone();
-        assert_eq!(requests.len(), 9);
-        assert!(
-            requests
-                .iter()
-                .all(|request| !agent_support::compaction::is_summary(request))
-        );
-        assert!(
-            requests[0]["messages"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|message| {
-                    message["content"].as_array().is_some_and(|parts| {
-                        parts.iter().any(|part| {
-                            part["type"] == "image_url"
-                                && part["image_url"]["url"]
-                                    .as_str()
-                                    .is_some_and(|url| url.starts_with("data:image/png;base64,"))
-                        })
-                    })
-                })
-        );
-        let tool_bytes: usize = requests[6]["messages"]
+    }
+    let requests = server.requests.lock().unwrap().clone();
+    assert_eq!(requests.len(), 9);
+    assert!(
+        requests
+            .iter()
+            .all(|request| !agent_support::compaction::is_summary(request))
+    );
+    assert!(
+        requests[0]["messages"]
             .as_array()
             .unwrap()
             .iter()
-            .filter(|message| message["role"] == "tool")
-            .map(|message| message["content"].to_string().len())
-            .sum();
-        assert!(tool_bytes > 128 * 1024);
-        for index in 1..=6 {
-            assert!(messages(&requests[8]).contains(&format!("Evidence {index}")));
-        }
-        let statistics = statistics(&fixture).await;
-        assert_eq!(statistics.context_tokens, Some(84_010));
-        assert_eq!(statistics.responses, 9);
-        fixture.node.shutdown().await.unwrap();
-        fixture.controller.close().await.unwrap();
+            .any(|message| {
+                message["content"].as_array().is_some_and(|parts| {
+                    parts.iter().any(|part| {
+                        part["type"] == "image_url"
+                            && part["image_url"]["url"]
+                                .as_str()
+                                .is_some_and(|url| url.starts_with("data:image/png;base64,"))
+                    })
+                })
+            })
+    );
+    let tool_bytes: usize = requests[6]["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|message| message["role"] == "tool")
+        .map(|message| message["content"].to_string().len())
+        .sum();
+    assert!(tool_bytes > 128 * 1024);
+    for index in 1..=6 {
+        assert!(messages(&requests[8]).contains(&format!("Evidence {index}")));
     }
+    let statistics = statistics(&fixture).await;
+    assert_eq!(statistics.context_tokens, Some(84_010));
+    assert_eq!(statistics.responses, 9);
+    fixture.node.shutdown().await.unwrap();
+    fixture.controller.close().await.unwrap();
 }
 
 #[tokio::test]
 async fn earlier_token_boundary() {
-    for remote in [false, true] {
-        for (context, output, configured, percent, boundary) in [
-            (1_050_000, 128_000, None, 80, 840_000),
-            (500_000, 64_000, None, 80, 400_000),
-            (200_000, 64_000, None, 80, 160_000),
-            (200_000, 64_000, None, 65, 130_000),
-            (1_050_000, 128_000, Some(200_000), 65, 200_000),
-        ] {
-            let server = Server::loop_usage(
-                vec![
-                    Some(100),
-                    Some(100),
-                    Some(boundary * 3 / 5),
-                    Some(boundary - 10),
-                    Some(100),
-                ],
-                boundary,
-            )
-            .await;
-            let fixture = fixture(remote, &server).await;
-            model(&fixture, context, output, false).await;
-            fixture
-                .client
-                .execute(fixture.client.prepare(Command::SaveCompactionSettings(
-                    sailry_protocol::conversation::compaction::Settings {
-                        revision: 0,
-                        percent,
-                    },
-                )))
-                .await
-                .unwrap();
-            if let Some(tokens) = configured {
-                let mut provider =
-                    configuration::snapshot(&fixture.client).await.providers[0].clone();
-                provider.models[0].compaction_tokens = Some(tokens);
-                fixture
-                    .client
-                    .execute(fixture.client.prepare(Command::PutProvider {
-                        expected_revision: provider.revision,
-                        provider,
-                    }))
-                    .await
-                    .unwrap();
-            }
-            assert_eq!(
-                statistics(&fixture).await.budget.unwrap().trigger_tokens,
-                boundary as u64
-            );
-            evidence(&fixture, 1000);
-            let (_, _, page) = submit(
-                &fixture.client,
-                fixture.session.id,
-                "Preserve all evidence at the context boundary".into(),
-            )
-            .await;
-            assert_eq!(summaries(&page), 1);
-            let requests = server.requests.lock().unwrap().clone();
-            assert_eq!(
-                requests
-                    .iter()
-                    .filter(|request| !agent_support::compaction::is_summary(request))
-                    .count(),
-                7
-            );
-            let summary = requests
-                .iter()
-                .find(|request| agent_support::compaction::is_summary(request))
-                .unwrap();
-            assert!(summary["tools"].as_array().is_none_or(Vec::is_empty));
-            // The summary has its own output cap; the main task keeps the model limit.
-            let cap = |request: &serde_json::Value| {
-                request["max_completion_tokens"]
-                    .as_i64()
-                    .or(request["max_tokens"].as_i64())
-            };
-            assert!(cap(summary).is_some_and(|tokens| tokens <= 8_000));
-            assert!(
-                requests
-                    .iter()
-                    .filter(|request| !agent_support::compaction::is_summary(request))
-                    .all(|request| cap(request).is_none_or(|tokens| tokens > 8_000))
-            );
-            assert!(messages(summary).contains("Evidence 1"));
-            original_evidence(&fixture, &page).await;
-            fixture.node.shutdown().await.unwrap();
-            fixture.controller.close().await.unwrap();
-        }
-    }
-}
-
-#[tokio::test]
-async fn retains_admitted_percentage() {
-    for remote in [false, true] {
-        let server = Server::summary(100).await;
-        let fixture = fixture(remote, &server).await;
-        model(&fixture, 200_000, 8_000, false).await;
-        for (revision, previous, percent) in [(0, 80, 65), (1, 65, 90)] {
-            let Output::QueuedTurn(turn) = fixture
-                .client
-                .execute(fixture.client.prepare(Command::QueueTurn {
-                    session: fixture.session.id,
-                    expected_revision: 1,
-                    message: "Keep this admitted threshold".into(),
-                }))
-                .await
-                .unwrap()
-            else {
-                panic!("queued turn expected")
-            };
-            fixture
-                .client
-                .execute(fixture.client.prepare(Command::SaveCompactionSettings(
-                    sailry_protocol::conversation::compaction::Settings { revision, percent },
-                )))
-                .await
-                .unwrap();
-            assert_eq!(
-                statistics(&fixture).await.budget.unwrap().trigger_tokens,
-                2_000 * previous
-            );
-            fixture
-                .client
-                .execute(
-                    fixture
-                        .client
-                        .prepare(Command::StartQueuedTurn { turn: turn.id }),
-                )
-                .await
-                .unwrap();
-            let page = finished(&fixture.client, fixture.session.id, turn.id).await;
-            assert_eq!(
-                page.runs
-                    .iter()
-                    .find(|run| run.turn == turn.id)
-                    .unwrap()
-                    .status,
-                Status::Completed
-            );
-            assert_eq!(
-                statistics(&fixture).await.budget.unwrap().trigger_tokens,
-                2_000 * u64::from(percent)
-            );
-        }
-        let mut updates = fixture
-            .client
-            .subscribe_conversation(fixture.session.id)
-            .await
-            .unwrap();
-        assert!(matches!(
-            updates.next().await.unwrap(),
-            Update::ConversationSnapshot(_)
-        ));
+    for (context, output, configured, percent, boundary) in [
+        (1_050_000, 128_000, None, 80, 840_000),
+        (500_000, 64_000, None, 80, 400_000),
+        (200_000, 64_000, None, 80, 160_000),
+        (200_000, 64_000, None, 65, 130_000),
+        (1_050_000, 128_000, Some(200_000), 65, 200_000),
+    ] {
+        let server = Server::loop_usage(
+            vec![
+                Some(100),
+                Some(100),
+                Some(boundary * 3 / 5),
+                Some(boundary - 10),
+                Some(100),
+            ],
+            boundary,
+        )
+        .await;
+        let fixture = fixture(&server).await;
+        model(&fixture, context, output, false).await;
         fixture
             .client
             .execute(fixture.client.prepare(Command::SaveCompactionSettings(
                 sailry_protocol::conversation::compaction::Settings {
-                    revision: 2,
-                    percent: 25,
+                    revision: 0,
+                    percent,
                 },
             )))
             .await
             .unwrap();
-        tokio::time::timeout(std::time::Duration::from_secs(5), async {
-            loop {
-                if let Update::ConversationFrame(frame) = updates.next().await.unwrap()
-                    && let sailry_protocol::conversation::Change::Statistics(statistics) =
-                        frame.change
-                    && statistics.budget.unwrap().trigger_tokens == 50_000
-                {
-                    break;
-                }
-            }
-        })
-        .await
-        .unwrap();
-        fixture.node.shutdown().await.unwrap();
-        fixture.controller.close().await.unwrap();
-    }
-}
-
-#[tokio::test]
-async fn pending_tool_growth() {
-    for remote in [false, true] {
-        for (large, threshold, compacted) in [
-            (false, 24_000, false),
-            (true, 24_000, false),
-            (true, 8_000, true),
-        ] {
-            let server = Server::loop_usage(vec![Some(100)], 100).await;
-            let fixture = fixture(remote, &server).await;
+        if let Some(tokens) = configured {
             let mut provider = configuration::snapshot(&fixture.client).await.providers[0].clone();
-            provider.models[0].compaction_tokens = Some(threshold);
+            provider.models[0].compaction_tokens = Some(tokens);
             fixture
                 .client
                 .execute(fixture.client.prepare(Command::PutProvider {
@@ -399,84 +238,46 @@ async fn pending_tool_growth() {
                 }))
                 .await
                 .unwrap();
-            for index in 1..=6 {
-                let text = if large && index == 3 {
-                    format!(
-                        "Evidence {index} original token evidence near the context boundary {}\n",
-                        "a1 b2 c3 d4 e5 f6 g7 h8 ".repeat(2)
-                    )
-                    .repeat(600)
-                } else {
-                    format!("Evidence {index} {}\n", "x".repeat(16 * 1024))
-                };
-                if large && index == 3 {
-                    assert!(text.len() < sailry_protocol::MAX_FILE_BYTES);
-                    assert!(
-                        tiktoken_rs::o200k_base()
-                            .unwrap()
-                            .encode_with_special_tokens(&text)
-                            .len()
-                            > 24_000
-                    );
-                }
-                std::fs::write(fixture.root.join(format!("source-{index}.txt")), text).unwrap();
-            }
-            let (_, _, page) = submit(
-                &fixture.client,
-                fixture.session.id,
-                "Preserve all evidence while reading six files".into(),
-            )
-            .await;
-            assert_eq!(summaries(&page), usize::from(compacted));
-            let requests = server.requests.lock().unwrap().clone();
-            assert_eq!(requests.len(), 7 + usize::from(compacted));
-            if compacted {
-                let summary = requests
-                    .iter()
-                    .position(agent_support::compaction::is_summary)
-                    .unwrap();
-                assert!(messages(&requests[summary]).contains("Evidence 3"));
-                assert!(messages(&requests[summary + 1]).contains("Context summary fixture"));
-                assert!(
-                    !messages(&requests[summary + 1])
-                        .contains("original token evidence near the context boundary a1")
-                );
-            }
-            original_evidence(&fixture, &page).await;
-            assert_eq!(statistics(&fixture).await.context_tokens, Some(110));
-            fixture.node.shutdown().await.unwrap();
-            fixture.controller.close().await.unwrap();
         }
-    }
-}
-
-#[tokio::test]
-async fn retains_low_usage_summary() {
-    for remote in [false, true] {
-        let server =
-            Server::loop_usage(vec![Some(100), Some(100), Some(26_000), Some(100)], 26_000).await;
-        let fixture = fixture(remote, &server).await;
-        evidence(&fixture, 600);
+        assert_eq!(
+            statistics(&fixture).await.budget.unwrap().trigger_tokens,
+            boundary as u64
+        );
+        evidence(&fixture, 1000);
         let (_, _, page) = submit(
             &fixture.client,
             fixture.session.id,
-            "Preserve the complete tool evidence".into(),
+            "Preserve all evidence at the context boundary".into(),
         )
         .await;
         assert_eq!(summaries(&page), 1);
         let requests = server.requests.lock().unwrap().clone();
-        assert_eq!(requests.len(), 8);
+        assert_eq!(
+            requests
+                .iter()
+                .filter(|request| !agent_support::compaction::is_summary(request))
+                .count(),
+            7
+        );
         let summary = requests
             .iter()
-            .position(agent_support::compaction::is_summary)
+            .find(|request| agent_support::compaction::is_summary(request))
             .unwrap();
-        assert!(messages(&requests[summary]).contains("Evidence 1"));
+        assert!(summary["tools"].as_array().is_none_or(Vec::is_empty));
+        // The summary has its own output cap; the main task keeps the model limit.
+        let cap = |request: &serde_json::Value| {
+            request["max_completion_tokens"]
+                .as_i64()
+                .or(request["max_tokens"].as_i64())
+        };
+        assert!(cap(summary).is_some_and(|tokens| tokens <= 8_000));
         assert!(
-            requests[summary + 1..]
+            requests
                 .iter()
-                .all(|request| !agent_support::compaction::is_summary(request))
+                .filter(|request| !agent_support::compaction::is_summary(request))
+                .all(|request| cap(request).is_none_or(|tokens| tokens > 8_000))
         );
-        assert!(messages(&requests[summary + 1]).contains("Context summary fixture"));
+        assert!(messages(summary).contains("Evidence 1"));
         original_evidence(&fixture, &page).await;
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
@@ -484,29 +285,214 @@ async fn retains_low_usage_summary() {
 }
 
 #[tokio::test]
-async fn compacts_before_plain_followup() {
-    for remote in [false, true] {
-        let server = Server::summary(26_000).await;
-        let fixture = fixture(remote, &server).await;
-        let original = "Keep the original requirement ".repeat(120);
-        let (_, _, before) = submit(&fixture.client, fixture.session.id, original.clone()).await;
-        assert_eq!(summaries(&before), 0);
-        let current = "Continue with this exact request";
-        let (_, _, after) = submit(&fixture.client, fixture.session.id, current.into()).await;
-        assert_eq!(summaries(&after), 1);
+async fn retains_admitted_percentage() {
+    let server = Server::summary(100).await;
+    let fixture = fixture(&server).await;
+    model(&fixture, 200_000, 8_000, false).await;
+    for (revision, previous, percent) in [(0, 80, 65), (1, 65, 90)] {
+        let Output::QueuedTurn(turn) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::QueueTurn {
+                session: fixture.session.id,
+                expected_revision: 1,
+                message: "Keep this admitted threshold".into(),
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("queued turn expected")
+        };
+        fixture
+            .client
+            .execute(fixture.client.prepare(Command::SaveCompactionSettings(
+                sailry_protocol::conversation::compaction::Settings { revision, percent },
+            )))
+            .await
+            .unwrap();
         assert_eq!(
-            &after.entries[..before.entries.len()],
-            before.entries.as_slice()
+            statistics(&fixture).await.budget.unwrap().trigger_tokens,
+            2_000 * previous
         );
+        fixture
+            .client
+            .execute(
+                fixture
+                    .client
+                    .prepare(Command::StartQueuedTurn { turn: turn.id }),
+            )
+            .await
+            .unwrap();
+        let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+        assert_eq!(
+            page.runs
+                .iter()
+                .find(|run| run.turn == turn.id)
+                .unwrap()
+                .status,
+            Status::Completed
+        );
+        assert_eq!(
+            statistics(&fixture).await.budget.unwrap().trigger_tokens,
+            2_000 * u64::from(percent)
+        );
+    }
+    let mut updates = fixture
+        .client
+        .subscribe_conversation(fixture.session.id)
+        .await
+        .unwrap();
+    assert!(matches!(
+        updates.next().await.unwrap(),
+        Update::ConversationSnapshot(_)
+    ));
+    fixture
+        .client
+        .execute(fixture.client.prepare(Command::SaveCompactionSettings(
+            sailry_protocol::conversation::compaction::Settings {
+                revision: 2,
+                percent: 25,
+            },
+        )))
+        .await
+        .unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            if let Update::ConversationFrame(frame) = updates.next().await.unwrap()
+                && let sailry_protocol::conversation::Change::Statistics(statistics) = frame.change
+                && statistics.budget.unwrap().trigger_tokens == 50_000
+            {
+                break;
+            }
+        }
+    })
+    .await
+    .unwrap();
+    fixture.node.shutdown().await.unwrap();
+    fixture.controller.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn pending_tool_growth() {
+    for (large, threshold, compacted) in [
+        (false, 24_000, false),
+        (true, 24_000, false),
+        (true, 8_000, true),
+    ] {
+        let server = Server::loop_usage(vec![Some(100)], 100).await;
+        let fixture = fixture(&server).await;
+        let mut provider = configuration::snapshot(&fixture.client).await.providers[0].clone();
+        provider.models[0].compaction_tokens = Some(threshold);
+        fixture
+            .client
+            .execute(fixture.client.prepare(Command::PutProvider {
+                expected_revision: provider.revision,
+                provider,
+            }))
+            .await
+            .unwrap();
+        for index in 1..=6 {
+            let text = if large && index == 3 {
+                format!(
+                    "Evidence {index} original token evidence near the context boundary {}\n",
+                    "a1 b2 c3 d4 e5 f6 g7 h8 ".repeat(2)
+                )
+                .repeat(600)
+            } else {
+                format!("Evidence {index} {}\n", "x".repeat(16 * 1024))
+            };
+            if large && index == 3 {
+                assert!(text.len() < sailry_protocol::MAX_FILE_BYTES);
+                assert!(
+                    tiktoken_rs::o200k_base()
+                        .unwrap()
+                        .encode_with_special_tokens(&text)
+                        .len()
+                        > 24_000
+                );
+            }
+            std::fs::write(fixture.root.join(format!("source-{index}.txt")), text).unwrap();
+        }
+        let (_, _, page) = submit(
+            &fixture.client,
+            fixture.session.id,
+            "Preserve all evidence while reading six files".into(),
+        )
+        .await;
+        assert_eq!(summaries(&page), usize::from(compacted));
         let requests = server.requests.lock().unwrap().clone();
-        assert_eq!(requests.len(), 3);
-        assert!(agent_support::compaction::is_summary(&requests[1]));
-        assert!(messages(&requests[1]).contains(&original));
-        assert!(messages(&requests[1]).contains(current));
-        assert!(messages(&requests[2]).contains("Prepared summary"));
-        assert!(messages(&requests[2]).contains(current));
-        assert!(!messages(&requests[2]).contains(&"Conversation evidence ".repeat(200)));
+        assert_eq!(requests.len(), 7 + usize::from(compacted));
+        if compacted {
+            let summary = requests
+                .iter()
+                .position(agent_support::compaction::is_summary)
+                .unwrap();
+            assert!(messages(&requests[summary]).contains("Evidence 3"));
+            assert!(messages(&requests[summary + 1]).contains("Context summary fixture"));
+            assert!(
+                !messages(&requests[summary + 1])
+                    .contains("original token evidence near the context boundary a1")
+            );
+        }
+        original_evidence(&fixture, &page).await;
+        assert_eq!(statistics(&fixture).await.context_tokens, Some(110));
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }
+}
+
+#[tokio::test]
+async fn retains_low_usage_summary() {
+    let server =
+        Server::loop_usage(vec![Some(100), Some(100), Some(26_000), Some(100)], 26_000).await;
+    let fixture = fixture(&server).await;
+    evidence(&fixture, 600);
+    let (_, _, page) = submit(
+        &fixture.client,
+        fixture.session.id,
+        "Preserve the complete tool evidence".into(),
+    )
+    .await;
+    assert_eq!(summaries(&page), 1);
+    let requests = server.requests.lock().unwrap().clone();
+    assert_eq!(requests.len(), 8);
+    let summary = requests
+        .iter()
+        .position(agent_support::compaction::is_summary)
+        .unwrap();
+    assert!(messages(&requests[summary]).contains("Evidence 1"));
+    assert!(
+        requests[summary + 1..]
+            .iter()
+            .all(|request| !agent_support::compaction::is_summary(request))
+    );
+    assert!(messages(&requests[summary + 1]).contains("Context summary fixture"));
+    original_evidence(&fixture, &page).await;
+    fixture.node.shutdown().await.unwrap();
+    fixture.controller.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn compacts_before_plain_followup() {
+    let server = Server::summary(26_000).await;
+    let fixture = fixture(&server).await;
+    let original = "Keep the original requirement ".repeat(120);
+    let (_, _, before) = submit(&fixture.client, fixture.session.id, original.clone()).await;
+    assert_eq!(summaries(&before), 0);
+    let current = "Continue with this exact request";
+    let (_, _, after) = submit(&fixture.client, fixture.session.id, current.into()).await;
+    assert_eq!(summaries(&after), 1);
+    assert_eq!(
+        &after.entries[..before.entries.len()],
+        before.entries.as_slice()
+    );
+    let requests = server.requests.lock().unwrap().clone();
+    assert_eq!(requests.len(), 3);
+    assert!(agent_support::compaction::is_summary(&requests[1]));
+    assert!(messages(&requests[1]).contains(&original));
+    assert!(messages(&requests[1]).contains(current));
+    assert!(messages(&requests[2]).contains("Prepared summary"));
+    assert!(messages(&requests[2]).contains(current));
+    assert!(!messages(&requests[2]).contains(&"Conversation evidence ".repeat(200)));
+    fixture.node.shutdown().await.unwrap();
+    fixture.controller.close().await.unwrap();
 }

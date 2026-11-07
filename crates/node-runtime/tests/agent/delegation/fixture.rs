@@ -10,11 +10,10 @@ pub(crate) struct Fixture {
     pub role: role::Profile,
     pub parent: Server,
     pub child: Server,
-    remote: bool,
 }
 
 impl Fixture {
-    pub async fn start(remote: bool, parent: Server, child: Server) -> Self {
+    pub async fn start(parent: Server, child: Server) -> Self {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("project");
         std::fs::create_dir(&root).unwrap();
@@ -30,11 +29,7 @@ impl Fixture {
             .pair(node.link().invite().unwrap().ticket())
             .await
             .unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(address)
-        } else {
-            node.local()
-        });
+        let client = Client::new(controller.handle().remote(address));
         let (session, provider, role) = setup(&client, &root, &parent, &child).await;
         Self {
             directory,
@@ -46,7 +41,6 @@ impl Fixture {
             role,
             parent,
             child,
-            remote,
         }
     }
 
@@ -183,11 +177,7 @@ impl Fixture {
         self.node = Node::start_empty(self.directory.path().join("node"))
             .await
             .unwrap();
-        self.client = Client::new(if self.remote {
-            self.controller.handle().remote(self.node.link().address())
-        } else {
-            self.node.local()
-        });
+        self.client = Client::new(self.controller.handle().remote(self.node.link().address()));
         self
     }
 

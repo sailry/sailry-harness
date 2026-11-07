@@ -123,266 +123,255 @@ async fn ready(client: &Client, attempt: &authorization::Attempt) -> authorizati
 
 #[tokio::test]
 async fn keeps_login_private_and_does_not_replay() {
-    for remote in [false, true] {
-        let input = super::super::mcp::input::Server::with_transport(
-            super::super::mcp::input::form_schema(),
-            false,
-        )
-        .await;
-        let issuer = issuer::Server::start(&input.endpoint).await;
-        let model =
-            Server::tools(vec![(plugin_tool("card-fixture", "connection"), json!({}))]).await;
-        let fixture = process::Fixture::packages(remote, &model, &[]).await;
-        let package = install(&fixture, &issuer.endpoint).await;
-        let turn = approvals::submit(&fixture.client, fixture.session.id).await;
-        let page = finished(&fixture.client, fixture.session.id, turn).await;
-        let view = super::super::progress::observe(&fixture.client, fixture.session.id).await;
-        let card = summary(&fixture.client, &page, &view.calls).await;
-        assert_eq!(card.receipt.turn, turn);
-        assert_eq!(card.receipt.session, fixture.session.id);
-        assert_eq!(card.node, fixture.node.id());
-        assert_eq!(card.package, package.summary.reference());
-        assert_eq!(card.props, json!({"configured":false}));
-        let alias = plugin_tool("card-fixture", "connection");
-        let prompt = model.requests.lock().unwrap()[0]["messages"].to_string();
-        assert!(prompt.contains("- connection: MCP authorization"));
-        assert!(!prompt.contains(&format!("- {alias}: MCP authorization")));
-        assert_eq!(
-            issuer.registrations.load(Ordering::SeqCst),
-            0,
-            "tool output must not start login"
-        );
-        let call = view.calls.iter().find(|call| call.name == alias).unwrap();
-        let call = call.with_detail(
-            crate::agent_support::details::read(
-                &fixture.client,
-                call.detail_reference(&page).unwrap(),
-            )
+    let input = super::super::mcp::input::Server::with_transport(
+        super::super::mcp::input::form_schema(),
+        false,
+    )
+    .await;
+    let issuer = issuer::Server::start(&input.endpoint).await;
+    let model = Server::tools(vec![(plugin_tool("card-fixture", "connection"), json!({}))]).await;
+    let fixture = process::Fixture::packages(&model, &[]).await;
+    let package = install(&fixture, &issuer.endpoint).await;
+    let turn = approvals::submit(&fixture.client, fixture.session.id).await;
+    let page = finished(&fixture.client, fixture.session.id, turn).await;
+    let view = super::super::progress::observe(&fixture.client, fixture.session.id).await;
+    let card = summary(&fixture.client, &page, &view.calls).await;
+    assert_eq!(card.receipt.turn, turn);
+    assert_eq!(card.receipt.session, fixture.session.id);
+    assert_eq!(card.node, fixture.node.id());
+    assert_eq!(card.package, package.summary.reference());
+    assert_eq!(card.props, json!({"configured":false}));
+    let alias = plugin_tool("card-fixture", "connection");
+    let prompt = model.requests.lock().unwrap()[0]["messages"].to_string();
+    assert!(prompt.contains("- connection: MCP authorization"));
+    assert!(!prompt.contains(&format!("- {alias}: MCP authorization")));
+    assert_eq!(
+        issuer.registrations.load(Ordering::SeqCst),
+        0,
+        "tool output must not start login"
+    );
+    let call = view.calls.iter().find(|call| call.name == alias).unwrap();
+    let call = call.with_detail(
+        crate::agent_support::details::read(&fixture.client, call.detail_reference(&page).unwrap())
             .await
             .unwrap(),
+    );
+    let result = call.result(&page).unwrap();
+    assert!(result["isError"].as_bool().unwrap());
+    let count = model.requests.lock().unwrap().len();
+    let Output::PluginView(view) = fixture
+        .client
+        .execute(fixture.client.prepare(Command::ReadPluginView {
+            package: card.package.clone(),
+            surface: plugin::desktop::Surface::Card(card.receipt),
+        }))
+        .await
+        .unwrap()
+    else {
+        panic!("card view expected")
+    };
+    assert_eq!(view.entry, "dev.sailry.platform/desktop/card.js");
+    let scope = context(&card, card.package.clone());
+    let status = fixture
+        .client
+        .prepare(Command::ReadPluginConnection {
+            package: card.package.clone(),
+            card: "connection".into(),
+        })
+        .with_plugin(scope.clone());
+    assert!(matches!(
+        fixture.client.execute(status).await.unwrap(),
+        Output::PluginConnection(plugin::connection::Status {
+            configuration: plugin::connection::Configuration::Ready,
+            authorization: plugin::connection::Authorization::Missing,
+            credential: plugin::connection::Credential::NotDeclared,
+            ..
+        })
+    ));
+    let request = fixture
+        .client
+        .prepare(Command::StartConnectorLogin {
+            package: card.package.clone(),
+            connector: "service".into(),
+            connection: None,
+            expected_revision: None,
+            method: authorization::Kind::McpOauth,
+            input: authorization::Input {
+                redirect: Some("http://127.0.0.1:43191/auth/callback".into()),
+                ..Default::default()
+            },
+        })
+        .with_plugin(scope.clone());
+    let Output::ConnectorLogin(attempt) = fixture.client.execute(request.clone()).await.unwrap()
+    else {
+        panic!("attempt expected")
+    };
+    assert_eq!(
+        fixture.client.execute(request.clone()).await.unwrap(),
+        Output::ConnectorLogin(attempt.clone())
+    );
+    let authorization::LoginState::Browser { url, .. } = ready(&fixture.client, &attempt).await
+    else {
+        panic!("pending login expected")
+    };
+    let callback = issuer::Server::callback(&url).await;
+    let complete = fixture
+        .client
+        .prepare(Command::SubmitConnectorInput {
+            attempt: attempt.id,
+            input: sailry_protocol::Secret::new(callback),
+        })
+        .with_plugin(scope);
+    fixture.client.execute(complete.clone()).await.unwrap();
+    fixture.client.execute(complete).await.unwrap();
+    let authorization::LoginState::Connected(connection) = ready(&fixture.client, &attempt).await
+    else {
+        panic!("connected login expected")
+    };
+    let current = connection.package;
+    assert_eq!(issuer.registrations.load(Ordering::SeqCst), 1);
+    assert_eq!(issuer.exchanges.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        model.requests.lock().unwrap().len(),
+        count,
+        "login must not replay the blocked model turn"
+    );
+    let status = fixture
+        .client
+        .prepare(Command::ReadPluginConnection {
+            package: current.clone(),
+            card: "connection".into(),
+        })
+        .with_plugin(context(&card, current));
+    assert!(matches!(
+        fixture.client.execute(status).await.unwrap(),
+        Output::PluginConnection(plugin::connection::Status {
+            authorization: plugin::connection::Authorization::Configured,
+            ..
+        })
+    ));
+    let restored = history(&fixture.client, fixture.session.id).await;
+    let view = super::super::progress::observe(&fixture.client, fixture.session.id).await;
+    assert_eq!(summary(&fixture.client, &restored, &view.calls).await, card);
+    let history = serde_json::to_string(&restored).unwrap();
+    for private in [
+        &url,
+        "access-initial",
+        "refresh-initial",
+        "fixture-code",
+        "code_verifier",
+        "code_challenge",
+    ] {
+        assert!(
+            !history.contains(private),
+            "private OAuth material escaped canonical history"
         );
-        let result = call.result(&page).unwrap();
-        assert!(result["isError"].as_bool().unwrap());
-        let count = model.requests.lock().unwrap().len();
-        let Output::PluginView(view) = fixture
-            .client
-            .execute(fixture.client.prepare(Command::ReadPluginView {
-                package: card.package.clone(),
-                surface: plugin::desktop::Surface::Card(card.receipt),
-            }))
-            .await
-            .unwrap()
-        else {
-            panic!("card view expected")
-        };
-        assert_eq!(view.entry, "dev.sailry.platform/desktop/card.js");
-        let scope = context(&card, card.package.clone());
-        let status = fixture
-            .client
-            .prepare(Command::ReadPluginConnection {
-                package: card.package.clone(),
-                card: "connection".into(),
-            })
-            .with_plugin(scope.clone());
-        assert!(matches!(
-            fixture.client.execute(status).await.unwrap(),
-            Output::PluginConnection(plugin::connection::Status {
-                configuration: plugin::connection::Configuration::Ready,
-                authorization: plugin::connection::Authorization::Missing,
-                credential: plugin::connection::Credential::NotDeclared,
-                ..
-            })
-        ));
-        let request = fixture
-            .client
-            .prepare(Command::StartConnectorLogin {
-                package: card.package.clone(),
-                connector: "service".into(),
-                connection: None,
-                expected_revision: None,
-                method: authorization::Kind::McpOauth,
-                input: authorization::Input {
-                    redirect: Some("http://127.0.0.1:43191/auth/callback".into()),
-                    ..Default::default()
-                },
-            })
-            .with_plugin(scope.clone());
-        let Output::ConnectorLogin(attempt) =
-            fixture.client.execute(request.clone()).await.unwrap()
-        else {
-            panic!("attempt expected")
-        };
-        assert_eq!(
-            fixture.client.execute(request.clone()).await.unwrap(),
-            Output::ConnectorLogin(attempt.clone())
-        );
-        let authorization::LoginState::Browser { url, .. } = ready(&fixture.client, &attempt).await
-        else {
-            panic!("pending login expected")
-        };
-        let callback = issuer::Server::callback(&url).await;
-        let complete = fixture
-            .client
-            .prepare(Command::SubmitConnectorInput {
-                attempt: attempt.id,
-                input: sailry_protocol::Secret::new(callback),
-            })
-            .with_plugin(scope);
-        fixture.client.execute(complete.clone()).await.unwrap();
-        fixture.client.execute(complete).await.unwrap();
-        let authorization::LoginState::Connected(connection) =
-            ready(&fixture.client, &attempt).await
-        else {
-            panic!("connected login expected")
-        };
-        let current = connection.package;
-        assert_eq!(issuer.registrations.load(Ordering::SeqCst), 1);
-        assert_eq!(issuer.exchanges.load(Ordering::SeqCst), 1);
-        assert_eq!(
-            model.requests.lock().unwrap().len(),
-            count,
-            "login must not replay the blocked model turn"
-        );
-        let status = fixture
-            .client
-            .prepare(Command::ReadPluginConnection {
-                package: current.clone(),
-                card: "connection".into(),
-            })
-            .with_plugin(context(&card, current));
-        assert!(matches!(
-            fixture.client.execute(status).await.unwrap(),
-            Output::PluginConnection(plugin::connection::Status {
-                authorization: plugin::connection::Authorization::Configured,
-                ..
-            })
-        ));
-        let restored = history(&fixture.client, fixture.session.id).await;
-        let view = super::super::progress::observe(&fixture.client, fixture.session.id).await;
-        assert_eq!(summary(&fixture.client, &restored, &view.calls).await, card);
-        let history = serde_json::to_string(&restored).unwrap();
-        for private in [
-            &url,
-            "access-initial",
-            "refresh-initial",
-            "fixture-code",
-            "code_verifier",
-            "code_challenge",
-        ] {
-            assert!(
-                !history.contains(private),
-                "private OAuth material escaped canonical history"
-            );
-        }
-        fixture.node.shutdown().await.unwrap();
-        fixture.controller.close().await.unwrap();
     }
+    fixture.node.shutdown().await.unwrap();
+    fixture.controller.close().await.unwrap();
 }
 
 #[tokio::test]
 async fn rejects_stale_and_foreign_scopes() {
-    for remote in [false, true] {
-        let input = super::super::mcp::input::Server::with_transport(
-            super::super::mcp::input::form_schema(),
-            false,
-        )
-        .await;
-        let issuer = issuer::Server::start(&input.endpoint).await;
-        let model =
-            Server::tools(vec![(plugin_tool("card-fixture", "connection"), json!({}))]).await;
-        let fixture = process::Fixture::packages(remote, &model, &[]).await;
-        let package = install(&fixture, &issuer.endpoint).await;
-        let turn = approvals::submit(&fixture.client, fixture.session.id).await;
-        let page = finished(&fixture.client, fixture.session.id, turn).await;
-        let view = super::super::progress::observe(&fixture.client, fixture.session.id).await;
-        let card = summary(&fixture.client, &page, &view.calls).await;
-        for change in 0..6 {
-            let mut scope = context(&card, card.package.clone());
-            let mut command = Command::ReadPluginConnection {
-                package: card.package.clone(),
-                card: "connection".into(),
-            };
-            match change {
-                0 => scope.session = Some(SessionId::new()),
-                1 => scope.worktree = Some(WorktreeId::new()),
-                2 => scope.turn = Some(turn),
-                3 => scope.invocation = Some(sailry_protocol::RequestId::new()),
-                4 => scope.package.digest = "b".repeat(64),
-                5 => {
-                    command = Command::ReadPluginConnection {
-                        package: card.package.clone(),
-                        card: "other".into(),
-                    }
-                }
-                _ => unreachable!(),
-            }
-            assert_eq!(
-                fixture
-                    .client
-                    .execute(fixture.client.prepare(command).with_plugin(scope))
-                    .await
-                    .unwrap_err()
-                    .code,
-                ErrorCode::PermissionDenied
-            );
-        }
-        let mut forged = card.receipt;
-        forged.call = sailry_protocol::RequestId::new();
-        assert!(
-            fixture
-                .client
-                .execute(fixture.client.prepare(Command::ReadPluginView {
-                    package: card.package.clone(),
-                    surface: plugin::desktop::Surface::Card(forged)
-                }))
-                .await
-                .is_err()
-        );
-        let Output::Session(branch) = fixture
-            .client
-            .execute(fixture.client.prepare(Command::ForkConversation {
-                session: fixture.session.id,
-                through: turn,
-                expected_revision: fixture.session.revision,
-            }))
-            .await
-            .unwrap()
-        else {
-            panic!("fork expected")
+    let input = super::super::mcp::input::Server::with_transport(
+        super::super::mcp::input::form_schema(),
+        false,
+    )
+    .await;
+    let issuer = issuer::Server::start(&input.endpoint).await;
+    let model = Server::tools(vec![(plugin_tool("card-fixture", "connection"), json!({}))]).await;
+    let fixture = process::Fixture::packages(&model, &[]).await;
+    let package = install(&fixture, &issuer.endpoint).await;
+    let turn = approvals::submit(&fixture.client, fixture.session.id).await;
+    let page = finished(&fixture.client, fixture.session.id, turn).await;
+    let view = super::super::progress::observe(&fixture.client, fixture.session.id).await;
+    let card = summary(&fixture.client, &page, &view.calls).await;
+    for change in 0..6 {
+        let mut scope = context(&card, card.package.clone());
+        let mut command = Command::ReadPluginConnection {
+            package: card.package.clone(),
+            card: "connection".into(),
         };
-        let mut forked = card.receipt;
-        forked.session = branch.id;
-        assert!(
+        match change {
+            0 => scope.session = Some(SessionId::new()),
+            1 => scope.worktree = Some(WorktreeId::new()),
+            2 => scope.turn = Some(turn),
+            3 => scope.invocation = Some(sailry_protocol::RequestId::new()),
+            4 => scope.package.digest = "b".repeat(64),
+            5 => {
+                command = Command::ReadPluginConnection {
+                    package: card.package.clone(),
+                    card: "other".into(),
+                }
+            }
+            _ => unreachable!(),
+        }
+        assert_eq!(
             fixture
                 .client
-                .execute(fixture.client.prepare(Command::ReadPluginView {
-                    package: card.package.clone(),
-                    surface: plugin::desktop::Surface::Card(forked)
-                }))
+                .execute(fixture.client.prepare(command).with_plugin(scope))
                 .await
-                .is_err()
+                .unwrap_err()
+                .code,
+            ErrorCode::PermissionDenied
         );
+    }
+    let mut forged = card.receipt;
+    forged.call = sailry_protocol::RequestId::new();
+    assert!(
         fixture
             .client
-            .execute(fixture.client.prepare(Command::SetPluginEnabled {
-                name: package.summary.name.clone(),
-                expected_revision: package.summary.revision,
-                enabled: false,
+            .execute(fixture.client.prepare(Command::ReadPluginView {
+                package: card.package.clone(),
+                surface: plugin::desktop::Surface::Card(forged)
             }))
             .await
-            .unwrap();
-        assert!(
-            fixture
-                .client
-                .execute(fixture.client.prepare(Command::ReadPluginView {
-                    package: card.package.clone(),
-                    surface: plugin::desktop::Surface::Card(card.receipt)
-                }))
-                .await
-                .is_err()
-        );
-        assert_eq!(issuer.registrations.load(Ordering::SeqCst), 0);
-        fixture.node.shutdown().await.unwrap();
-        fixture.controller.close().await.unwrap();
-    }
+            .is_err()
+    );
+    let Output::Session(branch) = fixture
+        .client
+        .execute(fixture.client.prepare(Command::ForkConversation {
+            session: fixture.session.id,
+            through: turn,
+            expected_revision: fixture.session.revision,
+        }))
+        .await
+        .unwrap()
+    else {
+        panic!("fork expected")
+    };
+    let mut forked = card.receipt;
+    forked.session = branch.id;
+    assert!(
+        fixture
+            .client
+            .execute(fixture.client.prepare(Command::ReadPluginView {
+                package: card.package.clone(),
+                surface: plugin::desktop::Surface::Card(forked)
+            }))
+            .await
+            .is_err()
+    );
+    fixture
+        .client
+        .execute(fixture.client.prepare(Command::SetPluginEnabled {
+            name: package.summary.name.clone(),
+            expected_revision: package.summary.revision,
+            enabled: false,
+        }))
+        .await
+        .unwrap();
+    assert!(
+        fixture
+            .client
+            .execute(fixture.client.prepare(Command::ReadPluginView {
+                package: card.package.clone(),
+                surface: plugin::desktop::Surface::Card(card.receipt)
+            }))
+            .await
+            .is_err()
+    );
+    assert_eq!(issuer.registrations.load(Ordering::SeqCst), 0);
+    fixture.node.shutdown().await.unwrap();
+    fixture.controller.close().await.unwrap();
 }

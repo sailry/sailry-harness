@@ -30,41 +30,39 @@ async fn captures_bundled_alias_before_execution() {
         "'{}' -I -B -c 'from pathlib import Path; Path(\"executed.txt\").write_text(\"executed\"); print(\"base-ready\")'",
         python.to_str().unwrap().replace('\'', "'\\''")
     );
-    for remote in [false, true] {
-        let server = Server::turn_tools(vec![(
-            name.clone(),
-            json!({"command":command, "access":"unrestricted"}),
-        )])
-        .await;
-        let fixture = process::Fixture::new(remote, &server).await;
-        enabled_only(&fixture.client, &["commands"]).await;
-        fixture.node.set_python_runtime_fixture(&runtime).unwrap();
-        assert!(!fixture.node.profile().join("python").exists());
-        let turn = approvals::submit(&fixture.client, fixture.session.id).await;
-        let (pending, approval) = approvals::pending(&fixture.client, fixture.session.id).await;
-        assert_eq!(approval.source, ApprovalSource::User);
-        assert_eq!(approval.state, ApprovalState::Pending);
-        assert_alias(&fixture.client, &pending, &name, &command, &python).await;
-        assert!(!fixture.root.join("executed.txt").exists());
-        assert!(!fixture.node.profile().join("python").exists());
-        assert!(process::results(&fixture.client, &pending).await.is_empty());
-        process::decide(&fixture.client, &approval, Decision::Approve).await;
-        let page = finished(&fixture.client, fixture.session.id, turn).await;
-        assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-        assert_alias(&fixture.client, &page, &name, &command, &python).await;
-        let results = process::results(&fixture.client, &page).await;
-        assert_eq!(results.len(), 1);
-        assert_eq!(
-            results[0].outcome,
-            sailry_protocol::process::Outcome::Exited(0)
-        );
-        assert_eq!(results[0].stdout.text, "base-ready\n");
-        assert_eq!(
-            fs::read_to_string(fixture.root.join("executed.txt")).unwrap(),
-            "executed"
-        );
-        drop(fixture.client);
-        fixture.controller.close().await.unwrap();
-        fixture.node.shutdown().await.unwrap();
-    }
+    let server = Server::turn_tools(vec![(
+        name.clone(),
+        json!({"command":command, "access":"unrestricted"}),
+    )])
+    .await;
+    let fixture = process::Fixture::new(&server).await;
+    enabled_only(&fixture.client, &["commands"]).await;
+    fixture.node.set_python_runtime_fixture(&runtime).unwrap();
+    assert!(!fixture.node.profile().join("python").exists());
+    let turn = approvals::submit(&fixture.client, fixture.session.id).await;
+    let (pending, approval) = approvals::pending(&fixture.client, fixture.session.id).await;
+    assert_eq!(approval.source, ApprovalSource::User);
+    assert_eq!(approval.state, ApprovalState::Pending);
+    assert_alias(&fixture.client, &pending, &name, &command, &python).await;
+    assert!(!fixture.root.join("executed.txt").exists());
+    assert!(!fixture.node.profile().join("python").exists());
+    assert!(process::results(&fixture.client, &pending).await.is_empty());
+    process::decide(&fixture.client, &approval, Decision::Approve).await;
+    let page = finished(&fixture.client, fixture.session.id, turn).await;
+    assert_eq!(page.runs.last().unwrap().status, Status::Completed);
+    assert_alias(&fixture.client, &page, &name, &command, &python).await;
+    let results = process::results(&fixture.client, &page).await;
+    assert_eq!(results.len(), 1);
+    assert_eq!(
+        results[0].outcome,
+        sailry_protocol::process::Outcome::Exited(0)
+    );
+    assert_eq!(results[0].stdout.text, "base-ready\n");
+    assert_eq!(
+        fs::read_to_string(fixture.root.join("executed.txt")).unwrap(),
+        "executed"
+    );
+    drop(fixture.client);
+    fixture.controller.close().await.unwrap();
+    fixture.node.shutdown().await.unwrap();
 }

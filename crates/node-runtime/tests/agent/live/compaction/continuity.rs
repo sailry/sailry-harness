@@ -320,8 +320,8 @@ async fn verify_tools(
     id.to_owned()
 }
 
-async fn exercise(remote: bool) {
-    let mut fixture = Fixture::new(remote).await;
+async fn exercise() {
+    let mut fixture = Fixture::new().await;
     let checkpoint = format!("checkpoint-{}", uuid::Uuid::new_v4());
     let phases = (0..6)
         .map(|index| Phase::new(&fixture, index))
@@ -360,7 +360,7 @@ async fn exercise(remote: bool) {
             .collect::<Vec<_>>();
         assert!(!usage.is_empty(), "real provider usage expected");
         println!(
-            "live continuity usage: remote={remote} phase={} requests={:?}",
+            "live continuity usage: phase={} requests={:?}",
             phase.index,
             usage
                 .iter()
@@ -388,7 +388,7 @@ async fn exercise(remote: bool) {
             .filter(|part| matches!(part, Part::Compaction(_)))
             .count();
         println!(
-            "live continuity: remote={remote} phase={} turn={turn} new_summaries={added} total_summaries={} parallel_batches={batches}",
+            "live continuity: phase={} turn={turn} new_summaries={added} total_summaries={} parallel_batches={batches}",
             phase.index,
             summaries(&page)
         );
@@ -433,7 +433,7 @@ async fn exercise(remote: bool) {
         );
     }
     println!(
-        "live repeated automatic compaction: model={} authentication={:?} remote={remote} phases=6 verified_summary_turns={} elapsed_ms={}",
+        "live repeated automatic compaction: model={} authentication={:?} phases=6 verified_summary_turns={} elapsed_ms={}",
         fixture.model,
         fixture.provider.authentication,
         compacted.len(),
@@ -444,12 +444,6 @@ async fn exercise(remote: bool) {
 
 #[tokio::test]
 #[ignore = "requires an explicit inactive provider profile and incurs real model usage"]
-async fn local() {
-    exercise(false).await;
-}
-
-#[tokio::test]
-#[ignore = "requires an explicit inactive provider profile and incurs real model usage"]
 async fn remote() {
-    exercise(true).await;
+    exercise().await;
 }

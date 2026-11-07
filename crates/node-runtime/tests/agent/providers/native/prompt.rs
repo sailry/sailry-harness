@@ -49,7 +49,7 @@ fn referenced(task: &str, directory: bool) -> Input {
     }
 }
 
-async fn resume(fixture: Fixture, first: Input, second: Input, remote: bool) {
+async fn resume(fixture: Fixture, first: Input, second: Input) {
     let Output::QueuedTurn(turn) = execute(
         &fixture.client,
         Command::SubmitTurn {
@@ -96,11 +96,7 @@ async fn resume(fixture: Fixture, first: Input, second: Input, remote: bool) {
     let profile = fixture.node.profile().to_owned();
     fixture.node.shutdown().await.unwrap();
     let node = Node::start_empty(profile).await.unwrap();
-    let client = Client::new(if remote {
-        fixture.controller.handle().remote(node.link().address())
-    } else {
-        node.local()
-    });
+    let client = Client::new(fixture.controller.handle().remote(node.link().address()));
     execute(&client, Command::StartQueuedTurn { turn: queued.id }).await;
     let queue = history(&client, fixture.session.id).await.queue;
     assert!(queue.paused);
@@ -275,31 +271,31 @@ fn assert_policy(api: ModelApi, body: &Value, resumed: bool, nested: bool) {
 #[tokio::test]
 async fn preserves_native_roles_across_resume() {
     for api in [ModelApi::Anthropic, ModelApi::Gemini, ModelApi::DeepSeek] {
-        for remote in [false, true] {
+        // File and directory references load the same nested rules.
+        for directory in [false, true] {
             let server = Server::start(api, Reply::Tool).await;
-            let fixture = Fixture::packages(remote, api, &server.endpoint, &["files"]).await;
+            let fixture = Fixture::packages(api, &server.endpoint, &["files"]).await;
             prepare(&fixture);
             resume(
                 fixture,
-                referenced(FIRST, remote),
-                referenced(SECOND, remote),
-                remote,
+                referenced(FIRST, directory),
+                referenced(SECOND, directory),
             )
             .await;
             let requests = server.requests.lock().unwrap();
-            assert_eq!(requests.len(), 3, "{api:?}, remote={remote}");
+            assert_eq!(requests.len(), 3, "{api:?}, directory={directory}");
             for (index, request) in requests.iter().enumerate() {
                 assert_policy(api, &request.body, index == 2, true);
                 if index == 1 {
                     assert_eq!(
                         instruction(api, &request.body),
                         instruction(api, &requests[0].body),
-                        "{api:?}, remote={remote}, request={index}"
+                        "{api:?}, directory={directory}, request={index}"
                     );
                 }
                 assert_eq!(
                     request.body["tools"], requests[0].body["tools"],
-                    "{api:?}, remote={remote}, request={index}"
+                    "{api:?}, directory={directory}, request={index}"
                 );
             }
             assert!(requests[1].body.to_string().contains("工具内容 🙂"));
@@ -311,166 +307,157 @@ async fn preserves_native_roles_across_resume() {
 #[tokio::test]
 async fn loads_rules_at_openai_tool_boundary() {
     for api in [ModelApi::ChatCompletions, ModelApi::Responses] {
-        for remote in [false, true] {
-            let name = crate::agent_support::plugin_tool("files", "read_file");
-            let arguments = json!({"path":"nested/native.txt"});
-            let server = if api == ModelApi::Responses {
-                crate::agent_support::Server::progress_with_tool(&name, arguments).await
-            } else {
-                crate::agent_support::Server::tools(vec![(name, arguments)]).await
-            };
-            let fixture = Fixture::packages(remote, api, &server.endpoint, &["files"]).await;
-            prepare(&fixture);
-            resume(fixture, FIRST.into(), referenced(SECOND, false), remote).await;
-            let requests = server.requests.lock().unwrap();
-            assert_eq!(requests.len(), 3, "{api:?}, remote={remote}");
-            for (index, request) in requests.iter().enumerate() {
-                assert_policy(api, request, index == 2, index > 0);
-                assert_eq!(request["tools"], requests[0]["tools"]);
-            }
-            assert!(requests[1].to_string().contains("工具内容 🙂"));
+        let name = crate::agent_support::plugin_tool("files", "read_file");
+        let arguments = json!({"path":"nested/native.txt"});
+        let server = if api == ModelApi::Responses {
+            crate::agent_support::Server::progress_with_tool(&name, arguments).await
+        } else {
+            crate::agent_support::Server::tools(vec![(name, arguments)]).await
+        };
+        let fixture = Fixture::packages(api, &server.endpoint, &["files"]).await;
+        prepare(&fixture);
+        resume(fixture, FIRST.into(), referenced(SECOND, false)).await;
+        let requests = server.requests.lock().unwrap();
+        assert_eq!(requests.len(), 3, "{api:?}");
+        for (index, request) in requests.iter().enumerate() {
+            assert_policy(api, request, index == 2, index > 0);
+            assert_eq!(request["tools"], requests[0]["tools"]);
         }
+        assert!(requests[1].to_string().contains("工具内容 🙂"));
     }
 }
 
 #[tokio::test]
 async fn persists_native_summary() {
-    for remote in [false, true] {
-        for api in [ModelApi::Anthropic, ModelApi::Gemini] {
-            let server = Server::start(api, Reply::Text).await;
-            let fixture = Fixture::empty(remote, api, &server.endpoint).await;
-            let task = "Original compaction constraint 🙂 ".repeat(40);
-            let turn = fixture.submit(&task).await;
-            let before = finished(&fixture.client, fixture.session.id, turn).await;
-            assert_eq!(
-                before.runs.last().unwrap().status,
-                Status::Completed,
-                "{before:?}"
-            );
-            assert_eq!(
-                before.entries.last().unwrap().parts,
-                [Part::Text(server::ANSWER.into())]
-            );
-            let usage = before.entries.last().unwrap().usage.as_ref().unwrap();
-            assert_eq!((usage.input, usage.output), (8, 4));
-            assert_eq!(server.requests.lock().unwrap().len(), 1);
-            let Output::QueuedTurn(compact) = execute(
-                &fixture.client,
-                Command::CompactContext {
-                    focus: None,
-                    session: fixture.session.id,
-                    expected_revision: fixture.session.revision,
-                },
-            )
-            .await
-            else {
-                panic!("compaction turn expected");
-            };
-            assert_eq!(compact.kind, RunKind::Compaction);
-            assert_eq!(compact.config.effort, fixture.session.config.effort);
-            let page = finished(&fixture.client, fixture.session.id, compact.id).await;
-            assert_eq!(
-                page.runs.last().unwrap().status,
-                Status::Completed,
-                "{page:?}"
-            );
-            assert_eq!(
-                &page.entries[..before.entries.len()],
-                before.entries.as_slice()
-            );
-            let entry = page.entries.last().unwrap();
-            assert_eq!(entry.turn, compact.id);
-            assert_eq!(entry.author, "system");
-            assert!(entry.usage.is_none());
-            let Part::Compaction(visible) = &entry.parts[0] else {
-                panic!("summary expected");
-            };
-            assert!(visible.contains(server::ANSWER));
-            let id = entry.id.clone();
-            let stored = fixture
-                .node
-                .with_storage(move |db| {
-                    Box::pin(async move {
-                        let body: Vec<u8> = db
-                            .prepare("SELECT body FROM agent_events WHERE id=?1")
-                            .await
-                            .map_err(crate::database_fixture::fault)?
-                            .query_row([id])
-                            .await
-                            .map_err(crate::database_fixture::fault)?
-                            .get(0)
-                            .map_err(crate::database_fixture::fault)?;
-                        serde_json::from_slice::<Value>(&body)
-                            .map_err(crate::database_fixture::fault)
-                    })
+    for api in [ModelApi::Anthropic, ModelApi::Gemini] {
+        let server = Server::start(api, Reply::Text).await;
+        let fixture = Fixture::empty(api, &server.endpoint).await;
+        let task = "Original compaction constraint 🙂 ".repeat(40);
+        let turn = fixture.submit(&task).await;
+        let before = finished(&fixture.client, fixture.session.id, turn).await;
+        assert_eq!(
+            before.runs.last().unwrap().status,
+            Status::Completed,
+            "{before:?}"
+        );
+        assert_eq!(
+            before.entries.last().unwrap().parts,
+            [Part::Text(server::ANSWER.into())]
+        );
+        let usage = before.entries.last().unwrap().usage.as_ref().unwrap();
+        assert_eq!((usage.input, usage.output), (8, 4));
+        assert_eq!(server.requests.lock().unwrap().len(), 1);
+        let Output::QueuedTurn(compact) = execute(
+            &fixture.client,
+            Command::CompactContext {
+                focus: None,
+                session: fixture.session.id,
+                expected_revision: fixture.session.revision,
+            },
+        )
+        .await
+        else {
+            panic!("compaction turn expected");
+        };
+        assert_eq!(compact.kind, RunKind::Compaction);
+        assert_eq!(compact.config.effort, fixture.session.config.effort);
+        let page = finished(&fixture.client, fixture.session.id, compact.id).await;
+        assert_eq!(
+            page.runs.last().unwrap().status,
+            Status::Completed,
+            "{page:?}"
+        );
+        assert_eq!(
+            &page.entries[..before.entries.len()],
+            before.entries.as_slice()
+        );
+        let entry = page.entries.last().unwrap();
+        assert_eq!(entry.turn, compact.id);
+        assert_eq!(entry.author, "system");
+        assert!(entry.usage.is_none());
+        let Part::Compaction(visible) = &entry.parts[0] else {
+            panic!("summary expected");
+        };
+        assert!(visible.contains(server::ANSWER));
+        let id = entry.id.clone();
+        let stored = fixture
+            .node
+            .with_storage(move |db| {
+                Box::pin(async move {
+                    let body: Vec<u8> = db
+                        .prepare("SELECT body FROM agent_events WHERE id=?1")
+                        .await
+                        .map_err(crate::database_fixture::fault)?
+                        .query_row([id])
+                        .await
+                        .map_err(crate::database_fixture::fault)?
+                        .get(0)
+                        .map_err(crate::database_fixture::fault)?;
+                    serde_json::from_slice::<Value>(&body).map_err(crate::database_fixture::fault)
                 })
-                .await
-                .unwrap();
-            assert_eq!(stored["kind"], "compaction");
-            let handoff = &stored["summary"];
-            assert_eq!(handoff["role"], "user");
-            let blocks = handoff["content"].as_array().unwrap();
-            assert_eq!(blocks.len(), 1);
-            let generated = blocks[0]["text"].as_str().unwrap();
-            assert!(generated.contains(server::ANSWER));
-            {
-                let requests = server.requests.lock().unwrap();
-                assert_eq!(requests.len(), 2);
-                let summary = &requests[1].body;
-                assert_eq!(requests[1].path, requests[0].path);
-                assert!(
-                    summary
-                        .get("tools")
-                        .is_none_or(|tools| { tools.as_array().is_some_and(Vec::is_empty) })
-                );
-                let policy = instruction(api, summary);
-                assert!(policy.contains(&task));
-                assert!(policy.contains(server::ANSWER));
-                let messages = users(api, summary);
-                assert_eq!(messages.len(), 1);
-                assert_eq!(
-                    messages[0],
-                    "Please summarize the conversation history provided in the system prompt."
-                );
-            }
-            let profile = fixture.node.profile().to_owned();
-            fixture.node.shutdown().await.unwrap();
-            let node = Node::start_empty(profile).await.unwrap();
-            let client = Client::new(if remote {
-                fixture.controller.handle().remote(node.link().address())
-            } else {
-                node.local()
-            });
-            assert_eq!(history(&client, fixture.session.id).await, page);
-            let Output::QueuedTurn(next) = execute(
-                &client,
-                Command::SubmitTurn {
-                    session: fixture.session.id,
-                    expected_revision: fixture.session.revision,
-                    message: "Continue with the saved handoff".into(),
-                },
-            )
+            })
             .await
-            else {
-                panic!("turn expected");
-            };
-            let resumed = finished(&client, fixture.session.id, next.id).await;
-            assert_eq!(
-                resumed.runs.last().unwrap().status,
-                Status::Completed,
-                "{resumed:?}"
+            .unwrap();
+        assert_eq!(stored["kind"], "compaction");
+        let handoff = &stored["summary"];
+        assert_eq!(handoff["role"], "user");
+        let blocks = handoff["content"].as_array().unwrap();
+        assert_eq!(blocks.len(), 1);
+        let generated = blocks[0]["text"].as_str().unwrap();
+        assert!(generated.contains(server::ANSWER));
+        {
+            let requests = server.requests.lock().unwrap();
+            assert_eq!(requests.len(), 2);
+            let summary = &requests[1].body;
+            assert_eq!(requests[1].path, requests[0].path);
+            assert!(
+                summary
+                    .get("tools")
+                    .is_none_or(|tools| { tools.as_array().is_some_and(Vec::is_empty) })
             );
-            {
-                let requests = server.requests.lock().unwrap();
-                assert_eq!(requests.len(), 3);
-                let matching = users(api, &requests[2].body)
-                    .into_iter()
-                    .filter(|message| message.contains(generated))
-                    .collect::<Vec<_>>();
-                assert_eq!(matching.len(), 1);
-            }
-            fixture.controller.close().await.unwrap();
-            node.shutdown().await.unwrap();
+            let policy = instruction(api, summary);
+            assert!(policy.contains(&task));
+            assert!(policy.contains(server::ANSWER));
+            let messages = users(api, summary);
+            assert_eq!(messages.len(), 1);
+            assert_eq!(
+                messages[0],
+                "Please summarize the conversation history provided in the system prompt."
+            );
         }
+        let profile = fixture.node.profile().to_owned();
+        fixture.node.shutdown().await.unwrap();
+        let node = Node::start_empty(profile).await.unwrap();
+        let client = Client::new(fixture.controller.handle().remote(node.link().address()));
+        assert_eq!(history(&client, fixture.session.id).await, page);
+        let Output::QueuedTurn(next) = execute(
+            &client,
+            Command::SubmitTurn {
+                session: fixture.session.id,
+                expected_revision: fixture.session.revision,
+                message: "Continue with the saved handoff".into(),
+            },
+        )
+        .await
+        else {
+            panic!("turn expected");
+        };
+        let resumed = finished(&client, fixture.session.id, next.id).await;
+        assert_eq!(
+            resumed.runs.last().unwrap().status,
+            Status::Completed,
+            "{resumed:?}"
+        );
+        {
+            let requests = server.requests.lock().unwrap();
+            assert_eq!(requests.len(), 3);
+            let matching = users(api, &requests[2].body)
+                .into_iter()
+                .filter(|message| message.contains(generated))
+                .collect::<Vec<_>>();
+            assert_eq!(matching.len(), 1);
+        }
+        fixture.controller.close().await.unwrap();
+        node.shutdown().await.unwrap();
     }
 }

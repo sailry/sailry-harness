@@ -3,8 +3,6 @@ mod database_fixture;
 #[path = "../support/files.rs"]
 mod file_fixture;
 
-#[path = "../admission.rs"]
-mod admission;
 #[path = "../conversation_runs.rs"]
 mod conversation_runs;
 #[path = "../network.rs"]

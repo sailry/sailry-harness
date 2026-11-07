@@ -99,390 +99,380 @@ fn request(path: &str, connection: connector::Id) -> Command {
 
 #[tokio::test]
 async fn preserves_private_credentials_and_durable_identity() {
-    for remote in [false, true] {
-        let server = server::Server::start().await;
-        let (directory, node, controller, client, worktree) = support::empty(remote).await;
-        node.set_connector_fixture(ORIGIN, &server.origin);
-        configure(&directory.path().join("source/package"), declaration());
-        let package = info(execute(&client, install(worktree, 0)).await)
-            .summary
-            .reference();
-        let Output::ConnectorTypes(types) = execute(&client, Command::ListConnectorTypes).await
-        else {
-            panic!("connector types expected");
-        };
-        assert_eq!(types.len(), 1);
-        assert_eq!(types[0].declaration.id, "service");
-        let mut feed = client.subscribe_connections().await.unwrap();
-        let Update::ConnectionsChanged(initial) = feed.next().await.unwrap() else {
-            panic!("connection snapshot expected");
-        };
-        assert!(initial.connections.is_empty());
-        let row = connected(&client, package.clone(), None, None, secret()).await;
-        assert_eq!(row.state, State::Connected);
-        assert!(row.can_disconnect);
-        assert_eq!(row.configured, ["token"]);
-        assert!(!serde_json::to_string(&row).unwrap().contains(TOKEN));
-        let scope = context(package.clone(), worktree);
-        let call = client
-            .prepare(request("/ok", row.id))
-            .with_plugin(scope.clone());
-        let result = client.execute(call.clone()).await.unwrap();
-        assert_eq!(client.execute(call).await.unwrap(), result);
-        assert!(!serde_json::to_string(&result).unwrap().contains(TOKEN));
-        {
-            let records = server.requests.lock().unwrap();
-            assert_eq!(records.len(), 1);
-            assert!(
-                records[0]
-                    .0
-                    .contains(&format!("authorization: Bearer {TOKEN}"))
-            );
-        }
-        let mut override_header = request("/ok", row.id);
-        if let Command::RequestPluginHttp(request) = &mut override_header {
-            request
-                .headers
-                .insert("Authorization".into(), "override".into());
-        }
-        assert_eq!(
-            client
-                .execute(client.prepare(override_header).with_plugin(scope.clone()))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::InvalidRequest
+    let server = server::Server::start().await;
+    let (directory, node, controller, client, worktree) = support::empty().await;
+    node.set_connector_fixture(ORIGIN, &server.origin);
+    configure(&directory.path().join("source/package"), declaration());
+    let package = info(execute(&client, install(worktree, 0)).await)
+        .summary
+        .reference();
+    let Output::ConnectorTypes(types) = execute(&client, Command::ListConnectorTypes).await else {
+        panic!("connector types expected");
+    };
+    assert_eq!(types.len(), 1);
+    assert_eq!(types[0].declaration.id, "service");
+    let mut feed = client.subscribe_connections().await.unwrap();
+    let Update::ConnectionsChanged(initial) = feed.next().await.unwrap() else {
+        panic!("connection snapshot expected");
+    };
+    assert!(initial.connections.is_empty());
+    let row = connected(&client, package.clone(), None, None, secret()).await;
+    assert_eq!(row.state, State::Connected);
+    assert!(row.can_disconnect);
+    assert_eq!(row.configured, ["token"]);
+    assert!(!serde_json::to_string(&row).unwrap().contains(TOKEN));
+    let scope = context(package.clone(), worktree);
+    let call = client
+        .prepare(request("/ok", row.id))
+        .with_plugin(scope.clone());
+    let result = client.execute(call.clone()).await.unwrap();
+    assert_eq!(client.execute(call).await.unwrap(), result);
+    assert!(!serde_json::to_string(&result).unwrap().contains(TOKEN));
+    {
+        let records = server.requests.lock().unwrap();
+        assert_eq!(records.len(), 1);
+        assert!(
+            records[0]
+                .0
+                .contains(&format!("authorization: Bearer {TOKEN}"))
         );
-        let mut outside = request("/ok", row.id);
-        if let Command::RequestPluginHttp(request) = &mut outside {
-            request.url = "https://other.example.com/ok".into();
-        }
-        assert_eq!(
+    }
+    let mut override_header = request("/ok", row.id);
+    if let Command::RequestPluginHttp(request) = &mut override_header {
+        request
+            .headers
+            .insert("Authorization".into(), "override".into());
+    }
+    assert_eq!(
+        client
+            .execute(client.prepare(override_header).with_plugin(scope.clone()))
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidRequest
+    );
+    let mut outside = request("/ok", row.id);
+    if let Command::RequestPluginHttp(request) = &mut outside {
+        request.url = "https://other.example.com/ok".into();
+    }
+    assert_eq!(
+        client
+            .execute(client.prepare(outside).with_plugin(scope.clone()))
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::PermissionDenied
+    );
+    let Output::PluginHttp(redirect) = client
+        .execute(
             client
-                .execute(client.prepare(outside).with_plugin(scope.clone()))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::PermissionDenied
-        );
-        let Output::PluginHttp(redirect) = client
+                .prepare(request("/redirect", row.id))
+                .with_plugin(scope.clone()),
+        )
+        .await
+        .unwrap()
+    else {
+        panic!("HTTP result expected");
+    };
+    assert_eq!(redirect.status, 302);
+    assert_eq!(server.requests.lock().unwrap().len(), 2);
+    let Output::Connection(disabled) = execute(
+        &client,
+        Command::SetConnectionEnabled {
+            connection: row.id,
+            expected_revision: row.revision,
+            enabled: false,
+        },
+    )
+    .await
+    else {
+        panic!("connection expected");
+    };
+    assert!(!disabled.enabled);
+    assert!(disabled.can_disconnect);
+    assert_eq!(
+        client
             .execute(
                 client
-                    .prepare(request("/redirect", row.id))
-                    .with_plugin(scope.clone()),
+                    .prepare(request("/ok", row.id))
+                    .with_plugin(scope.clone())
             )
             .await
+            .unwrap_err()
+            .code,
+        ErrorCode::NotConfigured
+    );
+    assert_eq!(
+        client
+            .execute(client.prepare(Command::DisconnectConnection {
+                connection: row.id,
+                expected_revision: row.revision
+            }))
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::RevisionConflict
+    );
+    let Output::Connection(enabled) = execute(
+        &client,
+        Command::SetConnectionEnabled {
+            connection: row.id,
+            expected_revision: disabled.revision,
+            enabled: true,
+        },
+    )
+    .await
+    else {
+        panic!("connection expected");
+    };
+    let Output::Connection(disconnected) = execute(
+        &client,
+        Command::DisconnectConnection {
+            connection: row.id,
+            expected_revision: enabled.revision,
+        },
+    )
+    .await
+    else {
+        panic!("connection expected");
+    };
+    assert_eq!(disconnected.state, State::NotConnected);
+    assert!(!disconnected.can_disconnect);
+    assert!(disconnected.configured.is_empty());
+    let relinked = connected(
+        &client,
+        package.clone(),
+        Some(row.id),
+        Some(disconnected.revision),
+        secret(),
+    )
+    .await;
+    assert_eq!(relinked.id, row.id);
+    assert!(relinked.revision > disconnected.revision);
+    let Output::Snapshot(snapshot) = execute(&client, Command::Snapshot).await else {
+        panic!("snapshot expected");
+    };
+    assert!(!serde_json::to_string(&snapshot).unwrap().contains(TOKEN));
+    let Update::ConnectionsChanged(changed) =
+        tokio::time::timeout(Duration::from_secs(5), feed.next())
+            .await
             .unwrap()
-        else {
-            panic!("HTTP result expected");
-        };
-        assert_eq!(redirect.status, 302);
-        assert_eq!(server.requests.lock().unwrap().len(), 2);
-        let Output::Connection(disabled) = execute(
-            &client,
-            Command::SetConnectionEnabled {
-                connection: row.id,
-                expected_revision: row.revision,
-                enabled: false,
-            },
-        )
-        .await
-        else {
-            panic!("connection expected");
-        };
-        assert!(!disabled.enabled);
-        assert!(disabled.can_disconnect);
-        assert_eq!(
-            client
-                .execute(
-                    client
-                        .prepare(request("/ok", row.id))
-                        .with_plugin(scope.clone())
-                )
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::NotConfigured
-        );
-        assert_eq!(
-            client
-                .execute(client.prepare(Command::DisconnectConnection {
-                    connection: row.id,
-                    expected_revision: row.revision
-                }))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::RevisionConflict
-        );
-        let Output::Connection(enabled) = execute(
-            &client,
-            Command::SetConnectionEnabled {
-                connection: row.id,
-                expected_revision: disabled.revision,
-                enabled: true,
-            },
-        )
-        .await
-        else {
-            panic!("connection expected");
-        };
-        let Output::Connection(disconnected) = execute(
-            &client,
-            Command::DisconnectConnection {
-                connection: row.id,
-                expected_revision: enabled.revision,
-            },
-        )
-        .await
-        else {
-            panic!("connection expected");
-        };
-        assert_eq!(disconnected.state, State::NotConnected);
-        assert!(!disconnected.can_disconnect);
-        assert!(disconnected.configured.is_empty());
-        let relinked = connected(
-            &client,
-            package.clone(),
-            Some(row.id),
-            Some(disconnected.revision),
-            secret(),
-        )
-        .await;
-        assert_eq!(relinked.id, row.id);
-        assert!(relinked.revision > disconnected.revision);
-        let Output::Snapshot(snapshot) = execute(&client, Command::Snapshot).await else {
-            panic!("snapshot expected");
-        };
-        assert!(!serde_json::to_string(&snapshot).unwrap().contains(TOKEN));
-        let Update::ConnectionsChanged(changed) =
-            tokio::time::timeout(Duration::from_secs(5), feed.next())
-                .await
-                .unwrap()
-                .unwrap()
-        else {
-            panic!("connection update expected");
-        };
-        assert!(changed.cursor > initial.cursor);
-        assert!(!serde_json::to_string(&changed).unwrap().contains(TOKEN));
-        execute(
-            &client,
-            Command::RemoveConnection {
-                connection: row.id,
-                expected_revision: relinked.revision,
-            },
-        )
-        .await;
-        let Output::Connections(rows) = execute(&client, Command::ListConnections).await else {
-            panic!("connections expected");
-        };
-        assert!(rows.is_empty());
-        drop(feed);
-        drop(client);
-        controller.close().await.unwrap();
-        node.shutdown().await.unwrap();
-    }
+            .unwrap()
+    else {
+        panic!("connection update expected");
+    };
+    assert!(changed.cursor > initial.cursor);
+    assert!(!serde_json::to_string(&changed).unwrap().contains(TOKEN));
+    execute(
+        &client,
+        Command::RemoveConnection {
+            connection: row.id,
+            expected_revision: relinked.revision,
+        },
+    )
+    .await;
+    let Output::Connections(rows) = execute(&client, Command::ListConnections).await else {
+        panic!("connections expected");
+    };
+    assert!(rows.is_empty());
+    drop(feed);
+    drop(client);
+    controller.close().await.unwrap();
+    node.shutdown().await.unwrap();
 }
 
 #[tokio::test]
 async fn retains_disabled_account_configuration() {
-    for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = support::empty(remote).await;
-        configure(&directory.path().join("source/package"), declaration());
-        let package = info(execute(&client, install(worktree, 0)).await);
-        let row = connected(&client, package.summary.reference(), None, None, secret()).await;
-        let disabled = info(
-            execute(
-                &client,
-                Command::SetPluginEnabled {
-                    name: package.summary.name.clone(),
-                    expected_revision: package.summary.revision,
-                    enabled: false,
-                },
-            )
-            .await,
-        );
-        let Output::ConnectorTypes(types) = execute(&client, Command::ListConnectorTypes).await
-        else {
-            panic!("types expected")
-        };
-        let kind = types
-            .iter()
-            .find(|kind| kind.package.name == package.summary.name)
-            .unwrap();
-        assert!(!kind.enabled);
-        let Output::Connections(rows) = execute(&client, Command::ListConnections).await else {
-            panic!("connections expected")
-        };
-        let retained = rows.iter().find(|record| record.id == row.id).unwrap();
-        assert_eq!(retained.revision, row.revision);
-        assert_eq!(retained.fields, row.fields);
-        assert_eq!(retained.configured, row.configured);
-        assert!(retained.can_disconnect);
-        assert_eq!(
-            client
-                .execute(client.prepare(Command::ProbeConnection { connection: row.id }))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::NotConfigured
-        );
-        let enabled = info(
-            execute(
-                &client,
-                Command::SetPluginEnabled {
-                    name: package.summary.name.clone(),
-                    expected_revision: disabled.summary.revision,
-                    enabled: true,
-                },
-            )
-            .await,
-        );
-        let Output::Connections(rows) = execute(&client, Command::ListConnections).await else {
-            panic!("connections expected")
-        };
-        let mut restored = rows
-            .iter()
-            .find(|record| record.id == row.id)
-            .unwrap()
-            .clone();
-        assert_eq!(restored.package, enabled.summary.reference());
-        restored.package = row.package.clone();
-        assert_eq!(restored, row);
-        let disabled = info(
-            execute(
-                &client,
-                Command::SetPluginEnabled {
-                    name: package.summary.name.clone(),
-                    expected_revision: enabled.summary.revision,
-                    enabled: false,
-                },
-            )
-            .await,
-        );
+    let (directory, node, controller, client, worktree) = support::empty().await;
+    configure(&directory.path().join("source/package"), declaration());
+    let package = info(execute(&client, install(worktree, 0)).await);
+    let row = connected(&client, package.summary.reference(), None, None, secret()).await;
+    let disabled = info(
         execute(
             &client,
-            Command::DisconnectConnection {
-                connection: row.id,
-                expected_revision: row.revision,
+            Command::SetPluginEnabled {
+                name: package.summary.name.clone(),
+                expected_revision: package.summary.revision,
+                enabled: false,
             },
         )
-        .await;
-        let Output::Plugins(installed) = execute(&client, Command::ListPlugins).await else {
-            panic!("inventory expected")
-        };
-        assert!(
-            installed
-                .iter()
-                .any(|info| info.name == disabled.summary.name && !info.enabled)
-        );
-        controller.close().await.unwrap();
-        node.shutdown().await.unwrap();
-    }
+        .await,
+    );
+    let Output::ConnectorTypes(types) = execute(&client, Command::ListConnectorTypes).await else {
+        panic!("types expected")
+    };
+    let kind = types
+        .iter()
+        .find(|kind| kind.package.name == package.summary.name)
+        .unwrap();
+    assert!(!kind.enabled);
+    let Output::Connections(rows) = execute(&client, Command::ListConnections).await else {
+        panic!("connections expected")
+    };
+    let retained = rows.iter().find(|record| record.id == row.id).unwrap();
+    assert_eq!(retained.revision, row.revision);
+    assert_eq!(retained.fields, row.fields);
+    assert_eq!(retained.configured, row.configured);
+    assert!(retained.can_disconnect);
+    assert_eq!(
+        client
+            .execute(client.prepare(Command::ProbeConnection { connection: row.id }))
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::NotConfigured
+    );
+    let enabled = info(
+        execute(
+            &client,
+            Command::SetPluginEnabled {
+                name: package.summary.name.clone(),
+                expected_revision: disabled.summary.revision,
+                enabled: true,
+            },
+        )
+        .await,
+    );
+    let Output::Connections(rows) = execute(&client, Command::ListConnections).await else {
+        panic!("connections expected")
+    };
+    let mut restored = rows
+        .iter()
+        .find(|record| record.id == row.id)
+        .unwrap()
+        .clone();
+    assert_eq!(restored.package, enabled.summary.reference());
+    restored.package = row.package.clone();
+    assert_eq!(restored, row);
+    let disabled = info(
+        execute(
+            &client,
+            Command::SetPluginEnabled {
+                name: package.summary.name.clone(),
+                expected_revision: enabled.summary.revision,
+                enabled: false,
+            },
+        )
+        .await,
+    );
+    execute(
+        &client,
+        Command::DisconnectConnection {
+            connection: row.id,
+            expected_revision: row.revision,
+        },
+    )
+    .await;
+    let Output::Plugins(installed) = execute(&client, Command::ListPlugins).await else {
+        panic!("inventory expected")
+    };
+    assert!(
+        installed
+            .iter()
+            .any(|info| info.name == disabled.summary.name && !info.enabled)
+    );
+    controller.close().await.unwrap();
+    node.shutdown().await.unwrap();
 }
 
 #[tokio::test]
 async fn probes_identity_on_both_controller_paths() {
-    for remote in [false, true] {
-        let server = server::Server::respond(
-            Some(json!({"name":"Fixture account","id":"stable-account"}).to_string()),
-            None,
-        )
-        .await;
-        let (directory, node, controller, client, worktree) = support::empty(remote).await;
-        node.set_connector_fixture(ORIGIN, &server.origin);
-        let mut declared = declaration();
-        declared["identity"] =
-            json!({"request":format!("{ORIGIN}/identity"),"name":"/name","id":"/id"});
-        declared["health"] = json!({"request":format!("{ORIGIN}/health"),"ok":[200]});
-        configure(&directory.path().join("source/package"), declared);
-        let installed = info(execute(&client, install(worktree, 0)).await);
-        let package = installed.summary.reference();
-        let row = connected(&client, package.clone(), None, None, secret()).await;
-        assert_eq!(row.identity.as_ref().unwrap().name, "Fixture account");
-        let Output::Connection(probed) =
-            execute(&client, Command::ProbeConnection { connection: row.id }).await
-        else {
-            panic!("connection expected");
-        };
-        assert_eq!(probed.state, State::Connected);
-        assert_eq!(probed.identity, row.identity);
-        assert!(probed.checked_at_ms.is_some());
-        assert_eq!(server.requests.lock().unwrap().len(), 4);
-        let root = directory.path().join("source/package");
-        let mut declared = declaration();
-        declared["health"] = json!({"request":format!("{ORIGIN}/health"),"ok":[200]});
-        configure(&root, declared);
-        let manifest = root.join("plugin.json");
-        let mut value: Value = serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();
-        value["version"] = json!("1.0.1");
-        fs::write(&manifest, value.to_string()).unwrap();
-        let package = info(execute(&client, install(worktree, installed.summary.revision)).await)
-            .summary
-            .reference();
-        let renewed = connected(
-            &client,
-            package,
-            Some(row.id),
-            Some(probed.revision),
-            Input::default(),
-        )
-        .await;
-        assert_eq!(renewed.state, State::Connected);
-        assert!(renewed.identity.is_none());
-        let requests = server.requests.lock().unwrap().clone();
-        assert_eq!(requests.len(), 5);
-        assert_eq!(
-            requests
-                .iter()
-                .filter(|(headers, _)| headers.starts_with("GET /identity "))
-                .count(),
-            2
-        );
-        drop(client);
-        controller.close().await.unwrap();
-        node.shutdown().await.unwrap();
-    }
+    let server = server::Server::respond(
+        Some(json!({"name":"Fixture account","id":"stable-account"}).to_string()),
+        None,
+    )
+    .await;
+    let (directory, node, controller, client, worktree) = support::empty().await;
+    node.set_connector_fixture(ORIGIN, &server.origin);
+    let mut declared = declaration();
+    declared["identity"] =
+        json!({"request":format!("{ORIGIN}/identity"),"name":"/name","id":"/id"});
+    declared["health"] = json!({"request":format!("{ORIGIN}/health"),"ok":[200]});
+    configure(&directory.path().join("source/package"), declared);
+    let installed = info(execute(&client, install(worktree, 0)).await);
+    let package = installed.summary.reference();
+    let row = connected(&client, package.clone(), None, None, secret()).await;
+    assert_eq!(row.identity.as_ref().unwrap().name, "Fixture account");
+    let Output::Connection(probed) =
+        execute(&client, Command::ProbeConnection { connection: row.id }).await
+    else {
+        panic!("connection expected");
+    };
+    assert_eq!(probed.state, State::Connected);
+    assert_eq!(probed.identity, row.identity);
+    assert!(probed.checked_at_ms.is_some());
+    assert_eq!(server.requests.lock().unwrap().len(), 4);
+    let root = directory.path().join("source/package");
+    let mut declared = declaration();
+    declared["health"] = json!({"request":format!("{ORIGIN}/health"),"ok":[200]});
+    configure(&root, declared);
+    let manifest = root.join("plugin.json");
+    let mut value: Value = serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();
+    value["version"] = json!("1.0.1");
+    fs::write(&manifest, value.to_string()).unwrap();
+    let package = info(execute(&client, install(worktree, installed.summary.revision)).await)
+        .summary
+        .reference();
+    let renewed = connected(
+        &client,
+        package,
+        Some(row.id),
+        Some(probed.revision),
+        Input::default(),
+    )
+    .await;
+    assert_eq!(renewed.state, State::Connected);
+    assert!(renewed.identity.is_none());
+    let requests = server.requests.lock().unwrap().clone();
+    assert_eq!(requests.len(), 5);
+    assert_eq!(
+        requests
+            .iter()
+            .filter(|(headers, _)| headers.starts_with("GET /identity "))
+            .count(),
+        2
+    );
+    drop(client);
+    controller.close().await.unwrap();
+    node.shutdown().await.unwrap();
 }
 
 #[tokio::test]
 async fn stops_timed_out_requests_without_replay() {
-    for remote in [false, true] {
-        let server = server::Server::start().await;
-        let (directory, node, controller, client, worktree) = support::empty(remote).await;
-        node.set_connector_fixture(ORIGIN, &server.origin);
-        configure(&directory.path().join("source/package"), declaration());
-        let package = info(execute(&client, install(worktree, 0)).await)
-            .summary
-            .reference();
-        let row = connected(&client, package.clone(), None, None, secret()).await;
-        let mut command = request("/hold", row.id);
-        if let Command::RequestPluginHttp(input) = &mut command {
-            input.timeout_ms = 100;
-        }
-        let request = client
-            .prepare(command)
-            .with_plugin(context(package, worktree));
-        let task = tokio::spawn({
-            let request = request.clone();
-            async move {
-                let result = client.execute(request).await;
-                (client, result)
-            }
-        });
-        tokio::time::timeout(Duration::from_secs(5), server.held.cancelled())
-            .await
-            .unwrap();
-        let (client, result) = task.await.unwrap();
-        let error = result.unwrap_err();
-        assert!(!error.message.contains(TOKEN));
-        tokio::time::timeout(Duration::from_secs(5), server.disconnected.cancelled())
-            .await
-            .unwrap();
-        assert_eq!(server.requests.lock().unwrap().len(), 1);
-        assert_eq!(client.execute(request).await.unwrap_err(), error);
-        assert_eq!(server.requests.lock().unwrap().len(), 1);
-        controller.close().await.unwrap();
-        node.shutdown().await.unwrap();
+    let server = server::Server::start().await;
+    let (directory, node, controller, client, worktree) = support::empty().await;
+    node.set_connector_fixture(ORIGIN, &server.origin);
+    configure(&directory.path().join("source/package"), declaration());
+    let package = info(execute(&client, install(worktree, 0)).await)
+        .summary
+        .reference();
+    let row = connected(&client, package.clone(), None, None, secret()).await;
+    let mut command = request("/hold", row.id);
+    if let Command::RequestPluginHttp(input) = &mut command {
+        input.timeout_ms = 100;
     }
+    let request = client
+        .prepare(command)
+        .with_plugin(context(package, worktree));
+    let task = tokio::spawn({
+        let request = request.clone();
+        async move {
+            let result = client.execute(request).await;
+            (client, result)
+        }
+    });
+    tokio::time::timeout(Duration::from_secs(5), server.held.cancelled())
+        .await
+        .unwrap();
+    let (client, result) = task.await.unwrap();
+    let error = result.unwrap_err();
+    assert!(!error.message.contains(TOKEN));
+    tokio::time::timeout(Duration::from_secs(5), server.disconnected.cancelled())
+        .await
+        .unwrap();
+    assert_eq!(server.requests.lock().unwrap().len(), 1);
+    assert_eq!(client.execute(request).await.unwrap_err(), error);
+    assert_eq!(server.requests.lock().unwrap().len(), 1);
+    controller.close().await.unwrap();
+    node.shutdown().await.unwrap();
 }

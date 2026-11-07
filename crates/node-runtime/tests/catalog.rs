@@ -34,7 +34,7 @@ struct Fixture {
 }
 
 impl Fixture {
-    async fn new(remote: bool, server: &Server) -> Self {
+    async fn new(server: &Server) -> Self {
         let directory = tempfile::tempdir().unwrap();
         let node = Node::start_empty_with_catalog(
             directory.path().join("node"),
@@ -51,11 +51,7 @@ impl Fixture {
             .pair(node.link().invite().unwrap().ticket())
             .await
             .unwrap();
-        let client = Arc::new(Client::new(if remote {
-            controller.handle().remote(address)
-        } else {
-            node.local()
-        }));
+        let client = Arc::new(Client::new(controller.handle().remote(address)));
         Self {
             _directory: directory,
             node,
@@ -133,114 +129,136 @@ async fn refresh(client: &Client) -> catalog::Status {
 
 #[tokio::test]
 async fn restores_cached_metadata() {
-    for remote in [false, true] {
-        let server = Server::start(ModelApi::Anthropic, |_| Reply::Json(data())).await;
-        let fixture = Fixture::new(remote, &server).await;
-        assert_eq!(status(&fixture.client).await, catalog::Status::default());
-        assert_eq!(
-            fixture
-                .client
-                .execute(fixture.client.prepare(Command::ReadModelCatalog(query())))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::NotConfigured
-        );
-        assert!(server.requests.lock().unwrap().is_empty());
-        let mut subscription = fixture.client.subscribe().await.unwrap();
-        let mut projection = Projection::new(fixture.client.target(), 1);
-        fixture.client.recover(&mut projection, 1).await.unwrap();
-        let updated = refresh(&fixture.client).await;
-        assert_eq!(updated.revision, 1);
-        assert_eq!((updated.providers, updated.models), (2, 3));
-        assert_eq!(updated.bytes, data().to_string().len() as u64);
-        assert!(updated.updated_at_ms.is_some());
-        tokio::time::timeout(Duration::from_secs(5), async {
-            while projection.snapshot().unwrap().model_catalog != updated {
-                projection
-                    .apply(1, subscription.next().await.unwrap())
-                    .unwrap();
-            }
+    let server = Server::start(ModelApi::Anthropic, |_| Reply::Json(data())).await;
+    let fixture = Fixture::new(&server).await;
+    assert_eq!(status(&fixture.client).await, catalog::Status::default());
+    assert_eq!(
+        fixture
+            .client
+            .execute(fixture.client.prepare(Command::ReadModelCatalog(query())))
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::NotConfigured
+    );
+    assert!(server.requests.lock().unwrap().is_empty());
+    let mut subscription = fixture.client.subscribe().await.unwrap();
+    let mut projection = Projection::new(fixture.client.target(), 1);
+    fixture.client.recover(&mut projection, 1).await.unwrap();
+    let updated = refresh(&fixture.client).await;
+    assert_eq!(updated.revision, 1);
+    assert_eq!((updated.providers, updated.models), (2, 3));
+    assert_eq!(updated.bytes, data().to_string().len() as u64);
+    assert!(updated.updated_at_ms.is_some());
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while projection.snapshot().unwrap().model_catalog != updated {
+            projection
+                .apply(1, subscription.next().await.unwrap())
+                .unwrap();
+        }
+    })
+    .await
+    .unwrap();
+    assert!(projection.snapshot().unwrap().providers.is_empty());
+    let first = page(&fixture.client, query()).await;
+    assert_eq!(first.revision, updated.revision);
+    assert_eq!(first.next.as_deref(), Some("known"));
+    let known = &first.models[0];
+    assert_eq!(known.name, "Known model");
+    assert_eq!((known.context, known.output), (Some(4096), Some(512)));
+    assert_eq!(known.inputs, ["text", "image", "pdf"]);
+    assert_eq!(known.outputs, ["text"]);
+    assert_eq!((known.tools, known.reasoning), (Some(true), Some(true)));
+    assert_eq!(known.options.len(), 3);
+    assert!(
+        matches!(&known.options[1], catalog::Reasoning::Effort { values } if values == &vec![None, Some("low".into()), Some("high".into())])
+    );
+    let mut next = query();
+    next.revision = Some(first.revision);
+    next.after = first.next.clone();
+    let second = page(&fixture.client, next.clone()).await;
+    assert!(second.next.is_none());
+    assert_eq!(second.models[0].id, "unknown");
+    assert_eq!(
+        (second.models[0].context, second.models[0].output),
+        (None, None)
+    );
+    assert_eq!(
+        (second.models[0].tools, second.models[0].reasoning),
+        (None, None)
+    );
+    let mut other = query();
+    other.provider = Some("other".into());
+    assert_eq!(
+        page(&fixture.client, other).await.models[0].context,
+        Some(8192)
+    );
+    let (requests, body): (i64, Vec<u8>) = fixture
+        .node
+        .with_storage(|db| {
+            Box::pin(async move {
+                let requests = db
+                    .prepare("SELECT count(*) FROM requests")
+                    .await
+                    .map_err(crate::database_fixture::fault)?
+                    .query_row(())
+                    .await
+                    .map_err(crate::database_fixture::fault)?
+                    .get(0)
+                    .map_err(crate::database_fixture::fault)?;
+                let body = db
+                    .prepare(
+                        "SELECT body FROM model_catalog WHERE provider='fixture' AND id='known'",
+                    )
+                    .await
+                    .map_err(crate::database_fixture::fault)?
+                    .query_row(())
+                    .await
+                    .map_err(crate::database_fixture::fault)?
+                    .get(0)
+                    .map_err(crate::database_fixture::fault)?;
+                Ok((requests, body))
+            })
         })
         .await
         .unwrap();
-        assert!(projection.snapshot().unwrap().providers.is_empty());
-        let first = page(&fixture.client, query()).await;
-        assert_eq!(first.revision, updated.revision);
-        assert_eq!(first.next.as_deref(), Some("known"));
-        let known = &first.models[0];
-        assert_eq!(known.name, "Known model");
-        assert_eq!((known.context, known.output), (Some(4096), Some(512)));
-        assert_eq!(known.inputs, ["text", "image", "pdf"]);
-        assert_eq!(known.outputs, ["text"]);
-        assert_eq!((known.tools, known.reasoning), (Some(true), Some(true)));
-        assert_eq!(known.options.len(), 3);
-        assert!(
-            matches!(&known.options[1], catalog::Reasoning::Effort { values } if values == &vec![None, Some("low".into()), Some("high".into())])
-        );
-        let mut next = query();
-        next.revision = Some(first.revision);
-        next.after = first.next.clone();
-        let second = page(&fixture.client, next.clone()).await;
-        assert!(second.next.is_none());
-        assert_eq!(second.models[0].id, "unknown");
-        assert_eq!(
-            (second.models[0].context, second.models[0].output),
-            (None, None)
-        );
-        assert_eq!(
-            (second.models[0].tools, second.models[0].reasoning),
-            (None, None)
-        );
-        let mut other = query();
-        other.provider = Some("other".into());
-        assert_eq!(
-            page(&fixture.client, other).await.models[0].context,
-            Some(8192)
-        );
-        let (requests, body): (i64, Vec<u8>) = fixture.node.with_storage(|db| Box::pin(async move {
-            let requests = db.prepare("SELECT count(*) FROM requests").await.map_err(crate::database_fixture::fault)?.query_row(()).await.map_err(crate::database_fixture::fault)?.get(0).map_err(crate::database_fixture::fault)?;
-            let body = db.prepare("SELECT body FROM model_catalog WHERE provider='fixture' AND id='known'").await.map_err(crate::database_fixture::fault)?.query_row(()).await.map_err(crate::database_fixture::fault)?.get(0).map_err(crate::database_fixture::fault)?;
-            Ok((requests, body))
-        })).await.unwrap();
-        assert_eq!(requests, 0);
-        assert_eq!(
-            serde_json::from_slice::<Value>(&body).unwrap()["cost"]["input"],
-            1.5
-        );
-        assert_eq!(server.requests.lock().unwrap().len(), 1);
-        let new_status = refresh(&fixture.client).await;
-        assert_eq!(new_status.revision, 2);
-        assert_eq!(
-            fixture
-                .client
-                .execute(fixture.client.prepare(Command::ReadModelCatalog(next)))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::RevisionConflict
-        );
-        drop(subscription);
-        let path = fixture.node.profile().to_owned();
-        fixture.node.shutdown().await.unwrap();
-        let reopened = Node::start_empty(&path).await.unwrap();
-        let client = Client::new(reopened.local());
-        assert_eq!(status(&client).await, new_status);
-        assert_eq!(page(&client, query()).await.models, first.models);
-        let Output::Snapshot(snapshot) = execute(&client, Command::Snapshot).await else {
-            panic!("snapshot expected")
-        };
-        assert_eq!(snapshot.model_catalog, new_status);
-        assert!(snapshot.providers.is_empty());
-        assert_eq!(server.requests.lock().unwrap().len(), 2);
-        for request in server.requests.lock().unwrap().iter() {
-            assert_eq!(request.path, "/api.json");
-            assert!(!request.headers.contains_key("authorization"));
-            assert!(!request.headers.contains_key("x-api-key"));
-        }
-        fixture.controller.close().await.unwrap();
-        reopened.shutdown().await.unwrap();
+    assert_eq!(requests, 0);
+    assert_eq!(
+        serde_json::from_slice::<Value>(&body).unwrap()["cost"]["input"],
+        1.5
+    );
+    assert_eq!(server.requests.lock().unwrap().len(), 1);
+    let new_status = refresh(&fixture.client).await;
+    assert_eq!(new_status.revision, 2);
+    assert_eq!(
+        fixture
+            .client
+            .execute(fixture.client.prepare(Command::ReadModelCatalog(next)))
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::RevisionConflict
+    );
+    drop(subscription);
+    let path = fixture.node.profile().to_owned();
+    fixture.node.shutdown().await.unwrap();
+    let reopened = Node::start_empty(&path).await.unwrap();
+    let client = Client::new(reopened.local());
+    assert_eq!(status(&client).await, new_status);
+    assert_eq!(page(&client, query()).await.models, first.models);
+    let Output::Snapshot(snapshot) = execute(&client, Command::Snapshot).await else {
+        panic!("snapshot expected")
+    };
+    assert_eq!(snapshot.model_catalog, new_status);
+    assert!(snapshot.providers.is_empty());
+    assert_eq!(server.requests.lock().unwrap().len(), 2);
+    for request in server.requests.lock().unwrap().iter() {
+        assert_eq!(request.path, "/api.json");
+        assert!(!request.headers.contains_key("authorization"));
+        assert!(!request.headers.contains_key("x-api-key"));
     }
+    fixture.controller.close().await.unwrap();
+    reopened.shutdown().await.unwrap();
 }
 
 #[tokio::test]

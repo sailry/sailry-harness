@@ -13,8 +13,6 @@ mod file_changes;
 mod file_copy;
 #[path = "../file_create.rs"]
 mod file_create;
-#[path = "../file_download.rs"]
-mod file_download;
 #[path = "../file_move.rs"]
 mod file_move;
 #[path = "../file_rename.rs"]

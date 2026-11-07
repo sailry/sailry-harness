@@ -3,11 +3,7 @@ use sailry_client::conversation::View;
 use sailry_link::CancellationToken;
 use serde_json::json;
 
-async fn distinguishes_eof_from_transport_failure(
-    fixture: &mut Fixture,
-    remote: bool,
-    case_name: &str,
-) {
+async fn distinguishes_eof_from_transport_failure(fixture: &mut Fixture, case_name: &str) {
     for api in [
         ModelApi::ChatCompletions,
         ModelApi::Responses,
@@ -78,7 +74,7 @@ async fn distinguishes_eof_from_transport_failure(
                 status,
                 "{case_name}: {}",
                 format_args!(
-                    "{api:?}, remote={remote}, transport={broken_transport}, terminator={terminator}: {:?}",
+                    "{api:?}, transport={broken_transport}, terminator={terminator}: {:?}",
                     page.runs
                 )
             );
@@ -108,7 +104,7 @@ async fn distinguishes_eof_from_transport_failure(
     }
 }
 
-async fn publishes_before_completion(fixture: &mut Fixture, _remote: bool, case_name: &str) {
+async fn publishes_before_completion(fixture: &mut Fixture, case_name: &str) {
     for (content_type, ending) in [
         (Some("text/event-stream"), "\n"),
         (None, "\n"),
@@ -230,31 +226,27 @@ async fn publishes_before_completion(fixture: &mut Fixture, _remote: bool, case_
 #[tokio::test]
 async fn stream_delivery() {
     use futures::FutureExt;
-    for remote in [false, true] {
-        let mut fixture = Fixture::empty(remote, ModelApi::Responses, "http://127.0.0.1:9").await;
-        std::panic::AssertUnwindSafe(Box::pin(distinguishes_eof_from_transport_failure(
-            &mut fixture,
-            remote,
-            "distinguishes_eof_from_transport_failure",
-        )))
-        .catch_unwind()
-        .await
-        .unwrap_or_else(|error| {
-            eprintln!("step: distinguishes_eof_from_transport_failure, remote={remote}");
-            std::panic::resume_unwind(error)
-        });
-        std::panic::AssertUnwindSafe(Box::pin(publishes_before_completion(
-            &mut fixture,
-            remote,
-            "publishes_before_completion",
-        )))
-        .catch_unwind()
-        .await
-        .unwrap_or_else(|error| {
-            eprintln!("step: publishes_before_completion, remote={remote}");
-            std::panic::resume_unwind(error)
-        });
-        fixture.controller.close().await.unwrap();
-        fixture.node.shutdown().await.unwrap();
-    }
+    let mut fixture = Fixture::empty(ModelApi::Responses, "http://127.0.0.1:9").await;
+    std::panic::AssertUnwindSafe(Box::pin(distinguishes_eof_from_transport_failure(
+        &mut fixture,
+        "distinguishes_eof_from_transport_failure",
+    )))
+    .catch_unwind()
+    .await
+    .unwrap_or_else(|error| {
+        eprintln!("step: distinguishes_eof_from_transport_failure");
+        std::panic::resume_unwind(error)
+    });
+    std::panic::AssertUnwindSafe(Box::pin(publishes_before_completion(
+        &mut fixture,
+        "publishes_before_completion",
+    )))
+    .catch_unwind()
+    .await
+    .unwrap_or_else(|error| {
+        eprintln!("step: publishes_before_completion");
+        std::panic::resume_unwind(error)
+    });
+    fixture.controller.close().await.unwrap();
+    fixture.node.shutdown().await.unwrap();
 }

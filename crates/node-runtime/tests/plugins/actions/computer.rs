@@ -15,9 +15,15 @@ async fn reads_permissions_without_prompting() {
 
 #[cfg(not(target_os = "macos"))]
 async fn inspect() {
+    // Permission requests are local-only, so both callers remain covered.
     for remote in [false, true] {
         let (_directory, node, controller, client, _worktree) =
-            crate::plugins::support::packages(remote, &["computer"]).await;
+            crate::plugins::support::packages(&["computer"]).await;
+        let client = if remote {
+            client
+        } else {
+            sailry_client::Client::new(node.local())
+        };
         let package = info(
             execute(
                 &client,
@@ -169,9 +175,15 @@ fn diagnostics_peer() {
         let root = std::path::PathBuf::from(
             std::env::var_os("SAILRY_TEST_OCU_PERMISSIONS").expect("isolated permission fixture"),
         );
+        // Permission requests are local-only, so both callers remain covered.
         for remote in [false, true] {
             let (directory, node, controller, client, _worktree) =
-                crate::plugins::support::packages(remote, &["computer"]).await;
+                crate::plugins::support::packages(&["computer"]).await;
+            let client = if remote {
+                client
+            } else {
+                sailry_client::Client::new(node.local())
+            };
             let package = info(
                 execute(
                     &client,

@@ -133,178 +133,104 @@ async fn capture(fixture: &process::Fixture, turn: &QueuedTurn) {
 
 #[tokio::test]
 async fn executes_in_existing_worktrees() {
-    for remote in [false, true] {
-        for assigned in [false, true] {
-            let server = Server::tools(vec![
-                (
-                    plugin_tool("code", "code_search"),
-                    json!({"name":"observed_symbol"}),
-                ),
-                (
-                    plugin_tool("code", "code_outline"),
-                    json!({"path":"source.rs"}),
-                ),
-                (
-                    plugin_tool("code", "code_context"),
-                    json!({"name":"observed_symbol"}),
-                ),
-                (
-                    plugin_tool("code", "code_outline"),
-                    json!({"path":"missing.rs"}),
-                ),
-            ])
-            .await;
-            let mut fixture = process::Fixture::packages(remote, &server, &["code"]).await;
-            if !assigned {
-                unassigned(&mut fixture).await;
-            }
-            execute(
-                &fixture,
-                Command::WriteFile {
-                    worktree: fixture.session.worktree,
-                    path: "source.rs".into(),
-                    text: SOURCE.into(),
-                    expected_revision: None,
-                },
-            )
-            .await;
-            let turn = submit(&fixture, "code").await;
-            let page = finished(&fixture.client, fixture.session.id, turn.id).await;
-            assert_eq!(
-                page.runs.last().unwrap().status,
-                Status::Completed,
-                "{page:?}"
-            );
-            assert!(page.approvals.is_empty(), "{page:?}");
-            schemas(&server);
-            capture(&fixture, &turn).await;
-
-            let revision = blake3::hash(SOURCE.as_bytes()).to_hex().to_string();
-            for name in ["code_search", "code_outline", "code_context"] {
-                let output = result(&fixture.client, &page, name).await;
-                assert!(
-                    output["symbols"].as_array().unwrap().iter().any(|symbol| {
-                        symbol["name"] == "observed_symbol"
-                            && symbol["start_line"] == 1
-                            && symbol["end_line"] == 3
-                            && symbol.get("range").is_none()
-                            && symbol.get("file_revision").is_none()
-                    }),
-                    "{output:?}"
-                );
-                assert!(output["index_revision"].as_u64().unwrap() > 0);
-                assert_eq!(output["partial"], false, "{output:?}");
-                assert_eq!(output["truncated"], false, "{output:?}");
-            }
-            let search = result(&fixture.client, &page, "code_search").await;
-            assert_eq!(search["symbols"][0]["path"], "source.rs");
-            assert!(
-                serde_json::to_vec(&search).unwrap().len() < 1536,
-                "{search:?}"
-            );
-            let outline = result(&fixture.client, &page, "code_outline").await;
-            assert_eq!(outline["status"], "parsed");
-            assert_eq!(outline["path"], "source.rs");
-            assert_eq!(outline["file_revision"], revision);
-            let context = result(&fixture.client, &page, "code_context").await;
-            let snippets = context["snippets"].as_array().unwrap();
-            assert_eq!(snippets.len(), 1, "{context:?}");
-            assert_eq!(snippets[0]["file_revision"], revision);
-            assert_eq!(snippets[0]["text"], SOURCE);
-            assert!(serde_json::to_vec(&context).unwrap().len() <= 16 * 1024);
-            let missing = tool_details(&fixture.client, &page)
-                .await
-                .into_iter()
-                .rev()
-                .find_map(|(name, detail)| {
-                    (name == plugin_tool("code", "code_outline")).then_some(detail.result.unwrap())
-                })
-                .expect("missing outline result expected");
-            assert_eq!(missing["isError"], true, "{missing:?}");
-            assert_eq!(missing["error"]["code"], "not_found", "{missing:?}");
-            assert_eq!(
-                missing["error"]["details"]["kind"],
-                "worktree_path_not_found"
-            );
-            assert!(
-                missing["error"]["message"]
-                    .as_str()
-                    .unwrap()
-                    .starts_with("worktree filesystem operation failed: "),
-                "{missing:?}"
-            );
-            assert_eq!(missing["sailry_result"]["expected"], "file_not_found");
-            assert_eq!(missing["sailry_result"]["diagnostics"][0]["error"], false);
-            assert_eq!(
-                missing["sailry_result"]["diagnostics"][0]["text"],
-                missing["error"]["message"]
-            );
-            assert!(
-                fixture
-                    .node
-                    .profile()
-                    .join("cache/code-index")
-                    .join(fixture.session.worktree.to_string())
-                    .join("index.turso")
-                    .is_file()
-            );
-            fixture.controller.close().await.unwrap();
-            fixture.node.shutdown().await.unwrap();
+    for assigned in [false, true] {
+        let server = Server::tools(vec![
+            (
+                plugin_tool("code", "code_search"),
+                json!({"name":"observed_symbol"}),
+            ),
+            (
+                plugin_tool("code", "code_outline"),
+                json!({"path":"source.rs"}),
+            ),
+            (
+                plugin_tool("code", "code_context"),
+                json!({"name":"observed_symbol"}),
+            ),
+            (
+                plugin_tool("code", "code_outline"),
+                json!({"path":"missing.rs"}),
+            ),
+        ])
+        .await;
+        let mut fixture = process::Fixture::packages(&server, &["code"]).await;
+        if !assigned {
+            unassigned(&mut fixture).await;
         }
-    }
-}
-
-#[tokio::test]
-async fn reports_removed_context_sources() {
-    for remote in [false, true] {
-        let tool = plugin_tool("code", "code_context");
-        let server = Server::tools(vec![(tool.clone(), json!({"name":"observed_symbol"}))]).await;
-        let fixture = process::Fixture::packages(remote, &server, &["code"]).await;
-        std::fs::write(fixture.root.join("source.rs"), SOURCE).unwrap();
-        let (searched, resume_search) = fixture.node.hold_plugin_tool_fixture(&tool, None);
-        let (reading, resume_read) = fixture.node.hold_plugin_tool_fixture(&tool, None);
+        execute(
+            &fixture,
+            Command::WriteFile {
+                worktree: fixture.session.worktree,
+                path: "source.rs".into(),
+                text: SOURCE.into(),
+                expected_revision: None,
+            },
+        )
+        .await;
         let turn = submit(&fixture, "code").await;
-        let request = tokio::time::timeout(Duration::from_secs(10), searched)
-            .await
-            .unwrap()
-            .unwrap();
-        assert!(matches!(request.command, Command::SearchCode { .. }));
-        resume_search.cancel();
-        let request = tokio::time::timeout(Duration::from_secs(10), reading)
-            .await
-            .unwrap()
-            .unwrap();
-        let Command::ReadFileLines {
-            worktree,
-            path,
-            expected_revision,
-            ..
-        } = request.command
-        else {
-            panic!("revision-checked context read expected");
-        };
-        assert_eq!(worktree, fixture.session.worktree);
-        assert_eq!(path, "source.rs");
-        assert_eq!(
-            expected_revision,
-            Some(blake3::hash(SOURCE.as_bytes()).to_hex().to_string())
-        );
-        std::fs::remove_file(fixture.root.join(path)).unwrap();
-        resume_read.cancel();
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;
         assert_eq!(
             page.runs.last().unwrap().status,
             Status::Completed,
             "{page:?}"
         );
-        let outputs = results(&fixture.client, &page).await;
-        assert_eq!(outputs.len(), 1, "{outputs:?}");
-        let missing = &outputs[0];
+        assert!(page.approvals.is_empty(), "{page:?}");
+        schemas(&server);
+        capture(&fixture, &turn).await;
+
+        let revision = blake3::hash(SOURCE.as_bytes()).to_hex().to_string();
+        for name in ["code_search", "code_outline", "code_context"] {
+            let output = result(&fixture.client, &page, name).await;
+            assert!(
+                output["symbols"].as_array().unwrap().iter().any(|symbol| {
+                    symbol["name"] == "observed_symbol"
+                        && symbol["start_line"] == 1
+                        && symbol["end_line"] == 3
+                        && symbol.get("range").is_none()
+                        && symbol.get("file_revision").is_none()
+                }),
+                "{output:?}"
+            );
+            assert!(output["index_revision"].as_u64().unwrap() > 0);
+            assert_eq!(output["partial"], false, "{output:?}");
+            assert_eq!(output["truncated"], false, "{output:?}");
+        }
+        let search = result(&fixture.client, &page, "code_search").await;
+        assert_eq!(search["symbols"][0]["path"], "source.rs");
+        assert!(
+            serde_json::to_vec(&search).unwrap().len() < 1536,
+            "{search:?}"
+        );
+        let outline = result(&fixture.client, &page, "code_outline").await;
+        assert_eq!(outline["status"], "parsed");
+        assert_eq!(outline["path"], "source.rs");
+        assert_eq!(outline["file_revision"], revision);
+        let context = result(&fixture.client, &page, "code_context").await;
+        let snippets = context["snippets"].as_array().unwrap();
+        assert_eq!(snippets.len(), 1, "{context:?}");
+        assert_eq!(snippets[0]["file_revision"], revision);
+        assert_eq!(snippets[0]["text"], SOURCE);
+        assert!(serde_json::to_vec(&context).unwrap().len() <= 16 * 1024);
+        let missing = tool_details(&fixture.client, &page)
+            .await
+            .into_iter()
+            .rev()
+            .find_map(|(name, detail)| {
+                (name == plugin_tool("code", "code_outline")).then_some(detail.result.unwrap())
+            })
+            .expect("missing outline result expected");
         assert_eq!(missing["isError"], true, "{missing:?}");
         assert_eq!(missing["error"]["code"], "not_found", "{missing:?}");
         assert_eq!(
             missing["error"]["details"]["kind"],
             "worktree_path_not_found"
+        );
+        assert!(
+            missing["error"]["message"]
+                .as_str()
+                .unwrap()
+                .starts_with("worktree filesystem operation failed: "),
+            "{missing:?}"
         );
         assert_eq!(missing["sailry_result"]["expected"], "file_not_found");
         assert_eq!(missing["sailry_result"]["diagnostics"][0]["error"], false);
@@ -312,45 +238,113 @@ async fn reports_removed_context_sources() {
             missing["sailry_result"]["diagnostics"][0]["text"],
             missing["error"]["message"]
         );
+        assert!(
+            fixture
+                .node
+                .profile()
+                .join("cache/code-index")
+                .join(fixture.session.worktree.to_string())
+                .join("index.turso")
+                .is_file()
+        );
         fixture.controller.close().await.unwrap();
         fixture.node.shutdown().await.unwrap();
     }
 }
 
 #[tokio::test]
+async fn reports_removed_context_sources() {
+    let tool = plugin_tool("code", "code_context");
+    let server = Server::tools(vec![(tool.clone(), json!({"name":"observed_symbol"}))]).await;
+    let fixture = process::Fixture::packages(&server, &["code"]).await;
+    std::fs::write(fixture.root.join("source.rs"), SOURCE).unwrap();
+    let (searched, resume_search) = fixture.node.hold_plugin_tool_fixture(&tool, None);
+    let (reading, resume_read) = fixture.node.hold_plugin_tool_fixture(&tool, None);
+    let turn = submit(&fixture, "code").await;
+    let request = tokio::time::timeout(Duration::from_secs(10), searched)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(matches!(request.command, Command::SearchCode { .. }));
+    resume_search.cancel();
+    let request = tokio::time::timeout(Duration::from_secs(10), reading)
+        .await
+        .unwrap()
+        .unwrap();
+    let Command::ReadFileLines {
+        worktree,
+        path,
+        expected_revision,
+        ..
+    } = request.command
+    else {
+        panic!("revision-checked context read expected");
+    };
+    assert_eq!(worktree, fixture.session.worktree);
+    assert_eq!(path, "source.rs");
+    assert_eq!(
+        expected_revision,
+        Some(blake3::hash(SOURCE.as_bytes()).to_hex().to_string())
+    );
+    std::fs::remove_file(fixture.root.join(path)).unwrap();
+    resume_read.cancel();
+    let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+    assert_eq!(
+        page.runs.last().unwrap().status,
+        Status::Completed,
+        "{page:?}"
+    );
+    let outputs = results(&fixture.client, &page).await;
+    assert_eq!(outputs.len(), 1, "{outputs:?}");
+    let missing = &outputs[0];
+    assert_eq!(missing["isError"], true, "{missing:?}");
+    assert_eq!(missing["error"]["code"], "not_found", "{missing:?}");
+    assert_eq!(
+        missing["error"]["details"]["kind"],
+        "worktree_path_not_found"
+    );
+    assert_eq!(missing["sailry_result"]["expected"], "file_not_found");
+    assert_eq!(missing["sailry_result"]["diagnostics"][0]["error"], false);
+    assert_eq!(
+        missing["sailry_result"]["diagnostics"][0]["text"],
+        missing["error"]["message"]
+    );
+    fixture.controller.close().await.unwrap();
+    fixture.node.shutdown().await.unwrap();
+}
+
+#[tokio::test]
 async fn searches_empty_conversation_worktrees() {
-    for remote in [false, true] {
-        let server = Server::tools(vec![
-            (plugin_tool("code", "code_search"), json!({})),
-            (plugin_tool("code", "code_context"), json!({})),
-        ])
-        .await;
-        let mut fixture = process::Fixture::packages(remote, &server, &["code"]).await;
-        unassigned(&mut fixture).await;
-        let turn = submit(&fixture, "code").await;
-        let page = finished(&fixture.client, fixture.session.id, turn.id).await;
-        assert_eq!(
-            page.runs.last().unwrap().status,
-            Status::Completed,
-            "{page:?}"
-        );
-        schemas(&server);
-        for name in ["code_search", "code_context"] {
-            let output = result(&fixture.client, &page, name).await;
-            assert!(
-                output["symbols"].as_array().unwrap().is_empty(),
-                "{output:?}"
-            );
-            assert_eq!(output["partial"], false, "{output:?}");
-            assert_eq!(output["truncated"], false, "{output:?}");
-        }
+    let server = Server::tools(vec![
+        (plugin_tool("code", "code_search"), json!({})),
+        (plugin_tool("code", "code_context"), json!({})),
+    ])
+    .await;
+    let mut fixture = process::Fixture::packages(&server, &["code"]).await;
+    unassigned(&mut fixture).await;
+    let turn = submit(&fixture, "code").await;
+    let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+    assert_eq!(
+        page.runs.last().unwrap().status,
+        Status::Completed,
+        "{page:?}"
+    );
+    schemas(&server);
+    for name in ["code_search", "code_context"] {
+        let output = result(&fixture.client, &page, name).await;
         assert!(
-            result(&fixture.client, &page, "code_context").await["snippets"]
-                .as_array()
-                .unwrap()
-                .is_empty()
+            output["symbols"].as_array().unwrap().is_empty(),
+            "{output:?}"
         );
-        fixture.controller.close().await.unwrap();
-        fixture.node.shutdown().await.unwrap();
+        assert_eq!(output["partial"], false, "{output:?}");
+        assert_eq!(output["truncated"], false, "{output:?}");
     }
+    assert!(
+        result(&fixture.client, &page, "code_context").await["snippets"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    fixture.controller.close().await.unwrap();
+    fixture.node.shutdown().await.unwrap();
 }

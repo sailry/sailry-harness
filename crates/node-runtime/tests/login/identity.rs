@@ -136,349 +136,339 @@ async fn exchange(node: &Node, arrived: &tokio::sync::Notify, release: &tokio::s
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn retains_registration_and_host_after_expired_code() {
-    for remote in [false, true] {
-        let exchanges = std::sync::atomic::AtomicUsize::new(0);
-        let arrived = Arc::new(tokio::sync::Notify::new());
-        let release = Arc::new(tokio::sync::Notify::new());
-        let received = arrived.clone();
-        let held = release.clone();
-        let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
-    if request.path == "/api/accounts/oauth/token" {
-        let remaining = if exchanges.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
-            "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"invalid_grant\"}".to_owned()
-        } else {
-            let Reply::Json(value) = standard(request) else {
-                panic!("token JSON response expected");
-            };
-            format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{value}")
-        };
-        received.notify_one();
-        Reply::Staged {
-            initial: String::new(),
-            release: held.clone(),
-            remaining,
-        }
+    let exchanges = std::sync::atomic::AtomicUsize::new(0);
+    let arrived = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new(tokio::sync::Notify::new());
+    let received = arrived.clone();
+    let held = release.clone();
+    let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
+if request.path == "/api/accounts/oauth/token" {
+    let remaining = if exchanges.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+        "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":\"invalid_grant\"}".to_owned()
     } else {
-        standard(request)
+        let Reply::Json(value) = standard(request) else {
+            panic!("token JSON response expected");
+        };
+        format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{value}")
+    };
+    received.notify_one();
+    Reply::Staged {
+        initial: String::new(),
+        release: held.clone(),
+        remaining,
     }
+} else {
+    standard(request)
+}
 })
 .await;
-        let fixture = Fixture::empty(remote, &server).await;
-        let provider = provider(&fixture.client, Authentication::ChatGpt).await;
-        let (_, first) = start(&fixture.client, &provider).await;
-        let first_url = browser(&fixture.client, &first).await;
-        let first_fields: BTreeMap<_, _> = Url::parse(&first_url)
-            .unwrap()
-            .query_pairs()
-            .into_owned()
-            .collect();
-        assert_eq!(first_fields["client_id"], "dynamic_agent_client");
-        let returned = callback(&first_url);
-        let private_url = returned.expose().to_owned();
-        let (callback_request, ()) = tokio::join!(
-            complete(&fixture.client, &first, returned),
-            exchange(&fixture.node, &arrived, &release),
-        );
-        let mut stream = fixture.client.subscribe_login(first.id).await.unwrap();
-        assert!(matches!(
-            terminal(&mut stream).await.state,
-            login::State::Failed(_)
-        ));
-        let Output::Credentials(credentials) = fixture
-            .client
-            .execute(fixture.client.prepare(Command::ListCredentials))
+    let fixture = Fixture::empty(&server).await;
+    let provider = provider(&fixture.client, Authentication::ChatGpt).await;
+    let (_, first) = start(&fixture.client, &provider).await;
+    let first_url = browser(&fixture.client, &first).await;
+    let first_fields: BTreeMap<_, _> = Url::parse(&first_url)
+        .unwrap()
+        .query_pairs()
+        .into_owned()
+        .collect();
+    assert_eq!(first_fields["client_id"], "dynamic_agent_client");
+    let returned = callback(&first_url);
+    let private_url = returned.expose().to_owned();
+    let (callback_request, ()) = tokio::join!(
+        complete(&fixture.client, &first, returned),
+        exchange(&fixture.node, &arrived, &release),
+    );
+    let mut stream = fixture.client.subscribe_login(first.id).await.unwrap();
+    assert!(matches!(
+        terminal(&mut stream).await.state,
+        login::State::Failed(_)
+    ));
+    let Output::Credentials(credentials) = fixture
+        .client
+        .execute(fixture.client.prepare(Command::ListCredentials))
+        .await
+        .unwrap()
+    else {
+        panic!("credentials expected")
+    };
+    assert!(credentials.is_empty());
+
+    let rows = {
+        let sql = ("SELECT CAST(body AS TEXT),coalesce(result,'') FROM requests").to_owned();
+        fixture
+            .node
+            .with_storage(move |db| {
+                Box::pin(async move {
+                    let mut rows = db
+                        .query(sql, ())
+                        .await
+                        .map_err(crate::database_fixture::fault)?;
+                    let mut values = Vec::new();
+                    while let Some(row) =
+                        rows.next().await.map_err(crate::database_fixture::fault)?
+                    {
+                        values.push((
+                            row.get::<String>(0)
+                                .map_err(crate::database_fixture::fault)?,
+                            row.get::<String>(1)
+                                .map_err(crate::database_fixture::fault)?,
+                        ));
+                    }
+                    Ok(values)
+                })
+            })
             .await
             .unwrap()
-        else {
-            panic!("credentials expected")
-        };
-        assert!(credentials.is_empty());
-
-        let rows = {
-            let sql = ("SELECT CAST(body AS TEXT),coalesce(result,'') FROM requests").to_owned();
-            fixture
-                .node
-                .with_storage(move |db| {
-                    Box::pin(async move {
-                        let mut rows = db
-                            .query(sql, ())
-                            .await
-                            .map_err(crate::database_fixture::fault)?;
-                        let mut values = Vec::new();
-                        while let Some(row) =
-                            rows.next().await.map_err(crate::database_fixture::fault)?
-                        {
-                            values.push((
-                                row.get::<String>(0)
-                                    .map_err(crate::database_fixture::fault)?,
-                                row.get::<String>(1)
-                                    .map_err(crate::database_fixture::fault)?,
-                            ));
-                        }
-                        Ok(values)
-                    })
-                })
-                .await
-                .unwrap()
-        };
-        for (body, result) in rows {
-            assert!(!body.contains(&private_url));
-            assert!(!result.contains(&private_url));
-            no_secrets(&body);
-            no_secrets(&result);
-        }
-
-        assert_eq!(
-            fixture.client.execute(callback_request).await.unwrap(),
-            Output::ProviderLogin(first)
-        );
-        let fixture = execution::renewals::restart(fixture, &server, remote).await;
-        let (_, second) = start(&fixture.client, &provider).await;
-        let second_url = browser(&fixture.client, &second).await;
-        let second_fields: BTreeMap<_, _> = Url::parse(&second_url)
-            .unwrap()
-            .query_pairs()
-            .into_owned()
-            .collect();
-        assert_eq!(second_fields["client_id"], CLIENT);
-        assert_eq!(
-            second_fields["ext_agent_host_id"],
-            first_fields["ext_agent_host_id"]
-        );
-        assert!(!second_fields.contains_key("agent_name_hint"));
-        assert_ne!(second_fields["state"], first_fields["state"]);
-        let (_, ()) = tokio::join!(
-            complete(&fixture.client, &second, callback(&second_url)),
-            exchange(&fixture.node, &arrived, &release),
-        );
-        let mut stream = fixture.client.subscribe_login(second.id).await.unwrap();
-        assert_eq!(terminal(&mut stream).await.state, login::State::Connected);
-        fixture.close().await;
+    };
+    for (body, result) in rows {
+        assert!(!body.contains(&private_url));
+        assert!(!result.contains(&private_url));
+        no_secrets(&body);
+        no_secrets(&result);
     }
+
+    assert_eq!(
+        fixture.client.execute(callback_request).await.unwrap(),
+        Output::ProviderLogin(first)
+    );
+    let fixture = execution::renewals::restart(fixture, &server).await;
+    let (_, second) = start(&fixture.client, &provider).await;
+    let second_url = browser(&fixture.client, &second).await;
+    let second_fields: BTreeMap<_, _> = Url::parse(&second_url)
+        .unwrap()
+        .query_pairs()
+        .into_owned()
+        .collect();
+    assert_eq!(second_fields["client_id"], CLIENT);
+    assert_eq!(
+        second_fields["ext_agent_host_id"],
+        first_fields["ext_agent_host_id"]
+    );
+    assert!(!second_fields.contains_key("agent_name_hint"));
+    assert_ne!(second_fields["state"], first_fields["state"]);
+    let (_, ()) = tokio::join!(
+        complete(&fixture.client, &second, callback(&second_url)),
+        exchange(&fixture.node, &arrived, &release),
+    );
+    let mut stream = fixture.client.subscribe_login(second.id).await.unwrap();
+    assert_eq!(terminal(&mut stream).await.state, login::State::Connected);
+    fixture.close().await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn requires_durable_registration_before_exchange() {
-    for remote in [false, true] {
-        let server = Server::start_with_request(ModelApi::Anthropic, |_| {
-            panic!("exchange must not start without a durable registration")
-        })
-        .await;
-        let fixture = Fixture::empty(remote, &server).await;
-        let provider = provider(&fixture.client, Authentication::ChatGpt).await;
+    let server = Server::start_with_request(ModelApi::Anthropic, |_| {
+        panic!("exchange must not start without a durable registration")
+    })
+    .await;
+    let fixture = Fixture::empty(&server).await;
+    let provider = provider(&fixture.client, Authentication::ChatGpt).await;
 
-        {let sql=("CREATE TRIGGER reject_registration BEFORE INSERT ON oauth_registrations BEGIN SELECT RAISE(ABORT,'isolated registration failure'); END;").to_owned();fixture.node.with_storage(move |db| Box::pin(async move {db.execute_batch(sql).await.map_err(crate::database_fixture::fault)})).await}.unwrap();
-        let (_, attempt) = begin(&fixture.client, &provider).await;
-        let mut stream = fixture.client.subscribe_login(attempt.id).await.unwrap();
-        let login::State::Failed(error) = terminal(&mut stream).await.state else {
-            panic!("registration storage failure expected")
-        };
-        assert_eq!(error.code, ErrorCode::Internal);
-        assert!(server.requests.lock().unwrap().is_empty());
-        assert_eq!(
-            fixture
-                .client
-                .execute(fixture.client.prepare(Command::ListCredentials))
-                .await
-                .unwrap(),
-            Output::Credentials(vec![])
-        );
+    {let sql=("CREATE TRIGGER reject_registration BEFORE INSERT ON oauth_registrations BEGIN SELECT RAISE(ABORT,'isolated registration failure'); END;").to_owned();fixture.node.with_storage(move |db| Box::pin(async move {db.execute_batch(sql).await.map_err(crate::database_fixture::fault)})).await}.unwrap();
+    let (_, attempt) = begin(&fixture.client, &provider).await;
+    let mut stream = fixture.client.subscribe_login(attempt.id).await.unwrap();
+    let login::State::Failed(error) = terminal(&mut stream).await.state else {
+        panic!("registration storage failure expected")
+    };
+    assert_eq!(error.code, ErrorCode::Internal);
+    assert!(server.requests.lock().unwrap().is_empty());
+    assert_eq!(
+        fixture
+            .client
+            .execute(fixture.client.prepare(Command::ListCredentials))
+            .await
+            .unwrap(),
+        Output::Credentials(vec![])
+    );
 
-        fixture.close().await;
-    }
+    fixture.close().await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn retains_sign_in_without_plan_permission() {
-    for remote in [false, true] {
-        let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
-            if request.path == "/api/accounts/oauth/token" {
-                let mut tokens = tokens(request, 3600, REFRESH);
-                tokens["scope"] = json!("openid email profile offline_access");
-                Reply::Json(tokens)
-            } else {
-                assert!(
-                    !request.path.starts_with("/models"),
-                    "plan-disabled sign-in must not invoke models"
-                );
-                standard(request)
-            }
-        })
-        .await;
-        let fixture = Fixture::empty(remote, &server).await;
-        let provider = provider(&fixture.client, Authentication::ChatGpt).await;
-        let (_, attempt) = begin(&fixture.client, &provider).await;
-        let mut stream = fixture.client.subscribe_login(attempt.id).await.unwrap();
-        let update = terminal(&mut stream).await;
-        assert_eq!(update.state, login::State::Connected);
-        assert_eq!(update.model_error.unwrap().code, ErrorCode::NotConfigured);
-        let Output::Providers(providers) = fixture
-            .client
-            .execute(fixture.client.prepare(Command::ListProviders))
-            .await
-            .unwrap()
-        else {
-            panic!("providers expected")
-        };
-        assert!(providers[0].credential.is_some());
-        assert!(providers[0].models.is_empty());
-        no_secrets(&providers);
-        fixture.close().await;
-    }
+    let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
+        if request.path == "/api/accounts/oauth/token" {
+            let mut tokens = tokens(request, 3600, REFRESH);
+            tokens["scope"] = json!("openid email profile offline_access");
+            Reply::Json(tokens)
+        } else {
+            assert!(
+                !request.path.starts_with("/models"),
+                "plan-disabled sign-in must not invoke models"
+            );
+            standard(request)
+        }
+    })
+    .await;
+    let fixture = Fixture::empty(&server).await;
+    let provider = provider(&fixture.client, Authentication::ChatGpt).await;
+    let (_, attempt) = begin(&fixture.client, &provider).await;
+    let mut stream = fixture.client.subscribe_login(attempt.id).await.unwrap();
+    let update = terminal(&mut stream).await;
+    assert_eq!(update.state, login::State::Connected);
+    assert_eq!(update.model_error.unwrap().code, ErrorCode::NotConfigured);
+    let Output::Providers(providers) = fixture
+        .client
+        .execute(fixture.client.prepare(Command::ListProviders))
+        .await
+        .unwrap()
+    else {
+        panic!("providers expected")
+    };
+    assert!(providers[0].credential.is_some());
+    assert!(providers[0].models.is_empty());
+    no_secrets(&providers);
+    fixture.close().await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn reconnects_after_revocation() {
-    for remote in [false, true] {
-        let server = Server::start_with_request(ModelApi::Anthropic, standard).await;
-        let fixture = Fixture::empty(remote, &server).await;
-        let provider =
-            execution::signed_in(&fixture, Authentication::ChatGpt, ModelApi::Responses).await;
-        let reference = provider.credential.as_ref().unwrap();
-        fixture
-            .client
-            .execute(fixture.client.prepare(Command::RevokeCredential {
-                id: reference.id,
-                expected_revision: 1,
-            }))
-            .await
-            .unwrap();
-        let (_, attempt) = start(&fixture.client, &provider).await;
-        let authorization = browser(&fixture.client, &attempt).await;
-        let fields: BTreeMap<_, _> = Url::parse(&authorization)
-            .unwrap()
-            .query_pairs()
-            .into_owned()
-            .collect();
-        assert_eq!(fields["client_id"], CLIENT);
-        complete(&fixture.client, &attempt, callback(&authorization)).await;
-        let mut updates = fixture.client.subscribe_login(attempt.id).await.unwrap();
-        assert_eq!(terminal(&mut updates).await.state, login::State::Connected);
-        let Output::Credentials(credentials) = fixture
-            .client
-            .execute(fixture.client.prepare(Command::ListCredentials))
-            .await
-            .unwrap()
-        else {
-            panic!("credentials expected")
-        };
-        let Output::Providers(providers) = fixture
-            .client
-            .execute(fixture.client.prepare(Command::ListProviders))
-            .await
-            .unwrap()
-        else {
-            panic!("providers expected")
-        };
-        let current = &providers[0];
-        let replacement = current.credential.as_ref().unwrap();
-        assert_ne!(replacement.id, reference.id);
-        assert_eq!(
-            current
-                .models
-                .iter()
-                .map(|model| model.id.as_str())
-                .collect::<Vec<_>>(),
-            ["fixture", "unknown"]
-        );
-        assert_eq!(current.models[0], provider.models[0]);
-        let mut expected = provider.clone();
-        expected.revision += 1;
-        expected.credential = Some(replacement.clone());
-        expected.models = current.models.clone();
-        assert_eq!(*current, expected);
-        assert_eq!(credentials.len(), 2);
-        let original = credentials
+    let server = Server::start_with_request(ModelApi::Anthropic, standard).await;
+    let fixture = Fixture::empty(&server).await;
+    let provider =
+        execution::signed_in(&fixture, Authentication::ChatGpt, ModelApi::Responses).await;
+    let reference = provider.credential.as_ref().unwrap();
+    fixture
+        .client
+        .execute(fixture.client.prepare(Command::RevokeCredential {
+            id: reference.id,
+            expected_revision: 1,
+        }))
+        .await
+        .unwrap();
+    let (_, attempt) = start(&fixture.client, &provider).await;
+    let authorization = browser(&fixture.client, &attempt).await;
+    let fields: BTreeMap<_, _> = Url::parse(&authorization)
+        .unwrap()
+        .query_pairs()
+        .into_owned()
+        .collect();
+    assert_eq!(fields["client_id"], CLIENT);
+    complete(&fixture.client, &attempt, callback(&authorization)).await;
+    let mut updates = fixture.client.subscribe_login(attempt.id).await.unwrap();
+    assert_eq!(terminal(&mut updates).await.state, login::State::Connected);
+    let Output::Credentials(credentials) = fixture
+        .client
+        .execute(fixture.client.prepare(Command::ListCredentials))
+        .await
+        .unwrap()
+    else {
+        panic!("credentials expected")
+    };
+    let Output::Providers(providers) = fixture
+        .client
+        .execute(fixture.client.prepare(Command::ListProviders))
+        .await
+        .unwrap()
+    else {
+        panic!("providers expected")
+    };
+    let current = &providers[0];
+    let replacement = current.credential.as_ref().unwrap();
+    assert_ne!(replacement.id, reference.id);
+    assert_eq!(
+        current
+            .models
             .iter()
-            .find(|value| value.id == reference.id)
-            .unwrap();
-        assert_eq!(original.revision, 2);
-        assert!(original.revoked);
-        let active = credentials
-            .iter()
-            .find(|value| value.id == replacement.id)
-            .unwrap();
-        assert_eq!(active.revision, 1);
-        assert!(!active.revoked);
-        fixture.close().await;
-    }
+            .map(|model| model.id.as_str())
+            .collect::<Vec<_>>(),
+        ["fixture", "unknown"]
+    );
+    assert_eq!(current.models[0], provider.models[0]);
+    let mut expected = provider.clone();
+    expected.revision += 1;
+    expected.credential = Some(replacement.clone());
+    expected.models = current.models.clone();
+    assert_eq!(*current, expected);
+    assert_eq!(credentials.len(), 2);
+    let original = credentials
+        .iter()
+        .find(|value| value.id == reference.id)
+        .unwrap();
+    assert_eq!(original.revision, 2);
+    assert!(original.revoked);
+    let active = credentials
+        .iter()
+        .find(|value| value.id == replacement.id)
+        .unwrap();
+    assert_eq!(active.revision, 1);
+    assert!(!active.revoked);
+    fixture.close().await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn replaces_interactive_accounts() {
-    for remote in [false, true] {
-        let count = std::sync::atomic::AtomicUsize::new(0);
-        let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
-            if request.path == "/api/accounts/oauth/token" {
-                let mut value = tokens(request, 3600, REFRESH);
-                if count.fetch_add(1, std::sync::atomic::Ordering::SeqCst) > 0 {
-                    let fields = form(request);
-                    let code: Value = serde_json::from_slice(&URL_SAFE_NO_PAD.decode(&fields["code"]).unwrap()).unwrap();
-                    value["id_token"] = json!(signed(&json!({"iss":issuer(request),"aud":CLIENT,
-                        "sub":"another-account", "nonce":code["nonce"],"iat":future_expiry()-3600,"exp":future_expiry()})));
-                }
-                Reply::Json(value)
-            } else { standard(request) }
-        }).await;
-        let fixture = Fixture::empty(remote, &server).await;
-        let provider =
-            execution::signed_in(&fixture, Authentication::ChatGpt, ModelApi::Responses).await;
-        let Output::Credentials(before) = fixture
-            .client
-            .execute(fixture.client.prepare(Command::ListCredentials))
-            .await
-            .unwrap()
-        else {
-            panic!("credentials expected")
-        };
-        let (_, attempt) = begin(&fixture.client, &provider).await;
-        let mut stream = fixture.client.subscribe_login(attempt.id).await.unwrap();
-        assert_eq!(terminal(&mut stream).await.state, login::State::Connected);
-        let Output::Credentials(credentials) = fixture
-            .client
-            .execute(fixture.client.prepare(Command::ListCredentials))
-            .await
-            .unwrap()
-        else {
-            panic!("credentials expected")
-        };
-        let Output::Providers(providers) = fixture
-            .client
-            .execute(fixture.client.prepare(Command::ListProviders))
-            .await
-            .unwrap()
-        else {
-            panic!("providers expected")
-        };
-        let reference = provider.credential.as_ref().unwrap();
-        let current = &providers[0];
-        let replacement = current.credential.as_ref().unwrap();
-        assert_ne!(replacement.id, reference.id);
-        assert_eq!(
-            current
-                .models
-                .iter()
-                .map(|model| model.id.as_str())
-                .collect::<Vec<_>>(),
-            ["fixture", "unknown"]
-        );
-        assert_eq!(current.models[0], provider.models[0]);
-        let mut expected = provider.clone();
-        expected.revision += 1;
-        expected.credential = Some(replacement.clone());
-        expected.models = current.models.clone();
-        assert_eq!(*current, expected);
-        assert_eq!(credentials.len(), 2);
-        assert_eq!(
-            credentials.iter().find(|value| value.id == reference.id),
-            before.iter().find(|value| value.id == reference.id)
-        );
-        let active = credentials
+    let count = std::sync::atomic::AtomicUsize::new(0);
+    let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
+        if request.path == "/api/accounts/oauth/token" {
+            let mut value = tokens(request, 3600, REFRESH);
+            if count.fetch_add(1, std::sync::atomic::Ordering::SeqCst) > 0 {
+                let fields = form(request);
+                let code: Value = serde_json::from_slice(&URL_SAFE_NO_PAD.decode(&fields["code"]).unwrap()).unwrap();
+                value["id_token"] = json!(signed(&json!({"iss":issuer(request),"aud":CLIENT,
+                    "sub":"another-account", "nonce":code["nonce"],"iat":future_expiry()-3600,"exp":future_expiry()})));
+            }
+            Reply::Json(value)
+        } else { standard(request) }
+    }).await;
+    let fixture = Fixture::empty(&server).await;
+    let provider =
+        execution::signed_in(&fixture, Authentication::ChatGpt, ModelApi::Responses).await;
+    let Output::Credentials(before) = fixture
+        .client
+        .execute(fixture.client.prepare(Command::ListCredentials))
+        .await
+        .unwrap()
+    else {
+        panic!("credentials expected")
+    };
+    let (_, attempt) = begin(&fixture.client, &provider).await;
+    let mut stream = fixture.client.subscribe_login(attempt.id).await.unwrap();
+    assert_eq!(terminal(&mut stream).await.state, login::State::Connected);
+    let Output::Credentials(credentials) = fixture
+        .client
+        .execute(fixture.client.prepare(Command::ListCredentials))
+        .await
+        .unwrap()
+    else {
+        panic!("credentials expected")
+    };
+    let Output::Providers(providers) = fixture
+        .client
+        .execute(fixture.client.prepare(Command::ListProviders))
+        .await
+        .unwrap()
+    else {
+        panic!("providers expected")
+    };
+    let reference = provider.credential.as_ref().unwrap();
+    let current = &providers[0];
+    let replacement = current.credential.as_ref().unwrap();
+    assert_ne!(replacement.id, reference.id);
+    assert_eq!(
+        current
+            .models
             .iter()
-            .find(|value| value.id == replacement.id)
-            .unwrap();
-        assert_eq!(active.revision, 1);
-        assert!(!active.revoked);
-        fixture.close().await;
-    }
+            .map(|model| model.id.as_str())
+            .collect::<Vec<_>>(),
+        ["fixture", "unknown"]
+    );
+    assert_eq!(current.models[0], provider.models[0]);
+    let mut expected = provider.clone();
+    expected.revision += 1;
+    expected.credential = Some(replacement.clone());
+    expected.models = current.models.clone();
+    assert_eq!(*current, expected);
+    assert_eq!(credentials.len(), 2);
+    assert_eq!(
+        credentials.iter().find(|value| value.id == reference.id),
+        before.iter().find(|value| value.id == reference.id)
+    );
+    let active = credentials
+        .iter()
+        .find(|value| value.id == replacement.id)
+        .unwrap();
+    assert_eq!(active.revision, 1);
+    assert!(!active.revoked);
+    fixture.close().await;
 }

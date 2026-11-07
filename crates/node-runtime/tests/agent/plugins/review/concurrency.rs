@@ -471,415 +471,386 @@ async fn retry(
 
 #[tokio::test]
 async fn retries_parallel_reports_without_lost_receipts() {
-    for remote in [false, true] {
-        let (mut fixture, package) = start(remote).await;
-        let repository = Repository::init(&fixture.root).unwrap();
-        write(&fixture.root, "alpha/value.rs", "old_alpha();\n");
-        write(&fixture.root, "beta/value.py", "old_beta()\n");
-        commit(&repository, "Initial groups");
-        write(&fixture.root, "alpha/value.rs", "new_alpha();\n");
-        write(&fixture.root, "beta/value.py", "new_beta()\n");
-        let scope = scope(&fixture, json!({"kind":"worktree","data":{"scope":"all"}})).await;
-        assert_eq!(scope["groups"].as_array().unwrap().len(), 2);
-        let head_key = format!("review/{}/head", scope["review_id"].as_str().unwrap());
-        let original = value(&fixture, &package, &head_key).await;
-        let first = Server::scripted_tools(vec![
-            (
-                plugin_tool(PACKAGE, "report_finding"),
-                finding(&scope, "alpha/value.rs", "new", 1, "new_alpha();"),
-            ),
-            (
-                plugin_tool(PACKAGE, "review_complete"),
-                group_receipt(&scope, "alpha/value.rs"),
-            ),
-            (plugin_tool(PACKAGE, "review_complete"), finalize(&scope)),
-        ])
-        .await;
-        let second = Server::scripted_tools(vec![
-            (
-                plugin_tool(PACKAGE, "report_finding"),
-                finding(&scope, "beta/value.py", "new", 1, "new_beta()"),
-            ),
-            (
-                plugin_tool(PACKAGE, "review_complete"),
-                group_receipt(&scope, "beta/value.py"),
-            ),
-            (plugin_tool(PACKAGE, "review_complete"), finalize(&scope)),
-        ])
-        .await;
-        let profiles = roles(&mut fixture, &[("alpha", &first), ("beta", &second)]).await;
-        permission(&mut fixture, Permission::Ask).await;
-        let parent = Server::turn_parallel(vec![
-            ("spawn_agent".to_string(),json!({"role":"alpha","task":"Review the alpha group and submit its complete receipt"})),
-            ("spawn_agent".to_string(),json!({"role":"beta","task":"Review the beta group and submit its complete receipt"})),
-        ]).await;
-        route(&fixture.client, &fixture.session, &parent.endpoint).await;
-        let held = hold(&fixture, "report_finding");
-        let turn = submit(&fixture.client, &fixture.session).await;
-        let page = observe(&fixture.client, fixture.session.id, |page| {
-            page.children
-                .iter()
-                .filter(|child| child.origin.turn == turn.id)
-                .count()
-                == 2
-        })
-        .await;
-        let child = |role: RoleId| {
-            page.children
-                .iter()
-                .find(|child| child.origin.turn == turn.id && child.origin.role == Some(role))
-                .unwrap()
-                .run
-                .session
-        };
-        let alpha = child(profiles[0].id);
-        let beta = child(profiles[1].id);
-        let Staged {
-            approvals: [alpha_report, beta_report],
-            releases,
-        } = staged(&fixture, &package, held, [alpha, beta], "report_finding").await;
-        assert_ne!(alpha_report.id, beta_report.id);
-        // Both prepared transactions retain the same unchanged private head.
-        assert_eq!(value(&fixture, &package, &head_key).await, original);
-        let held = hold(&fixture, "review_complete");
-        for release in releases {
-            release.cancel();
-        }
-        let Staged {
-            approvals: [alpha_receipt, beta_receipt],
-            releases,
-        } = staged(&fixture, &package, held, [alpha, beta], "review_complete").await;
-        assert_ne!(alpha_receipt.id, alpha_report.id);
-        assert_ne!(beta_receipt.id, beta_report.id);
-        assert_eq!(alpha_receipt.turn, alpha_report.turn);
-        assert_eq!(beta_receipt.turn, beta_report.turn);
-        for release in releases {
-            release.cancel();
-        }
-        let parent_page = completed(&fixture.client, fixture.session.id, turn.id).await;
-        outcomes(&fixture, &parent_page, &parent, 2).await;
-        let alpha_page = completed(&fixture.client, alpha, alpha_report.turn).await;
-        let beta_page = completed(&fixture.client, beta, beta_report.turn).await;
-        let alpha_results =
-            crate::approvals::rules::results(&fixture.client, &alpha_page, alpha_report.turn).await;
-        let beta_results =
-            crate::approvals::rules::results(&fixture.client, &beta_page, beta_report.turn).await;
-        assert_eq!(alpha_results.len(), 3);
-        assert_eq!(beta_results.len(), 3);
-        for (page, turn) in [
-            (&alpha_page, alpha_report.turn),
-            (&beta_page, beta_report.turn),
-        ] {
-            let approvals: Vec<_> = page
-                .approvals
-                .iter()
-                .filter(|approval| approval.turn == turn)
-                .collect();
-            assert_eq!(approvals.len(), 3);
-            assert!(
-                approvals
-                    .iter()
-                    .all(|approval| approval.source == ApprovalSource::Storage
-                        && approval.state == ApprovalState::Approved)
-            );
-            let ids: BTreeSet<_> = approvals.iter().map(|approval| approval.id).collect();
-            assert_eq!(ids.len(), 3);
-        }
-        for results in [&alpha_results, &beta_results] {
-            let ids: BTreeSet<_> = results
-                .iter()
-                .map(|(id, _, _)| id.as_ref().unwrap())
-                .collect();
-            assert_eq!(ids.len(), 3);
-        }
-        failure(&alpha_results[2].2, "permission_denied");
-        failure(&beta_results[2].2, "permission_denied");
-        let reports = [won(&alpha_results[0].2), won(&beta_results[0].2)];
-        let receipts = [won(&alpha_results[1].2), won(&beta_results[1].2)];
-        assert!(reports.into_iter().any(|won| won));
-        assert!(receipts.into_iter().any(|won| won));
-        let children = [
-            (alpha, "alpha/value.rs", alpha_report.turn, &alpha_results),
-            (beta, "beta/value.py", beta_report.turn, &beta_results),
-        ];
-        let mut findings = BTreeMap::new();
-        let mut groups = BTreeMap::new();
-        for (index, (child, path, _, results)) in children.iter().enumerate() {
-            if reports[index] {
-                let finding = &results[0].2["finding"];
-                assert_eq!(finding["path"], *path);
-                assert_eq!(finding["reporter"], json!(child));
-                assert!(
-                    findings
-                        .insert(finding["id"].as_str().unwrap().to_owned(), finding.clone())
-                        .is_none()
-                );
-            }
-            if receipts[index] {
-                assert!(groups.insert(group_id(&scope, path), *child).is_none());
-            }
-        }
-        retained(&fixture, &package, &scope, &findings, &groups).await;
-        for (index, (child, path, previous, _)) in children.iter().enumerate() {
-            let mut actions = Vec::new();
-            if !reports[index] {
-                let snippet = if index == 0 {
-                    "new_alpha();"
-                } else {
-                    "new_beta()"
-                };
-                actions.push((
-                    plugin_tool(PACKAGE, "report_finding"),
-                    finding(&scope, path, "new", 1, snippet),
-                ));
-            }
-            if !receipts[index] {
-                actions.push((
-                    plugin_tool(PACKAGE, "review_complete"),
-                    group_receipt(&scope, path),
-                ));
-            }
-            if actions.is_empty() {
-                continue;
-            }
-            let server = if index == 0 { &first } else { &second };
-            let results = retry(&fixture, *child, *previous, server, actions).await;
-            let mut offset = 0;
-            if !reports[index] {
-                let finding = &results[offset]["finding"];
-                assert_eq!(finding["path"], *path);
-                assert_eq!(finding["reporter"], json!(child));
-                assert!(
-                    findings
-                        .insert(finding["id"].as_str().unwrap().to_owned(), finding.clone())
-                        .is_none()
-                );
-                offset += 1;
-            }
-            if !receipts[index] {
-                assert_eq!(results[offset]["status"], "open");
-                assert!(groups.insert(group_id(&scope, path), *child).is_none());
-            }
-        }
-        assert_eq!(findings.len(), 2);
-        assert_eq!(groups.len(), 2);
-        retained(&fixture, &package, &scope, &findings, &groups).await;
-        fixture = restart(fixture, remote).await;
-        retained(&fixture, &package, &scope, &findings, &groups).await;
-        permission(&mut fixture, Permission::Full).await;
-        let resumed = call(
-            &fixture,
-            "review_scope",
-            json!({"review_id":scope["review_id"]}),
-        )
-        .await;
-        success(&resumed);
-        assert_eq!(resumed["counts"]["findings"], 2);
-        assert_eq!(resumed["reviewed_groups"].as_array().unwrap().len(), 2);
-        let findings = resumed["findings"].as_array().unwrap();
-        assert_eq!(findings.len(), 2);
-        assert_ne!(findings[0]["id"], findings[1]["id"]);
-        let reporters: std::collections::BTreeSet<_> = findings
+    let (mut fixture, package) = start().await;
+    let repository = Repository::init(&fixture.root).unwrap();
+    write(&fixture.root, "alpha/value.rs", "old_alpha();\n");
+    write(&fixture.root, "beta/value.py", "old_beta()\n");
+    commit(&repository, "Initial groups");
+    write(&fixture.root, "alpha/value.rs", "new_alpha();\n");
+    write(&fixture.root, "beta/value.py", "new_beta()\n");
+    let scope = scope(&fixture, json!({"kind":"worktree","data":{"scope":"all"}})).await;
+    assert_eq!(scope["groups"].as_array().unwrap().len(), 2);
+    let head_key = format!("review/{}/head", scope["review_id"].as_str().unwrap());
+    let original = value(&fixture, &package, &head_key).await;
+    let first = Server::scripted_tools(vec![
+        (
+            plugin_tool(PACKAGE, "report_finding"),
+            finding(&scope, "alpha/value.rs", "new", 1, "new_alpha();"),
+        ),
+        (
+            plugin_tool(PACKAGE, "review_complete"),
+            group_receipt(&scope, "alpha/value.rs"),
+        ),
+        (plugin_tool(PACKAGE, "review_complete"), finalize(&scope)),
+    ])
+    .await;
+    let second = Server::scripted_tools(vec![
+        (
+            plugin_tool(PACKAGE, "report_finding"),
+            finding(&scope, "beta/value.py", "new", 1, "new_beta()"),
+        ),
+        (
+            plugin_tool(PACKAGE, "review_complete"),
+            group_receipt(&scope, "beta/value.py"),
+        ),
+        (plugin_tool(PACKAGE, "review_complete"), finalize(&scope)),
+    ])
+    .await;
+    let profiles = roles(&mut fixture, &[("alpha", &first), ("beta", &second)]).await;
+    permission(&mut fixture, Permission::Ask).await;
+    let parent = Server::turn_parallel(vec![
+        (
+            "spawn_agent".to_string(),
+            json!({"role":"alpha","task":"Review the alpha group and submit its complete receipt"}),
+        ),
+        (
+            "spawn_agent".to_string(),
+            json!({"role":"beta","task":"Review the beta group and submit its complete receipt"}),
+        ),
+    ])
+    .await;
+    route(&fixture.client, &fixture.session, &parent.endpoint).await;
+    let held = hold(&fixture, "report_finding");
+    let turn = submit(&fixture.client, &fixture.session).await;
+    let page = observe(&fixture.client, fixture.session.id, |page| {
+        page.children
             .iter()
-            .map(|finding| finding["reporter"].as_str().unwrap().to_owned())
-            .collect();
-        assert_eq!(
-            reporters,
-            std::collections::BTreeSet::from([alpha.to_string(), beta.to_string()])
-        );
-        let result = call(&fixture, "review_complete", finalize(&scope)).await;
-        success(&result);
-        assert_eq!(result["status"], "complete");
-        assert_eq!(result["findings"], 2);
-        stop(fixture).await;
+            .filter(|child| child.origin.turn == turn.id)
+            .count()
+            == 2
+    })
+    .await;
+    let child = |role: RoleId| {
+        page.children
+            .iter()
+            .find(|child| child.origin.turn == turn.id && child.origin.role == Some(role))
+            .unwrap()
+            .run
+            .session
+    };
+    let alpha = child(profiles[0].id);
+    let beta = child(profiles[1].id);
+    let Staged {
+        approvals: [alpha_report, beta_report],
+        releases,
+    } = staged(&fixture, &package, held, [alpha, beta], "report_finding").await;
+    assert_ne!(alpha_report.id, beta_report.id);
+    // Both prepared transactions retain the same unchanged private head.
+    assert_eq!(value(&fixture, &package, &head_key).await, original);
+    let held = hold(&fixture, "review_complete");
+    for release in releases {
+        release.cancel();
     }
+    let Staged {
+        approvals: [alpha_receipt, beta_receipt],
+        releases,
+    } = staged(&fixture, &package, held, [alpha, beta], "review_complete").await;
+    assert_ne!(alpha_receipt.id, alpha_report.id);
+    assert_ne!(beta_receipt.id, beta_report.id);
+    assert_eq!(alpha_receipt.turn, alpha_report.turn);
+    assert_eq!(beta_receipt.turn, beta_report.turn);
+    for release in releases {
+        release.cancel();
+    }
+    let parent_page = completed(&fixture.client, fixture.session.id, turn.id).await;
+    outcomes(&fixture, &parent_page, &parent, 2).await;
+    let alpha_page = completed(&fixture.client, alpha, alpha_report.turn).await;
+    let beta_page = completed(&fixture.client, beta, beta_report.turn).await;
+    let alpha_results =
+        crate::approvals::rules::results(&fixture.client, &alpha_page, alpha_report.turn).await;
+    let beta_results =
+        crate::approvals::rules::results(&fixture.client, &beta_page, beta_report.turn).await;
+    assert_eq!(alpha_results.len(), 3);
+    assert_eq!(beta_results.len(), 3);
+    for (page, turn) in [
+        (&alpha_page, alpha_report.turn),
+        (&beta_page, beta_report.turn),
+    ] {
+        let approvals: Vec<_> = page
+            .approvals
+            .iter()
+            .filter(|approval| approval.turn == turn)
+            .collect();
+        assert_eq!(approvals.len(), 3);
+        assert!(
+            approvals
+                .iter()
+                .all(|approval| approval.source == ApprovalSource::Storage
+                    && approval.state == ApprovalState::Approved)
+        );
+        let ids: BTreeSet<_> = approvals.iter().map(|approval| approval.id).collect();
+        assert_eq!(ids.len(), 3);
+    }
+    for results in [&alpha_results, &beta_results] {
+        let ids: BTreeSet<_> = results
+            .iter()
+            .map(|(id, _, _)| id.as_ref().unwrap())
+            .collect();
+        assert_eq!(ids.len(), 3);
+    }
+    failure(&alpha_results[2].2, "permission_denied");
+    failure(&beta_results[2].2, "permission_denied");
+    let reports = [won(&alpha_results[0].2), won(&beta_results[0].2)];
+    let receipts = [won(&alpha_results[1].2), won(&beta_results[1].2)];
+    assert!(reports.into_iter().any(|won| won));
+    assert!(receipts.into_iter().any(|won| won));
+    let children = [
+        (alpha, "alpha/value.rs", alpha_report.turn, &alpha_results),
+        (beta, "beta/value.py", beta_report.turn, &beta_results),
+    ];
+    let mut findings = BTreeMap::new();
+    let mut groups = BTreeMap::new();
+    for (index, (child, path, _, results)) in children.iter().enumerate() {
+        if reports[index] {
+            let finding = &results[0].2["finding"];
+            assert_eq!(finding["path"], *path);
+            assert_eq!(finding["reporter"], json!(child));
+            assert!(
+                findings
+                    .insert(finding["id"].as_str().unwrap().to_owned(), finding.clone())
+                    .is_none()
+            );
+        }
+        if receipts[index] {
+            assert!(groups.insert(group_id(&scope, path), *child).is_none());
+        }
+    }
+    retained(&fixture, &package, &scope, &findings, &groups).await;
+    for (index, (child, path, previous, _)) in children.iter().enumerate() {
+        let mut actions = Vec::new();
+        if !reports[index] {
+            let snippet = if index == 0 {
+                "new_alpha();"
+            } else {
+                "new_beta()"
+            };
+            actions.push((
+                plugin_tool(PACKAGE, "report_finding"),
+                finding(&scope, path, "new", 1, snippet),
+            ));
+        }
+        if !receipts[index] {
+            actions.push((
+                plugin_tool(PACKAGE, "review_complete"),
+                group_receipt(&scope, path),
+            ));
+        }
+        if actions.is_empty() {
+            continue;
+        }
+        let server = if index == 0 { &first } else { &second };
+        let results = retry(&fixture, *child, *previous, server, actions).await;
+        let mut offset = 0;
+        if !reports[index] {
+            let finding = &results[offset]["finding"];
+            assert_eq!(finding["path"], *path);
+            assert_eq!(finding["reporter"], json!(child));
+            assert!(
+                findings
+                    .insert(finding["id"].as_str().unwrap().to_owned(), finding.clone())
+                    .is_none()
+            );
+            offset += 1;
+        }
+        if !receipts[index] {
+            assert_eq!(results[offset]["status"], "open");
+            assert!(groups.insert(group_id(&scope, path), *child).is_none());
+        }
+    }
+    assert_eq!(findings.len(), 2);
+    assert_eq!(groups.len(), 2);
+    retained(&fixture, &package, &scope, &findings, &groups).await;
+    fixture = restart(fixture).await;
+    retained(&fixture, &package, &scope, &findings, &groups).await;
+    permission(&mut fixture, Permission::Full).await;
+    let resumed = call(
+        &fixture,
+        "review_scope",
+        json!({"review_id":scope["review_id"]}),
+    )
+    .await;
+    success(&resumed);
+    assert_eq!(resumed["counts"]["findings"], 2);
+    assert_eq!(resumed["reviewed_groups"].as_array().unwrap().len(), 2);
+    let findings = resumed["findings"].as_array().unwrap();
+    assert_eq!(findings.len(), 2);
+    assert_ne!(findings[0]["id"], findings[1]["id"]);
+    let reporters: std::collections::BTreeSet<_> = findings
+        .iter()
+        .map(|finding| finding["reporter"].as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(
+        reporters,
+        std::collections::BTreeSet::from([alpha.to_string(), beta.to_string()])
+    );
+    let result = call(&fixture, "review_complete", finalize(&scope)).await;
+    success(&result);
+    assert_eq!(result["status"], "complete");
+    assert_eq!(result["findings"], 2);
+    stop(fixture).await;
 }
 
 #[tokio::test]
 async fn retries_parallel_group_receipts() {
-    for remote in [false, true] {
-        let (mut fixture, package) = start(remote).await;
-        let repository = Repository::init(&fixture.root).unwrap();
-        write(&fixture.root, "alpha/value.rs", "old_alpha();\n");
-        write(&fixture.root, "beta/value.py", "old_beta()\n");
-        commit(&repository, "Initial receipt groups");
-        write(&fixture.root, "alpha/value.rs", "new_alpha();\n");
-        write(&fixture.root, "beta/value.py", "new_beta()\n");
-        let scope = scope(&fixture, json!({"kind":"worktree","data":{"scope":"all"}})).await;
-        let first = Server::scripted_tools(vec![(
-            plugin_tool(PACKAGE, "review_complete"),
-            group_receipt(&scope, "alpha/value.rs"),
-        )])
-        .await;
-        let second = Server::scripted_tools(vec![(
-            plugin_tool(PACKAGE, "review_complete"),
-            group_receipt(&scope, "beta/value.py"),
-        )])
-        .await;
-        let profiles = roles(&mut fixture, &[("alpha", &first), ("beta", &second)]).await;
-        permission(&mut fixture, Permission::Ask).await;
-        let parent = Server::turn_parallel(vec![
-            (
-                "spawn_agent".to_string(),
-                json!({"role":"alpha","task":"Submit the complete alpha group receipt"}),
-            ),
-            (
-                "spawn_agent".to_string(),
-                json!({"role":"beta","task":"Submit the complete beta group receipt"}),
-            ),
-        ])
-        .await;
-        route(&fixture.client, &fixture.session, &parent.endpoint).await;
-        let held = hold(&fixture, "review_complete");
-        let turn = submit(&fixture.client, &fixture.session).await;
-        let page = observe(&fixture.client, fixture.session.id, |page| {
-            page.children
-                .iter()
-                .filter(|child| child.origin.turn == turn.id)
-                .count()
-                == 2
-        })
-        .await;
-        let child = |role: RoleId| {
-            page.children
-                .iter()
-                .find(|child| child.origin.turn == turn.id && child.origin.role == Some(role))
-                .unwrap()
-                .run
-                .session
-        };
-        let alpha = child(profiles[0].id);
-        let beta = child(profiles[1].id);
-        let Staged {
-            approvals: [alpha_receipt, beta_receipt],
-            releases,
-        } = staged(&fixture, &package, held, [alpha, beta], "review_complete").await;
-        assert_ne!(alpha_receipt.id, beta_receipt.id);
-        let key = format!("review/{}/head", scope["review_id"].as_str().unwrap());
-        let prepared = value(&fixture, &package, &key).await;
-        assert!(
-            prepared.value["reviewed_groups"]
-                .as_array()
-                .unwrap()
-                .is_empty()
-        );
-        for release in releases {
-            release.cancel();
-        }
-        let parent_page = completed(&fixture.client, fixture.session.id, turn.id).await;
-        outcomes(&fixture, &parent_page, &parent, 2).await;
-        let alpha_page = completed(&fixture.client, alpha, alpha_receipt.turn).await;
-        let beta_page = completed(&fixture.client, beta, beta_receipt.turn).await;
-        let alpha_results =
-            crate::approvals::rules::results(&fixture.client, &alpha_page, alpha_receipt.turn)
-                .await;
-        let beta_results =
-            crate::approvals::rules::results(&fixture.client, &beta_page, beta_receipt.turn).await;
-        assert_eq!(alpha_results.len(), 1);
-        assert_eq!(beta_results.len(), 1);
-        let winners = [won(&alpha_results[0].2), won(&beta_results[0].2)];
-        assert!(winners.into_iter().any(|won| won));
-        let children = [
-            (alpha, "alpha/value.rs", alpha_receipt.turn),
-            (beta, "beta/value.py", beta_receipt.turn),
-        ];
-        let findings = BTreeMap::new();
-        let mut groups = BTreeMap::new();
-        for (index, (child, path, _)) in children.iter().enumerate() {
-            if winners[index] {
-                assert!(groups.insert(group_id(&scope, path), *child).is_none());
-            }
-        }
-        retained(&fixture, &package, &scope, &findings, &groups).await;
-        for (index, (child, path, previous)) in children.iter().enumerate() {
-            if winners[index] {
-                continue;
-            }
-            let results = retry(
-                &fixture,
-                *child,
-                *previous,
-                if index == 0 { &first } else { &second },
-                vec![(
-                    plugin_tool(PACKAGE, "review_complete"),
-                    group_receipt(&scope, path),
-                )],
-            )
-            .await;
-            assert_eq!(results[0]["status"], "open");
+    let (mut fixture, package) = start().await;
+    let repository = Repository::init(&fixture.root).unwrap();
+    write(&fixture.root, "alpha/value.rs", "old_alpha();\n");
+    write(&fixture.root, "beta/value.py", "old_beta()\n");
+    commit(&repository, "Initial receipt groups");
+    write(&fixture.root, "alpha/value.rs", "new_alpha();\n");
+    write(&fixture.root, "beta/value.py", "new_beta()\n");
+    let scope = scope(&fixture, json!({"kind":"worktree","data":{"scope":"all"}})).await;
+    let first = Server::scripted_tools(vec![(
+        plugin_tool(PACKAGE, "review_complete"),
+        group_receipt(&scope, "alpha/value.rs"),
+    )])
+    .await;
+    let second = Server::scripted_tools(vec![(
+        plugin_tool(PACKAGE, "review_complete"),
+        group_receipt(&scope, "beta/value.py"),
+    )])
+    .await;
+    let profiles = roles(&mut fixture, &[("alpha", &first), ("beta", &second)]).await;
+    permission(&mut fixture, Permission::Ask).await;
+    let parent = Server::turn_parallel(vec![
+        (
+            "spawn_agent".to_string(),
+            json!({"role":"alpha","task":"Submit the complete alpha group receipt"}),
+        ),
+        (
+            "spawn_agent".to_string(),
+            json!({"role":"beta","task":"Submit the complete beta group receipt"}),
+        ),
+    ])
+    .await;
+    route(&fixture.client, &fixture.session, &parent.endpoint).await;
+    let held = hold(&fixture, "review_complete");
+    let turn = submit(&fixture.client, &fixture.session).await;
+    let page = observe(&fixture.client, fixture.session.id, |page| {
+        page.children
+            .iter()
+            .filter(|child| child.origin.turn == turn.id)
+            .count()
+            == 2
+    })
+    .await;
+    let child = |role: RoleId| {
+        page.children
+            .iter()
+            .find(|child| child.origin.turn == turn.id && child.origin.role == Some(role))
+            .unwrap()
+            .run
+            .session
+    };
+    let alpha = child(profiles[0].id);
+    let beta = child(profiles[1].id);
+    let Staged {
+        approvals: [alpha_receipt, beta_receipt],
+        releases,
+    } = staged(&fixture, &package, held, [alpha, beta], "review_complete").await;
+    assert_ne!(alpha_receipt.id, beta_receipt.id);
+    let key = format!("review/{}/head", scope["review_id"].as_str().unwrap());
+    let prepared = value(&fixture, &package, &key).await;
+    assert!(
+        prepared.value["reviewed_groups"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    for release in releases {
+        release.cancel();
+    }
+    let parent_page = completed(&fixture.client, fixture.session.id, turn.id).await;
+    outcomes(&fixture, &parent_page, &parent, 2).await;
+    let alpha_page = completed(&fixture.client, alpha, alpha_receipt.turn).await;
+    let beta_page = completed(&fixture.client, beta, beta_receipt.turn).await;
+    let alpha_results =
+        crate::approvals::rules::results(&fixture.client, &alpha_page, alpha_receipt.turn).await;
+    let beta_results =
+        crate::approvals::rules::results(&fixture.client, &beta_page, beta_receipt.turn).await;
+    assert_eq!(alpha_results.len(), 1);
+    assert_eq!(beta_results.len(), 1);
+    let winners = [won(&alpha_results[0].2), won(&beta_results[0].2)];
+    assert!(winners.into_iter().any(|won| won));
+    let children = [
+        (alpha, "alpha/value.rs", alpha_receipt.turn),
+        (beta, "beta/value.py", beta_receipt.turn),
+    ];
+    let findings = BTreeMap::new();
+    let mut groups = BTreeMap::new();
+    for (index, (child, path, _)) in children.iter().enumerate() {
+        if winners[index] {
             assert!(groups.insert(group_id(&scope, path), *child).is_none());
         }
-        assert_eq!(groups.len(), 2);
-        retained(&fixture, &package, &scope, &findings, &groups).await;
-        fixture = restart(fixture, remote).await;
-        retained(&fixture, &package, &scope, &findings, &groups).await;
-        permission(&mut fixture, Permission::Full).await;
-        let result = call(&fixture, "review_complete", finalize(&scope)).await;
-        success(&result);
-        assert_eq!(result["status"], "complete");
-        assert_eq!(result["findings"], 0);
-        stop(fixture).await;
     }
+    retained(&fixture, &package, &scope, &findings, &groups).await;
+    for (index, (child, path, previous)) in children.iter().enumerate() {
+        if winners[index] {
+            continue;
+        }
+        let results = retry(
+            &fixture,
+            *child,
+            *previous,
+            if index == 0 { &first } else { &second },
+            vec![(
+                plugin_tool(PACKAGE, "review_complete"),
+                group_receipt(&scope, path),
+            )],
+        )
+        .await;
+        assert_eq!(results[0]["status"], "open");
+        assert!(groups.insert(group_id(&scope, path), *child).is_none());
+    }
+    assert_eq!(groups.len(), 2);
+    retained(&fixture, &package, &scope, &findings, &groups).await;
+    fixture = restart(fixture).await;
+    retained(&fixture, &package, &scope, &findings, &groups).await;
+    permission(&mut fixture, Permission::Full).await;
+    let result = call(&fixture, "review_complete", finalize(&scope)).await;
+    success(&result);
+    assert_eq!(result["status"], "complete");
+    assert_eq!(result["findings"], 0);
+    stop(fixture).await;
 }
 
 #[tokio::test]
 async fn rejects_foreign_sessions_and_worktrees() {
-    for remote in [false, true] {
-        let (mut fixture, package) = start(remote).await;
-        let repository = Repository::init(&fixture.root).unwrap();
-        write(&fixture.root, "src/value.rs", "old_value();\n");
-        commit(&repository, "Initial scope");
-        write(&fixture.root, "src/value.rs", "new_value();\n");
-        let scope = scope(&fixture, json!({"kind":"worktree","data":{"scope":"all"}})).await;
-        let key = format!("review/{}/head", scope["review_id"].as_str().unwrap());
-        let original = value(&fixture, &package, &key).await;
-        let Output::Session(foreign) = execute(
-            &fixture.client,
-            Command::CreateSession {
-                project: fixture.session.project,
-                worktree: Some(fixture.session.worktree),
-                config: Some(fixture.session.config.clone()),
-            },
-        )
-        .await
-        else {
-            panic!("session expected")
-        };
-        let request = json!({"review_id":scope["review_id"]});
-        let (results, _) = calls_in(
-            &fixture,
-            &foreign,
-            vec![
-                (plugin_tool(PACKAGE, "review_scope"), request.clone()),
-                (
-                    plugin_tool(PACKAGE, "report_finding"),
-                    finding(&scope, "src/value.rs", "new", 1, "new_value();"),
-                ),
-                (
-                    plugin_tool(PACKAGE, "review_complete"),
-                    receipts(&scope, true),
-                ),
-            ],
-        )
-        .await;
-        for result in &results {
-            failure(result, "permission_denied");
-        }
-        assert_eq!(value(&fixture, &package, &key).await, original);
-        let linked = fixture.directory.path().join("linked");
-        repository.worktree("linked", &linked, None).unwrap();
-        let Output::Worktree(worktree) = execute(
-            &fixture.client,
-            Command::RegisterWorktree {
-                project: fixture.session.project.unwrap(),
-                path: linked.to_str().unwrap().into(),
-            },
-        )
-        .await
-        else {
-            panic!("worktree expected")
-        };
-        let delegated = Server::turn_tools(vec![
+    let (mut fixture, package) = start().await;
+    let repository = Repository::init(&fixture.root).unwrap();
+    write(&fixture.root, "src/value.rs", "old_value();\n");
+    commit(&repository, "Initial scope");
+    write(&fixture.root, "src/value.rs", "new_value();\n");
+    let scope = scope(&fixture, json!({"kind":"worktree","data":{"scope":"all"}})).await;
+    let key = format!("review/{}/head", scope["review_id"].as_str().unwrap());
+    let original = value(&fixture, &package, &key).await;
+    let Output::Session(foreign) = execute(
+        &fixture.client,
+        Command::CreateSession {
+            project: fixture.session.project,
+            worktree: Some(fixture.session.worktree),
+            config: Some(fixture.session.config.clone()),
+        },
+    )
+    .await
+    else {
+        panic!("session expected")
+    };
+    let request = json!({"review_id":scope["review_id"]});
+    let (results, _) = calls_in(
+        &fixture,
+        &foreign,
+        vec![
             (plugin_tool(PACKAGE, "review_scope"), request.clone()),
             (
                 plugin_tool(PACKAGE, "report_finding"),
@@ -889,43 +860,71 @@ async fn rejects_foreign_sessions_and_worktrees() {
                 plugin_tool(PACKAGE, "review_complete"),
                 receipts(&scope, true),
             ),
-        ])
-        .await;
-        roles(&mut fixture, &[("foreign-worktree", &delegated)]).await;
-        let (delegation,parent) = calls(&fixture,vec![("spawn_agent".to_string(),
-            json!({"role":"foreign-worktree","worktree":worktree.id,
-                "task":"Try to read, report and finalize the captured review from this other worktree"}))]).await;
-        let parent_page = history(&fixture.client, fixture.session.id).await;
-        outcomes(&fixture, &parent_page, &parent, 1).await;
-        assert_eq!(delegation.len(), 1);
-        let child: SessionId = delegation[0]["session"].as_str().unwrap().parse().unwrap();
-        let page = history(&fixture.client, child).await;
-        assert_eq!(page.runs.len(), 1);
-        let results =
-            crate::approvals::rules::results(&fixture.client, &page, page.runs[0].turn).await;
-        assert_eq!(results.len(), 3);
-        for (_, _, result) in results {
-            failure(&result, "permission_denied");
-        }
-        assert_eq!(value(&fixture, &package, &key).await, original);
-        let Output::Session(moved) = execute(
-            &fixture.client,
-            Command::MoveConversation {
-                session: fixture.session.id,
-                worktree: worktree.id,
-                expected_revision: fixture.session.revision,
-            },
-        )
-        .await
-        else {
-            panic!("session expected")
-        };
-        fixture.session = moved;
-        failure(
-            &call(&fixture, "review_scope", request).await,
-            "permission_denied",
-        );
-        assert_eq!(value(&fixture, &package, &key).await, original);
-        stop(fixture).await;
+        ],
+    )
+    .await;
+    for result in &results {
+        failure(result, "permission_denied");
     }
+    assert_eq!(value(&fixture, &package, &key).await, original);
+    let linked = fixture.directory.path().join("linked");
+    repository.worktree("linked", &linked, None).unwrap();
+    let Output::Worktree(worktree) = execute(
+        &fixture.client,
+        Command::RegisterWorktree {
+            project: fixture.session.project.unwrap(),
+            path: linked.to_str().unwrap().into(),
+        },
+    )
+    .await
+    else {
+        panic!("worktree expected")
+    };
+    let delegated = Server::turn_tools(vec![
+        (plugin_tool(PACKAGE, "review_scope"), request.clone()),
+        (
+            plugin_tool(PACKAGE, "report_finding"),
+            finding(&scope, "src/value.rs", "new", 1, "new_value();"),
+        ),
+        (
+            plugin_tool(PACKAGE, "review_complete"),
+            receipts(&scope, true),
+        ),
+    ])
+    .await;
+    roles(&mut fixture, &[("foreign-worktree", &delegated)]).await;
+    let (delegation,parent) = calls(&fixture,vec![("spawn_agent".to_string(),
+        json!({"role":"foreign-worktree","worktree":worktree.id,
+            "task":"Try to read, report and finalize the captured review from this other worktree"}))]).await;
+    let parent_page = history(&fixture.client, fixture.session.id).await;
+    outcomes(&fixture, &parent_page, &parent, 1).await;
+    assert_eq!(delegation.len(), 1);
+    let child: SessionId = delegation[0]["session"].as_str().unwrap().parse().unwrap();
+    let page = history(&fixture.client, child).await;
+    assert_eq!(page.runs.len(), 1);
+    let results = crate::approvals::rules::results(&fixture.client, &page, page.runs[0].turn).await;
+    assert_eq!(results.len(), 3);
+    for (_, _, result) in results {
+        failure(&result, "permission_denied");
+    }
+    assert_eq!(value(&fixture, &package, &key).await, original);
+    let Output::Session(moved) = execute(
+        &fixture.client,
+        Command::MoveConversation {
+            session: fixture.session.id,
+            worktree: worktree.id,
+            expected_revision: fixture.session.revision,
+        },
+    )
+    .await
+    else {
+        panic!("session expected")
+    };
+    fixture.session = moved;
+    failure(
+        &call(&fixture, "review_scope", request).await,
+        "permission_denied",
+    );
+    assert_eq!(value(&fixture, &package, &key).await, original);
+    stop(fixture).await;
 }

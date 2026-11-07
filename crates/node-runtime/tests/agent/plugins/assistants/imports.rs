@@ -161,71 +161,61 @@ async fn result(client: &Client, page: &Page, tool: &str) -> Value {
 
 #[tokio::test]
 async fn qualifies_policy_without_a_loader() {
-    for remote in [false, true] {
-        let server = Server::tools(vec![]).await;
-        let fixture = process::Fixture::packages(remote, &server, &[]).await;
-        let info = assistant(&fixture, json!([{"kind":"plugin","name":"read_note"}])).await;
-        let session = create(&fixture, &info).await;
-        let turn = submit(&fixture.client, &session, false).await;
-        let page = finished(&fixture.client, session.id, turn.id).await;
-        assert_eq!(
-            page.runs
-                .iter()
-                .find(|run| run.turn == turn.id)
-                .unwrap()
-                .status,
-            Status::Completed
-        );
-        let request = server.requests.lock().unwrap()[0].clone();
-        let tools: std::collections::BTreeSet<_> = request["tools"]
-            .as_array()
-            .unwrap()
+    let server = Server::tools(vec![]).await;
+    let fixture = process::Fixture::packages(&server, &[]).await;
+    let info = assistant(&fixture, json!([{"kind":"plugin","name":"read_note"}])).await;
+    let session = create(&fixture, &info).await;
+    let turn = submit(&fixture.client, &session, false).await;
+    let page = finished(&fixture.client, session.id, turn.id).await;
+    assert_eq!(
+        page.runs
             .iter()
-            .filter_map(|tool| tool["function"]["name"].as_str())
-            .collect();
-        assert!(tools.contains("read_note"));
-        assert!(!tools.contains("load_skill"));
-        assert!(!tools.contains("read_skill_resource"));
-        let instruction = node_context(&request, "Work mode");
-        assert!(instruction.contains("assistant-notes:review"));
-        assert!(instruction.contains("When load_skill is available in this turn's tool catalog"));
-        assert!(
-            instruction
-                .contains("If a required skill or tool is unavailable, explain the limitation")
-        );
-        assert!(
-            instruction.contains(
-                "unless the full instructions are already supplied; do not load them again"
-            )
-        );
-        assert!(!instruction.contains("delegation:compare-worktrees"));
-        assert!(!instruction.contains("<selected_skill>"));
-        fixture.node.shutdown().await.unwrap();
-        fixture.controller.close().await.unwrap();
-    }
+            .find(|run| run.turn == turn.id)
+            .unwrap()
+            .status,
+        Status::Completed
+    );
+    let request = server.requests.lock().unwrap()[0].clone();
+    let tools: std::collections::BTreeSet<_> = request["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|tool| tool["function"]["name"].as_str())
+        .collect();
+    assert!(tools.contains("read_note"));
+    assert!(!tools.contains("load_skill"));
+    assert!(!tools.contains("read_skill_resource"));
+    let instruction = node_context(&request, "Work mode");
+    assert!(instruction.contains("assistant-notes:review"));
+    assert!(instruction.contains("When load_skill is available in this turn's tool catalog"));
+    assert!(
+        instruction.contains("If a required skill or tool is unavailable, explain the limitation")
+    );
+    assert!(
+        instruction
+            .contains("unless the full instructions are already supplied; do not load them again")
+    );
+    assert!(!instruction.contains("delegation:compare-worktrees"));
+    assert!(!instruction.contains("<selected_skill>"));
+    fixture.node.shutdown().await.unwrap();
+    fixture.controller.close().await.unwrap();
 }
 
 #[tokio::test]
 async fn selects_tools_without_importing_resources() {
-    for remote in [false, true] {
-        selected(remote, false, Permission::Full).await;
-    }
+    selected(false, Permission::Full).await;
 }
 
 #[tokio::test]
 async fn requires_unrestricted_consent() {
-    for remote in [false, true] {
-        for permission in [Permission::Ask, Permission::Project] {
-            selected(remote, true, permission).await;
-        }
+    for permission in [Permission::Ask, Permission::Project] {
+        selected(true, permission).await;
     }
 }
 
 #[tokio::test]
 async fn executes_unrestricted_calls_in_full_mode() {
-    for remote in [false, true] {
-        selected(remote, true, Permission::Full).await;
-    }
+    selected(true, Permission::Full).await;
 }
 
 async fn files(fixture: &process::Fixture, session: &Session, root: &Path) {
@@ -296,7 +286,7 @@ async fn files(fixture: &process::Fixture, session: &Session, root: &Path) {
     assert_eq!(file.text, "Updated note");
 }
 
-async fn selected(remote: bool, unrestricted: bool, permission: Permission) {
+async fn selected(unrestricted: bool, permission: Permission) {
     let command = if unrestricted {
         json!({"command":"printf imported >> imported.txt", "access":"unrestricted"})
     } else {
@@ -320,7 +310,7 @@ async fn selected(remote: bool, unrestricted: bool, permission: Permission) {
         (run.clone(), command),
     ])
     .await;
-    let fixture = process::Fixture::packages(remote, &server, &["commands"]).await;
+    let fixture = process::Fixture::packages(&server, &["commands"]).await;
     let provider = provider(&fixture, 0, "1.0.0").await;
     let provider = configure(&fixture, &provider, "Captured label").await;
     let owner = assistant(
@@ -468,120 +458,120 @@ async fn selected(remote: bool, unrestricted: bool, permission: Permission) {
 
 #[tokio::test]
 async fn retains_admitted_handler_and_settings() {
-    for remote in [false, true] {
-        let tool = plugin_tool(PROVIDER, "inspect");
-        let server = Server::turn_tools(vec![(tool.clone(), json!({}))]).await;
-        let fixture = process::Fixture::packages(remote, &server, &[]).await;
-        let first = provider(&fixture, 0, "1.0.0").await;
-        let first = configure(&fixture, &first, "First settings").await;
+    let tool = plugin_tool(PROVIDER, "inspect");
+    let server = Server::turn_tools(vec![(tool.clone(), json!({}))]).await;
+    let fixture = process::Fixture::packages(&server, &[]).await;
+    let first = provider(&fixture, 0, "1.0.0").await;
+    let first = configure(&fixture, &first, "First settings").await;
+    let owner = assistant(
+        &fixture,
+        json!([
+            {"kind":"package","package":PROVIDER,"name":"inspect"}
+        ]),
+    )
+    .await;
+    let session = create(&fixture, &owner).await;
+    scratch(&fixture, &session).await;
+    seed_provider(&fixture, &session, &first).await;
+    let original = submit(&fixture.client, &session, true).await;
+    assert_eq!(
+        original.plugins,
+        [owner.summary.reference(), first.summary.reference()]
+    );
+    let second = provider(&fixture, first.summary.revision, "2.0.0").await;
+    let second = configure(&fixture, &second, "Second settings").await;
+    let current = submit(&fixture.client, &session, true).await;
+    assert_eq!(
+        current.plugins,
+        [owner.summary.reference(), second.summary.reference()]
+    );
+    execute(
+        &fixture.client,
+        Command::RemovePlugin {
+            name: PROVIDER.into(),
+            expected_revision: second.summary.revision,
+        },
+    )
+    .await;
+    for (turn, version, label) in [
+        (original, "1.0.0", "First settings"),
+        (current, "2.0.0", "Second settings"),
+    ] {
+        execute(&fixture.client, Command::StartQueuedTurn { turn: turn.id }).await;
+        let page = finished(&fixture.client, session.id, turn.id).await;
+        assert_eq!(
+            page.runs
+                .iter()
+                .find(|run| run.turn == turn.id)
+                .unwrap()
+                .status,
+            Status::Completed,
+            "{page:?}"
+        );
+        let results: Vec<_> = tool_details(&fixture.client, &page)
+            .await
+            .into_iter()
+            .filter(|(name, _)| name == &tool)
+            .map(|(_, detail)| detail.result.unwrap())
+            .collect();
+        let result = results.last().unwrap();
+        assert_eq!(result["version"], version, "{result:?}");
+        assert_eq!(result["label"], label, "{result:?}");
+        assert_eq!(result["text"], "Assistant scratch file");
+        assert_eq!(result["note"], "Provider-owned note");
+    }
+    let fault = fixture
+        .client
+        .execute(fixture.client.prepare(Command::QueueTurn {
+            session: session.id,
+            expected_revision: session.revision,
+            message: "New admission".into(),
+        }))
+        .await
+        .unwrap_err();
+    assert_eq!(fault.code, ErrorCode::NotConfigured);
+    fixture.node.shutdown().await.unwrap();
+    fixture.controller.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn requires_an_available_declared_tool() {
+    for case in ["missing", "disabled", "unknown_tool", "mcp"] {
+        let server = Server::tools(vec![]).await;
+        let fixture = process::Fixture::packages(&server, &[]).await;
+        let package = provider(&fixture, 0, "1.0.0").await;
+        if case == "disabled" {
+            execute(
+                &fixture.client,
+                Command::SetPluginEnabled {
+                    name: PROVIDER.into(),
+                    expected_revision: package.summary.revision,
+                    enabled: false,
+                },
+            )
+            .await;
+        }
         let owner = assistant(
             &fixture,
-            json!([
-                {"kind":"package","package":PROVIDER,"name":"inspect"}
-            ]),
+            json!([{
+                "kind":"package","package":if case == "missing" {"missing-tools"} else {PROVIDER},
+                "name":match case {"unknown_tool"=>"missing", "mcp"=>"hidden_mcp",_=>"inspect"}
+            }]),
         )
         .await;
         let session = create(&fixture, &owner).await;
-        scratch(&fixture, &session).await;
-        seed_provider(&fixture, &session, &first).await;
-        let original = submit(&fixture.client, &session, true).await;
-        assert_eq!(
-            original.plugins,
-            [owner.summary.reference(), first.summary.reference()]
-        );
-        let second = provider(&fixture, first.summary.revision, "2.0.0").await;
-        let second = configure(&fixture, &second, "Second settings").await;
-        let current = submit(&fixture.client, &session, true).await;
-        assert_eq!(
-            current.plugins,
-            [owner.summary.reference(), second.summary.reference()]
-        );
-        execute(
-            &fixture.client,
-            Command::RemovePlugin {
-                name: PROVIDER.into(),
-                expected_revision: second.summary.revision,
-            },
-        )
-        .await;
-        for (turn, version, label) in [
-            (original, "1.0.0", "First settings"),
-            (current, "2.0.0", "Second settings"),
-        ] {
-            execute(&fixture.client, Command::StartQueuedTurn { turn: turn.id }).await;
-            let page = finished(&fixture.client, session.id, turn.id).await;
-            assert_eq!(
-                page.runs
-                    .iter()
-                    .find(|run| run.turn == turn.id)
-                    .unwrap()
-                    .status,
-                Status::Completed,
-                "{page:?}"
-            );
-            let results: Vec<_> = tool_details(&fixture.client, &page)
-                .await
-                .into_iter()
-                .filter(|(name, _)| name == &tool)
-                .map(|(_, detail)| detail.result.unwrap())
-                .collect();
-            let result = results.last().unwrap();
-            assert_eq!(result["version"], version, "{result:?}");
-            assert_eq!(result["label"], label, "{result:?}");
-            assert_eq!(result["text"], "Assistant scratch file");
-            assert_eq!(result["note"], "Provider-owned note");
-        }
         let fault = fixture
             .client
             .execute(fixture.client.prepare(Command::QueueTurn {
                 session: session.id,
                 expected_revision: session.revision,
-                message: "New admission".into(),
+                message: "Rejected admission".into(),
             }))
             .await
             .unwrap_err();
-        assert_eq!(fault.code, ErrorCode::NotConfigured);
+        assert_eq!(fault.code, ErrorCode::NotConfigured, "{case}: {fault:?}");
+        assert!(server.requests.lock().unwrap().is_empty());
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
-    }
-}
-
-#[tokio::test]
-async fn requires_an_available_declared_tool() {
-    for remote in [false, true] {
-        for case in ["missing", "disabled", "unknown_tool", "mcp"] {
-            let server = Server::tools(vec![]).await;
-            let fixture = process::Fixture::packages(remote, &server, &[]).await;
-            let package = provider(&fixture, 0, "1.0.0").await;
-            if case == "disabled" {
-                execute(
-                    &fixture.client,
-                    Command::SetPluginEnabled {
-                        name: PROVIDER.into(),
-                        expected_revision: package.summary.revision,
-                        enabled: false,
-                    },
-                )
-                .await;
-            }
-            let owner = assistant(&fixture,json!([{
-                "kind":"package","package":if case == "missing" {"missing-tools"} else {PROVIDER},
-                "name":match case {"unknown_tool"=>"missing", "mcp"=>"hidden_mcp",_=>"inspect"}
-            }])).await;
-            let session = create(&fixture, &owner).await;
-            let fault = fixture
-                .client
-                .execute(fixture.client.prepare(Command::QueueTurn {
-                    session: session.id,
-                    expected_revision: session.revision,
-                    message: "Rejected admission".into(),
-                }))
-                .await
-                .unwrap_err();
-            assert_eq!(fault.code, ErrorCode::NotConfigured, "{case}: {fault:?}");
-            assert!(server.requests.lock().unwrap().is_empty());
-            fixture.node.shutdown().await.unwrap();
-            fixture.controller.close().await.unwrap();
-        }
     }
 }

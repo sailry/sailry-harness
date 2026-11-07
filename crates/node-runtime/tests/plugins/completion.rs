@@ -84,257 +84,247 @@ async fn configure_model(client: &Client, endpoint: String, api: conversation::M
 
 #[tokio::test]
 async fn terminal_and_failure() {
-    for remote in [false, true] {
-        let (directory, node, controller, client, worktree) =
-            crate::plugins::support::empty(remote).await;
-        let context = actions::install_actions(
-            &client,
-            &directory.path().join("source/package"),
-            worktree,
-            0,
-            &[Action::GenerateText],
-        )
-        .await;
-        for api in [
-            conversation::ModelApi::Responses,
-            conversation::ModelApi::ChatCompletions,
-            conversation::ModelApi::DeepSeek,
-        ] {
-            let case = format!("{remote:?} {api:?}");
-            let server = model_fixture::Server::terminal().await;
-            let model = configure_model(&client, server.endpoint.clone(), api).await;
-            let request = client
+    let (directory, node, controller, client, worktree) = crate::plugins::support::empty().await;
+    let context = actions::install_actions(
+        &client,
+        &directory.path().join("source/package"),
+        worktree,
+        0,
+        &[Action::GenerateText],
+    )
+    .await;
+    for api in [
+        conversation::ModelApi::Responses,
+        conversation::ModelApi::ChatCompletions,
+        conversation::ModelApi::DeepSeek,
+    ] {
+        let case = format!("{api:?}");
+        let server = model_fixture::Server::terminal().await;
+        let model = configure_model(&client, server.endpoint.clone(), api).await;
+        let request = client
+            .prepare(Command::GeneratePluginText {
+                effort: None,
+                model,
+                prompt: "Choose a card".into(),
+            })
+            .with_plugin(context.clone());
+        let result = tokio::time::timeout(Duration::from_secs(5), client.execute(request.clone()))
+            .await
+            .unwrap_or_else(|_| panic!("{case}: completion must not wait for socket EOF"))
+            .unwrap();
+        let Output::PluginText(text) = result else {
+            panic!("{case}: plugin text expected")
+        };
+        assert_eq!(text.text, "{\"move\":1}", "{case}");
+        assert_eq!(text.tokens, 16, "{case}");
+        assert_eq!(server.requests.lock().unwrap().len(), 1, "{case}");
+        if api == conversation::ModelApi::DeepSeek {
+            let sent = server.requests.lock().unwrap()[0].clone();
+            assert_eq!(sent["thinking"]["type"], "enabled", "{case}");
+            assert_eq!(sent["reasoning_effort"], "high", "{case}");
+            assert_eq!(sent["max_tokens"], 4096, "{case}");
+            let Command::GeneratePluginText { model, .. } = &request.command else {
+                unreachable!()
+            };
+            let Output::Providers(providers) = execute(&client, Command::ListProviders).await
+            else {
+                panic!("{case}: providers expected")
+            };
+            let provider = providers
+                .iter()
+                .find(|provider| model.starts_with(&format!("{}/", provider.id)))
+                .unwrap_or_else(|| panic!("{case}: selected provider expected"));
+            assert_eq!(provider.models[0].default_effort, Effort::High, "{case}");
+            let override_request = client
+                .prepare(Command::GeneratePluginText {
+                    model: model.clone(),
+                    prompt: "Choose a card".into(),
+                    effort: Some(Effort::Max),
+                })
+                .with_plugin(request.plugin.clone().unwrap());
+            assert!(
+                matches!(
+                    client.execute(override_request).await.unwrap(),
+                    Output::PluginText(_)
+                ),
+                "{case}"
+            );
+            assert_eq!(
+                server.requests.lock().unwrap()[1]["reasoning_effort"],
+                "max",
+                "{case}"
+            );
+            for effort in [Effort::XHigh, Effort::Low] {
+                let invalid = client
+                    .prepare(Command::GeneratePluginText {
+                        model: model.clone(),
+                        prompt: "Choose a card".into(),
+                        effort: Some(effort),
+                    })
+                    .with_plugin(request.plugin.clone().unwrap());
+                assert_eq!(
+                    client.execute(invalid).await.unwrap_err().code,
+                    ErrorCode::InvalidRequest,
+                    "{case}: {effort:?}"
+                );
+            }
+            assert_eq!(server.requests.lock().unwrap().len(), 2, "{case}");
+            let disabled = client
+                .prepare(Command::GeneratePluginText {
+                    model: model.clone(),
+                    prompt: "Choose a card".into(),
+                    effort: Some(Effort::Disabled),
+                })
+                .with_plugin(request.plugin.clone().unwrap());
+            assert!(
+                matches!(
+                    client.execute(disabled).await.unwrap(),
+                    Output::PluginText(_)
+                ),
+                "{case}"
+            );
+            let sent = server.requests.lock().unwrap()[2].clone();
+            assert_eq!(sent["thinking"]["type"], "disabled", "{case}");
+            assert!(sent["reasoning_effort"].is_null(), "{case}");
+        }
+        if api == conversation::ModelApi::Responses {
+            let Command::GeneratePluginText { model, .. } = request.command else {
+                unreachable!()
+            };
+            let truncated = client
                 .prepare(Command::GeneratePluginText {
                     effort: None,
                     model,
-                    prompt: "Choose a card".into(),
+                    prompt: "Truncate the response".into(),
                 })
-                .with_plugin(context.clone());
-            let result =
-                tokio::time::timeout(Duration::from_secs(5), client.execute(request.clone()))
-                    .await
-                    .unwrap_or_else(|_| panic!("{case}: completion must not wait for socket EOF"))
-                    .unwrap();
-            let Output::PluginText(text) = result else {
+                .with_plugin(request.plugin.unwrap());
+            let output = tokio::time::timeout(Duration::from_secs(5), client.execute(truncated))
+                .await
+                .unwrap_or_else(|_| panic!("{case}: incomplete events must terminate promptly"))
+                .unwrap();
+            let Output::PluginText(text) = output else {
                 panic!("{case}: plugin text expected")
             };
             assert_eq!(text.text, "{\"move\":1}", "{case}");
             assert_eq!(text.tokens, 16, "{case}");
-            assert_eq!(server.requests.lock().unwrap().len(), 1, "{case}");
-            if api == conversation::ModelApi::DeepSeek {
-                let sent = server.requests.lock().unwrap()[0].clone();
-                assert_eq!(sent["thinking"]["type"], "enabled", "{case}");
-                assert_eq!(sent["reasoning_effort"], "high", "{case}");
-                assert_eq!(sent["max_tokens"], 4096, "{case}");
-                let Command::GeneratePluginText { model, .. } = &request.command else {
-                    unreachable!()
-                };
-                let Output::Providers(providers) = execute(&client, Command::ListProviders).await
-                else {
-                    panic!("{case}: providers expected")
-                };
-                let provider = providers
-                    .iter()
-                    .find(|provider| model.starts_with(&format!("{}/", provider.id)))
-                    .unwrap_or_else(|| panic!("{case}: selected provider expected"));
-                assert_eq!(provider.models[0].default_effort, Effort::High, "{case}");
-                let override_request = client
-                    .prepare(Command::GeneratePluginText {
-                        model: model.clone(),
-                        prompt: "Choose a card".into(),
-                        effort: Some(Effort::Max),
-                    })
-                    .with_plugin(request.plugin.clone().unwrap());
-                assert!(
-                    matches!(
-                        client.execute(override_request).await.unwrap(),
-                        Output::PluginText(_)
-                    ),
-                    "{case}"
-                );
-                assert_eq!(
-                    server.requests.lock().unwrap()[1]["reasoning_effort"],
-                    "max",
-                    "{case}"
-                );
-                for effort in [Effort::XHigh, Effort::Low] {
-                    let invalid = client
-                        .prepare(Command::GeneratePluginText {
-                            model: model.clone(),
-                            prompt: "Choose a card".into(),
-                            effort: Some(effort),
-                        })
-                        .with_plugin(request.plugin.clone().unwrap());
-                    assert_eq!(
-                        client.execute(invalid).await.unwrap_err().code,
-                        ErrorCode::InvalidRequest,
-                        "{case}: {effort:?}"
-                    );
-                }
-                assert_eq!(server.requests.lock().unwrap().len(), 2, "{case}");
-                let disabled = client
-                    .prepare(Command::GeneratePluginText {
-                        model: model.clone(),
-                        prompt: "Choose a card".into(),
-                        effort: Some(Effort::Disabled),
-                    })
-                    .with_plugin(request.plugin.clone().unwrap());
-                assert!(
-                    matches!(
-                        client.execute(disabled).await.unwrap(),
-                        Output::PluginText(_)
-                    ),
-                    "{case}"
-                );
-                let sent = server.requests.lock().unwrap()[2].clone();
-                assert_eq!(sent["thinking"]["type"], "disabled", "{case}");
-                assert!(sent["reasoning_effort"].is_null(), "{case}");
-            }
-            if api == conversation::ModelApi::Responses {
-                let Command::GeneratePluginText { model, .. } = request.command else {
-                    unreachable!()
-                };
-                let truncated = client
-                    .prepare(Command::GeneratePluginText {
-                        effort: None,
-                        model,
-                        prompt: "Truncate the response".into(),
-                    })
-                    .with_plugin(request.plugin.unwrap());
-                let output =
-                    tokio::time::timeout(Duration::from_secs(5), client.execute(truncated))
-                        .await
-                        .unwrap_or_else(|_| {
-                            panic!("{case}: incomplete events must terminate promptly")
-                        })
-                        .unwrap();
-                let Output::PluginText(text) = output else {
-                    panic!("{case}: plugin text expected")
-                };
-                assert_eq!(text.text, "{\"move\":1}", "{case}");
-                assert_eq!(text.tokens, 16, "{case}");
-                assert_eq!(server.requests.lock().unwrap().len(), 2, "{case}");
-            }
+            assert_eq!(server.requests.lock().unwrap().len(), 2, "{case}");
         }
-        let case = format!("{remote:?} unauthorized");
-        let server = model_fixture::Server::http(1, 401).await;
-        let model = configure_empty(&client, server.endpoint.clone()).await;
-        let request = client
-            .prepare(Command::GeneratePluginText {
-                effort: None,
-                model,
-                prompt: "Choose".into(),
-            })
-            .with_plugin(context);
-        let result = client.execute(request.clone()).await.unwrap_err();
-        assert_eq!(result.code, ErrorCode::Unavailable, "{case}");
-        assert_eq!(
-            result.details,
-            Some(FaultDetails::ModelRequest {
-                reason: ModelFailure::Unauthorized,
-            }),
-            "{case}"
-        );
-        assert_eq!(
-            client.execute(request.clone()).await.unwrap_err(),
-            result,
-            "{case}"
-        );
-        assert_eq!(
-            client.outcome(&request).await.unwrap(),
-            RequestOutcome::Completed(Box::new(Err(result))),
-            "{case}"
-        );
-        assert_eq!(server.requests.lock().unwrap().len(), 1, "{case}");
-        drop(client);
-        controller.close().await.unwrap();
-        node.shutdown().await.unwrap();
     }
+    let case = format!("unauthorized");
+    let server = model_fixture::Server::http(1, 401).await;
+    let model = configure_empty(&client, server.endpoint.clone()).await;
+    let request = client
+        .prepare(Command::GeneratePluginText {
+            effort: None,
+            model,
+            prompt: "Choose".into(),
+        })
+        .with_plugin(context);
+    let result = client.execute(request.clone()).await.unwrap_err();
+    assert_eq!(result.code, ErrorCode::Unavailable, "{case}");
+    assert_eq!(
+        result.details,
+        Some(FaultDetails::ModelRequest {
+            reason: ModelFailure::Unauthorized,
+        }),
+        "{case}"
+    );
+    assert_eq!(
+        client.execute(request.clone()).await.unwrap_err(),
+        result,
+        "{case}"
+    );
+    assert_eq!(
+        client.outcome(&request).await.unwrap(),
+        RequestOutcome::Completed(Box::new(Err(result))),
+        "{case}"
+    );
+    assert_eq!(server.requests.lock().unwrap().len(), 1, "{case}");
+    drop(client);
+    controller.close().await.unwrap();
+    node.shutdown().await.unwrap();
 }
 
 #[tokio::test]
 async fn recovers_original_result() {
-    for remote in [false, true] {
-        let server = model_fixture::Server::markdown("{\"move\":1}".into()).await;
-        let (directory, node, controller, client, worktree) =
-            crate::plugins::support::empty(remote).await;
-        let mut context = actions::install_actions(
-            &client,
-            &directory.path().join("source/package"),
-            worktree,
-            0,
-            &[Action::GenerateText, Action::ReadFiles],
-        )
-        .await;
-        context.worktree = None;
-        let model = configure_empty(&client, server.endpoint.clone()).await;
-        let request = client
-            .prepare(Command::GeneratePluginText {
-                effort: None,
-                model,
-                prompt: "Choose a legal card".into(),
-            })
-            .with_plugin(context.clone());
-        let admission = client.dispatch(request.clone()).await.unwrap();
-        assert!(admission.receipt.durable);
-        let result = admission.completion.await.unwrap().unwrap();
-        let Output::PluginText(text) = &result else {
-            panic!("plugin text expected")
-        };
-        assert_eq!(text.text, "{\"move\":1}");
-        assert_eq!(text.model, "fixture");
-        assert_eq!(client.execute(request.clone()).await.unwrap(), result);
-        assert_eq!(
-            client.outcome(&request).await.unwrap(),
-            RequestOutcome::Completed(Box::new(Ok(result)))
-        );
-        assert_eq!(server.requests.lock().unwrap().len(), 1);
-        let sent = server.requests.lock().unwrap()[0].clone();
-        assert!(sent["tools"].is_null() || sent["tools"].as_array().unwrap().is_empty());
-        assert!(sent["messages"].to_string().contains("Choose a legal card"));
-        assert!(!sent.to_string().contains("plugin.json"));
+    let server = model_fixture::Server::markdown("{\"move\":1}".into()).await;
+    let (directory, node, controller, client, worktree) = crate::plugins::support::empty().await;
+    let mut context = actions::install_actions(
+        &client,
+        &directory.path().join("source/package"),
+        worktree,
+        0,
+        &[Action::GenerateText, Action::ReadFiles],
+    )
+    .await;
+    context.worktree = None;
+    let model = configure_empty(&client, server.endpoint.clone()).await;
+    let request = client
+        .prepare(Command::GeneratePluginText {
+            effort: None,
+            model,
+            prompt: "Choose a legal card".into(),
+        })
+        .with_plugin(context.clone());
+    let admission = client.dispatch(request.clone()).await.unwrap();
+    assert!(admission.receipt.durable);
+    let result = admission.completion.await.unwrap().unwrap();
+    let Output::PluginText(text) = &result else {
+        panic!("plugin text expected")
+    };
+    assert_eq!(text.text, "{\"move\":1}");
+    assert_eq!(text.model, "fixture");
+    assert_eq!(client.execute(request.clone()).await.unwrap(), result);
+    assert_eq!(
+        client.outcome(&request).await.unwrap(),
+        RequestOutcome::Completed(Box::new(Ok(result)))
+    );
+    assert_eq!(server.requests.lock().unwrap().len(), 1);
+    let sent = server.requests.lock().unwrap()[0].clone();
+    assert!(sent["tools"].is_null() || sent["tools"].as_array().unwrap().is_empty());
+    assert!(sent["messages"].to_string().contains("Choose a legal card"));
+    assert!(!sent.to_string().contains("plugin.json"));
 
-        // A Node-only game does not implicitly acquire project access.
-        let read = client
-            .prepare(Command::ReadFile {
-                worktree,
-                path: "notes.txt".into(),
-            })
-            .with_plugin(context.clone());
-        assert_eq!(
-            client.execute(read).await.unwrap_err().code,
-            ErrorCode::PermissionDenied
-        );
-        execute(
-            &client,
-            Command::SetPluginEnabled {
-                name: "example".into(),
-                expected_revision: 1,
-                enabled: false,
-            },
-        )
-        .await;
-        let next = client.prepare(request.command.clone()).with_plugin(context);
-        assert_eq!(
-            client.execute(next).await.unwrap_err().code,
-            ErrorCode::NotConfigured
-        );
-        assert_eq!(server.requests.lock().unwrap().len(), 1);
-        // Already admitted results remain recoverable after disabling a package.
-        assert!(matches!(
-            client.execute(request).await.unwrap(),
-            Output::PluginText(_)
-        ));
-        drop(client);
-        controller.close().await.unwrap();
-        node.shutdown().await.unwrap();
-    }
+    // A Node-only game does not implicitly acquire project access.
+    let read = client
+        .prepare(Command::ReadFile {
+            worktree,
+            path: "notes.txt".into(),
+        })
+        .with_plugin(context.clone());
+    assert_eq!(
+        client.execute(read).await.unwrap_err().code,
+        ErrorCode::PermissionDenied
+    );
+    execute(
+        &client,
+        Command::SetPluginEnabled {
+            name: "example".into(),
+            expected_revision: 1,
+            enabled: false,
+        },
+    )
+    .await;
+    let next = client.prepare(request.command.clone()).with_plugin(context);
+    assert_eq!(
+        client.execute(next).await.unwrap_err().code,
+        ErrorCode::NotConfigured
+    );
+    assert_eq!(server.requests.lock().unwrap().len(), 1);
+    // Already admitted results remain recoverable after disabling a package.
+    assert!(matches!(
+        client.execute(request).await.unwrap(),
+        Output::PluginText(_)
+    ));
+    drop(client);
+    controller.close().await.unwrap();
+    node.shutdown().await.unwrap();
 }
 
 #[tokio::test]
 async fn rejects_invalid_requests() {
-    let (directory, node, controller, client, worktree) =
-        crate::plugins::support::empty(false).await;
+    let (directory, node, controller, _, worktree) = crate::plugins::support::empty().await;
+    let client = Client::new(node.local());
     let context = actions::install_actions(
         &client,
         &directory.path().join("source/package"),
@@ -405,93 +395,89 @@ async fn rejects_invalid_requests() {
 
 #[tokio::test]
 async fn requires_available_model() {
-    for remote in [false, true] {
-        let first = model_fixture::Server::markdown("first".into()).await;
-        let second = model_fixture::Server::markdown("second".into()).await;
-        let (directory, node, controller, client, worktree) =
-            crate::plugins::support::empty(remote).await;
-        let context = actions::install_actions(
-            &client,
-            &directory.path().join("source/package"),
-            worktree,
-            0,
-            &[Action::GenerateText],
-        )
-        .await;
-        configure_empty(&client, first.endpoint.clone()).await;
-        let selected = configure_empty(&client, second.endpoint.clone()).await;
-        let request = client
-            .prepare(Command::ListPluginModels)
-            .with_plugin(context.clone());
-        let admission = client.dispatch(request).await.unwrap();
-        assert!(!admission.receipt.durable);
-        let Output::PluginModels(catalog) = admission.completion.await.unwrap().unwrap() else {
-            panic!("model catalog expected")
-        };
-        assert_eq!(catalog.models.len(), 2);
-        assert!(catalog.models.iter().any(|model| model.id == selected));
-        let public = serde_json::to_string(&catalog).unwrap();
-        assert!(!public.contains(&first.endpoint));
-        assert!(!public.contains(&second.endpoint));
-        assert!(!public.contains("credential"));
-        let command = |model| {
-            client
-                .prepare(Command::GeneratePluginText {
-                    effort: None,
-                    model,
-                    prompt: "Choose".into(),
-                })
-                .with_plugin(context.clone())
-        };
-        assert_eq!(
-            client
-                .execute(command(String::new()))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::NotConfigured
-        );
-        assert_eq!(
-            client
-                .execute(command(format!(
-                    "{}/missing",
-                    selected.split_once('/').unwrap().0
-                )))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::NotConfigured
-        );
-        let Output::PluginText(text) = client.execute(command(selected.clone())).await.unwrap()
-        else {
-            panic!("completion expected")
-        };
-        assert_eq!(text.text, "second");
-        assert!(first.requests.lock().unwrap().is_empty());
-        let Output::Providers(providers) = execute(&client, Command::ListProviders).await else {
-            panic!("providers expected")
-        };
-        let mut provider = providers
-            .into_iter()
-            .find(|provider| selected.starts_with(&provider.id.to_string()))
-            .unwrap();
-        provider.enabled = false;
-        execute(
-            &client,
-            Command::PutProvider {
-                expected_revision: provider.revision,
-                provider,
-            },
-        )
-        .await;
-        assert_eq!(
-            client.execute(command(selected)).await.unwrap_err().code,
-            ErrorCode::NotConfigured
-        );
-        assert!(first.requests.lock().unwrap().is_empty());
-        assert_eq!(second.requests.lock().unwrap().len(), 1);
-        drop(client);
-        controller.close().await.unwrap();
-        node.shutdown().await.unwrap();
-    }
+    let first = model_fixture::Server::markdown("first".into()).await;
+    let second = model_fixture::Server::markdown("second".into()).await;
+    let (directory, node, controller, client, worktree) = crate::plugins::support::empty().await;
+    let context = actions::install_actions(
+        &client,
+        &directory.path().join("source/package"),
+        worktree,
+        0,
+        &[Action::GenerateText],
+    )
+    .await;
+    configure_empty(&client, first.endpoint.clone()).await;
+    let selected = configure_empty(&client, second.endpoint.clone()).await;
+    let request = client
+        .prepare(Command::ListPluginModels)
+        .with_plugin(context.clone());
+    let admission = client.dispatch(request).await.unwrap();
+    assert!(!admission.receipt.durable);
+    let Output::PluginModels(catalog) = admission.completion.await.unwrap().unwrap() else {
+        panic!("model catalog expected")
+    };
+    assert_eq!(catalog.models.len(), 2);
+    assert!(catalog.models.iter().any(|model| model.id == selected));
+    let public = serde_json::to_string(&catalog).unwrap();
+    assert!(!public.contains(&first.endpoint));
+    assert!(!public.contains(&second.endpoint));
+    assert!(!public.contains("credential"));
+    let command = |model| {
+        client
+            .prepare(Command::GeneratePluginText {
+                effort: None,
+                model,
+                prompt: "Choose".into(),
+            })
+            .with_plugin(context.clone())
+    };
+    assert_eq!(
+        client
+            .execute(command(String::new()))
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::NotConfigured
+    );
+    assert_eq!(
+        client
+            .execute(command(format!(
+                "{}/missing",
+                selected.split_once('/').unwrap().0
+            )))
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::NotConfigured
+    );
+    let Output::PluginText(text) = client.execute(command(selected.clone())).await.unwrap() else {
+        panic!("completion expected")
+    };
+    assert_eq!(text.text, "second");
+    assert!(first.requests.lock().unwrap().is_empty());
+    let Output::Providers(providers) = execute(&client, Command::ListProviders).await else {
+        panic!("providers expected")
+    };
+    let mut provider = providers
+        .into_iter()
+        .find(|provider| selected.starts_with(&provider.id.to_string()))
+        .unwrap();
+    provider.enabled = false;
+    execute(
+        &client,
+        Command::PutProvider {
+            expected_revision: provider.revision,
+            provider,
+        },
+    )
+    .await;
+    assert_eq!(
+        client.execute(command(selected)).await.unwrap_err().code,
+        ErrorCode::NotConfigured
+    );
+    assert!(first.requests.lock().unwrap().is_empty());
+    assert_eq!(second.requests.lock().unwrap().len(), 1);
+    drop(client);
+    controller.close().await.unwrap();
+    node.shutdown().await.unwrap();
 }

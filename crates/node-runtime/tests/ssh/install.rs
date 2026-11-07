@@ -16,410 +16,384 @@ async fn updates_only_the_selected_existing_host() {
     use std::os::unix::fs::{PermissionsExt, symlink};
     use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _};
 
-    for remote in [false, true] {
-        // The control socket must fit sun_path even when TMPDIR is long.
-        let directory = tempfile::Builder::new()
-            .prefix("sailry-ssh-")
-            .tempdir_in("/tmp")
-            .unwrap();
-        downloads(directory.path());
-        let node = Node::start_empty(directory.path().join("node"))
-            .await
-            .unwrap();
-        let host = Node::start_empty(directory.path().join("execution"))
-            .await
-            .unwrap();
-        let invitation = host.link().invite().unwrap();
-        node.link().pair(invitation.ticket()).await.unwrap();
-        let controller =
-            Link::controller(directory.path().join("controller"), NetworkScope::default())
+    // The control socket must fit sun_path even when TMPDIR is long.
+    let directory = tempfile::Builder::new()
+        .prefix("sailry-ssh-")
+        .tempdir_in("/tmp")
+        .unwrap();
+    downloads(directory.path());
+    let node = Node::start_empty(directory.path().join("node"))
+        .await
+        .unwrap();
+    let host = Node::start_empty(directory.path().join("execution"))
+        .await
+        .unwrap();
+    let invitation = host.link().invite().unwrap();
+    node.link().pair(invitation.ticket()).await.unwrap();
+    let controller = Link::controller(directory.path().join("controller"), NetworkScope::default())
+        .await
+        .unwrap();
+    let invitation = node.link().invite().unwrap();
+    let address = controller.handle().pair(invitation.ticket()).await.unwrap();
+    let client = Client::new(controller.handle().remote(address));
+    let server = server::Server::deployment(directory.path().into(), 59).await;
+    let profile = save(
+        &client,
+        profile(server.port),
+        Some(Credential::Password {
+            password: Secret::new("isolated-ssh-password".into()),
+        }),
+    )
+    .await;
+    let profile = trust(&client, &profile, &server.key).await;
+    let installed = directory.path().join(".local/lib/sailry");
+    std::fs::create_dir_all(installed.join("python/bin")).unwrap();
+    let python = std::process::Command::new("python3")
+        .args(["-c", "import sys;print(sys.executable)"])
+        .output()
+        .unwrap();
+    assert!(python.status.success());
+    symlink(
+        String::from_utf8(python.stdout).unwrap().trim(),
+        installed.join("python/bin/python3.12"),
+    )
+    .unwrap();
+    let version = env!("SAILRY_HOST_VERSION");
+    std::fs::write(
+        installed.join("sailry-host"),
+        format!("#!/bin/sh\nprintf 'Sailry Host {version}\\n'\n"),
+    )
+    .unwrap();
+    std::fs::set_permissions(
+        installed.join("sailry-host"),
+        std::fs::Permissions::from_mode(0o755),
+    )
+    .unwrap();
+    std::fs::create_dir(directory.path().join(".sailry-host")).unwrap();
+    let listener =
+        tokio::net::UnixListener::bind(directory.path().join(".sailry-host/control.sock")).unwrap();
+    std::fs::set_permissions(
+        directory.path().join(".sailry-host/control.sock"),
+        std::fs::Permissions::from_mode(0o600),
+    )
+    .unwrap();
+    let host_id = host.id();
+    let control = tokio::spawn(async move {
+        loop {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut reader = tokio::io::BufReader::new(stream);
+            let mut line = String::new();
+            reader.read_line(&mut line).await.unwrap();
+            assert_eq!(
+                serde_json::from_str::<serde_json::Value>(&line).unwrap(),
+                serde_json::json!({"command":"node_hello","version":1})
+            );
+            let response = serde_json::json!({"version":1,"node":host_id,"body":{"kind":"hello"}});
+            reader
+                .get_mut()
+                .write_all(format!("{response}\n").as_bytes())
                 .await
                 .unwrap();
-        let invitation = node.link().invite().unwrap();
-        let address = controller.handle().pair(invitation.ticket()).await.unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(address)
-        } else {
-            node.local()
-        });
-        let server = server::Server::deployment(directory.path().into(), 59).await;
-        let profile = save(
-            &client,
-            profile(server.port),
-            Some(Credential::Password {
-                password: Secret::new("isolated-ssh-password".into()),
-            }),
-        )
-        .await;
-        let profile = trust(&client, &profile, &server.key).await;
-        let installed = directory.path().join(".local/lib/sailry");
-        std::fs::create_dir_all(installed.join("python/bin")).unwrap();
-        let python = std::process::Command::new("python3")
-            .args(["-c", "import sys;print(sys.executable)"])
-            .output()
-            .unwrap();
-        assert!(python.status.success());
-        symlink(
-            String::from_utf8(python.stdout).unwrap().trim(),
-            installed.join("python/bin/python3.12"),
-        )
-        .unwrap();
-        let version = env!("SAILRY_HOST_VERSION");
-        std::fs::write(
-            installed.join("sailry-host"),
-            format!("#!/bin/sh\nprintf 'Sailry Host {version}\\n'\n"),
-        )
-        .unwrap();
-        std::fs::set_permissions(
-            installed.join("sailry-host"),
-            std::fs::Permissions::from_mode(0o755),
-        )
-        .unwrap();
-        std::fs::create_dir(directory.path().join(".sailry-host")).unwrap();
-        let listener =
-            tokio::net::UnixListener::bind(directory.path().join(".sailry-host/control.sock"))
-                .unwrap();
-        std::fs::set_permissions(
-            directory.path().join(".sailry-host/control.sock"),
-            std::fs::Permissions::from_mode(0o600),
-        )
-        .unwrap();
-        let host_id = host.id();
-        let control = tokio::spawn(async move {
-            loop {
-                let (stream, _) = listener.accept().await.unwrap();
-                let mut reader = tokio::io::BufReader::new(stream);
-                let mut line = String::new();
-                reader.read_line(&mut line).await.unwrap();
-                assert_eq!(
-                    serde_json::from_str::<serde_json::Value>(&line).unwrap(),
-                    serde_json::json!({"command":"node_hello","version":1})
-                );
-                let response =
-                    serde_json::json!({"version":1,"node":host_id,"body":{"kind":"hello"}});
-                reader
-                    .get_mut()
-                    .write_all(format!("{response}\n").as_bytes())
-                    .await
-                    .unwrap();
-            }
-        });
-        let installer = format!(
-            "#!/bin/sh\nset -eu\ntest \"$1\" = --update\ntest \"$2\" = --version\ntest \"$3\" = {version}\nprintf updated >> \"$HOME/update-calls\"\n"
-        );
-        std::fs::write(
-            directory.path().join(".fixture/assets/install-host.sh"),
-            &installer,
-        )
-        .unwrap();
-        std::fs::write(
-            directory
-                .path()
-                .join(".fixture/assets/SHA256SUMS-installer"),
-            format!(
-                "{:x}  install-host.sh\n",
-                sha2::Sha256::digest(installer.as_bytes())
-            ),
-        )
-        .unwrap();
-        let wrong = client.prepare(Command::UpdateSshHost {
-            profile: profile.id,
-            expected_revision: profile.revision,
-            node: NodeId([3; 32]),
-        });
-        let error = client.execute(wrong.clone()).await.unwrap_err();
-        assert_eq!(error.code, ErrorCode::WrongTarget);
-        assert_eq!(client.execute(wrong).await.unwrap_err(), error);
-        assert!(!directory.path().join("update-calls").exists());
-        assert!(
-            !server
-                .commands
-                .lock()
-                .unwrap()
-                .iter()
-                .any(|command| command.contains("releases/download/"))
-        );
-        let request = client.prepare(Command::UpdateSshHost {
-            profile: profile.id,
-            expected_revision: profile.revision,
-            node: host.id(),
-        });
-        let output = client.execute(request.clone()).await.unwrap();
-        assert_eq!(
-            output,
-            Output::SshOutcome(Outcome::HostInstalled { node: host.id() })
-        );
-        assert_eq!(client.execute(request).await.unwrap(), output);
-        assert_eq!(
-            std::fs::read_to_string(directory.path().join("update-calls")).unwrap(),
-            "updated"
-        );
-        assert!(server.commands.lock().unwrap().iter().any(|command| {
-            command.contains(&format!("install_version='{version}'"))
-                && command.contains("--update --version")
-        }));
-        control.abort();
-        server.close().await;
-        controller.close().await.unwrap();
-        host.shutdown().await.unwrap();
-        node.shutdown().await.unwrap();
-    }
+        }
+    });
+    let installer = format!(
+        "#!/bin/sh\nset -eu\ntest \"$1\" = --update\ntest \"$2\" = --version\ntest \"$3\" = {version}\nprintf updated >> \"$HOME/update-calls\"\n"
+    );
+    std::fs::write(
+        directory.path().join(".fixture/assets/install-host.sh"),
+        &installer,
+    )
+    .unwrap();
+    std::fs::write(
+        directory
+            .path()
+            .join(".fixture/assets/SHA256SUMS-installer"),
+        format!(
+            "{:x}  install-host.sh\n",
+            sha2::Sha256::digest(installer.as_bytes())
+        ),
+    )
+    .unwrap();
+    let wrong = client.prepare(Command::UpdateSshHost {
+        profile: profile.id,
+        expected_revision: profile.revision,
+        node: NodeId([3; 32]),
+    });
+    let error = client.execute(wrong.clone()).await.unwrap_err();
+    assert_eq!(error.code, ErrorCode::WrongTarget);
+    assert_eq!(client.execute(wrong).await.unwrap_err(), error);
+    assert!(!directory.path().join("update-calls").exists());
+    assert!(
+        !server
+            .commands
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|command| command.contains("releases/download/"))
+    );
+    let request = client.prepare(Command::UpdateSshHost {
+        profile: profile.id,
+        expected_revision: profile.revision,
+        node: host.id(),
+    });
+    let output = client.execute(request.clone()).await.unwrap();
+    assert_eq!(
+        output,
+        Output::SshOutcome(Outcome::HostInstalled { node: host.id() })
+    );
+    assert_eq!(client.execute(request).await.unwrap(), output);
+    assert_eq!(
+        std::fs::read_to_string(directory.path().join("update-calls")).unwrap(),
+        "updated"
+    );
+    assert!(server.commands.lock().unwrap().iter().any(|command| {
+        command.contains(&format!("install_version='{version}'"))
+            && command.contains("--update --version")
+    }));
+    control.abort();
+    server.close().await;
+    controller.close().await.unwrap();
+    host.shutdown().await.unwrap();
+    node.shutdown().await.unwrap();
 }
 
 #[tokio::test]
 async fn rejects_unverified_installer_without_replay() {
-    for remote in [false, true] {
-        let directory = tempfile::tempdir().unwrap();
-        downloads(directory.path());
-        std::fs::write(
-            directory.path().join(".fixture/assets/install-host.sh"),
-            "#!/bin/sh\nprintf forbidden > \"$HOME/installer-executed\"\n",
-        )
+    let directory = tempfile::tempdir().unwrap();
+    downloads(directory.path());
+    std::fs::write(
+        directory.path().join(".fixture/assets/install-host.sh"),
+        "#!/bin/sh\nprintf forbidden > \"$HOME/installer-executed\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        directory
+            .path()
+            .join(".fixture/assets/SHA256SUMS-installer"),
+        format!("{}  install-host.sh\n", "0".repeat(64)),
+    )
+    .unwrap();
+    let server = server::Server::deployment(directory.path().into(), 47).await;
+    let node = Node::start_empty(directory.path().join("node"))
+        .await
         .unwrap();
-        std::fs::write(
-            directory
-                .path()
-                .join(".fixture/assets/SHA256SUMS-installer"),
-            format!("{}  install-host.sh\n", "0".repeat(64)),
-        )
+    let controller = Link::controller(directory.path().join("controller"), NetworkScope::default())
+        .await
         .unwrap();
-        let server = server::Server::deployment(directory.path().into(), 47).await;
-        let node = Node::start_empty(directory.path().join("node"))
-            .await
-            .unwrap();
-        let controller =
-            Link::controller(directory.path().join("controller"), NetworkScope::default())
-                .await
-                .unwrap();
-        let invitation = node.link().invite().unwrap();
-        let address = controller.handle().pair(invitation.ticket()).await.unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(address)
-        } else {
-            node.local()
-        });
-        let profile = save(
-            &client,
-            profile(server.port),
-            Some(Credential::Password {
-                password: Secret::new("isolated-ssh-password".into()),
-            }),
-        )
-        .await;
-        let profile = trust(&client, &profile, &server.key).await;
-        let request = client.prepare(Command::InstallHost {
-            profile: profile.id,
-            expected_revision: profile.revision,
-            network: None,
-        });
-        let fault = client.execute(request.clone()).await.unwrap_err();
-        assert_eq!(fault.code, ErrorCode::Unavailable);
-        assert!(fault.message.contains("Installer checksum does not match"));
-        assert_eq!(client.execute(request).await.unwrap_err(), fault);
-        assert!(!directory.path().join("installer-executed").exists());
-        assert!(!directory.path().join(".sailry-host").exists());
-        {
-            let commands = server.commands.lock().unwrap();
-            let installation = commands
-                .iter()
-                .filter(|command| command.contains("releases/download/v"))
-                .collect::<Vec<_>>();
-            assert_eq!(installation.len(), 1);
-            assert!(installation[0].contains(&format!(
-                "install_version='{}'",
-                env!("SAILRY_HOST_VERSION")
-            )));
-            assert!(!commands.iter().any(|command| command.contains("cat >")));
-        }
-        controller.close().await.unwrap();
-        node.shutdown().await.unwrap();
-        server.close().await;
+    let invitation = node.link().invite().unwrap();
+    let address = controller.handle().pair(invitation.ticket()).await.unwrap();
+    let client = Client::new(controller.handle().remote(address));
+    let profile = save(
+        &client,
+        profile(server.port),
+        Some(Credential::Password {
+            password: Secret::new("isolated-ssh-password".into()),
+        }),
+    )
+    .await;
+    let profile = trust(&client, &profile, &server.key).await;
+    let request = client.prepare(Command::InstallHost {
+        profile: profile.id,
+        expected_revision: profile.revision,
+        network: None,
+    });
+    let fault = client.execute(request.clone()).await.unwrap_err();
+    assert_eq!(fault.code, ErrorCode::Unavailable);
+    assert!(fault.message.contains("Installer checksum does not match"));
+    assert_eq!(client.execute(request).await.unwrap_err(), fault);
+    assert!(!directory.path().join("installer-executed").exists());
+    assert!(!directory.path().join(".sailry-host").exists());
+    {
+        let commands = server.commands.lock().unwrap();
+        let installation = commands
+            .iter()
+            .filter(|command| command.contains("releases/download/v"))
+            .collect::<Vec<_>>();
+        assert_eq!(installation.len(), 1);
+        assert!(installation[0].contains(&format!(
+            "install_version='{}'",
+            env!("SAILRY_HOST_VERSION")
+        )));
+        assert!(!commands.iter().any(|command| command.contains("cat >")));
     }
+    controller.close().await.unwrap();
+    node.shutdown().await.unwrap();
+    server.close().await;
 }
 
 #[tokio::test]
 #[cfg(target_os = "macos")]
 #[ignore = "requires SAILRY_TEST_HOST_RELEASE, Internet, and a launchd GUI session"]
 async fn deploys_and_pairs() {
-    for remote in [false, true] {
-        let directory = tempfile::Builder::new()
-            .prefix("sailry-install-")
-            .tempdir()
+    let directory = tempfile::Builder::new()
+        .prefix("sailry-install-")
+        .tempdir()
+        .unwrap();
+    downloads(directory.path());
+    release(directory.path());
+    let server = server::Server::deployment(directory.path().into(), 46).await;
+    let node =
+        Node::start_empty_with_network(directory.path().join("desktop"), NetworkScope::Internet)
+            .await
             .unwrap();
-        downloads(directory.path());
-        release(directory.path());
-        let server = server::Server::deployment(directory.path().into(), 46).await;
-        let node = Node::start_empty_with_network(
-            directory.path().join("desktop"),
-            NetworkScope::Internet,
-        )
+    let controller = Link::controller(directory.path().join("controller"), NetworkScope::Internet)
         .await
         .unwrap();
-        let controller =
-            Link::controller(directory.path().join("controller"), NetworkScope::Internet)
-                .await
-                .unwrap();
-        let invitation = node.link().invite().unwrap();
-        let address = controller.handle().pair(invitation.ticket()).await.unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(address)
-        } else {
-            node.local()
-        });
-        let profile = save(
-            &client,
-            profile(server.port),
-            Some(Credential::Password {
-                password: Secret::new("isolated-ssh-password".into()),
-            }),
-        )
-        .await;
-        let blocked = execute(
-            &client,
-            Command::InstallHost {
-                profile: profile.id,
-                expected_revision: profile.revision,
-                network: None,
-            },
-        )
-        .await;
-        assert!(matches!(
-            blocked,
-            Output::SshOutcome(Outcome::HostKeyRequired { .. })
-        ));
-        assert_eq!(server.authentication.load(Ordering::SeqCst), 0);
-        let profile = trust(&client, &profile, &server.key).await;
-        let request = client.prepare(Command::InstallHost {
+    let invitation = node.link().invite().unwrap();
+    let address = controller.handle().pair(invitation.ticket()).await.unwrap();
+    let client = Client::new(controller.handle().remote(address));
+    let profile = save(
+        &client,
+        profile(server.port),
+        Some(Credential::Password {
+            password: Secret::new("isolated-ssh-password".into()),
+        }),
+    )
+    .await;
+    let blocked = execute(
+        &client,
+        Command::InstallHost {
             profile: profile.id,
             expected_revision: profile.revision,
             network: None,
-        });
-        let install = client.execute(request.clone());
-        tokio::pin!(install);
-        let mut stages = Vec::new();
-        let uid = std::process::Command::new("id").arg("-u").output().unwrap();
-        let target = format!(
-            "gui/{}/ai.sailry.host.acceptance.{}",
-            String::from_utf8_lossy(&uid.stdout).trim(),
-            directory.path().file_name().unwrap().to_str().unwrap()
-        );
-        struct Service(String);
-        impl Drop for Service {
-            fn drop(&mut self) {
-                let _ = std::process::Command::new("launchctl")
-                    .args(["bootout", &self.0])
-                    .output();
-            }
+        },
+    )
+    .await;
+    assert!(matches!(
+        blocked,
+        Output::SshOutcome(Outcome::HostKeyRequired { .. })
+    ));
+    assert_eq!(server.authentication.load(Ordering::SeqCst), 0);
+    let profile = trust(&client, &profile, &server.key).await;
+    let request = client.prepare(Command::InstallHost {
+        profile: profile.id,
+        expected_revision: profile.revision,
+        network: None,
+    });
+    let install = client.execute(request.clone());
+    tokio::pin!(install);
+    let mut stages = Vec::new();
+    let uid = std::process::Command::new("id").arg("-u").output().unwrap();
+    let target = format!(
+        "gui/{}/ai.sailry.host.acceptance.{}",
+        String::from_utf8_lossy(&uid.stdout).trim(),
+        directory.path().file_name().unwrap().to_str().unwrap()
+    );
+    struct Service(String);
+    impl Drop for Service {
+        fn drop(&mut self) {
+            let _ = std::process::Command::new("launchctl")
+                .args(["bootout", &self.0])
+                .output();
         }
-        let service = Service(target);
-        let output = tokio::time::timeout(Duration::from_secs(180), async {
-            loop {
-                tokio::select! {
-                    output = &mut install => break output.unwrap(),
-                    _ = tokio::time::sleep(Duration::from_millis(20)) => {
-                        if let Ok(Output::HostInstallProgress(progress)) = client.execute(client.prepare(Command::ReadHostInstall { request: request.id })).await { stages.push(progress); }
-                    }
+    }
+    let service = Service(target);
+    let output = tokio::time::timeout(Duration::from_secs(180), async {
+        loop {
+            tokio::select! {
+                output = &mut install => break output.unwrap(),
+                _ = tokio::time::sleep(Duration::from_millis(20)) => {
+                    if let Ok(Output::HostInstallProgress(progress)) = client.execute(client.prepare(Command::ReadHostInstall { request: request.id })).await { stages.push(progress); }
                 }
             }
-        }).await.unwrap();
-        let Output::SshOutcome(Outcome::HostInstalled { node: installed }) = output else {
-            panic!("installed host expected")
-        };
-        assert!(
-            stages
-                .iter()
-                .any(|stage| matches!(stage, ssh::InstallProgress::Installing))
-        );
-        assert!(
-            stages
-                .iter()
-                .any(|stage| matches!(stage, ssh::InstallProgress::Pairing))
-        );
-        assert!(
-            !directory
-                .path()
-                .join(".sailry-host/bootstrap.ticket")
-                .exists()
-        );
-        let address = node
-            .link()
-            .peers()
-            .await
-            .unwrap()
-            .into_iter()
-            .find(|peer| NodeId(*peer.id.as_bytes()) == installed)
-            .unwrap();
-        let host = Client::new(node.link().remote(address));
-        assert!(matches!(
-            execute(&host, Command::InspectHost).await,
-            Output::HostInfo(_)
-        ));
-        assert!(
-            !directory
-                .path()
-                .join(".local/lib/sailry/office-runtime")
-                .exists()
-        );
-        let project = directory.path().join("office-project");
-        std::fs::create_dir(&project).unwrap();
-        std::fs::copy(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("src/office/fixtures/report.docx"),
-            project.join("report.docx"),
-        )
-        .unwrap();
-        execute(
-            &host,
-            Command::RegisterProject {
-                name: "Office deployment fixture".into(),
-                path: project.to_str().unwrap().into(),
-            },
-        )
-        .await;
-        let Output::Snapshot(snapshot) = execute(&host, Command::Snapshot).await else {
-            panic!("snapshot expected")
-        };
-        let Output::OfficeContent(content) = execute(
-            &host,
-            Command::ReadOffice {
-                worktree: snapshot.worktrees[0].id,
-                options: sailry_protocol::office::Read {
-                    source: sailry_protocol::office::Source::Path("report.docx".into()),
-                    offset: 0,
-                },
-            },
-        )
+        }
+    }).await.unwrap();
+    let Output::SshOutcome(Outcome::HostInstalled { node: installed }) = output else {
+        panic!("installed host expected")
+    };
+    assert!(
+        stages
+            .iter()
+            .any(|stage| matches!(stage, ssh::InstallProgress::Installing))
+    );
+    assert!(
+        stages
+            .iter()
+            .any(|stage| matches!(stage, ssh::InstallProgress::Pairing))
+    );
+    assert!(
+        !directory
+            .path()
+            .join(".sailry-host/bootstrap.ticket")
+            .exists()
+    );
+    let address = node
+        .link()
+        .peers()
         .await
-        else {
-            panic!("native Office content expected")
-        };
-        assert!(
-            content
-                .sections
-                .iter()
-                .any(|section| section.text.contains("中文内容"))
-        );
-        assert_eq!(
-            client.execute(request).await.unwrap(),
-            Output::SshOutcome(Outcome::HostInstalled { node: installed })
-        );
-        // Durable completion prevents another download or service installation.
-        assert_eq!(
-            server
-                .commands
-                .lock()
-                .unwrap()
-                .iter()
-                .filter(|command| command.contains("releases/download/v"))
-                .count(),
-            1
-        );
-        drop(service);
-        tokio::time::sleep(Duration::from_millis(500)).await;
-        server.close().await;
-        controller.close().await.unwrap();
-        node.shutdown().await.unwrap();
-    }
+        .unwrap()
+        .into_iter()
+        .find(|peer| NodeId(*peer.id.as_bytes()) == installed)
+        .unwrap();
+    let host = Client::new(node.link().remote(address));
+    assert!(matches!(
+        execute(&host, Command::InspectHost).await,
+        Output::HostInfo(_)
+    ));
+    assert!(
+        !directory
+            .path()
+            .join(".local/lib/sailry/office-runtime")
+            .exists()
+    );
+    let project = directory.path().join("office-project");
+    std::fs::create_dir(&project).unwrap();
+    std::fs::copy(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/office/fixtures/report.docx"),
+        project.join("report.docx"),
+    )
+    .unwrap();
+    execute(
+        &host,
+        Command::RegisterProject {
+            name: "Office deployment fixture".into(),
+            path: project.to_str().unwrap().into(),
+        },
+    )
+    .await;
+    let Output::Snapshot(snapshot) = execute(&host, Command::Snapshot).await else {
+        panic!("snapshot expected")
+    };
+    let Output::OfficeContent(content) = execute(
+        &host,
+        Command::ReadOffice {
+            worktree: snapshot.worktrees[0].id,
+            options: sailry_protocol::office::Read {
+                source: sailry_protocol::office::Source::Path("report.docx".into()),
+                offset: 0,
+            },
+        },
+    )
+    .await
+    else {
+        panic!("native Office content expected")
+    };
+    assert!(
+        content
+            .sections
+            .iter()
+            .any(|section| section.text.contains("中文内容"))
+    );
+    assert_eq!(
+        client.execute(request).await.unwrap(),
+        Output::SshOutcome(Outcome::HostInstalled { node: installed })
+    );
+    // Durable completion prevents another download or service installation.
+    assert_eq!(
+        server
+            .commands
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|command| command.contains("releases/download/v"))
+            .count(),
+        1
+    );
+    drop(service);
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    server.close().await;
+    controller.close().await.unwrap();
+    node.shutdown().await.unwrap();
 }
 
 #[cfg(target_os = "macos")]
@@ -482,7 +456,7 @@ async fn preserves_uncertain_installation_outcomes() {
     use sailry_protocol::network::Selection;
     use sha2::Digest as _;
     use std::os::unix::fs::PermissionsExt;
-    for (remote, failed) in [(false, false), (true, false), (false, true), (true, true)] {
+    for failed in [false, true] {
         let directory = tempfile::tempdir().unwrap();
         downloads(directory.path());
         let node = Node::start_empty(directory.path().join("execution"))
@@ -526,11 +500,7 @@ async fn preserves_uncertain_installation_outcomes() {
                 .unwrap();
         let pairing = node.link().invite().unwrap();
         let address = controller.handle().pair(pairing.ticket()).await.unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(address)
-        } else {
-            node.local()
-        });
+        let client = Client::new(controller.handle().remote(address));
         let profile = save(
             &client,
             profile(server.port),

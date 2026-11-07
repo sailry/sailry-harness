@@ -138,134 +138,133 @@ async fn retained(
 
 #[tokio::test]
 async fn fences_retired_protected_slots() {
-    for remote in [false, true] {
-        let peer = Http::start(Reply::Normal).await;
-        let http_tool = plugin_tool("example", "request");
-        let model = Server::turn_tools(vec![
-            (alias("remote", "read"), json!({})),
-            (http_tool.clone(), json!({})),
-        ])
-        .await;
-        let fixture = process::Fixture::packages(remote, &model, &[]).await;
-        declare(&fixture, &peer.endpoint);
-        let installed = install(&fixture, 0).await;
-        assert!(installed.issues.is_empty(), "{:?}", installed.issues);
-        let Output::PluginSettings(settings) = execute(
-            &fixture.client,
-            Command::SavePluginSettings {
-                package: installed.summary.reference(),
-                values: BTreeMap::new(),
-                secrets: BTreeMap::from([
-                    (
-                        "http_token".into(),
-                        plugin::settings::SecretUpdate::Replace(Secret::new(HTTP_SECRET.into())),
-                    ),
-                    (
-                        "mcp_token".into(),
-                        plugin::settings::SecretUpdate::Replace(Secret::new(MCP_SECRET.into())),
-                    ),
-                ]),
-            },
-        )
-        .await
-        else {
-            panic!("settings expected")
-        };
-        let (_, first) = submit(&fixture, false).await;
-        complete(&fixture, first.id).await;
-        assert_eq!(peer.count("initialize"), 1);
-        assert_eq!(peer.count("tools/call"), 1);
-        {
-            let requests = peer.requests.lock().unwrap();
-            assert!(requests.iter().any(
-                |(_, headers, _)| headers.get("x-key").map(String::as_str) == Some(HTTP_SECRET)
-            ));
-            assert!(requests.iter().any(|(_, headers, _)| {
-                headers.get("authorization").map(String::as_str) == Some(MCP_SECRET)
-            }));
-        }
-        let (_, queued) = submit(&fixture, true).await;
-        assert!(queued.plugins.contains(&settings.package));
-        let original = retained(&fixture, &settings.package, queued.id).await;
-        let old: Value = serde_json::from_slice(&original.0).unwrap();
-        assert_eq!(old["slots"]["http_token"], HTTP_SECRET);
-        assert_eq!(old["slots"]["mcp_token"], MCP_SECRET);
-        let Output::Plugin(previous) = execute(
-            &fixture.client,
-            Command::ReadPlugin {
-                name: "example".into(),
-            },
-        )
-        .await
-        else {
-            panic!("plugin expected")
-        };
-        update(&fixture);
-        let installed = install(&fixture, previous.summary.revision).await;
-        assert!(installed.issues.is_empty(), "{:?}", installed.issues);
-        let Output::Connections(connections) =
-            execute(&fixture.client, Command::ListConnections).await
-        else {
-            panic!("connections expected")
-        };
-        let connection = connections
-            .into_iter()
-            .find(|row| row.package.name == "example")
-            .unwrap();
-        assert_eq!(connection.state, State::Connected);
-        execute(
-            &fixture.client,
-            Command::DisconnectConnection {
-                connection: connection.id,
-                expected_revision: connection.revision,
-            },
-        )
-        .await;
-        assert_eq!(
-            retained(&fixture, &settings.package, queued.id).await,
-            original
-        );
-        let before = peer.requests.lock().unwrap().len();
-        execute(
-            &fixture.client,
-            Command::StartQueuedTurn { turn: queued.id },
-        )
-        .await;
-        let page = complete(&fixture, queued.id).await;
-        let result = tool_details(&fixture.client, &page)
-            .await
-            .into_iter()
-            .filter(|(name, _)| name == &http_tool)
-            .map(|(_, detail)| detail.result.unwrap())
-            .next_back()
-            .unwrap();
-        assert_eq!(result["isError"], true, "{result}");
-        assert_eq!(result["error"]["code"], "not_configured", "{result}");
-        assert_eq!(
-            result["error"]["message"],
-            "plugin credential binding is no longer configured"
-        );
-        let unexpected = peer.requests.lock().unwrap()[before..]
-            .iter()
-            .map(|(method, _, body)| (method.clone(), body["method"].clone()))
-            .collect::<Vec<_>>();
+    let peer = Http::start(Reply::Normal).await;
+    let http_tool = plugin_tool("example", "request");
+    let model = Server::turn_tools(vec![
+        (alias("remote", "read"), json!({})),
+        (http_tool.clone(), json!({})),
+    ])
+    .await;
+    let fixture = process::Fixture::packages(&model, &[]).await;
+    declare(&fixture, &peer.endpoint);
+    let installed = install(&fixture, 0).await;
+    assert!(installed.issues.is_empty(), "{:?}", installed.issues);
+    let Output::PluginSettings(settings) = execute(
+        &fixture.client,
+        Command::SavePluginSettings {
+            package: installed.summary.reference(),
+            values: BTreeMap::new(),
+            secrets: BTreeMap::from([
+                (
+                    "http_token".into(),
+                    plugin::settings::SecretUpdate::Replace(Secret::new(HTTP_SECRET.into())),
+                ),
+                (
+                    "mcp_token".into(),
+                    plugin::settings::SecretUpdate::Replace(Secret::new(MCP_SECRET.into())),
+                ),
+            ]),
+        },
+    )
+    .await
+    else {
+        panic!("settings expected")
+    };
+    let (_, first) = submit(&fixture, false).await;
+    complete(&fixture, first.id).await;
+    assert_eq!(peer.count("initialize"), 1);
+    assert_eq!(peer.count("tools/call"), 1);
+    {
+        let requests = peer.requests.lock().unwrap();
         assert!(
-            unexpected.is_empty(),
-            "retired credential requests: {unexpected:?}"
+            requests.iter().any(
+                |(_, headers, _)| headers.get("x-key").map(String::as_str) == Some(HTTP_SECRET)
+            )
         );
-        assert_eq!(
-            retained(&fixture, &settings.package, queued.id).await,
-            original
-        );
-        for secret in [HTTP_SECRET, MCP_SECRET] {
-            assert!(!serde_json::to_string(&page).unwrap().contains(secret));
-            assert!(
-                !serde_json::to_string(&*model.requests.lock().unwrap())
-                    .unwrap()
-                    .contains(secret)
-            );
-        }
-        fixture.node.shutdown().await.unwrap();
-        fixture.controller.close().await.unwrap();
+        assert!(requests.iter().any(|(_, headers, _)| {
+            headers.get("authorization").map(String::as_str) == Some(MCP_SECRET)
+        }));
     }
+    let (_, queued) = submit(&fixture, true).await;
+    assert!(queued.plugins.contains(&settings.package));
+    let original = retained(&fixture, &settings.package, queued.id).await;
+    let old: Value = serde_json::from_slice(&original.0).unwrap();
+    assert_eq!(old["slots"]["http_token"], HTTP_SECRET);
+    assert_eq!(old["slots"]["mcp_token"], MCP_SECRET);
+    let Output::Plugin(previous) = execute(
+        &fixture.client,
+        Command::ReadPlugin {
+            name: "example".into(),
+        },
+    )
+    .await
+    else {
+        panic!("plugin expected")
+    };
+    update(&fixture);
+    let installed = install(&fixture, previous.summary.revision).await;
+    assert!(installed.issues.is_empty(), "{:?}", installed.issues);
+    let Output::Connections(connections) = execute(&fixture.client, Command::ListConnections).await
+    else {
+        panic!("connections expected")
+    };
+    let connection = connections
+        .into_iter()
+        .find(|row| row.package.name == "example")
+        .unwrap();
+    assert_eq!(connection.state, State::Connected);
+    execute(
+        &fixture.client,
+        Command::DisconnectConnection {
+            connection: connection.id,
+            expected_revision: connection.revision,
+        },
+    )
+    .await;
+    assert_eq!(
+        retained(&fixture, &settings.package, queued.id).await,
+        original
+    );
+    let before = peer.requests.lock().unwrap().len();
+    execute(
+        &fixture.client,
+        Command::StartQueuedTurn { turn: queued.id },
+    )
+    .await;
+    let page = complete(&fixture, queued.id).await;
+    let result = tool_details(&fixture.client, &page)
+        .await
+        .into_iter()
+        .filter(|(name, _)| name == &http_tool)
+        .map(|(_, detail)| detail.result.unwrap())
+        .next_back()
+        .unwrap();
+    assert_eq!(result["isError"], true, "{result}");
+    assert_eq!(result["error"]["code"], "not_configured", "{result}");
+    assert_eq!(
+        result["error"]["message"],
+        "plugin credential binding is no longer configured"
+    );
+    let unexpected = peer.requests.lock().unwrap()[before..]
+        .iter()
+        .map(|(method, _, body)| (method.clone(), body["method"].clone()))
+        .collect::<Vec<_>>();
+    assert!(
+        unexpected.is_empty(),
+        "retired credential requests: {unexpected:?}"
+    );
+    assert_eq!(
+        retained(&fixture, &settings.package, queued.id).await,
+        original
+    );
+    for secret in [HTTP_SECRET, MCP_SECRET] {
+        assert!(!serde_json::to_string(&page).unwrap().contains(secret));
+        assert!(
+            !serde_json::to_string(&*model.requests.lock().unwrap())
+                .unwrap()
+                .contains(secret)
+        );
+    }
+    fixture.node.shutdown().await.unwrap();
+    fixture.controller.close().await.unwrap();
 }

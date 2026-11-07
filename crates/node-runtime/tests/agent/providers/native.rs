@@ -60,21 +60,21 @@ struct Fixture {
 }
 
 impl Fixture {
-    async fn new(remote: bool, api: ModelApi, endpoint: &str) -> Self {
-        Self::start(remote, api, endpoint, true).await
+    async fn new(api: ModelApi, endpoint: &str) -> Self {
+        Self::start(api, endpoint, true).await
     }
 
-    async fn empty(remote: bool, api: ModelApi, endpoint: &str) -> Self {
-        Self::start(remote, api, endpoint, false).await
+    async fn empty(api: ModelApi, endpoint: &str) -> Self {
+        Self::start(api, endpoint, false).await
     }
 
-    async fn packages(remote: bool, api: ModelApi, endpoint: &str, packages: &[&str]) -> Self {
-        let fixture = Self::empty(remote, api, endpoint).await;
+    async fn packages(api: ModelApi, endpoint: &str, packages: &[&str]) -> Self {
+        let fixture = Self::empty(api, endpoint).await;
         crate::approvals::install(&fixture.client, packages).await;
         fixture
     }
 
-    async fn start(remote: bool, api: ModelApi, endpoint: &str, bundled: bool) -> Self {
+    async fn start(api: ModelApi, endpoint: &str, bundled: bool) -> Self {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("project");
         std::fs::create_dir(&root).unwrap();
@@ -93,11 +93,7 @@ impl Fixture {
             .pair(node.link().invite().unwrap().ticket())
             .await
             .unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(address)
-        } else {
-            node.local()
-        });
+        let client = Client::new(controller.handle().remote(address));
         let (session, provider) = Self::configure(&client, &root, api, endpoint, bundled).await;
         Self {
             directory,
@@ -202,193 +198,187 @@ impl Fixture {
 
 #[tokio::test]
 async fn compatible_aws_endpoint_uses_api_key() {
-    for remote in [false, true] {
-        for api in [ModelApi::ChatCompletions, ModelApi::Responses] {
-            let server = if api == ModelApi::Responses {
-                completion::server(vec![serde_json::json!({
-                    "type":"response.completed", "sequence_number":10,
-                    "response":{"id":"completed", "object":"response", "created_at":1,
-                        "model":"fixture-a", "status":"completed", "output":[{
-                            "type":"message", "id":"answer", "role":"assistant",
-                            "status":"completed", "content":[{
-                                "type":"output_text", "text":server::ANSWER, "annotations":[]
-                            }]
-                        }]}
-                })])
-                .await
-            } else {
-                Server::start(api, Reply::Text).await
-            };
-            let base = server.endpoint.strip_suffix("/v1").unwrap();
-            let endpoint = format!("{base}/bedrock-runtime.us-east-1.amazonaws.com/openai/v1/");
-            let fixture = Fixture::empty(remote, api, &endpoint).await;
-            assert_eq!(fixture.provider.authentication, Authentication::ApiKey);
-            assert!(fixture.provider.options.is_none());
-            let turn = fixture.submit("Read the greeting").await;
-            let page = finished(&fixture.client, fixture.session.id, turn).await;
-            assert_eq!(
-                page.runs.last().unwrap().status,
-                Status::Completed,
-                "{api:?}, remote={remote}: {:?}",
-                page.runs
-            );
-            assert!(text(&page).contains(server::ANSWER));
-            assert!(!serde_json::to_string(&page).unwrap().contains(server::KEY));
-            let requests = server.requests.lock().unwrap().clone();
-            assert_eq!(requests.len(), 1);
-            let request = &requests[0];
-            let route = if api == ModelApi::Responses {
-                "responses"
-            } else {
-                "chat/completions"
-            };
-            assert_eq!(
-                request.path,
-                format!("/bedrock-runtime.us-east-1.amazonaws.com/openai/v1/{route}")
-            );
-            assert_eq!(request.body["model"], "fixture-a");
-            assert_eq!(
-                request.headers["authorization"],
-                format!("Bearer {}", server::KEY)
-            );
-            assert!(!request.headers.contains_key("x-amz-date"));
-            assert!(!request.headers.contains_key("x-goog-api-key"));
-            fixture.controller.close().await.unwrap();
-            fixture.node.shutdown().await.unwrap();
-        }
+    for api in [ModelApi::ChatCompletions, ModelApi::Responses] {
+        let server = if api == ModelApi::Responses {
+            completion::server(vec![serde_json::json!({
+                "type":"response.completed", "sequence_number":10,
+                "response":{"id":"completed", "object":"response", "created_at":1,
+                    "model":"fixture-a", "status":"completed", "output":[{
+                        "type":"message", "id":"answer", "role":"assistant",
+                        "status":"completed", "content":[{
+                            "type":"output_text", "text":server::ANSWER, "annotations":[]
+                        }]
+                    }]}
+            })])
+            .await
+        } else {
+            Server::start(api, Reply::Text).await
+        };
+        let base = server.endpoint.strip_suffix("/v1").unwrap();
+        let endpoint = format!("{base}/bedrock-runtime.us-east-1.amazonaws.com/openai/v1/");
+        let fixture = Fixture::empty(api, &endpoint).await;
+        assert_eq!(fixture.provider.authentication, Authentication::ApiKey);
+        assert!(fixture.provider.options.is_none());
+        let turn = fixture.submit("Read the greeting").await;
+        let page = finished(&fixture.client, fixture.session.id, turn).await;
+        assert_eq!(
+            page.runs.last().unwrap().status,
+            Status::Completed,
+            "{api:?}: {:?}",
+            page.runs
+        );
+        assert!(text(&page).contains(server::ANSWER));
+        assert!(!serde_json::to_string(&page).unwrap().contains(server::KEY));
+        let requests = server.requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), 1);
+        let request = &requests[0];
+        let route = if api == ModelApi::Responses {
+            "responses"
+        } else {
+            "chat/completions"
+        };
+        assert_eq!(
+            request.path,
+            format!("/bedrock-runtime.us-east-1.amazonaws.com/openai/v1/{route}")
+        );
+        assert_eq!(request.body["model"], "fixture-a");
+        assert_eq!(
+            request.headers["authorization"],
+            format!("Bearer {}", server::KEY)
+        );
+        assert!(!request.headers.contains_key("x-amz-date"));
+        assert!(!request.headers.contains_key("x-goog-api-key"));
+        fixture.controller.close().await.unwrap();
+        fixture.node.shutdown().await.unwrap();
     }
 }
 
 #[tokio::test]
 async fn versioned_anthropic_endpoint() {
-    for remote in [false, true] {
-        let server = Server::start(ModelApi::Anthropic, Reply::Text).await;
-        let endpoint = format!("{}/gateway/v1/", server.endpoint);
-        let fixture = Fixture::empty(remote, ModelApi::Anthropic, &endpoint).await;
-        let turn = fixture.submit("Read the greeting").await;
-        let page = finished(&fixture.client, fixture.session.id, turn).await;
-        assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-        assert!(text(&page).contains(server::ANSWER));
-        fixture.controller.close().await.unwrap();
-        fixture.node.shutdown().await.unwrap();
-        let requests = server.requests.lock().unwrap();
-        assert_eq!(requests.len(), 1);
-        assert_eq!(requests[0].path, "/gateway/v1/messages");
-        assert_eq!(requests[0].headers["x-api-key"], server::KEY);
-    }
+    let server = Server::start(ModelApi::Anthropic, Reply::Text).await;
+    let endpoint = format!("{}/gateway/v1/", server.endpoint);
+    let fixture = Fixture::empty(ModelApi::Anthropic, &endpoint).await;
+    let turn = fixture.submit("Read the greeting").await;
+    let page = finished(&fixture.client, fixture.session.id, turn).await;
+    assert_eq!(page.runs.last().unwrap().status, Status::Completed);
+    assert!(text(&page).contains(server::ANSWER));
+    fixture.controller.close().await.unwrap();
+    fixture.node.shutdown().await.unwrap();
+    let requests = server.requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].path, "/gateway/v1/messages");
+    assert_eq!(requests[0].headers["x-api-key"], server::KEY);
 }
 
 #[tokio::test]
 async fn restores_authenticated_history() {
     for api in [ModelApi::Anthropic, ModelApi::Gemini, ModelApi::DeepSeek] {
-        for remote in [false, true] {
-            let server = Server::start(api, Reply::Text).await;
-            let fixture = Fixture::empty(remote, api, &server.endpoint).await;
-            let turn = fixture.submit("第一条 🙂").await;
-            let page = finished(&fixture.client, fixture.session.id, turn).await;
-            assert_eq!(
-                page.runs.last().unwrap().status,
-                Status::Completed,
-                "{:?}",
-                page.runs
-            );
-            assert!(text(&page).contains(server::ANSWER));
-            let Output::QueuedTurn(queued) = execute(
-                &fixture.client,
-                Command::QueueTurn {
-                    session: fixture.session.id,
-                    expected_revision: fixture.session.revision,
-                    message: "第二条 🙂".into(),
-                },
-            )
-            .await
-            else {
-                panic!("turn expected")
-            };
-            let mut changed = fixture.provider.clone();
-            changed.endpoint = "http://127.0.0.1:9/changed".into();
-            changed.models[0].output = 16;
-            changed.models[0]
-                .capabilities
-                .get_or_insert_with(Default::default)
-                .reasoning = Some(false);
-            execute(
-                &fixture.client,
-                Command::PutProvider {
-                    expected_revision: changed.revision,
-                    provider: changed,
-                },
-            )
-            .await;
-            fixture.controller.close().await.unwrap();
-            let client = Client::new(fixture.node.local());
-            execute(&client, Command::StartQueuedTurn { turn: queued.id }).await;
-            let page = finished(&client, fixture.session.id, queued.id).await;
-            assert_eq!(
-                page.runs.last().unwrap().status,
-                Status::Completed,
-                "{:?}",
-                page.runs
-            );
-            assert!(!serde_json::to_string(&page).unwrap().contains(server::KEY));
-            {
-                let requests = server.requests.lock().unwrap();
-                assert_eq!(requests.len(), 2);
-                for request in requests.iter() {
-                    match api {
-                        ModelApi::DeepSeek => {
-                            assert_eq!(request.path, "/v1/chat/completions");
-                            assert_eq!(
-                                request.headers["authorization"],
-                                format!("Bearer {}", server::KEY)
-                            );
-                            assert_eq!(request.body["model"], "fixture-a");
-                            assert_eq!(request.body["max_tokens"], 512);
-                            assert_eq!(
-                                request.body["thinking"],
-                                serde_json::json!({"type":"enabled"})
-                            );
-                            assert_eq!(request.body["reasoning_effort"], "high");
-                        }
-                        ModelApi::Anthropic => {
-                            assert_eq!(request.path, "/v1/messages");
-                            assert_eq!(request.headers.get("x-api-key").unwrap(), server::KEY);
-                            assert_eq!(request.body["model"], "fixture-a");
-                            assert_eq!(request.body["max_tokens"], 512);
-                            assert!(request.body.get("thinking").is_none());
-                            assert!(request.body.get("output_config").is_none());
-                        }
-                        ModelApi::Gemini => {
-                            assert_eq!(
-                                request.path,
-                                "/v1beta/models/fixture-a:streamGenerateContent?alt=sse"
-                            );
-                            assert_eq!(request.headers.get("x-goog-api-key").unwrap(), server::KEY);
-                            assert_eq!(request.body["generationConfig"]["maxOutputTokens"], 512);
-                            assert!(request.body["generationConfig"]["thinkingConfig"].is_null());
-                        }
-                        _ => unreachable!(),
+        let server = Server::start(api, Reply::Text).await;
+        let fixture = Fixture::empty(api, &server.endpoint).await;
+        let turn = fixture.submit("第一条 🙂").await;
+        let page = finished(&fixture.client, fixture.session.id, turn).await;
+        assert_eq!(
+            page.runs.last().unwrap().status,
+            Status::Completed,
+            "{:?}",
+            page.runs
+        );
+        assert!(text(&page).contains(server::ANSWER));
+        let Output::QueuedTurn(queued) = execute(
+            &fixture.client,
+            Command::QueueTurn {
+                session: fixture.session.id,
+                expected_revision: fixture.session.revision,
+                message: "第二条 🙂".into(),
+            },
+        )
+        .await
+        else {
+            panic!("turn expected")
+        };
+        let mut changed = fixture.provider.clone();
+        changed.endpoint = "http://127.0.0.1:9/changed".into();
+        changed.models[0].output = 16;
+        changed.models[0]
+            .capabilities
+            .get_or_insert_with(Default::default)
+            .reasoning = Some(false);
+        execute(
+            &fixture.client,
+            Command::PutProvider {
+                expected_revision: changed.revision,
+                provider: changed,
+            },
+        )
+        .await;
+        fixture.controller.close().await.unwrap();
+        let client = Client::new(fixture.node.local());
+        execute(&client, Command::StartQueuedTurn { turn: queued.id }).await;
+        let page = finished(&client, fixture.session.id, queued.id).await;
+        assert_eq!(
+            page.runs.last().unwrap().status,
+            Status::Completed,
+            "{:?}",
+            page.runs
+        );
+        assert!(!serde_json::to_string(&page).unwrap().contains(server::KEY));
+        {
+            let requests = server.requests.lock().unwrap();
+            assert_eq!(requests.len(), 2);
+            for request in requests.iter() {
+                match api {
+                    ModelApi::DeepSeek => {
+                        assert_eq!(request.path, "/v1/chat/completions");
+                        assert_eq!(
+                            request.headers["authorization"],
+                            format!("Bearer {}", server::KEY)
+                        );
+                        assert_eq!(request.body["model"], "fixture-a");
+                        assert_eq!(request.body["max_tokens"], 512);
+                        assert_eq!(
+                            request.body["thinking"],
+                            serde_json::json!({"type":"enabled"})
+                        );
+                        assert_eq!(request.body["reasoning_effort"], "high");
                     }
-                    assert!(!request.body.to_string().contains(server::KEY));
+                    ModelApi::Anthropic => {
+                        assert_eq!(request.path, "/v1/messages");
+                        assert_eq!(request.headers.get("x-api-key").unwrap(), server::KEY);
+                        assert_eq!(request.body["model"], "fixture-a");
+                        assert_eq!(request.body["max_tokens"], 512);
+                        assert!(request.body.get("thinking").is_none());
+                        assert!(request.body.get("output_config").is_none());
+                    }
+                    ModelApi::Gemini => {
+                        assert_eq!(
+                            request.path,
+                            "/v1beta/models/fixture-a:streamGenerateContent?alt=sse"
+                        );
+                        assert_eq!(request.headers.get("x-goog-api-key").unwrap(), server::KEY);
+                        assert_eq!(request.body["generationConfig"]["maxOutputTokens"], 512);
+                        assert!(request.body["generationConfig"]["thinkingConfig"].is_null());
+                    }
+                    _ => unreachable!(),
                 }
-                let second = requests[1].body.to_string();
-                assert!(
-                    second.contains("第一条 🙂")
-                        && second.contains(server::ANSWER)
-                        && second.contains("第二条 🙂")
-                );
+                assert!(!request.body.to_string().contains(server::KEY));
             }
-            let profile = fixture.node.profile().to_owned();
-            fixture.node.shutdown().await.unwrap();
-            let node = Node::start_empty(profile).await.unwrap();
-            assert_eq!(
-                history(&Client::new(node.local()), fixture.session.id).await,
-                page
+            let second = requests[1].body.to_string();
+            assert!(
+                second.contains("第一条 🙂")
+                    && second.contains(server::ANSWER)
+                    && second.contains("第二条 🙂")
             );
-            assert_eq!(server.requests.lock().unwrap().len(), 2);
-            node.shutdown().await.unwrap();
-            drop(fixture.directory);
         }
+        let profile = fixture.node.profile().to_owned();
+        fixture.node.shutdown().await.unwrap();
+        let node = Node::start_empty(profile).await.unwrap();
+        assert_eq!(
+            history(&Client::new(node.local()), fixture.session.id).await,
+            page
+        );
+        assert_eq!(server.requests.lock().unwrap().len(), 2);
+        node.shutdown().await.unwrap();
+        drop(fixture.directory);
     }
 }
 
@@ -401,154 +391,144 @@ async fn executes_tools_with_history() {
         ModelApi::ChatCompletions,
         ModelApi::Responses,
     ] {
-        for remote in [false, true] {
-            let server = Server::start(api, Reply::Tool).await;
-            let fixture = Fixture::packages(remote, api, &server.endpoint, &["files"]).await;
-            std::fs::write(fixture.root.join("native.txt"), "工具内容 🙂").unwrap();
-            let turn = fixture.submit("Read native.txt").await;
-            let page = finished(&fixture.client, fixture.session.id, turn).await;
-            assert_eq!(
-                page.runs.last().unwrap().status,
-                Status::Completed,
-                "{:?}",
-                page.runs
-            );
-            assert!(text(&page).contains(server::ANSWER));
+        let server = Server::start(api, Reply::Tool).await;
+        let fixture = Fixture::packages(api, &server.endpoint, &["files"]).await;
+        std::fs::write(fixture.root.join("native.txt"), "工具内容 🙂").unwrap();
+        let turn = fixture.submit("Read native.txt").await;
+        let page = finished(&fixture.client, fixture.session.id, turn).await;
+        assert_eq!(
+            page.runs.last().unwrap().status,
+            Status::Completed,
+            "{:?}",
+            page.runs
+        );
+        assert!(text(&page).contains(server::ANSWER));
+        assert!(
+            page.entries
+                .iter()
+                .flat_map(|entry| &entry.parts)
+                .any(|part| matches!(part, Part::ToolResult { .. }))
+        );
+        let requests = server.requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), 2);
+        assert!(requests[0].body.to_string().contains("read_file"));
+        assert!(requests[1].body.to_string().contains("工具内容 🙂"));
+        if matches!(api, ModelApi::DeepSeek | ModelApi::ChatCompletions) {
+            let assistant = requests[1].body["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|message| message["role"] == "assistant")
+                .unwrap();
+            assert!(assistant["content"].is_null());
+            assert!(!assistant["tool_calls"].as_array().unwrap().is_empty());
+            assert_eq!(assistant["reasoning_content"], "Inspect the file 🙂");
+        }
+        let statistics = crate::observations::statistics(&fixture.client, fixture.session.id).await;
+        let observed = &statistics.observations;
+        assert_eq!(observed.calls, 2);
+        let attempt = observed.recent.last().unwrap().attempts.last().unwrap();
+        use sailry_protocol::conversation::observation::CategoryKind;
+        for kind in [
+            CategoryKind::System,
+            CategoryKind::Tools,
+            CategoryKind::User,
+            CategoryKind::Injected,
+            CategoryKind::Assistant,
+            CategoryKind::Results,
+        ] {
             assert!(
-                page.entries
-                    .iter()
-                    .flat_map(|entry| &entry.parts)
-                    .any(|part| matches!(part, Part::ToolResult { .. }))
-            );
-            let requests = server.requests.lock().unwrap().clone();
-            assert_eq!(requests.len(), 2);
-            assert!(requests[0].body.to_string().contains("read_file"));
-            assert!(requests[1].body.to_string().contains("工具内容 🙂"));
-            if matches!(api, ModelApi::DeepSeek | ModelApi::ChatCompletions) {
-                let assistant = requests[1].body["messages"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .find(|message| message["role"] == "assistant")
-                    .unwrap();
-                assert!(assistant["content"].is_null());
-                assert!(!assistant["tool_calls"].as_array().unwrap().is_empty());
-                assert_eq!(assistant["reasoning_content"], "Inspect the file 🙂");
-            }
-            let statistics =
-                crate::observations::statistics(&fixture.client, fixture.session.id).await;
-            let observed = &statistics.observations;
-            assert_eq!(observed.calls, 2);
-            let attempt = observed.recent.last().unwrap().attempts.last().unwrap();
-            use sailry_protocol::conversation::observation::CategoryKind;
-            for kind in [
-                CategoryKind::System,
-                CategoryKind::Tools,
-                CategoryKind::User,
-                CategoryKind::Injected,
-                CategoryKind::Assistant,
-                CategoryKind::Results,
-            ] {
-                assert!(
-                    attempt
-                        .categories
-                        .iter()
-                        .find(|row| row.kind == kind)
-                        .unwrap()
-                        .tokens
-                        .unwrap()
-                        > 0,
-                    "{api:?}: {kind:?}"
-                );
-            }
-            assert_eq!(
                 attempt
                     .categories
                     .iter()
-                    .find(|row| row.kind == CategoryKind::Skills)
+                    .find(|row| row.kind == kind)
                     .unwrap()
-                    .tokens,
-                Some(0)
+                    .tokens
+                    .unwrap()
+                    > 0,
+                "{api:?}: {kind:?}"
             );
-            assert!(attempt.complete_context);
-            assert!(
-                !attempt.reasoning_reported,
-                "native GDK usage does not retain this field"
-            );
-            assert_eq!(attempt.status, None);
-            assert_eq!(attempt.headers_us, None);
-            assert_eq!(attempt.response_us, None);
-            let wire = serde_json::to_string(observed).unwrap();
-            assert!(!wire.contains(server::KEY));
-            assert!(!wire.contains("工具内容"));
-            let profile = fixture.node.profile().to_owned();
-            fixture.controller.close().await.unwrap();
-            fixture.node.shutdown().await.unwrap();
-            let node = Node::start_empty(profile).await.unwrap();
-            assert_eq!(
-                crate::observations::statistics(&Client::new(node.local()), fixture.session.id)
-                    .await,
-                statistics
-            );
-            assert_eq!(server.requests.lock().unwrap().len(), 2);
-            node.shutdown().await.unwrap();
         }
+        assert_eq!(
+            attempt
+                .categories
+                .iter()
+                .find(|row| row.kind == CategoryKind::Skills)
+                .unwrap()
+                .tokens,
+            Some(0)
+        );
+        assert!(attempt.complete_context);
+        assert!(
+            !attempt.reasoning_reported,
+            "native GDK usage does not retain this field"
+        );
+        assert_eq!(attempt.status, None);
+        assert_eq!(attempt.headers_us, None);
+        assert_eq!(attempt.response_us, None);
+        let wire = serde_json::to_string(observed).unwrap();
+        assert!(!wire.contains(server::KEY));
+        assert!(!wire.contains("工具内容"));
+        let profile = fixture.node.profile().to_owned();
+        fixture.controller.close().await.unwrap();
+        fixture.node.shutdown().await.unwrap();
+        let node = Node::start_empty(profile).await.unwrap();
+        assert_eq!(
+            crate::observations::statistics(&Client::new(node.local()), fixture.session.id).await,
+            statistics
+        );
+        assert_eq!(server.requests.lock().unwrap().len(), 2);
+        node.shutdown().await.unwrap();
     }
 }
 
 #[tokio::test]
 async fn bounds_transient_failure_retries() {
-    for remote in [false, true] {
-        let mut fixture = Fixture::empty(remote, ModelApi::Responses, "http://127.0.0.1:9").await;
-        for (api, stream_retries) in [
-            (ModelApi::Anthropic, None),
-            (ModelApi::Gemini, None),
-            (ModelApi::DeepSeek, None),
-            (ModelApi::AzureOpenAi, Some(5)),
-            (ModelApi::AzureAi, Some(5)),
-        ] {
-            let server = Server::start(api, Reply::Failure).await;
-            fixture
-                .select("transient-failure", api, &server.endpoint)
-                .await;
-            let mut provider = fixture.provider.clone();
-            provider.request_max_retries = None;
-            provider.stream_max_retries = stream_retries;
-            execute(
-                &fixture.client,
-                Command::PutProvider {
-                    expected_revision: provider.revision,
-                    provider,
-                },
-            )
+    let mut fixture = Fixture::empty(ModelApi::Responses, "http://127.0.0.1:9").await;
+    for (api, stream_retries) in [
+        (ModelApi::Anthropic, None),
+        (ModelApi::Gemini, None),
+        (ModelApi::DeepSeek, None),
+        (ModelApi::AzureOpenAi, Some(5)),
+        (ModelApi::AzureAi, Some(5)),
+    ] {
+        let server = Server::start(api, Reply::Failure).await;
+        fixture
+            .select("transient-failure", api, &server.endpoint)
             .await;
-            let turn = fixture.submit("failure fixture").await;
-            let page = finished_within(
-                &fixture.client,
-                fixture.session.id,
-                turn,
-                retry_fixture::budget(),
-            )
-            .await;
-            assert_eq!(
-                page.runs.last().unwrap().status,
-                Status::Failed,
-                "{api:?}, remote={remote}: {:?}",
-                page.runs
-            );
-            assert_eq!(
-                server.requests.lock().unwrap().len(),
-                6,
-                "{api:?}, remote={remote}"
-            );
-            assert!(
-                !serde_json::to_string(&page).unwrap().contains(server::KEY),
-                "{api:?}, remote={remote}"
-            );
-        }
-        fixture.controller.close().await.unwrap();
-        fixture.node.shutdown().await.unwrap();
+        let mut provider = fixture.provider.clone();
+        provider.request_max_retries = None;
+        provider.stream_max_retries = stream_retries;
+        execute(
+            &fixture.client,
+            Command::PutProvider {
+                expected_revision: provider.revision,
+                provider,
+            },
+        )
+        .await;
+        let turn = fixture.submit("failure fixture").await;
+        let page = finished_within(
+            &fixture.client,
+            fixture.session.id,
+            turn,
+            retry_fixture::budget(),
+        )
+        .await;
+        assert_eq!(
+            page.runs.last().unwrap().status,
+            Status::Failed,
+            "{api:?}: {:?}",
+            page.runs
+        );
+        assert_eq!(server.requests.lock().unwrap().len(), 6, "{api:?}");
+        assert!(
+            !serde_json::to_string(&page).unwrap().contains(server::KEY),
+            "{api:?}"
+        );
     }
+    fixture.controller.close().await.unwrap();
+    fixture.node.shutdown().await.unwrap();
 }
 
 async fn execute(client: &Client, command: Command) -> Output {
@@ -558,107 +538,99 @@ async fn execute(client: &Client, command: Command) -> Output {
 #[tokio::test]
 async fn cancels_active_requests() {
     for api in [ModelApi::Anthropic, ModelApi::Gemini, ModelApi::DeepSeek] {
-        for remote in [false, true] {
-            let closed = Arc::new(tokio::sync::Notify::new());
-            let server = Server::start(api, Reply::Wait(closed.clone())).await;
-            let fixture = Fixture::empty(remote, api, &server.endpoint).await;
-            let turn = fixture.submit("cancellation fixture").await;
-            tokio::time::timeout(Duration::from_secs(10), async {
-                while server.requests.lock().unwrap().is_empty() {
-                    tokio::time::sleep(Duration::from_millis(10)).await;
-                }
-            })
+        let closed = Arc::new(tokio::sync::Notify::new());
+        let server = Server::start(api, Reply::Wait(closed.clone())).await;
+        let fixture = Fixture::empty(api, &server.endpoint).await;
+        let turn = fixture.submit("cancellation fixture").await;
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while server.requests.lock().unwrap().is_empty() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        execute(&fixture.client, Command::StopTurn { turn }).await;
+        let page = finished(&fixture.client, fixture.session.id, turn).await;
+        assert_eq!(page.runs.last().unwrap().status, Status::Cancelled);
+        tokio::time::timeout(Duration::from_secs(10), closed.notified())
             .await
             .unwrap();
-            execute(&fixture.client, Command::StopTurn { turn }).await;
-            let page = finished(&fixture.client, fixture.session.id, turn).await;
-            assert_eq!(page.runs.last().unwrap().status, Status::Cancelled);
-            tokio::time::timeout(Duration::from_secs(10), closed.notified())
-                .await
-                .unwrap();
-            assert_eq!(server.requests.lock().unwrap().len(), 1);
-            fixture.controller.close().await.unwrap();
-            fixture.node.shutdown().await.unwrap();
-        }
-    }
-}
-
-#[tokio::test]
-async fn rejects_unsupported_effort() {
-    for remote in [false, true] {
-        let server = Server::start(ModelApi::Gemini, Reply::Text).await;
-        let mut fixture = Fixture::empty(remote, ModelApi::Gemini, &server.endpoint).await;
-        let mut provider = fixture.provider.clone();
-        provider.models[0].efforts.push(Effort::Max);
-        assert_eq!(
-            fixture
-                .client
-                .execute(fixture.client.prepare(Command::PutProvider {
-                    expected_revision: provider.revision,
-                    provider,
-                }))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::InvalidRequest
-        );
-        fixture.session.config.effort = Effort::Max;
-        let request = fixture.client.prepare(Command::SetSessionConfig {
-            session: fixture.session.id,
-            expected_revision: fixture.session.revision,
-            config: fixture.session.config.clone(),
-        });
-        assert_eq!(
-            fixture.client.execute(request).await.unwrap_err().code,
-            ErrorCode::InvalidRequest
-        );
-        assert!(server.requests.lock().unwrap().is_empty());
+        assert_eq!(server.requests.lock().unwrap().len(), 1);
         fixture.controller.close().await.unwrap();
         fixture.node.shutdown().await.unwrap();
     }
 }
 
 #[tokio::test]
+async fn rejects_unsupported_effort() {
+    let server = Server::start(ModelApi::Gemini, Reply::Text).await;
+    let mut fixture = Fixture::empty(ModelApi::Gemini, &server.endpoint).await;
+    let mut provider = fixture.provider.clone();
+    provider.models[0].efforts.push(Effort::Max);
+    assert_eq!(
+        fixture
+            .client
+            .execute(fixture.client.prepare(Command::PutProvider {
+                expected_revision: provider.revision,
+                provider,
+            }))
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidRequest
+    );
+    fixture.session.config.effort = Effort::Max;
+    let request = fixture.client.prepare(Command::SetSessionConfig {
+        session: fixture.session.id,
+        expected_revision: fixture.session.revision,
+        config: fixture.session.config.clone(),
+    });
+    assert_eq!(
+        fixture.client.execute(request).await.unwrap_err().code,
+        ErrorCode::InvalidRequest
+    );
+    assert!(server.requests.lock().unwrap().is_empty());
+    fixture.controller.close().await.unwrap();
+    fixture.node.shutdown().await.unwrap();
+}
+
+#[tokio::test]
 async fn confines_credentials() {
     for api in [ModelApi::Anthropic, ModelApi::Gemini, ModelApi::DeepSeek] {
-        for remote in [false, true] {
-            let target = Server::start(api, Reply::Text).await;
-            let origin = Server::start(api, Reply::Redirect(target.endpoint.clone())).await;
-            let fixture = Fixture::empty(remote, api, &origin.endpoint).await;
-            let turn = fixture.submit("redirect fixture").await;
-            let page = finished(&fixture.client, fixture.session.id, turn).await;
-            assert!(
-                target.requests.lock().unwrap().is_empty(),
-                "{api:?} forwarded a credential to another origin"
-            );
-            assert_eq!(page.runs.last().unwrap().status, Status::Failed);
-            fixture.controller.close().await.unwrap();
-            fixture.node.shutdown().await.unwrap();
-        }
+        let target = Server::start(api, Reply::Text).await;
+        let origin = Server::start(api, Reply::Redirect(target.endpoint.clone())).await;
+        let fixture = Fixture::empty(api, &origin.endpoint).await;
+        let turn = fixture.submit("redirect fixture").await;
+        let page = finished(&fixture.client, fixture.session.id, turn).await;
+        assert!(
+            target.requests.lock().unwrap().is_empty(),
+            "{api:?} forwarded a credential to another origin"
+        );
+        assert_eq!(page.runs.last().unwrap().status, Status::Failed);
+        fixture.controller.close().await.unwrap();
+        fixture.node.shutdown().await.unwrap();
     }
 }
 
 #[tokio::test]
 async fn streams_fragmented_unicode() {
     for api in [ModelApi::Anthropic, ModelApi::Gemini, ModelApi::DeepSeek] {
-        for remote in [false, true] {
-            let server = Server::start(api, Reply::Text).await;
-            let fixture = Fixture::empty(remote, api, &server.endpoint).await;
-            let turn = fixture.submit("hello").await;
-            let page = finished(&fixture.client, fixture.session.id, turn).await;
-            assert_eq!(
-                page.runs.last().unwrap().status,
-                Status::Completed,
-                "{api:?}"
-            );
-            assert!(
-                text(&page).contains(server::ANSWER),
-                "{api:?}: {}",
-                text(&page)
-            );
-            assert_eq!(server.requests.lock().unwrap().len(), 1);
-            fixture.controller.close().await.unwrap();
-            fixture.node.shutdown().await.unwrap();
-        }
+        let server = Server::start(api, Reply::Text).await;
+        let fixture = Fixture::empty(api, &server.endpoint).await;
+        let turn = fixture.submit("hello").await;
+        let page = finished(&fixture.client, fixture.session.id, turn).await;
+        assert_eq!(
+            page.runs.last().unwrap().status,
+            Status::Completed,
+            "{api:?}"
+        );
+        assert!(
+            text(&page).contains(server::ANSWER),
+            "{api:?}: {}",
+            text(&page)
+        );
+        assert_eq!(server.requests.lock().unwrap().len(), 1);
+        fixture.controller.close().await.unwrap();
+        fixture.node.shutdown().await.unwrap();
     }
 }

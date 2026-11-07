@@ -1,10 +1,6 @@
 use super::*;
 
-async fn requests_encrypted_reasoning_by_capability(
-    fixture: &mut Fixture,
-    remote: bool,
-    case_name: &str,
-) {
+async fn requests_encrypted_reasoning_by_capability(fixture: &mut Fixture, case_name: &str) {
     for (known, catalog, effort, model, include) in [
         (Some(false), false, Effort::Default, "gpt-6-fixture", false),
         (None, false, Effort::Default, "gpt-4o", false),
@@ -74,10 +70,7 @@ async fn requests_encrypted_reasoning_by_capability(
             page.runs.last().unwrap().status,
             Status::Completed,
             "{case_name}: {}",
-            format_args!(
-                "remote={remote}, known={known:?}, effort={effort:?}: {:?}",
-                page.runs
-            )
+            format_args!("known={known:?}, effort={effort:?}: {:?}", page.runs)
         );
         {
             let requests = server.requests.lock().unwrap();
@@ -97,7 +90,7 @@ async fn requests_encrypted_reasoning_by_capability(
     }
 }
 
-async fn attempts_explicit_unknown_effort(fixture: &mut Fixture, _remote: bool, case_name: &str) {
+async fn attempts_explicit_unknown_effort(fixture: &mut Fixture, case_name: &str) {
     for api in [ModelApi::ChatCompletions, ModelApi::Responses] {
         let server = crate::agent_support::Server::start(false).await;
         fixture
@@ -148,7 +141,7 @@ async fn attempts_explicit_unknown_effort(fixture: &mut Fixture, _remote: bool, 
     }
 }
 
-async fn accepts_unannotated_responses(fixture: &mut Fixture, _remote: bool, case_name: &str) {
+async fn accepts_unannotated_responses(fixture: &mut Fixture, case_name: &str) {
     // Compatible providers can omit annotations even when authenticated with an API key.
     let item = serde_json::json!({"type":"message", "id":"message-fixture", "role":"assistant", "status":"completed",
         "content":[{"type":"output_text", "text":"Compatible response"}]});
@@ -211,7 +204,7 @@ async fn accepts_unannotated_responses(fixture: &mut Fixture, _remote: bool, cas
     }
 }
 
-async fn preserves_openai_effort(fixture: &mut Fixture, _remote: bool, case_name: &str) {
+async fn preserves_openai_effort(fixture: &mut Fixture, case_name: &str) {
     for api in [ModelApi::ChatCompletions, ModelApi::Responses] {
         let server = crate::agent_support::Server::start(false).await;
         fixture
@@ -346,219 +339,213 @@ async fn restores_native_choices() {
             vec![Effort::Default, Effort::Disabled, Effort::High, Effort::Max],
         ),
     ] {
-        for remote in [false, true] {
-            let server = Server::start(api, Reply::Text).await;
-            let mut fixture = Fixture::empty(remote, api, &server.endpoint).await;
-            fixture.provider.models[0].id = model.into();
-            fixture.provider.default_model = model.into();
-            fixture.provider.models[0].context = 16384;
-            fixture.provider.models[0].output = 8192;
-            fixture.provider.models[0].efforts = choices.clone();
-            fixture.provider.models[0].default_effort = default;
-            if api == ModelApi::Gemini {
-                for effort in [Effort::Minimal, Effort::Budget(-1)] {
-                    let mut unsupported = fixture.provider.clone();
-                    unsupported.models[0].efforts = vec![effort];
-                    unsupported.models[0].default_effort = effort;
-                    let request = fixture.client.prepare(Command::PutProvider {
-                        expected_revision: unsupported.revision,
-                        provider: unsupported,
-                    });
-                    assert_eq!(
-                        fixture.client.execute(request).await.unwrap_err().code,
-                        ErrorCode::InvalidRequest
-                    );
-                }
+        let server = Server::start(api, Reply::Text).await;
+        let mut fixture = Fixture::empty(api, &server.endpoint).await;
+        fixture.provider.models[0].id = model.into();
+        fixture.provider.default_model = model.into();
+        fixture.provider.models[0].context = 16384;
+        fixture.provider.models[0].output = 8192;
+        fixture.provider.models[0].efforts = choices.clone();
+        fixture.provider.models[0].default_effort = default;
+        if api == ModelApi::Gemini {
+            for effort in [Effort::Minimal, Effort::Budget(-1)] {
+                let mut unsupported = fixture.provider.clone();
+                unsupported.models[0].efforts = vec![effort];
+                unsupported.models[0].default_effort = effort;
+                let request = fixture.client.prepare(Command::PutProvider {
+                    expected_revision: unsupported.revision,
+                    provider: unsupported,
+                });
+                assert_eq!(
+                    fixture.client.execute(request).await.unwrap_err().code,
+                    ErrorCode::InvalidRequest
+                );
             }
-            let Output::Provider(provider) = execute(
+        }
+        let Output::Provider(provider) = execute(
+            &fixture.client,
+            Command::PutProvider {
+                expected_revision: fixture.provider.revision,
+                provider: fixture.provider.clone(),
+            },
+        )
+        .await
+        else {
+            panic!("provider expected")
+        };
+        let mut turns = Vec::new();
+        for &effort in &choices {
+            let mut config = fixture.session.config.clone();
+            config.model = model.into();
+            config.effort = effort;
+            let Output::Session(session) = execute(
                 &fixture.client,
-                Command::PutProvider {
-                    expected_revision: fixture.provider.revision,
-                    provider: fixture.provider.clone(),
+                Command::SetSessionConfig {
+                    session: fixture.session.id,
+                    expected_revision: fixture.session.revision,
+                    config,
                 },
             )
             .await
             else {
-                panic!("provider expected")
+                panic!("session expected")
             };
-            let mut turns = Vec::new();
-            for &effort in &choices {
-                let mut config = fixture.session.config.clone();
-                config.model = model.into();
-                config.effort = effort;
-                let Output::Session(session) = execute(
-                    &fixture.client,
-                    Command::SetSessionConfig {
-                        session: fixture.session.id,
-                        expected_revision: fixture.session.revision,
-                        config,
-                    },
-                )
-                .await
-                else {
-                    panic!("session expected")
-                };
-                fixture.session = session;
-                let Output::QueuedTurn(turn) = execute(
-                    &fixture.client,
-                    Command::QueueTurn {
-                        session: fixture.session.id,
-                        expected_revision: fixture.session.revision,
-                        message: "reasoning fixture".into(),
-                    },
-                )
-                .await
-                else {
-                    panic!("turn expected")
-                };
-                assert_eq!(turn.config.effort, effort);
-                turns.push(turn);
-            }
-            assert!(server.requests.lock().unwrap().is_empty());
-            let mut changed = provider;
-            changed.endpoint = "http://127.0.0.1:9/changed".into();
-            changed.models[0].reasoning = false;
-            changed.models[0]
-                .capabilities
-                .get_or_insert_with(Default::default)
-                .reasoning = Some(false);
-            changed.models[0].efforts.clear();
-            changed.models[0].default_effort = Effort::Default;
-            execute(
+            fixture.session = session;
+            let Output::QueuedTurn(turn) = execute(
                 &fixture.client,
-                Command::PutProvider {
-                    expected_revision: changed.revision,
-                    provider: changed,
+                Command::QueueTurn {
+                    session: fixture.session.id,
+                    expected_revision: fixture.session.revision,
+                    message: "reasoning fixture".into(),
                 },
-            )
-            .await;
-            fixture.controller.close().await.unwrap();
-            fixture.node.shutdown().await.unwrap();
-            let node = Node::start_empty(fixture.directory.path().join("node"))
-                .await
-                .unwrap();
-            let controller = Link::controller(
-                fixture.directory.path().join("resumed"),
-                NetworkScope::default(),
             )
             .await
+            else {
+                panic!("turn expected")
+            };
+            assert_eq!(turn.config.effort, effort);
+            turns.push(turn);
+        }
+        assert!(server.requests.lock().unwrap().is_empty());
+        let mut changed = provider;
+        changed.endpoint = "http://127.0.0.1:9/changed".into();
+        changed.models[0].reasoning = false;
+        changed.models[0]
+            .capabilities
+            .get_or_insert_with(Default::default)
+            .reasoning = Some(false);
+        changed.models[0].efforts.clear();
+        changed.models[0].default_effort = Effort::Default;
+        execute(
+            &fixture.client,
+            Command::PutProvider {
+                expected_revision: changed.revision,
+                provider: changed,
+            },
+        )
+        .await;
+        fixture.controller.close().await.unwrap();
+        fixture.node.shutdown().await.unwrap();
+        let node = Node::start_empty(fixture.directory.path().join("node"))
+            .await
             .unwrap();
-            let invitation = node.link().invite().unwrap();
-            let address = controller.handle().pair(invitation.ticket()).await.unwrap();
-            let client = Client::new(if remote {
-                controller.handle().remote(address)
+        let controller = Link::controller(
+            fixture.directory.path().join("resumed"),
+            NetworkScope::default(),
+        )
+        .await
+        .unwrap();
+        let invitation = node.link().invite().unwrap();
+        let address = controller.handle().pair(invitation.ticket()).await.unwrap();
+        let client = Client::new(controller.handle().remote(address));
+        let queue = history(&client, fixture.session.id).await.queue;
+        assert!(queue.paused);
+        execute(
+            &client,
+            Command::SetQueuePaused {
+                session: fixture.session.id,
+                expected_revision: queue.revision,
+                paused: false,
+            },
+        )
+        .await;
+        for turn in turns {
+            execute(&client, Command::StartQueuedTurn { turn: turn.id }).await;
+            let page = finished(&client, turn.session, turn.id).await;
+            assert_eq!(
+                page.runs
+                    .iter()
+                    .find(|run| run.turn == turn.id)
+                    .unwrap()
+                    .status,
+                Status::Completed,
+                "{:?}",
+                page.runs
+            );
+        }
+        let requests = server.requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), choices.len());
+        for (request, &effort) in requests.iter().zip(&choices) {
+            let effort = if effort == Effort::Default {
+                fixture.provider.models[0].default_effort
             } else {
-                node.local()
-            });
-            let queue = history(&client, fixture.session.id).await.queue;
-            assert!(queue.paused);
-            execute(
-                &client,
-                Command::SetQueuePaused {
-                    session: fixture.session.id,
-                    expected_revision: queue.revision,
-                    paused: false,
-                },
-            )
-            .await;
-            for turn in turns {
-                execute(&client, Command::StartQueuedTurn { turn: turn.id }).await;
-                let page = finished(&client, turn.session, turn.id).await;
-                assert_eq!(
-                    page.runs
-                        .iter()
-                        .find(|run| run.turn == turn.id)
-                        .unwrap()
-                        .status,
-                    Status::Completed,
-                    "{:?}",
-                    page.runs
-                );
-            }
-            let requests = server.requests.lock().unwrap().clone();
-            assert_eq!(requests.len(), choices.len());
-            for (request, &effort) in requests.iter().zip(&choices) {
-                let effort = if effort == Effort::Default {
-                    fixture.provider.models[0].default_effort
-                } else {
-                    effort
-                };
-                let body = &request.body;
-                match api {
-                    ModelApi::Anthropic => {
-                        assert_eq!(body["max_tokens"], 8192);
-                        let budget = match effort {
-                            Effort::Low => 4000,
-                            Effort::Medium | Effort::High | Effort::XHigh | Effort::Max => 7168,
-                            Effort::Budget(tokens) => tokens,
+                effort
+            };
+            let body = &request.body;
+            match api {
+                ModelApi::Anthropic => {
+                    assert_eq!(body["max_tokens"], 8192);
+                    let budget = match effort {
+                        Effort::Low => 4000,
+                        Effort::Medium | Effort::High | Effort::XHigh | Effort::Max => 7168,
+                        Effort::Budget(tokens) => tokens,
+                        _ => unreachable!(),
+                    };
+                    assert_eq!(
+                        body["thinking"],
+                        serde_json::json!({"type":"enabled","budget_tokens":budget})
+                    );
+                    assert!(body.get("output_config").is_none());
+                }
+                ModelApi::Gemini => {
+                    assert_eq!(
+                        request.path,
+                        format!("/v1beta/models/{model}:streamGenerateContent?alt=sse")
+                    );
+                    assert_eq!(body["generationConfig"]["maxOutputTokens"], 8192);
+                    let expected = if model.starts_with("gemini-2.5") {
+                        let (budget, include) = match effort {
+                            Effort::Disabled => (0, false),
+                            Effort::Budget(tokens) => (tokens, true),
                             _ => unreachable!(),
                         };
-                        assert_eq!(
-                            body["thinking"],
-                            serde_json::json!({"type":"enabled","budget_tokens":budget})
-                        );
-                        assert!(body.get("output_config").is_none());
-                    }
-                    ModelApi::Gemini => {
-                        assert_eq!(
-                            request.path,
-                            format!("/v1beta/models/{model}:streamGenerateContent?alt=sse")
-                        );
-                        assert_eq!(body["generationConfig"]["maxOutputTokens"], 8192);
-                        let expected = if model.starts_with("gemini-2.5") {
-                            let (budget, include) = match effort {
-                                Effort::Disabled => (0, false),
-                                Effort::Budget(tokens) => (tokens, true),
-                                _ => unreachable!(),
-                            };
-                            serde_json::json!({"thinkingBudget":budget,"includeThoughts":include})
-                        } else {
-                            match effort {
-                                Effort::Disabled => serde_json::Value::Null,
-                                Effort::Low => {
-                                    serde_json::json!({"thinkingLevel":"low","includeThoughts":true})
-                                }
-                                Effort::Medium => {
-                                    serde_json::json!({"thinkingLevel":"medium","includeThoughts":true})
-                                }
-                                Effort::High => {
-                                    serde_json::json!({"thinkingLevel":"high","includeThoughts":true})
-                                }
-                                _ => unreachable!(),
-                            }
-                        };
-                        assert_eq!(
-                            body["generationConfig"]["thinkingConfig"], expected,
-                            "{model}, {effort:?}"
-                        );
-                    }
-                    ModelApi::DeepSeek => {
-                        assert_eq!(body["max_tokens"], 8192);
-                        assert_eq!(
-                            body["thinking"]["type"],
-                            if effort == Effort::Disabled {
-                                "disabled"
-                            } else {
-                                "enabled"
-                            }
-                        );
+                        serde_json::json!({"thinkingBudget":budget,"includeThoughts":include})
+                    } else {
                         match effort {
-                            Effort::Disabled => assert!(body.get("reasoning_effort").is_none()),
-                            Effort::High => assert_eq!(body["reasoning_effort"], "high"),
-                            Effort::Max => assert_eq!(body["reasoning_effort"], "max"),
+                            Effort::Disabled => serde_json::Value::Null,
+                            Effort::Low => {
+                                serde_json::json!({"thinkingLevel":"low","includeThoughts":true})
+                            }
+                            Effort::Medium => {
+                                serde_json::json!({"thinkingLevel":"medium","includeThoughts":true})
+                            }
+                            Effort::High => {
+                                serde_json::json!({"thinkingLevel":"high","includeThoughts":true})
+                            }
                             _ => unreachable!(),
                         }
-                    }
-                    _ => unreachable!(),
+                    };
+                    assert_eq!(
+                        body["generationConfig"]["thinkingConfig"], expected,
+                        "{model}, {effort:?}"
+                    );
                 }
+                ModelApi::DeepSeek => {
+                    assert_eq!(body["max_tokens"], 8192);
+                    assert_eq!(
+                        body["thinking"]["type"],
+                        if effort == Effort::Disabled {
+                            "disabled"
+                        } else {
+                            "enabled"
+                        }
+                    );
+                    match effort {
+                        Effort::Disabled => assert!(body.get("reasoning_effort").is_none()),
+                        Effort::High => assert_eq!(body["reasoning_effort"], "high"),
+                        Effort::Max => assert_eq!(body["reasoning_effort"], "max"),
+                        _ => unreachable!(),
+                    }
+                }
+                _ => unreachable!(),
             }
-            controller.close().await.unwrap();
-            node.shutdown().await.unwrap();
         }
+        controller.close().await.unwrap();
+        node.shutdown().await.unwrap();
     }
 }
 
-async fn preserves_streamed_whitespace(fixture: &mut Fixture, remote: bool, case_name: &str) {
+async fn preserves_streamed_whitespace(fixture: &mut Fixture, case_name: &str) {
     let answer = "中文 paragraph\n\n`https://www.example.com`\n\n- next";
     let thinking = "Inspect the question before answering";
     let mut body = answer.chars().map(|ch| format!("data: {}\n\n", serde_json::json!({
@@ -634,7 +621,7 @@ async fn preserves_streamed_whitespace(fixture: &mut Fixture, remote: bool, case
             assistant["content"],
             answer,
             "{case_name}: {}",
-            format_args!("{api:?}, remote={remote}")
+            format_args!("{api:?}")
         );
         assert_eq!(assistant["reasoning_content"], thinking, "{case_name}");
         assert!(assistant.get("reasoning").is_none(), "{case_name}");
@@ -646,151 +633,139 @@ async fn preserves_inline_thinking() {
     let thinking = "Consider the greeting";
     let answer = "你好！有什么我可以帮你？";
     let prompts = ["Say hello", "Continue the greeting"];
-    for remote in [false, true] {
-        let server = Server::start(
-            ModelApi::ChatCompletions,
-            Reply::Dynamic(Arc::new(move |index| {
-                let id = format!("inline-thinking-{index}");
-                let events = [
-                    serde_json::json!({
-                        "id":id, "object":"chat.completion.chunk", "created":1, "model":"fixture-a",
-                        "choices":[{"index":0,"delta":{"content":format!("<think>{thinking}</think>{answer}")},"finish_reason":null}]
-                    }),
-                    serde_json::json!({
-                        "id":id, "object":"chat.completion.chunk", "created":1, "model":"fixture-a",
-                        "choices":[{"index":0,"delta":{},"finish_reason":"stop"}]
-                    }),
-                ];
-                let mut body = events
-                    .into_iter()
-                    .map(|event| format!("data: {event}\n\n"))
-                    .collect::<String>();
-                body.push_str("data: [DONE]\n\n");
-                server::Script {
-                    bytes: format!(
-                        "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                        body.len()
-                    )
-                    .into_bytes(),
-                    ending: server::Ending::Close,
-                }
-            })),
-        )
-        .await;
-        let fixture = Fixture::empty(remote, ModelApi::ChatCompletions, &server.endpoint).await;
-        let expected = vec![Part::Text(answer.into()), Part::Thinking(thinking.into())];
-        let mut turns = Vec::new();
-        for prompt in prompts {
-            let turn = fixture.submit(prompt).await;
-            turns.push(turn);
-            let page = finished(&fixture.client, fixture.session.id, turn).await;
-            let run = page.runs.iter().find(|run| run.turn == turn).unwrap();
-            assert_eq!(run.status, Status::Completed, "remote={remote}: {run:?}");
-            assert!(run.error.is_none(), "remote={remote}: {run:?}");
-            for &recorded in &turns {
-                let entries = page
-                    .entries
-                    .iter()
-                    .filter(|entry| entry.turn == recorded && entry.author == "assistant")
-                    .collect::<Vec<_>>();
-                assert_eq!(entries.len(), 1, "remote={remote}, turn={recorded}");
-                assert_eq!(
-                    entries[0].parts, expected,
-                    "remote={remote}, turn={recorded}"
-                );
+    let server = Server::start(
+        ModelApi::ChatCompletions,
+        Reply::Dynamic(Arc::new(move |index| {
+            let id = format!("inline-thinking-{index}");
+            let events = [
+                serde_json::json!({
+                    "id":id, "object":"chat.completion.chunk", "created":1, "model":"fixture-a",
+                    "choices":[{"index":0,"delta":{"content":format!("<think>{thinking}</think>{answer}")},"finish_reason":null}]
+                }),
+                serde_json::json!({
+                    "id":id, "object":"chat.completion.chunk", "created":1, "model":"fixture-a",
+                    "choices":[{"index":0,"delta":{},"finish_reason":"stop"}]
+                }),
+            ];
+            let mut body = events
+                .into_iter()
+                .map(|event| format!("data: {event}\n\n"))
+                .collect::<String>();
+            body.push_str("data: [DONE]\n\n");
+            server::Script {
+                bytes: format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                )
+                .into_bytes(),
+                ending: server::Ending::Close,
             }
-        }
-        let requests = server.requests.lock().unwrap().clone();
-        assert_eq!(requests.len(), 2, "remote={remote}");
-        for request in &requests {
-            assert_eq!(request.path, "/v1/chat/completions", "remote={remote}");
-            assert_eq!(request.body["stream"], true, "remote={remote}");
-        }
-        let messages = requests[1].body["messages"].as_array().unwrap();
-        let assistants = messages
-            .iter()
-            .enumerate()
-            .filter(|(_, message)| message["role"] == "assistant")
-            .collect::<Vec<_>>();
-        assert_eq!(assistants.len(), 1, "remote={remote}");
-        let (position, assistant) = assistants[0];
-        assert_eq!(assistant["content"], answer, "remote={remote}");
-        assert_eq!(assistant["reasoning_content"], thinking, "remote={remote}");
-        let [first, follow_up] = prompts.map(|prompt| {
-            messages
+        })),
+    )
+    .await;
+    let fixture = Fixture::empty(ModelApi::ChatCompletions, &server.endpoint).await;
+    let expected = vec![Part::Text(answer.into()), Part::Thinking(thinking.into())];
+    let mut turns = Vec::new();
+    for prompt in prompts {
+        let turn = fixture.submit(prompt).await;
+        turns.push(turn);
+        let page = finished(&fixture.client, fixture.session.id, turn).await;
+        let run = page.runs.iter().find(|run| run.turn == turn).unwrap();
+        assert_eq!(run.status, Status::Completed, "{run:?}");
+        assert!(run.error.is_none(), "{run:?}");
+        for &recorded in &turns {
+            let entries = page
+                .entries
                 .iter()
-                .position(|message| {
-                    message["role"] == "user" && message["content"].to_string().contains(prompt)
-                })
-                .unwrap_or_else(|| panic!("user prompt missing: {prompt}, remote={remote}"))
-        });
-        assert!(first < position && position < follow_up, "remote={remote}");
-        fixture.controller.close().await.unwrap();
-        fixture.node.shutdown().await.unwrap();
+                .filter(|entry| entry.turn == recorded && entry.author == "assistant")
+                .collect::<Vec<_>>();
+            assert_eq!(entries.len(), 1, "turn={recorded}");
+            assert_eq!(entries[0].parts, expected, "turn={recorded}");
+        }
     }
+    let requests = server.requests.lock().unwrap().clone();
+    assert_eq!(requests.len(), 2);
+    for request in &requests {
+        assert_eq!(request.path, "/v1/chat/completions");
+        assert_eq!(request.body["stream"], true);
+    }
+    let messages = requests[1].body["messages"].as_array().unwrap();
+    let assistants = messages
+        .iter()
+        .enumerate()
+        .filter(|(_, message)| message["role"] == "assistant")
+        .collect::<Vec<_>>();
+    assert_eq!(assistants.len(), 1);
+    let (position, assistant) = assistants[0];
+    assert_eq!(assistant["content"], answer);
+    assert_eq!(assistant["reasoning_content"], thinking);
+    let [first, follow_up] = prompts.map(|prompt| {
+        messages
+            .iter()
+            .position(|message| {
+                message["role"] == "user" && message["content"].to_string().contains(prompt)
+            })
+            .unwrap_or_else(|| panic!("user prompt missing: {prompt}"))
+    });
+    assert!(first < position && position < follow_up);
+    fixture.controller.close().await.unwrap();
+    fixture.node.shutdown().await.unwrap();
 }
 
 #[tokio::test]
 async fn choices() {
     use futures::FutureExt;
-    for remote in [false, true] {
-        let mut fixture = Fixture::empty(remote, ModelApi::Responses, "http://127.0.0.1:9").await;
-        std::panic::AssertUnwindSafe(Box::pin(requests_encrypted_reasoning_by_capability(
-            &mut fixture,
-            remote,
-            "requests_encrypted_reasoning_by_capability",
-        )))
-        .catch_unwind()
-        .await
-        .unwrap_or_else(|error| {
-            eprintln!("step: requests_encrypted_reasoning_by_capability, remote={remote}");
-            std::panic::resume_unwind(error)
-        });
-        std::panic::AssertUnwindSafe(Box::pin(attempts_explicit_unknown_effort(
-            &mut fixture,
-            remote,
-            "attempts_explicit_unknown_effort",
-        )))
-        .catch_unwind()
-        .await
-        .unwrap_or_else(|error| {
-            eprintln!("step: attempts_explicit_unknown_effort, remote={remote}");
-            std::panic::resume_unwind(error)
-        });
-        std::panic::AssertUnwindSafe(Box::pin(accepts_unannotated_responses(
-            &mut fixture,
-            remote,
-            "accepts_unannotated_responses",
-        )))
-        .catch_unwind()
-        .await
-        .unwrap_or_else(|error| {
-            eprintln!("step: accepts_unannotated_responses, remote={remote}");
-            std::panic::resume_unwind(error)
-        });
-        std::panic::AssertUnwindSafe(Box::pin(preserves_openai_effort(
-            &mut fixture,
-            remote,
-            "preserves_openai_effort",
-        )))
-        .catch_unwind()
-        .await
-        .unwrap_or_else(|error| {
-            eprintln!("step: preserves_openai_effort, remote={remote}");
-            std::panic::resume_unwind(error)
-        });
-        std::panic::AssertUnwindSafe(Box::pin(preserves_streamed_whitespace(
-            &mut fixture,
-            remote,
-            "preserves_streamed_whitespace",
-        )))
-        .catch_unwind()
-        .await
-        .unwrap_or_else(|error| {
-            eprintln!("step: preserves_streamed_whitespace, remote={remote}");
-            std::panic::resume_unwind(error)
-        });
-        fixture.controller.close().await.unwrap();
-        fixture.node.shutdown().await.unwrap();
-    }
+    let mut fixture = Fixture::empty(ModelApi::Responses, "http://127.0.0.1:9").await;
+    std::panic::AssertUnwindSafe(Box::pin(requests_encrypted_reasoning_by_capability(
+        &mut fixture,
+        "requests_encrypted_reasoning_by_capability",
+    )))
+    .catch_unwind()
+    .await
+    .unwrap_or_else(|error| {
+        eprintln!("step: requests_encrypted_reasoning_by_capability");
+        std::panic::resume_unwind(error)
+    });
+    std::panic::AssertUnwindSafe(Box::pin(attempts_explicit_unknown_effort(
+        &mut fixture,
+        "attempts_explicit_unknown_effort",
+    )))
+    .catch_unwind()
+    .await
+    .unwrap_or_else(|error| {
+        eprintln!("step: attempts_explicit_unknown_effort");
+        std::panic::resume_unwind(error)
+    });
+    std::panic::AssertUnwindSafe(Box::pin(accepts_unannotated_responses(
+        &mut fixture,
+        "accepts_unannotated_responses",
+    )))
+    .catch_unwind()
+    .await
+    .unwrap_or_else(|error| {
+        eprintln!("step: accepts_unannotated_responses");
+        std::panic::resume_unwind(error)
+    });
+    std::panic::AssertUnwindSafe(Box::pin(preserves_openai_effort(
+        &mut fixture,
+        "preserves_openai_effort",
+    )))
+    .catch_unwind()
+    .await
+    .unwrap_or_else(|error| {
+        eprintln!("step: preserves_openai_effort");
+        std::panic::resume_unwind(error)
+    });
+    std::panic::AssertUnwindSafe(Box::pin(preserves_streamed_whitespace(
+        &mut fixture,
+        "preserves_streamed_whitespace",
+    )))
+    .catch_unwind()
+    .await
+    .unwrap_or_else(|error| {
+        eprintln!("step: preserves_streamed_whitespace");
+        std::panic::resume_unwind(error)
+    });
+    fixture.controller.close().await.unwrap();
+    fixture.node.shutdown().await.unwrap();
 }

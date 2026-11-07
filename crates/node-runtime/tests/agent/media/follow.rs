@@ -12,11 +12,10 @@ struct Suite {
     client: Client,
     package: plugin::Info,
     cases: std::sync::atomic::AtomicUsize,
-    remote: bool,
 }
 
 impl Suite {
-    async fn new(remote: bool) -> Self {
+    async fn new() -> Self {
         let directory = tempfile::tempdir().unwrap();
         let node = Node::start_empty(directory.path().join("node"))
             .await
@@ -30,11 +29,7 @@ impl Suite {
             .pair(node.link().invite().unwrap().ticket())
             .await
             .unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(address)
-        } else {
-            node.local()
-        });
+        let client = Client::new(controller.handle().remote(address));
         let package = install(&client).await;
         Self {
             directory,
@@ -43,7 +38,6 @@ impl Suite {
             client,
             package,
             cases: std::sync::atomic::AtomicUsize::new(0),
-            remote,
         }
     }
 
@@ -572,7 +566,6 @@ async fn does_not_repeat_same_fallback(suite: &Suite) {
 }
 
 async fn failures_never_use_companion(suite: &Suite) {
-    let remote = suite.remote;
     for api in [ModelApi::Responses] {
         let fixture = Fixture::new(suite, api).await;
         let mut provider = fixture.provider.clone();
@@ -617,7 +610,7 @@ async fn failures_never_use_companion(suite: &Suite) {
                     error.code,
                     ErrorCode::Unavailable | ErrorCode::OutcomeUnknown
                 ),
-                "{remote:?} {outcome:?}: {error:?}"
+                "{outcome:?}: {error:?}"
             );
             assert!(!error.message.contains(wire::KEY), "{error:?}");
             if matches!(outcome, wire::Outcome::Rejected(400, "invalid_request")) {
@@ -819,64 +812,62 @@ async fn publishes_completed_stream_without_eof(suite: &Suite) {
 #[tokio::test]
 async fn generation_routes() {
     use futures::FutureExt;
-    for remote in [false, true] {
-        let suite = Suite::new(remote).await;
-        std::panic::AssertUnwindSafe(resolves_admitted_and_future_models(&suite))
-            .catch_unwind()
-            .await
-            .unwrap_or_else(|error| {
-                eprintln!("step: resolves_admitted_and_future_models, remote={remote}");
-                std::panic::resume_unwind(error)
-            });
-        std::panic::AssertUnwindSafe(rejects_unavailable_native_images(&suite))
-            .catch_unwind()
-            .await
-            .unwrap_or_else(|error| {
-                eprintln!("step: rejects_unavailable_native_images, remote={remote}");
-                std::panic::resume_unwind(error)
-            });
-        std::panic::AssertUnwindSafe(disabled_role_has_no_generation_calls(&suite))
-            .catch_unwind()
-            .await
-            .unwrap_or_else(|error| {
-                eprintln!("step: disabled_role_has_no_generation_calls, remote={remote}");
-                std::panic::resume_unwind(error)
-            });
-        std::panic::AssertUnwindSafe(does_not_repeat_same_fallback(&suite))
-            .catch_unwind()
-            .await
-            .unwrap_or_else(|error| {
-                eprintln!("step: does_not_repeat_same_fallback, remote={remote}");
-                std::panic::resume_unwind(error)
-            });
-        std::panic::AssertUnwindSafe(failures_never_use_companion(&suite))
-            .catch_unwind()
-            .await
-            .unwrap_or_else(|error| {
-                eprintln!("step: failures_never_use_companion, remote={remote}");
-                std::panic::resume_unwind(error)
-            });
-        std::panic::AssertUnwindSafe(uses_companion_only_when_unsupported(&suite))
-            .catch_unwind()
-            .await
-            .unwrap_or_else(|error| {
-                eprintln!("step: uses_companion_only_when_unsupported, remote={remote}");
-                std::panic::resume_unwind(error)
-            });
-        std::panic::AssertUnwindSafe(retains_frozen_companion_after_revisions(&suite))
-            .catch_unwind()
-            .await
-            .unwrap_or_else(|error| {
-                eprintln!("step: retains_frozen_companion_after_revisions, remote={remote}");
-                std::panic::resume_unwind(error)
-            });
-        std::panic::AssertUnwindSafe(publishes_completed_stream_without_eof(&suite))
-            .catch_unwind()
-            .await
-            .unwrap_or_else(|error| {
-                eprintln!("step: publishes_completed_stream_without_eof, remote={remote}");
-                std::panic::resume_unwind(error)
-            });
-        suite.close().await;
-    }
+    let suite = Suite::new().await;
+    std::panic::AssertUnwindSafe(resolves_admitted_and_future_models(&suite))
+        .catch_unwind()
+        .await
+        .unwrap_or_else(|error| {
+            eprintln!("step: resolves_admitted_and_future_models");
+            std::panic::resume_unwind(error)
+        });
+    std::panic::AssertUnwindSafe(rejects_unavailable_native_images(&suite))
+        .catch_unwind()
+        .await
+        .unwrap_or_else(|error| {
+            eprintln!("step: rejects_unavailable_native_images");
+            std::panic::resume_unwind(error)
+        });
+    std::panic::AssertUnwindSafe(disabled_role_has_no_generation_calls(&suite))
+        .catch_unwind()
+        .await
+        .unwrap_or_else(|error| {
+            eprintln!("step: disabled_role_has_no_generation_calls");
+            std::panic::resume_unwind(error)
+        });
+    std::panic::AssertUnwindSafe(does_not_repeat_same_fallback(&suite))
+        .catch_unwind()
+        .await
+        .unwrap_or_else(|error| {
+            eprintln!("step: does_not_repeat_same_fallback");
+            std::panic::resume_unwind(error)
+        });
+    std::panic::AssertUnwindSafe(failures_never_use_companion(&suite))
+        .catch_unwind()
+        .await
+        .unwrap_or_else(|error| {
+            eprintln!("step: failures_never_use_companion");
+            std::panic::resume_unwind(error)
+        });
+    std::panic::AssertUnwindSafe(uses_companion_only_when_unsupported(&suite))
+        .catch_unwind()
+        .await
+        .unwrap_or_else(|error| {
+            eprintln!("step: uses_companion_only_when_unsupported");
+            std::panic::resume_unwind(error)
+        });
+    std::panic::AssertUnwindSafe(retains_frozen_companion_after_revisions(&suite))
+        .catch_unwind()
+        .await
+        .unwrap_or_else(|error| {
+            eprintln!("step: retains_frozen_companion_after_revisions");
+            std::panic::resume_unwind(error)
+        });
+    std::panic::AssertUnwindSafe(publishes_completed_stream_without_eof(&suite))
+        .catch_unwind()
+        .await
+        .unwrap_or_else(|error| {
+            eprintln!("step: publishes_completed_stream_without_eof");
+            std::panic::resume_unwind(error)
+        });
+    suite.close().await;
 }

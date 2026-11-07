@@ -38,133 +38,128 @@ pub(super) fn models(authentication: Authentication) -> serde_json::Value {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn uses_public_account_catalog() {
-    for remote in [false, true] {
-        let server = Server::start_with_request(ModelApi::Anthropic, standard).await;
-        let fixture = Fixture::empty(remote, &server).await;
-        let provider = provider(&fixture.client, Authentication::ChatGpt).await;
-        let (_, attempt) = begin(&fixture.client, &provider).await;
-        let mut stream = fixture.client.subscribe_login(attempt.id).await.unwrap();
-        let update = terminal(&mut stream).await;
-        assert_eq!(update.state, login::State::Connected);
-        assert_eq!(update.model_error, None);
-        let Output::Snapshot(snapshot) = fixture
-            .client
-            .execute(fixture.client.prepare(Command::Snapshot))
-            .await
+    let server = Server::start_with_request(ModelApi::Anthropic, standard).await;
+    let fixture = Fixture::empty(&server).await;
+    let provider = provider(&fixture.client, Authentication::ChatGpt).await;
+    let (_, attempt) = begin(&fixture.client, &provider).await;
+    let mut stream = fixture.client.subscribe_login(attempt.id).await.unwrap();
+    let update = terminal(&mut stream).await;
+    assert_eq!(update.state, login::State::Connected);
+    assert_eq!(update.model_error, None);
+    let Output::Snapshot(snapshot) = fixture
+        .client
+        .execute(fixture.client.prepare(Command::Snapshot))
+        .await
+        .unwrap()
+    else {
+        panic!("snapshot expected")
+    };
+    let saved = snapshot
+        .providers
+        .iter()
+        .find(|saved| saved.id == provider.id)
+        .unwrap();
+    assert_eq!(saved.models.len(), 2);
+    let Output::DiscoveredModels(catalog) = fixture
+        .client
+        .execute(fixture.client.prepare(command(saved)))
+        .await
+        .unwrap()
+    else {
+        panic!("catalog expected")
+    };
+    assert_eq!(catalog.models.len(), 2);
+    assert_eq!(
+        server
+            .requests
+            .lock()
             .unwrap()
-        else {
-            panic!("snapshot expected")
-        };
-        let saved = snapshot
-            .providers
             .iter()
-            .find(|saved| saved.id == provider.id)
-            .unwrap();
-        assert_eq!(saved.models.len(), 2);
-        let Output::DiscoveredModels(catalog) = fixture
-            .client
-            .execute(fixture.client.prepare(command(saved)))
-            .await
-            .unwrap()
-        else {
-            panic!("catalog expected")
-        };
-        assert_eq!(catalog.models.len(), 2);
-        assert_eq!(
-            server
-                .requests
-                .lock()
-                .unwrap()
-                .iter()
-                .filter(|request| request.path == "/models")
-                .count(),
-            2
-        );
-        fixture.close().await;
-    }
+            .filter(|request| request.path == "/models")
+            .count(),
+        2
+    );
+    fixture.close().await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn shares_refresh() {
-    for remote in [false, true] {
-        for authentication in [Authentication::ChatGpt, Authentication::Copilot] {
-            let exchanges = Arc::new(AtomicUsize::new(0));
-            let count = exchanges.clone();
-            let release = Arc::new(tokio::sync::Notify::new());
-            let gate = release.clone();
-            let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
-                if matches!(
-                    request.path.as_str(),
-                    "/api/accounts/oauth/token" | "/copilot_internal/v2/token"
-                ) {
-                    let fresh = count.fetch_add(1, Ordering::SeqCst) > 0;
-                    if fresh {
-                        if authentication == Authentication::ChatGpt {
-                            assert!(request.body.contains("grant_type=refresh_token"));
-                            assert!(request.body.contains(REFRESH));
-                        } else {
-                            assert_eq!(request.headers["authorization"], format!("token {GITHUB}"));
-                        }
-                        Reply::Delayed(
-                            gate.clone(),
-                            execution::exchanged(request, authentication, true),
-                        )
+    for authentication in [Authentication::ChatGpt, Authentication::Copilot] {
+        let exchanges = Arc::new(AtomicUsize::new(0));
+        let count = exchanges.clone();
+        let release = Arc::new(tokio::sync::Notify::new());
+        let gate = release.clone();
+        let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
+            if matches!(
+                request.path.as_str(),
+                "/api/accounts/oauth/token" | "/copilot_internal/v2/token"
+            ) {
+                let fresh = count.fetch_add(1, Ordering::SeqCst) > 0;
+                if fresh {
+                    if authentication == Authentication::ChatGpt {
+                        assert!(request.body.contains("grant_type=refresh_token"));
+                        assert!(request.body.contains(REFRESH));
                     } else {
-                        Reply::Json(execution::exchanged(request, authentication, false))
+                        assert_eq!(request.headers["authorization"], format!("token {GITHUB}"));
                     }
-                } else if request.path.starts_with("/models") {
-                    if authentication == Authentication::Copilot {
-                        assert_eq!(
-                            request.headers["authorization"],
-                            if count.load(Ordering::SeqCst) > 1 {
-                                "Bearer renewed-access"
-                            } else {
-                                "Bearer isolated-copilot-secret"
-                            }
-                        );
-                    }
-                    Reply::Json(models(authentication))
+                    Reply::Delayed(
+                        gate.clone(),
+                        execution::exchanged(request, authentication, true),
+                    )
                 } else {
-                    standard(request)
+                    Reply::Json(execution::exchanged(request, authentication, false))
                 }
-            })
-            .await;
-            let fixture = Fixture::empty(remote, &server).await;
-            let provider =
-                execution::signed_in(&fixture, authentication, ModelApi::Responses).await;
-            let mut jobs = Vec::new();
-            for _ in 0..4 {
-                let client = fixture.client.clone();
-                let request = client.prepare(command(&provider));
-                jobs.push(tokio::spawn(async move { client.execute(request).await }));
-            }
-            server.wait_requests(5).await;
-            assert_eq!(exchanges.load(Ordering::SeqCst), 2);
-            release.notify_one();
-            for job in jobs {
-                let output = job.await.unwrap().unwrap();
-                no_secrets(&output);
-                assert!(matches!(output, Output::DiscoveredModels(_)));
-            }
-            assert_eq!(exchanges.load(Ordering::SeqCst), 2);
-            let Output::Credentials(credentials) = fixture
-                .client
-                .execute(fixture.client.prepare(Command::ListCredentials))
-                .await
-                .unwrap()
-            else {
-                panic!("credentials expected")
-            };
-            assert_eq!(
-                credentials[0].revision,
-                if authentication == Authentication::ChatGpt {
-                    3
-                } else {
-                    2
+            } else if request.path.starts_with("/models") {
+                if authentication == Authentication::Copilot {
+                    assert_eq!(
+                        request.headers["authorization"],
+                        if count.load(Ordering::SeqCst) > 1 {
+                            "Bearer renewed-access"
+                        } else {
+                            "Bearer isolated-copilot-secret"
+                        }
+                    );
                 }
-            );
-            fixture.close().await;
+                Reply::Json(models(authentication))
+            } else {
+                standard(request)
+            }
+        })
+        .await;
+        let fixture = Fixture::empty(&server).await;
+        let provider = execution::signed_in(&fixture, authentication, ModelApi::Responses).await;
+        let mut jobs = Vec::new();
+        for _ in 0..4 {
+            let client = fixture.client.clone();
+            let request = client.prepare(command(&provider));
+            jobs.push(tokio::spawn(async move { client.execute(request).await }));
         }
+        server.wait_requests(5).await;
+        assert_eq!(exchanges.load(Ordering::SeqCst), 2);
+        release.notify_one();
+        for job in jobs {
+            let output = job.await.unwrap().unwrap();
+            no_secrets(&output);
+            assert!(matches!(output, Output::DiscoveredModels(_)));
+        }
+        assert_eq!(exchanges.load(Ordering::SeqCst), 2);
+        let Output::Credentials(credentials) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::ListCredentials))
+            .await
+            .unwrap()
+        else {
+            panic!("credentials expected")
+        };
+        assert_eq!(
+            credentials[0].revision,
+            if authentication == Authentication::ChatGpt {
+                3
+            } else {
+                2
+            }
+        );
+        fixture.close().await;
     }
 }
 
@@ -193,279 +188,271 @@ fn catalog(request: &discovery_support::Request, authentication: Authentication)
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn reads_native_metadata() {
-    for remote in [false, true] {
-        let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
-            if request.path.starts_with("/models") {
-                let authentication = if request
-                    .headers
-                    .get("authorization")
-                    .is_some_and(|value| value.contains("isolated-chatgpt-access"))
-                {
-                    Authentication::ChatGpt
-                } else {
-                    Authentication::Copilot
-                };
-                catalog(request, authentication)
+    let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
+        if request.path.starts_with("/models") {
+            let authentication = if request
+                .headers
+                .get("authorization")
+                .is_some_and(|value| value.contains("isolated-chatgpt-access"))
+            {
+                Authentication::ChatGpt
             } else {
-                standard(request)
-            }
-        })
-        .await;
-        let fixture = Fixture::empty(remote, &server).await;
-        for (authentication, api) in [
-            (Authentication::ChatGpt, ModelApi::Responses),
-            (Authentication::Copilot, ModelApi::Responses),
-            (Authentication::Copilot, ModelApi::ChatCompletions),
-        ] {
-            let case = format!("{remote:?} {authentication:?} {api:?}");
-            let previous_models = server
+                Authentication::Copilot
+            };
+            catalog(request, authentication)
+        } else {
+            standard(request)
+        }
+    })
+    .await;
+    let fixture = Fixture::empty(&server).await;
+    for (authentication, api) in [
+        (Authentication::ChatGpt, ModelApi::Responses),
+        (Authentication::Copilot, ModelApi::Responses),
+        (Authentication::Copilot, ModelApi::ChatCompletions),
+    ] {
+        let case = format!("{authentication:?} {api:?}");
+        let previous_models = server
+            .requests
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|request| request.path.starts_with("/models"))
+            .count();
+        let provider = execution::signed_in(&fixture, authentication, api).await;
+        let before = fixture
+            .client
+            .execute(fixture.client.prepare(Command::Snapshot))
+            .await
+            .unwrap();
+        let admission = fixture
+            .client
+            .dispatch(fixture.client.prepare(command(&provider)))
+            .await
+            .unwrap();
+        assert!(!admission.receipt.durable, "{case}");
+        let output = admission.completion.await.unwrap().unwrap();
+        no_secrets(&output);
+        let Output::DiscoveredModels(discovered) = output else {
+            panic!("{case}: models expected")
+        };
+        let discovered = discovered.models;
+        assert_eq!(discovered.len(), 2, "{case}");
+        assert_eq!(discovered[0].id, "fixture", "{case}");
+        assert_eq!(discovered[1].id, "unknown", "{case}");
+        assert_eq!(discovered[1].context, None, "{case}");
+        assert_eq!(discovered[1].output, None, "{case}");
+        let capabilities = discovered[0]
+            .capabilities
+            .as_ref()
+            .unwrap_or_else(|| panic!("{case}: capabilities expected"));
+        assert_eq!(capabilities.vision, Some(true), "{case}");
+        assert_eq!(
+            capabilities.efforts,
+            Some(vec![Effort::Low, Effort::High]),
+            "{case}"
+        );
+        assert_eq!(
+            capabilities.default_effort,
+            (authentication == Authentication::ChatGpt).then_some(Effort::High),
+            "{case}"
+        );
+        let Output::ProviderValidation(validation) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::ValidateProvider {
+                provider: provider.id,
+                expected_revision: provider.revision,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("{case}: validation expected")
+        };
+        assert!(validation.missing.is_empty(), "{case}");
+        assert_eq!(validation.exceeded, vec!["fixture"], "{case}");
+        assert_eq!(
+            fixture
+                .client
+                .execute(fixture.client.prepare(Command::Snapshot))
+                .await
+                .unwrap(),
+            before,
+            "{case}"
+        );
+        assert_eq!(
+            server
                 .requests
                 .lock()
                 .unwrap()
                 .iter()
                 .filter(|request| request.path.starts_with("/models"))
-                .count();
-            let provider = execution::signed_in(&fixture, authentication, api).await;
-            let before = fixture
-                .client
-                .execute(fixture.client.prepare(Command::Snapshot))
-                .await
-                .unwrap();
-            let admission = fixture
-                .client
-                .dispatch(fixture.client.prepare(command(&provider)))
-                .await
-                .unwrap();
-            assert!(!admission.receipt.durable, "{case}");
-            let output = admission.completion.await.unwrap().unwrap();
-            no_secrets(&output);
-            let Output::DiscoveredModels(discovered) = output else {
-                panic!("{case}: models expected")
-            };
-            let discovered = discovered.models;
-            assert_eq!(discovered.len(), 2, "{case}");
-            assert_eq!(discovered[0].id, "fixture", "{case}");
-            assert_eq!(discovered[1].id, "unknown", "{case}");
-            assert_eq!(discovered[1].context, None, "{case}");
-            assert_eq!(discovered[1].output, None, "{case}");
-            let capabilities = discovered[0]
-                .capabilities
-                .as_ref()
-                .unwrap_or_else(|| panic!("{case}: capabilities expected"));
-            assert_eq!(capabilities.vision, Some(true), "{case}");
-            assert_eq!(
-                capabilities.efforts,
-                Some(vec![Effort::Low, Effort::High]),
-                "{case}"
-            );
-            assert_eq!(
-                capabilities.default_effort,
-                (authentication == Authentication::ChatGpt).then_some(Effort::High),
-                "{case}"
-            );
-            let Output::ProviderValidation(validation) = fixture
-                .client
-                .execute(fixture.client.prepare(Command::ValidateProvider {
-                    provider: provider.id,
-                    expected_revision: provider.revision,
-                }))
-                .await
-                .unwrap()
-            else {
-                panic!("{case}: validation expected")
-            };
-            assert!(validation.missing.is_empty(), "{case}");
-            assert_eq!(validation.exceeded, vec!["fixture"], "{case}");
-            assert_eq!(
-                fixture
-                    .client
-                    .execute(fixture.client.prepare(Command::Snapshot))
-                    .await
-                    .unwrap(),
-                before,
-                "{case}"
-            );
-            assert_eq!(
-                server
-                    .requests
-                    .lock()
-                    .unwrap()
-                    .iter()
-                    .filter(|request| request.path.starts_with("/models"))
-                    .count(),
-                previous_models + 3,
-                "{case}"
-            );
-        }
-        fixture.close().await;
+                .count(),
+            previous_models + 3,
+            "{case}"
+        );
     }
+    fixture.close().await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn rejects_changed_accounts() {
-    for remote in [false, true] {
-        for mutation in ["provider", "revoke", "reconnect"] {
-            let release = Arc::new(tokio::sync::Notify::new());
-            let gate = release.clone();
-            let queries = Arc::new(AtomicUsize::new(0));
-            let counter = queries.clone();
-            let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
-                if request.path.starts_with("/models") {
-                    if counter.fetch_add(1, Ordering::SeqCst) == 1 {
-                        Reply::Delayed(gate.clone(), models(Authentication::Copilot))
-                    } else {
-                        Reply::Json(models(Authentication::Copilot))
-                    }
-                } else {
-                    standard(request)
-                }
-            })
-            .await;
-            let fixture = Fixture::empty(remote, &server).await;
-            let provider =
-                execution::signed_in(&fixture, Authentication::Copilot, ModelApi::Responses).await;
-            let client = fixture.client.clone();
-            let request = client.prepare(command(&provider));
-            let query = tokio::spawn(async move { client.execute(request).await });
-            server.wait_requests(5).await;
-            assert_eq!(queries.load(Ordering::SeqCst), 2);
-            match mutation {
-                "revoke" => {
-                    fixture
-                        .client
-                        .execute(fixture.client.prepare(Command::RevokeCredential {
-                            id: provider.credential.as_ref().unwrap().id,
-                            expected_revision: 1,
-                        }))
-                        .await
-                        .unwrap();
-                }
-                "reconnect" => {
-                    let (_, attempt) = begin(&fixture.client, &provider).await;
-                    let mut stream = fixture.client.subscribe_login(attempt.id).await.unwrap();
-                    assert_eq!(terminal(&mut stream).await.state, login::State::Connected);
-                }
-                _ => {
-                    let mut changed = provider.clone();
-                    changed.name = "Changed during discovery".into();
-                    fixture
-                        .client
-                        .execute(fixture.client.prepare(Command::PutProvider {
-                            expected_revision: changed.revision,
-                            provider: changed,
-                        }))
-                        .await
-                        .unwrap();
-                }
-            }
-            release.notify_one();
-            let error = query.await.unwrap().unwrap_err();
-            assert_eq!(
-                error.code,
-                if mutation == "revoke" {
-                    ErrorCode::PermissionDenied
-                } else {
-                    ErrorCode::RevisionConflict
-                }
-            );
-            no_secrets(&error);
-            fixture.close().await;
-        }
-    }
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn allows_concurrent_queries_and_cancellation() {
-    for remote in [false, true] {
-        let queries = AtomicUsize::new(0);
+    for mutation in ["provider", "revoke", "reconnect"] {
+        let release = Arc::new(tokio::sync::Notify::new());
+        let gate = release.clone();
+        let queries = Arc::new(AtomicUsize::new(0));
+        let counter = queries.clone();
         let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
-            if request.path.starts_with("/models") && queries.fetch_add(1, Ordering::SeqCst) > 0 {
-                Reply::Hold
+            if request.path.starts_with("/models") {
+                if counter.fetch_add(1, Ordering::SeqCst) == 1 {
+                    Reply::Delayed(gate.clone(), models(Authentication::Copilot))
+                } else {
+                    Reply::Json(models(Authentication::Copilot))
+                }
             } else {
                 standard(request)
             }
         })
         .await;
-        let fixture = Fixture::empty(remote, &server).await;
+        let fixture = Fixture::empty(&server).await;
         let provider =
             execution::signed_in(&fixture, Authentication::Copilot, ModelApi::Responses).await;
-        let mut jobs = Vec::new();
-        for _ in 0..5 {
-            let client = fixture.client.clone();
-            let request = client.prepare(command(&provider));
-            jobs.push(tokio::spawn(async move { client.execute(request).await }));
-        }
-        server.wait_requests(9).await;
-        assert!(jobs.iter().all(|job| !job.is_finished()));
-        fixture
-            .client
-            .execute(fixture.client.prepare(Command::Snapshot))
-            .await
-            .unwrap();
-        for job in jobs {
-            job.abort();
-            let _ = job.await;
-        }
-        server.wait_closed(5).await;
         let client = fixture.client.clone();
         let request = client.prepare(command(&provider));
         let query = tokio::spawn(async move { client.execute(request).await });
-        server.wait_requests(10).await;
-        tokio::time::timeout(Duration::from_secs(5), fixture.node.shutdown())
-            .await
-            .unwrap()
-            .unwrap();
-        assert!(query.await.unwrap().is_err());
-        server.wait_closed(6).await;
-        fixture.controller.close().await.unwrap();
+        server.wait_requests(5).await;
+        assert_eq!(queries.load(Ordering::SeqCst), 2);
+        match mutation {
+            "revoke" => {
+                fixture
+                    .client
+                    .execute(fixture.client.prepare(Command::RevokeCredential {
+                        id: provider.credential.as_ref().unwrap().id,
+                        expected_revision: 1,
+                    }))
+                    .await
+                    .unwrap();
+            }
+            "reconnect" => {
+                let (_, attempt) = begin(&fixture.client, &provider).await;
+                let mut stream = fixture.client.subscribe_login(attempt.id).await.unwrap();
+                assert_eq!(terminal(&mut stream).await.state, login::State::Connected);
+            }
+            _ => {
+                let mut changed = provider.clone();
+                changed.name = "Changed during discovery".into();
+                fixture
+                    .client
+                    .execute(fixture.client.prepare(Command::PutProvider {
+                        expected_revision: changed.revision,
+                        provider: changed,
+                    }))
+                    .await
+                    .unwrap();
+            }
+        }
+        release.notify_one();
+        let error = query.await.unwrap().unwrap_err();
+        assert_eq!(
+            error.code,
+            if mutation == "revoke" {
+                ErrorCode::PermissionDenied
+            } else {
+                ErrorCode::RevisionConflict
+            }
+        );
+        no_secrets(&error);
+        fixture.close().await;
     }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn rejects_unsafe_responses() {
-    for remote in [false, true] {
-        let target = Server::start(ModelApi::Responses, |_| Reply::Json(json!({"data":[]}))).await;
-        for (response, code) in [
-            (
-                format!(
-                    "HTTP/1.1 307 Temporary Redirect\r\nLocation: {}/models\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
-                    target.endpoint
-                ),
-                ErrorCode::Unavailable,
-            ),
-            (
-                format!(
-                    "HTTP/1.1 401 Unauthorized\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{ACCESS}",
-                    ACCESS.len()
-                ),
-                ErrorCode::NotConfigured,
-            ),
-            (
-                "HTTP/1.1 200 OK\r\nContent-Length: 2097153\r\nConnection: close\r\n\r\nx".into(),
-                ErrorCode::Unavailable,
-            ),
-        ] {
-            let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
-                if request.path.starts_with("/models") {
-                    Reply::Raw(response.clone())
-                } else {
-                    standard(request)
-                }
-            })
-            .await;
-            let fixture = Fixture::empty(remote, &server).await;
-            let provider =
-                execution::signed_in(&fixture, Authentication::Copilot, ModelApi::Responses).await;
-            let error = fixture
-                .client
-                .execute(fixture.client.prepare(command(&provider)))
-                .await
-                .unwrap_err();
-            assert_eq!(error.code, code);
-            no_secrets(&error);
-            assert_eq!(server.requests.lock().unwrap().len(), 5);
-            fixture.close().await;
+async fn allows_concurrent_queries_and_cancellation() {
+    let queries = AtomicUsize::new(0);
+    let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
+        if request.path.starts_with("/models") && queries.fetch_add(1, Ordering::SeqCst) > 0 {
+            Reply::Hold
+        } else {
+            standard(request)
         }
-        assert!(target.requests.lock().unwrap().is_empty());
+    })
+    .await;
+    let fixture = Fixture::empty(&server).await;
+    let provider =
+        execution::signed_in(&fixture, Authentication::Copilot, ModelApi::Responses).await;
+    let mut jobs = Vec::new();
+    for _ in 0..5 {
+        let client = fixture.client.clone();
+        let request = client.prepare(command(&provider));
+        jobs.push(tokio::spawn(async move { client.execute(request).await }));
     }
+    server.wait_requests(9).await;
+    assert!(jobs.iter().all(|job| !job.is_finished()));
+    fixture
+        .client
+        .execute(fixture.client.prepare(Command::Snapshot))
+        .await
+        .unwrap();
+    for job in jobs {
+        job.abort();
+        let _ = job.await;
+    }
+    server.wait_closed(5).await;
+    let client = fixture.client.clone();
+    let request = client.prepare(command(&provider));
+    let query = tokio::spawn(async move { client.execute(request).await });
+    server.wait_requests(10).await;
+    tokio::time::timeout(Duration::from_secs(5), fixture.node.shutdown())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(query.await.unwrap().is_err());
+    server.wait_closed(6).await;
+    fixture.controller.close().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn rejects_unsafe_responses() {
+    let target = Server::start(ModelApi::Responses, |_| Reply::Json(json!({"data":[]}))).await;
+    for (response, code) in [
+        (
+            format!(
+                "HTTP/1.1 307 Temporary Redirect\r\nLocation: {}/models\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                target.endpoint
+            ),
+            ErrorCode::Unavailable,
+        ),
+        (
+            format!(
+                "HTTP/1.1 401 Unauthorized\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{ACCESS}",
+                ACCESS.len()
+            ),
+            ErrorCode::NotConfigured,
+        ),
+        (
+            "HTTP/1.1 200 OK\r\nContent-Length: 2097153\r\nConnection: close\r\n\r\nx".into(),
+            ErrorCode::Unavailable,
+        ),
+    ] {
+        let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
+            if request.path.starts_with("/models") {
+                Reply::Raw(response.clone())
+            } else {
+                standard(request)
+            }
+        })
+        .await;
+        let fixture = Fixture::empty(&server).await;
+        let provider =
+            execution::signed_in(&fixture, Authentication::Copilot, ModelApi::Responses).await;
+        let error = fixture
+            .client
+            .execute(fixture.client.prepare(command(&provider)))
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, code);
+        no_secrets(&error);
+        assert_eq!(server.requests.lock().unwrap().len(), 5);
+        fixture.close().await;
+    }
+    assert!(target.requests.lock().unwrap().is_empty());
 }

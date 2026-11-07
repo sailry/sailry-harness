@@ -28,7 +28,7 @@ async fn settings(client: &Client, info: &Info) -> plugin::settings::State {
     state
 }
 
-async fn start(remote: bool) -> (tempfile::TempDir, Node, Link, Client) {
+async fn start() -> (tempfile::TempDir, Node, Link, Client) {
     let directory = tempfile::tempdir().unwrap();
     let node = Node::start(directory.path().join("node")).await.unwrap();
     let controller = Link::controller(directory.path().join("controller"), NetworkScope::default())
@@ -39,365 +39,347 @@ async fn start(remote: bool) -> (tempfile::TempDir, Node, Link, Client) {
         .pair(node.link().invite().unwrap().ticket())
         .await
         .unwrap();
-    let client = Client::new(if remote {
-        controller.handle().remote(address)
-    } else {
-        node.local()
-    });
+    let client = Client::new(controller.handle().remote(address));
     (directory, node, controller, client)
 }
 
 #[tokio::test]
 async fn manages_without_projects() {
-    for remote in [false, true] {
-        let (directory, node, controller, client) = start(remote).await;
-        let secret = "standalone-mcp-private-${PLUGIN_ROOT}-token";
-        let request = client.prepare(command(
-            0,
-            "https://example.com/mcp",
-            SecretUpdate::Replace(Secret::new(secret.into())),
-        ));
-        let mut subscription = client.subscribe().await.unwrap();
-        subscription.next().await.unwrap();
-        let pending = client.dispatch(request.clone()).await.unwrap();
-        assert!(pending.receipt.durable);
-        drop(pending);
-        let first = tokio::time::timeout(Duration::from_secs(10), async {
-            loop {
-                if let RequestOutcome::Completed(result) = client.outcome(&request).await.unwrap() {
-                    break info(result.unwrap());
-                }
-                tokio::time::sleep(Duration::from_millis(10)).await;
+    let (directory, node, controller, client) = start().await;
+    let secret = "standalone-mcp-private-${PLUGIN_ROOT}-token";
+    let request = client.prepare(command(
+        0,
+        "https://example.com/mcp",
+        SecretUpdate::Replace(Secret::new(secret.into())),
+    ));
+    let mut subscription = client.subscribe().await.unwrap();
+    subscription.next().await.unwrap();
+    let pending = client.dispatch(request.clone()).await.unwrap();
+    assert!(pending.receipt.durable);
+    drop(pending);
+    let first = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if let RequestOutcome::Completed(result) = client.outcome(&request).await.unwrap() {
+                break info(result.unwrap());
             }
-        })
-        .await
-        .unwrap();
-        let event = subscription.next().await.unwrap();
-        assert!(!serde_json::to_string(&event).unwrap().contains(secret));
-        assert!(first.mcp_source.is_some());
-        assert_eq!(first.mcp.len(), 1);
-        assert!(first.skills.is_empty());
-        let configured = settings(&client, &first).await;
-        assert!(configured.ready);
-        assert_eq!(configured.configured.len(), 1);
-        assert!(configured.values.is_empty());
-        assert_eq!(info(client.execute(request.clone()).await.unwrap()), first);
-        let mut changed = request.clone();
-        changed.command = command(0, "https://example.com/mcp", SecretUpdate::Clear);
-        assert_eq!(
-            client.execute(changed).await.unwrap_err().code,
-            ErrorCode::Conflict
-        );
-
-        assert_eq!(
-            client
-                .execute(client.prepare(command(
-                    first.summary.revision,
-                    "https://example.com/updated",
-                    SecretUpdate::Keep,
-                )))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::InvalidRequest
-        );
-        assert_eq!(
-            inventory(&client).await.as_slice(),
-            std::slice::from_ref(&first.summary)
-        );
-        assert_eq!(settings(&client, &first).await, configured);
-        let kept = info(
-            execute(
-                &client,
-                command(
-                    first.summary.revision,
-                    "https://example.com/mcp",
-                    SecretUpdate::Keep,
-                ),
-            )
-            .await,
-        );
-        assert_eq!(
-            settings(&client, &kept).await.configured,
-            configured.configured
-        );
-        let updated = info(
-            execute(
-                &client,
-                command(
-                    kept.summary.revision,
-                    "https://example.com/updated",
-                    SecretUpdate::Replace(Secret::new(secret.into())),
-                ),
-            )
-            .await,
-        );
-        assert_ne!(updated.summary.digest, first.summary.digest);
-        assert_eq!(
-            settings(&client, &updated).await.configured,
-            configured.configured
-        );
-        assert_eq!(
-            client
-                .execute(client.prepare(command(
-                    first.summary.revision,
-                    "https://example.com/stale",
-                    SecretUpdate::Clear,
-                )))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::RevisionConflict
-        );
-        let disabled = info(
-            execute(
-                &client,
-                Command::SetPluginEnabled {
-                    name: updated.summary.name.clone(),
-                    expected_revision: updated.summary.revision,
-                    enabled: false,
-                },
-            )
-            .await,
-        );
-        assert!(!disabled.summary.enabled);
-        let snapshot = execute(&client, Command::Snapshot).await;
-        let Output::Snapshot(view) = &snapshot else {
-            panic!("snapshot expected")
-        };
-        assert!(view.projects.is_empty() && view.worktrees.is_empty());
-        for public in [
-            serde_json::to_string(&snapshot).unwrap(),
-            serde_json::to_string(&first).unwrap(),
-            serde_json::to_string(&configured).unwrap(),
-        ] {
-            assert!(!public.contains(secret));
+            tokio::time::sleep(Duration::from_millis(10)).await;
         }
-        let root = node
-            .profile()
-            .join("plugins/packages")
-            .join(&first.summary.digest);
-        for file in [
-            "plugin.json",
-            "mcp.json",
-            "dev.sailry.platform/settings.json",
-        ] {
-            assert!(
-                !fs::read_to_string(root.join(file))
-                    .unwrap()
-                    .contains(secret)
-            );
-        }
+    })
+    .await
+    .unwrap();
+    let event = subscription.next().await.unwrap();
+    assert!(!serde_json::to_string(&event).unwrap().contains(secret));
+    assert!(first.mcp_source.is_some());
+    assert_eq!(first.mcp.len(), 1);
+    assert!(first.skills.is_empty());
+    let configured = settings(&client, &first).await;
+    assert!(configured.ready);
+    assert_eq!(configured.configured.len(), 1);
+    assert!(configured.values.is_empty());
+    assert_eq!(info(client.execute(request.clone()).await.unwrap()), first);
+    let mut changed = request.clone();
+    changed.command = command(0, "https://example.com/mcp", SecretUpdate::Clear);
+    assert_eq!(
+        client.execute(changed).await.unwrap_err().code,
+        ErrorCode::Conflict
+    );
 
-        let (body, result): (Vec<u8>, String) = {
-            let sql = ("SELECT body,result FROM requests WHERE id=?1").to_owned();
-            let parameters = turso::params![request.id.to_string()];
-            node.with_storage(move |db| {
-                Box::pin(async move {
-                    let row = db
-                        .prepare(sql)
-                        .await
-                        .map_err(crate::plugins::database_fixture::fault)?
-                        .query_row(parameters)
-                        .await
-                        .map_err(crate::plugins::database_fixture::fault)?;
-                    let value: turso::Result<_> =
-                        (|row: &turso::Row| Ok((row.get(0)?, row.get(1)?)))(&row);
-                    value.map_err(crate::plugins::database_fixture::fault)
-                })
-            })
+    assert_eq!(
+        client
+            .execute(client.prepare(command(
+                first.summary.revision,
+                "https://example.com/updated",
+                SecretUpdate::Keep,
+            )))
             .await
-        }
-        .unwrap();
-        assert!(body.starts_with(b"credential-v1:"));
-        assert!(!result.contains(secret));
-
-        drop(subscription);
-        drop(client);
-        node.shutdown().await.unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(node.link().address())
-        } else {
-            node.local()
-        });
-        assert_eq!(
-            inventory(&client).await.as_slice(),
-            std::slice::from_ref(&disabled.summary)
-        );
-        assert_eq!(info(client.execute(request).await.unwrap()), first);
-        assert_eq!(
-            settings(&client, &disabled).await.configured,
-            configured.configured
-        );
-        let enabled = info(
-            execute(
-                &client,
-                Command::SetPluginEnabled {
-                    name: disabled.summary.name,
-                    expected_revision: disabled.summary.revision,
-                    enabled: true,
-                },
-            )
-            .await,
-        );
-        assert!(enabled.summary.enabled);
-        let cleared = info(
-            execute(
-                &client,
-                command(
-                    enabled.summary.revision,
-                    "https://example.com/updated",
-                    SecretUpdate::Clear,
-                ),
-            )
-            .await,
-        );
-        assert!(settings(&client, &cleared).await.configured.is_empty());
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidRequest
+    );
+    assert_eq!(
+        inventory(&client).await.as_slice(),
+        std::slice::from_ref(&first.summary)
+    );
+    assert_eq!(settings(&client, &first).await, configured);
+    let kept = info(
         execute(
             &client,
-            Command::RemovePlugin {
-                name: cleared.summary.name,
-                expected_revision: cleared.summary.revision,
+            command(
+                first.summary.revision,
+                "https://example.com/mcp",
+                SecretUpdate::Keep,
+            ),
+        )
+        .await,
+    );
+    assert_eq!(
+        settings(&client, &kept).await.configured,
+        configured.configured
+    );
+    let updated = info(
+        execute(
+            &client,
+            command(
+                kept.summary.revision,
+                "https://example.com/updated",
+                SecretUpdate::Replace(Secret::new(secret.into())),
+            ),
+        )
+        .await,
+    );
+    assert_ne!(updated.summary.digest, first.summary.digest);
+    assert_eq!(
+        settings(&client, &updated).await.configured,
+        configured.configured
+    );
+    assert_eq!(
+        client
+            .execute(client.prepare(command(
+                first.summary.revision,
+                "https://example.com/stale",
+                SecretUpdate::Clear,
+            )))
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::RevisionConflict
+    );
+    let disabled = info(
+        execute(
+            &client,
+            Command::SetPluginEnabled {
+                name: updated.summary.name.clone(),
+                expected_revision: updated.summary.revision,
+                enabled: false,
             },
         )
-        .await;
-        assert!(inventory(&client).await.is_empty());
-        drop(client);
-        node.shutdown().await.unwrap();
-        controller.close().await.unwrap();
+        .await,
+    );
+    assert!(!disabled.summary.enabled);
+    let snapshot = execute(&client, Command::Snapshot).await;
+    let Output::Snapshot(view) = &snapshot else {
+        panic!("snapshot expected")
+    };
+    assert!(view.projects.is_empty() && view.worktrees.is_empty());
+    for public in [
+        serde_json::to_string(&snapshot).unwrap(),
+        serde_json::to_string(&first).unwrap(),
+        serde_json::to_string(&configured).unwrap(),
+    ] {
+        assert!(!public.contains(secret));
     }
+    let root = node
+        .profile()
+        .join("plugins/packages")
+        .join(&first.summary.digest);
+    for file in [
+        "plugin.json",
+        "mcp.json",
+        "dev.sailry.platform/settings.json",
+    ] {
+        assert!(
+            !fs::read_to_string(root.join(file))
+                .unwrap()
+                .contains(secret)
+        );
+    }
+
+    let (body, result): (Vec<u8>, String) = {
+        let sql = ("SELECT body,result FROM requests WHERE id=?1").to_owned();
+        let parameters = turso::params![request.id.to_string()];
+        node.with_storage(move |db| {
+            Box::pin(async move {
+                let row = db
+                    .prepare(sql)
+                    .await
+                    .map_err(crate::plugins::database_fixture::fault)?
+                    .query_row(parameters)
+                    .await
+                    .map_err(crate::plugins::database_fixture::fault)?;
+                let value: turso::Result<_> =
+                    (|row: &turso::Row| Ok((row.get(0)?, row.get(1)?)))(&row);
+                value.map_err(crate::plugins::database_fixture::fault)
+            })
+        })
+        .await
+    }
+    .unwrap();
+    assert!(body.starts_with(b"credential-v1:"));
+    assert!(!result.contains(secret));
+
+    drop(subscription);
+    drop(client);
+    node.shutdown().await.unwrap();
+    let node = Node::start(directory.path().join("node")).await.unwrap();
+    let client = Client::new(controller.handle().remote(node.link().address()));
+    assert_eq!(
+        inventory(&client).await.as_slice(),
+        std::slice::from_ref(&disabled.summary)
+    );
+    assert_eq!(info(client.execute(request).await.unwrap()), first);
+    assert_eq!(
+        settings(&client, &disabled).await.configured,
+        configured.configured
+    );
+    let enabled = info(
+        execute(
+            &client,
+            Command::SetPluginEnabled {
+                name: disabled.summary.name,
+                expected_revision: disabled.summary.revision,
+                enabled: true,
+            },
+        )
+        .await,
+    );
+    assert!(enabled.summary.enabled);
+    let cleared = info(
+        execute(
+            &client,
+            command(
+                enabled.summary.revision,
+                "https://example.com/updated",
+                SecretUpdate::Clear,
+            ),
+        )
+        .await,
+    );
+    assert!(settings(&client, &cleared).await.configured.is_empty());
+    execute(
+        &client,
+        Command::RemovePlugin {
+            name: cleared.summary.name,
+            expected_revision: cleared.summary.revision,
+        },
+    )
+    .await;
+    assert!(inventory(&client).await.is_empty());
+    drop(client);
+    node.shutdown().await.unwrap();
+    controller.close().await.unwrap();
 }
 
 #[tokio::test]
 async fn rolls_back_invalid_credentials() {
-    for remote in [false, true] {
-        let (_directory, node, controller, client) = start(remote).await;
-        let invalid = command(
-            0,
-            "https://example.com/mcp",
-            SecretUpdate::Replace(Secret::new("".into())),
-        );
-        assert_eq!(
-            client
-                .execute(client.prepare(invalid))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::InvalidRequest
-        );
-        assert!(inventory(&client).await.is_empty());
-        let first = info(
-            execute(
-                &client,
-                command(
-                    0,
-                    "https://example.com/mcp",
-                    SecretUpdate::Replace(Secret::new("original-private-token".into())),
-                ),
-            )
-            .await,
-        );
-        let invalid = Command::InstallMcp {
-            name: first.summary.name.clone(),
-            expected_revision: first.summary.revision,
-            definition: Definition::StreamableHttp {
-                url: "https://example.com/invalid-edit".into(),
-                headers: vec!["Authorization".into(), "X-Token".into()],
-            },
-            secrets: BTreeMap::from([("Authorization".into(), SecretUpdate::Keep)]),
-        };
-        assert_eq!(
-            client
-                .execute(client.prepare(invalid))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::InvalidRequest
-        );
-        assert_eq!(
-            inventory(&client).await.as_slice(),
-            std::slice::from_ref(&first.summary)
-        );
-        assert_eq!(settings(&client, &first).await.configured.len(), 1);
-        drop(client);
-        node.shutdown().await.unwrap();
-        controller.close().await.unwrap();
-    }
+    let (_directory, node, controller, client) = start().await;
+    let invalid = command(
+        0,
+        "https://example.com/mcp",
+        SecretUpdate::Replace(Secret::new("".into())),
+    );
+    assert_eq!(
+        client
+            .execute(client.prepare(invalid))
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidRequest
+    );
+    assert!(inventory(&client).await.is_empty());
+    let first = info(
+        execute(
+            &client,
+            command(
+                0,
+                "https://example.com/mcp",
+                SecretUpdate::Replace(Secret::new("original-private-token".into())),
+            ),
+        )
+        .await,
+    );
+    let invalid = Command::InstallMcp {
+        name: first.summary.name.clone(),
+        expected_revision: first.summary.revision,
+        definition: Definition::StreamableHttp {
+            url: "https://example.com/invalid-edit".into(),
+            headers: vec!["Authorization".into(), "X-Token".into()],
+        },
+        secrets: BTreeMap::from([("Authorization".into(), SecretUpdate::Keep)]),
+    };
+    assert_eq!(
+        client
+            .execute(client.prepare(invalid))
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidRequest
+    );
+    assert_eq!(
+        inventory(&client).await.as_slice(),
+        std::slice::from_ref(&first.summary)
+    );
+    assert_eq!(settings(&client, &first).await.configured.len(), 1);
+    drop(client);
+    node.shutdown().await.unwrap();
+    controller.close().await.unwrap();
 }
 
 #[tokio::test]
 async fn preserves_server_enablement() {
-    for remote in [false, true] {
-        let (directory, node, controller, client) = start(remote).await;
-        let original = info(
-            execute(
-                &client,
-                command(
-                    0,
-                    "https://example.com/mcp",
-                    SecretUpdate::Replace(Secret::new("private-manual-header".into())),
-                ),
-            )
-            .await,
-        );
-        let configured = settings(&client, &original).await.configured;
-        let disabled = info(
-            execute(
-                &client,
-                Command::SetPluginMcpAllowed {
-                    package: original.summary.reference(),
-                    server: "server".into(),
-                    allowed: false,
-                },
-            )
-            .await,
-        );
-        let changed = info(
-            execute(
-                &client,
-                command(
-                    disabled.summary.revision,
-                    "https://example.com/mcp",
-                    SecretUpdate::Keep,
-                ),
-            )
-            .await,
-        );
-        assert!(!changed.mcp[0].allowed);
-        assert!(changed.summary.enabled);
-        assert_eq!(settings(&client, &changed).await.configured, configured);
-        let Output::Plugin(captured) = execute(
+    let (directory, node, controller, client) = start().await;
+    let original = info(
+        execute(
             &client,
-            Command::ReadPluginVersion {
+            command(
+                0,
+                "https://example.com/mcp",
+                SecretUpdate::Replace(Secret::new("private-manual-header".into())),
+            ),
+        )
+        .await,
+    );
+    let configured = settings(&client, &original).await.configured;
+    let disabled = info(
+        execute(
+            &client,
+            Command::SetPluginMcpAllowed {
                 package: original.summary.reference(),
+                server: "server".into(),
+                allowed: false,
             },
         )
-        .await
-        else {
-            panic!("captured plugin expected")
-        };
-        assert!(captured.mcp[0].allowed);
-        drop(client);
-        node.shutdown().await.unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(node.link().address())
-        } else {
-            node.local()
-        });
-        let current = info(
-            execute(
-                &client,
-                Command::ReadPlugin {
-                    name: changed.summary.name.clone(),
-                },
-            )
-            .await,
-        );
-        assert_eq!(current, changed);
-        assert_eq!(settings(&client, &current).await.configured.len(), 1);
-        controller.close().await.unwrap();
-        node.shutdown().await.unwrap();
-    }
+        .await,
+    );
+    let changed = info(
+        execute(
+            &client,
+            command(
+                disabled.summary.revision,
+                "https://example.com/mcp",
+                SecretUpdate::Keep,
+            ),
+        )
+        .await,
+    );
+    assert!(!changed.mcp[0].allowed);
+    assert!(changed.summary.enabled);
+    assert_eq!(settings(&client, &changed).await.configured, configured);
+    let Output::Plugin(captured) = execute(
+        &client,
+        Command::ReadPluginVersion {
+            package: original.summary.reference(),
+        },
+    )
+    .await
+    else {
+        panic!("captured plugin expected")
+    };
+    assert!(captured.mcp[0].allowed);
+    drop(client);
+    node.shutdown().await.unwrap();
+    let node = Node::start(directory.path().join("node")).await.unwrap();
+    let client = Client::new(controller.handle().remote(node.link().address()));
+    let current = info(
+        execute(
+            &client,
+            Command::ReadPlugin {
+                name: changed.summary.name.clone(),
+            },
+        )
+        .await,
+    );
+    assert_eq!(current, changed);
+    assert_eq!(settings(&client, &current).await.configured.len(), 1);
+    controller.close().await.unwrap();
+    node.shutdown().await.unwrap();
 }

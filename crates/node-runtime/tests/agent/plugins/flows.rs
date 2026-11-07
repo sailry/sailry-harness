@@ -116,12 +116,10 @@ async fn value(
 
 #[tokio::test]
 async fn approves_once_and_commits_each_step() {
-    for remote in [false, true] {
-        let arguments = json!({"key":"note","value":"approved"});
-        let server =
-            Server::tools(vec![(plugin_tool(PACKAGE, "sequence"), arguments.clone())]).await;
-        let fixture = process::Fixture::packages(remote, &server, &[]).await;
-        let package = install(&fixture,r#"
+    let arguments = json!({"key":"note","value":"approved"});
+    let server = Server::tools(vec![(plugin_tool(PACKAGE, "sequence"), arguments.clone())]).await;
+    let fixture = process::Fixture::packages(&server, &[]).await;
+    let package = install(&fixture,r#"
 export function sequence({arguments:args,step,outcome}) {
   if (step === 0) return {call:{operation:'storage.set',arguments:{key:args.key,value:args.value,expected_revision:0}}};
   if (step === 1) return {call:{operation:'storage.set',arguments:{key:args.key,value:args.value+' twice',expected_revision:outcome.data.revision}}};
@@ -129,44 +127,42 @@ export function sequence({arguments:args,step,outcome}) {
   return {result:outcome.data,output:2};
 }
 "#,&[("sequence",&["storage.set","storage.get"])],None).await;
-        let turn = submit(&fixture, "Exercise declared operations".into()).await;
-        let (_, approval) = approvals::pending(&fixture.client, fixture.session.id).await;
-        assert!(!value(&fixture, &package, "note").await.present);
-        process::decide(&fixture.client, &approval, Decision::Approve).await;
-        let page = finished(&fixture.client, fixture.session.id, turn).await;
-        assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-        assert_eq!(page.approvals.len(), 1);
-        assert!(
-            tool_calls(&fixture.client, &page)
-                .await
-                .iter()
-                .any(|(_, detail)| detail.arguments == arguments)
-        );
-        let result = results(&fixture.client, &page).await;
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0]["revision"], 2);
-        assert_eq!(result[0]["value"], "approved twice");
-        let stored = value(&fixture, &package, "note").await;
-        assert_eq!(stored.revision, 2);
-        assert_eq!(stored.value, "approved twice");
-        fixture.node.shutdown().await.unwrap();
-        fixture.controller.close().await.unwrap();
-    }
+    let turn = submit(&fixture, "Exercise declared operations".into()).await;
+    let (_, approval) = approvals::pending(&fixture.client, fixture.session.id).await;
+    assert!(!value(&fixture, &package, "note").await.present);
+    process::decide(&fixture.client, &approval, Decision::Approve).await;
+    let page = finished(&fixture.client, fixture.session.id, turn).await;
+    assert_eq!(page.runs.last().unwrap().status, Status::Completed);
+    assert_eq!(page.approvals.len(), 1);
+    assert!(
+        tool_calls(&fixture.client, &page)
+            .await
+            .iter()
+            .any(|(_, detail)| detail.arguments == arguments)
+    );
+    let result = results(&fixture.client, &page).await;
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0]["revision"], 2);
+    assert_eq!(result[0]["value"], "approved twice");
+    let stored = value(&fixture, &package, "note").await;
+    assert_eq!(stored.revision, 2);
+    assert_eq!(stored.value, "approved twice");
+    fixture.node.shutdown().await.unwrap();
+    fixture.controller.close().await.unwrap();
 }
 
 #[tokio::test]
 async fn preserves_failures_and_completed_effects() {
-    for remote in [false, true] {
-        let names = ["tamper", "retry", "undeclared", "broken"];
-        let server = Server::tools(
-            names
-                .iter()
-                .map(|name| (plugin_tool(PACKAGE, name), json!({})))
-                .collect(),
-        )
-        .await;
-        let mut fixture = process::Fixture::packages(remote, &server, &[]).await;
-        let package = install(&fixture,r#"
+    let names = ["tamper", "retry", "undeclared", "broken"];
+    let server = Server::tools(
+        names
+            .iter()
+            .map(|name| (plugin_tool(PACKAGE, name), json!({})))
+            .collect(),
+    )
+    .await;
+    let mut fixture = process::Fixture::packages(&server, &[]).await;
+    let package = install(&fixture,r#"
 const write = (key, revision = 0) => ({call:{operation:'storage.set',arguments:{key,value:'changed',expected_revision:revision}}});
 export function tamper({step}) {
   if (step === 0) return write('conflict',99);
@@ -179,103 +175,100 @@ export function broken({step}) {
   throw new Error('fixture formatter failed');
 }
 "#,&[("tamper",&["storage.set"]),("retry",&["storage.set"]),
-        ("undeclared",&["storage.get"]),("broken",&["storage.set"])],None).await;
-        planning::configure(&mut fixture, WorkMode::Code).await;
-        let turn = submit(&fixture, "Exercise declared operations".into()).await;
-        let page = finished(&fixture.client, fixture.session.id, turn).await;
-        assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-        let output = results(&fixture.client, &page).await;
-        assert_eq!(output.len(), 4, "{page:?}");
-        for result in &output[..2] {
-            assert_eq!(
-                serde_json::from_value::<Fault>(result["error"].clone())
-                    .unwrap()
-                    .code,
-                ErrorCode::RevisionConflict
-            );
-            assert_eq!(result["isError"], true);
-            assert!(result.get("forged").is_none());
-        }
+    ("undeclared",&["storage.get"]),("broken",&["storage.set"])],None).await;
+    planning::configure(&mut fixture, WorkMode::Code).await;
+    let turn = submit(&fixture, "Exercise declared operations".into()).await;
+    let page = finished(&fixture.client, fixture.session.id, turn).await;
+    assert_eq!(page.runs.last().unwrap().status, Status::Completed);
+    let output = results(&fixture.client, &page).await;
+    assert_eq!(output.len(), 4, "{page:?}");
+    for result in &output[..2] {
         assert_eq!(
-            output[0]["sailry_result"]["diagnostics"][0]["text"],
-            "Recovery remains available"
-        );
-        assert_eq!(
-            serde_json::from_value::<Fault>(output[2]["error"].clone())
+            serde_json::from_value::<Fault>(result["error"].clone())
                 .unwrap()
                 .code,
-            ErrorCode::InvalidRequest
+            ErrorCode::RevisionConflict
         );
-        assert_eq!(output[3]["revision"], 1);
-        assert_eq!(output[3]["value"], "changed");
-        let presentation: Fault =
-            serde_json::from_value(output[3]["presentation_error"].clone()).unwrap();
-        assert_eq!(presentation.code, ErrorCode::InvalidRequest);
-        assert_eq!(presentation.message, "plugin callback failed");
-        assert!(matches!(
-            presentation.details,
-            Some(sailry_protocol::FaultDetails::SystemDiagnostic(_))
-        ));
-        assert!(!output[3].to_string().contains("fixture formatter failed"));
-        for key in ["conflict", "retry-conflict", "replayed", "undeclared"] {
-            assert!(!value(&fixture, &package, key).await.present, "{key}");
-        }
-        assert_eq!(value(&fixture, &package, "completed").await.revision, 1);
-        fixture.node.shutdown().await.unwrap();
-        fixture.controller.close().await.unwrap();
+        assert_eq!(result["isError"], true);
+        assert!(result.get("forged").is_none());
     }
+    assert_eq!(
+        output[0]["sailry_result"]["diagnostics"][0]["text"],
+        "Recovery remains available"
+    );
+    assert_eq!(
+        serde_json::from_value::<Fault>(output[2]["error"].clone())
+            .unwrap()
+            .code,
+        ErrorCode::InvalidRequest
+    );
+    assert_eq!(output[3]["revision"], 1);
+    assert_eq!(output[3]["value"], "changed");
+    let presentation: Fault =
+        serde_json::from_value(output[3]["presentation_error"].clone()).unwrap();
+    assert_eq!(presentation.code, ErrorCode::InvalidRequest);
+    assert_eq!(presentation.message, "plugin callback failed");
+    assert!(matches!(
+        presentation.details,
+        Some(sailry_protocol::FaultDetails::SystemDiagnostic(_))
+    ));
+    assert!(!output[3].to_string().contains("fixture formatter failed"));
+    for key in ["conflict", "retry-conflict", "replayed", "undeclared"] {
+        assert!(!value(&fixture, &package, key).await.present, "{key}");
+    }
+    assert_eq!(value(&fixture, &package, "completed").await.revision, 1);
+    fixture.node.shutdown().await.unwrap();
+    fixture.controller.close().await.unwrap();
 }
 
 #[tokio::test]
 async fn uncertain_controller_outcomes_never_resume() {
-    for remote in [false, true] {
-        let server = Server::tools(vec![(plugin_tool(PACKAGE, "uncertain"), json!({}))]).await;
-        let mut fixture = process::Fixture::packages(remote, &server, &[]).await;
-        let package = install(&fixture,r#"
+    let server = Server::tools(vec![(plugin_tool(PACKAGE, "uncertain"), json!({}))]).await;
+    let mut fixture = process::Fixture::packages(&server, &[]).await;
+    let package = install(&fixture,r#"
 export function uncertain({step}) {
   if (step === 0) return {call:{operation:'browser.read',arguments:{action:'tabs',arguments:{}}}};
   if (step === 1) return {call:{operation:'storage.set',arguments:{key:'replayed',value:true,expected_revision:0}}};
   return {result:{forged:true}};
 }
 "#,&[("uncertain",&["browser.read","storage.set"])],None).await;
-        planning::configure(&mut fixture, WorkMode::Code).await;
-        let mut subscription = fixture.client.subscribe_browser().await.unwrap();
-        let turn = submit(&fixture, "Exercise declared operations".into()).await;
-        let Update::BrowserCall(call) =
-            tokio::time::timeout(Duration::from_secs(5), subscription.next())
-                .await
-                .unwrap()
-                .unwrap()
-        else {
-            panic!("browser call expected")
-        };
-        assert_eq!(call.action, Action::Tabs);
-        let fault = Fault::new(ErrorCode::OutcomeUnknown, "original controller outcome");
-        fixture
-            .client
-            .execute(fixture.client.prepare(Command::CompleteBrowser {
-                id: call.id,
-                result: Err(fault.clone()),
-            }))
+    planning::configure(&mut fixture, WorkMode::Code).await;
+    let mut subscription = fixture.client.subscribe_browser().await.unwrap();
+    let turn = submit(&fixture, "Exercise declared operations".into()).await;
+    let Update::BrowserCall(call) =
+        tokio::time::timeout(Duration::from_secs(5), subscription.next())
             .await
-            .unwrap();
-        let page = finished(&fixture.client, fixture.session.id, turn).await;
-        assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-        let output = results(&fixture.client, &page).await;
-        assert_eq!(output.len(), 1);
-        assert_eq!(output[0]["error"], json!(fault));
-        assert_eq!(output[0]["isError"], true);
-        assert!(output[0].get("forged").is_none());
-        assert!(!value(&fixture, &package, "replayed").await.present);
-        assert!(
-            tokio::time::timeout(Duration::from_millis(30), subscription.next())
-                .await
-                .is_err()
-        );
-        drop(subscription);
-        fixture.node.shutdown().await.unwrap();
-        fixture.controller.close().await.unwrap();
-    }
+            .unwrap()
+            .unwrap()
+    else {
+        panic!("browser call expected")
+    };
+    assert_eq!(call.action, Action::Tabs);
+    let fault = Fault::new(ErrorCode::OutcomeUnknown, "original controller outcome");
+    fixture
+        .client
+        .execute(fixture.client.prepare(Command::CompleteBrowser {
+            id: call.id,
+            result: Err(fault.clone()),
+        }))
+        .await
+        .unwrap();
+    let page = finished(&fixture.client, fixture.session.id, turn).await;
+    assert_eq!(page.runs.last().unwrap().status, Status::Completed);
+    let output = results(&fixture.client, &page).await;
+    assert_eq!(output.len(), 1);
+    assert_eq!(output[0]["error"], json!(fault));
+    assert_eq!(output[0]["isError"], true);
+    assert!(output[0].get("forged").is_none());
+    assert!(!value(&fixture, &package, "replayed").await.present);
+    assert!(
+        tokio::time::timeout(Duration::from_millis(30), subscription.next())
+            .await
+            .is_err()
+    );
+    drop(subscription);
+    fixture.node.shutdown().await.unwrap();
+    fixture.controller.close().await.unwrap();
 }
 
 #[tokio::test]
@@ -284,41 +277,39 @@ async fn bounds_the_frozen_message_before_each_continuation() {
     // failures and Link's quiet interruption diagnostics reach test stderr.
     tracing::subscriber::set_global_default(sailry_node_runtime::logging::test_subscriber())
         .unwrap();
-    for remote in [false, true] {
-        let server = Server::tools(vec![(plugin_tool(PACKAGE, "prefix"), json!({}))]).await;
-        let fixture = process::Fixture::packages(remote, &server, &[]).await;
-        install(&fixture,r#"
+    let server = Server::tools(vec![(plugin_tool(PACKAGE, "prefix"), json!({}))]).await;
+    let fixture = process::Fixture::packages(&server, &[]).await;
+    install(&fixture,r#"
 export function prefix({message,step,state}) {
   if (step === 0) return {call:{operation:'storage.get',arguments:{key:'absent'}},state:{first:message}};
   return {result:{first:state.first,second:message}};
 }
 "#,&[("prefix",&["storage.get"])],Some(4)).await;
-        // This fixture exercises full service payloads, independently of compaction.
-        let mut provider = configuration::snapshot(&fixture.client).await.providers[0].clone();
-        provider.models[0].context = 4_000_000;
-        provider.models[0].compaction_tokens = Some(3_000_000);
-        fixture
-            .client
-            .execute(fixture.client.prepare(Command::PutProvider {
-                expected_revision: provider.revision,
-                provider,
-            }))
-            .await
-            .unwrap();
-        let escaped_bytes = serde_json::to_vec("\u{0001}").unwrap().len() - 2;
-        let message = format!(
-            "🙂漢ab{}",
-            "\u{0001}".repeat(plugin::host::MAX_DATA_BYTES / escaped_bytes + 1)
-        );
-        assert!(serde_json::to_vec(&message).unwrap().len() > plugin::host::MAX_DATA_BYTES);
-        let turn = submit(&fixture, message).await;
-        let page = finished(&fixture.client, fixture.session.id, turn).await;
-        assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-        let output = results(&fixture.client, &page).await;
-        assert_eq!(output.len(), 1, "{page:?}");
-        assert_eq!(output[0]["first"], "🙂漢ab");
-        assert_eq!(output[0]["second"], "🙂漢ab");
-        fixture.node.shutdown().await.unwrap();
-        fixture.controller.close().await.unwrap();
-    }
+    // This fixture exercises full service payloads, independently of compaction.
+    let mut provider = configuration::snapshot(&fixture.client).await.providers[0].clone();
+    provider.models[0].context = 4_000_000;
+    provider.models[0].compaction_tokens = Some(3_000_000);
+    fixture
+        .client
+        .execute(fixture.client.prepare(Command::PutProvider {
+            expected_revision: provider.revision,
+            provider,
+        }))
+        .await
+        .unwrap();
+    let escaped_bytes = serde_json::to_vec("\u{0001}").unwrap().len() - 2;
+    let message = format!(
+        "🙂漢ab{}",
+        "\u{0001}".repeat(plugin::host::MAX_DATA_BYTES / escaped_bytes + 1)
+    );
+    assert!(serde_json::to_vec(&message).unwrap().len() > plugin::host::MAX_DATA_BYTES);
+    let turn = submit(&fixture, message).await;
+    let page = finished(&fixture.client, fixture.session.id, turn).await;
+    assert_eq!(page.runs.last().unwrap().status, Status::Completed);
+    let output = results(&fixture.client, &page).await;
+    assert_eq!(output.len(), 1, "{page:?}");
+    assert_eq!(output[0]["first"], "🙂漢ab");
+    assert_eq!(output[0]["second"], "🙂漢ab");
+    fixture.node.shutdown().await.unwrap();
+    fixture.controller.close().await.unwrap();
 }

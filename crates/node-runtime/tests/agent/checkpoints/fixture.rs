@@ -16,15 +16,15 @@ pub(super) struct Fixture {
 }
 
 impl Fixture {
-    pub async fn start(remote: bool, changes: &[(&str, Option<&str>, &str)]) -> Self {
-        Self::start_with(remote, changes, false).await
+    pub async fn start(changes: &[(&str, Option<&str>, &str)]) -> Self {
+        Self::start_with(changes, false).await
     }
 
-    pub async fn git(remote: bool, changes: &[(&str, Option<&str>, &str)]) -> Self {
-        Self::start_with(remote, changes, true).await
+    pub async fn git(changes: &[(&str, Option<&str>, &str)]) -> Self {
+        Self::start_with(changes, true).await
     }
 
-    async fn start_with(remote: bool, changes: &[(&str, Option<&str>, &str)], git: bool) -> Self {
+    async fn start_with(changes: &[(&str, Option<&str>, &str)], git: bool) -> Self {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("project");
         std::fs::create_dir(&root).unwrap();
@@ -61,11 +61,7 @@ impl Fixture {
             .pair(node.link().invite().unwrap().ticket())
             .await
             .unwrap();
-        let transport = if remote {
-            controller.handle().remote(address)
-        } else {
-            node.local()
-        };
+        let transport = controller.handle().remote(address);
         let client = Client::new(transport.clone());
         let server = Server::tools(changes.iter().map(|&(path, before, after)| (
             plugin_tool("files", "write_file"), json!({"path": path, "text": after, "expected_revision": before.map(|text| blake3::hash(text.as_bytes()).to_hex().to_string())}),

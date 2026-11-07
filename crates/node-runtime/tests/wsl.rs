@@ -67,17 +67,13 @@ cp "$HOME/bootstrap-source" "$HOME/.sailry-host/bootstrap.ticket"
         );
     }
 
-    async fn controller(node: &Node, root: &Path, remote: bool) -> (Link, Client) {
+    async fn controller(node: &Node, root: &Path) -> (Link, Client) {
         let controller = Link::controller(root.join("controller"), NetworkScope::default())
             .await
             .unwrap();
         let invitation = node.link().invite().unwrap();
         let address = controller.handle().pair(invitation.ticket()).await.unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(address)
-        } else {
-            node.local()
-        });
+        let client = Client::new(controller.handle().remote(address));
         (controller, client)
     }
 
@@ -100,12 +96,7 @@ cp "$HOME/bootstrap-source" "$HOME/.sailry-host/bootstrap.ticket"
 
     #[tokio::test]
     async fn deploys_and_pairs_without_ssh_profiles() {
-        for (remote, network) in [
-            (false, None),
-            (true, None),
-            (false, Some(Selection::Iroh)),
-            (true, Some(Selection::Iroh)),
-        ] {
+        for network in [None, Some(Selection::Iroh)] {
             let directory = tempfile::tempdir().unwrap();
             let node = Node::start_empty(directory.path().join("node"))
                 .await
@@ -115,7 +106,7 @@ cp "$HOME/bootstrap-source" "$HOME/.sailry-host/bootstrap.ticket"
                 .unwrap();
             let invitation = target.link().invite().unwrap();
             fixture(directory.path(), &node, invitation.ticket(), "ready", true);
-            let (controller, client) = controller(&node, directory.path(), remote).await;
+            let (controller, client) = controller(&node, directory.path()).await;
             let listing = client
                 .dispatch(client.prepare(Command::ListWslDistributions))
                 .await
@@ -187,93 +178,75 @@ cp "$HOME/bootstrap-source" "$HOME/.sailry-host/bootstrap.ticket"
 
     #[tokio::test]
     async fn rejects_uninstalled_or_unsupported_targets() {
-        for remote in [false, true] {
-            let directory = tempfile::tempdir().unwrap();
-            let node = Node::start_empty(directory.path().join("node"))
-                .await
-                .unwrap();
-            fixture(directory.path(), &node, "unused", "ready", true);
-            let (controller, client) = controller(&node, directory.path(), remote).await;
-            for (distribution, code) in [
-                ("/bin/bash", ErrorCode::NotFound),
-                ("Missing", ErrorCode::NotFound),
-                ("Legacy", ErrorCode::Unavailable),
-                ("--install", ErrorCode::InvalidRequest),
-                ("Ubuntu\nDebian", ErrorCode::InvalidRequest),
-            ] {
-                let request = client.prepare(Command::InstallWslHost {
-                    distribution: distribution.into(),
-                    network: None,
-                });
-                let error = client.execute(request.clone()).await.unwrap_err();
-                assert_eq!(error.code, code);
-                assert_eq!(client.execute(request).await.unwrap_err(), error);
-            }
-            assert_eq!(
-                client
-                    .execute(install(&client, Some(Selection::Custom { relays: vec![] })))
-                    .await
-                    .unwrap_err()
-                    .code,
-                ErrorCode::InvalidRequest
-            );
-            assert!(!directory.path().join("detecting").exists());
-            assert!(!directory.path().join("install-calls").exists());
-            controller.close().await.unwrap();
-            node.shutdown().await.unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
+        fixture(directory.path(), &node, "unused", "ready", true);
+        let (controller, client) = controller(&node, directory.path()).await;
+        for (distribution, code) in [
+            ("/bin/bash", ErrorCode::NotFound),
+            ("Missing", ErrorCode::NotFound),
+            ("Legacy", ErrorCode::Unavailable),
+            ("--install", ErrorCode::InvalidRequest),
+            ("Ubuntu\nDebian", ErrorCode::InvalidRequest),
+        ] {
+            let request = client.prepare(Command::InstallWslHost {
+                distribution: distribution.into(),
+                network: None,
+            });
+            let error = client.execute(request.clone()).await.unwrap_err();
+            assert_eq!(error.code, code);
+            assert_eq!(client.execute(request).await.unwrap_err(), error);
         }
+        assert_eq!(
+            client
+                .execute(install(&client, Some(Selection::Custom { relays: vec![] })))
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidRequest
+        );
+        assert!(!directory.path().join("detecting").exists());
+        assert!(!directory.path().join("install-calls").exists());
+        controller.close().await.unwrap();
+        node.shutdown().await.unwrap();
     }
 
     #[tokio::test]
     async fn preserves_unverified_and_existing_installations() {
-        for remote in [false, true] {
-            let directory = tempfile::tempdir().unwrap();
-            let node = Node::start_empty(directory.path().join("node"))
-                .await
-                .unwrap();
-            fixture(directory.path(), &node, "unused", "ready", false);
-            let (controller, client) = controller(&node, directory.path(), remote).await;
-            let request = install(&client, None);
-            let error = client.execute(request.clone()).await.unwrap_err();
-            assert_eq!(error.code, ErrorCode::Unavailable);
-            assert!(error.message.contains("Installer checksum does not match"));
-            assert_eq!(client.execute(request).await.unwrap_err(), error);
-            assert!(!directory.path().join("install-calls").exists());
-            std::fs::create_dir(directory.path().join(".sailry-host")).unwrap();
-            let marker = directory.path().join(".sailry-host/preserve");
-            std::fs::write(&marker, b"original").unwrap();
-            let error = client.execute(install(&client, None)).await.unwrap_err();
-            assert_eq!(error.code, ErrorCode::Unavailable);
-            assert!(error.message.contains("already exist"));
-            assert_eq!(std::fs::read(marker).unwrap(), b"original");
-            controller.close().await.unwrap();
-            node.shutdown().await.unwrap();
-        }
+        let directory = tempfile::tempdir().unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
+        fixture(directory.path(), &node, "unused", "ready", false);
+        let (controller, client) = controller(&node, directory.path()).await;
+        let request = install(&client, None);
+        let error = client.execute(request.clone()).await.unwrap_err();
+        assert_eq!(error.code, ErrorCode::Unavailable);
+        assert!(error.message.contains("Installer checksum does not match"));
+        assert_eq!(client.execute(request).await.unwrap_err(), error);
+        assert!(!directory.path().join("install-calls").exists());
+        std::fs::create_dir(directory.path().join(".sailry-host")).unwrap();
+        let marker = directory.path().join(".sailry-host/preserve");
+        std::fs::write(&marker, b"original").unwrap();
+        let error = client.execute(install(&client, None)).await.unwrap_err();
+        assert_eq!(error.code, ErrorCode::Unavailable);
+        assert!(error.message.contains("already exist"));
+        assert_eq!(std::fs::read(marker).unwrap(), b"original");
+        controller.close().await.unwrap();
+        node.shutdown().await.unwrap();
     }
 
     #[tokio::test]
     async fn cancels_with_honest_durable_outcomes() {
-        for (remote, mode, stage, code) in [
+        for (mode, stage, code) in [
             (
-                false,
                 "wait-detect",
                 ssh::InstallProgress::Detecting,
                 ErrorCode::Cancelled,
             ),
             (
-                true,
-                "wait-detect",
-                ssh::InstallProgress::Detecting,
-                ErrorCode::Cancelled,
-            ),
-            (
-                false,
-                "wait-install",
-                ssh::InstallProgress::Installing,
-                ErrorCode::OutcomeUnknown,
-            ),
-            (
-                true,
                 "wait-install",
                 ssh::InstallProgress::Installing,
                 ErrorCode::OutcomeUnknown,
@@ -284,7 +257,7 @@ cp "$HOME/bootstrap-source" "$HOME/.sailry-host/bootstrap.ticket"
                 .await
                 .unwrap();
             fixture(directory.path(), &node, "unused", mode, true);
-            let (controller, client) = controller(&node, directory.path(), remote).await;
+            let (controller, client) = controller(&node, directory.path()).await;
             let request = install(&client, None);
             let admission = client.dispatch(request.clone()).await.unwrap();
             assert!(admission.receipt.durable);

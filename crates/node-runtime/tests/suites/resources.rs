@@ -26,11 +26,7 @@ mod knowledge;
 mod memory;
 #[path = "../office.rs"]
 mod office;
-#[path = "../outcomes.rs"]
-mod outcomes;
 #[path = "../sessions.rs"]
 mod sessions;
-#[path = "../snapshots.rs"]
-mod snapshots;
 #[path = "../unassigned.rs"]
 mod unassigned;

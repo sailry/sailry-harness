@@ -266,7 +266,7 @@ async fn exchanges_declared_pkce_callbacks() {
         }
     })
     .await;
-    let fixture = Fixture::empty(false, &server).await;
+    let fixture = Fixture::local(&server).await;
     let provider = configured_flow(
         &fixture,
         true,
@@ -372,7 +372,7 @@ async fn polls_declared_device_codes() {
             _ => panic!("unexpected fixture request"),
         }
     }).await;
-    let fixture = Fixture::empty(true, &server).await;
+    let fixture = Fixture::empty(&server).await;
     let provider = configured_flow(
         &fixture,
         true,
@@ -429,118 +429,113 @@ async fn polls_declared_device_codes() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn completes_private_polling_challenges() {
-    for remote in [false, true] {
-        let starts = Arc::new(AtomicUsize::new(0));
-        let polls = Arc::new(AtomicUsize::new(0));
-        let started = starts.clone();
-        let polled = polls.clone();
-        let release = Arc::new(tokio::sync::Notify::new());
-        let verified = release.clone();
-        let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
-            match request.path.as_str() {
-                "/challenge" => {
-                    assert_eq!(request.method, "POST");
-                    assert_eq!(serde_json::from_str::<serde_json::Value>(&request.body).unwrap(), json!({}));
-                    assert_eq!(started.fetch_add(1, Ordering::SeqCst), 0);
-                    Reply::Json(json!({"data":{"state":CHALLENGE,"url":"https://auth.example.test/verify"}}))
-                }
-                path if path.starts_with("/poll?") => {
-                    assert_eq!(request.method, "GET");
-                    assert!(request.body.is_empty());
-                    let url = reqwest::Url::parse(&format!("http://fixture{path}")).unwrap();
-                    let query = url.query_pairs().into_owned().collect::<std::collections::BTreeMap<_,_>>();
-                    assert_eq!(query.len(), 1);
-                    assert_eq!(query["state"], CHALLENGE);
-                    match polled.fetch_add(1, Ordering::SeqCst) {
-                        0 => Reply::Json(json!({"code":202})),
-                        1 => Reply::Delayed(verified.clone(), json!({"code":0,"data":{"access":FRESH,"refresh":ROTATED,"expires_in":3600,"account":ACCOUNT}})),
-                        _ => panic!("completed challenge was polled again"),
-                    }
-                }
-                "/models" => {
-                    assert_eq!(request.headers["authorization"], format!("Bearer {FRESH}"));
-                    assert_eq!(request.headers["x-account"], ACCOUNT);
-                    Reply::Json(catalog::models(Authentication::Plugin))
-                }
-                _ => panic!("unexpected fixture request"),
+    let starts = Arc::new(AtomicUsize::new(0));
+    let polls = Arc::new(AtomicUsize::new(0));
+    let started = starts.clone();
+    let polled = polls.clone();
+    let release = Arc::new(tokio::sync::Notify::new());
+    let verified = release.clone();
+    let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
+        match request.path.as_str() {
+            "/challenge" => {
+                assert_eq!(request.method, "POST");
+                assert_eq!(serde_json::from_str::<serde_json::Value>(&request.body).unwrap(), json!({}));
+                assert_eq!(started.fetch_add(1, Ordering::SeqCst), 0);
+                Reply::Json(json!({"data":{"state":CHALLENGE,"url":"https://auth.example.test/verify"}}))
             }
-        }).await;
-        let fixture = Fixture::empty(remote, &server).await;
-        let provider = configured_flow(&fixture, true, json!({
-            "kind":"polling",
-            "start":{"url":"https://auth.example.test/challenge","method":"POST","body":{"kind":"json","value":{}}},
-            "state":"/data/state","verification_url":"/data/url",
-            "token":{"url":"https://auth.example.test/poll","method":"GET","query":{"state":"{state}"}},
-            "success":{"pointer":"/code","values":[0]},"interval_ms":1
-        })).await;
-        let (request, attempt) = begin(&fixture.client, &provider).await;
-        let mut stream = fixture.client.subscribe_login(attempt.id).await.unwrap();
-        let mut browser = false;
-        loop {
-            let update = next(&mut stream).await;
-            private(&update);
-            match update.state {
-                login::State::Starting => {}
-                login::State::Browser {
-                    authorization_url,
-                    expires_at_ms,
-                } => {
-                    assert_eq!(authorization_url, "https://auth.example.test/verify");
-                    assert!(expires_at_ms > future_expiry().saturating_sub(3600) * 1000);
-                    browser = true;
-                    release.notify_one();
+            path if path.starts_with("/poll?") => {
+                assert_eq!(request.method, "GET");
+                assert!(request.body.is_empty());
+                let url = reqwest::Url::parse(&format!("http://fixture{path}")).unwrap();
+                let query = url.query_pairs().into_owned().collect::<std::collections::BTreeMap<_,_>>();
+                assert_eq!(query.len(), 1);
+                assert_eq!(query["state"], CHALLENGE);
+                match polled.fetch_add(1, Ordering::SeqCst) {
+                    0 => Reply::Json(json!({"code":202})),
+                    1 => Reply::Delayed(verified.clone(), json!({"code":0,"data":{"access":FRESH,"refresh":ROTATED,"expires_in":3600,"account":ACCOUNT}})),
+                    _ => panic!("completed challenge was polled again"),
                 }
-                login::State::Connected => {
-                    assert_eq!(update.model_error, None);
-                    break;
-                }
-                state => panic!("unexpected polling state: {state:?}"),
             }
+            "/models" => {
+                assert_eq!(request.headers["authorization"], format!("Bearer {FRESH}"));
+                assert_eq!(request.headers["x-account"], ACCOUNT);
+                Reply::Json(catalog::models(Authentication::Plugin))
+            }
+            _ => panic!("unexpected fixture request"),
         }
-        assert!(browser);
-        assert_eq!(starts.load(Ordering::SeqCst), 1);
-        assert_eq!(polls.load(Ordering::SeqCst), 2);
-        assert_eq!(
-            fixture.client.execute(request).await.unwrap(),
-            Output::ProviderLogin(attempt)
-        );
-        let provider = saved(&fixture.client, provider.id).await;
-        assert!(provider.credential.is_some());
-        assert_eq!(credentials(&fixture.client).await.len(), 1);
-        assert!(matches!(
-            fixture
-                .client
-                .execute(fixture.client.prepare(models(&provider)))
-                .await
-                .unwrap(),
-            Output::DiscoveredModels(_)
-        ));
-        assert_eq!(starts.load(Ordering::SeqCst), 1);
-        assert_eq!(polls.load(Ordering::SeqCst), 2);
-        let Output::Snapshot(snapshot) = fixture
-            .client
-            .execute(fixture.client.prepare(Command::Snapshot))
-            .await
-            .unwrap()
-        else {
-            panic!("snapshot expected")
-        };
-        private(&snapshot);
-        fixture.close().await;
+    }).await;
+    let fixture = Fixture::empty(&server).await;
+    let provider = configured_flow(&fixture, true, json!({
+        "kind":"polling",
+        "start":{"url":"https://auth.example.test/challenge","method":"POST","body":{"kind":"json","value":{}}},
+        "state":"/data/state","verification_url":"/data/url",
+        "token":{"url":"https://auth.example.test/poll","method":"GET","query":{"state":"{state}"}},
+        "success":{"pointer":"/code","values":[0]},"interval_ms":1
+    })).await;
+    let (request, attempt) = begin(&fixture.client, &provider).await;
+    let mut stream = fixture.client.subscribe_login(attempt.id).await.unwrap();
+    let mut browser = false;
+    loop {
+        let update = next(&mut stream).await;
+        private(&update);
+        match update.state {
+            login::State::Starting => {}
+            login::State::Browser {
+                authorization_url,
+                expires_at_ms,
+            } => {
+                assert_eq!(authorization_url, "https://auth.example.test/verify");
+                assert!(expires_at_ms > future_expiry().saturating_sub(3600) * 1000);
+                browser = true;
+                release.notify_one();
+            }
+            login::State::Connected => {
+                assert_eq!(update.model_error, None);
+                break;
+            }
+            state => panic!("unexpected polling state: {state:?}"),
+        }
     }
+    assert!(browser);
+    assert_eq!(starts.load(Ordering::SeqCst), 1);
+    assert_eq!(polls.load(Ordering::SeqCst), 2);
+    assert_eq!(
+        fixture.client.execute(request).await.unwrap(),
+        Output::ProviderLogin(attempt)
+    );
+    let provider = saved(&fixture.client, provider.id).await;
+    assert!(provider.credential.is_some());
+    assert_eq!(credentials(&fixture.client).await.len(), 1);
+    assert!(matches!(
+        fixture
+            .client
+            .execute(fixture.client.prepare(models(&provider)))
+            .await
+            .unwrap(),
+        Output::DiscoveredModels(_)
+    ));
+    assert_eq!(starts.load(Ordering::SeqCst), 1);
+    assert_eq!(polls.load(Ordering::SeqCst), 2);
+    let Output::Snapshot(snapshot) = fixture
+        .client
+        .execute(fixture.client.prepare(Command::Snapshot))
+        .await
+        .unwrap()
+    else {
+        panic!("snapshot expected")
+    };
+    private(&snapshot);
+    fixture.close().await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn signs_in_and_refreshes_bound_grants() {
-    for remote in [false, true] {
-        let exchanges = Arc::new(AtomicUsize::new(0));
-        let rotations = Arc::new(AtomicUsize::new(0));
-        let initial = exchanges.clone();
-        let fresh = rotations.clone();
-        let server = Server::start_with_request(ModelApi::Anthropic, move |request| match request
-            .path
-            .as_str()
-        {
+    let exchanges = Arc::new(AtomicUsize::new(0));
+    let rotations = Arc::new(AtomicUsize::new(0));
+    let initial = exchanges.clone();
+    let fresh = rotations.clone();
+    let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
+        match request.path.as_str() {
             "/token" => {
                 initial.fetch_add(1, Ordering::SeqCst);
                 tokens(false)
@@ -560,151 +555,143 @@ async fn signs_in_and_refreshes_bound_grants() {
                 Reply::Json(catalog::models(Authentication::Plugin))
             }
             _ => panic!("unexpected fixture request"),
-        })
-        .await;
-        let fixture = Fixture::empty(remote, &server).await;
-        let provider = configured(&fixture, true).await;
-        let (request, attempt) = begin(&fixture.client, &provider).await;
-        let mut stream = fixture.client.subscribe_login(attempt.id).await.unwrap();
-        let update = terminal(&mut stream).await;
-        private(&update);
-        assert_eq!(update.state, login::State::Connected);
-        assert_eq!(update.model_error, None);
-        assert_eq!(
-            fixture.client.execute(request).await.unwrap(),
-            Output::ProviderLogin(attempt)
-        );
-        assert_eq!(exchanges.load(Ordering::SeqCst), 1);
-        let provider = saved(&fixture.client, provider.id).await;
-        assert!(provider.credential.is_some());
-        assert!(provider.binding.is_none());
-        assert!(matches!(
-            fixture
-                .client
-                .execute(fixture.client.prepare(models(&provider)))
-                .await
-                .unwrap(),
-            Output::DiscoveredModels(_)
-        ));
-        assert_eq!(rotations.load(Ordering::SeqCst), 1);
-        assert_eq!(credentials(&fixture.client).await.len(), 1);
-        drop(stream);
-        let fixture = execution::renewals::restart(fixture, &server, remote).await;
-        assert!(matches!(
-            fixture
-                .client
-                .execute(fixture.client.prepare(models(&provider)))
-                .await
-                .unwrap(),
-            Output::DiscoveredModels(_)
-        ));
-        assert_eq!(rotations.load(Ordering::SeqCst), 1);
-        let Output::Snapshot(snapshot) = fixture
+        }
+    })
+    .await;
+    let fixture = Fixture::empty(&server).await;
+    let provider = configured(&fixture, true).await;
+    let (request, attempt) = begin(&fixture.client, &provider).await;
+    let mut stream = fixture.client.subscribe_login(attempt.id).await.unwrap();
+    let update = terminal(&mut stream).await;
+    private(&update);
+    assert_eq!(update.state, login::State::Connected);
+    assert_eq!(update.model_error, None);
+    assert_eq!(
+        fixture.client.execute(request).await.unwrap(),
+        Output::ProviderLogin(attempt)
+    );
+    assert_eq!(exchanges.load(Ordering::SeqCst), 1);
+    let provider = saved(&fixture.client, provider.id).await;
+    assert!(provider.credential.is_some());
+    assert!(provider.binding.is_none());
+    assert!(matches!(
+        fixture
             .client
-            .execute(fixture.client.prepare(Command::Snapshot))
+            .execute(fixture.client.prepare(models(&provider)))
             .await
-            .unwrap()
-        else {
-            panic!("snapshot expected")
-        };
-        private(&snapshot);
-        fixture.close().await;
-    }
+            .unwrap(),
+        Output::DiscoveredModels(_)
+    ));
+    assert_eq!(rotations.load(Ordering::SeqCst), 1);
+    assert_eq!(credentials(&fixture.client).await.len(), 1);
+    drop(stream);
+    let fixture = execution::renewals::restart(fixture, &server).await;
+    assert!(matches!(
+        fixture
+            .client
+            .execute(fixture.client.prepare(models(&provider)))
+            .await
+            .unwrap(),
+        Output::DiscoveredModels(_)
+    ));
+    assert_eq!(rotations.load(Ordering::SeqCst), 1);
+    let Output::Snapshot(snapshot) = fixture
+        .client
+        .execute(fixture.client.prepare(Command::Snapshot))
+        .await
+        .unwrap()
+    else {
+        panic!("snapshot expected")
+    };
+    private(&snapshot);
+    fixture.close().await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn trusts_installed_private_transformations() {
-    for remote in [false, true] {
-        let server = Server::start_with_request(ModelApi::Anthropic, |request| {
-            match request.path.as_str() {
-                "/token" => tokens(true),
-                "/models" => Reply::Json(catalog::models(Authentication::Plugin)),
-                _ => panic!("unexpected trusted authentication route"),
-            }
+    let server =
+        Server::start_with_request(ModelApi::Anthropic, |request| match request.path.as_str() {
+            "/token" => tokens(true),
+            "/models" => Reply::Json(catalog::models(Authentication::Plugin)),
+            _ => panic!("unexpected trusted authentication route"),
         })
         .await;
-        let fixture = Fixture::empty(remote, &server).await;
-        let provider = configured(&fixture, false).await;
-        let (_, attempt) = begin(&fixture.client, &provider).await;
-        let mut updates = fixture.client.subscribe_login(attempt.id).await.unwrap();
-        let update = terminal(&mut updates).await;
-        private(&update);
-        assert_eq!(update.state, login::State::Connected);
-        assert_eq!(update.model_error, None);
-        assert_eq!(credentials(&fixture.client).await.len(), 1);
-        assert!(
-            !saved(&fixture.client, provider.id)
-                .await
-                .consent
-                .unwrap()
-                .scopes
-                .credentials
-        );
-        fixture.close().await;
-    }
+    let fixture = Fixture::empty(&server).await;
+    let provider = configured(&fixture, false).await;
+    let (_, attempt) = begin(&fixture.client, &provider).await;
+    let mut updates = fixture.client.subscribe_login(attempt.id).await.unwrap();
+    let update = terminal(&mut updates).await;
+    private(&update);
+    assert_eq!(update.state, login::State::Connected);
+    assert_eq!(update.model_error, None);
+    assert_eq!(credentials(&fixture.client).await.len(), 1);
+    assert!(
+        !saved(&fixture.client, provider.id)
+            .await
+            .consent
+            .unwrap()
+            .scopes
+            .credentials
+    );
+    fixture.close().await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn cancels_or_rejects_changed_attempts() {
-    for remote in [false, true] {
-        for cancelled in [false, true] {
-            let release = Arc::new(tokio::sync::Notify::new());
-            let held = release.clone();
-            let server=Server::start_with_request(ModelApi::Anthropic,move|request|match request.path.as_str(){
-            "/token"=>Reply::Delayed(held.clone(),json!({"data":{"access":INITIAL,"refresh":RENEWAL,"expires_in":3600,"account":ACCOUNT}})),
-            "/models"=>Reply::Json(catalog::models(Authentication::Plugin)),
-            _=>panic!("unexpected fixture request"),
-        }).await;
-            let fixture = Fixture::empty(remote, &server).await;
-            let mut provider = configured(&fixture, true).await;
-            let (_, attempt) = begin(&fixture.client, &provider).await;
-            server.wait_requests(1).await;
-            let mut stream = fixture.client.subscribe_login(attempt.id).await.unwrap();
-            if cancelled {
-                fixture
-                    .client
-                    .execute(fixture.client.prepare(Command::CancelProviderLogin {
-                        attempt: attempt.id,
-                    }))
-                    .await
-                    .unwrap();
-            } else {
-                provider.name = "Changed channel".into();
-                fixture
-                    .client
-                    .execute(fixture.client.prepare(Command::PutProvider {
-                        expected_revision: provider.revision,
-                        provider,
-                    }))
-                    .await
-                    .unwrap();
-            }
-            release.notify_one();
-            let update = terminal(&mut stream).await;
-            private(&update);
-            if cancelled {
-                assert_eq!(update.state, login::State::Cancelled);
-            } else {
-                let login::State::Failed(error) = update.state else {
-                    panic!("changed attempt must fail")
-                };
-                assert_eq!(error.code, ErrorCode::RevisionConflict);
-            }
-            assert!(credentials(&fixture.client).await.is_empty());
-            fixture.close().await;
+    for cancelled in [false, true] {
+        let release = Arc::new(tokio::sync::Notify::new());
+        let held = release.clone();
+        let server=Server::start_with_request(ModelApi::Anthropic,move|request|match request.path.as_str(){
+        "/token"=>Reply::Delayed(held.clone(),json!({"data":{"access":INITIAL,"refresh":RENEWAL,"expires_in":3600,"account":ACCOUNT}})),
+        "/models"=>Reply::Json(catalog::models(Authentication::Plugin)),
+        _=>panic!("unexpected fixture request"),
+    }).await;
+        let fixture = Fixture::empty(&server).await;
+        let mut provider = configured(&fixture, true).await;
+        let (_, attempt) = begin(&fixture.client, &provider).await;
+        server.wait_requests(1).await;
+        let mut stream = fixture.client.subscribe_login(attempt.id).await.unwrap();
+        if cancelled {
+            fixture
+                .client
+                .execute(fixture.client.prepare(Command::CancelProviderLogin {
+                    attempt: attempt.id,
+                }))
+                .await
+                .unwrap();
+        } else {
+            provider.name = "Changed channel".into();
+            fixture
+                .client
+                .execute(fixture.client.prepare(Command::PutProvider {
+                    expected_revision: provider.revision,
+                    provider,
+                }))
+                .await
+                .unwrap();
         }
+        release.notify_one();
+        let update = terminal(&mut stream).await;
+        private(&update);
+        if cancelled {
+            assert_eq!(update.state, login::State::Cancelled);
+        } else {
+            let login::State::Failed(error) = update.state else {
+                panic!("changed attempt must fail")
+            };
+            assert_eq!(error.code, ErrorCode::RevisionConflict);
+        }
+        assert!(credentials(&fixture.client).await.is_empty());
+        fixture.close().await;
     }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn never_replays_an_uncertain_rotation() {
-    for remote in [false, true] {
-        let rotations = Arc::new(AtomicUsize::new(0));
-        let count = rotations.clone();
-        let server = Server::start_with_request(ModelApi::Anthropic, move |request| match request
-            .path
-            .as_str()
-        {
+    let rotations = Arc::new(AtomicUsize::new(0));
+    let count = rotations.clone();
+    let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
+        match request.path.as_str() {
             "/token" => tokens(false),
             "/refresh" => {
                 count.fetch_add(1, Ordering::SeqCst);
@@ -712,37 +699,37 @@ async fn never_replays_an_uncertain_rotation() {
             }
             "/models" => Reply::Json(catalog::models(Authentication::Plugin)),
             _ => panic!("unexpected fixture request"),
-        })
-        .await;
-        let fixture = Fixture::empty(remote, &server).await;
-        let provider = configured(&fixture, true).await;
-        let (_, attempt) = begin(&fixture.client, &provider).await;
-        let mut stream = fixture.client.subscribe_login(attempt.id).await.unwrap();
-        assert_eq!(terminal(&mut stream).await.state, login::State::Connected);
-        let provider = saved(&fixture.client, provider.id).await;
-        for _ in 0..2 {
-            let error = fixture
-                .client
-                .execute(fixture.client.prepare(models(&provider)))
-                .await
-                .unwrap_err();
-            assert_eq!(error.code, ErrorCode::OutcomeUnknown);
-            private(&error);
         }
-        assert_eq!(rotations.load(Ordering::SeqCst), 1);
-        assert_eq!(credentials(&fixture.client).await.len(), 1);
-        drop(stream);
-        let fixture = execution::renewals::restart(fixture, &server, remote).await;
-        assert_eq!(
-            fixture
-                .client
-                .execute(fixture.client.prepare(models(&provider)))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::OutcomeUnknown
-        );
-        assert_eq!(rotations.load(Ordering::SeqCst), 1);
-        fixture.close().await;
+    })
+    .await;
+    let fixture = Fixture::empty(&server).await;
+    let provider = configured(&fixture, true).await;
+    let (_, attempt) = begin(&fixture.client, &provider).await;
+    let mut stream = fixture.client.subscribe_login(attempt.id).await.unwrap();
+    assert_eq!(terminal(&mut stream).await.state, login::State::Connected);
+    let provider = saved(&fixture.client, provider.id).await;
+    for _ in 0..2 {
+        let error = fixture
+            .client
+            .execute(fixture.client.prepare(models(&provider)))
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, ErrorCode::OutcomeUnknown);
+        private(&error);
     }
+    assert_eq!(rotations.load(Ordering::SeqCst), 1);
+    assert_eq!(credentials(&fixture.client).await.len(), 1);
+    drop(stream);
+    let fixture = execution::renewals::restart(fixture, &server).await;
+    assert_eq!(
+        fixture
+            .client
+            .execute(fixture.client.prepare(models(&provider)))
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::OutcomeUnknown
+    );
+    assert_eq!(rotations.load(Ordering::SeqCst), 1);
+    fixture.close().await;
 }

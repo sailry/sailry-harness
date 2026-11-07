@@ -424,78 +424,68 @@ async fn preserves_nested_resources() {
 
 #[tokio::test]
 async fn lost_result_is_not_replayed() {
-    for remote in [false, true] {
-        let fixture = Fixture::empty().await;
-        let client = if remote {
-            &fixture.remote
-        } else {
-            &fixture.local
-        };
-        let (tree, command) = fixture.create("lost-result", client).await;
-        let before = snapshot(client).await;
-        let profile = fixture.node.profile().to_owned();
+    let fixture = Fixture::empty().await;
+    let client = &fixture.remote;
+    let (tree, command) = fixture.create("lost-result", client).await;
+    let before = snapshot(client).await;
+    let profile = fixture.node.profile().to_owned();
 
-        {
-            let sql = ("CREATE TRIGGER lose_result BEFORE UPDATE ON requests WHEN NEW.status='completed' BEGIN SELECT RAISE(ABORT,'injected result loss'); END;").to_owned();
-            fixture
-                .node
-                .with_storage(move |db| {
-                    Box::pin(async move {
-                        db.execute_batch(sql)
-                            .await
-                            .map_err(crate::database_fixture::fault)
-                    })
+    {
+        let sql = ("CREATE TRIGGER lose_result BEFORE UPDATE ON requests WHEN NEW.status='completed' BEGIN SELECT RAISE(ABORT,'injected result loss'); END;").to_owned();
+        fixture
+            .node
+            .with_storage(move |db| {
+                Box::pin(async move {
+                    db.execute_batch(sql)
+                        .await
+                        .map_err(crate::database_fixture::fault)
                 })
-                .await
-                .unwrap()
-        };
-        let request = client.prepare(command);
-        assert_eq!(
-            client.execute(request.clone()).await.unwrap_err().code,
-            ErrorCode::OutcomeUnknown
-        );
-        assert!(!Path::new(&tree.path).exists());
-        assert_eq!(snapshot(client).await, before);
-        {
-            let sql = ("DROP TRIGGER lose_result").to_owned();
-            fixture
-                .node
-                .with_storage(move |db| {
-                    Box::pin(async move {
-                        db.execute_batch(sql)
-                            .await
-                            .map_err(crate::database_fixture::fault)
-                    })
+            })
+            .await
+            .unwrap()
+    };
+    let request = client.prepare(command);
+    assert_eq!(
+        client.execute(request.clone()).await.unwrap_err().code,
+        ErrorCode::OutcomeUnknown
+    );
+    assert!(!Path::new(&tree.path).exists());
+    assert_eq!(snapshot(client).await, before);
+    {
+        let sql = ("DROP TRIGGER lose_result").to_owned();
+        fixture
+            .node
+            .with_storage(move |db| {
+                Box::pin(async move {
+                    db.execute_batch(sql)
+                        .await
+                        .map_err(crate::database_fixture::fault)
                 })
-                .await
-                .unwrap()
-        };
+            })
+            .await
+            .unwrap()
+    };
 
-        fixture.node.shutdown().await.unwrap();
-        std::fs::create_dir(&tree.path).unwrap();
-        std::fs::write(Path::new(&tree.path).join("sentinel"), "replacement").unwrap();
-        let node = Node::start_empty(&profile).await.unwrap();
-        let client = Client::new(if remote {
-            fixture.controller.handle().remote(node.link().address())
-        } else {
-            node.local()
-        });
-        assert_eq!(
-            client.execute(request).await.unwrap_err().code,
-            ErrorCode::OutcomeUnknown
-        );
-        assert_eq!(snapshot(&client).await, before);
-        assert_eq!(
-            std::fs::read(Path::new(&tree.path).join("sentinel")).unwrap(),
-            b"replacement"
-        );
-        assert!(
-            fixture
-                .repository
-                .find_branch("lost-result", BranchType::Local)
-                .is_ok()
-        );
-        fixture.controller.close().await.unwrap();
-        node.shutdown().await.unwrap();
-    }
+    fixture.node.shutdown().await.unwrap();
+    std::fs::create_dir(&tree.path).unwrap();
+    std::fs::write(Path::new(&tree.path).join("sentinel"), "replacement").unwrap();
+    let node = Node::start_empty(&profile).await.unwrap();
+    let client = Client::new(fixture.controller.handle().remote(node.link().address()));
+    assert_eq!(
+        client.execute(request).await.unwrap_err().code,
+        ErrorCode::OutcomeUnknown
+    );
+    assert_eq!(snapshot(&client).await, before);
+    assert_eq!(
+        std::fs::read(Path::new(&tree.path).join("sentinel")).unwrap(),
+        b"replacement"
+    );
+    assert!(
+        fixture
+            .repository
+            .find_branch("lost-result", BranchType::Local)
+            .is_ok()
+    );
+    fixture.controller.close().await.unwrap();
+    node.shutdown().await.unwrap();
 }

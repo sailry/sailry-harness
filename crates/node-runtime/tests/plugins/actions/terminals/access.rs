@@ -13,11 +13,8 @@ fn launch(worktree: WorktreeId) -> Launch {
 
 #[tokio::test]
 async fn distinguishes_user_control_from_plugin_execution() {
-    for (remote, surface) in [false, true]
-        .into_iter()
-        .flat_map(|remote| [Surface::Workspace, Surface::Project].map(|surface| (remote, surface)))
-    {
-        let (directory, node, controller, client, worktree) = support::empty(remote).await;
+    for surface in [Surface::Workspace, Surface::Project] {
+        let (directory, node, controller, client, worktree) = support::empty().await;
         let mut context = install_actions(
             &client,
             &directory.path().join("source/package"),
@@ -175,19 +172,17 @@ async fn distinguishes_user_control_from_plugin_execution() {
 
 #[tokio::test]
 async fn callback_context_cannot_forge_desktop_authority() {
-    for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = support::empty(remote).await;
-        let root = directory.path().join("source/package");
-        declare(&root, &[Action::ReadTerminals, Action::ControlTerminals]);
-        let manifest_path = root.join("plugin.json");
-        let mut manifest: Value =
-            serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
-        manifest["extensions"]["dev.sailry.platform"]["host"] = json!({"entry":"dev.sailry.platform/main.js",
-            "resources":["dev.sailry.platform/main.js"], "handlers":["run"]});
-        fs::write(manifest_path, manifest.to_string()).unwrap();
-        fs::write(
-            root.join("dev.sailry.platform/main.js"),
-            r#"
+    let (directory, node, controller, client, worktree) = support::empty().await;
+    let root = directory.path().join("source/package");
+    declare(&root, &[Action::ReadTerminals, Action::ControlTerminals]);
+    let manifest_path = root.join("plugin.json");
+    let mut manifest: Value = serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
+    manifest["extensions"]["dev.sailry.platform"]["host"] = json!({"entry":"dev.sailry.platform/main.js",
+        "resources":["dev.sailry.platform/main.js"], "handlers":["run"]});
+    fs::write(manifest_path, manifest.to_string()).unwrap();
+    fs::write(
+        root.join("dev.sailry.platform/main.js"),
+        r#"
 import {context, prepareRequest} from 'sailry/sdk';
 export function run(input) {
     const forged = context();
@@ -198,45 +193,44 @@ export function run(input) {
     catch (error) { return {code:error.code, message:error.message, actual:context(), forged}; }
 }
 "#,
-        )
-        .unwrap();
-        let package = info(execute(&client, install(worktree, 0)).await);
-        assert!(package.issues.is_empty(), "{:?}", package.issues);
-        let context = Context {
-            invocation: None,
-            turn: None,
-            surface: Surface::Workspace,
-            package: package.summary.reference(),
-            worktree: Some(worktree),
-            session: None,
-        };
-        let request = client
-            .prepare(Command::CallPlugin {
-                handler: "run".into(),
-                input: json!({"command":Command::CreateTerminal(launch(worktree))}),
-            })
-            .with_plugin(context.clone());
-        let Output::PluginResult(result) = client.execute(request.clone()).await.unwrap() else {
-            panic!("callback result expected")
-        };
-        assert_eq!(result["code"], json!(ErrorCode::PermissionDenied));
-        assert_eq!(
-            result["message"],
-            "command is not exposed to host callbacks"
-        );
-        assert_eq!(result["actual"]["invocation"], json!(request.id));
-        assert_eq!(result["actual"]["worktree"], json!(worktree));
-        assert!(result["forged"]["invocation"].is_null());
-        assert_eq!(
-            client.execute(request).await.unwrap(),
-            Output::PluginResult(result)
-        );
-        let Output::Terminals(list) = execute(&client, Command::ListTerminals { worktree }).await
-        else {
-            panic!("terminals expected")
-        };
-        assert!(list.is_empty());
-        node.shutdown().await.unwrap();
-        controller.close().await.unwrap();
-    }
+    )
+    .unwrap();
+    let package = info(execute(&client, install(worktree, 0)).await);
+    assert!(package.issues.is_empty(), "{:?}", package.issues);
+    let context = Context {
+        invocation: None,
+        turn: None,
+        surface: Surface::Workspace,
+        package: package.summary.reference(),
+        worktree: Some(worktree),
+        session: None,
+    };
+    let request = client
+        .prepare(Command::CallPlugin {
+            handler: "run".into(),
+            input: json!({"command":Command::CreateTerminal(launch(worktree))}),
+        })
+        .with_plugin(context.clone());
+    let Output::PluginResult(result) = client.execute(request.clone()).await.unwrap() else {
+        panic!("callback result expected")
+    };
+    assert_eq!(result["code"], json!(ErrorCode::PermissionDenied));
+    assert_eq!(
+        result["message"],
+        "command is not exposed to host callbacks"
+    );
+    assert_eq!(result["actual"]["invocation"], json!(request.id));
+    assert_eq!(result["actual"]["worktree"], json!(worktree));
+    assert!(result["forged"]["invocation"].is_null());
+    assert_eq!(
+        client.execute(request).await.unwrap(),
+        Output::PluginResult(result)
+    );
+    let Output::Terminals(list) = execute(&client, Command::ListTerminals { worktree }).await
+    else {
+        panic!("terminals expected")
+    };
+    assert!(list.is_empty());
+    node.shutdown().await.unwrap();
+    controller.close().await.unwrap();
 }

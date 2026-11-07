@@ -21,255 +21,247 @@ async fn discover(client: &Client, source: plugin::skills::Source) -> plugin::sk
 
 #[tokio::test]
 async fn manages_pinned_versions() {
-    for remote in [false, true] {
-        let github = github::Github::start().await;
-        let directory = tempfile::tempdir().unwrap();
-        let node = Node::start_with_skill_source(directory.path().join("node"), &github.endpoint)
-            .await
-            .unwrap();
-        let controller =
-            Link::controller(directory.path().join("controller"), NetworkScope::default())
-                .await
-                .unwrap();
-        let address = controller
-            .handle()
-            .pair(node.link().invite().unwrap().ticket())
-            .await
-            .unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(address)
-        } else {
-            node.local()
-        });
-        let packages = || {
-            fs::read_dir(node.profile().join("plugins/packages"))
-                .unwrap()
-                .map(|entry| entry.unwrap().file_name())
-                .collect::<std::collections::BTreeSet<_>>()
-        };
-        let stored = packages();
-        let discovery = discover(&client, github::source()).await;
-        assert_eq!(
-            discovery.source.repository,
-            "https://github.com/owner/repo.git"
-        );
-        assert_eq!(discovery.source.commit, github::FIRST);
-        assert_eq!(discovery.skills.len(), 3);
-        let analysis = discovery
-            .skills
-            .iter()
-            .find(|candidate| candidate.skill.name == "analysis")
-            .unwrap();
-        let writing = discovery
-            .skills
-            .iter()
-            .find(|candidate| candidate.skill.name == "writing")
-            .unwrap();
-        assert_ne!(analysis.name, writing.name);
-        assert!(inventory(&client).await.is_empty());
-        assert_eq!(packages(), stored);
-        github.updated.store(true, Ordering::SeqCst);
-        let request = client.prepare(github::install(&discovery, analysis, 0));
-        let pending = client.dispatch(request.clone()).await.unwrap();
-        assert!(pending.receipt.durable);
-        drop(pending);
-        let first = tokio::time::timeout(Duration::from_secs(10), async {
-            loop {
-                if let RequestOutcome::Completed(result) = client.outcome(&request).await.unwrap() {
-                    break info(result.unwrap());
-                }
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        })
+    let github = github::Github::start().await;
+    let directory = tempfile::tempdir().unwrap();
+    let node = Node::start_with_skill_source(directory.path().join("node"), &github.endpoint)
         .await
         .unwrap();
-        assert_eq!(
-            first.skills.as_slice(),
-            std::slice::from_ref(&analysis.skill)
-        );
-        assert_eq!(
-            first.origin,
-            Some(plugin::Origin::Online {
-                source: discovery.source.clone(),
-                path: analysis.path.clone(),
-            })
-        );
-        assert_eq!(
-            first.skill.as_ref().unwrap().git().unwrap().source,
-            discovery.source
-        );
-        assert_eq!(
-            first.skill.as_ref().unwrap().git().unwrap().path,
-            analysis.path
-        );
-        assert_eq!(first.summary.version.as_deref(), Some(github::FIRST));
-        let package = node
-            .profile()
-            .join("plugins/packages")
-            .join(&first.summary.digest);
-        for (path, expected) in [
-            ("skills/analysis/references/guide.md", "Guide first 中文 🙂"),
-            ("skills/analysis/assets/example.txt", "Asset content"),
-            ("SOURCE-LICENSE", "Fixture license notice"),
-        ] {
-            assert_eq!(fs::read_to_string(package.join(path)).unwrap(), expected);
+    let controller = Link::controller(directory.path().join("controller"), NetworkScope::default())
+        .await
+        .unwrap();
+    let address = controller
+        .handle()
+        .pair(node.link().invite().unwrap().ticket())
+        .await
+        .unwrap();
+    let client = Client::new(controller.handle().remote(address));
+    let packages = || {
+        fs::read_dir(node.profile().join("plugins/packages"))
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect::<std::collections::BTreeSet<_>>()
+    };
+    let stored = packages();
+    let discovery = discover(&client, github::source()).await;
+    assert_eq!(
+        discovery.source.repository,
+        "https://github.com/owner/repo.git"
+    );
+    assert_eq!(discovery.source.commit, github::FIRST);
+    assert_eq!(discovery.skills.len(), 3);
+    let analysis = discovery
+        .skills
+        .iter()
+        .find(|candidate| candidate.skill.name == "analysis")
+        .unwrap();
+    let writing = discovery
+        .skills
+        .iter()
+        .find(|candidate| candidate.skill.name == "writing")
+        .unwrap();
+    assert_ne!(analysis.name, writing.name);
+    assert!(inventory(&client).await.is_empty());
+    assert_eq!(packages(), stored);
+    github.updated.store(true, Ordering::SeqCst);
+    let request = client.prepare(github::install(&discovery, analysis, 0));
+    let pending = client.dispatch(request.clone()).await.unwrap();
+    assert!(pending.receipt.durable);
+    drop(pending);
+    let first = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if let RequestOutcome::Completed(result) = client.outcome(&request).await.unwrap() {
+                break info(result.unwrap());
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
         }
-        assert_eq!(
-            fs::read_to_string(package.join("skills/analysis/SKILL.md")).unwrap(),
-            github::body("first")
-        );
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            assert_ne!(
-                fs::metadata(package.join("skills/analysis/scripts/check.sh"))
-                    .unwrap()
-                    .permissions()
-                    .mode()
-                    & 0o111,
-                0
-            );
-        }
-        let fetches = github.requests.lock().unwrap().len();
-        assert_eq!(info(client.execute(request.clone()).await.unwrap()), first);
-        assert_eq!(github.requests.lock().unwrap().len(), fetches);
-        let other = info(execute(&client, github::install(&discovery, writing, 0)).await);
-        let disabled = info(
-            execute(
-                &client,
-                Command::SetPluginEnabled {
-                    name: analysis.name.clone(),
-                    expected_revision: 1,
-                    enabled: false,
-                },
-            )
-            .await,
-        );
-        assert!(!disabled.summary.enabled);
-        assert!(
-            info(
-                execute(
-                    &client,
-                    Command::ReadPlugin {
-                        name: other.summary.name.clone()
-                    }
-                )
-                .await
-            )
-            .summary
-            .enabled
-        );
-        let next = discover(
-            &client,
-            plugin::skills::Source {
-                repository: "https://github.com/owner/repo/tree/release/v1/skills/analysis".into(),
-                git_ref: Some("release/v1".into()),
-                path: None,
-            },
-        )
-        .await;
-        assert_eq!(next.source.commit, github::SECOND);
-        assert!(
-            github.requests.lock().unwrap().iter().any(|request| {
-                request.starts_with("GET /repos/owner/repo/commits/release%2Fv1 ")
-            })
-        );
-        assert_eq!(next.skills.len(), 1);
-        assert_eq!(next.skills[0].name, analysis.name);
-        let updated = info(execute(&client, github::install(&next, &next.skills[0], 2)).await);
-        assert_eq!(
-            updated.origin,
-            Some(plugin::Origin::Online {
-                source: next.source.clone(),
-                path: next.skills[0].path.clone(),
-            })
-        );
-        assert_ne!(updated.summary.digest, first.summary.digest);
-        assert!(!updated.summary.enabled);
-        assert_eq!(
-            info(
-                execute(
-                    &client,
-                    Command::ReadPluginVersion {
-                        package: updated.summary.reference()
-                    }
-                )
-                .await
-            )
-            .skill,
-            updated.skill
-        );
-        execute(
-            &client,
-            Command::RemovePlugin {
-                name: writing.name.clone(),
-                expected_revision: 1,
-            },
-        )
-        .await;
-        drop(client);
-        node.shutdown().await.unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(node.link().address())
-        } else {
-            node.local()
-        });
-        assert_eq!(
-            inventory(&client).await.as_slice(),
-            std::slice::from_ref(&updated.summary)
-        );
-        assert_eq!(
-            info(
-                execute(
-                    &client,
-                    Command::ReadPlugin {
-                        name: analysis.name.clone()
-                    }
-                )
-                .await
-            ),
-            updated
-        );
-        assert_eq!(info(client.execute(request).await.unwrap()), first);
-        let enabled = info(
-            execute(
-                &client,
-                Command::SetPluginEnabled {
-                    name: analysis.name.clone(),
-                    expected_revision: 3,
-                    enabled: true,
-                },
-            )
-            .await,
-        );
-        assert!(enabled.summary.enabled);
-        assert_eq!(
-            info(
-                execute(
-                    &client,
-                    Command::ReadPluginVersion {
-                        package: updated.summary.reference()
-                    }
-                )
-                .await
-            )
-            .skill,
-            updated.skill
-        );
-        execute(
-            &client,
-            Command::RemovePlugin {
-                name: analysis.name.clone(),
-                expected_revision: 4,
-            },
-        )
-        .await;
-        assert!(inventory(&client).await.is_empty());
-        drop(client);
-        controller.close().await.unwrap();
-        node.shutdown().await.unwrap();
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        first.skills.as_slice(),
+        std::slice::from_ref(&analysis.skill)
+    );
+    assert_eq!(
+        first.origin,
+        Some(plugin::Origin::Online {
+            source: discovery.source.clone(),
+            path: analysis.path.clone(),
+        })
+    );
+    assert_eq!(
+        first.skill.as_ref().unwrap().git().unwrap().source,
+        discovery.source
+    );
+    assert_eq!(
+        first.skill.as_ref().unwrap().git().unwrap().path,
+        analysis.path
+    );
+    assert_eq!(first.summary.version.as_deref(), Some(github::FIRST));
+    let package = node
+        .profile()
+        .join("plugins/packages")
+        .join(&first.summary.digest);
+    for (path, expected) in [
+        ("skills/analysis/references/guide.md", "Guide first 中文 🙂"),
+        ("skills/analysis/assets/example.txt", "Asset content"),
+        ("SOURCE-LICENSE", "Fixture license notice"),
+    ] {
+        assert_eq!(fs::read_to_string(package.join(path)).unwrap(), expected);
     }
+    assert_eq!(
+        fs::read_to_string(package.join("skills/analysis/SKILL.md")).unwrap(),
+        github::body("first")
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_ne!(
+            fs::metadata(package.join("skills/analysis/scripts/check.sh"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o111,
+            0
+        );
+    }
+    let fetches = github.requests.lock().unwrap().len();
+    assert_eq!(info(client.execute(request.clone()).await.unwrap()), first);
+    assert_eq!(github.requests.lock().unwrap().len(), fetches);
+    let other = info(execute(&client, github::install(&discovery, writing, 0)).await);
+    let disabled = info(
+        execute(
+            &client,
+            Command::SetPluginEnabled {
+                name: analysis.name.clone(),
+                expected_revision: 1,
+                enabled: false,
+            },
+        )
+        .await,
+    );
+    assert!(!disabled.summary.enabled);
+    assert!(
+        info(
+            execute(
+                &client,
+                Command::ReadPlugin {
+                    name: other.summary.name.clone()
+                }
+            )
+            .await
+        )
+        .summary
+        .enabled
+    );
+    let next = discover(
+        &client,
+        plugin::skills::Source {
+            repository: "https://github.com/owner/repo/tree/release/v1/skills/analysis".into(),
+            git_ref: Some("release/v1".into()),
+            path: None,
+        },
+    )
+    .await;
+    assert_eq!(next.source.commit, github::SECOND);
+    assert!(
+        github
+            .requests
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|request| { request.starts_with("GET /repos/owner/repo/commits/release%2Fv1 ") })
+    );
+    assert_eq!(next.skills.len(), 1);
+    assert_eq!(next.skills[0].name, analysis.name);
+    let updated = info(execute(&client, github::install(&next, &next.skills[0], 2)).await);
+    assert_eq!(
+        updated.origin,
+        Some(plugin::Origin::Online {
+            source: next.source.clone(),
+            path: next.skills[0].path.clone(),
+        })
+    );
+    assert_ne!(updated.summary.digest, first.summary.digest);
+    assert!(!updated.summary.enabled);
+    assert_eq!(
+        info(
+            execute(
+                &client,
+                Command::ReadPluginVersion {
+                    package: updated.summary.reference()
+                }
+            )
+            .await
+        )
+        .skill,
+        updated.skill
+    );
+    execute(
+        &client,
+        Command::RemovePlugin {
+            name: writing.name.clone(),
+            expected_revision: 1,
+        },
+    )
+    .await;
+    drop(client);
+    node.shutdown().await.unwrap();
+    let node = Node::start(directory.path().join("node")).await.unwrap();
+    let client = Client::new(controller.handle().remote(node.link().address()));
+    assert_eq!(
+        inventory(&client).await.as_slice(),
+        std::slice::from_ref(&updated.summary)
+    );
+    assert_eq!(
+        info(
+            execute(
+                &client,
+                Command::ReadPlugin {
+                    name: analysis.name.clone()
+                }
+            )
+            .await
+        ),
+        updated
+    );
+    assert_eq!(info(client.execute(request).await.unwrap()), first);
+    let enabled = info(
+        execute(
+            &client,
+            Command::SetPluginEnabled {
+                name: analysis.name.clone(),
+                expected_revision: 3,
+                enabled: true,
+            },
+        )
+        .await,
+    );
+    assert!(enabled.summary.enabled);
+    assert_eq!(
+        info(
+            execute(
+                &client,
+                Command::ReadPluginVersion {
+                    package: updated.summary.reference()
+                }
+            )
+            .await
+        )
+        .skill,
+        updated.skill
+    );
+    execute(
+        &client,
+        Command::RemovePlugin {
+            name: analysis.name.clone(),
+            expected_revision: 4,
+        },
+    )
+    .await;
+    assert!(inventory(&client).await.is_empty());
+    drop(client);
+    controller.close().await.unwrap();
+    node.shutdown().await.unwrap();
 }
 
 #[tokio::test]
@@ -408,50 +400,42 @@ async fn public_github() {
 
 #[tokio::test]
 async fn resolves_directory_links_to_real_paths() {
-    for remote in [false, true] {
-        let github = github::Github::start().await;
-        let directory = tempfile::tempdir().unwrap();
-        let node =
-            Node::start_empty_with_skill_source(directory.path().join("node"), &github.endpoint)
-                .await
-                .unwrap();
-        let controller =
-            Link::controller(directory.path().join("controller"), NetworkScope::default())
-                .await
-                .unwrap();
-        let address = controller
-            .handle()
-            .pair(node.link().invite().unwrap().ticket())
-            .await
-            .unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(address)
-        } else {
-            node.local()
-        });
-        let discovery = discover(
+    let github = github::Github::start().await;
+    let directory = tempfile::tempdir().unwrap();
+    let node = Node::start_empty_with_skill_source(directory.path().join("node"), &github.endpoint)
+        .await
+        .unwrap();
+    let controller = Link::controller(directory.path().join("controller"), NetworkScope::default())
+        .await
+        .unwrap();
+    let address = controller
+        .handle()
+        .pair(node.link().invite().unwrap().ticket())
+        .await
+        .unwrap();
+    let client = Client::new(controller.handle().remote(address));
+    let discovery = discover(
+        &client,
+        plugin::skills::Source {
+            repository: "https://skills.sh/owner/repo/analysis".into(),
+            git_ref: None,
+            path: None,
+        },
+    )
+    .await;
+    assert_eq!(discovery.skills.len(), 1);
+    assert_eq!(discovery.skills[0].path, "skills/analysis");
+    assert_eq!(discovery.source.commit, github::FIRST);
+    let installed = info(
+        execute(
             &client,
-            plugin::skills::Source {
-                repository: "https://skills.sh/owner/repo/analysis".into(),
-                git_ref: None,
-                path: None,
-            },
+            github::install(&discovery, &discovery.skills[0], 0),
         )
-        .await;
-        assert_eq!(discovery.skills.len(), 1);
-        assert_eq!(discovery.skills[0].path, "skills/analysis");
-        assert_eq!(discovery.source.commit, github::FIRST);
-        let installed = info(
-            execute(
-                &client,
-                github::install(&discovery, &discovery.skills[0], 0),
-            )
-            .await,
-        );
-        let source = installed.skill.unwrap();
-        assert_eq!(source.git().unwrap().path, "skills/analysis");
-        assert_eq!(source.git().unwrap().source, discovery.source);
-        controller.close().await.unwrap();
-        node.shutdown().await.unwrap();
-    }
+        .await,
+    );
+    let source = installed.skill.unwrap();
+    assert_eq!(source.git().unwrap().path, "skills/analysis");
+    assert_eq!(source.git().unwrap().source, discovery.source);
+    controller.close().await.unwrap();
+    node.shutdown().await.unwrap();
 }

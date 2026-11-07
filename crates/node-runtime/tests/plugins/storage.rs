@@ -106,452 +106,438 @@ async fn install_named(
 
 #[tokio::test]
 async fn isolates_namespaces_and_grants() {
-    for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = support::empty(remote).await;
-        let source = directory.path().join("source");
-        let first = actions::install_actions(
-            &client,
-            &source.join("package"),
-            worktree,
-            0,
-            &[Action::ReadStorage, Action::WriteStorage],
-        )
-        .await;
-        let second =
-            install_named(&client, &source, worktree, "other", &[Action::ReadStorage]).await;
-        assert_eq!(
-            write(&client, &first, "shared", json!("first"), 0)
-                .await
-                .revision,
-            1
-        );
-        assert_eq!(read(&client, &second, "shared").await.value, Value::Null);
-        assert_eq!(
-            client
-                .execute(request(
-                    &client,
-                    &second,
-                    Command::WritePluginValue {
-                        key: "shared".into(),
-                        value: json!("denied"),
-                        expected_revision: 0,
-                    },
-                ))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::PermissionDenied
-        );
-        assert_eq!(
-            client
-                .execute(client.prepare(Command::ReadPluginValue {
-                    key: "shared".into()
-                }))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::PermissionDenied
-        );
-        assert_eq!(
-            client
-                .execute(client.prepare(Command::WritePluginValue {
-                    key: "shared".into(),
-                    value: json!("no provenance"),
-                    expected_revision: 0,
-                }))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::PermissionDenied
-        );
-        actions::declare(
-            &source.join("other"),
-            &[Action::ReadStorage, Action::WriteStorage],
-        );
-        let updated = info(
-            execute(
+    let (directory, node, controller, client, worktree) = support::empty().await;
+    let source = directory.path().join("source");
+    let first = actions::install_actions(
+        &client,
+        &source.join("package"),
+        worktree,
+        0,
+        &[Action::ReadStorage, Action::WriteStorage],
+    )
+    .await;
+    let second = install_named(&client, &source, worktree, "other", &[Action::ReadStorage]).await;
+    assert_eq!(
+        write(&client, &first, "shared", json!("first"), 0)
+            .await
+            .revision,
+        1
+    );
+    assert_eq!(read(&client, &second, "shared").await.value, Value::Null);
+    assert_eq!(
+        client
+            .execute(request(
                 &client,
-                Command::InstallPlugin {
-                    worktree,
-                    path: "other".into(),
-                    name: "other".into(),
-                    expected_revision: 1,
-                    expected_digest: None,
+                &second,
+                Command::WritePluginValue {
+                    key: "shared".into(),
+                    value: json!("denied"),
+                    expected_revision: 0,
                 },
-            )
-            .await,
-        );
-        let second = Context {
-            package: updated.summary.reference(),
-            ..second
-        };
-        assert_eq!(
-            write(&client, &second, "shared", json!("second"), 0)
-                .await
-                .revision,
-            1
-        );
-        assert_eq!(read(&client, &first, "shared").await.value, json!("first"));
-        assert_eq!(
-            read(&client, &second, "shared").await.value,
-            json!("second")
-        );
-        let mut missing = first.clone();
-        missing.session = Some(SessionId::new());
-        assert_eq!(
-            client
-                .execute(request(
-                    &client,
-                    &missing,
-                    Command::ReadPluginValue {
-                        key: "shared".into()
-                    }
-                ))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::NotFound
-        );
-        drop(client);
-        controller.close().await.unwrap();
-        node.shutdown().await.unwrap();
-    }
+            ))
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::PermissionDenied
+    );
+    assert_eq!(
+        client
+            .execute(client.prepare(Command::ReadPluginValue {
+                key: "shared".into()
+            }))
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::PermissionDenied
+    );
+    assert_eq!(
+        client
+            .execute(client.prepare(Command::WritePluginValue {
+                key: "shared".into(),
+                value: json!("no provenance"),
+                expected_revision: 0,
+            }))
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::PermissionDenied
+    );
+    actions::declare(
+        &source.join("other"),
+        &[Action::ReadStorage, Action::WriteStorage],
+    );
+    let updated = info(
+        execute(
+            &client,
+            Command::InstallPlugin {
+                worktree,
+                path: "other".into(),
+                name: "other".into(),
+                expected_revision: 1,
+                expected_digest: None,
+            },
+        )
+        .await,
+    );
+    let second = Context {
+        package: updated.summary.reference(),
+        ..second
+    };
+    assert_eq!(
+        write(&client, &second, "shared", json!("second"), 0)
+            .await
+            .revision,
+        1
+    );
+    assert_eq!(read(&client, &first, "shared").await.value, json!("first"));
+    assert_eq!(
+        read(&client, &second, "shared").await.value,
+        json!("second")
+    );
+    let mut missing = first.clone();
+    missing.session = Some(SessionId::new());
+    assert_eq!(
+        client
+            .execute(request(
+                &client,
+                &missing,
+                Command::ReadPluginValue {
+                    key: "shared".into()
+                }
+            ))
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::NotFound
+    );
+    drop(client);
+    controller.close().await.unwrap();
+    node.shutdown().await.unwrap();
 }
 
 #[tokio::test]
 async fn checks_revisions_receipts_and_pages() {
-    for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = support::empty(remote).await;
-        let context = actions::install_actions(
-            &client,
-            &directory.path().join("source/package"),
-            worktree,
-            0,
-            &[Action::ReadStorage, Action::WriteStorage],
-        )
-        .await;
-        assert_eq!(
-            read(&client, &context, "city/alpha").await,
-            Entry {
-                key: "city/alpha".into(),
-                revision: 0,
-                value: Value::Null,
-                present: false,
+    let (directory, node, controller, client, worktree) = support::empty().await;
+    let context = actions::install_actions(
+        &client,
+        &directory.path().join("source/package"),
+        worktree,
+        0,
+        &[Action::ReadStorage, Action::WriteStorage],
+    )
+    .await;
+    assert_eq!(
+        read(&client, &context, "city/alpha").await,
+        Entry {
+            key: "city/alpha".into(),
+            revision: 0,
+            value: Value::Null,
+            present: false,
+        }
+    );
+    let null = write(&client, &context, "null", Value::Null, 0).await;
+    assert!(null.present);
+    assert_eq!(null.value, Value::Null);
+    assert_eq!(read(&client, &context, "null").await, null);
+    let read_request = request(
+        &client,
+        &context,
+        Command::ReadPluginValue {
+            key: "city/alpha".into(),
+        },
+    );
+    let read_pending = client.dispatch(read_request).await.unwrap();
+    assert!(!read_pending.receipt.durable);
+    read_pending.completion.await.unwrap().unwrap();
+    let write_request = request(
+        &client,
+        &context,
+        Command::WritePluginValue {
+            key: "city/alpha".into(),
+            value: json!({"place":"北京🙂"}),
+            expected_revision: 0,
+        },
+    );
+    let pending = client.dispatch(write_request.clone()).await.unwrap();
+    assert!(pending.receipt.durable);
+    drop(pending);
+    let first = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if let RequestOutcome::Completed(result) = client.outcome(&write_request).await.unwrap()
+            {
+                break entry(result.unwrap());
             }
-        );
-        let null = write(&client, &context, "null", Value::Null, 0).await;
-        assert!(null.present);
-        assert_eq!(null.value, Value::Null);
-        assert_eq!(read(&client, &context, "null").await, null);
-        let read_request = request(
-            &client,
-            &context,
-            Command::ReadPluginValue {
-                key: "city/alpha".into(),
-            },
-        );
-        let read_pending = client.dispatch(read_request).await.unwrap();
-        assert!(!read_pending.receipt.durable);
-        read_pending.completion.await.unwrap().unwrap();
-        let write_request = request(
-            &client,
-            &context,
-            Command::WritePluginValue {
-                key: "city/alpha".into(),
-                value: json!({"place":"北京🙂"}),
-                expected_revision: 0,
-            },
-        );
-        let pending = client.dispatch(write_request.clone()).await.unwrap();
-        assert!(pending.receipt.durable);
-        drop(pending);
-        let first = tokio::time::timeout(Duration::from_secs(10), async {
-            loop {
-                if let RequestOutcome::Completed(result) =
-                    client.outcome(&write_request).await.unwrap()
-                {
-                    break entry(result.unwrap());
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(first.revision, 1);
+    assert_eq!(first.value, json!({"place":"北京🙂"}));
+    assert_eq!(
+        entry(client.execute(write_request.clone()).await.unwrap()),
+        first
+    );
+    assert_eq!(read(&client, &context, "city/alpha").await, first);
+    assert_eq!(
+        client
+            .execute(request(
+                &client,
+                &context,
+                Command::WritePluginValue {
+                    key: "city/alpha".into(),
+                    value: json!("stale"),
+                    expected_revision: 0,
                 }
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        })
-        .await
-        .unwrap();
-        assert_eq!(first.revision, 1);
-        assert_eq!(first.value, json!({"place":"北京🙂"}));
-        assert_eq!(
-            entry(client.execute(write_request.clone()).await.unwrap()),
-            first
-        );
-        assert_eq!(read(&client, &context, "city/alpha").await, first);
-        assert_eq!(
-            client
-                .execute(request(
-                    &client,
-                    &context,
-                    Command::WritePluginValue {
-                        key: "city/alpha".into(),
-                        value: json!("stale"),
-                        expected_revision: 0,
-                    }
-                ))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::RevisionConflict
-        );
-        assert_eq!(
-            write(&client, &context, "city/alpha", json!("updated"), 1)
-                .await
-                .revision,
-            2
-        );
-        let removed = entry(
+            ))
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::RevisionConflict
+    );
+    assert_eq!(
+        write(&client, &context, "city/alpha", json!("updated"), 1)
+            .await
+            .revision,
+        2
+    );
+    let removed = entry(
+        run(
+            &client,
+            &context,
+            Command::RemovePluginValue {
+                key: "city/alpha".into(),
+                expected_revision: 2,
+            },
+        )
+        .await,
+    );
+    assert_eq!(removed.revision, 3);
+    assert_eq!(removed.value, Value::Null);
+    assert_eq!(read(&client, &context, "city/alpha").await, removed);
+    assert_eq!(
+        entry(
             run(
                 &client,
                 &context,
                 Command::RemovePluginValue {
-                    key: "city/alpha".into(),
-                    expected_revision: 2,
-                },
+                    key: "never".into(),
+                    expected_revision: 0,
+                }
             )
-            .await,
-        );
-        assert_eq!(removed.revision, 3);
-        assert_eq!(removed.value, Value::Null);
-        assert_eq!(read(&client, &context, "city/alpha").await, removed);
-        assert_eq!(
-            entry(
-                run(
-                    &client,
-                    &context,
-                    Command::RemovePluginValue {
-                        key: "never".into(),
-                        expected_revision: 0,
-                    }
-                )
-                .await
-            )
+            .await
+        )
+        .revision,
+        0
+    );
+    assert_eq!(
+        write(&client, &context, "city/alpha", json!(1), 3)
+            .await
             .revision,
-            0
-        );
-        assert_eq!(
-            write(&client, &context, "city/alpha", json!(1), 3)
-                .await
-                .revision,
-            4
-        );
-        write(&client, &context, "city/zeta", json!(2), 0).await;
-        write(&client, &context, "city/北京🙂", json!(3), 0).await;
-        let first_page = page(
-            run(
-                &client,
-                &context,
-                Command::ListPluginKeys {
-                    prefix: "city/".into(),
-                    after: None,
-                    limit: 2,
-                },
-            )
-            .await,
-        );
-        assert_eq!(first_page.keys, ["city/alpha", "city/zeta"]);
-        assert_eq!(first_page.after.as_deref(), Some("city/zeta"));
-        let next_page = page(
-            run(
-                &client,
-                &context,
-                Command::ListPluginKeys {
-                    prefix: "city/".into(),
-                    after: first_page.after,
-                    limit: 2,
-                },
-            )
-            .await,
-        );
-        assert_eq!(next_page.keys, ["city/北京🙂"]);
-        assert_eq!(next_page.after, None);
-        for key in ["", "invalid\0key", &"x".repeat(129)] {
-            assert_eq!(
-                client
-                    .execute(request(
-                        &client,
-                        &context,
-                        Command::ReadPluginValue { key: key.into() }
-                    ))
-                    .await
-                    .unwrap_err()
-                    .code,
-                ErrorCode::InvalidRequest
-            );
-        }
+        4
+    );
+    write(&client, &context, "city/zeta", json!(2), 0).await;
+    write(&client, &context, "city/北京🙂", json!(3), 0).await;
+    let first_page = page(
+        run(
+            &client,
+            &context,
+            Command::ListPluginKeys {
+                prefix: "city/".into(),
+                after: None,
+                limit: 2,
+            },
+        )
+        .await,
+    );
+    assert_eq!(first_page.keys, ["city/alpha", "city/zeta"]);
+    assert_eq!(first_page.after.as_deref(), Some("city/zeta"));
+    let next_page = page(
+        run(
+            &client,
+            &context,
+            Command::ListPluginKeys {
+                prefix: "city/".into(),
+                after: first_page.after,
+                limit: 2,
+            },
+        )
+        .await,
+    );
+    assert_eq!(next_page.keys, ["city/北京🙂"]);
+    assert_eq!(next_page.after, None);
+    for key in ["", "invalid\0key", &"x".repeat(129)] {
         assert_eq!(
             client
                 .execute(request(
                     &client,
                     &context,
-                    Command::ListPluginKeys {
-                        prefix: String::new(),
-                        after: None,
-                        limit: 0,
-                    }
+                    Command::ReadPluginValue { key: key.into() }
                 ))
                 .await
                 .unwrap_err()
                 .code,
             ErrorCode::InvalidRequest
         );
-        let large = page(
-            run(
+    }
+    assert_eq!(
+        client
+            .execute(request(
                 &client,
                 &context,
                 Command::ListPluginKeys {
                     prefix: String::new(),
                     after: None,
-                    limit: u16::MAX,
-                },
-            )
-            .await,
-        );
-        assert_eq!(
-            large.keys,
-            ["city/alpha", "city/zeta", "city/北京🙂", "null"]
-        );
-        assert_eq!(large.after, None);
+                    limit: 0,
+                }
+            ))
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidRequest
+    );
+    let large = page(
+        run(
+            &client,
+            &context,
+            Command::ListPluginKeys {
+                prefix: String::new(),
+                after: None,
+                limit: u16::MAX,
+            },
+        )
+        .await,
+    );
+    assert_eq!(
+        large.keys,
+        ["city/alpha", "city/zeta", "city/北京🙂", "null"]
+    );
+    assert_eq!(large.after, None);
 
-        assert_eq!(
-            client
-                .execute(request(
-                    &client,
-                    &context,
-                    Command::WritePluginValue {
-                        key: "too-large".into(),
-                        value: json!("x".repeat(plugin::storage::MAX_VALUE_BYTES)),
-                        expected_revision: 0,
-                    }
-                ))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::InvalidRequest
-        );
-        assert_eq!(read(&client, &context, "too-large").await.revision, 0);
-        drop(client);
-        controller.close().await.unwrap();
-        node.shutdown().await.unwrap();
-    }
+    assert_eq!(
+        client
+            .execute(request(
+                &client,
+                &context,
+                Command::WritePluginValue {
+                    key: "too-large".into(),
+                    value: json!("x".repeat(plugin::storage::MAX_VALUE_BYTES)),
+                    expected_revision: 0,
+                }
+            ))
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidRequest
+    );
+    assert_eq!(read(&client, &context, "too-large").await.revision, 0);
+    drop(client);
+    controller.close().await.unwrap();
+    node.shutdown().await.unwrap();
 }
 
 #[tokio::test]
 async fn keeps_values_through_restart_update_and_reinstall() {
-    for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = support::empty(remote).await;
-        let root = directory.path().join("source/package");
-        let context = actions::install_actions(
-            &client,
-            &root,
-            worktree,
-            0,
-            &[Action::ReadStorage, Action::WriteStorage],
-        )
-        .await;
-        let original = request(
-            &client,
-            &context,
-            Command::WritePluginValue {
-                key: "saved".into(),
-                value: json!({"note":"kept"}),
-                expected_revision: 0,
-            },
-        );
-        assert_eq!(
-            entry(client.execute(original.clone()).await.unwrap()).revision,
-            1
-        );
-        drop(client);
-        node.shutdown().await.unwrap();
-        let node = Node::start_empty_with_plugin_catalog(
-            directory.path().join("node"),
-            "http://127.0.0.1:9/",
-        )
-        .await
-        .unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(node.link().address())
-        } else {
-            node.local()
-        });
-        assert_eq!(
-            read(&client, &context, "saved").await.value,
-            json!({"note":"kept"})
-        );
-        assert_eq!(entry(client.execute(original).await.unwrap()).revision, 1);
-        let mut manifest: Value =
-            serde_json::from_slice(&fs::read(root.join("plugin.json")).unwrap()).unwrap();
-        manifest["version"] = json!("2.0.0");
-        manifest["extensions"]["dev.sailry.platform"]["settings_schema"] =
-            json!("dev.sailry.platform/settings.json");
-        fs::write(root.join("plugin.json"), manifest.to_string()).unwrap();
-        fs::write(
-            root.join("dev.sailry.platform/settings.json"),
-            json!({
-                "$schema":plugin::settings::SCHEMA, "type":"object", "additionalProperties":false,
-                "properties":{"note":{"type":"string", "default":""}}
-            })
-            .to_string(),
-        )
-        .unwrap();
-        let updated = info(execute(&client, install(worktree, 1)).await);
-        assert!(updated.settings.is_some());
-        let mut context = Context {
-            package: updated.summary.reference(),
-            ..context
-        };
-        assert_eq!(read(&client, &context, "saved").await.revision, 1);
-        let Output::PluginSettings(saved) = execute(
-            &client,
-            Command::SavePluginSettings {
-                package: context.package.clone(),
-                values: BTreeMap::from([("note".into(), json!("configured"))]),
-                secrets: BTreeMap::new(),
-            },
-        )
-        .await
-        else {
-            panic!("plugin settings expected")
-        };
-        assert_eq!(saved.package.settings_revision, 1);
-        context.package = saved.package;
-        assert_eq!(
-            read(&client, &context, "saved").await.value,
-            json!({"note":"kept"})
-        );
-        execute(
-            &client,
-            Command::RemovePlugin {
-                name: "example".into(),
-                expected_revision: info(
-                    execute(
-                        &client,
-                        Command::ReadPlugin {
-                            name: "example".into(),
-                        },
-                    )
-                    .await,
+    let (directory, node, controller, client, worktree) = support::empty().await;
+    let root = directory.path().join("source/package");
+    let context = actions::install_actions(
+        &client,
+        &root,
+        worktree,
+        0,
+        &[Action::ReadStorage, Action::WriteStorage],
+    )
+    .await;
+    let original = request(
+        &client,
+        &context,
+        Command::WritePluginValue {
+            key: "saved".into(),
+            value: json!({"note":"kept"}),
+            expected_revision: 0,
+        },
+    );
+    assert_eq!(
+        entry(client.execute(original.clone()).await.unwrap()).revision,
+        1
+    );
+    drop(client);
+    node.shutdown().await.unwrap();
+    let node =
+        Node::start_empty_with_plugin_catalog(directory.path().join("node"), "http://127.0.0.1:9/")
+            .await
+            .unwrap();
+    let client = Client::new(controller.handle().remote(node.link().address()));
+    assert_eq!(
+        read(&client, &context, "saved").await.value,
+        json!({"note":"kept"})
+    );
+    assert_eq!(entry(client.execute(original).await.unwrap()).revision, 1);
+    let mut manifest: Value =
+        serde_json::from_slice(&fs::read(root.join("plugin.json")).unwrap()).unwrap();
+    manifest["version"] = json!("2.0.0");
+    manifest["extensions"]["dev.sailry.platform"]["settings_schema"] =
+        json!("dev.sailry.platform/settings.json");
+    fs::write(root.join("plugin.json"), manifest.to_string()).unwrap();
+    fs::write(
+        root.join("dev.sailry.platform/settings.json"),
+        json!({
+            "$schema":plugin::settings::SCHEMA, "type":"object", "additionalProperties":false,
+            "properties":{"note":{"type":"string", "default":""}}
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let updated = info(execute(&client, install(worktree, 1)).await);
+    assert!(updated.settings.is_some());
+    let mut context = Context {
+        package: updated.summary.reference(),
+        ..context
+    };
+    assert_eq!(read(&client, &context, "saved").await.revision, 1);
+    let Output::PluginSettings(saved) = execute(
+        &client,
+        Command::SavePluginSettings {
+            package: context.package.clone(),
+            values: BTreeMap::from([("note".into(), json!("configured"))]),
+            secrets: BTreeMap::new(),
+        },
+    )
+    .await
+    else {
+        panic!("plugin settings expected")
+    };
+    assert_eq!(saved.package.settings_revision, 1);
+    context.package = saved.package;
+    assert_eq!(
+        read(&client, &context, "saved").await.value,
+        json!({"note":"kept"})
+    );
+    execute(
+        &client,
+        Command::RemovePlugin {
+            name: "example".into(),
+            expected_revision: info(
+                execute(
+                    &client,
+                    Command::ReadPlugin {
+                        name: "example".into(),
+                    },
                 )
-                .summary
-                .revision,
-            },
-        )
-        .await;
-        let reinstalled = info(execute(&client, install(worktree, 0)).await);
-        context.package = reinstalled.summary.reference();
-        assert_eq!(
-            read(&client, &context, "saved").await.value,
-            json!({"note":"kept"})
-        );
-        drop(client);
-        controller.close().await.unwrap();
-        node.shutdown().await.unwrap();
-    }
+                .await,
+            )
+            .summary
+            .revision,
+        },
+    )
+    .await;
+    let reinstalled = info(execute(&client, install(worktree, 0)).await);
+    context.package = reinstalled.summary.reference();
+    assert_eq!(
+        read(&client, &context, "saved").await.value,
+        json!({"note":"kept"})
+    );
+    drop(client);
+    controller.close().await.unwrap();
+    node.shutdown().await.unwrap();
 }

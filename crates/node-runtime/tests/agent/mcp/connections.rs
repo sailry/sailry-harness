@@ -11,98 +11,93 @@ fn pid(data: &Path) -> i32 {
 async fn binds_reused_inputs() {
     use question::{Answer, Response};
     use std::sync::atomic::Ordering;
-    for remote in [false, true] {
-        for sse in [false, true] {
-            for task in [false, true] {
-                let peer = if task {
-                    input::Server::task(
-                        json!({"mode":"url","url":"https://example.invalid/continue"}),
-                        sse,
-                    )
-                    .await
-                } else {
-                    input::Server::url("https://example.invalid/continue", sse).await
-                };
-                let model = Server::turn_tools(vec![(alias("input", "read"), json!({}))]).await;
-                let fixture = process::Fixture::packages(remote, &model, &[]).await;
-                peer.package(&fixture.root.join("package"));
-                install(&fixture, 0).await;
+    for sse in [false, true] {
+        for task in [false, true] {
+            let peer = if task {
+                input::Server::task(
+                    json!({"mode":"url","url":"https://example.invalid/continue"}),
+                    sse,
+                )
+                .await
+            } else {
+                input::Server::url("https://example.invalid/continue", sse).await
+            };
+            let model = Server::turn_tools(vec![(alias("input", "read"), json!({}))]).await;
+            let fixture = process::Fixture::packages(&model, &[]).await;
+            peer.package(&fixture.root.join("package"));
+            install(&fixture, 0).await;
 
-                for response in [Response::Answer(Answer::Opened), Response::Decline] {
-                    let (_, turn) = submit(&fixture, false).await;
-                    let (_, question) =
-                        questions::pending(&fixture.client, fixture.session.id).await;
-                    assert_eq!(question.turn, turn.id);
-                    execute(
-                        &fixture.client,
-                        Command::ResolveQuestion {
-                            session: fixture.session.id,
-                            question: question.id,
-                            response,
-                        },
-                    )
+            for response in [Response::Answer(Answer::Opened), Response::Decline] {
+                let (_, turn) = submit(&fixture, false).await;
+                let (_, question) = questions::pending(&fixture.client, fixture.session.id).await;
+                assert_eq!(question.turn, turn.id);
+                execute(
+                    &fixture.client,
+                    Command::ResolveQuestion {
+                        session: fixture.session.id,
+                        question: question.id,
+                        response,
+                    },
+                )
+                .await;
+                let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+                assert_eq!(page.runs.last().unwrap().status, Status::Completed);
+                fixture
+                    .controller
+                    .handle()
+                    .disconnect(fixture.node.id())
                     .await;
-                    let page = finished(&fixture.client, fixture.session.id, turn.id).await;
-                    assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-                    fixture
-                        .controller
-                        .handle()
-                        .disconnect(fixture.node.id())
-                        .await;
-                }
-                assert_eq!(peer.initializations.load(Ordering::SeqCst), 1);
-                assert_eq!(peer.calls.load(Ordering::SeqCst), 2);
-                assert_eq!(model.requests.lock().unwrap().len(), 4);
-                fixture.node.shutdown().await.unwrap();
-                fixture.controller.close().await.unwrap();
             }
+            assert_eq!(peer.initializations.load(Ordering::SeqCst), 1);
+            assert_eq!(peer.calls.load(Ordering::SeqCst), 2);
+            assert_eq!(model.requests.lock().unwrap().len(), 4);
+            fixture.node.shutdown().await.unwrap();
+            fixture.controller.close().await.unwrap();
         }
     }
 }
 
 #[tokio::test]
 async fn replaces_changed_connections() {
-    for remote in [false, true] {
-        let model = Server::turn_tools(vec![(alias("native", "read"), json!({}))]).await;
-        let fixture = process::Fixture::packages(remote, &model, &[]).await;
-        let servers = json!({"native":peer::config("mcp::peer::stdio_peer", "normal")});
-        package(&fixture.root, servers.clone(), "first");
-        install(&fixture, 0).await;
+    let model = Server::turn_tools(vec![(alias("native", "read"), json!({}))]).await;
+    let fixture = process::Fixture::packages(&model, &[]).await;
+    let servers = json!({"native":peer::config("mcp::peer::stdio_peer", "normal")});
+    package(&fixture.root, servers.clone(), "first");
+    install(&fixture, 0).await;
 
-        let data = fixture.node.profile().join("plugins/data/example");
-        let mut original = None;
-        for _ in 0..2 {
-            let (_, turn) = submit(&fixture, false).await;
-            let page = finished(&fixture.client, fixture.session.id, turn.id).await;
-            assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-            assert_eq!(
-                results(&fixture.client, &page).await.last().unwrap()["structuredContent"]["version"],
-                "first"
-            );
-            assert_eq!(fs::read_to_string(data.join("launches")).unwrap(), "x");
-            assert_eq!(*original.get_or_insert(pid(&data)), pid(&data));
-            fixture
-                .controller
-                .handle()
-                .disconnect(fixture.node.id())
-                .await;
-        }
-        package(&fixture.root, servers, "second");
-        install(&fixture, 1).await;
-
+    let data = fixture.node.profile().join("plugins/data/example");
+    let mut original = None;
+    for _ in 0..2 {
         let (_, turn) = submit(&fixture, false).await;
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+        assert_eq!(page.runs.last().unwrap().status, Status::Completed);
         assert_eq!(
             results(&fixture.client, &page).await.last().unwrap()["structuredContent"]["version"],
-            "second"
+            "first"
         );
-        assert_eq!(fs::read_to_string(data.join("launches")).unwrap(), "xx");
-        // SAFETY: signal 0 only probes the recorded fixture PID and passes no pointers.
-        assert_ne!(unsafe { libc::kill(original.unwrap(), 0) }, 0);
-        fixture.node.shutdown().await.unwrap();
-        reaped(&data);
-        fixture.controller.close().await.unwrap();
+        assert_eq!(fs::read_to_string(data.join("launches")).unwrap(), "x");
+        assert_eq!(*original.get_or_insert(pid(&data)), pid(&data));
+        fixture
+            .controller
+            .handle()
+            .disconnect(fixture.node.id())
+            .await;
     }
+    package(&fixture.root, servers, "second");
+    install(&fixture, 1).await;
+
+    let (_, turn) = submit(&fixture, false).await;
+    let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+    assert_eq!(
+        results(&fixture.client, &page).await.last().unwrap()["structuredContent"]["version"],
+        "second"
+    );
+    assert_eq!(fs::read_to_string(data.join("launches")).unwrap(), "xx");
+    // SAFETY: signal 0 only probes the recorded fixture PID and passes no pointers.
+    assert_ne!(unsafe { libc::kill(original.unwrap(), 0) }, 0);
+    fixture.node.shutdown().await.unwrap();
+    reaped(&data);
+    fixture.controller.close().await.unwrap();
 }
 
 #[tokio::test]
@@ -112,7 +107,7 @@ async fn orders_concurrent_servers() {
         json!({"query":"alpha zeta","limit":8}),
     )])
     .await;
-    let fixture = process::Fixture::packages(false, &model, &[]).await;
+    let fixture = process::Fixture::packages(&model, &[]).await.local();
     // The failing server sits between the healthy ones in configuration order.
     package(
         &fixture.root,
@@ -164,7 +159,7 @@ async fn orders_concurrent_servers() {
 async fn keeps_idle_connections_after_stop() {
     let release = std::sync::Arc::new(tokio::sync::Notify::new());
     let model = Server::held_after_tool(vec![(alias("native", "read"), json!({}))], release).await;
-    let fixture = process::Fixture::packages(false, &model, &[]).await;
+    let fixture = process::Fixture::packages(&model, &[]).await.local();
     package(
         &fixture.root,
         json!({"native":peer::config("mcp::peer::stdio_peer", "normal")}),
@@ -196,7 +191,7 @@ async fn keeps_idle_connections_after_stop() {
 async fn closes_failed_turn_connections() {
     // A rejected model request fails the turn after its servers were bound.
     let model = Server::http(usize::MAX, 400).await;
-    let fixture = process::Fixture::packages(false, &model, &[]).await;
+    let fixture = process::Fixture::packages(&model, &[]).await.local();
     package(
         &fixture.root,
         json!({"native":peer::config("mcp::peer::stdio_peer", "normal")}),
@@ -216,7 +211,7 @@ async fn closes_failed_turn_connections() {
 #[tokio::test]
 async fn closes_idle_children() {
     let model = Server::tools(vec![(alias("native", "read"), json!({}))]).await;
-    let mut fixture = process::Fixture::packages(false, &model, &[]).await;
+    let mut fixture = process::Fixture::packages(&model, &[]).await.local();
     package(
         &fixture.root,
         json!({"native":peer::config("mcp::peer::stdio_peer", "normal")}),

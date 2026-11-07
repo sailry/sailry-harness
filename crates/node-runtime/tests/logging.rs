@@ -1,4 +1,4 @@
-//! A separate test process owns one sink and only isolated local/remote Nodes.
+//! A separate test process owns one sink and only isolated Nodes.
 #[path = "agent_support/mod.rs"]
 #[expect(
     dead_code,
@@ -197,120 +197,114 @@ async fn observes_shared_lifecycles_without_payloads() {
     // Reopen the same isolated profiles so each scenario retains real Node
     // startup/shutdown logging without reinstalling the same bundled packages.
     let profiles = [tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap()];
-    for remote in [false, true] {
-        for stop in [false, true] {
-            let profile = &profiles[usize::from(remote)];
-            let root = profile.path().join(format!("project-{stop}"));
-            std::fs::create_dir_all(&root).unwrap();
-            let started = std::sync::Arc::new(tokio::sync::Notify::new());
-            let held = std::sync::Arc::new(tokio::sync::Notify::new());
-            let model = if stop {
-                models::Server::held(started.clone(), held).await
-            } else {
-                models::Server::tools(vec![]).await
-            };
-            let node = Node::start_empty(profile.path().join("node"))
+    for stop in [false, true] {
+        let profile = &profiles[1];
+        let root = profile.path().join(format!("project-{stop}"));
+        std::fs::create_dir_all(&root).unwrap();
+        let started = std::sync::Arc::new(tokio::sync::Notify::new());
+        let held = std::sync::Arc::new(tokio::sync::Notify::new());
+        let model = if stop {
+            models::Server::held(started.clone(), held).await
+        } else {
+            models::Server::tools(vec![]).await
+        };
+        let node = Node::start_empty(profile.path().join("node"))
+            .await
+            .unwrap();
+        assert!(matches!(
+            Node::start_empty(profile.path().join("node")).await,
+            Err(sailry_node_runtime::Error::ProfileInUse(_))
+        ));
+        let controller =
+            Link::controller(profile.path().join("controller"), NetworkScope::default())
                 .await
                 .unwrap();
-            assert!(matches!(
-                Node::start_empty(profile.path().join("node")).await,
-                Err(sailry_node_runtime::Error::ProfileInUse(_))
-            ));
-            let controller =
-                Link::controller(profile.path().join("controller"), NetworkScope::default())
-                    .await
-                    .unwrap();
-            let address = controller
-                .handle()
-                .pair(node.link().invite().unwrap().ticket())
-                .await
-                .unwrap();
-            let client = Client::new(if remote {
-                controller.handle().remote(address)
-            } else {
-                node.local()
-            });
-            let session = session(&client, &model.endpoint, &root).await;
-            let request = client.prepare(Command::SubmitTurn {
-                session: session.id,
-                expected_revision: session.revision,
-                message: "PRIVATE_CONVERSATION_INPUT".into(),
-            });
-            let admission = client.dispatch(request.clone()).await.unwrap();
-            assert!(admission.receipt.durable);
-            let Output::QueuedTurn(turn) = admission.completion.await.unwrap().unwrap() else {
-                panic!("queued turn expected")
-            };
-            if stop {
-                model.wait_count(1).await;
-                execute(&client, Command::StopTurn { turn: turn.id }).await;
-            }
-            let page = finish(&client, session.id, turn.id).await;
-            assert_eq!(
-                page.runs.last().unwrap().status,
-                if stop {
-                    Status::Cancelled
-                } else {
-                    Status::Completed
-                }
-            );
-            expected.push((
-                node.id()
-                    .0
-                    .iter()
-                    .map(|byte| format!("{byte:02x}"))
-                    .collect::<String>(),
-                request.id.to_string(),
-                turn.id.to_string(),
-                stop,
-            ));
-            if !stop {
-                let package = root.join("package");
-                std::fs::create_dir_all(package.join("dev.sailry.platform")).unwrap();
-                std::fs::write(package.join("plugin.json"), json!({"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json", "name":"diagnostic-fixture", "version":"0.1.0", "extensions":{"dev.sailry.platform":{"api_version":"v1", "actions":[], "host":{"entry":"dev.sailry.platform/main.js", "resources":["dev.sailry.platform/main.js"], "handlers":["run"]}}}}).to_string()).unwrap();
-                std::fs::write(
-                    package.join("dev.sailry.platform/main.js"),
-                    "export function run(input) { throw { private: input.private }; }",
-                )
-                .unwrap();
-                let Output::Plugin(package) = execute(
-                    &client,
-                    Command::InstallPlugin {
-                        worktree: session.worktree,
-                        path: "package".into(),
-                        name: "diagnostic-fixture".into(),
-                        expected_revision: 0,
-                        expected_digest: None,
-                    },
-                )
-                .await
-                else {
-                    panic!("package expected")
-                };
-                let context = plugin::Context {
-                    package: package.summary.reference(),
-                    worktree: Some(session.worktree),
-                    session: Some(session.id),
-                    turn: None,
-                    invocation: None,
-                    surface: Default::default(),
-                };
-                let fault = client
-                    .execute(
-                        client
-                            .prepare(Command::CallPlugin {
-                                handler: "run".into(),
-                                input: json!({"private":"PRIVATE_PLUGIN_INPUT"}),
-                            })
-                            .with_plugin(context),
-                    )
-                    .await
-                    .unwrap_err();
-                assert_eq!(fault.code, ErrorCode::InvalidRequest);
-            }
-            node.shutdown().await.unwrap();
-            controller.close().await.unwrap();
+        let address = controller
+            .handle()
+            .pair(node.link().invite().unwrap().ticket())
+            .await
+            .unwrap();
+        let client = Client::new(controller.handle().remote(address));
+        let session = session(&client, &model.endpoint, &root).await;
+        let request = client.prepare(Command::SubmitTurn {
+            session: session.id,
+            expected_revision: session.revision,
+            message: "PRIVATE_CONVERSATION_INPUT".into(),
+        });
+        let admission = client.dispatch(request.clone()).await.unwrap();
+        assert!(admission.receipt.durable);
+        let Output::QueuedTurn(turn) = admission.completion.await.unwrap().unwrap() else {
+            panic!("queued turn expected")
+        };
+        if stop {
+            model.wait_count(1).await;
+            execute(&client, Command::StopTurn { turn: turn.id }).await;
         }
+        let page = finish(&client, session.id, turn.id).await;
+        assert_eq!(
+            page.runs.last().unwrap().status,
+            if stop {
+                Status::Cancelled
+            } else {
+                Status::Completed
+            }
+        );
+        expected.push((
+            node.id()
+                .0
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>(),
+            request.id.to_string(),
+            turn.id.to_string(),
+            stop,
+        ));
+        if !stop {
+            let package = root.join("package");
+            std::fs::create_dir_all(package.join("dev.sailry.platform")).unwrap();
+            std::fs::write(package.join("plugin.json"), json!({"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json", "name":"diagnostic-fixture", "version":"0.1.0", "extensions":{"dev.sailry.platform":{"api_version":"v1", "actions":[], "host":{"entry":"dev.sailry.platform/main.js", "resources":["dev.sailry.platform/main.js"], "handlers":["run"]}}}}).to_string()).unwrap();
+            std::fs::write(
+                package.join("dev.sailry.platform/main.js"),
+                "export function run(input) { throw { private: input.private }; }",
+            )
+            .unwrap();
+            let Output::Plugin(package) = execute(
+                &client,
+                Command::InstallPlugin {
+                    worktree: session.worktree,
+                    path: "package".into(),
+                    name: "diagnostic-fixture".into(),
+                    expected_revision: 0,
+                    expected_digest: None,
+                },
+            )
+            .await
+            else {
+                panic!("package expected")
+            };
+            let context = plugin::Context {
+                package: package.summary.reference(),
+                worktree: Some(session.worktree),
+                session: Some(session.id),
+                turn: None,
+                invocation: None,
+                surface: Default::default(),
+            };
+            let fault = client
+                .execute(
+                    client
+                        .prepare(Command::CallPlugin {
+                            handler: "run".into(),
+                            input: json!({"private":"PRIVATE_PLUGIN_INPUT"}),
+                        })
+                        .with_plugin(context),
+                )
+                .await
+                .unwrap_err();
+            assert_eq!(fault.code, ErrorCode::InvalidRequest);
+        }
+        node.shutdown().await.unwrap();
+        controller.close().await.unwrap();
     }
     let retry_profile = &profiles[1];
     let retry_root = retry_profile.path().join("retry-project");
@@ -445,8 +439,10 @@ async fn observes_shared_lifecycles_without_payloads() {
     parse_node.shutdown().await.unwrap();
     parse_controller.close().await.unwrap();
 
-    for (remote, mode, usage) in [(false, "manual", 100), (true, "automatic", 14_000)] {
-        let profile = &profiles[usize::from(remote)];
+    for (profile, mode, usage) in [
+        (&profiles[0], "manual", 100),
+        (&profiles[1], "automatic", 14_000),
+    ] {
         let root = profile.path().join(format!("summary-{mode}"));
         std::fs::create_dir(&root).unwrap();
         let model = models::Server::summary(usage).await;
@@ -462,11 +458,7 @@ async fn observes_shared_lifecycles_without_payloads() {
             .pair(node.link().invite().unwrap().ticket())
             .await
             .unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(address)
-        } else {
-            node.local()
-        });
+        let client = Client::new(controller.handle().remote(address));
         let session = session(&client, &model.endpoint, &root).await;
         let turns = if mode == "automatic" { 4 } else { 1 };
         for index in 0..turns {

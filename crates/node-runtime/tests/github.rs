@@ -21,7 +21,7 @@ struct Fixture {
     client: Client,
 }
 impl Fixture {
-    async fn new(remote: bool) -> Self {
+    async fn new() -> Self {
         let directory = tempfile::tempdir().unwrap();
         let cli = cli::Cli::new(directory.path());
         let node = Node::start_empty_with_environment(directory.path().join("node"), cli.source())
@@ -36,11 +36,7 @@ impl Fixture {
             .pair(node.link().invite().unwrap().ticket())
             .await
             .unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(address)
-        } else {
-            node.local()
-        });
+        let client = Client::new(controller.handle().remote(address));
         let Output::Plugin(package) = client
             .execute(client.prepare(Command::InstallBundledPlugin {
                 name: "github".into(),
@@ -85,93 +81,91 @@ async fn inspects_without_tokens_and_binds_identity() {
         Update,
         plugin::connector::{Input, Kind, LoginState},
     };
-    for remote in [false, true] {
-        let fixture = Fixture::new(remote).await;
-        let package = fixture.package().await;
-        let Output::ConnectorIdentity(identity) = fixture
-            .client
-            .execute(fixture.client.prepare(Command::InspectConnectorCli {
-                package: package.clone(),
-                connector: "github".into(),
-            }))
-            .await
-            .unwrap()
-        else {
-            panic!("account expected")
-        };
-        assert_eq!(identity.id, "fixture-user");
-        assert_eq!(fixture.cli.calls("token"), 0);
-        let Output::Connections(rows) = fixture
-            .client
-            .execute(fixture.client.prepare(Command::ListConnections))
-            .await
-            .unwrap()
-        else {
-            panic!("connections expected")
-        };
-        assert!(rows.is_empty());
-        let Output::ConnectorLogin(attempt) = fixture
-            .client
-            .execute(fixture.client.prepare(Command::StartConnectorLogin {
-                package,
-                connector: "github".into(),
-                connection: None,
-                expected_revision: None,
-                method: Kind::LocalCli,
-                input: Input::default(),
-            }))
-            .await
-            .unwrap()
-        else {
-            panic!("attempt expected")
-        };
-        let mut stream = fixture
-            .client
-            .subscribe_connector_login(attempt.id)
-            .await
-            .unwrap();
-        let row = tokio::time::timeout(Duration::from_secs(10), async {
-            loop {
-                let Update::ConnectorLogin(update) = stream.next().await.unwrap() else {
-                    panic!("login expected")
-                };
-                assert!(!serde_json::to_string(&update).unwrap().contains(cli::TOKEN));
-                if let LoginState::Connected(row) = update.state {
-                    return row;
-                }
-                assert!(update.state.active(), "{:?}", update.state);
-            }
-        })
+    let fixture = Fixture::new().await;
+    let package = fixture.package().await;
+    let Output::ConnectorIdentity(identity) = fixture
+        .client
+        .execute(fixture.client.prepare(Command::InspectConnectorCli {
+            package: package.clone(),
+            connector: "github".into(),
+        }))
+        .await
+        .unwrap()
+    else {
+        panic!("account expected")
+    };
+    assert_eq!(identity.id, "fixture-user");
+    assert_eq!(fixture.cli.calls("token"), 0);
+    let Output::Connections(rows) = fixture
+        .client
+        .execute(fixture.client.prepare(Command::ListConnections))
+        .await
+        .unwrap()
+    else {
+        panic!("connections expected")
+    };
+    assert!(rows.is_empty());
+    let Output::ConnectorLogin(attempt) = fixture
+        .client
+        .execute(fixture.client.prepare(Command::StartConnectorLogin {
+            package,
+            connector: "github".into(),
+            connection: None,
+            expected_revision: None,
+            method: Kind::LocalCli,
+            input: Input::default(),
+        }))
+        .await
+        .unwrap()
+    else {
+        panic!("attempt expected")
+    };
+    let mut stream = fixture
+        .client
+        .subscribe_connector_login(attempt.id)
         .await
         .unwrap();
-        assert_eq!(row.identity.as_ref().unwrap().id, "fixture-user");
-        assert_eq!(fixture.cli.calls("token"), 1);
-        fixture.cli.set("switched");
-        assert!(
-            fixture
-                .client
-                .execute(
-                    fixture
-                        .client
-                        .prepare(Command::ProbeConnection { connection: row.id })
-                )
-                .await
-                .is_err()
-        );
-        assert_eq!(fixture.cli.calls("token"), 1);
-        let Output::Connections(rows) = fixture
+    let row = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let Update::ConnectorLogin(update) = stream.next().await.unwrap() else {
+                panic!("login expected")
+            };
+            assert!(!serde_json::to_string(&update).unwrap().contains(cli::TOKEN));
+            if let LoginState::Connected(row) = update.state {
+                return row;
+            }
+            assert!(update.state.active(), "{:?}", update.state);
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(row.identity.as_ref().unwrap().id, "fixture-user");
+    assert_eq!(fixture.cli.calls("token"), 1);
+    fixture.cli.set("switched");
+    assert!(
+        fixture
             .client
-            .execute(fixture.client.prepare(Command::ListConnections))
+            .execute(
+                fixture
+                    .client
+                    .prepare(Command::ProbeConnection { connection: row.id })
+            )
             .await
-            .unwrap()
-        else {
-            panic!("connections expected")
-        };
-        assert_ne!(
-            rows[0].state,
-            sailry_protocol::plugin::connector::State::Connected
-        );
-        assert!(!serde_json::to_string(&rows).unwrap().contains(cli::TOKEN));
-        fixture.close().await;
-    }
+            .is_err()
+    );
+    assert_eq!(fixture.cli.calls("token"), 1);
+    let Output::Connections(rows) = fixture
+        .client
+        .execute(fixture.client.prepare(Command::ListConnections))
+        .await
+        .unwrap()
+    else {
+        panic!("connections expected")
+    };
+    assert_ne!(
+        rows[0].state,
+        sailry_protocol::plugin::connector::State::Connected
+    );
+    assert!(!serde_json::to_string(&rows).unwrap().contains(cli::TOKEN));
+    fixture.close().await;
 }

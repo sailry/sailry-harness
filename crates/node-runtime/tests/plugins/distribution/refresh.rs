@@ -149,160 +149,154 @@ async fn disable(client: &Client, installed: Info) -> Info {
 
 #[tokio::test]
 async fn adds_missing_index_settings_on_each_path() {
-    for remote in [false, true] {
-        let (directory, node, controller, client, _) = fixture(remote).await;
-        let memory = info(
-            execute(
-                &client,
-                Command::ReadPlugin {
-                    name: "memory".into(),
-                },
-            )
-            .await,
-        );
-        let memory = disable(&client, memory).await;
-        let search = info(
-            execute(
-                &client,
-                Command::ReadPlugin {
-                    name: "web-search".into(),
-                },
-            )
-            .await,
-        );
+    let (directory, node, controller, client, _) = fixture().await;
+    let memory = info(
         execute(
             &client,
-            Command::RemovePlugin {
-                name: "web-search".into(),
-                expected_revision: search.summary.revision,
+            Command::ReadPlugin {
+                name: "memory".into(),
             },
         )
-        .await;
-        let Output::CodeIndexSettings(mut settings) =
-            execute(&client, Command::ReadCodeIndexSettings).await
-        else {
-            panic!("code index settings expected")
-        };
-        settings.enabled = false;
-        let Output::CodeIndexSettings(settings) = execute(
+        .await,
+    );
+    let memory = disable(&client, memory).await;
+    let search = info(
+        execute(
             &client,
-            Command::SaveCodeIndexSettings {
-                expected_revision: settings.revision,
-                settings,
+            Command::ReadPlugin {
+                name: "web-search".into(),
             },
         )
-        .await
-        else {
-            panic!("code index settings expected")
-        };
-        let Output::Plugins(mut before) = execute(&client, Command::ListPlugins).await else {
-            panic!("inventory expected")
-        };
-        before.retain(|summary| summary.name != "code");
-        let profile = directory.path().join("node");
-        let path = profile.join("storage/node.turso");
-        node.shutdown().await.unwrap();
-        let (db_handle, db) = crate::plugins::database_fixture::open(&path, false).await;
-        assert!(
-            (async {
-                let mut statement = db.prepare("SELECT plugin_defaults FROM node").await?;
-                let row = statement.query_row(()).await?;
-                let mapped: turso::Result<_> = row.get::<bool>(0);
-                mapped
-            })
-            .await
-            .unwrap()
-        );
-        db.execute("DELETE FROM plugins WHERE name='code'", ())
-            .await
-            .unwrap();
-        let removed: Vec<u8> = (async {
-            let mut statement = db
-                .prepare("SELECT body FROM plugins WHERE name='web-search' AND installed=0")
-                .await?;
+        .await,
+    );
+    execute(
+        &client,
+        Command::RemovePlugin {
+            name: "web-search".into(),
+            expected_revision: search.summary.revision,
+        },
+    )
+    .await;
+    let Output::CodeIndexSettings(mut settings) =
+        execute(&client, Command::ReadCodeIndexSettings).await
+    else {
+        panic!("code index settings expected")
+    };
+    settings.enabled = false;
+    let Output::CodeIndexSettings(settings) = execute(
+        &client,
+        Command::SaveCodeIndexSettings {
+            expected_revision: settings.revision,
+            settings,
+        },
+    )
+    .await
+    else {
+        panic!("code index settings expected")
+    };
+    let Output::Plugins(mut before) = execute(&client, Command::ListPlugins).await else {
+        panic!("inventory expected")
+    };
+    before.retain(|summary| summary.name != "code");
+    let profile = directory.path().join("node");
+    let path = profile.join("storage/node.turso");
+    node.shutdown().await.unwrap();
+    let (db_handle, db) = crate::plugins::database_fixture::open(&path, false).await;
+    assert!(
+        (async {
+            let mut statement = db.prepare("SELECT plugin_defaults FROM node").await?;
             let row = statement.query_row(()).await?;
-            let mapped: turso::Result<_> = row.get(0);
+            let mapped: turso::Result<_> = row.get::<bool>(0);
             mapped
         })
         .await
+        .unwrap()
+    );
+    db.execute("DELETE FROM plugins WHERE name='code'", ())
+        .await
         .unwrap();
-        crate::plugins::database_fixture::close(db_handle, db).await;
-        let node = Node::start_with_plugin_catalog(&profile, "http://127.0.0.1:9/")
-            .await
-            .unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(node.link().address())
-        } else {
-            node.local()
-        });
-        let code = info(
+    let removed: Vec<u8> = (async {
+        let mut statement = db
+            .prepare("SELECT body FROM plugins WHERE name='web-search' AND installed=0")
+            .await?;
+        let row = statement.query_row(()).await?;
+        let mapped: turso::Result<_> = row.get(0);
+        mapped
+    })
+    .await
+    .unwrap();
+    crate::plugins::database_fixture::close(db_handle, db).await;
+    let node = Node::start_with_plugin_catalog(&profile, "http://127.0.0.1:9/")
+        .await
+        .unwrap();
+    let client = Client::new(controller.handle().remote(node.link().address()));
+    let code = info(
+        execute(
+            &client,
+            Command::ReadPlugin {
+                name: "code".into(),
+            },
+        )
+        .await,
+    );
+    assert!(!code.summary.enabled);
+    assert_eq!(
+        execute(&client, Command::ReadCodeIndexSettings).await,
+        Output::CodeIndexSettings(settings)
+    );
+    assert_eq!(code.origin, Some(plugin::Origin::Bundled));
+    assert!(code.extension.unwrap().settings_page.is_none());
+    assert_eq!(
+        info(
             execute(
                 &client,
                 Command::ReadPlugin {
-                    name: "code".into(),
-                },
+                    name: "memory".into()
+                }
             )
-            .await,
-        );
-        assert!(!code.summary.enabled);
-        assert_eq!(
-            execute(&client, Command::ReadCodeIndexSettings).await,
-            Output::CodeIndexSettings(settings)
-        );
-        assert_eq!(code.origin, Some(plugin::Origin::Bundled));
-        assert!(code.extension.unwrap().settings_page.is_none());
-        assert_eq!(
-            info(
-                execute(
-                    &client,
-                    Command::ReadPlugin {
-                        name: "memory".into()
-                    }
-                )
-                .await
-            ),
-            memory
-        );
-        assert_eq!(
-            client
-                .execute(client.prepare(Command::ReadPlugin {
-                    name: "web-search".into()
-                }))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::NotFound
-        );
-        let Output::Plugins(mut after) = execute(&client, Command::ListPlugins).await else {
-            panic!("inventory expected")
-        };
-        after.retain(|summary| summary.name != "code");
-        assert_eq!(after, before);
-
-        let retained: Vec<u8> = {
-            let parameters = ();
-            let sql = "SELECT body FROM plugins WHERE name='web-search' AND installed=0";
-            node.with_storage(move |db| {
-                Box::pin(async move {
-                    let row = db
-                        .prepare(sql)
-                        .await
-                        .map_err(crate::plugins::database_fixture::fault)?
-                        .query_row(parameters)
-                        .await
-                        .map_err(crate::plugins::database_fixture::fault)?;
-                    let result: turso::Result<_> = row.get(0);
-                    result.map_err(crate::plugins::database_fixture::fault)
-                })
-            })
             .await
-            .unwrap()
-        };
-        assert_eq!(retained, removed);
+        ),
+        memory
+    );
+    assert_eq!(
+        client
+            .execute(client.prepare(Command::ReadPlugin {
+                name: "web-search".into()
+            }))
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::NotFound
+    );
+    let Output::Plugins(mut after) = execute(&client, Command::ListPlugins).await else {
+        panic!("inventory expected")
+    };
+    after.retain(|summary| summary.name != "code");
+    assert_eq!(after, before);
 
-        node.shutdown().await.unwrap();
-        controller.close().await.unwrap();
-    }
+    let retained: Vec<u8> = {
+        let parameters = ();
+        let sql = "SELECT body FROM plugins WHERE name='web-search' AND installed=0";
+        node.with_storage(move |db| {
+            Box::pin(async move {
+                let row = db
+                    .prepare(sql)
+                    .await
+                    .map_err(crate::plugins::database_fixture::fault)?
+                    .query_row(parameters)
+                    .await
+                    .map_err(crate::plugins::database_fixture::fault)?;
+                let result: turso::Result<_> = row.get(0);
+                result.map_err(crate::plugins::database_fixture::fault)
+            })
+        })
+        .await
+        .unwrap()
+    };
+    assert_eq!(retained, removed);
+
+    node.shutdown().await.unwrap();
+    controller.close().await.unwrap();
 }
 
 pub(super) async fn capture(client: &Client, worktree: WorktreeId) -> (Session, TurnId) {
@@ -430,615 +424,583 @@ async fn settings(client: &Client) -> (code_index::Settings, search::Settings) {
 
 #[tokio::test]
 async fn skips_same_and_older_bundled_versions() {
-    for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
-        let equal = version(&client, "code").await;
-        let current = semver::Version::parse(&version(&client, "browser").await).unwrap();
-        let newer = semver::Version::new(
-            current.major,
-            current.minor,
-            current.patch.checked_add(1).unwrap(),
+    let (directory, node, controller, client, worktree) = fixture().await;
+    let equal = version(&client, "code").await;
+    let current = semver::Version::parse(&version(&client, "browser").await).unwrap();
+    let newer = semver::Version::new(
+        current.major,
+        current.minor,
+        current.patch.checked_add(1).unwrap(),
+    );
+    assert!(newer.cmp_precedence(&current).is_gt());
+    let code = previous(directory.path(), &client, worktree, "code", &equal).await;
+    let browser = previous(
+        directory.path(),
+        &client,
+        worktree,
+        "browser",
+        &newer.to_string(),
+    )
+    .await;
+    let code = disable(&client, code).await;
+    let browser = disable(&client, browser).await;
+    let captures = [code.summary.reference(), browser.summary.reference()];
+    let mut captured = Vec::new();
+    for package in &captures {
+        captured.push(info(
+            execute(
+                &client,
+                Command::ReadPluginVersion {
+                    package: package.clone(),
+                },
+            )
+            .await,
+        ));
+    }
+    let profile = directory.path().join("node");
+    let path = profile.join("storage/node.turso");
+    node.shutdown().await.unwrap();
+    let previous = [bundled(&path, code).await, bundled(&path, browser).await];
+    let retained = {
+        let (handle, db) = crate::plugins::database_fixture::open(&path, true).await;
+        let value = records(&db).await.unwrap();
+        crate::plugins::database_fixture::close(handle, db).await;
+        value
+    };
+    let assets: Vec<_> = previous
+        .iter()
+        .map(|info| {
+            fs::read(
+                profile
+                    .join("plugins/packages")
+                    .join(&info.summary.digest)
+                    .join("plugin.json"),
+            )
+            .unwrap()
+        })
+        .collect();
+    let stored: std::collections::BTreeSet<_> = fs::read_dir(profile.join("plugins/packages"))
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    let node = Node::start_with_plugin_catalog(&profile, "http://127.0.0.1:9/")
+        .await
+        .unwrap();
+    let client = Client::new(controller.handle().remote(node.link().address()));
+    for ((previous, asset), captured) in previous.iter().zip(assets).zip(captured) {
+        let current = info(
+            execute(
+                &client,
+                Command::ReadPlugin {
+                    name: previous.summary.name.clone(),
+                },
+            )
+            .await,
         );
-        assert!(newer.cmp_precedence(&current).is_gt());
-        let code = previous(directory.path(), &client, worktree, "code", &equal).await;
-        let browser = previous(
-            directory.path(),
-            &client,
-            worktree,
-            "browser",
-            &newer.to_string(),
-        )
-        .await;
-        let code = disable(&client, code).await;
-        let browser = disable(&client, browser).await;
-        let captures = [code.summary.reference(), browser.summary.reference()];
-        let mut captured = Vec::new();
-        for package in &captures {
-            captured.push(info(
+        assert!(
+            current == *previous,
+            "{:?} != {:?}",
+            current.summary,
+            previous.summary
+        );
+        assert_eq!(
+            info(
                 execute(
                     &client,
                     Command::ReadPluginVersion {
-                        package: package.clone(),
-                    },
+                        package: captured.summary.reference(),
+                    }
                 )
-                .await,
-            ));
-        }
-        let profile = directory.path().join("node");
-        let path = profile.join("storage/node.turso");
-        node.shutdown().await.unwrap();
-        let previous = [bundled(&path, code).await, bundled(&path, browser).await];
-        let retained = {
-            let (handle, db) = crate::plugins::database_fixture::open(&path, true).await;
-            let value = records(&db).await.unwrap();
-            crate::plugins::database_fixture::close(handle, db).await;
-            value
-        };
-        let assets: Vec<_> = previous
-            .iter()
-            .map(|info| {
-                fs::read(
-                    profile
-                        .join("plugins/packages")
-                        .join(&info.summary.digest)
-                        .join("plugin.json"),
-                )
-                .unwrap()
-            })
-            .collect();
-        let stored: std::collections::BTreeSet<_> = fs::read_dir(profile.join("plugins/packages"))
+                .await
+            ),
+            captured
+        );
+        assert_eq!(
+            fs::read(
+                profile
+                    .join("plugins/packages")
+                    .join(&previous.summary.digest)
+                    .join("plugin.json")
+            )
+            .unwrap(),
+            asset
+        );
+    }
+    assert_eq!(
+        node.with_storage(|db| Box::pin(async move {
+            records(db)
+                .await
+                .map_err(crate::plugins::database_fixture::fault)
+        }))
+        .await
+        .unwrap(),
+        retained
+    );
+    assert_eq!(
+        fs::read_dir(profile.join("plugins/packages"))
             .unwrap()
             .map(|entry| entry.unwrap().file_name())
-            .collect();
-        let node = Node::start_with_plugin_catalog(&profile, "http://127.0.0.1:9/")
-            .await
-            .unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(node.link().address())
-        } else {
-            node.local()
-        });
-        for ((previous, asset), captured) in previous.iter().zip(assets).zip(captured) {
-            let current = info(
-                execute(
-                    &client,
-                    Command::ReadPlugin {
-                        name: previous.summary.name.clone(),
-                    },
-                )
-                .await,
-            );
-            assert!(
-                current == *previous,
-                "{:?} != {:?}",
-                current.summary,
-                previous.summary
-            );
-            assert_eq!(
-                info(
-                    execute(
-                        &client,
-                        Command::ReadPluginVersion {
-                            package: captured.summary.reference(),
-                        }
-                    )
-                    .await
-                ),
-                captured
-            );
-            assert_eq!(
-                fs::read(
-                    profile
-                        .join("plugins/packages")
-                        .join(&previous.summary.digest)
-                        .join("plugin.json")
-                )
-                .unwrap(),
-                asset
-            );
-        }
-        assert_eq!(
-            node.with_storage(|db| Box::pin(async move {
-                records(db)
-                    .await
-                    .map_err(crate::plugins::database_fixture::fault)
-            }))
-            .await
-            .unwrap(),
-            retained
-        );
-        assert_eq!(
-            fs::read_dir(profile.join("plugins/packages"))
-                .unwrap()
-                .map(|entry| entry.unwrap().file_name())
-                .collect::<std::collections::BTreeSet<_>>(),
-            stored
-        );
-        node.shutdown().await.unwrap();
-        controller.close().await.unwrap();
-    }
+            .collect::<std::collections::BTreeSet<_>>(),
+        stored
+    );
+    node.shutdown().await.unwrap();
+    controller.close().await.unwrap();
 }
 
 #[tokio::test]
 async fn retains_disabled_configuration_on_each_path() {
-    for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
-        let expected = BTreeMap::from([
-            ("code", version(&client, "code").await),
-            ("web-search", version(&client, "web-search").await),
-        ]);
-        let old = semver::Version::parse("0.1.0").unwrap();
-        for version in expected.values() {
-            assert!(
-                semver::Version::parse(version)
-                    .unwrap()
-                    .cmp_precedence(&old)
-                    .is_gt()
-            );
-        }
-        let code = previous(directory.path(), &client, worktree, "code", "0.1.0").await;
-        let search = previous(directory.path(), &client, worktree, "web-search", "0.1.0").await;
-        let (session, turn) = capture(&client, worktree).await;
-        let code = disable(&client, code).await;
-        let search = disable(&client, search).await;
-        let configured = settings(&client).await;
-        let profile = directory.path().join("node");
-        let path = profile.join("storage/node.turso");
-        node.shutdown().await.unwrap();
-        let previous = [bundled(&path, code).await, bundled(&path, search).await];
-        let captures: Vec<u8> = {
-            let (handle, db) = crate::plugins::database_fixture::open(&path, true).await;
-            let value = db
-                .prepare("SELECT plugins FROM turns WHERE id=?1")
-                .await
+    let (directory, node, controller, client, worktree) = fixture().await;
+    let expected = BTreeMap::from([
+        ("code", version(&client, "code").await),
+        ("web-search", version(&client, "web-search").await),
+    ]);
+    let old = semver::Version::parse("0.1.0").unwrap();
+    for version in expected.values() {
+        assert!(
+            semver::Version::parse(version)
                 .unwrap()
-                .query_row([turn.to_string()])
-                .await
-                .unwrap()
-                .get::<Vec<u8>>(0)
-                .unwrap();
-            crate::plugins::database_fixture::close(handle, db).await;
-            value
-        };
-        let packages: Vec<plugin::Reference> = serde_json::from_slice(&captures).unwrap();
-        for previous in &previous {
-            assert!(
-                packages
-                    .iter()
-                    .any(|package| package.name == previous.summary.name
-                        && package.digest == previous.summary.digest)
-            );
-        }
-        let retained = {
-            let (handle, db) = crate::plugins::database_fixture::open(&path, true).await;
-            let value = records(&db).await.unwrap();
-            crate::plugins::database_fixture::close(handle, db).await;
-            value
-        };
-        let assets = previous
-            .iter()
-            .map(|previous| {
-                fs::read(
-                    profile
-                        .join("plugins/packages")
-                        .join(&previous.summary.digest)
-                        .join("plugin.json"),
-                )
-                .unwrap()
-            })
-            .collect::<Vec<_>>();
-        let secret: Vec<u8> = {
-            let (handle, db) = crate::plugins::database_fixture::open(&path, true).await;
-            let row = db
-                .prepare("SELECT body FROM search_settings")
-                .await
-                .unwrap()
-                .query_row(())
-                .await
-                .unwrap();
-            let value: turso::Result<_> = row.get(0);
-            let value = value.unwrap();
-            crate::plugins::database_fixture::close(handle, db).await;
-            value
-        };
-        let node = Node::start_with_plugin_catalog(&profile, "http://127.0.0.1:9/")
-            .await
-            .unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(node.link().address())
-        } else {
-            node.local()
-        });
-        let mut refreshed = Vec::new();
-        for (previous, asset) in previous.iter().zip(&assets) {
-            let current = info(
-                execute(
-                    &client,
-                    Command::ReadPlugin {
-                        name: previous.summary.name.clone(),
-                    },
-                )
-                .await,
-            );
-            assert_eq!(
-                current.summary.version.as_ref(),
-                Some(&expected[previous.summary.name.as_str()])
-            );
-            assert_eq!(current.origin, Some(plugin::Origin::Bundled));
-            assert_eq!(current.summary.revision, previous.summary.revision + 1);
-            assert_eq!(current.summary.settings_revision, 1);
-            assert!(!current.summary.enabled);
-            assert_ne!(current.summary.digest, previous.summary.digest);
-            let page = current.extension.as_ref().unwrap().settings_page.as_ref();
-            if previous.summary.name == "code" {
-                assert!(page.is_none());
-            } else {
-                let page = page.unwrap();
-                assert_eq!(
-                    page.entry.as_deref(),
-                    Some("dev.sailry.platform/desktop/settings.js")
-                );
-                assert!(page.enabled_control);
-            }
-            let captured = info(
-                execute(
-                    &client,
-                    Command::ReadPluginVersion {
-                        package: packages
-                            .iter()
-                            .find(|package| {
-                                package.name == previous.summary.name
-                                    && package.digest == previous.summary.digest
-                            })
-                            .unwrap()
-                            .clone(),
-                    },
-                )
-                .await,
-            );
-            assert_eq!(captured.summary.digest, previous.summary.digest);
-            assert_eq!(captured.summary.version, previous.summary.version);
-            assert!(captured.extension.as_ref().unwrap().settings_page.is_none());
-            assert_eq!(
-                fs::read(
-                    profile
-                        .join("plugins/packages")
-                        .join(&previous.summary.digest)
-                        .join("plugin.json")
-                )
-                .unwrap(),
-                *asset
-            );
-            refreshed.push(current);
-        }
-        assert_eq!(
-            node.with_storage(|db| Box::pin(async move {
-                records(db)
-                    .await
-                    .map_err(crate::plugins::database_fixture::fault)
-            }))
-            .await
-            .unwrap(),
-            retained
+                .cmp_precedence(&old)
+                .is_gt()
         );
-        let Output::Session(current_session) = execute(
-            &client,
-            Command::ReadSession {
-                session: session.id,
-            },
-        )
-        .await
-        else {
-            panic!("session expected");
-        };
-        assert_eq!(current_session.config, session.config);
-        assert_eq!(current_session.revision, session.revision);
-        assert_eq!(current_session.roles, session.roles);
-        let current_captures: Vec<u8> = {
-            let parameters = turso::params![turn.to_string()];
-            let sql = "SELECT plugins FROM turns WHERE id=?1";
-            node.with_storage(move |db| {
-                Box::pin(async move {
-                    let row = db
-                        .prepare(sql)
-                        .await
-                        .map_err(crate::plugins::database_fixture::fault)?
-                        .query_row(parameters)
-                        .await
-                        .map_err(crate::plugins::database_fixture::fault)?;
-                    let result: turso::Result<_> = row.get(0);
-                    result.map_err(crate::plugins::database_fixture::fault)
-                })
-            })
-            .await
-            .unwrap()
-        };
-        assert_eq!(current_captures, captures);
-        assert_eq!(
-            execute(&client, Command::ReadCodeIndexSettings).await,
-            Output::CodeIndexSettings(configured.0.clone())
-        );
-        assert_eq!(
-            execute(&client, Command::ReadSearchSettings).await,
-            Output::SearchSettings(configured.1.clone())
-        );
-        let after: Vec<u8> = {
-            let parameters = ();
-            let sql = "SELECT body FROM search_settings";
-            node.with_storage(move |db| {
-                Box::pin(async move {
-                    let row = db
-                        .prepare(sql)
-                        .await
-                        .map_err(crate::plugins::database_fixture::fault)?
-                        .query_row(parameters)
-                        .await
-                        .map_err(crate::plugins::database_fixture::fault)?;
-                    let result: turso::Result<_> = row.get(0);
-                    result.map_err(crate::plugins::database_fixture::fault)
-                })
-            })
-            .await
-            .unwrap()
-        };
-        assert_eq!(after, secret);
-        let inventory = execute(&client, Command::ListPlugins).await;
-        node.shutdown().await.unwrap();
-        let node = Node::start_with_plugin_catalog(&profile, "http://127.0.0.1:9/")
-            .await
-            .unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(node.link().address())
-        } else {
-            node.local()
-        });
-        assert_eq!(execute(&client, Command::ListPlugins).await, inventory);
-        assert_eq!(
-            execute(&client, Command::ReadCodeIndexSettings).await,
-            Output::CodeIndexSettings(configured.0)
-        );
-        assert_eq!(
-            execute(&client, Command::ReadSearchSettings).await,
-            Output::SearchSettings(configured.1)
-        );
-        for current in refreshed {
-            assert_eq!(
-                info(
-                    execute(
-                        &client,
-                        Command::ReadPlugin {
-                            name: current.summary.name.clone()
-                        }
-                    )
-                    .await
-                ),
-                current
-            );
-        }
-        for (previous, asset) in previous.iter().zip(&assets) {
-            assert_eq!(
-                fs::read(
-                    profile
-                        .join("plugins/packages")
-                        .join(&previous.summary.digest)
-                        .join("plugin.json")
-                )
-                .unwrap(),
-                *asset
-            );
-        }
-        node.shutdown().await.unwrap();
-        controller.close().await.unwrap();
     }
-}
-
-#[tokio::test]
-async fn retains_browser_configuration_on_each_path() {
-    for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
-        let current = info(
-            execute(
-                &client,
-                Command::ReadPlugin {
-                    name: "browser".into(),
-                },
-            )
-            .await,
+    let code = previous(directory.path(), &client, worktree, "code", "0.1.0").await;
+    let search = previous(directory.path(), &client, worktree, "web-search", "0.1.0").await;
+    let (session, turn) = capture(&client, worktree).await;
+    let code = disable(&client, code).await;
+    let search = disable(&client, search).await;
+    let configured = settings(&client).await;
+    let profile = directory.path().join("node");
+    let path = profile.join("storage/node.turso");
+    node.shutdown().await.unwrap();
+    let previous = [bundled(&path, code).await, bundled(&path, search).await];
+    let captures: Vec<u8> = {
+        let (handle, db) = crate::plugins::database_fixture::open(&path, true).await;
+        let value = db
+            .prepare("SELECT plugins FROM turns WHERE id=?1")
+            .await
+            .unwrap()
+            .query_row([turn.to_string()])
+            .await
+            .unwrap()
+            .get::<Vec<u8>>(0)
+            .unwrap();
+        crate::plugins::database_fixture::close(handle, db).await;
+        value
+    };
+    let packages: Vec<plugin::Reference> = serde_json::from_slice(&captures).unwrap();
+    for previous in &previous {
+        assert!(
+            packages
+                .iter()
+                .any(|package| package.name == previous.summary.name
+                    && package.digest == previous.summary.digest)
         );
-        let version = current.summary.version.clone();
-        let shipped_digest = current.summary.digest;
-        let previous = previous(directory.path(), &client, worktree, "browser", "0.1.0").await;
-        let previous = disable(&client, previous).await;
-        let profile = directory.path().join("node");
-        let path = profile.join("storage/node.turso");
-        node.shutdown().await.unwrap();
-        let previous = bundled(&path, previous).await;
-        let retained = {
-            let (handle, db) = crate::plugins::database_fixture::open(&path, true).await;
-            let value = records(&db).await.unwrap();
-            crate::plugins::database_fixture::close(handle, db).await;
-            value
-        };
-        let node = Node::start_with_plugin_catalog(&profile, "http://127.0.0.1:9/")
+    }
+    let retained = {
+        let (handle, db) = crate::plugins::database_fixture::open(&path, true).await;
+        let value = records(&db).await.unwrap();
+        crate::plugins::database_fixture::close(handle, db).await;
+        value
+    };
+    let assets = previous
+        .iter()
+        .map(|previous| {
+            fs::read(
+                profile
+                    .join("plugins/packages")
+                    .join(&previous.summary.digest)
+                    .join("plugin.json"),
+            )
+            .unwrap()
+        })
+        .collect::<Vec<_>>();
+    let secret: Vec<u8> = {
+        let (handle, db) = crate::plugins::database_fixture::open(&path, true).await;
+        let row = db
+            .prepare("SELECT body FROM search_settings")
+            .await
+            .unwrap()
+            .query_row(())
             .await
             .unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(node.link().address())
-        } else {
-            node.local()
-        });
+        let value: turso::Result<_> = row.get(0);
+        let value = value.unwrap();
+        crate::plugins::database_fixture::close(handle, db).await;
+        value
+    };
+    let node = Node::start_with_plugin_catalog(&profile, "http://127.0.0.1:9/")
+        .await
+        .unwrap();
+    let client = Client::new(controller.handle().remote(node.link().address()));
+    let mut refreshed = Vec::new();
+    for (previous, asset) in previous.iter().zip(&assets) {
         let current = info(
             execute(
                 &client,
                 Command::ReadPlugin {
-                    name: "browser".into(),
+                    name: previous.summary.name.clone(),
                 },
             )
             .await,
         );
-        assert_eq!(current.summary.version, version);
-        assert_eq!(current.summary.digest, shipped_digest);
-        assert_ne!(current.summary.digest, previous.summary.digest);
+        assert_eq!(
+            current.summary.version.as_ref(),
+            Some(&expected[previous.summary.name.as_str()])
+        );
         assert_eq!(current.origin, Some(plugin::Origin::Bundled));
         assert_eq!(current.summary.revision, previous.summary.revision + 1);
-        assert_eq!(
-            current.summary.settings_revision,
-            previous.summary.settings_revision
-        );
+        assert_eq!(current.summary.settings_revision, 1);
         assert!(!current.summary.enabled);
-        assert_eq!(
-            node.with_storage(|db| Box::pin(async move {
-                records(db)
-                    .await
-                    .map_err(crate::plugins::database_fixture::fault)
-            }))
-            .await
-            .unwrap(),
-            retained
-        );
-        let inventory = execute(&client, Command::ListPlugins).await;
-        node.shutdown().await.unwrap();
-        let node = Node::start_with_plugin_catalog(&profile, "http://127.0.0.1:9/")
-            .await
-            .unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(node.link().address())
+        assert_ne!(current.summary.digest, previous.summary.digest);
+        let page = current.extension.as_ref().unwrap().settings_page.as_ref();
+        if previous.summary.name == "code" {
+            assert!(page.is_none());
         } else {
-            node.local()
-        });
-        assert_eq!(execute(&client, Command::ListPlugins).await, inventory);
+            let page = page.unwrap();
+            assert_eq!(
+                page.entry.as_deref(),
+                Some("dev.sailry.platform/desktop/settings.js")
+            );
+            assert!(page.enabled_control);
+        }
+        let captured = info(
+            execute(
+                &client,
+                Command::ReadPluginVersion {
+                    package: packages
+                        .iter()
+                        .find(|package| {
+                            package.name == previous.summary.name
+                                && package.digest == previous.summary.digest
+                        })
+                        .unwrap()
+                        .clone(),
+                },
+            )
+            .await,
+        );
+        assert_eq!(captured.summary.digest, previous.summary.digest);
+        assert_eq!(captured.summary.version, previous.summary.version);
+        assert!(captured.extension.as_ref().unwrap().settings_page.is_none());
+        assert_eq!(
+            fs::read(
+                profile
+                    .join("plugins/packages")
+                    .join(&previous.summary.digest)
+                    .join("plugin.json")
+            )
+            .unwrap(),
+            *asset
+        );
+        refreshed.push(current);
+    }
+    assert_eq!(
+        node.with_storage(|db| Box::pin(async move {
+            records(db)
+                .await
+                .map_err(crate::plugins::database_fixture::fault)
+        }))
+        .await
+        .unwrap(),
+        retained
+    );
+    let Output::Session(current_session) = execute(
+        &client,
+        Command::ReadSession {
+            session: session.id,
+        },
+    )
+    .await
+    else {
+        panic!("session expected");
+    };
+    assert_eq!(current_session.config, session.config);
+    assert_eq!(current_session.revision, session.revision);
+    assert_eq!(current_session.roles, session.roles);
+    let current_captures: Vec<u8> = {
+        let parameters = turso::params![turn.to_string()];
+        let sql = "SELECT plugins FROM turns WHERE id=?1";
+        node.with_storage(move |db| {
+            Box::pin(async move {
+                let row = db
+                    .prepare(sql)
+                    .await
+                    .map_err(crate::plugins::database_fixture::fault)?
+                    .query_row(parameters)
+                    .await
+                    .map_err(crate::plugins::database_fixture::fault)?;
+                let result: turso::Result<_> = row.get(0);
+                result.map_err(crate::plugins::database_fixture::fault)
+            })
+        })
+        .await
+        .unwrap()
+    };
+    assert_eq!(current_captures, captures);
+    assert_eq!(
+        execute(&client, Command::ReadCodeIndexSettings).await,
+        Output::CodeIndexSettings(configured.0.clone())
+    );
+    assert_eq!(
+        execute(&client, Command::ReadSearchSettings).await,
+        Output::SearchSettings(configured.1.clone())
+    );
+    let after: Vec<u8> = {
+        let parameters = ();
+        let sql = "SELECT body FROM search_settings";
+        node.with_storage(move |db| {
+            Box::pin(async move {
+                let row = db
+                    .prepare(sql)
+                    .await
+                    .map_err(crate::plugins::database_fixture::fault)?
+                    .query_row(parameters)
+                    .await
+                    .map_err(crate::plugins::database_fixture::fault)?;
+                let result: turso::Result<_> = row.get(0);
+                result.map_err(crate::plugins::database_fixture::fault)
+            })
+        })
+        .await
+        .unwrap()
+    };
+    assert_eq!(after, secret);
+    let inventory = execute(&client, Command::ListPlugins).await;
+    node.shutdown().await.unwrap();
+    let node = Node::start_with_plugin_catalog(&profile, "http://127.0.0.1:9/")
+        .await
+        .unwrap();
+    let client = Client::new(controller.handle().remote(node.link().address()));
+    assert_eq!(execute(&client, Command::ListPlugins).await, inventory);
+    assert_eq!(
+        execute(&client, Command::ReadCodeIndexSettings).await,
+        Output::CodeIndexSettings(configured.0)
+    );
+    assert_eq!(
+        execute(&client, Command::ReadSearchSettings).await,
+        Output::SearchSettings(configured.1)
+    );
+    for current in refreshed {
         assert_eq!(
             info(
                 execute(
                     &client,
                     Command::ReadPlugin {
-                        name: "browser".into()
+                        name: current.summary.name.clone()
                     }
                 )
                 .await
             ),
             current
         );
-        assert_eq!(
-            node.with_storage(|db| Box::pin(async move {
-                records(db)
-                    .await
-                    .map_err(crate::plugins::database_fixture::fault)
-            }))
-            .await
-            .unwrap(),
-            retained
-        );
-        node.shutdown().await.unwrap();
-        controller.close().await.unwrap();
     }
+    for (previous, asset) in previous.iter().zip(&assets) {
+        assert_eq!(
+            fs::read(
+                profile
+                    .join("plugins/packages")
+                    .join(&previous.summary.digest)
+                    .join("plugin.json")
+            )
+            .unwrap(),
+            *asset
+        );
+    }
+    node.shutdown().await.unwrap();
+    controller.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn retains_browser_configuration_on_each_path() {
+    let (directory, node, controller, client, worktree) = fixture().await;
+    let current = info(
+        execute(
+            &client,
+            Command::ReadPlugin {
+                name: "browser".into(),
+            },
+        )
+        .await,
+    );
+    let version = current.summary.version.clone();
+    let shipped_digest = current.summary.digest;
+    let previous = previous(directory.path(), &client, worktree, "browser", "0.1.0").await;
+    let previous = disable(&client, previous).await;
+    let profile = directory.path().join("node");
+    let path = profile.join("storage/node.turso");
+    node.shutdown().await.unwrap();
+    let previous = bundled(&path, previous).await;
+    let retained = {
+        let (handle, db) = crate::plugins::database_fixture::open(&path, true).await;
+        let value = records(&db).await.unwrap();
+        crate::plugins::database_fixture::close(handle, db).await;
+        value
+    };
+    let node = Node::start_with_plugin_catalog(&profile, "http://127.0.0.1:9/")
+        .await
+        .unwrap();
+    let client = Client::new(controller.handle().remote(node.link().address()));
+    let current = info(
+        execute(
+            &client,
+            Command::ReadPlugin {
+                name: "browser".into(),
+            },
+        )
+        .await,
+    );
+    assert_eq!(current.summary.version, version);
+    assert_eq!(current.summary.digest, shipped_digest);
+    assert_ne!(current.summary.digest, previous.summary.digest);
+    assert_eq!(current.origin, Some(plugin::Origin::Bundled));
+    assert_eq!(current.summary.revision, previous.summary.revision + 1);
+    assert_eq!(
+        current.summary.settings_revision,
+        previous.summary.settings_revision
+    );
+    assert!(!current.summary.enabled);
+    assert_eq!(
+        node.with_storage(|db| Box::pin(async move {
+            records(db)
+                .await
+                .map_err(crate::plugins::database_fixture::fault)
+        }))
+        .await
+        .unwrap(),
+        retained
+    );
+    let inventory = execute(&client, Command::ListPlugins).await;
+    node.shutdown().await.unwrap();
+    let node = Node::start_with_plugin_catalog(&profile, "http://127.0.0.1:9/")
+        .await
+        .unwrap();
+    let client = Client::new(controller.handle().remote(node.link().address()));
+    assert_eq!(execute(&client, Command::ListPlugins).await, inventory);
+    assert_eq!(
+        info(
+            execute(
+                &client,
+                Command::ReadPlugin {
+                    name: "browser".into()
+                }
+            )
+            .await
+        ),
+        current
+    );
+    assert_eq!(
+        node.with_storage(|db| Box::pin(async move {
+            records(db)
+                .await
+                .map_err(crate::plugins::database_fixture::fault)
+        }))
+        .await
+        .unwrap(),
+        retained
+    );
+    node.shutdown().await.unwrap();
+    controller.close().await.unwrap();
 }
 
 #[tokio::test]
 async fn preserves_removed_rows_on_each_path() {
-    for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
-        let code = previous(directory.path(), &client, worktree, "code", "0.1.0").await;
-        let search = previous(directory.path(), &client, worktree, "web-search", "0.2.0").await;
-        for installed in [code, search] {
-            execute(
-                &client,
-                Command::RemovePlugin {
-                    name: installed.summary.name,
-                    expected_revision: installed.summary.revision,
-                },
-            )
-            .await;
-        }
-        let inventory = execute(&client, Command::ListPlugins).await;
-        let profile = directory.path().join("node");
-        let path = profile.join("storage/node.turso");
-        node.shutdown().await.unwrap();
-        let (db_handle, db) = crate::plugins::database_fixture::open(&path, false).await;
-        for name in ["code", "web-search"] {
-            let body: Vec<u8> = (async {
-                let mut statement = db.prepare("SELECT body FROM plugins WHERE name=?1").await?;
-                let row = statement.query_row([name]).await?;
-                let mapped: turso::Result<_> = row.get(0);
-                mapped
-            })
-            .await
-            .unwrap();
-            let mut info: Info = serde_json::from_slice(&body).unwrap();
-            info.origin = Some(plugin::Origin::Bundled);
-            db.execute(
-                "UPDATE plugins SET body=?1 WHERE name=?2",
-                params![serde_json::to_vec(&info).unwrap(), name],
-            )
-            .await
-            .unwrap();
-        }
-        let before: Vec<(String, Vec<u8>)> = {
-            let mut rows = db
-                .query(
-                    "SELECT name,body FROM plugins WHERE installed=0 ORDER BY name",
-                    (),
-                )
-                .await
-                .unwrap();
-            let mut values = Vec::new();
-            while let Some(row) = rows.next().await.unwrap() {
-                values.push((row.get(0).unwrap(), row.get(1).unwrap()));
-            }
-            values
-        };
-        crate::plugins::database_fixture::close(db_handle, db).await;
-        let node = Node::start_with_plugin_catalog(&profile, "http://127.0.0.1:9/")
-            .await
-            .unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(node.link().address())
-        } else {
-            node.local()
-        });
-        assert_eq!(execute(&client, Command::ListPlugins).await, inventory);
-        for name in ["code", "web-search"] {
-            assert_eq!(
-                client
-                    .execute(client.prepare(Command::ReadPlugin { name: name.into() }))
-                    .await
-                    .unwrap_err()
-                    .code,
-                ErrorCode::NotFound
-            );
-        }
-
-        let after: Vec<(String, Vec<u8>)> = node
-            .with_storage(|db| {
-                Box::pin(async move {
-                    let mut rows = db
-                        .query(
-                            "SELECT name,body FROM plugins WHERE installed=0 ORDER BY name",
-                            (),
-                        )
-                        .await
-                        .map_err(crate::plugins::database_fixture::fault)?;
-                    let mut values = Vec::new();
-                    while let Some(row) = rows
-                        .next()
-                        .await
-                        .map_err(crate::plugins::database_fixture::fault)?
-                    {
-                        values.push((
-                            row.get::<String>(0)
-                                .map_err(crate::plugins::database_fixture::fault)?,
-                            row.get::<Vec<u8>>(1)
-                                .map_err(crate::plugins::database_fixture::fault)?,
-                        ));
-                    }
-                    Ok(values)
-                })
-            })
-            .await
-            .unwrap();
-        assert_eq!(after, before);
-
-        node.shutdown().await.unwrap();
-        controller.close().await.unwrap();
+    let (directory, node, controller, client, worktree) = fixture().await;
+    let code = previous(directory.path(), &client, worktree, "code", "0.1.0").await;
+    let search = previous(directory.path(), &client, worktree, "web-search", "0.2.0").await;
+    for installed in [code, search] {
+        execute(
+            &client,
+            Command::RemovePlugin {
+                name: installed.summary.name,
+                expected_revision: installed.summary.revision,
+            },
+        )
+        .await;
     }
+    let inventory = execute(&client, Command::ListPlugins).await;
+    let profile = directory.path().join("node");
+    let path = profile.join("storage/node.turso");
+    node.shutdown().await.unwrap();
+    let (db_handle, db) = crate::plugins::database_fixture::open(&path, false).await;
+    for name in ["code", "web-search"] {
+        let body: Vec<u8> = (async {
+            let mut statement = db.prepare("SELECT body FROM plugins WHERE name=?1").await?;
+            let row = statement.query_row([name]).await?;
+            let mapped: turso::Result<_> = row.get(0);
+            mapped
+        })
+        .await
+        .unwrap();
+        let mut info: Info = serde_json::from_slice(&body).unwrap();
+        info.origin = Some(plugin::Origin::Bundled);
+        db.execute(
+            "UPDATE plugins SET body=?1 WHERE name=?2",
+            params![serde_json::to_vec(&info).unwrap(), name],
+        )
+        .await
+        .unwrap();
+    }
+    let before: Vec<(String, Vec<u8>)> = {
+        let mut rows = db
+            .query(
+                "SELECT name,body FROM plugins WHERE installed=0 ORDER BY name",
+                (),
+            )
+            .await
+            .unwrap();
+        let mut values = Vec::new();
+        while let Some(row) = rows.next().await.unwrap() {
+            values.push((row.get(0).unwrap(), row.get(1).unwrap()));
+        }
+        values
+    };
+    crate::plugins::database_fixture::close(db_handle, db).await;
+    let node = Node::start_with_plugin_catalog(&profile, "http://127.0.0.1:9/")
+        .await
+        .unwrap();
+    let client = Client::new(controller.handle().remote(node.link().address()));
+    assert_eq!(execute(&client, Command::ListPlugins).await, inventory);
+    for name in ["code", "web-search"] {
+        assert_eq!(
+            client
+                .execute(client.prepare(Command::ReadPlugin { name: name.into() }))
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::NotFound
+        );
+    }
+
+    let after: Vec<(String, Vec<u8>)> = node
+        .with_storage(|db| {
+            Box::pin(async move {
+                let mut rows = db
+                    .query(
+                        "SELECT name,body FROM plugins WHERE installed=0 ORDER BY name",
+                        (),
+                    )
+                    .await
+                    .map_err(crate::plugins::database_fixture::fault)?;
+                let mut values = Vec::new();
+                while let Some(row) = rows
+                    .next()
+                    .await
+                    .map_err(crate::plugins::database_fixture::fault)?
+                {
+                    values.push((
+                        row.get::<String>(0)
+                            .map_err(crate::plugins::database_fixture::fault)?,
+                        row.get::<Vec<u8>>(1)
+                            .map_err(crate::plugins::database_fixture::fault)?,
+                    ));
+                }
+                Ok(values)
+            })
+        })
+        .await
+        .unwrap();
+    assert_eq!(after, before);
+
+    node.shutdown().await.unwrap();
+    controller.close().await.unwrap();
 }

@@ -154,303 +154,299 @@ async fn queued(fixture: &process::Fixture) -> TurnId {
 
 #[tokio::test]
 async fn rejects_hidden_writes() {
-    for remote in [false, true] {
-        for mode in [WorkMode::Plan, WorkMode::Code] {
-            let names: &[&str] = if mode == WorkMode::Plan {
-                &["declared", "read", "flow"]
-            } else {
-                &["plain", "declared", "read", "flow"]
-            };
-            let query = ["plain", "declared", "read", "flow"]
-                .map(|name| plugin_tool(PACKAGE, name))
-                .join(" ");
-            let server = Server::scripted_tools(
-                std::iter::once(("tool_search".into(), json!({"query":query,"limit":4})))
-                    .chain(
-                        names
-                            .iter()
-                            .map(|name| (plugin_tool(PACKAGE, name), json!({}))),
-                    )
-                    .collect(),
-            )
-            .await;
-            let mut fixture = process::Fixture::packages(remote, &server, &[]).await;
-            let package = install(&fixture).await;
-            let ui = scope(&fixture, &package, None);
-            seed(&fixture, &ui).await;
-            planning::configure(&mut fixture, mode).await;
-            if mode == WorkMode::Code {
-                let mut config = fixture.session.config.clone();
-                config.permission = Permission::Ask;
-                let Output::Session(session) = fixture
-                    .client
-                    .execute(fixture.client.prepare(Command::SetSessionConfig {
-                        session: fixture.session.id,
-                        expected_revision: fixture.session.revision,
-                        config,
-                    }))
-                    .await
-                    .unwrap()
-                else {
-                    panic!("session expected")
-                };
-                fixture.session = session;
-            }
-            let turn = queued(&fixture).await;
-            let live = if mode == WorkMode::Plan {
-                WorkMode::Code
-            } else {
-                WorkMode::Plan
-            };
-            planning::configure(&mut fixture, live).await;
-            fixture
-                .client
-                .execute(fixture.client.prepare(Command::StartQueuedTurn { turn }))
-                .await
-                .unwrap();
-            let page = if mode == WorkMode::Plan {
-                questions::finish_plan(&fixture.client, fixture.session.id, turn).await
-            } else {
-                finished(&fixture.client, fixture.session.id, turn).await
-            };
-            assert_eq!(page.runs[0].status, Status::Completed, "{page:?}");
-            assert!(page.approvals.is_empty());
-            let results: Vec<_> = tool_details(&fixture.client, &page)
-                .await
-                .into_iter()
-                .filter(|(name, _)| name != "plan_review")
-                .map(|(_, detail)| detail.result.unwrap())
-                .collect();
-            assert_eq!(results.len(), names.len() + 1, "{page:?}");
-            for name in ["plain", "declared", "read", "flow"] {
-                assert!(
-                    results[0]["tools"]
-                        .as_array()
-                        .unwrap()
+    for mode in [WorkMode::Plan, WorkMode::Code] {
+        let names: &[&str] = if mode == WorkMode::Plan {
+            &["declared", "read", "flow"]
+        } else {
+            &["plain", "declared", "read", "flow"]
+        };
+        let query = ["plain", "declared", "read", "flow"]
+            .map(|name| plugin_tool(PACKAGE, name))
+            .join(" ");
+        let server = Server::scripted_tools(
+            std::iter::once(("tool_search".into(), json!({"query":query,"limit":4})))
+                .chain(
+                    names
                         .iter()
-                        .any(|tool| tool["name"] == plugin_tool(PACKAGE, name))
-                );
-            }
-            let results = &results[1..];
-            for result in results.iter().skip(usize::from(mode == WorkMode::Code)) {
-                assert_eq!(result["read"]["value"], "original", "{result}");
-                assert_eq!(result["errors"], json!(vec!["permission_denied"; 7]));
-            }
-            if mode == WorkMode::Plan {
-                for key in ["hidden", "indexed", "bulk", "code"] {
-                    let entry = value(&fixture, &ui, key).await;
-                    assert!(!entry.present, "{key}");
-                    assert_eq!(entry.revision, 0, "{key}");
-                }
-                assert_eq!(value(&fixture, &ui, "seed").await.revision, 1);
-            } else {
-                assert_eq!(results[0]["Ok"]["data"]["revision"], "1");
-                assert_eq!(value(&fixture, &ui, "code").await.value, "changed");
-            }
-            let requests = server.requests.lock().unwrap().clone();
-            assert_eq!(requests.len(), names.len() + 2);
-            for (index, request) in requests.iter().enumerate() {
-                let tools: Vec<_> = request["tools"]
+                        .map(|name| (plugin_tool(PACKAGE, name), json!({}))),
+                )
+                .collect(),
+        )
+        .await;
+        let mut fixture = process::Fixture::packages(&server, &[]).await;
+        let package = install(&fixture).await;
+        let ui = scope(&fixture, &package, None);
+        seed(&fixture, &ui).await;
+        planning::configure(&mut fixture, mode).await;
+        if mode == WorkMode::Code {
+            let mut config = fixture.session.config.clone();
+            config.permission = Permission::Ask;
+            let Output::Session(session) = fixture
+                .client
+                .execute(fixture.client.prepare(Command::SetSessionConfig {
+                    session: fixture.session.id,
+                    expected_revision: fixture.session.revision,
+                    config,
+                }))
+                .await
+                .unwrap()
+            else {
+                panic!("session expected")
+            };
+            fixture.session = session;
+        }
+        let turn = queued(&fixture).await;
+        let live = if mode == WorkMode::Plan {
+            WorkMode::Code
+        } else {
+            WorkMode::Plan
+        };
+        planning::configure(&mut fixture, live).await;
+        fixture
+            .client
+            .execute(fixture.client.prepare(Command::StartQueuedTurn { turn }))
+            .await
+            .unwrap();
+        let page = if mode == WorkMode::Plan {
+            questions::finish_plan(&fixture.client, fixture.session.id, turn).await
+        } else {
+            finished(&fixture.client, fixture.session.id, turn).await
+        };
+        assert_eq!(page.runs[0].status, Status::Completed, "{page:?}");
+        assert!(page.approvals.is_empty());
+        let results: Vec<_> = tool_details(&fixture.client, &page)
+            .await
+            .into_iter()
+            .filter(|(name, _)| name != "plan_review")
+            .map(|(_, detail)| detail.result.unwrap())
+            .collect();
+        assert_eq!(results.len(), names.len() + 1, "{page:?}");
+        for name in ["plain", "declared", "read", "flow"] {
+            assert!(
+                results[0]["tools"]
                     .as_array()
                     .unwrap()
                     .iter()
-                    .filter_map(|item| item["function"]["name"].as_str())
-                    .collect();
-                assert_eq!(tools.contains(&"plain"), index > 0);
-                for name in ["declared", "read", "flow"] {
-                    assert_eq!(tools.contains(&name), index > 0);
-                }
-            }
-            if mode == WorkMode::Plan {
-                planning::configure(&mut fixture, WorkMode::Plan).await;
-                server.replace_tools(vec![(plugin_tool(PACKAGE, "plain"), json!({}))]);
-                let Output::QueuedTurn(denied) = fixture
-                    .client
-                    .execute(fixture.client.prepare(Command::SubmitTurn {
-                        session: fixture.session.id,
-                        expected_revision: fixture.session.revision,
-                        message: "Keep private values read-only".into(),
-                    }))
-                    .await
-                    .unwrap()
-                else {
-                    panic!("denied private storage turn expected")
-                };
-                let denied_page = finished(&fixture.client, fixture.session.id, denied.id).await;
-                planning_denial(&fixture.client, &denied_page, denied.id).await;
-                assert!(!value(&fixture, &ui, "code").await.present);
-                assert_eq!(value(&fixture, &ui, "seed").await.value, "original");
-            }
-            fixture.node.shutdown().await.unwrap();
-            fixture.controller.close().await.unwrap();
+                    .any(|tool| tool["name"] == plugin_tool(PACKAGE, name))
+            );
         }
+        let results = &results[1..];
+        for result in results.iter().skip(usize::from(mode == WorkMode::Code)) {
+            assert_eq!(result["read"]["value"], "original", "{result}");
+            assert_eq!(result["errors"], json!(vec!["permission_denied"; 7]));
+        }
+        if mode == WorkMode::Plan {
+            for key in ["hidden", "indexed", "bulk", "code"] {
+                let entry = value(&fixture, &ui, key).await;
+                assert!(!entry.present, "{key}");
+                assert_eq!(entry.revision, 0, "{key}");
+            }
+            assert_eq!(value(&fixture, &ui, "seed").await.revision, 1);
+        } else {
+            assert_eq!(results[0]["Ok"]["data"]["revision"], "1");
+            assert_eq!(value(&fixture, &ui, "code").await.value, "changed");
+        }
+        let requests = server.requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), names.len() + 2);
+        for (index, request) in requests.iter().enumerate() {
+            let tools: Vec<_> = request["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|item| item["function"]["name"].as_str())
+                .collect();
+            assert_eq!(tools.contains(&"plain"), index > 0);
+            for name in ["declared", "read", "flow"] {
+                assert_eq!(tools.contains(&name), index > 0);
+            }
+        }
+        if mode == WorkMode::Plan {
+            planning::configure(&mut fixture, WorkMode::Plan).await;
+            server.replace_tools(vec![(plugin_tool(PACKAGE, "plain"), json!({}))]);
+            let Output::QueuedTurn(denied) = fixture
+                .client
+                .execute(fixture.client.prepare(Command::SubmitTurn {
+                    session: fixture.session.id,
+                    expected_revision: fixture.session.revision,
+                    message: "Keep private values read-only".into(),
+                }))
+                .await
+                .unwrap()
+            else {
+                panic!("denied private storage turn expected")
+            };
+            let denied_page = finished(&fixture.client, fixture.session.id, denied.id).await;
+            planning_denial(&fixture.client, &denied_page, denied.id).await;
+            assert!(!value(&fixture, &ui, "code").await.present);
+            assert_eq!(value(&fixture, &ui, "seed").await.value, "original");
+        }
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
     }
 }
 
 #[tokio::test]
 async fn uses_frozen_mode_at_admission() {
-    for remote in [false, true] {
-        for mode in [WorkMode::Plan, WorkMode::Code] {
-            let start = Arc::new(tokio::sync::Notify::new());
-            let finish = Arc::new(tokio::sync::Notify::new());
-            let server = Server::held(start.clone(), finish.clone()).await;
-            let mut fixture = process::Fixture::packages(remote, &server, &[]).await;
-            let package = install(&fixture).await;
-            let ui = scope(&fixture, &package, None);
-            seed(&fixture, &ui).await;
-            planning::configure(&mut fixture, mode).await;
-            let Output::QueuedTurn(turn) = fixture
-                .client
-                .execute(fixture.client.prepare(Command::SubmitTurn {
-                    session: fixture.session.id,
-                    expected_revision: fixture.session.revision,
-                    message: "Exercise private values".into(),
-                }))
-                .await
-                .unwrap()
-            else {
-                panic!("turn expected")
-            };
-            let turn = turn.id;
-            tokio::time::timeout(Duration::from_secs(10), async {
-                while server.requests.lock().unwrap().is_empty() {
-                    tokio::time::sleep(Duration::from_millis(10)).await;
-                }
-            })
+    for mode in [WorkMode::Plan, WorkMode::Code] {
+        let start = Arc::new(tokio::sync::Notify::new());
+        let finish = Arc::new(tokio::sync::Notify::new());
+        let server = Server::held(start.clone(), finish.clone()).await;
+        let mut fixture = process::Fixture::packages(&server, &[]).await;
+        let package = install(&fixture).await;
+        let ui = scope(&fixture, &package, None);
+        seed(&fixture, &ui).await;
+        planning::configure(&mut fixture, mode).await;
+        let Output::QueuedTurn(turn) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::SubmitTurn {
+                session: fixture.session.id,
+                expected_revision: fixture.session.revision,
+                message: "Exercise private values".into(),
+            }))
             .await
-            .unwrap();
-            let live = if mode == WorkMode::Plan {
-                WorkMode::Code
-            } else {
-                WorkMode::Plan
-            };
-            planning::configure(&mut fixture, live).await;
-            let captured = scope(&fixture, &package, Some(turn));
-            assert_eq!(value(&fixture, &captured, "seed").await.value, "original");
-            for command in [
-                Command::ListPluginKeys {
-                    prefix: String::new(),
-                    after: None,
-                    limit: 10,
-                },
-                Command::SearchPluginValues(serde_json::from_value(json!({"terms":[]})).unwrap()),
-            ] {
-                storage(&fixture, &captured, command).await.unwrap();
+            .unwrap()
+        else {
+            panic!("turn expected")
+        };
+        let turn = turn.id;
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while server.requests.lock().unwrap().is_empty() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
             }
-            let index = Index {
-                fields: ["title".into(), "body".into()],
-                tags: vec![],
-                order: 0,
-                source: None,
-            };
-            let writes = [
-                Command::WritePluginValue {
-                    key: "direct".into(),
+        })
+        .await
+        .unwrap();
+        let live = if mode == WorkMode::Plan {
+            WorkMode::Code
+        } else {
+            WorkMode::Plan
+        };
+        planning::configure(&mut fixture, live).await;
+        let captured = scope(&fixture, &package, Some(turn));
+        assert_eq!(value(&fixture, &captured, "seed").await.value, "original");
+        for command in [
+            Command::ListPluginKeys {
+                prefix: String::new(),
+                after: None,
+                limit: 10,
+            },
+            Command::SearchPluginValues(serde_json::from_value(json!({"terms":[]})).unwrap()),
+        ] {
+            storage(&fixture, &captured, command).await.unwrap();
+        }
+        let index = Index {
+            fields: ["title".into(), "body".into()],
+            tags: vec![],
+            order: 0,
+            source: None,
+        };
+        let writes = [
+            Command::WritePluginValue {
+                key: "direct".into(),
+                value: json!(1),
+                expected_revision: 0,
+            },
+            Command::WriteIndexedPluginValue {
+                key: "indexed".into(),
+                value: json!(1),
+                index: index.clone(),
+                expected_revision: 0,
+            },
+            Command::RemovePluginValue {
+                key: "seed".into(),
+                expected_revision: 1,
+            },
+            Command::WritePluginConversationValue {
+                key: "scoped".into(),
+                value: json!(1),
+                expected_revision: 0,
+            },
+            Command::RemovePluginConversationValue {
+                key: "scoped".into(),
+                expected_revision: 1,
+            },
+            Command::PluginTransaction {
+                operations: vec![Operation::ConversationWrite {
+                    key: "bulk-scoped".into(),
                     value: json!(1),
                     expected_revision: 0,
-                },
-                Command::WriteIndexedPluginValue {
-                    key: "indexed".into(),
-                    value: json!(1),
-                    index: index.clone(),
-                    expected_revision: 0,
-                },
-                Command::RemovePluginValue {
-                    key: "seed".into(),
+                }],
+            },
+            Command::PluginTransaction {
+                operations: vec![Operation::ConversationRemove {
+                    key: "bulk-scoped".into(),
                     expected_revision: 1,
-                },
-                Command::WritePluginConversationValue {
-                    key: "scoped".into(),
-                    value: json!(1),
-                    expected_revision: 0,
-                },
-                Command::RemovePluginConversationValue {
-                    key: "scoped".into(),
-                    expected_revision: 1,
-                },
-                Command::PluginTransaction {
-                    operations: vec![Operation::ConversationWrite {
-                        key: "bulk-scoped".into(),
+                }],
+            },
+            Command::PluginTransaction {
+                operations: vec![
+                    Operation::Write {
+                        key: "bulk".into(),
                         value: json!(1),
                         expected_revision: 0,
-                    }],
-                },
-                Command::PluginTransaction {
-                    operations: vec![Operation::ConversationRemove {
-                        key: "bulk-scoped".into(),
-                        expected_revision: 1,
-                    }],
-                },
-                Command::PluginTransaction {
-                    operations: vec![
-                        Operation::Write {
-                            key: "bulk".into(),
-                            value: json!(1),
-                            expected_revision: 0,
-                        },
-                        Operation::Index {
-                            key: "bulk-index".into(),
-                            value: json!(1),
-                            index,
-                            expected_revision: 0,
-                        },
-                        Operation::Remove {
-                            key: "seed".into(),
-                            expected_revision: if mode == WorkMode::Code { 2 } else { 1 },
-                        },
-                    ],
-                },
-            ];
-            for command in writes {
-                let result = storage(&fixture, &captured, command).await;
-                if mode == WorkMode::Plan {
-                    assert_eq!(result.unwrap_err().code, ErrorCode::PermissionDenied);
-                } else {
-                    result.unwrap();
-                }
-            }
-            let original = value(&fixture, &captured, "seed").await;
-            assert_eq!(original.present, mode == WorkMode::Plan);
-            assert_eq!(
-                original.revision,
-                if mode == WorkMode::Plan { 1 } else { 3 }
-            );
-            for key in ["direct", "indexed", "bulk", "bulk-index"] {
-                let entry = value(&fixture, &captured, key).await;
-                assert_eq!(entry.present, mode == WorkMode::Code, "{key}");
-                assert_eq!(
-                    entry.revision,
-                    if mode == WorkMode::Code { 1 } else { 0 },
-                    "{key}"
-                );
-            }
-            for key in ["scoped", "bulk-scoped"] {
-                let Output::PluginConversationValue(entry) = storage(
-                    &fixture,
-                    &captured,
-                    Command::ReadPluginConversationValue { key: key.into() },
-                )
-                .await
-                .unwrap() else {
-                    panic!("conversation value expected")
-                };
-                assert!(!entry.present, "{key}");
-                assert_eq!(
-                    entry.revision,
-                    if mode == WorkMode::Code { 2 } else { 0 },
-                    "{key}"
-                );
-            }
-            start.notify_one();
-            finish.notify_one();
-            let page = if mode == WorkMode::Plan {
-                questions::finish_plan(&fixture.client, fixture.session.id, turn).await
+                    },
+                    Operation::Index {
+                        key: "bulk-index".into(),
+                        value: json!(1),
+                        index,
+                        expected_revision: 0,
+                    },
+                    Operation::Remove {
+                        key: "seed".into(),
+                        expected_revision: if mode == WorkMode::Code { 2 } else { 1 },
+                    },
+                ],
+            },
+        ];
+        for command in writes {
+            let result = storage(&fixture, &captured, command).await;
+            if mode == WorkMode::Plan {
+                assert_eq!(result.unwrap_err().code, ErrorCode::PermissionDenied);
             } else {
-                finished(&fixture.client, fixture.session.id, turn).await
-            };
-            assert_eq!(page.runs[0].status, Status::Completed);
-            fixture.node.shutdown().await.unwrap();
-            fixture.controller.close().await.unwrap();
+                result.unwrap();
+            }
         }
+        let original = value(&fixture, &captured, "seed").await;
+        assert_eq!(original.present, mode == WorkMode::Plan);
+        assert_eq!(
+            original.revision,
+            if mode == WorkMode::Plan { 1 } else { 3 }
+        );
+        for key in ["direct", "indexed", "bulk", "bulk-index"] {
+            let entry = value(&fixture, &captured, key).await;
+            assert_eq!(entry.present, mode == WorkMode::Code, "{key}");
+            assert_eq!(
+                entry.revision,
+                if mode == WorkMode::Code { 1 } else { 0 },
+                "{key}"
+            );
+        }
+        for key in ["scoped", "bulk-scoped"] {
+            let Output::PluginConversationValue(entry) = storage(
+                &fixture,
+                &captured,
+                Command::ReadPluginConversationValue { key: key.into() },
+            )
+            .await
+            .unwrap() else {
+                panic!("conversation value expected")
+            };
+            assert!(!entry.present, "{key}");
+            assert_eq!(
+                entry.revision,
+                if mode == WorkMode::Code { 2 } else { 0 },
+                "{key}"
+            );
+        }
+        start.notify_one();
+        finish.notify_one();
+        let page = if mode == WorkMode::Plan {
+            questions::finish_plan(&fixture.client, fixture.session.id, turn).await
+        } else {
+            finished(&fixture.client, fixture.session.id, turn).await
+        };
+        assert_eq!(page.runs[0].status, Status::Completed);
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
     }
 }

@@ -1,5 +1,5 @@
 use sailry_client::Client;
-use sailry_link::{Link, NetworkScope, Transport};
+use sailry_link::{Link, NetworkScope};
 use sailry_node_runtime::Node;
 use sailry_protocol::*;
 
@@ -52,27 +52,20 @@ async fn register(client: &Client, path: &std::path::Path) -> Project {
     project
 }
 
-async fn ownership(remote: bool) {
+async fn ownership() {
     let directory = tempfile::tempdir().unwrap();
     let execution = Node::start_empty(directory.path().join("execution"))
         .await
         .unwrap();
-    let (controller, transport): (Option<Link>, std::sync::Arc<dyn Transport>) = if remote {
-        let controller =
-            Link::controller(directory.path().join("controller"), NetworkScope::default())
-                .await
-                .unwrap();
-        let address = controller
-            .handle()
-            .pair(execution.link().invite().unwrap().ticket())
-            .await
-            .unwrap();
-        let transport = controller.handle().remote(address);
-        (Some(controller), transport)
-    } else {
-        (None, execution.local())
-    };
-    let client = Client::new(transport);
+    let controller = Link::controller(directory.path().join("controller"), NetworkScope::default())
+        .await
+        .unwrap();
+    let address = controller
+        .handle()
+        .pair(execution.link().invite().unwrap().ticket())
+        .await
+        .unwrap();
+    let client = Client::new(controller.handle().remote(address));
     let first_path = directory.path().join("first");
     let second_path = directory.path().join("second");
     std::fs::create_dir(&first_path).unwrap();
@@ -118,9 +111,7 @@ async fn ownership(remote: bool) {
         assert_eq!(session.project, Some(first.id));
     }
     let path = execution.profile().to_owned();
-    if let Some(controller) = controller {
-        controller.close().await.unwrap();
-    }
+    controller.close().await.unwrap();
     execution.shutdown().await.unwrap();
     let execution = Node::start_empty(path).await.unwrap();
     let resumed = snapshot(&Client::new(execution.local())).await;
@@ -135,13 +126,8 @@ async fn ownership(remote: bool) {
 }
 
 #[tokio::test]
-async fn local_ownership_survives_restart() {
-    ownership(false).await;
-}
-
-#[tokio::test]
 async fn remote_ownership_survives_restart() {
-    ownership(true).await;
+    ownership().await;
 }
 
 #[tokio::test]

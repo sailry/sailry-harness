@@ -17,120 +17,116 @@ export async function run(input) {
 
 #[tokio::test]
 async fn times_out_independent_callbacks() {
-    for remote in [false, true] {
-        let http = server::Server::start().await;
-        let (directory, node, controller, client, worktree) =
-            crate::plugins::support::empty(remote).await;
-        let hosts = [
-            "first.sailry.test",
-            "second.sailry.test",
-            "third.sailry.test",
-            "fourth.sailry.test",
-            "fifth.sailry.test",
-            "sixth.sailry.test",
-        ];
-        for host in hosts {
-            node.set_web_fixture(host, http.address);
-        }
-        node.set_plugin_deadline_fixture(Duration::from_millis(500));
-        let context = installed_with_actions(
-            &client,
-            &directory.path().join("source/package"),
-            worktree,
-            SOURCE,
-            0,
-            &[Action::ReadWeb],
-        )
-        .await;
-        let mut pending = Vec::new();
-        for host in hosts {
-            pending.push(
-                client
-                    .dispatch(call(
-                        &client,
-                        &context,
-                        json!({
-                            "url":format!("http://{host}:{}/hold",http.address.port())
-                        }),
-                    ))
-                    .await
-                    .unwrap(),
-            );
-        }
-        // The server must observe every request; merely polling Pending would
-        // not establish that the VMs reached native SDK I/O.
-        tokio::time::timeout(Duration::from_secs(5), async {
-            while http.requests.lock().unwrap().len() != hosts.len() {
-                tokio::task::yield_now().await;
-            }
-        })
-        .await
-        .unwrap();
-        for admission in pending {
-            let fault = tokio::time::timeout(Duration::from_secs(5), admission.completion)
-                .await
-                .unwrap()
-                .unwrap()
-                .unwrap_err();
-            assert_eq!(fault.code, ErrorCode::Expired);
-            let Some(sailry_protocol::FaultDetails::SystemDiagnostic(report)) = fault.details
-            else {
-                panic!("typed timeout expected");
-            };
-            assert_eq!(
-                report.reason,
-                sailry_protocol::notification::DiagnosticReason::Timeout
-            );
-            assert_eq!(
-                report.phase,
-                sailry_protocol::notification::DiagnosticPhase::Sdk
-            );
-            assert_eq!(report.operation.as_deref(), Some("fetch_web"));
-            assert!(report.request.is_some());
-            assert!(report.budget_ms.unwrap() <= 500);
-            assert!(report.elapsed_ms.unwrap() >= 400);
-            assert_eq!(report.plugin.unwrap().name, "example");
-        }
-        let Output::Snapshot(snapshot) = execute(&client, Command::Snapshot).await else {
-            panic!("snapshot expected");
-        };
-        let reports: Vec<_> = snapshot
-            .notifications
-            .iter()
-            .filter(|notice| {
-                matches!(
-                    notice.content.details,
-                    Some(sailry_protocol::notification::Details::System(_))
-                )
-            })
-            .collect();
-        assert_eq!(reports.len(), hosts.len());
-        let serialized = serde_json::to_string(&reports).unwrap();
-        assert!(!serialized.contains("sailry.test"));
-        assert!(!serialized.contains("/hold"));
-        tokio::time::timeout(Duration::from_secs(5), http.disconnected.cancelled())
-            .await
-            .unwrap();
-        let output = tokio::time::timeout(
-            Duration::from_secs(5),
-            client.execute(call(&client, &context, json!({"write":true}))),
-        )
-        .await
-        .unwrap()
-        .unwrap();
-        assert!(matches!(output, Output::PluginResult(_)));
-        assert_eq!(read(&client, &context, "counter").await.value, json!(1));
-        assert_eq!(http.requests.lock().unwrap().len(), hosts.len());
-        node.shutdown().await.unwrap();
-        controller.close().await.unwrap();
+    let http = server::Server::start().await;
+    let (directory, node, controller, client, worktree) = crate::plugins::support::empty().await;
+    let hosts = [
+        "first.sailry.test",
+        "second.sailry.test",
+        "third.sailry.test",
+        "fourth.sailry.test",
+        "fifth.sailry.test",
+        "sixth.sailry.test",
+    ];
+    for host in hosts {
+        node.set_web_fixture(host, http.address);
     }
+    node.set_plugin_deadline_fixture(Duration::from_millis(500));
+    let context = installed_with_actions(
+        &client,
+        &directory.path().join("source/package"),
+        worktree,
+        SOURCE,
+        0,
+        &[Action::ReadWeb],
+    )
+    .await;
+    let mut pending = Vec::new();
+    for host in hosts {
+        pending.push(
+            client
+                .dispatch(call(
+                    &client,
+                    &context,
+                    json!({
+                        "url":format!("http://{host}:{}/hold",http.address.port())
+                    }),
+                ))
+                .await
+                .unwrap(),
+        );
+    }
+    // The server must observe every request; merely polling Pending would
+    // not establish that the VMs reached native SDK I/O.
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while http.requests.lock().unwrap().len() != hosts.len() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    for admission in pending {
+        let fault = tokio::time::timeout(Duration::from_secs(5), admission.completion)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap_err();
+        assert_eq!(fault.code, ErrorCode::Expired);
+        let Some(sailry_protocol::FaultDetails::SystemDiagnostic(report)) = fault.details else {
+            panic!("typed timeout expected");
+        };
+        assert_eq!(
+            report.reason,
+            sailry_protocol::notification::DiagnosticReason::Timeout
+        );
+        assert_eq!(
+            report.phase,
+            sailry_protocol::notification::DiagnosticPhase::Sdk
+        );
+        assert_eq!(report.operation.as_deref(), Some("fetch_web"));
+        assert!(report.request.is_some());
+        assert!(report.budget_ms.unwrap() <= 500);
+        assert!(report.elapsed_ms.unwrap() >= 400);
+        assert_eq!(report.plugin.unwrap().name, "example");
+    }
+    let Output::Snapshot(snapshot) = execute(&client, Command::Snapshot).await else {
+        panic!("snapshot expected");
+    };
+    let reports: Vec<_> = snapshot
+        .notifications
+        .iter()
+        .filter(|notice| {
+            matches!(
+                notice.content.details,
+                Some(sailry_protocol::notification::Details::System(_))
+            )
+        })
+        .collect();
+    assert_eq!(reports.len(), hosts.len());
+    let serialized = serde_json::to_string(&reports).unwrap();
+    assert!(!serialized.contains("sailry.test"));
+    assert!(!serialized.contains("/hold"));
+    tokio::time::timeout(Duration::from_secs(5), http.disconnected.cancelled())
+        .await
+        .unwrap();
+    let output = tokio::time::timeout(
+        Duration::from_secs(5),
+        client.execute(call(&client, &context, json!({"write":true}))),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert!(matches!(output, Output::PluginResult(_)));
+    assert_eq!(read(&client, &context, "counter").await.value, json!(1));
+    assert_eq!(http.requests.lock().unwrap().len(), hosts.len());
+    node.shutdown().await.unwrap();
+    controller.close().await.unwrap();
 }
 
 #[tokio::test]
 async fn preserves_admitted_writes_after_deadline() {
-    for (remote, cancel) in [(false, false), (true, false), (false, true), (true, true)] {
+    for cancel in [false, true] {
         let (directory, node, controller, client, worktree) =
-            crate::plugins::support::empty(remote).await;
+            crate::plugins::support::empty().await;
         if !cancel {
             node.set_plugin_deadline_fixture(Duration::from_millis(500));
         }
@@ -243,135 +239,129 @@ async fn preserves_admitted_writes_after_deadline() {
 
 #[tokio::test]
 async fn explicit_stop_is_not_a_timeout() {
-    for remote in [false, true] {
-        let http = server::Server::start().await;
-        let (directory, node, controller, client, worktree) =
-            crate::plugins::support::empty(remote).await;
-        node.set_web_fixture("stopped.sailry.test", http.address);
-        let context = installed_with_actions(
-            &client,
-            &directory.path().join("source/package"),
-            worktree,
-            SOURCE,
-            0,
-            &[Action::ReadWeb],
+    let http = server::Server::start().await;
+    let (directory, node, controller, client, worktree) = crate::plugins::support::empty().await;
+    node.set_web_fixture("stopped.sailry.test", http.address);
+    let context = installed_with_actions(
+        &client,
+        &directory.path().join("source/package"),
+        worktree,
+        SOURCE,
+        0,
+        &[Action::ReadWeb],
+    )
+    .await;
+    let request = call(
+        &client,
+        &context,
+        json!({"url":format!("http://stopped.sailry.test:{}/hold",http.address.port())}),
+    );
+    let pending = client.dispatch(request.clone()).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while http.requests.lock().unwrap().is_empty() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    client
+        .execute(
+            client
+                .prepare(Command::CancelPluginCall {
+                    request: request.id,
+                })
+                .with_plugin(context),
         )
-        .await;
-        let request = call(
-            &client,
-            &context,
-            json!({"url":format!("http://stopped.sailry.test:{}/hold",http.address.port())}),
-        );
-        let pending = client.dispatch(request.clone()).await.unwrap();
-        tokio::time::timeout(Duration::from_secs(5), async {
-            while http.requests.lock().unwrap().is_empty() {
-                tokio::task::yield_now().await;
-            }
-        })
         .await
         .unwrap();
-        client
-            .execute(
-                client
-                    .prepare(Command::CancelPluginCall {
-                        request: request.id,
-                    })
-                    .with_plugin(context),
-            )
-            .await
-            .unwrap();
-        let fault = tokio::time::timeout(Duration::from_secs(5), pending.completion)
-            .await
-            .unwrap()
-            .unwrap()
-            .unwrap_err();
-        assert_eq!(fault.code, ErrorCode::Cancelled);
-        let Some(sailry_protocol::FaultDetails::SystemDiagnostic(report)) = fault.details else {
-            panic!("typed stop expected");
-        };
-        assert_eq!(
-            report.reason,
-            sailry_protocol::notification::DiagnosticReason::Cancelled
-        );
-        assert_eq!(report.operation.as_deref(), Some("fetch_web"));
-        let Output::Snapshot(snapshot) = execute(&client, Command::Snapshot).await else {
-            panic!("snapshot expected");
-        };
-        assert!(!snapshot.notifications.iter().any(|notice| matches!(
-            notice.content.details,
-            Some(sailry_protocol::notification::Details::System(_))
-        )));
-        node.shutdown().await.unwrap();
-        controller.close().await.unwrap();
-    }
+    let fault = tokio::time::timeout(Duration::from_secs(5), pending.completion)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap_err();
+    assert_eq!(fault.code, ErrorCode::Cancelled);
+    let Some(sailry_protocol::FaultDetails::SystemDiagnostic(report)) = fault.details else {
+        panic!("typed stop expected");
+    };
+    assert_eq!(
+        report.reason,
+        sailry_protocol::notification::DiagnosticReason::Cancelled
+    );
+    assert_eq!(report.operation.as_deref(), Some("fetch_web"));
+    let Output::Snapshot(snapshot) = execute(&client, Command::Snapshot).await else {
+        panic!("snapshot expected");
+    };
+    assert!(!snapshot.notifications.iter().any(|notice| matches!(
+        notice.content.details,
+        Some(sailry_protocol::notification::Details::System(_))
+    )));
+    node.shutdown().await.unwrap();
+    controller.close().await.unwrap();
 }
 
 #[tokio::test]
 async fn failing_package_does_not_poison_another() {
-    for remote in [false, true] {
-        let (directory, node, controller, client, worktree) =
-            crate::plugins::support::empty(remote).await;
-        let root = directory.path().join("source/package");
-        let failed = installed(&client, &root, worktree, "export function run() { globalThis.contaminated=true; throw new Error('PRIVATE_SCRIPT_BODY'); }", 0).await;
-        let path = root.join("plugin.json");
-        let mut manifest: serde_json::Value =
-            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
-        manifest["name"] = json!("healthy");
-        fs::write(path, manifest.to_string()).unwrap();
-        fs::write(root.join("dev.sailry.platform/main.js"), "export function run() { return { healthy: typeof globalThis.contaminated === 'undefined' }; }").unwrap();
-        let package = info(
-            execute(
-                &client,
-                Command::InstallPlugin {
-                    worktree,
-                    path: "package".into(),
-                    name: "healthy".into(),
-                    expected_revision: 0,
-                    expected_digest: None,
-                },
+    let (directory, node, controller, client, worktree) = crate::plugins::support::empty().await;
+    let root = directory.path().join("source/package");
+    let failed = installed(&client, &root, worktree, "export function run() { globalThis.contaminated=true; throw new Error('PRIVATE_SCRIPT_BODY'); }", 0).await;
+    let path = root.join("plugin.json");
+    let mut manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    manifest["name"] = json!("healthy");
+    fs::write(path, manifest.to_string()).unwrap();
+    fs::write(root.join("dev.sailry.platform/main.js"), "export function run() { return { healthy: typeof globalThis.contaminated === 'undefined' }; }").unwrap();
+    let package = info(
+        execute(
+            &client,
+            Command::InstallPlugin {
+                worktree,
+                path: "package".into(),
+                name: "healthy".into(),
+                expected_revision: 0,
+                expected_digest: None,
+            },
+        )
+        .await,
+    );
+    let healthy = Context {
+        package: package.summary.reference(),
+        ..failed.clone()
+    };
+    let (failure, success) = tokio::join!(
+        client.execute(call(&client, &failed, json!(null))),
+        client.execute(call(&client, &healthy, json!(null)))
+    );
+    assert_eq!(failure.unwrap_err().code, ErrorCode::InvalidRequest);
+    assert_eq!(
+        success.unwrap(),
+        Output::PluginResult(json!({"healthy":true}))
+    );
+    let Output::Snapshot(snapshot) = execute(&client, Command::Snapshot).await else {
+        panic!("snapshot expected");
+    };
+    let reports: Vec<_> = snapshot
+        .notifications
+        .iter()
+        .filter(|notice| {
+            matches!(
+                notice.content.details,
+                Some(sailry_protocol::notification::Details::System(_))
             )
-            .await,
-        );
-        let healthy = Context {
-            package: package.summary.reference(),
-            ..failed.clone()
-        };
-        let (failure, success) = tokio::join!(
-            client.execute(call(&client, &failed, json!(null))),
-            client.execute(call(&client, &healthy, json!(null)))
-        );
-        assert_eq!(failure.unwrap_err().code, ErrorCode::InvalidRequest);
-        assert_eq!(
-            success.unwrap(),
-            Output::PluginResult(json!({"healthy":true}))
-        );
-        let Output::Snapshot(snapshot) = execute(&client, Command::Snapshot).await else {
-            panic!("snapshot expected");
-        };
-        let reports: Vec<_> = snapshot
-            .notifications
-            .iter()
-            .filter(|notice| {
-                matches!(
-                    notice.content.details,
-                    Some(sailry_protocol::notification::Details::System(_))
-                )
-            })
-            .collect();
-        assert_eq!(reports.len(), 1);
-        assert!(
-            !serde_json::to_string(&reports)
-                .unwrap()
-                .contains("PRIVATE_SCRIPT_BODY")
-        );
-        assert_eq!(
-            client
-                .execute(call(&client, &healthy, json!(null)))
-                .await
-                .unwrap(),
-            Output::PluginResult(json!({"healthy":true}))
-        );
-        node.shutdown().await.unwrap();
-        controller.close().await.unwrap();
-    }
+        })
+        .collect();
+    assert_eq!(reports.len(), 1);
+    assert!(
+        !serde_json::to_string(&reports)
+            .unwrap()
+            .contains("PRIVATE_SCRIPT_BODY")
+    );
+    assert_eq!(
+        client
+            .execute(call(&client, &healthy, json!(null)))
+            .await
+            .unwrap(),
+        Output::PluginResult(json!({"healthy":true}))
+    );
+    node.shutdown().await.unwrap();
+    controller.close().await.unwrap();
 }

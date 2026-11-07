@@ -32,105 +32,103 @@ fn discovery() -> Reply {
 
 #[tokio::test]
 async fn preserves_management_branches_on_wire() {
-    for remote in [false, true] {
-        for mode in [WorkMode::Code, WorkMode::Plan] {
-            let server = Server::start(ModelApi::Anthropic, discovery()).await;
-            let mut fixture = Fixture::empty(remote, ModelApi::Anthropic, &server.endpoint).await;
-            let mut config = fixture.session.config.clone();
-            config.mode = mode;
-            let Output::Session(session) = execute(
-                &fixture.client,
-                Command::SetSessionConfig {
-                    session: fixture.session.id,
-                    expected_revision: fixture.session.revision,
-                    config,
-                },
-            )
-            .await
-            else {
-                panic!("session expected")
-            };
-            fixture.session = session;
-            let turn = fixture.submit("Say hello briefly").await;
-            let page = finished(&fixture.client, fixture.session.id, turn).await;
-            assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-            {
-                let requests = server.requests.lock().unwrap();
-                assert_eq!(requests.len(), 2);
-                let initial = requests[0].body["tools"].as_array().unwrap();
-                assert!(initial.iter().any(|tool| tool["name"] == "tool_search"));
-                for name in ["manage_mcp", "manage_plugins", "manage_skills"] {
-                    assert!(!initial.iter().any(|tool| tool["name"] == name));
-                    let tool = requests[1].body["tools"]
-                        .as_array()
-                        .unwrap()
-                        .iter()
-                        .find(|tool| tool["name"] == name)
-                        .unwrap();
-                    let schema = &tool["input_schema"];
-                    assert_eq!(schema["type"], "object");
-                    assert_eq!(schema["required"], json!(["action"]));
-                    assert!(schema["properties"]["action"]["enum"].is_array());
-                    assert!(schema["oneOf"].is_array());
-                    let cases = match name {
-                        "manage_mcp" => vec![
-                            (json!({"action":"list"}), true),
-                            (
-                                json!({"action":"uninstall","name":"mcp-fixture","expected_revision":1}),
-                                true,
-                            ),
-                            (json!({"action":"uninstall","name":"mcp-fixture"}), false),
-                            (json!({"action":"list","name":"mcp-fixture"}), false),
-                            (json!({"action":"install"}), false),
-                            (json!({"action":"unknown"}), false),
-                        ],
-                        "manage_plugins" => vec![
-                            (json!({"action":"list"}), true),
-                            (json!({"action":"search","source":"official"}), true),
-                            (
-                                json!({"action":"uninstall","name":"fixture","expected_revision":1}),
-                                true,
-                            ),
-                            (json!({"action":"search"}), false),
-                            (json!({"action":"uninstall","name":"fixture"}), false),
-                            (json!({"action":"list","name":"fixture"}), false),
-                            (
-                                json!({"action":"inspect","target":{"kind":"installed"}}),
-                                false,
-                            ),
-                        ],
-                        "manage_skills" => vec![
-                            (json!({"action":"list"}), true),
-                            (json!({"action":"discover","path":"skills"}), true),
-                            (
-                                json!({"action":"uninstall","name":"fixture","expected_revision":1}),
-                                true,
-                            ),
-                            (
-                                json!({"action":"discover","path":"skills","repository":"https://example.invalid/repo"}),
-                                true,
-                            ),
-                            (
-                                json!({"action":"discover","repository":"https://example.invalid/repo","registry":{"slug":"fixture"}}),
-                                false,
-                            ),
-                            (json!({"action":"uninstall","name":"fixture"}), false),
-                            (json!({"action":"list","name":"fixture"}), false),
-                        ],
-                        _ => unreachable!(),
-                    };
-                    let projected = jsonschema::draft202012::options().build(schema).unwrap();
-                    for (arguments, valid) in cases {
-                        assert_eq!(
-                            projected.is_valid(&arguments),
-                            valid,
-                            "{name}, {mode:?}, remote={remote}: {arguments}"
-                        );
-                    }
+    for mode in [WorkMode::Code, WorkMode::Plan] {
+        let server = Server::start(ModelApi::Anthropic, discovery()).await;
+        let mut fixture = Fixture::empty(ModelApi::Anthropic, &server.endpoint).await;
+        let mut config = fixture.session.config.clone();
+        config.mode = mode;
+        let Output::Session(session) = execute(
+            &fixture.client,
+            Command::SetSessionConfig {
+                session: fixture.session.id,
+                expected_revision: fixture.session.revision,
+                config,
+            },
+        )
+        .await
+        else {
+            panic!("session expected")
+        };
+        fixture.session = session;
+        let turn = fixture.submit("Say hello briefly").await;
+        let page = finished(&fixture.client, fixture.session.id, turn).await;
+        assert_eq!(page.runs.last().unwrap().status, Status::Completed);
+        {
+            let requests = server.requests.lock().unwrap();
+            assert_eq!(requests.len(), 2);
+            let initial = requests[0].body["tools"].as_array().unwrap();
+            assert!(initial.iter().any(|tool| tool["name"] == "tool_search"));
+            for name in ["manage_mcp", "manage_plugins", "manage_skills"] {
+                assert!(!initial.iter().any(|tool| tool["name"] == name));
+                let tool = requests[1].body["tools"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|tool| tool["name"] == name)
+                    .unwrap();
+                let schema = &tool["input_schema"];
+                assert_eq!(schema["type"], "object");
+                assert_eq!(schema["required"], json!(["action"]));
+                assert!(schema["properties"]["action"]["enum"].is_array());
+                assert!(schema["oneOf"].is_array());
+                let cases = match name {
+                    "manage_mcp" => vec![
+                        (json!({"action":"list"}), true),
+                        (
+                            json!({"action":"uninstall","name":"mcp-fixture","expected_revision":1}),
+                            true,
+                        ),
+                        (json!({"action":"uninstall","name":"mcp-fixture"}), false),
+                        (json!({"action":"list","name":"mcp-fixture"}), false),
+                        (json!({"action":"install"}), false),
+                        (json!({"action":"unknown"}), false),
+                    ],
+                    "manage_plugins" => vec![
+                        (json!({"action":"list"}), true),
+                        (json!({"action":"search","source":"official"}), true),
+                        (
+                            json!({"action":"uninstall","name":"fixture","expected_revision":1}),
+                            true,
+                        ),
+                        (json!({"action":"search"}), false),
+                        (json!({"action":"uninstall","name":"fixture"}), false),
+                        (json!({"action":"list","name":"fixture"}), false),
+                        (
+                            json!({"action":"inspect","target":{"kind":"installed"}}),
+                            false,
+                        ),
+                    ],
+                    "manage_skills" => vec![
+                        (json!({"action":"list"}), true),
+                        (json!({"action":"discover","path":"skills"}), true),
+                        (
+                            json!({"action":"uninstall","name":"fixture","expected_revision":1}),
+                            true,
+                        ),
+                        (
+                            json!({"action":"discover","path":"skills","repository":"https://example.invalid/repo"}),
+                            true,
+                        ),
+                        (
+                            json!({"action":"discover","repository":"https://example.invalid/repo","registry":{"slug":"fixture"}}),
+                            false,
+                        ),
+                        (json!({"action":"uninstall","name":"fixture"}), false),
+                        (json!({"action":"list","name":"fixture"}), false),
+                    ],
+                    _ => unreachable!(),
+                };
+                let projected = jsonschema::draft202012::options().build(schema).unwrap();
+                for (arguments, valid) in cases {
+                    assert_eq!(
+                        projected.is_valid(&arguments),
+                        valid,
+                        "{name}, {mode:?}: {arguments}"
+                    );
                 }
             }
-            fixture.controller.close().await.unwrap();
-            fixture.node.shutdown().await.unwrap();
         }
+        fixture.controller.close().await.unwrap();
+        fixture.node.shutdown().await.unwrap();
     }
 }

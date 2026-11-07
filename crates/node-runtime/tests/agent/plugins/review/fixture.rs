@@ -2,9 +2,9 @@ use super::*;
 
 pub(super) const PACKAGE: &str = "code-review";
 
-pub(super) async fn start(remote: bool) -> (Fixture, plugin::Info) {
+pub(super) async fn start() -> (Fixture, plugin::Info) {
     let server = Server::turn_tools(vec![]).await;
-    let mut fixture = Fixture::packages(remote, &server, &[PACKAGE]).await;
+    let mut fixture = Fixture::packages(&server, &[PACKAGE]).await;
     let Output::Plugin(mut package) = execute(
         &fixture.client,
         Command::ReadPlugin {

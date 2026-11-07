@@ -111,84 +111,74 @@ async fn complete(client: &Client, attempt: &Attempt, url: &str) -> plugin::conn
 }
 #[tokio::test]
 async fn resumes_authorized_tools() {
-    for remote in [false, true] {
-        for sse in [false, true] {
-            let peer = input::Server::url("https://example.invalid/continue", sse).await;
-            let issuer = issuer::Server::start(&peer.endpoint).await;
-            let model = Server::turn_tools(vec![(alias("input", "read"), json!({}))]).await;
-            let fixture = process::Fixture::packages(remote, &model, &[]).await;
-            configure(&fixture, &issuer.endpoint, sse, false);
-            let info = install(&fixture, 0).await;
-            assert!(info.issues.is_empty(), "{:?}", info.issues);
-            let (request, attempt, url) =
-                begin(&fixture.client, info.summary.reference(), false).await;
-            assert_eq!(
-                fixture.client.execute(request).await.unwrap(),
-                Output::ConnectorLogin(attempt.clone())
-            );
-            let other = Client::new(if remote {
-                fixture.node.local()
-            } else {
-                fixture
-                    .controller
-                    .handle()
-                    .remote(fixture.node.link().address())
-            });
-            let denied = match other.subscribe_connector_login(attempt.id).await {
-                Ok(mut stream) => stream.next().await.unwrap_err(),
-                Err(error) => error,
-            };
-            assert_eq!(denied.code, ErrorCode::NotFound);
-            let row = complete(&fixture.client, &attempt, &url).await;
-            for _ in 0..2 {
-                let (_, turn) = submit(&fixture, false).await;
-                let (_, pending) = questions::pending(&fixture.client, fixture.session.id).await;
-                execute(
-                    &fixture.client,
-                    Command::ResolveQuestion {
-                        session: fixture.session.id,
-                        question: pending.id,
-                        response: question::Response::Decline,
-                    },
-                )
-                .await;
-                let page = finished(&fixture.client, fixture.session.id, turn.id).await;
-                assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-                let public = serde_json::to_string(&page).unwrap();
-                for secret in [
-                    "access-private-marker",
-                    "refresh-private-marker",
-                    "client-private-marker",
-                ] {
-                    assert!(!public.contains(secret));
-                }
-            }
-            assert_eq!(peer.calls.load(Ordering::SeqCst), 2);
-            assert_eq!(issuer.exchanges.load(Ordering::SeqCst), 1);
-            issuer.expire();
+    for sse in [false, true] {
+        let peer = input::Server::url("https://example.invalid/continue", sse).await;
+        let issuer = issuer::Server::start(&peer.endpoint).await;
+        let model = Server::turn_tools(vec![(alias("input", "read"), json!({}))]).await;
+        let fixture = process::Fixture::packages(&model, &[]).await;
+        configure(&fixture, &issuer.endpoint, sse, false);
+        let info = install(&fixture, 0).await;
+        assert!(info.issues.is_empty(), "{:?}", info.issues);
+        let (request, attempt, url) = begin(&fixture.client, info.summary.reference(), false).await;
+        assert_eq!(
+            fixture.client.execute(request).await.unwrap(),
+            Output::ConnectorLogin(attempt.clone())
+        );
+        let other = Client::new(fixture.node.local());
+        let denied = match other.subscribe_connector_login(attempt.id).await {
+            Ok(mut stream) => stream.next().await.unwrap_err(),
+            Err(error) => error,
+        };
+        assert_eq!(denied.code, ErrorCode::NotFound);
+        let row = complete(&fixture.client, &attempt, &url).await;
+        for _ in 0..2 {
             let (_, turn) = submit(&fixture, false).await;
-            let page = finished(&fixture.client, fixture.session.id, turn.id).await;
-            assert_eq!(issuer.refreshes.load(Ordering::SeqCst), 1);
-            assert_eq!(
-                peer.calls.load(Ordering::SeqCst),
-                2,
-                "expired POST must not be replayed"
-            );
-            assert!(
-                !serde_json::to_string(&page)
-                    .unwrap()
-                    .contains("refresh-initial")
-            );
+            let (_, pending) = questions::pending(&fixture.client, fixture.session.id).await;
             execute(
                 &fixture.client,
-                Command::DisconnectConnection {
-                    connection: row.id,
-                    expected_revision: row.revision,
+                Command::ResolveQuestion {
+                    session: fixture.session.id,
+                    question: pending.id,
+                    response: question::Response::Decline,
                 },
             )
             .await;
-            fixture.node.shutdown().await.unwrap();
-            fixture.controller.close().await.unwrap();
+            let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+            assert_eq!(page.runs.last().unwrap().status, Status::Completed);
+            let public = serde_json::to_string(&page).unwrap();
+            for secret in [
+                "access-private-marker",
+                "refresh-private-marker",
+                "client-private-marker",
+            ] {
+                assert!(!public.contains(secret));
+            }
         }
+        assert_eq!(peer.calls.load(Ordering::SeqCst), 2);
+        assert_eq!(issuer.exchanges.load(Ordering::SeqCst), 1);
+        issuer.expire();
+        let (_, turn) = submit(&fixture, false).await;
+        let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+        assert_eq!(issuer.refreshes.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            peer.calls.load(Ordering::SeqCst),
+            2,
+            "expired POST must not be replayed"
+        );
+        assert!(
+            !serde_json::to_string(&page)
+                .unwrap()
+                .contains("refresh-initial")
+        );
+        execute(
+            &fixture.client,
+            Command::DisconnectConnection {
+                connection: row.id,
+                expected_revision: row.revision,
+            },
+        )
+        .await;
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
     }
 }

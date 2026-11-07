@@ -474,529 +474,498 @@ fn text(page: &Page) -> String {
 
 #[tokio::test]
 async fn shares_frozen_runs_after_restart() {
-    for remote in [false, true] {
-        let fixture = tempfile::tempdir().unwrap();
-        let root = fixture.path().join("project");
-        std::fs::create_dir(&root).unwrap();
-        let profile = fixture.path().join("node");
-        let node = Node::start_empty(&profile).await.unwrap();
-        let controller =
-            Link::controller(fixture.path().join("controller"), NetworkScope::default())
-                .await
-                .unwrap();
-        let address = controller
-            .handle()
-            .pair(node.link().invite().unwrap().ticket())
-            .await
-            .unwrap();
-        let transport: Arc<dyn Transport> = if remote {
-            controller.handle().remote(address)
-        } else {
-            node.local()
-        };
-        let client = Client::new(transport);
-        let first = Server::start(false).await;
-        let second = Server::start(false).await;
-        let (session, mut provider) = configured_session(&client, &first.endpoint, &root).await;
-        provider.default_model = "fixture-a".into();
-        provider.models = ["fixture-a", "fixture-b"]
-            .into_iter()
-            .map(|id| Model {
-                id: id.into(),
-                display_name: None,
-                context: 128_000,
-                output: 2048,
-                vision: false,
-                tools: true,
-                reasoning: true,
-                generates: Vec::new(),
-                efforts: vec![Effort::Low, Effort::High],
-                capabilities: Some(discovery::Capabilities {
-                    reasoning: Some(true),
-                    tools: Some(true),
-                    ..Default::default()
-                }),
-                custom_efforts: false,
-                compaction_tokens: None,
-                default_effort: Effort::High,
-            })
-            .collect();
-        let Output::Provider(mut provider) = client
-            .execute(client.prepare(Command::PutProvider {
-                expected_revision: provider.revision,
-                provider,
-            }))
-            .await
-            .unwrap()
-        else {
-            panic!("provider expected")
-        };
-        let queued = client.prepare(Command::QueueTurn {
+    let fixture = tempfile::tempdir().unwrap();
+    let root = fixture.path().join("project");
+    std::fs::create_dir(&root).unwrap();
+    let profile = fixture.path().join("node");
+    let node = Node::start_empty(&profile).await.unwrap();
+    let controller = Link::controller(fixture.path().join("controller"), NetworkScope::default())
+        .await
+        .unwrap();
+    let address = controller
+        .handle()
+        .pair(node.link().invite().unwrap().ticket())
+        .await
+        .unwrap();
+    let transport: Arc<dyn Transport> = controller.handle().remote(address);
+    let client = Client::new(transport);
+    let first = Server::start(false).await;
+    let second = Server::start(false).await;
+    let (session, mut provider) = configured_session(&client, &first.endpoint, &root).await;
+    provider.default_model = "fixture-a".into();
+    provider.models = ["fixture-a", "fixture-b"]
+        .into_iter()
+        .map(|id| Model {
+            id: id.into(),
+            display_name: None,
+            context: 128_000,
+            output: 2048,
+            vision: false,
+            tools: true,
+            reasoning: true,
+            generates: Vec::new(),
+            efforts: vec![Effort::Low, Effort::High],
+            capabilities: Some(discovery::Capabilities {
+                reasoning: Some(true),
+                tools: Some(true),
+                ..Default::default()
+            }),
+            custom_efforts: false,
+            compaction_tokens: None,
+            default_effort: Effort::High,
+        })
+        .collect();
+    let Output::Provider(mut provider) = client
+        .execute(client.prepare(Command::PutProvider {
+            expected_revision: provider.revision,
+            provider,
+        }))
+        .await
+        .unwrap()
+    else {
+        panic!("provider expected")
+    };
+    let queued = client.prepare(Command::QueueTurn {
+        session: session.id,
+        expected_revision: 1,
+        message: "first prompt".into(),
+    });
+    let Output::QueuedTurn(turn) = client.execute(queued.clone()).await.unwrap() else {
+        panic!("turn expected")
+    };
+    assert_eq!(
+        client.execute(queued).await.unwrap(),
+        Output::QueuedTurn(turn.clone())
+    );
+    assert!(first.requests.lock().unwrap().is_empty());
+    provider.endpoint = second.endpoint.clone();
+    client
+        .execute(client.prepare(Command::PutProvider {
+            expected_revision: provider.revision,
+            provider,
+        }))
+        .await
+        .unwrap();
+    let mut config = session.config.clone();
+    config.model = "fixture-b".into();
+    config.effort = Effort::Low;
+    client
+        .execute(client.prepare(Command::SetSessionConfig {
             session: session.id,
             expected_revision: 1,
-            message: "first prompt".into(),
-        });
-        let Output::QueuedTurn(turn) = client.execute(queued.clone()).await.unwrap() else {
-            panic!("turn expected")
-        };
-        assert_eq!(
-            client.execute(queued).await.unwrap(),
-            Output::QueuedTurn(turn.clone())
-        );
-        assert!(first.requests.lock().unwrap().is_empty());
-        provider.endpoint = second.endpoint.clone();
-        client
-            .execute(client.prepare(Command::PutProvider {
-                expected_revision: provider.revision,
-                provider,
-            }))
-            .await
-            .unwrap();
-        let mut config = session.config.clone();
-        config.model = "fixture-b".into();
-        config.effort = Effort::Low;
-        client
-            .execute(client.prepare(Command::SetSessionConfig {
-                session: session.id,
-                expected_revision: 1,
-                config,
-            }))
-            .await
-            .unwrap();
-        let launch = client.prepare(Command::StartQueuedTurn { turn: turn.id });
-        client.execute(launch.clone()).await.unwrap();
-        let page = finished(&client, session.id, turn.id).await;
-        assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
-        assert!(
-            text(&page).contains("answer-fixture-a"),
-            "{:?}",
-            page.entries
-        );
-        let requests = first.requests.lock().unwrap().clone();
-        assert_eq!(requests.len(), 1);
-        assert_eq!(requests[0]["model"], "fixture-a");
-        assert_eq!(requests[0]["reasoning_effort"], "high");
-        drop(requests);
-        let submit = client.prepare(Command::SubmitTurn {
+            config,
+        }))
+        .await
+        .unwrap();
+    let launch = client.prepare(Command::StartQueuedTurn { turn: turn.id });
+    client.execute(launch.clone()).await.unwrap();
+    let page = finished(&client, session.id, turn.id).await;
+    assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
+    assert!(
+        text(&page).contains("answer-fixture-a"),
+        "{:?}",
+        page.entries
+    );
+    let requests = first.requests.lock().unwrap().clone();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0]["model"], "fixture-a");
+    assert_eq!(requests[0]["reasoning_effort"], "high");
+    drop(requests);
+    let submit = client.prepare(Command::SubmitTurn {
+        session: session.id,
+        expected_revision: 2,
+        message: "second prompt".into(),
+    });
+    let Output::QueuedTurn(next) = client.execute(submit.clone()).await.unwrap() else {
+        panic!("turn expected")
+    };
+    controller.handle().disconnect(node.id()).await;
+    let page = finished(&client, session.id, next.id).await;
+    assert!(
+        page.runs.iter().all(|run| run.status == Status::Completed),
+        "{:?}",
+        page.runs
+    );
+    assert!(text(&page).contains("answer-fixture-b"));
+    let requests = second.requests.lock().unwrap().clone();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0]["model"], "fixture-b");
+    assert_eq!(requests[0]["reasoning_effort"], "low");
+    assert!(
+        requests[0]["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|message| message["content"]
+                .as_str()
+                .is_some_and(|text| text.contains("answer-fixture-a")))
+    );
+    drop(requests);
+    let Output::Conversation(recent) = client
+        .execute(client.prepare(Command::ReadConversation {
             session: session.id,
-            expected_revision: 2,
-            message: "second prompt".into(),
-        });
-        let Output::QueuedTurn(next) = client.execute(submit.clone()).await.unwrap() else {
-            panic!("turn expected")
-        };
-        controller.handle().disconnect(node.id()).await;
-        let page = finished(&client, session.id, next.id).await;
-        assert!(
-            page.runs.iter().all(|run| run.status == Status::Completed),
-            "{:?}",
-            page.runs
-        );
-        assert!(text(&page).contains("answer-fixture-b"));
-        let requests = second.requests.lock().unwrap().clone();
-        assert_eq!(requests.len(), 1);
-        assert_eq!(requests[0]["model"], "fixture-b");
-        assert_eq!(requests[0]["reasoning_effort"], "low");
-        assert!(
-            requests[0]["messages"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|message| message["content"]
-                    .as_str()
-                    .is_some_and(|text| text.contains("answer-fixture-a")))
-        );
-        drop(requests);
-        let Output::Conversation(recent) = client
-            .execute(client.prepare(Command::ReadConversation {
-                session: session.id,
-                before: None,
-                limit: 1,
-            }))
-            .await
-            .unwrap()
-        else {
-            panic!("history expected")
-        };
-        assert_eq!(recent.page.runs.len(), 1);
-        assert_eq!(
-            recent
-                .page
-                .entries
-                .iter()
-                .filter(|entry| !is_context(entry))
-                .count(),
-            2
-        );
-        assert!(recent.page.next_before.is_some());
-        let Output::Conversation(earlier) = client
-            .execute(client.prepare(Command::ReadConversation {
-                session: session.id,
-                before: recent.page.next_before,
-                limit: 100,
-            }))
-            .await
-            .unwrap()
-        else {
-            panic!("history expected")
-        };
-        assert!(
-            earlier
-                .page
-                .entries
-                .iter()
-                .all(|entry| entry.sequence < recent.page.entries[0].sequence)
-        );
-        drop(client);
-        controller.close().await.unwrap();
-        node.shutdown().await.unwrap();
-        let node = Node::start_empty(&profile).await.unwrap();
-        let client = Client::new(node.local());
-        assert_eq!(history(&client, session.id).await, page);
-        // The local caller identity remains stable; remote receipts are checked by
-        // the original controller in the shared durable-request tests.
-        if !remote {
-            assert_eq!(
-                client.execute(submit).await.unwrap(),
-                Output::QueuedTurn(next)
-            );
-            client.execute(launch).await.unwrap();
-        }
-        assert_eq!(first.requests.lock().unwrap().len(), 1);
-        assert_eq!(second.requests.lock().unwrap().len(), 1);
-        node.shutdown().await.unwrap();
-    }
+            before: None,
+            limit: 1,
+        }))
+        .await
+        .unwrap()
+    else {
+        panic!("history expected")
+    };
+    assert_eq!(recent.page.runs.len(), 1);
+    assert_eq!(
+        recent
+            .page
+            .entries
+            .iter()
+            .filter(|entry| !is_context(entry))
+            .count(),
+        2
+    );
+    assert!(recent.page.next_before.is_some());
+    let Output::Conversation(earlier) = client
+        .execute(client.prepare(Command::ReadConversation {
+            session: session.id,
+            before: recent.page.next_before,
+            limit: 100,
+        }))
+        .await
+        .unwrap()
+    else {
+        panic!("history expected")
+    };
+    assert!(
+        earlier
+            .page
+            .entries
+            .iter()
+            .all(|entry| entry.sequence < recent.page.entries[0].sequence)
+    );
+    drop(client);
+    node.shutdown().await.unwrap();
+    let node = Node::start_empty(&profile).await.unwrap();
+    let client = Client::new(controller.handle().remote(node.link().address()));
+    assert_eq!(history(&client, session.id).await, page);
+    // The original caller still observes its durable receipts after restart.
+    assert_eq!(
+        client.execute(submit).await.unwrap(),
+        Output::QueuedTurn(next)
+    );
+    client.execute(launch).await.unwrap();
+    assert_eq!(first.requests.lock().unwrap().len(), 1);
+    assert_eq!(second.requests.lock().unwrap().len(), 1);
+    node.shutdown().await.unwrap();
+    controller.close().await.unwrap();
 }
 
 #[tokio::test]
 async fn cancellation_preserves_partial_text() {
-    for remote in [false, true] {
-        let fixture = tempfile::tempdir().unwrap();
-        let root = fixture.path().join("project");
-        std::fs::create_dir(&root).unwrap();
-        let profile = fixture.path().join("node");
-        let node = Node::start_empty(&profile).await.unwrap();
-        let controller =
-            Link::controller(fixture.path().join("controller"), NetworkScope::default())
-                .await
-                .unwrap();
-        let address = controller
-            .handle()
-            .pair(node.link().invite().unwrap().ticket())
-            .await
-            .unwrap();
-        let transport: Arc<dyn Transport> = if remote {
-            controller.handle().remote(address)
-        } else {
-            node.local()
-        };
-        let client = Client::new(transport);
-        let server = Server::start(true).await;
-        let (session, _) = configured_session(&client, &server.endpoint, &root).await;
-        for stop_node in [false, true] {
-            let Output::QueuedTurn(turn) = client
-                .execute(client.prepare(Command::SubmitTurn {
-                    session: session.id,
-                    expected_revision: 1,
-                    message: "slow prompt".into(),
-                }))
-                .await
-                .unwrap()
-            else {
-                panic!("turn expected")
-            };
-            server.wait_count(if stop_node { 2 } else { 1 }).await;
-            let mut stream = client.subscribe_conversation(session.id).await.unwrap();
-            tokio::time::timeout(Duration::from_secs(5), async {
-                loop {
-                    match stream.next().await.unwrap() {
-                        Update::ConversationSnapshot(snapshot)
-                            if snapshot.drafts.iter().any(|draft| {
-                                draft.turn == turn.id
-                                    && draft.parts == vec![Part::Text("partial-fixture".into())]
-                            }) =>
-                        {
-                            break;
-                        }
-                        Update::ConversationFrame(frame)
-                            if matches!(frame.change, sailry_protocol::conversation::Change::Delta(ref draft) if draft.turn == turn.id && draft.parts == vec![Part::Text("partial-fixture".into())]) => break,
-                        _ => {}
-                    }
-                }
-            })
-            .await
-            .unwrap();
-            controller.handle().disconnect(node.id()).await;
-            let page = history(&client, session.id).await;
-            assert_eq!(page.runs.last().unwrap().status, Status::Running);
-            assert!(!page.entries.iter().any(|entry| entry.turn == turn.id
-                && entry.parts == vec![Part::Text("partial-fixture".into())]));
-            if stop_node {
-                break;
-            }
-            let stop = client.prepare(Command::StopTurn { turn: turn.id });
-            client.execute(stop.clone()).await.unwrap();
-            let page = finished(&client, session.id, turn.id).await;
-            assert_eq!(page.runs.last().unwrap().status, Status::Cancelled);
-            assert_eq!(
-                page.entries
-                    .iter()
-                    .filter(|entry| entry.turn == turn.id
-                        && entry.parts == vec![Part::Text("partial-fixture".into())])
-                    .count(),
-                1
-            );
-            let mut resumed = client.subscribe_conversation(session.id).await.unwrap();
-            let Update::ConversationSnapshot(snapshot) = resumed.next().await.unwrap() else {
-                panic!("snapshot expected")
-            };
-            assert!(snapshot.drafts.is_empty());
-            assert!(text(&snapshot.page).contains("partial-fixture"));
-            client.execute(stop).await.unwrap();
-        }
-        tokio::time::timeout(Duration::from_secs(5), node.shutdown())
-            .await
-            .unwrap()
-            .unwrap();
-        controller.close().await.unwrap();
-        let node = Node::start_empty(&profile).await.unwrap();
-        let client = Client::new(node.local());
-        let page = history(&client, session.id).await;
-        assert_eq!(page.runs.last().unwrap().status, Status::Interrupted);
-        assert_eq!(server.requests.lock().unwrap().len(), 2);
-        assert_eq!(
-            page.entries
-                .iter()
-                .filter(|entry| entry.parts == vec![Part::Text("partial-fixture".into())])
-                .count(),
-            2
-        );
-        node.shutdown().await.unwrap();
-    }
-}
-
-#[tokio::test]
-async fn serializes_turns_per_session() {
-    for remote in [false, true] {
-        let fixture = tempfile::tempdir().unwrap();
-        let root = fixture.path().join("project");
-        std::fs::create_dir(&root).unwrap();
-        let node = Node::start_empty(fixture.path().join("node"))
-            .await
-            .unwrap();
-        let controller =
-            Link::controller(fixture.path().join("controller"), NetworkScope::default())
-                .await
-                .unwrap();
-        let address = controller
-            .handle()
-            .pair(node.link().invite().unwrap().ticket())
-            .await
-            .unwrap();
-        let transport: Arc<dyn Transport> = if remote {
-            controller.handle().remote(address)
-        } else {
-            node.local()
-        };
-        let client = Client::new(transport);
-        let server = Server::start(true).await;
-        let (first, _) = configured_session(&client, &server.endpoint, &root).await;
-        let Output::Session(second) = client
-            .execute(client.prepare(Command::CreateSession {
-                project: first.project,
-                worktree: Some(first.worktree),
-                config: Some(first.config.clone()),
-            }))
-            .await
-            .unwrap()
-        else {
-            panic!("session expected")
-        };
-        let submit = |session| Command::SubmitTurn {
-            session,
-            expected_revision: 1,
-            message: "serial fixture".into(),
-        };
-        let Output::QueuedTurn(active) = client
-            .execute(client.prepare(submit(first.id)))
-            .await
-            .unwrap()
-        else {
-            panic!("turn expected")
-        };
-        server.wait_count(1).await;
-        let Output::QueuedTurn(waiting) = client
-            .execute(client.prepare(submit(first.id)))
-            .await
-            .unwrap()
-        else {
-            panic!("turn expected")
-        };
-        client
-            .execute(client.prepare(submit(second.id)))
-            .await
-            .unwrap();
-        server.wait_count(2).await;
-        let page = history(&client, first.id).await;
-        assert_eq!(page.runs[0].status, Status::Running);
-        assert_eq!(page.runs[1].status, Status::Queued);
-        client
-            .execute(client.prepare(Command::StopTurn { turn: active.id }))
-            .await
-            .unwrap();
-        let page = finished(&client, first.id, active.id).await;
-        assert!(page.queue.paused);
-        assert_eq!(page.runs[1].status, Status::Queued);
-        client
-            .execute(client.prepare(Command::SetQueuePaused {
-                session: first.id,
-                expected_revision: page.queue.revision,
-                paused: false,
-            }))
-            .await
-            .unwrap();
-        server.wait_count(3).await;
-        let page = history(&client, first.id).await;
-        assert_eq!(page.runs[0].status, Status::Cancelled);
-        assert_eq!(page.runs[1].turn, waiting.id);
-        assert_eq!(page.runs[1].status, Status::Running);
-        node.shutdown().await.unwrap();
-        controller.close().await.unwrap();
-    }
-}
-
-#[tokio::test]
-async fn recovers_live_output() {
-    for remote in [false, true] {
-        let fixture = tempfile::tempdir().unwrap();
-        let root = fixture.path().join("project");
-        std::fs::create_dir(&root).unwrap();
-        let node = Node::start_empty(fixture.path().join("node"))
-            .await
-            .unwrap();
-        let controller =
-            Link::controller(fixture.path().join("controller"), NetworkScope::default())
-                .await
-                .unwrap();
-        let address = controller
-            .handle()
-            .pair(node.link().invite().unwrap().ticket())
-            .await
-            .unwrap();
-        let transport: Arc<dyn Transport> = if remote {
-            controller.handle().remote(address)
-        } else {
-            node.local()
-        };
-        let client = Arc::new(Client::new(transport));
-        let slow = Server::start(true).await;
-        let fast = Server::start(false).await;
-        let (session, mut provider) = configured_session(&client, &slow.endpoint, &root).await;
-        let (updates, mut view) =
-            tokio::sync::watch::channel(sailry_client::conversation::View::default());
-        let stop = sailry_link::CancellationToken::new();
-        let (_older, requests) = tokio::sync::mpsc::channel(1);
-        let worker = tokio::spawn({
-            let client = client.clone();
-            let stop = stop.clone();
-            async move {
-                client
-                    .watch_conversation(session.id, updates, stop, requests)
-                    .await
-            }
-        });
-        observed(&mut view, |view| view.snapshot.is_some() && view.connected).await;
+    let fixture = tempfile::tempdir().unwrap();
+    let root = fixture.path().join("project");
+    std::fs::create_dir(&root).unwrap();
+    let profile = fixture.path().join("node");
+    let node = Node::start_empty(&profile).await.unwrap();
+    let controller = Link::controller(fixture.path().join("controller"), NetworkScope::default())
+        .await
+        .unwrap();
+    let address = controller
+        .handle()
+        .pair(node.link().invite().unwrap().ticket())
+        .await
+        .unwrap();
+    let transport: Arc<dyn Transport> = controller.handle().remote(address);
+    let client = Client::new(transport);
+    let server = Server::start(true).await;
+    let (session, _) = configured_session(&client, &server.endpoint, &root).await;
+    for stop_node in [false, true] {
         let Output::QueuedTurn(turn) = client
             .execute(client.prepare(Command::SubmitTurn {
                 session: session.id,
                 expected_revision: 1,
-                message: "streaming fixture".into(),
+                message: "slow prompt".into(),
             }))
             .await
             .unwrap()
         else {
             panic!("turn expected")
         };
-        observed(&mut view, |view| {
-            view.snapshot.as_ref().is_some_and(|snapshot| {
-                snapshot
-                    .drafts
-                    .iter()
-                    .any(|draft| draft.parts == vec![Part::Text("partial-fixture".into())])
-            })
+        server.wait_count(if stop_node { 2 } else { 1 }).await;
+        let mut stream = client.subscribe_conversation(session.id).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                match stream.next().await.unwrap() {
+                    Update::ConversationSnapshot(snapshot)
+                        if snapshot.drafts.iter().any(|draft| {
+                            draft.turn == turn.id
+                                && draft.parts == vec![Part::Text("partial-fixture".into())]
+                        }) =>
+                    {
+                        break;
+                    }
+                    Update::ConversationFrame(frame)
+                        if matches!(frame.change, sailry_protocol::conversation::Change::Delta(ref draft) if draft.turn == turn.id && draft.parts == vec![Part::Text("partial-fixture".into())]) => break,
+                    _ => {}
+                }
+            }
         })
-        .await;
-        assert!(!text(&history(&client, session.id).await).contains("partial-fixture"));
+        .await
+        .unwrap();
         controller.handle().disconnect(node.id()).await;
+        let page = history(&client, session.id).await;
+        assert_eq!(page.runs.last().unwrap().status, Status::Running);
+        assert!(!page.entries.iter().any(|entry| entry.turn == turn.id
+            && entry.parts == vec![Part::Text("partial-fixture".into())]));
+        if stop_node {
+            break;
+        }
+        let stop = client.prepare(Command::StopTurn { turn: turn.id });
+        client.execute(stop.clone()).await.unwrap();
+        let page = finished(&client, session.id, turn.id).await;
+        assert_eq!(page.runs.last().unwrap().status, Status::Cancelled);
+        assert_eq!(
+            page.entries
+                .iter()
+                .filter(|entry| entry.turn == turn.id
+                    && entry.parts == vec![Part::Text("partial-fixture".into())])
+                .count(),
+            1
+        );
         let mut resumed = client.subscribe_conversation(session.id).await.unwrap();
-        let Update::ConversationSnapshot(recovered) = resumed.next().await.unwrap() else {
+        let Update::ConversationSnapshot(snapshot) = resumed.next().await.unwrap() else {
             panic!("snapshot expected")
         };
-        assert_eq!(
-            recovered.drafts[0].parts,
-            vec![Part::Text("partial-fixture".into())]
-        );
-        assert_eq!(slow.requests.lock().unwrap().len(), 1);
-        drop(resumed);
-        client
-            .execute(client.prepare(Command::StopTurn { turn: turn.id }))
-            .await
-            .unwrap();
-        observed(&mut view, |view| {
-            view.snapshot.as_ref().is_some_and(|snapshot| {
-                snapshot.drafts.is_empty()
-                    && snapshot
-                        .page
-                        .runs
-                        .last()
-                        .is_some_and(|run| run.status == Status::Cancelled)
-            })
+        assert!(snapshot.drafts.is_empty());
+        assert!(text(&snapshot.page).contains("partial-fixture"));
+        client.execute(stop).await.unwrap();
+    }
+    tokio::time::timeout(Duration::from_secs(5), node.shutdown())
+        .await
+        .unwrap()
+        .unwrap();
+    controller.close().await.unwrap();
+    let node = Node::start_empty(&profile).await.unwrap();
+    let client = Client::new(node.local());
+    let page = history(&client, session.id).await;
+    assert_eq!(page.runs.last().unwrap().status, Status::Interrupted);
+    assert_eq!(server.requests.lock().unwrap().len(), 2);
+    assert_eq!(
+        page.entries
+            .iter()
+            .filter(|entry| entry.parts == vec![Part::Text("partial-fixture".into())])
+            .count(),
+        2
+    );
+    node.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn serializes_turns_per_session() {
+    let fixture = tempfile::tempdir().unwrap();
+    let root = fixture.path().join("project");
+    std::fs::create_dir(&root).unwrap();
+    let node = Node::start_empty(fixture.path().join("node"))
+        .await
+        .unwrap();
+    let controller = Link::controller(fixture.path().join("controller"), NetworkScope::default())
+        .await
+        .unwrap();
+    let address = controller
+        .handle()
+        .pair(node.link().invite().unwrap().ticket())
+        .await
+        .unwrap();
+    let transport: Arc<dyn Transport> = controller.handle().remote(address);
+    let client = Client::new(transport);
+    let server = Server::start(true).await;
+    let (first, _) = configured_session(&client, &server.endpoint, &root).await;
+    let Output::Session(second) = client
+        .execute(client.prepare(Command::CreateSession {
+            project: first.project,
+            worktree: Some(first.worktree),
+            config: Some(first.config.clone()),
+        }))
+        .await
+        .unwrap()
+    else {
+        panic!("session expected")
+    };
+    let submit = |session| Command::SubmitTurn {
+        session,
+        expected_revision: 1,
+        message: "serial fixture".into(),
+    };
+    let Output::QueuedTurn(active) = client
+        .execute(client.prepare(submit(first.id)))
+        .await
+        .unwrap()
+    else {
+        panic!("turn expected")
+    };
+    server.wait_count(1).await;
+    let Output::QueuedTurn(waiting) = client
+        .execute(client.prepare(submit(first.id)))
+        .await
+        .unwrap()
+    else {
+        panic!("turn expected")
+    };
+    client
+        .execute(client.prepare(submit(second.id)))
+        .await
+        .unwrap();
+    server.wait_count(2).await;
+    let page = history(&client, first.id).await;
+    assert_eq!(page.runs[0].status, Status::Running);
+    assert_eq!(page.runs[1].status, Status::Queued);
+    client
+        .execute(client.prepare(Command::StopTurn { turn: active.id }))
+        .await
+        .unwrap();
+    let page = finished(&client, first.id, active.id).await;
+    assert!(page.queue.paused);
+    assert_eq!(page.runs[1].status, Status::Queued);
+    client
+        .execute(client.prepare(Command::SetQueuePaused {
+            session: first.id,
+            expected_revision: page.queue.revision,
+            paused: false,
+        }))
+        .await
+        .unwrap();
+    server.wait_count(3).await;
+    let page = history(&client, first.id).await;
+    assert_eq!(page.runs[0].status, Status::Cancelled);
+    assert_eq!(page.runs[1].turn, waiting.id);
+    assert_eq!(page.runs[1].status, Status::Running);
+    node.shutdown().await.unwrap();
+    controller.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn recovers_live_output() {
+    let fixture = tempfile::tempdir().unwrap();
+    let root = fixture.path().join("project");
+    std::fs::create_dir(&root).unwrap();
+    let node = Node::start_empty(fixture.path().join("node"))
+        .await
+        .unwrap();
+    let controller = Link::controller(fixture.path().join("controller"), NetworkScope::default())
+        .await
+        .unwrap();
+    let address = controller
+        .handle()
+        .pair(node.link().invite().unwrap().ticket())
+        .await
+        .unwrap();
+    let transport: Arc<dyn Transport> = controller.handle().remote(address);
+    let client = Arc::new(Client::new(transport));
+    let slow = Server::start(true).await;
+    let fast = Server::start(false).await;
+    let (session, mut provider) = configured_session(&client, &slow.endpoint, &root).await;
+    let (updates, mut view) =
+        tokio::sync::watch::channel(sailry_client::conversation::View::default());
+    let stop = sailry_link::CancellationToken::new();
+    let (_older, requests) = tokio::sync::mpsc::channel(1);
+    let worker = tokio::spawn({
+        let client = client.clone();
+        let stop = stop.clone();
+        async move {
+            client
+                .watch_conversation(session.id, updates, stop, requests)
+                .await
+        }
+    });
+    observed(&mut view, |view| view.snapshot.is_some() && view.connected).await;
+    let Output::QueuedTurn(turn) = client
+        .execute(client.prepare(Command::SubmitTurn {
+            session: session.id,
+            expected_revision: 1,
+            message: "streaming fixture".into(),
+        }))
+        .await
+        .unwrap()
+    else {
+        panic!("turn expected")
+    };
+    observed(&mut view, |view| {
+        view.snapshot.as_ref().is_some_and(|snapshot| {
+            snapshot
+                .drafts
+                .iter()
+                .any(|draft| draft.parts == vec![Part::Text("partial-fixture".into())])
         })
-        .await;
-        provider.endpoint = fast.endpoint.clone();
-        client
-            .execute(client.prepare(Command::PutProvider {
-                provider,
-                expected_revision: 1,
-            }))
-            .await
-            .unwrap();
-        client
-            .execute(client.prepare(Command::SubmitTurn {
-                session: session.id,
-                expected_revision: 1,
-                message: "completed fixture".into(),
-            }))
-            .await
-            .unwrap();
-        observed(&mut view, |view| {
-            view.snapshot.as_ref().is_some_and(|snapshot| {
-                snapshot
+    })
+    .await;
+    assert!(!text(&history(&client, session.id).await).contains("partial-fixture"));
+    controller.handle().disconnect(node.id()).await;
+    let mut resumed = client.subscribe_conversation(session.id).await.unwrap();
+    let Update::ConversationSnapshot(recovered) = resumed.next().await.unwrap() else {
+        panic!("snapshot expected")
+    };
+    assert_eq!(
+        recovered.drafts[0].parts,
+        vec![Part::Text("partial-fixture".into())]
+    );
+    assert_eq!(slow.requests.lock().unwrap().len(), 1);
+    drop(resumed);
+    client
+        .execute(client.prepare(Command::StopTurn { turn: turn.id }))
+        .await
+        .unwrap();
+    observed(&mut view, |view| {
+        view.snapshot.as_ref().is_some_and(|snapshot| {
+            snapshot.drafts.is_empty()
+                && snapshot
                     .page
                     .runs
                     .last()
-                    .is_some_and(|run| run.status == Status::Completed)
-            })
+                    .is_some_and(|run| run.status == Status::Cancelled)
         })
-        .await;
-        let page = history(&client, session.id).await;
-        assert_eq!(
-            view.borrow().snapshot.as_ref().unwrap().page.as_ref(),
-            &page
-        );
-        assert!(view.borrow().snapshot.as_ref().unwrap().drafts.is_empty());
-        assert!(text(&page).contains("answer-fixture-a"));
-        assert_eq!(fast.requests.lock().unwrap().len(), 1);
-        stop.cancel();
-        tokio::time::timeout(Duration::from_secs(2), worker)
-            .await
-            .unwrap()
-            .unwrap()
-            .unwrap();
-        assert!(!view.borrow().connected);
-        node.shutdown().await.unwrap();
-        controller.close().await.unwrap();
-    }
+    })
+    .await;
+    provider.endpoint = fast.endpoint.clone();
+    client
+        .execute(client.prepare(Command::PutProvider {
+            provider,
+            expected_revision: 1,
+        }))
+        .await
+        .unwrap();
+    client
+        .execute(client.prepare(Command::SubmitTurn {
+            session: session.id,
+            expected_revision: 1,
+            message: "completed fixture".into(),
+        }))
+        .await
+        .unwrap();
+    observed(&mut view, |view| {
+        view.snapshot.as_ref().is_some_and(|snapshot| {
+            snapshot
+                .page
+                .runs
+                .last()
+                .is_some_and(|run| run.status == Status::Completed)
+        })
+    })
+    .await;
+    let page = history(&client, session.id).await;
+    assert_eq!(
+        view.borrow().snapshot.as_ref().unwrap().page.as_ref(),
+        &page
+    );
+    assert!(view.borrow().snapshot.as_ref().unwrap().drafts.is_empty());
+    assert!(text(&page).contains("answer-fixture-a"));
+    assert_eq!(fast.requests.lock().unwrap().len(), 1);
+    stop.cancel();
+    tokio::time::timeout(Duration::from_secs(2), worker)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert!(!view.borrow().connected);
+    node.shutdown().await.unwrap();
+    controller.close().await.unwrap();
 }
 
 /// Each published view restarts the window, so slower hosts may take longer in

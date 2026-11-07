@@ -42,7 +42,7 @@ async fn changed(
     .expect("credential event deadline")
 }
 
-async fn lifecycle(remote: bool) {
+async fn lifecycle() {
     let directory = tempfile::tempdir().unwrap();
     let controller = Node::start_empty(directory.path().join("controller"))
         .await
@@ -60,11 +60,7 @@ async fn lifecycle(remote: bool) {
         .set_trust(controller.id(), true)
         .await
         .unwrap();
-    let client = Client::new(if remote {
-        controller.link().remote(execution.link().address())
-    } else {
-        execution.local()
-    });
+    let client = Client::new(controller.link().remote(execution.link().address()));
     let id = CredentialId::new();
     let provider = ProviderId::new();
     let reference = CredentialRef {
@@ -276,13 +272,8 @@ async fn lifecycle(remote: bool) {
 }
 
 #[tokio::test]
-async fn local_lifecycle_and_redaction() {
-    lifecycle(false).await;
-}
-
-#[tokio::test]
 async fn remote_lifecycle_and_redaction() {
-    lifecycle(true).await;
+    lifecycle().await;
 }
 
 #[tokio::test]

@@ -399,255 +399,245 @@ async fn usage(client: &Client, session: &Session, project: ProjectId, responses
 
 #[tokio::test]
 async fn scope() {
-    for remote in [false, true] {
-        let server = Server::tools(vec![
-            (alias("read_note"), json!({"key":"review"})),
-            (
-                plugin_tool("files", "read_file"),
-                json!({"path":"source.txt"}),
-            ),
-            (
-                "load_skill".into(),
-                json!({"skill":"assistant-notes:review"}),
-            ),
-            (
-                "read_skill_resource".into(),
-                json!({"skill":"assistant-notes:review","path":"references/guide.md"}),
-            ),
-        ])
-        .await;
-        let fixture = process::Fixture::packages(remote, &server, &["files"]).await;
-        let info = install(&fixture, 0, false).await;
-        let unrelated = unrelated(&fixture).await;
-        let session = create(&fixture, &info).await;
-        seed(&fixture, &session, &info).await;
-        let Output::Snapshot(snapshot) = execute(&fixture.client, Command::Snapshot).await else {
-            panic!("snapshot expected")
-        };
-        let tree = snapshot
-            .worktrees
-            .iter()
-            .find(|tree| tree.id == session.worktree)
-            .unwrap();
-        assert_eq!(tree.project, None);
-        assert_ne!(tree.id, fixture.session.worktree);
-        assert!(Path::new(&tree.path).starts_with(fixture.node.profile()));
-        std::fs::write(
-            Path::new(&tree.path).join("source.txt"),
-            "Assistant scratch file",
-        )
+    let server = Server::tools(vec![
+        (alias("read_note"), json!({"key":"review"})),
+        (
+            plugin_tool("files", "read_file"),
+            json!({"path":"source.txt"}),
+        ),
+        (
+            "load_skill".into(),
+            json!({"skill":"assistant-notes:review"}),
+        ),
+        (
+            "read_skill_resource".into(),
+            json!({"skill":"assistant-notes:review","path":"references/guide.md"}),
+        ),
+    ])
+    .await;
+    let fixture = process::Fixture::packages(&server, &["files"]).await;
+    let info = install(&fixture, 0, false).await;
+    let unrelated = unrelated(&fixture).await;
+    let session = create(&fixture, &info).await;
+    seed(&fixture, &session, &info).await;
+    let Output::Snapshot(snapshot) = execute(&fixture.client, Command::Snapshot).await else {
+        panic!("snapshot expected")
+    };
+    let tree = snapshot
+        .worktrees
+        .iter()
+        .find(|tree| tree.id == session.worktree)
         .unwrap();
-        let Output::Session(ordinary) = execute(
-            &fixture.client,
-            Command::CreateSession {
-                project: fixture.session.project,
-                worktree: Some(fixture.session.worktree),
-                config: Some(fixture.session.config.clone()),
-            },
-        )
-        .await
-        else {
-            panic!("session expected")
-        };
-        assert!(ordinary.config.assistant.is_none());
-        for assistant in [
-            None,
-            Some(Binding {
-                package: info.summary.reference(),
-                id: "database".into(),
-            }),
-        ] {
-            let mut config = session.config.clone();
-            config.assistant = assistant;
-            let fault = fixture
-                .client
-                .execute(fixture.client.prepare(Command::SetSessionConfig {
-                    session: session.id,
-                    expected_revision: session.revision,
-                    config,
-                }))
-                .await
-                .unwrap_err();
-            assert_eq!(fault.code, ErrorCode::PermissionDenied);
-        }
+    assert_eq!(tree.project, None);
+    assert_ne!(tree.id, fixture.session.worktree);
+    assert!(Path::new(&tree.path).starts_with(fixture.node.profile()));
+    std::fs::write(
+        Path::new(&tree.path).join("source.txt"),
+        "Assistant scratch file",
+    )
+    .unwrap();
+    let Output::Session(ordinary) = execute(
+        &fixture.client,
+        Command::CreateSession {
+            project: fixture.session.project,
+            worktree: Some(fixture.session.worktree),
+            config: Some(fixture.session.config.clone()),
+        },
+    )
+    .await
+    else {
+        panic!("session expected")
+    };
+    assert!(ordinary.config.assistant.is_none());
+    for assistant in [
+        None,
+        Some(Binding {
+            package: info.summary.reference(),
+            id: "database".into(),
+        }),
+    ] {
         let mut config = session.config.clone();
-        config.assistant.as_mut().unwrap().id = "database".into();
+        config.assistant = assistant;
         let fault = fixture
             .client
-            .execute(fixture.client.prepare(Command::CreateSession {
-                project: None,
-                worktree: None,
-                config: Some(config),
+            .execute(fixture.client.prepare(Command::SetSessionConfig {
+                session: session.id,
+                expected_revision: session.revision,
+                config,
             }))
             .await
             .unwrap_err();
         assert_eq!(fault.code, ErrorCode::PermissionDenied);
-        let session = reject_role(&fixture, &session).await;
-        execute(
-            &fixture.client,
-            Command::SetPluginEnabled {
-                name: unrelated.summary.name,
-                expected_revision: unrelated.summary.revision,
-                enabled: false,
-            },
-        )
-        .await;
-        let turn = submit(&fixture.client, &session, false).await;
-        let page = finished(&fixture.client, session.id, turn.id).await;
-        assert_eq!(page.runs[0].status, Status::Completed);
-        note(&fixture.client, &page).await;
-        usage(
-            &fixture.client,
-            &session,
-            fixture.session.project.unwrap(),
-            5,
-        )
-        .await;
-        let details = tool_details(&fixture.client, &page).await;
-        assert!(details.iter().any(|(name, detail)| {
-            name == "load_skill"
-                && detail.result.as_ref().unwrap()["content"]
-                    .as_str()
-                    .is_some_and(|text| text.contains("Read references/guide.md"))
-        }));
-        assert!(
-            details
-                .iter()
-                .any(|(name, detail)| name == "read_skill_resource"
-                    && detail.result.as_ref().unwrap()["content"] == "Review guide")
-        );
-        assert!(details.iter().any(|(name, detail)| name == &plugin_tool("files", "read_file")
-            && matches!(serde_json::from_value::<Output>(detail.result.as_ref().unwrap().clone()), Ok(Output::FileLines(content)) if content.lines.len() == 1 && content.lines[0].text == "Assistant scratch file")));
-        model(&server.requests.lock().unwrap()[0]);
-        let Output::Session(saved) = execute(
-            &fixture.client,
-            Command::ReadSession {
-                session: session.id,
-            },
-        )
-        .await
-        else {
-            panic!("session expected")
-        };
-        assert_eq!(saved.config.assistant, session.config.assistant);
-        fixture.node.shutdown().await.unwrap();
-        fixture.controller.close().await.unwrap();
     }
+    let mut config = session.config.clone();
+    config.assistant.as_mut().unwrap().id = "database".into();
+    let fault = fixture
+        .client
+        .execute(fixture.client.prepare(Command::CreateSession {
+            project: None,
+            worktree: None,
+            config: Some(config),
+        }))
+        .await
+        .unwrap_err();
+    assert_eq!(fault.code, ErrorCode::PermissionDenied);
+    let session = reject_role(&fixture, &session).await;
+    execute(
+        &fixture.client,
+        Command::SetPluginEnabled {
+            name: unrelated.summary.name,
+            expected_revision: unrelated.summary.revision,
+            enabled: false,
+        },
+    )
+    .await;
+    let turn = submit(&fixture.client, &session, false).await;
+    let page = finished(&fixture.client, session.id, turn.id).await;
+    assert_eq!(page.runs[0].status, Status::Completed);
+    note(&fixture.client, &page).await;
+    usage(
+        &fixture.client,
+        &session,
+        fixture.session.project.unwrap(),
+        5,
+    )
+    .await;
+    let details = tool_details(&fixture.client, &page).await;
+    assert!(details.iter().any(|(name, detail)| {
+        name == "load_skill"
+            && detail.result.as_ref().unwrap()["content"]
+                .as_str()
+                .is_some_and(|text| text.contains("Read references/guide.md"))
+    }));
+    assert!(
+        details
+            .iter()
+            .any(|(name, detail)| name == "read_skill_resource"
+                && detail.result.as_ref().unwrap()["content"] == "Review guide")
+    );
+    assert!(details.iter().any(|(name, detail)| name == &plugin_tool("files", "read_file")
+        && matches!(serde_json::from_value::<Output>(detail.result.as_ref().unwrap().clone()), Ok(Output::FileLines(content)) if content.lines.len() == 1 && content.lines[0].text == "Assistant scratch file")));
+    model(&server.requests.lock().unwrap()[0]);
+    let Output::Session(saved) = execute(
+        &fixture.client,
+        Command::ReadSession {
+            session: session.id,
+        },
+    )
+    .await
+    else {
+        panic!("session expected")
+    };
+    assert_eq!(saved.config.assistant, session.config.assistant);
+    fixture.node.shutdown().await.unwrap();
+    fixture.controller.close().await.unwrap();
 }
 
 #[tokio::test]
 async fn recovery() {
-    for remote in [false, true] {
-        let server = Server::tools(vec![(alias("read_note"), json!({"key":"review"}))]).await;
-        let fixture = process::Fixture::packages(remote, &server, &["files"]).await;
-        let info = install(&fixture, 0, false).await;
-        let session = create(&fixture, &info).await;
-        seed(&fixture, &session, &info).await;
-        let turn = submit(&fixture.client, &session, true).await;
-        assert_eq!(turn.config.assistant, session.config.assistant);
-        let Output::Plugin(files) = execute(
-            &fixture.client,
-            Command::ReadPlugin {
-                name: "files".into(),
-            },
-        )
+    let server = Server::tools(vec![(alias("read_note"), json!({"key":"review"}))]).await;
+    let fixture = process::Fixture::packages(&server, &["files"]).await;
+    let info = install(&fixture, 0, false).await;
+    let session = create(&fixture, &info).await;
+    seed(&fixture, &session, &info).await;
+    let turn = submit(&fixture.client, &session, true).await;
+    assert_eq!(turn.config.assistant, session.config.assistant);
+    let Output::Plugin(files) = execute(
+        &fixture.client,
+        Command::ReadPlugin {
+            name: "files".into(),
+        },
+    )
+    .await
+    else {
+        panic!("imported files package expected")
+    };
+    assert_eq!(
+        turn.plugins,
+        [info.summary.reference(), files.summary.reference()]
+    );
+    let replacement = install(&fixture, info.summary.revision, true).await;
+    assert_ne!(replacement.summary.digest, info.summary.digest);
+    execute(
+        &fixture.client,
+        Command::SetPluginEnabled {
+            name: PACKAGE.into(),
+            expected_revision: replacement.summary.revision,
+            enabled: false,
+        },
+    )
+    .await;
+    execute(&fixture.client, Command::StartQueuedTurn { turn: turn.id }).await;
+    let page = finished(&fixture.client, session.id, turn.id).await;
+    assert_eq!(page.runs[0].status, Status::Completed);
+    note(&fixture.client, &page).await;
+    usage(
+        &fixture.client,
+        &session,
+        fixture.session.project.unwrap(),
+        2,
+    )
+    .await;
+    model(&server.requests.lock().unwrap()[0]);
+    let fault = fixture
+        .client
+        .execute(fixture.client.prepare(Command::QueueTurn {
+            session: session.id,
+            expected_revision: session.revision,
+            message: "New admission".into(),
+        }))
         .await
-        else {
-            panic!("imported files package expected")
-        };
-        assert_eq!(
-            turn.plugins,
-            [info.summary.reference(), files.summary.reference()]
-        );
-        let replacement = install(&fixture, info.summary.revision, true).await;
-        assert_ne!(replacement.summary.digest, info.summary.digest);
-        execute(
-            &fixture.client,
-            Command::SetPluginEnabled {
-                name: PACKAGE.into(),
-                expected_revision: replacement.summary.revision,
-                enabled: false,
-            },
-        )
-        .await;
-        execute(&fixture.client, Command::StartQueuedTurn { turn: turn.id }).await;
-        let page = finished(&fixture.client, session.id, turn.id).await;
-        assert_eq!(page.runs[0].status, Status::Completed);
-        note(&fixture.client, &page).await;
-        usage(
-            &fixture.client,
-            &session,
-            fixture.session.project.unwrap(),
-            2,
-        )
-        .await;
-        model(&server.requests.lock().unwrap()[0]);
-        let fault = fixture
-            .client
-            .execute(fixture.client.prepare(Command::QueueTurn {
-                session: session.id,
-                expected_revision: session.revision,
-                message: "New admission".into(),
-            }))
-            .await
-            .unwrap_err();
-        assert_eq!(fault.code, ErrorCode::NotConfigured);
-        let profile = fixture.node.profile().to_owned();
-        fixture.node.shutdown().await.unwrap();
-        let node = Node::start_empty(profile).await.unwrap();
-        let client = Client::new(if remote {
-            fixture.controller.handle().remote(node.link().address())
-        } else {
-            node.local()
-        });
-        let Output::Session(restored) = execute(
-            &client,
-            Command::ReadSession {
-                session: session.id,
-            },
-        )
-        .await
-        else {
-            panic!("session expected")
-        };
-        assert_eq!(restored.config.assistant, session.config.assistant);
-        assert_eq!(restored.worktree, session.worktree);
-        assert_eq!(history(&client, session.id).await, page);
-        usage(&client, &restored, fixture.session.project.unwrap(), 2).await;
-        assert_eq!(server.requests.lock().unwrap().len(), 2);
-        node.shutdown().await.unwrap();
-        fixture.controller.close().await.unwrap();
-    }
+        .unwrap_err();
+    assert_eq!(fault.code, ErrorCode::NotConfigured);
+    let profile = fixture.node.profile().to_owned();
+    fixture.node.shutdown().await.unwrap();
+    let node = Node::start_empty(profile).await.unwrap();
+    let client = Client::new(fixture.controller.handle().remote(node.link().address()));
+    let Output::Session(restored) = execute(
+        &client,
+        Command::ReadSession {
+            session: session.id,
+        },
+    )
+    .await
+    else {
+        panic!("session expected")
+    };
+    assert_eq!(restored.config.assistant, session.config.assistant);
+    assert_eq!(restored.worktree, session.worktree);
+    assert_eq!(history(&client, session.id).await, page);
+    usage(&client, &restored, fixture.session.project.unwrap(), 2).await;
+    assert_eq!(server.requests.lock().unwrap().len(), 2);
+    node.shutdown().await.unwrap();
+    fixture.controller.close().await.unwrap();
 }
 
 #[tokio::test]
 async fn history_requires_an_assistant_declaration() {
-    for remote in [false, true] {
-        let server = Server::start(false).await;
-        let fixture = process::Fixture::packages(remote, &server, &[]).await;
-        let info = install(&fixture, 0, true).await;
-        let session = create(&fixture, &info).await;
-        let turn = submit(&fixture.client, &session, false).await;
-        assert_eq!(
-            finished(&fixture.client, session.id, turn.id).await.runs[0].status,
-            Status::Completed
-        );
-        {
-            let requests = server.requests.lock().unwrap();
-            let tools = requests[0]["tools"].as_array().unwrap();
-            for name in ["list_sessions", "read_session", "search_session"] {
-                assert!(
-                    !tools.iter().any(|tool| tool["function"]["name"] == name),
-                    "{name}"
-                );
-            }
+    let server = Server::start(false).await;
+    let fixture = process::Fixture::packages(&server, &[]).await;
+    let info = install(&fixture, 0, true).await;
+    let session = create(&fixture, &info).await;
+    let turn = submit(&fixture.client, &session, false).await;
+    assert_eq!(
+        finished(&fixture.client, session.id, turn.id).await.runs[0].status,
+        Status::Completed
+    );
+    {
+        let requests = server.requests.lock().unwrap();
+        let tools = requests[0]["tools"].as_array().unwrap();
+        for name in ["list_sessions", "read_session", "search_session"] {
             assert!(
-                tools
-                    .iter()
-                    .any(|tool| tool["function"]["name"] == "read_tool_output")
+                !tools.iter().any(|tool| tool["function"]["name"] == name),
+                "{name}"
             );
         }
-        fixture.node.shutdown().await.unwrap();
-        fixture.controller.close().await.unwrap();
+        assert!(
+            tools
+                .iter()
+                .any(|tool| tool["function"]["name"] == "read_tool_output")
+        );
     }
+    fixture.node.shutdown().await.unwrap();
+    fixture.controller.close().await.unwrap();
 }

@@ -35,19 +35,18 @@ pub(crate) fn info(output: Output) -> Info {
     info
 }
 
-pub(crate) async fn fixture(remote: bool) -> (tempfile::TempDir, Node, Link, Client, WorktreeId) {
-    start(remote, false).await
+pub(crate) async fn fixture() -> (tempfile::TempDir, Node, Link, Client, WorktreeId) {
+    start(false).await
 }
 
-pub(crate) async fn empty(remote: bool) -> (tempfile::TempDir, Node, Link, Client, WorktreeId) {
-    start(remote, true).await
+pub(crate) async fn empty() -> (tempfile::TempDir, Node, Link, Client, WorktreeId) {
+    start(true).await
 }
 
 pub(crate) async fn packages(
-    remote: bool,
     packages: &[&str],
 ) -> (tempfile::TempDir, Node, Link, Client, WorktreeId) {
-    let fixture = empty(remote).await;
+    let fixture = empty().await;
     for &name in packages {
         let package = info(
             execute(
@@ -75,7 +74,7 @@ pub(crate) async fn packages(
     fixture
 }
 
-async fn start(remote: bool, empty: bool) -> (tempfile::TempDir, Node, Link, Client, WorktreeId) {
+async fn start(empty: bool) -> (tempfile::TempDir, Node, Link, Client, WorktreeId) {
     let directory = tempfile::tempdir().unwrap();
     let profile = directory.path().join("node");
     let node = if empty {
@@ -84,11 +83,10 @@ async fn start(remote: bool, empty: bool) -> (tempfile::TempDir, Node, Link, Cli
         Node::start_with_plugin_catalog(directory.path().join("node"), "http://127.0.0.1:9/").await
     }
     .unwrap();
-    connect(remote, directory, node).await
+    connect(directory, node).await
 }
 
 pub(super) async fn connect(
-    remote: bool,
     directory: tempfile::TempDir,
     node: Node,
 ) -> (tempfile::TempDir, Node, Link, Client, WorktreeId) {
@@ -100,11 +98,7 @@ pub(super) async fn connect(
         .pair(node.link().invite().unwrap().ticket())
         .await
         .unwrap();
-    let client = Client::new(if remote {
-        controller.handle().remote(address)
-    } else {
-        node.local()
-    });
+    let client = Client::new(controller.handle().remote(address));
     let source = directory.path().join("source");
     package(&source.join("package"), "1.0.0");
     execute(

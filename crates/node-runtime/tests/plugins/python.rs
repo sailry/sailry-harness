@@ -137,117 +137,115 @@ async fn prepares_before_install_and_enable() {
         sha2::Sha256::digest(&bytes)
     );
     let index = Index::start(bytes);
-    for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
-        node.set_python_runtime_fixture(&runtime).unwrap();
-        assert!(!node.profile().join("python/environments").exists());
+    let (directory, node, controller, client, worktree) = fixture().await;
+    node.set_python_runtime_fixture(&runtime).unwrap();
+    assert!(!node.profile().join("python/environments").exists());
+    execute(
+        &client,
+        Command::SavePythonSettings(sailry_protocol::python::Settings {
+            revision: 0,
+            index: Some(format!("http://localhost:{}/simple", index.address.port())),
+        }),
+    )
+    .await;
+    let lock = directory.path().join("source/package/requirements.txt");
+    fs::write(&lock, &requirements).unwrap();
+    let request = client.prepare(install(worktree, 0));
+    let installed = info(client.execute(request.clone()).await.unwrap());
+    let environments: Vec<_> = fs::read_dir(node.profile().join("python/environments"))
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .collect();
+    assert_eq!(environments.len(), 1);
+    assert!(environments[0].join(".sailry-ready.json").is_file());
+    let downloads = index.downloads.load(Ordering::SeqCst);
+    assert_eq!(
+        client.execute(request).await.unwrap(),
+        Output::Plugin(installed.clone())
+    );
+    assert_eq!(index.downloads.load(Ordering::SeqCst), downloads);
+    let disabled = info(
         execute(
             &client,
-            Command::SavePythonSettings(sailry_protocol::python::Settings {
-                revision: 0,
-                index: Some(format!("http://localhost:{}/simple", index.address.port())),
-            }),
+            Command::SetPluginEnabled {
+                name: "example".into(),
+                expected_revision: installed.summary.revision,
+                enabled: false,
+            },
         )
-        .await;
-        let lock = directory.path().join("source/package/requirements.txt");
-        fs::write(&lock, &requirements).unwrap();
-        let request = client.prepare(install(worktree, 0));
-        let installed = info(client.execute(request.clone()).await.unwrap());
-        let environments: Vec<_> = fs::read_dir(node.profile().join("python/environments"))
-            .unwrap()
-            .map(|entry| entry.unwrap().path())
-            .collect();
-        assert_eq!(environments.len(), 1);
-        assert!(environments[0].join(".sailry-ready.json").is_file());
-        let downloads = index.downloads.load(Ordering::SeqCst);
-        assert_eq!(
-            client.execute(request).await.unwrap(),
-            Output::Plugin(installed.clone())
-        );
-        assert_eq!(index.downloads.load(Ordering::SeqCst), downloads);
-        let disabled = info(
+        .await,
+    );
+    let captured_lock = node
+        .profile()
+        .join("plugins/packages")
+        .join(&disabled.summary.digest)
+        .join("requirements.txt");
+    fs::write(&captured_lock, "changed immutable package").unwrap();
+    let failed = client.prepare(Command::SetPluginEnabled {
+        name: "example".into(),
+        expected_revision: disabled.summary.revision,
+        enabled: true,
+    });
+    let failure = client.execute(failed.clone()).await.unwrap_err();
+    assert_eq!(failure.code, ErrorCode::Unavailable);
+    assert_eq!(
+        info(
             execute(
                 &client,
-                Command::SetPluginEnabled {
-                    name: "example".into(),
-                    expected_revision: installed.summary.revision,
-                    enabled: false,
-                },
+                Command::ReadPlugin {
+                    name: "example".into()
+                }
             )
-            .await,
-        );
-        let captured_lock = node
-            .profile()
-            .join("plugins/packages")
-            .join(&disabled.summary.digest)
-            .join("requirements.txt");
-        fs::write(&captured_lock, "changed immutable package").unwrap();
-        let failed = client.prepare(Command::SetPluginEnabled {
-            name: "example".into(),
-            expected_revision: disabled.summary.revision,
-            enabled: true,
-        });
-        let failure = client.execute(failed.clone()).await.unwrap_err();
-        assert_eq!(failure.code, ErrorCode::Unavailable);
-        assert_eq!(
-            info(
-                execute(
-                    &client,
-                    Command::ReadPlugin {
-                        name: "example".into()
-                    }
-                )
-                .await
-            ),
-            disabled
-        );
-        fs::write(&captured_lock, &requirements).unwrap();
-        let enabled = info(
+            .await
+        ),
+        disabled
+    );
+    fs::write(&captured_lock, &requirements).unwrap();
+    let enabled = info(
+        execute(
+            &client,
+            Command::SetPluginEnabled {
+                name: "example".into(),
+                expected_revision: disabled.summary.revision,
+                enabled: true,
+            },
+        )
+        .await,
+    );
+    assert!(enabled.summary.enabled);
+    assert_eq!(index.downloads.load(Ordering::SeqCst), downloads);
+    assert_eq!(
+        client.outcome(&failed).await.unwrap(),
+        RequestOutcome::Completed(Box::new(Err(failure)))
+    );
+    let stored = fs::read(&lock).unwrap();
+    fs::write(
+        &lock,
+        format!("sailry-fixture==1.0.0 --hash=sha256:{}\n", "0".repeat(64)),
+    )
+    .unwrap();
+    assert!(
+        client
+            .execute(client.prepare(install(worktree, enabled.summary.revision)))
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        info(
             execute(
                 &client,
-                Command::SetPluginEnabled {
-                    name: "example".into(),
-                    expected_revision: disabled.summary.revision,
-                    enabled: true,
-                },
+                Command::ReadPlugin {
+                    name: "example".into()
+                }
             )
-            .await,
-        );
-        assert!(enabled.summary.enabled);
-        assert_eq!(index.downloads.load(Ordering::SeqCst), downloads);
-        assert_eq!(
-            client.outcome(&failed).await.unwrap(),
-            RequestOutcome::Completed(Box::new(Err(failure)))
-        );
-        let stored = fs::read(&lock).unwrap();
-        fs::write(
-            &lock,
-            format!("sailry-fixture==1.0.0 --hash=sha256:{}\n", "0".repeat(64)),
-        )
-        .unwrap();
-        assert!(
-            client
-                .execute(client.prepare(install(worktree, enabled.summary.revision)))
-                .await
-                .is_err()
-        );
-        assert_eq!(
-            info(
-                execute(
-                    &client,
-                    Command::ReadPlugin {
-                        name: "example".into()
-                    }
-                )
-                .await
-            ),
-            enabled
-        );
-        fs::write(&lock, stored).unwrap();
-        drop(client);
-        controller.close().await.unwrap();
-        node.shutdown().await.unwrap();
-    }
+            .await
+        ),
+        enabled
+    );
+    fs::write(&lock, stored).unwrap();
+    drop(client);
+    controller.close().await.unwrap();
+    node.shutdown().await.unwrap();
 }
 
 #[tokio::test]
@@ -258,119 +256,117 @@ async fn keeps_file_operations_responsive_during_installation() {
         std::env::var_os("SAILRY_TEST_PYTHON_RUNTIME")
             .expect("SAILRY_TEST_PYTHON_RUNTIME is required"),
     );
-    for remote in [false, true] {
-        let bytes = wheel();
-        let requirements = format!(
-            "sailry-fixture==1.0.0 --hash=sha256:{:x}\n",
-            sha2::Sha256::digest(&bytes)
-        );
-        let index = Index::blocked(bytes);
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
-        node.set_python_runtime_fixture(&runtime).unwrap();
-        let client = Arc::new(client);
-        let stop = sailry_link::CancellationToken::new();
-        let (updates, mut progress) =
-            tokio::sync::watch::channel(sailry_client::python::View::default());
-        let watching = client.clone();
-        let closing = stop.clone();
-        let watcher = tokio::spawn(async move { watching.watch_python(updates, closing).await });
-        tokio::time::timeout(Duration::from_secs(30), async {
-            while !progress.borrow_and_update().connected {
-                progress.changed().await.unwrap();
-            }
-        })
+    let bytes = wheel();
+    let requirements = format!(
+        "sailry-fixture==1.0.0 --hash=sha256:{:x}\n",
+        sha2::Sha256::digest(&bytes)
+    );
+    let index = Index::blocked(bytes);
+    let (directory, node, controller, client, worktree) = fixture().await;
+    node.set_python_runtime_fixture(&runtime).unwrap();
+    let client = Arc::new(client);
+    let stop = sailry_link::CancellationToken::new();
+    let (updates, mut progress) =
+        tokio::sync::watch::channel(sailry_client::python::View::default());
+    let watching = client.clone();
+    let closing = stop.clone();
+    let watcher = tokio::spawn(async move { watching.watch_python(updates, closing).await });
+    tokio::time::timeout(Duration::from_secs(30), async {
+        while !progress.borrow_and_update().connected {
+            progress.changed().await.unwrap();
+        }
+    })
+    .await
+    .unwrap();
+    assert!(progress.borrow().preparations.is_empty());
+    assert!(!node.profile().join("python/environments").exists());
+    execute(
+        &client,
+        Command::SavePythonSettings(sailry_protocol::python::Settings {
+            revision: 0,
+            index: Some(format!("http://localhost:{}/simple", index.address.port())),
+        }),
+    )
+    .await;
+    fs::write(
+        directory.path().join("source/package/requirements.txt"),
+        requirements,
+    )
+    .unwrap();
+    let admitted = client
+        .dispatch(client.prepare(install(worktree, 0)))
         .await
         .unwrap();
-        assert!(progress.borrow().preparations.is_empty());
-        assert!(!node.profile().join("python/environments").exists());
+    assert!(admitted.receipt.durable);
+    let mut completion = admitted.completion;
+    tokio::time::timeout(Duration::from_secs(30), async {
+        while index.downloads.load(Ordering::SeqCst) == 0 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        while !progress
+            .borrow_and_update()
+            .package("example")
+            .is_some_and(|item| item.stage == sailry_protocol::python::Stage::Installing)
+        {
+            progress.changed().await.unwrap();
+        }
+    })
+    .await
+    .unwrap();
+    assert!(matches!(
+        completion.try_recv(),
+        Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+    ));
+    let Output::Plugins(installed) = execute(&client, Command::ListPlugins).await else {
+        panic!("plugin inventory expected");
+    };
+    assert!(installed.iter().all(|package| package.name != "example"));
+    tokio::time::timeout(
+        Duration::from_secs(5),
         execute(
             &client,
-            Command::SavePythonSettings(sailry_protocol::python::Settings {
-                revision: 0,
-                index: Some(format!("http://localhost:{}/simple", index.address.port())),
-            }),
-        )
-        .await;
-        fs::write(
-            directory.path().join("source/package/requirements.txt"),
-            requirements,
-        )
-        .unwrap();
-        let admitted = client
-            .dispatch(client.prepare(install(worktree, 0)))
+            Command::CreateDirectory {
+                worktree,
+                path: "while-python-installs".into(),
+            },
+        ),
+    )
+    .await
+    .expect("file operations must not wait for pip");
+    assert!(
+        directory
+            .path()
+            .join("source/while-python-installs")
+            .is_dir()
+    );
+    assert!(matches!(
+        completion.try_recv(),
+        Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+    ));
+    index.release();
+    let installed = info(
+        tokio::time::timeout(Duration::from_secs(60), completion)
             .await
-            .unwrap();
-        assert!(admitted.receipt.durable);
-        let mut completion = admitted.completion;
-        tokio::time::timeout(Duration::from_secs(30), async {
-            while index.downloads.load(Ordering::SeqCst) == 0 {
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-            while !progress
-                .borrow_and_update()
-                .package("example")
-                .is_some_and(|item| item.stage == sailry_protocol::python::Stage::Installing)
-            {
-                progress.changed().await.unwrap();
-            }
-        })
-        .await
-        .unwrap();
-        assert!(matches!(
-            completion.try_recv(),
-            Err(tokio::sync::oneshot::error::TryRecvError::Empty)
-        ));
-        let Output::Plugins(installed) = execute(&client, Command::ListPlugins).await else {
-            panic!("plugin inventory expected");
-        };
-        assert!(installed.iter().all(|package| package.name != "example"));
-        tokio::time::timeout(
-            Duration::from_secs(5),
-            execute(
-                &client,
-                Command::CreateDirectory {
-                    worktree,
-                    path: "while-python-installs".into(),
-                },
-            ),
-        )
-        .await
-        .expect("file operations must not wait for pip");
-        assert!(
-            directory
-                .path()
-                .join("source/while-python-installs")
-                .is_dir()
-        );
-        assert!(matches!(
-            completion.try_recv(),
-            Err(tokio::sync::oneshot::error::TryRecvError::Empty)
-        ));
-        index.release();
-        let installed = info(
-            tokio::time::timeout(Duration::from_secs(60), completion)
-                .await
-                .unwrap()
-                .unwrap()
-                .unwrap(),
-        );
-        assert!(installed.summary.enabled);
-        tokio::time::timeout(Duration::from_secs(30), async {
-            while progress.borrow_and_update().package("example").is_some() {
-                progress.changed().await.unwrap();
-            }
-        })
-        .await
-        .unwrap();
-        assert!(
-            fs::read_dir(node.profile().join("python/environments"))
-                .unwrap()
-                .all(|entry| { entry.unwrap().path().join(".sailry-ready.json").is_file() })
-        );
-        stop.cancel();
-        watcher.await.unwrap().unwrap();
-        drop(client);
-        controller.close().await.unwrap();
-        node.shutdown().await.unwrap();
-    }
+            .unwrap()
+            .unwrap()
+            .unwrap(),
+    );
+    assert!(installed.summary.enabled);
+    tokio::time::timeout(Duration::from_secs(30), async {
+        while progress.borrow_and_update().package("example").is_some() {
+            progress.changed().await.unwrap();
+        }
+    })
+    .await
+    .unwrap();
+    assert!(
+        fs::read_dir(node.profile().join("python/environments"))
+            .unwrap()
+            .all(|entry| { entry.unwrap().path().join(".sailry-ready.json").is_file() })
+    );
+    stop.cancel();
+    watcher.await.unwrap().unwrap();
+    drop(client);
+    controller.close().await.unwrap();
+    node.shutdown().await.unwrap();
 }

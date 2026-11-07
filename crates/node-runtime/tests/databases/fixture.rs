@@ -34,13 +34,9 @@ impl Fixture {
         self.node.as_ref().unwrap().id()
     }
 
-    pub fn client(&self, remote: bool) -> Client {
+    pub fn client(&self) -> Client {
         let node = self.node.as_ref().unwrap();
-        Client::new(if remote {
-            self.controller.handle().remote(node.link().address())
-        } else {
-            node.local()
-        })
+        Client::new(self.controller.handle().remote(node.link().address()))
     }
 
     pub async fn restart(&mut self) {

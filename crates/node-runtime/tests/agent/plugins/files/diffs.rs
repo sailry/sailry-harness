@@ -52,8 +52,8 @@ fn captions(page: &Page) -> usize {
         .sum()
 }
 
-async fn prepare(remote: bool, server: &Server, files: &[(&str, &str)]) -> process::Fixture {
-    let fixture = process::Fixture::packages(remote, server, &[]).await;
+async fn prepare(server: &Server, files: &[(&str, &str)]) -> process::Fixture {
+    let fixture = process::Fixture::packages(server, &[]).await;
     install(&fixture).await;
     for (path, text) in files {
         std::fs::write(fixture.root.join(path), text).unwrap();
@@ -124,163 +124,155 @@ async fn freeze_caption(node: &Node, turn: TurnId, tool: String) {
 
 #[tokio::test]
 async fn projects_multi_edit_hunks() {
-    for remote in [false, true] {
-        let fillers: String = (1..=12)
-            .map(|number| format!("filler {number}\n"))
-            .collect();
-        let original = format!("alpha\n{fillers}omega\n");
-        let server = Server::tools(vec![(
-            name("edit_file"),
-            json!({
-                "path":"note.txt",
-                "expected_revision":blake3::hash(original.as_bytes()).to_hex().to_string(),
-                "edits":[
-                    {"old_text":"alpha","new_text":"first"},
-                    {"old_text":"omega","new_text":"last"}
-                ]
-            }),
-        )])
-        .await;
-        let mut fixture = prepare(remote, &server, &[("note.txt", original.as_str())]).await;
-        let (_, page) = finish(&mut fixture).await;
-        let details = tool_details(&fixture.client, &page).await;
-        assert_eq!(details.len(), 1);
-        let body = unified(&details[0].1);
-        assert_eq!(body.path.as_deref(), Some("note.txt"));
-        assert_eq!(hunks(body), 2, "{}", body.text);
-        for row in ["-alpha\n", "+first\n", "-omega\n", "+last\n"] {
-            assert!(body.text.contains(row), "{}", body.text);
-        }
-        fixture.node.shutdown().await.unwrap();
-        fixture.controller.close().await.unwrap();
+    let fillers: String = (1..=12)
+        .map(|number| format!("filler {number}\n"))
+        .collect();
+    let original = format!("alpha\n{fillers}omega\n");
+    let server = Server::tools(vec![(
+        name("edit_file"),
+        json!({
+            "path":"note.txt",
+            "expected_revision":blake3::hash(original.as_bytes()).to_hex().to_string(),
+            "edits":[
+                {"old_text":"alpha","new_text":"first"},
+                {"old_text":"omega","new_text":"last"}
+            ]
+        }),
+    )])
+    .await;
+    let mut fixture = prepare(&server, &[("note.txt", original.as_str())]).await;
+    let (_, page) = finish(&mut fixture).await;
+    let details = tool_details(&fixture.client, &page).await;
+    assert_eq!(details.len(), 1);
+    let body = unified(&details[0].1);
+    assert_eq!(body.path.as_deref(), Some("note.txt"));
+    assert_eq!(hunks(body), 2, "{}", body.text);
+    for row in ["-alpha\n", "+first\n", "-omega\n", "+last\n"] {
+        assert!(body.text.contains(row), "{}", body.text);
     }
+    fixture.node.shutdown().await.unwrap();
+    fixture.controller.close().await.unwrap();
 }
 
 #[tokio::test]
 async fn projects_created_file_as_added_rows() {
-    for remote in [false, true] {
-        let server = Server::tools(vec![(
-            name("write_file"),
-            json!({"path":"created.txt","text":"One\nTwo\nThree\n","expected_revision":null}),
-        )])
-        .await;
-        let mut fixture = prepare(remote, &server, &[]).await;
-        let (_, page) = finish(&mut fixture).await;
-        let details = tool_details(&fixture.client, &page).await;
-        assert_eq!(details.len(), 1);
-        let body = unified(&details[0].1);
-        assert_eq!(body.path.as_deref(), Some("created.txt"));
-        assert_eq!(hunk_rows(body), ["+One", "+Two", "+Three"], "{}", body.text);
-        fixture.node.shutdown().await.unwrap();
-        fixture.controller.close().await.unwrap();
-    }
+    let server = Server::tools(vec![(
+        name("write_file"),
+        json!({"path":"created.txt","text":"One\nTwo\nThree\n","expected_revision":null}),
+    )])
+    .await;
+    let mut fixture = prepare(&server, &[]).await;
+    let (_, page) = finish(&mut fixture).await;
+    let details = tool_details(&fixture.client, &page).await;
+    assert_eq!(details.len(), 1);
+    let body = unified(&details[0].1);
+    assert_eq!(body.path.as_deref(), Some("created.txt"));
+    assert_eq!(hunk_rows(body), ["+One", "+Two", "+Three"], "{}", body.text);
+    fixture.node.shutdown().await.unwrap();
+    fixture.controller.close().await.unwrap();
 }
 
 #[tokio::test]
 async fn replaces_frozen_captions() {
-    for remote in [false, true] {
-        let original = "Original one\nOriginal two\n";
-        let server = Server::tools(vec![(
-            name("edit_file"),
-            json!({
-                "path":"note.txt",
-                "expected_revision":blake3::hash(original.as_bytes()).to_hex().to_string(),
-                "edits":[
-                    {"old_text":"one","new_text":"1"},
-                    {"old_text":"two","new_text":"2"}
-                ]
-            }),
-        )])
-        .await;
-        let mut fixture = prepare(remote, &server, &[("note.txt", original)]).await;
-        let (turn, _) = finish(&mut fixture).await;
-        freeze_caption(&fixture.node, turn, name("edit_file")).await;
-        let page = history(&fixture.client, fixture.session.id).await;
-        // The collapsed summary keeps the frozen caption; only the detail projection changes.
-        assert_eq!(captions(&page), 1);
-        let details = tool_details(&fixture.client, &page).await;
-        assert_eq!(details.len(), 1);
-        let body = unified(&details[0].1);
-        assert_eq!(body.path.as_deref(), Some("note.txt"));
-        for row in [
-            "-Original one\n",
-            "+Original 1\n",
-            "-Original two\n",
-            "+Original 2\n",
-        ] {
-            assert!(body.text.contains(row), "{}", body.text);
-        }
-        fixture.node.shutdown().await.unwrap();
-        fixture.controller.close().await.unwrap();
+    let original = "Original one\nOriginal two\n";
+    let server = Server::tools(vec![(
+        name("edit_file"),
+        json!({
+            "path":"note.txt",
+            "expected_revision":blake3::hash(original.as_bytes()).to_hex().to_string(),
+            "edits":[
+                {"old_text":"one","new_text":"1"},
+                {"old_text":"two","new_text":"2"}
+            ]
+        }),
+    )])
+    .await;
+    let mut fixture = prepare(&server, &[("note.txt", original)]).await;
+    let (turn, _) = finish(&mut fixture).await;
+    freeze_caption(&fixture.node, turn, name("edit_file")).await;
+    let page = history(&fixture.client, fixture.session.id).await;
+    // The collapsed summary keeps the frozen caption; only the detail projection changes.
+    assert_eq!(captions(&page), 1);
+    let details = tool_details(&fixture.client, &page).await;
+    assert_eq!(details.len(), 1);
+    let body = unified(&details[0].1);
+    assert_eq!(body.path.as_deref(), Some("note.txt"));
+    for row in [
+        "-Original one\n",
+        "+Original 1\n",
+        "-Original two\n",
+        "+Original 2\n",
+    ] {
+        assert!(body.text.contains(row), "{}", body.text);
     }
+    fixture.node.shutdown().await.unwrap();
+    fixture.controller.close().await.unwrap();
 }
 
 #[tokio::test]
 async fn keeps_failed_edit_without_diff() {
-    for remote in [false, true] {
-        let server = Server::tools(vec![(
-            name("edit_file"),
-            json!({
-                "path":"note.txt","old_text":"Original","new_text":"Edited",
-                "expected_revision":blake3::hash(b"stale").to_hex().to_string()
-            }),
-        )])
-        .await;
-        let mut fixture = prepare(remote, &server, &[("note.txt", "Original")]).await;
-        let (turn, page) = finish(&mut fixture).await;
-        let details = tool_details(&fixture.client, &page).await;
-        assert_eq!(details.len(), 1);
-        let detail = &details[0].1;
-        assert_eq!(detail.result.as_ref().unwrap()["isError"], true);
-        assert!(
-            shown(detail)
-                .body
-                .as_ref()
-                .is_none_or(|body| body.diff.is_none()),
-            "{detail:?}"
-        );
-        assert!(page.entries.iter().flat_map(|entry| &entry.parts).any(
+    let server = Server::tools(vec![(
+        name("edit_file"),
+        json!({
+            "path":"note.txt","old_text":"Original","new_text":"Edited",
+            "expected_revision":blake3::hash(b"stale").to_hex().to_string()
+        }),
+    )])
+    .await;
+    let mut fixture = prepare(&server, &[("note.txt", "Original")]).await;
+    let (turn, page) = finish(&mut fixture).await;
+    let details = tool_details(&fixture.client, &page).await;
+    assert_eq!(details.len(), 1);
+    let detail = &details[0].1;
+    assert_eq!(detail.result.as_ref().unwrap()["isError"], true);
+    assert!(
+        shown(detail)
+            .body
+            .as_ref()
+            .is_none_or(|body| body.diff.is_none()),
+        "{detail:?}"
+    );
+    assert!(
+        page.entries.iter().flat_map(|entry| &entry.parts).any(
             |part| matches!(part, Part::ToolResult { summary, .. } if summary.failure.is_some())
-        ));
-        assert!(
-            checkpoints(&fixture.client, fixture.session.id, turn)
-                .await
-                .is_empty()
-        );
-        assert_eq!(
-            std::fs::read_to_string(fixture.root.join("note.txt")).unwrap(),
-            "Original"
-        );
-        fixture.node.shutdown().await.unwrap();
-        fixture.controller.close().await.unwrap();
-    }
+        )
+    );
+    assert!(
+        checkpoints(&fixture.client, fixture.session.id, turn)
+            .await
+            .is_empty()
+    );
+    assert_eq!(
+        std::fs::read_to_string(fixture.root.join("note.txt")).unwrap(),
+        "Original"
+    );
+    fixture.node.shutdown().await.unwrap();
+    fixture.controller.close().await.unwrap();
 }
 
 #[tokio::test]
 async fn keeps_truncated_diff_partial() {
-    for remote in [false, true] {
-        let text: String = (0..5000)
-            .map(|number| format!("Line {number:05}\n"))
-            .collect();
-        let server = Server::tools(vec![(
-            name("write_file"),
-            json!({"path":"large.txt","text":text,"expected_revision":null}),
-        )])
-        .await;
-        let mut fixture = prepare(remote, &server, &[]).await;
-        let (_, page) = finish(&mut fixture).await;
-        assert_eq!(
-            std::fs::read_to_string(fixture.root.join("large.txt")).unwrap(),
-            text
-        );
-        let details = tool_details(&fixture.client, &page).await;
-        assert_eq!(details.len(), 1);
-        let body = unified(&details[0].1);
-        assert_eq!(body.path.as_deref(), Some("large.txt"));
-        assert!(body.text.len() <= sailry_protocol::MAX_DIFF_BYTES);
-        assert!(body.text.contains("+Line 00000\n"), "{}", body.text.len());
-        assert!(!body.text.contains("Line 04999"));
-        fixture.node.shutdown().await.unwrap();
-        fixture.controller.close().await.unwrap();
-    }
+    let text: String = (0..5000)
+        .map(|number| format!("Line {number:05}\n"))
+        .collect();
+    let server = Server::tools(vec![(
+        name("write_file"),
+        json!({"path":"large.txt","text":text,"expected_revision":null}),
+    )])
+    .await;
+    let mut fixture = prepare(&server, &[]).await;
+    let (_, page) = finish(&mut fixture).await;
+    assert_eq!(
+        std::fs::read_to_string(fixture.root.join("large.txt")).unwrap(),
+        text
+    );
+    let details = tool_details(&fixture.client, &page).await;
+    assert_eq!(details.len(), 1);
+    let body = unified(&details[0].1);
+    assert_eq!(body.path.as_deref(), Some("large.txt"));
+    assert!(body.text.len() <= sailry_protocol::MAX_DIFF_BYTES);
+    assert!(body.text.contains("+Line 00000\n"), "{}", body.text.len());
+    assert!(!body.text.contains("Line 04999"));
+    fixture.node.shutdown().await.unwrap();
+    fixture.controller.close().await.unwrap();
 }
