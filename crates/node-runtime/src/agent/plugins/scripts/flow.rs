@@ -15,6 +15,9 @@ enum Transition {
 struct Call {
     call: Operation,
     state: Option<Value>,
+    /// A failed read-only step reaches the next continuation unless the tool was stopped.
+    #[serde(default)]
+    optional: bool,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -34,6 +37,9 @@ fn uncertain(value: &Value) -> bool {
         && serde_json::from_value::<Fault>(value["error"].clone()).is_ok_and(|fault| {
             matches!(fault.code, ErrorCode::OutcomeUnknown | ErrorCode::Cancelled)
         })
+}
+fn halts(optional: bool, value: &Value) -> bool {
+    !optional && value.get("isError").and_then(Value::as_bool) == Some(true)
 }
 fn storage_conflict(operation: tool::Operation, value: &Value) -> bool {
     operation == tool::Operation::StorageTransaction
@@ -181,6 +187,13 @@ impl Script {
                             "plugin flow requested an undeclared operation",
                         ));
                     };
+                    let optional = call.optional;
+                    if optional && !call.call.operation.read_only() {
+                        return Ok(self.invalid(
+                            context.as_ref(),
+                            "optional plugin flow steps must be read-only",
+                        ));
+                    }
                     // Structural validation precedes the original confirmation. Each resumed
                     // command gets its own durable identity and can never replace earlier work.
                     let result = async {
@@ -247,14 +260,19 @@ impl Script {
                     if let Err(error) = &result {
                         self.record_outcome(context.as_ref(), Some(error));
                     }
+                    let errored = result.is_err();
                     outcome = match result {
                         Ok(output) => output,
                         Err(error) => operations::failure(call.call.operation, error),
                     };
-                    if uncertain(&outcome) {
+                    let optional = optional && !self.stop.is_cancelled();
+                    if uncertain(&outcome) && !optional {
                         return Ok(outcome);
                     }
-                    failed = outcome.get("isError").and_then(Value::as_bool) == Some(true);
+                    failed = halts(optional, &outcome);
+                    if optional && errored {
+                        self.record_outcome(context.as_ref(), None);
+                    }
                     conflict = storage_conflict(call.call.operation, &outcome);
                     let media = media::Media::take(&mut outcome);
                     if call.call.operation == tool::Operation::ControlComputer && media.recovery() {
@@ -286,6 +304,25 @@ mod tests {
             )
             .is_err()
         );
+    }
+    #[test]
+    fn optional_failures_reach_the_continuation() {
+        let Ok(Transition::Call(call)) = serde_json::from_value::<Transition>(
+            json!({"call":{"operation":"code.graph","arguments":{}},"optional":true}),
+        ) else {
+            panic!("optional call must parse");
+        };
+        assert!(call.optional && call.call.operation.read_only());
+        let Ok(Transition::Call(call)) = serde_json::from_value::<Transition>(
+            json!({"call":{"operation":"code.graph","arguments":{}}}),
+        ) else {
+            panic!("required call must parse");
+        };
+        assert!(!call.optional);
+        let failed = json!({"error":Fault::new(ErrorCode::Busy,"code query deadline exceeded"),"isError":true});
+        assert!(halts(false, &failed));
+        assert!(!halts(true, &failed));
+        assert!(!halts(false, &json!({"isError":false})));
     }
     #[test]
     fn uncertainty_never_reaches_a_continuation() {
