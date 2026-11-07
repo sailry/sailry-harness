@@ -416,6 +416,55 @@ mod link_gaps {
             format!("{ICON}https://example.com")
         );
     }
+
+    #[test]
+    fn chips_recognized_links_in_place() {
+        let source = "交给[Parser review](sailry://session/x)和[docs](https://example.com)处理";
+        let (doc, mut flat) = decorated(source);
+        let text = doc.blocks[0].text_at(Part::Body).unwrap();
+        let display = flat.text.clone();
+        let icon = SharedString::from("icon");
+        let icons = flat.chip_links(|url| url.starts_with("sailry:").then(|| icon.clone()));
+        assert_eq!(icons, [Some(icon.clone()), None]);
+        let [(chip, _), (plain, _)] = flat.links.as_slice() else {
+            panic!("two links");
+        };
+        assert_eq!(flat.chips, [chip.clone()]);
+        assert_eq!(&flat.text[chip.clone()], format!("{ICON}Parser review"));
+        let mut start = 0;
+        for run in &flat.runs {
+            let range = start..start + run.len;
+            start = range.end;
+            if chip.start <= range.start && range.end <= chip.end {
+                assert!(run.underline.is_none(), "{range:?}");
+            }
+            if plain.start <= range.start && range.end <= plain.end && run.color.a > 0. {
+                assert!(run.underline.is_some(), "{range:?}");
+            }
+        }
+        assert_eq!(flat.text, display);
+        for at in text
+            .text
+            .char_indices()
+            .map(|(at, _)| at)
+            .chain([text.text.len()])
+        {
+            assert_eq!(flat.offsets.source(flat.offsets.display(at)), at);
+        }
+        assert_eq!(
+            copied(&doc, Selection::all(&doc)),
+            "交给Parser review和docs处理"
+        );
+    }
+
+    #[test]
+    fn keeps_one_chip_per_mention() {
+        let (_, mut flat) = decorated("前<sailry://session/x>后");
+        let icons = flat.chip_links(|_| Some("icon".into()));
+        assert_eq!(icons.len(), 1);
+        assert_eq!(flat.chips.len(), 1);
+        assert_eq!(flat.chips[0], flat.links[0].0);
+    }
 }
 
 mod emphasis {

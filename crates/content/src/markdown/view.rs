@@ -11,7 +11,7 @@ use gpui_kit::{
     RenderOnce, ScrollHandle, SharedString, Window, canvas, div, point, prelude::*, px,
 };
 
-use super::render::{OnFile, OnImage, OnLink};
+use super::render::{LinkChip, OnFile, OnImage, OnLink};
 use super::{BlockLayouts, Cursor, Doc, Editing, Selection, with_ranges, with_selection};
 use crate::selection::Excerpt;
 
@@ -34,6 +34,7 @@ pub struct State {
     on_image: Option<OnImage>,
     on_file: Option<OnFile>,
     on_selection: Option<OnSelection>,
+    link_chip: Option<LinkChip>,
     hover_links: bool,
     underline_links: bool,
     hovered_link: Option<Cursor>,
@@ -72,6 +73,7 @@ impl State {
             on_image: None,
             on_file: None,
             on_selection: None,
+            link_chip: None,
             hover_links: false,
             underline_links: true,
             hovered_link: None,
@@ -390,6 +392,7 @@ impl Render for State {
                             },
                         ) as super::render::OnLinkHover
                     }),
+                    link_chip: self.link_chip.clone(),
                     on_image: self.on_image.clone(),
                     on_file: self.on_file.clone(),
                     typography: self.typography,
@@ -414,6 +417,7 @@ pub struct View {
     on_image: Option<OnImage>,
     on_file: Option<OnFile>,
     on_selection: Option<OnSelection>,
+    link_chip: Option<LinkChip>,
     scroll: Option<ScrollHandle>,
     typography: Option<super::typography::Typography>,
     foreground: Option<gpui_kit::Hsla>,
@@ -431,6 +435,7 @@ impl View {
             on_image: None,
             on_file: None,
             on_selection: None,
+            link_chip: None,
             scroll: None,
             typography: None,
             foreground: None,
@@ -448,6 +453,7 @@ impl View {
             on_image: None,
             on_file: None,
             on_selection: None,
+            link_chip: None,
             scroll: None,
             typography: None,
             foreground: None,
@@ -505,6 +511,12 @@ impl View {
         self
     }
 
+    /// Present the links `icon` recognizes as chips with the returned icon path.
+    pub fn link_chip(mut self, icon: impl Fn(&str) -> Option<SharedString> + 'static) -> Self {
+        self.link_chip = Some(Rc::new(icon));
+        self
+    }
+
     pub fn on_selection(
         mut self,
         listener: impl Fn(Excerpt, &mut Window, &mut App) + 'static,
@@ -546,6 +558,7 @@ impl RenderOnce for View {
             state.on_image = self.on_image;
             state.on_link = self.on_link;
             state.on_selection = self.on_selection;
+            state.link_chip = self.link_chip;
             state.scroll = self.scroll;
             if state.underline_links != self.underline_links {
                 state.underline_links = self.underline_links;

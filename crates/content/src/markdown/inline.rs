@@ -37,6 +37,36 @@ impl Flat {
             start = end;
         }
     }
+
+    /// Paint the links `chip` recognizes as chips: washed from their icon to
+    /// the label's end and never underlined. Returns each link's icon, `None`
+    /// for the default. Text and offsets are untouched, so selection, copying
+    /// and hit testing stay in source coordinates.
+    pub(super) fn chip_links(
+        &mut self,
+        chip: impl Fn(&str) -> Option<SharedString>,
+    ) -> Vec<Option<SharedString>> {
+        let icons: Vec<_> = self.links.iter().map(|(_, url)| chip(url)).collect();
+        for ((range, _), _) in self
+            .links
+            .iter()
+            .zip(&icons)
+            .filter(|(_, icon)| icon.is_some())
+        {
+            if !self.chips.contains(range) {
+                self.chips.push(range.clone());
+            }
+            let mut start = 0;
+            for run in &mut self.runs {
+                let end = start + run.len;
+                if start < range.end && range.start < end {
+                    run.underline = None;
+                }
+                start = end;
+            }
+        }
+        icons
+    }
 }
 
 /// Convert inline marks to consecutive shaped runs.

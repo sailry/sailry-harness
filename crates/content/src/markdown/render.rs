@@ -92,6 +92,8 @@ pub type OnImage = Rc<dyn Fn(&str, &[&str], usize, Stated, &App) -> AnyElement>;
 pub type OnMathLink =
     std::sync::Arc<dyn Fn(&SharedString, Modifiers, &mut Window, &mut App) + Send + Sync>;
 pub type OnLinkHover = Rc<dyn Fn(Cursor, Option<usize>, &mut Window, &mut App)>;
+/// The icon of a link its owner presents as a chip; `None` keeps an ordinary link.
+pub type LinkChip = Rc<dyn Fn(&str) -> Option<SharedString>>;
 
 /// Source-mapped draft decorations; never part of the document or its history.
 #[derive(Clone)]
@@ -125,6 +127,7 @@ pub struct Editing<'a> {
     pub hovered_link: Option<Cursor>,
     pub underline_links: bool,
     pub on_link_hover: Option<OnLinkHover>,
+    pub link_chip: Option<LinkChip>,
     pub on_image: Option<OnImage>,
     pub on_file: Option<OnFile>,
     pub annotations: &'a [Annotation],
@@ -153,6 +156,7 @@ impl Default for Editing<'_> {
             hovered_link: None,
             underline_links: true,
             on_link_hover: None,
+            link_chip: None,
             on_image: None,
             on_file: None,
             annotations: &[],
@@ -475,6 +479,7 @@ struct Overlay<'a> {
     hovered_link: Option<Cursor>,
     underline_links: bool,
     on_link_hover: Option<&'a OnLinkHover>,
+    link_chip: Option<&'a LinkChip>,
     on_image: Option<&'a OnImage>,
     image_urls: &'a [&'a str],
     image_index: usize,
@@ -603,6 +608,7 @@ pub fn with_block(
         hovered_link,
         underline_links,
         on_link_hover,
+        link_chip,
         on_image,
         on_file,
         annotations,
@@ -672,6 +678,7 @@ pub fn with_block(
             hovered_link,
             underline_links,
             on_link_hover: on_link_hover.as_ref(),
+            link_chip: link_chip.as_ref(),
             on_image: on_image.as_ref(),
             image_urls: &image_urls,
             image_index: 0,
@@ -1313,6 +1320,10 @@ fn painted_text(
     theme: &Theme,
 ) -> AnyElement {
     let (ix, part) = (overlay.block, overlay.part);
+    let link_icons = match overlay.link_chip {
+        Some(chip) => flat.chip_links(&**chip),
+        None => Vec::new(),
+    };
     if !overlay.underline_links {
         flat.hover_link(None);
     } else if overlay.on_link_hover.is_some() {
@@ -1398,7 +1409,12 @@ fn painted_text(
     let icons: Vec<_> = flat
         .icons
         .into_iter()
-        .map(|range| (range, IconName::ExternalLink.path()))
+        .zip(
+            link_icons
+                .into_iter()
+                .chain(std::iter::repeat(None))
+                .map(|icon| icon.unwrap_or_else(|| IconName::ExternalLink.path())),
+        )
         .chain(flat.references)
         .collect();
     let link_color = theme.link;
