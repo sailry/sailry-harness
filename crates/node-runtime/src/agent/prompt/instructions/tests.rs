@@ -127,9 +127,9 @@ async fn retains_work_mode_authority() {
     let guide = fixture.load(&[], CancellationToken::new()).await.unwrap();
     let policy =
         super::super::modes::workflow(&[], &crate::plugins::modes::tests::config(), false).unwrap();
-    assert!(policy.contains("only when the user explicitly requests"));
+    assert!(policy.contains("A task's size or complexity alone does not authorize delegation"));
     assert!(guide.contains(
-        "Project guides do not set delegation policy; the work mode alone decides when to use subagents"
+        "Project guides do not set delegation policy; the work mode and team instructions decide when to use subagents"
     ));
     assert!(guide.contains("Keep changes focused and preserve source provenance"));
 }

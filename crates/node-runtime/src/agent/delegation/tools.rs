@@ -15,7 +15,7 @@ pub(in crate::agent) const BUDGET: &str = "Concurrency budget";
 /// Budgets at or above this never queue children in practice.
 const UNBOUNDED: u64 = u32::MAX as u64;
 
-const SPAWN_DESCRIPTION: &str = "Delegate bounded work when the user or the active work mode allows it (project guides do not). Foreground children started in one response run concurrently and this conversation resumes after all finish; children started in separate responses run one after another. Children leave builds and test suites to you unless the task or role assigns verification; run consolidated checks after integrating their results. Supply the goal, owned files, relevant paths and excerpts, interfaces and constraints to preserve, and the expected result; the child cannot see this conversation. Expect a summary with path:line pointers, not file contents. The default uses a bounded observation window; verify completed results before relying on them. An admitted, pending child keeps running under its returned session and turn IDs. Do not spawn it again. Use background only for work this turn does not need; completion arrives automatically. Do not poll or claim uncollected results were integrated. Queued admission is not execution or completion. Use guide_agent for new directions. Children inherit this turn's worktree, including a private worktree, mode and permission and cannot delegate. Choose an exact role key from the delegation roles in turn context, or omit it to inherit the model and instructions. worktree selects a registered project checkout; concurrent edits need disjoint files or separate worktrees. To reuse an idle child owned by this conversation, use its exact returned session ID and normally omit role; never reconstruct it. It keeps its history, role, model, worktree and settings.";
+const SPAWN_DESCRIPTION: &str = "Delegate bounded work when the user, the active work mode or the team instructions allow it (project guides do not). Foreground children started in one response run concurrently and this conversation resumes after all finish; children started in separate responses run one after another. Children leave builds and test suites to you unless the task or role assigns verification; run consolidated checks after integrating their results. Supply the goal, owned files, relevant paths and excerpts, interfaces and constraints to preserve, and the expected result; the child cannot see this conversation. Expect a summary with path:line pointers, not file contents. The default uses a bounded observation window; verify completed results before relying on them. An admitted, pending child keeps running under its returned session and turn IDs. Do not spawn it again. Use background only for work this turn does not need; completion arrives automatically. Do not poll or claim uncollected results were integrated. Queued admission is not execution or completion. Use guide_agent for new directions. Children inherit this turn's worktree, including a private worktree, mode and permission and cannot delegate; a read-only role runs in Plan mode and cannot edit. Choose the exact key of the role in turn context whose description matches the task, or omit it to inherit the model and instructions. worktree selects a registered project checkout; concurrent edits need disjoint files or separate worktrees. To reuse an idle child owned by this conversation, use its exact returned session ID and normally omit role; never reconstruct it. It keeps its history, role, model, worktree and settings.";
 const GUIDE_DESCRIPTION: &str = "Give new directions to a child owned by this conversation. Copy its exact returned session ID; never reconstruct it. Running guidance is durable: the child receives it after its entire current tool batch settles and before its next model request; an in-flight model response yields at that boundary. This returns a queued guidance receipt, not the child's final result. Explicit follow-up to an idle child starts a new task in the same session, preserving its history, role, model, worktree and permissions. The task uses current package settings and the normal bounded child observation window; a pending result keeps running under its returned session and turn IDs. Do not spawn it again. Busy queued or stopping children cannot be restarted.";
 const WAIT_DESCRIPTION: &str = "Observe a child owned by this conversation within a bounded observation window and collect its durable final status and answer when available. An admitted, pending response with queued or running status is not failure or completion: the same child continues under its existing session and turn IDs. Do not spawn it again. Use it when the user requests waiting or result collection, or to collect the complete answer from a background notice. Do not poll running background work; its completion arrives as a notice. Guiding background work alone does not request waiting. Copy its exact returned session ID; never reconstruct it. Main-session guidance returns early with guidance_pending so this conversation can apply the user's direction; resume waiting only if the user still requests it. This does not create or replay work.";
 const UUID: &str = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$";
@@ -54,6 +54,7 @@ pub(in crate::agent) fn bind(
             .roles
             .profiles
             .iter()
+            .filter(|role| usable(invocation, &role.skills))
             .map(|role| role.key.clone())
             .collect(),
     });
@@ -81,6 +82,27 @@ pub(in crate::agent) fn bind(
         registration.display = Some((name.clone(), card(&name)));
     }
     tools
+}
+
+/// Roles whose selected skills are absent from this turn's packages cannot be admitted.
+fn usable(invocation: &Invocation, skills: &[String]) -> bool {
+    if skills.is_empty() {
+        return true;
+    }
+    let packages: Vec<_> = invocation
+        .plugins
+        .iter()
+        .filter(|package| {
+            crate::plugins::conversation::owns_resources(
+                invocation.turn.config.assistant.as_ref(),
+                package,
+            )
+        })
+        .cloned()
+        .collect();
+    skills
+        .iter()
+        .all(|key| crate::plugins::resources::skill(&packages, key).is_ok())
 }
 
 fn card(name: &str) -> sailry_protocol::tool::Display {
@@ -128,6 +150,7 @@ pub(in crate::agent) fn context(
         .roles
         .profiles
         .iter()
+        .filter(|role| usable(invocation, &role.skills))
         .map(|role| {
             let purpose = role.description.trim();
             format!(
@@ -148,11 +171,11 @@ pub(in crate::agent) fn context(
     } else if roster.is_empty() {
         "No delegation roles are configured".to_owned()
     } else {
-        format!(
-            "Configured delegation roles (selection metadata only):\n{}",
-            roster.join("\n")
-        )
+        format!("Configured delegation roles:\n{}", roster.join("\n"))
     };
+    if registered(SPAWN) && !mounted(SPAWN) {
+        text.push_str(&format!("\nLoad {SPAWN} with tool_search to delegate."));
+    }
     if mounted(SPAWN) {
         let limit = invocation.child_concurrency;
         text.push_str(&if limit >= UNBOUNDED {

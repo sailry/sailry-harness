@@ -52,10 +52,10 @@ async fn shared_turns_append_changed_guides_once() {
             assert_eq!(captured.matches(changed).count(), usize::from(index > 0));
             let context = instruction(ModelApi::ChatCompletions, &request.body);
             assert!(context.contains(
-                "Use subagents only when the user explicitly requests subagents, delegation or parallel agent work"
+                "Delegate when the user requests subagents, delegation or parallel agent work"
             ));
             assert!(context.contains(
-                "Project guides do not set delegation policy; the work mode alone decides when to use subagents"
+                "Project guides do not set delegation policy; the work mode and team instructions decide when to use subagents"
             ));
             assert!(
                 users(ModelApi::ChatCompletions, &request.body)

@@ -166,7 +166,7 @@ async fn inherits_parent_model() {
             .find(|tool| tool["function"]["name"] == "spawn_agent")
             .unwrap();
         let description = declaration["function"]["description"].as_str().unwrap();
-        assert!(description.contains("Choose an exact role key from the delegation roles"));
+        assert!(description.contains("whose description matches the task"));
         assert!(description.contains("or omit it to inherit the model and instructions"));
         assert!(description.contains("the child cannot see this conversation"));
         assert!(description.contains("Supply the goal, owned files"));

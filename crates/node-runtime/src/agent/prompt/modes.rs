@@ -6,8 +6,12 @@ const FLAGSHIP: &str = "You coordinate delegated children. Delegate whenever the
 1. Do bootstrap and blocking steps yourself: follow the loaded project guides, locate the relevant code and plan. Split the work into slices with disjoint file ownership; keep shared registration files such as module lists, manifests, lockfiles and localization catalogs for yourself.
 2. Fan out in waves: issue every spawn_agent call of a wave in one response. Children beyond the concurrency budget in turn context queue.
 3. Delegate multi-area investigation, implementation slices, test writing and review. Keep single lookups (never delegate 'read file X and return it'), small edits, tightly coupled changes and integration yourself.
-4. You own builds and test suites; give verification to at most one child at a time. After a wave returns, review its changes, apply shared-file edits, then run one consolidated build and the relevant tests. Return failures to the owning child by its session ID, or fix small ones yourself.
-5. Do not redo a child's work; verify only the claims you rely on.";
+4. Give each slice the configured role whose description matches it and follow any team instructions. Read-only roles run in Plan mode and only gather evidence; give implementation to a writable role or omit role to inherit this turn.
+5. You own builds and test suites; give verification to at most one child at a time. After a wave returns, review its changes, apply shared-file edits, then run one consolidated build and the relevant tests. Return failures to the owning child by its session ID, or fix small ones yourself.
+6. Do not redo a child's work; verify only the claims you rely on.";
+
+/// Default coordination: direct work, with role-matched delegation when it pays off.
+const DIRECT: &str = "Handle the task directly, including single lookups, small edits and tightly coupled changes. Delegate when the user requests subagents, delegation or parallel agent work, when the team instructions call for it, or when an independent multi-step slice matches a configured role's description; give that slice the matching role. A task's size or complexity alone does not authorize delegation.";
 
 pub(in crate::agent) fn workflow(
     packages: &[plugin::Info],
@@ -25,7 +29,7 @@ pub(in crate::agent) fn workflow(
     } else if config.mode == WorkMode::Flagship {
         format!("Active work mode: Flagship\n{FLAGSHIP}")
     } else {
-        "Handle the task directly. Use subagents only when the user explicitly requests subagents, delegation or parallel agent work. A task's size or complexity alone does not authorize delegation.".into()
+        DIRECT.into()
     };
     Ok(format!(
         "Work mode\n{instructions}\nMode instructions do not grant tool authority. Follow the captured mode and tool permissions, including read-only restrictions inherited by delegated tasks."
@@ -50,10 +54,7 @@ mod tests {
                     config.options =
                         serde_json::from_value(json!({"delegation":{"proactive":true}})).unwrap();
                     let build = workflow(&packages, &config, false).unwrap();
-                    assert!(
-                        build.contains("only when the user explicitly requests"),
-                        "{scenario}"
-                    );
+                    assert!(build.contains(DIRECT), "{scenario}");
                     assert!(!build.contains(FLAGSHIP), "{scenario}");
                     assert!(
                         super::super::instruction(config.mode, config.permission, false)
@@ -80,10 +81,7 @@ mod tests {
                     );
                     let budget = crate::agent::delegation::tools::BUDGET.to_lowercase();
                     assert!(FLAGSHIP.contains(&budget), "{scenario}");
-                    assert!(
-                        !flagship.contains("only when the user explicitly requests"),
-                        "{scenario}"
-                    );
+                    assert!(!flagship.contains(DIRECT), "{scenario}");
                     assert_eq!(config.permission, Permission::Ask, "{scenario}");
                     assert!(
                         flagship.contains("do not grant tool authority"),
@@ -100,10 +98,7 @@ mod tests {
                     )
                     .unwrap();
                     let build = workflow(&[], &config, false).unwrap();
-                    assert!(
-                        build.contains("only when the user explicitly requests"),
-                        "{scenario}"
-                    );
+                    assert!(build.contains(DIRECT), "{scenario}");
                     assert!(!build.contains(FLAGSHIP), "{scenario}");
                 }),
             ),

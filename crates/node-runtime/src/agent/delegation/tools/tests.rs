@@ -73,6 +73,7 @@ async fn context_reports_concurrency_budget() {
     }
     let text = render(&fixture.invocation, deferred);
     assert!(text.contains("delegation roles"), "{text}");
+    assert!(text.contains("Load spawn_agent with tool_search"), "{text}");
     assert!(!text.contains(BUDGET), "{text}");
     fixture.invocation.child_concurrency = u64::MAX;
     let text = render(&fixture.invocation, tools(&fixture.invocation));

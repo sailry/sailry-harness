@@ -73,8 +73,8 @@ fn contexts(invocation: &Invocation, entry: &ToolRegistration) -> Vec<String> {
                 .iter()
                 .find(|package| package.summary.name == *owner)
                 .and_then(|package| package.extension.as_ref())
-                .and_then(|extension| extension.instructions.as_ref())
-                .cloned(),
+                .and_then(|extension| extension.instructions.as_deref())
+                .map(|instructions| super::guidance(owner, instructions)),
         );
     }
     context.extend(

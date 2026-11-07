@@ -196,7 +196,9 @@ pub(super) async fn bind(
                 .and_then(|extension| extension.instructions.as_ref())
         {
             bound.instruction.push_str("\n\n");
-            bound.instruction.push_str(instructions);
+            bound
+                .instruction
+                .push_str(&guidance(&package.summary.name, instructions));
         }
     }
     if invocation.message.selected_role().is_some() {
@@ -223,6 +225,11 @@ pub(super) async fn bind(
             .push((-10, super::delegation::selection(invocation, name)?));
     }
     Ok(bound)
+}
+
+/// Static package instructions carry their owner so the model can scope them.
+fn guidance(package: &str, instructions: &str) -> String {
+    format!("Plugin {package}\n{instructions}")
 }
 
 /// Native and scripted tools declare their own image retention; MCP tools use their server.
