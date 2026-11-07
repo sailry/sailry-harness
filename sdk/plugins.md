@@ -1080,6 +1080,15 @@ alone affect new sessions, not an existing roster.
 
 Plugin commands retain the existing declaration, exact installed-package, Node, worktree and session checks. File/Git/conversation operations use the existing scoped protocol through `prepareRequest`; HTTP uses the declared Node service; the SDK grants no raw process or OS access. UI and game rules stay in plugins. Persistence, credentials, model execution and durable receipts stay in Rust.
 
+The `read_command` operation accepts `wait_ms` with a command `id`, capped at
+30000 milliseconds. Zero or omission reads immediately. Without `until`, waiting
+ends when new output arrives; with `until`, it waits for that substring in either
+output preview. Exit and the deadline also end the wait. These reads use output
+notifications and return a nondurable receipt before waiting. The same optional
+fields are supported by the v1 `read_command` and `read_command_page` commands;
+page reads preserve their selected stream, offset and limit. Listing commands
+and reading an original tool-result reference do not accept wait options.
+
 The current development schema remains v1. Startup fills missing schema objects and storage fields with their defaults, validates the update on an isolated snapshot, saves a private backup and applies it transactionally. Invalid updates preserve the existing profile; startup never resets or deletes user data.
 
 ## Service connections

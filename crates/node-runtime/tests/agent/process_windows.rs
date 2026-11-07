@@ -96,6 +96,8 @@ async fn executes_quoted_cmd_scripts() {
                             .execute(client.prepare(Command::ReadCommand {
                                 session: session.id,
                                 id: info.id,
+                                wait_ms: 0,
+                                until: None,
                             }))
                             .await
                             .unwrap()
@@ -308,6 +310,8 @@ mod decoding {
                             stream,
                             offset,
                             limit,
+                            wait_ms: 0,
+                            until: None,
                         }))
                         .await
                         .unwrap()
@@ -344,6 +348,8 @@ mod decoding {
                                 stream,
                                 offset: offset + 1,
                                 limit,
+                                wait_ms: 0,
+                                until: None,
                             }))
                             .await
                             .unwrap_err();
@@ -384,7 +390,12 @@ mod decoding {
         tokio::time::timeout(COMPLETION_BUDGET, async {
             loop {
                 let Output::CommandOutput(snapshot) = client
-                    .execute(client.prepare(Command::ReadCommand { session, id }))
+                    .execute(client.prepare(Command::ReadCommand {
+                        session,
+                        id,
+                        wait_ms: 0,
+                        until: None,
+                    }))
                     .await
                     .unwrap()
                 else {

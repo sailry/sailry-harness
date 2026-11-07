@@ -169,6 +169,27 @@ async fn cancellation_stops_idle_process_groups() {
 }
 
 #[tokio::test]
+async fn allows_cleanup_before_forced_stop() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut running = Running::start(
+        directory.path(),
+        &directory.path().join("home"),
+        "trap 'printf cleaned > cleanup.txt; exit 0' TERM; sleep 60 & child_pid=$!; printf '%s' \"$child_pid\" > child.pid; printf 'ready'; wait \"$child_pid\"",
+        Access::Unrestricted,
+    )
+    .await;
+    running.ready().await;
+    let pid = child(directory.path());
+    running.stop.cancel();
+    assert_eq!(running.finish().await.outcome, Outcome::Cancelled);
+    assert_eq!(
+        std::fs::read_to_string(directory.path().join("cleanup.txt")).unwrap(),
+        "cleaned"
+    );
+    gone(pid).await;
+}
+
+#[tokio::test]
 async fn backpressure_preserves_cancellation() {
     let directory = tempfile::tempdir().unwrap();
     let mut running = Running::start(directory.path(), &directory.path().join("home"),

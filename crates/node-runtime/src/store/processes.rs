@@ -443,9 +443,66 @@ impl super::Ingress {
         caller: NodeId,
         request: Request,
     ) -> Result<sailry_link::Admission, Fault> {
+        if matches!(
+            &request.command,
+            Command::ReadCommand { wait_ms, .. } | Command::ReadCommandPage { wait_ms, .. }
+                if *wait_ms > 0
+        ) {
+            let commands = self.commands.clone();
+            let closed = self.closed.clone();
+            let waiting = match &request.command {
+                Command::ReadCommand {
+                    session,
+                    id,
+                    wait_ms,
+                    until,
+                }
+                | Command::ReadCommandPage {
+                    session,
+                    id,
+                    wait_ms,
+                    until,
+                    ..
+                } => commands.wait(*session, *id, *wait_ms, until.clone(), closed),
+                _ => unreachable!(),
+            };
+            let (mut reply, completion) = oneshot::channel();
+            tokio::spawn(async move {
+                let work = async {
+                    waiting.await?;
+                    match request.command {
+                        Command::ReadCommand { session, id, .. } => {
+                            commands.read(session, id).map(Output::CommandOutput)
+                        }
+                        Command::ReadCommandPage {
+                            session,
+                            id,
+                            stream,
+                            offset,
+                            limit,
+                            ..
+                        } => commands
+                            .page(session, id, stream, offset, limit)
+                            .map(Output::CommandOutputPage),
+                        _ => unreachable!(),
+                    }
+                };
+                tokio::select! {
+                    _ = reply.closed() => {},
+                    result = work => { let _ = reply.send(result); },
+                }
+            });
+            return Ok(sailry_link::Admission {
+                receipt: Receipt {
+                    id: request.id,
+                    durable: false,
+                },
+                completion,
+            });
+        }
         let result = match request.command {
             Command::ListCommands { session } => Ok(Output::Commands(self.commands.list(session))),
-            Command::ReadCommand { session, id } => {
+            Command::ReadCommand { session, id, .. } => {
                 self.commands.read(session, id).map(Output::CommandOutput)
             }
             Command::ReadCommandPage {
@@ -454,6 +511,7 @@ impl super::Ingress {
                 stream,
                 offset,
                 limit,
+                ..
             } => self
                 .commands
                 .page(session, id, stream, offset, limit)

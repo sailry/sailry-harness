@@ -112,6 +112,8 @@ async fn notifies_idle_session_of_stall() {
         .execute(fixture.client.prepare(Command::ReadCommand {
             session: fixture.session.id,
             id: info.id,
+            wait_ms: 0,
+            until: None,
         }))
         .await
         .unwrap()
@@ -190,6 +192,8 @@ async fn keeps_quiet_completion_for_manual_reads() {
         .execute(fixture.client.prepare(Command::ReadCommand {
             session: fixture.session.id,
             id: info.id,
+            wait_ms: 0,
+            until: None,
         }))
         .await
         .unwrap()

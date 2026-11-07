@@ -91,6 +91,7 @@ struct Stream {
     budget: Arc<Budget>,
     decoder: super::Decoder,
     finished: Option<u64>,
+    services: Option<super::services::Scanner>,
 }
 
 impl Stream {
@@ -121,11 +122,15 @@ impl Stream {
             budget,
             decoder: super::Decoder::default(),
             finished: None,
+            services: Default::default(),
         }
     }
     fn append(&mut self, bytes: &[u8]) {
         if self.finished.is_none() {
             self.decoder.append(bytes);
+            if let Some(services) = &mut self.services {
+                services.decode(bytes, &self.decoder, false);
+            }
         }
         self.total = self.total.saturating_add(bytes.len() as u64);
         if bytes.len() >= TAIL {
@@ -192,6 +197,9 @@ impl Stream {
     fn finish(&mut self) {
         if self.finished.is_none() {
             self.decoder.finish();
+            if let Some(services) = &mut self.services {
+                services.decode(&[], &self.decoder, true);
+            }
         }
         self.finished.get_or_insert(self.total);
         if let Some(writer) = self.writer.take() {
@@ -421,6 +429,7 @@ pub(crate) struct Retained {
     stdout: Mutex<Stream>,
     stderr: Mutex<Stream>,
     activity: Mutex<Activity>,
+    changes: tokio::sync::watch::Sender<()>,
 }
 
 #[derive(Default)]
@@ -445,6 +454,7 @@ impl Retained {
             stdout: Mutex::new(Stream::new(create(), budget.clone(), STREAM_LIMIT)),
             stderr: Mutex::new(Stream::new(create(), budget, STREAM_LIMIT)),
             activity: Mutex::default(),
+            changes: tokio::sync::watch::channel(()).0,
         }
     }
 
@@ -472,6 +482,7 @@ impl Retained {
         self.stream(stream).lock().unwrap().append(bytes);
         if !bytes.is_empty() {
             self.touch();
+            self.changes.send_replace(());
         }
     }
 
@@ -506,6 +517,41 @@ impl Retained {
     pub(crate) fn finish(&self) {
         self.stdout.lock().unwrap().finish();
         self.stderr.lock().unwrap().finish();
+        self.changes.send_replace(());
+    }
+
+    pub(crate) fn subscribe(&self) -> tokio::sync::watch::Receiver<()> {
+        self.changes.subscribe()
+    }
+
+    pub(crate) fn services(&self) -> Vec<sailry_protocol::process::Service> {
+        let mut services = self
+            .stdout
+            .lock()
+            .unwrap()
+            .services
+            .as_ref()
+            .map(|scanner| scanner.items().to_vec())
+            .unwrap_or_default();
+        for service in self
+            .stderr
+            .lock()
+            .unwrap()
+            .services
+            .iter()
+            .flat_map(|scanner| scanner.items())
+        {
+            if services.len() < 16 && !services.iter().any(|found| found.port == service.port) {
+                services.push(service.clone());
+            }
+        }
+        services
+    }
+
+    pub(crate) fn track_services(&self) {
+        for stream in [&self.stdout, &self.stderr] {
+            stream.lock().unwrap().services = Some(Default::default());
+        }
     }
 
     pub(crate) fn evict(&self) {

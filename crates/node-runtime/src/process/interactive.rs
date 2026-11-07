@@ -23,6 +23,8 @@ struct Process {
     io: Option<pty::Io>,
     #[cfg(windows)]
     job: Option<windows::Job>,
+    #[cfg(target_os = "macos")]
+    group: Option<super::macos::Group>,
     _launch: Launch,
     _sandbox: Option<sandbox::Sandbox>,
     _inputs: Option<tempfile::TempDir>,
@@ -30,22 +32,35 @@ struct Process {
 }
 
 impl Process {
+    #[cfg(unix)]
+    fn signal(&self, signal: i32) -> Result<(), Fault> {
+        // SAFETY: portable-pty creates a session whose process-group leader is
+        // this retained child. The negative PID targets only that owned group.
+        if let Some(pid) = self.child.process_id()
+            && unsafe { libc::kill(-(pid as i32), signal) } != 0
+        {
+            let error = std::io::Error::last_os_error();
+            let absent = error.raw_os_error() == Some(libc::ESRCH);
+            #[cfg(target_os = "macos")]
+            let absent = absent
+                || error.raw_os_error() == Some(libc::EPERM)
+                    && self
+                        .group
+                        .as_ref()
+                        .is_some_and(super::macos::Group::settled);
+            if !absent {
+                return Err(failure(error));
+            }
+        }
+        Ok(())
+    }
+
     fn terminate(&mut self) -> Result<(), Fault> {
         if !self.armed {
             return Ok(());
         }
         #[cfg(unix)]
-        if let Some(pid) = self.child.process_id() {
-            // SAFETY: portable-pty creates a session whose process-group leader is
-            // this retained child. The negative PID targets only that owned group.
-            let result = unsafe { libc::kill(-(pid as i32), libc::SIGKILL) };
-            if result != 0 {
-                let error = std::io::Error::last_os_error();
-                if error.raw_os_error() != Some(libc::ESRCH) {
-                    return Err(failure(error));
-                }
-            }
-        }
+        self.signal(libc::SIGKILL)?;
         #[cfg(windows)]
         self.job.take();
         if !matches!(self.child.try_wait(), Ok(Some(_)))
@@ -123,24 +138,30 @@ pub(super) async fn execute(
     let activity = retained.clone();
     let sink = Arc::new(move |event| {
         let mut output = output.lock().unwrap();
-        match event {
+        let changed = match event {
             pty::Event::Bytes(bytes) => {
                 output.append(&bytes);
                 activity.append(sailry_protocol::process::OutputStream::Stdout, &bytes);
+                !bytes.is_empty()
             }
             pty::Event::Eof(result) => {
+                let before = output.capture();
                 output.finish();
                 if let Err(error) = result {
                     *read_error.lock().unwrap() = Some(error);
                 }
                 finished.store(true, Ordering::Release);
+                output.capture() != before
             }
             #[cfg(windows)]
             pty::Event::InputError(error) => {
                 *write_error.lock().unwrap() = Some(error);
+                false
             }
+        };
+        if changed {
+            ready.send_replace((output.capture(), Capture::default()));
         }
-        ready.send_replace((output.capture(), Capture::default()));
         true
     });
     let mut process = tokio::task::spawn_blocking(move || {
@@ -167,7 +188,7 @@ pub(super) async fn execute(
         command.args(["-c", &launch.command]);
         #[cfg(windows)]
         command.set_windows_raw_arguments(format!("/D /S /C \"{}\"", launch.command));
-        environment.apply_pty(&mut command);
+        environment.apply_pty(&mut command, launch.access);
         if let Some(python) = &launch.python {
             for (key, value) in python.variables() {
                 command.env(key, value);
@@ -199,6 +220,8 @@ pub(super) async fn execute(
         #[cfg(windows)]
         job.configure(&mut command);
         let child = pair.slave.spawn_command(command).map_err(failure)?;
+        #[cfg(target_os = "macos")]
+        let group = child.process_id().and_then(super::macos::Group::owned);
         drop(pair.slave);
         let mut process = Process {
             child,
@@ -206,6 +229,8 @@ pub(super) async fn execute(
             io: None,
             #[cfg(windows)]
             job: Some(job),
+            #[cfg(target_os = "macos")]
+            group,
             _launch: launch,
             _sandbox: sandbox,
             _inputs: inputs,
@@ -253,6 +278,10 @@ pub(super) async fn execute(
             }
         }
     };
+    #[cfg(unix)]
+    if stop.is_cancelled() && !closed.is_cancelled() && process.signal(libc::SIGTERM).is_ok() {
+        tokio::time::sleep(super::CLEANUP_TIMEOUT).await;
+    }
     if let Err(error) = process.terminate() {
         outcome = Outcome::Unknown(error.message);
     }

@@ -418,7 +418,7 @@ impl HostOperation {
             Command::RunCommand {
                 background: false, ..
             } => self.context.session.map(|session| (session, request.id)),
-            Command::ReadCommand { session, id } => Some((*session, *id)),
+            Command::ReadCommand { session, id, .. } => Some((*session, *id)),
             _ => None,
         };
         let work = async {

@@ -60,6 +60,42 @@ mod process {
     use super::*;
 
     #[test]
+    fn waiting_defaults_to_immediate_read() {
+        for kind in ["read_command", "read_command_page"] {
+            let mut value = json!({
+                "kind":kind,
+                "data":{"session":SessionId::new(),"id":RequestId::new()}
+            });
+            if kind == "read_command_page" {
+                value["data"]["stream"] = json!("stderr");
+                value["data"]["offset"] = json!(12);
+                value["data"]["limit"] = json!(128);
+            }
+            let command: Command = serde_json::from_value(value.clone()).unwrap();
+            assert!(matches!(
+                command,
+                Command::ReadCommand {
+                    wait_ms: 0,
+                    until: None,
+                    ..
+                } | Command::ReadCommandPage {
+                    wait_ms: 0,
+                    until: None,
+                    ..
+                }
+            ));
+            value["data"]["wait_ms"] = json!(30_000);
+            value["data"]["until"] = json!("ready");
+            let command: Command = serde_json::from_value(value).unwrap();
+            assert!(!command.durable());
+            assert_eq!(
+                serde_json::from_value::<Command>(serde_json::to_value(&command).unwrap()).unwrap(),
+                command
+            );
+        }
+    }
+
+    #[test]
     fn follow_up_is_opt_in() {
         let turn = TurnId::new();
         let encoded = format!(

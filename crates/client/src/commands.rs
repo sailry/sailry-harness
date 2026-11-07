@@ -68,7 +68,7 @@ impl Client {
                                 let result = tokio::select! {
                                     _ = stop.cancelled() => return,
                                     _ = updates.closed() => return,
-                                    result = self.execute(self.prepare(Command::ReadCommand { session, id })) => result,
+                                    result = self.execute(self.prepare(Command::ReadCommand { session, id, wait_ms: 0, until: None })) => result,
                                 };
                                 match result {
                                     Ok(Output::CommandOutput(output)) if output.info.session == session && output.info.id == id => {

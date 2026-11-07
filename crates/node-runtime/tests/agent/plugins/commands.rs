@@ -10,6 +10,8 @@ mod interactive;
 mod lifecycle;
 #[path = "commands/output.rs"]
 mod output;
+#[path = "commands/wait.rs"]
+mod wait;
 
 fn name(tool: &str) -> String {
     agent_support::plugin_tool("commands", tool)
@@ -246,6 +248,8 @@ async fn retains_background_processes_and_scopes_public_actions() {
         .prepare(Command::ReadCommand {
             session: fixture.session.id,
             id,
+            wait_ms: 0,
+            until: None,
         })
         .with_plugin(context.clone());
     let Output::CommandOutput(snapshot) = fixture.client.execute(read.clone()).await.unwrap()
@@ -263,6 +267,8 @@ async fn retains_background_processes_and_scopes_public_actions() {
         Command::ReadCommand {
             session: SessionId::new(),
             id,
+            wait_ms: 0,
+            until: None,
         },
         Command::StopCommand {
             session: SessionId::new(),

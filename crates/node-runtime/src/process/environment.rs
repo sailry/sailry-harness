@@ -43,6 +43,8 @@ const VARIABLES: &[&str] = &[
 pub(crate) struct Environment {
     values: BTreeMap<OsString, OsString>,
     terminal: BTreeMap<OsString, OsString>,
+    scoped: BTreeMap<OsString, OsString>,
+    unrestricted: BTreeMap<OsString, OsString>,
 }
 
 #[derive(Default)]
@@ -76,13 +78,24 @@ impl Environment {
         let mut result = Self {
             values: BTreeMap::new(),
             terminal: BTreeMap::new(),
+            scoped: BTreeMap::new(),
+            unrestricted: BTreeMap::new(),
         };
         for (key, value) in values {
+            if !secret(&key) {
+                result.unrestricted.insert(key.clone(), value.clone());
+                if scoped_variable(&key) {
+                    result.scoped.insert(key.clone(), value.clone());
+                }
+            }
             #[cfg(target_os = "macos")]
             if key == OsStr::new("DEVELOPER_DIR") {
                 if let Some(path) = developer_directory(Path::new(&value)) {
                     result
                         .values
+                        .insert(key.clone(), path.clone().into_os_string());
+                    result
+                        .scoped
                         .insert(key.clone(), path.clone().into_os_string());
                     result.terminal.insert(key, path.into_os_string());
                 }
@@ -91,6 +104,7 @@ impl Environment {
             if let Some(name) = canonical(&key, cfg!(windows)) {
                 let key = OsString::from(name);
                 result.values.insert(key.clone(), value.clone());
+                result.scoped.insert(key.clone(), value.clone());
                 result.terminal.insert(key, value);
             } else if terminal_variable(&key) {
                 result.terminal.insert(key, value);
@@ -143,6 +157,9 @@ impl Environment {
     #[cfg(unix)]
     async fn login(mut self, account: Account, deadline: tokio::time::Instant) -> Self {
         self.values.insert("HOME".into(), account.home.clone());
+        self.scoped.insert("HOME".into(), account.home.clone());
+        self.scoped.insert("USER".into(), account.name.clone());
+        account.apply(&mut self.unrestricted);
         account.apply(&mut self.terminal);
         if let Some(values) = login::capture(&account.shell, &self.terminal, deadline).await {
             let mut captured = Self::filtered(values);
@@ -150,6 +167,8 @@ impl Environment {
             // Shell exports supplement the frozen, safe startup inputs.
             self.values.append(&mut captured.values);
             self.terminal.append(&mut captured.terminal);
+            self.scoped.append(&mut captured.scoped);
+            self.unrestricted.append(&mut captured.unrestricted);
         }
         self
     }
@@ -207,10 +226,24 @@ impl Environment {
         }
     }
 
-    pub(super) fn apply_pty(&self, command: &mut portable_pty::CommandBuilder) {
+    pub(super) fn apply_pty(
+        &self,
+        command: &mut portable_pty::CommandBuilder,
+        access: sailry_protocol::process::Access,
+    ) {
         command.env_clear();
-        for (key, value) in &self.values {
+        for (key, value) in self.command_values(access) {
             command.env(key, value);
+        }
+    }
+
+    fn command_values(
+        &self,
+        access: sailry_protocol::process::Access,
+    ) -> &BTreeMap<OsString, OsString> {
+        match access {
+            sailry_protocol::process::Access::Workspace => &self.scoped,
+            sailry_protocol::process::Access::Unrestricted => &self.unrestricted,
         }
     }
 
@@ -227,7 +260,7 @@ impl Environment {
         command
             .args(["/D", "/S", "/C"])
             .raw_arg(format!("\"{}\"", launch.command));
-        self.apply(&mut command);
+        command.env_clear().envs(self.command_values(launch.access));
         if let Some(python) = &launch.python {
             command.envs(python.variables());
         }
@@ -247,6 +280,26 @@ impl Environment {
             .stderr(Stdio::piped());
         command
     }
+}
+
+fn secret(key: &OsStr) -> bool {
+    let name = key.to_string_lossy().to_ascii_uppercase();
+    matches!(name.as_str(), "TOKEN" | "SECRET" | "KEY")
+        || name.ends_with("_TOKEN")
+        || name.ends_with("_SECRET")
+        || name.ends_with("_KEY")
+        || name.contains("PASSWORD")
+        || name.starts_with("AWS_")
+}
+
+fn scoped_variable(key: &OsStr) -> bool {
+    let name = key.to_string_lossy();
+    matches!(name.as_ref(), "SSH_AUTH_SOCK" | "USER")
+        || name.starts_with("LC_")
+        || matches!(
+            name.to_ascii_lowercase().as_str(),
+            "http_proxy" | "https_proxy" | "all_proxy" | "no_proxy" | "ftp_proxy"
+        )
 }
 
 fn canonical(key: &OsStr, insensitive: bool) -> Option<&'static str> {

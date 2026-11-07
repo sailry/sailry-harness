@@ -256,6 +256,8 @@ async fn rejects_business_ids_as_command_streams() {
             stream: OutputStream::Stdout,
             offset: 0,
             limit: 4096,
+            wait_ms: 0,
+            until: None,
         },
     )
     .await
@@ -386,6 +388,8 @@ async fn retains_foreground_streams_and_canonical_results() {
                 stream: OutputStream::Stdout,
                 offset: 0,
                 limit: 100,
+                wait_ms: 0,
+                until: None,
             }))
             .await
             .unwrap_err()
@@ -470,6 +474,8 @@ async fn retains_foreground_streams_and_canonical_results() {
                 stream: OutputStream::Stdout,
                 offset: 0,
                 limit: 100,
+                wait_ms: 0,
+                until: None,
             }))
             .await
             .unwrap_err()
@@ -538,6 +544,8 @@ async fn refreshes_git_after_command_completion() {
                         Command::ReadCommand {
                             session: fixture.session.id,
                             id,
+                            wait_ms: 0,
+                            until: None,
                         },
                     )
                     .await
@@ -575,6 +583,8 @@ async fn refreshes_git_after_command_completion() {
                         Command::ReadCommand {
                             session: fixture.session.id,
                             id,
+                            wait_ms: 0,
+                            until: None,
                         },
                     )
                     .await

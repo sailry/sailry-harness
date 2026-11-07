@@ -118,7 +118,7 @@ pub(super) fn description(operation: Operation) -> &'static str {
         Operation::ReadSettings => "Read this plugin's public settings without credential values",
         Operation::RunCommand => "Execute a command in the captured turn's worktree on the Node",
         Operation::ReadCommand => {
-            "Read command output or original tool results, or list background commands in the captured session"
+            "Read command output, optionally waiting up to 30 seconds for new output or until text appears; return early on exit. Also reads original tool results or lists background commands in the captured session"
         }
         Operation::StopCommand => "Stop a background command in the captured session",
         Operation::WriteCommand => "Send input to a background command in the captured session",
@@ -306,7 +306,9 @@ pub(super) fn parameters(operation: Operation) -> Value {
                 "output":{"type":"object","properties":{"call":{"type":"string"},"revision":{"type":"string"}},"required":["call","revision"],"additionalProperties":false},
                 "stream":{"type":"string","enum":["stdout","stderr"]},
                 "offset":{"type":"integer","minimum":0},
-                "limit":{"type":"integer","minimum":1,"maximum":32768}
+                "limit":{"type":"integer","minimum":1,"maximum":32768},
+                "wait_ms":{"type":"integer","minimum":0,"maximum":30000},
+                "until":{"type":"string"}
             }),
             vec![],
         ),
@@ -534,6 +536,9 @@ pub(super) fn command(
                 stream: Option<sailry_protocol::process::OutputStream>,
                 offset: Option<usize>,
                 limit: Option<usize>,
+                #[serde(default)]
+                wait_ms: u64,
+                until: Option<String>,
             }
             let read: Read = serde_json::from_value(arguments).map_err(invalid)?;
             let session = context
@@ -545,6 +550,9 @@ pub(super) fn command(
                 ));
             }
             if let Some(output) = read.output {
+                if read.wait_ms != 0 || read.until.is_some() {
+                    return Err(Fault::invalid("waiting requires a command id"));
+                }
                 return Ok(Command::ReadToolOutput {
                     turn: context
                         .turn
@@ -557,15 +565,25 @@ pub(super) fn command(
             }
             if let Some(id) = read.id {
                 return match (read.stream, read.offset, read.limit) {
-                    (None, None, None) => Ok(Command::ReadCommand { session, id }),
+                    (None, None, None) => Ok(Command::ReadCommand {
+                        session,
+                        id,
+                        wait_ms: read.wait_ms,
+                        until: read.until,
+                    }),
                     (stream, offset, limit) => Ok(Command::ReadCommandPage {
                         session,
                         id,
                         stream: stream.unwrap_or_default(),
                         offset: offset.unwrap_or(0),
                         limit: limit.unwrap_or(32768),
+                        wait_ms: read.wait_ms,
+                        until: read.until,
                     }),
                 };
+            }
+            if read.wait_ms != 0 || read.until.is_some() {
+                return Err(Fault::invalid("waiting requires a command id"));
             }
             if read.stream.is_some() || read.offset.is_some() || read.limit.is_some() {
                 return Err(Fault::invalid(
@@ -979,6 +997,37 @@ mod tests {
             assert!(command(operation, json!({"id":sailry_protocol::RequestId::new(),"session":sailry_protocol::SessionId::new()}), &scope).is_err());
         }
         assert!(command(Operation::StopCommand, json!({}), &scope).is_err());
+    }
+
+    #[test]
+    fn captures_command_wait_options() {
+        let scope = scope();
+        let id = sailry_protocol::RequestId::new();
+        for paged in [false, true] {
+            let mut arguments = json!({"id":id,"wait_ms":30000,"until":"ready"});
+            if paged {
+                arguments["stream"] = json!("stderr");
+                arguments["offset"] = json!(12);
+                arguments["limit"] = json!(128);
+            }
+            let schema = parameters(Operation::ReadCommand);
+            let validator = jsonschema::draft202012::options().build(&schema).unwrap();
+            assert!(validator.is_valid(&arguments));
+            let command = command(Operation::ReadCommand, arguments, &scope).unwrap();
+            assert!(matches!(
+                command,
+                Command::ReadCommand { wait_ms: 30000, until: Some(ref text), .. }
+                    | Command::ReadCommandPage { wait_ms: 30000, until: Some(ref text), .. }
+                    if text == "ready"
+            ));
+        }
+        for arguments in [
+            json!({"wait_ms":1}),
+            json!({"until":"ready"}),
+            json!({"output":{"call":"fixture","revision":"a".repeat(64)},"wait_ms":1}),
+        ] {
+            assert!(command(Operation::ReadCommand, arguments, &scope).is_err());
+        }
     }
 
     #[test]

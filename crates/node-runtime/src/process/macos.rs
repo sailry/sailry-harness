@@ -15,6 +15,11 @@ impl Group {
         if id <= 1 || child.try_inner_child()?.id()? != group.pgid() {
             return None;
         }
+        Self::owned(group.pgid())
+    }
+
+    pub(super) fn owned(id: u32) -> Option<Self> {
+        let id = libc::pid_t::try_from(id).ok().filter(|id| *id > 1)?;
         Some(Self {
             id,
             // SAFETY: geteuid only reads the calling process's effective identity.

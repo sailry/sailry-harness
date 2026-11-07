@@ -113,3 +113,42 @@ async fn matches_completions_and_faults() {
     );
     fixture.close().await;
 }
+
+#[tokio::test]
+async fn matches_command_wait_receipts() {
+    let fixture = Fixture::empty().await;
+    let session = SessionId::new();
+    let id = RequestId::new();
+    for command in [
+        Command::ReadCommand {
+            session,
+            id,
+            wait_ms: 30_000,
+            until: Some("ready".into()),
+        },
+        Command::ReadCommandPage {
+            session,
+            id,
+            stream: process::OutputStream::Stderr,
+            offset: 12,
+            limit: 128,
+            wait_ms: 30_000,
+            until: Some("ready".into()),
+        },
+    ] {
+        let [local, remote] = fixture.clients();
+        let expected = complete(&local, command.clone()).await;
+        assert!(matches!(
+            &expected,
+            (
+                Some(false),
+                Err(Fault {
+                    code: ErrorCode::NotFound,
+                    ..
+                })
+            )
+        ));
+        assert_eq!(complete(&remote, command).await, expected);
+    }
+    fixture.close().await;
+}

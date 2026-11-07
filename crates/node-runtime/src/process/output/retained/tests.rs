@@ -20,6 +20,40 @@ pub(super) fn info() -> Info {
 }
 
 #[test]
+fn finds_announcements_across_stream_chunks() {
+    let profile = tempfile::tempdir().unwrap();
+    let retained = Retained::new(profile.path(), Arc::default());
+    retained.track_services();
+    for (stream, text) in [
+        (
+            OutputStream::Stdout,
+            "\x1b[36mhttp://localhost:5173/项目\x1b[0m\n",
+        ),
+        (
+            OutputStream::Stderr,
+            "http://127.0.0.1:5173/ http://localhost:8000/\n",
+        ),
+    ] {
+        for bytes in text.as_bytes().chunks(1) {
+            retained.append(stream, bytes);
+        }
+    }
+    assert_eq!(
+        retained.services(),
+        vec![
+            sailry_protocol::process::Service {
+                port: 5173,
+                url: "http://127.0.0.1:5173/%E9%A1%B9%E7%9B%AE".into(),
+            },
+            sailry_protocol::process::Service {
+                port: 8000,
+                url: "http://127.0.0.1:8000/".into(),
+            },
+        ]
+    );
+}
+
+#[test]
 fn pages_finished_output_at_raw_offsets() {
     for (case_name, run) in [
         (

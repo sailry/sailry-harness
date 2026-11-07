@@ -887,6 +887,10 @@ pub enum Command {
     ReadCommand {
         session: SessionId,
         id: RequestId,
+        #[serde(default)]
+        wait_ms: u64,
+        #[serde(default)]
+        until: Option<String>,
     },
     ReadCommandPage {
         session: SessionId,
@@ -894,6 +898,10 @@ pub enum Command {
         stream: crate::process::OutputStream,
         offset: usize,
         limit: usize,
+        #[serde(default)]
+        wait_ms: u64,
+        #[serde(default)]
+        until: Option<String>,
     },
     ReadToolOutput {
         turn: crate::TurnId,

@@ -226,6 +226,48 @@ mod unix {
     }
 
     #[tokio::test]
+    async fn allows_cleanup_before_forced_stop() {
+        for ignores_term in [false, true] {
+            let directory = tempfile::tempdir().unwrap();
+            let command = if ignores_term {
+                "trap '' TERM; sleep 60 & task_pid=$!; printf '%s' \"$task_pid\" > child.pid; wait \"$task_pid\""
+            } else {
+                "trap 'printf cleaned > cleanup.txt; exit 0' TERM; sleep 60 & task_pid=$!; printf '%s' \"$task_pid\" > child.pid; wait \"$task_pid\""
+            };
+            let request = launch(directory.path(), command);
+            let stop = CancellationToken::new();
+            let cancelled = stop.clone();
+            let running = tokio::spawn(async move {
+                execute(
+                    request,
+                    &Environment::ambient(),
+                    &cancelled,
+                    &CancellationToken::new(),
+                )
+                .await
+                .unwrap()
+            });
+            let child = pid(&directory.path().join("child.pid")).await;
+            let started = Instant::now();
+            stop.cancel();
+            let output = tokio::time::timeout(Duration::from_secs(6), running)
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(output.outcome, Outcome::Cancelled);
+            if ignores_term {
+                assert!(started.elapsed() >= CLEANUP_TIMEOUT);
+            } else {
+                assert_eq!(
+                    std::fs::read_to_string(directory.path().join("cleanup.txt")).unwrap(),
+                    "cleaned"
+                );
+            }
+            gone(child).await;
+        }
+    }
+
+    #[tokio::test]
     async fn reaps_orphaned_children() {
         let directory = tempfile::tempdir().unwrap();
         let output = run(launch(

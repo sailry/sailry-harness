@@ -10,6 +10,7 @@ use tokio::{
 
 mod encoding;
 mod retained;
+mod services;
 use encoding::Decoder;
 pub(crate) use encoding::Encoding;
 pub(crate) use retained::{Budget, COMMAND_LIMIT, Retained, clear};
@@ -157,6 +158,7 @@ impl Reader {
         tail: bool,
         retained: Option<(Arc<Retained>, sailry_protocol::process::OutputStream)>,
         encoding: Encoding,
+        changes: tokio::sync::watch::Sender<()>,
     ) -> Self {
         let buffer = Arc::new(Mutex::new(Buffer {
             tail,
@@ -173,13 +175,19 @@ impl Reader {
             loop {
                 let count = pipe.read(&mut bytes).await?;
                 if count == 0 {
-                    output.lock().unwrap().finish();
+                    let mut output = output.lock().unwrap();
+                    let before = output.capture();
+                    output.finish();
+                    if output.capture() != before {
+                        changes.send_replace(());
+                    }
                     return Ok(());
                 }
                 output.lock().unwrap().append(&bytes[..count]);
                 if let Some((retained, stream)) = &retained {
                     retained.append(*stream, &bytes[..count]);
                 }
+                changes.send_replace(());
             }
         });
         Self { buffer, task }
@@ -195,6 +203,7 @@ impl Drop for Reader {
 pub(crate) struct Drain {
     stdout: Reader,
     stderr: Reader,
+    changes: tokio::sync::watch::Receiver<()>,
 }
 
 impl Drain {
@@ -224,6 +233,7 @@ impl Drain {
         if let Some(retained) = &retained {
             retained.configure(encoding);
         }
+        let (changes, changed) = tokio::sync::watch::channel(());
         Self {
             stdout: Reader::new(
                 stdout,
@@ -232,14 +242,24 @@ impl Drain {
                     .clone()
                     .map(|record| (record, sailry_protocol::process::OutputStream::Stdout)),
                 encoding,
+                changes.clone(),
             ),
             stderr: Reader::new(
                 stderr,
                 tail,
                 retained.map(|record| (record, sailry_protocol::process::OutputStream::Stderr)),
                 encoding,
+                changes,
             ),
+            changes: changed,
         }
+    }
+
+    pub async fn changed(&mut self) {
+        if self.changes.changed().await.is_err() {
+            std::future::pending::<()>().await;
+        }
+        self.changes.borrow_and_update();
     }
 
     pub fn snapshot(&self) -> (Capture, Capture) {
@@ -389,6 +409,31 @@ mod tests {
             assert_eq!(stdout.text, text);
             assert!(!stdout.invalid_utf8);
         }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn quiet_streams_do_not_publish_snapshots() {
+        use tokio::io::AsyncWriteExt;
+
+        let (mut writer, reader) = tokio::io::duplex(64);
+        let mut drain = Drain::with_retained(reader, tokio::io::empty(), true, None);
+        tokio::task::yield_now().await;
+        assert!(
+            tokio::time::timeout(Duration::from_secs(1), drain.changed())
+                .await
+                .is_err()
+        );
+        writer.write_all(b"ready").await.unwrap();
+        drain.changed().await;
+        assert_eq!(drain.snapshot().0.text, "ready");
+        assert!(
+            tokio::time::timeout(Duration::from_secs(1), drain.changed())
+                .await
+                .is_err()
+        );
+        writer.shutdown().await.unwrap();
+        let (_, _, error) = drain.finish(Duration::from_secs(1)).await;
+        assert!(error.is_none());
     }
 
     #[test]

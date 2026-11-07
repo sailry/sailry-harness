@@ -74,6 +74,8 @@ async fn background(
                 .execute(client.prepare(Command::ReadCommand {
                     session,
                     id: command.id,
+                    wait_ms: 0,
+                    until: None,
                 }))
                 .await
                 .unwrap()
@@ -132,13 +134,16 @@ async fn freezes_login_until_restart() {
             foreground[0].outcome,
             sailry_protocol::process::Outcome::Exited(0)
         );
-        assert_eq!(foreground[0].stdout.text, "first:unset:unset");
+        assert_eq!(
+            foreground[0].stdout.text,
+            "first:unset:unset:login-config:ambient-config"
+        );
         assert_eq!(
             background(&client, session.id, page.runs.last().unwrap().turn)
                 .await
                 .stdout
                 .text,
-            "first:unset:unset"
+            "first:unset:unset:login-config:ambient-config"
         );
         assert_eq!(login.captures(), 1);
         let Output::Snapshot(snapshot) = client
@@ -163,14 +168,14 @@ async fn freezes_login_until_restart() {
     let page = run(&client, &session).await;
     assert_eq!(
         process::results(&client, &page).await[0].stdout.text,
-        "second:unset:unset"
+        "second:unset:unset:login-config:ambient-config"
     );
     assert_eq!(
         background(&client, session.id, page.runs.last().unwrap().turn)
             .await
             .stdout
             .text,
-        "second:unset:unset"
+        "second:unset:unset:login-config:ambient-config"
     );
     assert_eq!(login.captures(), 2);
     node.shutdown().await.unwrap();

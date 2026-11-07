@@ -279,7 +279,6 @@ async fn execute_configured(
     let mut stdin = child.inner.stdin().take();
     let mut capture =
         output::Drain::with_encoding(stdout, stderr, progress.is_some(), retained, encoding);
-    let mut tick = tokio::time::interval(Duration::from_millis(100));
     let mut outcome = {
         let wait = child.wait_root();
         tokio::pin!(wait);
@@ -314,7 +313,7 @@ async fn execute_configured(
                                 Err(error) => Outcome::Unknown(format!("command wait failed: {error}")),
                             }),
                             result = &mut write => break result.map_err(|error| Outcome::Unknown(format!("command input failed: {error}"))),
-                            _ = tick.tick(), if progress.is_some() => {
+                            _ = capture.changed(), if progress.is_some() => {
                                 progress.unwrap().send_replace(capture.snapshot());
                             },
                         }
@@ -323,12 +322,16 @@ async fn execute_configured(
                         break outcome;
                     }
                 }
-                _ = tick.tick(), if progress.is_some() => {
+                _ = capture.changed(), if progress.is_some() => {
                     progress.unwrap().send_replace(capture.snapshot());
                 }
             }
         }
     };
+    #[cfg(unix)]
+    if stop.is_cancelled() && !closed.is_cancelled() && child.inner.signal(libc::SIGTERM).is_ok() {
+        tokio::time::sleep(CLEANUP_TIMEOUT).await;
+    }
     // Terminate remaining members of this command's group/Job after root exit, too.
     let cleanup = child.inner.start_kill();
     child.armed = false;

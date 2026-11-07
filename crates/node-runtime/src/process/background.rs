@@ -1,7 +1,7 @@
 //! Session-owned commands outlive Agent turns, but never the execution Node.
-mod services;
 mod stalls;
 mod subscription;
+mod wait;
 
 pub(crate) use stalls::{STALL_WINDOW, Stalled};
 
@@ -194,6 +194,7 @@ impl Commands {
             launch.profile.as_deref().unwrap_or(&launch.root),
             self.budget.clone(),
         ));
+        retained.track_services();
         entries.insert(
             id,
             Entry {
@@ -231,12 +232,17 @@ impl Commands {
                     result = &mut execution => break result,
                     changed = output.changed() => {
                         if changed.is_err() { continue; }
-                        let (stdout, stderr) = output.borrow_and_update().clone();
+                        output.borrow_and_update();
                         let mut entries = owner.entries.lock().unwrap();
                         if let Some(entry) = entries.get_mut(&id) {
                             let before = entry.info.services.len();
-                            services::discover(&stdout.text, &mut entry.info.services);
-                            services::discover(&stderr.text, &mut entry.info.services);
+                            for service in retained.services() {
+                                if entry.info.services.len() < 16
+                                    && !entry.info.services.iter().any(|found| found.port == service.port)
+                                {
+                                    entry.info.services.push(service);
+                                }
+                            }
                             if before != entry.info.services.len() { owner.changes.send_replace(()); }
                         }
                     }
@@ -369,6 +375,7 @@ impl Commands {
                 entry.output =
                     watch::channel((completion.stdout.clone(), completion.stderr.clone())).1;
             }
+            self.changes.send_replace(());
         }
     }
 

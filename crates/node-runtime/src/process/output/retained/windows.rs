@@ -13,6 +13,31 @@ fn capture(raw: &[u8], number: u32) -> (tempfile::TempDir, Retained) {
 }
 
 #[test]
+fn decodes_announced_service_paths() {
+    for (number, suffix, expected) in [
+        (936, b"\xb0\xe6\xb1\xbe".as_slice(), "%E7%89%88%E6%9C%AC"),
+        (932, b"\x82\xa0".as_slice(), "%E3%81%82"),
+    ] {
+        let profile = tempfile::tempdir().unwrap();
+        let retained = Retained::new(profile.path(), Arc::default());
+        retained.configure(Encoding::code_page(number));
+        retained.track_services();
+        let raw = [b"http://localhost:5173/".as_slice(), suffix, b"\n"].concat();
+        for bytes in raw.chunks(1) {
+            retained.append(OutputStream::Stdout, bytes);
+        }
+        retained.finish();
+        assert_eq!(
+            retained.services(),
+            vec![sailry_protocol::process::Service {
+                port: 5173,
+                url: format!("http://127.0.0.1:5173/{expected}"),
+            }]
+        );
+    }
+}
+
+#[test]
 fn pages_encoded_output_at_raw_offsets() {
     for (number, raw, text, boundaries) in [
         (936, b"\xb0\xe6\xb1\xbe".as_slice(), "版本", vec![0, 2, 4]),

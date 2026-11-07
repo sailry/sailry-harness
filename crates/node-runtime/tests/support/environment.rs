@@ -42,7 +42,7 @@ impl Login {
             executable(
                 &directory.join("environment-fixture"),
                 &format!(
-                    "#!/bin/sh\nprintf '{label}:%s:%s' \"${{LOGIN_SECRET-unset}}\" \"${{SAILRY_MODEL_API_KEY-unset}}\"\n"
+                    "#!/bin/sh\nprintf '{label}:%s:%s:%s:%s' \"${{LOGIN_SECRET-unset}}\" \"${{SAILRY_MODEL_API_KEY-unset}}\" \"${{LOGIN_CONFIG-unset}}\" \"${{AMBIENT_CONFIG-unset}}\"\n"
                 ),
             );
             executable(
@@ -63,7 +63,7 @@ impl Login {
     pub fn select(&self, second: bool) {
         let path = if second { &self.second } else { &self.first };
         std::fs::write(self.home.join("login.env"), format!(
-            "PATH={}:\"/usr/bin:/bin\"; export PATH\nLOGIN_SECRET='login-secret'; export LOGIN_SECRET\nSAILRY_MCP_TOKEN='login-token'; export SAILRY_MCP_TOKEN\nprintf 'login banner\\n'\n",
+            "PATH={}:\"/usr/bin:/bin\"; export PATH\nLOGIN_SECRET='login-secret'; export LOGIN_SECRET\nLOGIN_CONFIG='login-config'; export LOGIN_CONFIG\nSAILRY_MCP_TOKEN='login-token'; export SAILRY_MCP_TOKEN\nprintf 'login banner\\n'\n",
             quote(path.to_str().unwrap()),
         )).unwrap();
     }
@@ -76,6 +76,7 @@ impl Login {
             environment: [
                 ("PATH".into(), "/usr/bin:/bin".into()),
                 ("LANG".into(), "C".into()),
+                ("AMBIENT_CONFIG".into(), "ambient-config".into()),
                 ("SAILRY_MODEL_API_KEY".into(), "ambient-model-secret".into()),
             ]
             .into(),

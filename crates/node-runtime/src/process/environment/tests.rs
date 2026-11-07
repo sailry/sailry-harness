@@ -109,6 +109,70 @@ fn filters_sensitive_values() {
     assert_eq!(environment.values[OsStr::new("LANG")], "en_US.UTF-8");
 }
 
+#[test]
+fn separates_command_environments() {
+    use sailry_protocol::process::Access;
+
+    let environment = Environment::filtered(
+        [
+            ("PATH", "/fixture/bin"),
+            ("SSH_AUTH_SOCK", "/fixture/agent"),
+            ("USER", "fixture"),
+            ("LANG", "en_US.UTF-8"),
+            ("LC_MESSAGES", "en_US.UTF-8"),
+            ("HTTP_PROXY", "http://127.0.0.1:8000"),
+            ("https_proxy", "http://127.0.0.1:8001"),
+            ("ALL_PROXY", "socks5://127.0.0.1:8002"),
+            ("no_proxy", "localhost"),
+            ("CARGO_HOME", "/fixture/cargo"),
+            ("VIRTUAL_ENV", "/fixture/venv"),
+            ("NODE_OPTIONS", "--enable-source-maps"),
+            ("OPENAI_API_KEY", "private"),
+            ("github_token", "private"),
+            ("SERVICE_SECRET", "private"),
+            ("DB_PASSWORD_FILE", "private"),
+            ("AWS_PROFILE", "private"),
+            ("TOKEN", "private"),
+        ]
+        .map(|(key, value)| (key.into(), value.into())),
+    );
+    for access in [Access::Workspace, Access::Unrestricted] {
+        let values = environment.command_values(access);
+        for key in [
+            "PATH",
+            "SSH_AUTH_SOCK",
+            "USER",
+            "LANG",
+            "LC_MESSAGES",
+            "HTTP_PROXY",
+            "https_proxy",
+            "ALL_PROXY",
+            "no_proxy",
+        ] {
+            assert!(values.contains_key(OsStr::new(key)), "{access:?}: {key}");
+        }
+        for key in [
+            "OPENAI_API_KEY",
+            "github_token",
+            "SERVICE_SECRET",
+            "DB_PASSWORD_FILE",
+            "AWS_PROFILE",
+            "TOKEN",
+        ] {
+            assert!(!values.contains_key(OsStr::new(key)), "{access:?}: {key}");
+        }
+        let mut command = portable_pty::CommandBuilder::new("/bin/sh");
+        environment.apply_pty(&mut command, access);
+        for key in ["CARGO_HOME", "VIRTUAL_ENV", "NODE_OPTIONS"] {
+            let included = access == Access::Unrestricted;
+            assert_eq!(values.contains_key(OsStr::new(key)), included);
+            assert_eq!(command.get_env(key).is_some(), included);
+            assert!(!environment.terminal.contains_key(OsStr::new(key)));
+            assert!(!environment.values.contains_key(OsStr::new(key)));
+        }
+    }
+}
+
 #[cfg(windows)]
 #[test]
 fn preserves_terminal_username() {
@@ -276,6 +340,7 @@ printf x >> captured.count
 export PATH=/fixture/login/bin:/usr/bin:/bin
 export SAILRY_FIXTURE_SECRET=private
 export GHOSTTY_RESOURCES_DIR=/parent/integration
+export VIRTUAL_ENV=/fixture/venv
 for argument do payload=$argument; done
 eval "$payload"
 "#,
@@ -288,6 +353,15 @@ eval "$payload"
         .await;
         let expected = OsStr::new("/fixture/login/bin:/usr/bin:/bin");
         assert_eq!(environment.path(), Some(expected));
+        assert_eq!(
+            environment.unrestricted[OsStr::new("VIRTUAL_ENV")],
+            "/fixture/venv"
+        );
+        assert!(
+            !environment
+                .unrestricted
+                .contains_key(OsStr::new("SAILRY_FIXTURE_SECRET"))
+        );
         assert_eq!(environment.login_shell(), Some(executable.as_os_str()));
         assert_eq!(
             environment.terminal[OsStr::new("HOME")],

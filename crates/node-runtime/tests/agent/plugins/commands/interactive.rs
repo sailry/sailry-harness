@@ -7,6 +7,8 @@ async fn output(fixture: &Fixture, id: RequestId) -> Snapshot {
         Command::ReadCommand {
             session: fixture.session.id,
             id,
+            wait_ms: 0,
+            until: None,
         },
     )
     .await
