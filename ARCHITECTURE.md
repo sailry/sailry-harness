@@ -932,7 +932,9 @@ bridge. Both require a logged-in graphical session; Linux computer use is not
 integrated. Desktop and Host remain usable when the helper is missing. The macOS
 helper requires macOS 14, independently of the controller's minimum OS version.
 
-MCP server options belong to the frozen v1 configuration. `exclusive` serializes
+MCP server options belong to the frozen v1 configuration. `tools` selects the
+server tool names a package exposes; unlisted tools are not registered, counted
+against the 64-tool turn limit or callable, including in explicit checks. `exclusive` serializes
 non-read-only calls by installed package name and server across sessions, after
 ordinary approval. Unconfirmed calls retain that lock through pending-task
 cancellation and connection cleanup. `keep_images` reduces only that server's

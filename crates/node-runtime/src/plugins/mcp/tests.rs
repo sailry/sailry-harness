@@ -139,6 +139,7 @@ fn accepts_standard_configuration_edits() {
         "service".into(),
         Server::Sse {
             exclusive: false,
+            tools: None,
             keep_images: None,
             reuse: true,
             url: "https://example.test/mcp".into(),
@@ -168,4 +169,44 @@ fn captures_server_policies() {
     assert!(options.exclusive);
     assert_eq!(options.keep_images, Some(3));
     assert!(!options.reuse);
+}
+
+#[test]
+fn validates_tool_selections() {
+    let many: Vec<_> = (0..=MAX_TOOLS)
+        .map(|index| format!("tool_{index}"))
+        .collect();
+    let (servers, issues) = parsed(json!({
+        "selected": {"type":"stdio","command":"runtime","tools":["snapshot","click"]},
+        "remote": {"type":"streamable-http","url":"https://example.test/mcp","tools":["search"]},
+        "empty": {"type":"stdio","command":"runtime","tools":[]},
+        "blank": {"type":"stdio","command":"runtime","tools":[""]},
+        "repeated": {"type":"stdio","command":"runtime","tools":["click","click"]},
+        "excessive": {"type":"sse","url":"https://example.test/events","tools":many},
+        "mistyped": {"type":"stdio","command":"runtime","tools":"click"}
+    }));
+    assert_eq!(
+        servers.keys().map(String::as_str).collect::<Vec<_>>(),
+        ["remote", "selected"]
+    );
+    assert_eq!(
+        servers["selected"].tools(),
+        Some(["snapshot".to_owned(), "click".to_owned()].as_slice())
+    );
+    assert_eq!(
+        servers["remote"].tools(),
+        Some(["search".to_owned()].as_slice())
+    );
+    let mut invalid: Vec<_> = issues.into_iter().map(|issue| issue.path).collect();
+    invalid.sort();
+    assert_eq!(
+        invalid,
+        [
+            "mcp.json#/mcpServers/blank",
+            "mcp.json#/mcpServers/empty",
+            "mcp.json#/mcpServers/excessive",
+            "mcp.json#/mcpServers/mistyped",
+            "mcp.json#/mcpServers/repeated",
+        ]
+    );
 }

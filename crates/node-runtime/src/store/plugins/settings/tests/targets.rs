@@ -10,6 +10,7 @@ fn configuration(server: plugin::mcp::Server) -> plugin::mcp::Configuration {
 fn http(url: &str) -> plugin::mcp::Configuration {
     configuration(plugin::mcp::Server::Http {
         exclusive: false,
+        tools: None,
         keep_images: None,
         reuse: true,
         url: url.into(),
@@ -230,6 +231,7 @@ async fn requires_rebinding_after_real_server_changes() {
         http("https://other.test/mcp"),
         configuration(plugin::mcp::Server::Sse {
             exclusive: false,
+            tools: None,
             keep_images: None,
             reuse: true,
             url: "https://original.test/mcp".into(),
@@ -237,6 +239,7 @@ async fn requires_rebinding_after_real_server_changes() {
         }),
         configuration(plugin::mcp::Server::Stdio {
             exclusive: false,
+            tools: None,
             keep_images: None,
             reuse: true,
             command: "other".into(),
@@ -304,6 +307,7 @@ async fn hashes_stdio_command_arguments_environment_and_directory() {
     let (_directory, db, info, _saved) = fixture().await;
     let original = configuration(plugin::mcp::Server::Stdio {
         exclusive: false,
+        tools: None,
         keep_images: None,
         reuse: true,
         command: "server".into(),

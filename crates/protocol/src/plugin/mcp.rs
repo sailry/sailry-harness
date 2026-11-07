@@ -74,6 +74,9 @@ pub enum Server {
         keep_images: Option<usize>,
         #[serde(default = "default_reuse", skip_serializing_if = "is_true")]
         reuse: bool,
+        /// Server tool names exposed to agents; others are never registered.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tools: Option<Vec<String>>,
     },
     #[serde(rename = "streamable-http")]
     Http {
@@ -86,6 +89,8 @@ pub enum Server {
         keep_images: Option<usize>,
         #[serde(default = "default_reuse", skip_serializing_if = "is_true")]
         reuse: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tools: Option<Vec<String>>,
     },
     #[serde(rename = "sse")]
     Sse {
@@ -98,6 +103,8 @@ pub enum Server {
         keep_images: Option<usize>,
         #[serde(default = "default_reuse", skip_serializing_if = "is_true")]
         reuse: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tools: Option<Vec<String>>,
     },
 }
 
@@ -167,6 +174,12 @@ impl Server {
             Self::Http { .. } => super::McpTransport::StreamableHttp,
             Self::Sse { .. } => super::McpTransport::Sse,
         }
+    }
+
+    /// The declared tool selection; `None` exposes every listed tool.
+    pub fn tools(&self) -> Option<&[String]> {
+        let (Self::Stdio { tools, .. } | Self::Http { tools, .. } | Self::Sse { tools, .. }) = self;
+        tools.as_deref()
     }
 }
 
@@ -267,10 +280,17 @@ mod tests {
                     ] {
                         let server: Server = serde_json::from_value(value.clone()).unwrap();
                         assert_eq!(server.options(), Options::default(), "{scenario}");
+                        assert_eq!(server.tools(), None, "{scenario}");
                         value["exclusive"] = true.into();
                         value["keep_images"] = 3.into();
                         value["reuse"] = false.into();
+                        value["tools"] = json!(["snapshot", "click"]);
                         let server: Server = serde_json::from_value(value.clone()).unwrap();
+                        assert_eq!(
+                            server.tools(),
+                            Some(["snapshot".to_owned(), "click".to_owned()].as_slice()),
+                            "{scenario}"
+                        );
                         assert_eq!(
                             server.options(),
                             Options {

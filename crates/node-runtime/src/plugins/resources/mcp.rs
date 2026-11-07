@@ -10,6 +10,7 @@ pub(crate) struct Configured {
     pub name: String,
     pub launch: Result<Launch, Fault>,
     pub options: sailry_protocol::plugin::mcp::Options,
+    pub tools: Option<Vec<String>>,
 }
 
 pub(crate) enum Launch {
@@ -264,10 +265,11 @@ impl Resources {
                             .filter(|(server, _)| choices.contains(server))
                             .map(|(server, config)| {
                                 let options = config.options();
+                                let tools = config.tools().map(<[String]>::to_vec);
                                 let launch = prepare(
                                     &host, &directory, &info, &server, config, &settings, helper,
                                 );
-                                (server, (options, launch))
+                                (server, (options, tools, launch))
                             })
                             .collect::<BTreeMap<_, _>>(),
                     )
@@ -284,12 +286,14 @@ impl Resources {
                 if !choices.contains(&server.name) {
                     continue;
                 }
-                let (options, mut launch) = servers.remove(&server.name).unwrap_or_else(|| {
-                    (
-                        Default::default(),
-                        Err(failure.clone().unwrap_or_else(unavailable)),
-                    )
-                });
+                let (options, tools, mut launch) =
+                    servers.remove(&server.name).unwrap_or_else(|| {
+                        (
+                            Default::default(),
+                            None,
+                            Err(failure.clone().unwrap_or_else(unavailable)),
+                        )
+                    });
                 if let Ok(Launch::Stdio {
                     command,
                     args,
@@ -343,6 +347,7 @@ impl Resources {
                     name: server.name.clone(),
                     launch,
                     options,
+                    tools,
                 });
             }
         }

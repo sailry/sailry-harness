@@ -44,7 +44,7 @@ pub(crate) async fn run(
     let result = tokio::select! {
         biased;
         _ = stop.cancelled() => Err(Fault::new(ErrorCode::Cancelled, "MCP check was cancelled")),
-        result = tokio::time::timeout(Duration::from_secs(10), list(service.peer())) => result.unwrap_or_else(|_| Err(unavailable())),
+        result = tokio::time::timeout(Duration::from_secs(10), list(service.peer(), config.tools.as_deref())) => result.unwrap_or_else(|_| Err(unavailable())),
     };
     drop(service);
     // A successful list is not a successful check until its diagnostic owner closes.

@@ -438,6 +438,7 @@ async fn rejects_upgrade_without_writing() {
             "notion".into(),
             plugin::mcp::Server::Http {
                 exclusive: false,
+                tools: None,
                 keep_images: None,
                 reuse: true,
                 url: "https://outside.example.com/mcp".into(),
@@ -515,6 +516,7 @@ async fn suspends_changed_mcp_paths_and_queries() {
                 "notion".into(),
                 plugin::mcp::Server::Http {
                     exclusive: false,
+                    tools: None,
                     keep_images: None,
                     reuse: true,
                     url: url.into(),
