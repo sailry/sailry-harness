@@ -22,12 +22,7 @@ async fn pauses_unclaimed_input_after_restart() {
         assert!(!before.paused);
         assert_eq!(before.items[0].ready, ready);
         assert_eq!(before.items[0].request, Some(message.turn.request));
-        let path = fixture
-            ._root
-            .path()
-            .canonicalize()
-            .unwrap()
-            .join("node.turso");
+        let path = fixture::path(&fixture._root);
         let node = fixture.database.node;
         fixture.database.close().await.unwrap();
         let mut database = Database::open(&path, node, None).await.unwrap();

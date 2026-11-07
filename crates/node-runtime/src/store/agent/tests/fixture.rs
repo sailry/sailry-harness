@@ -12,13 +12,20 @@ pub(in crate::store::agent) struct Fixture {
     pub _root: tempfile::TempDir,
 }
 
+/// The fixture's database file, for tests that close and reopen it.
+pub(in crate::store::agent) fn path(root: &tempfile::TempDir) -> std::path::PathBuf {
+    root.path()
+        .canonicalize()
+        .unwrap()
+        .join("storage/node.turso")
+}
+
 impl Fixture {
     pub fn new() -> sailry_link::Pending<'static, Self> {
         Box::pin(async move {
             let root = tempfile::tempdir().unwrap();
-            let storage = root.path().canonicalize().unwrap().join("storage");
-            crate::profile::private_directory(&storage).unwrap();
-            let path = storage.join("node.turso");
+            let path = self::path(&root);
+            crate::profile::private_directory(path.parent().unwrap()).unwrap();
             let mut database = Database::open(&path, NodeId([33; 32]), None).await.unwrap();
             let (events, _) = broadcast::channel(64);
             let Output::Project(project) = command(
