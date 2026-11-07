@@ -125,7 +125,8 @@ impl Browser {
             .find(|value| value.id as u64 == tab)
             .and_then(|tab| tab.page.as_ref())
             .ok_or_else(failed)?;
-        crate::ui::webview_capture::capture(page.read(cx).raw(), Some(width)).map_err(|_| failed())
+        crate::ui::webview_capture::capture(page.read(cx).raw(), Some(width), true)
+            .map_err(|_| failed())
     }
 }
 
