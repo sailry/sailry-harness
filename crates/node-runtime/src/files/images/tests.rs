@@ -1,5 +1,4 @@
 use super::*;
-use base64::Engine as _;
 use sailry_link::CancellationToken;
 
 fn control() -> Control {
