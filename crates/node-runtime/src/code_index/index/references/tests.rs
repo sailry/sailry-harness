@@ -17,7 +17,6 @@ async fn usages(
         .imports(&BTreeSet::from(["main.py".to_owned()]))
         .await
         .unwrap();
-    drop(reader);
     tx.commit().await.unwrap();
     (found, imports)
 }

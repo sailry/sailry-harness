@@ -2,7 +2,7 @@ use super::*;
 
 #[tokio::test]
 async fn restart_preserves_idle_and_timestamps() {
-    let idle = format!("idle input");
+    let idle = "idle input";
     let fixture = Fixture::start(false).await;
     let input = "Preserve queued input 中文 🙂\n".repeat(100);
     let Output::QueuedTurn(turn) = fixture
@@ -51,7 +51,7 @@ async fn restart_preserves_idle_and_timestamps() {
         assert_eq!(prompt(&requests[0]), "Resume with fresh input", "{idle}");
         assert_eq!(prompt(&requests[1]), input, "{idle}");
     }
-    let timing = format!("execution timestamps");
+    let timing = "execution timestamps";
     fixture.pause(true).await;
     let timed = fixture.enqueue("Timed fixture").await;
     let page = history(&fixture.client, fixture.session.id).await;

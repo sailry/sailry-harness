@@ -90,6 +90,22 @@ pub(super) fn project(original: &Value, source: &Value) -> Option<Value> {
     changed.then_some(result)
 }
 
+fn tail(text: &str) -> (usize, String) {
+    let mut bytes = STREAM_BYTES;
+    loop {
+        let start = limit::tail_start(text, bytes, STREAM_LINES);
+        let rendered = normalize(&text[start..]);
+        if serde_json::to_string(&rendered)
+            .expect("command text is JSON")
+            .len()
+            <= 20 * 1024
+        {
+            return (start, rendered);
+        }
+        bytes /= 2;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -119,21 +135,5 @@ mod tests {
                 assert!(!stream["text"].as_str().unwrap().contains("tail starts at"));
             }
         }
-    }
-}
-
-fn tail(text: &str) -> (usize, String) {
-    let mut bytes = STREAM_BYTES;
-    loop {
-        let start = limit::tail_start(text, bytes, STREAM_LINES);
-        let rendered = normalize(&text[start..]);
-        if serde_json::to_string(&rendered)
-            .expect("command text is JSON")
-            .len()
-            <= 20 * 1024
-        {
-            return (start, rendered);
-        }
-        bytes /= 2;
     }
 }

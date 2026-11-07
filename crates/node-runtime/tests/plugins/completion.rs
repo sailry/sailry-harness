@@ -210,7 +210,7 @@ async fn terminal_and_failure() {
             assert_eq!(server.requests.lock().unwrap().len(), 2, "{case}");
         }
     }
-    let case = format!("unauthorized");
+    let case = "unauthorized";
     let server = model_fixture::Server::http(1, 401).await;
     let model = configure_empty(&client, server.endpoint.clone()).await;
     let request = client

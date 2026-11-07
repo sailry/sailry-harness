@@ -207,13 +207,14 @@ fn distributions(bytes: &[u8]) -> Result<Vec<String>, Fault> {
         if !bytes.len().is_multiple_of(2) {
             return Err(invalid());
         }
-        let units = bytes
-            .chunks_exact(2)
-            .map(|unit| {
+        let (units, _) = bytes.as_chunks::<2>();
+        let units = units
+            .iter()
+            .map(|&unit| {
                 if big_endian {
-                    u16::from_be_bytes([unit[0], unit[1]])
+                    u16::from_be_bytes(unit)
                 } else {
-                    u16::from_le_bytes([unit[0], unit[1]])
+                    u16::from_le_bytes(unit)
                 }
             })
             .collect::<Vec<_>>();
