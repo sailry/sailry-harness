@@ -390,6 +390,8 @@ async fn classifies_token_rejections() {
     for renewal in [false, true] {
         for (status, body, rejected) in [
             (401, "unauthorized", true),
+            (200, r#"{"error":"bad_refresh_token"}"#, true),
+            (400, r#"{"error":"bad_refresh_token"}"#, true),
             (400, r#"{"error":"invalid_grant"}"#, true),
             (400, r#"{"error":"invalid_client"}"#, true),
             (400, r#"{"error":"unauthorized_client"}"#, true),
@@ -398,6 +400,7 @@ async fn classifies_token_rejections() {
             (400, r#"{"error":"temporarily_unavailable"}"#, false),
             (403, r#"{"error":"temporarily_unavailable"}"#, false),
             (503, r#"{"error":"temporarily_unavailable"}"#, false),
+            (503, r#"{"error":"bad_refresh_token"}"#, false),
             (503, r#"{"error":"invalid_grant"}"#, false),
             (503, r#"{"error":"invalid_client"}"#, false),
             (503, r#"{"error":"unauthorized_client"}"#, false),

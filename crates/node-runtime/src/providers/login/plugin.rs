@@ -300,6 +300,7 @@ fn classify(status: reqwest::StatusCode, document: &Value) -> Status {
     match document.get("error").and_then(Value::as_str) {
         Some(
             "invalid_grant"
+            | "bad_refresh_token"
             | "invalid_client"
             | "unauthorized_client"
             | "access_denied"
