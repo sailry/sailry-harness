@@ -211,16 +211,24 @@ adapted to Sailry's ownership and local/remote boundaries.
   Do not depend on ignored output directories, user projects or private profiles.
 - Cover data mappings exhaustively in unit tests; use representative integration
   workflows for each distinct behavior instead of repeating identical setup for
-  every preset. Preserve local and remote paths and meaningful failure cases.
+  every preset. Preserve meaningful failure cases.
 - Use neutral contract fixtures for reusable Core services; keep plugin business
   regressions in the owning package. Report pure JavaScript/mock checks separately
-  from production plugin VM/SDK bridge checks, preserving local and remote coverage
-  for affected service boundaries without requiring every suite for every change.
+  from production plugin VM/SDK bridge checks, preserving remote-path and transport
+  contract coverage for affected service boundaries without requiring every suite
+  for every change.
 - Inject offline catalogs and services in ordinary fixtures. External-service
   acceptance must be explicit and opt-in, not an incidental UI setup dependency.
 - Test conflicts, reconnect and original-request recovery where a changed command
-  can cause side effects. Exercise shared behavior through local and remote paths,
-  not merely a mocked transport.
+  can cause side effects. Run Node domain scenarios once through the paired remote
+  Link client, not a mocked transport.
+- The Node `transport` test target runs each command and subscription contract
+  through both the local and remote clients against one Node and compares the
+  outcomes. Extend it when a change touches that boundary, such as receipts,
+  completions, faults, request reuse, subscriptions, streams, cancellation or
+  plugin calls. Keep local-only behavior on the local client, pairing and Link
+  behavior on the remote client, and both clients only where their behavior
+  intentionally differs.
 - Make external prerequisites explicit. Rust live-service/device tests use
   `#[ignore = "requires …"]` with a focused opt-in command. Do not silently return
   success when credentials, services or devices are missing. An explicitly gated
@@ -235,8 +243,9 @@ adapted to Sailry's ownership and local/remote boundaries.
   only as temporary development and debugging aids. Remove them afterward rather
   than committing permanent tests or adding CI, release or other standardized
   gates. GPUI Kit owns framework-control interaction coverage. Preserve static
-  checks and ordinary logic, protocol, persistence and local/remote service
-  integration; controller logic should be tested without mounting a window.
+  checks and ordinary logic, protocol, persistence, remote service integration
+  and transport contracts; controller logic should be tested without mounting a
+  window.
 
 Real-service, device, OS interaction and performance acceptance must state their
 actual prerequisites and results separately. Do not substitute automatic OS,
@@ -271,10 +280,10 @@ Repository rules that require `Checks passed` on every pull request need separat
 maintainer review when adopting this policy; workflow changes do not edit branch
 protection. Release and website synchronization triggers remain independent.
 
-Native validation runs strict Rust checks, backend local/remote integration,
-Desktop logic and service-contract tests, and production-feature checks on Apple
-silicon with an explicit Xcode SDK. Intel packaging and compilation run in the
-release workflow.
+Native validation runs strict Rust checks, backend integration and transport
+contracts, Desktop logic and service-contract tests, and production-feature checks
+on Apple silicon with an explicit Xcode SDK. Intel packaging and compilation run in
+the release workflow.
 Mobile checks include Flutter analysis and controller logic tests, plus Dart FFI
 contracts against isolated real Nodes on Linux with PostgreSQL 17 and MySQL 8.4,
 the database versions the macOS Shared job installs. The macOS Mobile job runs the
