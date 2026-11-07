@@ -14288,6 +14288,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "sailry-databases"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "futures",
+ "libsqlite3-sys",
+ "rustls-native-certs",
+ "sailry-protocol",
+ "sailry-runtime-core",
+ "sailry-ssh",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
 name = "sailry-decision"
 version = "0.1.0"
 dependencies = [
@@ -14447,6 +14464,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "sailry-local-models"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "cap-fs-ext",
+ "futures",
+ "hayro",
+ "image",
+ "libc",
+ "reqwest 0.13.4",
+ "rustls",
+ "sailry-decision",
+ "sailry-embedding",
+ "sailry-model-assets",
+ "sailry-ocr",
+ "sailry-office",
+ "sailry-protocol",
+ "sailry-runtime-core",
+ "serde",
+ "serde_json",
+ "sha1 0.10.7",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
 name = "sailry-mobile-bridge"
 version = "0.1.0"
 dependencies = [
@@ -14533,7 +14578,6 @@ dependencies = [
  "goose-providers",
  "grep-regex",
  "grep-searcher",
- "hayro",
  "htmd",
  "html5ever 0.39.0",
  "http-body-util",
@@ -14548,7 +14592,6 @@ dependencies = [
  "jsonwebtoken",
  "libc",
  "libghostty-vt",
- "libsqlite3-sys",
  "lopdf",
  "md-5 0.10.6",
  "notify 9.0.0-rc.6",
@@ -14575,14 +14618,17 @@ dependencies = [
  "russh",
  "russh-sftp",
  "rustls",
- "rustls-native-certs",
  "sailry-client",
- "sailry-decision",
+ "sailry-databases",
  "sailry-embedding",
  "sailry-link",
+ "sailry-local-models",
  "sailry-model-assets",
- "sailry-ocr",
+ "sailry-office",
  "sailry-protocol",
+ "sailry-runtime-core",
+ "sailry-ssh",
+ "sailry-vt",
  "schemars 1.2.2",
  "semver",
  "sentry",
@@ -14590,7 +14636,6 @@ dependencies = [
  "serde",
  "serde-saphyr 0.0.29",
  "serde_json",
- "sha1 0.10.7",
  "sha2 0.10.9",
  "sqlx",
  "sysinfo 0.39.6",
@@ -14609,11 +14654,9 @@ dependencies = [
  "tracing-appender",
  "tracing-log",
  "tracing-subscriber",
- "trash",
  "tree-sitter",
  "tree-sitter-language-pack",
  "turso",
- "umya-spreadsheet",
  "unicode-normalization",
  "url",
  "uuid",
@@ -14647,6 +14690,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "sailry-office"
+version = "0.1.0"
+dependencies = [
+ "file-format",
+ "lopdf",
+ "roxmltree 0.21.1",
+ "sailry-protocol",
+ "umya-spreadsheet",
+ "zip 8.6.0",
+]
+
+[[package]]
 name = "sailry-protocol"
 version = "0.1.0"
 dependencies = [
@@ -14677,6 +14732,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "sailry-runtime-core"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "cap-fs-ext",
+ "cap-std",
+ "cap-tempfile",
+ "dirs 6.0.0",
+ "encoding_rs",
+ "git2",
+ "globset",
+ "ignore",
+ "libc",
+ "sailry-protocol",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.20",
+ "tokio-util",
+ "trash",
+ "turso",
+ "windows 0.62.2",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "sailry-speech"
 version = "0.1.0"
 dependencies = [
@@ -14688,6 +14769,28 @@ dependencies = [
  "thiserror 2.0.20",
  "tokio",
  "tokio-util",
+]
+
+[[package]]
+name = "sailry-ssh"
+version = "0.1.0"
+dependencies = [
+ "russh",
+ "sailry-protocol",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "zeroize",
+]
+
+[[package]]
+name = "sailry-vt"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "image",
+ "libghostty-vt",
+ "sailry-protocol",
 ]
 
 [[package]]

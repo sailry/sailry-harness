@@ -1,0 +1,21 @@
+[package]
+name = "sailry-office"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+# The library has no documentation examples; skip the empty rustdoc pass.
+[lib]
+doctest = false
+
+[dependencies]
+file-format.workspace = true
+lopdf.workspace = true
+roxmltree.workspace = true
+sailry-protocol.workspace = true
+umya-spreadsheet.workspace = true
+zip.workspace = true
+
+[lints]
+workspace = true

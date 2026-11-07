@@ -7,27 +7,20 @@ mod backup;
 mod browser;
 mod code_index;
 mod computer;
-mod databases;
-mod decision;
 mod dispatch;
-mod error;
 mod external_browser;
 mod files;
 mod git;
 mod hooks;
 mod host;
-mod installation;
 mod knowledge;
 pub mod logging;
 mod mcp_transport;
-mod models;
-mod ocr;
 mod office;
 mod plugins;
 mod ports;
 mod power;
 mod process;
-mod profile;
 mod providers;
 mod python;
 mod ssh;
@@ -36,7 +29,6 @@ mod tasks;
 pub mod telemetry;
 mod terminal;
 mod web;
-mod workspaces;
 mod wsl;
 
 use std::path::{Path, PathBuf};
@@ -45,14 +37,16 @@ use std::time::Duration;
 use tokio::sync::{oneshot, watch};
 use tokio::task::JoinHandle;
 
-pub use error::Error;
 #[cfg(feature = "test-support")]
 pub use plugins::script::fixture as plugin_test;
 #[cfg(any(test, feature = "test-support"))]
 pub use process::environment::EnvironmentFixture;
-use profile::Profile;
-pub use profile::default_data_dir;
+use sailry_databases as databases;
 pub use sailry_link::{EndpointAddr, NetworkScope};
+use sailry_local_models::{decision, installation, models, ocr};
+use sailry_runtime_core::profile::{self, Profile};
+use sailry_runtime_core::workspaces;
+pub use sailry_runtime_core::{Error, profile::default_data_dir};
 use store::Store;
 use tasks::{Supervisor, Tasks};
 

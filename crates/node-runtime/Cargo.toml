@@ -55,7 +55,7 @@ name = "code_index"
 path = "tests/code_index.rs"
 
 [features]
-test-support = ["sailry-link/test-support"]
+test-support = ["sailry-link/test-support", "sailry-local-models/test-support"]
 
 [[example]]
 name = "plugin-test-host"
@@ -81,10 +81,7 @@ age.workspace = true
 opendal.workspace = true
 russh.workspace = true
 russh-sftp.workspace = true
-sqlx.workspace = true
-libsqlite3-sys.workspace = true
 rustls.workspace = true
-rustls-native-certs.workspace = true
 webpki-roots.workspace = true
 tokio = { workspace = true, features = ["fs", "process"] }
 thiserror.workspace = true
@@ -92,13 +89,15 @@ dirs.workspace = true
 sailry-protocol.workspace = true
 ammonia.workspace = true
 html5ever.workspace = true
+sailry-databases.workspace = true
 sailry-embedding.workspace = true
-sailry-decision.workspace = true
-sailry-ocr.workspace = true
-hayro.workspace = true
 sailry-model-assets.workspace = true
-sha1.workspace = true
 sailry-link.workspace = true
+sailry-local-models.workspace = true
+sailry-office.workspace = true
+sailry-runtime-core.workspace = true
+sailry-ssh.workspace = true
+sailry-vt.workspace = true
 turso.workspace = true
 tree-sitter.workspace = true
 tree-sitter-language-pack.workspace = true
@@ -124,8 +123,6 @@ tempfile.workspace = true
 zip.workspace = true
 roxmltree.workspace = true
 htmd.workspace = true
-umya-spreadsheet.workspace = true
-lopdf.workspace = true
 sysinfo.workspace = true
 cap-std.workspace = true
 cap-fs-ext.workspace = true
@@ -164,7 +161,6 @@ hyper-util = { workspace = true, features = ["client-proxy"] }
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
-trash.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 oslog.workspace = true
@@ -186,15 +182,20 @@ objc2-foundation = { workspace = true, features = ["NSFileManager", "NSPathUtili
 
 [dev-dependencies]
 proptest.workspace = true
+# Knowledge fixtures build PDFs directly.
+lopdf.workspace = true
+# Isolated database engine tests drive SQLx directly.
+sqlx.workspace = true
 rmcp = { workspace = true, features = ["server"] }
 rusqlite = { workspace = true, features = ["hooks", "backup"] }
 tokio-tungstenite.workspace = true
 iroh-relay = { workspace = true, features = ["server", "test-utils"] }
 tokio-rustls.workspace = true
 rcgen.workspace = true
-# Unit tests use Link fixtures directly; a self dev-dependency would serialize the
+# Unit tests use Link and local model fixtures directly; a self dev-dependency would serialize the
 # library and unit-test builds. Integration tests enable `test-support` explicitly.
 sailry-link = { workspace = true, features = ["test-support"] }
+sailry-local-models = { workspace = true, features = ["test-support"] }
 hyper.workspace = true
 http-body-util.workspace = true
 tokio = { workspace = true, features = ["test-util"] }

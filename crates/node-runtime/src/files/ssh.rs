@@ -55,14 +55,6 @@ impl Incoming {
 
     pub(crate) fn publish(mut self, size: u64, revision: &str) -> Result<(), Fault> {
         self.file.rewind().map_err(io_error)?;
-        self.target
-            .write(
-                self.file,
-                size,
-                revision,
-                #[cfg(test)]
-                &|_| {},
-            )
-            .map(|_| ())
+        self.target.write(self.file, size, revision).map(|_| ())
     }
 }

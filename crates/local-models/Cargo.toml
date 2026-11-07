@@ -1,0 +1,47 @@
+[package]
+name = "sailry-local-models"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+# The library has no documentation examples; skip the empty rustdoc pass.
+[lib]
+doctest = false
+
+[features]
+# Hub fixtures and registry helpers for Node service tests.
+test-support = ["dep:tempfile"]
+
+[dependencies]
+blake3.workspace = true
+cap-fs-ext.workspace = true
+futures.workspace = true
+hayro.workspace = true
+image.workspace = true
+reqwest.workspace = true
+rustls.workspace = true
+sailry-decision.workspace = true
+sailry-embedding.workspace = true
+sailry-model-assets.workspace = true
+sailry-ocr.workspace = true
+sailry-office.workspace = true
+sailry-protocol.workspace = true
+sailry-runtime-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha1.workspace = true
+sha2.workspace = true
+tempfile = { workspace = true, optional = true }
+tokio.workspace = true
+tokio-util.workspace = true
+
+[target.'cfg(unix)'.dev-dependencies]
+libc.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio = { workspace = true, features = ["net"] }
+
+[lints]
+workspace = true

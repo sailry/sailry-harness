@@ -166,8 +166,6 @@ impl Transfers {
             prepared.file,
             prepared.size,
             &prepared.revision,
-            #[cfg(test)]
-            &|_| {},
         )
     }
 
@@ -188,8 +186,6 @@ impl Transfers {
             prepared.file,
             prepared.size,
             &prepared.revision,
-            #[cfg(test)]
-            &|_| {},
         )?;
         Ok(attachment)
     }

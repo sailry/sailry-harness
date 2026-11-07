@@ -280,8 +280,6 @@ fn write(
         text.as_bytes(),
         text.len() as u64,
         &revision,
-        #[cfg(test)]
-        &|_| {},
     )?;
     file.status = ChangeStatus::Applied;
     file.revision = Some(written.revision);

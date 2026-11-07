@@ -1,0 +1,237 @@
+use super::*;
+use std::time::{Duration, Instant};
+use tokio_util::sync::CancellationToken;
+
+fn control() -> Control {
+    Control {
+        cancelled: CancellationToken::new(),
+        deadline: Instant::now() + Duration::from_secs(5),
+    }
+}
+
+#[test]
+fn preserves_numbering_and_endings() {
+    let root = tempfile::tempdir().unwrap();
+    let text = "first\r\nsecond 🙂\nlast";
+    std::fs::write(root.path().join("file"), text).unwrap();
+    let page = read(
+        &root.path().canonicalize().unwrap(),
+        "file".into(),
+        1,
+        1,
+        &control(),
+    )
+    .unwrap();
+    assert_eq!(
+        page.lines,
+        vec![FileLine {
+            number: 2,
+            text: "second 🙂\n".into()
+        }]
+    );
+    assert_eq!(page.offset, 1);
+    assert_eq!(page.next_offset, Some(2));
+    assert_eq!(page.size, text.len() as u64);
+    assert_eq!(
+        page.revision,
+        blake3::hash(text.as_bytes()).to_hex().to_string()
+    );
+    let page = read(
+        &root.path().canonicalize().unwrap(),
+        "file".into(),
+        0,
+        3,
+        &control(),
+    )
+    .unwrap();
+    assert_eq!(page.lines[0].text, "first\r\n");
+    assert_eq!(page.lines[2].text, "last");
+    assert!(page.next_offset.is_none());
+}
+
+#[test]
+fn hashes_the_complete_large_file() {
+    let root = tempfile::tempdir().unwrap();
+    let text = "large line\r\n".repeat(20_000);
+    assert!(text.len() > MAX_FILE_BYTES);
+    std::fs::write(root.path().join("file"), &text).unwrap();
+    let page = read(
+        &root.path().canonicalize().unwrap(),
+        "file".into(),
+        19_998,
+        200,
+        &control(),
+    )
+    .unwrap();
+    assert_eq!(page.lines.len(), 2);
+    assert_eq!(page.lines[0].number, 19_999);
+    assert_eq!(
+        page.revision,
+        blake3::hash(text.as_bytes()).to_hex().to_string()
+    );
+    assert!(page.next_offset.is_none());
+}
+
+#[test]
+fn bounds_pages_without_partial_lines() {
+    let root = tempfile::tempdir().unwrap();
+    let line = format!("{}\n", "x".repeat(MAX_FILE_BYTES / 2));
+    std::fs::write(root.path().join("file"), line.repeat(3)).unwrap();
+    let page = read(
+        &root.path().canonicalize().unwrap(),
+        "file".into(),
+        0,
+        200,
+        &control(),
+    )
+    .unwrap();
+    assert_eq!(page.lines.len(), 1);
+    assert_eq!(page.lines[0].text, line);
+    assert_eq!(page.next_offset, Some(1));
+    std::fs::write(root.path().join("file"), "x".repeat(MAX_FILE_BYTES + 1)).unwrap();
+    assert_eq!(
+        read(
+            &root.path().canonicalize().unwrap(),
+            "file".into(),
+            0,
+            200,
+            &control()
+        )
+        .unwrap_err()
+        .code,
+        ErrorCode::InvalidRequest
+    );
+}
+
+#[test]
+fn preserves_split_utf8_and_validates_unreturned_text() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().canonicalize().unwrap();
+    let first = format!("{}🙂\r\n", "x".repeat(8191));
+    let text = format!("{first}second\nlast");
+    std::fs::write(path.join("file"), &text).unwrap();
+    let page = read(&path, "file".into(), 0, 1, &control()).unwrap();
+    assert_eq!(page.lines[0].text, first);
+    assert_eq!(page.next_offset, Some(1));
+    assert_eq!(
+        page.revision,
+        blake3::hash(text.as_bytes()).to_hex().to_string()
+    );
+    for tail in [b"\xf0\x9f".as_slice(), &[0xff], b"\0"] {
+        let mut bytes = text.as_bytes().to_vec();
+        bytes.extend_from_slice(tail);
+        std::fs::write(path.join("file"), bytes).unwrap();
+        assert_eq!(
+            read(&path, "file".into(), 0, 1, &control())
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidRequest
+        );
+    }
+}
+
+#[test]
+fn skips_unselected_oversized_lines() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().canonicalize().unwrap();
+    let text = format!("first\n{}\nlast", "x".repeat(MAX_FILE_BYTES + 1));
+    std::fs::write(path.join("file"), &text).unwrap();
+    let first = read(&path, "file".into(), 0, 2, &control()).unwrap();
+    assert_eq!(first.lines.len(), 1);
+    assert_eq!(first.next_offset, Some(1));
+    assert_eq!(
+        read(&path, "file".into(), 1, 1, &control())
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidRequest
+    );
+    let last = read_version(
+        &path,
+        "file".into(),
+        2,
+        1,
+        Some(&first.revision),
+        &control(),
+    )
+    .unwrap();
+    assert_eq!(
+        last.lines,
+        [FileLine {
+            number: 3,
+            text: "last".into()
+        }]
+    );
+    assert_eq!(last.next_offset, None);
+}
+
+#[test]
+fn rejects_invalid_text_and_limits() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().canonicalize().unwrap();
+    for text in [b"binary\0".as_slice(), &[0xff]] {
+        std::fs::write(root.path().join("file"), text).unwrap();
+        assert_eq!(
+            read(&path, "file".into(), 0, 200, &control())
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidRequest
+        );
+    }
+    std::fs::write(root.path().join("file"), "").unwrap();
+    assert!(
+        read(&path, "file".into(), 0, 200, &control())
+            .unwrap()
+            .lines
+            .is_empty()
+    );
+    assert_eq!(
+        read(&path, "file".into(), 0, 0, &control())
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidRequest
+    );
+}
+
+#[test]
+fn pages_large_requests_without_dropping_lines() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().canonicalize().unwrap();
+    let text = "line\n".repeat(MAX_FILE_LINES + 2);
+    std::fs::write(path.join("file"), &text).unwrap();
+    let first = read(&path, "file".into(), 0, 1_000_000, &control()).unwrap();
+    assert_eq!(first.lines.len(), MAX_FILE_LINES);
+    assert_eq!(first.next_offset, Some(MAX_FILE_LINES));
+    let next = read(
+        &path,
+        "file".into(),
+        first.next_offset.unwrap(),
+        1_000_000,
+        &control(),
+    )
+    .unwrap();
+    assert_eq!(next.lines.len(), 2);
+    assert!(next.next_offset.is_none());
+    assert_eq!(next.revision, first.revision);
+    assert_eq!(
+        first
+            .lines
+            .iter()
+            .chain(&next.lines)
+            .map(|line| line.text.as_str())
+            .collect::<String>(),
+        text
+    );
+}
+
+#[test]
+fn observes_cancellation() {
+    let root = tempfile::tempdir().unwrap();
+    let control = control();
+    control.cancelled.cancel();
+    assert_eq!(
+        read(root.path(), "file".into(), 0, 1, &control)
+            .unwrap_err()
+            .code,
+        ErrorCode::Cancelled
+    );
+}
