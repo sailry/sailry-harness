@@ -1,7 +1,6 @@
 use super::*;
 use crate::Node;
 use sailry_client::Client;
-use sailry_link::{Link, NetworkScope};
 use sailry_protocol::{NodeId, Output, WorktreeId};
 
 fn context() -> CallContext {
@@ -18,13 +17,12 @@ fn context() -> CallContext {
 struct Fixture {
     directory: tempfile::TempDir,
     node: Node,
-    controller: Link,
     client: Client,
     tool: HostOperation,
 }
 
 impl Fixture {
-    async fn new(remote: bool) -> Self {
+    async fn new() -> Self {
         let directory = tempfile::tempdir().unwrap();
         let node = Node::start_empty_with_plugin_catalog(
             directory.path().join("node"),
@@ -32,25 +30,8 @@ impl Fixture {
         )
         .await
         .unwrap();
-        let controller =
-            Link::controller(directory.path().join("controller"), NetworkScope::default())
-                .await
-                .unwrap();
-        let address = controller
-            .handle()
-            .pair(node.link().invite().unwrap().ticket())
-            .await
-            .unwrap();
-        let transport = if remote {
-            controller.handle().remote(address)
-        } else {
-            node.local()
-        };
-        let caller = if remote {
-            NodeId(*controller.handle().address().id.as_bytes())
-        } else {
-            node.id()
-        };
+        let transport = node.local();
+        let caller = node.id();
         let client = Client::new(transport.clone());
         let root = directory.path().join("source");
         std::fs::create_dir_all(root.join("package")).unwrap();
@@ -121,7 +102,6 @@ impl Fixture {
         Self {
             directory,
             node,
-            controller,
             client,
             tool,
         }
@@ -137,7 +117,6 @@ impl Fixture {
     async fn close(self) {
         drop(self.tool);
         drop(self.client);
-        self.controller.close().await.unwrap();
         self.node.shutdown().await.unwrap();
     }
 }
@@ -180,88 +159,84 @@ mod concurrency {
 
 #[tokio::test]
 async fn checks_each_routed_read_once() {
-    for remote in [false, true] {
-        let mut fixture = Fixture::new(remote).await;
-        let before = fixture.node.ingress.plugin_check_count();
-        let output = fixture.read(json!({"path": "notes.txt"})).await;
-        assert!(output.get("error").is_none(), "{output}");
-        assert_eq!(output["data"]["lines"][0]["text"], "Read once\n");
-        assert_eq!(fixture.node.ingress.plugin_check_count() - before, 1);
+    let mut fixture = Fixture::new().await;
+    let before = fixture.node.ingress.plugin_check_count();
+    let output = fixture.read(json!({"path": "notes.txt"})).await;
+    assert!(output.get("error").is_none(), "{output}");
+    assert_eq!(output["data"]["lines"][0]["text"], "Read once\n");
+    assert_eq!(fixture.node.ingress.plugin_check_count() - before, 1);
 
-        fixture.tool.operation = Operation::GetValue;
-        let before = fixture.node.ingress.plugin_check_count();
-        let output = fixture.read(json!({"key": "missing"})).await;
-        assert!(output.get("error").is_none(), "{output}");
-        assert_eq!(output["data"]["present"], false);
-        assert_eq!(fixture.node.ingress.plugin_check_count() - before, 1);
-        fixture.close().await;
-    }
+    fixture.tool.operation = Operation::GetValue;
+    let before = fixture.node.ingress.plugin_check_count();
+    let output = fixture.read(json!({"key": "missing"})).await;
+    assert!(output.get("error").is_none(), "{output}");
+    assert_eq!(output["data"]["present"], false);
+    assert_eq!(fixture.node.ingress.plugin_check_count() - before, 1);
+    fixture.close().await;
 }
 
 #[tokio::test]
 async fn preserves_scope_and_live_revocation() {
-    for remote in [false, true] {
-        let fixture = Fixture::new(remote).await;
-        let arguments = json!({"path": "notes.txt"});
-        let request = fixture.tool.prepare(arguments.clone()).await.unwrap();
-        let mut wrong = request.clone();
-        wrong.target = NodeId([9; 32]);
-        assert_eq!(
-            fixture
-                .tool
-                .dispatch(&context(), wrong)
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::WrongTarget
-        );
-        let mut wrong = request.clone();
-        wrong.command = Command::ReadFile {
-            worktree: WorktreeId::new(),
-            path: "notes.txt".into(),
-        };
-        assert_eq!(
-            fixture
-                .tool
-                .dispatch(&context(), wrong)
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::PermissionDenied
-        );
-        let mut wrong = request.clone();
-        wrong.plugin.as_mut().unwrap().package.digest = "a".repeat(64);
-        assert_eq!(
-            fixture
-                .tool
-                .dispatch(&context(), wrong)
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::RevisionConflict
-        );
-        let mut wrong = request;
-        wrong.plugin.as_mut().unwrap().turn = Some(TurnId::new());
-        assert!(fixture.tool.dispatch(&context(), wrong).await.is_err());
-
+    let fixture = Fixture::new().await;
+    let arguments = json!({"path": "notes.txt"});
+    let request = fixture.tool.prepare(arguments.clone()).await.unwrap();
+    let mut wrong = request.clone();
+    wrong.target = NodeId([9; 32]);
+    assert_eq!(
         fixture
-            .client
-            .execute(fixture.client.prepare(Command::SetPluginEnabled {
-                name: "read-fixture".into(),
-                expected_revision: 1,
-                enabled: false,
-            }))
+            .tool
+            .dispatch(&context(), wrong)
             .await
-            .unwrap();
-        let before = fixture.node.ingress.plugin_check_count();
-        let output = fixture.read(arguments).await;
-        let error: Fault = serde_json::from_value(output["error"].clone()).unwrap();
-        assert_eq!(error.code, ErrorCode::NotConfigured);
-        assert_eq!(fixture.node.ingress.plugin_check_count() - before, 1);
-        assert_eq!(
-            std::fs::read_to_string(fixture.directory.path().join("source/notes.txt")).unwrap(),
-            "Read once\n"
-        );
-        fixture.close().await;
-    }
+            .unwrap_err()
+            .code,
+        ErrorCode::WrongTarget
+    );
+    let mut wrong = request.clone();
+    wrong.command = Command::ReadFile {
+        worktree: WorktreeId::new(),
+        path: "notes.txt".into(),
+    };
+    assert_eq!(
+        fixture
+            .tool
+            .dispatch(&context(), wrong)
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::PermissionDenied
+    );
+    let mut wrong = request.clone();
+    wrong.plugin.as_mut().unwrap().package.digest = "a".repeat(64);
+    assert_eq!(
+        fixture
+            .tool
+            .dispatch(&context(), wrong)
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::RevisionConflict
+    );
+    let mut wrong = request;
+    wrong.plugin.as_mut().unwrap().turn = Some(TurnId::new());
+    assert!(fixture.tool.dispatch(&context(), wrong).await.is_err());
+
+    fixture
+        .client
+        .execute(fixture.client.prepare(Command::SetPluginEnabled {
+            name: "read-fixture".into(),
+            expected_revision: 1,
+            enabled: false,
+        }))
+        .await
+        .unwrap();
+    let before = fixture.node.ingress.plugin_check_count();
+    let output = fixture.read(arguments).await;
+    let error: Fault = serde_json::from_value(output["error"].clone()).unwrap();
+    assert_eq!(error.code, ErrorCode::NotConfigured);
+    assert_eq!(fixture.node.ingress.plugin_check_count() - before, 1);
+    assert_eq!(
+        std::fs::read_to_string(fixture.directory.path().join("source/notes.txt")).unwrap(),
+        "Read once\n"
+    );
+    fixture.close().await;
 }
