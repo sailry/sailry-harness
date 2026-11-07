@@ -7,6 +7,15 @@ mod panel;
 pub(crate) use panel::{Panel, Tab};
 mod presentation;
 
+pub(super) fn agents(count: usize) -> String {
+    super::activity::count(
+        "composer_subagent_one",
+        "composer_subagent_count",
+        count,
+        &rust_i18n::locale(),
+    )
+}
+
 pub(super) fn status_key(status: Status) -> &'static str {
     match status {
         Status::Queued => "turn_queued",

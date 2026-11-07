@@ -73,9 +73,7 @@ impl Assets {
                         div()
                             .text_sm()
                             .text_color(cx.theme().muted_foreground)
-                            .child(
-                                rust_i18n::t!("composer_subagent_count", count = count).to_string(),
-                            ),
+                            .child(super::super::subagents::agents(count)),
                     )
                 }),
         );

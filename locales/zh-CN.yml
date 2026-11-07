@@ -1294,6 +1294,7 @@ composer_metric_million: "%{value}M"
 composer_metric_billion: "%{value}B"
 composer_todo_title: 待办
 composer_todo_count: "%{completed}/%{total} 项任务"
+composer_subagent_one: "1 个子代理"
 composer_subagent_count: "%{count} 个子代理"
 composer_todo_remaining: "剩余 %{count} 步"
 composer_todo_collapse: 收起待办
@@ -2336,7 +2337,8 @@ db_path_hint: 输入路径
 ssh_key_choose: 选择私钥文件
 ssh_key_read_failed: 无法读取私钥文件
 ssh_key_invalid_file: 请选择有效的私钥文件
-background_count: 后台终端 %{count}
+background_one: "1 个终端"
+background_count: "%{count} 个终端"
 background_stop: 停止命令
 background_end: 结束
 background_recent_output: 仅显示近期输出

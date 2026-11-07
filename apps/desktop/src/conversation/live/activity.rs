@@ -1,6 +1,6 @@
 //! Composer activity combines registered badges and shared conversation state.
 use super::*;
-use gpui_kit::component::{button::Button, popover::Popover};
+use gpui_kit::component::{button::Button, popover::Popover, spinner::Spinner};
 use gpui_kit::prelude::FluentBuilder as _;
 use sailry_protocol::conversation::progress::Progress;
 
@@ -62,13 +62,7 @@ impl View {
                         .anchor(Anchor::BottomLeft)
                         .bottom_2()
                         .trigger(
-                            Button::new("live-todo")
-                                .outline()
-                                .small()
-                                .rounded_full()
-                                .px_3()
-                                .font_normal()
-                                .text_color(cx.theme().muted_foreground)
+                            crate::theme::capsule(Button::new("live-todo"), cx)
                                 .icon(Icon::default().path("reicon:ui/tasks"))
                                 .debug_selector(|| "composer-todo".into())
                                 .accessibility_label(tr("task_progress"))
@@ -101,5 +95,62 @@ impl View {
             .children(approval)
             .children(question)
             .into_any_element()
+    }
+}
+
+/// A Kit spinner keeps the status popover interactive, unlike Button::loading.
+pub(super) fn working(
+    button: Button,
+    icon: IconName,
+    label: String,
+    running: bool,
+    cx: &App,
+) -> Button {
+    let label = SharedString::from(label);
+    let accessible = if running {
+        format!("{label}: {}", tr("chat_running")).into()
+    } else {
+        label.clone()
+    };
+    crate::theme::capsule(button, cx)
+        .accessibility_label(accessible)
+        .icon(icon)
+        .label(label)
+        .when(running, |button| button.icon(Spinner::new()))
+}
+
+/// One item uses its own resource, since languages differ beyond appending a plural suffix.
+pub(super) fn count(one: &str, many: &str, count: usize, locale: &str) -> String {
+    if count == 1 {
+        rust_i18n::t!(one, locale = locale).to_string()
+    } else {
+        rust_i18n::t!(many, locale = locale, count = count).to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::prelude::v1::test;
+
+    #[test]
+    fn counts() {
+        for (single, plural, one, many) in [
+            (
+                "composer_subagent_one",
+                "composer_subagent_count",
+                "1 subagent",
+                "3 subagents",
+            ),
+            (
+                "background_one",
+                "background_count",
+                "1 terminal",
+                "3 terminals",
+            ),
+        ] {
+            assert_eq!(count(single, plural, 1, "en"), one);
+            assert_eq!(count(single, plural, 3, "en"), many);
+        }
     }
 }

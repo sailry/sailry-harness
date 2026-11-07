@@ -261,13 +261,8 @@ impl View {
                     cx.notify();
                 }))
                 .trigger(
-                    Button::new("live-approval-trigger")
-                        .outline()
-                        .small()
-                        .rounded_full()
+                    crate::theme::capsule(Button::new("live-approval-trigger"), cx)
                         .icon(IconName::CircleUser)
-                        .font_normal()
-                        .text_color(cx.theme().muted_foreground)
                         .label(heading)
                         .debug_selector(|| "live-approval-trigger".into()),
                 )

@@ -2,8 +2,8 @@ use std::rc::Rc;
 
 use gpui_kit::Styled as _;
 use gpui_kit::component::{
-    ActiveTheme, Colorize as _, Disableable as _, Theme,
-    button::{Button, ButtonCustomVariant},
+    ActiveTheme, Colorize as _, Disableable as _, Sizable as _, StyledExt as _, Theme,
+    button::{Button, ButtonCustomVariant, ButtonVariants as _},
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{App, Global, Hsla, Window, WindowAppearance};
@@ -121,6 +121,26 @@ pub fn subtle_button(cx: &App) -> ButtonCustomVariant {
         .foreground(cx.theme().foreground)
         .hover(cx.theme().accent)
         .active(cx.theme().secondary_active)
+}
+
+/// Status capsules above the composer. Kit's custom variant keeps its idle fill
+/// at 20% of the border token, so packages with strong input borders stay faint;
+/// the hairline edge uses the same token in every pointer state.
+pub fn capsule(button: Button, cx: &App) -> Button {
+    let theme = cx.theme();
+    button
+        .custom(
+            ButtonCustomVariant::new(cx)
+                .color(theme.border)
+                .foreground(theme.muted_foreground)
+                .hover(theme.accent)
+                .active(theme.secondary_active),
+        )
+        .small()
+        .rounded_full()
+        .border_1()
+        .px_3()
+        .font_normal()
 }
 
 /// Kit b79f4ce fixes primary disabled fill at 15% of the enabled background
@@ -452,6 +472,27 @@ mod tests {
                 cx.theme().ring,
                 "light interactions are subtle"
             );
+        });
+
+        // Links follow emphasis.
+        cx.update(|cx| {
+            for mode in [ThemeMode::Light, ThemeMode::Dark] {
+                Theme::change(mode, None, cx);
+                let theme = cx.theme();
+                assert_eq!(theme.link, theme.primary, "links follow emphasis {mode:?}");
+                assert_eq!(
+                    theme.link_hover, theme.primary_hover,
+                    "links follow emphasis {mode:?}"
+                );
+                assert_eq!(
+                    theme.link_active, theme.primary_active,
+                    "links follow emphasis {mode:?}"
+                );
+                assert!(
+                    contrast(theme.background, theme.link) >= 4.5,
+                    "links follow emphasis {mode:?}"
+                );
+            }
         });
 
         // Editor overlays follow theme.

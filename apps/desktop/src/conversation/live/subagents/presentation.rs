@@ -175,15 +175,14 @@ impl View {
             return None;
         }
         let id = "live-composer-subagents";
-        let button = Button::new(id)
-            .outline()
-            .small()
-            .px_3()
-            .rounded_full()
-            .debug_selector(move || id.into())
-            .font_normal()
-            .text_color(cx.theme().muted_foreground)
-            .label(rust_i18n::t!("composer_subagent_count", count = total).to_string());
+        let button = super::super::activity::working(
+            Button::new(id),
+            IconName::Bot,
+            agents(total),
+            self.history.connected,
+            cx,
+        )
+        .debug_selector(move || id.into());
         Some(
             h_flex()
                 .child(activity_picker(

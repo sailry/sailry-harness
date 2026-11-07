@@ -316,6 +316,7 @@ impl View {
             })
             .unwrap_or_default();
         let open = panel.open;
+        let connected = panel.state.connected;
         let panel = self.commands.clone();
         Some(
             h_flex()
@@ -340,18 +341,19 @@ impl View {
                         .bottom_2()
                         .p_2()
                         .trigger(
-                            Button::new("background-commands")
-                                .outline()
-                                .small()
-                                .rounded_full()
-                                .px_3()
-                                .font_normal()
-                                .text_color(cx.theme().muted_foreground)
-                                .icon(IconName::SquareTerminal)
-                                .debug_selector(|| "composer-background".into())
-                                .label(
-                                    rust_i18n::t!("background_count", count = count).to_string(),
+                            super::activity::working(
+                                Button::new("background-commands"),
+                                IconName::SquareTerminal,
+                                super::activity::count(
+                                    "background_one",
+                                    "background_count",
+                                    count,
+                                    &rust_i18n::locale(),
                                 ),
+                                connected,
+                                cx,
+                            )
+                            .debug_selector(|| "composer-background".into()),
                         )
                         .content(move |_, _, _| panel.clone()),
                 )

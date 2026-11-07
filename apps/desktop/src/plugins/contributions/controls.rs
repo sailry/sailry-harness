@@ -76,9 +76,6 @@ impl Entry {
                 };
                 div()
                     .flex_shrink_0()
-                    .when(self.declaration.slot != Slot::Model, |segment| {
-                        segment.text_xs()
-                    })
                     .text_color(color)
                     .child(label(&segment.label))
                     .into_any_element()
@@ -243,23 +240,15 @@ impl Registry {
                     )),
             );
         } else if entry.declaration.slot == Slot::Status {
-            button = button
+            button = crate::theme::capsule(button, cx)
                 .when_some(
                     status::tooltip(&entry.state.details, &rust_i18n::locale()),
                     |button, hint| button.tooltip(hint),
                 )
-                .outline()
-                .small()
-                .rounded_full()
-                .px_3()
-                .font_normal()
-                .text_color(cx.theme().muted_foreground)
                 .icon(control_icon)
                 .child(
                     h_flex()
                         .gap_2()
-                        .text_sm()
-                        .font_normal()
                         .children(entry.segments(cx))
                         .when(entry.state.segments.is_empty(), |line| {
                             line.child(entry.text())

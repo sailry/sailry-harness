@@ -35,13 +35,8 @@ impl View {
                     cx.notify();
                 }))
                 .trigger(
-                    Button::new("live-question-trigger")
-                        .outline()
-                        .small()
-                        .rounded_full()
+                    crate::theme::capsule(Button::new("live-question-trigger"), cx)
                         .icon(IconName::CircleUser)
-                        .font_normal()
-                        .text_color(cx.theme().muted_foreground)
                         .label(tr("question_reply"))
                         .debug_selector(|| "live-question-trigger".into()),
                 )

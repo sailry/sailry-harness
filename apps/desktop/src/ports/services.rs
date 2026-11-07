@@ -30,14 +30,8 @@ impl Workspace {
                     .map(|local| format!("{port} → {local}"))
                     .unwrap_or_else(|| port.to_string());
                 let owner = owner.clone();
-                button::Button::new(("session-service", port as usize))
+                crate::theme::capsule(button::Button::new(("session-service", port as usize)), cx)
                     .debug_selector(move || format!("session-service-{port}"))
-                    .outline()
-                    .small()
-                    .rounded_full()
-                    .px_3()
-                    .font_normal()
-                    .text_color(cx.theme().muted_foreground)
                     .icon(IconName::Globe)
                     .label(label)
                     .tooltip(tr("port_open_service"))
