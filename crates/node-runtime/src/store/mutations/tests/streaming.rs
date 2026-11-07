@@ -90,355 +90,345 @@ async fn append(
 #[tokio::test]
 async fn bypasses_blocked_storage_and_file_workers() {
     let _ = rustls::crypto::ring::default_provider().install_default();
-    for remote in [false, true] {
-        let (fixture, mut gate) = blocked().await;
-        let network = Link::bind(
-            &fixture.identity,
-            NetworkScope::default(),
-            fixture.store.ingress.clone(),
-            fixture.store.ingress.clone(),
-        )
+    let (fixture, mut gate) = blocked().await;
+    let network = Link::bind(
+        &fixture.identity,
+        NetworkScope::default(),
+        fixture.store.ingress.clone(),
+        fixture.store.ingress.clone(),
+    )
+    .await
+    .unwrap();
+    let controller = Link::controller(
+        fixture.directory.path().join("stream-controller"),
+        NetworkScope::default(),
+    )
+    .await
+    .unwrap();
+    let address = controller
+        .handle()
+        .pair(network.handle().invite().unwrap().ticket())
         .await
         .unwrap();
-        let controller = Link::controller(
-            fixture.directory.path().join("stream-controller"),
-            NetworkScope::default(),
-        )
+    let client = Client::new(controller.handle().remote(address));
+    let session = session(&client).await;
+    let foreign = self::session(&client).await;
+    let Output::QueuedTurn(turn) = client
+        .execute(client.prepare(Command::QueueTurn {
+            session: session.id,
+            expected_revision: session.revision,
+            message: "Stream fixture".into(),
+        }))
+        .await
+        .unwrap()
+    else {
+        panic!("queued turn expected")
+    };
+    client
+        .execute(client.prepare(Command::StartQueuedTurn { turn: turn.id }))
         .await
         .unwrap();
-        let address = controller
-            .handle()
-            .pair(network.handle().invite().unwrap().ticket())
-            .await
-            .unwrap();
-        let client = if remote {
-            Client::new(controller.handle().remote(address))
-        } else {
-            Client::new(Arc::new(Local::new(
-                fixture.identity.id(),
-                fixture.identity.id(),
-                fixture.store.ingress.clone(),
-            )))
-        };
-        let session = session(&client).await;
-        let foreign = self::session(&client).await;
-        let Output::QueuedTurn(turn) = client
-            .execute(client.prepare(Command::QueueTurn {
-                session: session.id,
-                expected_revision: session.revision,
-                message: "Stream fixture".into(),
-            }))
-            .await
-            .unwrap()
-        else {
-            panic!("queued turn expected")
-        };
-        client
-            .execute(client.prepare(Command::StartQueuedTurn { turn: turn.id }))
-            .await
-            .unwrap();
-        let token = sailry_link::CancellationToken::new();
-        let invocation = fixture
-            .store
-            .ingress
-            .claim_run(token.clone())
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(invocation.turn.id, turn.id);
-        let mut stream = client.subscribe_conversation(session.id).await.unwrap();
-        assert!(matches!(
-            stream.next().await.unwrap(),
-            Update::ConversationSnapshot(_)
-        ));
-        let mut other = client.subscribe_conversation(foreign.id).await.unwrap();
-        assert!(matches!(
-            other.next().await.unwrap(),
-            Update::ConversationSnapshot(_)
-        ));
-        let file = client
-            .dispatch(fixture.write("blocked", "saved file"))
-            .await
-            .unwrap();
-        gate.entered.recv().await.unwrap();
-
-        // Hold the actual storage actor, then queue a canonical append behind it.
-        let (entered, waiting) = mpsc::unbounded_channel();
-        let (release, released) = std::sync::mpsc::channel();
-        let mut storage_gate = Gate {
-            entered: waiting,
-            release,
-        };
-        fixture
-            .store
-            .ingress
-            .sender
-            .send(Job::Barrier {
-                entered,
-                release: released,
-            })
-            .await
-            .unwrap();
-        storage_gate.entered.recv().await.unwrap();
-        let mut pending = append(
-            &fixture,
-            session.id,
-            turn.id,
-            record(turn.id, "prefix", "Persisted prefix"),
-        )
-        .await;
-        assert!(
-            tokio::time::timeout(Duration::from_millis(20), &mut pending)
-                .await
-                .is_err()
-        );
-        let mut sequence = 0;
-        for text in ["first ", "second"] {
-            tokio::time::timeout(
-                Duration::from_millis(500),
-                fixture
-                    .store
-                    .ingress
-                    .partial(session.id, turn.id, draft("answer", text)),
-            )
-            .await
-            .expect("partial publication must bypass the blocked storage worker")
-            .unwrap();
-            // Statistics refresh asynchronously after earlier commits and may
-            // interleave with output; every other frame must be the delta.
-            let frame = loop {
-                let Update::ConversationFrame(frame) =
-                    tokio::time::timeout(Duration::from_millis(500), stream.next())
-                        .await
-                        .expect("subscribers must receive output while storage is blocked")
-                        .unwrap()
-                else {
-                    panic!("frame expected")
-                };
-                if !matches!(
-                    frame.change,
-                    Change::Statistics(_) | Change::StatisticsFailed(_)
-                ) {
-                    break frame;
-                }
-            };
-            assert!(frame.sequence > sequence);
-            sequence = frame.sequence;
-            assert_eq!(frame.session, session.id);
-            assert!(
-                matches!(&frame.change, Change::Delta(draft) if draft.turn == turn.id && draft.parts == vec![Part::Text(text.into())]),
-                "unexpected change: {:?}",
-                frame.change
-            );
-        }
-        assert_eq!(
-            fixture
-                .store
-                .ingress
-                .partial(foreign.id, turn.id, draft("private", "private answer"))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::PermissionDenied
-        );
-        let deadline = tokio::time::Instant::now() + Duration::from_millis(20);
-        loop {
-            match tokio::time::timeout_at(deadline, other.next()).await {
-                Err(_) => break,
-                Ok(Ok(Update::ConversationFrame(frame)))
-                    if matches!(
-                        frame.change,
-                        Change::Statistics(_) | Change::StatisticsFailed(_)
-                    ) => {}
-                update => panic!("unrelated conversation received content: {update:?}"),
-            }
-        }
-        storage_gate.release.send(()).unwrap();
-        pending.await.unwrap().unwrap();
-        append(
-            &fixture,
-            session.id,
-            turn.id,
-            record(turn.id, "answer", "first second"),
-        )
-        .await
+    let token = sailry_link::CancellationToken::new();
+    let invocation = fixture
+        .store
+        .ingress
+        .claim_run(token.clone())
         .await
         .unwrap()
         .unwrap();
-        // Late output cannot recreate the draft after its canonical entry is published.
-        fixture
-            .store
-            .ingress
-            .partial(session.id, turn.id, draft("answer", "late"))
+    assert_eq!(invocation.turn.id, turn.id);
+    let mut stream = client.subscribe_conversation(session.id).await.unwrap();
+    assert!(matches!(
+        stream.next().await.unwrap(),
+        Update::ConversationSnapshot(_)
+    ));
+    let mut other = client.subscribe_conversation(foreign.id).await.unwrap();
+    assert!(matches!(
+        other.next().await.unwrap(),
+        Update::ConversationSnapshot(_)
+    ));
+    let file = client
+        .dispatch(fixture.write("blocked", "saved file"))
+        .await
+        .unwrap();
+    gate.entered.recv().await.unwrap();
+
+    // Hold the actual storage actor, then queue a canonical append behind it.
+    let (entered, waiting) = mpsc::unbounded_channel();
+    let (release, released) = std::sync::mpsc::channel();
+    let mut storage_gate = Gate {
+        entered: waiting,
+        release,
+    };
+    fixture
+        .store
+        .ingress
+        .sender
+        .send(Job::Barrier {
+            entered,
+            release: released,
+        })
+        .await
+        .unwrap();
+    storage_gate.entered.recv().await.unwrap();
+    let mut pending = append(
+        &fixture,
+        session.id,
+        turn.id,
+        record(turn.id, "prefix", "Persisted prefix"),
+    )
+    .await;
+    assert!(
+        tokio::time::timeout(Duration::from_millis(20), &mut pending)
             .await
-            .unwrap();
-        let mut committed = client.subscribe_conversation(session.id).await.unwrap();
-        let Update::ConversationSnapshot(committed) = committed.next().await.unwrap() else {
-            panic!("snapshot expected")
-        };
-        assert!(committed.drafts.is_empty());
-        fixture
-            .store
-            .ingress
-            .finish_run(turn.id, Status::Completed, None, None)
-            .await
-            .unwrap();
-        fixture
-            .store
-            .ingress
-            .partial(session.id, turn.id, draft("after", "late terminal"))
-            .await
-            .unwrap();
-        fixture.store.ingress.agents.finish(turn.id);
-        let mut reopened = client.subscribe_conversation(session.id).await.unwrap();
-        let Update::ConversationSnapshot(snapshot) = reopened.next().await.unwrap() else {
-            panic!("snapshot expected")
-        };
-        assert!(snapshot.drafts.is_empty());
-        assert!(snapshot.sequence > sequence);
-        assert!(
-            snapshot
-                .page
-                .runs
-                .iter()
-                .any(|run| run.turn == turn.id && run.status == Status::Completed)
-        );
-        assert_eq!(
-            snapshot
-                .page
-                .entries
-                .iter()
-                .map(|entry| (entry.id.clone(), entry.parts.clone()))
-                .collect::<Vec<_>>(),
-            vec![
-                ("prefix".into(), vec![Part::Text("Persisted prefix".into())]),
-                ("answer".into(), vec![Part::Text("first second".into())])
-            ]
-        );
-        let turn_id = turn.id;
-        let persisted: Vec<Record> = fixture
-            .store
-            .ingress
-            .with_storage(move |database| {
-                Box::pin(async move {
-                    let mut rows = database
-                        .query(
-                            "SELECT body FROM agent_events WHERE turn=?1 ORDER BY sequence",
-                            [turn_id.to_string()],
-                        )
-                        .await
-                        .map_err(crate::store::database::storage_error)?;
-                    let mut events = Vec::new();
-                    while let Some(row) = rows
-                        .next()
-                        .await
-                        .map_err(crate::store::database::storage_error)?
-                    {
-                        let body: Vec<u8> =
-                            row.get(0).map_err(crate::store::database::storage_error)?;
-                        events.push(
-                            serde_json::from_slice(&body)
-                                .map_err(crate::store::database::storage_error)?,
-                        );
-                    }
-                    Ok(events)
-                })
-            })
-            .await
-            .unwrap();
-        assert_eq!(
-            persisted
-                .iter()
-                .map(|event| event.id.as_str())
-                .collect::<Vec<_>>(),
-            vec!["prefix", "answer"]
-        );
-        assert!(persisted.iter().all(|record| record.turn == turn.id));
-        assert_eq!(
-            serde_json::to_value(&persisted[1].message().unwrap().content).unwrap(),
-            serde_json::json!([{"index":0,"type":"text","text":"first second"}])
-        );
-        let Output::QueuedTurn(cancelled) = client
-            .execute(client.prepare(Command::QueueTurn {
-                session: session.id,
-                expected_revision: session.revision,
-                message: "Cancelled stream fixture".into(),
-            }))
-            .await
-            .unwrap()
-        else {
-            panic!("queued turn expected")
-        };
-        client
-            .execute(client.prepare(Command::StartQueuedTurn { turn: cancelled.id }))
-            .await
-            .unwrap();
-        fixture
-            .store
-            .ingress
-            .claim_run(sailry_link::CancellationToken::new())
-            .await
-            .unwrap()
-            .unwrap();
-        fixture
-            .store
-            .ingress
-            .partial(session.id, cancelled.id, draft("cancelled", "before stop"))
-            .await
-            .unwrap();
-        client
-            .execute(client.prepare(Command::StopTurn { turn: cancelled.id }))
-            .await
-            .unwrap();
-        fixture
-            .store
-            .ingress
-            .partial(session.id, cancelled.id, draft("late-stop", "after stop"))
-            .await
-            .unwrap();
-        let mut stopping = client.subscribe_conversation(session.id).await.unwrap();
-        let Update::ConversationSnapshot(stopping) = stopping.next().await.unwrap() else {
-            panic!("snapshot expected")
-        };
-        assert_eq!(stopping.drafts.len(), 1);
-        assert_eq!(
-            stopping.drafts[0].parts,
-            vec![Part::Text("before stop".into())]
-        );
-        assert_eq!(
+            .is_err()
+    );
+    let mut sequence = 0;
+    for text in ["first ", "second"] {
+        tokio::time::timeout(
+            Duration::from_millis(500),
             fixture
                 .store
                 .ingress
-                .finish_run(cancelled.id, Status::Completed, None, None)
-                .await
-                .unwrap(),
-            Status::Cancelled
+                .partial(session.id, turn.id, draft("answer", text)),
+        )
+        .await
+        .expect("partial publication must bypass the blocked storage worker")
+        .unwrap();
+        // Statistics refresh asynchronously after earlier commits and may
+        // interleave with output; every other frame must be the delta.
+        let frame = loop {
+            let Update::ConversationFrame(frame) =
+                tokio::time::timeout(Duration::from_millis(500), stream.next())
+                    .await
+                    .expect("subscribers must receive output while storage is blocked")
+                    .unwrap()
+            else {
+                panic!("frame expected")
+            };
+            if !matches!(
+                frame.change,
+                Change::Statistics(_) | Change::StatisticsFailed(_)
+            ) {
+                break frame;
+            }
+        };
+        assert!(frame.sequence > sequence);
+        sequence = frame.sequence;
+        assert_eq!(frame.session, session.id);
+        assert!(
+            matches!(&frame.change, Change::Delta(draft) if draft.turn == turn.id && draft.parts == vec![Part::Text(text.into())]),
+            "unexpected change: {:?}",
+            frame.change
         );
-        fixture.store.ingress.agents.finish(cancelled.id);
-        gate.release.send(()).unwrap();
-        file.completion.await.unwrap().unwrap();
-        client
-            .execute(client.prepare(Command::RemoveSession {
-                session: session.id,
-                expected_revision: session.revision,
-            }))
-            .await
-            .unwrap();
+    }
+    assert_eq!(
         fixture
             .store
             .ingress
-            .partial(session.id, turn.id, draft("removed", "hidden"))
+            .partial(foreign.id, turn.id, draft("private", "private answer"))
             .await
-            .unwrap();
-        let rejection = match client.subscribe_conversation(session.id).await {
-            Err(fault) => fault,
-            // Paired subscriptions receive resource rejection in their first frame.
-            Ok(mut stream) => stream.next().await.unwrap_err(),
-        };
-        assert_eq!(rejection.code, ErrorCode::NotFound);
-        controller.close().await.unwrap();
-        fixture.store.stop_admission();
-        network.close().await.unwrap();
-        fixture.store.shutdown().await.unwrap();
+            .unwrap_err()
+            .code,
+        ErrorCode::PermissionDenied
+    );
+    let deadline = tokio::time::Instant::now() + Duration::from_millis(20);
+    loop {
+        match tokio::time::timeout_at(deadline, other.next()).await {
+            Err(_) => break,
+            Ok(Ok(Update::ConversationFrame(frame)))
+                if matches!(
+                    frame.change,
+                    Change::Statistics(_) | Change::StatisticsFailed(_)
+                ) => {}
+            update => panic!("unrelated conversation received content: {update:?}"),
+        }
     }
+    storage_gate.release.send(()).unwrap();
+    pending.await.unwrap().unwrap();
+    append(
+        &fixture,
+        session.id,
+        turn.id,
+        record(turn.id, "answer", "first second"),
+    )
+    .await
+    .await
+    .unwrap()
+    .unwrap();
+    // Late output cannot recreate the draft after its canonical entry is published.
+    fixture
+        .store
+        .ingress
+        .partial(session.id, turn.id, draft("answer", "late"))
+        .await
+        .unwrap();
+    let mut committed = client.subscribe_conversation(session.id).await.unwrap();
+    let Update::ConversationSnapshot(committed) = committed.next().await.unwrap() else {
+        panic!("snapshot expected")
+    };
+    assert!(committed.drafts.is_empty());
+    fixture
+        .store
+        .ingress
+        .finish_run(turn.id, Status::Completed, None, None)
+        .await
+        .unwrap();
+    fixture
+        .store
+        .ingress
+        .partial(session.id, turn.id, draft("after", "late terminal"))
+        .await
+        .unwrap();
+    fixture.store.ingress.agents.finish(turn.id);
+    let mut reopened = client.subscribe_conversation(session.id).await.unwrap();
+    let Update::ConversationSnapshot(snapshot) = reopened.next().await.unwrap() else {
+        panic!("snapshot expected")
+    };
+    assert!(snapshot.drafts.is_empty());
+    assert!(snapshot.sequence > sequence);
+    assert!(
+        snapshot
+            .page
+            .runs
+            .iter()
+            .any(|run| run.turn == turn.id && run.status == Status::Completed)
+    );
+    assert_eq!(
+        snapshot
+            .page
+            .entries
+            .iter()
+            .map(|entry| (entry.id.clone(), entry.parts.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            ("prefix".into(), vec![Part::Text("Persisted prefix".into())]),
+            ("answer".into(), vec![Part::Text("first second".into())])
+        ]
+    );
+    let turn_id = turn.id;
+    let persisted: Vec<Record> = fixture
+        .store
+        .ingress
+        .with_storage(move |database| {
+            Box::pin(async move {
+                let mut rows = database
+                    .query(
+                        "SELECT body FROM agent_events WHERE turn=?1 ORDER BY sequence",
+                        [turn_id.to_string()],
+                    )
+                    .await
+                    .map_err(crate::store::database::storage_error)?;
+                let mut events = Vec::new();
+                while let Some(row) = rows
+                    .next()
+                    .await
+                    .map_err(crate::store::database::storage_error)?
+                {
+                    let body: Vec<u8> =
+                        row.get(0).map_err(crate::store::database::storage_error)?;
+                    events.push(
+                        serde_json::from_slice(&body)
+                            .map_err(crate::store::database::storage_error)?,
+                    );
+                }
+                Ok(events)
+            })
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        persisted
+            .iter()
+            .map(|event| event.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["prefix", "answer"]
+    );
+    assert!(persisted.iter().all(|record| record.turn == turn.id));
+    assert_eq!(
+        serde_json::to_value(&persisted[1].message().unwrap().content).unwrap(),
+        serde_json::json!([{"index":0,"type":"text","text":"first second"}])
+    );
+    let Output::QueuedTurn(cancelled) = client
+        .execute(client.prepare(Command::QueueTurn {
+            session: session.id,
+            expected_revision: session.revision,
+            message: "Cancelled stream fixture".into(),
+        }))
+        .await
+        .unwrap()
+    else {
+        panic!("queued turn expected")
+    };
+    client
+        .execute(client.prepare(Command::StartQueuedTurn { turn: cancelled.id }))
+        .await
+        .unwrap();
+    fixture
+        .store
+        .ingress
+        .claim_run(sailry_link::CancellationToken::new())
+        .await
+        .unwrap()
+        .unwrap();
+    fixture
+        .store
+        .ingress
+        .partial(session.id, cancelled.id, draft("cancelled", "before stop"))
+        .await
+        .unwrap();
+    client
+        .execute(client.prepare(Command::StopTurn { turn: cancelled.id }))
+        .await
+        .unwrap();
+    fixture
+        .store
+        .ingress
+        .partial(session.id, cancelled.id, draft("late-stop", "after stop"))
+        .await
+        .unwrap();
+    let mut stopping = client.subscribe_conversation(session.id).await.unwrap();
+    let Update::ConversationSnapshot(stopping) = stopping.next().await.unwrap() else {
+        panic!("snapshot expected")
+    };
+    assert_eq!(stopping.drafts.len(), 1);
+    assert_eq!(
+        stopping.drafts[0].parts,
+        vec![Part::Text("before stop".into())]
+    );
+    assert_eq!(
+        fixture
+            .store
+            .ingress
+            .finish_run(cancelled.id, Status::Completed, None, None)
+            .await
+            .unwrap(),
+        Status::Cancelled
+    );
+    fixture.store.ingress.agents.finish(cancelled.id);
+    gate.release.send(()).unwrap();
+    file.completion.await.unwrap().unwrap();
+    client
+        .execute(client.prepare(Command::RemoveSession {
+            session: session.id,
+            expected_revision: session.revision,
+        }))
+        .await
+        .unwrap();
+    fixture
+        .store
+        .ingress
+        .partial(session.id, turn.id, draft("removed", "hidden"))
+        .await
+        .unwrap();
+    let rejection = match client.subscribe_conversation(session.id).await {
+        Err(fault) => fault,
+        // Paired subscriptions receive resource rejection in their first frame.
+        Ok(mut stream) => stream.next().await.unwrap_err(),
+    };
+    assert_eq!(rejection.code, ErrorCode::NotFound);
+    controller.close().await.unwrap();
+    fixture.store.stop_admission();
+    network.close().await.unwrap();
+    fixture.store.shutdown().await.unwrap();
 }

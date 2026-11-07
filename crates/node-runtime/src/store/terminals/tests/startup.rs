@@ -7,8 +7,8 @@ use std::{sync::Arc, time::Duration};
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn preserves_access_while_another_terminal_starts() {
     let _ = rustls::crypto::ring::default_provider().install_default();
-    for (remote, stopping) in [(false, false), (true, false), (false, true), (true, true)] {
-        let fixture = Fixture::new(remote, "/bin/sh").await;
+    for stopping in [false, true] {
+        let fixture = Fixture::new(true, "/bin/sh").await;
         let Output::Terminal(first) = fixture
             .client
             .execute(

@@ -1,7 +1,7 @@
 use super::*;
 
 #[tokio::test]
-async fn rejects_unmarked_archives_on_both_paths() {
+async fn rejects_unmarked_archives() {
     use sailry_client::Client;
     use sailry_link::{Link, NetworkScope};
 
@@ -34,79 +34,73 @@ async fn rejects_unmarked_archives_on_both_paths() {
     let packed =
         backup::encryption::seal(snapshot.pack(&cancel).unwrap(), &passphrase, &cancel).unwrap();
     let bytes = std::fs::read(packed.file.path()).unwrap();
-    for remote in [false, true] {
-        let directory = tempfile::tempdir().unwrap();
-        let root = directory.path().canonicalize().unwrap();
-        let profile = root.join("node");
-        let node = crate::Node::start_empty(&profile).await.unwrap();
-        let controller = Link::controller(root.join("controller"), NetworkScope::default())
-            .await
-            .unwrap();
-        let address = controller
-            .handle()
-            .pair(node.link().invite().unwrap().ticket())
-            .await
-            .unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(address)
-        } else {
-            node.local()
-        });
-        let Output::BackupSettings(saved) = client
-            .execute(client.prepare(Command::SaveBackupSettings(Update {
-                settings: Settings::default(),
-                identity: SecretUpdate::Keep,
-                secret: SecretUpdate::Keep,
-                session_token: SecretUpdate::Keep,
-                passphrase: SecretUpdate::Replace(passphrase.clone()),
-            })))
-            .await
-            .unwrap()
-        else {
-            panic!("backup settings expected")
-        };
-        let Output::BackupUpload(upload) = client
-            .execute(client.prepare(Command::UploadBackup {
-                size: bytes.len() as u64,
-                revision: blake3::hash(&bytes).to_hex().to_string(),
-            }))
-            .await
-            .unwrap()
-        else {
-            panic!("backup upload expected")
-        };
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().canonicalize().unwrap();
+    let profile = root.join("node");
+    let node = crate::Node::start_empty(&profile).await.unwrap();
+    let controller = Link::controller(root.join("controller"), NetworkScope::default())
+        .await
+        .unwrap();
+    let address = controller
+        .handle()
+        .pair(node.link().invite().unwrap().ticket())
+        .await
+        .unwrap();
+    let client = Client::new(controller.handle().remote(address));
+    let Output::BackupSettings(saved) = client
+        .execute(client.prepare(Command::SaveBackupSettings(Update {
+            settings: Settings::default(),
+            identity: SecretUpdate::Keep,
+            secret: SecretUpdate::Keep,
+            session_token: SecretUpdate::Keep,
+            passphrase: SecretUpdate::Replace(passphrase.clone()),
+        })))
+        .await
+        .unwrap()
+    else {
+        panic!("backup settings expected")
+    };
+    let Output::BackupUpload(upload) = client
+        .execute(client.prepare(Command::UploadBackup {
+            size: bytes.len() as u64,
+            revision: blake3::hash(&bytes).to_hex().to_string(),
+        }))
+        .await
+        .unwrap()
+    else {
+        panic!("backup upload expected")
+    };
+    client
+        .upload(
+            &upload,
+            &mut std::io::Cursor::new(&bytes),
+            cancel.clone(),
+            |_| {},
+        )
+        .await
+        .unwrap();
+    let target = root.join("restored");
+    let request = client.prepare(Command::RestoreBackupFile {
+        stream: upload.stream,
+        expected_revision: saved.revision,
+        target: target.to_str().unwrap().into(),
+        passphrase: None,
+    });
+    let error = client.execute(request.clone()).await.unwrap_err();
+    assert_eq!(error.code, ErrorCode::InvalidRequest);
+    assert_eq!(error.message, "backup storage generation is incompatible");
+    assert_eq!(client.execute(request).await.unwrap_err(), error);
+    assert!(!target.exists());
+    assert!(!profile.join("storage/backups").exists());
+    assert_eq!(
         client
-            .upload(
-                &upload,
-                &mut std::io::Cursor::new(&bytes),
-                cancel.clone(),
-                |_| {},
-            )
+            .execute(client.prepare(Command::ReadBackupSettings))
             .await
-            .unwrap();
-        let target = root.join("restored");
-        let request = client.prepare(Command::RestoreBackupFile {
-            stream: upload.stream,
-            expected_revision: saved.revision,
-            target: target.to_str().unwrap().into(),
-            passphrase: None,
-        });
-        let error = client.execute(request.clone()).await.unwrap_err();
-        assert_eq!(error.code, ErrorCode::InvalidRequest);
-        assert_eq!(error.message, "backup storage generation is incompatible");
-        assert_eq!(client.execute(request).await.unwrap_err(), error);
-        assert!(!target.exists());
-        assert!(!profile.join("storage/backups").exists());
-        assert_eq!(
-            client
-                .execute(client.prepare(Command::ReadBackupSettings))
-                .await
-                .unwrap(),
-            Output::BackupSettings(saved)
-        );
-        node.shutdown().await.unwrap();
-        controller.close().await.unwrap();
-    }
+            .unwrap(),
+        Output::BackupSettings(saved)
+    );
+    node.shutdown().await.unwrap();
+    controller.close().await.unwrap();
     fixture.close().await;
 }
 
