@@ -1,3 +1,5 @@
+use std::sync::atomic::Ordering;
+
 #[path = "../../../node-runtime/tests/ssh/server.rs"]
 #[allow(dead_code)]
 mod server;
@@ -28,7 +30,14 @@ fn controls_execution_owned_ssh() {
         std::fs::read(directory.path().join("effects")).unwrap(),
         b"x"
     );
-    assert_eq!(server.commands.lock().unwrap().len(), 4);
+    assert_eq!(
+        server.commands.lock().unwrap().as_slice(),
+        [
+            "printf x >> effects; printf 'FFI SSH result'",
+            "interactive-shell",
+        ]
+    );
+    assert_eq!(server.subsystems.load(Ordering::SeqCst), 2);
     assert_eq!(
         std::fs::read(directory.path().join("remote.bin")).unwrap(),
         bytes

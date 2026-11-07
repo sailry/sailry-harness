@@ -21,6 +21,16 @@ String canonicalJson(Object? value) {
   return jsonEncode(ordered(value));
 }
 
+/// A response owner's segment rows or inputs in transcript order.
+List<Map<String, dynamic>> segmented(
+  Map<String, dynamic> view,
+  Object? turn,
+  String key,
+) => [
+  for (final segment in view['segments'][turn] as List)
+    ...(segment[key] as List).cast<Map<String, dynamic>>(),
+];
+
 Future<Map<String, dynamic>> execute(
   Connection connection,
   String kind,
@@ -332,7 +342,7 @@ Future<Fixture> create(
     'partial output is not committed history',
   );
   final turn = partial['snapshot']['page']['runs'].last['turn'];
-  final partialRows = partial['rows'][turn] as List;
+  final partialRows = segmented(partial, turn, 'rows');
   check(
     partialRows.any(
       (row) =>
@@ -342,7 +352,7 @@ Future<Fixture> create(
     ),
     'Client rows select transient output over FFI',
   );
-  final inputs = partial['inputs'][turn] as List;
+  final inputs = segmented(partial, turn, 'inputs');
   check(
     inputs.single['message']['text'] == 'FFI conversation fixture' &&
         inputs.single['canonical'] == true,
@@ -376,7 +386,7 @@ Future<Fixture> create(
     (complete['calls'] as List).length == 2,
     'shared call association over FFI',
   );
-  final completeRows = complete['rows'][turn] as List;
+  final completeRows = segmented(complete, turn, 'rows');
   check(
     completeRows.every((row) => row['draft'] == false) &&
         completeRows.any(
