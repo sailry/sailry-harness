@@ -1,11 +1,7 @@
 //! The language pack locates embedded regions; host attributes refine their grammar.
 use super::*;
-use std::{
-    ops::ControlFlow,
-    time::{Duration, Instant},
-};
-use tree_sitter::{Node, ParseOptions, Query, QueryCursor, StreamingIterator};
-use tree_sitter_language_pack::get_injections_query;
+use std::time::{Duration, Instant};
+use tree_sitter::{Node, Query, QueryCursor, StreamingIterator, Tree};
 
 const MAX_REGIONS: usize = 64;
 
@@ -14,9 +10,14 @@ pub(super) fn extract(
     parsed: &mut Parsed,
     source: &str,
     language: &str,
+    tree: Option<&Tree>,
     stop: &CancellationToken,
 ) -> Result<(), Fault> {
     let Some(query) = get_injections_query(language) else {
+        return Ok(());
+    };
+    let Some(tree) = tree else {
+        parsed.partial = true;
         return Ok(());
     };
     let grammar = parser.registry.get_language(language).map_err(|_| {
@@ -32,31 +33,8 @@ pub(super) fn extract(
             return Ok(());
         }
     };
-    let mut engine = tree_sitter::Parser::new();
-    engine.set_language(&grammar).map_err(|_| {
-        Fault::new(
-            ErrorCode::Internal,
-            "embedded parser could not be configured",
-        )
-    })?;
     let deadline = Instant::now() + Duration::from_millis(PARSE_MILLIS);
-    let mut progress = |_: &tree_sitter::ParseState| {
-        if stop.is_cancelled() || Instant::now() >= deadline {
-            ControlFlow::Break(())
-        } else {
-            ControlFlow::Continue(())
-        }
-    };
     let bytes = source.as_bytes();
-    let Some(tree) = engine.parse_with_options(
-        &mut |offset, _| &bytes[offset..],
-        None,
-        Some(ParseOptions::new().progress_callback(&mut progress)),
-    ) else {
-        check(stop)?;
-        parsed.partial = true;
-        return Ok(());
-    };
     let mut cursor = QueryCursor::new();
     let mut matches = cursor.matches(&query, tree.root_node(), bytes);
     let mut regions = 0usize;

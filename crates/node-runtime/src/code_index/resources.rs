@@ -45,7 +45,10 @@ impl Resources {
             parser: Arc::new(Parser::open(directory)),
             // Increment the rule marker only when extraction/range rules change.
             fingerprint: blake3::hash(
-                format!("code-index-v1:{PACK}:{TREE_SITTER}:{SOURCE}:embedded-1:data-1").as_bytes(),
+                format!(
+                    "code-index-v1:{PACK}:{TREE_SITTER}:{SOURCE}:embedded-1:data-1:references-1"
+                )
+                .as_bytes(),
             )
             .to_hex()
             .to_string(),

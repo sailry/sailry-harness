@@ -5,9 +5,14 @@ use std::{collections::BTreeSet, path::Path};
 use tree_sitter_language_pack::{
     DataNode, LanguageRegistry, ProcessConfig, ProcessResult, Span, StructureItem,
     detect_language_from_content, detect_language_from_extension, detect_language_from_path,
+    get_injections_query, get_tags_query,
 };
 
 mod embedded;
+mod imports;
+mod references;
+mod syntax;
+pub(super) use references::{Scope, Usage};
 
 const MAX_SYMBOLS: usize = 4096;
 const MAX_NAME_BYTES: usize = 512;
@@ -16,6 +21,7 @@ const PARSE_MILLIS: u64 = 1000;
 
 pub(super) struct Parser {
     pub(super) registry: LanguageRegistry,
+    tags: references::Tags,
     #[cfg(test)]
     pub(super) parsed: std::sync::atomic::AtomicUsize,
 }
@@ -27,6 +33,9 @@ pub(super) struct Parsed {
     pub hash: Option<String>,
     pub status: Status,
     pub symbols: Vec<Symbol>,
+    pub references: Vec<Usage>,
+    /// Module keys of the file's imports.
+    pub imports: Vec<String>,
     pub capabilities: Capabilities,
     pub partial: bool,
     pub truncated: bool,
@@ -40,6 +49,8 @@ impl Parsed {
             hash: None,
             status,
             symbols: Vec::new(),
+            references: Vec::new(),
+            imports: Vec::new(),
             capabilities: Capabilities::default(),
             partial: status != Status::Unsupported,
             truncated: status == Status::TooLarge,
@@ -51,6 +62,7 @@ impl Parser {
     pub(super) fn open(directory: &Path) -> Self {
         Self {
             registry: LanguageRegistry::with_libs_dir(directory.to_owned()),
+            tags: Default::default(),
             #[cfg(test)]
             parsed: std::sync::atomic::AtomicUsize::new(0),
         }
@@ -81,7 +93,7 @@ impl Parser {
         #[cfg(test)]
         self.parsed
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let result = match self.process(source, language) {
+        let mut result = match self.process(source, language) {
             Ok(result) => result,
             Err(_) => {
                 parsed.status = Status::Failed;
@@ -89,10 +101,16 @@ impl Parser {
                 return Ok(parsed);
             }
         };
+        let imports = std::mem::take(&mut result.imports);
         parsed.status = Status::Parsed;
         parsed.partial = result.metrics.error_count != 0;
         extract(&mut parsed, result, language, source, Origin::default());
-        embedded::extract(self, &mut parsed, source, language, stop)?;
+        let tree = if get_injections_query(language).is_some() || references::supported(language) {
+            syntax::parse(self, language, source, stop)?
+        } else {
+            None
+        };
+        embedded::extract(self, &mut parsed, source, language, tree.as_ref(), stop)?;
         parsed.symbols.sort_by(|left, right| {
             left.range
                 .start_byte
@@ -108,6 +126,15 @@ impl Parser {
                 symbol.range.end_byte,
             ))
         });
+        references::extract(
+            self,
+            &mut parsed,
+            source,
+            language,
+            tree.as_ref(),
+            &imports,
+            stop,
+        )?;
         check(stop)?;
         Ok(parsed)
     }
@@ -121,7 +148,8 @@ impl Parser {
             .with_max_source_bytes(Some(MAX_FILE_BYTES))
             .with_parse_timeout_ms(Some(PARSE_MILLIS))
             .with_data_extraction(true);
-        config.imports = false;
+        // Imports come from the same parse and guide reference resolution.
+        config.imports = true;
         config.exports = false;
         config.symbols = true;
         self.registry.process(source, &config)
