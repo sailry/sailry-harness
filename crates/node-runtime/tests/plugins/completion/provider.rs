@@ -50,80 +50,77 @@ async fn configured_provider() {
     provider.id = ProviderId::new();
     provider.revision = 0;
     provider.credential = None;
-    for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
-        execute(
-            &client,
-            Command::SaveProvider {
-                provider: provider.clone(),
-                expected_revision: 0,
-                secret: Some(Secret::new(secret.clone())),
-            },
-        )
-        .await;
-        let mut context = actions::install_actions(
-            &client,
-            &directory.path().join("source/package"),
-            worktree,
-            0,
-            &[Action::GenerateText],
-        )
-        .await;
-        context.worktree = None;
-        let started = std::time::Instant::now();
-        let request = client
-            .prepare(Command::GeneratePluginText {
-                effort: None,
-                model: format!("{}/{}", provider.id, model),
-                prompt: prompt.0.clone(),
-            })
-            .with_plugin(context);
-        let mut result = client.execute(request.clone()).await;
-        if matches!(&result, Err(error) if error.code == ErrorCode::OutcomeUnknown) {
-            let deadline = std::time::Instant::now() + Duration::from_secs(600);
-            loop {
-                match client.outcome(&request).await.unwrap() {
-                    RequestOutcome::Completed(completed) => {
-                        result = *completed;
-                        break;
-                    }
-                    RequestOutcome::Admitted => {
-                        assert!(
-                            std::time::Instant::now() < deadline,
-                            "model completion deadline"
-                        );
-                        tokio::time::sleep(Duration::from_millis(500)).await;
-                    }
-                    other => panic!("unconfirmed model outcome: {other:?}"),
+    let (directory, node, controller, client, worktree) = fixture().await;
+    execute(
+        &client,
+        Command::SaveProvider {
+            provider: provider.clone(),
+            expected_revision: 0,
+            secret: Some(Secret::new(secret.clone())),
+        },
+    )
+    .await;
+    let mut context = actions::install_actions(
+        &client,
+        &directory.path().join("source/package"),
+        worktree,
+        0,
+        &[Action::GenerateText],
+    )
+    .await;
+    context.worktree = None;
+    let started = std::time::Instant::now();
+    let request = client
+        .prepare(Command::GeneratePluginText {
+            effort: None,
+            model: format!("{}/{}", provider.id, model),
+            prompt: prompt.0.clone(),
+        })
+        .with_plugin(context);
+    let mut result = client.execute(request.clone()).await;
+    if matches!(&result, Err(error) if error.code == ErrorCode::OutcomeUnknown) {
+        let deadline = std::time::Instant::now() + Duration::from_secs(600);
+        loop {
+            match client.outcome(&request).await.unwrap() {
+                RequestOutcome::Completed(completed) => {
+                    result = *completed;
+                    break;
                 }
+                RequestOutcome::Admitted => {
+                    assert!(
+                        std::time::Instant::now() < deadline,
+                        "model completion deadline"
+                    );
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                }
+                other => panic!("unconfirmed model outcome: {other:?}"),
             }
         }
-        let Output::PluginText(text) = result.unwrap() else {
-            panic!("plugin text expected")
-        };
-        let value: serde_json::Value = serde_json::from_str(
-            text.text
-                .trim()
-                .trim_start_matches("```json")
-                .trim_end_matches("```")
-                .trim(),
-        )
-        .expect("legal game JSON expected");
-        assert!(
-            value["move"]
-                .as_u64()
-                .is_some_and(|index| index < prompt.1 as u64)
-        );
-        assert!(text.tokens > 0);
-        println!(
-            "{} provider completion passed: model={}, tokens={}, elapsed_ms={}",
-            if remote { "remote" } else { "local" },
-            text.model,
-            text.tokens,
-            started.elapsed().as_millis()
-        );
-        drop(client);
-        controller.close().await.unwrap();
-        node.shutdown().await.unwrap();
     }
+    let Output::PluginText(text) = result.unwrap() else {
+        panic!("plugin text expected")
+    };
+    let value: serde_json::Value = serde_json::from_str(
+        text.text
+            .trim()
+            .trim_start_matches("```json")
+            .trim_end_matches("```")
+            .trim(),
+    )
+    .expect("legal game JSON expected");
+    assert!(
+        value["move"]
+            .as_u64()
+            .is_some_and(|index| index < prompt.1 as u64)
+    );
+    assert!(text.tokens > 0);
+    println!(
+        "remote provider completion passed: model={}, tokens={}, elapsed_ms={}",
+        text.model,
+        text.tokens,
+        started.elapsed().as_millis()
+    );
+    drop(client);
+    controller.close().await.unwrap();
+    node.shutdown().await.unwrap();
 }

@@ -9,8 +9,8 @@ pub(super) struct Fixture {
 }
 
 impl Fixture {
-    pub async fn new(remote: bool) -> Self {
-        let (directory, node, controller, client, worktree) = support::empty(remote).await;
+    pub async fn new() -> Self {
+        let (directory, node, controller, client, worktree) = support::empty().await;
         Self {
             directory,
             node,

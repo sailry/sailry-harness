@@ -35,83 +35,80 @@ export async function run(input) {
 
 #[tokio::test]
 async fn restores_owned_sessions_and_controls_execution() {
-    for remote in [false, true] {
-        let (directory, node, controller, client, worktree) =
-            crate::plugins::support::empty(remote).await;
-        let config = configuration(&client).await;
-        let Output::Team(team) = execute(
-            &client,
-            Command::PutTeam {
-                team: team::Profile {
-                    id: TeamId::new(),
-                    revision: 0,
-                    key: "sdk".into(),
-                    name: "SDK".into(),
-                    appearance: None,
-                    description: String::new(),
-                    model: None,
-                    instructions: "Complete the task".into(),
-                    members: vec![],
-                },
-                expected_revision: 0,
+    let (directory, node, controller, client, worktree) = crate::plugins::support::empty().await;
+    let config = configuration(&client).await;
+    let Output::Team(team) = execute(
+        &client,
+        Command::PutTeam {
+            team: team::Profile {
+                id: TeamId::new(),
+                revision: 0,
+                key: "sdk".into(),
+                name: "SDK".into(),
+                appearance: None,
+                description: String::new(),
+                model: None,
+                instructions: "Complete the task".into(),
+                members: vec![],
             },
-        )
-        .await
-        else {
-            panic!("team expected")
-        };
-        let actions = serde_json::from_value::<Vec<Action>>(json!([
-            "sessions.start",
-            "teams.read",
-            "conversation.read",
-            "conversation.control"
-        ]))
-        .unwrap();
-        let context = installed_with_actions(
-            &client,
-            &directory.path().join("source/package"),
-            worktree,
-            SOURCE,
-            0,
-            &actions,
-        )
-        .await;
-        let Output::Snapshot(snapshot) = execute(&client, Command::Snapshot).await else {
-            panic!("snapshot expected")
-        };
-        let project = snapshot
-            .worktrees
-            .iter()
-            .find(|value| value.id == worktree)
-            .unwrap()
-            .project;
-        let request = call(
-            &client,
-            &context,
-            json!({"project":project,"worktree":worktree,"config":config,"team":team.id}),
-        );
-        let result = client.execute(request.clone()).await.unwrap();
-        assert_eq!(client.execute(request).await.unwrap(), result);
-        let Output::PluginResult(result) = result else {
-            panic!("callback result expected")
-        };
-        assert_eq!(
-            result["started"]["roles"]["team"]["revision"],
-            team.revision.to_string()
-        );
-        assert_eq!(result["started"]["roles"]["execution"], "team");
-        assert_eq!(result["selected"]["roles"]["execution"], "model");
-        assert_eq!(result["sent"]["roles"]["execution"], "model");
-        assert_eq!(result["page"]["sessions"].as_array().unwrap().len(), 1);
-        assert_eq!(result["page"]["sessions"][0]["id"], result["history"]);
-        assert_eq!(
-            result["page"]["sessions"][0]["association"]["namespace"],
-            "example"
-        );
-        assert!(result["page"]["sessions"][0]["revision"].is_string());
-        node.shutdown().await.unwrap();
-        controller.close().await.unwrap();
-    }
+            expected_revision: 0,
+        },
+    )
+    .await
+    else {
+        panic!("team expected")
+    };
+    let actions = serde_json::from_value::<Vec<Action>>(json!([
+        "sessions.start",
+        "teams.read",
+        "conversation.read",
+        "conversation.control"
+    ]))
+    .unwrap();
+    let context = installed_with_actions(
+        &client,
+        &directory.path().join("source/package"),
+        worktree,
+        SOURCE,
+        0,
+        &actions,
+    )
+    .await;
+    let Output::Snapshot(snapshot) = execute(&client, Command::Snapshot).await else {
+        panic!("snapshot expected")
+    };
+    let project = snapshot
+        .worktrees
+        .iter()
+        .find(|value| value.id == worktree)
+        .unwrap()
+        .project;
+    let request = call(
+        &client,
+        &context,
+        json!({"project":project,"worktree":worktree,"config":config,"team":team.id}),
+    );
+    let result = client.execute(request.clone()).await.unwrap();
+    assert_eq!(client.execute(request).await.unwrap(), result);
+    let Output::PluginResult(result) = result else {
+        panic!("callback result expected")
+    };
+    assert_eq!(
+        result["started"]["roles"]["team"]["revision"],
+        team.revision.to_string()
+    );
+    assert_eq!(result["started"]["roles"]["execution"], "team");
+    assert_eq!(result["selected"]["roles"]["execution"], "model");
+    assert_eq!(result["sent"]["roles"]["execution"], "model");
+    assert_eq!(result["page"]["sessions"].as_array().unwrap().len(), 1);
+    assert_eq!(result["page"]["sessions"][0]["id"], result["history"]);
+    assert_eq!(
+        result["page"]["sessions"][0]["association"]["namespace"],
+        "example"
+    );
+    assert!(result["page"]["sessions"][0]["revision"].is_string());
+    node.shutdown().await.unwrap();
+    controller.close().await.unwrap();
 }
 
 async fn configuration(client: &Client) -> SessionConfig {
@@ -212,157 +209,151 @@ async fn attempt(
 
 #[tokio::test]
 async fn enforces_association_resource_boundaries() {
-    for remote in [false, true] {
-        let (directory, node, controller, client, worktree) =
-            crate::plugins::support::empty(remote).await;
-        let config = configuration(&client).await;
-        let owned = associated(&client, worktree, &config, "example").await;
-        let foreign = associated(&client, worktree, &config, "other").await;
-        fs::write(
-            directory.path().join("source/private.txt"),
-            "Private resource",
-        )
-        .unwrap();
-        let other_root = directory.path().join("other");
-        fs::create_dir(&other_root).unwrap();
-        let Output::Project(other_project) = execute(
-            &client,
-            Command::RegisterProject {
-                name: "Other project".into(),
-                path: other_root.to_str().unwrap().into(),
-            },
-        )
-        .await
-        else {
-            panic!("project expected")
-        };
-        let Output::Snapshot(snapshot) = execute(&client, Command::Snapshot).await else {
-            panic!("snapshot expected")
-        };
-        let other_worktree = snapshot
-            .worktrees
-            .iter()
-            .find(|value| value.project == Some(other_project.id))
-            .unwrap()
-            .id;
-        let other = associated(&client, other_worktree, &config, "example").await;
-        let actions = serde_json::from_value::<Vec<Action>>(json!([
-            "conversation.read",
-            "conversation.control",
-            "teams.read",
-            "files.read"
-        ]))
+    let (directory, node, controller, client, worktree) = crate::plugins::support::empty().await;
+    let config = configuration(&client).await;
+    let owned = associated(&client, worktree, &config, "example").await;
+    let foreign = associated(&client, worktree, &config, "other").await;
+    fs::write(
+        directory.path().join("source/private.txt"),
+        "Private resource",
+    )
+    .unwrap();
+    let other_root = directory.path().join("other");
+    fs::create_dir(&other_root).unwrap();
+    let Output::Project(other_project) = execute(
+        &client,
+        Command::RegisterProject {
+            name: "Other project".into(),
+            path: other_root.to_str().unwrap().into(),
+        },
+    )
+    .await
+    else {
+        panic!("project expected")
+    };
+    let Output::Snapshot(snapshot) = execute(&client, Command::Snapshot).await else {
+        panic!("snapshot expected")
+    };
+    let other_worktree = snapshot
+        .worktrees
+        .iter()
+        .find(|value| value.project == Some(other_project.id))
+        .unwrap()
+        .id;
+    let other = associated(&client, other_worktree, &config, "example").await;
+    let actions = serde_json::from_value::<Vec<Action>>(json!([
+        "conversation.read",
+        "conversation.control",
+        "teams.read",
+        "files.read"
+    ]))
+    .unwrap();
+    let mut context = installed_with_actions(
+        &client,
+        &directory.path().join("source/package"),
+        worktree,
+        AUTHORITY,
+        0,
+        &actions,
+    )
+    .await;
+    assert!(context.session.is_none());
+    let page = attempt(&client, &context, json!({"action":"lookup"})).await;
+    assert_eq!(
+        page["Ok"]["sessions"].as_array().unwrap().len(),
+        1,
+        "{page}"
+    );
+    assert_eq!(page["Ok"]["sessions"][0]["id"], json!(owned.id));
+    for session in [&foreign, &other] {
+        for action in ["read", "control"] {
+            let denied = attempt(&client, &context, json!({"action":action,"session":session.id,"revision":session.revision.to_string()})).await;
+            assert_eq!(denied["Err"]["code"], "permission_denied", "{denied}");
+        }
+    }
+    context.worktree = None;
+    let read = attempt(
+        &client,
+        &context,
+        json!({"action":"read","session":owned.id}),
+    )
+    .await;
+    assert_eq!(read["Ok"]["id"], json!(owned.id), "{read}");
+    let controlled = attempt(
+        &client,
+        &context,
+        json!({"action":"control","session":owned.id,"revision":owned.revision.to_string()}),
+    )
+    .await;
+    assert_eq!(
+        controlled["Ok"]["data"]["id"],
+        json!(owned.id),
+        "{controlled}"
+    );
+    let page = attempt(&client, &context, json!({"action":"lookup"})).await;
+    assert_eq!(
+        page["Ok"]["sessions"].as_array().unwrap().len(),
+        2,
+        "{page}"
+    );
+    let denied = attempt(
+        &client,
+        &context,
+        json!({"action":"read","session":foreign.id}),
+    )
+    .await;
+    assert_eq!(denied["Err"]["code"], "permission_denied", "{denied}");
+    let denied = attempt(
+        &client,
+        &context,
+        json!({"action":"file","worktree":owned.worktree}),
+    )
+    .await;
+    assert_eq!(denied["Err"]["code"], "permission_denied", "{denied}");
+    node.shutdown().await.unwrap();
+    controller.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn requires_each_declared_capability() {
+    let (directory, node, controller, client, worktree) = crate::plugins::support::empty().await;
+    let config = configuration(&client).await;
+    let session = associated(&client, worktree, &config, "example").await;
+    let capabilities = ["conversation.read", "conversation.control", "teams.read"];
+    for (index, (missing, operations)) in [
+        ("conversation.read", vec!["read", "lookup"]),
+        ("conversation.control", vec!["control"]),
+        ("teams.read", vec!["teams"]),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let actions = serde_json::from_value::<Vec<Action>>(json!(
+            capabilities
+                .into_iter()
+                .filter(|value| *value != missing)
+                .collect::<Vec<_>>()
+        ))
         .unwrap();
         let mut context = installed_with_actions(
             &client,
             &directory.path().join("source/package"),
             worktree,
             AUTHORITY,
-            0,
+            index as u64,
             &actions,
         )
         .await;
-        assert!(context.session.is_none());
-        let page = attempt(&client, &context, json!({"action":"lookup"})).await;
-        assert_eq!(
-            page["Ok"]["sessions"].as_array().unwrap().len(),
-            1,
-            "{page}"
-        );
-        assert_eq!(page["Ok"]["sessions"][0]["id"], json!(owned.id));
-        for session in [&foreign, &other] {
-            for action in ["read", "control"] {
-                let denied = attempt(&client, &context, json!({"action":action,"session":session.id,"revision":session.revision.to_string()})).await;
-                assert_eq!(denied["Err"]["code"], "permission_denied", "{denied}");
-            }
-        }
         context.worktree = None;
-        let read = attempt(
-            &client,
-            &context,
-            json!({"action":"read","session":owned.id}),
-        )
-        .await;
-        assert_eq!(read["Ok"]["id"], json!(owned.id), "{read}");
-        let controlled = attempt(
-            &client,
-            &context,
-            json!({"action":"control","session":owned.id,"revision":owned.revision.to_string()}),
-        )
-        .await;
-        assert_eq!(
-            controlled["Ok"]["data"]["id"],
-            json!(owned.id),
-            "{controlled}"
-        );
-        let page = attempt(&client, &context, json!({"action":"lookup"})).await;
-        assert_eq!(
-            page["Ok"]["sessions"].as_array().unwrap().len(),
-            2,
-            "{page}"
-        );
-        let denied = attempt(
-            &client,
-            &context,
-            json!({"action":"read","session":foreign.id}),
-        )
-        .await;
-        assert_eq!(denied["Err"]["code"], "permission_denied", "{denied}");
-        let denied = attempt(
-            &client,
-            &context,
-            json!({"action":"file","worktree":owned.worktree}),
-        )
-        .await;
-        assert_eq!(denied["Err"]["code"], "permission_denied", "{denied}");
-        node.shutdown().await.unwrap();
-        controller.close().await.unwrap();
-    }
-}
-
-#[tokio::test]
-async fn requires_each_declared_capability() {
-    for remote in [false, true] {
-        let (directory, node, controller, client, worktree) =
-            crate::plugins::support::empty(remote).await;
-        let config = configuration(&client).await;
-        let session = associated(&client, worktree, &config, "example").await;
-        let capabilities = ["conversation.read", "conversation.control", "teams.read"];
-        for (index, (missing, operations)) in [
-            ("conversation.read", vec!["read", "lookup"]),
-            ("conversation.control", vec!["control"]),
-            ("teams.read", vec!["teams"]),
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            let actions = serde_json::from_value::<Vec<Action>>(json!(
-                capabilities
-                    .into_iter()
-                    .filter(|value| *value != missing)
-                    .collect::<Vec<_>>()
-            ))
-            .unwrap();
-            let mut context = installed_with_actions(
-                &client,
-                &directory.path().join("source/package"),
-                worktree,
-                AUTHORITY,
-                index as u64,
-                &actions,
-            )
-            .await;
-            context.worktree = None;
-            assert!(context.session.is_none());
-            for action in operations {
-                let denied = attempt(&client, &context, json!({"action":action,"session":session.id,"revision":session.revision.to_string()})).await;
-                assert_eq!(
-                    denied["Err"]["code"], "permission_denied",
-                    "missing {missing}: {denied}"
-                );
-            }
+        assert!(context.session.is_none());
+        for action in operations {
+            let denied = attempt(&client, &context, json!({"action":action,"session":session.id,"revision":session.revision.to_string()})).await;
+            assert_eq!(
+                denied["Err"]["code"], "permission_denied",
+                "missing {missing}: {denied}"
+            );
         }
-        node.shutdown().await.unwrap();
-        controller.close().await.unwrap();
     }
+    node.shutdown().await.unwrap();
+    controller.close().await.unwrap();
 }

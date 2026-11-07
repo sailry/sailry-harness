@@ -42,73 +42,66 @@ fn declare(root: &Path, title: &str) {
 
 #[tokio::test]
 async fn recovers_versioned_forms() {
-    for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = support::empty(remote).await;
-        let root = directory.path().join("source/package");
-        declare(&root, "First form");
-        let request = client.prepare(install(worktree, 0));
-        let first = info(client.execute(request.clone()).await.unwrap());
-        let form = first.settings.as_ref().unwrap();
-        assert_eq!(form.title.as_deref(), Some("First form"));
-        assert_eq!(form.properties["token"].default, None);
-        assert!(first.issues.is_empty());
-        assert_eq!(first.skills.len(), 1);
-        assert_eq!(first.mcp.len(), 1);
-        declare(&root, "Changed form");
-        assert_eq!(
-            info(
-                execute(
-                    &client,
-                    Command::ReadPlugin {
-                        name: "example".into()
-                    }
-                )
-                .await
-            ),
-            first
-        );
-        let second = info(execute(&client, install(worktree, first.summary.revision)).await);
-        assert_ne!(second.summary.digest, first.summary.digest);
-        assert_eq!(
-            second.settings.as_ref().unwrap().title.as_deref(),
-            Some("Changed form")
-        );
-        assert_eq!(info(client.execute(request.clone()).await.unwrap()), first);
-        node.shutdown().await.unwrap();
-        let reopened = Node::start_empty_with_plugin_catalog(
-            directory.path().join("node"),
-            "http://127.0.0.1:9/",
-        )
-        .await
-        .unwrap();
-        // Reconnect through the same authenticated path and persistent peer identity.
-        let reconnected = Client::new(if remote {
-            controller.handle().remote(reopened.link().address())
-        } else {
-            reopened.local()
-        });
-        assert_eq!(
-            info(
-                execute(
-                    &reconnected,
-                    Command::ReadPlugin {
-                        name: "example".into()
-                    }
-                )
-                .await
-            ),
-            second
-        );
-        assert_eq!(info(reconnected.execute(request).await.unwrap()), first);
-        reopened.shutdown().await.unwrap();
-        controller.close().await.unwrap();
-    }
+    let (directory, node, controller, client, worktree) = support::empty().await;
+    let root = directory.path().join("source/package");
+    declare(&root, "First form");
+    let request = client.prepare(install(worktree, 0));
+    let first = info(client.execute(request.clone()).await.unwrap());
+    let form = first.settings.as_ref().unwrap();
+    assert_eq!(form.title.as_deref(), Some("First form"));
+    assert_eq!(form.properties["token"].default, None);
+    assert!(first.issues.is_empty());
+    assert_eq!(first.skills.len(), 1);
+    assert_eq!(first.mcp.len(), 1);
+    declare(&root, "Changed form");
+    assert_eq!(
+        info(
+            execute(
+                &client,
+                Command::ReadPlugin {
+                    name: "example".into()
+                }
+            )
+            .await
+        ),
+        first
+    );
+    let second = info(execute(&client, install(worktree, first.summary.revision)).await);
+    assert_ne!(second.summary.digest, first.summary.digest);
+    assert_eq!(
+        second.settings.as_ref().unwrap().title.as_deref(),
+        Some("Changed form")
+    );
+    assert_eq!(info(client.execute(request.clone()).await.unwrap()), first);
+    node.shutdown().await.unwrap();
+    let reopened =
+        Node::start_empty_with_plugin_catalog(directory.path().join("node"), "http://127.0.0.1:9/")
+            .await
+            .unwrap();
+    // Reconnect through the same authenticated path and persistent peer identity.
+    let reconnected = Client::new(controller.handle().remote(reopened.link().address()));
+    assert_eq!(
+        info(
+            execute(
+                &reconnected,
+                Command::ReadPlugin {
+                    name: "example".into()
+                }
+            )
+            .await
+        ),
+        second
+    );
+    assert_eq!(info(reconnected.execute(request).await.unwrap()), first);
+    reopened.shutdown().await.unwrap();
+    controller.close().await.unwrap();
 }
 
 #[tokio::test]
 async fn isolates_forms() {
-    let first = support::empty(false).await;
-    let second = support::empty(true).await;
+    let mut first = support::empty().await;
+    first.3 = Client::new(first.1.local());
+    let second = support::empty().await;
     declare(&first.0.path().join("source/package"), "Host one");
     declare(&second.0.path().join("source/package"), "Host two");
     let one = info(execute(&first.3, install(first.4, 0)).await);

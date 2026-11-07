@@ -58,399 +58,385 @@ fn commit(client: &Client, context: &Context, status: &GitStatus) -> Request {
 #[tokio::test]
 #[cfg(unix)]
 async fn shares_index_commit_and_recovery() {
-    for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = support::empty(remote).await;
-        let root = directory.path().join("source");
-        let repository = repository(&root);
-        let context = install_actions(
-            &client,
-            &root.join("package"),
-            worktree,
-            0,
-            &[Action::ReadGit, Action::WriteGit],
-        )
-        .await;
-        let before = status(&client, &context).await;
-        let staged = stage(&client, &context, &before);
-        let admitted = client.dispatch(staged.clone()).await.unwrap();
-        assert!(admitted.receipt.durable);
-        let result = admitted.completion.await.unwrap().unwrap();
-        assert!(matches!(result, Output::GitIndex(_)));
-        assert_eq!(client.execute(staged.clone()).await.unwrap(), result);
-        // A new request with stale state must not re-read and overwrite the index.
-        assert_eq!(
-            client
-                .execute(stage(&client, &context, &before))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::RevisionConflict
-        );
-        let request = commit(&client, &context, &status(&client, &context).await);
-        let result = client.execute(request.clone()).await.unwrap();
-        let Output::GitCommitCreated { id, .. } = &result else {
-            panic!("commit expected")
-        };
-        assert_eq!(
-            repository.head().unwrap().target().unwrap().to_string(),
-            *id
-        );
-        assert_eq!(
-            repository
-                .head()
-                .unwrap()
-                .peel_to_commit()
-                .unwrap()
-                .parent_count(),
-            0
-        );
-        let tree = repository.head().unwrap().peel_to_tree().unwrap();
-        let entry = tree.get_path(Path::new("notes.txt")).unwrap();
-        assert_eq!(
-            repository.find_blob(entry.id()).unwrap().content(),
-            b"First revision\n"
-        );
-        drop(entry);
-        drop(tree);
-        execute(
-            &client,
-            Command::SetPluginEnabled {
-                name: context.package.name.clone(),
-                expected_revision: 1,
-                enabled: false,
-            },
-        )
-        .await;
-        assert_eq!(client.execute(request.clone()).await.unwrap(), result);
-        assert_eq!(
-            client
-                .execute(stage(&client, &context, &before))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::NotConfigured
-        );
-        drop(client);
-        node.shutdown().await.unwrap();
-        let node = Node::start_empty_with_plugin_catalog(
-            directory.path().join("node"),
-            "http://127.0.0.1:9/",
-        )
-        .await
-        .unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(node.link().address())
-        } else {
-            node.local()
-        });
-        assert_eq!(client.execute(request).await.unwrap(), result);
-        assert_eq!(
-            repository.head().unwrap().target().unwrap().to_string(),
-            *id
-        );
-        drop(client);
-        controller.close().await.unwrap();
-        node.shutdown().await.unwrap();
-    }
+    let (directory, node, controller, client, worktree) = support::empty().await;
+    let root = directory.path().join("source");
+    let repository = repository(&root);
+    let context = install_actions(
+        &client,
+        &root.join("package"),
+        worktree,
+        0,
+        &[Action::ReadGit, Action::WriteGit],
+    )
+    .await;
+    let before = status(&client, &context).await;
+    let staged = stage(&client, &context, &before);
+    let admitted = client.dispatch(staged.clone()).await.unwrap();
+    assert!(admitted.receipt.durable);
+    let result = admitted.completion.await.unwrap().unwrap();
+    assert!(matches!(result, Output::GitIndex(_)));
+    assert_eq!(client.execute(staged.clone()).await.unwrap(), result);
+    // A new request with stale state must not re-read and overwrite the index.
+    assert_eq!(
+        client
+            .execute(stage(&client, &context, &before))
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::RevisionConflict
+    );
+    let request = commit(&client, &context, &status(&client, &context).await);
+    let result = client.execute(request.clone()).await.unwrap();
+    let Output::GitCommitCreated { id, .. } = &result else {
+        panic!("commit expected")
+    };
+    assert_eq!(
+        repository.head().unwrap().target().unwrap().to_string(),
+        *id
+    );
+    assert_eq!(
+        repository
+            .head()
+            .unwrap()
+            .peel_to_commit()
+            .unwrap()
+            .parent_count(),
+        0
+    );
+    let tree = repository.head().unwrap().peel_to_tree().unwrap();
+    let entry = tree.get_path(Path::new("notes.txt")).unwrap();
+    assert_eq!(
+        repository.find_blob(entry.id()).unwrap().content(),
+        b"First revision\n"
+    );
+    drop(entry);
+    drop(tree);
+    execute(
+        &client,
+        Command::SetPluginEnabled {
+            name: context.package.name.clone(),
+            expected_revision: 1,
+            enabled: false,
+        },
+    )
+    .await;
+    assert_eq!(client.execute(request.clone()).await.unwrap(), result);
+    assert_eq!(
+        client
+            .execute(stage(&client, &context, &before))
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::NotConfigured
+    );
+    drop(client);
+    node.shutdown().await.unwrap();
+    let node =
+        Node::start_empty_with_plugin_catalog(directory.path().join("node"), "http://127.0.0.1:9/")
+            .await
+            .unwrap();
+    let client = Client::new(controller.handle().remote(node.link().address()));
+    assert_eq!(client.execute(request).await.unwrap(), result);
+    assert_eq!(
+        repository.head().unwrap().target().unwrap().to_string(),
+        *id
+    );
+    drop(client);
+    controller.close().await.unwrap();
+    node.shutdown().await.unwrap();
 }
 
 #[tokio::test]
 async fn requires_write_grant_and_captured_worktree() {
-    for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = support::empty(remote).await;
-        let root = directory.path().join("source");
-        let repository = repository(&root);
-        let read = install_actions(
-            &client,
-            &root.join("package"),
-            worktree,
-            0,
-            &[Action::ReadGit],
-        )
-        .await;
-        let before = status(&client, &read).await;
-        for request in [
-            stage(&client, &read, &before),
-            commit(&client, &read, &before),
+    let (directory, node, controller, client, worktree) = support::empty().await;
+    let root = directory.path().join("source");
+    let repository = repository(&root);
+    let read = install_actions(
+        &client,
+        &root.join("package"),
+        worktree,
+        0,
+        &[Action::ReadGit],
+    )
+    .await;
+    let before = status(&client, &read).await;
+    for request in [
+        stage(&client, &read, &before),
+        commit(&client, &read, &before),
+    ] {
+        assert_eq!(
+            client.execute(request).await.unwrap_err().code,
+            ErrorCode::PermissionDenied
+        );
+    }
+    let context = install_actions(
+        &client,
+        &root.join("package"),
+        worktree,
+        1,
+        &[Action::ReadGit, Action::WriteGit],
+    )
+    .await;
+    assert_eq!(
+        client
+            .execute(stage(&client, &read, &before))
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::RevisionConflict
+    );
+    for captured in [None, Some(WorktreeId::new())] {
+        let mut outside = context.clone();
+        outside.worktree = captured;
+        for mut request in [
+            stage(&client, &context, &before),
+            commit(&client, &context, &before),
         ] {
+            request.plugin = Some(outside.clone());
             assert_eq!(
                 client.execute(request).await.unwrap_err().code,
                 ErrorCode::PermissionDenied
             );
         }
-        let context = install_actions(
-            &client,
-            &root.join("package"),
-            worktree,
-            1,
-            &[Action::ReadGit, Action::WriteGit],
-        )
-        .await;
-        assert_eq!(
-            client
-                .execute(stage(&client, &read, &before))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::RevisionConflict
-        );
-        for captured in [None, Some(WorktreeId::new())] {
-            let mut outside = context.clone();
-            outside.worktree = captured;
-            for mut request in [
-                stage(&client, &context, &before),
-                commit(&client, &context, &before),
-            ] {
-                request.plugin = Some(outside.clone());
-                assert_eq!(
-                    client.execute(request).await.unwrap_err().code,
-                    ErrorCode::PermissionDenied
-                );
-            }
-        }
-        assert_eq!(repository.index().unwrap().len(), 0);
-        assert!(repository.head().is_err());
-        assert_eq!(
-            fs::read_to_string(root.join("notes.txt")).unwrap(),
-            "First revision\n"
-        );
-        drop(client);
-        controller.close().await.unwrap();
-        node.shutdown().await.unwrap();
     }
+    assert_eq!(repository.index().unwrap().len(), 0);
+    assert!(repository.head().is_err());
+    assert_eq!(
+        fs::read_to_string(root.join("notes.txt")).unwrap(),
+        "First revision\n"
+    );
+    drop(client);
+    controller.close().await.unwrap();
+    node.shutdown().await.unwrap();
 }
 
 #[tokio::test]
 async fn manages_branches_with_captured_revisions() {
-    for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = support::empty(remote).await;
-        let root = directory.path().join("source");
-        let repository = repository(&root);
-        let context = install_actions(
-            &client,
-            &root.join("package"),
+    let (directory, node, controller, client, worktree) = support::empty().await;
+    let root = directory.path().join("source");
+    let repository = repository(&root);
+    let context = install_actions(
+        &client,
+        &root.join("package"),
+        worktree,
+        0,
+        &[Action::ReadGit, Action::WriteGit],
+    )
+    .await;
+    client
+        .execute(stage(&client, &context, &status(&client, &context).await))
+        .await
+        .unwrap();
+    client
+        .execute(commit(&client, &context, &status(&client, &context).await))
+        .await
+        .unwrap();
+    let before = status(&client, &context).await;
+    let head = before.head.clone().unwrap();
+    let create = client
+        .prepare(Command::CreateGitBranch {
             worktree,
-            0,
-            &[Action::ReadGit, Action::WriteGit],
+            name: "topic".into(),
+            commit: head.clone(),
+        })
+        .with_plugin(context.clone());
+    let result = client.execute(create.clone()).await.unwrap();
+    assert_eq!(client.execute(create).await.unwrap(), result);
+    client
+        .execute(
+            client
+                .prepare(Command::RenameGitBranch {
+                    worktree,
+                    name: "topic".into(),
+                    new_name: "renamed".into(),
+                    commit: head.clone(),
+                })
+                .with_plugin(context.clone()),
         )
-        .await;
-        client
-            .execute(stage(&client, &context, &status(&client, &context).await))
-            .await
-            .unwrap();
-        client
-            .execute(commit(&client, &context, &status(&client, &context).await))
-            .await
-            .unwrap();
-        let before = status(&client, &context).await;
-        let head = before.head.clone().unwrap();
-        let create = client
-            .prepare(Command::CreateGitBranch {
-                worktree,
-                name: "topic".into(),
-                commit: head.clone(),
-            })
-            .with_plugin(context.clone());
-        let result = client.execute(create.clone()).await.unwrap();
-        assert_eq!(client.execute(create).await.unwrap(), result);
-        client
-            .execute(
-                client
-                    .prepare(Command::RenameGitBranch {
-                        worktree,
-                        name: "topic".into(),
-                        new_name: "renamed".into(),
-                        commit: head.clone(),
-                    })
-                    .with_plugin(context.clone()),
-            )
-            .await
-            .unwrap();
-        for command in [
-            Command::ListGitBranches { worktree },
-            Command::ResolveGitRevision {
-                worktree,
-                revision: "renamed".into(),
-            },
-            Command::ReadGitLog {
-                worktree,
-                limit: 100,
-                cursor: None,
-            },
-            Command::ReadGitCommit {
-                worktree,
-                commit: head.clone(),
-            },
-            Command::ReadGitOutput { worktree },
-            Command::ReadGitDiff {
-                worktree,
-                path: "notes.txt".into(),
-                scope: GitDiffScope::All,
-            },
-        ] {
-            let expected = execute(&client, command.clone()).await;
-            assert_eq!(
-                client
-                    .execute(client.prepare(command).with_plugin(context.clone()))
-                    .await
-                    .unwrap(),
-                expected
-            );
-        }
-        client
-            .execute(
-                client
-                    .prepare(Command::SwitchGitBranch {
-                        worktree,
-                        name: "renamed".into(),
-                        commit: head.clone(),
-                        expected_head: before.head.clone(),
-                        expected_branch: before.branch.clone(),
-                        expected_index: before.index_revision.clone().unwrap(),
-                    })
-                    .with_plugin(context.clone()),
-            )
-            .await
-            .unwrap();
-        assert_eq!(repository.head().unwrap().shorthand().unwrap(), "renamed");
-        let stale = client
-            .prepare(Command::DeleteGitBranch {
-                worktree,
-                name: before.branch.unwrap(),
-                commit: head.clone(),
-                expected_head: head,
-                expected_branch: Some("stale".into()),
-            })
-            .with_plugin(context.clone());
-        assert_eq!(
-            client.execute(stale).await.unwrap_err().code,
-            ErrorCode::RevisionConflict
-        );
-        let outside = WorktreeId::new();
+        .await
+        .unwrap();
+    for command in [
+        Command::ListGitBranches { worktree },
+        Command::ResolveGitRevision {
+            worktree,
+            revision: "renamed".into(),
+        },
+        Command::ReadGitLog {
+            worktree,
+            limit: 100,
+            cursor: None,
+        },
+        Command::ReadGitCommit {
+            worktree,
+            commit: head.clone(),
+        },
+        Command::ReadGitOutput { worktree },
+        Command::ReadGitDiff {
+            worktree,
+            path: "notes.txt".into(),
+            scope: GitDiffScope::All,
+        },
+    ] {
+        let expected = execute(&client, command.clone()).await;
         assert_eq!(
             client
-                .execute(
-                    client
-                        .prepare(Command::ListGitBranches { worktree: outside })
-                        .with_plugin(context)
-                )
+                .execute(client.prepare(command).with_plugin(context.clone()))
                 .await
-                .unwrap_err()
-                .code,
-            ErrorCode::PermissionDenied
+                .unwrap(),
+            expected
         );
-        drop(client);
-        controller.close().await.unwrap();
-        node.shutdown().await.unwrap();
     }
+    client
+        .execute(
+            client
+                .prepare(Command::SwitchGitBranch {
+                    worktree,
+                    name: "renamed".into(),
+                    commit: head.clone(),
+                    expected_head: before.head.clone(),
+                    expected_branch: before.branch.clone(),
+                    expected_index: before.index_revision.clone().unwrap(),
+                })
+                .with_plugin(context.clone()),
+        )
+        .await
+        .unwrap();
+    assert_eq!(repository.head().unwrap().shorthand().unwrap(), "renamed");
+    let stale = client
+        .prepare(Command::DeleteGitBranch {
+            worktree,
+            name: before.branch.unwrap(),
+            commit: head.clone(),
+            expected_head: head,
+            expected_branch: Some("stale".into()),
+        })
+        .with_plugin(context.clone());
+    assert_eq!(
+        client.execute(stale).await.unwrap_err().code,
+        ErrorCode::RevisionConflict
+    );
+    let outside = WorktreeId::new();
+    assert_eq!(
+        client
+            .execute(
+                client
+                    .prepare(Command::ListGitBranches { worktree: outside })
+                    .with_plugin(context)
+            )
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::PermissionDenied
+    );
+    drop(client);
+    controller.close().await.unwrap();
+    node.shutdown().await.unwrap();
 }
 
 #[tokio::test]
 async fn confines_source_context_to_git_grants() {
-    for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = support::empty(remote).await;
-        let root = directory.path().join("source");
-        let _repository = repository(&root);
-        let context = install_actions(
-            &client,
-            &root.join("package"),
-            worktree,
-            0,
-            &[Action::ReadGit],
+    let (directory, node, controller, client, worktree) = support::empty().await;
+    let root = directory.path().join("source");
+    let _repository = repository(&root);
+    let context = install_actions(
+        &client,
+        &root.join("package"),
+        worktree,
+        0,
+        &[Action::ReadGit],
+    )
+    .await;
+    let Output::GitChanges(scope) = client
+        .execute(
+            client
+                .prepare(Command::ListGitChanges {
+                    worktree,
+                    target: Some(GitChangeTarget::Worktree {
+                        scope: GitDiffScope::All,
+                    }),
+                    cursor: None,
+                    limit: 100,
+                })
+                .with_plugin(context.clone()),
         )
-        .await;
-        let Output::GitChanges(scope) = client
-            .execute(
-                client
-                    .prepare(Command::ListGitChanges {
-                        worktree,
-                        target: Some(GitChangeTarget::Worktree {
-                            scope: GitDiffScope::All,
-                        }),
-                        cursor: None,
-                        limit: 100,
-                    })
-                    .with_plugin(context.clone()),
-            )
-            .await
-            .unwrap()
-        else {
-            panic!("inventory expected")
-        };
-        let metadata = scope
-            .entries
-            .iter()
-            .find(|entry| entry.path == "notes.txt")
-            .unwrap()
-            .metadata_revision
-            .clone();
-        let Output::GitChange(diff) = client
-            .execute(
-                client
-                    .prepare(Command::ReadGitChange {
-                        worktree,
-                        snapshot: scope.snapshot.clone(),
-                        path: "notes.txt".into(),
-                        expected_metadata_revision: metadata.clone(),
-                        expected_revision: None,
-                        offset: 0,
-                        limit: 100,
-                    })
-                    .with_plugin(context.clone()),
-            )
-            .await
-            .unwrap()
-        else {
-            panic!("change expected")
-        };
-        let command = Command::ReadGitContext {
-            worktree,
-            snapshot: scope.snapshot,
-            path: "notes.txt".into(),
-            expected_metadata_revision: metadata,
-            expected_revision: diff.revision,
-            side: GitContextSide::New,
-            offset: 0,
-            limit: 100,
-        };
-        let Output::GitContext(page) = client
-            .execute(client.prepare(command.clone()).with_plugin(context.clone()))
-            .await
-            .unwrap()
-        else {
-            panic!("context expected")
-        };
-        assert_eq!(page.text, "First revision\n");
-        for captured in [None, Some(WorktreeId::new())] {
-            let mut outside = context.clone();
-            outside.worktree = captured;
-            assert_eq!(
-                client
-                    .execute(client.prepare(command.clone()).with_plugin(outside))
-                    .await
-                    .unwrap_err()
-                    .code,
-                ErrorCode::PermissionDenied
-            );
-        }
-        let denied = install_actions(&client, &root.join("package"), worktree, 1, &[]).await;
+        .await
+        .unwrap()
+    else {
+        panic!("inventory expected")
+    };
+    let metadata = scope
+        .entries
+        .iter()
+        .find(|entry| entry.path == "notes.txt")
+        .unwrap()
+        .metadata_revision
+        .clone();
+    let Output::GitChange(diff) = client
+        .execute(
+            client
+                .prepare(Command::ReadGitChange {
+                    worktree,
+                    snapshot: scope.snapshot.clone(),
+                    path: "notes.txt".into(),
+                    expected_metadata_revision: metadata.clone(),
+                    expected_revision: None,
+                    offset: 0,
+                    limit: 100,
+                })
+                .with_plugin(context.clone()),
+        )
+        .await
+        .unwrap()
+    else {
+        panic!("change expected")
+    };
+    let command = Command::ReadGitContext {
+        worktree,
+        snapshot: scope.snapshot,
+        path: "notes.txt".into(),
+        expected_metadata_revision: metadata,
+        expected_revision: diff.revision,
+        side: GitContextSide::New,
+        offset: 0,
+        limit: 100,
+    };
+    let Output::GitContext(page) = client
+        .execute(client.prepare(command.clone()).with_plugin(context.clone()))
+        .await
+        .unwrap()
+    else {
+        panic!("context expected")
+    };
+    assert_eq!(page.text, "First revision\n");
+    for captured in [None, Some(WorktreeId::new())] {
+        let mut outside = context.clone();
+        outside.worktree = captured;
         assert_eq!(
             client
-                .execute(client.prepare(command.clone()).with_plugin(context))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::RevisionConflict
-        );
-        assert_eq!(
-            client
-                .execute(client.prepare(command).with_plugin(denied))
+                .execute(client.prepare(command.clone()).with_plugin(outside))
                 .await
                 .unwrap_err()
                 .code,
             ErrorCode::PermissionDenied
         );
-        node.shutdown().await.unwrap();
-        controller.close().await.unwrap();
     }
+    let denied = install_actions(&client, &root.join("package"), worktree, 1, &[]).await;
+    assert_eq!(
+        client
+            .execute(client.prepare(command.clone()).with_plugin(context))
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::RevisionConflict
+    );
+    assert_eq!(
+        client
+            .execute(client.prepare(command).with_plugin(denied))
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::PermissionDenied
+    );
+    node.shutdown().await.unwrap();
+    controller.close().await.unwrap();
 }

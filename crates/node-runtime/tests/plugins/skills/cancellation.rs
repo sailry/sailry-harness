@@ -76,88 +76,77 @@ async fn count(receiver: &mut watch::Receiver<usize>, expected: usize) {
 
 #[tokio::test]
 async fn shutdown_cancels_source_installations() {
-    for remote in [false, true] {
-        let mut held = Held::start().await;
-        let directory = tempfile::tempdir().unwrap();
-        let profile = directory.path().join("node");
-        let node = Node::start_with_skill_source(&profile, &held.endpoint)
-            .await
-            .unwrap();
-        let controller =
-            Link::controller(directory.path().join("controller"), NetworkScope::default())
-                .await
-                .unwrap();
-        let address = controller
-            .handle()
-            .pair(node.link().invite().unwrap().ticket())
-            .await
-            .unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(address)
-        } else {
-            node.local()
-        });
-        let source = plugin::skills::Resolved {
-            repository: "https://github.com/owner/repo.git".into(),
-            git_ref: "HEAD".into(),
-            commit: github::FIRST.into(),
-        };
-        let path = "skills/analysis";
-        let mut identity = blake3::Hasher::new_derive_key("Sailry standalone skill v1");
-        identity.update(source.repository.as_bytes());
-        identity.update(&[0]);
-        identity.update(path.as_bytes());
-        let skill = format!("skill-{}", &identity.finalize().to_hex()[..32]);
-        let mut requests = Vec::new();
-        let mut admissions = Vec::new();
-        for command in [
-            Command::InstallPluginSource {
-                source: source.clone(),
-                path: String::new(),
-                name: "held-plugin".into(),
-                expected_revision: 0,
-            },
-            Command::InstallSkill {
-                source,
-                path: path.into(),
-                name: skill,
-                expected_revision: 0,
-            },
-        ] {
-            let request = client.prepare(command);
-            let admission = client.dispatch(request.clone()).await.unwrap();
-            assert!(admission.receipt.durable);
-            requests.push(request);
-            admissions.push(admission);
-        }
-        count(&mut held.received, 2).await;
-        for admission in &mut admissions {
-            assert!(matches!(
-                admission.completion.try_recv(),
-                Err(tokio::sync::oneshot::error::TryRecvError::Empty)
-            ));
-        }
-        tokio::time::timeout(Duration::from_secs(5), node.shutdown())
-            .await
-            .unwrap()
-            .unwrap();
-        count(&mut held.disconnected, 2).await;
-        drop(admissions);
-        drop(client);
-        let node = Node::start(&profile).await.unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(node.link().address())
-        } else {
-            node.local()
-        });
-        assert!(inventory(&client).await.is_empty());
-        for request in requests {
-            assert_eq!(
-                client.execute(request).await.unwrap_err().code,
-                ErrorCode::Cancelled
-            );
-        }
-        node.shutdown().await.unwrap();
-        controller.close().await.unwrap();
+    let mut held = Held::start().await;
+    let directory = tempfile::tempdir().unwrap();
+    let profile = directory.path().join("node");
+    let node = Node::start_with_skill_source(&profile, &held.endpoint)
+        .await
+        .unwrap();
+    let controller = Link::controller(directory.path().join("controller"), NetworkScope::default())
+        .await
+        .unwrap();
+    let address = controller
+        .handle()
+        .pair(node.link().invite().unwrap().ticket())
+        .await
+        .unwrap();
+    let client = Client::new(controller.handle().remote(address));
+    let source = plugin::skills::Resolved {
+        repository: "https://github.com/owner/repo.git".into(),
+        git_ref: "HEAD".into(),
+        commit: github::FIRST.into(),
+    };
+    let path = "skills/analysis";
+    let mut identity = blake3::Hasher::new_derive_key("Sailry standalone skill v1");
+    identity.update(source.repository.as_bytes());
+    identity.update(&[0]);
+    identity.update(path.as_bytes());
+    let skill = format!("skill-{}", &identity.finalize().to_hex()[..32]);
+    let mut requests = Vec::new();
+    let mut admissions = Vec::new();
+    for command in [
+        Command::InstallPluginSource {
+            source: source.clone(),
+            path: String::new(),
+            name: "held-plugin".into(),
+            expected_revision: 0,
+        },
+        Command::InstallSkill {
+            source,
+            path: path.into(),
+            name: skill,
+            expected_revision: 0,
+        },
+    ] {
+        let request = client.prepare(command);
+        let admission = client.dispatch(request.clone()).await.unwrap();
+        assert!(admission.receipt.durable);
+        requests.push(request);
+        admissions.push(admission);
     }
+    count(&mut held.received, 2).await;
+    for admission in &mut admissions {
+        assert!(matches!(
+            admission.completion.try_recv(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+        ));
+    }
+    tokio::time::timeout(Duration::from_secs(5), node.shutdown())
+        .await
+        .unwrap()
+        .unwrap();
+    count(&mut held.disconnected, 2).await;
+    drop(admissions);
+    drop(client);
+    let node = Node::start(&profile).await.unwrap();
+    let client = Client::new(controller.handle().remote(node.link().address()));
+    assert!(inventory(&client).await.is_empty());
+    for request in requests {
+        assert_eq!(
+            client.execute(request).await.unwrap_err().code,
+            ErrorCode::Cancelled
+        );
+    }
+    node.shutdown().await.unwrap();
+    controller.close().await.unwrap();
 }

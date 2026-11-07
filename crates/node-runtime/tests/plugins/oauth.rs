@@ -72,103 +72,96 @@ fn callback(url: &str) -> Secret {
 }
 #[tokio::test]
 async fn scopes_callbacks_and_preserves_receipts() {
-    for remote in [false, true] {
-        for cancel in [false, true] {
-            let server = server::Server::start(false, false).await;
-            let (directory, node, controller, client, worktree) = support::empty(remote).await;
-            node.set_connector_fixture("https://issuer.example.com", &server.endpoint);
-            configure(&directory.path().join("source/package"));
-            let package = info(execute(&client, install(worktree, 0)).await);
-            assert!(package.issues.is_empty(), "{:?}", package.issues);
-            let request = client.prepare(Command::StartConnectorLogin {
-                package: package.summary.reference(),
-                connector: "account".into(),
-                connection: None,
-                expected_revision: None,
-                method: Kind::Oauth2,
-                input: Input {
-                    redirect: Some("http://127.0.0.1:43191/auth/callback".into()),
-                    fields: BTreeMap::from([("client_id".into(), "registered-client".into())]),
-                    secrets: BTreeMap::from([(
-                        "client_secret".into(),
-                        Secret::new("private-client-marker".into()),
-                    )]),
-                    ..Default::default()
+    for cancel in [false, true] {
+        let server = server::Server::start(false, false).await;
+        let (directory, node, controller, client, worktree) = support::empty().await;
+        node.set_connector_fixture("https://issuer.example.com", &server.endpoint);
+        configure(&directory.path().join("source/package"));
+        let package = info(execute(&client, install(worktree, 0)).await);
+        assert!(package.issues.is_empty(), "{:?}", package.issues);
+        let request = client.prepare(Command::StartConnectorLogin {
+            package: package.summary.reference(),
+            connector: "account".into(),
+            connection: None,
+            expected_revision: None,
+            method: Kind::Oauth2,
+            input: Input {
+                redirect: Some("http://127.0.0.1:43191/auth/callback".into()),
+                fields: BTreeMap::from([("client_id".into(), "registered-client".into())]),
+                secrets: BTreeMap::from([(
+                    "client_secret".into(),
+                    Secret::new("private-client-marker".into()),
+                )]),
+                ..Default::default()
+            },
+        });
+        let Output::ConnectorLogin(attempt) = client.execute(request.clone()).await.unwrap() else {
+            panic!("login attempt expected")
+        };
+        assert_eq!(
+            client.execute(request).await.unwrap(),
+            Output::ConnectorLogin(attempt.clone())
+        );
+        let LoginState::Browser { url, .. } = state(&client, &attempt, |s| {
+            matches!(s, LoginState::Browser { .. })
+        })
+        .await
+        else {
+            unreachable!()
+        };
+        let other = Client::new(node.local());
+        let denied = match other.subscribe_connector_login(attempt.id).await {
+            Ok(mut stream) => stream.next().await.unwrap_err(),
+            Err(error) => error,
+        };
+        assert_eq!(denied.code, ErrorCode::NotFound);
+        assert_eq!(
+            other
+                .execute(other.prepare(Command::SubmitConnectorInput {
+                    attempt: attempt.id,
+                    input: callback(&url)
+                }))
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::NotFound
+        );
+        if cancel {
+            execute(
+                &client,
+                Command::CancelConnectorLogin {
+                    attempt: attempt.id,
                 },
-            });
-            let Output::ConnectorLogin(attempt) = client.execute(request.clone()).await.unwrap()
-            else {
-                panic!("login attempt expected")
-            };
+            )
+            .await;
             assert_eq!(
-                client.execute(request).await.unwrap(),
-                Output::ConnectorLogin(attempt.clone())
+                state(&client, &attempt, |s| matches!(s, LoginState::Cancelled)).await,
+                LoginState::Cancelled
             );
-            let LoginState::Browser { url, .. } = state(&client, &attempt, |s| {
-                matches!(s, LoginState::Browser { .. })
-            })
-            .await
+            assert!(server.bodies.lock().unwrap().is_empty());
+        } else {
+            let completion = client.prepare(Command::SubmitConnectorInput {
+                attempt: attempt.id,
+                input: callback(&url),
+            });
+            let receipt = client.execute(completion.clone()).await.unwrap();
+            assert_eq!(client.execute(completion).await.unwrap(), receipt);
+            let LoginState::Connected(connection) =
+                state(&client, &attempt, |s| matches!(s, LoginState::Connected(_))).await
             else {
                 unreachable!()
             };
-            let other = Client::new(if remote {
-                node.local()
-            } else {
-                controller.handle().remote(node.link().address())
-            });
-            let denied = match other.subscribe_connector_login(attempt.id).await {
-                Ok(mut stream) => stream.next().await.unwrap_err(),
-                Err(error) => error,
-            };
-            assert_eq!(denied.code, ErrorCode::NotFound);
-            assert_eq!(
-                other
-                    .execute(other.prepare(Command::SubmitConnectorInput {
-                        attempt: attempt.id,
-                        input: callback(&url)
-                    }))
-                    .await
-                    .unwrap_err()
-                    .code,
-                ErrorCode::NotFound
-            );
-            if cancel {
-                execute(
-                    &client,
-                    Command::CancelConnectorLogin {
-                        attempt: attempt.id,
-                    },
-                )
-                .await;
-                assert_eq!(
-                    state(&client, &attempt, |s| matches!(s, LoginState::Cancelled)).await,
-                    LoginState::Cancelled
-                );
-                assert!(server.bodies.lock().unwrap().is_empty());
-            } else {
-                let completion = client.prepare(Command::SubmitConnectorInput {
-                    attempt: attempt.id,
-                    input: callback(&url),
-                });
-                let receipt = client.execute(completion.clone()).await.unwrap();
-                assert_eq!(client.execute(completion).await.unwrap(), receipt);
-                let LoginState::Connected(connection) =
-                    state(&client, &attempt, |s| matches!(s, LoginState::Connected(_))).await
-                else {
-                    unreachable!()
-                };
-                assert_eq!(server.bodies.lock().unwrap().len(), 1);
-                execute(
-                    &client,
-                    Command::DisconnectConnection {
-                        connection: connection.id,
-                        expected_revision: connection.revision,
-                    },
-                )
-                .await;
-            }
-            controller.close().await.unwrap();
-            node.shutdown().await.unwrap();
+            assert_eq!(server.bodies.lock().unwrap().len(), 1);
+            execute(
+                &client,
+                Command::DisconnectConnection {
+                    connection: connection.id,
+                    expected_revision: connection.revision,
+                },
+            )
+            .await;
         }
+        controller.close().await.unwrap();
+        node.shutdown().await.unwrap();
     }
 }

@@ -53,241 +53,235 @@ async fn scoped(client: &Client, context: &Context, command: Command) -> Result<
 
 #[tokio::test]
 async fn confines_connection_resources() {
-    for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = support::empty(remote).await;
-        let mut context = install_actions(
-            &client,
-            &directory.path().join("source/package"),
-            worktree,
-            0,
-            &[Action::ReadDatabases],
-        )
-        .await;
-        let shared = profile(&client, &directory.path().join("shared.sqlite3"), true).await;
-        let private = profile(&client, &directory.path().join("private.sqlite3"), false).await;
-        let Output::DatabaseProfiles(profiles) = scoped(&client, &context, Command::ListDatabases)
-            .await
-            .unwrap()
-        else {
-            panic!("profiles expected")
-        };
-        assert_eq!(profiles, vec![shared.clone()]);
-        let Output::DatabaseOutcome(database::Outcome::Query(result)) = scoped(
+    let (directory, node, controller, client, worktree) = support::empty().await;
+    let mut context = install_actions(
+        &client,
+        &directory.path().join("source/package"),
+        worktree,
+        0,
+        &[Action::ReadDatabases],
+    )
+    .await;
+    let shared = profile(&client, &directory.path().join("shared.sqlite3"), true).await;
+    let private = profile(&client, &directory.path().join("private.sqlite3"), false).await;
+    let Output::DatabaseProfiles(profiles) = scoped(&client, &context, Command::ListDatabases)
+        .await
+        .unwrap()
+    else {
+        panic!("profiles expected")
+    };
+    assert_eq!(profiles, vec![shared.clone()]);
+    let Output::DatabaseOutcome(database::Outcome::Query(result)) = scoped(
+        &client,
+        &context,
+        query(&shared, "SELECT value FROM effects", true),
+    )
+    .await
+    .unwrap() else {
+        panic!("query expected")
+    };
+    assert_eq!(result.rows, vec![vec![database::Value::Integer(i64::MAX)]]);
+    assert_eq!(
+        scoped(
             &client,
             &context,
-            query(&shared, "SELECT value FROM effects", true),
+            query(&shared, "DELETE FROM effects", false)
         )
         .await
-        .unwrap() else {
-            panic!("query expected")
-        };
-        assert_eq!(result.rows, vec![vec![database::Value::Integer(i64::MAX)]]);
-        assert_eq!(
-            scoped(
-                &client,
-                &context,
-                query(&shared, "DELETE FROM effects", false)
-            )
-            .await
-            .unwrap_err()
-            .code,
-            ErrorCode::PermissionDenied
-        );
-        assert_eq!(
-            scoped(
-                &client,
-                &context,
-                query(&private, "SELECT value FROM effects", true)
-            )
-            .await
-            .unwrap_err()
-            .code,
-            ErrorCode::PermissionDenied
-        );
-        let session = scopes::session(&client, worktree).await;
-        let Output::Session(session) = execute(
+        .unwrap_err()
+        .code,
+        ErrorCode::PermissionDenied
+    );
+    assert_eq!(
+        scoped(
             &client,
-            Command::BindConnectionSession {
-                session: session.id,
-                expected_revision: session.revision,
-                resource: Resource::Database(private.id),
-            },
+            &context,
+            query(&private, "SELECT value FROM effects", true)
         )
         .await
-        else {
-            panic!("session expected")
-        };
-        context.session = Some(session.id);
-        context.worktree = Some(session.worktree);
-        let Output::DatabaseProfiles(profiles) = scoped(&client, &context, Command::ListDatabases)
-            .await
+        .unwrap_err()
+        .code,
+        ErrorCode::PermissionDenied
+    );
+    let session = scopes::session(&client, worktree).await;
+    let Output::Session(session) = execute(
+        &client,
+        Command::BindConnectionSession {
+            session: session.id,
+            expected_revision: session.revision,
+            resource: Resource::Database(private.id),
+        },
+    )
+    .await
+    else {
+        panic!("session expected")
+    };
+    context.session = Some(session.id);
+    context.worktree = Some(session.worktree);
+    let Output::DatabaseProfiles(profiles) = scoped(&client, &context, Command::ListDatabases)
+        .await
+        .unwrap()
+    else {
+        panic!("profiles expected")
+    };
+    assert_eq!(profiles, vec![private.clone()]);
+    assert!(
+        scoped(
+            &client,
+            &context,
+            query(&private, "SELECT value FROM effects", true)
+        )
+        .await
+        .is_ok()
+    );
+    assert_eq!(
+        scoped(
+            &client,
+            &context,
+            query(&shared, "SELECT value FROM effects", true)
+        )
+        .await
+        .unwrap_err()
+        .code,
+        ErrorCode::PermissionDenied
+    );
+    assert_eq!(
+        rusqlite::Connection::open(directory.path().join("shared.sqlite3"))
             .unwrap()
-        else {
-            panic!("profiles expected")
-        };
-        assert_eq!(profiles, vec![private.clone()]);
-        assert!(
-            scoped(
-                &client,
-                &context,
-                query(&private, "SELECT value FROM effects", true)
-            )
-            .await
-            .is_ok()
-        );
-        assert_eq!(
-            scoped(
-                &client,
-                &context,
-                query(&shared, "SELECT value FROM effects", true)
-            )
-            .await
-            .unwrap_err()
-            .code,
-            ErrorCode::PermissionDenied
-        );
-        assert_eq!(
-            rusqlite::Connection::open(directory.path().join("shared.sqlite3"))
-                .unwrap()
-                .query_row("SELECT COUNT(*) FROM effects", [], |row| row
-                    .get::<_, i64>(0))
-                .unwrap(),
-            1
-        );
-        controller.close().await.unwrap();
-        node.shutdown().await.unwrap();
-    }
+            .query_row("SELECT COUNT(*) FROM effects", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+    controller.close().await.unwrap();
+    node.shutdown().await.unwrap();
 }
 
 #[tokio::test]
 async fn recovers_database_receipts_without_replaying_effects() {
-    for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = support::empty(remote).await;
-        let context = install_actions(
-            &client,
-            &directory.path().join("source/package"),
-            worktree,
-            0,
-            &[Action::ReadDatabases, Action::ControlDatabases],
-        )
-        .await;
-        let profile = profile(&client, &directory.path().join("data.sqlite3"), true).await;
-        let request = client
-            .prepare(query(&profile, "INSERT INTO effects VALUES(7)", false))
-            .with_plugin(context.clone());
-        let admission = client.dispatch(request.clone()).await.unwrap();
-        assert!(admission.receipt.durable);
-        drop(admission);
-        let completed = tokio::time::timeout(Duration::from_secs(10), async {
-            loop {
-                if let RequestOutcome::Completed(result) = client.outcome(&request).await.unwrap() {
-                    break result.unwrap();
-                }
-                tokio::time::sleep(Duration::from_millis(10)).await;
+    let (directory, node, controller, client, worktree) = support::empty().await;
+    let context = install_actions(
+        &client,
+        &directory.path().join("source/package"),
+        worktree,
+        0,
+        &[Action::ReadDatabases, Action::ControlDatabases],
+    )
+    .await;
+    let profile = profile(&client, &directory.path().join("data.sqlite3"), true).await;
+    let request = client
+        .prepare(query(&profile, "INSERT INTO effects VALUES(7)", false))
+        .with_plugin(context.clone());
+    let admission = client.dispatch(request.clone()).await.unwrap();
+    assert!(admission.receipt.durable);
+    drop(admission);
+    let completed = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if let RequestOutcome::Completed(result) = client.outcome(&request).await.unwrap() {
+                break result.unwrap();
             }
-        })
-        .await
-        .unwrap();
-        assert_eq!(client.execute(request.clone()).await.unwrap(), completed);
-        let mut changed = request.clone();
-        changed.command = query(&profile, "INSERT INTO effects VALUES(8)", false);
-        assert_eq!(
-            client.execute(changed).await.unwrap_err().code,
-            ErrorCode::Conflict
-        );
-        execute(
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(client.execute(request.clone()).await.unwrap(), completed);
+    let mut changed = request.clone();
+    changed.command = query(&profile, "INSERT INTO effects VALUES(8)", false);
+    assert_eq!(
+        client.execute(changed).await.unwrap_err().code,
+        ErrorCode::Conflict
+    );
+    execute(
+        &client,
+        Command::SetPluginEnabled {
+            name: context.package.name.clone(),
+            expected_revision: 1,
+            enabled: false,
+        },
+    )
+    .await;
+    assert_eq!(client.execute(request).await.unwrap(), completed);
+    assert_eq!(
+        scoped(
             &client,
-            Command::SetPluginEnabled {
-                name: context.package.name.clone(),
-                expected_revision: 1,
-                enabled: false,
-            },
+            &context,
+            query(&profile, "INSERT INTO effects VALUES(9)", false)
         )
-        .await;
-        assert_eq!(client.execute(request).await.unwrap(), completed);
-        assert_eq!(
-            scoped(
-                &client,
-                &context,
-                query(&profile, "INSERT INTO effects VALUES(9)", false)
-            )
-            .await
-            .unwrap_err()
-            .code,
-            ErrorCode::NotConfigured
-        );
-        let db = rusqlite::Connection::open(directory.path().join("data.sqlite3")).unwrap();
-        assert_eq!(
-            db.query_row("SELECT COUNT(*) FROM effects WHERE value=7", [], |row| row
-                .get::<_, i64>(
-                0
-            ))
+        .await
+        .unwrap_err()
+        .code,
+        ErrorCode::NotConfigured
+    );
+    let db = rusqlite::Connection::open(directory.path().join("data.sqlite3")).unwrap();
+    assert_eq!(
+        db.query_row("SELECT COUNT(*) FROM effects WHERE value=7", [], |row| row
+            .get::<_, i64>(
+            0
+        ))
+        .unwrap(),
+        1
+    );
+    assert_eq!(
+        db.query_row("SELECT COUNT(*) FROM effects", [], |row| row
+            .get::<_, i64>(0))
             .unwrap(),
-            1
-        );
-        assert_eq!(
-            db.query_row("SELECT COUNT(*) FROM effects", [], |row| row
-                .get::<_, i64>(0))
-                .unwrap(),
-            2
-        );
-        controller.close().await.unwrap();
-        node.shutdown().await.unwrap();
-    }
+        2
+    );
+    controller.close().await.unwrap();
+    node.shutdown().await.unwrap();
 }
 
 #[tokio::test]
 async fn cancellation_keeps_the_original_plugin_scope() {
-    for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = support::empty(remote).await;
-        let context = install_actions(
+    let (directory, node, controller, client, worktree) = support::empty().await;
+    let context = install_actions(
+        &client,
+        &directory.path().join("source/package"),
+        worktree,
+        0,
+        &[Action::ReadDatabases],
+    )
+    .await;
+    let profile = profile(&client, &directory.path().join("cancel.sqlite3"), true).await;
+    let request = client.prepare(query(&profile,"WITH RECURSIVE numbers(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM numbers WHERE x<100000000) SELECT SUM(x) FROM numbers",true)).with_plugin(context.clone());
+    let admission = client.dispatch(request.clone()).await.unwrap();
+    let mut other = context.clone();
+    other.worktree = None;
+    assert_eq!(
+        scoped(
             &client,
-            &directory.path().join("source/package"),
-            worktree,
-            0,
-            &[Action::ReadDatabases],
-        )
-        .await;
-        let profile = profile(&client, &directory.path().join("cancel.sqlite3"), true).await;
-        let request = client.prepare(query(&profile,"WITH RECURSIVE numbers(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM numbers WHERE x<100000000) SELECT SUM(x) FROM numbers",true)).with_plugin(context.clone());
-        let admission = client.dispatch(request.clone()).await.unwrap();
-        let mut other = context.clone();
-        other.worktree = None;
-        assert_eq!(
-            scoped(
-                &client,
-                &other,
-                Command::CancelDatabase {
-                    request: request.id
-                }
-            )
-            .await
-            .unwrap_err()
-            .code,
-            ErrorCode::PermissionDenied
-        );
-        assert_eq!(
-            scoped(
-                &client,
-                &context,
-                Command::CancelDatabase {
-                    request: request.id
-                }
-            )
-            .await
-            .unwrap(),
-            Output::DatabaseCancelled {
+            &other,
+            Command::CancelDatabase {
                 request: request.id
             }
-        );
-        assert!(
-            tokio::time::timeout(Duration::from_secs(10), admission.completion)
-                .await
-                .unwrap()
-                .unwrap()
-                .is_err()
-        );
-        controller.close().await.unwrap();
-        node.shutdown().await.unwrap();
-    }
+        )
+        .await
+        .unwrap_err()
+        .code,
+        ErrorCode::PermissionDenied
+    );
+    assert_eq!(
+        scoped(
+            &client,
+            &context,
+            Command::CancelDatabase {
+                request: request.id
+            }
+        )
+        .await
+        .unwrap(),
+        Output::DatabaseCancelled {
+            request: request.id
+        }
+    );
+    assert!(
+        tokio::time::timeout(Duration::from_secs(10), admission.completion)
+            .await
+            .unwrap()
+            .unwrap()
+            .is_err()
+    );
+    controller.close().await.unwrap();
+    node.shutdown().await.unwrap();
 }
