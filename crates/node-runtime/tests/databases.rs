@@ -52,7 +52,7 @@ async fn exercise_transport(
     password: Option<Secret>,
     tunnel: Option<&tunnel::Server>,
     full: bool,
-    mut shared: Option<&mut fixture::Fixture>,
+    shared: Option<&mut fixture::Fixture>,
 ) {
     let forwarded = tunnel.map_or(0, |server| server.forwarded());
     let mut owned = if shared.is_none() {
@@ -60,7 +60,7 @@ async fn exercise_transport(
     } else {
         None
     };
-    let fixture = shared.as_deref_mut().or(owned.as_mut()).unwrap();
+    let fixture = shared.or(owned.as_mut()).unwrap();
     let client = fixture.client();
     let connection = if let Some(tunnel) = tunnel {
         let ssh = tunnel.save(&client).await;
