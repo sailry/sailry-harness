@@ -7,7 +7,11 @@ pub(in crate::agent) mod observation;
 pub(super) mod plugin;
 pub(crate) mod registry;
 mod request;
+#[cfg(test)]
+mod rig;
 pub(in crate::agent) mod summary;
+#[cfg(test)]
+mod types;
 pub(in crate::agent) use errors::{fault as error, safe};
 use goose_provider_types::{base::Provider as GdkProvider, model::ModelConfig};
 use sailry_protocol::{

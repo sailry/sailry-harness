@@ -178,6 +178,7 @@ goose-agent = { git = "https://github.com/sailry/goose", rev = "14741e9a76398108
 goose-provider-types = { git = "https://github.com/sailry/goose", rev = "14741e9a7639810840b43767bd1218a6a43e87ec", default-features = false }
 goose-providers = { git = "https://github.com/sailry/goose", rev = "14741e9a7639810840b43767bd1218a6a43e87ec", default-features = false }
 goose-context-management = { git = "https://github.com/sailry/goose", rev = "14741e9a7639810840b43767bd1218a6a43e87ec", default-features = false }
+rig-core = { version = "=0.46.0", default-features = false, features = ["rustls"] }
 cpal = "=0.18.2"
 rmcp = { version = "=3.5.1", default-features = false, features = ["auth", "client", "transport-async-rw", "transport-streamable-http-client-reqwest"] }
 async-trait = "=0.1.92"
