@@ -1,13 +1,13 @@
 use super::{provider, support};
 use crate::conversation::live::*;
-use sailry_link::{Link, NetworkScope, Transport};
+use sailry_link::{Link, NetworkScope};
 use sailry_node_runtime::Node;
 
 pub(crate) struct Fixture {
     pub(crate) directory: tempfile::TempDir,
     pub(crate) runtime: Arc<tokio::runtime::Runtime>,
     pub(crate) node: Node,
-    pub(crate) controller: Option<Link>,
+    pub(crate) controller: Link,
     pub(crate) binding: Binding,
 }
 
@@ -37,21 +37,17 @@ impl Fixture {
             surface: Default::default(),
         }
     }
-    pub(crate) fn with_tools(remote: bool, tools: Vec<(String, serde_json::Value)>) -> Self {
-        Self::with_server(remote, |runtime| {
-            runtime.block_on(support::Server::tools(tools))
-        })
+    pub(crate) fn with_tools(tools: Vec<(String, serde_json::Value)>) -> Self {
+        Self::with_server(|runtime| runtime.block_on(support::Server::tools(tools)))
     }
 
     pub(crate) fn with_server(
-        remote: bool,
         server: impl FnOnce(&tokio::runtime::Runtime) -> support::Server,
     ) -> Self {
-        Self::with_environment(remote, |_| None, server)
+        Self::with_environment(|_| None, server)
     }
 
     pub(crate) fn with_environment(
-        remote: bool,
         setup: impl FnOnce(&std::path::Path) -> Option<sailry_node_runtime::EnvironmentFixture>,
         server: impl FnOnce(&tokio::runtime::Runtime) -> support::Server,
     ) -> Self {
@@ -67,26 +63,20 @@ impl Fixture {
             None => runtime.block_on(Node::start_isolated(directory.path().join("node"))),
         }
         .unwrap();
-        let (controller, transport): (Option<Link>, Arc<dyn Transport>) = if remote {
-            let controller = runtime
-                .block_on(Link::controller(
-                    directory.path().join("controller"),
-                    NetworkScope::default(),
-                ))
-                .unwrap();
-            let address = runtime
-                .block_on(
-                    controller
-                        .handle()
-                        .pair(node.link().invite().unwrap().ticket()),
-                )
-                .unwrap();
-            let transport = controller.handle().remote(address);
-            (Some(controller), transport)
-        } else {
-            (None, node.local())
-        };
-        let client = Arc::new(Client::new(transport.clone()));
+        let controller = runtime
+            .block_on(Link::controller(
+                directory.path().join("controller"),
+                NetworkScope::default(),
+            ))
+            .unwrap();
+        let address = runtime
+            .block_on(
+                controller
+                    .handle()
+                    .pair(node.link().invite().unwrap().ticket()),
+            )
+            .unwrap();
+        let client = Arc::new(Client::new(controller.handle().remote(address)));
         // Keep model fixtures independent of shipped external services.
         for name in ["context7", "github"] {
             runtime
@@ -165,8 +155,6 @@ impl Fixture {
 
     pub(crate) fn close(self) {
         self.runtime.block_on(self.node.shutdown()).unwrap();
-        if let Some(controller) = self.controller {
-            self.runtime.block_on(controller.close()).unwrap();
-        }
+        self.runtime.block_on(self.controller.close()).unwrap();
     }
 }
