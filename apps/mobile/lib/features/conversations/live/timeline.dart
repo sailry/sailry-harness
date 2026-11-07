@@ -52,6 +52,7 @@ class LiveTimeline extends StatefulWidget {
     required this.host,
     required this.command,
     this.onOpenChild,
+    this.onOpenLink,
     this.onTurnAction,
     this.turnKey,
     this.canRestore,
@@ -71,6 +72,9 @@ class LiveTimeline extends StatefulWidget {
   final HostConnection host;
   final ConversationCommand command;
   final ValueChanged<Map<String, dynamic>>? onOpenChild;
+
+  /// Opens a reply link before Markdown's defaults and reports whether it did.
+  final bool Function(String link)? onOpenLink;
   final void Function(String action, String turn)? onTurnAction;
   final Key Function(String turn)? turnKey;
   final bool Function()? canRestore;
@@ -129,6 +133,7 @@ class _LiveTimelineState extends State<LiveTimeline> {
             child: MarkdownContent(
               data as String,
               selectable: selectable,
+              onOpenLink: widget.onOpenLink,
               onOpenFile: (uri) async {
                 final tree = objects(
                   host.snapshot['worktrees'],

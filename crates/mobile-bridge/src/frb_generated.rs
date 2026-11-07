@@ -4154,6 +4154,36 @@ fn wire__crate__api__rules__select_mode_impl(
         },
     )
 }
+fn wire__crate__api__rules__session_link_impl(
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) -> flutter_rust_bridge::for_generated::WireSyncRust2DartSse {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_sync::<flutter_rust_bridge::for_generated::SseCodec, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "session_link",
+            port: None,
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Sync,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_link = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            transform_result_sse::<_, ()>((move || {
+                let output_ok = Ok::<_, ()>(crate::api::rules::session_link(api_link))?;
+                std::result::Result::Ok(output_ok)
+            })())
+        },
+    )
+}
 
 // Section: related_funcs
 
@@ -4931,6 +4961,7 @@ fn pde_ffi_dispatcher_sync_impl(
     match func_id {
         75 => wire__crate__api__rules__project_modes_impl(ptr, rust_vec_len, data_len),
         76 => wire__crate__api__rules__select_mode_impl(ptr, rust_vec_len, data_len),
+        77 => wire__crate__api__rules__session_link_impl(ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }

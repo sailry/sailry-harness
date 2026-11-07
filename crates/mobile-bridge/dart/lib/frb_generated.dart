@@ -378,6 +378,8 @@ abstract class RustLibApi extends BaseApi {
     required String key,
   });
 
+  String? crateApiRulesSessionLink({required String link});
+
   RustArcIncrementStrongCountFnType
   get rust_arc_increment_strong_count_CommandUpdates;
 
@@ -3192,6 +3194,29 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     debugName: "select_mode",
     argNames: ["config", "modes", "key"],
   );
+
+  @override
+  String? crateApiRulesSessionLink({required String link}) {
+    return handler.executeSync(
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(link, serializer);
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 77)!;
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_opt_String,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiRulesSessionLinkConstMeta,
+        argValues: [link],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRulesSessionLinkConstMeta =>
+      const TaskConstMeta(debugName: "session_link", argNames: ["link"]);
 
   RustArcIncrementStrongCountFnType
   get rust_arc_increment_strong_count_CommandUpdates => wire

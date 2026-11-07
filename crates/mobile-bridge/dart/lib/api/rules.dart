@@ -20,3 +20,7 @@ String? selectMode({
   modes: modes,
   key: key,
 );
+
+/// The session ID a reply link names, in the form Client projections use.
+String? sessionLink({required String link}) =>
+    RustLib.instance.api.crateApiRulesSessionLink(link: link);
