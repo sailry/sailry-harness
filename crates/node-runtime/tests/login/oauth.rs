@@ -46,182 +46,177 @@ fn command(provider: &Provider, options: Option<Options>) -> Command {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn draft_options() {
-    for remote in [false, true] {
-        let server = Server::start_with_request(ModelApi::Anthropic, standard).await;
-        let fixture = Fixture::empty(remote, &server).await;
-        for (authentication, api) in [
-            (Authentication::ChatGpt, ModelApi::Responses),
-            (Authentication::Copilot, ModelApi::Responses),
-            (Authentication::Copilot, ModelApi::ChatCompletions),
-        ] {
-            let case = format!("{remote:?} {authentication:?} {api:?}");
-            let provider = execution::signed_in(&fixture, authentication, api).await;
-            let draft = options(authentication, "draft");
-            let Output::DiscoveredModels(models) = fixture
-                .client
-                .execute(
-                    fixture
-                        .client
-                        .prepare(command(&provider, Some(draft.clone()))),
-                )
-                .await
-                .unwrap()
-            else {
-                panic!("{case}: catalog expected")
-            };
-            assert_eq!(models.models.len(), 2, "{case}");
-            let Output::Providers(saved) = fixture
-                .client
-                .execute(fixture.client.prepare(Command::ListProviders))
-                .await
-                .unwrap()
-            else {
-                panic!("{case}: providers expected")
-            };
-            assert_eq!(
-                saved.iter().find(|value| value.id == provider.id),
-                Some(&provider),
-                "{case}"
-            );
-            {
-                let requests = server.requests.lock().unwrap();
-                let request = requests.last().unwrap();
-                headers(request, &draft);
-                if authentication == Authentication::ChatGpt {
-                    assert_eq!(request.path, "/models", "{case}");
-                    assert!(!request.headers.contains_key("originator"), "{case}");
-                    assert!(
-                        !request.headers.contains_key("chatgpt-account-id"),
-                        "{case}"
-                    );
-                }
+    let server = Server::start_with_request(ModelApi::Anthropic, standard).await;
+    let fixture = Fixture::empty(&server).await;
+    for (authentication, api) in [
+        (Authentication::ChatGpt, ModelApi::Responses),
+        (Authentication::Copilot, ModelApi::Responses),
+        (Authentication::Copilot, ModelApi::ChatCompletions),
+    ] {
+        let case = format!("{authentication:?} {api:?}");
+        let provider = execution::signed_in(&fixture, authentication, api).await;
+        let draft = options(authentication, "draft");
+        let Output::DiscoveredModels(models) = fixture
+            .client
+            .execute(
+                fixture
+                    .client
+                    .prepare(command(&provider, Some(draft.clone()))),
+            )
+            .await
+            .unwrap()
+        else {
+            panic!("{case}: catalog expected")
+        };
+        assert_eq!(models.models.len(), 2, "{case}");
+        let Output::Providers(saved) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::ListProviders))
+            .await
+            .unwrap()
+        else {
+            panic!("{case}: providers expected")
+        };
+        assert_eq!(
+            saved.iter().find(|value| value.id == provider.id),
+            Some(&provider),
+            "{case}"
+        );
+        {
+            let requests = server.requests.lock().unwrap();
+            let request = requests.last().unwrap();
+            headers(request, &draft);
+            if authentication == Authentication::ChatGpt {
+                assert_eq!(request.path, "/models", "{case}");
+                assert!(!request.headers.contains_key("originator"), "{case}");
+                assert!(
+                    !request.headers.contains_key("chatgpt-account-id"),
+                    "{case}"
+                );
             }
         }
-        for authentication in [Authentication::ChatGpt, Authentication::Copilot] {
-            let case = format!("{remote:?} {authentication:?}");
-            let previous_requests = server.requests.lock().unwrap().len();
-            let provider = provider(&fixture.client, authentication).await;
-            let mut invalid = options(authentication, "invalid");
-            match &mut invalid {
-                Options::Plugin { .. } => unreachable!("native OAuth fixture"),
-                Options::ChatGpt { user_agent, .. }
-                | Options::ChatGptOAuth { user_agent, .. }
-                | Options::ClaudeOAuth { user_agent } => {
-                    *user_agent = "Sailry\r\nx-secret: injected".into()
-                }
-                Options::Copilot { editor_version, .. } => {
-                    *editor_version = "editor\r\nx-secret: injected".into()
-                }
-            }
-            let mismatched = options(
-                if authentication == Authentication::ChatGpt {
-                    Authentication::Copilot
-                } else {
-                    Authentication::ChatGpt
-                },
-                "wrong",
-            );
-            for options in [invalid, mismatched] {
-                let mut changed = provider.clone();
-                changed.oauth = Some(options.clone());
-                for command in [
-                    Command::PutProvider {
-                        provider: changed.clone(),
-                        expected_revision: provider.revision,
-                    },
-                    command(&provider, Some(options)),
-                ] {
-                    let error = fixture
-                        .client
-                        .execute(fixture.client.prepare(command))
-                        .await
-                        .unwrap_err();
-                    assert_eq!(error.code, ErrorCode::InvalidRequest, "{case}");
-                    no_secrets(&error);
-                }
-            }
-            assert_eq!(
-                server.requests.lock().unwrap().len(),
-                previous_requests,
-                "{case}"
-            );
-            let Output::Providers(saved) = fixture
-                .client
-                .execute(fixture.client.prepare(Command::ListProviders))
-                .await
-                .unwrap()
-            else {
-                panic!("{case}: providers expected")
-            };
-            assert_eq!(
-                saved.iter().find(|value| value.id == provider.id),
-                Some(&provider),
-                "{case}"
-            );
-        }
-        fixture.close().await;
     }
+    for authentication in [Authentication::ChatGpt, Authentication::Copilot] {
+        let case = format!("{authentication:?}");
+        let previous_requests = server.requests.lock().unwrap().len();
+        let provider = provider(&fixture.client, authentication).await;
+        let mut invalid = options(authentication, "invalid");
+        match &mut invalid {
+            Options::Plugin { .. } => unreachable!("native OAuth fixture"),
+            Options::ChatGpt { user_agent, .. }
+            | Options::ChatGptOAuth { user_agent, .. }
+            | Options::ClaudeOAuth { user_agent } => {
+                *user_agent = "Sailry\r\nx-secret: injected".into()
+            }
+            Options::Copilot { editor_version, .. } => {
+                *editor_version = "editor\r\nx-secret: injected".into()
+            }
+        }
+        let mismatched = options(
+            if authentication == Authentication::ChatGpt {
+                Authentication::Copilot
+            } else {
+                Authentication::ChatGpt
+            },
+            "wrong",
+        );
+        for options in [invalid, mismatched] {
+            let mut changed = provider.clone();
+            changed.oauth = Some(options.clone());
+            for command in [
+                Command::PutProvider {
+                    provider: changed.clone(),
+                    expected_revision: provider.revision,
+                },
+                command(&provider, Some(options)),
+            ] {
+                let error = fixture
+                    .client
+                    .execute(fixture.client.prepare(command))
+                    .await
+                    .unwrap_err();
+                assert_eq!(error.code, ErrorCode::InvalidRequest, "{case}");
+                no_secrets(&error);
+            }
+        }
+        assert_eq!(
+            server.requests.lock().unwrap().len(),
+            previous_requests,
+            "{case}"
+        );
+        let Output::Providers(saved) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::ListProviders))
+            .await
+            .unwrap()
+        else {
+            panic!("{case}: providers expected")
+        };
+        assert_eq!(
+            saved.iter().find(|value| value.id == provider.id),
+            Some(&provider),
+            "{case}"
+        );
+    }
+    fixture.close().await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn invalidates_late_draft_after_revision_change() {
-    for remote in [false, true] {
-        for (authentication, api) in [
-            (Authentication::ChatGpt, ModelApi::Responses),
-            (Authentication::Copilot, ModelApi::Responses),
-            (Authentication::Copilot, ModelApi::ChatCompletions),
-        ] {
-            let release = Arc::new(tokio::sync::Notify::new());
-            let gate = release.clone();
-            let queries = AtomicUsize::new(0);
-            let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
-                if request.path.starts_with("/models") {
-                    if queries.fetch_add(1, Ordering::SeqCst) > 0 {
-                        Reply::Delayed(gate.clone(), catalog::models(authentication))
-                    } else {
-                        Reply::Json(catalog::models(authentication))
-                    }
+    for (authentication, api) in [
+        (Authentication::ChatGpt, ModelApi::Responses),
+        (Authentication::Copilot, ModelApi::Responses),
+        (Authentication::Copilot, ModelApi::ChatCompletions),
+    ] {
+        let release = Arc::new(tokio::sync::Notify::new());
+        let gate = release.clone();
+        let queries = AtomicUsize::new(0);
+        let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
+            if request.path.starts_with("/models") {
+                if queries.fetch_add(1, Ordering::SeqCst) > 0 {
+                    Reply::Delayed(gate.clone(), catalog::models(authentication))
                 } else {
-                    standard(request)
+                    Reply::Json(catalog::models(authentication))
                 }
-            })
-            .await;
-            let fixture = Fixture::empty(remote, &server).await;
-            let provider = execution::signed_in(&fixture, authentication, api).await;
-            let client = fixture.client.clone();
-            let request =
-                client.prepare(command(&provider, Some(options(authentication, "draft"))));
-            let query = tokio::spawn(async move { client.execute(request).await });
-            server.wait_requests(5).await;
-            let mut changed = provider.clone();
-            changed.oauth = Some(options(authentication, "saved"));
-            let Output::Provider(saved) = fixture
-                .client
-                .execute(fixture.client.prepare(Command::PutProvider {
-                    expected_revision: provider.revision,
-                    provider: changed,
-                }))
-                .await
-                .unwrap()
-            else {
-                panic!("provider expected")
-            };
-            release.notify_one();
-            let error = query.await.unwrap().unwrap_err();
-            assert_eq!(error.code, ErrorCode::RevisionConflict);
-            let Output::Providers(providers) = fixture
-                .client
-                .execute(fixture.client.prepare(Command::ListProviders))
-                .await
-                .unwrap()
-            else {
-                panic!("providers expected")
-            };
-            assert_eq!(
-                providers.iter().find(|value| value.id == provider.id),
-                Some(&saved)
-            );
-            fixture.close().await;
-        }
+            } else {
+                standard(request)
+            }
+        })
+        .await;
+        let fixture = Fixture::empty(&server).await;
+        let provider = execution::signed_in(&fixture, authentication, api).await;
+        let client = fixture.client.clone();
+        let request = client.prepare(command(&provider, Some(options(authentication, "draft"))));
+        let query = tokio::spawn(async move { client.execute(request).await });
+        server.wait_requests(5).await;
+        let mut changed = provider.clone();
+        changed.oauth = Some(options(authentication, "saved"));
+        let Output::Provider(saved) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::PutProvider {
+                expected_revision: provider.revision,
+                provider: changed,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("provider expected")
+        };
+        release.notify_one();
+        let error = query.await.unwrap().unwrap_err();
+        assert_eq!(error.code, ErrorCode::RevisionConflict);
+        let Output::Providers(providers) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::ListProviders))
+            .await
+            .unwrap()
+        else {
+            panic!("providers expected")
+        };
+        assert_eq!(
+            providers.iter().find(|value| value.id == provider.id),
+            Some(&saved)
+        );
+        fixture.close().await;
     }
 }

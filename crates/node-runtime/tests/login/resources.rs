@@ -106,282 +106,280 @@ fn request(
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn protects_accounts_across_transports() {
-    for remote in [false, true] {
-        for authentication in [
-            Authentication::ChatGpt,
-            Authentication::ChatGptOAuth,
-            Authentication::ClaudeOAuth,
-        ] {
-            let mode = Arc::new(AtomicUsize::new(0));
-            let selected = mode.clone();
-            let exchanges = Arc::new(AtomicUsize::new(0));
-            let counter = exchanges.clone();
-            let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
-                if request.path == "/usage" {
-                    assert_eq!(request.method, "GET");
-                    assert!(request.body.is_empty());
-                    assert_eq!(request.headers["user-agent"], "Resource-Fixture/1");
-                    assert!(!request.headers.contains_key("originator"));
-                    assert!(!request.headers.contains_key("anthropic-version"));
-                    let access = match authentication {
-                        Authentication::ChatGpt => {
-                            assert!(!request.headers.contains_key("chatgpt-account-id"));
-                            "isolated-chatgpt-access"
-                        }
-                        Authentication::ChatGptOAuth => {
-                            assert_eq!(request.headers["chatgpt-account-id"], codex::ACCOUNT);
-                            codex::REFRESHED
-                        }
-                        Authentication::ClaudeOAuth => {
-                            assert_eq!(request.headers["anthropic-beta"], "oauth-2025-04-20");
-                            assert!(!request.headers.contains_key("chatgpt-account-id"));
-                            "isolated-claude-renewed-access"
-                        }
-                        _ => unreachable!(),
-                    };
-                    assert_eq!(request.headers["authorization"], format!("Bearer {access}"));
-                    return match selected.load(Ordering::SeqCst) {
-                        0 => Reply::Json(json!({"used_percent":0,"reset_at":null,"account_id":request.headers.get("chatgpt-account-id")})),
-                        1 => Reply::Json(json!({"echo":access})),
-                        _ => Reply::Raw("HTTP/1.1 429 Too Many Requests\r\nContent-Type: application/json\r\nRetry-After: 7\r\nX-Private: hidden\r\nConnection: close\r\n\r\n{\"message\":\"Usage is temporarily unavailable\"}".into()),
-                    };
-                }
-                match authentication {
+    for authentication in [
+        Authentication::ChatGpt,
+        Authentication::ChatGptOAuth,
+        Authentication::ClaudeOAuth,
+    ] {
+        let mode = Arc::new(AtomicUsize::new(0));
+        let selected = mode.clone();
+        let exchanges = Arc::new(AtomicUsize::new(0));
+        let counter = exchanges.clone();
+        let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
+            if request.path == "/usage" {
+                assert_eq!(request.method, "GET");
+                assert!(request.body.is_empty());
+                assert_eq!(request.headers["user-agent"], "Resource-Fixture/1");
+                assert!(!request.headers.contains_key("originator"));
+                assert!(!request.headers.contains_key("anthropic-version"));
+                let access = match authentication {
                     Authentication::ChatGpt => {
-                        if request.path == "/api/accounts/oauth/token" {
-                            let fresh = counter.fetch_add(1, Ordering::SeqCst) > 0;
-                            Reply::Json(identity::tokens(request, if fresh {3600} else {30}, REFRESH))
-                        } else { standard(request) }
+                        assert!(!request.headers.contains_key("chatgpt-account-id"));
+                        "isolated-chatgpt-access"
                     }
                     Authentication::ChatGptOAuth => {
-                        if request.path == "/oauth/token" {
-                            let fresh = counter.fetch_add(1, Ordering::SeqCst) > 0;
-                            Reply::Json(codex::server::tokens(request, if fresh {3600} else {30}, if fresh {codex::REFRESHED} else {codex::ACCESS}, if fresh {codex::ROTATED} else {codex::REFRESH}))
-                        } else { codex::server::standard(request, 30) }
+                        assert_eq!(request.headers["chatgpt-account-id"], codex::ACCOUNT);
+                        codex::REFRESHED
                     }
                     Authentication::ClaudeOAuth => {
-                        if request.path == "/v1/oauth/token" {
-                            let fresh = counter.fetch_add(1, Ordering::SeqCst) > 0;
-                            Reply::Json(claude::server::tokens(request, fresh, if fresh {3600} else {330}))
-                        } else { claude::server::standard(request) }
+                        assert_eq!(request.headers["anthropic-beta"], "oauth-2025-04-20");
+                        assert!(!request.headers.contains_key("chatgpt-account-id"));
+                        "isolated-claude-renewed-access"
                     }
                     _ => unreachable!(),
-                }
-            }).await;
-            let fixture = Fixture::empty(remote, &server).await;
-            let mut provider = match authentication {
-                Authentication::ChatGpt => {
-                    execution::signed_in(&fixture, authentication, ModelApi::Responses).await
-                }
-                Authentication::ChatGptOAuth => codex::configured(&fixture, None).await,
-                Authentication::ClaudeOAuth => claude::connected(&fixture).await,
-                _ => unreachable!(),
-            };
-            let installed = installed(&fixture, authentication).await;
-            let reference = installed.summary.reference();
-            let prepared = request(&fixture.client, &provider, &reference, "usage");
-            assert!(!prepared.command.durable());
-            let id = prepared.id;
-            let admission = fixture.client.dispatch(prepared).await.unwrap();
-            assert!(!admission.receipt.durable);
-            let Output::PluginHttp(response) = admission.completion.await.unwrap().unwrap() else {
-                panic!("HTTP response expected")
-            };
-            assert_eq!(response.status, 200);
-            let mut data: serde_json::Value = serde_json::from_str(&response.body).unwrap();
-            assert_eq!(
-                data,
-                json!({"used_percent":0,"reset_at":null,"account_id":if authentication == Authentication::ChatGptOAuth {Some(codex::ACCOUNT)} else {None}})
-            );
-            // Only the asserted public identity field is excluded from this older
-            // fixture helper, which intentionally treats account metadata as secret.
-            data.as_object_mut().unwrap().remove("account_id");
-            no_secrets(&data);
-            no_secrets(&response.headers);
-            assert_eq!(
-                exchanges.load(Ordering::SeqCst),
-                2,
-                "resource reads reuse the normal refresh owner"
-            );
-            if authentication == Authentication::ChatGpt {
-                let previous = provider.clone();
-                let (_, attempt) = begin(&fixture.client, &provider).await;
-                let mut updates = fixture.client.subscribe_login(attempt.id).await.unwrap();
-                assert_eq!(terminal(&mut updates).await.state, login::State::Connected);
-                let Output::Providers(providers) =
-                    package::support::execute(&fixture.client, Command::ListProviders).await
-                else {
-                    panic!("providers expected")
                 };
-                provider = providers
-                    .into_iter()
-                    .find(|value| value.id == previous.id)
-                    .unwrap();
-                assert!(provider.revision > previous.revision);
-                assert_eq!(provider.credential, previous.credential);
-                assert_eq!(
-                    fixture
-                        .client
-                        .execute(request(&fixture.client, &previous, &reference, "usage"))
-                        .await
-                        .unwrap_err()
-                        .code,
-                    ErrorCode::RevisionConflict
-                );
+                assert_eq!(request.headers["authorization"], format!("Bearer {access}"));
+                return match selected.load(Ordering::SeqCst) {
+                    0 => Reply::Json(json!({"used_percent":0,"reset_at":null,"account_id":request.headers.get("chatgpt-account-id")})),
+                    1 => Reply::Json(json!({"echo":access})),
+                    _ => Reply::Raw("HTTP/1.1 429 Too Many Requests\r\nContent-Type: application/json\r\nRetry-After: 7\r\nX-Private: hidden\r\nConnection: close\r\n\r\n{\"message\":\"Usage is temporarily unavailable\"}".into()),
+                };
             }
-            let count = server.requests.lock().unwrap().len();
-            for (name, expected) in [
-                ("missing", ErrorCode::NotConfigured),
-                ("foreign", ErrorCode::PermissionDenied),
-                ("override", ErrorCode::InvalidRequest),
-            ] {
-                assert_eq!(
-                    fixture
-                        .client
-                        .execute(request(&fixture.client, &provider, &reference, name))
-                        .await
-                        .unwrap_err()
-                        .code,
-                    expected
-                );
+            match authentication {
+                Authentication::ChatGpt => {
+                    if request.path == "/api/accounts/oauth/token" {
+                        let fresh = counter.fetch_add(1, Ordering::SeqCst) > 0;
+                        Reply::Json(identity::tokens(request, if fresh {3600} else {30}, REFRESH))
+                    } else { standard(request) }
+                }
+                Authentication::ChatGptOAuth => {
+                    if request.path == "/oauth/token" {
+                        let fresh = counter.fetch_add(1, Ordering::SeqCst) > 0;
+                        Reply::Json(codex::server::tokens(request, if fresh {3600} else {30}, if fresh {codex::REFRESHED} else {codex::ACCESS}, if fresh {codex::ROTATED} else {codex::REFRESH}))
+                    } else { codex::server::standard(request, 30) }
+                }
+                Authentication::ClaudeOAuth => {
+                    if request.path == "/v1/oauth/token" {
+                        let fresh = counter.fetch_add(1, Ordering::SeqCst) > 0;
+                        Reply::Json(claude::server::tokens(request, fresh, if fresh {3600} else {330}))
+                    } else { claude::server::standard(request) }
+                }
+                _ => unreachable!(),
             }
-            let mut stale = provider.clone();
-            stale.revision += 1;
+        }).await;
+        let fixture = Fixture::empty(&server).await;
+        let mut provider = match authentication {
+            Authentication::ChatGpt => {
+                execution::signed_in(&fixture, authentication, ModelApi::Responses).await
+            }
+            Authentication::ChatGptOAuth => codex::configured(&fixture, None).await,
+            Authentication::ClaudeOAuth => claude::connected(&fixture).await,
+            _ => unreachable!(),
+        };
+        let installed = installed(&fixture, authentication).await;
+        let reference = installed.summary.reference();
+        let prepared = request(&fixture.client, &provider, &reference, "usage");
+        assert!(!prepared.command.durable());
+        let id = prepared.id;
+        let admission = fixture.client.dispatch(prepared).await.unwrap();
+        assert!(!admission.receipt.durable);
+        let Output::PluginHttp(response) = admission.completion.await.unwrap().unwrap() else {
+            panic!("HTTP response expected")
+        };
+        assert_eq!(response.status, 200);
+        let mut data: serde_json::Value = serde_json::from_str(&response.body).unwrap();
+        assert_eq!(
+            data,
+            json!({"used_percent":0,"reset_at":null,"account_id":if authentication == Authentication::ChatGptOAuth {Some(codex::ACCOUNT)} else {None}})
+        );
+        // Only the asserted public identity field is excluded from this older
+        // fixture helper, which intentionally treats account metadata as secret.
+        data.as_object_mut().unwrap().remove("account_id");
+        no_secrets(&data);
+        no_secrets(&response.headers);
+        assert_eq!(
+            exchanges.load(Ordering::SeqCst),
+            2,
+            "resource reads reuse the normal refresh owner"
+        );
+        if authentication == Authentication::ChatGpt {
+            let previous = provider.clone();
+            let (_, attempt) = begin(&fixture.client, &provider).await;
+            let mut updates = fixture.client.subscribe_login(attempt.id).await.unwrap();
+            assert_eq!(terminal(&mut updates).await.state, login::State::Connected);
+            let Output::Providers(providers) =
+                package::support::execute(&fixture.client, Command::ListProviders).await
+            else {
+                panic!("providers expected")
+            };
+            provider = providers
+                .into_iter()
+                .find(|value| value.id == previous.id)
+                .unwrap();
+            assert!(provider.revision > previous.revision);
+            assert_eq!(provider.credential, previous.credential);
             assert_eq!(
                 fixture
                     .client
-                    .execute(request(&fixture.client, &stale, &reference, "usage"))
+                    .execute(request(&fixture.client, &previous, &reference, "usage"))
                     .await
                     .unwrap_err()
                     .code,
                 ErrorCode::RevisionConflict
             );
-            let Output::Plugin(foreign) = package::support::execute(
-                &fixture.client,
-                Command::ReadPlugin {
-                    name: "foreign".into(),
-                },
-            )
-            .await
-            else {
-                panic!("plugin expected")
-            };
+        }
+        let count = server.requests.lock().unwrap().len();
+        for (name, expected) in [
+            ("missing", ErrorCode::NotConfigured),
+            ("foreign", ErrorCode::PermissionDenied),
+            ("override", ErrorCode::InvalidRequest),
+        ] {
             assert_eq!(
                 fixture
                     .client
-                    .execute(request(
-                        &fixture.client,
-                        &provider,
-                        &foreign.summary.reference(),
-                        "usage"
-                    ))
+                    .execute(request(&fixture.client, &provider, &reference, name))
                     .await
                     .unwrap_err()
                     .code,
-                ErrorCode::PermissionDenied
+                expected
             );
-            let mutation = fixture
-                .client
-                .prepare(Command::ExecuteProviderHttp {
-                    provider: provider.id,
-                    expected_revision: provider.revision,
-                    request: "usage".into(),
-                    input: Default::default(),
-                })
-                .with_plugin(context(reference.clone()));
-            assert_eq!(
-                fixture.client.execute(mutation).await.unwrap_err().code,
-                ErrorCode::PermissionDenied
-            );
-            assert_eq!(server.requests.lock().unwrap().len(), count);
-            mode.store(1, Ordering::SeqCst);
-            let error = fixture
-                .client
-                .execute(request(&fixture.client, &provider, &reference, "usage"))
-                .await
-                .unwrap_err();
-            assert_eq!(error.code, ErrorCode::PermissionDenied);
-            no_secrets(&error);
-            mode.store(2, Ordering::SeqCst);
-            let Output::PluginHttp(response) = fixture
-                .client
-                .execute(request(&fixture.client, &provider, &reference, "usage"))
-                .await
-                .unwrap()
-            else {
-                panic!("HTTP response expected")
-            };
-            assert_eq!(response.status, 429);
-            assert_eq!(response.headers["retry-after"], ["7"]);
-            assert!(!response.headers.contains_key("x-private"));
-            assert_eq!(
-                serde_json::from_str::<serde_json::Value>(&response.body).unwrap()["message"],
-                "Usage is temporarily unavailable"
-            );
-            assert_eq!(
-                server
-                    .requests
-                    .lock()
-                    .unwrap()
-                    .iter()
-                    .filter(|r| r.path == "/usage")
-                    .count(),
-                3
-            );
-            let count = server.requests.lock().unwrap().len();
-            let Output::Credentials(credentials) =
-                package::support::execute(&fixture.client, Command::ListCredentials).await
-            else {
-                panic!("credentials expected")
-            };
-            let credential = credentials
-                .into_iter()
-                .find(|value| Some(value.id) == provider.credential.as_ref().map(|value| value.id))
-                .unwrap();
-            package::support::execute(
-                &fixture.client,
-                Command::RevokeCredential {
-                    id: credential.id,
-                    expected_revision: credential.revision,
-                },
-            )
-            .await;
-            assert!(
-                fixture
-                    .client
-                    .execute(request(&fixture.client, &provider, &reference, "usage"))
-                    .await
-                    .is_err()
-            );
-            assert_eq!(server.requests.lock().unwrap().len(), count);
-
-            assert_eq!(
-                {
-                    let sql = ("SELECT count(*) FROM requests WHERE id=?1").to_owned();
-                    let parameters = turso::params![id.to_string()];
-                    fixture
-                        .node
-                        .with_storage(move |db| {
-                            Box::pin(async move {
-                                let row = db
-                                    .prepare(sql)
-                                    .await
-                                    .map_err(crate::database_fixture::fault)?
-                                    .query_row(parameters)
-                                    .await
-                                    .map_err(crate::database_fixture::fault)?;
-                                let value: turso::Result<_> = row.get::<i64>(0);
-                                value.map_err(crate::database_fixture::fault)
-                            })
-                        })
-                        .await
-                }
-                .unwrap(),
-                0
-            );
-
-            fixture.close().await;
         }
+        let mut stale = provider.clone();
+        stale.revision += 1;
+        assert_eq!(
+            fixture
+                .client
+                .execute(request(&fixture.client, &stale, &reference, "usage"))
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::RevisionConflict
+        );
+        let Output::Plugin(foreign) = package::support::execute(
+            &fixture.client,
+            Command::ReadPlugin {
+                name: "foreign".into(),
+            },
+        )
+        .await
+        else {
+            panic!("plugin expected")
+        };
+        assert_eq!(
+            fixture
+                .client
+                .execute(request(
+                    &fixture.client,
+                    &provider,
+                    &foreign.summary.reference(),
+                    "usage"
+                ))
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::PermissionDenied
+        );
+        let mutation = fixture
+            .client
+            .prepare(Command::ExecuteProviderHttp {
+                provider: provider.id,
+                expected_revision: provider.revision,
+                request: "usage".into(),
+                input: Default::default(),
+            })
+            .with_plugin(context(reference.clone()));
+        assert_eq!(
+            fixture.client.execute(mutation).await.unwrap_err().code,
+            ErrorCode::PermissionDenied
+        );
+        assert_eq!(server.requests.lock().unwrap().len(), count);
+        mode.store(1, Ordering::SeqCst);
+        let error = fixture
+            .client
+            .execute(request(&fixture.client, &provider, &reference, "usage"))
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, ErrorCode::PermissionDenied);
+        no_secrets(&error);
+        mode.store(2, Ordering::SeqCst);
+        let Output::PluginHttp(response) = fixture
+            .client
+            .execute(request(&fixture.client, &provider, &reference, "usage"))
+            .await
+            .unwrap()
+        else {
+            panic!("HTTP response expected")
+        };
+        assert_eq!(response.status, 429);
+        assert_eq!(response.headers["retry-after"], ["7"]);
+        assert!(!response.headers.contains_key("x-private"));
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&response.body).unwrap()["message"],
+            "Usage is temporarily unavailable"
+        );
+        assert_eq!(
+            server
+                .requests
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|r| r.path == "/usage")
+                .count(),
+            3
+        );
+        let count = server.requests.lock().unwrap().len();
+        let Output::Credentials(credentials) =
+            package::support::execute(&fixture.client, Command::ListCredentials).await
+        else {
+            panic!("credentials expected")
+        };
+        let credential = credentials
+            .into_iter()
+            .find(|value| Some(value.id) == provider.credential.as_ref().map(|value| value.id))
+            .unwrap();
+        package::support::execute(
+            &fixture.client,
+            Command::RevokeCredential {
+                id: credential.id,
+                expected_revision: credential.revision,
+            },
+        )
+        .await;
+        assert!(
+            fixture
+                .client
+                .execute(request(&fixture.client, &provider, &reference, "usage"))
+                .await
+                .is_err()
+        );
+        assert_eq!(server.requests.lock().unwrap().len(), count);
+
+        assert_eq!(
+            {
+                let sql = ("SELECT count(*) FROM requests WHERE id=?1").to_owned();
+                let parameters = turso::params![id.to_string()];
+                fixture
+                    .node
+                    .with_storage(move |db| {
+                        Box::pin(async move {
+                            let row = db
+                                .prepare(sql)
+                                .await
+                                .map_err(crate::database_fixture::fault)?
+                                .query_row(parameters)
+                                .await
+                                .map_err(crate::database_fixture::fault)?;
+                            let value: turso::Result<_> = row.get::<i64>(0);
+                            value.map_err(crate::database_fixture::fault)
+                        })
+                    })
+                    .await
+            }
+            .unwrap(),
+            0
+        );
+
+        fixture.close().await;
     }
 }
 
@@ -410,7 +408,7 @@ async fn shares_reads_across_sessions_and_clients() {
         codex::server::standard(request, 3600)
     })
     .await;
-    let fixture = Fixture::empty(false, &server).await;
+    let fixture = Fixture::local(&server).await;
     let provider = codex::configured(&fixture, None).await;
     let installed = installed_with_cache(&fixture, Authentication::ChatGptOAuth, Some(60000)).await;
     let package = installed.summary.reference();

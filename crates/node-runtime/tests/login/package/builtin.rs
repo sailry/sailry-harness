@@ -100,172 +100,170 @@ async fn duplicate(fixture: &Fixture) -> plugin::Info {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn retains_accounts_during_alias_changes() {
-    for remote in [false, true] {
-        let server = Server::start_with_request(ModelApi::Anthropic, |request| {
-            codex::server::standard(request, 3600)
-        })
-        .await;
-        let fixture = Fixture::empty(remote, &server).await;
-        let installed = support::info(
-            support::execute(
-                &fixture.client,
-                Command::ReadPlugin {
-                    name: "openai-auth".into(),
-                },
-            )
-            .await,
-        );
-        let listing = directory(&fixture.client).await;
-        let entry = listing
-            .entries
-            .iter()
-            .find(|entry| {
-                entry.source == presets::Source::Builtin && entry.preset.id == "chat-gpt-oauth"
-            })
-            .unwrap();
-        assert_eq!(
-            entry.preset.auth,
-            presets::Auth::Builtin {
-                authentication: Authentication::ChatGptOAuth
-            }
-        );
-        let declaration = installed
-            .extension
-            .as_ref()
-            .unwrap()
-            .model_auth
-            .iter()
-            .find(|item| item.authentication == Some(Authentication::ChatGptOAuth))
-            .unwrap();
-        assert_eq!(entry.login, Some(declaration.flow.presentation()));
-        let mut provider = provider(&fixture.client, Authentication::ChatGptOAuth).await;
-        provider.preset = Some(presets::PresetRef {
-            source: entry.source.clone(),
-            id: entry.preset.id.clone(),
-            route: Some(entry.preset.routes[0].key()),
-        });
-        let Output::Provider(provider) = support::execute(
+    let server = Server::start_with_request(ModelApi::Anthropic, |request| {
+        codex::server::standard(request, 3600)
+    })
+    .await;
+    let fixture = Fixture::empty(&server).await;
+    let installed = support::info(
+        support::execute(
             &fixture.client,
-            Command::PutProvider {
-                expected_revision: provider.revision,
-                provider,
+            Command::ReadPlugin {
+                name: "openai-auth".into(),
             },
         )
-        .await
-        else {
-            panic!("provider expected");
-        };
-        let (_, attempt) = begin(&fixture.client, &provider).await;
-        let mut stream = fixture.client.subscribe_login(attempt.id).await.unwrap();
-        assert_eq!(terminal(&mut stream).await.state, login::State::Connected);
-        drop(stream);
-        let provider = saved(&fixture.client, provider.id).await;
-        let accounts = credentials(&fixture.client).await;
-        no_secrets(&provider);
-        no_secrets(&accounts);
-        assert_eq!(accounts.len(), 1);
-        assert_eq!(accounts[0].id, provider.credential.as_ref().unwrap().id);
-        assert_eq!(
-            accounts[0].account_label.as_deref(),
-            Some("codex@example.com")
-        );
-        let target = binding(&fixture, &provider).await;
-        let mut scopes = declaration.scopes.clone();
-        scopes.sort();
-        scopes.dedup();
-        // Bundled accounts retain declaration ownership across implementation updates.
-        assert_eq!(
-            target,
-            json!({
-                "provider":provider.id,
-                "package":installed.summary.name,
-                "digest":null,
-                "origin":consent::Origin::Bundled,
-                "flow":declaration.id,
-                "endpoint":provider.endpoint,
-                "authorization":declaration.flow,
-                "refresh":declaration.refresh.as_ref().map(|refresh| &refresh.request),
-                "inject":declaration.inject,
-                "fields":{"client_id":declaration.client.client_id.as_ref().unwrap()},
-                "scopes":scopes
-            })
-        );
-        let requests = server.requests.lock().unwrap().len();
-        let disabled = support::info(
-            support::execute(
-                &fixture.client,
-                Command::SetPluginEnabled {
-                    name: installed.summary.name.clone(),
-                    expected_revision: installed.summary.revision,
-                    enabled: false,
-                },
-            )
-            .await,
-        );
-        let mut unavailable = listing.clone();
-        for entry in &mut unavailable.entries {
-            if matches!(
-                entry.preset.auth,
-                presets::Auth::Builtin {
-                    authentication: Authentication::ChatGpt | Authentication::ChatGptOAuth
-                }
-            ) {
-                entry.login = None;
-            }
+        .await,
+    );
+    let listing = directory(&fixture.client).await;
+    let entry = listing
+        .entries
+        .iter()
+        .find(|entry| {
+            entry.source == presets::Source::Builtin && entry.preset.id == "chat-gpt-oauth"
+        })
+        .unwrap();
+    assert_eq!(
+        entry.preset.auth,
+        presets::Auth::Builtin {
+            authentication: Authentication::ChatGptOAuth
         }
-        assert_eq!(directory(&fixture.client).await, unavailable);
-        rejected(&fixture.client, &provider, ErrorCode::NotConfigured).await;
-        assert_eq!(saved(&fixture.client, provider.id).await, provider);
-        assert_eq!(credentials(&fixture.client).await, accounts);
-        let enabled = support::info(
-            support::execute(
-                &fixture.client,
-                Command::SetPluginEnabled {
-                    name: disabled.summary.name,
-                    expected_revision: disabled.summary.revision,
-                    enabled: true,
-                },
-            )
-            .await,
-        );
-        assert_eq!(directory(&fixture.client).await, listing);
-        let duplicate = duplicate(&fixture).await;
-        let conflict = fixture
-            .client
-            .execute(fixture.client.prepare(Command::ListChannelPresets {
-                refresh_partners: false,
-            }))
-            .await
-            .unwrap_err();
-        no_secrets(&conflict);
-        assert_eq!(conflict.code, ErrorCode::Conflict);
-        rejected(&fixture.client, &provider, ErrorCode::Conflict).await;
-        assert_eq!(saved(&fixture.client, provider.id).await, provider);
-        assert_eq!(credentials(&fixture.client).await, accounts);
+    );
+    let declaration = installed
+        .extension
+        .as_ref()
+        .unwrap()
+        .model_auth
+        .iter()
+        .find(|item| item.authentication == Some(Authentication::ChatGptOAuth))
+        .unwrap();
+    assert_eq!(entry.login, Some(declaration.flow.presentation()));
+    let mut provider = provider(&fixture.client, Authentication::ChatGptOAuth).await;
+    provider.preset = Some(presets::PresetRef {
+        source: entry.source.clone(),
+        id: entry.preset.id.clone(),
+        route: Some(entry.preset.routes[0].key()),
+    });
+    let Output::Provider(provider) = support::execute(
+        &fixture.client,
+        Command::PutProvider {
+            expected_revision: provider.revision,
+            provider,
+        },
+    )
+    .await
+    else {
+        panic!("provider expected");
+    };
+    let (_, attempt) = begin(&fixture.client, &provider).await;
+    let mut stream = fixture.client.subscribe_login(attempt.id).await.unwrap();
+    assert_eq!(terminal(&mut stream).await.state, login::State::Connected);
+    drop(stream);
+    let provider = saved(&fixture.client, provider.id).await;
+    let accounts = credentials(&fixture.client).await;
+    no_secrets(&provider);
+    no_secrets(&accounts);
+    assert_eq!(accounts.len(), 1);
+    assert_eq!(accounts[0].id, provider.credential.as_ref().unwrap().id);
+    assert_eq!(
+        accounts[0].account_label.as_deref(),
+        Some("codex@example.com")
+    );
+    let target = binding(&fixture, &provider).await;
+    let mut scopes = declaration.scopes.clone();
+    scopes.sort();
+    scopes.dedup();
+    // Bundled accounts retain declaration ownership across implementation updates.
+    assert_eq!(
+        target,
+        json!({
+            "provider":provider.id,
+            "package":installed.summary.name,
+            "digest":null,
+            "origin":consent::Origin::Bundled,
+            "flow":declaration.id,
+            "endpoint":provider.endpoint,
+            "authorization":declaration.flow,
+            "refresh":declaration.refresh.as_ref().map(|refresh| &refresh.request),
+            "inject":declaration.inject,
+            "fields":{"client_id":declaration.client.client_id.as_ref().unwrap()},
+            "scopes":scopes
+        })
+    );
+    let requests = server.requests.lock().unwrap().len();
+    let disabled = support::info(
         support::execute(
             &fixture.client,
             Command::SetPluginEnabled {
-                name: duplicate.summary.name,
-                expected_revision: duplicate.summary.revision,
+                name: installed.summary.name.clone(),
+                expected_revision: installed.summary.revision,
                 enabled: false,
             },
         )
-        .await;
-        assert_eq!(directory(&fixture.client).await, listing);
+        .await,
+    );
+    let mut unavailable = listing.clone();
+    for entry in &mut unavailable.entries {
+        if matches!(
+            entry.preset.auth,
+            presets::Auth::Builtin {
+                authentication: Authentication::ChatGpt | Authentication::ChatGptOAuth
+            }
+        ) {
+            entry.login = None;
+        }
+    }
+    assert_eq!(directory(&fixture.client).await, unavailable);
+    rejected(&fixture.client, &provider, ErrorCode::NotConfigured).await;
+    assert_eq!(saved(&fixture.client, provider.id).await, provider);
+    assert_eq!(credentials(&fixture.client).await, accounts);
+    let enabled = support::info(
         support::execute(
             &fixture.client,
-            Command::RemovePlugin {
-                name: enabled.summary.name,
-                expected_revision: enabled.summary.revision,
+            Command::SetPluginEnabled {
+                name: disabled.summary.name,
+                expected_revision: disabled.summary.revision,
+                enabled: true,
             },
         )
-        .await;
-        assert_eq!(directory(&fixture.client).await, unavailable);
-        rejected(&fixture.client, &provider, ErrorCode::NotConfigured).await;
-        assert_eq!(saved(&fixture.client, provider.id).await, provider);
-        assert_eq!(credentials(&fixture.client).await, accounts);
-        assert_eq!(binding(&fixture, &provider).await, target);
-        assert_eq!(server.requests.lock().unwrap().len(), requests);
-        fixture.close().await;
-    }
+        .await,
+    );
+    assert_eq!(directory(&fixture.client).await, listing);
+    let duplicate = duplicate(&fixture).await;
+    let conflict = fixture
+        .client
+        .execute(fixture.client.prepare(Command::ListChannelPresets {
+            refresh_partners: false,
+        }))
+        .await
+        .unwrap_err();
+    no_secrets(&conflict);
+    assert_eq!(conflict.code, ErrorCode::Conflict);
+    rejected(&fixture.client, &provider, ErrorCode::Conflict).await;
+    assert_eq!(saved(&fixture.client, provider.id).await, provider);
+    assert_eq!(credentials(&fixture.client).await, accounts);
+    support::execute(
+        &fixture.client,
+        Command::SetPluginEnabled {
+            name: duplicate.summary.name,
+            expected_revision: duplicate.summary.revision,
+            enabled: false,
+        },
+    )
+    .await;
+    assert_eq!(directory(&fixture.client).await, listing);
+    support::execute(
+        &fixture.client,
+        Command::RemovePlugin {
+            name: enabled.summary.name,
+            expected_revision: enabled.summary.revision,
+        },
+    )
+    .await;
+    assert_eq!(directory(&fixture.client).await, unavailable);
+    rejected(&fixture.client, &provider, ErrorCode::NotConfigured).await;
+    assert_eq!(saved(&fixture.client, provider.id).await, provider);
+    assert_eq!(credentials(&fixture.client).await, accounts);
+    assert_eq!(binding(&fixture, &provider).await, target);
+    assert_eq!(server.requests.lock().unwrap().len(), requests);
+    fixture.close().await;
 }

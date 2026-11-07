@@ -52,8 +52,8 @@ struct Fixture {
 }
 
 impl Fixture {
-    async fn packages(remote: bool, server: &Server, packages: &[&str]) -> Self {
-        let fixture = Self::empty(remote, server).await;
+    async fn packages(server: &Server, packages: &[&str]) -> Self {
+        let fixture = Self::empty(server).await;
         for &name in packages {
             let Output::Plugin(package) = fixture
                 .client
@@ -71,15 +71,22 @@ impl Fixture {
         fixture
     }
 
-    async fn empty(remote: bool, server: &Server) -> Self {
-        Self::start(remote, server, false).await
+    async fn empty(server: &Server) -> Self {
+        Self::start(server, false).await
     }
 
-    async fn source(remote: bool, server: &Server) -> Self {
-        Self::start(remote, server, true).await
+    /// Scenarios that deliberately use the Node owner's local client.
+    async fn local(server: &Server) -> Self {
+        let mut fixture = Self::empty(server).await;
+        fixture.client = Arc::new(Client::new(fixture.node.local()));
+        fixture
     }
 
-    async fn start(remote: bool, server: &Server, source: bool) -> Self {
+    async fn source(server: &Server) -> Self {
+        Self::start(server, true).await
+    }
+
+    async fn start(server: &Server, source: bool) -> Self {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("node");
         let node = if source {
@@ -97,11 +104,7 @@ impl Fixture {
             .pair(node.link().invite().unwrap().ticket())
             .await
             .unwrap();
-        let client = Arc::new(Client::new(if remote {
-            controller.handle().remote(address)
-        } else {
-            node.local()
-        }));
+        let client = Arc::new(Client::new(controller.handle().remote(address)));
         for name in ["openai-auth", "claude-auth"] {
             let Output::Plugin(package) = client
                 .execute(client.prepare(Command::InstallBundledPlugin {
@@ -347,140 +350,134 @@ fn no_secrets(value: &impl serde::Serialize) {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn persists_and_recovers() {
-    for remote in [false, true] {
-        for authentication in [Authentication::ChatGpt, Authentication::Copilot] {
-            let server = Server::start_with_request(ModelApi::Anthropic, standard).await;
-            let fixture = Fixture::empty(remote, &server).await;
-            let provider = provider(&fixture.client, authentication).await;
-            let (request, attempt) = begin(&fixture.client, &provider).await;
-            let mut stream = fixture.client.subscribe_login(attempt.id).await.unwrap();
-            let mut prompt_seen = authentication == Authentication::ChatGpt;
-            loop {
-                let update = next(&mut stream).await;
-                no_secrets(&update);
-                if let login::State::Pending {
-                    user_code,
-                    verification_url,
-                    ..
-                } = &update.state
-                {
-                    assert_eq!(user_code, "ABCD-1234");
-                    assert!(verification_url.starts_with("https://"));
-                    prompt_seen = true;
-                }
-                if !update.state.active() {
-                    assert_eq!(update.state, login::State::Connected);
-                    break;
-                }
+    for authentication in [Authentication::ChatGpt, Authentication::Copilot] {
+        let server = Server::start_with_request(ModelApi::Anthropic, standard).await;
+        let fixture = Fixture::empty(&server).await;
+        let provider = provider(&fixture.client, authentication).await;
+        let (request, attempt) = begin(&fixture.client, &provider).await;
+        let mut stream = fixture.client.subscribe_login(attempt.id).await.unwrap();
+        let mut prompt_seen = authentication == Authentication::ChatGpt;
+        loop {
+            let update = next(&mut stream).await;
+            no_secrets(&update);
+            if let login::State::Pending {
+                user_code,
+                verification_url,
+                ..
+            } = &update.state
+            {
+                assert_eq!(user_code, "ABCD-1234");
+                assert!(verification_url.starts_with("https://"));
+                prompt_seen = true;
             }
-            assert!(prompt_seen);
-            let Output::Providers(providers) = fixture
+            if !update.state.active() {
+                assert_eq!(update.state, login::State::Connected);
+                break;
+            }
+        }
+        assert!(prompt_seen);
+        let Output::Providers(providers) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::ListProviders))
+            .await
+            .unwrap()
+        else {
+            panic!("providers expected")
+        };
+        let saved = providers[0].clone();
+        assert_eq!(saved.revision, 2);
+        assert_eq!(
+            fixture
                 .client
-                .execute(fixture.client.prepare(Command::ListProviders))
+                .execute(fixture.client.prepare(Command::ReadProviderKey {
+                    provider: saved.id,
+                    expected_revision: saved.revision,
+                }))
                 .await
-                .unwrap()
-            else {
-                panic!("providers expected")
-            };
-            let saved = providers[0].clone();
-            assert_eq!(saved.revision, 2);
-            assert_eq!(
-                fixture
-                    .client
-                    .execute(fixture.client.prepare(Command::ReadProviderKey {
-                        provider: saved.id,
-                        expected_revision: saved.revision,
-                    }))
-                    .await
-                    .unwrap_err()
-                    .code,
-                ErrorCode::PermissionDenied
-            );
-            let reference = saved.credential.clone().unwrap();
-            let credentials = fixture
-                .client
-                .execute(fixture.client.prepare(Command::ListCredentials))
-                .await
-                .unwrap();
-            no_secrets(&credentials);
-            let Output::Credentials(credentials) = credentials else {
-                panic!("credentials expected")
-            };
-            assert_eq!(credentials[0].authentication, authentication);
-            assert_eq!(credentials[0].expires_at_ms, None);
-            assert_eq!(
-                fixture
-                    .node
-                    .resolve_credential(reference.clone(), saved.id)
-                    .await
-                    .unwrap_err()
-                    .code,
-                ErrorCode::PermissionDenied
-            );
-            let failure = fixture
-                .client
-                .execute(fixture.client.prepare(Command::DiscoverModels(Box::new(
-                    discovery::Source::Draft(discovery::Draft {
-                        preset: None,
-                        provider: saved.id,
-                        api: ModelApi::Responses,
-                        endpoint: server.endpoint.clone(),
-                        credential: Some(reference.clone()),
-                        secret: None,
-                    }),
-                ))))
-                .await
-                .unwrap_err();
-            assert_eq!(failure.code, ErrorCode::PermissionDenied);
-            let result = fixture.client.execute(request.clone()).await.unwrap();
-            assert_eq!(result, Output::ProviderLogin(attempt.clone()));
-            no_secrets(&result);
-            no_secrets(
-                &fixture
-                    .client
-                    .execute(fixture.client.prepare(Command::Snapshot))
-                    .await
-                    .unwrap(),
-            );
-            assert_eq!(server.requests.lock().unwrap().len(), 4);
-            let path = fixture.directory.path().join("node");
-            drop(stream);
-            fixture.controller.close().await.unwrap();
-            fixture.node.shutdown().await.unwrap();
-            let node = Node::start_empty_with_authorization(&path, &server.endpoint)
-                .await
-                .unwrap();
-            let controller = Link::controller(
-                fixture.directory.path().join("controller"),
-                NetworkScope::default(),
-            )
+                .unwrap_err()
+                .code,
+            ErrorCode::PermissionDenied
+        );
+        let reference = saved.credential.clone().unwrap();
+        let credentials = fixture
+            .client
+            .execute(fixture.client.prepare(Command::ListCredentials))
             .await
             .unwrap();
-            let client = Client::new(if remote {
-                controller.handle().remote(node.link().address())
-            } else {
-                node.local()
-            });
-            assert_eq!(
-                client.execute(request).await.unwrap(),
-                Output::ProviderLogin(attempt.clone())
-            );
-            assert_eq!(
-                subscription_error(client.subscribe_login(attempt.id).await)
-                    .await
-                    .code,
-                ErrorCode::NotFound
-            );
-            assert_eq!(server.requests.lock().unwrap().len(), 4);
-            assert_eq!(
-                client
-                    .execute(client.prepare(Command::ListProviders))
-                    .await
-                    .unwrap(),
-                Output::Providers(vec![saved])
-            );
-            controller.close().await.unwrap();
-            node.shutdown().await.unwrap();
-        }
+        no_secrets(&credentials);
+        let Output::Credentials(credentials) = credentials else {
+            panic!("credentials expected")
+        };
+        assert_eq!(credentials[0].authentication, authentication);
+        assert_eq!(credentials[0].expires_at_ms, None);
+        assert_eq!(
+            fixture
+                .node
+                .resolve_credential(reference.clone(), saved.id)
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::PermissionDenied
+        );
+        let failure = fixture
+            .client
+            .execute(fixture.client.prepare(Command::DiscoverModels(Box::new(
+                discovery::Source::Draft(discovery::Draft {
+                    preset: None,
+                    provider: saved.id,
+                    api: ModelApi::Responses,
+                    endpoint: server.endpoint.clone(),
+                    credential: Some(reference.clone()),
+                    secret: None,
+                }),
+            ))))
+            .await
+            .unwrap_err();
+        assert_eq!(failure.code, ErrorCode::PermissionDenied);
+        let result = fixture.client.execute(request.clone()).await.unwrap();
+        assert_eq!(result, Output::ProviderLogin(attempt.clone()));
+        no_secrets(&result);
+        no_secrets(
+            &fixture
+                .client
+                .execute(fixture.client.prepare(Command::Snapshot))
+                .await
+                .unwrap(),
+        );
+        assert_eq!(server.requests.lock().unwrap().len(), 4);
+        let path = fixture.directory.path().join("node");
+        drop(stream);
+        fixture.controller.close().await.unwrap();
+        fixture.node.shutdown().await.unwrap();
+        let node = Node::start_empty_with_authorization(&path, &server.endpoint)
+            .await
+            .unwrap();
+        let controller = Link::controller(
+            fixture.directory.path().join("controller"),
+            NetworkScope::default(),
+        )
+        .await
+        .unwrap();
+        let client = Client::new(controller.handle().remote(node.link().address()));
+        assert_eq!(
+            client.execute(request).await.unwrap(),
+            Output::ProviderLogin(attempt.clone())
+        );
+        assert_eq!(
+            subscription_error(client.subscribe_login(attempt.id).await)
+                .await
+                .code,
+            ErrorCode::NotFound
+        );
+        assert_eq!(server.requests.lock().unwrap().len(), 4);
+        assert_eq!(
+            client
+                .execute(client.prepare(Command::ListProviders))
+                .await
+                .unwrap(),
+            Output::Providers(vec![saved])
+        );
+        controller.close().await.unwrap();
+        node.shutdown().await.unwrap();
     }
 }

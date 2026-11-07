@@ -165,174 +165,172 @@ fn usage(client: &Client, provider: &Provider, package: &plugin::Info) -> Reques
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn retains_accounts_across_package_updates() {
-    for remote in [false, true] {
-        for imported in [false, true] {
-            let changed = Arc::new(AtomicBool::new(false));
-            let selected = changed.clone();
-            let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
-                if request.path.contains("/zip/") {
-                    Reply::Bytes(archive("1.0.1", true, selected.load(Ordering::SeqCst)))
-                } else if request.path == "/backend-api/wham/usage" {
-                    assert_eq!(request.headers["authorization"], format!("Bearer {ACCESS}"));
-                    assert_eq!(request.headers["chatgpt-account-id"], ACCOUNT);
-                    Reply::Json(json!({"rate_limit":{"primary_window":{"limit_window_seconds":18000,"used_percent":25,"reset_after_seconds":100},"secondary_window":{"limit_window_seconds":604800,"used_percent":10,"reset_after_seconds":200}},"credits":null}))
-                } else { server::standard(request, 3600) }
-            }).await;
-            let fixture = Fixture::source(remote, &server).await;
-            let initial = if imported {
-                Some(upload(&fixture, 1, "1.0.0", false).await)
-            } else {
-                None
-            };
-            let provider = configured(&fixture, None).await;
-            let session = super::super::execution::session(&fixture, &provider).await;
-            let Output::QueuedTurn(turn) = fixture
-                .client
-                .execute(fixture.client.prepare(Command::QueueTurn {
-                    session: session.id,
-                    expected_revision: session.revision,
-                    message: "Retain the isolated capture".into(),
-                }))
-                .await
-                .unwrap()
-            else {
-                panic!("queued turn expected");
-            };
-            let captured = super::execution::captured(&fixture, &turn).await;
-            let credentials = fixture
+    for imported in [false, true] {
+        let changed = Arc::new(AtomicBool::new(false));
+        let selected = changed.clone();
+        let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
+            if request.path.contains("/zip/") {
+                Reply::Bytes(archive("1.0.1", true, selected.load(Ordering::SeqCst)))
+            } else if request.path == "/backend-api/wham/usage" {
+                assert_eq!(request.headers["authorization"], format!("Bearer {ACCESS}"));
+                assert_eq!(request.headers["chatgpt-account-id"], ACCOUNT);
+                Reply::Json(json!({"rate_limit":{"primary_window":{"limit_window_seconds":18000,"used_percent":25,"reset_after_seconds":100},"secondary_window":{"limit_window_seconds":604800,"used_percent":10,"reset_after_seconds":200}},"credits":null}))
+            } else { server::standard(request, 3600) }
+        }).await;
+        let fixture = Fixture::source(&server).await;
+        let initial = if imported {
+            Some(upload(&fixture, 1, "1.0.0", false).await)
+        } else {
+            None
+        };
+        let provider = configured(&fixture, None).await;
+        let session = super::super::execution::session(&fixture, &provider).await;
+        let Output::QueuedTurn(turn) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::QueueTurn {
+                session: session.id,
+                expected_revision: session.revision,
+                message: "Retain the isolated capture".into(),
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("queued turn expected");
+        };
+        let captured = super::execution::captured(&fixture, &turn).await;
+        let credentials = fixture
+            .client
+            .execute(fixture.client.prepare(Command::ListCredentials))
+            .await
+            .unwrap();
+        let private = authorizations(&fixture, provider.id).await;
+        let installed = if let Some(initial) = initial {
+            upload(&fixture, initial.summary.revision, "1.0.1", false).await
+        } else {
+            repository(&fixture, 1, true).await
+        };
+        let Output::Plugin(status) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::InstallBundledPlugin {
+                name: "provider-status".into(),
+                expected_revision: 0,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("status package expected");
+        };
+        let Output::DiscoveredModels(models) = fixture
+            .client
+            .execute(catalog(&fixture.client, &provider))
+            .await
+            .unwrap()
+        else {
+            panic!("models expected");
+        };
+        assert!(!models.models.is_empty());
+        let Output::PluginHttp(response) = fixture
+            .client
+            .execute(usage(&fixture.client, &provider, &status))
+            .await
+            .unwrap()
+        else {
+            panic!("usage response expected");
+        };
+        assert_eq!(response.status, 200);
+        let body: serde_json::Value = serde_json::from_str(&response.body).unwrap();
+        assert_eq!(body["rate_limit"]["primary_window"]["used_percent"], 25);
+        assert_eq!(body["rate_limit"]["secondary_window"]["used_percent"], 10);
+        assert_eq!(
+            fixture
                 .client
                 .execute(fixture.client.prepare(Command::ListCredentials))
                 .await
-                .unwrap();
-            let private = authorizations(&fixture, provider.id).await;
-            let installed = if let Some(initial) = initial {
-                upload(&fixture, initial.summary.revision, "1.0.1", false).await
-            } else {
-                repository(&fixture, 1, true).await
-            };
-            let Output::Plugin(status) = fixture
-                .client
-                .execute(fixture.client.prepare(Command::InstallBundledPlugin {
-                    name: "provider-status".into(),
-                    expected_revision: 0,
-                }))
-                .await
-                .unwrap()
-            else {
-                panic!("status package expected");
-            };
-            let Output::DiscoveredModels(models) = fixture
+                .unwrap(),
+            credentials
+        );
+        assert_eq!(authorizations(&fixture, provider.id).await, private);
+        assert_eq!(super::execution::captured(&fixture, &turn).await, captured);
+        let requests = server
+            .requests
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|request| !request.path.contains("/zip/"))
+            .count();
+        let foreign = repository(&fixture, installed.summary.revision, false).await;
+        assert_eq!(
+            fixture
                 .client
                 .execute(catalog(&fixture.client, &provider))
                 .await
-                .unwrap()
-            else {
-                panic!("models expected");
-            };
-            assert!(!models.models.is_empty());
-            let Output::PluginHttp(response) = fixture
+                .unwrap_err()
+                .code,
+            ErrorCode::NotConfigured
+        );
+        assert_eq!(
+            fixture
                 .client
                 .execute(usage(&fixture.client, &provider, &status))
                 .await
-                .unwrap()
-            else {
-                panic!("usage response expected");
-            };
-            assert_eq!(response.status, 200);
-            let body: serde_json::Value = serde_json::from_str(&response.body).unwrap();
-            assert_eq!(body["rate_limit"]["primary_window"]["used_percent"], 25);
-            assert_eq!(body["rate_limit"]["secondary_window"]["used_percent"], 10);
-            assert_eq!(
-                fixture
-                    .client
-                    .execute(fixture.client.prepare(Command::ListCredentials))
-                    .await
-                    .unwrap(),
-                credentials
-            );
-            assert_eq!(authorizations(&fixture, provider.id).await, private);
-            assert_eq!(super::execution::captured(&fixture, &turn).await, captured);
-            let requests = server
+                .unwrap_err()
+                .code,
+            ErrorCode::NotConfigured
+        );
+        assert_eq!(
+            server
                 .requests
                 .lock()
                 .unwrap()
                 .iter()
                 .filter(|request| !request.path.contains("/zip/"))
-                .count();
-            let foreign = repository(&fixture, installed.summary.revision, false).await;
-            assert_eq!(
-                fixture
-                    .client
-                    .execute(catalog(&fixture.client, &provider))
-                    .await
-                    .unwrap_err()
-                    .code,
-                ErrorCode::NotConfigured
-            );
-            assert_eq!(
-                fixture
-                    .client
-                    .execute(usage(&fixture.client, &provider, &status))
-                    .await
-                    .unwrap_err()
-                    .code,
-                ErrorCode::NotConfigured
-            );
-            assert_eq!(
-                server
-                    .requests
-                    .lock()
-                    .unwrap()
-                    .iter()
-                    .filter(|request| !request.path.contains("/zip/"))
-                    .count(),
-                requests
-            );
-            changed.store(true, Ordering::SeqCst);
-            if imported {
-                upload(&fixture, foreign.summary.revision, "1.0.2", true).await;
-            } else {
-                repository(&fixture, foreign.summary.revision, true).await;
-            }
-            assert_eq!(
-                fixture
-                    .client
-                    .execute(catalog(&fixture.client, &provider))
-                    .await
-                    .unwrap_err()
-                    .code,
-                ErrorCode::NotConfigured
-            );
-            assert_eq!(
-                fixture
-                    .client
-                    .execute(usage(&fixture.client, &provider, &status))
-                    .await
-                    .unwrap_err()
-                    .code,
-                ErrorCode::NotConfigured
-            );
-            assert_eq!(
-                fixture
-                    .client
-                    .execute(fixture.client.prepare(Command::ListCredentials))
-                    .await
-                    .unwrap(),
-                credentials
-            );
-            assert_eq!(authorizations(&fixture, provider.id).await, private);
-            assert_eq!(super::execution::captured(&fixture, &turn).await, captured);
-            assert_eq!(
-                server
-                    .requests
-                    .lock()
-                    .unwrap()
-                    .iter()
-                    .filter(|request| request.path == "/oauth/token")
-                    .count(),
-                1
-            );
-            fixture.close().await;
+                .count(),
+            requests
+        );
+        changed.store(true, Ordering::SeqCst);
+        if imported {
+            upload(&fixture, foreign.summary.revision, "1.0.2", true).await;
+        } else {
+            repository(&fixture, foreign.summary.revision, true).await;
         }
+        assert_eq!(
+            fixture
+                .client
+                .execute(catalog(&fixture.client, &provider))
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::NotConfigured
+        );
+        assert_eq!(
+            fixture
+                .client
+                .execute(usage(&fixture.client, &provider, &status))
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::NotConfigured
+        );
+        assert_eq!(
+            fixture
+                .client
+                .execute(fixture.client.prepare(Command::ListCredentials))
+                .await
+                .unwrap(),
+            credentials
+        );
+        assert_eq!(authorizations(&fixture, provider.id).await, private);
+        assert_eq!(super::execution::captured(&fixture, &turn).await, captured);
+        assert_eq!(
+            server
+                .requests
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|request| request.path == "/oauth/token")
+                .count(),
+            1
+        );
+        fixture.close().await;
     }
 }

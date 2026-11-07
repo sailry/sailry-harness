@@ -65,110 +65,108 @@ async fn fills_missing_choices() {
             "reasoning_options": [{"type":"effort","values":["high","medium","low"]}]
         }}}
     });
-    for remote in [false, true] {
-        let data = catalog.clone();
-        let server = Server::start(ModelApi::Responses, move |_| Reply::Json(data.clone())).await;
-        let fixture = Fixture::new(remote, &server).await;
-        let original = save(&fixture.client, provider()).await;
-        assert_eq!(original.models[0].efforts, [Effort::Default]);
-        let mut custom = provider();
-        custom.endpoint = "https://gateway.example/v1".into();
-        custom.models[0].compaction_tokens = Some(200_000);
-        custom.models[0].efforts = vec![Effort::High];
-        custom.models[0].default_effort = Effort::High;
-        let custom = save(&fixture.client, custom).await;
-        let mut manual = provider();
-        manual.models[0].custom_efforts = true;
-        let manual = save(&fixture.client, manual).await;
-        let mut subscription = fixture.client.subscribe().await.unwrap();
-        let mut projection = Projection::new(fixture.client.target(), 1);
-        fixture.client.recover(&mut projection, 1).await.unwrap();
-        let status = refresh(&fixture.client).await;
-        tokio::time::timeout(Duration::from_secs(5), async {
-            while projection.snapshot().unwrap().model_catalog != status {
-                projection
-                    .apply(1, subscription.next().await.unwrap())
-                    .unwrap();
-            }
-        })
-        .await
+    let data = catalog.clone();
+    let server = Server::start(ModelApi::Responses, move |_| Reply::Json(data.clone())).await;
+    let fixture = Fixture::new(&server).await;
+    let original = save(&fixture.client, provider()).await;
+    assert_eq!(original.models[0].efforts, [Effort::Default]);
+    let mut custom = provider();
+    custom.endpoint = "https://gateway.example/v1".into();
+    custom.models[0].compaction_tokens = Some(200_000);
+    custom.models[0].efforts = vec![Effort::High];
+    custom.models[0].default_effort = Effort::High;
+    let custom = save(&fixture.client, custom).await;
+    let mut manual = provider();
+    manual.models[0].custom_efforts = true;
+    let manual = save(&fixture.client, manual).await;
+    let mut subscription = fixture.client.subscribe().await.unwrap();
+    let mut projection = Projection::new(fixture.client.target(), 1);
+    fixture.client.recover(&mut projection, 1).await.unwrap();
+    let status = refresh(&fixture.client).await;
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while projection.snapshot().unwrap().model_catalog != status {
+            projection
+                .apply(1, subscription.next().await.unwrap())
+                .unwrap();
+        }
+    })
+    .await
+    .unwrap();
+    let snapshot = projection.snapshot().unwrap();
+    let completed = snapshot
+        .providers
+        .iter()
+        .find(|value| value.id == original.id)
         .unwrap();
-        let snapshot = projection.snapshot().unwrap();
-        let completed = snapshot
+    assert_eq!(completed.revision, original.revision + 1);
+    assert_eq!(
+        completed.models[0].efforts,
+        [
+            Effort::Disabled,
+            Effort::Low,
+            Effort::Medium,
+            Effort::High,
+            Effort::XHigh,
+            Effort::Max
+        ]
+    );
+    assert_eq!(
+        (completed.models[0].context, completed.models[0].output),
+        (200_000, 8192)
+    );
+    assert_eq!(completed.models[0].default_effort, Effort::Disabled);
+    let mut manual = manual;
+    manual.revision += 1;
+    manual.models[0].reasoning = true;
+    assert_eq!(
+        snapshot
             .providers
             .iter()
-            .find(|value| value.id == original.id)
-            .unwrap();
-        assert_eq!(completed.revision, original.revision + 1);
-        assert_eq!(
-            completed.models[0].efforts,
-            [
-                Effort::Disabled,
-                Effort::Low,
-                Effort::Medium,
-                Effort::High,
-                Effort::XHigh,
-                Effort::Max
-            ]
-        );
-        assert_eq!(
-            (completed.models[0].context, completed.models[0].output),
-            (200_000, 8192)
-        );
-        assert_eq!(completed.models[0].default_effort, Effort::Disabled);
-        let mut manual = manual;
-        manual.revision += 1;
-        manual.models[0].reasoning = true;
-        assert_eq!(
-            snapshot
-                .providers
-                .iter()
-                .find(|value| value.id == manual.id),
-            Some(&manual)
-        );
-        let retained = save(&fixture.client, manual.clone()).await;
-        assert_eq!(retained.models, manual.models);
-        assert_eq!(
-            snapshot
-                .providers
-                .iter()
-                .find(|value| value.id == custom.id),
-            Some(&custom)
-        );
-        let saved = save(&fixture.client, provider()).await;
-        assert_eq!(saved.models[0].efforts, completed.models[0].efforts);
-        let mut gateway = provider();
-        gateway.endpoint = "https://gateway.example/v1".into();
-        let gateway = save(&fixture.client, gateway).await;
-        assert_eq!(
-            gateway.models[0].efforts,
-            [Effort::High, Effort::Medium, Effort::Low]
-        );
-        let Fixture {
-            _directory,
-            node,
-            controller,
-            client,
-        } = fixture;
-        drop(client);
-        controller.close().await.unwrap();
-        node.shutdown().await.unwrap();
-        let node = Node::start_empty_with_catalog(
-            _directory.path().join("node"),
-            &format!("{}/api.json", server.endpoint),
-        )
-        .await
-        .unwrap();
-        let client = Client::new(node.local());
-        refresh(&client).await;
-        let Output::Providers(providers) = execute(&client, Command::ListProviders).await else {
-            panic!("providers expected")
-        };
-        let reopened = providers
+            .find(|value| value.id == manual.id),
+        Some(&manual)
+    );
+    let retained = save(&fixture.client, manual.clone()).await;
+    assert_eq!(retained.models, manual.models);
+    assert_eq!(
+        snapshot
+            .providers
             .iter()
-            .find(|value| value.id == manual.id)
-            .unwrap();
-        assert_eq!(reopened.models, manual.models);
-        node.shutdown().await.unwrap();
-    }
+            .find(|value| value.id == custom.id),
+        Some(&custom)
+    );
+    let saved = save(&fixture.client, provider()).await;
+    assert_eq!(saved.models[0].efforts, completed.models[0].efforts);
+    let mut gateway = provider();
+    gateway.endpoint = "https://gateway.example/v1".into();
+    let gateway = save(&fixture.client, gateway).await;
+    assert_eq!(
+        gateway.models[0].efforts,
+        [Effort::High, Effort::Medium, Effort::Low]
+    );
+    let Fixture {
+        _directory,
+        node,
+        controller,
+        client,
+    } = fixture;
+    drop(client);
+    controller.close().await.unwrap();
+    node.shutdown().await.unwrap();
+    let node = Node::start_empty_with_catalog(
+        _directory.path().join("node"),
+        &format!("{}/api.json", server.endpoint),
+    )
+    .await
+    .unwrap();
+    let client = Client::new(node.local());
+    refresh(&client).await;
+    let Output::Providers(providers) = execute(&client, Command::ListProviders).await else {
+        panic!("providers expected")
+    };
+    let reopened = providers
+        .iter()
+        .find(|value| value.id == manual.id)
+        .unwrap();
+    assert_eq!(reopened.models, manual.models);
+    node.shutdown().await.unwrap();
 }

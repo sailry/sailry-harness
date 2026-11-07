@@ -168,409 +168,396 @@ fn queued_activity(session: &Session, turn: &QueuedTurn) -> sailry_protocol::act
 
 #[tokio::test]
 async fn preserves_frozen_revisions() {
-    for remote in [false, true] {
-        let (directory, node, controller, client) = fixture(remote).await;
-        let provider = provider(&client, None).await;
-        let first = fixed(&client, &provider, "review").await;
-        let inherited = put(&client, profile("analysis"), 0).await.unwrap();
-        let mut session = create(&client, directory.path(), &provider).await;
-        assert_eq!(session.roles.profiles, [inherited.clone(), first.clone()]);
-        let catalog: presets::Catalog = serde_json::from_slice(include_bytes!(
-            "../../../../assets/catalogs/model-presets.json"
-        ))
-        .unwrap();
-        let mut captured = provider.clone();
-        captured.binding = Some(Box::new(presets::Binding {
-            policies: catalog.policies,
-            ..Default::default()
-        }));
-        assert_eq!(session.roles.providers, [captured]);
-        let turn = queue(&client, &session).await;
-        session.activity = queued_activity(&session, &turn);
-        assert_eq!(turn.roles, session.roles);
-        let mut changed = first.clone();
-        changed.key = "renamed".into();
-        changed.instructions = "Updated instructions 中文 🙂".into();
-        changed.max_turns = Some(7);
-        changed.model.as_mut().unwrap().effort = Some(Effort::Low);
-        let changed = put(&client, changed, 1).await.unwrap();
-        execute(
-            &client,
-            Command::RemoveRole {
-                role: inherited.id,
-                expected_revision: 1,
-            },
-        )
-        .await;
-        let mut updated_provider = provider.clone();
-        updated_provider.endpoint = "http://127.0.0.1:9/changed".into();
-        execute(
-            &client,
-            Command::PutProvider {
-                provider: updated_provider,
-                expected_revision: 1,
-            },
-        )
-        .await;
+    let (directory, node, controller, client) = fixture().await;
+    let provider = provider(&client, None).await;
+    let first = fixed(&client, &provider, "review").await;
+    let inherited = put(&client, profile("analysis"), 0).await.unwrap();
+    let mut session = create(&client, directory.path(), &provider).await;
+    assert_eq!(session.roles.profiles, [inherited.clone(), first.clone()]);
+    let catalog: presets::Catalog = serde_json::from_slice(include_bytes!(
+        "../../../../assets/catalogs/model-presets.json"
+    ))
+    .unwrap();
+    let mut captured = provider.clone();
+    captured.binding = Some(Box::new(presets::Binding {
+        policies: catalog.policies,
+        ..Default::default()
+    }));
+    assert_eq!(session.roles.providers, [captured]);
+    let turn = queue(&client, &session).await;
+    session.activity = queued_activity(&session, &turn);
+    assert_eq!(turn.roles, session.roles);
+    let mut changed = first.clone();
+    changed.key = "renamed".into();
+    changed.instructions = "Updated instructions 中文 🙂".into();
+    changed.max_turns = Some(7);
+    changed.model.as_mut().unwrap().effort = Some(Effort::Low);
+    let changed = put(&client, changed, 1).await.unwrap();
+    execute(
+        &client,
+        Command::RemoveRole {
+            role: inherited.id,
+            expected_revision: 1,
+        },
+    )
+    .await;
+    let mut updated_provider = provider.clone();
+    updated_provider.endpoint = "http://127.0.0.1:9/changed".into();
+    execute(
+        &client,
+        Command::PutProvider {
+            provider: updated_provider,
+            expected_revision: 1,
+        },
+    )
+    .await;
+    assert_eq!(
+        snapshot(&client).await.sessions,
+        std::slice::from_ref(&session)
+    );
+    for (roles, expected) in [
+        (vec![first.reference()], ErrorCode::RevisionConflict),
+        (vec![inherited.reference()], ErrorCode::NotFound),
+        (
+            vec![first.reference(), first.reference()],
+            ErrorCode::InvalidRequest,
+        ),
+        (
+            (0..33)
+                .map(|_| role::Reference {
+                    id: RoleId::new(),
+                    revision: 1,
+                })
+                .collect(),
+            ErrorCode::NotFound,
+        ),
+    ] {
+        assert_eq!(
+            client
+                .execute(client.prepare(Command::SetSessionRoles {
+                    session: session.id,
+                    expected_revision: session.revision,
+                    roles,
+                }))
+                .await
+                .unwrap_err()
+                .code,
+            expected,
+        );
         assert_eq!(
             snapshot(&client).await.sessions,
-            std::slice::from_ref(&session)
+            std::slice::from_ref(&session),
         );
-        for (roles, expected) in [
-            (vec![first.reference()], ErrorCode::RevisionConflict),
-            (vec![inherited.reference()], ErrorCode::NotFound),
-            (
-                vec![first.reference(), first.reference()],
-                ErrorCode::InvalidRequest,
-            ),
-            (
-                (0..33)
-                    .map(|_| role::Reference {
-                        id: RoleId::new(),
-                        revision: 1,
-                    })
-                    .collect(),
-                ErrorCode::NotFound,
-            ),
-        ] {
-            assert_eq!(
-                client
-                    .execute(client.prepare(Command::SetSessionRoles {
-                        session: session.id,
-                        expected_revision: session.revision,
-                        roles,
-                    }))
-                    .await
-                    .unwrap_err()
-                    .code,
-                expected,
-            );
-            assert_eq!(
-                snapshot(&client).await.sessions,
-                std::slice::from_ref(&session),
-            );
-        }
-        let request = client.prepare(Command::SetSessionRoles {
-            session: session.id,
-            expected_revision: 1,
-            roles: vec![changed.reference()],
-        });
-        let admitted = client.dispatch(request.clone()).await.unwrap();
-        assert!(admitted.receipt.durable);
-        drop(admitted);
-        let Output::Session(revised) = client.execute(request.clone()).await.unwrap() else {
-            panic!("session expected")
-        };
-        assert_eq!(revised.revision, 2);
-        assert_eq!(revised.roles.profiles, [changed]);
-        assert_eq!(
-            revised.roles.providers[0].endpoint,
-            "http://127.0.0.1:9/changed"
-        );
-        assert_eq!(
-            client.execute(request.clone()).await.unwrap(),
-            Output::Session(revised.clone())
-        );
-        assert_eq!(
-            client
-                .execute(client.prepare(Command::SetSessionRoles {
-                    session: session.id,
-                    expected_revision: 1,
-                    roles: vec![],
-                }))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::RevisionConflict
-        );
-        assert_eq!(
-            client
-                .execute(client.prepare(Command::SetSessionRoles {
-                    session: session.id,
-                    expected_revision: 2,
-                    roles: vec![first.reference(), first.reference()],
-                }))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::InvalidRequest
-        );
-        let second = queue(&client, &revised).await;
-        assert_eq!(second.roles, revised.roles);
-        let Output::QueuedMessage(queued) =
-            execute(&client, Command::ReadQueuedTurn { turn: turn.id }).await
-        else {
-            panic!("queued message expected")
-        };
-        assert_eq!(queued.turn.roles, session.roles);
-        let Output::Session(configured) = execute(
-            &client,
-            Command::SetSessionConfig {
+    }
+    let request = client.prepare(Command::SetSessionRoles {
+        session: session.id,
+        expected_revision: 1,
+        roles: vec![changed.reference()],
+    });
+    let admitted = client.dispatch(request.clone()).await.unwrap();
+    assert!(admitted.receipt.durable);
+    drop(admitted);
+    let Output::Session(revised) = client.execute(request.clone()).await.unwrap() else {
+        panic!("session expected")
+    };
+    assert_eq!(revised.revision, 2);
+    assert_eq!(revised.roles.profiles, [changed]);
+    assert_eq!(
+        revised.roles.providers[0].endpoint,
+        "http://127.0.0.1:9/changed"
+    );
+    assert_eq!(
+        client.execute(request.clone()).await.unwrap(),
+        Output::Session(revised.clone())
+    );
+    assert_eq!(
+        client
+            .execute(client.prepare(Command::SetSessionRoles {
+                session: session.id,
+                expected_revision: 1,
+                roles: vec![],
+            }))
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::RevisionConflict
+    );
+    assert_eq!(
+        client
+            .execute(client.prepare(Command::SetSessionRoles {
                 session: session.id,
                 expected_revision: 2,
-                config: SessionConfig {
-                    assistant: None,
-                    resource: None,
-                    effort: Effort::High,
-                    ..revised.config.clone()
-                },
-            },
-        )
-        .await
-        else {
-            panic!("session expected")
-        };
-        assert_eq!(configured.roles, revised.roles);
-        let Output::Session(cleared) = execute(
-            &client,
-            Command::SetSessionRoles {
-                session: session.id,
-                expected_revision: 3,
-                roles: vec![],
-            },
-        )
-        .await
-        else {
-            panic!("session expected")
-        };
-        assert_eq!(cleared.roles, role::Snapshot::default());
-        node.shutdown().await.unwrap();
-        let node = Node::start_empty(directory.path().join("node"))
+                roles: vec![first.reference(), first.reference()],
+            }))
             .await
-            .unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(node.link().address())
-        } else {
-            node.local()
-        });
-        let restored = snapshot(&client).await;
-        assert_eq!(restored.sessions, [cleared]);
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidRequest
+    );
+    let second = queue(&client, &revised).await;
+    assert_eq!(second.roles, revised.roles);
+    let Output::QueuedMessage(queued) =
+        execute(&client, Command::ReadQueuedTurn { turn: turn.id }).await
+    else {
+        panic!("queued message expected")
+    };
+    assert_eq!(queued.turn.roles, session.roles);
+    let Output::Session(configured) = execute(
+        &client,
+        Command::SetSessionConfig {
+            session: session.id,
+            expected_revision: 2,
+            config: SessionConfig {
+                assistant: None,
+                resource: None,
+                effort: Effort::High,
+                ..revised.config.clone()
+            },
+        },
+    )
+    .await
+    else {
+        panic!("session expected")
+    };
+    assert_eq!(configured.roles, revised.roles);
+    let Output::Session(cleared) = execute(
+        &client,
+        Command::SetSessionRoles {
+            session: session.id,
+            expected_revision: 3,
+            roles: vec![],
+        },
+    )
+    .await
+    else {
+        panic!("session expected")
+    };
+    assert_eq!(cleared.roles, role::Snapshot::default());
+    node.shutdown().await.unwrap();
+    let node = Node::start_empty(directory.path().join("node"))
+        .await
+        .unwrap();
+    let client = Client::new(controller.handle().remote(node.link().address()));
+    let restored = snapshot(&client).await;
+    assert_eq!(restored.sessions, [cleared]);
+    assert_eq!(
+        restored.turns,
+        [TurnSummary::from(&turn), TurnSummary::from(&second)]
+    );
+    for capture in [&turn, &second] {
         assert_eq!(
-            restored.turns,
-            [TurnSummary::from(&turn), TurnSummary::from(&second)]
+            client
+                .read_turn_capture(capture.session, capture.id)
+                .await
+                .unwrap(),
+            *capture
         );
-        for capture in [&turn, &second] {
-            assert_eq!(
-                client
-                    .read_turn_capture(capture.session, capture.id)
-                    .await
-                    .unwrap(),
-                *capture
-            );
-        }
-        assert_eq!(
-            client.execute(request).await.unwrap(),
-            Output::Session(revised)
-        );
-        controller.close().await.unwrap();
-        node.shutdown().await.unwrap();
     }
+    assert_eq!(
+        client.execute(request).await.unwrap(),
+        Output::Session(revised)
+    );
+    controller.close().await.unwrap();
+    node.shutdown().await.unwrap();
 }
 
 #[tokio::test]
 async fn imports_private_providers() {
-    for remote in [false, true] {
-        let (directory, target, controller, destination) = fixture(remote).await;
-        let source = Node::start_empty(directory.path().join("source"))
-            .await
-            .unwrap();
-        source
-            .link()
-            .pair(target.link().invite().unwrap().ticket())
-            .await
-            .unwrap();
-        let origin = Client::new(source.local());
-        clear(&origin).await;
-        let parent = provider(&origin, None).await;
-        let fixed_provider = provider(&origin, Some("isolated-role-secret")).await;
-        let first = fixed(&origin, &fixed_provider, "review").await;
-        let second = fixed(&origin, &fixed_provider, "analysis").await;
-        let inherited = put(&origin, profile("inherit"), 0).await.unwrap();
-        let local = create(&origin, directory.path(), &parent).await;
-        let target_provider = provider(&destination, None).await;
-        let own = put(&destination, profile("target"), 0).await.unwrap();
-        let default = create(&destination, directory.path(), &target_provider).await;
-        let before = snapshot(&destination).await;
-        let request = origin.prepare(Command::CreateSessionAt {
-            target: target.id(),
-            project: default.project,
-            worktree: Some(default.worktree),
-            config: Box::new(local.config.clone()),
-            provider_revision: parent.revision,
-        });
-        let Output::Session(mut imported) = origin.execute(request.clone()).await.unwrap() else {
+    let (directory, target, controller, destination) = fixture().await;
+    let source = Node::start_empty(directory.path().join("source"))
+        .await
+        .unwrap();
+    source
+        .link()
+        .pair(target.link().invite().unwrap().ticket())
+        .await
+        .unwrap();
+    let origin = Client::new(source.local());
+    clear(&origin).await;
+    let parent = provider(&origin, None).await;
+    let fixed_provider = provider(&origin, Some("isolated-role-secret")).await;
+    let first = fixed(&origin, &fixed_provider, "review").await;
+    let second = fixed(&origin, &fixed_provider, "analysis").await;
+    let inherited = put(&origin, profile("inherit"), 0).await.unwrap();
+    let local = create(&origin, directory.path(), &parent).await;
+    let target_provider = provider(&destination, None).await;
+    let own = put(&destination, profile("target"), 0).await.unwrap();
+    let default = create(&destination, directory.path(), &target_provider).await;
+    let before = snapshot(&destination).await;
+    let request = origin.prepare(Command::CreateSessionAt {
+        target: target.id(),
+        project: default.project,
+        worktree: Some(default.worktree),
+        config: Box::new(local.config.clone()),
+        provider_revision: parent.revision,
+    });
+    let Output::Session(mut imported) = origin.execute(request.clone()).await.unwrap() else {
+        panic!("session expected")
+    };
+    assert_eq!(
+        origin.execute(request).await.unwrap(),
+        Output::Session(imported.clone())
+    );
+    assert_eq!(imported.roles.providers.len(), 1);
+    let provider = &imported.roles.providers[0];
+    assert_ne!(provider.id, fixed_provider.id);
+    assert_eq!(provider.endpoint, fixed_provider.endpoint);
+    assert_eq!(provider.models, fixed_provider.models);
+    let reference = provider.credential.as_ref().unwrap();
+    assert_eq!(reference.node, target.id());
+    assert_ne!(Some(reference), fixed_provider.credential.as_ref());
+    let mut expected = vec![second, inherited, first];
+    for role in &mut expected {
+        if let Some(model) = &mut role.model {
+            model.provider = provider.id;
+        }
+    }
+    assert_eq!(imported.roles.profiles, expected);
+    let after = snapshot(&destination).await;
+    assert_eq!(after.providers, before.providers);
+    assert_eq!(after.defaults, before.defaults);
+    assert_eq!(after.roles, [own]);
+    assert!(
+        !serde_json::to_string(&after)
+            .unwrap()
+            .contains("isolated-role-secret")
+    );
+    let Output::Credentials(credentials) = execute(&destination, Command::ListCredentials).await
+    else {
+        panic!("credentials expected")
+    };
+    assert_eq!(credentials.len(), 1);
+    assert_eq!(credentials[0].id, reference.id);
+    assert_eq!(credentials[0].provider, provider.id);
+    source.shutdown().await.unwrap();
+    let original = queue(&destination, &imported).await;
+    let captured = imported.roles.clone();
+    let member = captured.profiles[0].id;
+    for model in [
+        Some(role::Model {
+            provider: captured.providers[0].id,
+            model: "fixture".into(),
+            effort: Some(Effort::Low),
+        }),
+        Some(role::Model {
+            provider: target_provider.id,
+            model: "fixture".into(),
+            effort: Some(Effort::High),
+        }),
+        None,
+    ] {
+        let Output::Session(revised) = execute(
+            &destination,
+            Command::SetSessionMemberModel {
+                session: imported.id,
+                expected_revision: imported.revision,
+                role: member,
+                model: model.clone(),
+            },
+        )
+        .await
+        else {
             panic!("session expected")
         };
+        assert_eq!(revised.revision, imported.revision + 1);
+        assert_eq!(revised.roles.profiles, captured.profiles);
+        assert_eq!(revised.roles.models.get(&member), model.as_ref());
         assert_eq!(
-            origin.execute(request).await.unwrap(),
-            Output::Session(imported.clone())
+            revised
+                .roles
+                .providers
+                .iter()
+                .find(|provider| provider.id == captured.providers[0].id),
+            Some(&captured.providers[0])
         );
-        assert_eq!(imported.roles.providers.len(), 1);
-        let provider = &imported.roles.providers[0];
-        assert_ne!(provider.id, fixed_provider.id);
-        assert_eq!(provider.endpoint, fixed_provider.endpoint);
-        assert_eq!(provider.models, fixed_provider.models);
-        let reference = provider.credential.as_ref().unwrap();
-        assert_eq!(reference.node, target.id());
-        assert_ne!(Some(reference), fixed_provider.credential.as_ref());
-        let mut expected = vec![second, inherited, first];
-        for role in &mut expected {
-            if let Some(model) = &mut role.model {
-                model.provider = provider.id;
-            }
-        }
-        assert_eq!(imported.roles.profiles, expected);
-        let after = snapshot(&destination).await;
-        assert_eq!(after.providers, before.providers);
-        assert_eq!(after.defaults, before.defaults);
-        assert_eq!(after.roles, [own]);
-        assert!(
-            !serde_json::to_string(&after)
-                .unwrap()
-                .contains("isolated-role-secret")
-        );
-        let Output::Credentials(credentials) =
-            execute(&destination, Command::ListCredentials).await
-        else {
-            panic!("credentials expected")
-        };
-        assert_eq!(credentials.len(), 1);
-        assert_eq!(credentials[0].id, reference.id);
-        assert_eq!(credentials[0].provider, provider.id);
-        source.shutdown().await.unwrap();
-        let original = queue(&destination, &imported).await;
-        let captured = imported.roles.clone();
-        let member = captured.profiles[0].id;
-        for model in [
-            Some(role::Model {
+        revised.roles.validate().unwrap();
+        imported = revised;
+    }
+    assert_eq!(imported.roles, captured);
+    for (model, code) in [
+        (
+            role::Model {
+                provider: ProviderId::new(),
+                model: "fixture".into(),
+                effort: None,
+            },
+            ErrorCode::NotConfigured,
+        ),
+        (
+            role::Model {
+                provider: captured.providers[0].id,
+                model: "missing".into(),
+                effort: None,
+            },
+            ErrorCode::NotConfigured,
+        ),
+        (
+            role::Model {
                 provider: captured.providers[0].id,
                 model: "fixture".into(),
-                effort: Some(Effort::Low),
-            }),
-            Some(role::Model {
-                provider: target_provider.id,
-                model: "fixture".into(),
-                effort: Some(Effort::High),
-            }),
-            None,
-        ] {
-            let Output::Session(revised) = execute(
-                &destination,
-                Command::SetSessionMemberModel {
+                effort: Some(Effort::Max),
+            },
+            ErrorCode::InvalidRequest,
+        ),
+    ] {
+        assert_eq!(
+            destination
+                .execute(destination.prepare(Command::SetSessionMemberModel {
                     session: imported.id,
                     expected_revision: imported.revision,
                     role: member,
-                    model: model.clone(),
-                },
-            )
-            .await
-            else {
-                panic!("session expected")
-            };
-            assert_eq!(revised.revision, imported.revision + 1);
-            assert_eq!(revised.roles.profiles, captured.profiles);
-            assert_eq!(revised.roles.models.get(&member), model.as_ref());
-            assert_eq!(
-                revised
-                    .roles
-                    .providers
-                    .iter()
-                    .find(|provider| provider.id == captured.providers[0].id),
-                Some(&captured.providers[0])
-            );
-            revised.roles.validate().unwrap();
-            imported = revised;
-        }
-        assert_eq!(imported.roles, captured);
-        for (model, code) in [
-            (
-                role::Model {
-                    provider: ProviderId::new(),
-                    model: "fixture".into(),
-                    effort: None,
-                },
-                ErrorCode::NotConfigured,
-            ),
-            (
-                role::Model {
-                    provider: captured.providers[0].id,
-                    model: "missing".into(),
-                    effort: None,
-                },
-                ErrorCode::NotConfigured,
-            ),
-            (
-                role::Model {
-                    provider: captured.providers[0].id,
-                    model: "fixture".into(),
-                    effort: Some(Effort::Max),
-                },
-                ErrorCode::InvalidRequest,
-            ),
-        ] {
-            assert_eq!(
-                destination
-                    .execute(destination.prepare(Command::SetSessionMemberModel {
-                        session: imported.id,
-                        expected_revision: imported.revision,
-                        role: member,
-                        model: Some(model),
-                    }))
-                    .await
-                    .unwrap_err()
-                    .code,
-                code
-            );
-        }
-        let after = snapshot(&destination).await;
-        assert_eq!(after.providers, before.providers);
-        assert_eq!(after.defaults, before.defaults);
-        assert_eq!(
-            execute(&destination, Command::ListCredentials).await,
-            Output::Credentials(credentials)
-        );
-        let queued = queue(&destination, &imported).await;
-        imported.activity = queued_activity(&imported, &queued);
-        imported.activity.queued = 2;
-        imported.activity.run.as_mut().unwrap().sequence = 2;
-        assert_eq!(queued.roles, imported.roles);
-        target.shutdown().await.unwrap();
-        let target = Node::start_empty(directory.path().join("node"))
-            .await
-            .unwrap();
-        let destination = Client::new(if remote {
-            controller.handle().remote(target.link().address())
-        } else {
-            target.local()
-        });
-        let restored = snapshot(&destination).await;
-        assert_eq!(restored.sessions, [imported, default]);
-        assert_eq!(
-            restored.turns,
-            [TurnSummary::from(&original), TurnSummary::from(&queued)]
-        );
-        assert_eq!(
-            destination
-                .read_turn_capture(original.session, original.id)
+                    model: Some(model),
+                }))
                 .await
-                .unwrap(),
-            original
+                .unwrap_err()
+                .code,
+            code
         );
-        assert_eq!(
-            destination
-                .read_turn_capture(queued.session, queued.id)
-                .await
-                .unwrap(),
-            queued
-        );
-        controller.close().await.unwrap();
-        target.shutdown().await.unwrap();
     }
+    let after = snapshot(&destination).await;
+    assert_eq!(after.providers, before.providers);
+    assert_eq!(after.defaults, before.defaults);
+    assert_eq!(
+        execute(&destination, Command::ListCredentials).await,
+        Output::Credentials(credentials)
+    );
+    let queued = queue(&destination, &imported).await;
+    imported.activity = queued_activity(&imported, &queued);
+    imported.activity.queued = 2;
+    imported.activity.run.as_mut().unwrap().sequence = 2;
+    assert_eq!(queued.roles, imported.roles);
+    target.shutdown().await.unwrap();
+    let target = Node::start_empty(directory.path().join("node"))
+        .await
+        .unwrap();
+    let destination = Client::new(controller.handle().remote(target.link().address()));
+    let restored = snapshot(&destination).await;
+    assert_eq!(restored.sessions, [imported, default]);
+    assert_eq!(
+        restored.turns,
+        [TurnSummary::from(&original), TurnSummary::from(&queued)]
+    );
+    assert_eq!(
+        destination
+            .read_turn_capture(original.session, original.id)
+            .await
+            .unwrap(),
+        original
+    );
+    assert_eq!(
+        destination
+            .read_turn_capture(queued.session, queued.id)
+            .await
+            .unwrap(),
+        queued
+    );
+    controller.close().await.unwrap();
+    target.shutdown().await.unwrap();
 }
 
 #[tokio::test]
 async fn rejects_inconsistent_imports() {
-    let (directory, target, controller, destination) = fixture(true).await;
+    let (directory, target, controller, destination) = fixture().await;
     let source = Node::start_empty(directory.path().join("source"))
         .await
         .unwrap();

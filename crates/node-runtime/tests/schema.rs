@@ -14,11 +14,123 @@ mod generation;
 
 #[tokio::test]
 async fn preserves_current_resources_on_both_paths() {
-    for remote in [false, true] {
+    let directory = tempfile::tempdir().unwrap();
+    let profile = directory.path().join("node");
+    let node = Node::start(&profile).await.unwrap();
+    let identity = node.id();
+    let controller = Link::controller(directory.path().join("controller"), NetworkScope::default())
+        .await
+        .unwrap();
+    let address = controller
+        .handle()
+        .pair(node.link().invite().unwrap().ticket())
+        .await
+        .unwrap();
+    let client = Client::new(controller.handle().remote(address));
+    let source = directory.path().join("source");
+    std::fs::create_dir(&source).unwrap();
+    execute(
+        &client,
+        Command::RegisterProject {
+            name: "Schema fixture".into(),
+            path: source.to_str().unwrap().into(),
+        },
+    )
+    .await;
+    let Output::Plugins(plugins) = execute(&client, Command::ListPlugins).await else {
+        panic!("plugin list expected");
+    };
+    let goals = plugins
+        .iter()
+        .find(|plugin| plugin.name == "goals")
+        .unwrap();
+    let Output::Plugin(goals) = execute(
+        &client,
+        Command::SetPluginEnabled {
+            name: "goals".into(),
+            expected_revision: goals.revision,
+            enabled: false,
+        },
+    )
+    .await
+    else {
+        panic!("plugin information expected");
+    };
+    let Output::Snapshot(before) = execute(&client, Command::Snapshot).await else {
+        panic!("snapshot expected");
+    };
+    drop(client);
+    node.shutdown().await.unwrap();
+    let files = entries(&profile.join("storage"));
+
+    let node = Node::start(&profile).await.unwrap();
+    assert_eq!(node.id(), identity);
+    let client = Client::new(controller.handle().remote(node.link().address()));
+    let Output::Snapshot(after) = execute(&client, Command::Snapshot).await else {
+        panic!("snapshot expected");
+    };
+    assert_eq!(after.projects, before.projects);
+    assert_eq!(after.worktrees, before.worktrees);
+    let Output::Plugin(restored) = execute(
+        &client,
+        Command::ReadPlugin {
+            name: "goals".into(),
+        },
+    )
+    .await
+    else {
+        panic!("plugin information expected");
+    };
+    assert_eq!(restored, goals);
+    drop(client);
+    node.shutdown().await.unwrap();
+    let (_database, connection) = open(&profile.join("storage/node.turso"), true).await;
+    assert_eq!(
+        connection
+            .prepare("PRAGMA user_version")
+            .await
+            .unwrap()
+            .query_row(())
+            .await
+            .unwrap()
+            .get::<i64>(0)
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        rows(&connection, "SELECT storage_generation FROM node").await,
+        vec![vec![Value::Integer(1)]]
+    );
+    drop(connection);
+    drop(_database);
+    assert_eq!(entries(&profile.join("storage")), files);
+    controller.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn adds_missing_structures() {
+    for sql in [
+        "DROP TABLE model_catalog_status",
+        "ALTER TABLE plugin_values DROP COLUMN index_data",
+        "DROP INDEX agent_events_turn",
+    ] {
         let directory = tempfile::tempdir().unwrap();
         let profile = directory.path().join("node");
+        Node::start(&profile)
+            .await
+            .unwrap()
+            .shutdown()
+            .await
+            .unwrap();
+        let path = profile.join("storage/node.turso");
+        let before;
+        {
+            let (_database, connection) = open(&path, false).await;
+            connection.execute_batch(sql).await.unwrap();
+            before = rows(&connection, "SELECT name,type,sql FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*' ORDER BY name,type").await;
+            checkpoint(&connection).await;
+        }
         let node = Node::start(&profile).await.unwrap();
-        let identity = node.id();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await
@@ -28,156 +140,27 @@ async fn preserves_current_resources_on_both_paths() {
             .pair(node.link().invite().unwrap().ticket())
             .await
             .unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(address)
-        } else {
-            node.local()
-        });
-        let source = directory.path().join("source");
-        std::fs::create_dir(&source).unwrap();
-        execute(
-            &client,
-            Command::RegisterProject {
-                name: "Schema fixture".into(),
-                path: source.to_str().unwrap().into(),
-            },
-        )
-        .await;
-        let Output::Plugins(plugins) = execute(&client, Command::ListPlugins).await else {
-            panic!("plugin list expected");
-        };
-        let goals = plugins
-            .iter()
-            .find(|plugin| plugin.name == "goals")
-            .unwrap();
-        let Output::Plugin(goals) = execute(
-            &client,
-            Command::SetPluginEnabled {
-                name: "goals".into(),
-                expected_revision: goals.revision,
-                enabled: false,
-            },
-        )
-        .await
-        else {
-            panic!("plugin information expected");
-        };
-        let Output::Snapshot(before) = execute(&client, Command::Snapshot).await else {
-            panic!("snapshot expected");
-        };
+        let client = Client::new(controller.handle().remote(address));
+        assert!(matches!(
+            execute(&client, Command::Snapshot).await,
+            Output::Snapshot(_)
+        ));
         drop(client);
         node.shutdown().await.unwrap();
-        let files = entries(&profile.join("storage"));
-
-        let node = Node::start(&profile).await.unwrap();
-        assert_eq!(node.id(), identity);
-        let client = Client::new(if remote {
-            controller.handle().remote(node.link().address())
-        } else {
-            node.local()
-        });
-        let Output::Snapshot(after) = execute(&client, Command::Snapshot).await else {
-            panic!("snapshot expected");
-        };
-        assert_eq!(after.projects, before.projects);
-        assert_eq!(after.worktrees, before.worktrees);
-        let Output::Plugin(restored) = execute(
-            &client,
-            Command::ReadPlugin {
-                name: "goals".into(),
-            },
-        )
-        .await
-        else {
-            panic!("plugin information expected");
-        };
-        assert_eq!(restored, goals);
-        drop(client);
-        node.shutdown().await.unwrap();
-        let (_database, connection) = open(&profile.join("storage/node.turso"), true).await;
-        assert_eq!(
-            connection
-                .prepare("PRAGMA user_version")
-                .await
-                .unwrap()
-                .query_row(())
-                .await
-                .unwrap()
-                .get::<i64>(0)
-                .unwrap(),
-            1
-        );
-        assert_eq!(
-            rows(&connection, "SELECT storage_generation FROM node").await,
-            vec![vec![Value::Integer(1)]]
-        );
-        drop(connection);
-        drop(_database);
-        assert_eq!(entries(&profile.join("storage")), files);
         controller.close().await.unwrap();
-    }
-}
-
-#[tokio::test]
-async fn adds_missing_structures_on_both_paths() {
-    for remote in [false, true] {
-        for sql in [
-            "DROP TABLE model_catalog_status",
-            "ALTER TABLE plugin_values DROP COLUMN index_data",
-            "DROP INDEX agent_events_turn",
-        ] {
-            let directory = tempfile::tempdir().unwrap();
-            let profile = directory.path().join("node");
-            Node::start(&profile)
-                .await
-                .unwrap()
-                .shutdown()
-                .await
-                .unwrap();
-            let path = profile.join("storage/node.turso");
-            let before;
-            {
-                let (_database, connection) = open(&path, false).await;
-                connection.execute_batch(sql).await.unwrap();
-                before = rows(&connection, "SELECT name,type,sql FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*' ORDER BY name,type").await;
-                checkpoint(&connection).await;
-            }
-            let node = Node::start(&profile).await.unwrap();
-            let controller =
-                Link::controller(directory.path().join("controller"), NetworkScope::default())
-                    .await
-                    .unwrap();
-            let address = controller
-                .handle()
-                .pair(node.link().invite().unwrap().ticket())
-                .await
-                .unwrap();
-            let client = Client::new(if remote {
-                controller.handle().remote(address)
-            } else {
-                node.local()
-            });
-            assert!(matches!(
-                execute(&client, Command::Snapshot).await,
-                Output::Snapshot(_)
-            ));
-            drop(client);
-            node.shutdown().await.unwrap();
-            controller.close().await.unwrap();
-            let saved = backups(&profile);
-            assert_eq!(saved.len(), 1, "{sql}");
-            {
-                let (_database, connection) = open(&saved[0], true).await;
-                assert_eq!(rows(&connection, "SELECT name,type,sql FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*' ORDER BY name,type").await, before);
-            }
-            Node::start(&profile)
-                .await
-                .unwrap()
-                .shutdown()
-                .await
-                .unwrap();
-            assert_eq!(backups(&profile).len(), 1, "{sql}");
+        let saved = backups(&profile);
+        assert_eq!(saved.len(), 1, "{sql}");
+        {
+            let (_database, connection) = open(&saved[0], true).await;
+            assert_eq!(rows(&connection, "SELECT name,type,sql FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*' ORDER BY name,type").await, before);
         }
+        Node::start(&profile)
+            .await
+            .unwrap()
+            .shutdown()
+            .await
+            .unwrap();
+        assert_eq!(backups(&profile).len(), 1, "{sql}");
     }
 }
 

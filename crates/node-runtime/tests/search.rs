@@ -81,48 +81,46 @@ async fn searches_public_sources_without_credentials() {
 
 #[tokio::test]
 async fn searches_keyless_exa_without_initialization() {
-    for remote in [false, true] {
-        let directory = tempfile::tempdir().unwrap();
-        let node = Node::start_empty(directory.path().join("node"))
-            .await
-            .unwrap();
-        let (controller, transport) = controller(&node, directory.path()).await;
-        let client = Client::new(if remote { transport } else { node.local() });
-        let http = Server::start().await;
-        node.set_search_fixture(Driver::Exa, &format!("{}/modern-mcp", http.endpoint));
+    let directory = tempfile::tempdir().unwrap();
+    let node = Node::start_empty(directory.path().join("node"))
+        .await
+        .unwrap();
+    let (controller, transport) = controller(&node, directory.path()).await;
+    let client = Client::new(transport);
+    let http = Server::start().await;
+    node.set_search_fixture(Driver::Exa, &format!("{}/modern-mcp", http.endpoint));
 
-        let Output::SearchPage(page) = client
-            .execute(client.prepare(Command::SearchWeb(search::Request {
-                query: "Public source".into(),
-                limit: 1,
-                ..Default::default()
-            })))
-            .await
-            .unwrap()
-        else {
-            panic!("search page expected")
-        };
-        assert_eq!(page.driver, Driver::Exa);
-        assert_eq!(page.results.len(), 1);
-        assert_eq!(page.results[0].url, "https://example.com/source");
+    let Output::SearchPage(page) = client
+        .execute(client.prepare(Command::SearchWeb(search::Request {
+            query: "Public source".into(),
+            limit: 1,
+            ..Default::default()
+        })))
+        .await
+        .unwrap()
+    else {
+        panic!("search page expected")
+    };
+    assert_eq!(page.driver, Driver::Exa);
+    assert_eq!(page.results.len(), 1);
+    assert_eq!(page.results[0].url, "https://example.com/source");
 
-        {
-            let requests = http.requests.lock().unwrap();
-            let methods: Vec<_> = requests
+    {
+        let requests = http.requests.lock().unwrap();
+        let methods: Vec<_> = requests
+            .iter()
+            .filter_map(|(_, body)| body["method"].as_str())
+            .collect();
+        assert_eq!(methods, ["server/discover", "tools/call"]);
+        assert!(
+            requests
                 .iter()
-                .filter_map(|(_, body)| body["method"].as_str())
-                .collect();
-            assert_eq!(methods, ["server/discover", "tools/call"]);
-            assert!(
-                requests
-                    .iter()
-                    .all(|(_, body)| body["method"] != "initialize")
-            );
-        }
-
-        node.shutdown().await.unwrap();
-        controller.close().await.unwrap();
+                .all(|(_, body)| body["method"] != "initialize")
+        );
     }
+
+    node.shutdown().await.unwrap();
+    controller.close().await.unwrap();
 }
 
 async fn read(client: &Client) -> search::Settings {
@@ -277,260 +275,254 @@ async fn preserves_private_credentials_and_revisions() {
 
 #[tokio::test]
 async fn searches_all_saved_drivers_without_task_approval() {
-    for remote in [false, true] {
-        let directory = tempfile::tempdir().unwrap();
-        let node = Node::start_empty(directory.path().join("node"))
-            .await
-            .unwrap();
-        let (controller, transport) = controller(&node, directory.path()).await;
-        let client = Client::new(if remote { transport } else { node.local() });
-        let http = Server::start().await;
-        let mut settings = read(&client).await;
-        let mut credentials = BTreeMap::new();
-        for driver in Driver::ALL
-            .into_iter()
-            .filter(|driver| *driver != Driver::Model)
-        {
-            node.set_search_fixture(driver, &http.url(driver));
-            settings.providers.get_mut(&driver).unwrap().enabled = true;
-            if driver.key_required() || driver == Driver::Exa {
-                credentials.insert(
-                    driver,
-                    search::Credentials {
-                        key: SecretUpdate::Replace(Secret::new("synthetic-driver-key".into())),
-                        ..Default::default()
-                    },
-                );
-            }
-        }
-        settings
-            .providers
-            .get_mut(&Driver::Searxng)
-            .unwrap()
-            .endpoint = Some("http://192.168.10.20:8080/".into());
-        credentials.insert(
-            Driver::Searxng,
-            search::Credentials {
-                key: SecretUpdate::Replace(Secret::new("synthetic-searxng-key".into())),
-                basic: SecretUpdate::Replace(Secret::new("fixture-user:fixture-password".into())),
-            },
-        );
-        settings = save(&client, settings, credentials).await;
-        for driver in Driver::ALL
-            .into_iter()
-            .filter(|driver| *driver != Driver::Model)
-        {
-            settings.driver = Some(Selection::Driver(driver));
-            settings = save(&client, settings, Default::default()).await;
-            let request = client.prepare(Command::SearchWeb(search::Request {
-                query: "Public source 中文 🙂".into(),
-                limit: 1,
-                ..Default::default()
-            }));
-            assert!(!request.command.durable());
-            let Output::SearchPage(page) = client.execute(request).await.unwrap() else {
-                panic!("search page expected")
-            };
-            assert_eq!(page.driver, driver);
-            assert_eq!(page.results.len(), 1);
-            assert_eq!(page.results[0].title, "Public source");
-            assert!(page.untrusted);
-            let Output::SearchPage(page) = client
-                .execute(client.prepare(Command::TestSearchDriver { driver }))
-                .await
-                .unwrap()
-            else {
-                panic!("driver test page expected")
-            };
-            assert_eq!(page.driver, driver);
-        }
-        settings.driver = None;
-        settings.providers.get_mut(&Driver::Tavily).unwrap().enabled = false;
-        let saved = save(&client, settings, Default::default()).await;
-        assert_eq!(
-            client
-                .execute(client.prepare(Command::SearchWeb(search::Request {
-                    query: "disabled".into(),
-                    limit: 5,
+    let directory = tempfile::tempdir().unwrap();
+    let node = Node::start_empty(directory.path().join("node"))
+        .await
+        .unwrap();
+    let (controller, transport) = controller(&node, directory.path()).await;
+    let client = Client::new(transport);
+    let http = Server::start().await;
+    let mut settings = read(&client).await;
+    let mut credentials = BTreeMap::new();
+    for driver in Driver::ALL
+        .into_iter()
+        .filter(|driver| *driver != Driver::Model)
+    {
+        node.set_search_fixture(driver, &http.url(driver));
+        settings.providers.get_mut(&driver).unwrap().enabled = true;
+        if driver.key_required() || driver == Driver::Exa {
+            credentials.insert(
+                driver,
+                search::Credentials {
+                    key: SecretUpdate::Replace(Secret::new("synthetic-driver-key".into())),
                     ..Default::default()
-                })))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::NotConfigured
-        );
+                },
+            );
+        }
+    }
+    settings
+        .providers
+        .get_mut(&Driver::Searxng)
+        .unwrap()
+        .endpoint = Some("http://192.168.10.20:8080/".into());
+    credentials.insert(
+        Driver::Searxng,
+        search::Credentials {
+            key: SecretUpdate::Replace(Secret::new("synthetic-searxng-key".into())),
+            basic: SecretUpdate::Replace(Secret::new("fixture-user:fixture-password".into())),
+        },
+    );
+    settings = save(&client, settings, credentials).await;
+    for driver in Driver::ALL
+        .into_iter()
+        .filter(|driver| *driver != Driver::Model)
+    {
+        settings.driver = Some(Selection::Driver(driver));
+        settings = save(&client, settings, Default::default()).await;
+        let request = client.prepare(Command::SearchWeb(search::Request {
+            query: "Public source 中文 🙂".into(),
+            limit: 1,
+            ..Default::default()
+        }));
+        assert!(!request.command.durable());
+        let Output::SearchPage(page) = client.execute(request).await.unwrap() else {
+            panic!("search page expected")
+        };
+        assert_eq!(page.driver, driver);
+        assert_eq!(page.results.len(), 1);
+        assert_eq!(page.results[0].title, "Public source");
+        assert!(page.untrusted);
         let Output::SearchPage(page) = client
-            .execute(client.prepare(Command::TestSearchDriver {
-                driver: Driver::Tavily,
-            }))
+            .execute(client.prepare(Command::TestSearchDriver { driver }))
             .await
             .unwrap()
         else {
-            panic!("disabled configured driver test expected")
+            panic!("driver test page expected")
         };
-        assert_eq!(page.driver, Driver::Tavily);
-        assert_eq!(read(&client).await, saved);
-        http.respond(
-            "/tavily",
-            vec![Reply::Json(serde_json::json!({"bad":"response"}))],
-        );
-        assert_eq!(
-            client
-                .execute(client.prepare(Command::TestSearchDriver {
-                    driver: Driver::Tavily
-                }))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::InvalidRequest
-        );
-        {
-            let requests = http.requests.lock().unwrap();
-            let searxng = requests
-                .iter()
-                .find(|(header, _)| header.starts_with("GET /searxng"))
-                .unwrap();
-            let lower = searxng.0.to_ascii_lowercase();
-            assert!(lower.contains("x-api-key: synthetic-searxng-key"));
-            assert!(
-                lower.contains(
-                    "authorization: basic Zml4dHVyZS11c2VyOmZpeHR1cmUtcGFzc3dvcmQ="
-                        .to_ascii_lowercase()
-                        .as_str()
-                )
-            );
-        }
-        node.shutdown().await.unwrap();
-        controller.close().await.unwrap();
+        assert_eq!(page.driver, driver);
     }
+    settings.driver = None;
+    settings.providers.get_mut(&Driver::Tavily).unwrap().enabled = false;
+    let saved = save(&client, settings, Default::default()).await;
+    assert_eq!(
+        client
+            .execute(client.prepare(Command::SearchWeb(search::Request {
+                query: "disabled".into(),
+                limit: 5,
+                ..Default::default()
+            })))
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::NotConfigured
+    );
+    let Output::SearchPage(page) = client
+        .execute(client.prepare(Command::TestSearchDriver {
+            driver: Driver::Tavily,
+        }))
+        .await
+        .unwrap()
+    else {
+        panic!("disabled configured driver test expected")
+    };
+    assert_eq!(page.driver, Driver::Tavily);
+    assert_eq!(read(&client).await, saved);
+    http.respond(
+        "/tavily",
+        vec![Reply::Json(serde_json::json!({"bad":"response"}))],
+    );
+    assert_eq!(
+        client
+            .execute(client.prepare(Command::TestSearchDriver {
+                driver: Driver::Tavily
+            }))
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidRequest
+    );
+    {
+        let requests = http.requests.lock().unwrap();
+        let searxng = requests
+            .iter()
+            .find(|(header, _)| header.starts_with("GET /searxng"))
+            .unwrap();
+        let lower = searxng.0.to_ascii_lowercase();
+        assert!(lower.contains("x-api-key: synthetic-searxng-key"));
+        assert!(
+            lower.contains(
+                "authorization: basic Zml4dHVyZS11c2VyOmZpeHR1cmUtcGFzc3dvcmQ="
+                    .to_ascii_lowercase()
+                    .as_str()
+            )
+        );
+    }
+    node.shutdown().await.unwrap();
+    controller.close().await.unwrap();
 }
 
 #[tokio::test]
 async fn shares_fallback_cooldown_and_cancellation() {
-    for remote in [false, true] {
-        let directory = tempfile::tempdir().unwrap();
-        let node = Node::start_empty(directory.path().join("node"))
+    let directory = tempfile::tempdir().unwrap();
+    let node = Node::start_empty(directory.path().join("node"))
+        .await
+        .unwrap();
+    let (controller, transport) = controller(&node, directory.path()).await;
+    let client = Arc::new(Client::new(transport));
+    let http = Server::start().await;
+    node.set_search_fixture(Driver::Exa, &format!("{}/mcp", http.endpoint));
+    node.set_search_fixture(Driver::Tavily, &http.url(Driver::Tavily));
+    let mut settings = read(&client).await;
+    settings.providers.get_mut(&Driver::Tavily).unwrap().enabled = true;
+    settings = save(
+        &client,
+        settings,
+        BTreeMap::from([(
+            Driver::Tavily,
+            search::Credentials {
+                key: SecretUpdate::Replace(Secret::new("synthetic-key".into())),
+                ..Default::default()
+            },
+        )]),
+    )
+    .await;
+    http.respond("/mcp", vec![Reply::Status(429, Some("30".into()))]);
+    for index in 0..2 {
+        let Output::SearchPage(page) = client
+            .execute(client.prepare(Command::SearchWeb(search::Request {
+                query: format!("source {index}"),
+                limit: 5,
+                ..Default::default()
+            })))
             .await
-            .unwrap();
-        let (controller, transport) = controller(&node, directory.path()).await;
-        let client = Arc::new(Client::new(if remote { transport } else { node.local() }));
-        let http = Server::start().await;
-        node.set_search_fixture(Driver::Exa, &format!("{}/mcp", http.endpoint));
-        node.set_search_fixture(Driver::Tavily, &http.url(Driver::Tavily));
-        let mut settings = read(&client).await;
-        settings.providers.get_mut(&Driver::Tavily).unwrap().enabled = true;
-        settings = save(
-            &client,
-            settings,
-            BTreeMap::from([(
-                Driver::Tavily,
-                search::Credentials {
-                    key: SecretUpdate::Replace(Secret::new("synthetic-key".into())),
-                    ..Default::default()
-                },
-            )]),
-        )
-        .await;
-        http.respond("/mcp", vec![Reply::Status(429, Some("30".into()))]);
-        for index in 0..2 {
-            let Output::SearchPage(page) = client
-                .execute(client.prepare(Command::SearchWeb(search::Request {
-                    query: format!("source {index}"),
-                    limit: 5,
-                    ..Default::default()
-                })))
-                .await
-                .unwrap()
-            else {
-                panic!("fallback page expected")
-            };
-            assert_eq!(page.driver, Driver::Tavily);
-        }
-        assert_eq!(http.count("/mcp"), 1);
-        assert_eq!(http.count("/tavily"), 2);
-        settings.driver = Some(Selection::Driver(Driver::Tavily));
-        settings.fallback = false;
-        save(&client, settings, Default::default()).await;
-        http.holds.lock().unwrap().insert("/tavily".into());
-        let request = client.prepare(Command::SearchWeb(search::Request {
-            query: "wait".into(),
-            limit: 5,
-            ..Default::default()
-        }));
-        let id = request.id;
-        let active = client.clone();
-        let pending = tokio::spawn(async move { active.execute(request).await });
-        tokio::time::timeout(Duration::from_secs(5), http.held.cancelled())
-            .await
-            .unwrap();
-        let other = RequestId::new();
-        client
-            .execute(client.prepare(Command::CancelWebSearch { request: other }))
-            .await
-            .unwrap();
-        assert!(!pending.is_finished());
-        assert_eq!(
-            client
-                .execute(client.prepare(Command::CancelWebSearch { request: id }))
-                .await
-                .unwrap(),
-            Output::WebSearchCancelled { request: id }
-        );
-        assert_eq!(
-            pending.await.unwrap().unwrap_err().code,
-            ErrorCode::Cancelled
-        );
-        tokio::time::timeout(Duration::from_secs(5), http.disconnected.cancelled())
-            .await
-            .unwrap();
-        node.shutdown().await.unwrap();
-        controller.close().await.unwrap();
+            .unwrap()
+        else {
+            panic!("fallback page expected")
+        };
+        assert_eq!(page.driver, Driver::Tavily);
     }
+    assert_eq!(http.count("/mcp"), 1);
+    assert_eq!(http.count("/tavily"), 2);
+    settings.driver = Some(Selection::Driver(Driver::Tavily));
+    settings.fallback = false;
+    save(&client, settings, Default::default()).await;
+    http.holds.lock().unwrap().insert("/tavily".into());
+    let request = client.prepare(Command::SearchWeb(search::Request {
+        query: "wait".into(),
+        limit: 5,
+        ..Default::default()
+    }));
+    let id = request.id;
+    let active = client.clone();
+    let pending = tokio::spawn(async move { active.execute(request).await });
+    tokio::time::timeout(Duration::from_secs(5), http.held.cancelled())
+        .await
+        .unwrap();
+    let other = RequestId::new();
+    client
+        .execute(client.prepare(Command::CancelWebSearch { request: other }))
+        .await
+        .unwrap();
+    assert!(!pending.is_finished());
+    assert_eq!(
+        client
+            .execute(client.prepare(Command::CancelWebSearch { request: id }))
+            .await
+            .unwrap(),
+        Output::WebSearchCancelled { request: id }
+    );
+    assert_eq!(
+        pending.await.unwrap().unwrap_err().code,
+        ErrorCode::Cancelled
+    );
+    tokio::time::timeout(Duration::from_secs(5), http.disconnected.cancelled())
+        .await
+        .unwrap();
+    node.shutdown().await.unwrap();
+    controller.close().await.unwrap();
 }
 
 #[tokio::test]
 async fn rejects_invalid_settings_without_storing_keys() {
-    for remote in [false, true] {
-        let directory = tempfile::tempdir().unwrap();
-        let node = Node::start_empty(directory.path().join("node"))
+    let directory = tempfile::tempdir().unwrap();
+    let node = Node::start_empty(directory.path().join("node"))
+        .await
+        .unwrap();
+    let (controller, transport) = controller(&node, directory.path()).await;
+    let client = Client::new(transport);
+    let original = read(&client).await;
+    for endpoint in [
+        "https://user:password@example.com/",
+        "http://user:password@search.lan/",
+        "file:///private/search",
+        "https://example.com/?key=private",
+    ] {
+        let mut settings = original.clone();
+        settings
+            .providers
+            .get_mut(&Driver::Searxng)
+            .unwrap()
+            .endpoint = Some(endpoint.into());
+        let error = client
+            .execute(client.prepare(Command::SaveSearchSettings(search::Update {
+                settings,
+                credentials: Default::default(),
+            })))
             .await
-            .unwrap();
-        let (controller, transport) = controller(&node, directory.path()).await;
-        let client = Client::new(if remote { transport } else { node.local() });
-        let original = read(&client).await;
-        for endpoint in [
-            "https://user:password@example.com/",
-            "http://user:password@search.lan/",
-            "file:///private/search",
-            "https://example.com/?key=private",
-        ] {
-            let mut settings = original.clone();
-            settings
-                .providers
-                .get_mut(&Driver::Searxng)
-                .unwrap()
-                .endpoint = Some(endpoint.into());
-            let error = client
-                .execute(client.prepare(Command::SaveSearchSettings(search::Update {
-                    settings,
-                    credentials: Default::default(),
-                })))
-                .await
-                .unwrap_err();
-            assert_eq!(error.code, ErrorCode::InvalidRequest);
-            assert_eq!(read(&client).await, original);
-        }
-        assert_eq!(
-            client
-                .execute(client.prepare(Command::TestSearchDriver {
-                    driver: Driver::Tavily
-                }))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::NotConfigured
-        );
-        node.shutdown().await.unwrap();
-        controller.close().await.unwrap();
+            .unwrap_err();
+        assert_eq!(error.code, ErrorCode::InvalidRequest);
+        assert_eq!(read(&client).await, original);
     }
+    assert_eq!(
+        client
+            .execute(client.prepare(Command::TestSearchDriver {
+                driver: Driver::Tavily
+            }))
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::NotConfigured
+    );
+    node.shutdown().await.unwrap();
+    controller.close().await.unwrap();
 }

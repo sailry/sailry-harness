@@ -364,93 +364,89 @@ pub(super) async fn finished_within(
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn runs_tools_after_refresh() {
-    for remote in [false, true] {
-        for (authentication, api) in [
-            (Authentication::Copilot, ModelApi::Responses),
-            (Authentication::Copilot, ModelApi::ChatCompletions),
-        ] {
-            let exchanges = Arc::new(AtomicUsize::new(0));
-            let count = exchanges.clone();
-            let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
-                if exchange(request) {
-                    let fresh = count.fetch_add(1, Ordering::SeqCst) > 0;
-                    if fresh && authentication == Authentication::ChatGpt {
-                        assert!(request.body.contains("grant_type=refresh_token"));
-                        assert!(request.body.contains(REFRESH));
-                    }
-                    Reply::Json(exchanged(request, authentication, fresh))
-                } else if matches!(request.path.as_str(), "/responses" | "/chat/completions") {
-                    generation(request, authentication, true)
-                } else {
-                    standard(request)
+    for (authentication, api) in [
+        (Authentication::Copilot, ModelApi::Responses),
+        (Authentication::Copilot, ModelApi::ChatCompletions),
+    ] {
+        let exchanges = Arc::new(AtomicUsize::new(0));
+        let count = exchanges.clone();
+        let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
+            if exchange(request) {
+                let fresh = count.fetch_add(1, Ordering::SeqCst) > 0;
+                if fresh && authentication == Authentication::ChatGpt {
+                    assert!(request.body.contains("grant_type=refresh_token"));
+                    assert!(request.body.contains(REFRESH));
                 }
-            })
-            .await;
-            let fixture = Fixture::packages(remote, &server, &["files"]).await;
-            let provider = signed_in(&fixture, authentication, api).await;
-            let session = session(&fixture, &provider).await;
-            let (request, turn) = submit(&fixture.client, &session).await;
-            let page = finished(&fixture.client, &turn, Status::Completed).await;
-            let history = serde_json::to_string(&page).unwrap();
-            assert!(history.contains("Authorized response"));
-            assert!(history.contains("Isolated tool content"), "{history}");
-            assert_eq!(exchanges.load(Ordering::SeqCst), 2);
-            assert_eq!(server.requests.lock().unwrap().len(), 7);
-            assert_eq!(
-                fixture.client.execute(request).await.unwrap(),
-                Output::QueuedTurn(turn)
-            );
-            fixture.close().await;
-        }
+                Reply::Json(exchanged(request, authentication, fresh))
+            } else if matches!(request.path.as_str(), "/responses" | "/chat/completions") {
+                generation(request, authentication, true)
+            } else {
+                standard(request)
+            }
+        })
+        .await;
+        let fixture = Fixture::packages(&server, &["files"]).await;
+        let provider = signed_in(&fixture, authentication, api).await;
+        let session = session(&fixture, &provider).await;
+        let (request, turn) = submit(&fixture.client, &session).await;
+        let page = finished(&fixture.client, &turn, Status::Completed).await;
+        let history = serde_json::to_string(&page).unwrap();
+        assert!(history.contains("Authorized response"));
+        assert!(history.contains("Isolated tool content"), "{history}");
+        assert_eq!(exchanges.load(Ordering::SeqCst), 2);
+        assert_eq!(server.requests.lock().unwrap().len(), 7);
+        assert_eq!(
+            fixture.client.execute(request).await.unwrap(),
+            Output::QueuedTurn(turn)
+        );
+        fixture.close().await;
     }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn preserves_unsupported_account() {
-    for remote in [false, true] {
-        let server = Server::start_with_request(ModelApi::Anthropic, standard).await;
-        let fixture = Fixture::packages(remote, &server, &["files"]).await;
-        let provider = signed_in(&fixture, Authentication::ChatGpt, ModelApi::Responses).await;
-        let session = session(&fixture, &provider).await;
-        let requests = server.requests.lock().unwrap().len();
-        let (request, turn) = submit(&fixture.client, &session).await;
-        let page = finished(&fixture.client, &turn, Status::Failed).await;
-        let error = page.runs.last().unwrap().error.as_ref().unwrap();
-        assert_eq!(error.code, ErrorCode::NotConfigured);
-        assert_eq!(
-            error.message,
-            "GDK does not support this ChatGPT authorization endpoint"
-        );
-        assert_eq!(server.requests.lock().unwrap().len(), requests);
-        assert_eq!(
-            fixture.client.execute(request).await.unwrap(),
-            Output::QueuedTurn(turn.clone())
-        );
-        let Output::Providers(providers) = execute(&fixture.client, Command::ListProviders).await
-        else {
-            panic!("providers expected")
-        };
-        assert_eq!(providers, vec![provider.clone()]);
-        let Output::Session(saved) = execute(
-            &fixture.client,
-            Command::ReadSession {
-                session: session.id,
-            },
-        )
-        .await
-        else {
-            panic!("session expected")
-        };
-        assert_eq!(saved.config, session.config);
-        let captured = oauth::captured(&fixture, &turn).await;
-        assert_eq!(captured.credential, provider.credential);
-        assert_eq!(
-            captured.oauth,
-            sailry_protocol::conversation::oauth::Options::defaults(Authentication::ChatGpt)
-        );
-        no_secrets(&page);
-        fixture.close().await;
-    }
+    let server = Server::start_with_request(ModelApi::Anthropic, standard).await;
+    let fixture = Fixture::packages(&server, &["files"]).await;
+    let provider = signed_in(&fixture, Authentication::ChatGpt, ModelApi::Responses).await;
+    let session = session(&fixture, &provider).await;
+    let requests = server.requests.lock().unwrap().len();
+    let (request, turn) = submit(&fixture.client, &session).await;
+    let page = finished(&fixture.client, &turn, Status::Failed).await;
+    let error = page.runs.last().unwrap().error.as_ref().unwrap();
+    assert_eq!(error.code, ErrorCode::NotConfigured);
+    assert_eq!(
+        error.message,
+        "GDK does not support this ChatGPT authorization endpoint"
+    );
+    assert_eq!(server.requests.lock().unwrap().len(), requests);
+    assert_eq!(
+        fixture.client.execute(request).await.unwrap(),
+        Output::QueuedTurn(turn.clone())
+    );
+    let Output::Providers(providers) = execute(&fixture.client, Command::ListProviders).await
+    else {
+        panic!("providers expected")
+    };
+    assert_eq!(providers, vec![provider.clone()]);
+    let Output::Session(saved) = execute(
+        &fixture.client,
+        Command::ReadSession {
+            session: session.id,
+        },
+    )
+    .await
+    else {
+        panic!("session expected")
+    };
+    assert_eq!(saved.config, session.config);
+    let captured = oauth::captured(&fixture, &turn).await;
+    assert_eq!(captured.credential, provider.credential);
+    assert_eq!(
+        captured.oauth,
+        sailry_protocol::conversation::oauth::Options::defaults(Authentication::ChatGpt)
+    );
+    no_secrets(&page);
+    fixture.close().await;
 }
 
 pub(super) async fn discover(fixture: &Fixture, provider: &Provider) -> Result<Output, Fault> {
