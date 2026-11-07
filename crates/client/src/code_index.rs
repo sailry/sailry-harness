@@ -15,7 +15,7 @@ impl Pending {
     pub(crate) fn new(transport: Arc<dyn Transport>, request: &Request) -> Self {
         let cancellation = matches!(
             request.command,
-            Command::SearchCode { .. } | Command::OutlineCode { .. }
+            Command::SearchCode { .. } | Command::OutlineCode { .. } | Command::GraphCode { .. }
         )
         .then(|| {
             let mut cancel = Request::new(
@@ -80,6 +80,21 @@ impl Client {
         {
             Output::CodeOutline(outline) if outline.path == path => Ok(outline),
             _ => Err(Fault::invalid("invalid code outline response")),
+        }
+    }
+
+    pub async fn graph_code(
+        &self,
+        worktree: WorktreeId,
+        query: code_index::Graph,
+    ) -> Result<code_index::GraphPage, Fault> {
+        let view = query.view;
+        match self
+            .execute(self.prepare(Command::GraphCode { worktree, query }))
+            .await?
+        {
+            Output::CodeGraph(page) if page.view == view => Ok(page),
+            _ => Err(Fault::invalid("invalid code graph response")),
         }
     }
 }

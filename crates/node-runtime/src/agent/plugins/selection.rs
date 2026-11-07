@@ -201,6 +201,7 @@ fn visible_operation(operation: Operation) -> bool {
             | Operation::ApplyChanges
             | Operation::SearchCode
             | Operation::OutlineCode
+            | Operation::GraphCode
             | Operation::InspectGit
             | Operation::ReadGitDiff
             | Operation::RunCommand

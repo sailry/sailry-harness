@@ -190,6 +190,57 @@ async fn cancels_abandoned_reads_with_original_scope() {
 }
 
 #[tokio::test]
+async fn checks_graph_views_and_cancels_abandoned_graphs() {
+    let worktree = WorktreeId::new();
+    let page = code_index::GraphPage::new(code_index::View::Map);
+    let backend = Backend::new(vec![
+        Output::CodeGraph(page.clone()),
+        Output::CodeGraph(page.clone()),
+    ]);
+    let client = Client::new(backend.clone());
+    let query = code_index::Graph::new(code_index::View::Map);
+    assert_eq!(
+        client.graph_code(worktree, query.clone()).await.unwrap(),
+        page
+    );
+    let mismatched = code_index::Graph {
+        name: Some("open".into()),
+        ..code_index::Graph::new(code_index::View::Callers)
+    };
+    assert_eq!(
+        client
+            .graph_code(worktree, mismatched)
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidRequest
+    );
+    assert_eq!(
+        backend.calls.lock().unwrap()[0].command,
+        Command::GraphCode { worktree, query }
+    );
+    backend.block.store(true, Ordering::Relaxed);
+    let request = client.prepare(Command::GraphCode {
+        worktree,
+        query: code_index::Graph::new(code_index::View::Map),
+    });
+    let id = request.id;
+    let task = tokio::spawn(async move { client.execute(request).await });
+    backend.entered.acquire_many(3).await.unwrap().forget();
+    task.abort();
+    assert!(task.await.unwrap_err().is_cancelled());
+    tokio::time::timeout(Duration::from_secs(1), backend.cancelled.acquire())
+        .await
+        .unwrap()
+        .unwrap()
+        .forget();
+    assert_eq!(
+        backend.calls.lock().unwrap().last().unwrap().command,
+        Command::CancelCodeIndexQuery { request: id }
+    );
+}
+
+#[tokio::test]
 async fn rejects_mismatched_source_revisions() {
     let backend = Backend::new(vec![Output::FileLines(FileLines {
         path: "main.rs".into(),

@@ -1339,6 +1339,10 @@ pub enum Command {
         worktree: WorktreeId,
         path: String,
     },
+    GraphCode {
+        worktree: WorktreeId,
+        query: crate::code_index::Graph,
+    },
     CancelCodeIndexQuery {
         request: RequestId,
     },
@@ -1801,6 +1805,7 @@ impl Command {
                 | Self::ReadFile { .. }
                 | Self::SearchCode { .. }
                 | Self::OutlineCode { .. }
+                | Self::GraphCode { .. }
                 | Self::CancelCodeIndexQuery { .. }
                 | Self::FetchWeb(_)
                 | Self::CancelWebFetch { .. }
@@ -1936,6 +1941,7 @@ pub enum Output {
     },
     CodeSearch(crate::code_index::SearchPage),
     CodeOutline(crate::code_index::Outline),
+    CodeGraph(crate::code_index::GraphPage),
     CodeIndexSettings(crate::code_index::Settings),
     CodeIndexQueryCancelled {
         request: RequestId,

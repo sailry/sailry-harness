@@ -1,6 +1,9 @@
 //! Rebuildable worktree code structure, independent of language servers.
 use serde::{Deserialize, Serialize};
 
+mod graph;
+pub use graph::*;
+
 pub const MAX_FILE_BYTES: usize = 1024 * 1024;
 pub const DEFAULT_SEARCH_SYMBOLS: usize = 20;
 pub const MAX_SEARCH_SYMBOLS: usize = 100;
@@ -178,6 +181,10 @@ mod tests {
                             worktree,
                             path: "src/中文.rs".into(),
                         },
+                        crate::Command::GraphCode {
+                            worktree,
+                            query: Graph::new(View::Impact),
+                        },
                         crate::Command::ReadFileLines {
                             worktree,
                             path: "src/中文.rs".into(),
@@ -214,6 +221,7 @@ mod tests {
                             Operation::OutlineCode,
                             Action::ReadCodeIndex,
                         ),
+                        ("code.graph", Operation::GraphCode, Action::ReadCodeIndex),
                         (
                             "files.read_lines",
                             Operation::ReadFileLines,

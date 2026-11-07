@@ -233,6 +233,7 @@ pub(super) fn execute<'a>(
         }
         Command::SearchCode { .. }
         | Command::OutlineCode { .. }
+        | Command::GraphCode { .. }
         | Command::CancelCodeIndexQuery { .. } => defer(move || async move {
             Err(Fault::new(
                 ErrorCode::Internal,

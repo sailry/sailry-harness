@@ -14,7 +14,7 @@ impl Ingress {
     ) -> sailry_link::Response {
         let code_query = matches!(
             request.command,
-            Command::SearchCode { .. } | Command::OutlineCode { .. }
+            Command::SearchCode { .. } | Command::OutlineCode { .. } | Command::GraphCode { .. }
         );
         let durable = request.command.durable();
         let id = request.id;
