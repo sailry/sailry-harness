@@ -265,6 +265,7 @@ mod tests {
                     "github".into(),
                     plugin::mcp::Server::Http {
                         exclusive: false,
+                        tools: None,
                         keep_images: None,
                         reuse: true,
                         url: if endpoint_changed {

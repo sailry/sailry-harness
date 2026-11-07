@@ -10,6 +10,7 @@ pub(crate) struct Configured {
     pub name: String,
     pub launch: Result<Launch, Fault>,
     pub options: sailry_protocol::plugin::mcp::Options,
+    pub tools: Option<Vec<String>>,
 }
 
 pub(crate) enum Launch {
@@ -22,6 +23,8 @@ pub(crate) enum Launch {
         roots: (Dir, Dir),
         settings: Option<Projection>,
         python: Option<crate::python::Ready>,
+        /// The bundled computer-use helper, launched with its own OS identity.
+        computer: bool,
     },
     Http {
         url: String,
@@ -264,10 +267,11 @@ impl Resources {
                             .filter(|(server, _)| choices.contains(server))
                             .map(|(server, config)| {
                                 let options = config.options();
+                                let tools = config.tools().map(<[String]>::to_vec);
                                 let launch = prepare(
                                     &host, &directory, &info, &server, config, &settings, helper,
                                 );
-                                (server, (options, launch))
+                                (server, (options, tools, launch))
                             })
                             .collect::<BTreeMap<_, _>>(),
                     )
@@ -284,12 +288,14 @@ impl Resources {
                 if !choices.contains(&server.name) {
                     continue;
                 }
-                let (options, mut launch) = servers.remove(&server.name).unwrap_or_else(|| {
-                    (
-                        Default::default(),
-                        Err(failure.clone().unwrap_or_else(unavailable)),
-                    )
-                });
+                let (options, tools, mut launch) =
+                    servers.remove(&server.name).unwrap_or_else(|| {
+                        (
+                            Default::default(),
+                            None,
+                            Err(failure.clone().unwrap_or_else(unavailable)),
+                        )
+                    });
                 if let Ok(Launch::Stdio {
                     command,
                     args,
@@ -343,6 +349,7 @@ impl Resources {
                     name: server.name.clone(),
                     launch,
                     options,
+                    tools,
                 });
             }
         }
@@ -527,7 +534,8 @@ fn prepare(
             let resolved = base.canonicalize(relative).map_err(io_error)?;
             let _cwd = base.open_dir(&resolved).map_err(io_error)?;
             let cwd = base_path.join(resolved);
-            let command = if command == crate::computer::helper::TOKEN {
+            let computer = command == crate::computer::helper::TOKEN;
+            let command = if computer {
                 helper()?
             } else if let Some(relative) = command.strip_prefix("./") {
                 let resolved = package.root.canonicalize(relative).map_err(io_error)?;
@@ -551,6 +559,9 @@ fn prepare(
                 .collect();
             for value in env.values_mut() {
                 *value = mcp::expand(value, root_text, data_text);
+            }
+            if computer {
+                crate::computer::helper::session(&mut env);
             }
             env.insert("PLUGIN_ROOT".into(), root_text.into());
             env.insert("PLUGIN_DATA".into(), data_text.into());
@@ -588,6 +599,7 @@ fn prepare(
                 roots: (package.root.try_clone().map_err(io_error)?, data),
                 settings: settings_file,
                 python: None,
+                computer,
             })
         }
     }

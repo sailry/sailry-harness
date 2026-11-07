@@ -894,6 +894,10 @@ all `storage.*` operations. MCP tools and tools with file, process, network or
 other external operations reject it. Delegated agents and role tool selections
 keep their own rules.
 
+An `mcp.json` server can declare `tools`, a list of up to 64 distinct server tool
+names, to expose only that subset (Sailry 0.1.5 or later). Unlisted tools are not
+registered, counted or callable; listed names the server does not offer are ignored.
+
 A `host.turn.initialize` hook receives the turn's user text as `message` when the
 package declares `conversation.message.read`. It contains only the text, without
 attachments or references, capped at 4 KiB of UTF-8 on a character boundary. It is

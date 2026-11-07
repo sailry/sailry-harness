@@ -948,14 +948,29 @@ Delegated planning answers do not create a separate user review.
 
 The `computer` package declares an ordinary stdio MCP server and discovers its
 native tools on the execution Node. `${SAILRY_COMPUTER_USE}` resolves only to
-Sailry's bundled, pinned Open Computer Use helper. macOS uses a separately signed
-`Sailry Computer Use.app` inside Desktop's `Contents/Helpers` or Host's `helpers`
-directory. Windows uses `helpers/open-computer-use.exe`, including its PowerShell
-bridge. Both require a logged-in graphical session; Linux computer use is not
-integrated. Desktop and Host remain usable when the helper is missing. The macOS
-helper requires macOS 14, independently of the controller's minimum OS version.
+Sailry's bundled agent-desktop helper, staged from pinned, checksum-verified
+official release archives; packaging never builds it and nothing downloads it at
+runtime. The package runs `agent-desktop mcp` without `--headed`, so actions use
+semantic accessibility calls rather than physical input, and selects a curated
+subset of its tools. agent-desktop reads each app's accessibility tree; refs
+belong to one snapshot. Its tools declare no read-only annotations, so every call
+uses ordinary approval and the exclusive lock.
 
-MCP server options belong to the frozen v1 configuration. `exclusive` serializes
+macOS places `agent-desktop` and its colocated platform helper in a separately
+signed `Sailry Computer Use.app` (`dev.sailry.computer`) inside Desktop's
+`Contents/Helpers` or Host's `helpers` directory, and requires macOS 13. macOS
+charges Accessibility and Screen Recording to a process tree's responsible app,
+so the Node disclaims responsibility when it spawns the helper; grants then belong
+to the helper app rather than Desktop or Host. Windows uses
+`helpers/agent-desktop.exe`. Linux uses `helpers/agent-desktop` with its clipboard
+owner, requires glibc 2.35 and a reachable AT-SPI bus, and receives the Node's
+display, runtime-directory and session-bus variables. Every platform needs a
+logged-in graphical session. Desktop and Host remain usable when the helper is
+missing.
+
+MCP server options belong to the frozen v1 configuration. `tools` selects the
+server tool names a package exposes; unlisted tools are not registered, counted
+against the 64-tool turn limit or callable, including in explicit checks. `exclusive` serializes
 non-read-only calls by installed package name and server across sessions, after
 ordinary approval. Unconfirmed calls retain that lock through pending-task
 cancellation and connection cleanup. `keep_images` reduces only that server's
@@ -968,18 +983,14 @@ instead of pooling it. Settlement confirms pending-task cancellation before
 closing the wire. Stdio closure sends EOF and waits up to five seconds
 for a successful child exit, then kills and reaps when needed. Failed or uncertain
 cleanup returns `OutcomeUnknown`; input is never replayed automatically.
+agent-desktop runs each tool call as its own process and keeps snapshot refs in
+the package's private data directory, so EOF needs no helper-specific cleanup.
 
-Each macOS helper socket connection owns its temporary window state, element
-indexes and cursor. Overlapping owners preserve the first original window state
-until its final owner releases it. Diagnostic connections do not acquire or clear
-another session's state. EOF requires a private session-cleanup acknowledgement;
-the app agent can remain alive between sessions. Process shutdown is the only
-all-owner restoration path, and failed live restoration remains retryable.
-
-The existing permission SDK reads the same captured helper, namespace and config
-as MCP using bounded `doctor --json` diagnostics. Explicit local requests open
-its overall permission onboarding and read both grants again. Windows reports its
-execution platform without macOS TCC controls. Historical successful computer
+The existing permission SDK reads the same captured helper, environment and
+responsibility as MCP using bounded `agent-desktop permissions` diagnostics.
+Explicit local requests run `permissions --request`, which prompts for each
+missing grant, then read both grants again in a fresh process. Windows and Linux
+report their execution platform without macOS TCC controls. Historical successful computer
 command receipts are normalized through the central snapshot, private-backup and
 transactional validation path into retained records containing the complete old
 payload. Original request identities and fingerprints, approvals, canonical

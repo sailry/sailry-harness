@@ -63,12 +63,15 @@ if [[ "$task_target" == *apple-darwin ]]; then task_llama+=(--sign -); fi
 bash "$task_root/scripts/python.sh" "$task_root/scripts/package/llama-runtime.py" "${task_llama[@]}"
 bash "$task_root/scripts/python.sh" "$task_root/scripts/package/python-runtime.py" --target "$task_target" \
   --output "$task_output" --cache "$task_root/target/python-cache"
+task_computer=(--target "$task_target" --output "$task_output/helpers" --cache "$task_root/target/agent-desktop-cache")
+if [[ "$task_target" == *apple-darwin ]]; then
+  task_computer+=(--sign -)
+  if test "$task_profile" = debug; then task_computer+=(--development); fi
+fi
+bash "$task_root/scripts/python.sh" "$task_root/scripts/package/agent-desktop.py" "${task_computer[@]}"
 if [[ "$task_target" == *linux-gnu ]]; then
   "$task_strip" --strip-debug "$task_output/sailry-host"
 else
-  task_ocu=(--target "$task_target" --output "$task_output/helpers" --cache "$task_root/target/ocu-helper-cache" --sign -)
-  if test "$task_profile" = debug; then task_ocu+=(--development); fi
-  bash "$task_root/scripts/python.sh" "$task_root/scripts/package/ocu-helper.py" "${task_ocu[@]}"
   strip -S "$task_output/sailry-host"
   codesign --force --sign - "$task_output/libonnxruntime.dylib"
   codesign --force --sign - "$task_output/sailry-host"

@@ -284,7 +284,7 @@ jobs:
           product = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
           tooling = subprocess.check_output(['git', '-C', '.workflow-tools', 'rev-parse', 'HEAD'], text=True).strip()
           print(f'Product source: {product}; packaging helper source: {tooling}')
-          shutil.copyfile('.workflow-tools/scripts/package/ocu-helper.py', 'scripts/package/ocu-helper.py')
+          shutil.copyfile('.workflow-tools/scripts/package/agent-desktop.py', 'scripts/package/agent-desktop.py')
           PYTHON
       - name: Import signing credentials
         env:

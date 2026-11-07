@@ -288,9 +288,10 @@ async fn isolates_missing_helpers() {
 async fn expands_helper_inputs_once() {
     let (_directory, resources) = fixture(json!({
         "desktop": {"type":"stdio", "command":"${SAILRY_COMPUTER_USE}", "args":["mcp", "${SAILRY_COMPUTER_USE}"], "env":{
-            "OPEN_COMPUTER_USE_AGENT_SOCKET_NAMESPACE":"${PLUGIN_DATA}",
-            "OPEN_COMPUTER_USE_CONFIG_FILE":"${PLUGIN_ROOT}/ocu.json"
-        }}
+            "AGENT_DESKTOP_HOME":"${PLUGIN_DATA}/agent-desktop",
+            "SAILRY_FIXTURE":"${PLUGIN_ROOT}/value"
+        }},
+        "other": {"type":"stdio", "command":"runtime"}
     }));
     fn helper() -> Result<PathBuf, Fault> {
         Ok(PathBuf::from("/packaged/helper"))
@@ -299,19 +300,28 @@ async fn expands_helper_inputs_once() {
         .configured(&crate::process::Environment::ambient(), helper, None, false)
         .await;
     let Launch::Stdio {
-        command, args, env, ..
+        command,
+        args,
+        env,
+        computer,
+        ..
     } = configured.remove(0).launch.unwrap()
     else {
         unreachable!()
     };
+    assert!(computer);
     assert_eq!(command, Path::new("/packaged/helper"));
     assert_eq!(args, ["mcp", "${SAILRY_COMPUTER_USE}"]);
     assert_eq!(
-        env["OPEN_COMPUTER_USE_AGENT_SOCKET_NAMESPACE"],
-        env["PLUGIN_DATA"]
+        env["AGENT_DESKTOP_HOME"],
+        format!("{}/agent-desktop", env["PLUGIN_DATA"])
     );
     assert_eq!(
-        env["OPEN_COMPUTER_USE_CONFIG_FILE"],
-        format!("{}/ocu.json", env["PLUGIN_ROOT"])
+        env["SAILRY_FIXTURE"],
+        format!("{}/value", env["PLUGIN_ROOT"])
     );
+    let Launch::Stdio { computer, .. } = configured.remove(0).launch.unwrap() else {
+        unreachable!()
+    };
+    assert!(!computer);
 }

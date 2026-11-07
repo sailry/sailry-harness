@@ -219,7 +219,7 @@ class Workflow(unittest.TestCase):
         self.assertLess(formal.index("name: Use workflow notarization helper"), formal.index("name: Sign, notarize and package"))
         self.assertIn("shutil.copyfile('.workflow-tools/scripts/package/notarize-macos.py', 'scripts/package/notarize-macos.py')", formal)
         for source in (workflow, formal, (ROOT / ".github/workflows/release-host.yml").read_text()):
-            self.assertIn("shutil.copyfile('.workflow-tools/scripts/package/ocu-helper.py', 'scripts/package/ocu-helper.py')", source)
+            self.assertIn("shutil.copyfile('.workflow-tools/scripts/package/agent-desktop.py', 'scripts/package/agent-desktop.py')", source)
         self.assertLess(workflow.index("name: Restore compiled Desktop"), workflow.index("name: Use workflow packaging helper"))
         self.assertLess(workflow.index("name: Use workflow packaging helper"), workflow.index("name: Assemble ad-hoc Desktop"))
         for source in (workflow, formal):

@@ -170,6 +170,41 @@ async fn checks_only_on_request() {
 }
 
 #[tokio::test]
+async fn lists_declared_tools() {
+    for remote in [false, true] {
+        let model = Server::start(false).await;
+        let fixture = process::Fixture::packages(remote, &model, &[]).await;
+        let mut native = peer::config("mcp::peer::stdio_peer", "normal");
+        native["tools"] = json!(["hold", "read", "absent"]);
+        package(&fixture.root, json!({ "native": native }), "0.1.0");
+        let installed = install(&fixture, 0).await;
+        let Output::PluginMcpChecked(checked) = execute(
+            &fixture.client,
+            Command::CheckPluginMcp {
+                package: installed.summary.reference(),
+                server: "native".into(),
+            },
+        )
+        .await
+        else {
+            panic!("MCP check expected")
+        };
+        // The server's order is retained; absent selections are ignored.
+        assert_eq!(
+            checked
+                .tools
+                .iter()
+                .map(|tool| tool.name.as_str())
+                .collect::<Vec<_>>(),
+            ["read", "hold"]
+        );
+        reaped(&fixture.node.profile().join("plugins/data/example"));
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn freezes_server_choices() {
     let native = alias("native", "read");
     // The model sees and calls the exposed name; records keep the alias.

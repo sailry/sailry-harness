@@ -35,9 +35,10 @@ class CodeSigning(unittest.TestCase):
             app = Path(directory) / "Sailry.app"
             binary = app / "Contents/MacOS/sailry-desktop"
             helper = app / "Contents/Helpers/Sailry Computer Use.app"
-            native = helper / "Contents/MacOS/OpenComputerUse"
+            native = helper / "Contents/MacOS/agent-desktop"
+            companion = helper / "Contents/MacOS/agent-desktop-macos-helper"
             parser = app / "Contents/Resources/code-parsers/libtree_sitter_rust.dylib"
-            for path in (binary, native, parser):
+            for path in (binary, native, companion, parser):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(b"\xcf\xfa\xed\xfe" + b"fixture")
             with patch.object(signing.python_runtime, "unlock"), \
@@ -50,6 +51,7 @@ class CodeSigning(unittest.TestCase):
                 signing.sign(app, None, "aarch64-apple-darwin", "Fixture identity", "FIXTURE")
             targets = [call.args[-1] for call in run.call_args_list]
             self.assertLess(targets.index(native), targets.index(helper))
+            self.assertLess(targets.index(companion), targets.index(helper))
             self.assertLess(targets.index(helper), targets.index(app))
             self.assertLess(targets.index(parser), targets.index(app))
             parser_finalize.assert_called_once_with("aarch64-apple-darwin", parser.parent)

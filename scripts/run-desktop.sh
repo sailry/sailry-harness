@@ -24,9 +24,9 @@ bash "$task_root/scripts/python.sh" "$task_root/scripts/package/llama-runtime.py
   --output "$task_build" --source "$task_native" --cargo
 
 if test "$(uname -s)" != Darwin; then
-  if [[ "$task_triple" == *-pc-windows-msvc ]]; then
-    bash "$task_root/scripts/python.sh" "$task_root/scripts/package/ocu-helper.py" --target "$task_triple" \
-      --output "$task_build/helpers" --cache "$task_target/ocu-helper-cache"
+  if [[ "$task_triple" == *-pc-windows-msvc || "$task_triple" == *-unknown-linux-gnu ]]; then
+    bash "$task_root/scripts/python.sh" "$task_root/scripts/package/agent-desktop.py" --target "$task_triple" \
+      --output "$task_build/helpers" --cache "$task_target/agent-desktop-cache"
   fi
   SHERPA_ONNX_LIB_DIR="$task_native" exec bash "$task_root/scripts/python.sh" "$task_root/scripts/telemetry-env.py" cargo run --locked -p sailry-desktop -- "$@"
 fi
@@ -75,8 +75,8 @@ bash "$task_root/scripts/python.sh" "$task_root/scripts/package/onnx-runtime.py"
   --output "$task_app/Contents/MacOS" --speech --finalize
 bash "$task_root/scripts/python.sh" "$task_root/scripts/package/llama-runtime.py" --target "$task_triple" \
   --output "$task_app/Contents/MacOS" --source "$task_build" --sign "$task_identity"
-bash "$task_root/scripts/python.sh" "$task_root/scripts/package/ocu-helper.py" --target "$task_triple" \
-  --output "$task_app/Contents/Helpers" --cache "$task_target/ocu-helper-cache" --development --sign "$task_identity"
+bash "$task_root/scripts/python.sh" "$task_root/scripts/package/agent-desktop.py" --target "$task_triple" \
+  --output "$task_app/Contents/Helpers" --cache "$task_target/agent-desktop-cache" --development --sign "$task_identity"
 codesign --force --timestamp=none --sign "$task_identity" "$task_app"
 # LaunchServices gives Sailry its own TCC identity. Direct execution attributes
 # microphone requests to the terminal's parent app, which may prohibit them.

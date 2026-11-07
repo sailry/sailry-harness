@@ -14,6 +14,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 pub(super) const MAX_BYTES: usize = 256 * 1024;
 pub(crate) const MAX_SERVERS: usize = 16;
+/// Tools one turn can register across all of its MCP servers.
+pub(crate) const MAX_TOOLS: usize = 64;
 pub(super) use sailry_protocol::plugin::mcp::SCHEMA;
 pub(crate) use sailry_protocol::plugin::mcp::Server;
 
@@ -27,6 +29,18 @@ struct Document {
 }
 
 pub(crate) fn validate_server(server: &Server) -> Result<(), Fault> {
+    if let Some(tools) = server.tools()
+        && (tools.is_empty()
+            || tools.len() > MAX_TOOLS
+            || tools
+                .iter()
+                .any(|tool| tool.is_empty() || tool.len() > 128 || tool.contains('\0'))
+            || tools.iter().collect::<BTreeSet<_>>().len() != tools.len())
+    {
+        return Err(sailry_protocol::Fault::invalid(
+            "invalid MCP tool selection",
+        ));
+    }
     match server {
         Server::Stdio {
             command,

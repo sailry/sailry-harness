@@ -13,6 +13,7 @@ mod transport;
 use super::catalog::Registration;
 use super::*;
 use crate::agent::{canonical::ToolIdentity, catalog::CallContext};
+use crate::plugins::mcp::MAX_TOOLS;
 use async_trait::async_trait;
 use goose_agent::{operation::Emitter, tool::ToolProvider};
 use rmcp::model::{CallToolRequestParams, CallToolResult, ErrorData};
@@ -35,7 +36,6 @@ use std::{
 };
 
 type Service = RunningService<RoleClient, Arc<input::Handler>>;
-const MAX_TOOLS: usize = 64;
 
 #[derive(Default)]
 pub(super) struct Connections {
@@ -364,7 +364,7 @@ impl Target<'_> {
             };
             let listed = tokio::select! {
                 _ = stop.cancelled() => Err(unavailable()),
-                result = tokio::time::timeout(Duration::from_secs(10), list(&connection.peer)) => result.unwrap_or_else(|_| Err(unavailable())),
+                result = tokio::time::timeout(Duration::from_secs(10), list(&connection.peer, config.tools.as_deref())) => result.unwrap_or_else(|_| Err(unavailable())),
             };
             match listed {
                 Ok(descriptors) => Ok((connection, descriptors)),
@@ -385,7 +385,10 @@ impl Target<'_> {
     }
 }
 
-async fn list(service: &rmcp::Peer<RoleClient>) -> Result<Vec<Descriptor>, Fault> {
+async fn list(
+    service: &rmcp::Peer<RoleClient>,
+    selected: Option<&[String]>,
+) -> Result<Vec<Descriptor>, Fault> {
     let mut tools = Vec::new();
     let mut names = BTreeSet::new();
     let mut cursors = BTreeSet::new();
@@ -401,6 +404,12 @@ async fn list(service: &rmcp::Peer<RoleClient>) -> Result<Vec<Descriptor>, Fault
             .await
             .map_err(|_| unavailable())?;
         for tool in page.tools {
+            // Undeclared tools are neither registered nor counted against the limits.
+            if selected
+                .is_some_and(|selected| !selected.iter().any(|name| name.as_str() == &*tool.name))
+            {
+                continue;
+            }
             bytes += serde_json::to_vec(&tool).map_err(|_| unavailable())?.len();
             if tools.len() >= MAX_TOOLS
                 || bytes > 256 * 1024
