@@ -8,6 +8,15 @@ mod edit;
 mod restore;
 mod sets;
 
+async fn capture(
+    database: &mut Database,
+    turn: TurnId,
+    request: &Request,
+    before: Option<&str>,
+) -> Result<(), Fault> {
+    super::capture(database, turn, request, content(request, before)?).await
+}
+
 async fn running(fixture: &mut Fixture) -> TurnId {
     crate::store::agent::tests::fixture::files(&fixture.database, fixture._root.path()).await;
     let turn = fixture.queued().await;

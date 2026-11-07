@@ -86,7 +86,7 @@ fn publish<'a>(
         path::create_parents(root, relative)?;
     }
     let revision = blake3::hash(text.as_bytes()).to_hex().to_string();
-    Target::prepare(root, relative, expected, MAX_FILE_BYTES as u64, None)?.write_observed(
+    Target::prepare(root, relative, expected, MAX_EDIT_BYTES as u64, None)?.write_observed(
         text.as_bytes(),
         text.len() as u64,
         &revision,

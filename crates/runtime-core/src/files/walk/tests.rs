@@ -33,7 +33,7 @@ fn timestamp(path: &Path, seconds: u64) {
 fn matches_names_without_reading_contents() {
     let root = directory();
     std::fs::create_dir(root.path().join("src")).unwrap();
-    std::fs::create_dir(root.path().join(".git")).unwrap();
+    git2::Repository::init(root.path()).unwrap();
     std::fs::write(root.path().join("src/b.rs"), [0xff, 0x00]).unwrap();
     std::fs::write(root.path().join("src/a.rs"), "").unwrap();
     std::fs::write(root.path().join("src/c.txt"), "").unwrap();
@@ -214,7 +214,7 @@ fn inherits_ignores_with_negation_and_subpaths() {
         &control(),
     )
     .unwrap();
-    assert!(result.paths.is_empty());
+    assert_eq!(result.paths, ["src/a.tmp"]);
 }
 
 #[test]
@@ -266,11 +266,129 @@ fn distinguishes_missing_and_ignored_scopes() {
     std::fs::write(root.path().join("ignored/private.py"), "private fixture\n").unwrap();
     std::fs::write(root.path().join(".gitignore"), "/ignored/\n").unwrap();
     let names = super::find(root.path(), &patterns, "ignored", 500, 0, &control()).unwrap();
-    assert!(names.paths.is_empty());
+    assert_eq!(names.paths, ["ignored/private.py"]);
     assert!(!names.partial);
     assert!(!names.truncated);
     assert_eq!(names.skipped, 0);
     assert!(names.diagnostics.is_empty());
+}
+
+#[test]
+fn scopes_globs_and_excludes_basenames() {
+    let root = directory();
+    std::fs::create_dir_all(root.path().join("src/nested")).unwrap();
+    for name in [
+        "src/main.rs",
+        "src/nested/lib.rs",
+        "src/nested/Cargo.lock",
+        "src/Cargo.lock",
+    ] {
+        std::fs::write(root.path().join(name), "").unwrap();
+        timestamp(&root.path().join(name), 1000);
+    }
+    for (patterns, expected) in [
+        (vec!["*.rs"], vec!["src/main.rs", "src/nested/lib.rs"]),
+        (vec!["nested/*.rs"], vec!["src/nested/lib.rs"]),
+        (
+            vec!["**/*", "!*.lock"],
+            vec!["src/main.rs", "src/nested/lib.rs"],
+        ),
+        (
+            vec!["!*.lock", "nested/Cargo.lock"],
+            vec!["src/nested/Cargo.lock"],
+        ),
+    ] {
+        let patterns = patterns.into_iter().map(str::to_owned).collect::<Vec<_>>();
+        let names = super::find(root.path(), &patterns, "src", 500, 0, &control()).unwrap();
+        assert_eq!(names.paths, expected);
+    }
+}
+
+#[test]
+fn honors_repository_and_override_rules() {
+    let root = directory();
+    git2::Repository::init(root.path()).unwrap();
+    std::fs::create_dir(root.path().join("src")).unwrap();
+    std::fs::write(root.path().join(".git/info/exclude"), "*.tmp\n").unwrap();
+    std::fs::write(root.path().join(".gitignore"), "*.rs\n").unwrap();
+    std::fs::write(root.path().join(".ignore"), "!keep.rs\nskip.txt\n").unwrap();
+    std::fs::write(root.path().join("src/.gitignore"), "keep.rs\n").unwrap();
+    for name in ["src/keep.rs", "src/skip.rs", "src/skip.txt", "src/skip.tmp"] {
+        std::fs::write(root.path().join(name), "").unwrap();
+    }
+    timestamp(&root.path().join("src/keep.rs"), 2000);
+    timestamp(&root.path().join("src/.gitignore"), 1000);
+    let names = super::find(root.path(), &["src/*".into()], "", 500, 0, &control()).unwrap();
+    assert_eq!(names.paths, ["src/keep.rs", "src/.gitignore"]);
+}
+
+#[test]
+fn reads_linked_worktree_excludes() {
+    let root = directory();
+    let repository = git2::Repository::init(root.path().join("main")).unwrap();
+    let signature = git2::Signature::now("Fixture", "fixture@example.invalid").unwrap();
+    let tree = repository
+        .find_tree(repository.index().unwrap().write_tree().unwrap())
+        .unwrap();
+    repository
+        .commit(Some("HEAD"), &signature, &signature, "fixture", &tree, &[])
+        .unwrap();
+    repository
+        .worktree("linked", &root.path().join("checkout"), None)
+        .unwrap();
+    std::fs::write(repository.path().join("info/exclude"), "excluded.rs\n").unwrap();
+    let excludes = root.path().join("rules");
+    std::fs::write(&excludes, "configured.rs\n").unwrap();
+    repository
+        .config()
+        .unwrap()
+        .set_str("core.excludesFile", excludes.to_str().unwrap())
+        .unwrap();
+    for name in ["visible.rs", "excluded.rs", "configured.rs"] {
+        std::fs::write(root.path().join("checkout").join(name), "").unwrap();
+    }
+    let names = super::find(
+        &root.path().join("checkout"),
+        &["*.rs".into()],
+        "",
+        500,
+        0,
+        &control(),
+    )
+    .unwrap();
+    assert_eq!(names.paths, ["visible.rs"]);
+    assert!(!names.partial, "{names:?}");
+}
+
+#[test]
+fn honors_repository_excludes_configuration() {
+    let root = directory();
+    let repository = git2::Repository::init(root.path()).unwrap();
+    std::fs::write(root.path().join("rules"), "*.tmp\n").unwrap();
+    std::fs::write(
+        root.path().join(".git/include"),
+        "[core]\nexcludesFile = rules\n",
+    )
+    .unwrap();
+    repository
+        .config()
+        .unwrap()
+        .set_str("include.path", "include")
+        .unwrap();
+    for name in ["kept.rs", "excluded.tmp"] {
+        std::fs::write(root.path().join(name), "").unwrap();
+    }
+    let names = super::find(
+        root.path(),
+        &["*.rs".into(), "*.tmp".into()],
+        "",
+        500,
+        0,
+        &control(),
+    )
+    .unwrap();
+    assert_eq!(names.paths, ["kept.rs"]);
+    assert!(!names.partial, "{names:?}");
 }
 
 #[test]

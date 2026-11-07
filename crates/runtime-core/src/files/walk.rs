@@ -44,20 +44,62 @@ pub struct Listing {
     pub report: Report,
 }
 
-pub fn globs(patterns: &[String]) -> Result<GlobSet, Fault> {
-    let mut builder = GlobSetBuilder::new();
+pub struct Globs {
+    matcher: GlobSet,
+    included: Vec<bool>,
+}
+
+impl Globs {
+    pub fn is_match(&self, relative: &str, scope: &str) -> bool {
+        let relative = relative
+            .strip_prefix(scope)
+            .and_then(|suffix| suffix.strip_prefix('/'))
+            .unwrap_or_else(|| {
+                if relative == scope {
+                    relative.rsplit('/').next().unwrap()
+                } else {
+                    relative
+                }
+            });
+        self.matcher
+            .matches(relative)
+            .last()
+            .map(|index| self.included[*index])
+            .unwrap_or_else(|| !self.included.contains(&true))
+    }
+}
+
+pub fn globs(patterns: &[String]) -> Result<Globs, Fault> {
+    let mut matcher = GlobSetBuilder::new();
+    let mut included = Vec::new();
     for pattern in patterns {
-        builder.add(
-            GlobBuilder::new(pattern)
+        let (include, pattern) = match pattern.strip_prefix('!') {
+            Some(pattern) => (false, pattern),
+            None => (true, pattern.as_str()),
+        };
+        if pattern.is_empty() {
+            return Err(Fault::invalid("invalid file glob pattern"));
+        }
+        let pattern = if pattern.contains('/') {
+            pattern.to_owned()
+        } else {
+            format!("**/{pattern}")
+        };
+        matcher.add(
+            GlobBuilder::new(&pattern)
                 .literal_separator(true)
                 .backslash_escape(false)
                 .build()
                 .map_err(|_| Fault::invalid("invalid file glob pattern"))?,
         );
+        included.push(include);
     }
-    builder
-        .build()
-        .map_err(|_| Fault::invalid("invalid file glob pattern"))
+    Ok(Globs {
+        matcher: matcher
+            .build()
+            .map_err(|_| Fault::invalid("invalid file glob pattern"))?,
+        included,
+    })
 }
 
 pub fn find<'a>(
@@ -77,7 +119,7 @@ pub fn find<'a>(
     let mut listing = collect(root, scope, control)?;
     listing
         .entries
-        .retain(|entry| matcher.is_match(&entry.path));
+        .retain(|entry| matcher.is_match(&entry.path, scope));
     listing.entries.sort_by(|left, right| {
         right
             .modified
@@ -141,6 +183,15 @@ pub fn collect_bounded<'a>(
     Ok(Listing { entries, report })
 }
 
+pub fn visit<'a>(
+    root: impl Into<super::Scope<'a>>,
+    scope: &str,
+    control: &Control,
+    visitor: &mut impl FnMut(&Dir, &str, &str, &Metadata) -> Result<bool, Fault>,
+) -> Result<Report, Fault> {
+    traverse(root, scope, true, control, visitor, &mut |_, _| Ok(()))
+}
+
 fn traverse<'a>(
     root: impl Into<super::Scope<'a>>,
     scope: &str,
@@ -164,12 +215,21 @@ fn traverse<'a>(
         return Ok(report);
     };
     let mut layers = Vec::new();
+    if respect_ignores {
+        layers.extend(ignores::base(&directory, root.path(), control, &mut report));
+    }
+    let mut overrides = Vec::new();
     let mut prefix = String::new();
     for (index, part) in parts.iter().enumerate() {
         if respect_ignores
             && let Some(layer) = ignores::load(&directory, &prefix, control, &mut report)
         {
             layers.push(layer);
+        }
+        if respect_ignores
+            && let Some(layer) = ignores::override_rules(&directory, &prefix, control, &mut report)
+        {
+            overrides.push(layer);
         }
         let relative = if prefix.is_empty() {
             (*part).into()
@@ -188,9 +248,6 @@ fn traverse<'a>(
             return Err(Fault::invalid(
                 "search path must be a regular file or directory",
             ));
-        }
-        if respect_ignores && ignores::excludes(&layers, &relative, metadata.is_dir()) {
-            return Ok(report);
         }
         if metadata.is_file() {
             if index + 1 != parts.len() {
@@ -211,6 +268,7 @@ fn traverse<'a>(
         access: root.access,
         respect_ignores,
         layers,
+        overrides,
         control,
         report: &mut report,
         visitor,
@@ -255,6 +313,7 @@ struct Walker<'a, F, D> {
     access: super::Access,
     respect_ignores: bool,
     layers: Vec<Gitignore>,
+    overrides: Vec<Gitignore>,
     control: &'a Control,
     report: &'a mut Report,
     visitor: &'a mut F,
@@ -272,13 +331,20 @@ where
         control.check()?;
         (self.enter)(directory, prefix)?;
         let inherited = self.layers.len();
+        let inherited_overrides = self.overrides.len();
         if respect_ignores
             && let Some(layer) = ignores::load(directory, prefix, control, self.report)
         {
             self.layers.push(layer);
         }
+        if respect_ignores
+            && let Some(layer) = ignores::override_rules(directory, prefix, control, self.report)
+        {
+            self.overrides.push(layer);
+        }
         let result = self.contents(directory, prefix, depth);
         self.layers.truncate(inherited);
+        self.overrides.truncate(inherited_overrides);
         result
     }
 
@@ -312,10 +378,22 @@ where
                 self.report.diagnostic(prefix, "unsupported entry name");
                 continue;
             }
-            names.push(name);
+            let kind = match entry.file_type() {
+                Ok(kind) => kind,
+                Err(error) => {
+                    self.report.diagnostic(prefix, &io_error(error).message);
+                    continue;
+                }
+            };
+            let order = if kind.is_dir() {
+                format!("{name}/")
+            } else {
+                name.clone()
+            };
+            names.push((order, name));
         }
         names.sort();
-        for name in names {
+        for (_, name) in names {
             control.check()?;
             let relative = if prefix.is_empty() {
                 name.clone()
@@ -329,7 +407,12 @@ where
                     self.report.skipped += 1;
                     return Ok(true);
                 }
-                if respect_ignores && ignores::excludes(&self.layers, &relative, metadata.is_dir())
+                if respect_ignores
+                    && ignores::excludes(
+                        self.overrides.iter().rev().chain(self.layers.iter().rev()),
+                        &relative,
+                        metadata.is_dir(),
+                    )
                 {
                     return Ok(true);
                 }

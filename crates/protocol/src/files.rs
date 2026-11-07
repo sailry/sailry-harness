@@ -210,7 +210,7 @@ pub struct FileContent {
 pub struct FileLine {
     /// One-based position in the complete file.
     pub number: usize,
-    /// Original text, including its line ending when present.
+    /// Original text, including its line ending unless the page truncates it.
     pub text: String,
 }
 
@@ -224,6 +224,8 @@ pub struct FileLines {
     /// Zero-based line offset requested by the caller.
     pub offset: usize,
     pub next_offset: Option<usize>,
+    #[serde(default)]
+    pub truncated: bool,
 }
 
 /// Largest image file read as model input.

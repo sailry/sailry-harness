@@ -26,13 +26,10 @@ impl Target {
         limit: u64,
         cancel: Option<&CancellationToken>,
     ) -> Result<Self, Fault> {
-        let root = root.into();
-        let parts = root.components(relative, false)?;
-        let (name, parents) = parts.split_last().unwrap();
-        let dir = path::descend(path::root(root.path())?, parents)?;
-        let parent = identity::directory(&dir)?;
-        let original = if let Some(expected) = expected {
-            let (file, revision) = current(&dir, name, limit, cancel)?;
+        let mut target = Self::at(root.into(), relative, limit)?;
+        let name = relative.rsplit('/').next().unwrap();
+        target.original = if let Some(expected) = expected {
+            let (file, revision) = current(&target.dir, name, limit, cancel)?;
             if revision != expected {
                 return Err(conflict());
             }
@@ -46,20 +43,60 @@ impl Target {
                 permissions,
             })
         } else {
-            match dir.symlink_metadata(name) {
+            match target.dir.symlink_metadata(name) {
                 Ok(_) => return Err(conflict()),
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
                 Err(error) => return Err(io_error(error)),
             }
             None
         };
+        Ok(target)
+    }
+
+    pub fn read<'a>(
+        root: impl Into<crate::files::Scope<'a>>,
+        relative: &str,
+        expected: &str,
+        control: &crate::files::Control,
+    ) -> Result<(Self, String), Fault> {
+        if blake3::Hash::from_hex(expected).is_err() {
+            return Err(Fault::invalid("invalid file revision"));
+        }
+        control.check()?;
+        let mut target = Self::at(root.into(), relative, MAX_EDIT_BYTES as u64)?;
+        let name = relative.rsplit('/').next().unwrap();
+        let file = crate::files::open_regular(&target.dir, name)?;
+        let identity = identity::file(&file)?;
+        let permissions = file.metadata().map_err(io_error)?.permissions();
+        if permissions.readonly() {
+            return Err(Fault::new(ErrorCode::PermissionDenied, "file is read-only"));
+        }
+        let text = crate::files::lines::checked(file, MAX_EDIT_BYTES, control)?
+            .ok_or_else(|| Fault::invalid("text file exceeds the inspection limit"))?;
+        let revision = blake3::hash(text.as_bytes()).to_hex().to_string();
+        if revision != expected {
+            return Err(conflict());
+        }
+        target.original = Some(Original {
+            revision,
+            identity,
+            permissions,
+        });
+        Ok((target, text))
+    }
+
+    fn at(root: crate::files::Scope<'_>, relative: &str, limit: u64) -> Result<Self, Fault> {
+        let parts = root.components(relative, false)?;
+        let (_, parents) = parts.split_last().unwrap();
+        let dir = path::descend(path::root(root.path())?, parents)?;
+        let parent = identity::directory(&dir)?;
         Ok(Self {
             root: root.path().into(),
             access: root.access,
             relative: relative.into(),
             dir,
             parent,
-            original,
+            original: None,
             limit,
         })
     }

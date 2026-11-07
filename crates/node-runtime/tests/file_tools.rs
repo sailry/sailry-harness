@@ -184,6 +184,98 @@ async fn pages_and_edits_large_files() {
 }
 
 #[tokio::test]
+async fn clips_lines_and_replaces_large_originals() {
+    let fixture = Fixture::empty().await;
+    for (index, client) in fixture.clients().iter().enumerate() {
+        let path = format!("long-{index}.txt");
+        let original = format!("{}🙂\naaa\n", "x".repeat(MAX_FILE_BYTES));
+        std::fs::write(fixture.root.join(&path), &original).unwrap();
+        let lines = page(client, fixture.worktree, &path, 0).await;
+        assert!(lines.truncated);
+        assert_eq!(lines.lines.len(), 1);
+        assert_eq!(lines.lines[0].text.len(), MAX_FILE_BYTES);
+        assert_eq!(lines.next_offset, Some(1));
+        assert_eq!(
+            lines.revision,
+            blake3::hash(original.as_bytes()).to_hex().as_str()
+        );
+        let Output::FileWritten(edited) = client
+            .execute(client.prepare(Command::EditFile {
+                worktree: fixture.worktree,
+                path: path.clone(),
+                old_text: Some("aa".into()),
+                new_text: Some("b".into()),
+                replace_all: true,
+                edits: None,
+                expected_revision: lines.revision,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("file written expected")
+        };
+        assert_eq!(
+            std::fs::read_to_string(fixture.root.join(&path)).unwrap(),
+            original.replace("aa", "b")
+        );
+        client
+            .execute(client.prepare(Command::WriteFile {
+                worktree: fixture.worktree,
+                path: path.clone(),
+                text: "replacement".into(),
+                expected_revision: Some(edited.revision),
+            }))
+            .await
+            .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(fixture.root.join(&path)).unwrap(),
+            "replacement"
+        );
+    }
+    fixture.close().await;
+}
+
+#[tokio::test]
+async fn scopes_search_inside_ignored_directories() {
+    let fixture = Fixture::empty().await;
+    std::fs::create_dir_all(fixture.root.join("src/nested")).unwrap();
+    std::fs::write(fixture.root.join(".gitignore"), "src/\n").unwrap();
+    for name in ["src/main.rs", "src/nested/lib.rs", "src/nested/skip.rs"] {
+        std::fs::write(fixture.root.join(name), "hit\u{1b}[0m\n").unwrap();
+    }
+    std::fs::write(
+        fixture.root.join("src/nested/old.rs"),
+        b"hit \xd6\xd0\xce\xc4\n",
+    )
+    .unwrap();
+    std::fs::write(fixture.root.join("src/nested/binary.rs"), b"hit\0\n").unwrap();
+    for client in fixture.clients() {
+        let Output::SearchResults(result) = client
+            .execute(client.prepare(Command::SearchFiles {
+                worktree: fixture.worktree,
+                options: FileSearch {
+                    path: "src".into(),
+                    query: "hit".into(),
+                    globs: vec!["*.rs".into(), "!skip.rs".into()],
+                    ..Default::default()
+                },
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("search results expected")
+        };
+        assert_eq!(result.matches.len(), 2);
+        assert_eq!(result.matches[0].path, "src/main.rs");
+        assert_eq!(result.matches[1].path, "src/nested/lib.rs");
+        assert_eq!(result.skipped, 2);
+        assert_eq!(result.diagnostics.len(), 1);
+        assert!(!result.partial);
+    }
+    fixture.close().await;
+}
+
+#[tokio::test]
 async fn pages_files_beyond_the_edit_budget() {
     use std::io::Write;
 
@@ -341,7 +433,7 @@ async fn shares_revision_checked_move_and_trash() {
 async fn finds_names_without_reading_contents() {
     let fixture = Fixture::empty().await;
     std::fs::create_dir(fixture.root.join("src")).unwrap();
-    std::fs::create_dir(fixture.root.join(".git")).unwrap();
+    git2::Repository::init(&fixture.root).unwrap();
     std::fs::write(fixture.root.join("src/binary.rs"), b"\xff\0").unwrap();
     std::fs::write(
         fixture.root.join("src/text.rs"),
@@ -364,7 +456,7 @@ async fn finds_names_without_reading_contents() {
         let Output::FileNames(found) = client
             .execute(client.prepare(Command::FindFiles {
                 worktree: fixture.worktree,
-                globs: vec!["**/*.rs".into()],
+                globs: vec!["*.rs".into()],
                 path: String::new(),
                 limit: MAX_FIND_MATCHES,
                 offset: 0,

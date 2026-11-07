@@ -136,7 +136,7 @@ export function inspectGit(): Promise<Json>;
 export function readFile(path: string): Promise<{ text: string; revision: string | null; truncated: boolean }>;
 /** Zero-based offsets, one-based returned line numbers; requires files.read. */
 export function readFileLines(path:string, offset?:number, limit?:number, expectedRevision?:string|null):Promise<FileLines>;
-export type FileLines = {path:string; lines:{number:number; text:string}[]; size:number; revision:string; offset:number; next_offset:number|null};
+export type FileLines = {path:string; lines:{number:number; text:string}[]; size:number; revision:string; offset:number; next_offset:number|null; truncated:boolean};
 /** Zero-based positions and UTF-8 byte columns; end_byte is exclusive. */
 export type CodeRange = {start_byte:number; end_byte:number; start_line:number; start_column:number; end_line:number; end_column:number};
 export type CodeSymbol = {path:string; language:string; name:string; kind:string; range:CodeRange; signature:string|null; file_revision:string; depth:number};

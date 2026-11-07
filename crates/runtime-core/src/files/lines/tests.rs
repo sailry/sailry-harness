@@ -88,18 +88,22 @@ fn bounds_pages_without_partial_lines() {
     assert_eq!(page.lines.len(), 1);
     assert_eq!(page.lines[0].text, line);
     assert_eq!(page.next_offset, Some(1));
-    std::fs::write(root.path().join("file"), "x".repeat(MAX_FILE_BYTES + 1)).unwrap();
+    let text = format!("{}🙂", "x".repeat(MAX_FILE_BYTES - 1));
+    std::fs::write(root.path().join("file"), &text).unwrap();
+    let page = read(
+        &root.path().canonicalize().unwrap(),
+        "file".into(),
+        0,
+        200,
+        &control(),
+    )
+    .unwrap();
+    assert!(page.truncated);
+    assert_eq!(page.lines[0].text, "x".repeat(MAX_FILE_BYTES - 1));
+    assert_eq!(page.next_offset, None);
     assert_eq!(
-        read(
-            &root.path().canonicalize().unwrap(),
-            "file".into(),
-            0,
-            200,
-            &control()
-        )
-        .unwrap_err()
-        .code,
-        ErrorCode::InvalidRequest
+        page.revision,
+        blake3::hash(text.as_bytes()).to_hex().as_str()
     );
 }
 
@@ -139,12 +143,12 @@ fn skips_unselected_oversized_lines() {
     let first = read(&path, "file".into(), 0, 2, &control()).unwrap();
     assert_eq!(first.lines.len(), 1);
     assert_eq!(first.next_offset, Some(1));
-    assert_eq!(
-        read(&path, "file".into(), 1, 1, &control())
-            .unwrap_err()
-            .code,
-        ErrorCode::InvalidRequest
-    );
+    let oversized = read(&path, "file".into(), 1, 1, &control()).unwrap();
+    assert!(oversized.truncated);
+    assert_eq!(oversized.lines[0].number, 2);
+    assert_eq!(oversized.lines[0].text.len(), MAX_FILE_BYTES);
+    assert_eq!(oversized.next_offset, Some(2));
+    assert_eq!(oversized.revision, first.revision);
     let last = read_version(
         &path,
         "file".into(),

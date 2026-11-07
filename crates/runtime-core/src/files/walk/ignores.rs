@@ -18,35 +18,122 @@ pub fn load_path(
     control: &Control,
     report: &mut Report,
 ) -> Option<Gitignore> {
-    let label = prefix.to_string_lossy();
-    let metadata = match directory.symlink_metadata(".gitignore") {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return None,
-        Err(_) => {
-            report.diagnostic(&label, "could not inspect .gitignore");
-            return None;
+    load_file(directory, prefix, ".gitignore", control, report)
+}
+
+pub(super) fn override_rules(
+    directory: &Dir,
+    prefix: &str,
+    control: &Control,
+    report: &mut Report,
+) -> Option<Gitignore> {
+    load_file(directory, Path::new(prefix), ".ignore", control, report)
+}
+
+pub(super) fn base(
+    directory: &Dir,
+    root: &Path,
+    control: &Control,
+    report: &mut Report,
+) -> Vec<Gitignore> {
+    let mut layers = Vec::new();
+    let repository = match repository(directory, root, control) {
+        Ok(repository) => repository,
+        Err(error) => {
+            report.diagnostic(".git", &error.message);
+            None
         }
     };
-    if metadata.is_symlink() || !metadata.is_file() {
-        report.diagnostic(
-            &label,
-            ".gitignore is not a regular file; its rules were not loaded",
-        );
-        return None;
+    let configured = repository
+        .as_ref()
+        .map(|repository| {
+            repository
+                .config()
+                .and_then(|config| config.get_path("core.excludesFile"))
+        })
+        .transpose();
+    match configured {
+        Ok(Some(configured)) if configured.as_os_str().is_empty() => {}
+        Ok(Some(configured)) => {
+            let configured = root.join(configured);
+            let loaded: Result<Option<Gitignore>, Fault> = (|| {
+                let name = configured
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .ok_or_else(|| Fault::invalid("invalid core.excludesFile path"))?;
+                let parent = match path::root(configured.parent().unwrap()) {
+                    Err(error) if error.code == ErrorCode::NotFound => return Ok(None),
+                    parent => parent?,
+                };
+                Ok(load_file(&parent, Path::new(""), name, control, report))
+            })();
+            match loaded {
+                Ok(Some(rules)) => layers.push(rules),
+                Ok(None) => {}
+                Err(error) => report.diagnostic("", &error.message),
+            }
+        }
+        Err(error) if error.code() != git2::ErrorCode::NotFound => {
+            report.diagnostic(
+                "",
+                &format!("could not load Git ignore configuration: {error}"),
+            );
+        }
+        _ => {
+            let (global, error) = GitignoreBuilder::new(".").build_global();
+            if let Some(error) = error {
+                report.diagnostic("", &format!("could not load global ignore rules: {error}"));
+            }
+            layers.push(global);
+        }
     }
+    let Some(repository) = repository else {
+        return layers;
+    };
+    if let Ok(directory) = path::root(repository.commondir())
+        && let Ok(info) = path::descend(directory, &["info"])
+        && let Some(exclude) = load_file(&info, Path::new(""), "exclude", control, report)
+    {
+        layers.push(exclude);
+    }
+    layers
+}
+
+fn repository(
+    directory: &Dir,
+    root: &Path,
+    control: &Control,
+) -> Result<Option<git2::Repository>, Fault> {
+    control.check()?;
+    let metadata = match directory.symlink_metadata(".git") {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(io_error(error)),
+    };
+    if metadata.is_symlink() {
+        return Err(Fault::invalid("Git metadata cannot be a symbolic link"));
+    }
+    git2::Repository::open_ext(
+        root,
+        git2::RepositoryOpenFlags::NO_SEARCH,
+        std::iter::empty::<&Path>(),
+    )
+    .map(Some)
+    .map_err(|error| Fault::invalid(format!("could not open Git ignore configuration: {error}")))
+}
+
+fn load_file(
+    directory: &Dir,
+    prefix: &Path,
+    name: &str,
+    control: &Control,
+    report: &mut Report,
+) -> Option<Gitignore> {
+    let label = prefix.to_string_lossy();
     let result = (|| {
-        if metadata.len() > MAX_IGNORE_BYTES as u64 {
-            return Err(Fault::invalid(".gitignore exceeds the 1 MiB limit"));
-        }
-        let mut file = super::super::open_regular(directory, ".gitignore")?;
-        let bytes = super::super::read_bytes(&mut file, MAX_IGNORE_BYTES + 1, control)?;
-        if bytes.len() > MAX_IGNORE_BYTES {
-            return Err(Fault::invalid(".gitignore exceeds the 1 MiB limit"));
-        }
-        let text = std::str::from_utf8(&bytes)
-            .map_err(|_| Fault::invalid(".gitignore is not UTF-8 text"))?;
-        // Only already-confined text is parsed. add(path) and global ignore discovery
-        // would read ambient paths, including symlinked files outside the worktree.
+        let Some(text) = read(directory, name, control)? else {
+            return Ok(None);
+        };
         let mut builder = GitignoreBuilder::new(if prefix.as_os_str().is_empty() {
             Path::new(".")
         } else {
@@ -56,14 +143,15 @@ pub fn load_path(
             control.check()?;
             builder
                 .add_line(None, line)
-                .map_err(|_| Fault::invalid("invalid .gitignore pattern"))?;
+                .map_err(|_| Fault::invalid(format!("invalid {name} pattern")))?;
         }
         builder
             .build()
-            .map_err(|_| Fault::invalid("invalid .gitignore patterns"))
+            .map(Some)
+            .map_err(|_| Fault::invalid(format!("invalid {name} patterns")))
     })();
     match result {
-        Ok(matcher) => Some(matcher),
+        Ok(matcher) => matcher,
         Err(error) => {
             report.diagnostic(&label, &error.message);
             None
@@ -71,8 +159,36 @@ pub fn load_path(
     }
 }
 
-pub fn excludes(layers: &[Gitignore], relative: &str, directory: bool) -> bool {
-    for layer in layers.iter().rev() {
+fn read(directory: &Dir, name: &str, control: &Control) -> Result<Option<String>, Fault> {
+    let metadata = match directory.symlink_metadata(name) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(io_error(error)),
+    };
+    if metadata.is_symlink() || !metadata.is_file() {
+        return Err(Fault::invalid(format!(
+            "{name} is not a regular file; its rules were not loaded"
+        )));
+    }
+    if metadata.len() > MAX_IGNORE_BYTES as u64 {
+        return Err(Fault::invalid(format!("{name} exceeds the 1 MiB limit")));
+    }
+    let mut file = super::super::open_regular(directory, name)?;
+    let bytes = super::super::read_bytes(&mut file, MAX_IGNORE_BYTES + 1, control)?;
+    if bytes.len() > MAX_IGNORE_BYTES {
+        return Err(Fault::invalid(format!("{name} exceeds the 1 MiB limit")));
+    }
+    String::from_utf8(bytes)
+        .map(Some)
+        .map_err(|_| Fault::invalid(format!("{name} is not UTF-8 text")))
+}
+
+pub(super) fn excludes<'a>(
+    layers: impl Iterator<Item = &'a Gitignore>,
+    relative: &str,
+    directory: bool,
+) -> bool {
+    for layer in layers {
         let found = layer.matched(relative, directory);
         if !found.is_none() {
             return found.is_ignore();

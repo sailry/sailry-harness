@@ -16,6 +16,7 @@ pub(in crate::store) use diff::read as diff;
 pub(in crate::store) mod restore;
 #[cfg(test)]
 mod tests;
+pub(in crate::store) mod write;
 pub(in crate::store) use reads::{list, read, saved};
 
 #[derive(Serialize, Deserialize)]
@@ -30,126 +31,23 @@ struct Record {
     set: bool,
 }
 
-impl Ingress {
-    pub(crate) async fn checkpoint_write(
-        &self,
-        turn: TurnId,
-        request: &Request,
-        stop: CancellationToken,
-    ) -> Result<(), Fault> {
-        let (worktree, path, expected_revision) = match &request.command {
-            Command::WriteFile {
-                worktree,
-                path,
-                expected_revision,
-                ..
-            } => (*worktree, path, expected_revision.as_ref()),
-            Command::EditFile {
-                worktree,
-                path,
-                expected_revision,
-                ..
-            } => (*worktree, path, Some(expected_revision)),
-            Command::EditNotebook { worktree, edit } => {
-                (*worktree, &edit.path, Some(&edit.expected_revision))
-            }
-            _ => return Err(Fault::invalid("file checkpoint requires a write or edit")),
-        };
-        let root = self.worktree_root(worktree).await?;
-        let before = if matches!(
-            request.command,
-            Command::EditFile { .. } | Command::EditNotebook { .. }
-        ) {
-            Some(
-                self.files
-                    .capture(
-                        root,
-                        path.clone(),
-                        expected_revision.unwrap().clone(),
-                        stop.clone(),
-                    )
-                    .await?,
-            )
-        } else {
-            let original = self
-                .files
-                .inspect(
-                    root,
-                    Command::ReadFile {
-                        worktree,
-                        path: path.clone(),
-                    },
-                    stop.clone(),
-                )
-                .await;
-            match (original, expected_revision) {
-                (Ok(Output::FileContent(content)), Some(expected))
-                    if !content.truncated && content.revision.as_ref() == Some(expected) =>
-                {
-                    Some(content.text)
-                }
-                (Err(error), None) if error.code == ErrorCode::NotFound => None,
-                (Ok(Output::FileContent(_)), _) => {
-                    return Err(Fault::new(
-                        ErrorCode::RevisionConflict,
-                        "file changed before checkpoint capture",
-                    ));
-                }
-                (Err(error), _) => return Err(error),
-                _ => {
-                    return Err(Fault::invalid(
-                        "file checkpoint read returned an invalid response",
-                    ));
-                }
-            }
-        };
-        if stop.is_cancelled() {
-            return Err(Fault::new(
-                ErrorCode::Cancelled,
-                "file checkpoint capture cancelled",
-            ));
-        }
-        let (reply, response) = oneshot::channel();
-        self.submit(Job::Agent(Box::new(Operation::Checkpoint {
-            turn,
-            request: request.clone(),
-            before,
-            reply,
-        })))
-        .await
-        .map_err(|_| super::super::unavailable())?;
-        response.await.map_err(|_| super::super::unavailable())?
-    }
+pub(super) struct Content<'a> {
+    before: Option<&'a str>,
+    after: Cow<'a, str>,
+    previous: Option<checkpoint::Version>,
+    next: checkpoint::Version,
 }
 
-pub(super) async fn capture(
-    database: &mut Database,
-    turn: TurnId,
-    request: &Request,
-    before: Option<&str>,
-) -> Result<(), Fault> {
-    let (worktree, path, text, expected_revision, operation, limit) = match &request.command {
-        Command::WriteFile {
-            worktree,
-            path,
-            text,
-            expected_revision,
-        } => (
-            *worktree,
-            path.as_str(),
-            Cow::Borrowed(text.as_str()),
-            expected_revision.as_deref(),
-            sailry_protocol::tool::Operation::WriteFile,
-            MAX_FILE_BYTES,
-        ),
+fn content<'a>(request: &'a Request, before: Option<&'a str>) -> Result<Content<'a>, Fault> {
+    let after = match &request.command {
+        Command::WriteFile { text, .. } => Cow::Borrowed(text.as_str()),
         Command::EditFile {
-            worktree,
-            path,
             old_text,
             new_text,
             replace_all,
             edits,
             expected_revision,
+            ..
         } => {
             let original = before.ok_or_else(|| {
                 Fault::new(
@@ -163,34 +61,77 @@ pub(super) async fn capture(
                 *replace_all,
                 edits.as_deref(),
             )?;
-            let after = crate::files::edit::prepare(original, &changes, expected_revision)?;
-            (
-                *worktree,
-                path.as_str(),
-                Cow::Owned(after),
-                Some(expected_revision.as_str()),
-                sailry_protocol::tool::Operation::EditFile,
-                MAX_EDIT_BYTES,
-            )
+            Cow::Owned(crate::files::edit::prepare(
+                original,
+                &changes,
+                expected_revision,
+            )?)
         }
-        Command::EditNotebook { worktree, edit } => {
+        Command::EditNotebook { edit, .. } => {
             let original = before.ok_or_else(|| {
                 Fault::new(
                     ErrorCode::RevisionConflict,
                     "notebook checkpoint has no original content",
                 )
             })?;
-            (
-                *worktree,
-                edit.path.as_str(),
-                Cow::Owned(crate::files::notebook::prepare(original, edit)?),
-                Some(edit.expected_revision.as_str()),
-                sailry_protocol::tool::Operation::EditNotebook,
-                MAX_EDIT_BYTES,
-            )
+            Cow::Owned(crate::files::notebook::prepare(original, edit)?)
         }
         _ => return Err(Fault::invalid("file checkpoint requires a write or edit")),
     };
+    Ok(Content {
+        before,
+        previous: before.map(version),
+        next: version(&after),
+        after,
+    })
+}
+
+pub(super) async fn capture(
+    database: &mut Database,
+    turn: TurnId,
+    request: &Request,
+    content: Content<'_>,
+) -> Result<(), Fault> {
+    let (worktree, path, expected_revision, operation, limit) = match &request.command {
+        Command::WriteFile {
+            worktree,
+            path,
+            expected_revision,
+            ..
+        } => (
+            *worktree,
+            path.as_str(),
+            expected_revision.as_deref(),
+            sailry_protocol::tool::Operation::WriteFile,
+            MAX_FILE_BYTES,
+        ),
+        Command::EditFile {
+            worktree,
+            path,
+            expected_revision,
+            ..
+        } => (
+            *worktree,
+            path.as_str(),
+            Some(expected_revision.as_str()),
+            sailry_protocol::tool::Operation::EditFile,
+            MAX_EDIT_BYTES,
+        ),
+        Command::EditNotebook { worktree, edit } => (
+            *worktree,
+            edit.path.as_str(),
+            Some(edit.expected_revision.as_str()),
+            sailry_protocol::tool::Operation::EditNotebook,
+            MAX_EDIT_BYTES,
+        ),
+        _ => return Err(Fault::invalid("file checkpoint requires a write or edit")),
+    };
+    let Content {
+        before,
+        after: text,
+        previous,
+        next,
+    } = content;
     let run = calls::active(&database.connection, turn).await?;
     let session = super::super::commands::session(&database.connection, run.session).await?;
     if session.worktree != worktree {
@@ -205,13 +146,12 @@ pub(super) async fn capture(
         .await?;
     if text.len() > limit
         || text.contains('\0')
-        || before.is_some_and(|text| text.len() > limit || text.contains('\0'))
+        || before.is_some_and(|text| text.len() > MAX_EDIT_BYTES || text.contains('\0'))
     {
         return Err(sailry_protocol::Fault::invalid(
             "file checkpoint exceeds the text limit",
         ));
     }
-    let previous = before.map(version);
     if previous.as_ref().map(|value| value.revision.as_str()) != expected_revision {
         return Err(Fault::new(
             ErrorCode::RevisionConflict,
@@ -236,7 +176,7 @@ pub(super) async fn capture(
         worktree,
         path: path.to_owned(),
         before: previous,
-        after: version(&text),
+        after: next,
         digest: blake3::hash(&encode(request)?).to_hex().to_string(),
         set: false,
     };

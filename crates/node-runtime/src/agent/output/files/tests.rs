@@ -10,7 +10,7 @@ fn original(text: &str, offset: usize) -> Value {
         }).collect(),
         size:text.len() as u64,
         revision:blake3::hash(text.as_bytes()).to_hex().to_string(),
-        offset,next_offset:None,
+        offset,next_offset:None,truncated:false,
     }})
 }
 
@@ -293,7 +293,7 @@ fn preserves_the_exact_byte_ceiling() {
     for (line, ending) in [("x".repeat(1000), "\n"), ("\\\"\t".repeat(166), "\r\n")] {
         let full = |value: &Value| {
             let page: FileLines = serde_json::from_value(value["data"].clone()).unwrap();
-            let body: String = page.lines.iter().map(|line| row(line).0).collect();
+            let body: String = page.lines.iter().map(|line| row(line, false).0).collect();
             render(&page, &body, Some((1, 32)), false, None, &source(value))
         };
         let mut raw = format!("{line}{ending}").repeat(32);
@@ -314,7 +314,10 @@ fn preserves_the_exact_byte_ceiling() {
         );
         let projected = project(&value, &source(&value), None).unwrap();
         let page: FileLines = serde_json::from_value(value["data"].clone()).unwrap();
-        let body: String = page.lines[..31].iter().map(|line| row(line).0).collect();
+        let body: String = page.lines[..31]
+            .iter()
+            .map(|line| row(line, false).0)
+            .collect();
         assert_eq!(
             projected,
             render(
@@ -326,6 +329,29 @@ fn preserves_the_exact_byte_ceiling() {
                 &source(&value)
             ),
         );
+    }
+}
+
+#[test]
+fn distinguishes_native_line_truncation() {
+    for size in [100, LINE_LIMIT + 100] {
+        let mut value = original(&"x".repeat(size), 0);
+        value["data"]["truncated"] = json!(true);
+        value["data"]["size"] = json!(sailry_protocol::MAX_FILE_BYTES + 100);
+        value["data"]["next_offset"] = json!(1);
+        let mut reads = Reads::default();
+        let projected = project(&value, &source(&value), Some(&mut reads)).unwrap();
+        assert!(projected.contains("[source line truncated]"));
+        assert!(projected.contains("omitted suffix is not in the saved tool output"));
+        assert!(!projected.contains("no trailing newline"));
+        assert!(!projected.contains("For omitted line text"));
+        assert_eq!(metadata(&projected)["truncated"], true);
+        assert_eq!(metadata(&projected)["next_offset"], 1);
+        assert_eq!(
+            project(&value, &source(&value), Some(&mut reads)),
+            Some(projected)
+        );
+        assert!(reads.0.is_empty());
     }
 }
 

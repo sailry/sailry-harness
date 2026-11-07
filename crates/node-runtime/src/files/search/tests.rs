@@ -46,57 +46,15 @@ fn rejects_missing_inputs() {
 }
 
 #[test]
-fn reports_files_removed_after_listing() {
-    let root = directory();
-    let matcher = RegexMatcherBuilder::new().build("hit").unwrap();
-    for mode in [SearchMode::Content, SearchMode::Files, SearchMode::Count] {
-        for offset in [0, 1] {
-            std::fs::write(root.path().join("a.txt"), "hit\n").unwrap();
-            std::fs::write(root.path().join("b.txt"), "hit\nhit\n").unwrap();
-            let listing = walk::collect(root.path(), "", &control()).unwrap();
-            std::fs::remove_file(root.path().join("a.txt")).unwrap();
-            let result = scan(
-                root.path().into(),
-                &FileSearch {
-                    mode,
-                    offset,
-                    limit: 1,
-                    ..options()
-                },
-                &control(),
-                &matcher,
-                listing,
-            )
-            .unwrap();
-            assert!(result.partial, "{result:?}");
-            assert!(result.truncated);
-            assert!(result.next_offset.is_none());
-            assert_eq!(result.scanned_files, 2);
-            assert_eq!(result.skipped, 1);
-            assert!(result.diagnostics.iter().any(|item| item.path == "a.txt"));
-            if mode == SearchMode::Content {
-                assert_eq!(result.matches.len(), usize::from(offset == 0));
-            }
-        }
-    }
-}
-
-#[test]
 fn preserves_protected_path_failures() {
     let root = directory();
-    let matcher = RegexMatcherBuilder::new().build("hit").unwrap();
-    let error = scan(
-        root.path().into(),
-        &options(),
-        &control(),
-        &matcher,
-        walk::Listing {
-            entries: vec![walk::Entry {
-                path: ".sailry/worktrees/child/private.txt".into(),
-                modified: std::time::SystemTime::UNIX_EPOCH,
-            }],
-            report: walk::Report::default(),
+    let error = search(
+        root.path(),
+        &FileSearch {
+            path: ".sailry/worktrees/child/private.txt".into(),
+            ..options()
         },
+        &control(),
     )
     .unwrap_err();
     assert_eq!(error.code, ErrorCode::PermissionDenied);
@@ -239,6 +197,31 @@ fn pages_past_skipped_files() {
 }
 
 #[test]
+fn skips_invalid_suffix_after_a_match() {
+    let root = directory();
+    for (path, suffix) in [("binary.txt", 0), ("invalid.txt", 0xff)] {
+        let mut bytes = format!("hit\n{}", "padding\n".repeat(8192)).into_bytes();
+        bytes.push(suffix);
+        std::fs::write(root.path().join(path), bytes).unwrap();
+    }
+    std::fs::write(root.path().join("text.txt"), "hit\n").unwrap();
+    for mode in [SearchMode::Content, SearchMode::Files, SearchMode::Count] {
+        let result = search(root.path(), &FileSearch { mode, ..options() }, &control()).unwrap();
+        assert_eq!(result.scanned_files, 3);
+        assert_eq!(result.skipped, 2, "{mode:?}");
+        assert_eq!(result.diagnostics.len(), 1);
+        assert_eq!(result.diagnostics[0].path, "invalid.txt");
+        assert!(!result.partial);
+        assert_eq!(result.paths.len(), usize::from(mode == SearchMode::Files));
+        assert_eq!(result.counts.len(), usize::from(mode == SearchMode::Count));
+        assert_eq!(
+            result.matches.len(),
+            usize::from(mode == SearchMode::Content)
+        );
+    }
+}
+
+#[test]
 fn binary_skips_do_not_consume_diagnostics() {
     let root = directory();
     for index in 0..100 {
@@ -260,7 +243,7 @@ fn binary_skips_do_not_consume_diagnostics() {
 }
 
 #[test]
-fn decodes_text_before_matching_and_paging() {
+fn skips_non_utf8_and_preserves_control_text() {
     let root = directory();
     std::fs::write(
         root.path().join("a-gbk.txt"),
@@ -271,11 +254,12 @@ fn decodes_text_before_matching_and_paging() {
     let (encoded, _, failed) = encoding_rs::GB18030.encode(original);
     assert!(!failed);
     std::fs::write(root.path().join("b-gb18030.txt"), &encoded).unwrap();
-    for (offset, expected, line) in [
-        (0, "中文 first", 1),
-        (1, "中文 second", 2),
-        (2, "中文𠀀🙂", 1),
-    ] {
+    std::fs::write(
+        root.path().join("c-utf8.txt"),
+        "中文\u{1b}[0m\n中文\u{7f}\n",
+    )
+    .unwrap();
+    for (offset, expected) in [(0, "中文\u{1b}[0m"), (1, "中文\u{7f}")] {
         let result = search(
             root.path(),
             &FileSearch {
@@ -288,25 +272,14 @@ fn decodes_text_before_matching_and_paging() {
         )
         .unwrap();
         assert!(!result.partial);
-        assert_eq!(result.skipped, 0);
+        assert_eq!(result.skipped, 2);
+        assert_eq!(result.diagnostics.len(), 2);
         assert_eq!(result.matches.len(), 1);
+        assert_eq!(result.matches[0].path, "c-utf8.txt");
         assert_eq!(result.matches[0].line, expected);
-        assert_eq!(result.matches[0].line_number, line);
-        assert_eq!(result.next_offset, (offset < 2).then_some(offset + 1));
+        assert_eq!(result.matches[0].line_number, offset + 1);
+        assert_eq!(result.next_offset, (offset < 1).then_some(offset + 1));
     }
-    let anchored = search(
-        root.path(),
-        &FileSearch {
-            query: "^中文.*second$".into(),
-            regex: true,
-            ..options()
-        },
-        &control(),
-    )
-    .unwrap();
-    assert_eq!(anchored.matches.len(), 1);
-    assert_eq!(anchored.matches[0].line, "中文 second");
-    assert_eq!(anchored.matches[0].line_number, 2);
 }
 
 #[test]
@@ -368,6 +341,126 @@ fn pages_context_and_distinguishes_modes() {
         [2, 2]
     );
     assert!(counts.matches.is_empty() && counts.paths.is_empty());
+}
+
+#[test]
+fn stops_reading_after_first_file_match() {
+    let content = format!("hit\n{}", "remaining\n".repeat(20_000));
+    let mut cursor = std::io::Cursor::new(content.as_bytes());
+    let control = control();
+    let mut reader = reader::Text::new(&mut cursor, &control);
+    let mut sink = RowSink {
+        path: "file.txt",
+        control: &control,
+        mode: SearchMode::Files,
+        range: 0..0,
+        count: 0,
+        rows: Vec::new(),
+    };
+    engine(&FileSearch {
+        mode: SearchMode::Files,
+        ..options()
+    })
+    .search_reader(
+        RegexMatcherBuilder::new().build("hit").unwrap(),
+        &mut reader,
+        &mut sink,
+    )
+    .unwrap();
+    assert_eq!(sink.count, 1);
+    drop(reader);
+    assert!(cursor.position() < content.len() as u64);
+}
+
+#[test]
+fn validates_utf8_across_read_boundaries() {
+    let root = directory();
+    for prefix in 8189..8193 {
+        let content = format!("{}🙂 hit\n", "x".repeat(prefix));
+        std::fs::write(root.path().join("file.txt"), &content).unwrap();
+        let result = search(root.path(), &options(), &control()).unwrap();
+        assert_eq!(result.matches.len(), 1);
+        assert_eq!(result.skipped, 0);
+        assert_eq!(result.matches[0].line, content.trim_end());
+    }
+    std::fs::write(root.path().join("file.txt"), b"hit\n\xf0\x9f").unwrap();
+    let result = search(root.path(), &options(), &control()).unwrap();
+    assert!(result.matches.is_empty());
+    assert_eq!(result.skipped, 1);
+    assert_eq!(result.diagnostics.len(), 1);
+}
+
+#[test]
+fn cancels_stream_without_retrying_reads() {
+    use std::io::Read as _;
+
+    let control = control();
+    control.cancelled.cancel();
+    let mut reader = reader::Text::new(b"hit\n".as_slice(), &control);
+    let error = reader.read_to_end(&mut Vec::new()).unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::Other);
+    assert_eq!(failure(error, &control).code, ErrorCode::Cancelled);
+}
+
+#[test]
+fn scopes_globs_inside_ignored_directories() {
+    let root = directory();
+    std::fs::create_dir_all(root.path().join("src/nested")).unwrap();
+    std::fs::write(root.path().join(".gitignore"), "src/\n").unwrap();
+    for name in ["src/main.rs", "src/nested/lib.rs", "src/nested/Cargo.lock"] {
+        std::fs::write(root.path().join(name), "hit\n").unwrap();
+    }
+    for (globs, expected) in [
+        (vec!["*.rs"], vec!["src/main.rs", "src/nested/lib.rs"]),
+        (vec!["nested/*.rs"], vec!["src/nested/lib.rs"]),
+        (
+            vec!["**/*", "!*.lock"],
+            vec!["src/main.rs", "src/nested/lib.rs"],
+        ),
+    ] {
+        let result = search(
+            root.path(),
+            &FileSearch {
+                path: "src".into(),
+                mode: SearchMode::Files,
+                globs: globs.into_iter().map(str::to_owned).collect(),
+                ..options()
+            },
+            &control(),
+        )
+        .unwrap();
+        assert_eq!(result.paths, expected);
+    }
+    let result = search(
+        root.path(),
+        &FileSearch {
+            path: "src/main.rs".into(),
+            mode: SearchMode::Files,
+            ..options()
+        },
+        &control(),
+    )
+    .unwrap();
+    assert_eq!(result.paths, ["src/main.rs"]);
+}
+
+#[test]
+fn preserves_path_order_during_traversal() {
+    let root = directory();
+    std::fs::create_dir(root.path().join("a")).unwrap();
+    for name in ["a/file.txt", "a.txt", "a-early.txt"] {
+        std::fs::write(root.path().join(name), "hit\n").unwrap();
+    }
+    let result = search(
+        root.path(),
+        &FileSearch {
+            mode: SearchMode::Files,
+            ..options()
+        },
+        &control(),
+    )
+    .unwrap();
+    assert_eq!(result.paths, ["a-early.txt", "a.txt", "a/file.txt"]);
 }
 
 #[test]
@@ -536,72 +629,6 @@ fn accepts_long_queries_without_changing_the_pattern() {
     assert_eq!(result.matches.len(), 1);
     assert_eq!(result.matches[0].line, query);
     assert!(result.matches[0].matched);
-}
-
-#[test]
-fn detects_changes_between_scan_and_page() {
-    let root = directory();
-    std::fs::write(root.path().join("a.txt"), "hit\n").unwrap();
-    let options = options();
-    let matcher = RegexMatcherBuilder::new().build("hit").unwrap();
-    let scan = inspect(
-        root.path(),
-        "a.txt",
-        SearchMode::Content,
-        1,
-        &matcher,
-        &mut engine(&options),
-        &control(),
-    )
-    .unwrap()
-    .unwrap();
-    std::fs::write(root.path().join("a.txt"), "changed\n").unwrap();
-    assert_eq!(
-        read_page(
-            root.path(),
-            &scan,
-            0..1,
-            &matcher,
-            &mut engine(&options),
-            &control()
-        )
-        .unwrap_err()
-        .code,
-        ErrorCode::RevisionConflict
-    );
-}
-
-#[test]
-fn detects_encoding_changes_before_paging() {
-    let root = directory();
-    std::fs::write(root.path().join("a.txt"), b"hit \xd6\xd0\xce\xc4\n").unwrap();
-    let options = options();
-    let matcher = RegexMatcherBuilder::new().build("hit").unwrap();
-    let scan = inspect(
-        root.path(),
-        "a.txt",
-        SearchMode::Content,
-        1,
-        &matcher,
-        &mut engine(&options),
-        &control(),
-    )
-    .unwrap()
-    .unwrap();
-    std::fs::write(root.path().join("a.txt"), "hit 中文\n").unwrap();
-    assert_eq!(
-        read_page(
-            root.path(),
-            &scan,
-            0..1,
-            &matcher,
-            &mut engine(&options),
-            &control(),
-        )
-        .unwrap_err()
-        .code,
-        ErrorCode::RevisionConflict
-    );
 }
 
 #[test]

@@ -79,6 +79,28 @@ fn revision(text: &str) -> String {
     blake3::hash(text.as_bytes()).to_hex().to_string()
 }
 
+#[test]
+fn rejects_changes_after_preparation() {
+    let root = tempfile::tempdir_in(std::env::temp_dir().canonicalize().unwrap()).unwrap();
+    std::fs::write(root.path().join("file.txt"), "before").unwrap();
+    let prepared = read(
+        root.path(),
+        "file.txt",
+        &[change("before", "after", false)],
+        &revision("before"),
+    )
+    .unwrap();
+    std::fs::write(root.path().join("file.txt"), "changed").unwrap();
+    assert_eq!(
+        prepared.write().unwrap_err().code,
+        ErrorCode::RevisionConflict
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.path().join("file.txt")).unwrap(),
+        "changed"
+    );
+}
+
 fn change(old: &str, new: &str, replace_all: bool) -> FileEdit {
     FileEdit {
         old_text: old.into(),
@@ -128,11 +150,6 @@ fn failed_batches_preserve_every_byte() {
             change("first", "changed", false),
             change("first", "duplicate", false),
         ],
-        vec![
-            change("first", "changed", false),
-            change("aa", "short", true),
-        ],
-        vec![change("🙂🙂", "Unicode", true)],
         vec![change("aaa", "empty", false), change("a", "all", true)],
     ] {
         assert_eq!(
@@ -142,6 +159,20 @@ fn failed_batches_preserve_every_byte() {
             ErrorCode::InvalidRequest
         );
         assert_eq!(std::fs::read(path.join("file")).unwrap(), before.as_bytes());
+    }
+}
+
+#[test]
+fn replaces_nonoverlapping_occurrences_left_to_right() {
+    for (before, old, new, expected) in [
+        ("aaa", "aa", "b", "ba"),
+        ("🙂🙂🙂", "🙂🙂", "x", "x🙂"),
+        ("a\r\na\r\na\r\n", "a\na\n", "b\n", "b\r\na\r\n"),
+    ] {
+        assert_eq!(
+            prepare(before, &[change(old, new, true)], &revision(before)).unwrap(),
+            expected
+        );
     }
 }
 

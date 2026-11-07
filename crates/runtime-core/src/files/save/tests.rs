@@ -49,6 +49,20 @@ fn conflict_preserves_content() {
 }
 
 #[test]
+fn replaces_original_larger_than_preview() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().canonicalize().unwrap();
+    let before = "x".repeat(MAX_FILE_BYTES + 1);
+    std::fs::write(root.join("file"), &before).unwrap();
+    let written = save(&root, "file", "replacement", Some(&revision(&before))).unwrap();
+    assert_eq!(written.revision, revision("replacement"));
+    assert_eq!(
+        std::fs::read_to_string(root.join("file")).unwrap(),
+        "replacement"
+    );
+}
+
+#[test]
 fn creates_exclusively() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().canonicalize().unwrap();

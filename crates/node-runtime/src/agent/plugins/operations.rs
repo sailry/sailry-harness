@@ -610,16 +610,6 @@ impl HostOperation {
                     }
                 }
                 request.id = id;
-                if matches!(
-                    request.command,
-                    Command::WriteFile { .. }
-                        | Command::EditFile { .. }
-                        | Command::EditNotebook { .. }
-                ) {
-                    self.ingress
-                        .checkpoint_write(self.turn, &request, self.stop.clone())
-                        .await?;
-                }
             }
             let mut cancellation = code::Cancellation::new(&self.ingress, self.caller, &request);
             let absent = files::absent(&request.command);

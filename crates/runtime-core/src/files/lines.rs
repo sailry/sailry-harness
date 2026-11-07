@@ -41,7 +41,8 @@ pub fn read_version<'a>(
     let mut index = 0;
     let mut line = String::new();
     let mut collecting = true;
-    let mut oversized = false;
+    let mut truncated = false;
+    let mut skipping_line = false;
     loop {
         control.check()?;
         let count = file.read(&mut buffer[pending..]).map_err(io_error)?;
@@ -76,30 +77,61 @@ pub fn read_version<'a>(
         let valid = text.len();
         // A full-content revision still covers every byte, while only the requested
         // page is retained. Keep at most one incomplete UTF-8 character between reads.
-        if collecting {
-            for fragment in text.split_inclusive('\n') {
-                if index >= offset {
-                    if lines.len() == page_limit
-                        || bytes + line.len() + fragment.len() > MAX_FILE_BYTES
-                    {
-                        oversized = lines.is_empty();
-                        next_offset = (!oversized).then_some(index);
-                        line.clear();
-                        collecting = false;
-                        break;
-                    }
-                    line.push_str(fragment);
+        for fragment in text.split_inclusive('\n') {
+            if !collecting {
+                if !truncated || next_offset.is_some() {
+                    break;
                 }
-                if fragment.ends_with('\n') {
-                    if index >= offset {
-                        bytes += line.len();
+                if skipping_line {
+                    if fragment.ends_with('\n') {
+                        index += 1;
+                        skipping_line = false;
+                    }
+                } else {
+                    next_offset = Some(index);
+                }
+                continue;
+            }
+            if index >= offset {
+                if lines.len() == page_limit {
+                    next_offset = Some(index);
+                    collecting = false;
+                    continue;
+                }
+                if bytes + line.len() + fragment.len() > MAX_FILE_BYTES {
+                    if lines.is_empty() {
+                        let mut retained = MAX_FILE_BYTES - line.len();
+                        while !fragment.is_char_boundary(retained) {
+                            retained -= 1;
+                        }
+                        line.push_str(&fragment[..retained]);
                         lines.push(FileLine {
                             number: index + 1,
                             text: std::mem::take(&mut line),
                         });
+                        truncated = true;
+                        skipping_line = !fragment.ends_with('\n');
+                        if !skipping_line {
+                            index += 1;
+                        }
+                    } else {
+                        next_offset = Some(index);
+                        line.clear();
                     }
-                    index += 1;
+                    collecting = false;
+                    continue;
                 }
+                line.push_str(fragment);
+            }
+            if fragment.ends_with('\n') {
+                if index >= offset {
+                    bytes += line.len();
+                    lines.push(FileLine {
+                        number: index + 1,
+                        text: std::mem::take(&mut line),
+                    });
+                }
+                index += 1;
             }
         }
         buffer.copy_within(valid..length, 0);
@@ -122,9 +154,6 @@ pub fn read_version<'a>(
             "file changed before reading its indexed range",
         ));
     }
-    if oversized {
-        return Err(Fault::invalid("file line exceeds the page byte limit"));
-    }
     if collecting && !line.is_empty() {
         lines.push(FileLine {
             number: index + 1,
@@ -139,6 +168,7 @@ pub fn read_version<'a>(
         revision,
         offset,
         next_offset,
+        truncated,
     })
 }
 
@@ -182,7 +212,7 @@ pub fn bounded_at(
     checked(path::file_at(root, access, relative)?, limit, control)
 }
 
-fn checked(
+pub(super) fn checked(
     mut file: cap_std::fs::File,
     limit: usize,
     control: &Control,

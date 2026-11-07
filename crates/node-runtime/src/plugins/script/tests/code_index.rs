@@ -80,6 +80,7 @@ fn preserves_query_and_source_revisions() {
                         revision: "f".repeat(64),
                         offset,
                         next_offset: None,
+                        truncated: false,
                     }))
                 }
                 _ => panic!("code query or source read expected"),

@@ -171,8 +171,8 @@ pub(super) enum Operation {
     Checkpoint {
         turn: TurnId,
         request: Request,
-        before: Option<String>,
-        reply: oneshot::Sender<Result<(), Fault>>,
+        prepared: checkpoints::write::Prepared,
+        reply: oneshot::Sender<Result<checkpoints::write::Prepared, Fault>>,
     },
     ChangeCheckpoints {
         turn: TurnId,
@@ -843,11 +843,16 @@ pub(super) fn execute<'a>(
         Operation::Checkpoint {
             turn,
             request,
-            before,
+            prepared,
             reply,
         } => Box::pin(async move {
-            let _ =
-                reply.send(checkpoints::capture(database, turn, &request, before.as_deref()).await);
+            let result = async {
+                let content = prepared.content(&request)?;
+                checkpoints::capture(database, turn, &request, content).await?;
+                Ok(prepared)
+            }
+            .await;
+            let _ = reply.send(result);
         }),
         Operation::ChangeCheckpoints {
             turn,

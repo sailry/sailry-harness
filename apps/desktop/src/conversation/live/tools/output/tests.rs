@@ -356,6 +356,7 @@ fn diagnostics_and_content() {
                     revision: "full-content-revision".into(),
                     offset: 0,
                     next_offset: Some(5),
+                    truncated: false,
                 }))
                 .unwrap();
                 let projection = file_projection("read_file");

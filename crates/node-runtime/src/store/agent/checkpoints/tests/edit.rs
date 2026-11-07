@@ -65,6 +65,97 @@ async fn captures_full_content_and_receipt() {
 }
 
 #[tokio::test]
+async fn preserves_large_original_for_replacement() {
+    let mut fixture = Fixture::new().await;
+    let turn = running(&mut fixture).await;
+    let before = "original\n".repeat(MAX_FILE_BYTES / 8 + 1);
+    let request = approved(&mut fixture, turn, "file.txt", Some(&before), "replacement").await;
+    capture(&mut fixture.database, turn, &request, Some(&before))
+        .await
+        .unwrap();
+    let page = list(
+        &fixture.database.connection,
+        fixture.session,
+        turn,
+        None,
+        20,
+    )
+    .await
+    .unwrap();
+    let stored = read(
+        &fixture.database.connection,
+        fixture.session,
+        page.files[0].id,
+    )
+    .await
+    .unwrap();
+    assert_eq!(stored.before.as_deref(), Some(before.as_str()));
+    assert_eq!(stored.after, "replacement");
+}
+
+#[tokio::test]
+async fn retains_prepared_content_until_publication() {
+    let mut fixture = Fixture::new().await;
+    let turn = running(&mut fixture).await;
+    let before = "original target\n";
+    let request = request(&mut fixture, turn, before).await;
+    let Command::EditFile {
+        worktree,
+        expected_revision,
+        ..
+    } = &request.command
+    else {
+        unreachable!()
+    };
+    let root = fixture.database.worktree_root(*worktree).await.unwrap();
+    std::fs::write(root.join("file.txt"), before).unwrap();
+    let prepared = write::Prepared::Edit(Box::new(
+        crate::files::edit::read(
+            &root,
+            "file.txt",
+            &[FileEdit {
+                old_text: "target".into(),
+                new_text: "replacement".into(),
+                replace_all: false,
+            }],
+            expected_revision,
+        )
+        .unwrap(),
+    ));
+    let content = prepared.content(&request).unwrap();
+    super::super::capture(&mut fixture.database, turn, &request, content)
+        .await
+        .unwrap();
+    let page = list(
+        &fixture.database.connection,
+        fixture.session,
+        turn,
+        None,
+        20,
+    )
+    .await
+    .unwrap();
+    let stored = read(
+        &fixture.database.connection,
+        fixture.session,
+        page.files[0].id,
+    )
+    .await
+    .unwrap();
+    assert_eq!(stored.before.as_deref(), Some(before));
+    assert_eq!(stored.after, "original replacement\n");
+    let write::Prepared::Edit(prepared) = prepared else {
+        unreachable!()
+    };
+    let written = prepared.write().unwrap();
+    assert_eq!(written.revision, stored.file.after.revision);
+    assert_eq!(
+        std::fs::read_to_string(root.join("file.txt")).unwrap(),
+        stored.after
+    );
+}
+
+#[tokio::test]
 async fn requires_the_claimed_operation() {
     let mut fixture = Fixture::new().await;
     let turn = running(&mut fixture).await;

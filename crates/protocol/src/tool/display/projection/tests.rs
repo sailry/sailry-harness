@@ -154,6 +154,7 @@ fn preserves_wire_and_validation() {
                         revision: "a".repeat(64),
                         offset,
                         next_offset,
+                        truncated: false,
                     }))
                     .unwrap();
                     assert_eq!(

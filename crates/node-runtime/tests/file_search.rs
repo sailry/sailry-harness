@@ -34,7 +34,7 @@ async fn shares_read_only_search() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("project");
     std::fs::create_dir_all(root.join("src/资料")).unwrap();
-    std::fs::create_dir(root.join(".git")).unwrap();
+    git2::Repository::init(&root).unwrap();
     std::fs::write(root.join(".git/private"), "Needle").unwrap();
     std::fs::write(
         root.join("src/资料/中文.rs"),

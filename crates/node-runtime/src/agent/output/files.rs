@@ -33,6 +33,7 @@ pub(super) fn project(
     let page: FileLines = serde_json::from_value(original.get("data")?.clone()).ok()?;
     let range = page.lines.first().zip(page.lines.last());
     if let (Some(reads), Some((first, last))) = (reads.as_deref(), range)
+        && !page.truncated
         && reads.covers(&page, first.number, last.number)
     {
         return Some(unchanged(&page, (first.number, last.number), source));
@@ -50,7 +51,7 @@ pub(super) fn project(
             Some(line) => Some(line.number.checked_sub(1)?),
             None => page.next_offset,
         };
-        let (row, omitted) = row(line);
+        let (row, omitted) = row(line, page.truncated);
         let row_bytes = serde_json::to_string(&row).ok()?.len() - 2;
         let row_lines = limit::count(&row);
         let metadata = render(
@@ -78,7 +79,10 @@ pub(super) fn project(
     let projected = (page.lines.is_empty() || range.is_some())
         .then(|| render(&page, &body, range, shortened, next_offset, source))
         .filter(|text| serde_json::to_string(text).is_ok_and(|encoded| encoded.len() <= LIMIT));
-    if !shortened && let (Some(reads), Some(range), Some(_)) = (reads, range, &projected) {
+    if !shortened
+        && !page.truncated
+        && let (Some(reads), Some(range), Some(_)) = (reads, range, &projected)
+    {
         reads
             .0
             .entry((page.path.clone(), page.revision.clone()))
@@ -102,8 +106,10 @@ Lines {first}–{last} are unchanged since an earlier read_file result in this c
     text
 }
 
-fn row(line: &sailry_protocol::FileLine) -> (String, bool) {
-    let (text, ending) = if let Some(text) = line.text.strip_suffix("\r\n") {
+fn row(line: &sailry_protocol::FileLine, truncated: bool) -> (String, bool) {
+    let (text, ending) = if truncated {
+        (line.text.as_str(), " [source line truncated]\n")
+    } else if let Some(text) = line.text.strip_suffix("\r\n") {
         (text, "\r\n")
     } else if let Some(text) = line.text.strip_suffix('\n') {
         (text, "\n")
@@ -141,7 +147,16 @@ fn render(
         ),
     };
     text.push_str(body);
-    if shortened {
+    if page.truncated {
+        text.push_str(
+            "The source line exceeds the read_file byte limit; its omitted suffix is not in the saved tool output\n",
+        );
+        if shortened {
+            text.push_str(
+                "For the saved line prefix, use read_tool_output with output, offset=0 and limit\n",
+            );
+        }
+    } else if shortened {
         text.push_str(
             "For omitted line text, use read_tool_output with output, offset=0 and limit for the original result JSON\n",
         );
@@ -149,7 +164,9 @@ fn render(
     if let Some(next) = next {
         text.push_str(&format!("Next file page: read_file with offset={next}\n"));
     }
-    text.push_str(&json!({"output":source,"next_offset":next}).to_string());
+    text.push_str(
+        &json!({"output":source,"next_offset":next,"truncated":page.truncated}).to_string(),
+    );
     text
 }
 

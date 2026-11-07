@@ -21,21 +21,59 @@ fn streams_binary_replacements() {
         .unwrap();
     assert_eq!(output.size, bytes.len() as u64);
     assert_eq!(std::fs::read(root.join("资料.bin")).unwrap(), bytes);
-    // The editor's original bounded-read contract remains intact.
-    assert_eq!(
-        save(&root, "资料.bin", "text", Some(&revision))
-            .unwrap_err()
-            .code,
-        ErrorCode::RevisionConflict
-    );
+    let replaced = save(&root, "资料.bin", "text", Some(&revision)).unwrap();
+    assert_eq!(std::fs::read(root.join("资料.bin")).unwrap(), b"text");
     let empty = blake3::hash(&[]).to_hex().to_string();
-    let output = Target::prepare(&root, "资料.bin", Some(&revision), u64::MAX, None)
+    let output = Target::prepare(&root, "资料.bin", Some(&replaced.revision), u64::MAX, None)
         .unwrap()
         .write(Bounded(&[]), 0, &empty)
         .unwrap();
     assert_eq!(output.size, 0);
     assert!(std::fs::read(root.join("资料.bin")).unwrap().is_empty());
     assert_eq!(std::fs::read_dir(root).unwrap().count(), 1);
+}
+
+#[test]
+fn rejects_originals_above_edit_limit() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().canonicalize().unwrap();
+    std::fs::File::create(root.join("file"))
+        .unwrap()
+        .set_len(MAX_EDIT_BYTES as u64 + 1)
+        .unwrap();
+    assert_eq!(
+        save(&root, "file", "text", Some(&blake3::hash(b"").to_hex()))
+            .unwrap_err()
+            .code,
+        ErrorCode::RevisionConflict
+    );
+    assert_eq!(
+        std::fs::metadata(root.join("file")).unwrap().len(),
+        MAX_EDIT_BYTES as u64 + 1
+    );
+}
+
+#[test]
+fn preserves_changes_after_edit_read() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().canonicalize().unwrap();
+    std::fs::write(root.join("file"), "original").unwrap();
+    let control = crate::files::Control::new(CancellationToken::new());
+    let (target, before) =
+        Target::read(&root, "file", &blake3::hash(b"original").to_hex(), &control).unwrap();
+    assert_eq!(before, "original");
+    std::fs::write(root.join("file"), "external").unwrap();
+    assert_eq!(
+        target
+            .write(b"ours".as_slice(), 4, &blake3::hash(b"ours").to_hex())
+            .unwrap_err()
+            .code,
+        ErrorCode::RevisionConflict
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.join("file")).unwrap(),
+        "external"
+    );
 }
 
 #[test]

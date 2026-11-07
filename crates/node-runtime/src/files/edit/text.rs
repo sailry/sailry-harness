@@ -64,6 +64,10 @@ impl<'a> Pattern<'a> {
                 .len_utf8()
     }
 
+    pub(in crate::files) fn end(&self, position: usize) -> usize {
+        position + self.text.len()
+    }
+
     pub(in crate::files) fn range(&self, view: &View<'_>, position: usize) -> Range<usize> {
         let end = position + self.text.len();
         if self.raw {

@@ -272,27 +272,26 @@ async fn shares_modes_context_types_and_pagination() {
             ["first", "second"]
         );
         for path in ["src/drop.ignored", "src/nested/skip.rs"] {
-            assert!(
-                query(
-                    &fixture,
-                    &client,
-                    FileSearch {
-                        query: "needle".into(),
-                        path: path.into(),
-                        ..Default::default()
-                    }
-                )
-                .await
-                .matches
-                .is_empty()
-            );
+            let result = query(
+                &fixture,
+                &client,
+                FileSearch {
+                    query: "needle".into(),
+                    path: path.into(),
+                    ..Default::default()
+                },
+            )
+            .await;
+            assert_eq!(result.matches.len(), 1);
+            assert_eq!(result.matches[0].path, path);
+            assert_eq!(result.matches[0].line, "needle hidden");
         }
     }
     fixture.close().await;
 }
 
 #[tokio::test]
-async fn pages_encoded_text_despite_skipped_files() {
+async fn skips_non_utf8_and_pages_text() {
     let fixture = Fixture::empty().await;
     std::fs::create_dir(fixture.root.join("encoded")).unwrap();
     let directory = fixture.root.join("encoded");
@@ -300,7 +299,7 @@ async fn pages_encoded_text_despite_skipped_files() {
         .unwrap()
         .set_len(64 * 1024 * 1024 + 1)
         .unwrap();
-    std::fs::write(directory.join("b-binary.txt"), b"\xd6\xd0\xce\xc4\0binary").unwrap();
+    std::fs::write(directory.join("b-binary.txt"), "中文\0binary").unwrap();
     std::fs::write(directory.join("c-invalid.txt"), b"\xd6\xd0\xce\xc4\xff").unwrap();
     let denied = directory.join("d-denied.txt");
     std::fs::write(&denied, "not a query match").unwrap();
@@ -318,7 +317,8 @@ async fn pages_encoded_text_despite_skipped_files() {
     let (encoded, _, failed) = encoding_rs::GB18030.encode("中文𠀀🙂\n");
     assert!(!failed);
     std::fs::write(directory.join("f-gb18030.txt"), encoded).unwrap();
-    std::fs::write(directory.join("g-bom.txt"), "\u{feff}中文 UTF-8\n").unwrap();
+    std::fs::write(directory.join("g-utf8.txt"), "中文 first\n中文 second\n").unwrap();
+    std::fs::write(directory.join("h-bom.txt"), "\u{feff}中文 UTF-8\n").unwrap();
     if inaccessible {
         for client in fixture.clients() {
             let page = query(
@@ -335,8 +335,8 @@ async fn pages_encoded_text_despite_skipped_files() {
             assert!(page.partial);
             assert!(page.truncated);
             assert!(page.next_offset.is_none());
-            assert_eq!(page.scanned_files, 7);
-            assert_eq!(page.skipped, 4);
+            assert_eq!(page.scanned_files, 8);
+            assert_eq!(page.skipped, 6);
             assert!(page.diagnostics.iter().any(|entry| {
                 entry.path == "encoded/d-denied.txt"
                     && entry.message.contains("filesystem operation failed")
@@ -359,20 +359,13 @@ async fn pages_encoded_text_despite_skipped_files() {
         for (offset, expected, next) in [
             (
                 0,
-                [
-                    ("encoded/e-gbk.txt", 1, "中文 first"),
-                    ("encoded/e-gbk.txt", 2, "中文 second"),
+                vec![
+                    ("encoded/g-utf8.txt", 1, "中文 first"),
+                    ("encoded/g-utf8.txt", 2, "中文 second"),
                 ],
                 Some(2),
             ),
-            (
-                2,
-                [
-                    ("encoded/f-gb18030.txt", 1, "中文𠀀🙂"),
-                    ("encoded/g-bom.txt", 1, "中文 UTF-8"),
-                ],
-                None,
-            ),
+            (2, vec![("encoded/h-bom.txt", 1, "中文 UTF-8")], None),
         ] {
             let page = query(
                 &fixture,
@@ -387,8 +380,8 @@ async fn pages_encoded_text_despite_skipped_files() {
             assert_eq!(page.offset, offset);
             assert_eq!(page.next_offset, next);
             assert_eq!(page.truncated, next.is_some());
-            assert_eq!(page.scanned_files, 7);
-            assert_eq!(page.skipped, 3);
+            assert_eq!(page.scanned_files, 8);
+            assert_eq!(page.skipped, 5);
             assert_eq!(page.diagnostics.len(), page.skipped - 1);
             assert!(
                 page.diagnostics
@@ -404,7 +397,9 @@ async fn pages_encoded_text_despite_skipped_files() {
             );
             for (path, message) in [
                 ("encoded/a-large.txt", "64 MiB"),
-                ("encoded/c-invalid.txt", "UTF-8 nor GB18030"),
+                ("encoded/c-invalid.txt", "not UTF-8"),
+                ("encoded/e-gbk.txt", "not UTF-8"),
+                ("encoded/f-gb18030.txt", "not UTF-8"),
             ] {
                 assert!(
                     page.diagnostics
@@ -425,7 +420,7 @@ async fn pages_encoded_text_despite_skipped_files() {
         .await;
         assert!(!anchored.partial);
         assert_eq!(anchored.matches.len(), 1);
-        assert_eq!(anchored.matches[0].path, "encoded/e-gbk.txt");
+        assert_eq!(anchored.matches[0].path, "encoded/g-utf8.txt");
         assert_eq!(anchored.matches[0].line_number, 2);
         assert_eq!(anchored.matches[0].line, "中文 second");
     }

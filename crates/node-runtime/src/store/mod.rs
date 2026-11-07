@@ -889,7 +889,17 @@ impl Store {
                             .map(sailry_protocol::Output::FileWritten)
                     } else {
                         git.capture(&roots.target, || {
-                            let result = execute(roots, request);
+                            let prepared = agent::checkpoints::write::prepare(
+                                &validation,
+                                roots.access.scope(&roots.target),
+                                request,
+                            )?;
+                            let result = match prepared {
+                                Some(prepared) => {
+                                    prepared.write().map(sailry_protocol::Output::FileWritten)
+                                }
+                                None => execute(roots, request),
+                            };
                             crate::git::Git::record(&request.command, &result);
                             result
                         })

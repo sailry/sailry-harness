@@ -99,6 +99,7 @@ async fn preserves_shared_command_contracts() {
         revision: "a".repeat(64),
         offset: 2,
         next_offset: None,
+        truncated: false,
     };
     let backend = Backend::new(vec![
         Output::CodeSearch(page.clone()),
@@ -249,6 +250,7 @@ async fn rejects_mismatched_source_revisions() {
         revision: "b".repeat(64),
         offset: 0,
         next_offset: None,
+        truncated: false,
     })]);
     let client = Client::new(backend);
     let error = client

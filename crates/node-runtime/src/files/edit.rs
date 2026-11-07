@@ -1,4 +1,4 @@
-use super::{Control, lines, save::Target};
+use super::{Control, save::Target};
 use sailry_link::CancellationToken;
 use sailry_protocol::{ErrorCode, Fault, FileEdit, FileWritten, MAX_EDIT_BYTES};
 use std::{borrow::Cow, cmp::Reverse, collections::BinaryHeap, ops::Range};
@@ -48,23 +48,50 @@ pub(crate) fn edit<'a>(
     edits: &[FileEdit],
     expected: &str,
 ) -> Result<FileWritten, Fault> {
+    read(root, path, edits, expected)?.write()
+}
+
+pub(crate) struct Prepared {
+    target: Target,
+    pub(crate) before: String,
+    pub(crate) previous: String,
+    pub(crate) after: String,
+    pub(crate) revision: String,
+    changes: Vec<Range<usize>>,
+}
+
+pub(crate) fn read<'a>(
+    root: impl Into<super::Scope<'a>>,
+    path: &str,
+    edits: &[FileEdit],
+    expected: &str,
+) -> Result<Prepared, Fault> {
     let root = root.into();
     let control = Control::new(CancellationToken::new());
-    let before = lines::complete(root, path, &control)?;
-    let (text, changes) = apply(&before, edits, expected)?;
+    let (target, before) = Target::read(root, path, expected, &control)?;
+    let (after, changes) = replace(&before, edits)?;
     control.check()?;
-    let target = Target::prepare(
-        root,
-        path,
-        Some(expected),
-        MAX_EDIT_BYTES as u64,
-        Some(&control.cancelled),
-    )?;
-    control.check()?;
-    let revision = blake3::hash(text.as_bytes()).to_hex().to_string();
-    let mut written = target.write(text.as_bytes(), text.len() as u64, &revision)?;
-    written.excerpt = Some(excerpt::collect(&text, &changes));
-    Ok(written)
+    let revision = blake3::hash(after.as_bytes()).to_hex().to_string();
+    Ok(Prepared {
+        target,
+        before,
+        previous: expected.into(),
+        after,
+        revision,
+        changes,
+    })
+}
+
+impl Prepared {
+    pub(crate) fn write(self) -> Result<FileWritten, Fault> {
+        let mut written = self.target.write(
+            self.after.as_bytes(),
+            self.after.len() as u64,
+            &self.revision,
+        )?;
+        written.excerpt = Some(excerpt::collect(&self.after, &self.changes));
+        Ok(written)
+    }
 }
 
 pub(crate) fn prepare(before: &str, edits: &[FileEdit], expected: &str) -> Result<String, Fault> {
@@ -82,7 +109,6 @@ pub(super) fn apply(
     edits: &[FileEdit],
     expected: &str,
 ) -> Result<(String, Vec<Range<usize>>), Fault> {
-    changes(None, None, false, Some(edits))?;
     if before.len() > MAX_EDIT_BYTES
         || before.contains('\0')
         || blake3::Hash::from_hex(expected).is_err()
@@ -95,6 +121,11 @@ pub(super) fn apply(
             "file changed before editing",
         ));
     }
+    replace(before, edits)
+}
+
+fn replace(before: &str, edits: &[FileEdit]) -> Result<(String, Vec<Range<usize>>), Fault> {
+    changes(None, None, false, Some(edits))?;
     let control = Control::new(CancellationToken::new());
     let view = text::View::new(before);
     let patterns: Vec<_> = edits
@@ -137,9 +168,8 @@ pub(super) fn apply(
         changes.push(from..after.len());
         offset = end;
         if edit.replace_all {
-            // Advance one character so overlapping occurrences are rejected instead of silently skipped.
             let pattern = &patterns[index];
-            if let Some(next) = pattern.find(&view, pattern.following(&view, position)) {
+            if let Some(next) = pattern.find(&view, pattern.end(position)) {
                 let range = pattern.range(&view, next);
                 matches.push(Reverse((range.start, range.end, index, next)));
             }

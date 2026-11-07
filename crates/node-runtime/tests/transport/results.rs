@@ -51,6 +51,13 @@ async fn matches_completions_and_faults() {
             text: "changed".into(),
             expected_revision: Some("0".repeat(64)),
         },
+        Command::ReadFileLines {
+            worktree,
+            path: "large.txt".into(),
+            offset: 0,
+            limit: 2,
+            expected_revision: None,
+        },
     ];
     let [local, remote] = fixture.clients();
     let mut results = Vec::new();
@@ -107,6 +114,19 @@ async fn matches_completions_and_faults() {
         panic!("durable revision fault expected: {:?}", results[6])
     };
     assert_ne!(conflict.code, ErrorCode::OutcomeUnknown);
+    let (Some(false), Ok(Output::FileLines(lines))) = &results[7] else {
+        panic!("bounded line page expected: {:?}", results[7])
+    };
+    assert!(lines.truncated);
+    assert_eq!(lines.lines.len(), 1);
+    assert_eq!(lines.lines[0].text.len(), MAX_FILE_BYTES / 3 * 3);
+    assert_eq!(lines.next_offset, None);
+    assert_eq!(
+        lines.revision,
+        blake3::hash("€".repeat(MAX_FILE_BYTES).as_bytes())
+            .to_hex()
+            .as_str()
+    );
     assert_eq!(
         std::fs::read_to_string(fixture.root.join("src/main.rs")).unwrap(),
         "fn main() {}\n"
