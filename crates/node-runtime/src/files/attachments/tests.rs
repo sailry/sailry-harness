@@ -17,7 +17,7 @@ async fn reads_independent_attachments() {
     let profile = temp.path().canonicalize().unwrap();
     let (attachment, target) = prepare(Some(&profile), spec()).unwrap();
     target
-        .write(&b""[..], 0, &attachment.spec.revision, &|_| {})
+        .write(&b""[..], 0, &attachment.spec.revision)
         .unwrap();
     let files = super::super::Files::new();
     let stop = sailry_link::CancellationToken::new();
@@ -83,7 +83,7 @@ fn retains_registered_files() {
     let profile = temp.path().canonicalize().unwrap();
     let (attachment, target) = prepare(Some(&profile), spec()).unwrap();
     target
-        .write(&b""[..], 0, &attachment.spec.revision, &|_| {})
+        .write(&b""[..], 0, &attachment.spec.revision)
         .unwrap();
     let file = profile.join("attachments").join(attachment.id.to_string());
     let orphan = profile
