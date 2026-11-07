@@ -104,6 +104,8 @@ impl Ingress {
                     &stop,
                     #[cfg(any(test, feature = "test-support"))]
                     self.model_catalog_fixtures.get(search.hub),
+                    #[cfg(not(any(test, feature = "test-support")))]
+                    None,
                 )
                 .await?,
             ),
@@ -115,6 +117,8 @@ impl Ingress {
                     &stop,
                     #[cfg(any(test, feature = "test-support"))]
                     self.model_catalog_fixtures.get(*hub),
+                    #[cfg(not(any(test, feature = "test-support")))]
+                    None,
                 )
                 .await?,
             ),
@@ -126,6 +130,8 @@ impl Ingress {
                     &stop,
                     #[cfg(any(test, feature = "test-support"))]
                     self.model_catalog_fixtures.get(source.hub),
+                    #[cfg(not(any(test, feature = "test-support")))]
+                    None,
                 )
                 .await?,
             ),
@@ -143,6 +149,8 @@ impl Ingress {
                         &stop,
                         #[cfg(any(test, feature = "test-support"))]
                         self.model_catalog_fixtures.get(previous.source.hub),
+                        #[cfg(not(any(test, feature = "test-support")))]
+                        None,
                     )
                     .await?,
                 )

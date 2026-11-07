@@ -55,7 +55,7 @@ name = "code_index"
 path = "tests/code_index.rs"
 
 [features]
-test-support = ["sailry-link/test-support"]
+test-support = ["sailry-link/test-support", "sailry-local-models/test-support"]
 
 [[example]]
 name = "plugin-test-host"
@@ -93,12 +93,9 @@ sailry-protocol.workspace = true
 ammonia.workspace = true
 html5ever.workspace = true
 sailry-embedding.workspace = true
-sailry-decision.workspace = true
-sailry-ocr.workspace = true
-hayro.workspace = true
 sailry-model-assets.workspace = true
-sha1.workspace = true
 sailry-link.workspace = true
+sailry-local-models.workspace = true
 sailry-office.workspace = true
 sailry-runtime-core.workspace = true
 sailry-vt.workspace = true
@@ -194,9 +191,10 @@ tokio-tungstenite.workspace = true
 iroh-relay = { workspace = true, features = ["server", "test-utils"] }
 tokio-rustls.workspace = true
 rcgen.workspace = true
-# Unit tests use Link fixtures directly; a self dev-dependency would serialize the
+# Unit tests use Link and local model fixtures directly; a self dev-dependency would serialize the
 # library and unit-test builds. Integration tests enable `test-support` explicitly.
 sailry-link = { workspace = true, features = ["test-support"] }
+sailry-local-models = { workspace = true, features = ["test-support"] }
 hyper.workspace = true
 http-body-util.workspace = true
 tokio = { workspace = true, features = ["test-util"] }

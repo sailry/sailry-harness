@@ -14447,6 +14447,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "sailry-local-models"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "cap-fs-ext",
+ "futures",
+ "hayro",
+ "image",
+ "libc",
+ "reqwest 0.13.4",
+ "rustls",
+ "sailry-decision",
+ "sailry-embedding",
+ "sailry-model-assets",
+ "sailry-ocr",
+ "sailry-office",
+ "sailry-protocol",
+ "sailry-runtime-core",
+ "serde",
+ "serde_json",
+ "sha1 0.10.7",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
 name = "sailry-mobile-bridge"
 version = "0.1.0"
 dependencies = [
@@ -14533,7 +14561,6 @@ dependencies = [
  "goose-providers",
  "grep-regex",
  "grep-searcher",
- "hayro",
  "htmd",
  "html5ever 0.39.0",
  "http-body-util",
@@ -14577,11 +14604,10 @@ dependencies = [
  "rustls",
  "rustls-native-certs",
  "sailry-client",
- "sailry-decision",
  "sailry-embedding",
  "sailry-link",
+ "sailry-local-models",
  "sailry-model-assets",
- "sailry-ocr",
  "sailry-office",
  "sailry-protocol",
  "sailry-runtime-core",
@@ -14593,7 +14619,6 @@ dependencies = [
  "serde",
  "serde-saphyr 0.0.29",
  "serde_json",
- "sha1 0.10.7",
  "sha2 0.10.9",
  "sqlx",
  "sysinfo 0.39.6",

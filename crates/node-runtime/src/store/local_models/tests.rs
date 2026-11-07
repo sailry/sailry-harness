@@ -5,6 +5,8 @@ use tokio::{
     time::{Duration, timeout},
 };
 
+mod service;
+
 fn model(kind: Kind, state: State) -> Model {
     let (id, definition) = catalog::definitions(&[])
         .unwrap()
