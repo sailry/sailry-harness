@@ -12,6 +12,8 @@ pub(super) enum Event {
         cancelled: bool,
     },
     Close,
+    NewTab,
+    Reload,
     SelectElement,
     Annotation(super::annotation::Message),
     #[cfg(target_os = "macos")]
@@ -109,6 +111,12 @@ impl Browser {
                             }
                             if request.body() == "close-tab" {
                                 let _ = shortcuts.send((id, Event::Close));
+                            }
+                            if request.body() == "new-tab" {
+                                let _ = shortcuts.send((id, Event::NewTab));
+                            }
+                            if request.body() == "reload" {
+                                let _ = shortcuts.send((id, Event::Reload));
                             }
                             if request.body() == "select-element" {
                                 let _ = shortcuts.send((id, Event::SelectElement));
@@ -244,6 +252,18 @@ impl Browser {
             }
             Event::Close => {
                 self.close(id, window, cx);
+                return;
+            }
+            Event::NewTab => {
+                if index == self.selected {
+                    self.new_tab(&shortcuts::NewBrowserTab, window, cx);
+                }
+                return;
+            }
+            Event::Reload => {
+                if index == self.selected {
+                    self.reload_page(&shortcuts::ReloadBrowser, window, cx);
+                }
                 return;
             }
             Event::SelectElement => {

@@ -84,7 +84,42 @@ impl Render for Panel {
         }
         let panel = v_flex()
             .id("plugin-panel")
-            .debug_selector(|| "plugin-panel".into())
+            .debug_selector(|| "plugin-panel".into());
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
+        let panel = panel.when(self.browser_view().is_some(), |panel| {
+            panel
+                .key_context("SailryBrowser")
+                .on_action(cx.listener(
+                    |panel, action: &crate::browser::shortcuts::NewBrowserTab, window, cx| {
+                        if let Some(browser) = panel.browser_view()
+                            && panel.connected
+                            && !panel.initialization.loading()
+                            && panel
+                                .mounted
+                                .as_ref()
+                                .is_some_and(|mounted| mounted.active())
+                        {
+                            browser.update(cx, |browser, cx| browser.new_tab(action, window, cx));
+                        }
+                    },
+                ))
+                .on_action(cx.listener(
+                    |panel, action: &crate::browser::shortcuts::ReloadBrowser, window, cx| {
+                        if let Some(browser) = panel.browser_view()
+                            && panel.connected
+                            && !panel.initialization.loading()
+                            && panel
+                                .mounted
+                                .as_ref()
+                                .is_some_and(|mounted| mounted.active())
+                        {
+                            browser
+                                .update(cx, |browser, cx| browser.reload_page(action, window, cx));
+                        }
+                    },
+                ))
+        });
+        let panel = panel
             .when(!self.content_sized, |panel| panel.size_full())
             .min_w_0()
             .min_h_0()

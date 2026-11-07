@@ -25,6 +25,7 @@ async fn exposes_current_state_before_projection() {
         .unwrap(),
     ]);
     let mut updates = bridge.subscribe();
+    assert_eq!(bridge.sequence(), Some(0));
     let pending = updates.borrow().clone();
     assert!(!pending["create"].enabled);
     assert!(bridge.state("missing").is_none());
@@ -39,9 +40,11 @@ async fn exposes_current_state_before_projection() {
 
     bridge.invoke_intent("create", Value::Null).unwrap();
     let first = bridge.next().await.unwrap();
+    assert_eq!(bridge.sequence(), Some(first.sequence));
     assert!(available["create"].enabled);
     assert!(!bridge.state("create").unwrap().enabled);
     assert!(bridge.invoke_intent("create", Value::Null).is_err());
+    assert_eq!(bridge.sequence(), Some(first.sequence));
     bridge
         .publish(vec![state(json!({"id":"create", "enabled":true}))])
         .unwrap();
@@ -57,6 +60,8 @@ async fn exposes_current_state_before_projection() {
     assert!(bridge.state("create").unwrap().enabled);
     bridge.invoke_intent("create", Value::Null).unwrap();
     let latest = bridge.next().await.unwrap();
+    assert!(latest.sequence > first.sequence);
+    assert_eq!(bridge.sequence(), Some(latest.sequence));
     bridge
         .publish(vec![state(
             json!({"id":"create", "reply_to":first.sequence}),

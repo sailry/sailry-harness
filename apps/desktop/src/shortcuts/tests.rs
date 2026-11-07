@@ -15,6 +15,11 @@ fn persists_owned_bindings(cx: &mut TestAppContext) {
         save("app.search", Some("secondary-shift-j"), cx).unwrap();
         assert_eq!(key("app.search", cx).as_deref(), Some("secondary-shift-j"));
         assert_eq!(cx.key_bindings().borrow().bindings().len(), count);
+        assert!(renderer_conflict("secondary-shift-j", cx));
+        assert!(renderer_conflict("secondary-shift-j secondary-p", cx));
+        for key in ["secondary-p", "ctrl-`", "ctrl-shift-g", "secondary-t"] {
+            assert!(!renderer_conflict(key, cx), "{key}");
+        }
         let search = cx
             .key_bindings()
             .borrow()
@@ -89,10 +94,16 @@ fn stale_navigation_overrides_are_inert(cx: &mut TestAppContext) {
         assert_eq!(
             entries(cx).iter().map(|entry| entry.id).collect::<Vec<_>>(),
             [
+                "conversation.new",
+                "project.new",
+                "folder.open",
                 "app.search",
                 "sidebar.toggle",
                 "panel.toggle",
                 "host.refresh",
+                "conversation.previous",
+                "conversation.next",
+                "app.shortcuts",
                 "system.activate",
                 "system.selection"
             ]
@@ -136,5 +147,136 @@ fn stale_navigation_overrides_are_inert(cx: &mut TestAppContext) {
                 .next()
                 .is_none()
         );
+    });
+}
+
+#[gpui::test]
+fn defaults_include_cross_platform_commands(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        cx.set_global(crate::preferences::Preferences::default());
+        crate::shell::shortcuts::init(cx);
+        init(cx);
+        for (id, expected) in [
+            ("conversation.new", "secondary-n"),
+            ("project.new", "secondary-alt-n"),
+            ("folder.open", "secondary-o"),
+            ("panel.toggle", "secondary-alt-b"),
+            ("host.refresh", "secondary-shift-r"),
+            ("conversation.previous", "secondary-shift-["),
+            ("conversation.next", "secondary-shift-]"),
+            ("app.shortcuts", "secondary-/"),
+            ("system.activate", "ctrl-alt-space"),
+            ("system.selection", ""),
+        ] {
+            assert_eq!(key(id, cx).as_deref(), Some(expected));
+            for os in [
+                OperatingSystem::Mac,
+                OperatingSystem::Windows,
+                OperatingSystem::Linux,
+            ] {
+                assert!(valid(expected, os));
+            }
+        }
+        for action in [
+            NewConversation.boxed_clone(),
+            NewProject.boxed_clone(),
+            OpenFolder.boxed_clone(),
+        ] {
+            assert_eq!(
+                cx.key_bindings()
+                    .borrow()
+                    .bindings_for_action(action.as_ref())
+                    .count(),
+                1
+            );
+        }
+        for key in [
+            "secondary-n",
+            "secondary-alt-n",
+            "secondary-o",
+            "secondary-alt-b",
+            "secondary-shift-r",
+            "secondary-shift-[",
+            "secondary-shift-]",
+            "secondary-/",
+            "secondary-.",
+            "secondary-l",
+            "secondary-shift-m",
+            "shift-tab",
+            "ctrl-shift-`",
+            "secondary-d",
+            "secondary-shift-d",
+        ] {
+            assert_eq!(
+                save("app.search", Some(key), cx),
+                Err("shortcut_conflict"),
+                "{key}"
+            );
+        }
+        assert_eq!(
+            save("system.activate", Some("secondary-n"), cx),
+            Err("shortcut_conflict")
+        );
+    });
+}
+
+#[gpui::test]
+fn preserves_existing_overrides(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        let overrides = std::collections::BTreeMap::from([
+            ("panel.toggle".into(), "secondary-shift-b".into()),
+            ("host.refresh".into(), "secondary-r".into()),
+            ("system.activate".into(), "secondary-alt-space".into()),
+            ("system.selection".into(), "secondary-alt-s".into()),
+        ]);
+        let mut preferences = crate::preferences::Preferences::default();
+        preferences.data.shortcuts = Some(overrides.clone());
+        cx.set_global(preferences);
+        crate::shell::shortcuts::init(cx);
+        init(cx);
+        for (id, expected) in overrides {
+            assert_eq!(key(&id, cx), Some(expected));
+        }
+    });
+}
+
+#[gpui::test]
+fn existing_override_precedes_new_default(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        let mut preferences = crate::preferences::Preferences::default();
+        preferences.data.shortcuts = Some(std::collections::BTreeMap::from([(
+            "app.search".into(),
+            "secondary-alt-b".into(),
+        )]));
+        cx.set_global(preferences);
+        crate::shell::shortcuts::init(cx);
+        init(cx);
+        assert_eq!(key("app.search", cx).as_deref(), Some("secondary-alt-b"));
+        assert_eq!(key("panel.toggle", cx).as_deref(), Some(""));
+        assert_eq!(save("panel.toggle", None, cx), Err("shortcut_conflict"));
+        assert_eq!(
+            crate::preferences::data(cx).shortcuts.unwrap()["app.search"],
+            "secondary-alt-b"
+        );
+        assert!(
+            cx.key_bindings()
+                .borrow()
+                .bindings_for_action(&shell::ToggleDetails)
+                .next()
+                .is_none()
+        );
+        assert_eq!(
+            cx.key_bindings()
+                .borrow()
+                .bindings_for_action(&shell::Search)
+                .count(),
+            1
+        );
+        save("app.search", None, cx).unwrap();
+        save("panel.toggle", None, cx).unwrap();
+        assert_eq!(key("panel.toggle", cx).as_deref(), Some("secondary-alt-b"));
     });
 }

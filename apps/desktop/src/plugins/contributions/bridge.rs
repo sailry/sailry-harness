@@ -32,6 +32,10 @@ struct Interaction {
 }
 
 impl Bridge {
+    pub(crate) fn sequence(&self) -> Option<u64> {
+        self.current.lock().ok().map(|current| current.sequence)
+    }
+
     pub fn new(declarations: Vec<Contribution>) -> Arc<Self> {
         let values = declarations
             .iter()

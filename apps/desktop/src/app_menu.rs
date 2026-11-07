@@ -1,6 +1,7 @@
 //! Native application menus use Kit's re-exported GPUI menu and action dispatch.
 //! Standard entries follow Sailry Code 67ae9fa0's macOS MainMenu.xib; actions
 //! reuse the current Shell, editing controls and window lifecycle.
+use crate::shell::shortcuts::{NewConversation, NewProject, OpenFolder};
 use crate::{preview::Page, settings::Section, shell::Shell};
 use gpui_kit::{component::input, prelude::*, *};
 
@@ -12,9 +13,6 @@ actions!(
     sailry,
     [
         About,
-        NewConversation,
-        NewProject,
-        OpenFolder,
         CloseWindow,
         Hide,
         HideOthers,
@@ -179,9 +177,6 @@ fn menus(locale: &str, navigation: &[Navigation]) -> Vec<Menu> {
 
 fn shortcuts(cx: &mut App) {
     cx.bind_keys([
-        KeyBinding::new("cmd-alt-n", NewProject, Some("Sailry")),
-        KeyBinding::new("cmd-o", OpenFolder, Some("Sailry")),
-        KeyBinding::new("cmd-n", NewConversation, Some("Sailry")),
         KeyBinding::new("cmd-shift-w", CloseWindow, Some("Sailry")),
         KeyBinding::new("cmd-h", Hide, None),
         KeyBinding::new("cmd-alt-h", HideOthers, None),
@@ -197,15 +192,6 @@ pub(crate) fn bind(element: Stateful<Div>, cx: &Context<Shell>) -> Stateful<Div>
             shell
                 .settings
                 .update(cx, |settings, cx| settings.select(Section::About, cx));
-        }))
-        .on_action(cx.listener(|shell, _: &NewConversation, window, cx| {
-            shell.start_conversation(window, cx);
-        }))
-        .on_action(cx.listener(|shell, _: &NewProject, window, cx| {
-            shell.project_editor(shell.host, None, window, cx);
-        }))
-        .on_action(cx.listener(|shell, _: &OpenFolder, window, cx| {
-            shell.open_folder(window, cx);
         }))
         .on_action(|_: &Logs, window, cx| logs::open(window, cx))
         .on_action(cx.listener(Shell::open_feature))

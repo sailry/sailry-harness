@@ -4,7 +4,18 @@ use super::*;
 #[action(namespace = sailry, no_json)]
 pub(crate) struct OpenPage(pub Page);
 
-actions!(sailry, [RefreshHost, CloseFocused]);
+actions!(
+    sailry,
+    [
+        RefreshHost,
+        CloseFocused,
+        NewConversation,
+        NewProject,
+        OpenFolder,
+        PreviousConversation,
+        NextConversation
+    ]
+);
 
 pub(crate) fn init(cx: &mut App) {
     #[derive(Default)]
@@ -16,6 +27,7 @@ pub(crate) fn init(cx: &mut App) {
     cx.set_global(Installed);
     crate::resources::init(cx);
     crate::terminal::init(cx);
+    crate::conversation::live::shortcuts::init(cx);
     cx.bind_keys([
         KeyBinding::load("secondary-q", Box::new(Quit), None, false, None, cx)
             .expect("static shortcut"),
@@ -114,6 +126,51 @@ pub(crate) fn init(cx: &mut App) {
 }
 
 impl Shell {
+    pub(super) fn new_conversation(
+        &mut self,
+        _: &NewConversation,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.start_conversation(window, cx);
+    }
+
+    pub(super) fn new_project(
+        &mut self,
+        _: &NewProject,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.project_editor(self.host, None, window, cx);
+    }
+
+    pub(super) fn choose_folder(
+        &mut self,
+        _: &OpenFolder,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_folder(window, cx);
+    }
+
+    pub(super) fn previous_conversation(
+        &mut self,
+        _: &PreviousConversation,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.adjacent_conversation(false, window, cx);
+    }
+
+    pub(super) fn next_conversation(
+        &mut self,
+        _: &NextConversation,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.adjacent_conversation(true, window, cx);
+    }
+
     pub(super) fn open_page(
         &mut self,
         action: &OpenPage,

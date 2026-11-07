@@ -6,6 +6,7 @@ export interface BrowserAnnotation {token:string;element:BrowserElement}
 export interface BrowserState { cursor: string; tabs: BrowserTab[]; selected: number | null; history: [boolean,boolean]; supported: boolean; annotating: boolean; annotation: BrowserAnnotation | null; annotation_error: string | null }
 export function readBrowser(): BrowserState;
 export function nextBrowserChange(seen: string): Promise<BrowserState>;
+export function nextBrowserShortcut(): Promise<{kind: 'add'}>;
 export function browserAction(action: {kind: 'add'|'select'|'close'|'navigate'|'back'|'forward'|'reload'|'stop'|'annotate'|'cancel_annotation'; id?: number; url?: string; token?: string}): Promise<BrowserState>;
 /** Validate the reviewed token/reference and insert its element chip and note into the captured composer. */
 export function submitBrowserAnnotation(token:string, reference:string): Promise<void>;

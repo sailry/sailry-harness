@@ -20,7 +20,7 @@ mod navigation;
 pub(crate) mod profile;
 pub(crate) mod settings;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
-mod shortcuts;
+pub(crate) mod shortcuts;
 pub(crate) mod state;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod surface;

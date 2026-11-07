@@ -97,6 +97,7 @@ impl View {
             tr(permission::label(current))
         );
         crate::theme::popover(Popover::new("composer-settings-popover"), cx)
+            .open(model.read(cx).opened)
             .anchor(Anchor::BottomLeft)
             .bottom_2()
             .p_2()
@@ -111,8 +112,8 @@ impl View {
                     .debug_selector(|| "composer-settings".into()),
             )
             .on_open_change(move |open, window, cx| {
+                model.update(cx, |panel, cx| panel.open(*open, window, cx));
                 if *open {
-                    model.update(cx, |panel, cx| panel.open(true, window, cx));
                     opening.update(cx, |panel, cx| panel.show(Page::Settings, window, cx));
                 }
             })
@@ -272,6 +273,11 @@ pub(in crate::conversation::live) struct Panel {
 }
 
 impl Panel {
+    pub(in crate::conversation::live) fn reset(&mut self, cx: &mut Context<Self>) {
+        self.page = Page::Settings;
+        cx.notify();
+    }
+
     pub(in crate::conversation::live) fn new(owner: Entity<View>, cx: &mut Context<Self>) -> Self {
         cx.observe(&owner, |_, _, cx| cx.notify()).detach();
         Self {

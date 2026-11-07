@@ -1,5 +1,4 @@
-//! Configurable application-wide commands. System and component shortcuts keep
-//! their fixed defaults outside this registry; plugins own scoped bindings.
+//! Configurable application and system commands. Components and plugins own scoped bindings.
 use crate::shell::{self, shortcuts::*};
 use gpui_kit::*;
 
@@ -62,6 +61,30 @@ pub(crate) fn init(cx: &mut App) {
     }
     let mut registry = Registry::default();
     registry.add(
+        "conversation.new",
+        "menu_new_conversation",
+        "secondary-n",
+        &[Some("Sailry")],
+        NewConversation,
+        cx,
+    );
+    registry.add(
+        "project.new",
+        "menu_new_project",
+        "secondary-alt-n",
+        &[Some("Sailry")],
+        NewProject,
+        cx,
+    );
+    registry.add(
+        "folder.open",
+        "menu_open_folder",
+        "secondary-o",
+        &[Some("Sailry")],
+        OpenFolder,
+        cx,
+    );
+    registry.add(
         "app.search",
         "search",
         "secondary-k",
@@ -80,7 +103,7 @@ pub(crate) fn init(cx: &mut App) {
     registry.add(
         "panel.toggle",
         "shortcut_inspector",
-        "secondary-shift-b",
+        "secondary-alt-b",
         &[Some("Sailry")],
         shell::ToggleDetails,
         cx,
@@ -88,15 +111,39 @@ pub(crate) fn init(cx: &mut App) {
     registry.add(
         "host.refresh",
         "shortcut_sync",
-        "secondary-r",
+        "secondary-shift-r",
         &[Some("Sailry")],
         RefreshHost,
         cx,
     );
     registry.add(
+        "conversation.previous",
+        "shortcut_previous_conversation",
+        "secondary-shift-[",
+        &[Some("Sailry")],
+        PreviousConversation,
+        cx,
+    );
+    registry.add(
+        "conversation.next",
+        "shortcut_next_conversation",
+        "secondary-shift-]",
+        &[Some("Sailry")],
+        NextConversation,
+        cx,
+    );
+    registry.add(
+        "app.shortcuts",
+        "settings_shortcuts",
+        "secondary-/",
+        &[Some("Sailry")],
+        crate::settings::OpenSection(crate::settings::Section::Shortcuts),
+        cx,
+    );
+    registry.add(
         "system.activate",
         "shortcut_activate",
-        "secondary-alt-space",
+        "ctrl-alt-space",
         &[],
         shell::Search,
         cx,
@@ -104,18 +151,32 @@ pub(crate) fn init(cx: &mut App) {
     registry.add(
         "system.selection",
         "shortcut_selection",
-        "secondary-alt-s",
+        "",
         &[],
         shell::Search,
         cx,
     );
     let overrides = crate::preferences::data(cx).shortcuts.unwrap_or_default();
+    let mut overridden = std::collections::BTreeSet::new();
     for entry in &mut registry.0 {
         if let Some(key) = overrides.get(entry.id)
             && valid(key, cx.platform_info().os)
-            && !fixed_conflict(key, cx)
+            && !fixed_conflict(entry.id, key, cx)
         {
             entry.key = key.clone();
+            overridden.insert(entry.id);
+        }
+    }
+    for index in 0..registry.0.len() {
+        let entry = &registry.0[index];
+        if !overridden.contains(entry.id)
+            && registry.0.iter().any(|other| {
+                overridden.contains(other.id)
+                    && overlaps(entry, other)
+                    && conflicts(&entry.key, &other.key, cx.platform_info().os)
+            })
+        {
+            registry.0[index].key.clear();
         }
     }
     cx.set_global(registry);
@@ -188,38 +249,14 @@ pub(crate) fn save(id: &str, key: Option<&str>, cx: &mut App) -> Result<(), &'st
     if !valid(&candidate, cx.platform_info().os) {
         return Err("shortcut_invalid");
     }
-    if fixed_conflict(&candidate, cx) {
+    if fixed_conflict(id, &candidate, cx) {
         return Err("shortcut_conflict");
     }
-    let parsed = candidate
-        .split_whitespace()
-        .map(|key| Keystroke::parse_with_os(key, cx.platform_info().os))
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|_| "shortcut_invalid")?;
-    if !parsed.is_empty()
-        && registry
-            .0
-            .iter()
-            .filter(|other| other.id != id)
-            .any(|other| {
-                let other_keys = other
-                    .key
-                    .split_whitespace()
-                    .filter_map(|key| Keystroke::parse_with_os(key, cx.platform_info().os).ok())
-                    .collect::<Vec<_>>();
-                (parsed.starts_with(&other_keys) || other_keys.starts_with(&parsed))
-                    && !other_keys.is_empty()
-                    && entry.bindings.iter().any(|a| {
-                        other
-                            .bindings
-                            .iter()
-                            .any(|b| match (a.predicate(), b.predicate()) {
-                                (Some(a), Some(b)) => a.is_superset(&b) || b.is_superset(&a),
-                                _ => true,
-                            })
-                    })
-            })
-    {
+    if registry.0.iter().any(|other| {
+        other.id != id
+            && overlaps(entry, other)
+            && conflicts(&candidate, &other.key, cx.platform_info().os)
+    }) {
         return Err("shortcut_conflict");
     }
     let reset = key.is_none();
@@ -255,7 +292,9 @@ pub(crate) fn key(id: &str, cx: &App) -> Option<String> {
         .map(|entry| entry.key.clone())
 }
 
-fn fixed_conflict(candidate: &str, cx: &App) -> bool {
+fn fixed_conflict(id: &str, candidate: &str, cx: &App) -> bool {
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let _ = id;
     let keys = candidate
         .split_whitespace()
         .filter_map(|key| Keystroke::parse_with_os(key, cx.platform_info().os).ok())
@@ -268,6 +307,15 @@ fn fixed_conflict(candidate: &str, cx: &App) -> bool {
         .bindings()
         .filter(|binding| binding.meta() != Some(OWNED))
         .any(|binding| {
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
+            if id == "host.refresh"
+                && binding
+                    .action()
+                    .as_any()
+                    .is::<crate::browser::shortcuts::ReloadBrowser>()
+            {
+                return false;
+            }
             let other = binding
                 .keystrokes()
                 .iter()
@@ -275,6 +323,41 @@ fn fixed_conflict(candidate: &str, cx: &App) -> bool {
                 .collect::<Vec<_>>();
             !other.is_empty() && (keys.starts_with(&other) || other.starts_with(&keys))
         })
+}
+
+pub(crate) fn renderer_conflict(candidate: &str, cx: &App) -> bool {
+    !valid(candidate, cx.platform_info().os)
+        || entries(cx)
+            .iter()
+            .any(|entry| conflicts(candidate, &entry.key, cx.platform_info().os))
+}
+
+fn overlaps(left: &Shortcut, right: &Shortcut) -> bool {
+    left.bindings.is_empty()
+        || right.bindings.is_empty()
+        || left.bindings.iter().any(|left| {
+            right
+                .bindings
+                .iter()
+                .any(|right| match (left.predicate(), right.predicate()) {
+                    (Some(left), Some(right)) => {
+                        left.is_superset(&right) || right.is_superset(&left)
+                    }
+                    _ => true,
+                })
+        })
+}
+
+fn conflicts(left: &str, right: &str, os: OperatingSystem) -> bool {
+    let parse = |key: &str| {
+        key.split_whitespace()
+            .map(|key| Keystroke::parse_with_os(key, os))
+            .collect::<Result<Vec<_>, _>>()
+    };
+    let (Ok(left), Ok(right)) = (parse(left), parse(right)) else {
+        return false;
+    };
+    !left.is_empty() && !right.is_empty() && (left.starts_with(&right) || right.starts_with(&left))
 }
 
 pub(crate) fn label(key: &str, os: OperatingSystem) -> String {

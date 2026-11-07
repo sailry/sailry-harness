@@ -42,7 +42,10 @@ impl Shell {
             return Vec::new();
         };
         let mut shortcuts = chat.read(cx).renderer_shortcuts(cx);
-        shortcuts.retain(|(resource, _)| scope.offers(Destination::from(*resource)));
+        shortcuts.retain(|(resource, key)| {
+            scope.offers(Destination::from(*resource))
+                && !crate::shortcuts::renderer_conflict(key, cx)
+        });
         shortcuts
     }
 

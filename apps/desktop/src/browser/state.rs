@@ -26,6 +26,13 @@ pub(crate) struct Request {
 }
 impl EventEmitter<Request> for Browser {}
 
+#[derive(Clone, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub(crate) enum Shortcut {
+    Add,
+}
+impl EventEmitter<Shortcut> for Browser {}
+
 impl Browser {
     pub(crate) fn snapshot(&self, cx: &App) -> Value {
         #[cfg(any(target_os = "macos", target_os = "windows"))]

@@ -150,6 +150,7 @@ fn cancellation_and_scope() {
 }
 
 #[gpui::test]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 fn fixed_shortcuts_reach_webviews(cx: &mut TestAppContext) {
     cx.update(|cx| {
         gpui_kit::init(cx);
@@ -173,6 +174,24 @@ fn fixed_shortcuts_reach_webviews(cx: &mut TestAppContext) {
             .unwrap();
         assert_eq!(close["strokes"][0]["key"], "w");
         assert_eq!(close["strokes"][0]["meta"], true);
+        for (action, key) in [("new-tab", "t"), ("reload", "r")] {
+            let binding = bindings
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|binding| binding["action"] == action)
+                .unwrap();
+            assert_eq!(binding["strokes"][0]["key"], key);
+            assert_eq!(binding["strokes"][0]["meta"], cfg!(target_os = "macos"));
+            assert_eq!(binding["strokes"][0]["ctrl"], !cfg!(target_os = "macos"));
+        }
+        assert_eq!(
+            cx.key_bindings()
+                .borrow()
+                .bindings_for_action(&shortcuts::NewBrowserTab)
+                .count(),
+            1
+        );
         #[cfg(target_os = "macos")]
         {
             let inspect = bindings
@@ -194,5 +213,78 @@ fn fixed_shortcuts_reach_webviews(cx: &mut TestAppContext) {
         }
         crate::shortcuts::save("app.search", Some("secondary-alt-shift-j"), cx).unwrap();
         assert_eq!(shortcuts::script(cx), script);
+    });
+}
+
+#[gpui::test]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn refresh_override_before_browser(cx: &mut TestAppContext) {
+    refresh_override(false, cx);
+}
+
+#[gpui::test]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn refresh_override_after_browser(cx: &mut TestAppContext) {
+    refresh_override(true, cx);
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn refresh_override(browser_first: bool, cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        let mut preferences = crate::preferences::Preferences::default();
+        preferences.data.shortcuts = Some(std::collections::BTreeMap::from([(
+            "host.refresh".into(),
+            "secondary-r".into(),
+        )]));
+        cx.set_global(preferences);
+        crate::shell::shortcuts::init(cx);
+        if browser_first {
+            shortcuts::init(cx);
+        }
+        crate::shortcuts::init(cx);
+        if !browser_first {
+            shortcuts::init(cx);
+        }
+        crate::shortcuts::init(cx);
+        assert_eq!(
+            crate::shortcuts::key("host.refresh", cx).as_deref(),
+            Some("secondary-r")
+        );
+        crate::shortcuts::save("host.refresh", Some("secondary-r"), cx).unwrap();
+        assert_eq!(
+            crate::shortcuts::save("system.activate", Some("secondary-r"), cx),
+            Err("shortcut_conflict")
+        );
+        let input = [Keystroke::parse_with_os("secondary-r", cx.platform_info().os).unwrap()];
+        let keymap = cx.key_bindings();
+        let keymap = keymap.borrow();
+        let (bindings, pending) =
+            keymap.bindings_for_input(&input, &[KeyContext::parse("Sailry").unwrap()]);
+        assert!(!pending);
+        assert!(
+            bindings[0]
+                .action()
+                .as_any()
+                .is::<crate::shell::shortcuts::RefreshHost>()
+        );
+        let (bindings, pending) = keymap.bindings_for_input(
+            &input,
+            &[
+                KeyContext::parse("Sailry").unwrap(),
+                KeyContext::parse("SailryBrowser").unwrap(),
+            ],
+        );
+        assert!(!pending);
+        assert!(
+            bindings[0]
+                .action()
+                .as_any()
+                .is::<shortcuts::ReloadBrowser>()
+        );
+        assert_eq!(
+            crate::preferences::data(cx).shortcuts.unwrap()["host.refresh"],
+            "secondary-r"
+        );
     });
 }

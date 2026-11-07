@@ -90,6 +90,17 @@ pub(super) fn module(
         .as_ref()
         .filter(|_| scope.read)
         .map(|browser| browser.read(cx).changes(cx));
+    let (shortcuts, shortcut_events) = tokio::sync::mpsc::channel(32);
+    let shortcut_events = Arc::new(tokio::sync::Mutex::new(shortcut_events));
+    let shortcut_subscription = scope
+        .browser
+        .as_ref()
+        .filter(|_| scope.control)
+        .map(|browser| {
+            cx.subscribe(browser, move |_, shortcut: &state::Shortcut, _| {
+                let _ = shortcuts.try_send(shortcut.clone());
+            })
+        });
     if let Some(browser) = &scope.browser {
         let lease = browser.update(cx, |browser, cx| browser.acquire_lease(cx));
         let browser = browser.downgrade();
@@ -116,6 +127,7 @@ pub(super) fn module(
     let action_browser = scope.browser.filter(|_| scope.control);
     let read_host = host.clone();
     let changes_host = host.clone();
+    let shortcut_host = host.clone();
     let action_host = host.clone();
     let submit_host = host.clone();
     let settings_host = host.clone();
@@ -143,6 +155,22 @@ pub(super) fn module(
                     changed = changes.changed() => changed.map_err(|_| HostError::new("browser is closed"))?,
                 }
             }
+        })
+    }).async_function("nextBrowserShortcut", move |_| {
+        shortcut_host.check()?;
+        if shortcut_subscription.is_none() {
+            return Err(HostError::new("browser control is unavailable"));
+        }
+        let events = shortcut_events.clone();
+        let stop = shortcut_host.stop_token();
+        Ok(async move {
+            let shortcut = tokio::select! {
+                biased;
+                _ = stop.cancelled() => return Err(HostError::new("plugin view is closed")),
+                event = async { events.lock().await.recv().await } =>
+                    event.ok_or_else(|| HostError::new("browser shortcuts are closed"))?,
+            };
+            encode(serde_json::to_value(shortcut).map_err(|error| HostError::new(error.to_string()))?)
         })
     }).async_function("browserAction", move |args| {
         action_host.check()?;

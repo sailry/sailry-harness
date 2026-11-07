@@ -66,12 +66,20 @@ impl Default for Events {
 pub(super) struct Event {
     package: Reference,
     action: Action,
+    split: Option<Split>,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct Split {
+    pub target: Target,
+    pub placement: gpui_kit::base::Placement,
 }
 
 pub(super) enum Action {
     Open {
         resource: Resource,
         title: String,
+        interaction: Option<u64>,
     },
     Update {
         title: Option<String>,
@@ -153,12 +161,15 @@ impl Shell {
                 return;
             }
             match &event.action {
-                Action::Open { resource, title } => {
+                Action::Open {
+                    resource, title, ..
+                } => {
                     shell.open_plugin_pane(
                         panel.clone(),
                         event.package.clone(),
                         *resource,
                         title.clone(),
+                        event.split,
                         window,
                         cx,
                     );
@@ -209,6 +220,7 @@ impl Shell {
         package: Reference,
         resource: Resource,
         title: String,
+        split: Option<Split>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -241,6 +253,7 @@ impl Shell {
                     package.clone(),
                     resource,
                     title.clone(),
+                    split,
                     window,
                     cx,
                 )
@@ -279,6 +292,11 @@ impl Shell {
             if let Target::Terminal(node, _, id) = target {
                 self.terminals.remember(node, id, project);
             }
+        }
+        if let Some(split) = split {
+            self.splits.update(cx, |splits, cx| {
+                splits.split(split.target, target, split.placement, window, cx);
+            });
         }
         self.splits
             .update(cx, |splits, cx| splits.focus(target, cx));

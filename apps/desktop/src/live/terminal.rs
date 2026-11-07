@@ -51,6 +51,55 @@ impl State {
 }
 
 impl Shell {
+    pub(crate) fn new_terminal(
+        &mut self,
+        _: &crate::terminal::NewTerminal,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.request_terminal(None, window, cx);
+    }
+
+    pub(crate) fn split_terminal_right(
+        &mut self,
+        _: &crate::terminal::SplitTerminalRight,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.split_terminal(gpui_kit::base::Placement::Right, window, cx);
+    }
+
+    pub(crate) fn split_terminal_down(
+        &mut self,
+        _: &crate::terminal::SplitTerminalDown,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.split_terminal(gpui_kit::base::Placement::Bottom, window, cx);
+    }
+
+    fn split_terminal(
+        &mut self,
+        placement: gpui_kit::base::Placement,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(target @ Target::Terminal(..)) = self.splits.read(cx).active else {
+            return;
+        };
+        let Some(workspace) = self.splits.read(cx).workspace(target, cx) else {
+            return;
+        };
+        if self.splits.read(cx).members(workspace, cx).len() >= crate::panes::LIMIT {
+            return;
+        }
+        self.request_terminal(
+            Some(crate::plugins::panes::Split { target, placement }),
+            window,
+            cx,
+        );
+    }
+
     pub(crate) fn close_active_terminal(
         &mut self,
         _: &crate::shell::shortcuts::CloseFocused,
@@ -72,6 +121,10 @@ impl Shell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if close.is_none() {
+            self.request_terminal(None, window, cx);
+            return;
+        }
         let Some(live) = &self.live else { return };
         let Some(tree) = live.selected_worktree() else {
             return;
@@ -79,8 +132,20 @@ impl Shell {
         let key = (live.selected, tree.id);
         if let Some(id) = close {
             self.close_terminal_pane(key.0, key.1, id, window, cx);
-            return;
         }
+    }
+
+    fn request_terminal(
+        &mut self,
+        split: Option<crate::plugins::panes::Split>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(live) = &self.live else { return };
+        let Some(tree) = live.selected_worktree() else {
+            return;
+        };
+        let key = (live.selected, tree.id);
         if !live.view.connected || !self.terminals.pending.insert(key) {
             return;
         }
@@ -90,7 +155,7 @@ impl Shell {
         };
         if registry.read(cx).creation_ready(ResourceKind::Terminal, cx) {
             registry.update(cx, |registry, cx| {
-                registry.create(ResourceKind::Terminal, window, cx)
+                registry.create(ResourceKind::Terminal, split, window, cx)
             });
             self.terminals.pending.remove(&key);
             return;
@@ -110,7 +175,7 @@ impl Shell {
                         shell.worktree_plugins(key.1, window, cx);
                         if registry.read(cx).creation_ready(ResourceKind::Terminal, cx) {
                             registry.update(cx, |registry, cx| {
-                                registry.create(ResourceKind::Terminal, window, cx)
+                                registry.create(ResourceKind::Terminal, split, window, cx)
                             });
                             shell.terminals.pending.remove(&key);
                             return true;

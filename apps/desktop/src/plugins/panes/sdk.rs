@@ -10,6 +10,7 @@ use gpui_shell::{HostError, HostModule, HostValue};
 struct Open {
     resource: Resource,
     title: String,
+    interaction: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -44,9 +45,14 @@ fn emit(owner: &WeakEntity<Panel>, host: &Host, action: Action) -> Result<HostVa
                     _ => {}
                 }
                 let opening = matches!(action, Action::Open { .. });
+                let split = match &action {
+                    Action::Open { interaction, .. } => panel.take_split(*interaction),
+                    _ => None,
+                };
                 cx.emit(Event {
                     package: host.context().package.clone(),
                     action,
+                    split,
                 });
                 Ok(if opening {
                     HostValue::Bool(true)
@@ -87,7 +93,7 @@ pub(in crate::plugins) fn module(
         })
         .function("openPane", move |args| {
             let request: Open = serde_json::from_value(decode(args.value(0)?)?).map_err(|error| HostError::new(error.to_string()))?;
-            emit(&open_owner, &open_host, Action::Open { resource: request.resource, title: request.title })
+            emit(&open_owner, &open_host, Action::Open { resource: request.resource, title: request.title, interaction: request.interaction })
         })
         .function("updatePane", move |args| {
             let update: Update = serde_json::from_value(decode(args.value(0)?)?).map_err(|error| HostError::new(error.to_string()))?;

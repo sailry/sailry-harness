@@ -1,7 +1,35 @@
 //! Native WebViews do not participate in GPUI's key dispatch tree.
 use super::*;
 
+actions!(sailry, [NewBrowserTab, ReloadBrowser]);
+
 pub(super) fn init(cx: &mut App) {
+    if cx
+        .key_bindings()
+        .borrow()
+        .bindings_for_action(&NewBrowserTab)
+        .next()
+        .is_none()
+    {
+        for (key, action) in [
+            ("secondary-t", NewBrowserTab.boxed_clone()),
+            ("secondary-r", ReloadBrowser.boxed_clone()),
+        ] {
+            cx.bind_keys([KeyBinding::load(
+                key,
+                action,
+                Some(
+                    KeyBindingContextPredicate::parse("SailryBrowser")
+                        .expect("static shortcut context")
+                        .into(),
+                ),
+                false,
+                None,
+                cx,
+            )
+            .expect("static shortcut")]);
+        }
+    }
     if cx
         .key_bindings()
         .borrow()
@@ -48,6 +76,19 @@ pub(super) fn init(cx: &mut App) {
 }
 
 impl Browser {
+    pub(crate) fn new_tab(&mut self, _: &NewBrowserTab, _: &mut Window, cx: &mut Context<Self>) {
+        cx.emit(state::Shortcut::Add);
+    }
+
+    pub(crate) fn reload_page(
+        &mut self,
+        _: &ReloadBrowser,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let _ = self.control(state::Action::Reload {}, window, cx);
+    }
+
     pub(super) fn sync_shortcuts(&self, cx: &App) {
         let script = script(cx);
         for tab in &self.tabs {
@@ -67,6 +108,8 @@ pub(super) fn script(cx: &App) -> String {
             "close-tab",
         ),
         (annotation::SelectElement.boxed_clone(), "select-element"),
+        (NewBrowserTab.boxed_clone(), "new-tab"),
+        (ReloadBrowser.boxed_clone(), "reload"),
     ];
     #[cfg(target_os = "macos")]
     actions.push((inspector::Inspect.boxed_clone(), "inspect"));

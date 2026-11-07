@@ -31,6 +31,8 @@ pub(crate) use self::input::{Copy, Paste, SelectAll};
 pub(crate) use connection::{Binding, Scope};
 pub(crate) use search::{Close, Find, Next, Previous};
 
+actions!(sailry, [NewTerminal, SplitTerminalRight, SplitTerminalDown]);
+
 fn failure(error: &sailry_protocol::Fault) -> &'static str {
     if error.code == sailry_protocol::ErrorCode::OutcomeUnknown {
         "terminal_action_unknown"
@@ -40,6 +42,25 @@ fn failure(error: &sailry_protocol::Fault) -> &'static str {
 }
 
 pub(crate) fn init(cx: &mut App) {
+    for (key, action) in [
+        ("ctrl-shift-`", NewTerminal.boxed_clone()),
+        ("secondary-d", SplitTerminalRight.boxed_clone()),
+        ("secondary-shift-d", SplitTerminalDown.boxed_clone()),
+    ] {
+        cx.bind_keys([KeyBinding::load(
+            key,
+            action,
+            Some(
+                KeyBindingContextPredicate::parse("SailryTerminal")
+                    .expect("static shortcut context")
+                    .into(),
+            ),
+            false,
+            None,
+            cx,
+        )
+        .expect("static shortcut")]);
+    }
     let (copy, paste, select) = if cfg!(target_os = "macos") {
         ("cmd-c", "cmd-v", "cmd-a")
     } else {

@@ -31,6 +31,10 @@ impl Render for Browser {
                     this.annotate_shortcut(window, cx)
                 }),
             );
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
+        let panel = panel
+            .on_action(cx.listener(Self::new_tab))
+            .on_action(cx.listener(Self::reload_page));
         #[cfg(target_os = "macos")]
         let panel =
             panel.on_action(cx.listener(|this, _: &inspector::Inspect, _, cx| this.inspect(cx)));

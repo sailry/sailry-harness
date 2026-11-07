@@ -440,10 +440,17 @@ impl Registry {
     pub fn create(
         &mut self,
         resource: sailry_protocol::plugin::desktop::ResourceKind,
+        split: Option<super::panes::Split>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         if let Some(entry) = self.creation(resource, cx) {
+            let Some(mounted) = self.current(&entry.key) else {
+                return;
+            };
+            let panel = mounted.panel.clone();
+            let bridge = mounted.bridge.clone();
+            let previous = bridge.sequence();
             self.invoke(
                 &entry.key,
                 ui::EventKind::Invoke,
@@ -451,6 +458,13 @@ impl Registry {
                 window,
                 cx,
             );
+            if let Some(sequence) = bridge
+                .sequence()
+                .filter(|sequence| Some(*sequence) != previous)
+                && let Some(split) = split
+            {
+                panel.update(cx, |panel, _| panel.plan_split(sequence, split));
+            }
         }
     }
 

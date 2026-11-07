@@ -356,7 +356,13 @@ fn preserves_wire_and_validation() {
                     shortcut: None,
                 });
                 assert!(desktop.valid(), "{scenario}");
-                for key in ["secondary-p", "ctrl-g ctrl-g", "ctrl-`"] {
+                for key in [
+                    "secondary-p",
+                    "ctrl-g ctrl-g",
+                    "ctrl-`",
+                    "ctrl-shift-g",
+                    "secondary-t",
+                ] {
                     desktop.renderers[0].shortcut = Some(key.into());
                     assert!(desktop.valid(), "{scenario}");
                     assert_eq!(
@@ -372,6 +378,24 @@ fn preserves_wire_and_validation() {
                     "ctrl-g ctrl-g ctrl-g",
                     "ctrl-g\nctrl-g",
                     "中文",
+                    "secondary-n",
+                    "cmd-alt-n",
+                    "ctrl-o",
+                    "secondary-alt-b",
+                    "shift-secondary-r",
+                    "secondary-shift-[",
+                    "secondary-shift-]",
+                    "secondary-/",
+                    "secondary-.",
+                    "ctrl-l",
+                    "secondary-enter",
+                    "secondary-shift-m",
+                    "secondary-M",
+                    "ctrl-secondary-n",
+                    "shift-tab",
+                    "escape",
+                    "up",
+                    "secondary-n secondary-p",
                     &"x".repeat(129),
                 ] {
                     desktop.renderers[0].shortcut = Some(key.into());

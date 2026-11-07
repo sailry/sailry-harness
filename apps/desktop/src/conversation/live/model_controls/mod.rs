@@ -43,7 +43,7 @@ impl View {
             .into()
     }
 
-    fn sync_model_controls(&self, cx: &mut Context<Self>) -> bool {
+    pub(super) fn sync_model_controls(&self, cx: &mut Context<Self>) -> bool {
         let roster = self.team_roster();
         // A member that left the roster hands the controls back to the lead.
         let member = self
@@ -406,6 +406,7 @@ impl View {
         let panel = self.model_controls.clone();
         let opening = panel.clone();
         let popover = crate::theme::popover(Popover::new("live-model-popover"), cx)
+            .open(panel.read(cx).opened)
             .anchor(Anchor::BottomRight)
             .bottom_2()
             .p_3()
@@ -454,6 +455,7 @@ enum Layer {
 }
 
 pub(super) struct Panel {
+    pub(super) opened: bool,
     owner: WeakEntity<View>,
     picker: Entity<Picker>,
     contributions: Entity<crate::plugins::contributions::Registry>,
@@ -504,6 +506,7 @@ impl Panel {
         .detach();
         let observer = cx.observe(&contributions, |_, _, cx| cx.notify());
         Self {
+            opened: false,
             contributions,
             _contributions: observer,
             owner,
@@ -535,16 +538,27 @@ impl Panel {
         self.member
     }
 
+    pub(super) fn request_open(&mut self, cx: &mut Context<Self>) {
+        self.opened = true;
+        self.layer = Layer::Main;
+        self.dragging = false;
+        self.member = None;
+        cx.notify();
+    }
+
     /// Each opening starts on the first layer with the lead selected.
     pub(super) fn open(&mut self, open: bool, window: &mut Window, cx: &mut Context<Self>) {
+        self.opened = open;
         self.layer = Layer::Main;
         self.dragging = false;
         if open {
             self.focus.focus(window, cx);
-            if self.member.take().is_some() {
-                let _ = self.owner.update(cx, |_, cx| cx.notify());
-            }
+            self.member = None;
         }
+        let owner = self.owner.clone();
+        cx.defer(move |cx| {
+            let _ = owner.update(cx, |_, cx| cx.notify());
+        });
         cx.notify();
     }
 

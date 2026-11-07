@@ -189,17 +189,17 @@ fn window(rows: Vec<Entry>, expanded: bool) -> (Vec<Entry>, bool) {
 }
 
 impl Shell {
-    pub(crate) fn live_resource_rows(
+    fn terminal_entries(
         &self,
-        project_id: Option<ProjectId>,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let live = self.live.as_ref().unwrap();
+    ) -> Vec<(Target, Option<ProjectId>, &sailry_protocol::terminal::Info)> {
+        let Some(live) = &self.live else {
+            return Vec::new();
+        };
         let Some(snapshot) = &live.view.snapshot else {
-            return div().into_any_element();
+            return Vec::new();
         };
         let node = live.selected;
-        let terminals: Vec<_> = snapshot
+        snapshot
             .terminals
             .iter()
             .filter_map(|info| {
@@ -212,7 +212,21 @@ impl Shell {
                     .find(|tree| Some(tree.id) == info.worktree)?;
                 Some((Target::Terminal(node, tree.id, info.id), tree.project, info))
             })
-            .collect();
+            .collect()
+    }
+
+    fn live_resource_order(
+        &self,
+        terminals: &[(Target, Option<ProjectId>, &sailry_protocol::terminal::Info)],
+        cx: &App,
+    ) -> Vec<Entry> {
+        let Some(live) = &self.live else {
+            return Vec::new();
+        };
+        let Some(snapshot) = &live.view.snapshot else {
+            return Vec::new();
+        };
+        let node = live.selected;
         let mut sessions: Vec<_> = snapshot
             .sessions
             .iter()
@@ -252,11 +266,77 @@ impl Shell {
                     .map(|(rank, (target, project, _))| (*target, *project, Some(rank))),
             )
             .collect();
-        let rows = project(
+        project(
             &entries,
             |target| self.splits.read(cx).parent(target),
             |target| self.splits.read(cx).ordered_members(target, cx),
-        );
+        )
+    }
+
+    pub(crate) fn adjacent_conversation(
+        &mut self,
+        forward: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(live) = &self.live else { return };
+        let Some(snapshot) = &live.view.snapshot else {
+            return;
+        };
+        let node = live.selected;
+        let rows = self.live_resource_order(&self.terminal_entries(), cx);
+        let mut sessions: Vec<_> = self
+            .active_sessions()
+            .into_iter()
+            .filter(|(owner, _)| *owner == node)
+            .map(|(_, session)| session.id)
+            .collect();
+        for project in
+            std::iter::once(None).chain(snapshot.projects.iter().map(|project| Some(project.id)))
+        {
+            for row in rows.iter().filter(|row| row.project == project) {
+                if let Target::Session(_, id) = row.target
+                    && !sessions.contains(&id)
+                {
+                    sessions.push(id);
+                }
+            }
+        }
+        for session in sailry_client::sessions::recent(snapshot) {
+            if !sessions.contains(&session.id) {
+                sessions.push(session.id);
+            }
+        }
+        let selected = match self.session_scope.active {
+            crate::shell::session_scope::Key::Session(owner, id) if owner == node => Some(id),
+            _ => None,
+        };
+        let Some(id) = adjacent(&sessions, selected, forward) else {
+            return;
+        };
+        let Some(session) = snapshot
+            .sessions
+            .iter()
+            .find(|session| session.id == id)
+            .cloned()
+        else {
+            return;
+        };
+        self.reveal_session(session, window, cx);
+    }
+
+    pub(crate) fn live_resource_rows(
+        &self,
+        project_id: Option<ProjectId>,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let live = self.live.as_ref().unwrap();
+        let Some(snapshot) = &live.view.snapshot else {
+            return div().into_any_element();
+        };
+        let node = live.selected;
+        let terminals = self.terminal_entries();
+        let rows = self.live_resource_order(&terminals, cx);
         let group = project_id.map_or(limits::Group::Unassigned(node), |project| {
             limits::Group::Project(node, project)
         });
@@ -275,9 +355,10 @@ impl Shell {
                     })
                     .map(|row| match row.target {
                         Target::Session(..) => {
-                            let (_, _, session) = sessions
+                            let session = snapshot
+                                .sessions
                                 .iter()
-                                .find(|(target, _, _)| *target == row.target)
+                                .find(|session| Target::Session(node, session.id) == row.target)
                                 .unwrap();
                             if row.folder {
                                 self.split_folder(row, crate::activity::title(session), cx)
@@ -317,11 +398,48 @@ impl Shell {
     }
 }
 
+fn adjacent(
+    sessions: &[sailry_protocol::SessionId],
+    selected: Option<sailry_protocol::SessionId>,
+    forward: bool,
+) -> Option<sailry_protocol::SessionId> {
+    if sessions.is_empty() {
+        return None;
+    }
+    let index = sessions.iter().position(|id| Some(*id) == selected);
+    let index = match (index, forward) {
+        (Some(index), true) => (index + 1) % sessions.len(),
+        (Some(index), false) => (index + sessions.len() - 1) % sessions.len(),
+        (None, true) => 0,
+        (None, false) => sessions.len() - 1,
+    };
+    Some(sessions[index])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use core::prelude::v1::test;
     use sailry_protocol::{NodeId, SessionId, TerminalId, WorktreeId};
+
+    #[test]
+    fn adjacent_wraps_in_sidebar_order() {
+        let sessions = [SessionId::new(), SessionId::new(), SessionId::new()];
+        assert_eq!(
+            adjacent(&sessions, Some(sessions[0]), true),
+            Some(sessions[1])
+        );
+        assert_eq!(
+            adjacent(&sessions, Some(sessions[0]), false),
+            Some(sessions[2])
+        );
+        assert_eq!(
+            adjacent(&sessions, Some(sessions[2]), true),
+            Some(sessions[0])
+        );
+        assert_eq!(adjacent(&sessions, None, true), Some(sessions[0]));
+        assert_eq!(adjacent(&[], None, true), None);
+    }
 
     #[test]
     fn ownership_and_ordering() {

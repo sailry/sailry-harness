@@ -1,8 +1,8 @@
 export type PaneResource = { kind: "terminal"; id: string };
 /** This view's captured workspace resource, or null in a launcher/settings view. */
 export function pane(): { resource: PaneResource } | null;
-/** Open this package's ordinary page in the shared Kit workspace. Returns false while the resource is unavailable in the captured Node/worktree snapshot. */
-export function openPane(view: { resource: PaneResource; title: string }): boolean;
+/** Open this package's ordinary page in the shared Kit workspace. Pass the contribution interaction that prepared the creation request. Returns false while the resource is unavailable in the captured Node/worktree snapshot. */
+export function openPane(view: { resource: PaneResource; title: string; interaction?: number }): boolean;
 export function updatePane(view: { title?: string; busy?: boolean }): void;
 /** Replaces this view's transient resource titles within its captured worktree. */
 export function publishResourceTitles(titles: { resource: PaneResource; title: string }[]): void;

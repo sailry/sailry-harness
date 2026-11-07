@@ -14,6 +14,21 @@ fn accepts(summary: &Summary, surface: Surface) -> bool {
 
 pub(super) type Snapshot = Rc<RefCell<Option<sailry_protocol::Snapshot>>>;
 
+struct PendingSplit {
+    sequence: u64,
+    split: super::panes::Split,
+}
+
+impl PendingSplit {
+    fn take(pending: &mut Vec<Self>, sequence: Option<u64>) -> Option<super::panes::Split> {
+        let sequence = sequence?;
+        let index = pending
+            .iter()
+            .position(|split| split.sequence == sequence)?;
+        Some(pending.remove(index).split)
+    }
+}
+
 pub(crate) struct Panel {
     pub(crate) activity_sources: super::host::activity::Sources,
     pub(crate) usage_sources: super::usage::Sources,
@@ -27,6 +42,7 @@ pub(crate) struct Panel {
     pub(super) pane: Option<super::panes::Resource>,
     pub(super) pane_events: super::panes::Events,
     pub(super) pane_focus: bool,
+    pending_splits: Vec<PendingSplit>,
     entry_pending: Option<Reference>,
     composer: Option<WeakEntity<Chat>>,
     pub(super) providers: Option<Entity<super::providers::Source>>,
@@ -125,6 +141,14 @@ impl Panel {
 
     pub(crate) fn browser_view(&self) -> Option<Entity<crate::browser::Browser>> {
         self.browser.clone()
+    }
+
+    pub(super) fn plan_split(&mut self, sequence: u64, split: super::panes::Split) {
+        self.pending_splits.push(PendingSplit { sequence, split });
+    }
+
+    pub(super) fn take_split(&mut self, interaction: Option<u64>) -> Option<super::panes::Split> {
+        PendingSplit::take(&mut self.pending_splits, interaction)
     }
 
     pub(crate) fn with_documents(
@@ -323,6 +347,7 @@ impl Panel {
             pane: None,
             pane_events: Default::default(),
             pane_focus: false,
+            pending_splits: Vec::new(),
             entry_pending: None,
             contributions: None,
             content_sized: false,
@@ -601,6 +626,7 @@ impl Panel {
 
     fn release(&mut self) {
         self.entry_pending = None;
+        self.pending_splits.clear();
         self.pane_events = Default::default();
         self._header = None;
         self.load_stop.cancel();
@@ -1089,6 +1115,38 @@ mod availability {
     use super::*;
     use core::prelude::v1::test;
     use sailry_protocol::plugin::Compatibility;
+
+    #[test]
+    fn splits_follow_creation_interactions() {
+        use crate::panes::Target;
+        use sailry_protocol::{NodeId, TerminalId, WorktreeId};
+        let target = Target::Terminal(NodeId([1; 32]), WorktreeId::new(), TerminalId::new());
+        let split = super::super::panes::Split {
+            target,
+            placement: gpui_kit::base::Placement::Right,
+        };
+        let mut pending = vec![
+            PendingSplit { sequence: 3, split },
+            PendingSplit {
+                sequence: 4,
+                split: super::super::panes::Split {
+                    placement: gpui_kit::base::Placement::Bottom,
+                    ..split
+                },
+            },
+        ];
+        assert!(PendingSplit::take(&mut pending, None).is_none());
+        assert!(PendingSplit::take(&mut pending, Some(2)).is_none());
+        assert_eq!(pending.len(), 2);
+        let first = PendingSplit::take(&mut pending, Some(3)).unwrap();
+        assert_eq!(first.target, target);
+        assert_eq!(first.placement, gpui_kit::base::Placement::Right);
+        assert!(PendingSplit::take(&mut pending, Some(3)).is_none());
+        let second = PendingSplit::take(&mut pending, Some(4)).unwrap();
+        assert_eq!(second.target, target);
+        assert_eq!(second.placement, gpui_kit::base::Placement::Bottom);
+        assert!(pending.is_empty());
+    }
 
     #[test]
     fn package_access() {

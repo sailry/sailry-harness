@@ -22,7 +22,7 @@ pub(super) struct State {
     pub selected: Vec<Reference>,
     pub(super) command_keys: BTreeMap<String, crate::plugins::contributions::Key>,
     bounds: Bounds<Pixels>,
-    open: bool,
+    pub(super) open: bool,
     trigger: Option<Trigger>,
     dismissed: Option<Trigger>,
     suppressed: Option<(usize, u8)>,

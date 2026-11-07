@@ -189,18 +189,22 @@ impl View {
             .debug_selector(move || selector.into())
             .capture_action(cx.listener(View::paste_attachments))
             .capture_action(cx.listener(|view, action: &Enter, window, cx| {
-                if action.shift || action.secondary {
+                if action.shift {
                     cx.propagate();
                 } else {
                     view.reference_action("enter", window, cx);
                 }
             }))
-            .capture_action(cx.listener(|view, _: &Escape, window, cx| {
-                view.reference_action("escape", window, cx)
-            }))
+            .capture_action(cx.listener(View::escape))
+            .on_action(|_: &Escape, _, cx| cx.stop_propagation())
             .capture_action(
-                cx.listener(|view, _: &MoveUp, window, cx| view.reference_action("up", window, cx)),
+                cx.listener(|view, _: &MoveUp, window, cx| view.recall_message(window, cx)),
             )
+            .capture_action(cx.listener(
+                |view, _: &gpui_kit::component::input::OutdentInline, window, cx| {
+                    view.cycle_mode(&shortcuts::CycleMode, window, cx);
+                },
+            ))
             .capture_action(cx.listener(|view, _: &MoveDown, window, cx| {
                 view.reference_action("down", window, cx)
             }))

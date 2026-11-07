@@ -447,6 +447,32 @@ impl Workspaces {
         )
     }
 
+    pub(crate) fn split(
+        &mut self,
+        destination: Target,
+        target: Target,
+        placement: gpui_kit::base::Placement,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if destination == target {
+            return false;
+        }
+        let Some(workspace) = self.workspace(destination, cx) else {
+            return false;
+        };
+        let panel = PanelId::from(self.panes[&destination].entity_id());
+        let Some(node) = self.groups[&workspace]
+            .area
+            .read(cx)
+            .layout(DockPlacement::Center)
+            .and_then(|tree| tree.find_panel_node(panel))
+        else {
+            return false;
+        };
+        self.drop_to(workspace, target, node, Some(placement), window, cx)
+    }
+
     pub(crate) fn drop_to(
         &mut self,
         workspace: u64,

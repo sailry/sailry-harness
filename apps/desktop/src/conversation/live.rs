@@ -62,6 +62,7 @@ mod resend;
 mod rewind;
 pub(crate) mod search;
 mod selection;
+pub(crate) mod shortcuts;
 pub(crate) mod subagents;
 mod submission;
 #[cfg(test)]
@@ -794,12 +795,11 @@ impl Render for View {
             .relative()
             .overflow_hidden()
             .on_scroll(cx.listener(|view, _, _, cx| view.dismiss_selection(cx)))
-            .on_key_down(cx.listener(|view, event: &KeyDownEvent, _, cx| {
-                if event.keystroke.key == "escape" && view.selection.is_some() {
-                    view.dismiss_selection(cx);
-                    cx.stop_propagation();
-                }
-            }))
+            .on_action(cx.listener(Self::escape))
+            .on_action(cx.listener(Self::stop_shortcut))
+            .on_action(cx.listener(Self::focus_composer))
+            .on_action(cx.listener(Self::cycle_mode))
+            .on_action(cx.listener(Self::open_models))
             .size_full()
             .min_h_0()
             .children(crate::theme::effects::layer("conversation", cx))
