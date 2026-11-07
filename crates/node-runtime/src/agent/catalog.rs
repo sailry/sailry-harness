@@ -27,6 +27,9 @@ pub(super) struct Registration {
     pub observes: bool,
     /// The bound Node operation; file operation results establish observed revisions.
     pub operation: Option<sailry_protocol::tool::Operation>,
+    /// Read-only calls that neither change nor depend on state other calls of a
+    /// response observe, so they may run alongside each other.
+    pub concurrent: bool,
 }
 impl Registration {
     pub fn new(
@@ -46,6 +49,7 @@ impl Registration {
             delegation: false,
             observes: false,
             operation: None,
+            concurrent: false,
         }
     }
     pub fn managed(tool: Tool, provider: Arc<dyn ToolProvider<CallContext>>) -> Self {
@@ -70,6 +74,8 @@ pub(super) struct Catalog {
     entries: BTreeMap<String, Registration>,
     children: Option<super::engine::Children>,
     hooks: Option<Arc<crate::hooks::Binding>>,
+    /// Tool hook scripts run around each call, so every call runs alone.
+    serial: bool,
     metrics: Option<(std::path::PathBuf, Arc<crate::store::agent::Invocation>)>,
 }
 impl Catalog {
@@ -85,6 +91,7 @@ impl Catalog {
             entries: BTreeMap::new(),
             children: None,
             hooks: None,
+            serial: false,
             metrics: None,
         }
     }
@@ -93,6 +100,7 @@ impl Catalog {
         self
     }
     pub fn with_hooks(mut self, hooks: Option<Arc<crate::hooks::Binding>>) -> Self {
+        self.serial = hooks.as_ref().is_some_and(|hooks| hooks.wraps_tools());
         self.hooks = hooks;
         self
     }
@@ -136,6 +144,15 @@ impl Catalog {
             .iter()
             .map(|(name, entry)| (name.clone(), entry.presentation))
             .collect()
+    }
+    /// Whether a call may run alongside the adjacent concurrent calls of its
+    /// response.
+    pub fn concurrent(&self, call: &CallToolRequestParams) -> bool {
+        !self.serial
+            && self
+                .entries
+                .get(call.name.as_ref())
+                .is_some_and(|entry| entry.concurrent && entry.read_only())
     }
 }
 #[async_trait]
@@ -262,6 +279,9 @@ impl<S: CatalogSession + Send + Sync> ToolProvider<S> for Catalog {
             hooks.after(name, success).await;
         }
         result
+    }
+    fn concurrent(&self, _: &S, call: &CallToolRequestParams) -> bool {
+        self.concurrent(call)
     }
 }
 

@@ -142,6 +142,42 @@ impl Fixture {
     }
 }
 
+mod concurrency {
+    use super::*;
+
+    #[test]
+    fn keeps_browser_reads_in_order() {
+        for operation in [Operation::ReadBrowser, Operation::ReadExternalBrowser] {
+            assert!(operation.read_only(), "{operation:?}");
+            assert!(!concurrent(operation), "{operation:?}");
+        }
+    }
+
+    #[test]
+    fn allows_independent_reads() {
+        for operation in [
+            Operation::ReadFile,
+            Operation::SearchFiles,
+            Operation::ReadGitDiff,
+            Operation::SearchCode,
+            Operation::FetchWeb,
+        ] {
+            assert!(operation.read_only(), "{operation:?}");
+            assert!(concurrent(operation), "{operation:?}");
+        }
+        for operation in [
+            Operation::ReadComputer,
+            Operation::ReadCommand,
+            Operation::GetValue,
+            Operation::QueryDatabase,
+            Operation::WriteFile,
+            Operation::RunCommand,
+        ] {
+            assert!(!concurrent(operation), "{operation:?}");
+        }
+    }
+}
+
 #[tokio::test]
 async fn checks_each_routed_read_once() {
     for remote in [false, true] {

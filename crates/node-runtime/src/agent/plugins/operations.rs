@@ -131,6 +131,7 @@ pub(super) fn bind(
             registration.delegation = operation == Operation::DelegateAgent;
             registration.observes = operation == Operation::ApplyChanges;
             registration.operation = Some(operation);
+            registration.concurrent = concurrent(operation);
             registration.presentation = declaration.presentation;
             registration.grouping = declaration.grouping;
             registration.plugin = Some(package.summary.name.clone());
@@ -144,6 +145,39 @@ pub(super) fn bind(
         }
     }
     tools
+}
+
+/// Reads that neither change nor depend on state other calls of a response
+/// observe. Browser reads are excluded because they include navigation and
+/// follow the active tab.
+fn concurrent(operation: Operation) -> bool {
+    matches!(
+        operation,
+        Operation::ListDirectory
+            | Operation::ReadFile
+            | Operation::ReadFileLines
+            | Operation::FindFiles
+            | Operation::SearchFiles
+            | Operation::ReadOffice
+            | Operation::ReadNotebook
+            | Operation::SearchCode
+            | Operation::OutlineCode
+            | Operation::InspectGit
+            | Operation::ReadGitDiff
+            | Operation::ReadGitLog
+            | Operation::ReadGitShow
+            | Operation::ReadGitBlame
+            | Operation::ListGitChanges
+            | Operation::ReadGitChange
+            | Operation::ReadArtifact
+            | Operation::ListArtifacts
+            | Operation::ListArtifactRevisions
+            | Operation::FetchWeb
+            | Operation::SearchWeb
+            | Operation::KnowledgeQuery
+            | Operation::KnowledgeRead
+            | Operation::KnowledgeCollections
+    )
 }
 
 pub(super) fn available(ingress: &Ingress, invocation: &Invocation, operation: Operation) -> bool {

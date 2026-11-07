@@ -662,6 +662,13 @@ declarations. Package updates affect subsequent admission, preserving sent captu
 Node freezes configuration, scope and package revisions at turn admission. Tools
 use the same approval, cancellation and durable outcome boundaries. Work mode
 and permissions are distinct; read-only planning does not authorize side effects.
+Approvals for a model response settle before its calls run. GDK then runs adjacent
+native file, search, Git, code-index, web, knowledge and artifact reads and skill
+resource reads concurrently, at most eight at a time. Every other call, including
+browser reads (which navigate and follow the active tab), MCP calls, plugin
+scripts and skill loading, and every call while tool hooks are configured, runs
+alone in request order. Canonical results keep request order, including results
+that Stop interrupts.
 Main-session guidance joins a running turn only when their captures match. New
 input after a configuration or tool change keeps its own capture and runs as the
 next queued turn; it never inherits an older selection to force inline insertion.

@@ -173,6 +173,8 @@ pub(super) fn bind(
                 let mut registration = catalog::Registration::managed(tool.descriptor(), tool);
                 registration.presentation = Presentation::Summary;
                 registration.display = Some(display);
+                // The most recently loaded skill selects the turn's Python interpreter.
+                registration.concurrent = index != 0;
                 registration
             })
             .collect()

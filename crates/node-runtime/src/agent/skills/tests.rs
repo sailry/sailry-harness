@@ -96,6 +96,8 @@ async fn binds_captured_resources_without_plugin_identity() {
         assert_ne!(display.label("zh-CN"), display.label("en"));
     }
     assert!(tools.iter().all(|entry| entry.read_only()));
+    assert!(!tools[0].concurrent);
+    assert!(tools[1].concurrent);
     assert!(instruction.contains("example:analysis"));
     assert!(!instruction.contains("Load this content on demand"));
     node.shutdown().await.unwrap();

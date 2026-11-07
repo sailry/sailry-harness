@@ -22,6 +22,292 @@ fn moves_context_without_changing_output() {
     assert!(json(json!({"sailry_context":{"captured":false,"loaded_tools":7}})).is_err());
 }
 
+mod concurrency {
+    use super::*;
+    use crate::agent::canonical::Context;
+    use goose_agent::{
+        machine::{EffectHandler, MachineSession, SessionLoader, StateMachine, Step},
+        operation::ConversationEffect,
+        tool::ToolOperation,
+    };
+    use goose_provider_types::conversation::{Conversation, message::Message};
+    use std::{
+        sync::{
+            Mutex,
+            atomic::{AtomicBool, AtomicUsize, Ordering},
+        },
+        time::Duration,
+    };
+    use tokio::sync::{Barrier, mpsc};
+
+    /// Logs when each call starts and ends. Calls to `read` wait until two reads
+    /// have started, so a pair of reads finishes only if the two overlap. Calls
+    /// to `slow` never finish.
+    struct Probe {
+        log: Mutex<Vec<String>>,
+        pair: Barrier,
+        reads: AtomicUsize,
+        wrote: AtomicBool,
+    }
+    impl Default for Probe {
+        fn default() -> Self {
+            Self {
+                log: Mutex::default(),
+                pair: Barrier::new(2),
+                reads: AtomicUsize::new(0),
+                wrote: AtomicBool::new(false),
+            }
+        }
+    }
+    impl Probe {
+        fn position(&self, entry: &str) -> usize {
+            let log = self.log.lock().unwrap();
+            log.iter()
+                .position(|logged| logged == entry)
+                .unwrap_or_else(|| panic!("{entry} was not logged: {log:?}"))
+        }
+    }
+    #[async_trait]
+    impl ToolProvider<CallContext> for Probe {
+        async fn tools(&self, _: &CallContext) -> anyhow::Result<Vec<Tool>> {
+            Ok(Vec::new())
+        }
+        async fn call(
+            &self,
+            _: &CallContext,
+            id: &str,
+            call: CallToolRequestParams,
+            _: &Emitter,
+        ) -> Result<CallToolResult, ErrorData> {
+            self.log.lock().unwrap().push(format!("start {id}"));
+            match call.name.as_ref() {
+                "read" => {
+                    self.pair.wait().await;
+                    self.reads.fetch_add(1, Ordering::SeqCst);
+                }
+                "slow" => std::future::pending::<()>().await,
+                _ => self.wrote.store(true, Ordering::SeqCst),
+            }
+            self.log.lock().unwrap().push(format!("end {id}"));
+            Ok(CallToolResult::structured(json!({ "id": id })))
+        }
+    }
+
+    fn registration(
+        name: &'static str,
+        read_only: Option<bool>,
+        concurrent: bool,
+        provider: Arc<Probe>,
+    ) -> Registration {
+        let mut tool = Tool::new(name, name, serde_json::Map::new());
+        if let Some(read_only) = read_only {
+            tool = tool.with_annotations(rmcp::model::ToolAnnotations::new().read_only(read_only));
+        }
+        let mut registration = Registration::new(tool, provider, Presentation::default());
+        registration.concurrent = concurrent;
+        registration
+    }
+
+    /// A catalog whose `read` and `slow` tools are concurrent reads and whose
+    /// `write` tool runs alone.
+    fn catalog(probe: &Arc<Probe>) -> Catalog {
+        let mut catalog = Catalog::new("session".into(), CancellationToken::new(), None);
+        for entry in [
+            registration("read", Some(true), true, probe.clone()),
+            registration("slow", Some(true), true, probe.clone()),
+            registration("write", Some(false), false, probe.clone()),
+        ] {
+            catalog.register(entry).unwrap();
+        }
+        catalog
+    }
+
+    #[test]
+    fn requires_opted_in_reads() {
+        let probe = Arc::new(Probe::default());
+        let mut catalog = Catalog::new("session".into(), CancellationToken::new(), None);
+        for entry in [
+            registration("read", Some(true), true, probe.clone()),
+            // MCP, browser and plugin script registrations are read-only but
+            // never opt in.
+            registration("reader", Some(true), false, probe.clone()),
+            registration("write", Some(false), true, probe.clone()),
+            registration("unmarked", None, true, probe.clone()),
+        ] {
+            catalog.register(entry).unwrap();
+        }
+
+        assert!(catalog.concurrent(&CallToolRequestParams::new("read")));
+        for name in ["reader", "write", "unmarked", "missing"] {
+            assert!(
+                !catalog.concurrent(&CallToolRequestParams::new(name)),
+                "{name}"
+            );
+        }
+        catalog.serial = true;
+        assert!(!catalog.concurrent(&CallToolRequestParams::new("read")));
+    }
+
+    #[derive(Clone)]
+    struct Session {
+        conversation: Conversation,
+        context: Context,
+    }
+    impl MachineSession for Session {
+        fn id(&self) -> &str {
+            "session"
+        }
+        fn conversation(&self) -> Option<&Conversation> {
+            Some(&self.conversation)
+        }
+    }
+    impl CatalogSession for Session {
+        fn context(&self) -> &Context {
+            &self.context
+        }
+    }
+
+    /// Holds the canonical conversation that the machine reloads and appends to.
+    struct History(Mutex<Session>);
+    #[async_trait]
+    impl SessionLoader<Session> for History {
+        async fn load(&self, _: &str) -> anyhow::Result<Session> {
+            Ok(self.0.lock().unwrap().clone())
+        }
+    }
+    #[async_trait]
+    impl EffectHandler<Session, ConversationEffect> for History {
+        async fn apply_effects(
+            &self,
+            _: &Session,
+            effects: &mut [ConversationEffect],
+            _: &Emitter,
+        ) -> anyhow::Result<()> {
+            for effect in effects {
+                let ConversationEffect::AppendMessage(message) = effect else {
+                    panic!("unexpected effect");
+                };
+                self.0.lock().unwrap().conversation.push(message.clone());
+            }
+            Ok(())
+        }
+    }
+
+    /// Answers `(id, tool)` requests through the catalog and returns the saved
+    /// results, stopping the run once `stop_after` reads have finished.
+    async fn execute(
+        probe: &Arc<Probe>,
+        requests: &[(&'static str, &'static str)],
+        stop_after: Option<usize>,
+    ) -> Vec<(String, bool)> {
+        let request = requests
+            .iter()
+            .fold(Message::assistant(), |message, (id, name)| {
+                message.with_tool_request(*id, Ok(CallToolRequestParams::new(*name)))
+            });
+        let history = Arc::new(History(Mutex::new(Session {
+            conversation: Conversation::new_unvalidated([
+                Message::user().with_text("use tools"),
+                request,
+            ]),
+            context: Context::default(),
+        })));
+        let operation = ToolOperation::<Session>::new().with_provider(Arc::new(catalog(probe)));
+        let stop = CancellationToken::new();
+        let (sender, _receiver) = mpsc::unbounded_channel();
+        let emit = Emitter::new(sender, stop.clone());
+        let run = tokio::spawn({
+            let history = history.clone();
+            let stop = stop.clone();
+            async move {
+                let machine = StateMachine::new(vec![Step::Operation(Arc::new(operation))], stop);
+                machine.run(history.as_ref(), "session", &emit).await
+            }
+        });
+        if let Some(reads) = stop_after {
+            while probe.reads.load(Ordering::SeqCst) < reads {
+                tokio::task::yield_now().await;
+            }
+            stop.cancel();
+        }
+        let session = tokio::time::timeout(Duration::from_secs(5), run)
+            .await
+            .expect("the tool step should finish")
+            .unwrap()
+            .unwrap();
+        let messages = session.conversation.messages();
+        assert_eq!(messages.len(), 3, "results are saved in one message");
+        messages[2]
+            .content
+            .iter()
+            .map(|content| {
+                let response = content.as_tool_response().unwrap();
+                let finished = response
+                    .tool_result
+                    .as_ref()
+                    .is_ok_and(|result| result.is_error != Some(true));
+                (response.id.clone(), finished)
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn keeps_canonical_order_for_mixed_batches() {
+        let probe = Arc::new(Probe::default());
+        let results = execute(
+            &probe,
+            &[
+                ("read-1", "read"),
+                ("read-2", "read"),
+                ("write", "write"),
+                ("read-3", "read"),
+                ("read-4", "read"),
+            ],
+            None,
+        )
+        .await;
+
+        let ids = results
+            .iter()
+            .map(|(id, _)| id.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(ids, ["read-1", "read-2", "write", "read-3", "read-4"]);
+        assert!(results.iter().all(|(_, finished)| *finished));
+        let write = probe.position("start write");
+        assert!(write > probe.position("end read-1"));
+        assert!(write > probe.position("end read-2"));
+        assert_eq!(probe.position("end write"), write + 1);
+        assert!(probe.position("start read-3") > write + 1);
+    }
+
+    #[tokio::test]
+    async fn stop_never_runs_a_later_write() {
+        let probe = Arc::new(Probe::default());
+        let results = execute(
+            &probe,
+            &[
+                ("slow", "slow"),
+                ("read-1", "read"),
+                ("read-2", "read"),
+                ("write", "write"),
+            ],
+            Some(2),
+        )
+        .await;
+
+        assert_eq!(
+            results,
+            [
+                ("slow".to_owned(), false),
+                ("read-1".to_owned(), true),
+                ("read-2".to_owned(), true),
+                ("write".to_owned(), false),
+            ]
+        );
+        assert!(!probe.wrote.load(Ordering::SeqCst));
+    }
+}
+
 #[test]
 fn rejects_anonymous_calls() {
     assert!(

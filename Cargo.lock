@@ -5479,7 +5479,7 @@ dependencies = [
 [[package]]
 name = "goose-agent"
 version = "0.1.0-alpha.13"
-source = "git+https://github.com/sailry/goose?rev=ee3c04cc11bdd454cb0bbb55cde0d932b0b4c990#ee3c04cc11bdd454cb0bbb55cde0d932b0b4c990"
+source = "git+https://github.com/sailry/goose?rev=62f98d961a696ea51375d0fde7a21b1debd677a1#62f98d961a696ea51375d0fde7a21b1debd677a1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5501,7 +5501,7 @@ dependencies = [
 [[package]]
 name = "goose-context-management"
 version = "0.1.0-alpha.13"
-source = "git+https://github.com/sailry/goose?rev=ee3c04cc11bdd454cb0bbb55cde0d932b0b4c990#ee3c04cc11bdd454cb0bbb55cde0d932b0b4c990"
+source = "git+https://github.com/sailry/goose?rev=62f98d961a696ea51375d0fde7a21b1debd677a1#62f98d961a696ea51375d0fde7a21b1debd677a1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5517,7 +5517,7 @@ dependencies = [
 [[package]]
 name = "goose-provider-types"
 version = "0.1.0-alpha.13"
-source = "git+https://github.com/sailry/goose?rev=ee3c04cc11bdd454cb0bbb55cde0d932b0b4c990#ee3c04cc11bdd454cb0bbb55cde0d932b0b4c990"
+source = "git+https://github.com/sailry/goose?rev=62f98d961a696ea51375d0fde7a21b1debd677a1#62f98d961a696ea51375d0fde7a21b1debd677a1"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -5546,7 +5546,7 @@ dependencies = [
 [[package]]
 name = "goose-providers"
 version = "0.1.0-alpha.13"
-source = "git+https://github.com/sailry/goose?rev=ee3c04cc11bdd454cb0bbb55cde0d932b0b4c990#ee3c04cc11bdd454cb0bbb55cde0d932b0b4c990"
+source = "git+https://github.com/sailry/goose?rev=62f98d961a696ea51375d0fde7a21b1debd677a1#62f98d961a696ea51375d0fde7a21b1debd677a1"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -5572,7 +5572,7 @@ dependencies = [
 [[package]]
 name = "goose-sdk-types"
 version = "0.1.0-alpha.13"
-source = "git+https://github.com/sailry/goose?rev=ee3c04cc11bdd454cb0bbb55cde0d932b0b4c990#ee3c04cc11bdd454cb0bbb55cde0d932b0b4c990"
+source = "git+https://github.com/sailry/goose?rev=62f98d961a696ea51375d0fde7a21b1debd677a1#62f98d961a696ea51375d0fde7a21b1debd677a1"
 dependencies = [
  "agent-client-protocol",
  "agent-client-protocol-schema",
