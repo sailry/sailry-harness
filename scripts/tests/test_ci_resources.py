@@ -665,6 +665,8 @@ class Workflow(unittest.TestCase):
         for pinned in ("postgresql-17", "'mysql-community-server-core=8.4.*'", "noble mysql-8.4-lts",
                        "BCA43417C3B485DD128EC6D4B7B3B788A8D3785C", "echo /usr/lib/postgresql/17/bin >> \"$GITHUB_PATH\""):
             self.assertIn(pinned, prerequisites)
+        self.assertIn('if test "$FFI" = true; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; fi',
+                      prerequisites)
         self.assertIn("initdb --version | grep -q ' 17\\.'", android)
         self.assertIn("mysqld --version | grep -q ' 8\\.4\\.'", android)
         for section, title, lane in ((android, "Dart FFI contract fixtures", "mobile_ffi"),

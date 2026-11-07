@@ -717,6 +717,8 @@ jobs:
           sudo apt-get install --no-install-recommends --yes "${packages[@]}"
           # Fixtures run private servers under /tmp; Ubuntu's mysqld profile only permits service paths.
           if test -e /etc/apparmor.d/usr.sbin.mysqld; then sudo apparmor_parser --remove /etc/apparmor.d/usr.sbin.mysqld || true; fi
+          # Workspace-access fixtures run under bwrap, which needs capabilities in its unprivileged user namespace.
+          if test "$FFI" = true; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; fi
       - name: Tool versions
         run: python3 scripts/ci.py tools flutter rg
       - name: Rust dependency caches
