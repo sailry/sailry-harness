@@ -9,6 +9,7 @@ pub(crate) mod copy;
 mod create;
 mod directory;
 pub(crate) mod edit;
+pub(crate) mod images;
 mod lines;
 pub(crate) use lines::bounded_at as index_text;
 pub(crate) mod media;
@@ -142,6 +143,9 @@ impl Files {
                     &control,
                 )
                 .map(Output::FileLines),
+                Command::ReadImage { path, .. } => {
+                    images::read(scope, path, &control).map(Output::FileImage)
+                }
                 Command::FindFiles {
                     globs,
                     path,

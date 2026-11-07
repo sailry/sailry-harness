@@ -386,6 +386,7 @@ impl Database {
                 Command::ListDirectory { worktree, .. }
                 | Command::ReadFile { worktree, .. }
                 | Command::ReadFileLines { worktree, .. }
+                | Command::ReadImage { worktree, .. }
                 | Command::ReadNotebook { worktree, .. }
                 | Command::FindFiles { worktree, .. }
                 | Command::DownloadFile { worktree, .. }

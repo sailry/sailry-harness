@@ -124,6 +124,7 @@ pub(super) fn route(command: &Command) -> Route {
         | Command::ListTerminalTools { .. }
         | Command::ReadFile { .. }
         | Command::ReadFileLines { .. }
+        | Command::ReadImage { .. }
         | Command::FindFiles { .. }
         | Command::ReadOffice { .. }
         | Command::ReadNotebook { .. }
