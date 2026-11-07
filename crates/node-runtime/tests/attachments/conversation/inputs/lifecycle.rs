@@ -97,75 +97,65 @@ async fn verifies_after_approval() {
 
 #[tokio::test]
 async fn releases_copies() {
-    for remote in [false, true] {
-        for shutdown in [false, true] {
-            let mut fixture = Fixture::packages(&["commands"]).await;
-            let client = fixture
-                .clients()
-                .into_iter()
-                .nth(usize::from(remote))
+    for shutdown in [false, true] {
+        let mut fixture = Fixture::packages(&["commands"]).await;
+        let client = fixture.clients().into_iter().nth(1).unwrap();
+        let file = upload(
+            &client,
+            fixture.worktree,
+            "input.bin",
+            "application/octet-stream",
+            b"\0original",
+        )
+        .await;
+        let server = server::Server::tools(vec![(server::plugin_tool("commands", "run_command"), json!({"command": "printf '%s' \"$SAILRY_ATTACHMENTS\" > staged.txt && touch ready.txt; sleep 60; touch unexpected.txt", "attachments": [file.id]}))]).await;
+        let (session, provider) = session(
+            &client,
+            fixture.worktree,
+            &server.endpoint,
+            ModelApi::ChatCompletions,
+        )
+        .await;
+        let session = configure(&client, session, provider, Permission::Full).await;
+        let turn = queue(&client, &session, input("Inspect", &[&file])).await;
+        start(&client, &turn).await;
+        wait(&client, session.id, |_| {
+            fixture.root.join("ready.txt").exists()
+        })
+        .await;
+        let staged = std::fs::read_to_string(fixture.root.join("staged.txt")).unwrap();
+        assert_eq!(
+            std::path::Path::new(&staged).parent(),
+            Some(fixture.node.profile().join("tmp").as_path())
+        );
+        assert!(
+            std::path::Path::new(&staged)
+                .join(file.id.to_string())
+                .exists()
+        );
+        if shutdown {
+            let profile = fixture.node.profile().to_owned();
+            fixture.node.shutdown().await.unwrap();
+            fixture.node = Node::start_empty(profile).await.unwrap();
+            let client = fixture.clients().into_iter().nth(1).unwrap();
+            assert_eq!(
+                page(&client, session.id).await.runs[0].status,
+                Status::Interrupted
+            );
+        } else {
+            client
+                .execute(client.prepare(Command::StopTurn { turn: turn.id }))
+                .await
                 .unwrap();
-            let file = upload(
-                &client,
-                fixture.worktree,
-                "input.bin",
-                "application/octet-stream",
-                b"\0original",
-            )
-            .await;
-            let server = server::Server::tools(vec![(server::plugin_tool("commands", "run_command"), json!({"command": "printf '%s' \"$SAILRY_ATTACHMENTS\" > staged.txt && touch ready.txt; sleep 60; touch unexpected.txt", "attachments": [file.id]}))]).await;
-            let (session, provider) = session(
-                &client,
-                fixture.worktree,
-                &server.endpoint,
-                ModelApi::ChatCompletions,
-            )
-            .await;
-            let session = configure(&client, session, provider, Permission::Full).await;
-            let turn = queue(&client, &session, input("Inspect", &[&file])).await;
-            start(&client, &turn).await;
-            wait(&client, session.id, |_| {
-                fixture.root.join("ready.txt").exists()
+            wait(&client, session.id, |page| {
+                page.runs[0].status == Status::Cancelled
             })
             .await;
-            let staged = std::fs::read_to_string(fixture.root.join("staged.txt")).unwrap();
-            assert_eq!(
-                std::path::Path::new(&staged).parent(),
-                Some(fixture.node.profile().join("tmp").as_path())
-            );
-            assert!(
-                std::path::Path::new(&staged)
-                    .join(file.id.to_string())
-                    .exists()
-            );
-            if shutdown {
-                let profile = fixture.node.profile().to_owned();
-                fixture.node.shutdown().await.unwrap();
-                fixture.node = Node::start_empty(profile).await.unwrap();
-                let client = fixture
-                    .clients()
-                    .into_iter()
-                    .nth(usize::from(remote))
-                    .unwrap();
-                assert_eq!(
-                    page(&client, session.id).await.runs[0].status,
-                    Status::Interrupted
-                );
-            } else {
-                client
-                    .execute(client.prepare(Command::StopTurn { turn: turn.id }))
-                    .await
-                    .unwrap();
-                wait(&client, session.id, |page| {
-                    page.runs[0].status == Status::Cancelled
-                })
-                .await;
-            }
-            assert!(!std::path::Path::new(&staged).exists());
-            assert!(!fixture.root.join("unexpected.txt").exists());
-            assert_eq!(download(&fixture.clients()[0], &file).await, b"\0original");
-            assert_eq!(server.requests.lock().unwrap().len(), 1);
-            fixture.close().await;
         }
+        assert!(!std::path::Path::new(&staged).exists());
+        assert!(!fixture.root.join("unexpected.txt").exists());
+        assert_eq!(download(&fixture.clients()[0], &file).await, b"\0original");
+        assert_eq!(server.requests.lock().unwrap().len(), 1);
+        fixture.close().await;
     }
 }

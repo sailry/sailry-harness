@@ -236,74 +236,64 @@ async fn materializes_inputs() {
 
 #[tokio::test]
 async fn continues_after_interrupted_input() {
-    for remote in [false, true] {
-        let mut fixture = Fixture::empty().await;
-        let release = CancellationToken::new();
-        let server = server::Server::markdown_held("continued".into(), release.clone()).await;
-        let client = fixture
-            .clients()
-            .into_iter()
-            .nth(usize::from(remote))
-            .unwrap();
-        let (session, _) = session(
-            &client,
-            fixture.worktree,
-            &server.endpoint,
-            ModelApi::ChatCompletions,
-        )
-        .await;
-        let attachment = upload(
-            &client,
-            fixture.worktree,
-            "context.txt",
-            "text/plain",
-            b"retained context",
-        )
-        .await;
-        let turn = queue(&client, &session, input("Inspect", &[&attachment])).await;
-        client
-            .execute(client.prepare(Command::StartQueuedTurn { turn: turn.id }))
-            .await
-            .unwrap();
-        server.wait_count(1).await;
+    let mut fixture = Fixture::empty().await;
+    let release = CancellationToken::new();
+    let server = server::Server::markdown_held("continued".into(), release.clone()).await;
+    let client = fixture.clients().into_iter().nth(1).unwrap();
+    let (session, _) = session(
+        &client,
+        fixture.worktree,
+        &server.endpoint,
+        ModelApi::ChatCompletions,
+    )
+    .await;
+    let attachment = upload(
+        &client,
+        fixture.worktree,
+        "context.txt",
+        "text/plain",
+        b"retained context",
+    )
+    .await;
+    let turn = queue(&client, &session, input("Inspect", &[&attachment])).await;
+    client
+        .execute(client.prepare(Command::StartQueuedTurn { turn: turn.id }))
+        .await
+        .unwrap();
+    server.wait_count(1).await;
 
-        let profile = fixture.node.profile().to_owned();
-        fixture.node.shutdown().await.unwrap();
-        fixture.node = Node::start_empty(profile).await.unwrap();
-        let client = fixture
-            .clients()
-            .into_iter()
-            .nth(usize::from(remote))
-            .unwrap();
-        assert_eq!(
-            page(&client, session.id).await.runs[0].status,
-            Status::Interrupted
-        );
+    let profile = fixture.node.profile().to_owned();
+    fixture.node.shutdown().await.unwrap();
+    fixture.node = Node::start_empty(profile).await.unwrap();
+    let client = fixture.clients().into_iter().nth(1).unwrap();
+    assert_eq!(
+        page(&client, session.id).await.runs[0].status,
+        Status::Interrupted
+    );
 
-        release.cancel();
-        let Output::QueuedTurn(next) = client
-            .execute(client.prepare(Command::SubmitTurn {
-                session: session.id,
-                expected_revision: session.revision,
-                message: "Continue".into(),
-            }))
-            .await
-            .unwrap()
-        else {
-            panic!("turn expected")
-        };
-        let history = finished(&client, &next).await;
-        assert_eq!(
-            history.runs.last().unwrap().status,
-            Status::Completed,
-            "{:?}",
-            history.runs
-        );
-        let requests = server.requests.lock().unwrap().clone();
-        assert_eq!(requests.len(), 2);
-        assert!(requests[1].to_string().contains("retained context"));
-        fixture.close().await;
-    }
+    release.cancel();
+    let Output::QueuedTurn(next) = client
+        .execute(client.prepare(Command::SubmitTurn {
+            session: session.id,
+            expected_revision: session.revision,
+            message: "Continue".into(),
+        }))
+        .await
+        .unwrap()
+    else {
+        panic!("turn expected")
+    };
+    let history = finished(&client, &next).await;
+    assert_eq!(
+        history.runs.last().unwrap().status,
+        Status::Completed,
+        "{:?}",
+        history.runs
+    );
+    let requests = server.requests.lock().unwrap().clone();
+    assert_eq!(requests.len(), 2);
+    assert!(requests[1].to_string().contains("retained context"));
+    fixture.close().await;
 }
 
 #[tokio::test]

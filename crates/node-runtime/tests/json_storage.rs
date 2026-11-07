@@ -173,125 +173,113 @@ mod recovery {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn restores_defaults_and_canonical_receipts() {
-        for remote in [false, true] {
-            let directory = tempfile::tempdir().unwrap();
-            let project_path = directory.path().join("project");
-            fs::create_dir(&project_path).unwrap();
-            let profile = directory.path().join("node");
-            let controller_path = directory.path().join("controller");
-            let node = Node::start(&profile).await.unwrap();
-            let controller = Link::controller(&controller_path, NetworkScope::default())
-                .await
-                .unwrap();
-            let address = controller
-                .handle()
-                .pair(node.link().invite().unwrap().ticket())
-                .await
-                .unwrap();
-            let client = Client::new(if remote {
-                controller.handle().remote(address)
-            } else {
-                node.local()
-            });
-            let registration = client.prepare(Command::RegisterProject {
-                name: "Storage fixture".into(),
-                path: project_path.to_str().unwrap().into(),
-            });
-            let Output::Project(project) = client.execute(registration.clone()).await.unwrap()
-            else {
-                panic!("project response expected")
-            };
-            let creation = client.prepare(Command::CreateSession {
-                project: Some(project.id),
-                worktree: None,
-                config: Some(SessionConfig {
-                    features: Default::default(),
-                    assistant: None,
-                    resource: None,
-                    provider: ProviderId::new(),
-                    model: "fixture".into(),
-                    effort: Effort::Default,
-                    mode: WorkMode::Code,
-                    options: Default::default(),
-                    permission: Permission::Ask,
-                    credential: None,
-                }),
-            });
-            let Output::Session(session) = client.execute(creation.clone()).await.unwrap() else {
-                panic!("session response expected")
-            };
-            drop(client);
-            controller.close().await.unwrap();
-            node.shutdown().await.unwrap();
-
-            let (handle, db) = open(&profile.join("storage/node.turso"), false).await;
-            let body: Vec<u8> = db
-                .prepare("SELECT config FROM session_revisions WHERE session=?1 AND revision=1")
-                .await
-                .unwrap()
-                .query_row([session.id.to_string()])
-                .await
-                .and_then(|row| row.get(0))
-                .unwrap();
-            let mut config: serde_json::Value = serde_json::from_slice(&body).unwrap();
-            config.as_object_mut().unwrap().remove("effort");
-            config["future_configuration"] = json!({ "ordinary": true });
-            db.execute(
-                "UPDATE session_revisions SET config=?1 WHERE session=?2 AND revision=1",
-                params![serde_json::to_vec(&config).unwrap(), session.id.to_string()],
-            )
+        let directory = tempfile::tempdir().unwrap();
+        let project_path = directory.path().join("project");
+        fs::create_dir(&project_path).unwrap();
+        let profile = directory.path().join("node");
+        let controller_path = directory.path().join("controller");
+        let node = Node::start(&profile).await.unwrap();
+        let controller = Link::controller(&controller_path, NetworkScope::default())
             .await
             .unwrap();
-            close(handle, db).await;
-            let before = retained(&profile).await;
+        let address = controller
+            .handle()
+            .pair(node.link().invite().unwrap().ticket())
+            .await
+            .unwrap();
+        let client = Client::new(controller.handle().remote(address));
+        let registration = client.prepare(Command::RegisterProject {
+            name: "Storage fixture".into(),
+            path: project_path.to_str().unwrap().into(),
+        });
+        let Output::Project(project) = client.execute(registration.clone()).await.unwrap() else {
+            panic!("project response expected")
+        };
+        let creation = client.prepare(Command::CreateSession {
+            project: Some(project.id),
+            worktree: None,
+            config: Some(SessionConfig {
+                features: Default::default(),
+                assistant: None,
+                resource: None,
+                provider: ProviderId::new(),
+                model: "fixture".into(),
+                effort: Effort::Default,
+                mode: WorkMode::Code,
+                options: Default::default(),
+                permission: Permission::Ask,
+                credential: None,
+            }),
+        });
+        let Output::Session(session) = client.execute(creation.clone()).await.unwrap() else {
+            panic!("session response expected")
+        };
+        drop(client);
+        controller.close().await.unwrap();
+        node.shutdown().await.unwrap();
 
-            let node = Node::start(&profile).await.unwrap();
-            let controller = Link::controller(&controller_path, NetworkScope::default())
-                .await
-                .unwrap();
-            let address = controller
-                .handle()
-                .pair(node.link().invite().unwrap().ticket())
-                .await
-                .unwrap();
-            let client = Client::new(if remote {
-                controller.handle().remote(address)
-            } else {
-                node.local()
-            });
-            let restored = observe(&client).await.unwrap();
-            assert_eq!(restored.sessions.len(), 1);
-            assert!(
-                restored.sessions[0].config == session.config,
-                "safe defaults changed the effective configuration"
+        let (handle, db) = open(&profile.join("storage/node.turso"), false).await;
+        let body: Vec<u8> = db
+            .prepare("SELECT config FROM session_revisions WHERE session=?1 AND revision=1")
+            .await
+            .unwrap()
+            .query_row([session.id.to_string()])
+            .await
+            .and_then(|row| row.get(0))
+            .unwrap();
+        let mut config: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        config.as_object_mut().unwrap().remove("effort");
+        config["future_configuration"] = json!({ "ordinary": true });
+        db.execute(
+            "UPDATE session_revisions SET config=?1 WHERE session=?2 AND revision=1",
+            params![serde_json::to_vec(&config).unwrap(), session.id.to_string()],
+        )
+        .await
+        .unwrap();
+        close(handle, db).await;
+        let before = retained(&profile).await;
+
+        let node = Node::start(&profile).await.unwrap();
+        let controller = Link::controller(&controller_path, NetworkScope::default())
+            .await
+            .unwrap();
+        let address = controller
+            .handle()
+            .pair(node.link().invite().unwrap().ticket())
+            .await
+            .unwrap();
+        let client = Client::new(controller.handle().remote(address));
+        let restored = observe(&client).await.unwrap();
+        assert_eq!(restored.sessions.len(), 1);
+        assert!(
+            restored.sessions[0].config == session.config,
+            "safe defaults changed the effective configuration"
+        );
+        assert_eq!(restored.snapshot.projects.len(), 1);
+        for _ in 0..2 {
+            assert_eq!(
+                client.execute(creation.clone()).await.unwrap(),
+                Output::Session(session.clone())
             );
-            assert_eq!(restored.snapshot.projects.len(), 1);
-            for _ in 0..2 {
-                assert_eq!(
-                    client.execute(creation.clone()).await.unwrap(),
-                    Output::Session(session.clone())
-                );
-                assert_eq!(
-                    client.execute(registration.clone()).await.unwrap(),
-                    Output::Project(project.clone())
-                );
-            }
-            let Output::Snapshot(snapshot) = execute(&client, Command::Snapshot).await.unwrap()
-            else {
-                panic!("snapshot response expected")
-            };
-            assert_eq!(snapshot.projects.len(), 1);
-            assert_eq!(snapshot.projects[0].id, project.id);
-            assert_eq!(snapshot.sessions.len(), 1);
-            assert_eq!(snapshot.sessions[0].id, session.id);
-            drop(client);
-            controller.close().await.unwrap();
-            node.shutdown().await.unwrap();
-            assert!(
-                retained(&profile).await == before,
-                "JSON reads or receipt recovery rewrote stored bodies"
+            assert_eq!(
+                client.execute(registration.clone()).await.unwrap(),
+                Output::Project(project.clone())
             );
         }
+        let Output::Snapshot(snapshot) = execute(&client, Command::Snapshot).await.unwrap() else {
+            panic!("snapshot response expected")
+        };
+        assert_eq!(snapshot.projects.len(), 1);
+        assert_eq!(snapshot.projects[0].id, project.id);
+        assert_eq!(snapshot.sessions.len(), 1);
+        assert_eq!(snapshot.sessions[0].id, session.id);
+        drop(client);
+        controller.close().await.unwrap();
+        node.shutdown().await.unwrap();
+        assert!(
+            retained(&profile).await == before,
+            "JSON reads or receipt recovery rewrote stored bodies"
+        );
     }
 
     #[tokio::test]

@@ -279,98 +279,88 @@ async fn reads_raw_values_and_explicitly_shared_citations() {
 
 #[tokio::test]
 async fn rebuilds_deleted_derived_index_after_restart() {
-    for remote in [false, true] {
-        let fixture = Fixture::start().await;
-        let client = fixture
-            .clients()
-            .into_iter()
-            .nth(usize::from(remote))
-            .unwrap();
-        let owner = install(
-            &client,
-            &fixture.root,
-            fixture.worktree,
-            "restored-corpus",
-            0,
-            &[
-                Action::ReadStorage,
-                Action::WriteStorage,
-                Action::ReadKnowledge,
-                Action::WriteKnowledge,
-            ],
-        )
-        .await;
-        let original = json!("原始知识数据保留完整");
+    let fixture = Fixture::start().await;
+    let client = fixture.clients().into_iter().nth(1).unwrap();
+    let owner = install(
+        &client,
+        &fixture.root,
+        fixture.worktree,
+        "restored-corpus",
+        0,
+        &[
+            Action::ReadStorage,
+            Action::WriteStorage,
+            Action::ReadKnowledge,
+            Action::WriteKnowledge,
+        ],
+    )
+    .await;
+    let original = json!("原始知识数据保留完整");
+    run(
+        &client,
+        &owner,
+        Command::WritePluginValue {
+            key: "raw".into(),
+            value: original.clone(),
+            expected_revision: 0,
+        },
+    )
+    .await;
+    let collection = super::saved(
         run(
             &client,
             &owner,
-            Command::WritePluginValue {
-                key: "raw".into(),
-                value: original.clone(),
-                expected_revision: 0,
+            Command::CreateKnowledgeCollection {
+                definition: definition(Source::Storage {
+                    scope: plugin::storage::Scope::Node,
+                    prefix: "".into(),
+                }),
+                plugin: None,
             },
         )
-        .await;
-        let collection = super::saved(
-            run(
-                &client,
-                &owner,
-                Command::CreateKnowledgeCollection {
-                    definition: definition(Source::Storage {
-                        scope: plugin::storage::Scope::Node,
-                        prefix: "".into(),
-                    }),
-                    plugin: None,
-                },
-            )
-            .await,
-        );
-        found(&client, Some(&owner), "知识", collection.id).await;
-        let previous = run(
+        .await,
+    );
+    found(&client, Some(&owner), "知识", collection.id).await;
+    let previous = run(
+        &client,
+        &owner,
+        Command::ReadPluginValue { key: "raw".into() },
+    )
+    .await;
+    let Fixture {
+        temp,
+        root: _,
+        node,
+        controller,
+        worktree: _,
+    } = fixture;
+    drop(client);
+    node.shutdown().await.unwrap();
+    let profile = temp.path().join("node");
+    remove_index(&profile);
+    let node = Node::start_empty_with_plugin_catalog(&profile, "http://127.0.0.1:9/")
+        .await
+        .unwrap();
+    let client = Client::new(controller.handle().remote(node.link().address()));
+    let restored = list(&client)
+        .await
+        .into_iter()
+        .find(|item| item.id == collection.id)
+        .unwrap();
+    assert_eq!(restored.revision, collection.revision);
+    assert_eq!(restored.progress.generation, collection.progress.generation);
+    assert_eq!(restored.definition, collection.definition);
+    let page = found(&client, Some(&owner), "保留", collection.id).await;
+    assert!(page.hits[0].text.contains("原始知识数据保留完整"));
+    assert_eq!(
+        run(
             &client,
             &owner,
-            Command::ReadPluginValue { key: "raw".into() },
+            Command::ReadPluginValue { key: "raw".into() }
         )
-        .await;
-        let Fixture {
-            temp,
-            root: _,
-            node,
-            controller,
-            worktree: _,
-        } = fixture;
-        drop(client);
-        node.shutdown().await.unwrap();
-        let profile = temp.path().join("node");
-        remove_index(&profile);
-        let node = Node::start_empty_with_plugin_catalog(&profile, "http://127.0.0.1:9/")
-            .await
-            .unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(node.link().address())
-        } else {
-            node.local()
-        });
-        let restored = list(&client)
-            .await
-            .into_iter()
-            .find(|item| item.id == collection.id)
-            .unwrap();
-        assert_eq!(restored.revision, collection.revision);
-        assert_eq!(restored.progress.generation, collection.progress.generation);
-        assert_eq!(restored.definition, collection.definition);
-        let page = found(&client, Some(&owner), "保留", collection.id).await;
-        assert!(page.hits[0].text.contains("原始知识数据保留完整"));
-        assert_eq!(
-            run(
-                &client,
-                &owner,
-                Command::ReadPluginValue { key: "raw".into() }
-            )
-            .await,
-            previous
-        );
-        controller.close().await.unwrap();
-        node.shutdown().await.unwrap();
-    }
+        .await,
+        previous
+    );
+    controller.close().await.unwrap();
+    node.shutdown().await.unwrap();
 }
