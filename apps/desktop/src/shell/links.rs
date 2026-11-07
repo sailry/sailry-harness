@@ -8,6 +8,7 @@ use crate::{
         live::View as Chat,
     },
 };
+use sailry_client::conversation::links::Reference;
 use sailry_protocol::{NodeId, WorktreeId};
 
 impl Shell {
@@ -25,7 +26,8 @@ impl Shell {
         } else {
             Mode::Internal
         };
-        match links::route(&link, mode) {
+        let route = links::route(&link, mode);
+        match route {
             Route::Browser => {
                 let target = link.clone();
                 if self.guard_file_navigation(window, cx, move |shell, window, cx| {
@@ -41,10 +43,20 @@ impl Shell {
                 cx.open_url(&link);
                 return;
             }
-            Route::System | Route::Resource => {}
+            Route::System | Route::Session(_) | Route::Resource => {}
         }
         if let Some(chat) = self.current_chat().cloned() {
             self.open_chat_link(&chat, None, link, mode, window, cx);
+            return;
+        }
+        if matches!(route, Route::Session(_)) {
+            crate::feedback::error(
+                "reference_unavailable",
+                "",
+                &crate::tr("reference_unavailable"),
+                window,
+                cx,
+            );
             return;
         }
         if knowledge::recognizes(&link) {
@@ -109,6 +121,13 @@ impl Shell {
             }
             Route::System => {
                 cx.open_url(&link);
+                return;
+            }
+            Route::Session(session) => {
+                match chat.read(cx).linked_session(session) {
+                    Reference::Child(id) => chat.update(cx, |chat, cx| chat.open_child(id, cx)),
+                    Reference::Session(id) => self.open_session_reference(chat, id, window, cx),
+                }
                 return;
             }
             Route::Resource => {}

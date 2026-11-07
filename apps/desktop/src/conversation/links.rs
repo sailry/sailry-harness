@@ -1,6 +1,7 @@
 //! One link normalization and routing decision for internal and external opening.
 use super::file_reference::Target;
 use gpui_kit::{App, Modifiers};
+use sailry_protocol::SessionId;
 
 /// Whether a link opens in Sailry or with this device's system handler.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -47,12 +48,17 @@ pub(crate) enum Route {
     Browser,
     /// The system default handler.
     System,
+    /// A session reply link; it opens in Sailry in either mode.
+    Session(SessionId),
     /// Knowledge citations, workspace and local files resolved by the caller.
     Resource,
 }
 
 /// Route a normalized link. Mail and telephone links have no internal handler.
 pub(crate) fn route(link: &str, mode: Mode) -> Route {
+    if let Some(session) = sailry_client::conversation::links::session(link) {
+        return Route::Session(session);
+    }
     let Ok(url) = url::Url::parse(link) else {
         return Route::Resource;
     };
@@ -118,6 +124,7 @@ mod tests {
                 "src/www.rs",
                 "example.com/path",
                 "sailry-knowledge://collection/chunk",
+                "sailry://session/0b7c3e1a-5d2f-4c6b-9a8e-1f2d3c4b5a69",
                 "/project/a.md#L3",
             ] {
                 assert_eq!(normalize(link), link);
@@ -140,6 +147,27 @@ mod tests {
             for mode in [Mode::Internal, Mode::External] {
                 assert_eq!(route("mailto:a@example.com", mode), Route::System);
                 assert_eq!(route("tel:+1555", mode), Route::System);
+            }
+        }
+
+        #[test]
+        fn keeps_session_links_in_sailry() {
+            let session = SessionId::new();
+            let link = sailry_client::conversation::links::link(session);
+            let query = format!("{link}?turn=1");
+            for mode in [Mode::Internal, Mode::External] {
+                assert_eq!(route(&link, mode), Route::Session(session));
+                assert_eq!(
+                    route(&normalize(&format!(" {} ", link.to_uppercase())), mode),
+                    Route::Session(session)
+                );
+                for other in [
+                    "sailry://return",
+                    "sailry://session/not-a-session",
+                    query.as_str(),
+                ] {
+                    assert_eq!(route(other, mode), Route::Resource, "{other}");
+                }
             }
         }
 
