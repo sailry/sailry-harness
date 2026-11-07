@@ -125,9 +125,8 @@ impl View {
                 model: edited.label,
                 choices: edited.choices,
                 effort: edited.effort,
-                // Member models carry no feature choices.
-                features: Vec::new(),
-                selected: Default::default(),
+                features: edited.features,
+                selected: edited.selected,
                 resettable: edited.overridden,
                 ..self.base_settings(roster, member, blocked)
             },
@@ -747,6 +746,7 @@ impl Render for Panel {
                                             feature,
                                             settings.selected.get(&feature.id).map(String::as_str),
                                             locked,
+                                            member,
                                             self.owner.clone(),
                                         )
                                     })),

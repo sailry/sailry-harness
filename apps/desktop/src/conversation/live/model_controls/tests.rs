@@ -27,10 +27,12 @@ mod feature_choices {
                     FeatureOption {
                         id: "fast".into(),
                         name: Some("Fast".into()),
+                        icon: None,
                     },
                     FeatureOption {
                         id: "future-choice".into(),
                         name: None,
+                        icon: None,
                     },
                 ],
             },
@@ -41,6 +43,7 @@ mod feature_choices {
                 options: vec![FeatureOption {
                     id: "compact".into(),
                     name: Some("Compact".into()),
+                    icon: None,
                 }],
             },
         ]
@@ -112,6 +115,27 @@ mod feature_choices {
             "removed feature"
         );
     }
+
+    #[test]
+    fn cycles_speed_then_turns_off() {
+        let feature = Feature {
+            id: "speed".into(),
+            name: None,
+            icon: None,
+            options: ["fast", "ultrafast"]
+                .map(|id| FeatureOption {
+                    id: id.into(),
+                    name: None,
+                    icon: None,
+                })
+                .into(),
+        };
+        let next = |selected| super::super::features::next(&feature, selected);
+        assert_eq!(next(None), Some("fast"));
+        assert_eq!(next(Some("fast")), Some("ultrafast"));
+        assert_eq!(next(Some("ultrafast")), None);
+        assert_eq!(next(Some("removed")), None);
+    }
 }
 
 mod teams {
@@ -142,6 +166,7 @@ mod teams {
             provider: ProviderId::new(),
             model: name.into(),
             effort: Some(Effort::High),
+            features: None,
         }
     }
 

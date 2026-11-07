@@ -117,6 +117,7 @@ async fn fixed(client: &Client, provider: &Provider, key: &str) -> role::Profile
         provider: provider.id,
         model: "fixture".into(),
         effort: None,
+        features: None,
     });
     role.skills = vec!["fixture/review".into()];
     put(client, role, 0).await.unwrap()
@@ -438,11 +439,13 @@ async fn imports_private_providers() {
             provider: captured.providers[0].id,
             model: "fixture".into(),
             effort: Some(Effort::Low),
+            features: None,
         }),
         Some(role::Model {
             provider: target_provider.id,
             model: "fixture".into(),
             effort: Some(Effort::High),
+            features: None,
         }),
         None,
     ] {
@@ -480,6 +483,7 @@ async fn imports_private_providers() {
                 provider: ProviderId::new(),
                 model: "fixture".into(),
                 effort: None,
+                features: None,
             },
             ErrorCode::NotConfigured,
         ),
@@ -488,6 +492,7 @@ async fn imports_private_providers() {
                 provider: captured.providers[0].id,
                 model: "missing".into(),
                 effort: None,
+                features: None,
             },
             ErrorCode::NotConfigured,
         ),
@@ -496,6 +501,7 @@ async fn imports_private_providers() {
                 provider: captured.providers[0].id,
                 model: "fixture".into(),
                 effort: Some(Effort::Max),
+                features: None,
             },
             ErrorCode::InvalidRequest,
         ),
@@ -653,6 +659,7 @@ async fn rejects_inconsistent_imports() {
                     provider: imported.roles.providers[0].id,
                     model: "fixture".into(),
                     effort: Some(Effort::Low),
+                    features: None,
                 }),
             }))
             .await

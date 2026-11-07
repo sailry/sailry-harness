@@ -115,13 +115,16 @@ pub(super) fn config(
                 .validate_features(provider.api, &session.features)
                 .is_ok()
         })
-        && session
+        && let Some(tier) = session
             .features
             .get("speed")
-            .is_some_and(|value| value == "fast")
+            .and_then(|value| match value.as_str() {
+                "fast" => Some("priority"),
+                "ultrafast" => Some("ultrafast"),
+                _ => None,
+            })
     {
-        config =
-            config.with_merged_request_params([("service_tier".into(), json!("priority"))].into());
+        config = config.with_merged_request_params([("service_tier".into(), json!(tier))].into());
     }
     config
 }

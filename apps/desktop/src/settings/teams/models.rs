@@ -16,7 +16,7 @@ use gpui_kit::component::{
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use sailry_protocol::{Effort, ProviderId, role};
+use sailry_protocol::{Effort, ProviderId, conversation::features::Feature, role};
 
 /// Enabled provider channels and their Node provider identities.
 #[derive(Clone, Default)]
@@ -142,12 +142,15 @@ impl ModelField {
             provider,
             model: event.selection.model.clone(),
             effort: None,
+            features: None,
         };
         let current = self.value.as_ref().and_then(|value| value.effort);
         value.effort = self
             .models
             .find(&value)
             .and_then(|model| draft::effort(model, current));
+        // Node keeps only the explicit choices the new model offers.
+        value.features = self.value.as_ref().and_then(|value| value.features.clone());
         self.set(Some(value), cx);
     }
 
@@ -157,6 +160,24 @@ impl ModelField {
         }
         if let Some(value) = &mut self.value {
             value.effort = effort;
+            cx.notify();
+        }
+    }
+
+    /// None follows the lead for every feature; otherwise sets one feature's choice.
+    fn feature(&mut self, id: &str, choice: Option<Option<String>>, cx: &mut Context<Self>) {
+        if self.disabled {
+            return;
+        }
+        if let Some(value) = &mut self.value {
+            value.features = choice.map(|choice| {
+                let mut features = value.features.clone().unwrap_or_default();
+                match choice {
+                    Some(option) => features.insert(id.to_owned(), option),
+                    None => features.remove(id),
+                };
+                features
+            });
             cx.notify();
         }
     }
@@ -173,6 +194,22 @@ impl ModelField {
     }
 }
 
+/// Auto follows the lead; Off and each option are explicit.
+fn feature_label(feature: &Feature, choice: Option<Option<&str>>) -> SharedString {
+    match choice {
+        None => tr("role_effort_inherit"),
+        Some(None) => tr("composer_feature_off"),
+        Some(Some(id)) if feature.id == "speed" && id == "fast" => tr("composer_feature_fast"),
+        Some(Some(id)) => feature
+            .options
+            .iter()
+            .find(|option| option.id == id)
+            .and_then(|option| option.name.clone())
+            .unwrap_or_else(|| id.to_owned())
+            .into(),
+    }
+}
+
 fn effort_label(effort: Option<Effort>) -> SharedString {
     effort.map_or_else(|| tr("role_effort_inherit"), crate::reasoning::label)
 }
@@ -186,6 +223,25 @@ impl Render for ModelField {
                 .filter(|model| crate::reasoning::selectable(&model.efforts))
                 .map(|model| (value.effort, crate::reasoning::choices(&model.efforts)))
         });
+        let features = self
+            .value
+            .as_ref()
+            .and_then(|value| {
+                let model = self.models.find(value)?;
+                let declared = model.capabilities.as_ref()?.features.clone();
+                Some(declared.into_iter().map(|feature| {
+                    let current = value.features.as_ref().map(|features| {
+                        features
+                            .get(&feature.id)
+                            .filter(|id| feature.options.iter().any(|option| option.id == **id))
+                            .cloned()
+                    });
+                    (feature, current)
+                }))
+            })
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
         let owner = cx.entity().downgrade();
         let picker = self.picker.clone();
         let follow = self.follow;
@@ -272,6 +328,49 @@ impl Render for ModelField {
             .w_full()
             .gap_2()
             .child(div().flex_1().min_w_0().child(choose))
+            .children(features.into_iter().map(|(feature, current)| {
+                let owner = owner.clone();
+                let label = feature_label(&feature, current.as_ref().map(Option::as_deref));
+                let icon = if feature.id == "speed" {
+                    Icon::new(gpui_kit::assets::IconName::Zap)
+                } else {
+                    feature
+                        .icon
+                        .as_ref()
+                        .map(crate::assets::icons::icon)
+                        .unwrap_or_else(|| IconName::Settings2.into())
+                };
+                Button::new(SharedString::from(format!(
+                    "team-model-feature-{}",
+                    feature.id
+                )))
+                .outline()
+                .icon(icon)
+                .label(label.clone())
+                .dropdown_caret(true)
+                .disabled(self.disabled)
+                .accessibility_label(label)
+                .dropdown_menu(move |menu, _, _| {
+                    let choices = [None, Some(None)].into_iter().chain(
+                        feature
+                            .options
+                            .iter()
+                            .map(|option| Some(Some(option.id.clone()))),
+                    );
+                    choices.fold(menu, |menu, choice| {
+                        let owner = owner.clone();
+                        let id = feature.id.clone();
+                        let checked = choice == current;
+                        let item = feature_label(&feature, choice.as_ref().map(Option::as_deref));
+                        menu.item(PopupMenuItem::new(item).checked(checked).on_click(
+                            move |_, _, cx| {
+                                let choice = choice.clone();
+                                _ = owner.update(cx, |field, cx| field.feature(&id, choice, cx));
+                            },
+                        ))
+                    })
+                })
+            }))
             .when_some(efforts, |row, (current, choices)| {
                 row.child(
                     Button::new("team-model-effort")

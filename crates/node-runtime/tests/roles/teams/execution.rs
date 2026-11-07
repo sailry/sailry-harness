@@ -46,6 +46,7 @@ async fn freezes_selection_and_lead_atomically() {
         provider: lead.id,
         model: "fixture".into(),
         effort: None,
+        features: None,
     });
     let team = save(&client, team, 0).await.unwrap();
     let mut draft = draft(&session);

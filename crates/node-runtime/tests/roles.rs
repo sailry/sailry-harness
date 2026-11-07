@@ -251,6 +251,7 @@ async fn validates_fixed_models() {
         provider: provider.id,
         model: "fixture".into(),
         effort: Some(Effort::High),
+        features: None,
     });
     assert_eq!(
         put(&client, role.clone(), 0).await.unwrap_err().code,

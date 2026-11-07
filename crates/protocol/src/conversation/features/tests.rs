@@ -27,14 +27,31 @@ fn preserves_wire_and_validation() {
                     model.validate_features(ModelApi::Anthropic, &fast).is_err(),
                     "{scenario}"
                 );
-                let future = BTreeMap::from([("speed".into(), "ultrafast".into())]);
-                assert!(
-                    model.validate_features(ModelApi::Plugin, &future).is_ok(),
-                    "{scenario}"
-                );
+                let ultrafast = BTreeMap::from([("speed".into(), "ultrafast".into())]);
+                for api in [ModelApi::Plugin, ModelApi::Responses] {
+                    assert!(
+                        model.validate_features(api, &ultrafast).is_ok(),
+                        "{scenario}"
+                    );
+                }
                 assert!(
                     model
-                        .validate_features(ModelApi::Responses, &future)
+                        .validate_features(ModelApi::Anthropic, &ultrafast)
+                        .is_err(),
+                    "{scenario}"
+                );
+                let other = BTreeMap::from([("speed".into(), "turbo".into())]);
+                let mut declared = model.clone();
+                declared.capabilities.as_mut().unwrap().features[0]
+                    .options
+                    .push(FeatureOption {
+                        id: "turbo".into(),
+                        name: None,
+                        icon: None,
+                    });
+                assert!(
+                    declared
+                        .validate_features(ModelApi::Responses, &other)
                         .is_err(),
                     "{scenario}"
                 );
@@ -72,6 +89,12 @@ fn preserves_wire_and_validation() {
                 features[0].options.push(duplicate);
                 assert!(validate(features).is_err(), "{scenario}");
                 features[0].options.pop();
+                features[0].options[1].icon =
+                    Some(Icon::Name("reicon:newicons/flash-circle".into()));
+                assert!(validate(features).is_ok(), "{scenario}");
+                features[0].options[1].icon = Some(Icon::Name("not-an-embedded-icon".into()));
+                assert!(validate(features).is_err(), "{scenario}");
+                features[0].options[1].icon = None;
                 features[0].icon = Some(Icon::Name("not-an-embedded-icon".into()));
                 assert!(validate(features).is_err(), "{scenario}");
             }),

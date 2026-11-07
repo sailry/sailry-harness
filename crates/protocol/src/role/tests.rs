@@ -165,6 +165,7 @@ fn preserves_wire_and_validation() {
                     provider: ProviderId::new(),
                     model: "fixture".into(),
                     effort: None,
+                    features: None,
                 });
                 value.validate().unwrap();
                 value.model.as_mut().unwrap().effort = Some(Effort::High);
@@ -238,6 +239,7 @@ mod snapshot {
             provider: ProviderId::new(),
             model: "fixture".into(),
             effort: None,
+            features: None,
         });
         assert!(snapshot.validate().is_err());
         assert!(serde_json::from_str::<Snapshot>(r#"{"profiles":[]}"#).is_err());
@@ -250,4 +252,18 @@ mod snapshot {
             .durable()
         );
     }
+}
+
+#[test]
+fn keeps_absent_features_following() {
+    let value =
+        serde_json::json!({"provider": ProviderId::new(), "model": "fixture", "effort": null});
+    let mut model: Model = serde_json::from_value(value.clone()).unwrap();
+    assert_eq!(model.features, None);
+    assert_eq!(serde_json::to_value(&model).unwrap(), value);
+    model.features = Some(Default::default());
+    assert_eq!(
+        serde_json::to_value(&model).unwrap()["features"],
+        serde_json::json!({})
+    );
 }

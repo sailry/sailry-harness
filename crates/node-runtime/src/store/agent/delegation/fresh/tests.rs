@@ -258,6 +258,7 @@ async fn freezes_role_channels_at_parent_admission() {
         provider: provider_id,
         model: "fixture".into(),
         effort: Some(Effort::Default),
+        features: None,
     });
     let Output::Role(role) = command(
         &mut fixture.database,
@@ -438,6 +439,7 @@ async fn prefers_member_model() {
         provider: provider_id,
         model: "fixture".into(),
         effort: None,
+        features: None,
     });
     let Output::Role(role) = command(
         &mut fixture.database,
@@ -482,6 +484,7 @@ async fn prefers_member_model() {
         provider: provider_id,
         model: "chosen".into(),
         effort: None,
+        features: None,
     };
     let Output::Session(session) = command(
         &mut fixture.database,
@@ -529,5 +532,76 @@ async fn prefers_member_model() {
             .unwrap()
             .models
             .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn applies_member_features() {
+    use crate::store::agent::tests::command;
+    use std::collections::BTreeMap;
+    let mut fixture = setup().await;
+    let provider_id = ProviderId::new();
+    let provider: Provider = serde_json::from_value(json!({"id":provider_id,"revision":0,"name":"Speed","api":"responses","authentication":"api_key","endpoint":"http://127.0.0.1:9/v1","enabled":true,"models":[{"id":"fixture","context":4096,"output":512,"capabilities":{"features":[{"id":"speed","options":[{"id":"fast"},{"id":"ultrafast"}]}]}}],"default_model":"fixture","credential":null,"preset":null})).unwrap();
+    let Output::Provider(_) = command(
+        &mut fixture.database,
+        &fixture.events,
+        Command::PutProvider {
+            provider: provider.clone(),
+            expected_revision: 0,
+        },
+    )
+    .await
+    else {
+        panic!("provider expected")
+    };
+    let mut role = profile(&mut fixture).await;
+    let mut model = role::Model {
+        provider: provider_id,
+        model: "fixture".into(),
+        effort: None,
+        features: Some(BTreeMap::from([("speed".into(), "turbo".into())])),
+    };
+    assert!(crate::store::roles::validate_model(&provider, &model).is_err());
+    model.features = Some(BTreeMap::from([("speed".into(), "ultrafast".into())]));
+    role.model = Some(model);
+    let Output::Role(role) = command(
+        &mut fixture.database,
+        &fixture.events,
+        Command::PutRole {
+            expected_revision: role.revision,
+            role,
+        },
+    )
+    .await
+    else {
+        panic!("role expected")
+    };
+    let session = crate::store::commands::session(&fixture.database.connection, fixture.session)
+        .await
+        .unwrap();
+    let Output::Session(_) = command(
+        &mut fixture.database,
+        &fixture.events,
+        Command::SetSessionRoles {
+            session: session.id,
+            expected_revision: session.revision,
+            roles: vec![role.reference()],
+        },
+    )
+    .await
+    else {
+        panic!("session expected")
+    };
+    let first = start(&mut fixture).await;
+    let child = invoke(
+        &mut fixture,
+        first,
+        json!({"role":"review","task":"Inspect"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        child.turn.config.features,
+        BTreeMap::from([("speed".into(), "ultrafast".into())])
     );
 }

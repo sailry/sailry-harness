@@ -133,7 +133,7 @@ fn legacy_keeps_visible_native_metadata() {
 }
 
 #[test]
-fn advertises_only_reported_priority() {
+fn advertises_reported_tiers() {
     let mut value = json!({"models":[{"slug":"fixture","display_name":"Fixture","visibility":"list",
         "service_tiers":[{"id":"priority","name":"Priority"}],"default_service_tier":"priority"}]});
     let models = parse(Authentication::ChatGptOAuth, ModelApi::Responses, &value).unwrap();
@@ -154,6 +154,32 @@ fn advertises_only_reported_priority() {
             .features
             .is_empty()
     );
+    for (tiers, options) in [
+        (json!([{"id":"ultrafast"}]), vec!["ultrafast"]),
+        (
+            json!([{"id":"ultrafast"},{"id":"flex"},{"id":"priority"}]),
+            vec!["fast", "ultrafast"],
+        ),
+    ] {
+        value["models"][0]["service_tiers"] = tiers;
+        let models = parse(Authentication::ChatGptOAuth, ModelApi::Responses, &value).unwrap();
+        let speed = &models[0].capabilities.as_ref().unwrap().features[0];
+        let ids: Vec<_> = speed
+            .options
+            .iter()
+            .map(|option| option.id.as_str())
+            .collect();
+        assert_eq!(ids, options);
+        assert!(
+            speed
+                .options
+                .iter()
+                .all(|option| option.icon.as_ref().unwrap().valid())
+        );
+        if let [fast, ultrafast] = speed.options.as_slice() {
+            assert_ne!(fast.icon, ultrafast.icon);
+        }
+    }
     for tiers in [json!([]), json!([{"id":"standard"}]), json!(null)] {
         value["models"][0]["service_tiers"] = tiers;
         assert!(

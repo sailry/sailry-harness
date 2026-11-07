@@ -43,6 +43,9 @@ pub(in crate::store) async fn configure(
             Effort::Default
         }
     });
+    if let Some(features) = model.features {
+        next.features = features;
+    }
     definition.retain_features(provider.api, &mut next.features);
     providers::selection(&provider, &next)?;
     commands::validate_config(db, node, &next).await?;
@@ -96,6 +99,7 @@ mod tests {
                     provider: provider.id,
                     model: "lead".into(),
                     effort: None,
+                    features: None,
                 }),
                 instructions: String::new(),
                 members: Vec::new(),

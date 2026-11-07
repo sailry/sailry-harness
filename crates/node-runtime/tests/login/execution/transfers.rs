@@ -69,6 +69,7 @@ async fn rejects_rotating_grant_copies() {
                         provider: provider.id,
                         model: "fixture".into(),
                         effort: None,
+                        features: None,
                     }),
                     max_turns: None,
                     skills: vec![],

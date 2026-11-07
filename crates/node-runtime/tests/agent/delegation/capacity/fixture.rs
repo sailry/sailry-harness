@@ -120,6 +120,7 @@ impl Fixture {
                 provider: provider.id,
                 model: "fixture-child".into(),
                 effort: None,
+                features: None,
             }),
         };
         let Output::Role(role) = client

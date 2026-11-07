@@ -221,6 +221,9 @@ fn parse(
     Ok(models)
 }
 
+const FAST_ICON: &str = "reicon:newicons/flash2";
+const ULTRAFAST_ICON: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M8.5 2 2.5 13.5h5L6.5 22l6-11.5h-5z"/><path d="M17.5 2l-6 11.5h5L15.5 22l6-11.5h-5z"/></svg>"#;
+
 fn features(entry: &Value) -> Result<Vec<sailry_protocol::conversation::features::Feature>, Fault> {
     use sailry_protocol::conversation::features::{Feature, FeatureOption};
     let Some(value) = entry.get("service_tiers").filter(|value| !value.is_null()) else {
@@ -241,20 +244,37 @@ fn features(entry: &Value) -> Result<Vec<sailry_protocol::conversation::features
             return Err(unavailable("provider service tier identifiers conflict"));
         }
     }
-    Ok(if ids.contains("priority") {
+    // Fast and Ultrafast appear only when the catalog lists their processing tiers.
+    // One bolt marks Fast and two mark Ultrafast.
+    use sailry_protocol::plugin::desktop::Icon;
+    let options: Vec<_> = [
+        ("priority", "fast", "Fast", Icon::Name(FAST_ICON.into())),
+        (
+            "ultrafast",
+            "ultrafast",
+            "Ultrafast",
+            Icon::Svg {
+                svg: ULTRAFAST_ICON.into(),
+            },
+        ),
+    ]
+    .into_iter()
+    .filter(|(tier, ..)| ids.contains(tier))
+    .map(|(_, id, name, icon)| FeatureOption {
+        id: id.into(),
+        name: Some(name.into()),
+        icon: Some(icon),
+    })
+    .collect();
+    Ok(if options.is_empty() {
+        Vec::new()
+    } else {
         vec![Feature {
             id: "speed".into(),
             name: Some("Speed".into()),
-            icon: Some(sailry_protocol::plugin::desktop::Icon::Name(
-                "reicon:newicons/flash2".into(),
-            )),
-            options: vec![FeatureOption {
-                id: "fast".into(),
-                name: Some("Fast".into()),
-            }],
+            icon: Some(Icon::Name(FAST_ICON.into())),
+            options,
         }]
-    } else {
-        Vec::new()
     })
 }
 

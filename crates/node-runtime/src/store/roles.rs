@@ -220,6 +220,9 @@ pub(super) fn validate_model(
         model.validate_effort(provider.api, effort)?;
         effort.validate(provider.api, model.output)?;
     }
+    if let Some(features) = &selection.features {
+        model.validate_features(provider.api, features)?;
+    }
     Ok(())
 }
 

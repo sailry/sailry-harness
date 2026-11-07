@@ -211,6 +211,7 @@ async fn refreshes_roles_without_changing_captured_configuration() {
                 provider: configured.id,
                 model: "fixture".into(),
                 effort: None,
+                features: None,
             }),
             max_turns: None,
             skills: Vec::new(),

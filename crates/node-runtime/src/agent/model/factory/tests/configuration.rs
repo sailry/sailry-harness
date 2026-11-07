@@ -167,21 +167,31 @@ fn scopes_optional_request_fields() {
                     id: "speed".into(),
                     name: None,
                     icon: None,
-                    options: vec![sailry_protocol::conversation::features::FeatureOption {
-                        id: "fast".into(),
-                        name: None,
-                    }],
+                    options: ["fast", "ultrafast"]
+                        .map(
+                            |id| sailry_protocol::conversation::features::FeatureOption {
+                                id: id.into(),
+                                name: None,
+                                icon: None,
+                            },
+                        )
+                        .into(),
                 }],
                 ..Default::default()
             });
             provider.models = vec![model];
             let mut selected = session(&provider, "captured", Effort::Default);
-            selected.features.insert("speed".into(), "fast".into());
+            let sends = api == ModelApi::Responses && authentication != Authentication::Copilot;
+            for (choice, tier) in [("ultrafast", "ultrafast"), ("fast", "priority")] {
+                selected.features.insert("speed".into(), choice.into());
+                assert_eq!(
+                    config(&provider, &selected, SessionId::new())
+                        .request_param::<String>("service_tier"),
+                    sends.then(|| tier.to_owned()),
+                    "{choice}"
+                );
+            }
             let config = config(&provider, &selected, SessionId::new());
-            assert_eq!(
-                config.request_param::<String>("service_tier").is_some(),
-                api == ModelApi::Responses && authentication != Authentication::Copilot
-            );
             assert_eq!(
                 config.request_param::<String>("prompt_cache_key").is_some(),
                 authentication == Authentication::ApiKey

@@ -19,6 +19,9 @@ pub struct FeatureOption {
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// Distinguishes this choice when a control cycles through options; None uses the feature icon.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<Icon>,
 }
 
 pub fn validate(features: &[Feature]) -> Result<(), Fault> {
@@ -41,6 +44,7 @@ pub fn validate(features: &[Feature]) -> Result<(), Fault> {
             if !identifier(&option.id)
                 || !options.insert(&option.id)
                 || !name(option.name.as_deref())
+                || option.icon.as_ref().is_some_and(|icon| !icon.valid())
             {
                 return Err(invalid());
             }
@@ -89,7 +93,8 @@ fn advertised(features: &[Feature], id: &str, value: &str) -> bool {
 }
 
 fn supported(api: ModelApi, id: &str, value: &str) -> bool {
-    api == ModelApi::Plugin || (api == ModelApi::Responses && id == "speed" && value == "fast")
+    api == ModelApi::Plugin
+        || (api == ModelApi::Responses && id == "speed" && matches!(value, "fast" | "ultrafast"))
 }
 
 fn identifier(value: &str) -> bool {

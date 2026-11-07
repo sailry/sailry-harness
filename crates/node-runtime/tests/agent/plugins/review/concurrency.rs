@@ -42,6 +42,7 @@ pub(super) async fn roles(
                 provider: provider.id,
                 model: "fixture-a".into(),
                 effort: None,
+                features: None,
             }),
             max_turns: Some(5),
             skills: vec![],

@@ -37,6 +37,7 @@ async fn configure(fixture: &mut Fixture) -> Vec<role::Profile> {
                 provider: config.provider,
                 model: config.model.clone(),
                 effort: Some(config.effort),
+                features: None,
             }),
             max_turns: Some(6),
             skills: vec![],

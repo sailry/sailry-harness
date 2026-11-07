@@ -30,6 +30,7 @@ fn preserves_wire_and_validation() {
                     provider: ProviderId::new(),
                     model: "fixture".into(),
                     effort: Some(Effort::High),
+                    features: None,
                 });
                 value.validate().unwrap();
                 let encoded = serde_json::to_value(&value).unwrap();
@@ -74,6 +75,7 @@ fn preserves_wire_and_validation() {
                     provider: ProviderId::new(),
                     model: " ".into(),
                     effort: None,
+                    features: None,
                 });
                 assert!(value.validate().is_err(), "{scenario}");
             }),
@@ -274,6 +276,7 @@ mod snapshot {
                         provider: ProviderId::new(),
                         model: "configured".into(),
                         effort: None,
+                        features: None,
                     };
                     let mut snapshot = role::Snapshot {
                         profiles: vec![role.clone()],
@@ -289,6 +292,7 @@ mod snapshot {
                         provider: configured.provider,
                         model: "chosen".into(),
                         effort: Some(Effort::Low),
+                        features: None,
                     };
                     snapshot.models.insert(role.id, chosen.clone());
                     assert_eq!(snapshot.model(&role), Some(&chosen), "{scenario}");
@@ -314,6 +318,7 @@ mod snapshot {
                             provider: ProviderId::new(),
                             model: "fixture".into(),
                             effort: None,
+                            features: None,
                         },
                     );
                     assert!(snapshot.validate().is_err(), "{scenario}");
@@ -324,6 +329,7 @@ mod snapshot {
                             provider: ProviderId::new(),
                             model: "fixture".into(),
                             effort: None,
+                            features: None,
                         },
                     );
                     assert!(snapshot.validate().is_err(), "{scenario}");

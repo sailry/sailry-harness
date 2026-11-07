@@ -87,6 +87,7 @@ async fn role(client: &Client, provider: &Provider, key: &str) {
                     provider: provider.id,
                     model: provider.default_model.clone(),
                     effort: None,
+                    features: None,
                 }),
                 max_turns: Some(12),
                 skills: vec!["fixture/review".into()],

@@ -198,6 +198,7 @@ mod tests {
             provider: id,
             model: "selected".into(),
             effort: None,
+            features: None,
         };
         assert!(role_tools(None, &[]));
         assert!(!role_tools(Some(&model), &[]));

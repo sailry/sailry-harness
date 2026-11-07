@@ -61,6 +61,7 @@ fn recovers_and_stops_children() {
                 provider: provider.id,
                 model: "ffi-child".into(),
                 effort: None,
+                features: None,
             }),
             max_turns: Some(5),
             skills: vec![],

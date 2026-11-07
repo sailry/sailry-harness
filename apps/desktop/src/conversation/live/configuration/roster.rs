@@ -2,7 +2,11 @@
 //! revision-checked commands; drafts keep them until the session starts.
 use super::super::model_controls::team::{Draft, Roster, Team, effective};
 use super::*;
-use sailry_protocol::{ProviderId, RoleId, conversation::Execution, role, team};
+use sailry_protocol::{
+    ProviderId, RoleId,
+    conversation::{Execution, features::Feature},
+    role, team,
+};
 
 /// The selected member's model as the popover shows it.
 pub(in crate::conversation::live) struct MemberModel {
@@ -11,6 +15,10 @@ pub(in crate::conversation::live) struct MemberModel {
     pub effort: Effort,
     pub selection: Option<crate::model_picker::Selection>,
     pub overridden: bool,
+    /// Choices the member's model offers.
+    pub features: Vec<Feature>,
+    /// The member's own choices, else the lead's, limited to what its model offers.
+    pub selected: BTreeMap<String, String>,
 }
 
 impl View {
@@ -116,12 +124,18 @@ impl View {
 
     pub(in crate::conversation::live) fn member_settings(&self, role: RoleId) -> MemberModel {
         let target = self.binding.client.target();
-        let (provider, node, model, effort) = match self.member_model(role) {
+        let lead = self
+            .config
+            .as_ref()
+            .map(|config| config.features.clone())
+            .unwrap_or_default();
+        let (provider, node, model, effort, chosen) = match self.member_model(role) {
             Some(model) => (
                 self.member_provider(model.provider),
                 target,
                 model.model,
                 model.effort,
+                model.features.unwrap_or(lead),
             ),
             None => match &self.config {
                 Some(config) => (
@@ -130,8 +144,9 @@ impl View {
                     self.config_owner,
                     config.model.clone(),
                     Some(config.effort),
+                    lead,
                 ),
-                None => (None, target, String::new(), None),
+                None => (None, target, String::new(), None, lead),
             },
         };
         let entry = provider.and_then(|provider| {
@@ -140,6 +155,11 @@ impl View {
                 .iter()
                 .find(|candidate| candidate.id == model)
         });
+        let features = entry
+            .and_then(|entry| entry.capabilities.as_ref())
+            .map(|value| value.features.clone())
+            .unwrap_or_default();
+        let selected = super::super::model_controls::features::retain(&features, &chosen);
         let reasoning = entry.filter(|entry| entry.reasoning);
         let default = reasoning.map_or(Effort::Default, |entry| {
             Effort::initial(&entry.efforts, entry.default_effort)
@@ -161,6 +181,8 @@ impl View {
                     model,
                 }),
             overridden: self.member_overrides().contains_key(&role),
+            features,
+            selected,
         }
     }
 
@@ -296,6 +318,8 @@ impl View {
                     provider: provider.id,
                     model: entry.id.clone(),
                     effort: entry.reasoning.then_some(effort),
+                    // An explicit choice survives a model change; Node keeps what it offers.
+                    features: self.member_model(role).and_then(|model| model.features),
                 })
             });
         if let Some(model) = model {
@@ -314,16 +338,8 @@ impl View {
         if !self.member_settings(role).choices.contains(&effort) {
             return;
         }
-        let base = match self.member_model(role) {
-            Some(model) => model,
-            None => match &self.config {
-                Some(config) if self.config_owner == self.binding.client.target() => role::Model {
-                    provider: config.provider,
-                    model: config.model.clone(),
-                    effort: None,
-                },
-                _ => return,
-            },
+        let Some(base) = self.member_base(role, None) else {
+            return;
         };
         self.select_member_model(
             role,
@@ -334,6 +350,65 @@ impl View {
             window,
             cx,
         );
+    }
+
+    /// Turns one feature choice on or off for a member; a lead follower keeps the lead's
+    /// model and effort and records every choice explicitly.
+    pub(in crate::conversation::live) fn select_member_feature(
+        &mut self,
+        role: RoleId,
+        id: &str,
+        value: Option<&str>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let settings = self.member_settings(role);
+        if !settings.features.iter().any(|feature| {
+            feature.id == id
+                && value.is_none_or(|value| feature.options.iter().any(|option| option.id == value))
+        }) {
+            return;
+        }
+        let effort = (!settings.choices.is_empty()).then_some(settings.effort);
+        let Some(base) = self.member_base(role, effort) else {
+            return;
+        };
+        let mut features = settings.selected;
+        match value {
+            Some(value) => {
+                features.insert(id.to_owned(), value.to_owned());
+            }
+            None => {
+                features.remove(id);
+            }
+        }
+        self.select_member_model(
+            role,
+            Some(role::Model {
+                features: Some(features),
+                ..base
+            }),
+            window,
+            cx,
+        );
+    }
+
+    /// The member's model, else the lead's model and the given effort for a follower.
+    fn member_base(&self, role: RoleId, effort: Option<Effort>) -> Option<role::Model> {
+        match self.member_model(role) {
+            Some(model) => Some(model),
+            None => match &self.config {
+                Some(config) if self.config_owner == self.binding.client.target() => {
+                    Some(role::Model {
+                        provider: config.provider,
+                        model: config.model.clone(),
+                        effort,
+                        features: None,
+                    })
+                }
+                _ => None,
+            },
+        }
     }
 
     pub(in crate::conversation::live) fn open_team_settings(&self, cx: &mut Context<Self>) {

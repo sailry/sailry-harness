@@ -228,6 +228,7 @@ async fn selects_future_rosters() {
         provider: provider.id,
         model: "fixture".into(),
         effort: Some(Effort::Low),
+        features: None,
     };
     for (role, model, expected) in [
         (outsider.id, chosen.clone(), ErrorCode::NotFound),

@@ -93,6 +93,9 @@ pub struct Model {
     pub model: String,
     /// None uses the selected model's default effort.
     pub effort: Option<Effort>,
+    /// None follows the lead's choices where this model offers them; empty turns all off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub features: Option<BTreeMap<String, String>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

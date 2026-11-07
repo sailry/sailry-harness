@@ -76,6 +76,7 @@ pub(super) async fn setup(
             provider: provider.id,
             model: "fixture-child".into(),
             effort: None,
+            features: None,
         }),
         max_turns: Some(5),
         skills: vec![],
