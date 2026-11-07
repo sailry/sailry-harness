@@ -1,3 +1,4 @@
+use crate::database_fixture;
 use sailry_client::Client;
 use sailry_link::{Link, NetworkScope};
 use sailry_node_runtime::Node;
@@ -17,12 +18,6 @@ mod catalog;
 mod citations;
 mod configuration;
 mod context;
-#[allow(
-    dead_code,
-    reason = "The native database fixture is shared with storage-only suites"
-)]
-#[path = "../support/database.rs"]
-mod database_fixture;
 mod keywords;
 #[cfg(feature = "test-support")]
 mod performance;
