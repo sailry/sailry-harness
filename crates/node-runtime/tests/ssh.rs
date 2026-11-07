@@ -120,87 +120,221 @@ async fn external_host_key() {
 #[cfg(unix)]
 #[tokio::test]
 async fn preserves_authenticated_ownership() {
-    for remote in [false, true] {
-        let directory = tempfile::tempdir().unwrap();
-        let server = server::Server::start(directory.path().into(), 41).await;
-        let node_path = directory.path().join("node");
-        let node = Node::start_empty(&node_path).await.unwrap();
-        let controller =
-            Link::controller(directory.path().join("controller"), NetworkScope::default())
-                .await
-                .unwrap();
-        let invitation = node.link().invite().unwrap();
-        let address = controller.handle().pair(invitation.ticket()).await.unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(address)
-        } else {
-            node.local()
-        });
-        let mut profile = save(
-            &client,
-            profile(server.port),
-            Some(Credential::Password {
-                password: Secret::new("isolated-ssh-password".into()),
-            }),
-        )
-        .await;
-        let mut stream = client.subscribe().await.unwrap();
-        let probe = run(&profile, "printf x >> effects");
-        assert_eq!(
-            execute(&client, probe).await,
-            Output::SshOutcome(Outcome::HostKeyRequired {
-                key: server.key.clone(),
-                changed: false
-            })
-        );
-        assert_eq!(server.authentication.load(Ordering::SeqCst), 0);
-        assert!(server.commands.lock().unwrap().is_empty());
-        profile = trust(&client, &profile, &server.key).await;
-        let mut projection = sailry_client::Projection::new(node.id(), 0);
-        projection.reconnect(1).unwrap();
-        loop {
-            projection.apply(1, stream.next().await.unwrap()).unwrap();
-            if projection
-                .snapshot()
-                .is_some_and(|s| s.ssh == [profile.clone()])
-            {
-                break;
-            }
+    let directory = tempfile::tempdir().unwrap();
+    let server = server::Server::start(directory.path().into(), 41).await;
+    let node_path = directory.path().join("node");
+    let node = Node::start_empty(&node_path).await.unwrap();
+    let controller = Link::controller(directory.path().join("controller"), NetworkScope::default())
+        .await
+        .unwrap();
+    let invitation = node.link().invite().unwrap();
+    let address = controller.handle().pair(invitation.ticket()).await.unwrap();
+    let client = Client::new(controller.handle().remote(address));
+    let mut profile = save(
+        &client,
+        profile(server.port),
+        Some(Credential::Password {
+            password: Secret::new("isolated-ssh-password".into()),
+        }),
+    )
+    .await;
+    let mut stream = client.subscribe().await.unwrap();
+    let probe = run(&profile, "printf x >> effects");
+    assert_eq!(
+        execute(&client, probe).await,
+        Output::SshOutcome(Outcome::HostKeyRequired {
+            key: server.key.clone(),
+            changed: false
+        })
+    );
+    assert_eq!(server.authentication.load(Ordering::SeqCst), 0);
+    assert!(server.commands.lock().unwrap().is_empty());
+    profile = trust(&client, &profile, &server.key).await;
+    let mut projection = sailry_client::Projection::new(node.id(), 0);
+    projection.reconnect(1).unwrap();
+    loop {
+        projection.apply(1, stream.next().await.unwrap()).unwrap();
+        if projection
+            .snapshot()
+            .is_some_and(|s| s.ssh == [profile.clone()])
+        {
+            break;
         }
-        let request = client.prepare(run(
-            &profile,
-            "printf x >> effects; printf 'result 中文'; printf diagnostic >&2; exit 7",
-        ));
-        let expected = Output::SshOutcome(Outcome::Completed {
-            exit_code: 7,
-            stdout: "result 中文".into(),
-            stderr: "diagnostic".into(),
-            truncated: false,
-        });
-        assert_eq!(client.execute(request.clone()).await.unwrap(), expected);
-        assert_eq!(client.execute(request.clone()).await.unwrap(), expected);
-        assert_eq!(
-            std::fs::read(directory.path().join("effects")).unwrap(),
-            b"x"
-        );
-        let mut changed = profile.clone();
-        changed.name = "Renamed".into();
-        profile = save(&client, changed, None).await;
-        assert_eq!(profile.host_key, Some(server.key.clone()));
-        assert_eq!(
-            client
-                .execute(client.prepare(run(
-                    &Profile {
-                        revision: 1,
-                        ..profile.clone()
-                    },
-                    "exit 0"
-                )))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::RevisionConflict
-        );
+    }
+    let request = client.prepare(run(
+        &profile,
+        "printf x >> effects; printf 'result 中文'; printf diagnostic >&2; exit 7",
+    ));
+    let expected = Output::SshOutcome(Outcome::Completed {
+        exit_code: 7,
+        stdout: "result 中文".into(),
+        stderr: "diagnostic".into(),
+        truncated: false,
+    });
+    assert_eq!(client.execute(request.clone()).await.unwrap(), expected);
+    assert_eq!(client.execute(request.clone()).await.unwrap(), expected);
+    assert_eq!(
+        std::fs::read(directory.path().join("effects")).unwrap(),
+        b"x"
+    );
+    let mut changed = profile.clone();
+    changed.name = "Renamed".into();
+    profile = save(&client, changed, None).await;
+    assert_eq!(profile.host_key, Some(server.key.clone()));
+    assert_eq!(
+        client
+            .execute(client.prepare(run(
+                &Profile {
+                    revision: 1,
+                    ..profile.clone()
+                },
+                "exit 0"
+            )))
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::RevisionConflict
+    );
+    assert_eq!(
+        execute(
+            &client,
+            Command::CheckSsh {
+                profile: profile.id,
+                expected_revision: profile.revision
+            }
+        )
+        .await,
+        Output::SshOutcome(Outcome::Connected)
+    );
+    drop(stream);
+    node.shutdown().await.unwrap();
+    let (database, db) =
+        crate::database_fixture::open(&node_path.join("storage/node.turso"), true).await;
+    let stored: String = db
+        .prepare("SELECT credential FROM ssh_profiles WHERE id=?1")
+        .await
+        .unwrap()
+        .query_row([profile.id.to_string()])
+        .await
+        .unwrap()
+        .get(0)
+        .unwrap();
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&stored).unwrap()["password"],
+        "isolated-ssh-password"
+    );
+    let mut records = db
+        .prepare("SELECT body FROM requests UNION ALL SELECT body FROM events")
+        .await
+        .unwrap();
+    let mut rows = records.query(()).await.unwrap();
+    while let Some(row) = rows.next().await.unwrap() {
+        let body = row.get::<Vec<u8>>(0).unwrap();
+        assert!(!String::from_utf8_lossy(&body).contains("isolated-ssh-password"));
+    }
+    drop(rows);
+    drop(records);
+    crate::database_fixture::close(database, db).await;
+    let node = Node::start_empty(&node_path).await.unwrap();
+    let client = Client::new(controller.handle().remote(node.link().address()));
+    assert_eq!(
+        execute(&client, Command::ListSsh).await,
+        Output::SshProfiles(vec![profile.clone()])
+    );
+    assert_eq!(client.execute(request).await.unwrap(), expected);
+    assert_eq!(server.commands.lock().unwrap().len(), 1);
+    execute(
+        &client,
+        Command::RemoveSsh {
+            profile: profile.id,
+            expected_revision: profile.revision,
+        },
+    )
+    .await;
+    assert_eq!(
+        execute(&client, Command::ListSsh).await,
+        Output::SshProfiles(vec![])
+    );
+    node.shutdown().await.unwrap();
+    controller.close().await.unwrap();
+    server.close().await;
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn connection_failure_includes_cause() {
+    let directory = tempfile::tempdir().unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    drop(listener);
+    let node = Node::start_empty(directory.path().join("node"))
+        .await
+        .unwrap();
+    let controller = Link::controller(directory.path().join("controller"), NetworkScope::default())
+        .await
+        .unwrap();
+    let invitation = node.link().invite().unwrap();
+    let address = controller.handle().pair(invitation.ticket()).await.unwrap();
+    let client = Client::new(controller.handle().remote(address));
+    let profile = save(
+        &client,
+        profile(port),
+        Some(Credential::Password {
+            password: Secret::new("isolated-ssh-password".into()),
+        }),
+    )
+    .await;
+    let error = client
+        .execute(client.prepare(Command::CheckSsh {
+            profile: profile.id,
+            expected_revision: profile.revision,
+        }))
+        .await
+        .unwrap_err();
+    assert_eq!(error.code, ErrorCode::Unavailable);
+    let cause = error
+        .message
+        .strip_prefix("SSH connection failed: ")
+        .unwrap();
+    assert!(!cause.is_empty());
+    assert!(!error.message.contains("isolated-ssh-password"));
+    node.shutdown().await.unwrap();
+    controller.close().await.unwrap();
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn reports_authenticated_uncertainty() {
+    let directory = tempfile::tempdir().unwrap();
+    let server = server::Server::start(directory.path().into(), 42).await;
+    let node = Node::start_empty(directory.path().join("node"))
+        .await
+        .unwrap();
+    let controller = Link::controller(directory.path().join("controller"), NetworkScope::default())
+        .await
+        .unwrap();
+    let invitation = node.link().invite().unwrap();
+    let address = controller.handle().pair(invitation.ticket()).await.unwrap();
+    let client = Client::new(controller.handle().remote(address));
+    let encoded = server::key(43)
+        .to_openssh(russh::keys::ssh_key::LineEnding::LF)
+        .unwrap();
+    let path = directory.path().join("key");
+    std::fs::write(&path, encoded.as_str()).unwrap();
+    let mut profile = profile(server.port);
+    for credential in [
+        Credential::PrivateKey {
+            key: Secret::new(encoded.to_string()),
+            passphrase: None,
+        },
+        Credential::KeyPath {
+            path: Secret::new(path.to_str().unwrap().into()),
+            passphrase: None,
+        },
+    ] {
+        profile.authentication = credential.authentication();
+        profile = save(&client, profile, Some(credential)).await;
+        profile = trust(&client, &profile, &server.key).await;
         assert_eq!(
             execute(
                 &client,
@@ -212,234 +346,75 @@ async fn preserves_authenticated_ownership() {
             .await,
             Output::SshOutcome(Outcome::Connected)
         );
-        drop(stream);
-        node.shutdown().await.unwrap();
-        let (database, db) =
-            crate::database_fixture::open(&node_path.join("storage/node.turso"), true).await;
-        let stored: String = db
-            .prepare("SELECT credential FROM ssh_profiles WHERE id=?1")
+    }
+    let Output::SshOutcome(Outcome::Completed {
+        stdout, truncated, ..
+    }) = execute(&client, run(&profile, "large")).await
+    else {
+        panic!("SSH output expected")
+    };
+    assert_eq!(stdout.len(), 128 * 1024);
+    assert!(truncated);
+    assert_eq!(
+        client
+            .execute(client.prepare(run(&profile, "unknown")))
             .await
-            .unwrap()
-            .query_row([profile.id.to_string()])
-            .await
-            .unwrap()
-            .get(0)
-            .unwrap();
-        assert_eq!(
-            serde_json::from_str::<serde_json::Value>(&stored).unwrap()["password"],
-            "isolated-ssh-password"
-        );
-        let mut records = db
-            .prepare("SELECT body FROM requests UNION ALL SELECT body FROM events")
-            .await
-            .unwrap();
-        let mut rows = records.query(()).await.unwrap();
-        while let Some(row) = rows.next().await.unwrap() {
-            let body = row.get::<Vec<u8>>(0).unwrap();
-            assert!(!String::from_utf8_lossy(&body).contains("isolated-ssh-password"));
+            .unwrap_err()
+            .code,
+        ErrorCode::OutcomeUnknown
+    );
+    let request = client.prepare(run(&profile, "hold"));
+    let pending = client.dispatch(request.clone()).await.unwrap();
+    assert!(pending.receipt.durable);
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while !server.commands.lock().unwrap().iter().any(|c| c == "hold") {
+            tokio::time::sleep(Duration::from_millis(10)).await;
         }
-        drop(rows);
-        drop(records);
-        crate::database_fixture::close(database, db).await;
-        let node = Node::start_empty(&node_path).await.unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(node.link().address())
-        } else {
-            node.local()
-        });
-        assert_eq!(
-            execute(&client, Command::ListSsh).await,
-            Output::SshProfiles(vec![profile.clone()])
-        );
-        assert_eq!(client.execute(request).await.unwrap(), expected);
-        assert_eq!(server.commands.lock().unwrap().len(), 1);
+    })
+    .await
+    .unwrap();
+    execute(&client, Command::Snapshot).await;
+    execute(
+        &client,
+        Command::CancelSsh {
+            request: request.id,
+        },
+    )
+    .await;
+    assert_eq!(
+        pending.completion.await.unwrap().unwrap_err().code,
+        ErrorCode::OutcomeUnknown
+    );
+    assert_eq!(
+        client.execute(request).await.unwrap_err().code,
+        ErrorCode::OutcomeUnknown
+    );
+    let key = server::key(44);
+    let changed = ssh::HostKey {
+        algorithm: key.public_key().algorithm().to_string(),
+        fingerprint: key
+            .public_key()
+            .fingerprint(russh::keys::HashAlg::Sha256)
+            .to_string(),
+    };
+    profile = trust(&client, &profile, &changed).await;
+    let attempts = server.authentication.load(Ordering::SeqCst);
+    assert_eq!(
         execute(
             &client,
-            Command::RemoveSsh {
+            Command::CheckSsh {
                 profile: profile.id,
-                expected_revision: profile.revision,
-            },
-        )
-        .await;
-        assert_eq!(
-            execute(&client, Command::ListSsh).await,
-            Output::SshProfiles(vec![])
-        );
-        node.shutdown().await.unwrap();
-        controller.close().await.unwrap();
-        server.close().await;
-    }
-}
-
-#[cfg(unix)]
-#[tokio::test]
-async fn connection_failure_includes_cause() {
-    for remote in [false, true] {
-        let directory = tempfile::tempdir().unwrap();
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let port = listener.local_addr().unwrap().port();
-        drop(listener);
-        let node = Node::start_empty(directory.path().join("node"))
-            .await
-            .unwrap();
-        let controller =
-            Link::controller(directory.path().join("controller"), NetworkScope::default())
-                .await
-                .unwrap();
-        let invitation = node.link().invite().unwrap();
-        let address = controller.handle().pair(invitation.ticket()).await.unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(address)
-        } else {
-            node.local()
-        });
-        let profile = save(
-            &client,
-            profile(port),
-            Some(Credential::Password {
-                password: Secret::new("isolated-ssh-password".into()),
-            }),
-        )
-        .await;
-        let error = client
-            .execute(client.prepare(Command::CheckSsh {
-                profile: profile.id,
-                expected_revision: profile.revision,
-            }))
-            .await
-            .unwrap_err();
-        assert_eq!(error.code, ErrorCode::Unavailable);
-        let cause = error
-            .message
-            .strip_prefix("SSH connection failed: ")
-            .unwrap();
-        assert!(!cause.is_empty());
-        assert!(!error.message.contains("isolated-ssh-password"));
-        node.shutdown().await.unwrap();
-        controller.close().await.unwrap();
-    }
-}
-
-#[cfg(unix)]
-#[tokio::test]
-async fn reports_authenticated_uncertainty() {
-    for remote in [false, true] {
-        let directory = tempfile::tempdir().unwrap();
-        let server = server::Server::start(directory.path().into(), 42).await;
-        let node = Node::start_empty(directory.path().join("node"))
-            .await
-            .unwrap();
-        let controller =
-            Link::controller(directory.path().join("controller"), NetworkScope::default())
-                .await
-                .unwrap();
-        let invitation = node.link().invite().unwrap();
-        let address = controller.handle().pair(invitation.ticket()).await.unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(address)
-        } else {
-            node.local()
-        });
-        let encoded = server::key(43)
-            .to_openssh(russh::keys::ssh_key::LineEnding::LF)
-            .unwrap();
-        let path = directory.path().join("key");
-        std::fs::write(&path, encoded.as_str()).unwrap();
-        let mut profile = profile(server.port);
-        for credential in [
-            Credential::PrivateKey {
-                key: Secret::new(encoded.to_string()),
-                passphrase: None,
-            },
-            Credential::KeyPath {
-                path: Secret::new(path.to_str().unwrap().into()),
-                passphrase: None,
-            },
-        ] {
-            profile.authentication = credential.authentication();
-            profile = save(&client, profile, Some(credential)).await;
-            profile = trust(&client, &profile, &server.key).await;
-            assert_eq!(
-                execute(
-                    &client,
-                    Command::CheckSsh {
-                        profile: profile.id,
-                        expected_revision: profile.revision
-                    }
-                )
-                .await,
-                Output::SshOutcome(Outcome::Connected)
-            );
-        }
-        let Output::SshOutcome(Outcome::Completed {
-            stdout, truncated, ..
-        }) = execute(&client, run(&profile, "large")).await
-        else {
-            panic!("SSH output expected")
-        };
-        assert_eq!(stdout.len(), 128 * 1024);
-        assert!(truncated);
-        assert_eq!(
-            client
-                .execute(client.prepare(run(&profile, "unknown")))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::OutcomeUnknown
-        );
-        let request = client.prepare(run(&profile, "hold"));
-        let pending = client.dispatch(request.clone()).await.unwrap();
-        assert!(pending.receipt.durable);
-        tokio::time::timeout(Duration::from_secs(5), async {
-            while !server.commands.lock().unwrap().iter().any(|c| c == "hold") {
-                tokio::time::sleep(Duration::from_millis(10)).await;
+                expected_revision: profile.revision
             }
-        })
-        .await
-        .unwrap();
-        execute(&client, Command::Snapshot).await;
-        execute(
-            &client,
-            Command::CancelSsh {
-                request: request.id,
-            },
         )
-        .await;
-        assert_eq!(
-            pending.completion.await.unwrap().unwrap_err().code,
-            ErrorCode::OutcomeUnknown
-        );
-        assert_eq!(
-            client.execute(request).await.unwrap_err().code,
-            ErrorCode::OutcomeUnknown
-        );
-        let key = server::key(44);
-        let changed = ssh::HostKey {
-            algorithm: key.public_key().algorithm().to_string(),
-            fingerprint: key
-                .public_key()
-                .fingerprint(russh::keys::HashAlg::Sha256)
-                .to_string(),
-        };
-        profile = trust(&client, &profile, &changed).await;
-        let attempts = server.authentication.load(Ordering::SeqCst);
-        assert_eq!(
-            execute(
-                &client,
-                Command::CheckSsh {
-                    profile: profile.id,
-                    expected_revision: profile.revision
-                }
-            )
-            .await,
-            Output::SshOutcome(Outcome::HostKeyRequired {
-                key: server.key.clone(),
-                changed: true
-            })
-        );
-        assert_eq!(server.authentication.load(Ordering::SeqCst), attempts);
-        node.shutdown().await.unwrap();
-        controller.close().await.unwrap();
-        server.close().await;
-    }
+        .await,
+        Output::SshOutcome(Outcome::HostKeyRequired {
+            key: server.key.clone(),
+            changed: true
+        })
+    );
+    assert_eq!(server.authentication.load(Ordering::SeqCst), attempts);
+    node.shutdown().await.unwrap();
+    controller.close().await.unwrap();
+    server.close().await;
 }

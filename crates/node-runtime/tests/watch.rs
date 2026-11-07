@@ -1,5 +1,5 @@
 use sailry_client::{Client, View};
-use sailry_link::{CancellationToken, Link, Transport};
+use sailry_link::{CancellationToken, Link};
 use sailry_node_runtime::{NetworkScope, Node};
 use sailry_protocol::{Command, ErrorCode, NodeId};
 use std::{sync::Arc, time::Duration};
@@ -20,61 +20,50 @@ async fn wait(updates: &mut watch::Receiver<View>, check: impl Fn(&View) -> bool
 
 #[tokio::test]
 async fn shares_projection_until_cancelled() {
-    for remote in [false, true] {
-        let directory = tempfile::tempdir().unwrap();
-        let host = Node::start_empty(directory.path().join("host"))
-            .await
-            .unwrap();
-        let (controller, transport): (Option<Link>, Arc<dyn Transport>) = if remote {
-            let controller =
-                Link::controller(directory.path().join("controller"), NetworkScope::default())
-                    .await
-                    .unwrap();
-            let address = controller
-                .handle()
-                .pair(host.link().invite().unwrap().ticket())
-                .await
-                .unwrap();
-            let transport = controller.handle().remote(address);
-            (Some(controller), transport)
-        } else {
-            (None, host.local())
-        };
-        let client = Arc::new(Client::new(transport));
-        let stop = CancellationToken::new();
-        let (sender, mut updates) = watch::channel(View::default());
-        let run = {
-            let client = client.clone();
-            let stop = stop.clone();
-            tokio::spawn(async move { client.watch(sender, stop).await })
-        };
-        wait(&mut updates, |view| view.connected).await;
-        client
-            .execute(client.prepare(Command::RegisterProject {
-                name: "Observed".into(),
-                path: directory.path().to_str().unwrap().into(),
-            }))
-            .await
-            .unwrap();
-        wait(&mut updates, |view| {
-            view.snapshot
-                .as_ref()
-                .is_some_and(|snapshot| snapshot.projects.len() == 1)
-        })
-        .await;
-        assert_eq!(updates.borrow().snapshot.as_ref().unwrap().node, host.id());
-        stop.cancel();
-        tokio::time::timeout(Duration::from_secs(1), run)
-            .await
-            .unwrap()
-            .unwrap()
-            .unwrap();
-        assert!(!updates.borrow().connected);
-        host.shutdown().await.unwrap();
-        if let Some(controller) = controller {
-            controller.close().await.unwrap();
-        }
-    }
+    let directory = tempfile::tempdir().unwrap();
+    let host = Node::start_empty(directory.path().join("host"))
+        .await
+        .unwrap();
+    let controller = Link::controller(directory.path().join("controller"), NetworkScope::default())
+        .await
+        .unwrap();
+    let address = controller
+        .handle()
+        .pair(host.link().invite().unwrap().ticket())
+        .await
+        .unwrap();
+    let client = Arc::new(Client::new(controller.handle().remote(address)));
+    let stop = CancellationToken::new();
+    let (sender, mut updates) = watch::channel(View::default());
+    let run = {
+        let client = client.clone();
+        let stop = stop.clone();
+        tokio::spawn(async move { client.watch(sender, stop).await })
+    };
+    wait(&mut updates, |view| view.connected).await;
+    client
+        .execute(client.prepare(Command::RegisterProject {
+            name: "Observed".into(),
+            path: directory.path().to_str().unwrap().into(),
+        }))
+        .await
+        .unwrap();
+    wait(&mut updates, |view| {
+        view.snapshot
+            .as_ref()
+            .is_some_and(|snapshot| snapshot.projects.len() == 1)
+    })
+    .await;
+    assert_eq!(updates.borrow().snapshot.as_ref().unwrap().node, host.id());
+    stop.cancel();
+    tokio::time::timeout(Duration::from_secs(1), run)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert!(!updates.borrow().connected);
+    host.shutdown().await.unwrap();
+    controller.close().await.unwrap();
 }
 
 #[tokio::test]

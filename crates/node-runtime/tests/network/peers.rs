@@ -15,7 +15,7 @@ struct Fixture {
 }
 
 impl Fixture {
-    async fn new(remote: bool) -> Self {
+    async fn new() -> Self {
         let directory = tempfile::tempdir().unwrap();
         let node = Node::start_empty(directory.path().join("node"))
             .await
@@ -28,16 +28,8 @@ impl Fixture {
             .pair(node.link().invite().unwrap().ticket())
             .await
             .unwrap();
-        let peer = if remote {
-            NodeId(*controller.handle().address().id.as_bytes())
-        } else {
-            node.id()
-        };
-        let client = Client::new(if remote {
-            controller.handle().remote(address)
-        } else {
-            node.local()
-        });
+        let peer = NodeId(*controller.handle().address().id.as_bytes());
+        let client = Client::new(controller.handle().remote(address));
         Self {
             _directory: directory,
             node,
@@ -63,81 +55,73 @@ async fn wait(peers: &mut watch::Receiver<BTreeSet<NodeId>>, expected: BTreeSet<
 
 #[tokio::test]
 async fn follows_observer_lifecycle() {
-    for remote in [false, true] {
-        let fixture = Fixture::new(remote).await;
-        let mut peers = fixture.node.link().connected_peers().unwrap();
-        let active = BTreeSet::from([fixture.peer]);
-        let phone = fixture.controller.handle().address();
-        assert!(
-            fixture
-                .node
-                .link()
-                .inspect(&phone)
-                .await
-                .unwrap()
-                .compatibility()
-                .is_ok()
-        );
-        assert!(peers.borrow().is_empty());
-        assert!(matches!(
-            fixture
-                .client
-                .execute(fixture.client.prepare(Command::Snapshot))
-                .await
-                .unwrap(),
-            Output::Snapshot(_)
-        ));
-        assert!(peers.borrow().is_empty());
+    let fixture = Fixture::new().await;
+    let mut peers = fixture.node.link().connected_peers().unwrap();
+    let active = BTreeSet::from([fixture.peer]);
+    let phone = fixture.controller.handle().address();
+    assert!(
+        fixture
+            .node
+            .link()
+            .inspect(&phone)
+            .await
+            .unwrap()
+            .compatibility()
+            .is_ok()
+    );
+    assert!(peers.borrow().is_empty());
+    assert!(matches!(
+        fixture
+            .client
+            .execute(fixture.client.prepare(Command::Snapshot))
+            .await
+            .unwrap(),
+        Output::Snapshot(_)
+    ));
+    assert!(peers.borrow().is_empty());
 
-        let mut first = fixture.client.subscribe().await.unwrap();
-        assert!(matches!(first.next().await.unwrap(), Update::Snapshot(_)));
-        wait(&mut peers, active.clone()).await;
-        let mut second = fixture.client.subscribe().await.unwrap();
-        assert!(matches!(second.next().await.unwrap(), Update::Snapshot(_)));
-        drop(first);
-        assert_eq!(*peers.borrow(), active);
-        drop(second);
-        wait(&mut peers, BTreeSet::new()).await;
+    let mut first = fixture.client.subscribe().await.unwrap();
+    assert!(matches!(first.next().await.unwrap(), Update::Snapshot(_)));
+    wait(&mut peers, active.clone()).await;
+    let mut second = fixture.client.subscribe().await.unwrap();
+    assert!(matches!(second.next().await.unwrap(), Update::Snapshot(_)));
+    drop(first);
+    assert_eq!(*peers.borrow(), active);
+    drop(second);
+    wait(&mut peers, BTreeSet::new()).await;
 
-        assert!(fixture.node.link().inspect(&phone).await.is_ok());
-        assert!(peers.borrow().is_empty());
-        let mut reconnected = fixture.client.subscribe().await.unwrap();
-        assert!(matches!(
-            reconnected.next().await.unwrap(),
-            Update::Snapshot(_)
-        ));
-        wait(&mut peers, active).await;
-        if remote {
-            fixture
-                .node
-                .link()
-                .set_trust(fixture.peer, false)
-                .await
-                .unwrap();
-        } else {
-            drop(reconnected);
-        }
-        wait(&mut peers, BTreeSet::new()).await;
-        fixture.node.shutdown().await.unwrap();
-        fixture.controller.close().await.unwrap();
-    }
+    assert!(fixture.node.link().inspect(&phone).await.is_ok());
+    assert!(peers.borrow().is_empty());
+    let mut reconnected = fixture.client.subscribe().await.unwrap();
+    assert!(matches!(
+        reconnected.next().await.unwrap(),
+        Update::Snapshot(_)
+    ));
+    wait(&mut peers, active).await;
+    fixture
+        .node
+        .link()
+        .set_trust(fixture.peer, false)
+        .await
+        .unwrap();
+    wait(&mut peers, BTreeSet::new()).await;
+    fixture.node.shutdown().await.unwrap();
+    fixture.controller.close().await.unwrap();
 }
 
 #[tokio::test]
 async fn shutdown_clears_retained_observers() {
-    for remote in [false, true] {
-        let fixture = Fixture::new(remote).await;
-        let mut peers = fixture.node.link().connected_peers().unwrap();
-        let mut retained = fixture.client.subscribe().await.unwrap();
-        assert!(matches!(
-            retained.next().await.unwrap(),
-            Update::Snapshot(_)
-        ));
-        wait(&mut peers, BTreeSet::from([fixture.peer])).await;
-        fixture.node.shutdown().await.unwrap();
-        assert!(peers.borrow().is_empty());
-        assert!(retained.next().await.is_err());
-        drop(retained);
-        fixture.controller.close().await.unwrap();
-    }
+    let fixture = Fixture::new().await;
+    let mut peers = fixture.node.link().connected_peers().unwrap();
+    let mut retained = fixture.client.subscribe().await.unwrap();
+    assert!(matches!(
+        retained.next().await.unwrap(),
+        Update::Snapshot(_)
+    ));
+    wait(&mut peers, BTreeSet::from([fixture.peer])).await;
+    fixture.node.shutdown().await.unwrap();
+    assert!(peers.borrow().is_empty());
+    assert!(retained.next().await.is_err());
+    drop(retained);
+    fixture.controller.close().await.unwrap();
 }

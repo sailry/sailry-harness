@@ -10,55 +10,49 @@ mod presets;
 
 #[tokio::test]
 async fn reads_same_endpoint_and_rejects_direct_changes() {
-    for remote in [false, true] {
-        let root = tempfile::tempdir().unwrap();
-        let node = Node::start_empty(root.path().join("node")).await.unwrap();
-        let controller = Link::controller(root.path().join("controller"), NetworkScope::default())
-            .await
-            .unwrap();
-        let caller = NodeId(*controller.handle().address().id.as_bytes());
-        node.link().set_trust(caller, true).await.unwrap();
-        controller
-            .handle()
-            .set_trust(node.id(), true)
-            .await
-            .unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(node.link().address())
-        } else {
-            node.local()
-        });
-        let Output::NetworkSettings(settings) = client
+    let root = tempfile::tempdir().unwrap();
+    let node = Node::start_empty(root.path().join("node")).await.unwrap();
+    let controller = Link::controller(root.path().join("controller"), NetworkScope::default())
+        .await
+        .unwrap();
+    let caller = NodeId(*controller.handle().address().id.as_bytes());
+    node.link().set_trust(caller, true).await.unwrap();
+    controller
+        .handle()
+        .set_trust(node.id(), true)
+        .await
+        .unwrap();
+    let client = Client::new(controller.handle().remote(node.link().address()));
+    let Output::NetworkSettings(settings) = client
+        .execute(client.prepare(Command::ReadNetworkSettings))
+        .await
+        .unwrap()
+    else {
+        panic!("network settings expected");
+    };
+    assert_eq!(settings.revision, 0);
+    assert_eq!(settings.selection, None);
+    assert_eq!(settings.effective, None);
+    let address: sailry_link::EndpointAddr = serde_json::from_str(&settings.address).unwrap();
+    assert_eq!(NodeId(*address.id.as_bytes()), node.id());
+    let request = client.prepare(Command::SaveNetworkSettings {
+        expected_revision: 0,
+        selection: Selection::Iroh,
+    });
+    let admission = client.dispatch(request.clone()).await.unwrap();
+    assert!(admission.receipt.durable);
+    let error = admission.completion.await.unwrap().unwrap_err();
+    assert_eq!(error.code, ErrorCode::InvalidRequest);
+    assert_eq!(client.execute(request).await.unwrap_err(), error);
+    assert_eq!(
+        client
             .execute(client.prepare(Command::ReadNetworkSettings))
             .await
-            .unwrap()
-        else {
-            panic!("network settings expected");
-        };
-        assert_eq!(settings.revision, 0);
-        assert_eq!(settings.selection, None);
-        assert_eq!(settings.effective, None);
-        let address: sailry_link::EndpointAddr = serde_json::from_str(&settings.address).unwrap();
-        assert_eq!(NodeId(*address.id.as_bytes()), node.id());
-        let request = client.prepare(Command::SaveNetworkSettings {
-            expected_revision: 0,
-            selection: Selection::Iroh,
-        });
-        let admission = client.dispatch(request.clone()).await.unwrap();
-        assert!(admission.receipt.durable);
-        let error = admission.completion.await.unwrap().unwrap_err();
-        assert_eq!(error.code, ErrorCode::InvalidRequest);
-        assert_eq!(client.execute(request).await.unwrap_err(), error);
-        assert_eq!(
-            client
-                .execute(client.prepare(Command::ReadNetworkSettings))
-                .await
-                .unwrap(),
-            Output::NetworkSettings(settings)
-        );
-        node.shutdown().await.unwrap();
-        controller.close().await.unwrap();
-    }
+            .unwrap(),
+        Output::NetworkSettings(settings)
+    );
+    node.shutdown().await.unwrap();
+    controller.close().await.unwrap();
 }
 
 struct Relays {
@@ -111,239 +105,213 @@ async fn settings(client: &Client) -> sailry_protocol::network::Settings {
 #[tokio::test]
 async fn concurrent_saves_preserve_one_revision() {
     use sailry_protocol::RequestOutcome;
-    for remote in [false, true] {
-        let root = tempfile::tempdir().unwrap();
-        let relays = Relays::start().await;
-        let scope = || NetworkScope::CustomRelays(vec![relays.urls[0].clone()]);
-        let node = Node::start_empty_with_network_roots(
-            root.path().join("node"),
-            scope(),
-            relays.roots.clone(),
-        )
+    let root = tempfile::tempdir().unwrap();
+    let relays = Relays::start().await;
+    let scope = || NetworkScope::CustomRelays(vec![relays.urls[0].clone()]);
+    let node = Node::start_empty_with_network_roots(
+        root.path().join("node"),
+        scope(),
+        relays.roots.clone(),
+    )
+    .await
+    .unwrap();
+    let controller = Node::start_empty_with_network_roots(
+        root.path().join("controller"),
+        scope(),
+        relays.roots.clone(),
+    )
+    .await
+    .unwrap();
+    node.link().online().await.unwrap();
+    controller.link().online().await.unwrap();
+    let address = controller
+        .link()
+        .pair(node.link().invite().unwrap().ticket())
         .await
         .unwrap();
-        let controller = Node::start_empty_with_network_roots(
-            root.path().join("controller"),
-            scope(),
-            relays.roots.clone(),
-        )
-        .await
-        .unwrap();
-        node.link().online().await.unwrap();
-        controller.link().online().await.unwrap();
-        let address = controller
-            .link()
-            .pair(node.link().invite().unwrap().ticket())
-            .await
-            .unwrap();
-        let client = Client::new(if remote {
-            controller.link().remote(address)
-        } else {
-            node.local()
-        });
-        let selections = [
-            Selection::Custom {
-                relays: vec![relays.urls[1].clone()],
-            },
-            Selection::Custom {
-                relays: relays.urls.clone(),
-            },
-        ];
-        let revision = settings(&client).await.revision;
-        let requests = selections.clone().map(|selection| {
-            client.prepare(Command::SaveNetworkSettings {
-                expected_revision: revision,
-                selection,
-            })
-        });
-        let (first, second) = tokio::join!(
-            client.dispatch(requests[0].clone()),
-            client.dispatch(requests[1].clone())
-        );
-        let (first, second) = (first.unwrap(), second.unwrap());
-        assert!(first.receipt.durable && second.receipt.durable);
-        let (first, second) = tokio::join!(first.completion, second.completion);
-        let outcomes = [first.unwrap(), second.unwrap()];
-        let mut accepted = None;
-        for (index, outcome) in outcomes.iter().enumerate() {
-            match outcome {
-                Ok(Output::NetworkSettings(saved)) => {
-                    assert!(accepted.replace(index).is_none(), "only one save may apply");
-                    assert_eq!(saved.revision, revision + 1);
-                    assert_eq!(saved.selection.as_ref(), Some(&selections[index]));
-                    assert_eq!(saved.effective, saved.selection);
-                }
-                Err(error) => assert_eq!(error.code, ErrorCode::RevisionConflict),
-                output => panic!("network save outcome expected: {output:?}"),
+    let client = Client::new(controller.link().remote(address));
+    let selections = [
+        Selection::Custom {
+            relays: vec![relays.urls[1].clone()],
+        },
+        Selection::Custom {
+            relays: relays.urls.clone(),
+        },
+    ];
+    let revision = settings(&client).await.revision;
+    let requests = selections.clone().map(|selection| {
+        client.prepare(Command::SaveNetworkSettings {
+            expected_revision: revision,
+            selection,
+        })
+    });
+    let (first, second) = tokio::join!(
+        client.dispatch(requests[0].clone()),
+        client.dispatch(requests[1].clone())
+    );
+    let (first, second) = (first.unwrap(), second.unwrap());
+    assert!(first.receipt.durable && second.receipt.durable);
+    let (first, second) = tokio::join!(first.completion, second.completion);
+    let outcomes = [first.unwrap(), second.unwrap()];
+    let mut accepted = None;
+    for (index, outcome) in outcomes.iter().enumerate() {
+        match outcome {
+            Ok(Output::NetworkSettings(saved)) => {
+                assert!(accepted.replace(index).is_none(), "only one save may apply");
+                assert_eq!(saved.revision, revision + 1);
+                assert_eq!(saved.selection.as_ref(), Some(&selections[index]));
+                assert_eq!(saved.effective, saved.selection);
             }
+            Err(error) => assert_eq!(error.code, ErrorCode::RevisionConflict),
+            output => panic!("network save outcome expected: {output:?}"),
         }
-        let accepted = accepted.expect("one save must apply");
-        let saved = settings(&client).await;
-        assert_eq!(saved.revision, revision + 1);
-        assert_eq!(saved.selection.as_ref(), Some(&selections[accepted]));
-        assert_eq!(saved.effective, saved.selection);
-        for (request, outcome) in requests.into_iter().zip(outcomes) {
-            assert_eq!(
-                client.outcome(&request).await.unwrap(),
-                RequestOutcome::Completed(Box::new(outcome.clone()))
-            );
-            assert_eq!(client.execute(request).await, outcome);
-        }
-        assert_eq!(settings(&client).await, saved);
-        node.shutdown().await.unwrap();
-        controller.shutdown().await.unwrap();
     }
+    let accepted = accepted.expect("one save must apply");
+    let saved = settings(&client).await;
+    assert_eq!(saved.revision, revision + 1);
+    assert_eq!(saved.selection.as_ref(), Some(&selections[accepted]));
+    assert_eq!(saved.effective, saved.selection);
+    for (request, outcome) in requests.into_iter().zip(outcomes) {
+        assert_eq!(
+            client.outcome(&request).await.unwrap(),
+            RequestOutcome::Completed(Box::new(outcome.clone()))
+        );
+        assert_eq!(client.execute(request).await, outcome);
+    }
+    assert_eq!(settings(&client).await, saved);
+    node.shutdown().await.unwrap();
+    controller.shutdown().await.unwrap();
 }
 
 #[tokio::test]
 async fn switches_host_and_recovers_receipt() {
     use sailry_protocol::RequestOutcome;
     use std::time::Duration;
-    for remote in [false, true] {
-        let root = tempfile::tempdir().unwrap();
-        let relays = Relays::start().await;
-        let previous = Selection::Custom {
-            relays: vec![relays.urls[0].clone()],
-        };
-        let desired = Selection::Custom {
-            relays: vec![relays.urls[1].clone()],
-        };
-        let scope = || NetworkScope::CustomRelays(vec![relays.urls[0].clone()]);
-        let path = root.path().join("host");
-        let node = Node::start_empty_with_network_roots(&path, scope(), relays.roots.clone())
-            .await
-            .unwrap();
-        node.link().online().await.unwrap();
-        let id = node.id();
-        let controller = Node::start_empty_with_network_roots(
-            root.path().join("controller"),
-            scope(),
-            relays.roots.clone(),
-        )
+    let root = tempfile::tempdir().unwrap();
+    let relays = Relays::start().await;
+    let previous = Selection::Custom {
+        relays: vec![relays.urls[0].clone()],
+    };
+    let desired = Selection::Custom {
+        relays: vec![relays.urls[1].clone()],
+    };
+    let scope = || NetworkScope::CustomRelays(vec![relays.urls[0].clone()]);
+    let path = root.path().join("host");
+    let node = Node::start_empty_with_network_roots(&path, scope(), relays.roots.clone())
         .await
         .unwrap();
-        controller.link().online().await.unwrap();
-        let mut invitation = node.link().invite().unwrap();
-        let mut address = controller.link().pair(invitation.ticket()).await.unwrap();
-        invitation.paired().await.unwrap();
-        address.addrs.retain(|address| address.is_relay());
-        let client = Client::new(if remote {
-            controller.link().remote(address.clone())
-        } else {
-            node.local()
-        });
-        let before = settings(&client).await;
-        assert_eq!(before.revision, 0);
-        assert_eq!(before.effective, Some(previous.clone()));
-        let request = client.prepare(Command::SaveNetworkSettings {
-            expected_revision: before.revision,
-            selection: desired.clone(),
-        });
-        assert_eq!(
-            client.outcome(&request).await.unwrap(),
-            RequestOutcome::NotAdmitted
-        );
-        let admission = client.dispatch(request.clone()).await.unwrap();
-        assert!(admission.receipt.durable);
-        assert_eq!(admission.receipt.id, request.id);
-        if remote {
-            // Deliberately lose only the controller's completion receiver. The admitted
-            // Node worker must finish and store its result without a second Save.
-            drop(admission.completion);
-            tokio::time::timeout(Duration::from_secs(10), async {
-                while node.link().relay_selection().unwrap()
-                    != Some(sailry_link::RelaySelection::Custom(vec![
-                        relays.urls[1].clone(),
-                    ]))
-                {
-                    tokio::task::yield_now().await;
-                }
-            })
-            .await
-            .unwrap();
-            let candidate = controller
-                .link()
-                .candidate_address(
-                    &address,
-                    &sailry_link::RelaySelection::Custom(vec![relays.urls[1].clone()]),
-                )
-                .unwrap();
-            controller.link().update_peer(candidate).await.unwrap();
-        } else {
-            assert!(matches!(
-                admission.completion.await.unwrap().unwrap(),
-                Output::NetworkSettings(_)
-            ));
-        }
-        let completed = tokio::time::timeout(Duration::from_secs(10), async {
-            loop {
-                match client.outcome(&request).await.unwrap() {
-                    RequestOutcome::Completed(result) => break *result,
-                    RequestOutcome::Admitted => tokio::task::yield_now().await,
-                    other => panic!("admitted relay change lost its outcome: {other:?}"),
-                }
-            }
-        })
-        .await
-        .unwrap()
-        .unwrap();
-        let Output::NetworkSettings(saved) = completed.clone() else {
-            panic!("saved network expected");
-        };
-        assert_eq!(saved.revision, 1);
-        assert_eq!(saved.selection, Some(desired.clone()));
-        assert_eq!(saved.effective, Some(desired.clone()));
-        assert_eq!(node.id(), id);
-        assert_eq!(
-            controller.link().relay_selection().unwrap(),
-            Some(sailry_link::RelaySelection::Custom(vec![
-                relays.urls[0].clone()
+    node.link().online().await.unwrap();
+    let id = node.id();
+    let controller = Node::start_empty_with_network_roots(
+        root.path().join("controller"),
+        scope(),
+        relays.roots.clone(),
+    )
+    .await
+    .unwrap();
+    controller.link().online().await.unwrap();
+    let mut invitation = node.link().invite().unwrap();
+    let mut address = controller.link().pair(invitation.ticket()).await.unwrap();
+    invitation.paired().await.unwrap();
+    address.addrs.retain(|address| address.is_relay());
+    let client = Client::new(controller.link().remote(address.clone()));
+    let before = settings(&client).await;
+    assert_eq!(before.revision, 0);
+    assert_eq!(before.effective, Some(previous.clone()));
+    let request = client.prepare(Command::SaveNetworkSettings {
+        expected_revision: before.revision,
+        selection: desired.clone(),
+    });
+    assert_eq!(
+        client.outcome(&request).await.unwrap(),
+        RequestOutcome::NotAdmitted
+    );
+    let admission = client.dispatch(request.clone()).await.unwrap();
+    assert!(admission.receipt.durable);
+    assert_eq!(admission.receipt.id, request.id);
+    // Deliberately lose only the controller's completion receiver. The admitted
+    // Node worker must finish and store its result without a second Save.
+    drop(admission.completion);
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while node.link().relay_selection().unwrap()
+            != Some(sailry_link::RelaySelection::Custom(vec![
+                relays.urls[1].clone(),
             ]))
-        );
-        let actual: sailry_link::EndpointAddr = serde_json::from_str(&saved.address).unwrap();
-        assert_eq!(NodeId(*actual.id.as_bytes()), id);
-        if remote {
-            controller.link().update_peer(actual).await.unwrap();
+        {
+            tokio::task::yield_now().await;
         }
-        assert_eq!(client.execute(request.clone()).await.unwrap(), completed);
-        assert_eq!(settings(&client).await.revision, 1);
-        let stale = client.prepare(Command::SaveNetworkSettings {
-            expected_revision: 0,
-            selection: previous,
-        });
-        assert_eq!(
-            client.execute(stale).await.unwrap_err().code,
-            ErrorCode::RevisionConflict
-        );
-        assert_eq!(settings(&client).await.revision, 1);
-        drop(invitation);
-        node.shutdown().await.unwrap();
-        let node = Node::start_empty_with_network_roots(&path, scope(), relays.roots.clone())
-            .await
-            .unwrap();
-        node.link().online().await.unwrap();
-        assert_eq!(node.id(), id);
-        let client = if remote {
-            controller.link().disconnect(id).await;
-            controller
-                .link()
-                .update_peer(node.link().address())
-                .await
-                .unwrap();
-            client
-        } else {
-            Client::new(node.local())
-        };
-        let restored = settings(&client).await;
-        assert_eq!(restored.revision, 1);
-        assert_eq!(restored.selection, Some(desired.clone()));
-        assert_eq!(restored.effective, Some(desired));
-        assert_eq!(
-            client.outcome(&request).await.unwrap(),
-            RequestOutcome::Completed(Box::new(Ok(completed)))
-        );
-        node.shutdown().await.unwrap();
-        controller.shutdown().await.unwrap();
-        assert_eq!(relays.servers.len(), 2);
-    }
+    })
+    .await
+    .unwrap();
+    let candidate = controller
+        .link()
+        .candidate_address(
+            &address,
+            &sailry_link::RelaySelection::Custom(vec![relays.urls[1].clone()]),
+        )
+        .unwrap();
+    controller.link().update_peer(candidate).await.unwrap();
+    let completed = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            match client.outcome(&request).await.unwrap() {
+                RequestOutcome::Completed(result) => break *result,
+                RequestOutcome::Admitted => tokio::task::yield_now().await,
+                other => panic!("admitted relay change lost its outcome: {other:?}"),
+            }
+        }
+    })
+    .await
+    .unwrap()
+    .unwrap();
+    let Output::NetworkSettings(saved) = completed.clone() else {
+        panic!("saved network expected");
+    };
+    assert_eq!(saved.revision, 1);
+    assert_eq!(saved.selection, Some(desired.clone()));
+    assert_eq!(saved.effective, Some(desired.clone()));
+    assert_eq!(node.id(), id);
+    assert_eq!(
+        controller.link().relay_selection().unwrap(),
+        Some(sailry_link::RelaySelection::Custom(vec![
+            relays.urls[0].clone()
+        ]))
+    );
+    let actual: sailry_link::EndpointAddr = serde_json::from_str(&saved.address).unwrap();
+    assert_eq!(NodeId(*actual.id.as_bytes()), id);
+    controller.link().update_peer(actual).await.unwrap();
+    assert_eq!(client.execute(request.clone()).await.unwrap(), completed);
+    assert_eq!(settings(&client).await.revision, 1);
+    let stale = client.prepare(Command::SaveNetworkSettings {
+        expected_revision: 0,
+        selection: previous,
+    });
+    assert_eq!(
+        client.execute(stale).await.unwrap_err().code,
+        ErrorCode::RevisionConflict
+    );
+    assert_eq!(settings(&client).await.revision, 1);
+    drop(invitation);
+    node.shutdown().await.unwrap();
+    let node = Node::start_empty_with_network_roots(&path, scope(), relays.roots.clone())
+        .await
+        .unwrap();
+    node.link().online().await.unwrap();
+    assert_eq!(node.id(), id);
+    controller.link().disconnect(id).await;
+    controller
+        .link()
+        .update_peer(node.link().address())
+        .await
+        .unwrap();
+    let restored = settings(&client).await;
+    assert_eq!(restored.revision, 1);
+    assert_eq!(restored.selection, Some(desired.clone()));
+    assert_eq!(restored.effective, Some(desired));
+    assert_eq!(
+        client.outcome(&request).await.unwrap(),
+        RequestOutcome::Completed(Box::new(Ok(completed)))
+    );
+    node.shutdown().await.unwrap();
+    controller.shutdown().await.unwrap();
+    assert_eq!(relays.servers.len(), 2);
 }
