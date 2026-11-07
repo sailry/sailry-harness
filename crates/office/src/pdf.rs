@@ -1,6 +1,6 @@
 use super::*;
 
-pub(crate) fn read(bytes: &[u8]) -> Result<Vec<(String, String)>, Fault> {
+pub fn read(bytes: &[u8]) -> Result<Vec<(String, String)>, Fault> {
     parts(bytes).map(|parts| {
         parts
             .into_iter()

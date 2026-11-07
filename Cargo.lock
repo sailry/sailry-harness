@@ -14582,6 +14582,7 @@ dependencies = [
  "sailry-link",
  "sailry-model-assets",
  "sailry-ocr",
+ "sailry-office",
  "sailry-protocol",
  "sailry-runtime-core",
  "sailry-vt",
@@ -14614,7 +14615,6 @@ dependencies = [
  "tree-sitter",
  "tree-sitter-language-pack",
  "turso",
- "umya-spreadsheet",
  "unicode-normalization",
  "url",
  "uuid",
@@ -14645,6 +14645,18 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "thiserror 2.0.20",
+]
+
+[[package]]
+name = "sailry-office"
+version = "0.1.0"
+dependencies = [
+ "file-format",
+ "lopdf",
+ "roxmltree 0.21.1",
+ "sailry-protocol",
+ "umya-spreadsheet",
+ "zip 8.6.0",
 ]
 
 [[package]]

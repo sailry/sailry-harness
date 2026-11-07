@@ -92,7 +92,7 @@ LINT_PACKAGES = {
     "shared": (
         "sailry-protocol", "sailry-link", "sailry-client", "sailry-node-runtime",
         "sailry-speech", "sailry-embedding", "sailry-decision", "sailry-model-assets", "sailry-ocr", "sailry-release",
-        "sailry-runtime-core", "sailry-vt",
+        "sailry-runtime-core", "sailry-office", "sailry-vt",
     ),
     "desktop": ("sailry-content", "sailry-desktop"),
     "host": ("sailry-host",),
@@ -126,7 +126,7 @@ DEPENDENTS = (
      {"shared", "desktop", "host", "mobile_ffi"}),
     (("crates/node-runtime/tests/",), {"shared"}),
     (("crates/node-runtime/", "crates/embedding/", "crates/ocr/", "crates/decision/", "crates/vt/",
-      "crates/runtime-core/"),
+      "crates/runtime-core/", "crates/office/"),
      {"shared", "desktop", "host", "mobile_ffi"}),
     (("crates/protocol/", "crates/link/", "crates/client/",
       "crates/speech/", "crates/model-assets/", "sdk/", "schemas/", "plugins/"), NATIVE),

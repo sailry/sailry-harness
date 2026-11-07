@@ -99,6 +99,7 @@ hayro.workspace = true
 sailry-model-assets.workspace = true
 sha1.workspace = true
 sailry-link.workspace = true
+sailry-office.workspace = true
 sailry-runtime-core.workspace = true
 sailry-vt.workspace = true
 turso.workspace = true
@@ -126,8 +127,6 @@ tempfile.workspace = true
 zip.workspace = true
 roxmltree.workspace = true
 htmd.workspace = true
-umya-spreadsheet.workspace = true
-lopdf.workspace = true
 sysinfo.workspace = true
 cap-std.workspace = true
 cap-fs-ext.workspace = true
@@ -187,6 +186,8 @@ objc2-foundation = { workspace = true, features = ["NSFileManager", "NSPathUtili
 
 [dev-dependencies]
 proptest.workspace = true
+# Knowledge fixtures build PDFs directly.
+lopdf.workspace = true
 rmcp = { workspace = true, features = ["server"] }
 rusqlite = { workspace = true, features = ["hooks", "backup"] }
 tokio-tungstenite.workspace = true
