@@ -135,6 +135,18 @@ class GuideLinks(unittest.TestCase):
                 "Guide link escapes repository: README.md: ../private.md",
             ])
 
+    def test_language_switch_uses_native_name(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write(root, "README.zh-CN.md", "# 简体中文\n")
+            paths = {"README.md", "README.zh-CN.md"}
+            write(root, "README.md", '<a href="README.zh-CN.md">简体中文</a> · [简体中文](README.zh-CN.md)\n')
+            self.assertEqual(public.check_documents(root, paths), [])
+            write(root, "README.md", '<a href="README.zh-CN.md">简体中文</a> 内部指南\n')
+            self.assertEqual(public.check_documents(root, paths), [
+                "Non-public or non-English guide text: README.md",
+            ])
+
 
 class SnapshotExport(unittest.TestCase):
     def test_preserves_pinned_submodule_without_copying_its_source(self):

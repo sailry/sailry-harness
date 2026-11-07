@@ -22,6 +22,10 @@ INTERNAL = {
 GENERATED = {".git", "node_modules", ".runtime", ".preview", ".cache", "target", "dist", "__pycache__"}
 PRIVATE_FILES = {"CLAUDE.md", "GEMINI.md", "scripts/snapshot-migration.sh", ".cargo/config.local.toml"}
 LINK = re.compile(r"\[[^\]\n]*\]\(([^\s)]+)(?:\s+\"[^\"]*\")?\)")
+# Language switchers may name a translation in its own language.
+SWITCHER = re.compile("|".join(
+    rf'<a href="{re.escape(name)}">[^<\n]*</a>|\[[^\]\n]*\]\({re.escape(name)}\)'
+    for name in sorted(LOCALIZED_GUIDES)))
 
 
 def git(root, *args, input=None):
@@ -88,7 +92,7 @@ def check_documents(root, paths):
     for name in document_paths(paths):
         text = (root / name).read_text(encoding="utf-8")
         if re.search(r"/Volumes/|/Users/", text) or (
-                name not in LOCALIZED_GUIDES and re.search(r"[\u3400-\u9fff]", text)):
+                name not in LOCALIZED_GUIDES and re.search(r"[\u3400-\u9fff]", SWITCHER.sub("", text))):
             errors.append(f"Non-public or non-English guide text: {name}")
         # Examples inside code fences are not documentation navigation.
         text = re.sub(r"```.*?```", "", text, flags=re.S)
