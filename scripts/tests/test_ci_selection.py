@@ -45,6 +45,7 @@ class Selection(unittest.TestCase):
             ("crates/embedding/Cargo.toml", {"shared", "desktop", "host", "mobile_ffi"}),
             ("crates/ocr/src/lib.rs", {"shared", "desktop", "host", "mobile_ffi"}),
             ("crates/decision/src/lib.rs", {"shared", "desktop", "host", "mobile_ffi"}),
+            ("crates/vt/src/lib.rs", {"shared", "desktop", "host", "mobile_ffi"}),
             ("crates/protocol/Cargo.toml", ci.NATIVE),
             ("crates/link/src/lib.rs", ci.NATIVE),
             ("crates/client/src/lib.rs", ci.NATIVE),

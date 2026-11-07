@@ -1,3 +1,4 @@
+//! Ghostty terminal emulation projected into protocol screens and input encodings.
 // Adapted from sailry-code 67ae9fa0, terminal-host/src/vt.rs.
 // See third_party_licenses/sailry-code-terminal.md.
 mod effects;
@@ -43,12 +44,12 @@ fn fail(message: String) -> Fault {
     Fault::new(ErrorCode::Internal, message)
 }
 
-pub(crate) struct Write {
+pub struct Write {
     pub responses: Vec<Vec<u8>>,
     pub screen: Option<ScreenUpdate>,
 }
 
-pub(crate) struct Vt {
+pub struct Vt {
     terminal: Ghostty<'static, 'static>,
     key_encoder: GhosttyKeyEncoder<'static>,
     key_event: GhosttyKeyEvent<'static>,

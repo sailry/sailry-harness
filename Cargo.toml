@@ -1,5 +1,5 @@
 [workspace]
-members = ["apps/desktop", "apps/host", "crates/node-runtime", "crates/protocol", "crates/link", "crates/client", "crates/mobile-bridge", "crates/speech", "crates/content", "crates/embedding", "crates/model-assets", "crates/ocr", "crates/decision", "tools/release"]
+members = ["apps/desktop", "apps/host", "crates/node-runtime", "crates/protocol", "crates/link", "crates/client", "crates/mobile-bridge", "crates/speech", "crates/content", "crates/embedding", "crates/model-assets", "crates/ocr", "crates/decision", "crates/vt", "tools/release"]
 resolver = "2"
 
 [workspace.package]
@@ -33,6 +33,7 @@ sailry-speech = { path = "crates/speech" }
 sailry-embedding = { path = "crates/embedding" }
 sailry-ocr = { path = "crates/ocr" }
 sailry-decision = { path = "crates/decision" }
+sailry-vt = { path = "crates/vt" }
 minijinja = { version = "=3.0.1", default-features = false, features = ["builtins", "json", "serde", "fuel", "macros", "multi_template", "std_collections"] }
 oar-ocr-core = { version = "=0.10.0", default-features = false, features = ["simd"] }
 ndarray = "=0.17.2"

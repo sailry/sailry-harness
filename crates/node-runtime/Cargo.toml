@@ -99,6 +99,7 @@ hayro.workspace = true
 sailry-model-assets.workspace = true
 sha1.workspace = true
 sailry-link.workspace = true
+sailry-vt.workspace = true
 turso.workspace = true
 tree-sitter.workspace = true
 tree-sitter-language-pack.workspace = true

@@ -14583,6 +14583,7 @@ dependencies = [
  "sailry-model-assets",
  "sailry-ocr",
  "sailry-protocol",
+ "sailry-vt",
  "schemars 1.2.2",
  "semver",
  "sentry",
@@ -14688,6 +14689,16 @@ dependencies = [
  "thiserror 2.0.20",
  "tokio",
  "tokio-util",
+]
+
+[[package]]
+name = "sailry-vt"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "image",
+ "libghostty-vt",
+ "sailry-protocol",
 ]
 
 [[package]]

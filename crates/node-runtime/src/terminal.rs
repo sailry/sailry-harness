@@ -4,8 +4,8 @@ mod session;
 pub(crate) mod shells;
 mod starts;
 pub(crate) mod tools;
-mod vt;
 pub(crate) use process::{Source, ssh::Connection as SshConnection};
+use sailry_vt as vt;
 
 use sailry_link::{CancellationToken, Pending, Subscription};
 use sailry_protocol::{
