@@ -29,6 +29,7 @@ mod concurrency {
         machine::{EffectHandler, MachineSession, SessionLoader, StateMachine, Step},
         operation::ConversationEffect,
         tool::ToolOperation,
+        tool_call_state::EXECUTABLE_KEY,
     };
     use goose_provider_types::conversation::{Conversation, message::Message};
     use std::{
@@ -203,7 +204,12 @@ mod concurrency {
         let request = requests
             .iter()
             .fold(Message::assistant(), |message, (id, name)| {
-                message.with_tool_request(*id, Ok(CallToolRequestParams::new(*name)))
+                message.with_tool_request_with_metadata(
+                    *id,
+                    Ok(CallToolRequestParams::new(*name)),
+                    None,
+                    Some(json!({EXECUTABLE_KEY: true})),
+                )
             });
         let history = Arc::new(History(Mutex::new(Session {
             conversation: Conversation::new_unvalidated([

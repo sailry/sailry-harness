@@ -4,13 +4,20 @@
 use super::{Effect, Session};
 use crate::{agent::canonical::ToolIdentity, store::agent::ApprovalBinding};
 use async_trait::async_trait;
-use goose_agent::{inference::is_empty_response_marker, operation::*};
+use goose_agent::{
+    inference::is_empty_response_marker,
+    operation::*,
+    tool_call_state::{EXECUTABLE_KEY, request_executable},
+};
 use goose_provider_types::conversation::{
     Conversation,
     message::{Message, MessageContent, ToolRequest},
 };
 use rmcp::model::{CallToolResult, ContentBlock};
 use std::collections::{BTreeMap, BTreeSet};
+
+#[cfg(test)]
+mod tests;
 
 pub(super) fn pending(conversation: &Conversation) -> anyhow::Result<Vec<&ToolRequest>> {
     let messages = messages_since_kickoff(conversation)?;
@@ -43,17 +50,34 @@ impl Operation<Session, Effect> for Approval {
         conversation: &Conversation,
         emit: &Emitter,
     ) -> anyhow::Result<OperationResult<Effect>> {
-        for request in pending(conversation)? {
+        let requests = pending(conversation)?;
+        let mut allowed = Vec::new();
+        for request in &requests {
+            let Ok(call) = &request.tool_call else {
+                continue;
+            };
+            if self.required.contains(call.name.as_ref())
+                || request_executable(request) == Some(true)
+            {
+                continue;
+            }
+            allowed.push(
+                ConversationEffect::PatchToolRequestMeta {
+                    tool_call_id: request.id.clone(),
+                    patch: serde_json::json!({EXECUTABLE_KEY: true}),
+                }
+                .into(),
+            );
+        }
+        if !allowed.is_empty() {
+            return applied(allowed);
+        }
+        for request in requests {
             let Ok(call) = &request.tool_call else {
                 continue;
             };
             if !self.required.contains(call.name.as_ref())
-                || request
-                    .tool_meta
-                    .as_ref()
-                    .and_then(|value| value.get("goose.executable"))
-                    .and_then(serde_json::Value::as_bool)
-                    == Some(true)
+                || request_executable(request) == Some(true)
             {
                 continue;
             }
