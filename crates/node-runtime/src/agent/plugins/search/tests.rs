@@ -122,3 +122,53 @@ fn shared_context_is_injected_once() {
     );
     assert_eq!(already_mounted["sailry_context"], "");
 }
+
+#[test]
+fn ignores_noise_and_weak_matches() {
+    let catalog = catalog();
+    for query in [
+        "a an on to",
+        "the tool with an",
+        "read",
+        "host host host",
+        "read the",
+    ] {
+        assert!(catalog.matching(query, 8).is_empty(), "{query}");
+    }
+    assert_eq!(
+        catalog.matching("please use database tools", 8)[0].name,
+        "query_database"
+    );
+}
+
+#[test]
+fn exact_names_rank_before_partial_matches() {
+    let mut catalog = catalog();
+    catalog.entries.push(Entry {
+        name: "query_database_backup".into(),
+        description: "query database query_database".into(),
+        context: vec![],
+    });
+    assert_eq!(
+        catalog.matching("query_database", 1)[0].name,
+        "query_database"
+    );
+}
+
+#[test]
+fn selects_exact_names_without_duplicates() {
+    let catalog = catalog();
+    assert_eq!(
+        catalog
+            .matching("select:run_ssh, query_database,run_ssh,unknown", 8)
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect::<Vec<_>>(),
+        ["run_ssh", "query_database"]
+    );
+    assert!(catalog.matching("select:database", 8).is_empty());
+    assert_eq!(
+        catalog.matching("select:run_ssh,query_database", 1)[0].name,
+        "run_ssh"
+    );
+}

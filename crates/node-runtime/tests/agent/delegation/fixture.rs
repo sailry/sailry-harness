@@ -60,10 +60,17 @@ impl Fixture {
             .to_string(),
         )
         .unwrap();
-        std::fs::write(path.join("mcp.json"), json!({
-            "$schema":"https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
-            "mcpServers":{"startup":crate::mcp::peer::config("mcp::peer::stdio_peer","child_handshake")},
-        }).to_string()).unwrap();
+        let mut server = crate::mcp::peer::config("mcp::peer::stdio_peer", "child_handshake");
+        server["reuse"] = json!(false);
+        std::fs::write(
+            path.join("mcp.json"),
+            json!({
+                "$schema":"https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+                "mcpServers":{"startup":server},
+            })
+            .to_string(),
+        )
+        .unwrap();
         let Output::Plugin(package) = self
             .client
             .execute(self.client.prepare(Command::InstallPlugin {

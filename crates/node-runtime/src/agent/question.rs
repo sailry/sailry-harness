@@ -44,15 +44,15 @@ impl Question {
         "ask_user"
     }
     fn description(&self) -> &str {
-        "Ask the user a text or single/multiple-choice question, optionally allowing another answer. Bundle related decisions; put the best-supported option first and label it (Recommended). On timeout the tool returns that option as an automatic recommendation, not a user answer. Do not ask for tool permissions or confirmation of requested work; the runtime handles approvals. Answers do not grant tool permissions. Never ask for passwords or secrets: questions and answers are stored in history. Cancellation is not consent; plan acceptance requires an explicit user response."
+        "Ask the user one text or single/multiple-choice question, optionally allowing another answer. Put the best-supported option first and label it (Recommended). On timeout the tool returns that option as an automatic recommendation, not a user answer. Do not ask for tool permissions or confirmation of requested work; the runtime handles approvals. Answers do not grant tool permissions. Never ask for passwords or secrets: questions and answers are stored in history. Cancellation is not consent; plan acceptance requires an explicit user response."
     }
     fn parameters_schema(&self) -> Option<Value> {
         Some(
             json!({"type": "object", "additionalProperties": false, "required": ["prompt", "input"], "properties": {
                 "prompt": {"type": "string"},
                 "input": {"anyOf": [
-                    {"type": "object", "additionalProperties": false, "required": ["kind", "multiline", "max_bytes"], "properties": {
-                        "kind": {"type": "string", "enum": ["text"]}, "multiline": {"type": "boolean"}, "max_bytes": {"type": "integer", "minimum": 1, "maximum": MAX_TEXT_BYTES}
+                    {"type": "object", "additionalProperties": false, "required": ["kind"], "properties": {
+                        "kind": {"type": "string", "enum": ["text"]}, "multiline": {"type": "boolean", "default": false}, "max_bytes": {"type": "integer", "minimum": 1, "maximum": MAX_TEXT_BYTES, "default": MAX_TEXT_BYTES}
                     }},
                     {"type": "object", "additionalProperties": false, "required": ["kind", "options", "multiple"], "properties": {
                         "kind": {"type": "string", "enum": ["choice"]}, "options": {"type": "array", "items": {"type": "string"}, "minItems": 1}, "multiple": {"type": "boolean"}, "allow_other": {"type": "boolean", "default": false}
@@ -73,7 +73,7 @@ impl Question {
         }
         let result = async {
             let spec: Spec = serde_json::from_value(arguments.clone())
-                .map_err(|_| Fault::invalid("invalid question arguments"))?;
+                .map_err(|error| Fault::invalid(format!("invalid question arguments: {error}")))?;
             spec.validate()?;
             if matches!(
                 spec.input,
@@ -164,7 +164,7 @@ impl Question {
         tokio::select! {
             biased;
             _ = self.stop.cancelled() => Err(Fault::invalid("question was cancelled")),
-            result = result => match result { Ok(value) => Ok(value), Err(error) => Ok(json!({"error": error})) },
+            result = result => result,
         }
     }
 }

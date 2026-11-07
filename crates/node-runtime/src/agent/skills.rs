@@ -147,7 +147,7 @@ impl Skills {
                     json!({"skill": key, "path": path, "content": text.content, "directory": text.directory,"python":ready.map(|ready| ready.python)})
                 }
             }
-            Err(error) => json!({"error": error}),
+            Err(error) => return Err(error),
         };
         catalog::json(output)
     }

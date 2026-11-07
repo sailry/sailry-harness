@@ -85,7 +85,7 @@ fn initial(invocation: &Invocation, selected: Option<&str>, entry: &ToolRegistra
         return invocation.turn.config.mode == sailry_protocol::WorkMode::Flagship;
     }
     let Some(owner) = entry.plugin.as_deref() else {
-        return references::NAMES.contains(&entry.tool.name.as_ref())
+        return entry.tool.name.as_ref() == references::OUTPUT
             || skills::NAMES.contains(&entry.tool.name.as_ref());
     };
     if selected == Some(owner) {

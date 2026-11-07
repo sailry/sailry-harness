@@ -182,8 +182,16 @@ fn assert_handshake(records: &[Value], case_name: &str) {
 }
 
 pub(super) fn assert_lifecycle(data: &Path) {
-    assert_handshake(&requests(data), "lifecycle");
-    assert_eq!(fs::read_to_string(data.join("launches")).unwrap(), "x");
+    let records = requests(data);
+    assert_handshake(&records, "lifecycle");
+    assert_eq!(
+        records
+            .iter()
+            .filter(|request| request["method"] == "server/discover")
+            .count(),
+        2
+    );
+    assert_eq!(fs::read_to_string(data.join("launches")).unwrap(), "xx");
 }
 
 async fn fixture(model: &Server) -> process::Fixture {
@@ -217,7 +225,7 @@ async fn handles_answers_and_stopped_input() {
         if index > 0 {
             select_case(&mut fixture, model, &format!("modern-{case_name}")).await;
         }
-        let offset = if data.join("requests.jsonl").exists() {
+        let offset = if index > 0 && data.join("requests.jsonl").exists() {
             requests(&data).len()
         } else {
             0
@@ -257,10 +265,10 @@ async fn handles_answers_and_stopped_input() {
                 "{case_name}"
             );
             assert_eq!(model.requests.lock().unwrap().len(), 1, "{case_name}");
-            assert_handshake(&requests(&data)[offset..], case_name);
+            assert_handshake(&requests(&data), case_name);
             assert_eq!(
                 fs::read_to_string(data.join("launches")).unwrap(),
-                "x".repeat(index + 1),
+                "x",
                 "{case_name}"
             );
             reaped(&data);
@@ -321,10 +329,10 @@ async fn handles_answers_and_stopped_input() {
                 );
             }
             assert_eq!(model.requests.lock().unwrap().len(), 2, "{case_name}");
-            assert_handshake(&requests(&data)[offset..], case_name);
+            assert_handshake(&requests(&data), case_name);
             assert_eq!(
                 fs::read_to_string(data.join("launches")).unwrap(),
-                "x".repeat(index + 1),
+                "x",
                 "{case_name}"
             );
             assert_eq!(

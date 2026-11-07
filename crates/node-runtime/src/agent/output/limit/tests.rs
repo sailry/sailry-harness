@@ -417,9 +417,12 @@ mod canonical {
         let shown = texts(result(&outgoing));
         let (output, offset) = reference_of(shown[1]);
         assert_eq!(output, json!({"call":"call","revision":revision}));
-        assert_eq!(offset, 0);
+        assert_eq!(offset, shown[0].len());
         assert!(canonical.starts_with(shown[0]));
-        assert_eq!(pages(&canonical, offset), canonical);
+        assert_eq!(
+            format!("{}{}", shown[0], pages(&canonical, offset)),
+            canonical
+        );
         assert_eq!(projected(&original), outgoing);
         assert_eq!(
             result(&original)

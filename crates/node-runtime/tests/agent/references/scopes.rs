@@ -127,17 +127,16 @@ async fn reads_unassigned_history_in_resource_sessions() {
     assert!(results[0]["sessions"][0].get("config").is_none());
     assert!(results[1].to_string().contains("prior decision"));
     assert_eq!(results[2]["matches"].as_array().unwrap().len(), 1);
-    assert_eq!(results[3]["error"]["code"], "wrong_target");
-    assert_eq!(results[4]["error"]["code"], "not_found");
-    assert_eq!(results[5]["error"]["code"], "not_found");
-    assert_eq!(results[6]["error"]["code"], "revision_conflict");
+    assert_eq!(results[3]["data"]["code"], "wrong_target");
+    assert_eq!(results[4]["data"]["code"], "not_found");
+    assert_eq!(results[5]["data"]["code"], "not_found");
+    assert_eq!(results[6]["data"]["code"], "revision_conflict");
     {
         let requests = reader.requests.lock().unwrap();
         for name in ["list_sessions", "read_session", "search_session"] {
-            let declaration = requests[0]["tools"]
-                .as_array()
-                .unwrap()
+            let declaration = requests
                 .iter()
+                .flat_map(|request| request["tools"].as_array().unwrap())
                 .find(|tool| tool["function"]["name"] == name)
                 .unwrap();
             assert!(

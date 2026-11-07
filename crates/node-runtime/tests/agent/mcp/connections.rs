@@ -7,7 +7,7 @@ fn pid(data: &Path) -> i32 {
         .unwrap()
 }
 
-fn requests(data: &Path, method: &str) -> usize {
+pub(super) fn requests(data: &Path, method: &str) -> usize {
     fs::read_to_string(data.join("requests.jsonl"))
         .unwrap()
         .lines()
@@ -112,7 +112,7 @@ async fn replaces_changed_connections() {
 #[tokio::test]
 async fn reuses_tool_lists_until_changed() {
     // Notifications and an explicit zero TTL both require fresh pages on the next bind.
-    for (mode, listed) in [("normal", 2), ("list_changed", 4), ("zero_ttl", 4)] {
+    for (mode, listed) in [("normal", 2), ("list_changed", 4), ("zero_ttl", 6)] {
         let model = Server::turn_tools(vec![(alias("native", "read"), json!({}))]).await;
         let fixture = process::Fixture::packages(&model, &[]).await;
         package(
@@ -123,6 +123,7 @@ async fn reuses_tool_lists_until_changed() {
         install(&fixture, 0).await;
 
         let data = fixture.node.profile().join("plugins/data/example");
+        super::sharing::warmed(&data, 1).await;
         for round in 1..=2 {
             let (_, turn) = submit(&fixture, false).await;
             let page = finished(&fixture.client, fixture.session.id, turn.id).await;
@@ -140,7 +141,11 @@ async fn reuses_tool_lists_until_changed() {
             assert_eq!(requests(&data, "tools/call"), round, "{mode}");
             assert_eq!(
                 requests(&data, "tools/list"),
-                if round == 1 { 2 } else { listed },
+                if round == 1 {
+                    if mode == "zero_ttl" { 4 } else { 2 }
+                } else {
+                    listed
+                },
                 "{mode}"
             );
         }
@@ -184,7 +189,7 @@ async fn replaces_changed_credentials() {
     let package = installed.summary.reference();
     let first = "first-private-credential";
     let second = "second-private-credential";
-    let row = connectors::connected(
+    let mut row = connectors::connected(
         &fixture.client,
         fixture.client.prepare(Command::StartConnectorLogin {
             package: package.clone(),
@@ -201,6 +206,9 @@ async fn replaces_changed_credentials() {
     .await;
     assert_eq!(row.state, State::Connected);
     let data = fixture.node.profile().join("plugins/data/example");
+    super::sharing::warmed(&data, 1).await;
+    assert!(model.requests.lock().unwrap().is_empty());
+    assert_eq!(requests(&data, "tools/call"), 0);
     let mut original = None;
     for (index, secret) in [first, first, second].into_iter().enumerate() {
         if index == 2 {
@@ -236,6 +244,9 @@ async fn replaces_changed_credentials() {
             .await;
             assert_eq!(reconnected.id, row.id);
             assert_eq!(reconnected.state, State::Connected);
+            row = reconnected;
+            super::sharing::warmed(&data, 2).await;
+            assert_eq!(requests(&data, "tools/call"), 2);
         }
         let (_, turn) = submit(&fixture, false).await;
         assert!(turn.plugins.contains(&package));
@@ -267,6 +278,43 @@ async fn replaces_changed_credentials() {
             );
         }
     }
+    for _ in 0..2 {
+        let Output::Connection(checked) = execute(
+            &fixture.client,
+            Command::ProbeConnection { connection: row.id },
+        )
+        .await
+        else {
+            panic!("connection expected")
+        };
+        assert_eq!(checked.state, State::Connected);
+        row = checked;
+    }
+    let Output::Connection(disabled) = execute(
+        &fixture.client,
+        Command::SetConnectionEnabled {
+            connection: row.id,
+            expected_revision: row.revision,
+            enabled: false,
+        },
+    )
+    .await
+    else {
+        panic!("connection expected")
+    };
+    execute(
+        &fixture.client,
+        Command::SetConnectionEnabled {
+            connection: disabled.id,
+            expected_revision: disabled.revision,
+            enabled: true,
+        },
+    )
+    .await;
+    super::sharing::warmed(&data, 3).await;
+    assert_eq!(requests(&data, "initialize"), 3);
+    assert_eq!(requests(&data, "tools/list"), 6);
+    assert_eq!(requests(&data, "tools/call"), 3);
     fixture.node.shutdown().await.unwrap();
     reaped(&data);
     fixture.controller.close().await.unwrap();
@@ -320,9 +368,18 @@ async fn orders_concurrent_servers() {
     expected.sort();
     assert_eq!(loaded, expected);
     let system = requests[0]["messages"][0].to_string();
-    assert!(system.contains("MCP server example/broken is unavailable"));
-    assert!(!system.contains("MCP server example/alpha is unavailable"));
-    assert!(!system.contains("MCP server example/zeta is unavailable"));
+    let context = requests[0]["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|message| message["role"] == "user")
+        .map(Value::to_string)
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(!system.contains("MCP server example/"));
+    assert!(context.contains("MCP server example/broken is unavailable"));
+    assert!(!context.contains("MCP server example/alpha is unavailable"));
+    assert!(!context.contains("MCP server example/zeta is unavailable"));
     fixture.node.shutdown().await.unwrap();
     fixture.controller.close().await.unwrap();
 }
@@ -360,7 +417,7 @@ async fn keeps_idle_connections_after_stop() {
 }
 
 #[tokio::test]
-async fn closes_failed_turn_connections() {
+async fn retains_connections_after_model_failure() {
     // A rejected model request fails the turn after its servers were bound.
     let model = Server::http(usize::MAX, 400).await;
     let fixture = process::Fixture::packages(&model, &[]).await.local();
@@ -371,19 +428,27 @@ async fn closes_failed_turn_connections() {
     );
     install(&fixture, 0).await;
 
-    let (_, turn) = submit(&fixture, false).await;
-    let page = finished(&fixture.client, fixture.session.id, turn.id).await;
-    assert_eq!(page.runs[0].status, Status::Failed, "{:?}", page.runs);
     let data = fixture.node.profile().join("plugins/data/example");
-    reaped(&data);
+    for _ in 0..2 {
+        let (_, turn) = submit(&fixture, false).await;
+        let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+        assert_eq!(
+            page.runs.last().unwrap().status,
+            Status::Failed,
+            "{:?}",
+            page.runs
+        );
+        assert_eq!(requests(&data, "initialize"), 1);
+    }
     fixture.node.shutdown().await.unwrap();
+    reaped(&data);
     fixture.controller.close().await.unwrap();
 }
 
 #[tokio::test]
-async fn closes_idle_children() {
-    let model = Server::tools(vec![(alias("native", "read"), json!({}))]).await;
-    let mut fixture = process::Fixture::packages(&model, &[]).await.local();
+async fn shares_across_sessions() {
+    let model = Server::turn_tools(vec![(alias("native", "read"), json!({}))]).await;
+    let mut fixture = process::Fixture::packages(&model, &[]).await;
     package(
         &fixture.root,
         json!({"native":peer::config("mcp::peer::stdio_peer", "normal")}),
@@ -412,14 +477,10 @@ async fn closes_idle_children() {
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
         children.push(pid(&data));
     }
-    // SAFETY: signal 0 only probes this recorded fixture PID and passes no pointers.
-    assert_ne!(unsafe { libc::kill(children[0], 0) }, 0);
-    // SAFETY: each signal-0 call is a read-only probe of a recorded fixture PID.
-    assert!(
-        children[1..]
-            .iter()
-            .all(|pid| unsafe { libc::kill(*pid, 0) } == 0)
-    );
+    assert!(children.iter().all(|pid| *pid == children[0]));
+    assert_eq!(requests(&data, "initialize"), 1);
+    assert_eq!(requests(&data, "tools/list"), 2);
+    assert_eq!(requests(&data, "tools/call"), 9);
     fixture.node.shutdown().await.unwrap();
     // SAFETY: each signal-0 call checks fixture exit without sending a signal.
     assert!(

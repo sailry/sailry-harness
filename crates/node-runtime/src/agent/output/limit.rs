@@ -8,6 +8,15 @@ pub(super) fn bound(result: &mut CallToolResult, source: &Value, tail: bool) {
     if bytes <= MAX_BYTES && lines <= MAX_LINES {
         return;
     }
+    let prefix = !tail
+        && result.structured_content.as_ref().is_some_and(|value| {
+            let plain = CallToolResult::structured(value.clone());
+            result.is_error == plain.is_error
+                && result.result_type == plain.result_type
+                && result.content == plain.content
+                && source["revision"].as_str()
+                    == Some(blake3::hash(value.to_string().as_bytes()).to_hex().as_str())
+        });
     if let Some(value) = result.structured_content.take() {
         let encoded = value.to_string();
         if !result.content.iter().filter_map(text).any(|text| {
@@ -27,6 +36,7 @@ pub(super) fn bound(result: &mut CallToolResult, source: &Value, tail: bool) {
         total_lines,
         total_bytes,
         total_lines,
+        total_bytes,
     )
     .len()
         + result.content.iter().filter_map(text).count();
@@ -70,6 +80,7 @@ pub(super) fn bound(result: &mut CallToolResult, source: &Value, tail: bool) {
         total_lines,
         shown_bytes,
         shown_lines,
+        if prefix { shown_bytes } else { 0 },
     )));
 }
 
@@ -118,10 +129,11 @@ fn notice(
     total_lines: usize,
     shown_bytes: usize,
     shown_lines: usize,
+    offset: usize,
 ) -> String {
     let edge = if tail { "last" } else { "first" };
     format!(
-        "[Tool result truncated: showing the {edge} {shown_lines} of {total_lines} lines ({shown_bytes} of {total_bytes} bytes). Read the original result with read_tool_output using output={source} and offset=0, then continue with next_offset]"
+        "[Tool result truncated: showing the {edge} {shown_lines} of {total_lines} lines ({shown_bytes} of {total_bytes} bytes). Read the original result with read_tool_output using output={source} and offset={offset}, then continue with next_offset]"
     )
 }
 

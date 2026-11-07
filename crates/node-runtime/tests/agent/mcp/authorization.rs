@@ -156,6 +156,7 @@ async fn resumes_authorized_tools() {
         }
         assert_eq!(peer.calls.load(Ordering::SeqCst), 2);
         assert_eq!(issuer.exchanges.load(Ordering::SeqCst), 1);
+        let initializations = peer.initializations.load(Ordering::SeqCst);
         issuer.expire();
         let (_, turn) = submit(&fixture, false).await;
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;
@@ -169,6 +170,12 @@ async fn resumes_authorized_tools() {
             !serde_json::to_string(&page)
                 .unwrap()
                 .contains("refresh-initial")
+        );
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(
+            peer.initializations.load(Ordering::SeqCst),
+            initializations,
+            "grant refresh must not retry a failed connection"
         );
         execute(
             &fixture.client,

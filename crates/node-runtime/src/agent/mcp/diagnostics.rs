@@ -1,8 +1,8 @@
 //! MCP transport completion and tool execution outcomes are separate facts.
 use crate::logging::{Context, Entry, Phase, Span};
+use rmcp::model::CallToolResult;
 use sailry_link::CancellationToken;
 use sailry_protocol::{ErrorCode, Fault};
-use serde_json::Value;
 use std::future::Future;
 
 pub(super) fn begin(context: Context, stage: &'static str, stop: &CancellationToken) -> Span {
@@ -41,7 +41,7 @@ pub(super) fn external(span: &mut Span) {
     span.entry.execution_outcome = Some("unknown");
 }
 
-pub(super) fn finish(span: &mut Span, result: &Result<Value, Fault>, cancelled: bool) {
+pub(super) fn finish(span: &mut Span, result: &Result<CallToolResult, Fault>, cancelled: bool) {
     let (phase, code) = match result {
         Err(error) if error.code == ErrorCode::OutcomeUnknown && !cancelled => {
             span.entry.communication_outcome = Some("unknown");
@@ -78,8 +78,8 @@ pub(super) fn finish(span: &mut Span, result: &Result<Value, Fault>, cancelled: 
     }
 }
 
-pub(super) fn server_error(value: &Value) -> bool {
-    value.get("isError").and_then(Value::as_bool) == Some(true)
+fn server_error(value: &CallToolResult) -> bool {
+    value.is_error == Some(true)
 }
 
 #[cfg(test)]

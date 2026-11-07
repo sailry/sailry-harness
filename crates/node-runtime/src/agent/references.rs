@@ -65,6 +65,7 @@ pub(super) fn bind(
                 sailry_protocol::tool::Presentation::Summary,
             );
             registration.display = Some((registration.tool.name.to_string(), display));
+            registration.concurrent = true;
             registration
         })
         .collect();
@@ -163,10 +164,7 @@ impl History {
         tokio::select! {
             biased;
             _ = self.stop.cancelled() => Err(Fault::invalid("history invocation was cancelled")),
-            result = result => Ok(match result {
-                Ok(value) => value,
-                Err(error) => json!({"error":error}),
-            }),
+            result = result => result,
         }
     }
 }

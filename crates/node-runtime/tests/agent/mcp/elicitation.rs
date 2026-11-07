@@ -175,6 +175,7 @@ async fn preserves_resumed_batches() {
     let node = Node::start_empty(directory.path().join("node"))
         .await
         .unwrap();
+    super::sharing::warmed(&data, 2).await;
     let client = Client::new(controller.handle().remote(node.link().address()));
     assert_eq!(history(&client, session.id).await, page);
     assert_eq!(client.execute(answer).await.unwrap(), receipt);
@@ -182,7 +183,8 @@ async fn preserves_resumed_batches() {
         client.execute(request).await.unwrap(),
         Output::QueuedTurn(turn)
     );
-    assert_eq!(fs::read_to_string(data.join("launches")).unwrap(), "x");
+    assert_eq!(fs::read_to_string(data.join("launches")).unwrap(), "xx");
+    assert_eq!(super::connections::requests(&data, "tools/call"), 3);
     node.shutdown().await.unwrap();
     controller.close().await.unwrap();
 }

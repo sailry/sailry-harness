@@ -2,6 +2,7 @@ use super::*;
 use plugin::settings::{SecretUpdate, State};
 use std::collections::BTreeMap;
 mod collection;
+mod waiting;
 
 fn declare(root: &Path) {
     let mut server = peer::config("mcp::peer::stdio_peer", "settings");
@@ -44,7 +45,7 @@ async fn save(
     state
 }
 
-async fn verify(client: &Client, page: &Page, label: &str, secret: &str) {
+async fn verify(client: &Client, page: &Page, label: &str, secret: &str, retained: bool) {
     assert!(!serde_json::to_string(page).unwrap().contains(secret));
     let results = results(client, page).await;
     let result = &results.last().unwrap()["structuredContent"];
@@ -53,7 +54,10 @@ async fn verify(client: &Client, page: &Page, label: &str, secret: &str) {
         result["secret_hash"],
         json!(blake3::hash(secret.as_bytes()).as_bytes())
     );
-    assert!(Path::new(result["settings_path"].as_str().unwrap()).exists());
+    assert_eq!(
+        Path::new(result["settings_path"].as_str().unwrap()).exists(),
+        retained
+    );
 }
 
 #[tokio::test]
@@ -94,17 +98,23 @@ async fn releases_frozen_projections() {
         "{:?}",
         page.runs
     );
-    verify(&fixture.client, &page, "Original 中文 🙂", first_secret).await;
+    verify(
+        &fixture.client,
+        &page,
+        "Original 中文 🙂",
+        first_secret,
+        false,
+    )
+    .await;
     let original = results(&fixture.client, &page).await[0]["structuredContent"]["settings_path"]
         .as_str()
         .unwrap()
         .to_owned();
-    // The next turn replaces the pooled connection using the current frozen settings.
     let (_, next) = submit(&fixture, false).await;
     assert_eq!(next.plugins, [second.package]);
     assert_eq!(next.revision, queued.revision);
     let page = finished(&fixture.client, fixture.session.id, next.id).await;
-    verify(&fixture.client, &page, "Updated", second_secret).await;
+    verify(&fixture.client, &page, "Updated", second_secret, true).await;
     let updated =
         results(&fixture.client, &page).await.last().unwrap()["structuredContent"]["settings_path"]
             .as_str()
@@ -113,6 +123,47 @@ async fn releases_frozen_projections() {
     assert!(!Path::new(&original).exists());
     fixture.node.shutdown().await.unwrap();
     assert!(!Path::new(&updated).exists());
+    fixture.controller.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn reuses_one_projection() {
+    let model = Server::turn_tools(vec![(alias("native", "read"), json!({}))]).await;
+    let fixture = process::Fixture::packages(&model, &[]).await;
+    declare(&fixture.root);
+    let installed = install(&fixture, 0).await;
+    let secret = "shared-private-token";
+    save(
+        &fixture,
+        installed.summary.reference(),
+        "Shared",
+        SecretUpdate::Replace(Secret::new(secret.into())),
+    )
+    .await;
+    let data = fixture.node.profile().join("plugins/data/example");
+    super::sharing::warmed(&data, 1).await;
+    let mut paths = Vec::new();
+    for _ in 0..2 {
+        let (_, turn) = submit(&fixture, false).await;
+        let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+        assert_eq!(
+            page.runs.last().unwrap().status,
+            Status::Completed,
+            "{page:?}"
+        );
+        verify(&fixture.client, &page, "Shared", secret, true).await;
+        paths.push(
+            results(&fixture.client, &page).await.last().unwrap()["structuredContent"]["settings_path"]
+                .as_str()
+                .unwrap()
+                .to_owned(),
+        );
+    }
+    assert_eq!(paths[0], paths[1]);
+    assert_eq!(super::connections::requests(&data, "initialize"), 1);
+    assert_eq!(super::connections::requests(&data, "tools/list"), 2);
+    fixture.node.shutdown().await.unwrap();
+    assert!(!Path::new(&paths[0]).exists());
     fixture.controller.close().await.unwrap();
 }
 
@@ -189,7 +240,14 @@ async fn imports_execution_node_configuration() {
     assert_eq!(turn.plugins, [destination.package]);
     let page = finished(&target.client, target.session.id, turn.id).await;
     assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-    verify(&target.client, &page, "Destination", "target-private-token").await;
+    verify(
+        &target.client,
+        &page,
+        "Destination",
+        "target-private-token",
+        true,
+    )
+    .await;
     assert!(
         !serde_json::to_string(&page)
             .unwrap()
@@ -216,7 +274,8 @@ async fn rejects_cleared_credentials() {
         SecretUpdate::Replace(Secret::new("revoke-private-token".into())),
     )
     .await;
-
+    let data = fixture.node.profile().join("plugins/data/example");
+    super::sharing::warmed(&data, 1).await;
     let (_, queued) = submit(&fixture, true).await;
     let cleared = save(
         &fixture,
@@ -238,14 +297,10 @@ async fn rejects_cleared_credentials() {
             .unwrap()
             .contains("Complete skill beside MCP")
     );
-    assert!(
-        !fixture
-            .node
-            .profile()
-            .join("plugins/data/example/launches")
-            .exists()
-    );
+    assert_eq!(fs::read_to_string(data.join("launches")).unwrap(), "x");
+    assert_eq!(super::connections::requests(&data, "tools/call"), 0);
     fixture.node.shutdown().await.unwrap();
+    reaped(&data);
     fixture.controller.close().await.unwrap();
 }
 
@@ -300,9 +355,9 @@ async fn releases_failed_initialization() {
                 Status::Completed
             }
         );
+        fixture.node.shutdown().await.unwrap();
         reaped(&data);
         assert_eq!(projections(), 0);
-        fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }
 }

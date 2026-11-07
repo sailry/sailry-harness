@@ -320,22 +320,22 @@ async fn preserves_identity_and_rejects_feature_packages() {
     assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
     let output = results(&fixture.client, &page).await;
     assert_eq!(
-        output[0]["error"]["code"],
+        output[0]["data"]["code"],
         json!(ErrorCode::PermissionDenied)
     );
     assert_eq!(
-        output[1]["error"]["code"],
+        output[1]["data"]["code"],
         json!(ErrorCode::PermissionDenied)
     );
     assert_eq!(output[2]["revision"], 1);
-    assert_eq!(output[3]["error"]["code"], json!(ErrorCode::InvalidRequest));
+    assert_eq!(output[3]["data"]["code"], json!(ErrorCode::InvalidRequest));
     assert_eq!(output[4]["revision"], 2);
     assert_eq!(
         output[4]["source"]["source"]["commit"],
         fixture.next.source.commit
     );
     assert_eq!(
-        output[5]["error"]["code"],
+        output[5]["data"]["code"],
         json!(ErrorCode::RevisionConflict)
     );
     assert_eq!(output[6], json!({"skills":[]}));
@@ -391,9 +391,9 @@ async fn preserves_planning_inventory() {
     assert_eq!(output[0], json!({"skills":[]}));
     assert_eq!(output[1]["skills"].as_array().unwrap().len(), 1);
     for denied in &output[2..5] {
-        assert_eq!(denied["error"]["code"], json!(ErrorCode::PermissionDenied));
+        assert_eq!(denied["data"]["code"], json!(ErrorCode::PermissionDenied));
         assert_eq!(
-            denied["error"]["message"],
+            denied["data"]["message"],
             "skill installation changes are unavailable in Plan mode"
         );
     }

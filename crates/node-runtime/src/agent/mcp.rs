@@ -5,6 +5,7 @@ mod input;
 mod limits;
 pub(super) mod management;
 mod pool;
+pub(super) mod warm;
 pub(crate) use pool::Pool;
 mod remote;
 mod schema;
@@ -39,15 +40,13 @@ type Service = RunningService<RoleClient, Arc<input::Handler>>;
 
 #[derive(Default)]
 pub(super) struct Connections {
-    active: Vec<Connected>,
-    poisoned: Arc<AtomicBool>,
+    active: Vec<Arc<Connected>>,
     failure: Option<Fault>,
     images: Vec<(Vec<String>, usize)>,
 }
 
 struct Connected {
     reference: sailry_protocol::plugin::Reference,
-    name: String,
     transport: transport::Shared,
     peer: rmcp::Peer<RoleClient>,
     toolset: Arc<remote::Remote>,
@@ -55,19 +54,115 @@ struct Connected {
     connector: Option<crate::plugins::connectors::mcp::Authorization>,
     python: Option<crate::python::Ready>,
     reuse: bool,
+    poisoned: Arc<AtomicBool>,
+    closed: AtomicBool,
+    retired: AtomicBool,
+    used: std::sync::Mutex<std::time::Instant>,
+    listing: tokio::sync::Mutex<()>,
 }
 
 impl Connected {
-    async fn close(self) -> Result<(), Fault> {
-        drop(self.toolset);
-        self.transport.lock().await.close().await
+    async fn open(
+        reference: Reference,
+        launch: crate::plugins::resources::mcp::Launch,
+        connector: Option<crate::plugins::connectors::mcp::Authorization>,
+        reuse: bool,
+        stop: &CancellationToken,
+        environment: &crate::process::Environment,
+    ) -> Result<Self, Fault> {
+        let python = match &launch {
+            crate::plugins::resources::mcp::Launch::Stdio { python, .. } => python.clone(),
+            _ => None,
+        };
+        let handler = Arc::new(input::Handler::new());
+        let mut transport_connector = connector.clone();
+        if reuse && let Some(connector) = &mut transport_connector {
+            connector.settings = None;
+        }
+        let (mut transport, service) = transport::Connection::open(
+            launch,
+            transport_connector,
+            stop,
+            handler.clone(),
+            !reuse,
+            environment,
+        )
+        .await?;
+        service
+            .peer()
+            .set_response_cache_config(
+                rmcp::ClientCacheConfig::default()
+                    .with_default_ttl(rmcp::MAX_CLIENT_CACHE_TTL)
+                    .with_serve_stale_on_error(false),
+            )
+            .await;
+        let peer = service.peer().clone();
+        let toolset = remote::Remote::new(service);
+        transport.track_tasks(toolset.clone());
+        Ok(Self {
+            reference,
+            transport: Arc::new(tokio::sync::Mutex::new(transport)),
+            peer,
+            toolset,
+            handler,
+            connector,
+            python,
+            reuse,
+            poisoned: Arc::default(),
+            closed: AtomicBool::new(false),
+            retired: AtomicBool::new(false),
+            used: std::sync::Mutex::new(std::time::Instant::now()),
+            listing: tokio::sync::Mutex::new(()),
+        })
+    }
+
+    fn healthy(&self) -> bool {
+        !self.poisoned.load(Ordering::Relaxed) && !self.toolset.is_closed()
+    }
+
+    async fn close(&self) -> Result<(), Fault> {
+        self.poisoned.store(true, Ordering::Relaxed);
+        let result = self.transport.lock().await.close().await;
+        self.closed.store(true, Ordering::Relaxed);
+        result
+    }
+
+    async fn release(self: &Arc<Self>) -> Result<(), Fault> {
+        *self.used.lock().unwrap() = std::time::Instant::now();
+        if self.reuse
+            && self.healthy()
+            && (!self.retired.load(Ordering::Relaxed) || Arc::strong_count(self) > 1)
+        {
+            Ok(())
+        } else {
+            self.close().await
+        }
+    }
+}
+
+impl Drop for Connected {
+    fn drop(&mut self) {
+        if self.retired.load(Ordering::Relaxed) && !self.poisoned.load(Ordering::Relaxed) {
+            let transport = self.transport.clone();
+            let package = self.reference.clone();
+            tokio::spawn(async move {
+                if let Err(error) = transport.lock().await.close().await {
+                    let mut entry = crate::logging::Entry::new(
+                        crate::logging::Area::Run,
+                        crate::logging::Phase::Failed,
+                    );
+                    entry.context.package = Some(package);
+                    entry.stage = Some("mcp_server");
+                    entry.code = Some(error.code);
+                    entry.reason = Some("connection_cleanup");
+                    entry.emit_warn();
+                }
+            });
+        }
     }
 }
 
 impl Connections {
-    pub(super) fn reusable(&self) -> bool {
-        self.failure.is_none() && !self.poisoned.load(Ordering::Relaxed)
-    }
     pub(super) async fn bind(
         &mut self,
         resources: &crate::plugins::resources::Resources,
@@ -81,7 +176,9 @@ impl Connections {
         self.images.clear();
         let mut tools: Vec<Registration> = Vec::new();
         let mut diagnostics = String::new();
-        let mut previous = std::mem::take(&mut self.active);
+        if let Err(error) = self.release().await {
+            self.failure = Some(error);
+        }
         let configurations = resources.mcp(&ingress.environment).await;
         let mut selected: Vec<_> = configurations.into_iter().filter(|config| {
             assistant.is_none_or(|(package, declaration)| {
@@ -94,36 +191,27 @@ impl Connections {
         if stop.is_cancelled() {
             selected.clear();
         }
-        // Each attempt owns its launch and cached connection, so servers connect
-        // independently while registration below keeps configuration order.
         let claims: Vec<_> = selected
             .iter_mut()
-            .map(|config| {
-                let launch = std::mem::replace(&mut config.launch, Err(unavailable()));
-                let cached = previous
-                    .iter()
-                    .position(|connection| {
-                        connection.reference == config.reference && connection.name == config.name
-                    })
-                    .map(|index| previous.remove(index));
-                (launch, cached)
-            })
+            .map(|config| std::mem::replace(&mut config.launch, Err(unavailable())))
             .collect();
         let attempts = futures::future::join_all(selected.iter().zip(claims).enumerate().map(
-            |(index, (config, (launch, cached)))| {
+            |(index, (config, launch))| {
                 let target = Target {
                     resources,
                     ingress,
-                    invocation,
+                    invocation: Some(invocation),
                     stop,
                 };
-                target.connect(index, config, launch, cached)
+                target.connect(index, config, launch)
             },
         ))
         .await;
         for (config, attempt) in selected.iter().zip(attempts) {
             let result = match attempt.result {
-                Ok((connection, descriptors)) if tools.len() + descriptors.len() <= MAX_TOOLS => {
+                Ok((connection, descriptors, connector))
+                    if tools.len() + descriptors.len() <= MAX_TOOLS =>
+                {
                     let exclusive = config
                         .options
                         .exclusive
@@ -207,11 +295,11 @@ impl Connections {
                             toolset: connection.toolset.clone(),
                             ingress: ingress.clone(),
                             handler: connection.handler.clone(),
-                            poisoned: self.poisoned.clone(),
+                            poisoned: connection.poisoned.clone(),
                             turn: invocation.turn.id,
                             session: invocation.turn.session.to_string(),
                             stop: stop.clone(),
-                            connector: connection.connector.clone(),
+                            connector: connector.clone(),
                             python: connection.python.clone(),
                             exclusive: exclusive.clone(),
                             transport: connection.transport.clone(),
@@ -228,7 +316,7 @@ impl Connections {
                     self.active.push(connection);
                     Ok(())
                 }
-                Ok((connection, _)) => connection.close().await.and(Err(unavailable())),
+                Ok((connection, _, _)) => connection.release().await.and(Err(unavailable())),
                 Err(error) => Err(error),
             };
             let mut entry = startup.entry(
@@ -255,11 +343,6 @@ impl Connections {
                 }
             }
         }
-        for result in futures::future::join_all(previous.into_iter().map(Connected::close)).await {
-            if let Err(error) = result {
-                self.failure = Some(error);
-            }
-        }
         let mut entry = startup.entry("mcp_bind", started, None);
         entry.count = Some(selected.len() as u64);
         startup.record(entry);
@@ -270,29 +353,16 @@ impl Connections {
         self.images.clone()
     }
 
-    pub(super) async fn settle(&mut self) -> Result<(), Fault> {
-        let mut failure = self.failure.take();
-        let mut retained = Vec::new();
-        for connection in std::mem::take(&mut self.active) {
-            if connection.reuse {
-                if let Err(error) = connection.transport.lock().await.settle().await {
-                    failure = Some(error);
-                }
-                retained.push(connection);
-            } else if let Err(error) = connection.close().await {
-                failure = Some(error);
-            }
-        }
-        self.active = retained;
-        failure.map_or(Ok(()), Err)
-    }
-
-    pub(super) async fn release(&mut self) -> Result<(), Fault> {
+    async fn release(&mut self) -> Result<(), Fault> {
         let active = std::mem::take(&mut self.active);
-        futures::future::join_all(active.into_iter().map(Connected::close))
-            .await
-            .into_iter()
-            .collect()
+        futures::future::join_all(
+            active
+                .into_iter()
+                .map(|connection| async move { connection.release().await }),
+        )
+        .await
+        .into_iter()
+        .collect()
     }
 
     pub(super) async fn close(&mut self) -> Result<(), Fault> {
@@ -305,7 +375,14 @@ impl Connections {
 struct Attempt {
     reused: bool,
     elapsed: Duration,
-    result: Result<(Connected, Vec<Descriptor>), Fault>,
+    result: Result<
+        (
+            Arc<Connected>,
+            Vec<Descriptor>,
+            Option<crate::plugins::connectors::mcp::Authorization>,
+        ),
+        Fault,
+    >,
 }
 
 /// Turn inputs shared by the concurrent server attempts of one bind.
@@ -313,7 +390,7 @@ struct Attempt {
 struct Target<'a> {
     resources: &'a crate::plugins::resources::Resources,
     ingress: &'a Arc<Ingress>,
-    invocation: &'a Invocation,
+    invocation: Option<&'a Invocation>,
     stop: &'a CancellationToken,
 }
 
@@ -324,7 +401,6 @@ impl Target<'_> {
         index: usize,
         config: &crate::plugins::resources::mcp::Configured,
         launch: Result<crate::plugins::resources::mcp::Launch, Fault>,
-        mut cached: Option<Connected>,
     ) -> Attempt {
         let Self {
             resources,
@@ -334,51 +410,53 @@ impl Target<'_> {
         } = self;
         let started = std::time::Instant::now();
         let mut reused = false;
-        let mut result = async {
+        let result = async {
             if index >= crate::plugins::mcp::MAX_SERVERS { return Err(unavailable()); }
             let mut launch = launch?;
-            let context=sailry_protocol::plugin::Context{package:config.reference.clone(),worktree:Some(invocation.worktree),session:Some(invocation.turn.session),turn:Some(invocation.turn.id),invocation:None,surface:Default::default()};
-            let reuse = config.options.reuse;
-            let python = match &launch { crate::plugins::resources::mcp::Launch::Stdio {python,..} => python.clone(), _ => None };
+            let context=sailry_protocol::plugin::Context{package:config.reference.clone(),worktree:invocation.map(|invocation| invocation.worktree),session:invocation.map(|invocation|invocation.turn.session),turn:invocation.map(|invocation|invocation.turn.id),invocation:None,surface:Default::default()};
+            let reuse = config.options.reuse && ingress.agents.mcp.reusable(&config.reference);
+            if invocation.is_none() && !reuse {
+                return Err(unavailable());
+            }
             let connector = tokio::select! {
                 _ = stop.cancelled() => return Err(unavailable()),
                 result = tokio::time::timeout(Duration::from_secs(10), resources.mcp_authorization(ingress, context, &config.name, &mut launch)) => result.map_err(|_| unavailable())??,
             };
-            let connection = match cached.take() {
-                Some(connection) if connection.toolset.is_closed() || connection.connector.as_ref().map(|value|value.key()) != connector.as_ref().map(|value|value.key()) => {
-                    connection.close().await?;
-                    None
+            let connection = if reuse {
+                let mut transport_connector = connector.clone();
+                if let Some(connector) = &mut transport_connector {
+                    connector.stop = ingress.agents.stopped.clone();
                 }
-                connection => connection,
-            };
-            reused = connection.is_some();
-            let connection = if let Some(connection) = connection {
+                let (connection, pooled) = ingress.agents.mcp.lease(config, launch, transport_connector, ingress, stop, invocation.is_some()).await?;
+                reused = pooled;
                 connection
             } else {
-                let handler = Arc::new(input::Handler::new());
-                let (mut transport, service) = transport::Connection::open(launch, connector.clone(), stop, handler.clone(), !reuse, &ingress.environment).await?;
-                // Reuse legacy lists until invalidation or the SDK's 24-hour cap.
-                service.peer().set_response_cache_config(rmcp::ClientCacheConfig::default().with_default_ttl(rmcp::MAX_CLIENT_CACHE_TTL).with_serve_stale_on_error(false)).await;
-                let peer = service.peer().clone();
-                let toolset = remote::Remote::new(service);
-                transport.track_tasks(toolset.clone());
-                Connected { reference: config.reference.clone(), name: config.name.clone(), transport: Arc::new(tokio::sync::Mutex::new(transport)), peer, toolset, handler, connector, python, reuse }
+                Arc::new(Connected::open(config.reference.clone(), launch, connector.clone(), false, stop, &ingress.environment).await?)
+            };
+            let mut caller = connection.connector.clone();
+            if let (Some(caller), Some(connector)) = (&mut caller, connector) {
+                caller.settings = connector.settings;
+                caller.stop = stop.clone();
+            }
+            let listing = async {
+                let _listing = connection.listing.lock().await;
+                if !connection.healthy() {
+                    return Err(unavailable());
+                }
+                list(&connection.peer, config.tools.as_deref()).await
             };
             let listed = tokio::select! {
-                _ = stop.cancelled() => Err(unavailable()),
-                result = tokio::time::timeout(Duration::from_secs(10), list(&connection.peer, config.tools.as_deref())) => result.unwrap_or_else(|_| Err(unavailable())),
+                _ = stop.cancelled() => {
+                    connection.release().await?;
+                    return Err(unavailable());
+                }
+                result = tokio::time::timeout(Duration::from_secs(10), listing) => result.unwrap_or_else(|_| Err(unavailable())),
             };
             match listed {
-                Ok(descriptors) => Ok((connection, descriptors)),
+                Ok(descriptors) => Ok((connection, descriptors, caller)),
                 Err(_) => connection.close().await.and(Err(unavailable())),
             }
         }.await;
-        // A cached connection the failed attempt never claimed is closed, as before.
-        if let Some(connection) = cached
-            && let Err(error) = connection.close().await
-        {
-            result = Err(error);
-        }
         Attempt {
             reused,
             elapsed: started.elapsed(),
@@ -534,10 +612,7 @@ impl Bound {
         }
         diagnostics::finish(
             &mut span,
-            &result
-                .as_ref()
-                .map(|value| serde_json::to_value(value).unwrap())
-                .map_err(Clone::clone),
+            &result,
             self.stop.is_cancelled() || context.is_cancelled(),
         );
         result
@@ -555,6 +630,7 @@ impl Bound {
             || context.is_cancelled()
             || self.stop.is_cancelled()
             || self.closed.is_cancelled()
+            || self.poisoned.load(Ordering::Relaxed)
         {
             return Err(Fault::invalid("MCP invocation is unavailable or cancelled"));
         }
@@ -626,7 +702,11 @@ impl Bound {
             waiting,
         )
         .await?;
-        if context.is_cancelled() || self.stop.is_cancelled() || self.closed.is_cancelled() {
+        if context.is_cancelled()
+            || self.stop.is_cancelled()
+            || self.closed.is_cancelled()
+            || self.poisoned.load(Ordering::Relaxed)
+        {
             return Err(Fault::invalid("MCP invocation was cancelled"));
         }
         if let Some(connector) = &self.connector
@@ -689,20 +769,13 @@ impl Bound {
                 }
             }
         };
-        diagnostics::finish(
-            &mut external,
-            &result
-                .as_ref()
-                .map(|value| serde_json::to_value(value).unwrap())
-                .map_err(Clone::clone),
-            self.stop.is_cancelled(),
-        );
+        diagnostics::finish(&mut external, &result, self.stop.is_cancelled());
         result
     }
 }
 
 /// A remote call abandoned before its answer may still run on the server, so its
-/// connection set is not reused, including after a cancelled turn.
+/// connection is not reused, including after a cancelled turn.
 struct Pending<'a>(Option<&'a AtomicBool>);
 
 impl Pending<'_> {

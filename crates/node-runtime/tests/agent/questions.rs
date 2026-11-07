@@ -108,7 +108,10 @@ async fn accepts_choices_without_other_answers() {
 #[tokio::test]
 async fn separates_answers_from_approvals() {
     let server = Server::tools(vec![
-        ("ask_user".into(), text_input()),
+        (
+            "ask_user".into(),
+            json!({"prompt":"Describe the task","input":{"kind":"text"}}),
+        ),
         (
             plugin_tool("files", "write_file"),
             json!({"path": "answer.txt", "text": "requested", "expected_revision": null}),
@@ -156,11 +159,55 @@ async fn separates_answers_from_approvals() {
                 .unwrap()
                 .contains("Answers do not grant tool permissions")
         );
+        let input = &question["function"]["parameters"]["properties"]["input"]["anyOf"][0];
+        assert_eq!(input["required"], json!(["kind"]));
+        assert_eq!(input["properties"]["multiline"]["default"], false);
+        assert_eq!(
+            input["properties"]["max_bytes"]["default"],
+            question::MAX_TEXT_BYTES
+        );
     }
     process::decide(&fixture.client, &approval, Decision::Deny).await;
     let page = finished(&fixture.client, session, turn).await;
     assert_eq!(page.runs[0].status, Status::Completed);
     assert!(!fixture.root.join("answer.txt").exists());
+    fixture.node.shutdown().await.unwrap();
+    fixture.controller.close().await.unwrap();
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn preserves_question_parse_failures() {
+    let server = Server::tools(vec![(
+        "ask_user".into(),
+        json!({"prompt":"Describe the task","input":{"kind":"text","multiline":"yes"}}),
+    )])
+    .await;
+    let fixture = process::Fixture::packages(&server, &[]).await;
+    let session = fixture.session.id;
+    let turn = approvals::submit(&fixture.client, session).await;
+    let page = finished(&fixture.client, session, turn).await;
+    assert!(page.questions.is_empty());
+    let details = tool_details(&fixture.client, &page).await;
+    assert_eq!(details.len(), 1);
+    let output = details[0].1.result.as_ref().unwrap();
+    assert_eq!(output["data"]["code"], "invalid_request");
+    let message = output["data"]["message"].as_str().unwrap();
+    assert!(message.contains("invalid question arguments"));
+    assert!(message.contains("expected a boolean"));
+    let failure = page
+        .entries
+        .iter()
+        .flat_map(|entry| &entry.parts)
+        .find_map(|part| {
+            if let Part::ToolResult { summary, .. } = part {
+                summary.failure.as_ref()
+            } else {
+                None
+            }
+        })
+        .unwrap();
+    assert_eq!(failure.code, Some(ErrorCode::InvalidRequest));
     fixture.node.shutdown().await.unwrap();
     fixture.controller.close().await.unwrap();
 }

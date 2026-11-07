@@ -258,9 +258,9 @@ async fn loads_complete_resources() {
     assert_eq!(output.len(), 6);
     assert_eq!(output[0]["content"], body);
     assert_eq!(output[1]["content"], "Guide 1.0.0 中文 🙂");
-    assert!(output[2].get("error").is_some());
-    assert_eq!(output[3]["error"]["code"], "invalid_request");
-    assert_eq!(output[4]["error"]["code"], "invalid_request");
+    assert_eq!(output[2]["data"]["code"], "invalid_request");
+    assert_eq!(output[3]["data"]["code"], "invalid_request");
+    assert_eq!(output[4]["data"]["code"], "invalid_request");
     assert_eq!(output[5]["content"], body);
     let presentations: Vec<_> = page
         .entries

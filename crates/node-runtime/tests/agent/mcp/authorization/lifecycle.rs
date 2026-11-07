@@ -177,6 +177,13 @@ async fn reports_rejected_probe_renewals_as_expired() {
             assert!(info.issues.is_empty(), "{:?}", info.issues);
             let (_, attempt, url) = begin(&fixture.client, info.summary.reference(), false).await;
             let row = complete(&fixture.client, &attempt, &url).await;
+            tokio::time::timeout(Duration::from_secs(10), async {
+                while peer.listings.load(Ordering::SeqCst) == 0 {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .expect("authorized MCP warm-up deadline");
             let before = stored(&fixture.node, row.id).await;
             let revision: Value = serde_json::from_slice(&before).unwrap();
             assert_eq!(row.state, State::Connected);

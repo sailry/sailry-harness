@@ -13,7 +13,11 @@ fn names(request: &Value) -> Vec<&str> {
 
 #[tokio::test]
 async fn loads_captured_tools_and_restores_selection() {
-    restores_selection("tool_search", json!({"query":"manage_plugins","limit":1})).await;
+    restores_selection(
+        "tool_search",
+        json!({"query":"select:manage_plugins","limit":1}),
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -55,6 +59,29 @@ async fn restores_selection(name: &str, arguments: Value) {
     assert!(names(first).contains(&"tool_search"));
     assert!(names(first).contains(&"read_file"));
     assert!(!names(first).contains(&"manage_plugins"));
+    assert!(!names(first).contains(&"list_sessions"));
+    let context = turn_context(first);
+    let inventory = context
+        .split_once("Deferred tools\n")
+        .unwrap()
+        .1
+        .lines()
+        .next()
+        .unwrap();
+    let deferred: Vec<_> = inventory.split(", ").collect();
+    assert!(deferred.contains(&"manage_plugins"));
+    assert!(deferred.contains(&"list_sessions"));
+    assert!(deferred.windows(2).all(|pair| pair[0] < pair[1]));
+    assert_eq!(
+        turn_context(second)
+            .split_once("Deferred tools\n")
+            .unwrap()
+            .1
+            .lines()
+            .next()
+            .unwrap(),
+        inventory
+    );
     assert!(names(second).contains(&"manage_plugins"));
     assert_eq!(
         &second["tools"].as_array().unwrap()[..first["tools"].as_array().unwrap().len()],

@@ -13,6 +13,7 @@ mod diagnostics;
 pub(crate) mod inputs;
 mod mcp;
 pub(crate) use mcp::check::run as check_mcp;
+pub(crate) use mcp::warm::run as warm_mcp;
 pub(crate) mod media;
 pub(crate) mod model;
 pub(crate) mod observation;
@@ -287,7 +288,7 @@ async fn execute(
 ) -> Result<Option<String>, Fault> {
     let diagnostics = execution.diagnostics;
     let session = invocation.turn.session;
-    let mut connections = ingress.agents.mcp.take(session);
+    let mut connections = mcp::Connections::default();
     let mut result = Box::pin(execute_with(
         ingress,
         invocation,
@@ -300,29 +301,14 @@ async fn execute(
         *completion_review = outcome.review;
         outcome.output
     });
-    // A user Stop keeps healthy idle connections; an abandoned call poisons the set.
-    // Errors and Node shutdown still close them.
     let reusable = result.is_ok() && !ingress.agents.stopped.is_cancelled();
-    let cleanup = if reusable && connections.reusable() {
-        let settled = {
-            let _settlement = diagnostics.span(Phase::McpSettle, None);
-            connections.settle().await
-        };
-        match settled {
-            Ok(()) => {
-                let _cache = diagnostics.span(Phase::McpCache, None);
-                ingress.agents.mcp.put(session, connections).await
-            }
-            Err(error) => {
-                let _cleanup = diagnostics.span(Phase::McpClose, None);
-                match connections.release().await {
-                    Ok(()) => Err(error),
-                    Err(release) => Err(release),
-                }
-            }
-        }
+    let phase = if reusable {
+        Phase::McpSettle
     } else {
-        let _cleanup = diagnostics.span(Phase::McpClose, None);
+        Phase::McpClose
+    };
+    let cleanup = {
+        let _cleanup = diagnostics.span(phase, None);
         connections.close().await
     };
     if let Err(error) = cleanup {
@@ -481,6 +467,18 @@ async fn execute_with(
     let names = model
         .names
         .capture(invocation, &extensions.tools, &prompt_session.tool_names)?;
+    let deferred: std::collections::BTreeSet<_> = extensions
+        .tools
+        .iter()
+        .filter(|entry| entry.deferred)
+        .map(|entry| names.name(entry.tool.name.as_ref()))
+        .collect();
+    if !deferred.is_empty() {
+        extensions.context.push_str("\n\nDeferred tools\n");
+        extensions
+            .context
+            .push_str(&deferred.into_iter().collect::<Vec<_>>().join(", "));
+    }
     if invocation.child.is_none() {
         extensions
             .instruction

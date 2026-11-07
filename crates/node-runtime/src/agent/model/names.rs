@@ -155,6 +155,9 @@ impl Exposure {
                 MessageContentBlock::ToolRequest(request) => {
                     if let Ok(call) = &mut request.tool_call {
                         calls.insert(request.id.clone(), call.name.to_string());
+                        if call.name.as_ref() == plugins::search::NAME {
+                            self.query(call.arguments.as_mut(), true);
+                        }
                         call.name = self.name(&call.name).to_owned().into();
                     }
                 }
@@ -179,10 +182,13 @@ impl Exposure {
         for content in &mut message.content {
             match content {
                 MessageContentBlock::ToolRequest(request) => {
-                    if let Ok(call) = &mut request.tool_call
-                        && let Some(alias) = self.reverse.get(call.name.as_ref())
-                    {
-                        call.name = alias.clone().into();
+                    if let Ok(call) = &mut request.tool_call {
+                        if let Some(alias) = self.reverse.get(call.name.as_ref()) {
+                            call.name = alias.clone().into();
+                        }
+                        if call.name.as_ref() == plugins::search::NAME {
+                            self.query(call.arguments.as_mut(), false);
+                        }
                     }
                 }
                 MessageContentBlock::ToolConfirmationRequest(request) => {
@@ -192,6 +198,34 @@ impl Exposure {
                 }
                 _ => {}
             }
+        }
+    }
+
+    fn query(
+        &self,
+        arguments: Option<&mut serde_json::Map<String, serde_json::Value>>,
+        expose: bool,
+    ) {
+        let Some(query) = arguments.and_then(|arguments| arguments.get_mut("query")) else {
+            return;
+        };
+        let Some(text) = query.as_str() else {
+            return;
+        };
+        let names = if expose { &self.forward } else { &self.reverse };
+        if let Some(selected) = text.trim().strip_prefix("select:") {
+            *query = format!(
+                "select:{}",
+                selected
+                    .split(',')
+                    .map(str::trim)
+                    .map(|name| names.get(name).map_or(name, String::as_str))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            )
+            .into();
+        } else if let Some(name) = names.get(text.trim()) {
+            *query = name.clone().into();
         }
     }
 }

@@ -59,7 +59,9 @@ pub(super) fn bind(
             entries,
             initial,
         });
-        ToolRegistration::managed(tool.descriptor(), tool)
+        let mut registration = ToolRegistration::managed(tool.descriptor(), tool);
+        registration.concurrent = true;
+        registration
     })
 }
 
@@ -94,10 +96,63 @@ fn contexts(invocation: &Invocation, entry: &ToolRegistration) -> Vec<String> {
 
 impl Search {
     fn matching(&self, query: &str, limit: usize) -> Vec<&Entry> {
-        let terms: Vec<_> = query
+        let query = query.trim();
+        if let Some(names) = query.strip_prefix("select:") {
+            let mut selected = Vec::new();
+            for name in names.split(',').map(str::trim) {
+                if let Some(entry) = self.entries.iter().find(|entry| entry.name == name)
+                    && !selected
+                        .iter()
+                        .any(|selected: &&Entry| selected.name == entry.name)
+                {
+                    selected.push(entry);
+                    if selected.len() == limit {
+                        break;
+                    }
+                }
+            }
+            return selected;
+        }
+        let query = query.to_lowercase();
+        let terms: BTreeSet<_> = query
             .split(|character: char| !character.is_alphanumeric())
-            .filter(|term| !term.is_empty())
-            .map(str::to_lowercase)
+            .filter(|term| {
+                term.chars().count() >= 3
+                    && !matches!(
+                        *term,
+                        "and"
+                            | "are"
+                            | "can"
+                            | "could"
+                            | "for"
+                            | "from"
+                            | "get"
+                            | "have"
+                            | "how"
+                            | "into"
+                            | "need"
+                            | "please"
+                            | "that"
+                            | "the"
+                            | "their"
+                            | "them"
+                            | "these"
+                            | "this"
+                            | "those"
+                            | "tool"
+                            | "tools"
+                            | "use"
+                            | "using"
+                            | "want"
+                            | "what"
+                            | "when"
+                            | "where"
+                            | "which"
+                            | "with"
+                            | "would"
+                            | "you"
+                    )
+            })
             .collect();
         let mut matches: Vec<_> = self
             .entries
@@ -108,22 +163,26 @@ impl Search {
                 let score = terms
                     .iter()
                     .map(|term| {
-                        usize::from(name.contains(term)) * 4
-                            + usize::from(description.contains(term))
+                        usize::from(name.contains(*term)) * 4
+                            + usize::from(description.contains(*term))
                     })
                     .sum::<usize>();
-                (score > 0).then_some((score, entry))
+                let exact = name == query;
+                (exact || score >= 2).then_some((exact, score, entry))
             })
             .collect();
-        matches.sort_by(|(left_score, left), (right_score, right)| {
-            right_score
-                .cmp(left_score)
-                .then_with(|| left.name.cmp(&right.name))
-        });
+        matches.sort_by(
+            |(left_exact, left_score, left), (right_exact, right_score, right)| {
+                right_exact
+                    .cmp(left_exact)
+                    .then_with(|| right_score.cmp(left_score))
+                    .then_with(|| left.name.cmp(&right.name))
+            },
+        );
         matches
             .into_iter()
             .take(limit)
-            .map(|(_, entry)| entry)
+            .map(|(_, _, entry)| entry)
             .collect()
     }
 
@@ -170,7 +229,7 @@ impl Search {
     }
 
     fn description(&self) -> &str {
-        "Find additional tools by name or capability. Matching tools become available on the next model request and stay loaded in this conversation. Search before using a capability absent from the current tool list. Discovery does not execute the tools or change their permissions."
+        "Find additional tools by name or capability, or load exact names with select:name,name. Matching tools become available on the next model request and stay loaded in this conversation. Search before using a capability absent from the current tool list. Discovery does not execute the tools or change their permissions."
     }
 
     fn parameters_schema(&self) -> Option<Value> {

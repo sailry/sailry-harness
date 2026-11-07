@@ -159,7 +159,7 @@ async fn manages_only_standalone_inventory() {
     assert_eq!(outputs[1]["revision"], disabled.summary.revision + 2);
     assert_eq!(outputs[2]["credential_slots"], json!(["API-Key"]));
     assert_eq!(
-        outputs[3]["error"]["code"],
+        outputs[3]["data"]["code"],
         json!(ErrorCode::PermissionDenied)
     );
     assert_eq!(outputs[4]["servers"].as_array().unwrap().len(), 2);
@@ -300,10 +300,10 @@ async fn preserves_planning_inventory() {
     ] {
         for index in indices {
             assert_eq!(
-                output[index]["error"]["code"],
+                output[index]["data"]["code"],
                 json!(ErrorCode::PermissionDenied)
             );
-            assert_eq!(output[index]["error"]["message"], message);
+            assert_eq!(output[index]["data"]["message"], message);
         }
     }
     assert_eq!(execute(&fixture.client, Command::ListPlugins).await, before);

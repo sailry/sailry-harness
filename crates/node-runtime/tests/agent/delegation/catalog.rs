@@ -308,7 +308,7 @@ async fn edits_catalog_and_applies_future_capture() {
     let page = finished(&client, session.id, turn.id).await;
     let output = results(&client, &page).await;
     assert_eq!(output[output.len() - 2]["revision"], "2");
-    assert_eq!(output.last().unwrap()["error"]["code"], "revision_conflict");
+    assert_eq!(output.last().unwrap()["data"]["code"], "revision_conflict");
     let edited = catalog(&client)
         .await
         .into_iter()
@@ -383,9 +383,11 @@ async fn edits_catalog_and_applies_future_capture() {
         .await
         .unwrap();
     let page = finished(&client, session.id, queued.id).await;
+    let output = results(&client, &page).await;
     assert_eq!(
-        results(&client, &page).await.last().unwrap()["error"]["code"],
-        "invalid_request"
+        output.last().unwrap()["data"]["code"],
+        "invalid_request",
+        "{output:?}"
     );
     assert_eq!(queued.roles, original);
     server.replace_tools(vec![]);
@@ -567,7 +569,7 @@ async fn applies_teams_for_future_capture() {
     );
     assert!(applied.get("providers").is_none());
     // The stale session revision is a conflict, never a silent rebase.
-    assert_eq!(output.last().unwrap()["error"]["code"], "revision_conflict");
+    assert_eq!(output.last().unwrap()["data"]["code"], "revision_conflict");
     assert_eq!(applying.roles.team, None);
     session = read(&client, session.id).await;
     assert_eq!(

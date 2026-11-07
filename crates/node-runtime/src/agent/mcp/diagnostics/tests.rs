@@ -19,7 +19,7 @@ fn warns_for_server_tool_failures() {
     tracing::subscriber::with_default(subscriber, || {
         let mut span = call();
         external(&mut span);
-        finish(&mut span, &Ok(json!({"isError":true})), false);
+        finish(&mut span, &Ok(CallToolResult::error(Vec::new())), false);
     });
     let levels = levels.0.lock().unwrap();
     assert_eq!(levels.last(), Some(&tracing::Level::WARN));
@@ -65,7 +65,9 @@ fn separates_server_errors_from_business_results() {
     external(&mut failed);
     finish(
         &mut failed,
-        &Ok(json!({"isError":true,"content":[{"type":"text","text":"PRIVATE_SERVER_ERROR"}]})),
+        &Ok(CallToolResult::error(vec![
+            rmcp::model::ContentBlock::text("PRIVATE_SERVER_ERROR"),
+        ])),
         false,
     );
     assert!(matches!(failed.entry.phase, Phase::Failed));
@@ -82,7 +84,7 @@ fn separates_server_errors_from_business_results() {
     ] {
         let mut success = call();
         external(&mut success);
-        finish(&mut success, &Ok(value), false);
+        finish(&mut success, &Ok(CallToolResult::structured(value)), false);
         assert!(matches!(success.entry.phase, Phase::Completed));
         assert_eq!(success.entry.communication_outcome, Some("completed"));
         assert_eq!(success.entry.execution_outcome, Some("succeeded"));
@@ -149,7 +151,9 @@ async fn correlates_concurrent_same_name_calls() {
         .await
         .unwrap();
         let mut roundtrip = begin_external(&identity);
-        let value = Ok(json!({"output":"PRIVATE_RESULT"}));
+        let value = Ok(CallToolResult::structured(
+            json!({"output":"PRIVATE_RESULT"}),
+        ));
         finish(&mut roundtrip, &value, false);
         finish(&mut call, &value, false);
         assert_eq!(call.entry.context.call, Some(begin));
@@ -178,7 +182,11 @@ async fn keeps_authorization_failure_without_dispatch() {
         },
     )
     .await;
-    finish(&mut call, &error.map(|()| json!({})), false);
+    finish(
+        &mut call,
+        &error.map(|()| CallToolResult::success(Vec::new())),
+        false,
+    );
     assert!(matches!(call.entry.phase, Phase::Failed));
     assert_eq!(call.entry.code, Some(ErrorCode::PermissionDenied));
     assert_eq!(call.entry.communication_outcome, Some("not_started"));

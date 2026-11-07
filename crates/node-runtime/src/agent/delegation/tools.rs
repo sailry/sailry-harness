@@ -224,9 +224,7 @@ impl Spawn {
         context: Arc<CallContext>,
         arguments: Value,
     ) -> Result<rmcp::model::CallToolResult, Fault> {
-        if let Err(error) = prepare(&arguments, &self.roles) {
-            return crate::agent::catalog::json(json!({"isError":true,"error":error}));
-        }
+        prepare(&arguments, &self.roles)?;
         self.delegate
             .execute_prepared(context, arguments.clone(), arguments)
             .await

@@ -25,6 +25,7 @@ async fn checks_only_on_request() {
     let installed = install(&fixture, 0).await;
     let original = installed.summary.reference();
     let data = fixture.node.profile().join("plugins/data/example");
+    super::sharing::warmed(&data, 2).await;
     assert!(installed.mcp.iter().all(|server| server.allowed));
     assert!(
         read(&fixture.client, "example")
@@ -45,9 +46,10 @@ async fn checks_only_on_request() {
         feed.next().await.unwrap(),
         Update::ConnectionsChanged(_)
     ));
-    assert!(
-        !data.join("pid").exists(),
-        "directory reads must not launch MCP"
+    assert_eq!(
+        fs::read_to_string(data.join("launches")).unwrap(),
+        "xx",
+        "directory reads must not launch another MCP connection"
     );
 
     let request = fixture.client.prepare(Command::SetPluginMcpAllowed {
@@ -60,6 +62,7 @@ async fn checks_only_on_request() {
     let Output::Plugin(disabled) = admission.completion.await.unwrap().unwrap() else {
         panic!("plugin expected")
     };
+    super::sharing::warmed(&data, 3).await;
     assert!(disabled.summary.enabled);
     assert!(disabled.summary.settings_revision > original.settings_revision);
     assert_eq!(
@@ -138,7 +141,7 @@ async fn checks_only_on_request() {
     assert_eq!(fixture.client.execute(check).await.unwrap(), output);
     assert_eq!(
         fs::read_to_string(data.join("launches")).unwrap(),
-        "x",
+        "xxxx",
         "only the selected diagnostic may run"
     );
     assert!(model.requests.lock().unwrap().is_empty());
@@ -164,7 +167,7 @@ async fn checks_only_on_request() {
             .code,
         ErrorCode::NotConfigured
     );
-    assert_eq!(fs::read_to_string(data.join("launches")).unwrap(), "x");
+    assert_eq!(fs::read_to_string(data.join("launches")).unwrap(), "xxxx");
     fixture.node.shutdown().await.unwrap();
     fixture.controller.close().await.unwrap();
 }
@@ -177,6 +180,7 @@ async fn lists_declared_tools() {
     native["tools"] = json!(["hold", "read", "absent"]);
     package(&fixture.root, json!({ "native": native }), "0.1.0");
     let installed = install(&fixture, 0).await;
+    super::sharing::warmed(&fixture.node.profile().join("plugins/data/example"), 1).await;
     let Output::PluginMcpChecked(checked) = execute(
         &fixture.client,
         Command::CheckPluginMcp {
@@ -220,6 +224,8 @@ async fn freezes_server_choices() {
         "0.1.0",
     );
     let installed = install(&fixture, 0).await;
+    let data = fixture.node.profile().join("plugins/data/example");
+    super::sharing::warmed(&data, 1).await;
     let (_, queued) = submit(&fixture, true).await;
     let Output::Plugin(disabled) = execute(
         &fixture.client,
@@ -277,8 +283,7 @@ async fn freezes_server_choices() {
                 .all(|tool| tool["function"]["name"] != exposed)
         );
     }
-    let data = fixture.node.profile().join("plugins/data/example");
-    assert_eq!(fs::read_to_string(data.join("launches")).unwrap(), "x");
+    assert_eq!(fs::read_to_string(data.join("launches")).unwrap(), "xx");
     reaped(&data);
     fixture.node.shutdown().await.unwrap();
     fixture.controller.close().await.unwrap();
@@ -294,15 +299,16 @@ async fn closes_failed_checks() {
         "0.1.0",
     );
     let installed = install(&fixture, 0).await;
+    let data = fixture.node.profile().join("plugins/data/example");
+    present(&data.join("pid")).await;
     let request = fixture.client.prepare(Command::CheckPluginMcp {
         package: installed.summary.reference(),
         server: "native".into(),
     });
     let error = fixture.client.execute(request.clone()).await.unwrap_err();
-    let data = fixture.node.profile().join("plugins/data/example");
     reaped(&data);
     assert_eq!(fixture.client.execute(request).await.unwrap_err(), error);
-    assert_eq!(fs::read_to_string(data.join("launches")).unwrap(), "x");
+    assert_eq!(fs::read_to_string(data.join("launches")).unwrap(), "xx");
     assert_eq!(read(&fixture.client, "example").await, installed);
     assert!(model.requests.lock().unwrap().is_empty());
     fixture.node.shutdown().await.unwrap();

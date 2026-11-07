@@ -141,6 +141,8 @@ async fn recovers_frozen_approval() {
     let installed = install(&fixture, 0).await;
     assert_eq!(installed.mcp.len(), 2);
     assert_eq!(installed.skills.len(), 1);
+    let data = fixture.node.profile().join("plugins/data/example");
+    super::sharing::warmed(&data, 1).await;
 
     let (request, turn) = submit(&fixture, true).await;
     let mut permission = fixture.session.config.clone();
@@ -156,6 +158,7 @@ async fn recovers_frozen_approval() {
     .await;
     package(&fixture.root, config, "new version");
     install(&fixture, 1).await;
+    super::sharing::warmed(&data, 2).await;
     execute(
         &fixture.client,
         Command::SetPluginEnabled {
@@ -166,7 +169,6 @@ async fn recovers_frozen_approval() {
     )
     .await;
     execute(&fixture.client, Command::StartQueuedTurn { turn: turn.id }).await;
-    let data = fixture.node.profile().join("plugins/data/example");
     let (page, first) = approvals::pending(&fixture.client, fixture.session.id).await;
     assert_eq!(first.source, ApprovalSource::User);
     let call = page
@@ -244,7 +246,7 @@ async fn recovers_frozen_approval() {
     let page = finished(&fixture.client, fixture.session.id, turn.id).await;
     assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
     assert_eq!(fs::read_to_string(data.join("effects")).unwrap(), content);
-    assert_eq!(fs::read_to_string(data.join("launches")).unwrap(), "x");
+    assert_eq!(fs::read_to_string(data.join("launches")).unwrap(), "xxx");
     assert_eq!(
         fixture.client.execute(decision.clone()).await.unwrap(),
         receipt
@@ -275,7 +277,7 @@ async fn recovers_frozen_approval() {
         Output::QueuedTurn(turn)
     );
     assert_eq!(fs::read_to_string(data.join("effects")).unwrap(), content);
-    assert_eq!(fs::read_to_string(data.join("launches")).unwrap(), "x");
+    assert_eq!(fs::read_to_string(data.join("launches")).unwrap(), "xxx");
     assert_eq!(model.requests.lock().unwrap().len(), 4);
     drop(client);
     controller.close().await.unwrap();
@@ -329,11 +331,11 @@ async fn closes_children() {
         for shutdown in [false, true] {
             let model = Server::tools(vec![(alias("native", "hold"), json!({}))]).await;
             let fixture = process::Fixture::packages(&model, &[]).await;
-            package(
-                &fixture.root,
-                json!({"native": peer::config("mcp::peer::stdio_peer", mode)}),
-                "version",
-            );
+            let mut server = peer::config("mcp::peer::stdio_peer", mode);
+            if mode == "slow_handshake" {
+                server["reuse"] = json!(false);
+            }
+            package(&fixture.root, json!({"native": server}), "version");
             install(&fixture, 0).await;
 
             let (_, turn) = submit(&fixture, false).await;

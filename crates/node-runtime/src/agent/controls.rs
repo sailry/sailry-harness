@@ -29,7 +29,7 @@ struct Child {
 
 #[derive(Default)]
 pub(crate) struct Controls {
-    pub(super) mcp: super::mcp::Pool,
+    pub(crate) mcp: super::mcp::Pool,
     pub(crate) wake: Notify,
     pub(crate) stopped: CancellationToken,
     active: Mutex<BTreeMap<TurnId, Active>>,

@@ -33,7 +33,7 @@ impl Remote {
     }
 
     pub(super) fn is_closed(&self) -> bool {
-        self.service.is_closed()
+        self.service.is_closed() || self.service.peer().is_transport_closed()
     }
 
     pub(super) async fn call(

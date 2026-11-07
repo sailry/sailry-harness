@@ -27,6 +27,7 @@ pub struct Server {
     pub endpoint: String,
     pub calls: Arc<AtomicUsize>,
     pub initializations: Arc<AtomicUsize>,
+    pub listings: Arc<AtomicUsize>,
     pub streams: Arc<AtomicUsize>,
     pub tasks: Arc<tasks::State>,
     sse: bool,
@@ -54,9 +55,13 @@ impl Server {
         let endpoint = format!("http://{}/mcp", listener.local_addr().unwrap());
         let calls = Arc::new(AtomicUsize::new(0));
         let initializations = Arc::new(AtomicUsize::new(0));
+        let listings = Arc::new(AtomicUsize::new(0));
         let streams = Arc::new(AtomicUsize::new(0));
         let stop = CancellationToken::new();
-        let (shutdown, count) = (stop.clone(), (calls.clone(), initializations.clone()));
+        let (shutdown, count) = (
+            stop.clone(),
+            (calls.clone(), initializations.clone(), listings.clone()),
+        );
         let (answers, _) = watch::channel(Value::Null);
         let events = Streams::default();
         let active = streams.clone();
@@ -84,6 +89,7 @@ impl Server {
             endpoint,
             calls,
             initializations,
+            listings,
             streams,
             tasks,
             sse,
@@ -102,7 +108,7 @@ async fn respond(
     mut stream: TcpStream,
     schema: Value,
     answers: watch::Sender<Value>,
-    (calls, initializations): (Arc<AtomicUsize>, Arc<AtomicUsize>),
+    (calls, initializations, listings): (Arc<AtomicUsize>, Arc<AtomicUsize>, Arc<AtomicUsize>),
     routes: Option<Streams>,
     active: Arc<AtomicUsize>,
     tasks: Arc<tasks::State>,
@@ -258,7 +264,10 @@ async fn respond(
                 ),
             )
         }
-        (_, Some("tools/list")) => (200, Some(json!({"tools":[peer::descriptor("read")]}))),
+        (_, Some("tools/list")) => {
+            listings.fetch_add(1, Ordering::SeqCst);
+            (200, Some(json!({"tools":[peer::descriptor("read")]})))
+        }
         (_, None) if request["id"].is_string() => {
             answers.send_replace(request.clone());
             (202, None)

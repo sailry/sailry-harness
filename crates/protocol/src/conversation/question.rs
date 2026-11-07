@@ -16,7 +16,9 @@ pub struct Spec {
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Input {
     Text {
+        #[serde(default)]
         multiline: bool,
+        #[serde(default = "text_limit")]
         max_bytes: usize,
     },
     Choice {
@@ -33,6 +35,10 @@ pub enum Input {
         url: String,
         elicitation_id: String,
     },
+}
+
+fn text_limit() -> usize {
+    MAX_TEXT_BYTES
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

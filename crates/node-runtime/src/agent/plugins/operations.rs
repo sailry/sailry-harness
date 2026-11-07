@@ -150,7 +150,7 @@ pub(super) fn bind(
 /// Reads that neither change nor depend on state other calls of a response
 /// observe. Browser reads are excluded because they include navigation and
 /// follow the active tab.
-fn concurrent(operation: Operation) -> bool {
+pub(super) fn concurrent(operation: Operation) -> bool {
     matches!(
         operation,
         Operation::ListDirectory

@@ -802,7 +802,20 @@ impl Service {
                         },
                         registered,
                     )
-                    .await?;
+                    .await;
+                let client = match client {
+                    Ok(client) => client,
+                    Err(error) => {
+                        let live = ingress
+                            .connector_target(target.id, target.revision, true)
+                            .await?;
+                        return Err(if live.grant.is_none() {
+                            Fault::new(ErrorCode::Expired, "connector authorization expired")
+                        } else {
+                            error
+                        });
+                    }
+                };
                 let renewing = force == Some(target.grant_revision);
                 let ready = if renewing {
                     client

@@ -1446,6 +1446,7 @@ mapped }).await
             let _ = store.shutdown().await;
             return Err(Error::from(error));
         }
+        mcp::start(&store.ingress);
         Ok(store)
     }
 

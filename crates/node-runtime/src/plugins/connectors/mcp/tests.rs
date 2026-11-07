@@ -166,6 +166,17 @@ async fn connected(server: &Server) -> (tempfile::TempDir, crate::Node, Target) 
     else {
         panic!("plugin expected")
     };
+    let Output::Plugin(info) = controller
+        .execute(controller.prepare(Command::SetPluginMcpAllowed {
+            package: info.summary.reference(),
+            server: "notion".into(),
+            allowed: false,
+        }))
+        .await
+        .unwrap()
+    else {
+        panic!("plugin expected")
+    };
     let redirect = "http://127.0.0.1:12345/auth/callback";
     let Output::ConnectorLogin(attempt) = controller
         .execute(controller.prepare(Command::StartConnectorLogin {

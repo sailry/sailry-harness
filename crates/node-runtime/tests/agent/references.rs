@@ -173,8 +173,11 @@ async fn reads_history_with_and_without_mentions() {
         view.calls[7].presentation,
         sailry_protocol::tool::Presentation::Summary
     );
-    assert!(!view.calls[7].details(&captured));
-    assert!(view.calls[7].failure.is_none());
+    assert!(view.calls[7].details(&captured));
+    assert_eq!(
+        view.calls[7].failure.as_ref().unwrap().code,
+        Some(ErrorCode::NotFound)
+    );
     assert!(
         view.calls[7]
             .resolved
@@ -208,7 +211,7 @@ async fn reads_history_with_and_without_mentions() {
     assert!(results[5]["page"]["next_before"].is_null());
     assert_eq!(results[6]["matches"].as_array().unwrap().len(), 1);
     assert_eq!(results[6]["matches"][0]["turn"], first.to_string());
-    assert_eq!(results[7]["error"]["code"], "not_found");
+    assert_eq!(results[7]["data"]["code"], "not_found");
     let detail = crate::agent_support::details::read(
         &client,
         view.calls[7].detail_reference(&captured).unwrap(),
@@ -239,12 +242,13 @@ async fn reads_history_with_and_without_mentions() {
     }
     for name in ["list_sessions", "read_session", "search_session"] {
         assert!(
-            original.requests.lock().unwrap()[0]["tools"]
+            !original.requests.lock().unwrap()[0]["tools"]
                 .as_array()
                 .unwrap()
                 .iter()
                 .any(|tool| tool["function"]["name"] == name)
         );
+        assert!(turn_context(&original.requests.lock().unwrap()[0]).contains(name));
     }
     let Output::Session(selected) = client
         .execute(client.prepare(Command::CreateSession {

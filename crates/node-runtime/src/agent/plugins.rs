@@ -10,6 +10,8 @@ mod operations;
 mod scripts;
 pub(in crate::agent) mod search;
 mod selection;
+#[cfg(test)]
+mod tests;
 
 #[derive(Default)]
 pub(super) struct Contribution {
@@ -176,7 +178,7 @@ pub(super) async fn bind(
             .iter()
             .any(|entry| entry.tool.name.as_ref().starts_with("mcp_"))
     {
-        bound.instruction.push_str(&connection_diagnostics);
+        bound.context.push_str(&connection_diagnostics);
     }
     let delegation =
         super::delegation::tools::context(invocation, &bound.tools, |name| bound.mounted(name));

@@ -60,7 +60,7 @@ async fn reads_bound_worktree() {
     .collect();
     let mut script = vec![(
         "tool_search".into(),
-        json!({"query":deferred.join(" "),"limit":6}),
+        json!({"query":format!("select:{}",deferred.join(",")),"limit":6}),
     )];
     script.extend(calls.clone());
     let server = Server::tools(script).await;
@@ -190,9 +190,6 @@ async fn reads_bound_worktree() {
         "tool_search",
         "load_skill",
         "read_skill_resource",
-        "list_sessions",
-        "read_session",
-        "search_session",
         "read_tool_output",
         "set_session_title",
         "ask_user",
@@ -204,6 +201,9 @@ async fn reads_bound_worktree() {
         "manage_mcp",
         "manage_plugins",
         "compact_context",
+        "list_sessions",
+        "read_session",
+        "search_session",
     ] {
         assert!(!catalog.iter().any(|tool| tool["function"]["name"] == name));
     }

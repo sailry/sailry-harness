@@ -45,6 +45,8 @@ mod python;
 #[cfg(unix)]
 mod settings;
 #[cfg(unix)]
+mod sharing;
+#[cfg(unix)]
 mod sse;
 #[cfg(unix)]
 mod stdio;
@@ -182,6 +184,21 @@ async fn present(path: &Path) {
     })
     .await
     .expect("fixture resource deadline");
+}
+
+#[cfg(unix)]
+async fn closed(data: &Path) {
+    let pid: i32 = fs::read_to_string(data.join("pid"))
+        .unwrap()
+        .parse()
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while unsafe { libc::kill(pid, 0) } == 0 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("MCP child cleanup deadline");
 }
 
 #[cfg(unix)]

@@ -50,6 +50,15 @@ async fn restores() {
         info.extension.as_ref().unwrap().tools[0].presentation,
         Presentation::Content
     );
+    let data = fixture.node.profile().join("plugins/data/tool-content");
+    present(&data.join("requests.jsonl")).await;
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while connections::requests(&data, "tools/list") == 0 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("content MCP warm-up deadline");
     let (_, turn) = submit(&fixture, true).await;
     execute(
         &fixture.client,
@@ -59,6 +68,7 @@ async fn restores() {
         },
     )
     .await;
+    closed(&data).await;
     execute(&fixture.client, Command::StartQueuedTurn { turn: turn.id }).await;
     let page = finished(&fixture.client, fixture.session.id, turn.id).await;
     assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
@@ -83,7 +93,7 @@ async fn restores() {
         );
         assert_eq!(requests[1]["tools"], requests[2]["tools"]);
     }
-    modern::assert_lifecycle(&fixture.node.profile().join("plugins/data/tool-content"));
+    modern::assert_lifecycle(&data);
     let expected: Content = serde_json::from_str(include_str!(
         "../../../../../plugins/examples/tool-content/content.json"
     ))

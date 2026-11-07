@@ -224,6 +224,17 @@ pub(super) async fn bind(
             registration.delegation = delegation;
             registration.observes = operation == Some(tool::Operation::ApplyChanges);
             registration.operation = operation;
+            registration.concurrent = operation.map(operations::concurrent).unwrap_or_else(|| {
+                declaration
+                    .handler
+                    .as_ref()
+                    .and_then(|handler| handler.flow.as_ref())
+                    .is_some_and(|flow| {
+                        flow.operations
+                            .iter()
+                            .all(|operation| operations::concurrent(*operation))
+                    })
+            });
             registration.presentation = declaration.presentation;
             registration.grouping = declaration.grouping;
             registration.plugin = Some(package.summary.name.clone());

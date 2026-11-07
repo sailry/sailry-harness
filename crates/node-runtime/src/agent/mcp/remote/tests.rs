@@ -56,6 +56,29 @@ impl ServerHandler for Server {
 }
 
 #[tokio::test]
+async fn detects_eof_with_retained_handles() {
+    let (server_transport, client_transport) = tokio::io::duplex(4096);
+    let opening = tokio::spawn(async move { Server::default().serve(server_transport).await });
+    let service = Arc::new(input::Handler::new())
+        .serve(client_transport)
+        .await
+        .unwrap();
+    let peer = service.peer().clone();
+    let remote = Remote::new(service);
+    let server = opening.await.unwrap().unwrap();
+    assert!(!remote.is_closed());
+    drop(server);
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while !peer.is_transport_closed() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("transport EOF deadline");
+    assert!(remote.is_closed());
+}
+
+#[tokio::test]
 async fn cancels_abandoned_task_before_cleanup() {
     let (server_transport, client_transport) = tokio::io::duplex(4096);
     let server = Server::default();

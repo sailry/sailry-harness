@@ -296,6 +296,27 @@ impl Http {
             .filter(|(method, _, _)| method == "DELETE")
             .count()
     }
+
+    async fn listed(&self, connections: usize) {
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while self.count("tools/list") < connections * 2 {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("MCP listing deadline");
+    }
+
+    async fn closed(&self, connections: usize) {
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while self.deletes() < connections {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("MCP closure deadline");
+        assert_eq!(self.deletes(), connections);
+    }
 }
 
 async fn respond(
@@ -703,7 +724,7 @@ async fn reuses_sessions_between_turns() {
     assert_eq!(http.count("initialize"), 2);
     assert_eq!(http.count("tools/list"), 4);
     assert_eq!(http.count("tools/call"), 3);
-    assert_eq!(http.deletes(), 1);
+    http.closed(1).await;
 
     save_settings(
         &fixture.client,
@@ -716,7 +737,7 @@ async fn reuses_sessions_between_turns() {
     assert_eq!(http.count("initialize"), 3);
     assert_eq!(http.count("tools/list"), 6);
     assert_eq!(http.count("tools/call"), 4);
-    assert_eq!(http.deletes(), 2);
+    http.closed(2).await;
     let authorization = |method: &str| {
         http.requests
             .lock()

@@ -57,6 +57,46 @@ fn unique_names_round_trip_exactly() {
 }
 
 #[test]
+fn restores_exact_discovery_queries() {
+    let canonical = alias("git", "git_log");
+    let names = exposure(&[("git", "git_log")], &["tool_search"]);
+    for (query, expected) in [
+        ("git_log".to_owned(), canonical.clone()),
+        (
+            "select:git_log,list_sessions,unknown".to_owned(),
+            format!("select:{canonical},list_sessions,unknown"),
+        ),
+        (
+            "find git_log tools".to_owned(),
+            "find git_log tools".to_owned(),
+        ),
+    ] {
+        let mut message = call("search", "tool_search");
+        let MessageContentBlock::ToolRequest(request) = &mut message.content[0] else {
+            unreachable!()
+        };
+        request.tool_call.as_mut().unwrap().arguments =
+            Some(serde_json::from_value(json!({"query":query,"limit":3})).unwrap());
+        let original = message.clone();
+        names.restore(&mut message);
+        let MessageContentBlock::ToolRequest(request) = &message.content[0] else {
+            unreachable!()
+        };
+        assert_eq!(
+            request
+                .tool_call
+                .as_ref()
+                .unwrap()
+                .arguments
+                .as_ref()
+                .unwrap()["query"],
+            expected
+        );
+        assert_eq!(names.messages(&[message]).as_ref(), &[original]);
+    }
+}
+
+#[test]
 fn reserves_deferred_and_internal_names() {
     let names = exposure(
         &[

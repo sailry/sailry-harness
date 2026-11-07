@@ -280,7 +280,11 @@ fn stdio_peer() {
         };
         println!("{}", json!({"jsonrpc": "2.0", "id": id, "result": result}));
         std::io::stdout().flush().unwrap();
+        if mode == "close_after_call" && request["method"] == "tools/call" {
+            break;
+        }
     }
+    append(&data.join("closures"), "x");
     std::process::exit(0);
 }
 

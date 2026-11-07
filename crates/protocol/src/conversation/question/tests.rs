@@ -1,6 +1,29 @@
 use super::*;
 
 #[test]
+fn defaults_text_options() {
+    for input in [
+        serde_json::json!({"kind":"text"}),
+        serde_json::json!({"kind":"text","multiline":false}),
+        serde_json::json!({"kind":"text","max_bytes":MAX_TEXT_BYTES}),
+    ] {
+        let spec: Spec =
+            serde_json::from_value(serde_json::json!({"prompt":"Describe the task","input":input}))
+                .unwrap();
+        assert_eq!(
+            spec.input,
+            Input::Text {
+                multiline: false,
+                max_bytes: MAX_TEXT_BYTES,
+            }
+        );
+        spec.validate().unwrap();
+        let restored: Spec = serde_json::from_value(serde_json::to_value(&spec).unwrap()).unwrap();
+        assert_eq!(restored, spec);
+    }
+}
+
+#[test]
 fn preserves_wire_and_validation() {
     for (scenario, check) in [
         (
@@ -29,7 +52,7 @@ fn preserves_wire_and_validation() {
                     serde_json::json!({"kind":"choice", "multiple":false}),
                     serde_json::json!({"kind":"choice", "options":["One"], "multiple":false, "allow_other":null}),
                     serde_json::json!({"kind":"choice", "options":["One"], "multiple":false, "unknown":false}),
-                    serde_json::json!({"kind":"text", "max_bytes":512}),
+                    serde_json::json!({"kind":"text", "max_bytes":null}),
                 ] {
                     let mut invalid_spec = value.clone();
                     invalid_spec["input"] = invalid;

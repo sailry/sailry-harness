@@ -9,7 +9,7 @@ use rmcp::model::{CallToolRequestParams, CallToolResult, ErrorData, Tool, ToolAn
 use sailry_link::{Local, Transport};
 use sailry_protocol::{Command, Output, Request, WorktreeId};
 use serde::de::DeserializeOwned;
-use serde_json::{Value, json};
+use serde_json::Value;
 
 #[async_trait]
 pub(super) trait Definition: Send + Sync {
@@ -134,10 +134,7 @@ impl<D: Definition + 'static> Operation<D> {
         tokio::select! {
             biased;
             _ = self.binding.stop.cancelled() => Err(Fault::invalid("tool invocation was cancelled")),
-            result = result => match result {
-                Ok(output) => Ok(output),
-                Err(error) => Ok(json!({"error": error})),
-            },
+            result = result => result,
         }
     }
 }

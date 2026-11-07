@@ -242,9 +242,9 @@ async fn rejects_review_in_code() {
     assert_eq!(returned.len(), 1);
     assert_eq!(returned[0].0, "ask_user");
     let result = returned[0].1.result.as_ref().unwrap();
-    assert_eq!(result["error"]["code"], "permission_denied");
+    assert_eq!(result["data"]["code"], "permission_denied");
     assert_eq!(
-        result["error"]["message"],
+        result["data"]["message"],
         "plan review is unavailable in this turn"
     );
     assert_eq!(server.requests.lock().unwrap().len(), 2);
