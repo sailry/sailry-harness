@@ -37,6 +37,12 @@ a controller does not stop already admitted work.
 | `crates/link` | Identity, pairing, authenticated transport, receipt and reconnect | Agent history and business execution |
 | `crates/client` | Typed commands, ordered projections, deduplication and snapshot recovery | UI widgets, Node execution and a business database |
 | `crates/node-runtime` | Admission, persistence, configuration, GDK execution and resource services | GPUI, Flutter and controller presentation |
+| `crates/runtime-core` | Node errors, profile ownership, workspace layout and confined file primitives | Storage, agents and transport |
+| `crates/local-models` | Local model registry, Hub discovery, CPU scheduling, OCR and decision services | Node storage, admission and controllers |
+| `crates/office` | Office and PDF text extraction | File access and OCR |
+| `crates/databases` | External database drivers and SSH tunnels | Stored connections and approvals |
+| `crates/ssh` | Verified SSH connection setup | Remote commands, files and terminals |
+| `crates/vt` | Ghostty terminal emulation and input encoding | PTY processes and terminal inventory |
 | `crates/mobile-bridge` | Client handles, subscriptions and Rust/Dart adaptation | Node, GDK, PTY, Git execution and tool drivers |
 | `crates/speech` | Shared speech capability and native audio integration | Conversation ownership |
 | `crates/embedding` | CPU model loading, token offsets and normalized local vectors | Source grants, indexing and controllers |
@@ -57,9 +63,15 @@ content       → protocol + GPUI Kit
 host          → client + node-runtime
 mobile-bridge → client
 client        → protocol + link
-node-runtime  → protocol + link + GDK
+node-runtime  → protocol + link + GDK + Node service crates
+local-models  → runtime-core + office + embedding + ocr + decision + model-assets
+databases     → runtime-core + ssh
 link          → protocol + transport dependencies
 ```
+
+Node service crates (`runtime-core`, `local-models`, `office`, `databases`, `ssh`
+and `vt`) depend only on Protocol, each other and external libraries, never on
+Node storage or agents. Node re-exports them under its existing module paths.
 
 Test-only integration fixtures may construct real Nodes without changing the
 production controller boundary. The root Cargo workspace owns pinned Rust
@@ -69,7 +81,7 @@ small provider extension hooks and fixes; Claude OAuth policy and wire formattin
 remain in Node. Provider request formats and stream completion semantics follow
 that locked revision. Retained third-party source keeps its upstream licenses and
 provenance. Feature modules stay inside their owning crate unless a concrete
-platform or dependency boundary requires another crate.
+platform, dependency or compile-time boundary requires another crate.
 
 ## Data and ownership
 
