@@ -180,6 +180,9 @@ and recompute the package's deterministic delta, retaining business identifiers
 in flow state. Each attempt has a separate durable request, within the existing
 eight-operation limit. Configuration, authorization, permission, cancellation
 and uncertain outcomes do not authorize continuation or automatic replay.
+A `call` transition for a read-only operation may set `optional: true` for
+supplementary data. Its failure, including a lost response, reaches the next
+evaluation as `outcome` instead of ending the tool; stopping the tool still ends it.
 After a key-CAS rejection, a final result may add `context` for the Agent to
 reconsider changed data. The original fault and `isError` remain authoritative;
 context must not claim an uncommitted write succeeded. Context uses the same
@@ -612,8 +615,9 @@ The `code` package composes `code_context` with ordinary `code.search`,
 `code.graph` and `files.read_lines` flow operations. It selects at most 20 symbols,
 the first symbol's callers, callees and impacted files, and five merged
 source snippets within 16 KiB of UTF-8 JSON, preserving file/index revisions and
-incomplete-result flags. File reads check each selected revision; stale ranges
-never expand against new source. Abandoning a Client search or outline sends its
+incomplete-result flags. Its graph step is optional: a failed graph omits the
+graph fields and sets `graph_unavailable` to a short reason. File reads check
+each selected revision; stale ranges never expand against new source. Abandoning a Client search or outline sends its
 scoped `cancel_code_index_query` while the transport runtime remains available.
 
 `code.index.settings.read` and `code.index.settings.write` expose the Node index
