@@ -153,9 +153,20 @@ fn stdio_peer() {
                 }
                 // This peer exercises legacy server requests, not the modern MRTR lifecycle.
                 assert_eq!(request["params"]["protocolVersion"], "2025-11-25");
-                json!({"protocolVersion":"2025-11-25", "capabilities": {"tools": {}}, "serverInfo": {"name": "fixture", "version": "1"}})
+                let tools = if mode == "list_changed" {
+                    json!({"listChanged":true})
+                } else {
+                    json!({})
+                };
+                json!({"protocolVersion":"2025-11-25", "capabilities": {"tools": tools}, "serverInfo": {"name": "fixture", "version": "1"}})
             }
-            "tools/list" => listed(&request["params"]["cursor"]),
+            "tools/list" => {
+                let mut page = listed(&request["params"]["cursor"]);
+                if mode == "zero_ttl" {
+                    page["ttlMs"] = json!(0);
+                }
+                page
+            }
             "tools/call" => {
                 if mode.starts_with("elicitation") {
                     pending = Some(id.clone());
@@ -184,6 +195,12 @@ fn stdio_peer() {
                         });
                     }
                     continue;
+                }
+                if mode == "list_changed" {
+                    println!(
+                        "{}",
+                        json!({"jsonrpc":"2.0","method":"notifications/tools/list_changed"})
+                    );
                 }
                 let name = request["params"]["name"].as_str().unwrap();
                 if mode == "presentation" {

@@ -50,6 +50,45 @@ async fn install_current(fixture: &process::Fixture) -> plugin::Info {
     install(fixture, revision).await
 }
 
+/// Declares a `token` setting injected as the `remote` server's authorization header.
+fn declare_token(root: &Path) {
+    let mut manifest: Value =
+        serde_json::from_slice(&fs::read(root.join("plugin.json")).unwrap()).unwrap();
+    manifest["extensions"] = json!({"dev.sailry.platform":{
+        "api_version":"v1", "actions":[], "settings_schema":"dev.sailry.platform/settings.json"
+    }});
+    fs::write(root.join("plugin.json"), manifest.to_string()).unwrap();
+    fs::write(root.join("dev.sailry.platform/settings.json"), json!({
+        "$schema":plugin::settings::SCHEMA, "type":"object", "additionalProperties":false,
+        "properties":{
+            "label":{"type":"string", "default":"Original"},
+            "token":{"type":"string", "x-sailry-secret":{"server":"remote", "header":"authorization"}}
+        },
+        "required":["token"]
+    }).to_string()).unwrap();
+}
+
+async fn save_settings(
+    client: &Client,
+    package: plugin::Reference,
+    label: &str,
+    secret: plugin::settings::SecretUpdate,
+) -> plugin::Reference {
+    let Output::PluginSettings(state) = execute(
+        client,
+        Command::SavePluginSettings {
+            package,
+            values: BTreeMap::from([("label".into(), json!(label))]),
+            secrets: BTreeMap::from([("token".into(), secret)]),
+        },
+    )
+    .await
+    else {
+        panic!("settings expected")
+    };
+    state.package
+}
+
 #[tokio::test]
 async fn confines_headers_and_isolates_redirect_failures() {
     let mut shared = None;
@@ -120,18 +159,7 @@ async fn confines_headers_and_isolates_redirect_failures() {
                 }}),
                 "private headers",
             );
-            let root = fixture.root.join("package");
-            let mut manifest: Value =
-                serde_json::from_slice(&fs::read(root.join("plugin.json")).unwrap()).unwrap();
-            manifest["extensions"] = json!({"dev.sailry.platform":{
-                "api_version":"v1", "actions":[], "settings_schema":"dev.sailry.platform/settings.json"
-            }});
-            fs::write(root.join("plugin.json"), manifest.to_string()).unwrap();
-            fs::write(root.join("dev.sailry.platform/settings.json"), json!({
-            "$schema":plugin::settings::SCHEMA, "type":"object", "additionalProperties":false,
-            "properties":{"token":{"type":"string", "x-sailry-secret":{"server":"remote", "header":"authorization"}}},
-            "required":["token"]
-        }).to_string()).unwrap();
+            declare_token(&fixture.root.join("package"));
             let package = install_current(fixture).await;
             let invalid = fixture.client.prepare(Command::SavePluginSettings {
                 package: package.summary.reference(),
@@ -548,5 +576,95 @@ async fn closes_sessions_between_turns() {
     }
     fixture.node.shutdown().await.unwrap();
     assert_eq!(http.deletes(), 2);
+    fixture.controller.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn reuses_sessions_between_turns() {
+    use plugin::settings::SecretUpdate;
+
+    let http = Http::start(Reply::Normal).await;
+    let model = Server::turn_tools(vec![(alias("remote", "read"), json!({}))]).await;
+    let fixture = process::Fixture::packages(&model, &[]).await;
+    package(
+        &fixture.root,
+        json!({"remote":{"type":"streamable-http","url":http.endpoint,"headers":{"Authorization":""}}}),
+        "pooled",
+    );
+    declare_token(&fixture.root.join("package"));
+    let turn = async || {
+        let (_, queued) = submit(&fixture, false).await;
+        let page = finished(&fixture.client, fixture.session.id, queued.id).await;
+        assert_eq!(
+            page.runs.last().unwrap().status,
+            Status::Completed,
+            "{:?}",
+            page.runs
+        );
+    };
+    let installed = install(&fixture, 0).await;
+    let configured = save_settings(
+        &fixture.client,
+        installed.summary.reference(),
+        "Original",
+        SecretUpdate::Replace(Secret::new("Bearer first-private".into())),
+    )
+    .await;
+    // Each listing requests both fixture pages.
+    for round in 1..=2 {
+        turn().await;
+        assert_eq!(http.count("initialize"), 1);
+        assert_eq!(http.count("tools/list"), 2);
+        assert_eq!(http.count("tools/call"), round);
+    }
+    assert_eq!(http.deletes(), 0);
+
+    let updated = save_settings(&fixture.client, configured, "Updated", SecretUpdate::Keep).await;
+    turn().await;
+    assert_eq!(http.count("initialize"), 2);
+    assert_eq!(http.count("tools/list"), 4);
+    assert_eq!(http.count("tools/call"), 3);
+    assert_eq!(http.deletes(), 1);
+
+    save_settings(
+        &fixture.client,
+        updated,
+        "Updated",
+        SecretUpdate::Replace(Secret::new("Bearer second-private".into())),
+    )
+    .await;
+    turn().await;
+    assert_eq!(http.count("initialize"), 3);
+    assert_eq!(http.count("tools/list"), 6);
+    assert_eq!(http.count("tools/call"), 4);
+    assert_eq!(http.deletes(), 2);
+    let authorization = |method: &str| {
+        http.requests
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(_, _, body)| body["method"] == method)
+            .map(|(_, headers, _)| headers["authorization"].clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        authorization("initialize"),
+        [
+            "Bearer first-private",
+            "Bearer first-private",
+            "Bearer second-private",
+        ]
+    );
+    assert_eq!(
+        authorization("tools/call"),
+        [
+            "Bearer first-private",
+            "Bearer first-private",
+            "Bearer first-private",
+            "Bearer second-private",
+        ]
+    );
+    fixture.node.shutdown().await.unwrap();
+    assert_eq!(http.deletes(), 3);
     fixture.controller.close().await.unwrap();
 }

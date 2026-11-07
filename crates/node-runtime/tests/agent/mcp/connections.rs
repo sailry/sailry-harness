@@ -7,6 +7,15 @@ fn pid(data: &Path) -> i32 {
         .unwrap()
 }
 
+fn requests(data: &Path, method: &str) -> usize {
+    fs::read_to_string(data.join("requests.jsonl"))
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .filter(|request| request["method"] == method)
+        .count()
+}
+
 #[tokio::test]
 async fn binds_reused_inputs() {
     use question::{Answer, Response};
@@ -95,6 +104,155 @@ async fn replaces_changed_connections() {
     assert_eq!(fs::read_to_string(data.join("launches")).unwrap(), "xx");
     // SAFETY: signal 0 only probes the recorded fixture PID and passes no pointers.
     assert_ne!(unsafe { libc::kill(original.unwrap(), 0) }, 0);
+    fixture.node.shutdown().await.unwrap();
+    reaped(&data);
+    fixture.controller.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn reuses_tool_lists_until_changed() {
+    // Notifications and an explicit zero TTL both require fresh pages on the next bind.
+    for (mode, listed) in [("normal", 2), ("list_changed", 4), ("zero_ttl", 4)] {
+        let model = Server::turn_tools(vec![(alias("native", "read"), json!({}))]).await;
+        let fixture = process::Fixture::packages(&model, &[]).await;
+        package(
+            &fixture.root,
+            json!({"native":peer::config("mcp::peer::stdio_peer", mode)}),
+            "pooled",
+        );
+        install(&fixture, 0).await;
+
+        let data = fixture.node.profile().join("plugins/data/example");
+        for round in 1..=2 {
+            let (_, turn) = submit(&fixture, false).await;
+            let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+            assert_eq!(
+                page.runs.last().unwrap().status,
+                Status::Completed,
+                "{mode}"
+            );
+            assert_eq!(
+                results(&fixture.client, &page).await.last().unwrap()["structuredContent"]["version"],
+                "pooled",
+                "{mode}"
+            );
+            assert_eq!(requests(&data, "initialize"), 1, "{mode}");
+            assert_eq!(requests(&data, "tools/call"), round, "{mode}");
+            assert_eq!(
+                requests(&data, "tools/list"),
+                if round == 1 { 2 } else { listed },
+                "{mode}"
+            );
+        }
+        assert_eq!(
+            fs::read_to_string(data.join("launches")).unwrap(),
+            "x",
+            "{mode}"
+        );
+        fixture.node.shutdown().await.unwrap();
+        reaped(&data);
+        fixture.controller.close().await.unwrap();
+    }
+}
+
+#[cfg(feature = "test-support")]
+#[tokio::test]
+async fn replaces_changed_credentials() {
+    use crate::connector_fixture as connectors;
+    use plugin::connector::{Input, Kind, State};
+    use std::collections::BTreeMap;
+
+    let model = Server::turn_tools(vec![(alias("native", "read"), json!({}))]).await;
+    let fixture = process::Fixture::packages(&model, &[]).await;
+    isolate(&fixture.client).await;
+    let mut server = peer::config("mcp::peer::stdio_peer", "credentials");
+    server["env"]["SAILRY_MCP_TOKEN"] = json!("");
+    server["env"]["SAILRY_MCP_SECOND"] = json!("");
+    package(&fixture.root, json!({"native":server}), "0.1.0");
+    connectors::configure(
+        &fixture.root.join("package"),
+        json!({
+            "id":"service","display":{"label":"Service"},"accounts":"single",
+            "origins":[connectors::ORIGIN],"auth":[{"kind":"secret","fields":["token"]}],
+            "fields":[{"name":"token","title":"Token","secret":true}],
+            "inject":[{"server":"native","env":"SAILRY_MCP_TOKEN","field":"token"},
+                {"server":"native","env":"SAILRY_MCP_SECOND","field":"token"}]
+        }),
+    );
+    let installed = install(&fixture, 0).await;
+    assert!(installed.issues.is_empty(), "{:?}", installed.issues);
+    let package = installed.summary.reference();
+    let first = "first-private-credential";
+    let second = "second-private-credential";
+    let row = connectors::connected(
+        &fixture.client,
+        fixture.client.prepare(Command::StartConnectorLogin {
+            package: package.clone(),
+            connector: "service".into(),
+            connection: None,
+            expected_revision: None,
+            method: Kind::Secret,
+            input: Input {
+                secrets: BTreeMap::from([("token".into(), Secret::new(first.into()))]),
+                ..Default::default()
+            },
+        }),
+    )
+    .await;
+    assert_eq!(row.state, State::Connected);
+    let data = fixture.node.profile().join("plugins/data/example");
+    let mut original = None;
+    for (index, secret) in [first, first, second].into_iter().enumerate() {
+        if index == 2 {
+            let Output::Connection(updated) = execute(
+                &fixture.client,
+                Command::UpdateConnection {
+                    connection: row.id,
+                    expected_revision: row.revision,
+                    input: Input {
+                        secrets: BTreeMap::from([("token".into(), Secret::new(second.into()))]),
+                        ..Default::default()
+                    },
+                },
+            )
+            .await
+            else {
+                panic!("connection expected")
+            };
+            assert_eq!(updated.id, row.id);
+            assert_eq!(updated.revision, row.revision + 1);
+            assert_eq!(updated.state, State::Connected);
+        }
+        let (_, turn) = submit(&fixture, false).await;
+        assert!(turn.plugins.contains(&package));
+        let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+        assert_eq!(page.runs.last().unwrap().status, Status::Completed);
+        let hash = blake3::hash(secret.as_bytes());
+        assert_eq!(
+            results(&fixture.client, &page).await.last().unwrap()["structuredContent"]["hashes"],
+            json!([hash.as_bytes(), hash.as_bytes()])
+        );
+        let connections = if index == 2 { 2 } else { 1 };
+        assert_eq!(requests(&data, "initialize"), connections);
+        assert_eq!(requests(&data, "tools/list"), connections * 2);
+        assert_eq!(requests(&data, "tools/call"), index + 1);
+        if index == 2 {
+            assert_eq!(fs::read_to_string(data.join("launches")).unwrap(), "xx");
+            // SAFETY: signal 0 only probes the recorded fixture PID and passes no pointers.
+            assert_ne!(unsafe { libc::kill(original.unwrap(), 0) }, 0);
+        } else {
+            assert_eq!(fs::read_to_string(data.join("launches")).unwrap(), "x");
+            assert_eq!(*original.get_or_insert(pid(&data)), pid(&data));
+        }
+        for token in [first, second] {
+            assert!(!serde_json::to_string(&page).unwrap().contains(token));
+            assert!(
+                !serde_json::to_string(&*model.requests.lock().unwrap())
+                    .unwrap()
+                    .contains(token)
+            );
+        }
+    }
     fixture.node.shutdown().await.unwrap();
     reaped(&data);
     fixture.controller.close().await.unwrap();

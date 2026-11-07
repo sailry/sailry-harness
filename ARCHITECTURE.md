@@ -979,7 +979,10 @@ attachments and sent-turn captures remain unchanged. Native and scripted tool
 declarations can declare the same retention for their own results; an MCP tool
 declaration applies only when its server sets none. `reuse: false` closes that
 server at turn settlement
-instead of pooling it. Settlement confirms pending-task cancellation before
+instead of pooling it. A session's pooled connection is replaced when its package,
+settings or connector revision changes. It reuses its listed tools until the
+server's `ttlMs` expires or it sends `tools/list_changed`; each turn freezes the
+set it binds. Settlement confirms pending-task cancellation before
 closing the wire. Stdio closure sends EOF and waits up to five seconds
 for a successful child exit, then kills and reaps when needed. Failed or uncertain
 cleanup returns `OutcomeUnknown`; input is never replayed automatically.
