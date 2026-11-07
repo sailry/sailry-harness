@@ -30,7 +30,7 @@ documents — on the [models you choose](docs/models.md).
 > feedback shapes what comes next.
 
 <p align="center">
-  <img src="assets/readme/workspace-dark.png" width="100%" alt="Sailry desktop in dark mode: hosts and projects in the sidebar and a new conversation in the center.">
+  <img src="assets/readme/workspace.webp" width="100%" alt="Sailry desktop home: hosts, active sessions and projects in the sidebar, and a new conversation with quick starts in the center.">
 </p>
 
 ## Any computer becomes your host
@@ -66,7 +66,7 @@ Where Sailry goes further:
 - **Local speech and OCR.** Voice input and text recognition run on your own machine.
 
 <p align="center">
-  <img src="assets/readme/files.png" width="100%" alt="A Sailry conversation turning launch notes into a weekly plan next to the Markdown document it edits.">
+  <img src="assets/readme/conversation.webp" width="100%" alt="A Sailry conversation in a project reviewing an API design before the client is built.">
 </p>
 
 ## A harness, not just an agent
@@ -112,7 +112,12 @@ less lag.
   the Apache-2.0 [SDK](sdk/plugins.md).
 
 <p align="center">
-  <img src="assets/readme/plugins.png" width="100%" alt="The Sailry plugin market with installed and official plugins such as Browser, Code review, Computer Use and Databases.">
+  <img src="assets/readme/market.webp" width="100%" alt="The Sailry market with official plugins such as Browser, Code review, Computer Use, Databases and Context7.">
+</p>
+
+<p align="center">
+  <img src="assets/readme/plugin-city-trader.webp" width="49%" alt="Dream City Tycoon, a plugin page written in JavaScript and rendered with native components.">
+  <img src="assets/readme/plugin-doudizhu.webp" width="49%" alt="Dou Dizhu, a card game plugin with two AI opponents.">
 </p>
 
 ## Polished UI, your theme
@@ -120,6 +125,10 @@ less lag.
 The theme system is part of the UI layer itself: colors, typography, surfaces and decorations come
 from one set of tokens, in light and dark. Apply themes from the built-in market; official themes
 are open packages in [sailry-themes](https://github.com/sailry/sailry-themes).
+
+<p align="center">
+  <img src="assets/readme/theme-great-sage.webp" width="100%" alt="Sailry with the Great Sage theme: an illustrated backdrop, gilded controls and themed quick starts.">
+</p>
 
 ## Install
 

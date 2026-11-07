@@ -25,7 +25,7 @@ Sailry 是一个开源的 AI Harness——不只是智能体，而是直接运�
 > **早期预览版。** Sailry 版本之间变化较快。让智能体修改重要文件前请先备份。遇到问题欢迎[提交反馈](https://github.com/sailry/sailry-harness/issues)，你的反馈会直接影响后续开发。
 
 <p align="center">
-  <img src="assets/readme/workspace-dark.png" width="100%" alt="Sailry 桌面端暗色模式：左侧是主机和项目，中间是新会话。">
+  <img src="assets/readme/workspace.webp" width="100%" alt="Sailry 桌面端首页：左侧是主机、进行中的会话和项目，中间是新会话和快捷入口。">
 </p>
 
 ## 任何一台电脑，都能成为你的主机
@@ -50,7 +50,7 @@ Sailry 更进一步的地方：
 - **本地语音和 OCR。** 语音输入和文字识别都在你自己的机器上完成。
 
 <p align="center">
-  <img src="assets/readme/files.png" width="100%" alt="Sailry 会话把发布笔记整理成周计划，旁边是正在编辑的 Markdown 文档。">
+  <img src="assets/readme/conversation.webp" width="100%" alt="Sailry 项目内的会话：在开发客户端之前评审 API 设计。">
 </p>
 
 ## 不只是智能体，更是 AI Harness
@@ -79,12 +79,21 @@ Sailry 用 Rust 编写，基于 GPUI 和 [GPUI Kit](https://github.com/dux-web/g
 - 浏览官方[插件](https://github.com/sailry/sailry-plugins)，或用 Apache-2.0 的 [SDK](sdk/plugins.md) 编写你自己的插件。
 
 <p align="center">
-  <img src="assets/readme/plugins.png" width="100%" alt="Sailry 插件市场：已安装和官方插件，包括浏览器、代码审查、电脑操作和数据库等。">
+  <img src="assets/readme/market.webp" width="100%" alt="Sailry 插件市场：浏览器、代码审查、电脑操作、数据库、Context7 等官方插件。">
+</p>
+
+<p align="center">
+  <img src="assets/readme/plugin-city-trader.webp" width="49%" alt="筑梦大亨：用 JavaScript 编写、由原生组件渲染的插件页面。">
+  <img src="assets/readme/plugin-doudizhu.webp" width="49%" alt="斗地主：和两个 AI 对手对战的纸牌游戏插件。">
 </p>
 
 ## 精致界面，你的主题
 
 主题系统就是界面层本身：颜色、字体、表面和装饰都来自同一套设计令牌，支持亮色和暗色。在内置主题市场一键应用；官方主题以开放的主题包形式维护在 [sailry-themes](https://github.com/sailry/sailry-themes)。
+
+<p align="center">
+  <img src="assets/readme/theme-great-sage.webp" width="100%" alt="Sailry 使用 Great Sage 主题：插画背景、鎏金控件和主题化的快捷入口。">
+</p>
 
 ## 安装
 
