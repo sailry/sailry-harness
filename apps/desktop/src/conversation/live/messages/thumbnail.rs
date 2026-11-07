@@ -127,7 +127,7 @@ fn request(
             Ok(content) => {
                 let rendering = cx.update(|cx| {
                     handle.update(cx, |_, window, cx| {
-                        snapshot::render(content.html, palette, key.width, window, cx)
+                        snapshot::render(content.html, palette, key, window, cx)
                     })
                 });
                 match rendering {

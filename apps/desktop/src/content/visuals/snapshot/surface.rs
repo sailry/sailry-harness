@@ -1,7 +1,7 @@
 //! One hidden page renders every thumbnail, one job at a time. It has no native
 //! message channel: authored code stays in the sandboxed frame and the
 //! renderer polls the Sailry-owned page with script results instead.
-use super::{Measure, Placement, Snapshot, VIEWPORT, crop, place};
+use super::{LAYOUT, Measure, Placement, Snapshot, VIEWPORT, crop, place};
 use crate::theme::css::Palette;
 use futures::{
     future::{Either, select},
@@ -23,7 +23,10 @@ const STATE: &str = "JSON.stringify({job:window.sailryJob===undefined?null:windo
 pub(super) struct Request {
     pub(super) html: String,
     pub(super) palette: Palette,
+    /// Card width in points; the page itself always lays out at `LAYOUT`.
     pub(super) width: f32,
+    /// Card width in device pixels.
+    pub(super) pixels: u32,
 }
 
 struct Service(Entity<Surface>);
@@ -62,10 +65,10 @@ fn state(raw: &str) -> Option<State> {
 
 /// Visible only while rendering and placed outside the window: hidden WebKit
 /// and WebView2 views stop painting, which leaves native captures blank.
-fn bounds(width: f32) -> wry::Rect {
+fn bounds() -> wry::Rect {
     wry::Rect {
-        position: wry::dpi::LogicalPosition::new(-f64::from(width) - 64., 0.).into(),
-        size: wry::dpi::LogicalSize::new(f64::from(width), f64::from(VIEWPORT)).into(),
+        position: wry::dpi::LogicalPosition::new(-f64::from(LAYOUT) - 64., 0.).into(),
+        size: wry::dpi::LogicalSize::new(f64::from(LAYOUT), f64::from(VIEWPORT)).into(),
     }
 }
 
@@ -193,7 +196,7 @@ impl Surface {
             .with_focused(false)
             .with_visible(false)
             .with_background_throttling(wry::BackgroundThrottlingPolicy::Disabled)
-            .with_bounds(bounds(super::MIN_WIDTH))
+            .with_bounds(bounds())
             .with_navigation_handler(|url| url == "about:blank" || url == "about:srcdoc")
             .with_download_started_handler(|_, _| false)
             .with_new_window_req_handler(|_, _| wry::NewWindowResponse::Deny)
@@ -255,12 +258,12 @@ impl Surface {
             let page = crate::content::files::html::surface::snapshot(
                 &job.request.html,
                 &job.request.palette,
-                job.request.width,
+                LAYOUT,
                 VIEWPORT,
                 job.id,
             );
             let shown = view
-                .set_bounds(bounds(job.request.width))
+                .set_bounds(bounds())
                 .and_then(|()| view.set_visible(true))
                 .and_then(|()| view.load_html(&page));
             if let Err(error) = shown {
@@ -320,7 +323,7 @@ impl Surface {
                 let Some(measure) = state.measure else {
                     return;
                 };
-                let Some(placement) = place(&measure, job.request.width) else {
+                let Some(placement) = place(&measure) else {
                     return self.finish(Err("Preview has no visible content".into()), cx);
                 };
                 let script = format!("window.sailryPlace({},{})", placement.x, placement.y);
@@ -349,7 +352,9 @@ impl Surface {
         let Some((job, _)) = self.active.as_ref() else {
             return;
         };
-        let width = job.request.width;
+        let (width, pixels) = (job.request.width, job.request.pixels);
+        // WebKit draws the layout at the card width; WebView2 copies the full
+        // layout frame, which `crop` scales down.
         let pending = self
             .view
             .as_ref()
@@ -362,7 +367,7 @@ impl Surface {
             let encoded = match receiver.await {
                 Ok(Ok(buffer)) => {
                     cx.background_executor()
-                        .spawn(async move { crop(&buffer.bytes, buffer.format, width, placement) })
+                        .spawn(async move { crop(&buffer.bytes, buffer.format, placement, pixels) })
                         .await
                 }
                 _ => Err("Snapshot capture failed".into()),
@@ -372,7 +377,7 @@ impl Surface {
                     gpui_kit::ImageFormat::Png,
                     bytes,
                 )),
-                width,
+                width: LAYOUT,
                 height: placement.height,
             });
             let _ = surface.update(cx, |surface, cx| {
@@ -467,8 +472,8 @@ mod tests {
     }
 
     #[test]
-    fn renders_outside_the_window() {
-        let rect = bounds(640.);
+    fn renders_desktop_viewport_outside_the_window() {
+        let rect = bounds();
         let wry::dpi::Position::Logical(position) = rect.position else {
             panic!("snapshot bounds use logical coordinates");
         };
@@ -476,7 +481,7 @@ mod tests {
             panic!("snapshot bounds use logical coordinates");
         };
         assert!(position.x + size.width <= 0.);
-        assert_eq!(size.width, 640.);
+        assert_eq!(size.width, f64::from(LAYOUT));
         assert_eq!(size.height, f64::from(VIEWPORT));
     }
 }

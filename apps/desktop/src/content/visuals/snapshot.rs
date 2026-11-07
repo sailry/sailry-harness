@@ -19,9 +19,13 @@ mod tests;
 pub(crate) const MIN_WIDTH: f32 = 240.;
 pub(crate) const MAX_WIDTH: f32 = 960.;
 const STEP: f32 = 80.;
-pub(crate) const MIN_HEIGHT: f32 = 96.;
-pub(crate) const MAX_HEIGHT: f32 = 360.;
-const PADDING: f32 = 24.;
+/// Authored pages lay out at this desktop width, wider than any card, and
+/// cards show them scaled down. Heights below are in page points.
+pub(crate) const LAYOUT: f32 = 1280.;
+pub(crate) const MIN_HEIGHT: f32 = 160.;
+/// Keeps thumbnails in the 800-point conversation column at most 360 points tall.
+pub(crate) const MAX_HEIGHT: f32 = 576.;
+const PADDING: f32 = 40.;
 /// Authored layouts see this viewport, so `100vh` content stays bounded.
 pub(crate) const VIEWPORT: f32 = MAX_HEIGHT + 2. * PADDING;
 const CAPACITY: usize = 48;
@@ -76,6 +80,11 @@ impl Key {
             scale: (scale.clamp(0.5, 4.) * 100.).round() as u32,
         }
     }
+
+    /// Image width in device pixels: the card width at its display scale.
+    pub(crate) fn pixels(&self) -> u32 {
+        (self.width * self.scale).div_ceil(100)
+    }
 }
 
 /// The authored content box reported from inside the sandboxed frame.
@@ -99,16 +108,15 @@ pub(crate) struct Placement {
 
 /// Opaque pages keep their own layout from the top. Transparent content is
 /// centered on the dotted wrapper, or top-aligned when taller than the bound.
-pub(crate) fn place(measure: &Measure, width: f32) -> Option<Placement> {
+pub(crate) fn place(measure: &Measure) -> Option<Placement> {
     let values = [
         measure.left,
         measure.top,
         measure.width,
         measure.height,
         measure.scroll_height,
-        width,
     ];
-    if values.iter().any(|value| !value.is_finite()) || width < 1. || measure.top >= VIEWPORT {
+    if values.iter().any(|value| !value.is_finite()) || measure.top >= VIEWPORT {
         return None;
     }
     if measure.opaque {
@@ -122,7 +130,7 @@ pub(crate) fn place(measure: &Measure, width: f32) -> Option<Placement> {
             y: 0.,
         });
     }
-    if measure.width < 1. || measure.height < 1. || measure.left >= width {
+    if measure.width < 1. || measure.height < 1. || measure.left >= LAYOUT {
         return None;
     }
     let height = (measure.height + 2. * PADDING).clamp(MIN_HEIGHT, MAX_HEIGHT);
@@ -131,33 +139,43 @@ pub(crate) fn place(measure: &Measure, width: f32) -> Option<Placement> {
     } else {
         PADDING - measure.top
     };
-    let x = (width - measure.width) / 2. - measure.left;
+    let x = (LAYOUT - measure.width) / 2. - measure.left;
     Some(Placement {
         height: height.round(),
-        x: x.clamp(-4. * MAX_WIDTH, MAX_WIDTH).round(),
+        x: x.clamp(-4. * LAYOUT, LAYOUT).round(),
         y: y.clamp(-VIEWPORT, MAX_HEIGHT).round(),
     })
 }
 
-/// Crops a native capture of the `width`-point page to the placed height and
-/// re-encodes it as PNG. A uniform frame was never painted.
+/// Crops a native capture of the full layout width to the placed height,
+/// scales it down to at most `output` pixels wide and re-encodes it as PNG.
+/// A uniform frame was never painted.
 pub(crate) fn crop(
     bytes: &[u8],
     format: image::ImageFormat,
-    width: f32,
     placement: Placement,
+    output: u32,
 ) -> Result<Vec<u8>, String> {
     let captured = image::load_from_memory_with_format(bytes, format)
         .map_err(|_| "Snapshot capture is not a valid image".to_owned())?;
-    if captured.width() == 0 || captured.height() == 0 || width < 1. {
+    if captured.width() == 0 || captured.height() == 0 || output == 0 {
         return Err("Snapshot capture is empty".into());
     }
-    let scale = captured.width() as f32 / width;
+    let scale = captured.width() as f32 / LAYOUT;
     let height = ((placement.height * scale).round() as u32).clamp(1, captured.height());
-    let pixels = captured.crop_imm(0, 0, captured.width(), height).to_rgba8();
+    let mut pixels = captured.crop_imm(0, 0, captured.width(), height).to_rgba8();
     let first = *pixels.get_pixel(0, 0);
     if pixels.pixels().all(|pixel| *pixel == first) {
         return Err("Snapshot capture is blank".into());
+    }
+    if pixels.width() > output {
+        let scaled = (height as f32 * output as f32 / pixels.width() as f32).round() as u32;
+        pixels = image::imageops::resize(
+            &pixels,
+            output,
+            scaled.max(1),
+            image::imageops::FilterType::Lanczos3,
+        );
     }
     let mut encoded = std::io::Cursor::new(Vec::new());
     image::DynamicImage::ImageRgba8(pixels)
@@ -173,7 +191,7 @@ pub(crate) fn crop(
 #[derive(Clone)]
 pub(crate) struct Snapshot {
     pub(crate) image: Arc<gpui_kit::Image>,
-    /// Logical size at the rendering width; cards scale it to fit.
+    /// Captured page region in layout points; cards scale it to their width.
     pub(crate) width: f32,
     pub(crate) height: f32,
 }
@@ -264,11 +282,12 @@ impl Cache {
     }
 }
 
-/// Renders authored preview HTML at `width` on the shared hidden surface.
+/// Renders authored preview HTML on the shared hidden surface into an image
+/// sized for `key`'s card width and display scale.
 pub(crate) fn render(
     html: String,
     palette: Palette,
-    width: u32,
+    key: Key,
     window: &mut Window,
     cx: &mut App,
 ) -> Task<Result<Snapshot, String>> {
@@ -278,7 +297,8 @@ pub(crate) fn render(
             surface::Request {
                 html,
                 palette,
-                width: width as f32,
+                width: key.width as f32,
+                pixels: key.pixels(),
             },
             window,
             cx,
@@ -286,7 +306,7 @@ pub(crate) fn render(
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
-        let _ = (html, palette, width, window, cx);
+        let _ = (html, palette, key, window, cx);
         Task::ready(Err("Preview thumbnails are unavailable".into()))
     }
 }
