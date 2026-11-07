@@ -1322,6 +1322,15 @@
           "description": "Starts visible to the main agent; limited to read-only or package-storage tools.",
           "type": "boolean"
         },
+        "keep_images": {
+          "description": "Outgoing model requests omit this tool's older result images in batches of\nfive beyond this count. Canonical history keeps every image.",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "name": {
           "type": "string"
         },
