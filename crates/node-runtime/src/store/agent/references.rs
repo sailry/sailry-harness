@@ -139,12 +139,10 @@ pub(super) async fn validate(
             Target::Session(id) => {
                 history::visible(db, session.project, *id).await?;
             }
-            Target::Attachment(id) => {
-                if !message.attachments.contains(id) {
-                    return Err(Fault::invalid(
-                        "attachment references require an attachment of the same input",
-                    ));
-                }
+            Target::Attachment(id) if !message.attachments.contains(id) => {
+                return Err(Fault::invalid(
+                    "attachment references require an attachment of the same input",
+                ));
             }
             _ => {}
         }

@@ -410,7 +410,7 @@ mod link_gaps {
         let [(link, _)] = flat.links.as_slice() else {
             panic!("one link");
         };
-        assert_eq!(flat.chips, [link.clone()]);
+        assert_eq!(flat.chips, std::slice::from_ref(link));
         assert_eq!(
             &flat.text[link.clone()],
             format!("{ICON}https://example.com")
@@ -429,7 +429,7 @@ mod link_gaps {
         let [(chip, _), (plain, _)] = flat.links.as_slice() else {
             panic!("two links");
         };
-        assert_eq!(flat.chips, [chip.clone()]);
+        assert_eq!(flat.chips, std::slice::from_ref(chip));
         assert_eq!(&flat.text[chip.clone()], format!("{ICON}Parser review"));
         let mut start = 0;
         for run in &flat.runs {

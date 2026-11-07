@@ -161,10 +161,7 @@ fn ends(path: &str, suffix: &str) -> bool {
             .is_some_and(|rest| rest.is_empty() || rest.ends_with('/'))
 }
 
-fn select<'a>(
-    candidates: &'a [Candidate],
-    keep: impl Fn(&Candidate) -> bool,
-) -> Vec<&'a Candidate> {
+fn select(candidates: &[Candidate], keep: impl Fn(&Candidate) -> bool) -> Vec<&Candidate> {
     candidates
         .iter()
         .filter(|candidate| keep(candidate))

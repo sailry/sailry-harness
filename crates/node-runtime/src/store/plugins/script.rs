@@ -105,28 +105,27 @@ impl Ingress {
         use notification::DiagnosticReason;
         let mut fault = fault;
         attribute(&mut fault, info);
-        if let Some(FaultDetails::SystemDiagnostic(report)) = &mut fault.details {
-            if fault.code == ErrorCode::OutcomeUnknown
+        if let Some(FaultDetails::SystemDiagnostic(report)) = &mut fault.details
+            && (fault.code == ErrorCode::OutcomeUnknown
                 || (report.reason != DiagnosticReason::Cancelled
-                    && fault.code != ErrorCode::Cancelled)
-            {
-                let mut request = Request::new(
-                    self.node,
-                    Command::ReportDiagnostic(report.as_ref().clone()),
-                );
-                request.id = report.incident;
-                let result = match self.dispatch(caller, request).await {
-                    Ok(admission) => admission.completion.await.unwrap_or_else(|_| {
-                        Err(Fault::new(
-                            ErrorCode::OutcomeUnknown,
-                            "diagnostic completion is unknown",
-                        ))
-                    }),
-                    Err(fault) => Err(fault),
-                };
-                if let Err(error) = result {
-                    persist_failed(self.node, caller, report, info, &error);
-                }
+                    && fault.code != ErrorCode::Cancelled))
+        {
+            let mut request = Request::new(
+                self.node,
+                Command::ReportDiagnostic(report.as_ref().clone()),
+            );
+            request.id = report.incident;
+            let result = match self.dispatch(caller, request).await {
+                Ok(admission) => admission.completion.await.unwrap_or_else(|_| {
+                    Err(Fault::new(
+                        ErrorCode::OutcomeUnknown,
+                        "diagnostic completion is unknown",
+                    ))
+                }),
+                Err(fault) => Err(fault),
+            };
+            if let Err(error) = result {
+                persist_failed(self.node, caller, report, info, &error);
             }
         }
         fault

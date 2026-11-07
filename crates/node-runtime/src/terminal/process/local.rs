@@ -112,11 +112,11 @@ impl Process {
         #[cfg(not(unix))]
         let integration = None;
         #[cfg(windows)]
-        let directory = crate::process::pty_directory(root);
+        let directory = &crate::process::pty_directory(root);
         #[cfg(not(windows))]
         let directory = root;
         if command.get_cwd().is_none() {
-            command.cwd(&directory);
+            command.cwd(directory);
         }
         command.env("TERM", "xterm-256color");
         command.env("COLORTERM", "truecolor");
@@ -126,7 +126,7 @@ impl Process {
             libghostty_vt::build_info::version_string().map_err(failure)?,
         );
         command.env_remove("VTE_VERSION");
-        command.env("PWD", &directory);
+        command.env("PWD", directory);
         if let Some(sandbox) = &sandbox {
             #[cfg(unix)]
             let device = pair.master.tty_name();

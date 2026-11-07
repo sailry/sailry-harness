@@ -24,6 +24,9 @@ const MAX_AFFECTED: usize = 10;
 const MAX_RANKED: usize = 8;
 /// Grouped file and name reference counts read for the map.
 const MAX_MAP_ROWS: usize = 200_000;
+
+/// Path, enclosing scope name and start line, then symbol name and kind.
+type UsageSite = (String, Option<(String, u32)>, String, String);
 const MAX_MAP_IMPORTS: usize = 200_000;
 
 type Key = (String, String, u32);
@@ -148,8 +151,7 @@ async fn callers(
     let paths = usages.iter().map(|(path, _)| path.clone()).collect();
     let imports = reader.imports(&paths).await?;
     let wanted: BTreeSet<(&str, &str, u32)> = targets.iter().map(Candidate::key).collect();
-    let mut grouped: BTreeMap<(String, Option<(String, u32)>, String, String), Reference> =
-        BTreeMap::new();
+    let mut grouped: BTreeMap<UsageSite, Reference> = BTreeMap::new();
     for (path, usage) in &usages {
         reader.check()?;
         let Some((confidence, chosen)) =
