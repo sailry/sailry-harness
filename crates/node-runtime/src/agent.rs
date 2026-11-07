@@ -288,13 +288,13 @@ async fn execute(
     let diagnostics = execution.diagnostics;
     let session = invocation.turn.session;
     let mut connections = ingress.agents.mcp.take(session);
-    let mut result = execute_with(
+    let mut result = Box::pin(execute_with(
         ingress,
         invocation,
         stop.clone(),
         &mut connections,
         execution,
-    )
+    ))
     .await
     .map(|outcome| {
         *completion_review = outcome.review;

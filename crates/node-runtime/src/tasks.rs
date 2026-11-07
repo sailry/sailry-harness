@@ -67,6 +67,7 @@ impl Tasks {
             return Err(Error::Stopped);
         }
         let (reply, result) = oneshot::channel();
+        let work = Box::pin(work);
         let task = Task {
             work: Box::pin(async move {
                 let _ = reply.send(work.await);

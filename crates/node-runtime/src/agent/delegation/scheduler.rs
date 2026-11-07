@@ -62,13 +62,13 @@ async fn run(
     if status != Status::Running {
         return Ok((status, None));
     }
-    match AssertUnwindSafe(super::super::run(
+    match AssertUnwindSafe(Box::pin(super::super::run(
         ingress,
         tasks,
         invocation,
         token,
         Some(owner),
-    ))
+    )))
     .catch_unwind()
     .await
     {

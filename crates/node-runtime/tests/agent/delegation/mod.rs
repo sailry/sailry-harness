@@ -226,6 +226,7 @@ mod reuse;
 mod roles;
 mod selection;
 mod streaming;
+mod tools;
 
 /// The Node-owned budget limits children per root conversation at claim time.
 async fn capacity(client: &Client, count: u64) {
