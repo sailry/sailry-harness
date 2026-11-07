@@ -387,6 +387,12 @@ impl EffectHandler<Session, Effect> for Sessions {
 }
 
 pub(super) async fn get(db: &Connection, turn: TurnId, query: Query) -> Result<Session, Fault> {
+    let transaction = crate::store::database::conflict::begin_read(db).await?;
+    let result = snapshot(&transaction, turn, query).await;
+    crate::store::database::conflict::finish_read(transaction, result).await
+}
+
+async fn snapshot(db: &Connection, turn: TurnId, query: Query) -> Result<Session, Fault> {
     check_session(db, query.session).await?;
     let owns: bool = db
         .query(
@@ -454,6 +460,8 @@ pub(super) async fn get(db: &Connection, turn: TurnId, query: Query) -> Result<S
             apply_operation(&mut messages, operation);
         }
     }
+    #[cfg(test)]
+    tests::snapshots::before_state().await?;
     let state = history::state(db, query.session).await?;
     Ok(Session {
         id: query.session.to_string(),

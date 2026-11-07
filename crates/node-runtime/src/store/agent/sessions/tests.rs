@@ -6,6 +6,8 @@ use goose_provider_types::conversation::{
 };
 use rmcp::model::{CallToolRequestParams, CallToolResult, ContentBlock};
 
+pub(super) mod snapshots;
+
 async fn running() -> (Fixture, TurnId) {
     let mut fixture = Fixture::new().await;
     let turn = fixture.queued().await;
