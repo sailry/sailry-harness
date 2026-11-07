@@ -1,6 +1,6 @@
 use super::*;
-use sailry_link::CancellationToken;
 use std::time::{Duration, Instant};
+use tokio_util::sync::CancellationToken;
 
 fn directory() -> tempfile::TempDir {
     tempfile::tempdir_in(std::env::temp_dir().canonicalize().unwrap()).unwrap()

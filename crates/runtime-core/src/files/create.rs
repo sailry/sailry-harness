@@ -3,10 +3,7 @@
 use super::{io_error, path};
 use sailry_protocol::{ErrorCode, Fault};
 
-pub(crate) fn directory<'a>(
-    root: impl Into<super::Scope<'a>>,
-    relative: &str,
-) -> Result<(), Fault> {
+pub fn directory<'a>(root: impl Into<super::Scope<'a>>, relative: &str) -> Result<(), Fault> {
     let root = root.into();
     let parts = root.entries(relative)?;
     let (name, parents) = parts.split_last().unwrap();

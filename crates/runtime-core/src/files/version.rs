@@ -5,10 +5,7 @@ use sailry_protocol::{ErrorCode, Fault};
 
 use super::{io_error, open_regular, path, save::content};
 
-pub(super) fn current<'a>(
-    root: impl Into<super::Scope<'a>>,
-    relative: &str,
-) -> Result<String, Fault> {
+pub fn current<'a>(root: impl Into<super::Scope<'a>>, relative: &str) -> Result<String, Fault> {
     let root = root.into();
     let parts = root.components(relative, false)?;
     let (name, parents) = parts.split_last().unwrap();
@@ -17,12 +14,7 @@ pub(super) fn current<'a>(
     retained(&root, &dir, &open_regular(&dir, name)?, relative)
 }
 
-pub(super) fn retained(
-    root: &Dir,
-    parent: &Dir,
-    file: &File,
-    relative: &str,
-) -> Result<String, Fault> {
+pub fn retained(root: &Dir, parent: &Dir, file: &File, relative: &str) -> Result<String, Fault> {
     let metadata = file.metadata().map_err(io_error)?;
     #[cfg(unix)]
     let platform = {
@@ -55,7 +47,7 @@ pub(super) fn retained(
     Ok(hasher.finalize().to_hex().to_string())
 }
 
-pub(super) fn verify<'a>(
+pub fn verify<'a>(
     root_path: impl Into<super::Scope<'a>>,
     relative: &str,
     revision: &str,

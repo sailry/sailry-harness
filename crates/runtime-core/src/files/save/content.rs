@@ -1,8 +1,8 @@
 use super::*;
-use sailry_link::CancellationToken;
 use sailry_protocol::FILE_TRANSFER_CHUNK_BYTES;
+use tokio_util::sync::CancellationToken;
 
-pub(in crate::files) fn revision(
+pub fn revision(
     file: &mut File,
     limit: u64,
     cancel: Option<&CancellationToken>,
@@ -41,7 +41,7 @@ pub(in crate::files) fn revision(
     Ok(hash.finalize().to_hex().to_string())
 }
 
-pub(in crate::files) fn copy(
+pub fn copy(
     source: &mut impl Read,
     target: &mut impl Write,
     size: u64,

@@ -99,6 +99,7 @@ hayro.workspace = true
 sailry-model-assets.workspace = true
 sha1.workspace = true
 sailry-link.workspace = true
+sailry-runtime-core.workspace = true
 sailry-vt.workspace = true
 turso.workspace = true
 tree-sitter.workspace = true
@@ -165,7 +166,6 @@ hyper-util = { workspace = true, features = ["client-proxy"] }
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
-trash.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 oslog.workspace = true

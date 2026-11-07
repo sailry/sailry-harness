@@ -1,48 +1,39 @@
-mod access;
-pub(crate) use access::{Access, Scope};
+#[cfg(test)]
+mod access {
+    use super::*;
+    mod tests;
+}
 pub(crate) mod artifacts;
 pub(crate) mod attachments;
 pub(crate) mod browser;
 pub(crate) mod changes;
 pub(crate) mod checkpoints;
 pub(crate) mod copy;
-mod create;
 mod directory;
 pub(crate) mod edit;
-mod lines;
-pub(crate) use lines::bounded_at as index_text;
 pub(crate) mod media;
 pub(crate) mod mutations;
 pub(crate) mod notebook;
 pub(crate) mod patch;
-pub(crate) mod path;
 pub(crate) mod rename;
-mod save;
 mod search;
 pub(crate) mod ssh;
-pub(crate) mod text;
 pub(crate) mod transfers;
-mod trash;
-mod version;
-pub(crate) mod walk;
 pub(crate) mod watch;
-pub(crate) use create::directory;
 pub(crate) use edit::edit;
 pub(crate) use rename::rename;
-pub(crate) use save::restore as restore_text;
-pub(crate) use save::save;
-pub(crate) use trash::remove_verified;
-pub(crate) use trash::trash;
+pub(crate) use sailry_runtime_core::files::{
+    Access, Control, Scope, capture_text, directory, index_text, io_error, open_regular, path,
+    remove_verified, restore_text, save, text, trash, walk,
+};
+use sailry_runtime_core::files::{capture_with, lines, read_bytes, version};
 
 use std::{
-    io::Read,
     path::PathBuf,
     sync::Arc,
     time::{Duration, Instant},
 };
 
-use cap_fs_ext::{FollowSymlinks, OpenOptionsFollowExt};
-use cap_std::fs::OpenOptions;
 use sailry_link::CancellationToken;
 use sailry_protocol::*;
 
@@ -221,65 +212,6 @@ impl Files {
     }
 }
 
-pub(crate) fn capture_text(
-    root: &std::path::Path,
-    path: &str,
-    expected: &str,
-) -> Result<String, Fault> {
-    capture_with(
-        root,
-        path,
-        expected,
-        &Control {
-            cancelled: CancellationToken::new(),
-            deadline: Instant::now() + Duration::from_secs(5),
-        },
-    )
-}
-
-fn capture_with(
-    root: &std::path::Path,
-    path: &str,
-    expected: &str,
-    control: &Control,
-) -> Result<String, Fault> {
-    let text = lines::complete(root, path, control)?;
-    if blake3::hash(text.as_bytes()).to_hex().as_str() != expected {
-        return Err(Fault::new(
-            ErrorCode::RevisionConflict,
-            "file changed before checkpoint capture",
-        ));
-    }
-    control.check()?;
-    Ok(text)
-}
-
-pub(crate) struct Control {
-    cancelled: CancellationToken,
-    deadline: Instant,
-}
-
-impl Control {
-    pub(crate) fn new(cancelled: CancellationToken) -> Self {
-        Self::until(cancelled, Instant::now() + Duration::from_secs(5))
-    }
-    pub(crate) fn until(cancelled: CancellationToken, deadline: Instant) -> Self {
-        Self {
-            cancelled,
-            deadline,
-        }
-    }
-    pub(crate) fn check(&self) -> Result<(), Fault> {
-        if self.cancelled.is_cancelled() {
-            Err(Fault::new(ErrorCode::Cancelled, "file read cancelled"))
-        } else if Instant::now() >= self.deadline {
-            Err(Fault::new(ErrorCode::Busy, "file read deadline exceeded"))
-        } else {
-            Ok(())
-        }
-    }
-}
-
 fn read(root: Scope<'_>, path: String, control: &Control) -> Result<FileContent, Fault> {
     let mut file = path::file(root, &path)?;
     let metadata = file.metadata().map_err(io_error)?;
@@ -308,53 +240,6 @@ fn read(root: Scope<'_>, path: String, control: &Control) -> Result<FileContent,
         truncated,
         revision,
     })
-}
-
-pub(crate) fn open_regular(dir: &cap_std::fs::Dir, name: &str) -> Result<cap_std::fs::File, Fault> {
-    let metadata = dir.symlink_metadata(name).map_err(io_error)?;
-    if !metadata.is_file() || metadata.is_symlink() {
-        return Err(Fault::invalid("only regular files can be read"));
-    }
-    let mut options = OpenOptions::new();
-    options.read(true).follow(FollowSymlinks::No);
-    // A racing replacement by a FIFO must not occupy a worker indefinitely.
-    #[cfg(unix)]
-    cap_std::fs::OpenOptionsExt::custom_flags(&mut options, libc::O_NONBLOCK);
-    let file = dir.open_with(name, &options).map_err(io_error)?;
-    path::identity::file(&file)?;
-    let metadata = file.metadata().map_err(io_error)?;
-    if !metadata.is_file() {
-        return Err(Fault::invalid("only regular files can be read"));
-    }
-    Ok(file)
-}
-
-fn read_bytes(file: &mut impl Read, limit: usize, control: &Control) -> Result<Vec<u8>, Fault> {
-    let mut bytes = Vec::with_capacity(limit.min(8192));
-    let mut buffer = [0u8; 8192];
-    while bytes.len() < limit {
-        control.check()?;
-        let capacity = buffer.len().min(limit - bytes.len());
-        let size = file.read(&mut buffer[..capacity]).map_err(io_error)?;
-        if size == 0 {
-            break;
-        }
-        bytes.extend_from_slice(&buffer[..size]);
-    }
-    control.check()?;
-    Ok(bytes)
-}
-
-pub(crate) fn io_error(error: std::io::Error) -> Fault {
-    let code = match error.kind() {
-        std::io::ErrorKind::NotFound => ErrorCode::NotFound,
-        std::io::ErrorKind::PermissionDenied => ErrorCode::PermissionDenied,
-        _ => ErrorCode::InvalidRequest,
-    };
-    Fault::new(
-        code,
-        format!("worktree filesystem operation failed: {error}"),
-    )
 }
 
 #[cfg(test)]
@@ -493,13 +378,5 @@ mod tests {
             .unwrap_err();
         assert_eq!(error.code, ErrorCode::Busy);
         assert_eq!(error.message, "file read deadline exceeded");
-    }
-
-    #[test]
-    fn cancels_read_control() {
-        let stop = CancellationToken::new();
-        let control = Control::new(stop.clone());
-        stop.cancel();
-        assert_eq!(control.check().unwrap_err().code, ErrorCode::Cancelled);
     }
 }

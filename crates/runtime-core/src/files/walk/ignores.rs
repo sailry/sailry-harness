@@ -3,7 +3,7 @@ use ignore::gitignore::{Gitignore, GitignoreBuilder};
 
 const MAX_IGNORE_BYTES: usize = 1024 * 1024;
 
-pub(super) fn load(
+pub fn load(
     directory: &Dir,
     prefix: &str,
     control: &Control,
@@ -12,7 +12,7 @@ pub(super) fn load(
     load_path(directory, Path::new(prefix), control, report)
 }
 
-pub(crate) fn load_path(
+pub fn load_path(
     directory: &Dir,
     prefix: &Path,
     control: &Control,
@@ -71,7 +71,7 @@ pub(crate) fn load_path(
     }
 }
 
-pub(super) fn excludes(layers: &[Gitignore], relative: &str, directory: bool) -> bool {
+pub fn excludes(layers: &[Gitignore], relative: &str, directory: bool) -> bool {
     for layer in layers.iter().rev() {
         let found = layer.matched(relative, directory);
         if !found.is_none() {

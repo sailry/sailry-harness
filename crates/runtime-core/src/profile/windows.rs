@@ -40,7 +40,7 @@ use windows_sys::Win32::{
 use super::invalid;
 use crate::Error;
 
-pub(super) fn directory(path: &Path) -> Result<(), Error> {
+pub fn directory(path: &Path) -> Result<(), Error> {
     match path.symlink_metadata() {
         Ok(_) => return validate(path, true),
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
@@ -68,7 +68,7 @@ pub(super) fn directory(path: &Path) -> Result<(), Error> {
     validate(path, true)
 }
 
-pub(crate) fn validate_existing_file(path: &Path) -> Result<(), Error> {
+pub fn validate_existing_file(path: &Path) -> Result<(), Error> {
     match path.symlink_metadata() {
         Ok(_) => validate(path, false),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
@@ -78,7 +78,7 @@ pub(crate) fn validate_existing_file(path: &Path) -> Result<(), Error> {
 
 /// The engine creates sidecars with inherited security, so its parent must grant
 /// access only to this user and SYSTEM before the connection can write anything.
-pub(crate) fn prepare_database(path: &Path) -> Result<(), Error> {
+pub fn prepare_database(path: &Path) -> Result<(), Error> {
     let parent = path
         .parent()
         .ok_or_else(|| invalid(path, "database directory is missing"))?;
@@ -97,7 +97,7 @@ pub(crate) fn prepare_database(path: &Path) -> Result<(), Error> {
     validate(path, false)
 }
 
-pub(crate) fn validate_database(path: &Path) -> Result<(), Error> {
+pub fn validate_database(path: &Path) -> Result<(), Error> {
     for file in super::database_files(path) {
         validate_existing_file(&file)?;
     }

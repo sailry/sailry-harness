@@ -10,13 +10,13 @@ use sailry_protocol::{ErrorCode, Fault, FaultDetails};
 use super::io_error;
 
 #[path = "path/identity.rs"]
-pub(crate) mod identity;
+pub mod identity;
 
-pub(crate) fn entry_components(value: &str) -> Result<Vec<&str>, Fault> {
+pub fn entry_components(value: &str) -> Result<Vec<&str>, Fault> {
     entries_with(value, super::Access::Restricted)
 }
 
-pub(crate) fn entries_with(value: &str, access: super::Access) -> Result<Vec<&str>, Fault> {
+pub fn entries_with(value: &str, access: super::Access) -> Result<Vec<&str>, Fault> {
     let parts = components_with(value, false, access)?;
     if parts.iter().any(|part| part.eq_ignore_ascii_case(".git")) {
         return Err(Fault::new(
@@ -27,11 +27,11 @@ pub(crate) fn entries_with(value: &str, access: super::Access) -> Result<Vec<&st
     Ok(parts)
 }
 
-pub(crate) fn components(path: &str, allow_root: bool) -> Result<Vec<&str>, Fault> {
+pub fn components(path: &str, allow_root: bool) -> Result<Vec<&str>, Fault> {
     components_with(path, allow_root, super::Access::Restricted)
 }
 
-pub(crate) fn components_with(
+pub fn components_with(
     path: &str,
     allow_root: bool,
     access: super::Access,
@@ -62,11 +62,11 @@ pub(crate) fn components_with(
     Ok(parts)
 }
 
-pub(crate) fn worktrees(parent: &str, name: &str) -> bool {
+pub fn worktrees(parent: &str, name: &str) -> bool {
     parent.eq_ignore_ascii_case(".sailry") && name.eq_ignore_ascii_case("worktrees")
 }
 
-pub(crate) fn root(path: &Path) -> Result<Dir, Fault> {
+pub fn root(path: &Path) -> Result<Dir, Fault> {
     if !path.is_absolute() {
         return Err(invalid());
     }
@@ -93,7 +93,7 @@ pub(crate) fn root(path: &Path) -> Result<Dir, Fault> {
     Ok(dir)
 }
 
-pub(crate) fn descend(mut dir: Dir, parts: &[&str]) -> Result<Dir, Fault> {
+pub fn descend(mut dir: Dir, parts: &[&str]) -> Result<Dir, Fault> {
     for name in parts {
         dir = dir.open_dir_nofollow(name).map_err(io_error)?;
         #[cfg(windows)]
@@ -103,7 +103,7 @@ pub(crate) fn descend(mut dir: Dir, parts: &[&str]) -> Result<Dir, Fault> {
 }
 
 /// Open a requested file without classifying a missing root as file absence.
-pub(crate) fn file(scope: super::Scope<'_>, relative: &str) -> Result<File, Fault> {
+pub fn file(scope: super::Scope<'_>, relative: &str) -> Result<File, Fault> {
     let parts = scope.components(relative, false)?;
     let (name, parents) = parts.split_last().unwrap();
     let directory = root(scope.path())?;
@@ -112,7 +112,7 @@ pub(crate) fn file(scope: super::Scope<'_>, relative: &str) -> Result<File, Faul
 }
 
 /// [`file`] below an already opened [`root`] handle.
-pub(crate) fn file_at(base: &Dir, access: super::Access, relative: &str) -> Result<File, Fault> {
+pub fn file_at(base: &Dir, access: super::Access, relative: &str) -> Result<File, Fault> {
     let parts = components_with(relative, false, access)?;
     let (name, parents) = parts.split_last().unwrap();
     if parents.is_empty() {
@@ -122,7 +122,7 @@ pub(crate) fn file_at(base: &Dir, access: super::Access, relative: &str) -> Resu
     super::open_regular(&directory, name).map_err(missing)
 }
 
-pub(super) fn missing(mut fault: Fault) -> Fault {
+pub fn missing(mut fault: Fault) -> Fault {
     if fault.code == ErrorCode::NotFound && fault.details.is_none() {
         fault.details = Some(FaultDetails::WorktreePathNotFound);
     }
@@ -130,7 +130,7 @@ pub(super) fn missing(mut fault: Fault) -> Fault {
 }
 
 #[cfg(unix)]
-pub(crate) fn sync(dir: &Dir) -> std::io::Result<()> {
+pub fn sync(dir: &Dir) -> std::io::Result<()> {
     // Linux traversal capabilities use O_PATH, which cannot be synchronized.
     // Open the retained directory itself without resolving an ambient path.
     dir.open(".")?.sync_all()
@@ -138,10 +138,7 @@ pub(crate) fn sync(dir: &Dir) -> std::io::Result<()> {
 
 /// Prepare missing parent directories for an admitted file creation.
 /// Existing entries are opened without following symlinks on every step.
-pub(crate) fn create_parents<'a>(
-    base: impl Into<super::Scope<'a>>,
-    relative: &str,
-) -> Result<(), Fault> {
+pub fn create_parents<'a>(base: impl Into<super::Scope<'a>>, relative: &str) -> Result<(), Fault> {
     let scope = base.into();
     let parts = scope.components(relative, false)?;
     let mut dir = root(scope.path())?;

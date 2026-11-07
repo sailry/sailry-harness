@@ -5,18 +5,18 @@ use sailry_protocol::{
 };
 use std::path::{Path, PathBuf};
 
-pub(crate) fn worktrees(root: &Path) -> PathBuf {
+pub fn worktrees(root: &Path) -> PathBuf {
     root.join(".sailry").join("worktrees")
 }
 
-pub(crate) fn session(profile: &Path, id: SessionId) -> PathBuf {
+pub fn session(profile: &Path, id: SessionId) -> PathBuf {
     profile
         .join("workspaces")
         .join("sessions")
         .join(id.to_string())
 }
 
-pub(crate) fn connection(profile: &Path, resource: Resource) -> PathBuf {
+pub fn connection(profile: &Path, resource: Resource) -> PathBuf {
     let (kind, id) = match resource {
         Resource::Database(id) => ("database", id.to_string()),
         Resource::Ssh(id) => ("ssh", id.to_string()),
@@ -28,7 +28,7 @@ pub(crate) fn connection(profile: &Path, resource: Resource) -> PathBuf {
         .join("workspace")
 }
 
-pub(crate) fn assistant(profile: &Path, binding: &Binding) -> Result<PathBuf, Fault> {
+pub fn assistant(profile: &Path, binding: &Binding) -> Result<PathBuf, Fault> {
     let identity = serde_json::to_vec(&(&binding.package.name, &binding.id)).map_err(|_| {
         Fault::new(
             ErrorCode::Internal,
@@ -42,7 +42,7 @@ pub(crate) fn assistant(profile: &Path, binding: &Binding) -> Result<PathBuf, Fa
 }
 
 /// Launch owners resolve the registered identity first; the Store also checks ownership.
-pub(crate) fn managed(root: &Path, profile: &Path) -> bool {
+pub fn managed(root: &Path, profile: &Path) -> bool {
     if !root.is_absolute() || !profile.is_absolute() {
         return false;
     }

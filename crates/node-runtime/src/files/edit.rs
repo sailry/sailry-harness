@@ -62,13 +62,7 @@ pub(crate) fn edit<'a>(
     )?;
     control.check()?;
     let revision = blake3::hash(text.as_bytes()).to_hex().to_string();
-    let mut written = target.write(
-        text.as_bytes(),
-        text.len() as u64,
-        &revision,
-        #[cfg(test)]
-        &|_| {},
-    )?;
+    let mut written = target.write(text.as_bytes(), text.len() as u64, &revision)?;
     written.excerpt = Some(excerpt::collect(&text, &changes));
     Ok(written)
 }

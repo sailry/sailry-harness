@@ -8,7 +8,7 @@ use sailry_protocol::Fault;
 use crate::files::io_error;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, serde::Serialize)]
-pub(crate) struct Identity {
+pub struct Identity {
     #[cfg(unix)]
     device: u64,
     #[cfg(unix)]
@@ -19,7 +19,7 @@ pub(crate) struct Identity {
     file: [u8; 16],
 }
 
-pub(crate) fn directory(dir: &Dir) -> Result<Identity, Fault> {
+pub fn directory(dir: &Dir) -> Result<Identity, Fault> {
     #[cfg(unix)]
     {
         use cap_std::fs::MetadataExt;
@@ -44,7 +44,7 @@ pub(crate) fn directory(dir: &Dir) -> Result<Identity, Fault> {
     }
 }
 
-pub(crate) fn file(file: &File) -> Result<Identity, Fault> {
+pub fn file(file: &File) -> Result<Identity, Fault> {
     #[cfg(unix)]
     {
         use cap_std::fs::MetadataExt;
@@ -70,7 +70,7 @@ pub(crate) fn file(file: &File) -> Result<Identity, Fault> {
 }
 
 #[cfg(windows)]
-pub(super) mod windows {
+pub mod windows {
     use super::*;
     use std::{
         fs::OpenOptions,
@@ -83,7 +83,7 @@ pub(super) mod windows {
     };
     use windows_sys::Win32::Storage::FileSystem::*;
 
-    pub(in crate::files::path) fn open(path: &Path) -> Result<Dir, Fault> {
+    pub fn open(path: &Path) -> Result<Dir, Fault> {
         // Preserve the old capability rule: directory handles deny delete
         // sharing, so an ancestor cannot be renamed while it is retained.
         let file = OpenOptions::new()
@@ -99,7 +99,7 @@ pub(super) mod windows {
         Ok(Dir::from_std_file(file))
     }
 
-    pub(super) fn checked(handle: RawHandle) -> Result<Identity, Fault> {
+    pub fn checked(handle: RawHandle) -> Result<Identity, Fault> {
         let mut tag = MaybeUninit::<FILE_ATTRIBUTE_TAG_INFO>::zeroed();
         // SAFETY: the caller borrows a live file/directory handle. The output
         // buffer is writable and sized for the requested information class.

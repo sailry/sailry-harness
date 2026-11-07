@@ -1,8 +1,8 @@
 use super::*;
-use sailry_link::CancellationToken;
+use tokio_util::sync::CancellationToken;
 
 /// One retained publication target shared by editor saves and staged uploads.
-pub(in crate::files) struct Target {
+pub struct Target {
     root: PathBuf,
     access: crate::files::Access,
     relative: String,
@@ -19,7 +19,7 @@ struct Original {
 }
 
 impl Target {
-    pub(in crate::files) fn prepare<'a>(
+    pub fn prepare<'a>(
         root: impl Into<crate::files::Scope<'a>>,
         relative: &str,
         expected: Option<&str>,
@@ -64,7 +64,17 @@ impl Target {
         })
     }
 
-    pub(in crate::files) fn write(
+    pub fn write(self, source: impl Read, size: u64, revision: &str) -> Result<FileWritten, Fault> {
+        self.write_observed(
+            source,
+            size,
+            revision,
+            #[cfg(test)]
+            &|_| {},
+        )
+    }
+
+    pub(super) fn write_observed(
         self,
         mut source: impl Read,
         size: u64,

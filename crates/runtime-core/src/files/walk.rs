@@ -7,10 +7,10 @@ use ignore::gitignore::Gitignore;
 use sailry_protocol::{ErrorCode, Fault, FileNames, MAX_FIND_MATCHES, SearchDiagnostic};
 use std::{path::Path, time::SystemTime};
 
-pub(crate) mod ignores;
+pub mod ignores;
 
 #[derive(Default)]
-pub(crate) struct Report {
+pub struct Report {
     pub visited: usize,
     pub skipped: usize,
     pub truncated: bool,
@@ -34,17 +34,17 @@ impl Report {
     }
 }
 
-pub(crate) struct Entry {
+pub struct Entry {
     pub path: String,
     pub modified: SystemTime,
 }
 
-pub(crate) struct Listing {
+pub struct Listing {
     pub entries: Vec<Entry>,
     pub report: Report,
 }
 
-pub(super) fn globs(patterns: &[String]) -> Result<GlobSet, Fault> {
+pub fn globs(patterns: &[String]) -> Result<GlobSet, Fault> {
     let mut builder = GlobSetBuilder::new();
     for pattern in patterns {
         builder.add(
@@ -60,7 +60,7 @@ pub(super) fn globs(patterns: &[String]) -> Result<GlobSet, Fault> {
         .map_err(|_| Fault::invalid("invalid file glob pattern"))
 }
 
-pub(super) fn find<'a>(
+pub fn find<'a>(
     root: impl Into<super::Scope<'a>>,
     patterns: &[String],
     scope: &str,
@@ -106,7 +106,7 @@ pub(super) fn find<'a>(
     })
 }
 
-pub(crate) fn collect<'a>(
+pub fn collect<'a>(
     root: impl Into<super::Scope<'a>>,
     scope: &str,
     control: &Control,
@@ -114,7 +114,7 @@ pub(crate) fn collect<'a>(
     collect_bounded(root, scope, usize::MAX, control)
 }
 
-pub(crate) fn collect_bounded<'a>(
+pub fn collect_bounded<'a>(
     root: impl Into<super::Scope<'a>>,
     scope: &str,
     limit: usize,

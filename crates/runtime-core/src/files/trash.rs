@@ -10,11 +10,11 @@ use std::{io::ErrorKind, path::Path};
 #[path = "trash/windows.rs"]
 mod windows;
 
-pub(crate) fn trash<'a>(root: impl Into<super::Scope<'a>>, relative: &str) -> Result<(), Fault> {
+pub fn trash<'a>(root: impl Into<super::Scope<'a>>, relative: &str) -> Result<(), Fault> {
     relocate(root, relative, native)
 }
 
-pub(crate) fn remove_verified<'a>(
+pub fn remove_verified<'a>(
     root: impl Into<super::Scope<'a>>,
     relative: &str,
     revision: &str,

@@ -5,7 +5,7 @@ use sailry_protocol::{
 use std::io::Read;
 
 #[cfg(test)]
-pub(super) fn read<'a>(
+pub fn read<'a>(
     root: impl Into<super::Scope<'a>>,
     path: String,
     offset: usize,
@@ -15,7 +15,7 @@ pub(super) fn read<'a>(
     read_version(root, path, offset, limit, None, control)
 }
 
-pub(super) fn read_version<'a>(
+pub fn read_version<'a>(
     root: impl Into<super::Scope<'a>>,
     path: String,
     offset: usize,
@@ -142,7 +142,7 @@ pub(super) fn read_version<'a>(
     })
 }
 
-pub(super) fn complete<'a>(
+pub fn complete<'a>(
     root: impl Into<super::Scope<'a>>,
     relative: &str,
     control: &Control,
@@ -152,7 +152,7 @@ pub(super) fn complete<'a>(
 }
 
 /// Read complete text through the ordinary confined file kernel, never a preview.
-pub(crate) fn bounded<'a>(
+pub fn bounded<'a>(
     root: impl Into<super::Scope<'a>>,
     relative: &str,
     limit: usize,
@@ -168,7 +168,7 @@ pub(crate) fn bounded<'a>(
 
 /// [`bounded`] below a root handle that was already opened and confined, so a
 /// caller reading many files does not reopen every root ancestor per file.
-pub(crate) fn bounded_at(
+pub fn bounded_at(
     root: &cap_std::fs::Dir,
     access: super::Access,
     relative: &str,

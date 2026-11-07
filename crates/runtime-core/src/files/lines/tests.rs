@@ -1,6 +1,6 @@
 use super::*;
-use sailry_link::CancellationToken;
 use std::time::{Duration, Instant};
+use tokio_util::sync::CancellationToken;
 
 fn control() -> Control {
     Control {

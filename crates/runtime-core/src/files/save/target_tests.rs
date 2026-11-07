@@ -17,7 +17,7 @@ fn streams_binary_replacements() {
     let revision = blake3::hash(&bytes).to_hex().to_string();
     let output = Target::prepare(&root, "资料.bin", None, u64::MAX, None)
         .unwrap()
-        .write(Bounded(&bytes), bytes.len() as u64, &revision, &|_| {})
+        .write(Bounded(&bytes), bytes.len() as u64, &revision)
         .unwrap();
     assert_eq!(output.size, bytes.len() as u64);
     assert_eq!(std::fs::read(root.join("资料.bin")).unwrap(), bytes);
@@ -31,7 +31,7 @@ fn streams_binary_replacements() {
     let empty = blake3::hash(&[]).to_hex().to_string();
     let output = Target::prepare(&root, "资料.bin", Some(&revision), u64::MAX, None)
         .unwrap()
-        .write(Bounded(&[]), 0, &empty, &|_| {})
+        .write(Bounded(&[]), 0, &empty)
         .unwrap();
     assert_eq!(output.size, 0);
     assert!(std::fs::read(root.join("资料.bin")).unwrap().is_empty());
@@ -50,7 +50,7 @@ fn rejects_mismatched_streams() {
         let target = Target::prepare(&root, "file", Some(&original), u64::MAX, None).unwrap();
         assert_eq!(
             target
-                .write(Bounded(bytes), size, &revision, &|_| {})
+                .write(Bounded(bytes), size, &revision)
                 .unwrap_err()
                 .code,
             ErrorCode::RevisionConflict
@@ -67,7 +67,7 @@ fn reports_uncertain_creation() {
     let revision = blake3::hash(b"larger").to_hex().to_string();
     let error = Target::prepare(&root, "file", None, u64::MAX, None)
         .unwrap()
-        .write(Bounded(b"part"), 6, &revision, &|_| {})
+        .write(Bounded(b"part"), 6, &revision)
         .unwrap_err();
     assert_eq!(error.code, ErrorCode::OutcomeUnknown);
     assert_eq!(std::fs::read(root.join("file")).unwrap(), b"part");
@@ -103,12 +103,7 @@ fn rejects_recreated_parent() {
     std::fs::create_dir(root.join("parent")).unwrap();
     assert_eq!(
         target
-            .write(
-                Bounded(b"bytes"),
-                5,
-                &blake3::hash(b"bytes").to_hex(),
-                &|_| {}
-            )
+            .write(Bounded(b"bytes"), 5, &blake3::hash(b"bytes").to_hex())
             .unwrap_err()
             .code,
         ErrorCode::RevisionConflict

@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use crate::Error;
 
 #[cfg(windows)]
-pub(crate) mod windows;
+pub mod windows;
 
 /// Shared default for Desktop and Host. Resolving it does not create or open a profile.
 pub fn default_data_dir() -> Result<PathBuf, Error> {
@@ -25,13 +25,13 @@ fn from_home(directory: Option<PathBuf>) -> Result<PathBuf, Error> {
 }
 
 /// The file must remain linked: deleting it would let another owner lock a new inode.
-pub(crate) struct Profile {
-    pub(crate) path: PathBuf,
+pub struct Profile {
+    pub path: PathBuf,
     _lock: File,
 }
 
 impl Profile {
-    pub(crate) fn acquire(path: &Path) -> Result<Self, Error> {
+    pub fn acquire(path: &Path) -> Result<Self, Error> {
         if !path.is_absolute() {
             return Err(invalid(path, "an absolute data directory is required"));
         }
@@ -90,7 +90,7 @@ fn invalid(path: &Path, reason: &'static str) -> Error {
     }
 }
 
-pub(crate) fn temporary(profile: &Path) -> Result<PathBuf, sailry_protocol::Fault> {
+pub fn temporary(profile: &Path) -> Result<PathBuf, sailry_protocol::Fault> {
     let directory = profile.join("tmp");
     private_directory(&directory).map_err(|error| {
         sailry_protocol::Fault::new(
@@ -101,7 +101,7 @@ pub(crate) fn temporary(profile: &Path) -> Result<PathBuf, sailry_protocol::Faul
     Ok(directory)
 }
 
-pub(crate) fn database_files(path: &Path) -> [PathBuf; 4] {
+pub fn database_files(path: &Path) -> [PathBuf; 4] {
     let sidecar = |suffix: &str| {
         let mut name = path.as_os_str().to_owned();
         name.push(suffix);
@@ -115,7 +115,7 @@ pub(crate) fn database_files(path: &Path) -> [PathBuf; 4] {
     ]
 }
 
-pub(crate) fn private_directory(path: &Path) -> Result<(), Error> {
+pub fn private_directory(path: &Path) -> Result<(), Error> {
     #[cfg(windows)]
     return windows::directory(path);
 

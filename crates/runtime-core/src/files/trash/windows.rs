@@ -8,7 +8,7 @@ use ::windows::{
     core::HSTRING,
 };
 
-pub(super) fn trash(target: &Path) -> Result<(), Fault> {
+pub fn trash(target: &Path) -> Result<(), Fault> {
     recycle(target).map_err(|_| unknown())
 }
 

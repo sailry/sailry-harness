@@ -15,15 +15,15 @@ use std::{
 };
 
 #[path = "save/content.rs"]
-pub(super) mod content;
+pub mod content;
 #[path = "save/target.rs"]
 mod target;
-pub(super) use target::Target;
+pub use target::Target;
 
 #[cfg(test)]
 mod tests;
 
-pub(crate) fn save<'a>(
+pub fn save<'a>(
     root: impl Into<super::Scope<'a>>,
     path: &str,
     text: &str,
@@ -47,7 +47,7 @@ pub(crate) fn save<'a>(
     )
 }
 
-pub(crate) fn restore<'a>(
+pub fn restore<'a>(
     root: impl Into<super::Scope<'a>>,
     path: &str,
     text: &str,
@@ -65,13 +65,11 @@ pub(crate) fn restore<'a>(
         text.as_bytes(),
         text.len() as u64,
         &revision,
-        #[cfg(test)]
-        &|_| {},
     )
 }
 
 #[cfg(test)]
-pub(super) enum Phase {
+pub enum Phase {
     Prepared,
     Published,
 }
@@ -88,7 +86,7 @@ fn publish<'a>(
         path::create_parents(root, relative)?;
     }
     let revision = blake3::hash(text.as_bytes()).to_hex().to_string();
-    Target::prepare(root, relative, expected, MAX_FILE_BYTES as u64, None)?.write(
+    Target::prepare(root, relative, expected, MAX_FILE_BYTES as u64, None)?.write_observed(
         text.as_bytes(),
         text.len() as u64,
         &revision,
@@ -101,7 +99,7 @@ fn current(
     dir: &Dir,
     name: &str,
     limit: u64,
-    cancel: Option<&sailry_link::CancellationToken>,
+    cancel: Option<&tokio_util::sync::CancellationToken>,
 ) -> Result<(File, String), Fault> {
     let metadata = dir.symlink_metadata(name).map_err(io_error)?;
     if !metadata.is_file() || metadata.is_symlink() {

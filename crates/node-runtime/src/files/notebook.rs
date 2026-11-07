@@ -33,13 +33,7 @@ pub(crate) fn edit<'a>(
         Some(&control.cancelled),
     )?;
     let revision = blake3::hash(after.as_bytes()).to_hex().to_string();
-    target.write(
-        after.as_bytes(),
-        after.len() as u64,
-        &revision,
-        #[cfg(test)]
-        &|_| {},
-    )
+    target.write(after.as_bytes(), after.len() as u64, &revision)
 }
 
 pub(crate) fn prepare(before: &str, input: &notebook::Edit) -> Result<String, Fault> {

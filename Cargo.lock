@@ -14583,6 +14583,7 @@ dependencies = [
  "sailry-model-assets",
  "sailry-ocr",
  "sailry-protocol",
+ "sailry-runtime-core",
  "sailry-vt",
  "schemars 1.2.2",
  "semver",
@@ -14610,7 +14611,6 @@ dependencies = [
  "tracing-appender",
  "tracing-log",
  "tracing-subscriber",
- "trash",
  "tree-sitter",
  "tree-sitter-language-pack",
  "turso",
@@ -14675,6 +14675,32 @@ dependencies = [
  "zeroize",
  "zip 8.6.0",
  "zipsign-api",
+]
+
+[[package]]
+name = "sailry-runtime-core"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "cap-fs-ext",
+ "cap-std",
+ "cap-tempfile",
+ "dirs 6.0.0",
+ "encoding_rs",
+ "git2",
+ "globset",
+ "ignore",
+ "libc",
+ "sailry-protocol",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.20",
+ "tokio-util",
+ "trash",
+ "turso",
+ "windows 0.62.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

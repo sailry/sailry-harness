@@ -2,7 +2,7 @@
 use std::borrow::Cow;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Error {
+pub enum Error {
     Binary,
     Unsupported,
 }
@@ -16,7 +16,7 @@ impl std::fmt::Display for Error {
     }
 }
 
-pub(crate) fn decode(bytes: &[u8]) -> Result<Cow<'_, str>, Error> {
+pub fn decode(bytes: &[u8]) -> Result<Cow<'_, str>, Error> {
     if bytes
         .iter()
         .any(|byte| *byte < 0x20 && !matches!(*byte, b'\t' | b'\n' | b'\r' | 0x0c) || *byte == 0x7f)
