@@ -12,6 +12,7 @@ pub(super) enum Event {
         cancelled: bool,
     },
     Close,
+    SelectElement,
     Annotation(super::annotation::Message),
     #[cfg(target_os = "macos")]
     Inspect,
@@ -108,6 +109,9 @@ impl Browser {
                             }
                             if request.body() == "close-tab" {
                                 let _ = shortcuts.send((id, Event::Close));
+                            }
+                            if request.body() == "select-element" {
+                                let _ = shortcuts.send((id, Event::SelectElement));
                             }
                             if request.body().len() <= 32 * 1024
                                 && let Ok(message) =
@@ -240,6 +244,12 @@ impl Browser {
             }
             Event::Close => {
                 self.close(id, window, cx);
+                return;
+            }
+            Event::SelectElement => {
+                if index == self.selected {
+                    self.annotate_shortcut(window, cx);
+                }
                 return;
             }
             Event::Title(title) => {

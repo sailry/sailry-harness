@@ -1115,10 +1115,13 @@ The document editor shows a visual block's source while the caret is in it.
 
 Browser element annotations retain the selected page, tab and controller view.
 The browser package owns annotation review, note drafts and submission feedback.
-Scoped native services capture the page and image, validate the selection token,
-and transfer approved text and the protected viewport image to the captured
-composer through its existing Client attachment upload. Navigation or view
-changes cancel selection.
+Scoped native services run the in-page picker, validate the selection token and
+bounded capture, and crop the element from the viewport screenshot. A pick
+becomes a composer chip bound to that crop and a compact JSON context marked as
+untrusted page content; both stay hidden drafts that use the existing Client
+attachment upload. A review pick waits for the package's note first. At send,
+each present chip becomes attachment references sharing its label, and drafts of
+removed chips are not sent. Navigation or view changes cancel selection.
 
 Agent browser captures return bounded images as declared tool media, stored once
 per digest in canonical history and sent to vision-capable models; other models
@@ -1130,6 +1133,7 @@ not capture. Saving a worktree file is optional and confirmed per call. Node
 operation results with images return `sailry-image:<tool-call-id>/<index>`
 references for assistant Markdown. Client resolves them only against images in
 the same conversation for Desktop, Mobile and exports.
+
 System voice reading and global selection shortcuts remain controller-local.
 Selection insertion rechecks the captured Node, worktree and conversation before
 changing a draft; neither reading nor selection starts an Agent turn.

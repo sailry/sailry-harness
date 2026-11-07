@@ -54,7 +54,7 @@ impl View {
         {
             return;
         }
-        let sources = self.attachment_sources();
+        let sources = self.bound_sources();
         let next_attachment = self.release_draft_attachments();
         let mut next = Self::with_input(binding, None, Some(self.input.clone()), window, cx);
         next.sidebar = self.sidebar;
@@ -72,8 +72,9 @@ impl View {
         // Command provenance must not be rebound by selecting another execution Node.
         next.inherit_command_keys(&self.references);
         next.set_attachment_sequence(next_attachment);
+        next.attachments.adopt_chips(&self.attachments);
         *self = next;
-        self.attach_sources(sources, window, cx);
+        self.attach_drafts(sources, window, cx);
         cx.notify();
     }
 }

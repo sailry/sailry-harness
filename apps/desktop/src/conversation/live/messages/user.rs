@@ -107,8 +107,12 @@ impl View {
             return;
         }
         message.text = editing.input.read(cx).value().to_string();
-        message.references = references::inline::active_content(
-            &editing.input.read(cx).content(),
+        let previous = std::mem::take(&mut message.references);
+        message.references =
+            references::inline::active_content(&editing.input.read(cx).content(), &previous);
+        message.attachments = sailry_client::conversation::references::retained(
+            &message.attachments,
+            &previous,
             &message.references,
         );
         if message.is_empty() {

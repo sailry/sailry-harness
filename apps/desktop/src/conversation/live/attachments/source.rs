@@ -72,6 +72,20 @@ impl Source {
                             Box::new(Cursor::new(bytes)),
                         )
                     }
+                    Self::Data {
+                        media_type, bytes, ..
+                    } => {
+                        let size = bytes.len() as u64;
+                        if size > MAX_BYTES {
+                            return Err("files_upload_too_large");
+                        }
+                        (
+                            media_type.to_owned(),
+                            size,
+                            blake3::hash(&bytes).to_hex().to_string(),
+                            Box::new(Cursor::new(bytes)),
+                        )
+                    }
                 };
             Ok(Prepared {
                 spec: Spec {

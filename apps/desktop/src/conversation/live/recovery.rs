@@ -31,6 +31,16 @@ pub(crate) struct Attachment {
     pub value: sailry_protocol::attachment::Attachment,
 }
 
+/// An element chip and the positions of its drafts among all draft attachments.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Chip {
+    pub key: usize,
+    pub label: String,
+    pub details: crate::browser::annotation::Details,
+    pub drafts: Vec<usize>,
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Draft {
@@ -41,6 +51,8 @@ pub(crate) struct Draft {
     pub references: Vec<sailry_protocol::conversation::reference::Reference>,
     #[serde(default)]
     pub attachments: Vec<Attachment>,
+    #[serde(default)]
+    pub chips: Vec<Chip>,
     pub commands: BTreeMap<String, crate::plugins::contributions::Key>,
     pub configuration: Option<SessionConfig>,
     pub configuration_owner: NodeId,
@@ -99,6 +111,10 @@ impl View {
                 selection: input.selected_range(),
                 references: self.references.selected.clone(),
                 attachments: self.captured_attachments(),
+                chips: attachments::elements::positions(
+                    self.attachments.chips(),
+                    &self.attachments.bound(),
+                ),
                 commands: self.references.command_keys.clone(),
                 configuration: self
                     .session
@@ -140,6 +156,10 @@ impl View {
         {
             return false;
         }
+        let Some((chips, bindings)) = attachments::elements::restore(snapshot.draft.chips, count)
+        else {
+            return false;
+        };
         let mut content = InputContent::new(snapshot.draft.text.clone());
         for token in &snapshot.draft.tokens {
             let Ok(next) = content.with_token(
@@ -180,6 +200,7 @@ impl View {
                 self.restore_attachment_sources(vec![sources.next().unwrap()], cx);
             }
         }
+        self.recover_chips(chips, bindings);
         self.restored_input = Some(content.clone());
         self.input.update(cx, |input, cx| {
             input.set_value(content, window, cx);

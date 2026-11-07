@@ -428,6 +428,7 @@ class _LiveTimelineState extends State<LiveTimeline> {
                             host: host,
                             worktree: transcript.worktree(input.turn, session),
                             references: input.references,
+                            attachments: input.attachments,
                           ),
                         for (final attachment in input.attachments)
                           AttachmentView(host: host, attachment: attachment),

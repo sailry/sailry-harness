@@ -313,7 +313,12 @@ impl Panel {
             &editing.input.read(cx).content(),
             &editing.references,
         );
-        if message.trim().is_empty() && editing.attachments.is_empty() && references.is_empty() {
+        let attachments = sailry_client::conversation::references::retained(
+            &editing.attachments,
+            &editing.references,
+            &references,
+        );
+        if message.trim().is_empty() && attachments.is_empty() && references.is_empty() {
             return;
         }
         self.execute(
@@ -322,7 +327,7 @@ impl Panel {
                 expected_revision: editing.revision,
                 message: sailry_protocol::conversation::Input {
                     text: message,
-                    attachments: editing.attachments.clone(),
+                    attachments,
                     references,
                 },
             },

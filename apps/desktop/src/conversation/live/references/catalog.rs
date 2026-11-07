@@ -274,6 +274,7 @@ impl View {
                 .reference_databases()
                 .iter()
                 .any(|profile| profile.id == *connection),
+            Target::Attachment(_) => true,
             _ => self.resource.is_none(),
         })
     }

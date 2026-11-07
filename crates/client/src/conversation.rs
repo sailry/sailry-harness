@@ -11,6 +11,7 @@ pub mod links;
 pub mod modes;
 mod observer;
 mod projection;
+pub mod references;
 mod removal;
 pub mod reply;
 pub mod rows;

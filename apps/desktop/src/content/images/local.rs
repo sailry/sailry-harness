@@ -12,6 +12,12 @@ pub(crate) enum Local {
         format: ImageFormat,
         bytes: Arc<[u8]>,
     },
+    /// Generated content, such as a page element's context.
+    Data {
+        name: String,
+        media_type: &'static str,
+        bytes: Arc<[u8]>,
+    },
 }
 
 impl Local {
@@ -19,6 +25,7 @@ impl Local {
         let mime = match self {
             Self::Path(path) => mime_guess::from_path(path).first()?.to_string(),
             Self::Image { format, .. } => format.mime_type().into(),
+            Self::Data { media_type, .. } => (*media_type).into(),
         };
         match mime.as_str() {
             "image/png" => Some(image::ImageFormat::Png),
@@ -57,7 +64,7 @@ impl Local {
     pub fn name(&self) -> Option<String> {
         match self {
             Self::Path(path) => path.file_name()?.to_str().map(str::to_owned),
-            Self::Image { name, .. } => Some(name.clone()),
+            Self::Image { name, .. } | Self::Data { name, .. } => Some(name.clone()),
         }
     }
 }

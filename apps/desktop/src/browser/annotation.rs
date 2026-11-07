@@ -1,31 +1,131 @@
 //! Native selection and attachment transfer retain the captured page and controller.
+//! A plain pick becomes a composer chip directly; a review pick waits for the
+//! package's note flow.
 use super::*;
 use sailry_link::CancellationToken;
 use serde::{Deserialize, Serialize};
-use std::{cell::RefCell, sync::Arc};
+use std::{
+    cell::RefCell,
+    collections::{BTreeMap, VecDeque},
+    sync::Arc,
+};
 
+pub(crate) mod context;
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
+pub(crate) mod crop;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod native;
 #[cfg(test)]
 mod tests;
 
+actions!(browser, [SelectElement]);
+
+/// Attribute names a capture may carry; input values are never captured.
+const ATTRIBUTES: &[&str] = &[
+    "role",
+    "type",
+    "name",
+    "href",
+    "src",
+    "alt",
+    "title",
+    "placeholder",
+    "for",
+    "aria-label",
+    "aria-describedby",
+    "aria-expanded",
+    "aria-selected",
+    "aria-checked",
+    "aria-disabled",
+    "aria-current",
+    "data-testid",
+    "data-test",
+    "data-qa",
+    "data-cy",
+];
+const STYLES: &[&str] = &[
+    "color",
+    "background-color",
+    "font-size",
+    "font-family",
+    "display",
+    "position",
+    "padding",
+    "margin",
+];
+
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Element {
     pub url: String,
+    pub title: String,
     pub selector: String,
+    pub path: String,
+    pub tag: String,
+    pub id: String,
+    pub classes: Vec<String>,
+    pub attributes: BTreeMap<String, String>,
+    /// Accessible name.
+    pub name: String,
     pub text: String,
+    pub html: String,
+    pub styles: BTreeMap<String, String>,
+    pub component: Option<Component>,
     pub bounds: [f64; 4],
     pub viewport: [f64; 2],
     pub truncated: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum Framework {
+    React,
+    Vue,
+    Svelte,
+    Angular,
+}
+
+/// Development-build component metadata; production pages omit it.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Component {
+    pub framework: Framework,
+    pub name: String,
+    pub source: Option<String>,
+    pub stack: Vec<String>,
+}
+
+/// Hover-card facts retained with a composer chip.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Details {
+    pub selector: String,
+    pub component: String,
+    pub page: String,
+}
+
+/// One picked element ready for the captured composer.
+pub(crate) struct Selection {
+    pub label: String,
+    pub context: Arc<[u8]>,
+    pub image: Arc<[u8]>,
+    pub details: Details,
+    /// The package's optional note, inserted after the chip as user text.
+    pub note: String,
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub(super) enum Message {
-    Element { token: String, element: Element },
-    Cancelled { token: String },
+    Element {
+        token: String,
+        element: Box<Element>,
+        review: bool,
+    },
+    Cancelled {
+        token: String,
+    },
 }
 
 #[derive(Clone)]
@@ -40,8 +140,11 @@ struct Target {
 #[derive(Default)]
 pub(super) struct State {
     target: Option<Target>,
-    task: Option<Task<()>>,
-    captured: bool,
+    timeout: Option<Task<()>>,
+    work: Option<Task<()>>,
+    picks: VecDeque<(Box<Element>, bool)>,
+    capturing: bool,
+    reviewing: bool,
     capture: Option<Capture>,
     pub(super) error: Option<&'static str>,
 }
@@ -63,8 +166,11 @@ impl State {
         if let Some(target) = self.target.take() {
             target.stop.cancel();
         }
-        self.task = None;
-        self.captured = false;
+        self.timeout = None;
+        self.work = None;
+        self.picks.clear();
+        self.capturing = false;
+        self.reviewing = false;
         self.capture = None;
         self.error = None;
     }
@@ -77,10 +183,29 @@ impl Drop for State {
 }
 
 pub(crate) struct Transfer {
-    pub reference: String,
-    pub image: Arc<[u8]>,
+    pub selection: Selection,
     pub stop: CancellationToken,
     pub reply: RefCell<Option<tokio::sync::oneshot::Sender<Result<(), &'static str>>>>,
+}
+
+fn bounded(value: &str, limit: usize) -> bool {
+    value.len() <= limit && !value.contains('\0')
+}
+
+impl Component {
+    fn validate(&self) -> bool {
+        !self.name.trim().is_empty()
+            && bounded(&self.name, 128)
+            && self
+                .source
+                .as_deref()
+                .is_none_or(|source| !source.is_empty() && bounded(source, 512))
+            && self.stack.len() <= 8
+            && self
+                .stack
+                .iter()
+                .all(|name| !name.is_empty() && bounded(name, 128))
+    }
 }
 
 impl Element {
@@ -90,11 +215,35 @@ impl Element {
                 && url.username().is_empty()
                 && url.password().is_none()
         }) && self.url.len() <= 8192
+            && bounded(&self.title, 1024)
             && !self.selector.is_empty()
-            && self.selector.len() <= 2048
-            && !self.selector.contains('\0')
-            && self.text.len() <= 16 * 1024
-            && !self.text.contains('\0')
+            && bounded(&self.selector, 2048)
+            && bounded(&self.path, 2048)
+            && !self.tag.is_empty()
+            && self.tag.len() <= 64
+            && self
+                .tag
+                .chars()
+                .all(|letter| letter.is_ascii_alphanumeric() || matches!(letter, '-' | '_' | ':'))
+            && bounded(&self.id, 256)
+            && self.classes.len() <= 16
+            && self.classes.iter().all(|class| {
+                !class.is_empty() && bounded(class, 128) && !class.contains(char::is_whitespace)
+            })
+            && self.attributes.len() <= 16
+            && self
+                .attributes
+                .iter()
+                .all(|(name, value)| ATTRIBUTES.contains(&name.as_str()) && bounded(value, 512))
+            && bounded(&self.name, 256)
+            && self.text.chars().count() <= 500
+            && bounded(&self.text, 2000)
+            && bounded(&self.html, 2048)
+            && self
+                .styles
+                .iter()
+                .all(|(name, value)| STYLES.contains(&name.as_str()) && bounded(value, 256))
+            && self.component.as_ref().is_none_or(Component::validate)
             && self
                 .bounds
                 .iter()
@@ -112,6 +261,16 @@ impl Element {
             && self.bounds[1] < self.viewport[1]
             && self.bounds[0] + self.bounds[2] > 0.0
             && self.bounds[1] + self.bounds[3] > 0.0
+    }
+
+    fn selection(&self, image: Arc<[u8]>, note: String) -> Selection {
+        Selection {
+            label: context::label(self),
+            context: context::document(self).into(),
+            image,
+            details: context::details(self),
+            note,
+        }
     }
 }
 
@@ -131,14 +290,19 @@ struct Reference {
 }
 
 impl Reference {
-    fn matches(value: &str, element: &Element) -> bool {
-        element.validate()
-            && value.len() <= 256 * 1024
-            && serde_json::from_str::<Self>(value).is_ok_and(|reference| {
+    /// The reviewed note for the original capture, or nothing for altered context.
+    fn note(value: &str, element: &Element) -> Option<String> {
+        if !element.validate() || value.len() > 256 * 1024 {
+            return None;
+        }
+        serde_json::from_str::<Self>(value)
+            .ok()
+            .filter(|reference| {
                 reference.page_element == *element
                     && reference.annotation.len() <= 4096
                     && !reference.annotation.contains('\0')
             })
+            .map(|reference| reference.annotation)
     }
 }
 
@@ -175,13 +339,12 @@ impl Browser {
             let _ = reply.send(Err("browser_annotation_stale"));
             return;
         };
-        if !Reference::matches(&request.reference, &capture.element) {
+        let Some(note) = Reference::note(&request.reference, &capture.element) else {
             let _ = reply.send(Err("browser_annotation_invalid"));
             return;
-        }
+        };
         cx.emit(Transfer {
-            reference: request.reference.clone(),
-            image: capture.image.clone(),
+            selection: capture.element.selection(capture.image.clone(), note),
             stop: target.stop.clone(),
             reply: RefCell::new(Some(reply)),
         });
@@ -246,6 +409,14 @@ impl Browser {
         {
             let _ = (window, cx);
             Err("browser_annotation_unavailable".into())
+        }
+    }
+
+    /// The shortcut toggles picking; its failure reaches the package as feedback.
+    pub(super) fn annotate_shortcut(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.annotate(window, cx).is_err() {
+            self.annotation.error = Some("browser_annotation_unavailable");
+            self.changed(cx);
         }
     }
 }

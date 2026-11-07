@@ -24,7 +24,10 @@ pub(super) async fn validate(
         if session.config.resource.is_some()
             && !matches!(
                 reference.target,
-                Target::Database { .. } | Target::Ssh(_) | Target::Session(_)
+                Target::Database { .. }
+                    | Target::Ssh(_)
+                    | Target::Session(_)
+                    | Target::Attachment(_)
             )
         {
             return Err(Fault::new(
@@ -135,6 +138,13 @@ pub(super) async fn validate(
             }
             Target::Session(id) => {
                 history::visible(db, session.project, *id).await?;
+            }
+            Target::Attachment(id) => {
+                if !message.attachments.contains(id) {
+                    return Err(Fault::invalid(
+                        "attachment references require an attachment of the same input",
+                    ));
+                }
             }
             _ => {}
         }

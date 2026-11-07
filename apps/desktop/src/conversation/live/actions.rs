@@ -97,7 +97,7 @@ impl View {
             || !self.connected()
             || !self.configured()
             || !self.binding.project_available(self.node.snapshot.as_ref())
-            || !self.attachments.sendable()
+            || !self.drafts_sendable(cx)
             || (self.binding.project.is_some() && self.binding.worktree.is_none())
         {
             return;
@@ -108,6 +108,7 @@ impl View {
             cx.notify();
             return;
         }
+        self.prune_drafts(&references, cx);
         let message = Input {
             text: self.input.read(cx).value().to_string(),
             attachments: self.attachments.ids(),
@@ -126,7 +127,18 @@ impl View {
         }
     }
 
-    pub(super) fn submit(&mut self, message: Input, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn submit(
+        &mut self,
+        mut message: Input,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        // Element chips name their published drafts once uploads have identities.
+        let chips = self.chip_references(&message.attachments);
+        message
+            .references
+            .retain(|reference| !chips.contains(reference));
+        message.references.extend(chips);
         if let Some(session) = &self.session {
             let delivery = self
                 .submissions

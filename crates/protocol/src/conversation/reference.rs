@@ -23,6 +23,9 @@ pub enum Target {
     Host,
     Project,
     Worktree,
+    /// An attachment of the same input. References sharing a label present one
+    /// selection, such as a page element's context and its capture.
+    Attachment(crate::AttachmentId),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -43,5 +46,35 @@ impl super::Input {
 
     pub fn is_empty(&self) -> bool {
         self.text.trim().is_empty() && self.attachments.is_empty() && self.references.is_empty()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn attachment_wire() {
+        let id = crate::AttachmentId::new();
+        let reference = Reference {
+            target: Target::Attachment(id),
+            label: "Submit button".into(),
+        };
+        let wire = serde_json::json!({
+            "target": {"kind": "attachment", "data": id.to_string()},
+            "label": "Submit button",
+        });
+        assert_eq!(serde_json::to_value(&reference).unwrap(), wire);
+        assert_eq!(
+            serde_json::from_value::<Reference>(wire).unwrap(),
+            reference
+        );
+        assert!(
+            serde_json::from_value::<Target>(serde_json::json!({
+                "kind": "attachment",
+                "data": "00000000-0000-0000-0000-000000000000",
+            }))
+            .is_err()
+        );
     }
 }

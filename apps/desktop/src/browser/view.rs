@@ -23,7 +23,14 @@ impl Render for Browser {
         {
             body = surface::render(page, &mut self.mounted, window, cx);
         }
-        let panel = div().id("browser-surface").key_context("SailryBrowser");
+        let panel = div()
+            .id("browser-surface")
+            .key_context("SailryBrowser")
+            .on_action(
+                cx.listener(|this, _: &annotation::SelectElement, window, cx| {
+                    this.annotate_shortcut(window, cx)
+                }),
+            );
         #[cfg(target_os = "macos")]
         let panel =
             panel.on_action(cx.listener(|this, _: &inspector::Inspect, _, cx| this.inspect(cx)));
