@@ -64,8 +64,6 @@ impl Files {
                 bytes.as_slice(),
                 bytes.len() as u64,
                 &blake3::hash(&bytes).to_hex(),
-                #[cfg(test)]
-                &|_| {},
             )?;
             Ok(output.path)
         })

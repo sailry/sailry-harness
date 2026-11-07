@@ -57,13 +57,7 @@ pub(crate) fn write(
         MAX_HTML_BYTES as u64,
         None,
     )?
-    .write(
-        html.as_bytes(),
-        html.len() as u64,
-        &digest,
-        #[cfg(test)]
-        &|_| {},
-    )?;
+    .write(html.as_bytes(), html.len() as u64, &digest)?;
     Ok(digest)
 }
 
