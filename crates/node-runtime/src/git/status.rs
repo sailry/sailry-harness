@@ -10,6 +10,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
+mod native;
+pub(super) use native::inspect as native;
+
 #[derive(Clone, Eq, PartialEq)]
 pub(super) struct Metadata {
     gitdir: (PathBuf, path::identity::Identity),

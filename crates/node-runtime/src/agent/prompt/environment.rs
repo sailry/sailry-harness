@@ -34,6 +34,8 @@ pub(in crate::agent) async fn capture(
                     worktree: invocation.worktree,
                     limit: 5,
                     cursor: None,
+                    revision: None,
+                    path: None,
                 },
                 stop.clone(),
             );

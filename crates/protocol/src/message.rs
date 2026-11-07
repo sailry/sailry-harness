@@ -1254,6 +1254,8 @@ pub enum Command {
         worktree: WorktreeId,
         limit: usize,
         cursor: Option<crate::GitLogCursor>,
+        revision: Option<String>,
+        path: Option<String>,
     },
     ReadGitCommit {
         worktree: WorktreeId,

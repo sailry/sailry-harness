@@ -48,6 +48,26 @@ async fn reads_public_text_and_bounded_redirects() {
 }
 
 #[tokio::test]
+async fn decodes_compressed_public_content() {
+    let server = server::Server::start().await;
+    let owner = owner(&server);
+    for path in ["/gzip", "/brotli"] {
+        let page = fetch(&owner, format!("{}{path}", server.origin))
+            .await
+            .unwrap();
+        assert_eq!(page.content, server::COMPRESSED);
+    }
+    for request in server.requests.lock().unwrap().iter() {
+        let encoding = request
+            .lines()
+            .find(|line| line.to_ascii_lowercase().starts_with("accept-encoding:"))
+            .unwrap();
+        assert!(encoding.contains("gzip"));
+        assert!(encoding.contains("br"));
+    }
+}
+
+#[tokio::test]
 async fn preserves_long_urls_through_redirects() {
     let server = server::Server::start().await;
     let owner = owner(&server);
@@ -181,6 +201,8 @@ async fn rejects_private_redirects_and_limits() {
         ("/credentials", ErrorCode::InvalidRequest),
         ("/redirect/6", ErrorCode::Unavailable),
         ("/large", ErrorCode::Unavailable),
+        ("/gzip-large", ErrorCode::Unavailable),
+        ("/unsupported-encoding", ErrorCode::Unavailable),
         ("/declared", ErrorCode::Unavailable),
         ("/binary", ErrorCode::Unavailable),
     ] {

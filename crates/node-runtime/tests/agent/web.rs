@@ -348,6 +348,8 @@ async fn decodes_declared_and_fallback_charsets() {
         ("/gbk-fallback", "中文 text"),
         ("/gbk-meta", "中文 text"),
         ("/gbk-json", server::ENCODED_JSON),
+        ("/gzip", server::COMPRESSED),
+        ("/brotli", server::COMPRESSED),
     ] {
         let Output::WebPage(page) = client
             .execute(
@@ -381,7 +383,7 @@ async fn decodes_declared_and_fallback_charsets() {
     };
     assert_eq!(page.content, "��");
     assert!(page.untrusted);
-    assert_eq!(http.requests.lock().unwrap().len(), 5);
+    assert_eq!(http.requests.lock().unwrap().len(), 7);
     node.shutdown().await.unwrap();
     controller.close().await.unwrap();
 }

@@ -265,6 +265,8 @@ async fn manages_branches_with_captured_revisions() {
             worktree,
             limit: 100,
             cursor: None,
+            revision: None,
+            path: None,
         },
         Command::ReadGitCommit {
             worktree,

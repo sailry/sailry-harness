@@ -9,6 +9,25 @@ pub(super) fn run(
     environment: &crate::process::Environment,
     args: &[String],
 ) -> Result<String, Fault> {
+    execute(root, environment, args, None).map(|capture| capture.text)
+}
+
+pub(super) fn read(
+    root: &Path,
+    environment: &crate::process::Environment,
+    args: &[String],
+    control: &super::Control,
+) -> Result<sailry_protocol::process::Capture, Fault> {
+    control.check()?;
+    execute(root, environment, args, Some(control))
+}
+
+fn execute(
+    root: &Path,
+    environment: &crate::process::Environment,
+    args: &[String],
+    control: Option<&super::Control>,
+) -> Result<sailry_protocol::process::Capture, Fault> {
     let retained = path::root(root)?;
     super::output::command(args);
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -46,18 +65,36 @@ pub(super) fn run(
             child.stdout().take().unwrap(),
             child.stderr().take().unwrap(),
         );
-        let result = tokio::time::timeout(Duration::from_secs(120), child.wait()).await;
+        let deadline = control.map_or(Duration::from_secs(120), |control| {
+            control.deadline.saturating_duration_since(std::time::Instant::now())
+        });
+        let cancellation = async {
+            if let Some(control) = control {
+                control.cancelled.cancelled().await;
+            } else {
+                std::future::pending::<()>().await;
+            }
+        };
+        let result = tokio::select! {
+            result = tokio::time::timeout(deadline, child.wait()) => result.map_err(|_| {
+                if control.is_some() {
+                    super::busy(sailry_protocol::notification::DiagnosticCause::GitReadTimeout)
+                } else {
+                    Fault::new(ErrorCode::OutcomeUnknown, "Git operation timed out; inspect repository before retrying")
+                }
+            }),
+            _ = cancellation => Err(Fault::new(ErrorCode::Cancelled, "Git read cancelled")),
+        };
         let _ = child.start_kill();
         let _ = tokio::time::timeout(Duration::from_secs(2), child.wait()).await;
         let (stdout, stderr, error) = drain.finish(Duration::from_secs(2)).await;
-        let status = result
-            .map_err(|_| {
-                Fault::new(
-                    ErrorCode::OutcomeUnknown,
-                    "Git operation timed out; inspect repository before retrying",
-                )
-            })?
-            .map_err(|_| Fault::new(ErrorCode::OutcomeUnknown, "Git process result unavailable"))?;
+        let failure = if control.is_some() {
+            ErrorCode::Unavailable
+        } else {
+            ErrorCode::OutcomeUnknown
+        };
+        let status = result?
+            .map_err(|_| Fault::new(failure, "Git process result unavailable"))?;
         super::output::record(&format!(
             "{}{}\n[exit {}]\n",
             stdout.text,
@@ -66,7 +103,7 @@ pub(super) fn run(
         ));
         if error.is_some() {
             return Err(Fault::new(
-                ErrorCode::OutcomeUnknown,
+                failure,
                 "Git output could not be read",
             ));
         }
@@ -102,11 +139,15 @@ pub(super) fn run(
                 "Git remote listing exceeds output limit",
             ));
         }
-        Ok(stdout.text)
+        Ok(stdout)
     });
     check_root(&retained, root).map_err(|_| {
         Fault::new(
-            ErrorCode::OutcomeUnknown,
+            if control.is_some() {
+                ErrorCode::Conflict
+            } else {
+                ErrorCode::OutcomeUnknown
+            },
             "Git worktree changed during operation",
         )
     })?;

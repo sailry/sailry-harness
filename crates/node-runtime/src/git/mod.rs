@@ -46,12 +46,12 @@ use sailry_protocol::*;
 use crate::files::path;
 pub(crate) use watch::WatchFilter;
 
-type StatusRead = BoxFuture<'static, Result<Output, Fault>>;
+type StatusRead = BoxFuture<'static, Result<Box<Output>, Fault>>;
 const STATUS_TTL: Duration = Duration::from_secs(1);
 
 #[derive(Clone)]
 struct CachedStatus {
-    output: Output,
+    output: Box<Output>,
     root: path::identity::Identity,
     metadata: Option<status::Metadata>,
     expires: tokio::time::Instant,
@@ -71,6 +71,7 @@ pub(crate) struct Git {
     environment: Arc<crate::process::Environment>,
     statuses: Arc<Mutex<BTreeMap<PathBuf, StatusSlot>>>,
     changes: Arc<changes::Cache>,
+    history: Arc<history::Pages>,
     scans: Arc<scans::Scans>,
 }
 
@@ -81,6 +82,7 @@ impl Git {
             environment,
             statuses: Default::default(),
             changes: Default::default(),
+            history: Default::default(),
             scans: Default::default(),
         }
     }
@@ -157,12 +159,12 @@ impl Git {
             return tokio::select! {
                 biased;
                 _ = closed.cancelled() => Err(Fault::new(ErrorCode::Unavailable, "Node service is unavailable")),
-                result = read => result,
+                result = read => result.map(|output| *output),
             };
         }
-        self.inspect_once(root, command, closed, None)
+        self.inspect_once(root, command, closed, None, false)
             .await
-            .map(|(output, _, _)| output)
+            .map(|(output, _, _)| *output)
     }
 
     fn status(&self, root: PathBuf, command: Command) -> Shared<StatusRead> {
@@ -194,9 +196,32 @@ impl Git {
                 .as_ref()
                 .map(|cached| (cached.metadata.clone(), cached.expires));
             // Pending slots stay weak: the last observer still cancels its worker.
-            let result = git
-                .inspect_once(source.clone(), command, CancellationToken::new(), cached)
+            let mut result = git
+                .inspect_once(
+                    source.clone(),
+                    command.clone(),
+                    CancellationToken::new(),
+                    cached,
+                    false,
+                )
                 .await;
+            if result.as_ref().is_err_and(|error| {
+                matches!(
+                    &error.details,
+                    Some(FaultDetails::SystemDiagnostic(report))
+                        if report.cause == Some(DiagnosticCause::GitReadTimeout)
+                )
+            }) {
+                result = git
+                    .inspect_once(
+                        source.clone(),
+                        command,
+                        CancellationToken::new(),
+                        None,
+                        true,
+                    )
+                    .await;
+            }
             let mut statuses = git
                 .statuses
                 .lock()
@@ -252,10 +277,19 @@ impl Git {
         command: Command,
         closed: CancellationToken,
         cached: Option<CachedStatus>,
-    ) -> Result<(Output, path::identity::Identity, Option<status::Metadata>), Fault> {
+        native: bool,
+    ) -> Result<
+        (
+            Box<Output>,
+            path::identity::Identity,
+            Option<status::Metadata>,
+        ),
+        Fault,
+    > {
         let output = self.output.clone();
         let environment = self.environment.clone();
         let captures = self.changes.clone();
+        let history = self.history.clone();
         let deadline = if matches!(command, Command::ListGitRemoteTags { .. }) {
             Duration::from_secs(125)
         } else {
@@ -294,7 +328,7 @@ impl Git {
                 } = command
                 {
                     changes::cached(&source, &cursor, limit, &control, &captures)?
-                        .map(|result| (Output::GitChanges(result), identity, None))
+                        .map(|result| (Box::new(Output::GitChanges(result)), identity, None))
                 } else {
                     None
                 };
@@ -312,10 +346,11 @@ impl Git {
                 return Ok(result);
             }
         }
-        let permit = if matches!(
-            &command,
-            Command::InspectGit { .. } | Command::ListGitChanges { .. }
-        ) {
+        let permit = if !native
+            && matches!(
+                &command,
+                Command::InspectGit { .. } | Command::ListGitChanges { .. }
+            ) {
             let gate = self.scans.root(&root);
             Some(tokio::select! {
                 biased;
@@ -371,7 +406,11 @@ impl Git {
                     })
                     .map(Output::GitRemoteTags),
                 Command::InspectGit { .. } => {
-                    status::inspect(&root, &control).map(Output::GitStatus)
+                    if native {
+                        status::native(&root, &environment, &control).map(Output::GitStatus)
+                    } else {
+                        status::inspect(&root, &control).map(Output::GitStatus)
+                    }
                 }
                 Command::ReadGitHead { .. } => head::read(&root).map(Output::GitHead),
                 Command::ListGitBranches { .. } => {
@@ -386,9 +425,22 @@ impl Git {
                 Command::ReadGitDiff { path, scope, .. } => {
                     diff::read(&root, path, scope, &control).map(Output::GitDiff)
                 }
-                Command::ReadGitLog { limit, cursor, .. } => {
-                    history::log(&root, limit, cursor.as_ref(), &control).map(Output::GitLog)
-                }
+                Command::ReadGitLog {
+                    limit,
+                    cursor,
+                    revision,
+                    path,
+                    ..
+                } => history::log(
+                    &root,
+                    limit,
+                    cursor.as_ref(),
+                    revision.as_deref(),
+                    path.as_deref(),
+                    &control,
+                    &history,
+                )
+                .map(Output::GitLog),
                 Command::ReadGitCommit { commit, .. } => {
                     history::commit(&root, &commit, &control).map(Output::GitCommit)
                 }
@@ -469,7 +521,7 @@ impl Git {
             };
             check_root(&retained, &root)?;
             control.check()?;
-            result.map(|output| (output, identity, metadata))
+            result.map(|output| (Box::new(output), identity, metadata))
         });
         // Use the runtime blocking pool. Queued work checks cancellation before I/O;
         // an executing libgit2 call still cannot be preempted.

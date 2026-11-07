@@ -232,7 +232,9 @@ async fn read(client: &Client, worktree: WorktreeId) -> [Result<Output, Fault>; 
         client.execute(client.prepare(Command::ReadGitLog {
             worktree,
             limit: 10,
-            cursor: None
+            cursor: None,
+            revision: None,
+            path: None,
         })),
     );
     [status, branches, log]

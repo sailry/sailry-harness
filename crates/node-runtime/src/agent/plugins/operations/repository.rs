@@ -26,6 +26,8 @@ struct History {
     worktree: Option<WorktreeId>,
     limit: usize,
     cursor: Option<GitLogCursor>,
+    revision: Option<String>,
+    path: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -142,8 +144,8 @@ pub(super) fn parameters(operation: Operation) -> Value {
             vec!["worktree", "path", "scope"],
         ),
         Operation::ReadGitLog => (
-            json!({"worktree":target,"limit":{"type":"integer","minimum":1,"maximum":9_007_199_254_740_991u64},"cursor":{"type":["object","null"],"properties":{"head":string,"offset":{"type":"integer","minimum":0}},"required":["head","offset"],"additionalProperties":false}}),
-            vec!["worktree", "limit", "cursor"],
+            json!({"worktree":target,"limit":{"type":"integer","minimum":1,"maximum":9_007_199_254_740_991u64},"cursor":{"type":["object","null"],"properties":{"head":string,"after":string},"required":["head","after"],"additionalProperties":false},"revision":{"type":["string","null"]},"path":{"type":["string","null"]}}),
+            vec!["worktree", "limit", "cursor", "revision", "path"],
         ),
         Operation::ReadGitShow => (
             json!({"worktree":target,"revision":string,"path":{"type":["string","null"]},"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":9_007_199_254_740_991u64}}),
@@ -242,6 +244,8 @@ pub(super) fn command(
                 worktree: target(input.worktree)?,
                 limit: input.limit,
                 cursor: input.cursor,
+                revision: input.revision,
+                path: input.path,
             }
         }
         Operation::ReadGitShow => {

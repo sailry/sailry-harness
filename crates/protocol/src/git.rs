@@ -241,10 +241,11 @@ pub struct GitLogEntry {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct GitLogCursor {
     /// Immutable traversal root; continuation does not follow a moving HEAD.
     pub head: String,
-    pub offset: usize,
+    pub after: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

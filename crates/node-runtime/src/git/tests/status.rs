@@ -43,6 +43,32 @@ fn status(result: Result<Output, Fault>) -> GitStatus {
     status
 }
 
+#[test]
+fn inspects_on_standard_worker_stack() {
+    let (_directory, root, git, command) = fixture();
+    std::fs::write(root.join("tracked.txt"), "worktree content\n").unwrap();
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .worker_threads(1)
+        .thread_stack_size(2 * 1024 * 1024)
+        .build()
+        .unwrap();
+    runtime.block_on(async move {
+        tokio::spawn(async move {
+            for _ in 0..2 {
+                let result = status(
+                    git.inspect(root.clone(), command.clone(), CancellationToken::new())
+                        .await,
+                );
+                assert_eq!(result.entries.len(), 1);
+                assert_eq!(result.entries[0].path, "tracked.txt");
+            }
+        })
+        .await
+        .unwrap();
+    });
+}
+
 #[tokio::test]
 async fn reports_bounded_line_counts() {
     let (_directory, root, git, command) = fixture();
@@ -137,6 +163,8 @@ fn distinguishes_wait_and_execution_timeouts() {
         let mut read = Box::pin(git.inspect(root, command, CancellationToken::new()));
         pending(read.as_mut()).await;
         tokio::time::advance(Duration::from_secs(6)).await;
+        pending(read.as_mut()).await;
+        tokio::time::advance(Duration::from_secs(6)).await;
         let error = read.await.unwrap_err();
         release.send(()).unwrap();
         blocker.await.unwrap();
@@ -146,6 +174,27 @@ fn distinguishes_wait_and_execution_timeouts() {
         assert_eq!(error.code, ErrorCode::Busy);
         assert_eq!(report.cause, Some(DiagnosticCause::GitReadTimeout));
         assert_eq!(report.reason, DiagnosticReason::Timeout);
+    });
+}
+
+#[test]
+fn uses_native_status_after_scan_timeout() {
+    let (_directory, root, git, command) = fixture();
+    std::fs::write(root.join("pending.txt"), "pending content\n").unwrap();
+    runtime().block_on(async {
+        tokio::time::pause();
+        let (release, blocker) = hold();
+        let mut read = Box::pin(git.inspect(root, command, CancellationToken::new()));
+        pending(read.as_mut()).await;
+        tokio::time::advance(Duration::from_secs(6)).await;
+        pending(read.as_mut()).await;
+        tokio::time::resume();
+        release.send(()).unwrap();
+        blocker.await.unwrap();
+        let result = status(read.await);
+        assert_eq!(result.entries.len(), 1);
+        assert_eq!(result.entries[0].path, "pending.txt");
+        assert!(result.entries[0].diff.truncated);
     });
 }
 
@@ -344,7 +393,11 @@ async fn releases_completed_and_failed_scans() {
     assert!(retained.await.is_err());
     let original = git.status(root.clone(), command.clone());
     let retained = original.clone();
-    assert!(status(original.await).entries.is_empty());
+    assert!(
+        status(original.await.map(|output| *output))
+            .entries
+            .is_empty()
+    );
     std::fs::write(root.join("fresh.txt"), "fresh scan").unwrap();
     let cached = status(
         git.inspect(root.clone(), command.clone(), CancellationToken::new())
@@ -358,7 +411,11 @@ async fn releases_completed_and_failed_scans() {
     let fresh = status(git.inspect(root, command, CancellationToken::new()).await);
     assert_eq!(fresh.entries.len(), 1);
     assert_eq!(fresh.entries[0].path, "fresh.txt");
-    assert!(status(retained.await).entries.is_empty());
+    assert!(
+        status(retained.await.map(|output| *output))
+            .entries
+            .is_empty()
+    );
 }
 
 #[tokio::test]

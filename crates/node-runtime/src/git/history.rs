@@ -7,21 +7,37 @@ use sailry_protocol::*;
 
 use super::{Control, diff, fault, open};
 
+mod pages;
+pub(super) use pages::Pages;
+
 pub(super) fn log(
     root: &Path,
     limit: usize,
     cursor: Option<&GitLogCursor>,
+    revision: Option<&str>,
+    path: Option<&str>,
     control: &Control,
+    pages: &Pages,
 ) -> Result<GitLog, Fault> {
     if limit == 0 {
         return Err(Fault::invalid("Git history limit must be positive"));
     }
     let page_limit = limit.min(MAX_GIT_COMMITS);
     let cursor_head = cursor.map(|cursor| commit_id(&cursor.head)).transpose()?;
+    let after = cursor.map(|cursor| commit_id(&cursor.after)).transpose()?;
+    if let Some(path) = path {
+        super::valid_path(path)?;
+    }
+    if revision.is_some_and(|revision| {
+        revision.is_empty() || revision.len() > 1024 || revision.chars().any(char::is_control)
+    }) {
+        return Err(Fault::invalid("invalid Git revision"));
+    }
     let repository = match open(root) {
         Ok(repository) => repository,
         Err(error)
             if cursor.is_none()
+                && revision.is_none()
                 && error.code == ErrorCode::NotFound
                 && !root.join(".git").exists() =>
         {
@@ -29,9 +45,15 @@ pub(super) fn log(
         }
         Err(error) => return Err(error),
     };
-    let offset = cursor.map_or(0, |cursor| cursor.offset);
     let head = if let Some(head) = cursor_head {
         head
+    } else if let Some(revision) = revision {
+        repository
+            .revparse_single(revision)
+            .map_err(fault)?
+            .peel_to_commit()
+            .map_err(fault)?
+            .id()
     } else {
         match repository.head() {
             Ok(head) => head.peel_to_commit().map_err(fault)?.id(),
@@ -42,39 +64,84 @@ pub(super) fn log(
         }
     };
     let (references, references_truncated) = references(&repository, control)?;
-    let mut walk = repository.revwalk().map_err(fault)?;
-    walk.set_sorting(Sort::TOPOLOGICAL | Sort::TIME)
-        .map_err(fault)?;
-    walk.push(head).map_err(fault)?;
+    let retained = pages.get(root, head, path)?;
+    let capture = if let Some(capture) = retained {
+        capture
+    } else if cursor.is_some() {
+        return Err(Fault::new(
+            ErrorCode::Conflict,
+            "Git history cursor expired; reload history",
+        ));
+    } else {
+        let mut walk = repository.revwalk().map_err(fault)?;
+        walk.set_sorting(Sort::TIME).map_err(fault)?;
+        walk.push(head).map_err(fault)?;
+        let mut commits = Vec::new();
+        for oid in walk {
+            control.check()?;
+            let oid = oid.map_err(fault)?;
+            if path
+                .map(|path| touches(&repository, oid, path))
+                .transpose()?
+                .unwrap_or(true)
+            {
+                commits.push(oid);
+            }
+        }
+        pages.insert(root, head, path, commits)?
+    };
+    let offset = match after {
+        Some(after) => {
+            capture
+                .commits
+                .iter()
+                .position(|oid| *oid == after)
+                .ok_or_else(|| Fault::invalid("Git history cursor does not match the traversal"))?
+                + 1
+        }
+        None => 0,
+    };
     let mut entries = Vec::with_capacity(page_limit);
-    let mut truncated = false;
-    for (position, oid) in walk.enumerate() {
+    for oid in capture.commits.iter().skip(offset).take(page_limit) {
         control.check()?;
-        let oid = oid.map_err(fault)?;
-        if position < offset {
-            continue;
-        }
-        if entries.len() == page_limit {
-            truncated = true;
-            break;
-        }
-        entries.push(entry(&repository, oid, references.get(&oid))?);
+        entries.push(entry(&repository, *oid, references.get(oid))?);
     }
     if entries.is_empty() && offset > 0 {
         return Err(Fault::invalid("Git history offset is beyond the traversal"));
     }
+    let truncated = offset + entries.len() < capture.commits.len();
     Ok(GitLog {
         kind: RepositoryKind::Ready,
         head: Some(head.to_string()),
         offset,
         next: truncated.then(|| GitLogCursor {
             head: head.to_string(),
-            offset: offset + entries.len(),
+            after: entries
+                .last()
+                .expect("nonempty Git history page")
+                .id
+                .clone(),
         }),
         entries,
         truncated,
         references_truncated,
     })
+}
+
+fn touches(repository: &Repository, oid: Oid, path: &str) -> Result<bool, Fault> {
+    let commit = repository.find_commit(oid).map_err(fault)?;
+    let entry = |tree: git2::Tree<'_>| match tree.get_path(Path::new(path)) {
+        Ok(entry) => Ok(Some((entry.id(), entry.filemode()))),
+        Err(error) if error.code() == git2::ErrorCode::NotFound => Ok(None),
+        Err(error) => Err(fault(error)),
+    };
+    let current = entry(commit.tree().map_err(fault)?)?;
+    let previous = if commit.parent_count() == 0 {
+        None
+    } else {
+        entry(commit.parent(0).map_err(fault)?.tree().map_err(fault)?)?
+    };
+    Ok(current != previous)
 }
 
 fn empty(kind: RepositoryKind) -> GitLog {

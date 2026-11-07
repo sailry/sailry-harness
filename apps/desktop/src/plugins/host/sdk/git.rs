@@ -84,11 +84,20 @@ impl Host {
                     args.get(1).map(decode).transpose()?.unwrap_or(Value::Null),
                 )
                 .map_err(|error| HostError::new(error.to_string()))?;
+                let options: History = serde_json::from_value(
+                    args.get(2)
+                        .map(decode)
+                        .transpose()?
+                        .unwrap_or_else(|| serde_json::json!({})),
+                )
+                .map_err(|error| HostError::new(error.to_string()))?;
                 log.read_scoped(
                     Command::ReadGitLog {
                         worktree: log.git_worktree()?,
                         limit,
                         cursor,
+                        revision: options.revision,
+                        path: options.path,
                     },
                     true,
                 )
@@ -165,4 +174,11 @@ impl Host {
             .worktree
             .ok_or_else(|| HostError::new("plugin has no worktree scope"))
     }
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct History {
+    revision: Option<String>,
+    path: Option<String>,
 }

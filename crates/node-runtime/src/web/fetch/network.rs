@@ -3,8 +3,10 @@ use reqwest::{Url, header};
 use sailry_protocol::{ErrorCode, Fault, web};
 use std::{net::SocketAddr, time::Duration};
 
+mod client;
 mod encoding;
 mod proxy;
+pub(super) use client::Clients;
 #[cfg(test)]
 mod tests;
 
@@ -22,35 +24,10 @@ fn request_error(error: reqwest::Error) -> Fault {
     })
 }
 
-async fn lookup(_owner: &Fetcher, url: &Url) -> Result<Vec<SocketAddr>, Fault> {
+async fn lookup(owner: &Fetcher, url: &Url) -> Result<Vec<SocketAddr>, Fault> {
     let port = url.port_or_known_default().expect("HTTP(S) URL port");
     let host = url.host_str().expect("HTTP(S) URL host");
-    #[cfg(any(test, feature = "test-support"))]
-    if let Some(fixture) = _owner
-        .fixtures
-        .lock()
-        .expect("web fixture lock is healthy")
-        .get(host)
-        .cloned()
-    {
-        if fixture.resolved.is_empty() {
-            return Err(unavailable("web hostname could not be resolved"));
-        }
-        return Ok(fixture
-            .resolved
-            .iter()
-            .map(|ip| SocketAddr::new(*ip, port))
-            .collect());
-    }
-    let addresses: Vec<_> = match url.host().expect("HTTP(S) URL host") {
-        url::Host::Ipv4(ip) => vec![SocketAddr::new(ip.into(), port)],
-        url::Host::Ipv6(ip) => vec![SocketAddr::new(ip.into(), port)],
-        url::Host::Domain(_) => tokio::net::lookup_host((host, port))
-            .await
-            .map_err(|_| unavailable("web hostname could not be resolved"))?
-            .collect(),
-    };
-    Ok(addresses)
+    client::Resolver::new(owner).lookup(host, port).await
 }
 
 async fn local_addresses() -> Result<Vec<std::net::IpAddr>, Fault> {
@@ -65,18 +42,12 @@ async fn local_addresses() -> Result<Vec<std::net::IpAddr>, Fault> {
 }
 
 async fn resolve(owner: &Fetcher, url: &Url) -> Result<Vec<SocketAddr>, Fault> {
-    let addresses = lookup(owner, url).await?;
-    policy::addresses(&addresses, &local_addresses().await?)?;
-    #[cfg(any(test, feature = "test-support"))]
-    if let Some(fixture) = owner
-        .fixtures
-        .lock()
-        .expect("web fixture lock is healthy")
-        .get(url.host_str().expect("validated URL host"))
-    {
-        return Ok(vec![fixture.address]);
-    }
-    Ok(addresses)
+    client::Resolver::new(owner)
+        .checked(
+            url.host_str().expect("validated URL host"),
+            url.port_or_known_default().expect("HTTP(S) URL port"),
+        )
+        .await
 }
 
 async fn check_proxy(owner: &Fetcher, url: &Url) -> Result<(), Fault> {
@@ -104,29 +75,16 @@ pub(super) async fn validate(owner: &Fetcher, url: &Url) -> Result<(), Fault> {
 pub(super) async fn fetch(owner: &Fetcher, mut url: Url) -> Result<Document, Fault> {
     for redirects in 0..=web::MAX_REDIRECTS {
         let proxy = proxy::select(owner, &url).await?;
-        let builder = reqwest::Client::builder()
-            .no_proxy()
-            .redirect(reqwest::redirect::Policy::none())
-            .retry(reqwest::retry::never())
-            .referer(false)
-            .no_gzip()
-            .no_brotli()
-            .no_deflate()
-            .no_zstd()
-            .connect_timeout(Duration::from_secs(10))
-            .read_timeout(Duration::from_secs(10));
-        let builder = if let Some(proxy) = proxy {
+        if proxy.is_some() {
             check_proxy(owner, &url).await?;
-            builder.proxy(proxy)
         } else {
-            let addresses = resolve(owner, &url).await?;
-            builder.resolve_to_addrs(url.host_str().expect("validated URL host"), &addresses)
-        };
-        #[cfg(any(test, feature = "test-support"))]
-        let builder = owner.configure_fixture(&url, builder);
-        let client = builder
-            .build()
-            .map_err(|_| unavailable("web HTTP client is unavailable"))?;
+            resolve(owner, &url).await?;
+        }
+        let client = owner
+            .clients
+            .lock()
+            .expect("web clients lock is healthy")
+            .get(owner, &url, proxy)?;
         let mut response = client
             .get(url.clone())
             .header(header::USER_AGENT, "Sailry/1")
@@ -134,7 +92,6 @@ pub(super) async fn fetch(owner: &Fetcher, mut url: Url) -> Result<Document, Fau
                 header::ACCEPT,
                 "text/html, application/json, text/plain, */*;q=0.5",
             )
-            .header(header::ACCEPT_ENCODING, "identity")
             .send()
             .await
             .map_err(request_error)?;

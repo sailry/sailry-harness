@@ -16,6 +16,8 @@ mod plugin_support;
 mod admission;
 #[path = "transport/downloads.rs"]
 mod downloads;
+#[path = "transport/git.rs"]
+mod git;
 #[path = "transport/outcomes.rs"]
 mod outcomes;
 #[path = "transport/plugins.rs"]

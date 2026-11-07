@@ -37,7 +37,9 @@ fn admits_parallel_reads() {
                     Command::ReadGitLog {
                         worktree,
                         limit: 10,
-                        cursor: None
+                        cursor: None,
+                        revision: None,
+                        path: None,
                     },
                     closed.clone()
                 ),

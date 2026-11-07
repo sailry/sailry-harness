@@ -196,13 +196,13 @@ export function inspectGit(): Promise<GitStatus>;
 export function prepareGitIndex(draft: GitIndexDraft): string;
 /** Requires git.write. Reuse the original ID to recover an uncertain commit result. */
 export function prepareGitCommit(draft: GitCommitDraft): string;
-export type GitLogCursor = {head: string; offset: number};
+export type GitLogCursor = {head: string; after: string};
 export type GitDiff = {path: string; scope: "all" | "staged" | "unstaged"; text: string; additions: number; deletions: number; binary: boolean; truncated: boolean};
 /** All repository reads retain this instance's captured worktree. */
 export function listGitBranches(): Promise<Json>;
 export function resolveGitRevision(revision: string): Promise<Json>;
 export function readGitDiff(path: string, scope: "all" | "staged" | "unstaged"): Promise<GitDiff>;
-export function readGitLog(limit: number, cursor?: GitLogCursor | null): Promise<Json>;
+export function readGitLog(limit: number, cursor?: GitLogCursor | null, options?: {revision?: string | null; path?: string | null}): Promise<Json>;
 export function readGitCommit(commit: string): Promise<Json>;
 export function readGitStash(commit: string): Promise<GitDiff>;
 export function readGitOutput(): Promise<{text: string}>;

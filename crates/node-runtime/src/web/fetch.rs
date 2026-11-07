@@ -21,8 +21,9 @@ pub(crate) struct Fetcher {
     active: Mutex<BTreeMap<(NodeId, RequestId), CancellationToken>>,
     deadline: Duration,
     cache: Mutex<cache::Cache>,
+    clients: Mutex<network::Clients>,
     #[cfg(any(test, feature = "test-support"))]
-    fixtures: Mutex<BTreeMap<String, Fixture>>,
+    fixtures: Arc<Mutex<BTreeMap<String, Fixture>>>,
 }
 
 impl Default for Fetcher {
@@ -31,6 +32,7 @@ impl Default for Fetcher {
             active: Default::default(),
             deadline: Duration::from_secs(web::TIMEOUT_SECS),
             cache: Default::default(),
+            clients: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             fixtures: Default::default(),
         }

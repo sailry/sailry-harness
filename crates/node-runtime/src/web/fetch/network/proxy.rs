@@ -46,7 +46,12 @@ fn configured() -> Matcher {
     settings.matcher(|name| std::env::var(name).ok())
 }
 
-pub(super) async fn select(owner: &Fetcher, url: &Url) -> Result<Option<Proxy>, Fault> {
+pub(super) struct Selected {
+    pub proxy: Proxy,
+    pub key: String,
+}
+
+pub(super) async fn select(owner: &Fetcher, url: &Url) -> Result<Option<Selected>, Fault> {
     #[cfg(any(test, feature = "test-support"))]
     let fixture = owner
         .fixtures
@@ -82,11 +87,22 @@ pub(super) async fn select(owner: &Fetcher, url: &Url) -> Result<Option<Proxy>, 
     };
     let mut proxy = Proxy::all(intercept.uri().to_string())
         .map_err(|_| unavailable("unsupported web proxy"))?;
+    let mut key = blake3::Hasher::new();
+    key.update(intercept.uri().to_string().as_bytes());
     if let Some(auth) = intercept.basic_auth() {
         proxy = proxy.custom_http_auth(auth.clone());
+        key.update(&[0]);
+        key.update(auth.as_bytes());
     }
     if let Some((user, password)) = intercept.raw_auth() {
         proxy = proxy.basic_auth(user, password);
+        key.update(&[0]);
+        key.update(user.as_bytes());
+        key.update(&[0]);
+        key.update(password.as_bytes());
     }
-    Ok(Some(proxy))
+    Ok(Some(Selected {
+        proxy,
+        key: key.finalize().to_hex().to_string(),
+    }))
 }

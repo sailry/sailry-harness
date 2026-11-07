@@ -6,6 +6,8 @@ async fn log(client: &Client, worktree: WorktreeId, limit: usize) -> GitLog {
             worktree,
             limit,
             cursor: None,
+            revision: None,
+            path: None,
         }))
         .await
         .unwrap()
@@ -113,6 +115,61 @@ async fn shares_read_only_history() {
                 .iter()
                 .all(|entry| entry.id != unrelated.to_string())
         );
+        for (revision, path, expected) in [
+            ("v1", "build notes.md", vec![first.id().to_string()]),
+            ("feature", "missing.txt", vec![]),
+            ("unrelated", "中文.txt", vec![unrelated.to_string()]),
+        ] {
+            let Output::GitLog(filtered) = client
+                .execute(client.prepare(Command::ReadGitLog {
+                    worktree: id,
+                    limit: 10,
+                    cursor: None,
+                    revision: Some(revision.into()),
+                    path: Some(path.into()),
+                }))
+                .await
+                .unwrap()
+            else {
+                panic!("filtered Git history expected")
+            };
+            assert_eq!(
+                filtered
+                    .entries
+                    .iter()
+                    .map(|entry| entry.id.clone())
+                    .collect::<Vec<_>>(),
+                expected
+            );
+        }
+        let Output::GitLog(filtered) = client
+            .execute(client.prepare(Command::ReadGitLog {
+                worktree: id,
+                limit: 1,
+                cursor: None,
+                revision: None,
+                path: Some("中文.txt".into()),
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("filtered Git history expected")
+        };
+        let Output::GitLog(continued) = client
+            .execute(client.prepare(Command::ReadGitLog {
+                worktree: id,
+                limit: 1,
+                cursor: filtered.next,
+                revision: None,
+                path: Some("中文.txt".into()),
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("filtered Git continuation expected")
+        };
+        assert_eq!(continued.entries[0].id, first.id().to_string());
+        assert_eq!(continued.offset, 1);
         let patch = detail(client, id, second).await;
         assert_eq!(patch.files.len(), 2);
         let text = patch
@@ -170,6 +227,8 @@ async fn shares_read_only_history() {
                 worktree: WorktreeId::new(),
                 limit: 10,
                 cursor: None,
+                revision: None,
+                path: None,
             }))
             .await
             .unwrap_err();
@@ -180,6 +239,8 @@ async fn shares_read_only_history() {
                     worktree: id,
                     limit: 0,
                     cursor: None,
+                    revision: None,
+                    path: None,
                 }))
                 .await
                 .unwrap_err()
@@ -192,6 +253,8 @@ async fn shares_read_only_history() {
             worktree: id,
             limit: 10,
             cursor: None,
+            revision: None,
+            path: None,
         }))
         .await
         .unwrap();
@@ -326,8 +389,7 @@ async fn retains_pagination_root() {
         )
         .unwrap();
     let mut walk = repository.revwalk().unwrap();
-    walk.set_sorting(git2::Sort::TOPOLOGICAL | git2::Sort::TIME)
-        .unwrap();
+    walk.set_sorting(git2::Sort::TIME).unwrap();
     walk.push(merged).unwrap();
     let expected = walk.map(|oid| oid.unwrap().to_string()).collect::<Vec<_>>();
     let node = Node::start_empty(temp.path().join("node")).await.unwrap();
@@ -365,6 +427,8 @@ async fn retains_pagination_root() {
                     worktree: id,
                     limit: 7,
                     cursor: Some(cursor),
+                    revision: None,
+                    path: None,
                 }))
                 .await
                 .unwrap()
@@ -382,10 +446,9 @@ async fn retains_pagination_root() {
             .execute(client.prepare(Command::ReadGitLog {
                 worktree: id,
                 limit: 7,
-                cursor: Some(GitLogCursor {
-                    head: merged.to_string(),
-                    offset: 0,
-                }),
+                cursor: None,
+                revision: Some(merged.to_string()),
+                path: None,
             }))
             .await
             .unwrap()
@@ -400,11 +463,11 @@ async fn retains_pagination_root() {
         for cursor in [
             GitLogCursor {
                 head: "HEAD".into(),
-                offset: 7,
+                after: expected[6].clone(),
             },
             GitLogCursor {
                 head: merged.to_string(),
-                offset: usize::MAX,
+                after: "0".repeat(40),
             },
         ] {
             assert_eq!(
@@ -412,7 +475,9 @@ async fn retains_pagination_root() {
                     .execute(client.prepare(Command::ReadGitLog {
                         worktree: id,
                         limit: 7,
-                        cursor: Some(cursor)
+                        cursor: Some(cursor),
+                        revision: None,
+                        path: None,
                     }))
                     .await
                     .unwrap_err()
