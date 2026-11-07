@@ -1,9 +1,8 @@
 //! Bounded summary input; canonical history and the latest turn stay intact.
-use super::{Message, MessageContent, PROMPT, tokens};
-use goose_context_management::{format_message_for_compacting, templates::render};
+use super::{Message, MessageContent, PROMPT, format, templates::render, tokens};
 
 const EDGE_CHARS: usize = 1_000;
-// Covers GDK's summary request, role wrappers and token-estimation boundaries.
+// Covers the summary request, role wrappers and token-estimation boundaries.
 const REQUEST_TOKENS: usize = 256;
 
 #[derive(Clone, Copy)]
@@ -14,9 +13,8 @@ enum Detail {
     Omitted,
 }
 
-/// Feed GDK a transcript rather than live tool messages. Besides avoiding an
-/// additional tool protocol, this prevents its generic overflow retry from
-/// deleting tool responses in the latest turn after our preservation check.
+/// Summarize a transcript rather than live tool messages, preserving the
+/// latest turn's tool responses after its context-budget check.
 pub(super) fn prepare(
     messages: &[Message],
     context: usize,
@@ -130,7 +128,7 @@ fn transcript(messages: &[Message], detail: Option<Detail>) -> String {
             {
                 projected.content = vec![MessageContent::text("tool_response: [omitted]")];
             }
-            let formatted = format_message_for_compacting(&projected);
+            let formatted = format::message(&projected);
             let formatted = match (detail, content) {
                 (Some(Detail::Preview), MessageContent::ToolResponse(_)) => {
                     match formatted.split_once("tool_response: ") {

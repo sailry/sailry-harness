@@ -47,12 +47,14 @@ struct Reply {
     text: String,
     limited: bool,
     finish: &'static str,
+    usage: Usage,
 }
 
 #[derive(Default)]
 struct Scripted {
     replies: Mutex<VecDeque<Reply>>,
     systems: Mutex<Vec<String>>,
+    requests: Mutex<Vec<Vec<Message>>>,
 }
 
 impl Scripted {
@@ -60,6 +62,7 @@ impl Scripted {
         Arc::new(Self {
             replies: Mutex::new(replies.into_iter().collect()),
             systems: Mutex::default(),
+            requests: Mutex::default(),
         })
     }
 }
@@ -74,10 +77,11 @@ impl Provider for Scripted {
         &self,
         _: &ModelConfig,
         system: &str,
-        _: &[Message],
+        messages: &[Message],
         _: &[Tool],
     ) -> Result<MessageStream, ProviderError> {
         self.systems.lock().unwrap().push(system.into());
+        self.requests.lock().unwrap().push(messages.to_vec());
         let reply = self.replies.lock().unwrap().pop_front().unwrap();
         let id = "summary-response";
         let mut chunks = vec![Ok((
@@ -92,7 +96,7 @@ impl Provider for Scripted {
         chunks.push(Ok((
             None,
             Some(
-                ProviderUsage::new("scripted-fixture".into(), Usage::default())
+                ProviderUsage::new("scripted-fixture".into(), reply.usage)
                     .with_finish_reasons(vec![reply.finish.into()]),
             ),
         )));
@@ -148,6 +152,7 @@ fn reply(text: String) -> Reply {
         text,
         limited: false,
         finish: "stop",
+        usage: Usage::default(),
     }
 }
 
@@ -160,11 +165,9 @@ fn model(provider: Arc<dyn Provider>) -> Model {
 }
 
 async fn summarize(model: &Model, messages: Vec<Message>) -> anyhow::Result<String> {
-    let mut output = super::Output::default();
     let messages = super::input::prepare(&messages, 64_000, 8_000)?;
-    goose_context_management::compact(model, Some(&Estimator), &Input(messages), &mut output)
-        .await?;
-    Ok(output.summary.unwrap().as_concat_text())
+    let (summary, _) = super::summarize::run(model, &messages).await?;
+    Ok(summary.as_concat_text())
 }
 
 fn invocation(node: &crate::Node) -> Arc<Invocation> {
@@ -432,8 +435,69 @@ async fn keeps_tools_called_earlier_in_turn() {
 mod summary {
     use super::*;
 
+    #[derive(Default)]
+    struct Overflowing {
+        requests: AtomicUsize,
+        system: Mutex<Option<String>>,
+    }
+
+    #[async_trait]
+    impl Provider for Overflowing {
+        fn get_name(&self) -> &str {
+            "overflow-fixture"
+        }
+
+        async fn stream(
+            &self,
+            _: &ModelConfig,
+            system: &str,
+            _: &[Message],
+            _: &[Tool],
+        ) -> Result<MessageStream, ProviderError> {
+            self.requests.fetch_add(1, Ordering::SeqCst);
+            *self.system.lock().unwrap() = Some(system.to_owned());
+            Err(ProviderError::ContextLengthExceeded(
+                "summary context exceeded".to_owned(),
+            ))
+        }
+    }
+
     fn history() -> Vec<Message> {
         vec![Message::user().with_text("Fix the parser and keep the v1 wire format")]
+    }
+
+    #[tokio::test]
+    async fn preserves_latest_tools_on_overflow() {
+        let provider = Arc::new(Overflowing::default());
+        let messages = history()
+            .into_iter()
+            .chain(exchange(
+                "read",
+                "read_file",
+                CallToolResult::success(vec![rmcp::model::ContentBlock::text(
+                    "Latest exact evidence",
+                )]),
+                false,
+            ))
+            .collect();
+        let error = summarize(&model(provider.clone()), messages)
+            .await
+            .unwrap_err();
+        assert_eq!(provider.requests.load(Ordering::SeqCst), 1);
+        assert!(
+            provider
+                .system
+                .lock()
+                .unwrap()
+                .as_deref()
+                .unwrap()
+                .contains("Latest exact evidence")
+        );
+        assert!(
+            error
+                .to_string()
+                .contains("there are no tool responses to remove")
+        );
     }
 
     #[tokio::test]
@@ -444,6 +508,7 @@ mod summary {
                 text: valid.clone(),
                 limited,
                 finish,
+                usage: Usage::default(),
             }]);
             let error = summarize(&model(provider), history()).await.unwrap_err();
             assert!(error.to_string().contains("output limit"), "{error}");
@@ -476,6 +541,70 @@ mod summary {
         assert!(system.contains("usually no more than 15"));
         assert!(system.contains("under 3,000 tokens"));
         assert!(!system.contains("{{ messages }}"));
+    }
+
+    #[tokio::test]
+    async fn estimates_usage_before_rendering() {
+        let document = structured(serde_json::json!({"user_intent":["Fix the parser"]}));
+        let normalized =
+            serde_json::to_string(&super::super::structured::Summary::parse(&document).unwrap())
+                .unwrap();
+        let provider = Scripted::new([reply(document)]);
+        let messages = super::super::input::prepare(&history(), 64_000, 8_000).unwrap();
+        let (summary, usage) = super::super::summarize::run(&model(provider.clone()), &messages)
+            .await
+            .unwrap();
+        let system = provider.systems.lock().unwrap()[0].clone();
+        let request = provider.requests.lock().unwrap()[0].clone();
+        assert_eq!(request.len(), 1);
+        assert_eq!(
+            request[0].as_concat_text(),
+            "Please summarize the conversation history provided in the system prompt."
+        );
+        let expected_input = tokens::chat(&system, &request) as i32;
+        let expected_output = tokens::text(&MessageContent::text(normalized).to_string()) as i32;
+        assert_eq!(usage.usage.input_tokens, Some(expected_input));
+        assert_eq!(usage.usage.output_tokens, Some(expected_output));
+        assert_eq!(
+            usage.usage.total_tokens,
+            Some(expected_input + expected_output)
+        );
+        assert_ne!(
+            expected_output,
+            tokens::text(&summary.as_concat_text()) as i32
+        );
+        assert_eq!(summary.role, rmcp::model::Role::User);
+    }
+
+    #[tokio::test]
+    async fn preserves_reported_usage() {
+        for (input, output) in [(Some(123), None), (None, Some(45)), (Some(123), Some(45))] {
+            let provider = Scripted::new([Reply {
+                usage: Usage {
+                    input_tokens: input,
+                    output_tokens: output,
+                    total_tokens: Some(999),
+                    ..Usage::default()
+                },
+                ..reply(structured(
+                    serde_json::json!({"user_intent":["Fix the parser"]}),
+                ))
+            }]);
+            let messages = super::super::input::prepare(&history(), 64_000, 8_000).unwrap();
+            let (_, usage) = super::super::summarize::run(&model(provider), &messages)
+                .await
+                .unwrap();
+            if let Some(input) = input {
+                assert_eq!(usage.usage.input_tokens, Some(input));
+            }
+            if let Some(output) = output {
+                assert_eq!(usage.usage.output_tokens, Some(output));
+            }
+            assert_eq!(
+                usage.usage.total_tokens,
+                Some(usage.usage.input_tokens.unwrap() + usage.usage.output_tokens.unwrap())
+            );
+        }
     }
 
     #[tokio::test]

@@ -14727,6 +14727,7 @@ dependencies = [
  "libghostty-vt",
  "lopdf",
  "md-5 0.10.6",
+ "minijinja 3.0.1",
  "notify 9.0.0-rc.6",
  "objc2-app-kit 0.3.2",
  "objc2-application-services",

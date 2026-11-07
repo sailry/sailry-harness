@@ -1,13 +1,10 @@
 //! Adapted from Goose ee8500d5, ops_compaction.rs and context_mgmt/mod.rs.
-//! Apache-2.0; GDK owns summarization, rendering and context-overflow recovery.
+//! Summarization derives from Goose 14741e9a, goose-context-management.
+//! Apache-2.0; see third_party_licenses/goose-Apache-2.0.txt.
 use super::{Effect, Session, tokens};
 use crate::agent::canonical::CompactedFile;
 use async_trait::async_trait;
 use goose_agent::operation::*;
-use goose_context_management::{
-    CompactionInput, CompactionModel, CompactionOutput, StructuredSummary, Templates,
-    TokenEstimator,
-};
 use goose_provider_types::{
     base::{Provider, collect_stream},
     conversation::{
@@ -20,9 +17,13 @@ use goose_provider_types::{
 };
 use std::sync::{Arc, Mutex};
 
+mod format;
 mod handoff;
 mod input;
 mod loadout;
+mod structured;
+mod summarize;
+mod templates;
 #[cfg(test)]
 mod tests;
 
@@ -34,36 +35,22 @@ pub(super) struct Compaction {
     pub preparer: Arc<super::prompt::Preparer>,
     pub manual: bool,
 }
-/// Sailry's concise handoff prompt over GDK's structured summary contract.
+/// Sailry's concise handoff prompt.
 const PROMPT: &str = include_str!("compact/prompt.md");
 /// Renders the structured fields as Goal, Constraints, State, Decisions,
 /// Next Steps and Essential Context.
 const RENDER: &str = include_str!("compact/render.md");
-
-struct Input(Vec<Message>);
-impl CompactionInput for Input {
-    fn messages(&self) -> Vec<Message> {
-        self.0.clone()
-    }
-    fn templates(&self) -> Templates {
-        Templates {
-            compaction: PROMPT.into(),
-            summary: RENDER.into(),
-        }
-    }
-}
 
 pub(super) struct Model {
     pub provider: Arc<dyn Provider>,
     pub config: ModelConfig,
     pub files: Mutex<Vec<CompactedFile>>,
 }
-#[async_trait]
-impl CompactionModel for Model {
+impl Model {
     /// Only a complete, parseable structured summary is accepted. A response
     /// cut off at the output limit or without the JSON document fails the
     /// compaction instead of replacing history with partial or raw text.
-    /// The accepted document is bounded before GDK renders it.
+    /// The accepted document is bounded before rendering.
     async fn complete(
         &self,
         system: &str,
@@ -89,9 +76,12 @@ impl CompactionModel for Model {
                 "compaction summary reached its output limit".into(),
             ));
         }
-        let mut summary = StructuredSummary::parse(&message.as_concat_text()).ok_or_else(|| {
-            ProviderError::ExecutionError("compaction summary was not a structured handoff".into())
-        })?;
+        let mut summary =
+            structured::Summary::parse(&message.as_concat_text()).ok_or_else(|| {
+                ProviderError::ExecutionError(
+                    "compaction summary was not a structured handoff".into(),
+                )
+            })?;
         handoff::bound(&mut summary)
             .map_err(|error| ProviderError::ExecutionError(error.to_string()))?;
         let document = serde_json::to_string(&summary)
@@ -122,29 +112,6 @@ fn truncated(usage: &ProviderUsage) -> bool {
         )
     })
 }
-struct Estimator;
-#[async_trait]
-impl TokenEstimator for Estimator {
-    async fn count_chat_tokens(&self, system: &str, messages: &[Message]) -> usize {
-        tokens::chat(system, messages)
-    }
-    async fn count_text_tokens(&self, text: &str) -> usize {
-        tokens::text(text)
-    }
-}
-#[derive(Default)]
-struct Output {
-    summary: Option<Message>,
-    usage: Option<ProviderUsage>,
-}
-impl CompactionOutput for Output {
-    fn set_summary(&mut self, summary: Message) {
-        self.summary = Some(summary);
-    }
-    fn set_usage(&mut self, usage: ProviderUsage) {
-        self.usage = Some(usage);
-    }
-}
 impl Compaction {
     /// `id` is the summary record identity announced by the in-progress status.
     async fn compact(
@@ -158,7 +125,6 @@ impl Compaction {
             config: self.config.clone(),
             files: Mutex::default(),
         };
-        let mut output = Output::default();
         let projected = Conversation::new_unvalidated(
             conversation
                 .messages()
@@ -174,16 +140,8 @@ impl Compaction {
             self.context,
             self.config.max_tokens.unwrap_or(8_000).max(0) as usize,
         )?;
-        goose_context_management::compact(&model, Some(&Estimator), &Input(input), &mut output)
-            .await?;
-        let summary = output
-            .summary
-            .ok_or_else(|| anyhow::anyhow!("compaction returned no message"))?
-            .with_id(id.to_owned())
-            .with_visibility(false, true);
-        let usage = output
-            .usage
-            .ok_or_else(|| anyhow::anyhow!("compaction returned no usage"))?;
+        let (summary, usage) = summarize::run(&model, &input).await?;
+        let summary = summary.with_id(id.to_owned()).with_visibility(false, true);
         let preserved = if self.manual {
             None
         } else {

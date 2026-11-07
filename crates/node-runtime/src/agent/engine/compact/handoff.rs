@@ -1,7 +1,6 @@
 //! Hard size bound for an accepted handoff. Lists are ordered most important
 //! first, so trimming removes their tails, least essential section first.
-use super::{RENDER, tokens};
-use goose_context_management::StructuredSummary;
+use super::{structured::Summary, tokens};
 
 /// Rendered handoff limit; the prompt asks for less.
 pub(super) const TOKENS: usize = 4_000;
@@ -11,10 +10,10 @@ const SHARE: usize = TOKENS / 8;
 /// Texts at or below this many tokens are not shortened further.
 const SHORTEST: usize = 48;
 
-pub(super) fn bound(summary: &mut StructuredSummary) -> anyhow::Result<()> {
+pub(super) fn bound(summary: &mut Summary) -> anyhow::Result<()> {
     summary.extra.clear();
     loop {
-        let size = tokens::text(&summary.render_with(RENDER)?);
+        let size = tokens::text(&summary.render()?);
         if size <= TOKENS {
             return Ok(());
         }
@@ -32,7 +31,7 @@ pub(super) fn bound(summary: &mut StructuredSummary) -> anyhow::Result<()> {
 /// Makes one reduction and returns its token count, or `None` once nothing
 /// more can be removed. References and decisions go first, then long texts
 /// are shortened, then goals, constraints and tasks beyond the first of each.
-fn trim(summary: &mut StructuredSummary) -> Option<usize> {
+fn trim(summary: &mut Summary) -> Option<usize> {
     for list in [
         &mut summary.technical_concepts,
         &mut summary.errors_and_fixes,
@@ -68,7 +67,7 @@ fn trim(summary: &mut StructuredSummary) -> Option<usize> {
 
 /// Halves the longest essential text, never below `minimum` tokens, and
 /// returns the tokens removed.
-fn shorten(summary: &mut StructuredSummary, minimum: usize) -> Option<usize> {
+fn shorten(summary: &mut Summary, minimum: usize) -> Option<usize> {
     let (size, text) = summary
         .user_intent
         .iter_mut()
