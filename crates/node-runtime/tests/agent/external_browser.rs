@@ -95,7 +95,7 @@ async fn workflow(capture: bool) {
                 ("external_browser_screenshot".into(), json!({})),
                 (
                     "external_browser_screenshot".into(),
-                    json!({"selector":"#name"}),
+                    json!({"selector":"#name","save_to_artifacts":true}),
                 ),
             ]);
         }
@@ -177,11 +177,25 @@ async fn workflow(capture: bool) {
         for result in &results[19..21] {
             assert!(result.get("error").is_some(), "{result}");
         }
-        for result in &results[21..] {
-            assert_eq!(result["execution_node"], json!(node.id()));
-            assert_eq!(result["result"]["success"], true, "{result}");
-            assert!(result["result"].get("base64_image").is_none());
-            let saved = result["result"]["path"].as_str().unwrap();
+        for (index, result) in results[21..].iter().enumerate() {
+            let response = &result["response"];
+            assert_eq!(response["execution_node"], json!(node.id()), "{result}");
+            assert_eq!(response["result"]["success"], true, "{result}");
+            assert!(response["result"].get("base64_image").is_none());
+            assert_eq!(response["result"]["mime_type"], "image/png");
+            assert!(
+                response["images"][0]
+                    .as_str()
+                    .unwrap()
+                    .starts_with("sailry-image:")
+            );
+            assert_eq!(result["inline_data"][0]["mime_type"], "image/png");
+            let saved = response["result"]["path"].as_str();
+            assert_eq!(response["result"]["saved_to_artifacts"], index == 1);
+            let Some(saved) = saved else {
+                assert_eq!(index, 0);
+                continue;
+            };
             assert!(saved.starts_with("assets/generated/browser-"), "{saved}");
             let bytes = std::fs::read(root.join(saved)).unwrap();
             assert_eq!(

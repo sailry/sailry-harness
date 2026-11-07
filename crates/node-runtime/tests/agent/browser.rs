@@ -254,16 +254,403 @@ async fn routes_through_controller() {
     }
 }
 
-#[tokio::test]
-async fn publishes_controller_artifact() {
+fn encoded(format: image::ImageFormat) -> (Vec<u8>, String) {
     use base64::Engine;
-
     let pixels = image::RgbImage::from_pixel(2, 2, image::Rgb([32, 96, 160]));
-    let mut jpeg = Vec::new();
-    image::codecs::jpeg::JpegEncoder::new(&mut jpeg)
-        .encode_image(&pixels)
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    pixels.write_to(&mut bytes, format).unwrap();
+    let bytes = bytes.into_inner();
+    let text = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    (bytes, text)
+}
+
+/// Image blocks in an outgoing Chat Completions request.
+fn uploaded(value: &serde_json::Value) -> usize {
+    match value {
+        serde_json::Value::Object(fields) => {
+            usize::from(fields.get("type").and_then(serde_json::Value::as_str) == Some("image_url"))
+                + fields.values().map(uploaded).sum::<usize>()
+        }
+        serde_json::Value::Array(values) => values.iter().map(uploaded).sum(),
+        _ => 0,
+    }
+}
+
+async fn capture_session(
+    client: &Client,
+    server: &Server,
+    root: &std::path::Path,
+    vision: bool,
+) -> Session {
+    super::approvals::install(client, &["browser"]).await;
+    let (session, mut provider) = configured_session(client, &server.endpoint, root).await;
+    provider.default_model = "fixture-a".into();
+    provider.models = vec![Model {
+        id: "fixture-a".into(),
+        display_name: None,
+        context: 128000,
+        output: 2048,
+        vision,
+        tools: true,
+        reasoning: false,
+        generates: vec![],
+        efforts: Vec::new(),
+        capabilities: None,
+        custom_efforts: false,
+        compaction_tokens: None,
+        default_effort: sailry_protocol::Effort::Default,
+    }];
+    client
+        .execute(client.prepare(Command::PutProvider {
+            provider,
+            expected_revision: 1,
+        }))
+        .await
         .unwrap();
-    let encoded = base64::engine::general_purpose::STANDARD.encode(&jpeg);
+    session
+}
+
+/// The first tool result image and the reference the model received for it.
+fn captured(page: &Page) -> (sailry_protocol::conversation::images::Reference, Image) {
+    page.entries
+        .iter()
+        .flat_map(|entry| &entry.parts)
+        .find_map(|part| match part {
+            Part::ToolResult {
+                id: Some(id),
+                images: found,
+                ..
+            } if !found.is_empty() => Some((
+                sailry_protocol::conversation::images::Reference {
+                    call: id.clone(),
+                    index: found[0].index,
+                },
+                found[0].clone(),
+            )),
+            _ => None,
+        })
+        .expect("captured tool image")
+}
+
+#[tokio::test]
+async fn shows_captures_to_models() {
+    use sailry_protocol::browser::{Action, Format, Scale, Target};
+    let (png, encoded) = encoded(image::ImageFormat::Png);
+    for remote in [false, true] {
+        for vision in [true, false] {
+            let directory = tempfile::tempdir().unwrap();
+            let root = directory.path().join("project");
+            std::fs::create_dir(&root).unwrap();
+            let node = Node::start_empty(directory.path().join("node"))
+                .await
+                .unwrap();
+            let controller =
+                Link::controller(directory.path().join("controller"), NetworkScope::default())
+                    .await
+                    .unwrap();
+            let address = controller
+                .handle()
+                .pair(node.link().invite().unwrap().ticket())
+                .await
+                .unwrap();
+            let client = Client::new(if remote {
+                controller.handle().remote(address)
+            } else {
+                node.local()
+            });
+            let mut subscription = client.subscribe_browser().await.unwrap();
+            let name = plugin_tool("browser", "browser_screenshot");
+            let server = Server::tools(vec![(
+                name.clone(),
+                json!({"tab":7,"target":{"kind":"selector","selector":"#save"},"scale":"device","format":"png"}),
+            )])
+            .await;
+            let session = capture_session(&client, &server, &root, vision).await;
+            let turn = approvals::submit(&client, session.id).await;
+            let Update::BrowserCall(call) =
+                tokio::time::timeout(Duration::from_secs(5), subscription.next())
+                    .await
+                    .unwrap()
+                    .unwrap()
+            else {
+                panic!("browser call expected")
+            };
+            assert_eq!(
+                call.action,
+                Action::Screenshot {
+                    tab: 7,
+                    target: Some(Target::Selector {
+                        selector: "#save".into()
+                    }),
+                    scale: Scale::Device,
+                    format: Format::Png,
+                    save: false,
+                }
+            );
+            // Synthetic pixels exercise publication without calling a screen capture API.
+            client
+                .execute(client.prepare(Command::CompleteBrowser {
+                    id: call.id,
+                    result: Ok(json!({
+                        "tab":7,"mime_type":"image/png","base64_image":encoded,
+                        "bounds":{"x":4,"y":8,"width":2,"height":2},"tag":"button","text":"Save",
+                        "path":"../controller/escaped.png"
+                    })),
+                }))
+                .await
+                .unwrap();
+            let page = finished(&client, session.id, turn).await;
+            assert_eq!(page.runs.last().unwrap().status, Status::Completed);
+            assert!(page.approvals.is_empty());
+            let (reference, image) = captured(&page);
+            assert_eq!(
+                sailry_client::conversation::images::resolve(&page, &reference),
+                Some(&image)
+            );
+            assert_eq!(image.attachment.spec.media_type, "image/png");
+            let results: Vec<_> = tool_details(&client, &page)
+                .await
+                .into_iter()
+                .filter(|(tool, _)| *tool == name)
+                .map(|(_, detail)| detail.result.unwrap())
+                .collect();
+            assert_eq!(results.len(), 1);
+            assert_eq!(
+                results[0]["response"],
+                json!({
+                    "tab":7,"bounds":{"x":4,"y":8,"width":2,"height":2},"tag":"button","text":"Save",
+                    "mime_type":"image/png","width":2,"height":2,"images":[reference.to_string()]
+                })
+            );
+            assert!(!root.join("assets").exists());
+            assert!(!directory.path().join("controller/escaped.png").exists());
+            let Output::AttachmentDownload(download) = client
+                .execute(client.prepare(Command::DownloadImage {
+                    session: session.id,
+                    image: image.clone(),
+                }))
+                .await
+                .unwrap()
+            else {
+                panic!("image download expected")
+            };
+            let mut downloaded = Vec::new();
+            client
+                .download_attachment(
+                    &download,
+                    &mut downloaded,
+                    sailry_link::CancellationToken::new(),
+                    |_| {},
+                )
+                .await
+                .unwrap();
+            assert_eq!(downloaded, png);
+            let requests = server.requests.lock().unwrap().clone();
+            let last = requests.last().unwrap();
+            let result = last["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|message| message["role"] == "tool")
+                .expect("canonical tool result must reach the next model request")["content"]
+                .to_string();
+            for fact in [reference.to_string().as_str(), "button", "Save"] {
+                assert!(result.contains(fact), "{fact}: {result}");
+            }
+            let text = last.to_string();
+            if vision {
+                assert_eq!(uploaded(last), 1);
+                assert!(text.contains("data:image/png;base64,"));
+            } else {
+                assert_eq!(uploaded(last), 0);
+                assert!(text.contains("does not support images"));
+                assert!(!text.contains("data:image/"));
+            }
+            drop(subscription);
+            controller.close().await.unwrap();
+            node.shutdown().await.unwrap();
+        }
+    }
+}
+
+#[tokio::test]
+async fn saves_confirmed_captures() {
+    use sailry_protocol::browser::{Action, Format, Scale};
+    let (jpeg, encoded) = encoded(image::ImageFormat::Jpeg);
+    for remote in [false, true] {
+        for mode in [WorkMode::Code, WorkMode::Plan] {
+            let directory = tempfile::tempdir().unwrap();
+            let root = directory.path().join("project");
+            std::fs::create_dir(&root).unwrap();
+            let node = Node::start_empty(directory.path().join("node"))
+                .await
+                .unwrap();
+            let controller =
+                Link::controller(directory.path().join("controller"), NetworkScope::default())
+                    .await
+                    .unwrap();
+            let address = controller
+                .handle()
+                .pair(node.link().invite().unwrap().ticket())
+                .await
+                .unwrap();
+            let client = Client::new(if remote {
+                controller.handle().remote(address)
+            } else {
+                node.local()
+            });
+            let mut subscription = client.subscribe_browser().await.unwrap();
+            let name = plugin_tool("browser", "browser_screenshot");
+            let server = Server::tools(vec![(name.clone(), json!({"tab":7,"save":true}))]).await;
+            let session = approvals::prepare_packages(&client, &server, &root, &["browser"]).await;
+            let mut revision = session.revision;
+            if mode == WorkMode::Plan {
+                let mut config = session.config.clone();
+                config.mode = mode;
+                client
+                    .execute(client.prepare(Command::SetSessionConfig {
+                        session: session.id,
+                        expected_revision: session.revision,
+                        config,
+                    }))
+                    .await
+                    .unwrap();
+                revision += 1;
+            }
+            let Output::QueuedTurn(turn) = client
+                .execute(client.prepare(Command::SubmitTurn {
+                    session: session.id,
+                    expected_revision: revision,
+                    message: "Save a browser capture".into(),
+                }))
+                .await
+                .unwrap()
+            else {
+                panic!("turn expected")
+            };
+            let details = |page: Page| {
+                let client = &client;
+                let name = name.clone();
+                async move {
+                    tool_details(client, &page)
+                        .await
+                        .into_iter()
+                        .filter(|(tool, _)| *tool == name)
+                        .map(|(_, detail)| detail)
+                        .collect::<Vec<_>>()
+                }
+            };
+            if mode == WorkMode::Plan {
+                let page = questions::finish_plan(&client, session.id, turn.id).await;
+                assert_eq!(page.runs.last().unwrap().status, Status::Completed);
+                assert!(page.approvals.is_empty());
+                assert!(
+                    tokio::time::timeout(Duration::from_millis(20), subscription.next())
+                        .await
+                        .is_err()
+                );
+                let results = details(page).await;
+                assert_eq!(
+                    results[0].result.as_ref().unwrap()["error"]["message"],
+                    "planning turns cannot save browser captures"
+                );
+                assert!(!root.join("assets").exists());
+            } else {
+                let (_, approval) = approvals::pending(&client, session.id).await;
+                assert!(
+                    tokio::time::timeout(Duration::from_millis(20), subscription.next())
+                        .await
+                        .is_err()
+                );
+                client
+                    .execute(client.prepare(Command::ResolveApproval {
+                        session: session.id,
+                        approval: approval.id,
+                        decision: Decision::Approve,
+                    }))
+                    .await
+                    .unwrap();
+                let Update::BrowserCall(call) =
+                    tokio::time::timeout(Duration::from_secs(5), subscription.next())
+                        .await
+                        .unwrap()
+                        .unwrap()
+                else {
+                    panic!("browser call expected")
+                };
+                assert_eq!(
+                    call.action,
+                    Action::Screenshot {
+                        tab: 7,
+                        target: None,
+                        scale: Scale::Css,
+                        format: Format::Jpeg,
+                        save: true,
+                    }
+                );
+                client
+                    .execute(client.prepare(Command::CompleteBrowser {
+                        id: call.id,
+                        result: Ok(json!({
+                            "tab":7,"mime_type":"image/jpeg","width":2,"height":2,
+                            "base64_image":encoded,"path":"../controller/escaped.jpg"
+                        })),
+                    }))
+                    .await
+                    .unwrap();
+                let page = finished(&client, session.id, turn.id).await;
+                assert_eq!(page.runs.last().unwrap().status, Status::Completed);
+                assert_eq!(page.approvals.len(), 1);
+                let (reference, _) = captured(&page);
+                let path = format!("assets/generated/browser-{}.jpg", call.id);
+                let results = details(page).await;
+                assert_eq!(results[0].images.len(), 1);
+                assert_eq!(
+                    results[0].result.as_ref().unwrap()["response"],
+                    json!({
+                        "tab":7,"mime_type":"image/jpeg","width":2,"height":2,
+                        "path":path,"images":[reference.to_string()]
+                    })
+                );
+                assert!(!directory.path().join("controller/escaped.jpg").exists());
+                assert!(
+                    root.join(&path)
+                        .canonicalize()
+                        .unwrap()
+                        .starts_with(root.canonicalize().unwrap())
+                );
+                let Output::FileDownload(download) = client
+                    .execute(client.prepare(Command::DownloadFile {
+                        worktree: session.worktree,
+                        path: path.clone(),
+                    }))
+                    .await
+                    .unwrap()
+                else {
+                    panic!("artifact download expected")
+                };
+                let mut downloaded = Vec::new();
+                client
+                    .download(
+                        &download,
+                        &mut downloaded,
+                        sailry_link::CancellationToken::new(),
+                        |_| {},
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(downloaded, jpeg);
+            }
+            drop(subscription);
+            controller.close().await.unwrap();
+            node.shutdown().await.unwrap();
+        }
+    }
+}
+
+#[tokio::test]
+async fn retains_recent_captures() {
+    let (_, encoded) = encoded(image::ImageFormat::Png);
     for remote in [false, true] {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("project");
@@ -280,119 +667,58 @@ async fn publishes_controller_artifact() {
             .pair(node.link().invite().unwrap().ticket())
             .await
             .unwrap();
-        let client = Client::new(if remote {
+        let client = Arc::new(Client::new(if remote {
             controller.handle().remote(address)
         } else {
             node.local()
-        });
+        }));
         let mut subscription = client.subscribe_browser().await.unwrap();
         let name = plugin_tool("browser", "browser_screenshot");
-        let server = Server::tools(vec![(name.clone(), json!({"tab":7}))]).await;
-        let session = approvals::prepare_packages(&client, &server, &root, &["browser"]).await;
+        let server = Server::tools(
+            (0..10)
+                .map(|_| (name.clone(), json!({"tab":0,"format":"png"})))
+                .collect(),
+        )
+        .await;
+        let session = capture_session(&client, &server, &root, true).await;
+        let responder = client.clone();
+        let image = encoded.clone();
+        let browser = tokio::spawn(async move {
+            for _ in 0..10 {
+                let Update::BrowserCall(call) = subscription.next().await.unwrap() else {
+                    panic!("browser call expected")
+                };
+                responder
+                    .execute(responder.prepare(Command::CompleteBrowser {
+                        id: call.id,
+                        result: Ok(json!({"tab":0,"base64_image":image})),
+                    }))
+                    .await
+                    .unwrap();
+            }
+            subscription
+        });
         let turn = approvals::submit(&client, session.id).await;
-        let (_, approval) = approvals::pending(&client, session.id).await;
-        assert!(
-            tokio::time::timeout(Duration::from_millis(20), subscription.next())
-                .await
-                .is_err()
-        );
-        client
-            .execute(client.prepare(Command::ResolveApproval {
-                session: session.id,
-                approval: approval.id,
-                decision: Decision::Approve,
-            }))
-            .await
-            .unwrap();
-        let Update::BrowserCall(call) =
-            tokio::time::timeout(Duration::from_secs(5), subscription.next())
-                .await
-                .unwrap()
-                .unwrap()
-        else {
-            panic!("browser call expected")
-        };
-        assert_eq!(call.session, session.id);
-        assert_eq!(
-            call.action,
-            sailry_protocol::browser::Action::Screenshot { tab: 7 }
-        );
-        // Synthetic pixels exercise publishing without calling a screen capture API.
-        client
-            .execute(client.prepare(Command::CompleteBrowser {
-                id: call.id,
-                result: Ok(json!({
-                    "tab":7,"mime_type":"image/jpeg","width":2,"height":2,
-                    "base64_image":encoded,"path":"../controller/escaped.jpg"
-                })),
-            }))
-            .await
-            .unwrap();
         let page = finished(&client, session.id, turn).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-        assert_eq!(page.approvals.len(), 1);
-        let path = format!("assets/generated/browser-{}.jpg", call.id);
-        let expected = json!({
-            "tab":7,"mime_type":"image/jpeg","width":2,"height":2,"path":path
-        });
-        let results: Vec<_> = tool_details(&client, &page)
-            .await
-            .into_iter()
-            .filter_map(|(tool, detail)| {
-                if tool != name {
-                    return None;
-                }
-                assert!(detail.images.is_empty());
-                detail.result
-            })
-            .collect();
-        assert_eq!(results, vec![expected.clone()]);
-        assert!(
-            !serde_json::to_string(&page)
-                .unwrap()
-                .contains("base64_image")
-        );
-        assert!(!directory.path().join("controller/escaped.jpg").exists());
-        assert!(
-            root.join(&path)
-                .canonicalize()
-                .unwrap()
-                .starts_with(root.canonicalize().unwrap())
-        );
-        let Output::FileDownload(download) = client
-            .execute(client.prepare(Command::DownloadFile {
-                worktree: session.worktree,
-                path: path.clone(),
-            }))
+        let subscription = tokio::time::timeout(Duration::from_secs(2), browser)
             .await
             .unwrap()
-        else {
-            panic!("artifact download expected")
-        };
-        assert_eq!(download.path, path);
-        let mut downloaded = Vec::new();
-        client
-            .download(
-                &download,
-                &mut downloaded,
-                sailry_link::CancellationToken::new(),
-                |_| {},
-            )
-            .await
             .unwrap();
-        assert_eq!(downloaded, jpeg);
-        let requests = server.requests.lock().unwrap().clone();
-        let message = requests.last().unwrap()["messages"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|message| message["role"] == "tool")
-            .expect("canonical tool result must reach the next model request");
         assert_eq!(
-            serde_json::from_str::<serde_json::Value>(message["content"].as_str().unwrap())
-                .unwrap(),
-            expected
+            tool_details(&client, &page)
+                .await
+                .iter()
+                .filter(|(tool, _)| *tool == name)
+                .map(|(_, detail)| detail.images.len())
+                .sum::<usize>(),
+            10
         );
+        let requests = server.requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), 11);
+        assert_eq!(uploaded(&requests[9]), 9);
+        assert_eq!(uploaded(&requests[10]), 5);
+        assert!(requests[10].to_string().contains("omitted_screenshots"));
         drop(subscription);
         controller.close().await.unwrap();
         node.shutdown().await.unwrap();

@@ -135,6 +135,7 @@
   "conversationAttachmentTooLarge": "Вложение нечитаемое или больше 64 МБ",
   "conversationDownload": "Посмотреть приложение",
   "conversationImageFailed": "Не удается отобразить изображение",
+  "conversationImageUnavailable": "Изображение недоступно",
   "conversationDownloadFailed": "Не удалось загрузить вложение",
   "conversationReadonly": "Этот чат архивирован",
   "conversationMicrophoneDenied": "Не удается получить доступ к микрофону",

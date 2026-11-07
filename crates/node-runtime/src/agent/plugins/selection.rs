@@ -252,6 +252,7 @@ mod tests {
             contexts: vec![],
             platform_descriptions: Default::default(),
             initial: false,
+            keep_images: None,
         };
         for operation in [
             Operation::ReadFile,

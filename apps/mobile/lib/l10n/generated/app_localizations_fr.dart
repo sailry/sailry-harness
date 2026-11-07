@@ -315,6 +315,9 @@ class AppLocalizationsFr extends AppLocalizations {
   String get conversationImageFailed => 'Impossible d\'afficher l\'image';
 
   @override
+  String get conversationImageUnavailable => 'Image indisponible';
+
+  @override
   String get conversationDownloadFailed =>
       'Impossible de charger la pièce jointe';
 

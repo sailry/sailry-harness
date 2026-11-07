@@ -1,3 +1,4 @@
+import '../../../content/image_reference.dart';
 import '../../../runtime/json.dart';
 import 'message_data.dart';
 import 'turn_frame.dart';
@@ -37,6 +38,9 @@ class TranscriptIndex {
       _sources.putIfAbsent((source['entry'], source['index']), () => call);
       (_turnCalls[call['turn']] ??= []).add(call);
     }
+    for (final item in objects(view['images'])) {
+      _images[(item['call'], item['index'])] = object(item['image']);
+    }
     for (final reference in children.values) {
       final index = object(reference)['index'];
       if (index is! int || index >= childRecords.length) continue;
@@ -72,6 +76,11 @@ class TranscriptIndex {
   final _sources = <(Object?, Object?), Map<String, dynamic>>{};
   final _turnCalls = <Object?, List<Map<String, dynamic>>>{};
   final _activeChildTurns = <Object?>{};
+  final _images = <(Object?, Object?), Map<String, dynamic>>{};
+
+  /// The conversation image Client resolved for a reply's reference.
+  Map<String, dynamic>? image(ImageReference reference) =>
+      _images[(reference.call, reference.index)];
 
   /// The call whose source is the given entry part.
   Map<String, dynamic>? call(Object? entry, Object? index) =>

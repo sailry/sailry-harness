@@ -82,6 +82,38 @@
         has_more_above: view.scrollY > 0, has_more_below: view.scrollY + view.innerHeight < doc.documentElement.scrollHeight,
         frames: doc.querySelectorAll("iframe").length });
     }
+    if (request.action === "target") {
+      // Captures address the top-level viewport; same-origin frames add their offsets.
+      let offsetX = 0, offsetY = 0;
+      for (let current = frame; current; current = current.ownerDocument.defaultView.frameElement) {
+        const box = current.getBoundingClientRect();
+        offsetX += box.left + current.clientLeft;
+        offsetY += box.top + current.clientTop;
+      }
+      const target = request.target;
+      let element = null;
+      if (target?.kind === "selector") {
+        element = doc.querySelector(target.selector);
+        if (!element) throw new Error("Element not found; read the page again");
+      } else if (target?.kind === "element") {
+        const snapshot = window.__sailryBrowserSnapshot;
+        if (!snapshot || snapshot.id !== target.snapshot || snapshot.doc !== doc || snapshot.url !== view.location.href) throw new Error("Page changed; read it again before acting");
+        element = snapshot.nodes.get(target.element);
+        if (!element?.isConnected) throw new Error("Element is no longer available; read the page again");
+      }
+      if (element && request.scroll) element.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+      const viewport = { width: window.innerWidth, height: window.innerHeight };
+      let bounds = { x: 0, y: 0, width: viewport.width, height: viewport.height };
+      if (element) {
+        const rect = element.getBoundingClientRect();
+        bounds = { x: rect.left + offsetX, y: rect.top + offsetY, width: rect.width, height: rect.height };
+      } else if (target?.kind === "rect") {
+        bounds = { x: target.x, y: target.y, width: target.width, height: target.height };
+      }
+      const label = element && (element.innerText || element.getAttribute("aria-label") || element.getAttribute("alt") || "");
+      return JSON.stringify({ url: view.location.href, title: doc.title, viewport, ratio: window.devicePixelRatio || 1, bounds,
+        tag: element ? element.tagName.toLowerCase() : undefined, text: element ? label.trim().slice(0, 500) : undefined });
+    }
     if (request.action === "scroll") {
       view.scrollBy(0, view.innerHeight * (request.direction === "up" ? -0.8 : 0.8));
       return JSON.stringify({ ok: true });

@@ -135,6 +135,7 @@
   "conversationAttachmentTooLarge": "첨부 파일을 읽을 수 없거나 64 MB 이상 크기",
   "conversationDownload": "첨부 파일 보기",
   "conversationImageFailed": "이미지를 표시할 수 없음",
+  "conversationImageUnavailable": "이미지를 사용할 수 없음",
   "conversationDownloadFailed": "첨부 파일을 불러올 수 없음",
   "conversationReadonly": "이 채팅은 보관되었습니다",
   "conversationMicrophoneDenied": "마이크에 접근할 수 없음",

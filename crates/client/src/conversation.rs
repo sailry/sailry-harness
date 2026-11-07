@@ -6,6 +6,7 @@ pub mod guidance;
 mod history;
 #[cfg(test)]
 mod identity_tests;
+pub mod images;
 pub mod links;
 pub mod modes;
 mod observer;

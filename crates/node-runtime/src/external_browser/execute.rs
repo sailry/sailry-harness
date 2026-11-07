@@ -112,6 +112,7 @@ impl Call {
                 return self.download(session, self.request.id, &arguments).await;
             }
             let original_upload = arguments.get("file_path").cloned();
+            let save = arguments.get("save_to_artifacts").and_then(Value::as_bool) == Some(true);
             let upload = if self.action == Action::FileUpload {
                 Some(
                     self.upload(session.temporary.path(), &mut arguments)
@@ -125,10 +126,15 @@ impl Call {
             if let Some(path) = original_upload {
                 result["uploaded_file"] = path;
             }
-            self.artifact(self.request.id, &mut result).await?;
+            let media = self.artifact(self.request.id, &mut result, save).await?;
             let mut remaining = RESULT_BYTES;
             let truncated = bound(&mut result, &mut remaining);
-            Ok(json!({"execution_node":self.ingress.node,"result":result,"truncated":truncated}))
+            let mut output =
+                json!({"execution_node":self.ingress.node,"result":result,"truncated":truncated});
+            if let Some(media) = media {
+                output["inline_data"] = json!([media]);
+            }
+            Ok(output)
         };
         let result = tokio::select! {
             biased;

@@ -110,7 +110,7 @@ fn assets(response: &ToolResponse) -> impl Iterator<Item = &AssetRef> {
         .map(|attachment| match attachment {
             Attachment::Inline { asset } => asset,
         });
-    let (envelope, prefix) = if response.result.value["kind"] == "computer" {
+    let (envelope, prefix) = if crate::agent::media::output::enveloped(&response.result.value) {
         (&response.result.value["data"], "/data/inline_data")
     } else {
         (&response.result.value, "/inline_data")

@@ -117,6 +117,30 @@ impl View {
                     .find(|entry| Some(entry.id) == worktree)
             })
             .map(|entry| entry.path.clone());
+        // Conversation image references resolve only within this session.
+        let referenced: Vec<_> = self
+            .history
+            .snapshot
+            .as_ref()
+            .map(|snapshot| {
+                sailry_client::conversation::images::spans(&text)
+                    .into_iter()
+                    .filter_map(|(_, reference)| {
+                        let image = sailry_client::conversation::images::resolve(
+                            &snapshot.page,
+                            &reference,
+                        )?;
+                        Some((
+                            reference,
+                            crate::content::images::ImageSource::Image {
+                                session: snapshot.page.session,
+                                image: image.clone(),
+                            },
+                        ))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
         let image_owner = owner.clone();
         let selection_owner = owner.clone();
         let file_owner = owner.clone();
@@ -175,6 +199,36 @@ impl View {
             .on_image(move |url, urls, position, stated, cx| {
                 use crate::content::images::{self, ImageSource};
                 use crate::conversation::file_reference::{self, Target};
+                if let Some(reference) =
+                    sailry_protocol::conversation::images::Reference::parse(url)
+                {
+                    let Some((_, source)) =
+                        referenced.iter().find(|(known, _)| *known == reference)
+                    else {
+                        return div()
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(tr("chat_image_missing"))
+                            .into_any_element();
+                    };
+                    let selector = format!("image-card-{}", source.id());
+                    return h_flex()
+                        .max_w_full()
+                        .debug_selector(move || selector.clone())
+                        .child(images::card(
+                            source,
+                            &images,
+                            vec![source.clone()],
+                            0,
+                            images::Presentation {
+                                compact: false,
+                                preview: true,
+                                stated,
+                            },
+                            cx,
+                        ))
+                        .into_any_element();
+                }
                 let workspace = |url: &str| match file_reference::resolve(url, root.as_deref()?)? {
                     Target::Workspace { path, .. } => Some(path),
                     _ => None,

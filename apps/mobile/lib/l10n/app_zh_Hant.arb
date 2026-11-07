@@ -135,6 +135,7 @@
   "conversationAttachmentTooLarge": "附件不可讀或超過 64 MB",
   "conversationDownload": "檢視附件",
   "conversationImageFailed": "圖片無法顯示",
+  "conversationImageUnavailable": "圖片無法使用",
   "conversationDownloadFailed": "附件載入失敗",
   "conversationReadonly": "此會話已歸檔",
   "conversationMicrophoneDenied": "無法訪問麥克風",

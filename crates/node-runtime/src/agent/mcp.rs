@@ -139,6 +139,21 @@ impl Connections {
                                 .collect(),
                             keep,
                         ));
+                    } else {
+                        self.images
+                            .extend(descriptors.iter().filter_map(|descriptor| {
+                                let keep = resources
+                                    .tool_declaration(
+                                        &config.plugin,
+                                        &config.name,
+                                        &descriptor.name,
+                                    )?
+                                    .keep_images?;
+                                Some((
+                                    vec![alias(&config.plugin, &config.name, &descriptor.name)],
+                                    keep,
+                                ))
+                            }));
                     }
                     for descriptor in descriptors {
                         let presentation = resources.tool_presentation(

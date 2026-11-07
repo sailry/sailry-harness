@@ -64,49 +64,108 @@ pub(crate) async fn execute(
         )),
         result = ingress.browsers.call(caller, *session, request.id, action.clone()) => result,
     }?;
-    let result = if matches!(action, Action::Screenshot { .. }) {
-        save_capture(ingress, *worktree, request.id, result, stop).await?
+    let result = if let Action::Screenshot { format, save, .. } = action {
+        let capture = Capture::decode(result, *format)?;
+        let path = if *save {
+            Some(capture.save(ingress, *worktree, request.id, stop).await?)
+        } else {
+            None
+        };
+        capture.publish(path)
     } else {
         result
     };
     Ok(Output::Browser(result))
 }
 
-async fn save_capture(
-    ingress: &Ingress,
-    worktree: WorktreeId,
-    id: RequestId,
-    mut value: Value,
-    stop: CancellationToken,
-) -> Result<Value, Fault> {
-    use base64::Engine;
-    let invalid = |message| Fault::invalid(message);
-    let encoded = value
-        .as_object_mut()
-        .and_then(|value| value.remove("base64_image"))
-        .ok_or_else(|| invalid("browser capture is missing image data"))?;
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(encoded.as_str().unwrap_or_default())
-        .map_err(|_| invalid("browser capture contains invalid image data"))?;
-    if bytes.len() > 180 * 1024
-        || file_format::FileFormat::from_bytes(&bytes)
-            != file_format::FileFormat::JointPhotographicExpertsGroup
-    {
-        return Err(invalid("browser capture must be a bounded JPEG image"));
+/// The controller supplies pixels and page facts; the Node owns encoding checks and paths.
+pub(super) struct Capture {
+    facts: serde_json::Map<String, Value>,
+    bytes: Vec<u8>,
+    format: browser::Format,
+}
+
+impl Capture {
+    pub(super) fn decode(value: Value, format: browser::Format) -> Result<Self, Fault> {
+        use base64::Engine;
+        let invalid = |message| Fault::invalid(message);
+        let Value::Object(mut facts) = value else {
+            return Err(invalid("browser capture is invalid"));
+        };
+        let encoded = facts
+            .remove("base64_image")
+            .ok_or_else(|| invalid("browser capture is missing image data"))?;
+        for reserved in ["path", "inline_data", "file_data", "images"] {
+            facts.remove(reserved);
+        }
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(encoded.as_str().unwrap_or_default())
+            .map_err(|_| invalid("browser capture contains invalid image data"))?;
+        let expected = match format {
+            browser::Format::Jpeg => file_format::FileFormat::JointPhotographicExpertsGroup,
+            browser::Format::Png => file_format::FileFormat::PortableNetworkGraphics,
+        };
+        let decoded = match format {
+            browser::Format::Jpeg => image::ImageFormat::Jpeg,
+            browser::Format::Png => image::ImageFormat::Png,
+        };
+        let dimensions = (bytes.len() <= browser::MAX_IMAGE_BYTES
+            && file_format::FileFormat::from_bytes(&bytes) == expected)
+            .then(|| {
+                image::ImageReader::with_format(std::io::Cursor::new(&bytes), decoded)
+                    .into_dimensions()
+                    .ok()
+            })
+            .flatten()
+            .filter(|(width, height)| {
+                *width > 0 && *height > 0 && (*width).max(*height) <= browser::MAX_IMAGE_SIDE
+            })
+            .ok_or_else(|| {
+                invalid("browser capture must be a bounded image of the requested format")
+            })?;
+        facts.insert("mime_type".into(), format.mime().into());
+        facts.insert("width".into(), dimensions.0.into());
+        facts.insert("height".into(), dimensions.1.into());
+        Ok(Self {
+            facts,
+            bytes,
+            format,
+        })
     }
-    let root = ingress.worktree_root(worktree).await?;
-    let output = ingress
-        .files
-        .prepare_media(
-            root,
-            format!("assets/generated/browser-{id}.jpg"),
-            180 * 1024,
-        )
-        .await?;
-    value["path"] = ingress
-        .files
-        .publish_media(output, bytes, stop)
-        .await?
-        .into();
-    Ok(value)
+
+    async fn save(
+        &self,
+        ingress: &Ingress,
+        worktree: WorktreeId,
+        id: RequestId,
+        stop: CancellationToken,
+    ) -> Result<String, Fault> {
+        let root = ingress.worktree_root(worktree).await?;
+        let output = ingress
+            .files
+            .prepare_media(
+                root,
+                format!("assets/generated/browser-{id}.{}", self.format.extension()),
+                browser::MAX_IMAGE_BYTES as u64,
+            )
+            .await?;
+        ingress
+            .files
+            .publish_media(output, self.bytes.clone(), stop)
+            .await
+    }
+
+    /// Canonical history stores declared inline media once per digest.
+    pub(super) fn publish(self, path: Option<String>) -> Value {
+        use base64::Engine;
+        let mut value = Value::Object(self.facts);
+        if let Some(path) = path {
+            value["path"] = path.into();
+        }
+        value["inline_data"] = serde_json::json!([{
+            "mime_type": self.format.mime(),
+            "data": base64::engine::general_purpose::STANDARD.encode(&self.bytes),
+        }]);
+        value
+    }
 }

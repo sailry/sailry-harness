@@ -19,6 +19,13 @@ async fn fixture() -> (Fixture, TurnId, WorktreeId) {
 
 #[tokio::test]
 async fn rejects_actual_mutations_despite_read_labels() {
+    let capture = |save| sailry_protocol::browser::Action::Screenshot {
+        tab: 0,
+        target: None,
+        scale: Default::default(),
+        format: Default::default(),
+        save,
+    };
     let (fixture, turn, worktree) = fixture().await;
     let db = &fixture.database.connection;
     let query = |read_only| Command::QueryDatabase {
@@ -50,10 +57,8 @@ async fn rejects_actual_mutations_despite_read_labels() {
             },
             true,
         ),
-        (
-            sailry_protocol::browser::Action::Screenshot { tab: 0 },
-            false,
-        ),
+        (capture(false), true),
+        (capture(true), false),
         (
             sailry_protocol::browser::Action::Click {
                 tab: 0,

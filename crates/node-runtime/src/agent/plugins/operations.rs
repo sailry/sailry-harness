@@ -436,6 +436,7 @@ impl HostOperation {
                 commands::retain(&self.ingress.commands, session, id, &output, &mut value).await;
             }
             artifacts::annotate(&output, &mut value);
+            crate::agent::media::output::refer(&mut value, context.function_call_id());
             Ok(value)
         };
         tokio::select! {
@@ -510,6 +511,32 @@ impl HostOperation {
             } else {
                 None
             };
+            if self.is_read_only() && confirms(&request.command) {
+                if self.mode == sailry_protocol::WorkMode::Plan {
+                    return Err(Fault::new(
+                        ErrorCode::PermissionDenied,
+                        "planning turns cannot save browser captures",
+                    ));
+                }
+                self.ingress
+                    .confirm(
+                        self.turn,
+                        context.request_with(authorized_arguments.clone()),
+                        Some(crate::store::agent::ApprovalBinding {
+                            owner: self.context.package.clone(),
+                            tool: self.name.clone(),
+                            operation: Some(self.operation),
+                        }),
+                    )
+                    .await?;
+                request.id = self
+                    .authorize(
+                        context.as_ref(),
+                        authorized_arguments.clone(),
+                        Some(request.command.clone()),
+                    )
+                    .await?;
+            }
             if !self.is_read_only() {
                 if self.operation == Operation::WriteArtifact {
                     self.ingress
@@ -607,6 +634,11 @@ impl HostOperation {
             }
         })
     }
+}
+
+/// A read-only tool asks per call before an optional project write.
+fn confirms(command: &Command) -> bool {
+    matches!(command, Command::UseBrowser { action, .. } if action.requires_approval())
 }
 
 crate::agent::catalog::provider!(HostOperation);

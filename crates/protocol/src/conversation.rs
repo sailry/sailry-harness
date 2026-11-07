@@ -9,6 +9,7 @@ pub mod connection;
 pub mod consent;
 pub mod discovery;
 pub mod features;
+pub mod images;
 pub mod login;
 pub mod oauth;
 pub mod observation;

@@ -331,6 +331,62 @@ fn preserves_attachment_boundaries_and_identity() {
 }
 
 #[test]
+fn embeds_referenced_conversation_images() {
+    let image = sailry_protocol::conversation::Image {
+        entry: "assistant".into(),
+        part: 0,
+        index: 0,
+        attachment: Attachment {
+            id: AttachmentId::new(),
+            spec: Spec {
+                worktree: WorktreeId::new(),
+                name: "image-1.png".into(),
+                media_type: "image/png".into(),
+                size: 3,
+                revision: blake3::hash(b"img").to_hex().to_string(),
+            },
+        },
+    };
+    let mut page = page(vec![Part::Text("Show the change".into())]);
+    let mut assistant = page.entries[0].clone();
+    assistant.id = "assistant".into();
+    assistant.author = "assistant".into();
+    assistant.sequence = 2;
+    assistant.parts = vec![
+        Part::ToolResult {
+            id: Some("call_1".into()),
+            name: "browser_screenshot".into(),
+            summary: Box::default(),
+            images: vec![image.clone()],
+        },
+        Part::Text(
+            "Updated:\n\n![Saved button](sailry-image:call_1/0)\n\n![Missing](sailry-image:call_2/0)"
+                .into(),
+        ),
+    ];
+    std::sync::Arc::make_mut(&mut page.entries).push(assistant);
+    let name = attachment_name(&image.attachment);
+    let document = render(&page, "Conversation", Format::Markdown, "assets").unwrap();
+    assert!(
+        document
+            .content
+            .contains(&format!("![Saved button](assets/{name})"))
+    );
+    assert!(document.content.contains("sailry-image:call_2/0"));
+    assert_eq!(
+        document.attachments.as_slice(),
+        std::slice::from_ref(&image.attachment)
+    );
+    assert_eq!(document.images.as_slice(), std::slice::from_ref(&image));
+    let document = render(&page, "Conversation", Format::Html, "assets").unwrap();
+    assert!(
+        document
+            .content
+            .contains(&format!("src=\"assets/{name}\" alt=\"Saved button\""))
+    );
+}
+
+#[test]
 fn escapes_html_and_script_links() {
     let document = render(
         &page(vec![Part::Text(

@@ -79,7 +79,77 @@ pub enum Action {
     },
     Screenshot {
         tab: u64,
+        /// Absent captures the visible viewport.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target: Option<Target>,
+        #[serde(default)]
+        scale: Scale,
+        #[serde(default)]
+        format: Format,
+        /// Also writes the capture into the execution worktree.
+        #[serde(default)]
+        save: bool,
     },
+}
+
+/// Encoded capture bytes, before base64 transport.
+pub const MAX_IMAGE_BYTES: usize = 1024 * 1024;
+/// Longest captured side in output pixels.
+pub const MAX_IMAGE_SIDE: u32 = 1568;
+/// Result JSON other than the encoded capture.
+pub const MAX_RESULT_BYTES: usize = 256 * 1024;
+
+/// Viewport CSS pixels; the controller scrolls element targets into view first.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum Target {
+    Selector {
+        selector: String,
+    },
+    Element {
+        snapshot: String,
+        element: u64,
+    },
+    Rect {
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Scale {
+    /// One output pixel per CSS pixel.
+    #[default]
+    Css,
+    /// One output pixel per device pixel.
+    Device,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Format {
+    #[default]
+    Jpeg,
+    Png,
+}
+
+impl Format {
+    pub fn mime(self) -> &'static str {
+        match self {
+            Self::Jpeg => "image/jpeg",
+            Self::Png => "image/png",
+        }
+    }
+
+    pub fn extension(self) -> &'static str {
+        match self {
+            Self::Jpeg => "jpg",
+            Self::Png => "png",
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -125,6 +195,7 @@ impl Action {
                 | Self::Focus { .. }
                 | Self::Frame { .. }
                 | Self::Wait { .. }
+                | Self::Screenshot { save: false, .. }
         )
     }
 
@@ -146,3 +217,6 @@ pub struct Call {
 }
 
 pub type Result = std::result::Result<serde_json::Value, Fault>;
+
+#[cfg(test)]
+mod tests;

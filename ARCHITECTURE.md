@@ -930,7 +930,9 @@ non-read-only calls by installed package name and server across sessions, after
 ordinary approval. Unconfirmed calls retain that lock through pending-task
 cancellation and connection cleanup. `keep_images` reduces only that server's
 model-request image projection in batches of five; canonical tool results,
-attachments and sent-turn captures remain unchanged. `reuse: false` closes that
+attachments and sent-turn captures remain unchanged. Native and scripted tool
+declarations can declare the same retention for their own results; an MCP tool
+declaration applies only when its server sets none. `reuse: false` closes that
 server at turn settlement
 instead of pooling it. Settlement confirms pending-task cancellation before
 closing the wire. Stdio closure sends EOF and waits up to five seconds
@@ -1117,6 +1119,17 @@ Scoped native services capture the page and image, validate the selection token,
 and transfer approved text and the protected viewport image to the captured
 composer through its existing Client attachment upload. Navigation or view
 changes cancel selection.
+
+Agent browser captures return bounded images as declared tool media, stored once
+per digest in canonical history and sent to vision-capable models; other models
+receive the existing placeholder and the capture's text facts. Script formatters
+never receive media bytes. A capture can target a selector, a read element or a
+viewport rectangle at CSS or device scale; the controller scrolls element targets
+into view, lets layout settle and crops the visible viewport. Linux controllers do
+not capture. Saving a worktree file is optional and confirmed per call. Node
+operation results with images return `sailry-image:<tool-call-id>/<index>`
+references for assistant Markdown. Client resolves them only against images in
+the same conversation for Desktop, Mobile and exports.
 System voice reading and global selection shortcuts remain controller-local.
 Selection insertion rechecks the captured Node, worktree and conversation before
 changing a draft; neither reading nor selection starts an Agent turn.

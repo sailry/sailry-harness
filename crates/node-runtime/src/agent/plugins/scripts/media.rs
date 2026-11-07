@@ -8,16 +8,20 @@ pub(super) struct Media {
 }
 impl Media {
     pub fn take(output: &mut Value) -> Self {
-        if output["kind"] != "computer" {
+        if !crate::agent::media::output::enveloped(output) {
             return Self::default();
         }
+        let computer = output["kind"] == "computer";
         let data = &mut output["data"];
         let Some(object) = data.as_object_mut() else {
             return Self::default();
         };
+        if !computer && !object.contains_key("inline_data") && !object.contains_key("file_data") {
+            return Self::default();
+        }
         let inline = object.remove("inline_data");
         let files = object.remove("file_data");
-        if let Some(response) = object.remove("response") {
+        if computer && let Some(response) = object.remove("response") {
             *data = response;
         }
         Self {
@@ -102,6 +106,39 @@ mod tests {
         assert_eq!(output, original);
         let formatted = json!({"response":{"text":"formatted"},"inline_data":[{"mime_type":"image/png","data":"original package image"}],"file_data":[{"mime_type":"image/png","file_uri":"package asset"}]});
         assert_eq!(media.restore(formatted.clone()), formatted);
+    }
+
+    #[test]
+    fn isolates_browser_captures() {
+        for kind in ["browser", "external_browser"] {
+            let mut output = json!({"kind":kind,"data":{"tab":1,"images":["sailry-image:call/0"],"inline_data":[{"mime_type":"image/jpeg","data":"original"}]}});
+            let media = Media::take(&mut output);
+            assert_eq!(
+                output["data"],
+                json!({"tab":1,"images":["sailry-image:call/0"]})
+            );
+            let value = media
+                .restore(json!({"tab":2,"note":"formatted","inline_data":[{"data":"forged"}]}));
+            assert_eq!(
+                value,
+                json!({
+                    "response":{"tab":1,"images":["sailry-image:call/0"],"note":"formatted"},
+                    "inline_data":[{"mime_type":"image/jpeg","data":"original"}]
+                })
+            );
+        }
+    }
+
+    #[test]
+    fn passes_through_browser_reads() {
+        let mut output = json!({"kind":"browser","data":{"tab":1,"text":"page"}});
+        let original = output.clone();
+        let media = Media::take(&mut output);
+        assert_eq!(output, original);
+        assert_eq!(
+            media.restore(json!({"text":"page"})),
+            json!({"text":"page"})
+        );
     }
 
     #[test]
