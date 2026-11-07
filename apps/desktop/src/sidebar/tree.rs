@@ -33,7 +33,7 @@ impl Entry {
                         .bottom_0()
                         .border_l_1()
                         .border_dashed()
-                        .border_color(cx.theme().sidebar_foreground.opacity(0.35))
+                        .border_color(cx.theme().sidebar_foreground.opacity(super::GUIDE_OPACITY))
                 }),
         )
     }

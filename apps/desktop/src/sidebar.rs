@@ -111,6 +111,8 @@ impl State {
 
 /// Width and height of the status slot centered on a branch elbow.
 const MARK: f32 = 12.;
+/// Guide strokes stay fainter than the row statuses drawn on them.
+const GUIDE_OPACITY: f32 = 0.2;
 
 // Kit ListItem has no branch guides or leading slot; decorate the existing rows
 // without changing their focus, drag or menu behavior, matching the database tree's
@@ -124,7 +126,7 @@ pub(crate) fn branch(
 ) -> Div {
     let vertical = id.clone();
     let arm = id.clone();
-    let color = cx.theme().sidebar_foreground.opacity(0.35);
+    let color = cx.theme().sidebar_foreground.opacity(GUIDE_OPACITY);
     let half = px(MARK / 2.);
     let marked = status.is_some();
     let stroke = move |segment: Div| segment.border_l_1().border_dashed().border_color(color);
