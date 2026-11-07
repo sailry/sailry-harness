@@ -11,6 +11,7 @@ pub(crate) mod checkpoints;
 pub(crate) mod copy;
 mod directory;
 pub(crate) mod edit;
+pub(crate) mod images;
 pub(crate) mod media;
 pub(crate) mod mutations;
 pub(crate) mod notebook;
@@ -133,6 +134,9 @@ impl Files {
                     &control,
                 )
                 .map(Output::FileLines),
+                Command::ReadImage { path, .. } => {
+                    images::read(scope, path, &control).map(Output::FileImage)
+                }
                 Command::FindFiles {
                     globs,
                     path,

@@ -226,6 +226,41 @@ pub struct FileLines {
     pub next_offset: Option<usize>,
 }
 
+/// Largest image file read as model input.
+pub const MAX_IMAGE_BYTES: usize = 5 * 1024 * 1024;
+/// Longest side of an image sent to a model; larger images are downscaled.
+pub const MAX_IMAGE_SIDE: u32 = 1568;
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImageFacts {
+    pub mime_type: String,
+    pub width: u32,
+    pub height: u32,
+    /// Encoded bytes.
+    pub size: u64,
+}
+
+/// A worktree image prepared as model input.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileImage {
+    pub path: String,
+    /// Full-content BLAKE3 revision of the source file.
+    pub revision: String,
+    pub source: ImageFacts,
+    /// The downscaled or re-encoded copy in `inline_data`; absent when it is the original file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sent: Option<ImageFacts>,
+    /// One image in the declared tool media shape.
+    pub inline_data: Vec<InlineImage>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InlineImage {
+    pub mime_type: String,
+    /// Standard base64.
+    pub data: String,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct FileNames {
@@ -652,6 +687,10 @@ mod tests {
                             limit: MAX_FIND_MATCHES,
                             offset: 0,
                         },
+                        crate::Command::ReadImage {
+                            worktree: crate::WorktreeId::new(),
+                            path: "image.png".into(),
+                        },
                     ] {
                         assert!(!command.durable(), "{scenario}");
                         assert_eq!(
@@ -663,6 +702,44 @@ mod tests {
                             "{scenario}"
                         );
                     }
+                }),
+            ),
+            (
+                "images_carry_declared_media",
+                (|scenario: &'static str| {
+                    let facts = |mime_type: &str, width| ImageFacts {
+                        mime_type: mime_type.into(),
+                        width,
+                        height: 10,
+                        size: 42,
+                    };
+                    let mut image = FileImage {
+                        path: "image.bmp".into(),
+                        revision: "a".repeat(64),
+                        source: facts("image/bmp", 20),
+                        sent: None,
+                        inline_data: vec![InlineImage {
+                            mime_type: "image/png".into(),
+                            data: "AQID".into(),
+                        }],
+                    };
+                    let value =
+                        serde_json::to_value(crate::Output::FileImage(image.clone())).unwrap();
+                    assert_eq!(value["kind"], "file_image", "{scenario}");
+                    assert!(value["data"].get("sent").is_none(), "{scenario}");
+                    assert_eq!(
+                        value["data"]["inline_data"],
+                        serde_json::json!([{"mime_type":"image/png","data":"AQID"}]),
+                        "{scenario}"
+                    );
+                    image.sent = Some(facts("image/png", 20));
+                    let value = serde_json::to_value(&image).unwrap();
+                    assert_eq!(value["sent"]["mime_type"], "image/png", "{scenario}");
+                    assert_eq!(
+                        serde_json::from_value::<FileImage>(value).unwrap(),
+                        image,
+                        "{scenario}"
+                    );
                 }),
             ),
             (

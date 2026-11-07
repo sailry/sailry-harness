@@ -397,6 +397,10 @@ async fn rejects_paths_outside_worktree() {
                     limit: 2,
                     expected_revision: None,
                 },
+                Command::ReadImage {
+                    worktree: fixture.worktree,
+                    path: path.into(),
+                },
                 Command::EditFile {
                     worktree: fixture.worktree,
                     path: path.into(),
@@ -410,6 +414,78 @@ async fn rejects_paths_outside_worktree() {
                 assert!(client.execute(client.prepare(command)).await.is_err());
             }
         }
+    }
+    fixture.close().await;
+}
+
+#[tokio::test]
+async fn reads_images_as_model_input() {
+    use base64::Engine as _;
+    let fixture = Fixture::empty().await;
+    let pixels = image::RgbImage::from_pixel(3, 2, image::Rgb([32, 96, 160]));
+    let encode = |format| {
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        pixels.write_to(&mut bytes, format).unwrap();
+        bytes.into_inner()
+    };
+    let png = encode(image::ImageFormat::Png);
+    std::fs::write(fixture.root.join("pixel.png"), &png).unwrap();
+    std::fs::write(
+        fixture.root.join("pixel.bmp"),
+        encode(image::ImageFormat::Bmp),
+    )
+    .unwrap();
+    std::fs::write(fixture.root.join("text.png"), "plain text").unwrap();
+    let read = |path: &str| Command::ReadImage {
+        worktree: fixture.worktree,
+        path: path.into(),
+    };
+    for client in fixture.clients() {
+        let Output::FileImage(original) = client
+            .execute(client.prepare(read("pixel.png")))
+            .await
+            .unwrap()
+        else {
+            panic!("file image expected")
+        };
+        assert_eq!(original.revision, blake3::hash(&png).to_hex().to_string());
+        assert_eq!(
+            original.source,
+            ImageFacts {
+                mime_type: "image/png".into(),
+                width: 3,
+                height: 2,
+                size: png.len() as u64,
+            }
+        );
+        assert!(original.sent.is_none());
+        assert_eq!(
+            original.inline_data[0].data,
+            base64::engine::general_purpose::STANDARD.encode(&png)
+        );
+        let Output::FileImage(converted) = client
+            .execute(client.prepare(read("pixel.bmp")))
+            .await
+            .unwrap()
+        else {
+            panic!("file image expected")
+        };
+        assert_eq!(converted.source.mime_type, "image/bmp");
+        assert_eq!(
+            converted
+                .sent
+                .map(|sent| (sent.mime_type, sent.width, sent.height)),
+            Some(("image/png".into(), 3, 2))
+        );
+        assert_eq!(converted.inline_data[0].mime_type, "image/png");
+        assert_eq!(
+            client
+                .execute(client.prepare(read("text.png")))
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidRequest
+        );
     }
     fixture.close().await;
 }

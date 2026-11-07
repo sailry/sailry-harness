@@ -1062,6 +1062,7 @@ pub(super) fn execute<'a>(
         | Command::ListDirectory { .. }
         | Command::ReadFile { .. }
         | Command::ReadFileLines { .. }
+        | Command::ReadImage { .. }
         | Command::FindFiles { .. }
         | Command::ReadOffice { .. }
         | Command::ReadNotebook { .. }

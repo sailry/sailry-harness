@@ -311,10 +311,10 @@ impl Script {
         } else {
             return crate::agent::catalog::json(prepared);
         };
-        let media = media::Media::take(&mut output);
         let Some(handler) = &self.handler.result else {
-            return formatted(media.restore(output), meta);
+            return formatted(output, meta);
         };
+        let media = media::Media::take(&mut output);
         if output.get("isError").and_then(Value::as_bool) == Some(true) {
             // A formatter can add presentation, but cannot replace the Node's failure.
             // Formatting never dispatches the completed operation again.

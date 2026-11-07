@@ -3,7 +3,7 @@ use sailry_protocol::conversation::images::Reference;
 use serde_json::Value;
 
 /// Node outputs whose data object may declare `inline_data` media.
-const KINDS: [&str; 3] = ["computer", "browser", "external_browser"];
+const KINDS: [&str; 4] = ["computer", "browser", "external_browser", "file_image"];
 
 pub(crate) fn enveloped(value: &Value) -> bool {
     value["kind"]
@@ -47,6 +47,7 @@ mod tests {
         }
         for value in [
             json!({"kind":"plugin_value","data":{"inline_data":[]}}),
+            json!({"kind":"file_lines","data":{"inline_data":[]}}),
             json!({"inline_data":[]}),
             json!(null),
         ] {
@@ -62,6 +63,9 @@ mod tests {
             value["data"]["images"],
             json!(["sailry-image:call%201/0", "sailry-image:call%201/1"])
         );
+        let mut value = json!({"kind":"file_image","data":{"path":"a.png","inline_data":[{}]}});
+        refer(&mut value, "read");
+        assert_eq!(value["data"]["images"], json!(["sailry-image:read/0"]));
         for original in [
             json!({"kind":"browser","data":{"tab":1}}),
             json!({"kind":"browser","data":{"inline_data":[]}}),

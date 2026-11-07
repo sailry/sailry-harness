@@ -97,7 +97,7 @@ fn facts(value: &Value) -> Vec<(String, Option<String>)> {
     let data = &value["data"];
     let text = |value: &Value| value.as_str().map(str::to_owned);
     match value["kind"].as_str() {
-        Some("file_lines" | "file_content" | "file_written" | "notebook_page") => {
+        Some("file_lines" | "file_image" | "file_content" | "file_written" | "notebook_page") => {
             text(&data["path"])
                 .map(|path| vec![(path, text(&data["revision"]))])
                 .unwrap_or_default()
@@ -205,9 +205,17 @@ mod tests {
                 "notebook",
                 json!({"kind":"notebook_page","data":{"path":"a.ipynb","revision":revision("nb"),"cells":[]}}),
             ),
+            result(
+                "image",
+                json!({"kind":"file_image","data":{"path":"logo.png","revision":revision("png")}}),
+            ),
         ];
         let observed = observe(messages);
         assert_eq!(observed.revision("a.ipynb"), Some(revision("nb").as_str()));
+        assert_eq!(
+            observed.revision("logo.png"),
+            Some(revision("png").as_str())
+        );
         assert_eq!(
             observed.revision("src/lib.rs"),
             Some(revision("new").as_str())

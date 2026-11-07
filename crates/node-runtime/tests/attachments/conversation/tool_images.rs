@@ -22,6 +22,130 @@ async fn prepare(client: &Client, session: SessionId, image: &Image) -> Download
     download
 }
 
+/// Image parts in an outgoing Chat Completions request.
+fn uploaded(value: &serde_json::Value) -> usize {
+    match value {
+        serde_json::Value::Object(fields) => {
+            usize::from(fields.get("type").and_then(serde_json::Value::as_str) == Some("image_url"))
+                + fields.values().map(uploaded).sum::<usize>()
+        }
+        serde_json::Value::Array(values) => values.iter().map(uploaded).sum(),
+        _ => 0,
+    }
+}
+
+#[tokio::test]
+async fn reads_worktree_images() {
+    let bytes = png();
+    let revision = blake3::hash(&bytes).to_hex().to_string();
+    for vision in [true, false] {
+        let fixture = Fixture::packages(&["files"]).await;
+        std::fs::write(fixture.root.join("pixel.png"), &bytes).unwrap();
+        let server =
+            server::Server::tools(vec![("read_file".into(), json!({"path":"pixel.png"}))]).await;
+        for client in fixture.clients() {
+            let (session, mut provider) = session(
+                &client,
+                fixture.worktree,
+                &server.endpoint,
+                ModelApi::ChatCompletions,
+            )
+            .await;
+            let capabilities = provider.models[0].capabilities.as_mut().unwrap();
+            capabilities.tools = Some(true);
+            capabilities.vision = Some(vision);
+            client
+                .execute(client.prepare(Command::PutProvider {
+                    expected_revision: provider.revision,
+                    provider,
+                }))
+                .await
+                .unwrap();
+            let turn = queue(&client, &session, "Look at the image".into()).await;
+            let history = run(&client, &turn).await;
+            assert_eq!(
+                history.runs[0].status,
+                Status::Completed,
+                "{:?}",
+                history.runs
+            );
+            let (call, image) = history
+                .entries
+                .iter()
+                .flat_map(|entry| &entry.parts)
+                .find_map(|part| match part {
+                    Part::ToolResult {
+                        id: Some(id),
+                        images,
+                        ..
+                    } => images.first().map(|image| (id.clone(), image.clone())),
+                    _ => None,
+                })
+                .expect("read image projection");
+            assert_eq!(image.attachment.spec.media_type, "image/png");
+            assert_eq!(image.attachment.spec.revision, revision);
+            let reference = format!("sailry-image:{call}/0");
+            let result = &results(&client, &history, Some(turn.id)).await[0];
+            assert_eq!(result["kind"], "file_image");
+            assert_eq!(result["data"]["revision"], revision);
+            assert_eq!(
+                result["data"]["source"],
+                json!({"mime_type":"image/png","width":1,"height":1,"size":bytes.len()})
+            );
+            assert_eq!(result["data"]["images"], json!([reference]));
+            let requests = server.requests.lock().unwrap().clone();
+            let last = requests.last().unwrap();
+            let content = &last["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|message| message["role"] == "tool")
+                .expect("the read result must reach the next model request")["content"];
+            let text = match content.as_str() {
+                Some(text) => text.to_owned(),
+                None => content
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|part| part["text"].as_str())
+                    .collect(),
+            };
+            let size = format!("\"size\":{}", bytes.len());
+            for fact in [
+                "pixel.png",
+                "\"mime_type\":\"image/png\"",
+                "\"width\":1",
+                "\"height\":1",
+                size.as_str(),
+                reference.as_str(),
+            ] {
+                assert!(text.contains(fact), "{fact}: {text}");
+            }
+            let request = last.to_string();
+            if vision {
+                assert_eq!(uploaded(last), 1);
+                assert!(request.contains("data:image/png;base64,"));
+            } else {
+                assert_eq!(uploaded(last), 0);
+                assert!(request.contains("does not support images"));
+                assert!(!request.contains("data:image/"));
+                let read = last["tools"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|tool| tool["function"]["name"] == "read_file")
+                    .expect("read_file declaration");
+                assert!(
+                    read["function"]["description"]
+                        .as_str()
+                        .is_some_and(|text| text.contains("inspect_image"))
+                );
+            }
+        }
+        fixture.close().await;
+    }
+}
+
 #[tokio::test]
 async fn restores_canonical_images() {
     restores(false).await;
