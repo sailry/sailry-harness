@@ -643,7 +643,8 @@ called or discovered in the history it summarizes; that list replaces the
 membership, and calls before it no longer load declarations. Unloaded tools can be
 discovered again. Tools exposed only by a work mode or assistant do not
 become permanently loaded. Flagship and selected roles
-expose their delegation tools on the first request.
+expose their delegation tools on the first request; agent and team catalog tools
+remain discoverable.
 Changed tool membership is intentional; unchanged loadouts retain the same request
 declarations. Package updates affect subsequent admission, preserving sent captures.
 
@@ -661,8 +662,8 @@ stopping a turn is an explicit command.
 Standard is the default work mode and delegates only on an explicit user request.
 Plan retains the core read-only policy and reviewed transition into Standard.
 Flagship is a core work mode with Standard's permissions and Node-owned autonomous
-coordination instructions; it exposes the delegation and catalog tools on the first
-request. Host packages may declare additional modes through validated conversation options.
+coordination instructions; it exposes the delegation tools on the first request.
+Host packages may declare additional modes through validated conversation options.
 Node maps each selected declaration to an effective core mode without increasing
 tool permission, and freezes its package and options with the sent turn. Child
 tasks inherit those effective restrictions. Controllers compose the common selector
@@ -830,8 +831,8 @@ Ordinary sessions without a project can delegate within their existing private
 worktree; resource-bound assistants and nested delegation remain excluded.
 Node owns the child concurrency setting (`team::Settings`), defaulting to eight and
 saved through revision-checked `ReadTeamSettings` and `SaveTeamSettings` commands.
-The service reads its current value when claiming work, and each claimed coordinator
-turn reports it in delegation turn context. Startup imports a value
+The service reads its current value when claiming work, and each claimed turn that
+declares `spawn_agent` reports it in delegation turn context. Startup imports a value
 configured in a formerly bundled delegation package once, then removes that
 package's installed bundled copy. Configuration
 changes affect queued work without rewriting its captured model or permissions.

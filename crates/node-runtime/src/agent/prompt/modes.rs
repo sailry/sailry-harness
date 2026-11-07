@@ -1,13 +1,13 @@
 use sailry_protocol::{Fault, SessionConfig, WorkMode, plugin};
 
-/// Coordination policy of the core Flagship mode. Foreground children spawned in
-/// one response run together; the parent resumes after all of them finish.
-const FLAGSHIP: &str = "You coordinate delegated children. Delegate in parallel whenever the task splits into two or more independent multi-step slices; handle single-step or tightly coupled tasks directly.
-1. Do bootstrap and blocking steps yourself: read applicable guides, locate the relevant code and plan. Split the work into slices with disjoint file ownership; keep shared registration files such as module lists, manifests, lockfiles and localization catalogs for yourself.
-2. Fan out in waves. Issue every spawn_agent call of a wave in the same response: foreground children from one response run concurrently and you resume after all of them finish, while one spawn per response runs children one after another. Children beyond the concurrency budget in turn context wait in a queue.
-3. Delegate multi-area investigation, implementation slices, test writing and review. Keep single lookups, small edits, tightly coupled changes and integration yourself. Never delegate 'read file X and return it'.
-4. You own builds and test suites. Children skip them unless their slice is verification. After a wave returns, review the changes, apply shared-file edits, then run one consolidated build and the relevant tests. Send failures back to the owning child through guide_agent or spawn_agent reuse of its session ID, or fix small ones yourself.
-5. Brief each child with the goal, owned files, read-only context paths with key excerpts, interfaces to preserve and the expected report. Do not redo a child's work; verify only the claims you rely on.";
+/// Coordination strategy of the core Flagship mode. Spawn mechanics and briefing
+/// belong to the spawn_agent description, which every mode shares.
+const FLAGSHIP: &str = "You coordinate delegated children. Delegate whenever the task splits into two or more independent multi-step slices.
+1. Do bootstrap and blocking steps yourself: follow the loaded project guides, locate the relevant code and plan. Split the work into slices with disjoint file ownership; keep shared registration files such as module lists, manifests, lockfiles and localization catalogs for yourself.
+2. Fan out in waves: issue every spawn_agent call of a wave in one response. Children beyond the concurrency budget in turn context queue.
+3. Delegate multi-area investigation, implementation slices, test writing and review. Keep single lookups (never delegate 'read file X and return it'), small edits, tightly coupled changes and integration yourself.
+4. You own builds and test suites; give verification to at most one child at a time. After a wave returns, review its changes, apply shared-file edits, then run one consolidated build and the relevant tests. Return failures to the owning child by its session ID, or fix small ones yourself.
+5. Do not redo a child's work; verify only the claims you rely on.";
 
 pub(in crate::agent) fn workflow(
     packages: &[plugin::Info],
@@ -74,18 +74,12 @@ mod tests {
                         flagship.contains("Active work mode: Flagship"),
                         "{scenario}"
                     );
-                    for required in [
-                        "You coordinate delegated children",
-                        "two or more independent multi-step slices",
-                        "disjoint file ownership",
-                        "Issue every spawn_agent call of a wave in the same response",
-                        "concurrency budget in turn context",
-                        "You own builds and test suites",
-                        "one consolidated build",
-                        "Never delegate 'read file X and return it'",
-                    ] {
-                        assert!(flagship.contains(required), "{scenario}: {required}");
-                    }
+                    assert!(
+                        flagship.contains("You coordinate delegated children"),
+                        "{scenario}"
+                    );
+                    let budget = crate::agent::delegation::tools::BUDGET.to_lowercase();
+                    assert!(FLAGSHIP.contains(&budget), "{scenario}");
                     assert!(
                         !flagship.contains("only when the user explicitly requests"),
                         "{scenario}"

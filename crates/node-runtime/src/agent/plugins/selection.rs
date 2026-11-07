@@ -78,12 +78,10 @@ fn initial(invocation: &Invocation, selected: Option<&str>, entry: &ToolRegistra
     if entry.delegation && invocation.message.selected_role().is_some() {
         return true;
     }
-    let name = entry.tool.name.as_ref();
     if entry.plugin.is_none()
-        && (crate::agent::delegation::tools::NAMES.contains(&name)
-            || crate::agent::roles::NAMES.contains(&name))
+        && crate::agent::delegation::tools::NAMES.contains(&entry.tool.name.as_ref())
     {
-        // Flagship exposes the coordinator tools on the first request; otherwise discoverable.
+        // Flagship exposes delegation on the first request; catalog tools stay discoverable.
         return invocation.turn.config.mode == sailry_protocol::WorkMode::Flagship;
     }
     let Some(owner) = entry.plugin.as_deref() else {

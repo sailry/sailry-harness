@@ -89,9 +89,11 @@ async fn mounts_flagship_tools_without_discovery() {
             let requests = server.requests.lock().unwrap();
             let names = tool_names(requests.last().unwrap());
             assert_eq!(names.contains(&exposed(&spawn)), flagship);
-            if !flagship {
-                assert!(names.contains(&"tool_search"));
+            // Agent and team catalog tools stay discoverable in every mode.
+            for name in ["list_agents", "add_agent", "apply_agents", "apply_team"] {
+                assert!(!names.contains(&name), "{name}");
             }
+            assert!(names.contains(&"tool_search"));
         }
         assert_eq!(server.requests.lock().unwrap().len(), 2);
         fixture.node.shutdown().await.unwrap();
