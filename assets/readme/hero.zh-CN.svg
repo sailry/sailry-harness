@@ -1,0 +1,119 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="440" viewBox="0 0 1200 440" role="img" aria-labelledby="title desc">
+  <title id="title">Sailry</title>
+  <desc id="desc">Sailry 让任何一台电脑都能成为 AI 工作站。桌面端和手机通过端到端加密的 P2P 链路连接多台主机。</desc>
+
+  <rect width="1200" height="440" rx="28" fill="#0F1217"/>
+
+  <g id="title-block">
+    <text x="64" y="76" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" letter-spacing="3" fill="#9AA4B2">原生 AI 工作区 · 开源</text>
+    <circle cx="79" cy="108" r="4.1" fill="#79C9F1"/>
+    <circle cx="90" cy="108" r="4.1" fill="#79C9F1"/>
+    <circle cx="101" cy="108" r="4.1" fill="#79C9F1"/>
+    <circle cx="68" cy="119" r="4.1" fill="#79C9F1"/>
+    <circle cx="112" cy="119" r="4.1" fill="#79C9F1"/>
+    <circle cx="68" cy="130" r="4.1" fill="#79C9F1"/>
+    <circle cx="79" cy="141" r="4.1" fill="#2874DA"/>
+    <circle cx="90" cy="141" r="4.1" fill="#2874DA"/>
+    <circle cx="101" cy="141" r="4.1" fill="#2874DA"/>
+    <circle cx="112" cy="152" r="4.1" fill="#2874DA"/>
+    <circle cx="68" cy="163" r="4.1" fill="#2874DA"/>
+    <circle cx="112" cy="163" r="4.1" fill="#2874DA"/>
+    <circle cx="79" cy="174" r="4.1" fill="#2874DA"/>
+    <circle cx="90" cy="174" r="4.1" fill="#2874DA"/>
+    <circle cx="101" cy="174" r="4.1" fill="#2874DA"/>
+    <circle cx="145" cy="130" r="4.1" fill="#79C9F1"/>
+    <circle cx="156" cy="130" r="4.1" fill="#79C9F1"/>
+    <circle cx="167" cy="130" r="4.1" fill="#79C9F1"/>
+    <circle cx="178" cy="141" r="4.1" fill="#2874DA"/>
+    <circle cx="145" cy="152" r="4.1" fill="#2874DA"/>
+    <circle cx="156" cy="152" r="4.1" fill="#2874DA"/>
+    <circle cx="167" cy="152" r="4.1" fill="#2874DA"/>
+    <circle cx="178" cy="152" r="4.1" fill="#2874DA"/>
+    <circle cx="134" cy="163" r="4.1" fill="#2874DA"/>
+    <circle cx="178" cy="163" r="4.1" fill="#2874DA"/>
+    <circle cx="145" cy="174" r="4.1" fill="#2874DA"/>
+    <circle cx="156" cy="174" r="4.1" fill="#2874DA"/>
+    <circle cx="167" cy="174" r="4.1" fill="#2874DA"/>
+    <circle cx="178" cy="174" r="4.1" fill="#2874DA"/>
+    <circle cx="222" cy="108" r="4.1" fill="#79C9F1"/>
+    <circle cx="211" cy="130" r="4.1" fill="#79C9F1"/>
+    <circle cx="222" cy="130" r="4.1" fill="#79C9F1"/>
+    <circle cx="222" cy="141" r="4.1" fill="#2874DA"/>
+    <circle cx="222" cy="152" r="4.1" fill="#2874DA"/>
+    <circle cx="222" cy="163" r="4.1" fill="#2874DA"/>
+    <circle cx="211" cy="174" r="4.1" fill="#2874DA"/>
+    <circle cx="222" cy="174" r="4.1" fill="#2874DA"/>
+    <circle cx="233" cy="174" r="4.1" fill="#2874DA"/>
+    <circle cx="277" cy="108" r="4.1" fill="#79C9F1"/>
+    <circle cx="288" cy="108" r="4.1" fill="#79C9F1"/>
+    <circle cx="288" cy="119" r="4.1" fill="#79C9F1"/>
+    <circle cx="288" cy="130" r="4.1" fill="#79C9F1"/>
+    <circle cx="288" cy="141" r="4.1" fill="#2874DA"/>
+    <circle cx="288" cy="152" r="4.1" fill="#2874DA"/>
+    <circle cx="288" cy="163" r="4.1" fill="#2874DA"/>
+    <circle cx="277" cy="174" r="4.1" fill="#2874DA"/>
+    <circle cx="288" cy="174" r="4.1" fill="#2874DA"/>
+    <circle cx="299" cy="174" r="4.1" fill="#2874DA"/>
+    <circle cx="332" cy="130" r="4.1" fill="#79C9F1"/>
+    <circle cx="354" cy="130" r="4.1" fill="#79C9F1"/>
+    <circle cx="365" cy="130" r="4.1" fill="#79C9F1"/>
+    <circle cx="332" cy="141" r="4.1" fill="#2874DA"/>
+    <circle cx="343" cy="141" r="4.1" fill="#2874DA"/>
+    <circle cx="376" cy="141" r="4.1" fill="#2874DA"/>
+    <circle cx="332" cy="152" r="4.1" fill="#2874DA"/>
+    <circle cx="332" cy="163" r="4.1" fill="#2874DA"/>
+    <circle cx="332" cy="174" r="4.1" fill="#2874DA"/>
+    <circle cx="398" cy="130" r="4.1" fill="#79C9F1"/>
+    <circle cx="442" cy="130" r="4.1" fill="#79C9F1"/>
+    <circle cx="398" cy="141" r="4.1" fill="#2874DA"/>
+    <circle cx="442" cy="141" r="4.1" fill="#2874DA"/>
+    <circle cx="409" cy="152" r="4.1" fill="#2874DA"/>
+    <circle cx="420" cy="152" r="4.1" fill="#2874DA"/>
+    <circle cx="431" cy="152" r="4.1" fill="#2874DA"/>
+    <circle cx="442" cy="152" r="4.1" fill="#2874DA"/>
+    <circle cx="442" cy="163" r="4.1" fill="#2874DA"/>
+    <circle cx="409" cy="174" r="4.1" fill="#2874DA"/>
+    <circle cx="420" cy="174" r="4.1" fill="#2874DA"/>
+    <circle cx="431" cy="174" r="4.1" fill="#2874DA"/>
+    <text x="64" y="252" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="42" font-weight="700" fill="#F2F5F9">任何一台电脑</text>
+    <text x="64" y="302" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="42" font-weight="700" fill="#F2F5F9">都能成为你的 AI 工作站</text>
+    <text x="64" y="346" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="22" fill="#9AA4B2">编程与日常办公，桌面和手机随时可用</text>
+    <text x="64" y="392" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" fill="#79C9F1">Rust · GPUI · P2P 端到端加密 · Apache-2.0</text>
+  </g>
+
+  <g id="link-map">
+    <rect x="640" y="48" width="536" height="344" rx="20" fill="#12161C" stroke="#262D38" stroke-width="1.5"/>
+    <path d="M842 140.0 C899.0 140.0 899.0 108.0 956 108.0" fill="none" stroke="#3D8BEF" stroke-width="2" stroke-dasharray="7 7" stroke-linecap="round"/><circle cx="842" cy="140.0" r="4.5" fill="#3D8BEF"/><circle cx="956" cy="108.0" r="4.5" fill="#3D8BEF"/><path d="M842 140.0 C899.0 140.0 899.0 216.0 956 216.0" fill="none" stroke="#3D8BEF" stroke-width="2" stroke-dasharray="7 7" stroke-linecap="round"/><circle cx="842" cy="140.0" r="4.5" fill="#3D8BEF"/><circle cx="956" cy="216.0" r="4.5" fill="#3D8BEF"/><path d="M842 140.0 C899.0 140.0 899.0 324.0 956 324.0" fill="none" stroke="#3D8BEF" stroke-width="2" stroke-dasharray="7 7" stroke-linecap="round"/><circle cx="842" cy="140.0" r="4.5" fill="#3D8BEF"/><circle cx="956" cy="324.0" r="4.5" fill="#3D8BEF"/><path d="M842 304.0 C899.0 304.0 899.0 108.0 956 108.0" fill="none" stroke="#3D8BEF" stroke-width="2" stroke-dasharray="7 7" stroke-linecap="round"/><circle cx="842" cy="304.0" r="4.5" fill="#3D8BEF"/><circle cx="956" cy="108.0" r="4.5" fill="#3D8BEF"/><path d="M842 304.0 C899.0 304.0 899.0 216.0 956 216.0" fill="none" stroke="#3D8BEF" stroke-width="2" stroke-dasharray="7 7" stroke-linecap="round"/><circle cx="842" cy="304.0" r="4.5" fill="#3D8BEF"/><circle cx="956" cy="216.0" r="4.5" fill="#3D8BEF"/><path d="M842 304.0 C899.0 304.0 899.0 324.0 956 324.0" fill="none" stroke="#3D8BEF" stroke-width="2" stroke-dasharray="7 7" stroke-linecap="round"/><circle cx="842" cy="304.0" r="4.5" fill="#3D8BEF"/><circle cx="956" cy="324.0" r="4.5" fill="#3D8BEF"/>
+    <g transform="translate(892 199)">
+      <rect x="-64" y="-17" width="128" height="34" rx="17" fill="#0F1217" stroke="#3D8BEF" stroke-width="1.5"/>
+      <text x="0" y="6" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" fill="#79C9F1">P2P · E2E</text>
+    </g>
+    <g transform="translate(664 104)">
+      <rect width="178" height="72" rx="14" fill="#161B22" stroke="#262D38" stroke-width="1.5"/>
+      <rect x="18" y="24.0" width="26" height="17" rx="3" fill="none" stroke="#79C9F1" stroke-width="2.2"/><path d="M14 46.0 H48" stroke="#79C9F1" stroke-width="2.2" stroke-linecap="round"/>
+      <text x="58" y="32.0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="22" font-weight="600" fill="#F2F5F9">桌面端</text>
+      <text x="58" y="56.0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="18" fill="#9AA4B2">macOS</text>
+    </g><g transform="translate(664 268)">
+      <rect width="178" height="72" rx="14" fill="#161B22" stroke="#262D38" stroke-width="1.5"/>
+      <rect x="22" y="21.0" width="18" height="30" rx="4" fill="none" stroke="#79C9F1" stroke-width="2.2"/><circle cx="31" cy="46.0" r="1.6" fill="#79C9F1"/>
+      <text x="58" y="32.0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="22" font-weight="600" fill="#F2F5F9">手机</text>
+      <text x="58" y="56.0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="18" fill="#9AA4B2">Android · iOS</text>
+    </g>
+    <g transform="translate(956 72)">
+      <rect width="204" height="72" rx="14" fill="#161B22" stroke="#262D38" stroke-width="1.5"/>
+      <rect x="17" y="22.0" width="28" height="12" rx="3" fill="none" stroke="#2874DA" stroke-width="2.2"/><rect x="17" y="38.0" width="28" height="12" rx="3" fill="none" stroke="#2874DA" stroke-width="2.2"/><circle cx="23" cy="28.0" r="1.6" fill="#79C9F1"/><circle cx="23" cy="44.0" r="1.6" fill="#79C9F1"/>
+      <text x="58" y="32.0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="22" font-weight="600" fill="#F2F5F9">MacBook</text>
+      <text x="58" y="56.0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="18" fill="#9AA4B2">主机</text>
+    </g><g transform="translate(956 180)">
+      <rect width="204" height="72" rx="14" fill="#161B22" stroke="#262D38" stroke-width="1.5"/>
+      <rect x="17" y="22.0" width="28" height="12" rx="3" fill="none" stroke="#2874DA" stroke-width="2.2"/><rect x="17" y="38.0" width="28" height="12" rx="3" fill="none" stroke="#2874DA" stroke-width="2.2"/><circle cx="23" cy="28.0" r="1.6" fill="#79C9F1"/><circle cx="23" cy="44.0" r="1.6" fill="#79C9F1"/>
+      <text x="58" y="32.0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="22" font-weight="600" fill="#F2F5F9">Linux 服务器</text>
+      <text x="58" y="56.0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="18" fill="#9AA4B2">主机</text>
+    </g><g transform="translate(956 288)">
+      <rect width="204" height="72" rx="14" fill="#161B22" stroke="#262D38" stroke-width="1.5"/>
+      <rect x="17" y="22.0" width="28" height="12" rx="3" fill="none" stroke="#2874DA" stroke-width="2.2"/><rect x="17" y="38.0" width="28" height="12" rx="3" fill="none" stroke="#2874DA" stroke-width="2.2"/><circle cx="23" cy="28.0" r="1.6" fill="#79C9F1"/><circle cx="23" cy="44.0" r="1.6" fill="#79C9F1"/>
+      <text x="58" y="32.0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="22" font-weight="600" fill="#F2F5F9">GPU 主机</text>
+      <text x="58" y="56.0" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="18" fill="#9AA4B2">主机</text>
+    </g>
+  </g>
+</svg>
