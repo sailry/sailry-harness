@@ -149,3 +149,132 @@ fn preserves_wire_and_validation() {
         check(scenario);
     }
 }
+
+mod fields {
+    use super::*;
+
+    type Select = fn(&Declaration, &Auth, &Field) -> bool;
+
+    fn methods(auth: Value, fields: Value, inject: Value) -> Declaration {
+        let mut value = declaration();
+        value["auth"] = auth;
+        value["fields"] = fields;
+        value["inject"] = inject;
+        let declaration: Declaration = serde_json::from_value(value).unwrap();
+        assert!(declaration.valid());
+        declaration
+    }
+
+    fn names(declaration: &Declaration, kind: Kind, select: Select) -> Vec<String> {
+        let method = declaration
+            .auth
+            .iter()
+            .find(|auth| auth.kind() == kind)
+            .unwrap();
+        declaration
+            .fields
+            .iter()
+            .filter(|field| select(declaration, method, field))
+            .map(|field| field.name.clone())
+            .collect()
+    }
+
+    fn bundled() -> Value {
+        json!({"kind":"oauth2","flow":"device_code","authorize":"https://api.example.test/authorize",
+            "token":"https://api.example.test/token","device":"https://api.example.test/device",
+            "client":{"bundled":{"client_id":"public"}},"scopes":["read"],"refresh":true})
+    }
+
+    fn local() -> Value {
+        json!({"kind":"local_cli","command":"fixture-cli","status":{"argv":["status"],"account":"/account"},
+            "token":{"argv":["token"],"parse":"line"},"timeout_ms":1000,"max_output":4096})
+    }
+
+    fn bearer() -> Value {
+        json!({"origin":"https://api.example.test","header":"Authorization","prefix":"Bearer "})
+    }
+
+    #[test]
+    fn skips_other_method_secrets() {
+        for client in [json!(null), json!({"bundled":{"client_id":"public"}})] {
+            let declaration = methods(
+                json!([{"kind":"secret","fields":["token"]}, bundled(),
+                    {"kind":"mcp_oauth","server":"fixture","client":client}, local()]),
+                json!([{"name":"token","title":"Token","secret":true},
+                    {"name":"tenant","title":"Tenant","optional":true,"default":"common"}]),
+                json!([bearer()]),
+            );
+            assert_eq!(
+                names(&declaration, Kind::Secret, Declaration::uses),
+                ["token", "tenant"]
+            );
+            assert_eq!(
+                names(&declaration, Kind::Secret, Declaration::requires),
+                ["token"]
+            );
+            for kind in [Kind::Oauth2, Kind::McpOauth, Kind::LocalCli] {
+                assert_eq!(
+                    names(&declaration, kind, Declaration::uses),
+                    ["tenant"],
+                    "{kind:?}"
+                );
+                assert!(
+                    names(&declaration, kind, Declaration::requires).is_empty(),
+                    "{kind:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn keeps_client_fields_with_their_method() {
+        let declaration = methods(
+            json!([{"kind":"secret","fields":["token"]},
+                {"kind":"oauth2","flow":"pkce","authorize":"https://api.example.test/authorize",
+                    "token":"https://api.example.test/token",
+                    "client":{"fields":{"client_id":"client_id","client_secret":"client_secret"}}},
+                {"kind":"mcp_oauth","server":"fixture","client":{"fields":{"client_id":"client_id"}}}]),
+            json!([{"name":"token","title":"Token","secret":true},
+                {"name":"client_id","title":"Client ID"},
+                {"name":"client_secret","title":"Client secret","secret":true,"optional":true}]),
+            json!([bearer()]),
+        );
+        assert_eq!(
+            names(&declaration, Kind::Secret, Declaration::uses),
+            ["token"]
+        );
+        assert_eq!(
+            names(&declaration, Kind::Oauth2, Declaration::uses),
+            ["client_id", "client_secret"]
+        );
+        assert_eq!(
+            names(&declaration, Kind::Oauth2, Declaration::requires),
+            ["client_id"]
+        );
+        assert_eq!(
+            names(&declaration, Kind::McpOauth, Declaration::uses),
+            ["client_id"]
+        );
+    }
+
+    #[test]
+    fn shares_injected_secrets_except_local_cli() {
+        let declaration = methods(
+            json!([{"kind":"secret","fields":["token"]}, bundled(), local()]),
+            json!([{"name":"token","title":"Token","secret":true},
+                {"name":"key","title":"Key","secret":true}]),
+            json!([bearer(), {"origin":"https://api.example.test","header":"X-Key","field":"key"}]),
+        );
+        assert!(declaration.injects("key"));
+        assert!(!declaration.injects("token"));
+        assert_eq!(
+            names(&declaration, Kind::Secret, Declaration::requires),
+            ["token", "key"]
+        );
+        assert_eq!(
+            names(&declaration, Kind::Oauth2, Declaration::requires),
+            ["key"]
+        );
+        assert!(names(&declaration, Kind::LocalCli, Declaration::uses).is_empty());
+    }
+}

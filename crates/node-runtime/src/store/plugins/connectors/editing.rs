@@ -41,11 +41,8 @@ pub(super) fn changed(previous: &Record, current: &Record, declaration: &Declara
                 return false;
             }
             let placeholder = format!("{{{name}}}");
-            field(auth, name)
-                || declaration
-                    .inject
-                    .iter()
-                    .any(|injection| injection.field.as_ref() == Some(name))
+            auth.owns(name)
+                || declaration.injects(name)
                 || dependencies
                     .as_ref()
                     .map_or(true, |value| references(value, &placeholder))
@@ -58,35 +55,6 @@ pub(super) fn changed(previous: &Record, current: &Record, declaration: &Declara
                     .as_ref()
                     .is_some_and(|health| health.request.contains(&placeholder))
         })
-}
-
-fn field(auth: &Auth, name: &str) -> bool {
-    use sailry_protocol::plugin::connector::{Client, ClientFields};
-    let client = |fields: &ClientFields| {
-        fields.client_id == name || fields.client_secret.as_deref() == Some(name)
-    };
-    match auth {
-        Auth::Application {
-            fields,
-            registration,
-            ..
-        } => {
-            client(fields)
-                || registration
-                    .as_ref()
-                    .is_some_and(|registration| client(&registration.issues))
-        }
-        Auth::Oauth2 {
-            client: Client::Fields { fields },
-            ..
-        }
-        | Auth::McpOauth {
-            client: Some(Client::Fields { fields }),
-            ..
-        } => client(fields),
-        Auth::Secret { fields } => fields.iter().any(|field| field == name),
-        _ => false,
-    }
 }
 
 fn references(value: &serde_json::Value, placeholder: &str) -> bool {

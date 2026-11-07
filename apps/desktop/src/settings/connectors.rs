@@ -527,8 +527,14 @@ impl Workspace {
     }
 }
 
-fn editable(field: &connector::Field, method: connector::Kind) -> bool {
-    method != connector::Kind::LocalCli || !field.secret
+fn editable<'a>(
+    declaration: &'a connector::Declaration,
+    method: &'a connector::Auth,
+) -> impl Iterator<Item = &'a connector::Field> {
+    declaration
+        .fields
+        .iter()
+        .filter(move |field| declaration.uses(method, field))
 }
 
 fn title(navigation: &sailry_protocol::plugin::desktop::Navigation) -> String {

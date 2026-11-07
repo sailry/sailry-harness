@@ -993,7 +993,8 @@ fn endpoint(url: String) -> model_auth::Endpoint {
         cache_ttl_ms: None,
         url,
         method: model_auth::Method::Post,
-        headers: BTreeMap::new(),
+        // Some token services, including GitHub, otherwise answer with form-encoded bodies.
+        headers: BTreeMap::from([("Accept".into(), "application/json".into())]),
         query: BTreeMap::new(),
         body: None,
     }

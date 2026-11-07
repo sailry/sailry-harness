@@ -367,9 +367,58 @@ impl Auth {
             Self::Oauth2 { .. } | Self::Application { .. } | Self::McpOauth { .. }
         )
     }
+    /// Whether this method's own client or credential declaration names a field.
+    pub fn owns(&self, field: &str) -> bool {
+        let client = |fields: &ClientFields| {
+            fields.client_id == field || fields.client_secret.as_deref() == Some(field)
+        };
+        match self {
+            Self::Application {
+                fields,
+                registration,
+                ..
+            } => {
+                client(fields)
+                    || registration
+                        .as_ref()
+                        .is_some_and(|registration| client(&registration.issues))
+            }
+            Self::Oauth2 {
+                client: Client::Fields { fields },
+                ..
+            }
+            | Self::McpOauth {
+                client: Some(Client::Fields { fields }),
+                ..
+            } => client(fields),
+            Self::Secret { fields } => fields.iter().any(|name| name == field),
+            _ => false,
+        }
+    }
 }
 
 impl Declaration {
+    /// Whether an account using `method` reads a field: the method's own client
+    /// and secret fields, public fields no method owns, and secrets an injection
+    /// selects. Local CLI accounts never store secrets.
+    pub fn uses(&self, method: &Auth, field: &Field) -> bool {
+        if field.secret {
+            method.kind() != Kind::LocalCli
+                && (method.owns(&field.name) || self.injects(&field.name))
+        } else {
+            method.owns(&field.name) || !self.auth.iter().any(|auth| auth.owns(&field.name))
+        }
+    }
+    /// Whether `method` cannot authenticate until a field has a value.
+    pub fn requires(&self, method: &Auth, field: &Field) -> bool {
+        !field.optional && self.uses(method, field)
+    }
+    /// Whether an injection reads this protected field regardless of the method.
+    pub fn injects(&self, field: &str) -> bool {
+        self.inject
+            .iter()
+            .any(|injection| injection.field.as_deref() == Some(field))
+    }
     pub fn valid(&self) -> bool {
         self.validate().is_ok()
     }

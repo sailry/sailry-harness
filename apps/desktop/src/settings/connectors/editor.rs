@@ -179,18 +179,13 @@ impl Drop for Editor {
 
 impl Editor {
     fn configuring(&self) -> bool {
-        let Some(method) = self.method().map(Auth::kind) else {
+        let (Some(kind), Some(method)) = (self.kind(), self.method()) else {
             return false;
         };
         configuring(
-            method,
+            method.kind(),
             self.connection.as_ref().map(|account| account.state),
-            self.kind().is_some_and(|kind| {
-                kind.declaration
-                    .fields
-                    .iter()
-                    .any(|field| editable(field, method))
-            }),
+            editable(&kind.declaration, method).next().is_some(),
             self.reconnecting,
         )
     }
@@ -348,43 +343,31 @@ impl Editor {
         {
             return true;
         }
-        if !self.configuring() {
-            if self
+        if !self.configuring()
+            && self
                 .method()
                 .is_some_and(|auth| auth.kind() == Kind::LocalCli)
-            {
-                return self.cli.is_some() && !self.inspecting;
-            }
-            if self
-                .method()
-                .is_some_and(|auth| matches!(auth, Auth::McpOauth { client: None, .. }))
-            {
-                return true;
-            }
+        {
+            return self.cli.is_some() && !self.inspecting;
         }
-        kind.declaration
-            .fields
-            .iter()
-            .filter(|field| editable(field, self.method().expect("selected method").kind()))
-            .filter(|field| !field.optional)
-            .all(|field| {
+        ready(
+            &kind.declaration,
+            self.method().expect("selected method"),
+            |name| {
                 self.fields
-                    .get(&field.name)
+                    .get(name)
                     .is_some_and(|state| !state.read(cx).value().trim().is_empty())
-                    || (field.secret
-                        && self
-                            .connection
-                            .as_ref()
-                            .is_some_and(|connection| connection.configured.contains(&field.name)))
-            })
+            },
+            self.connection
+                .as_ref()
+                .map(|connection| connection.configured.as_slice())
+                .unwrap_or_default(),
+        )
     }
     fn values(&self, cx: &App) -> Values {
         let mut input = Values::default();
-        if let Some(kind) = self.kind() {
-            for field in &kind.declaration.fields {
-                if !editable(field, self.method().expect("selected method").kind()) {
-                    continue;
-                }
+        if let (Some(kind), Some(method)) = (self.kind(), self.method()) {
+            for field in editable(&kind.declaration, method) {
                 let value = self
                     .fields
                     .get(&field.name)
@@ -451,10 +434,7 @@ impl Editor {
     }
     fn field_form(&self, kind: &Type) -> AnyElement {
         let mut form = crate::ui::form::vertical();
-        for field in &kind.declaration.fields {
-            if !editable(field, self.method().expect("selected method").kind()) {
-                continue;
-            }
+        for field in editable(&kind.declaration, self.method().expect("selected method")) {
             let input = Input::new(self.fields.get(&field.name).expect("connector field state"))
                 .when(field.secret, |input| {
                     input.content_type(InputContentType::Password).mask_toggle()
@@ -565,16 +545,16 @@ impl Editor {
                         )
                     })
                     .into_any_element(),
-                Auth::McpOauth { client: None, .. }
-                | Auth::Oauth2 {
-                    client: connector::Client::Bundled { .. },
-                    ..
-                } => v_flex()
-                    .items_center()
-                    .gap_3()
-                    .child(Icon::new(IconName::Globe).size_8())
-                    .child(tr("connector_browser"))
-                    .into_any_element(),
+                Auth::Oauth2 { .. } | Auth::McpOauth { .. }
+                    if editable(&kind.declaration, auth).next().is_none() =>
+                {
+                    v_flex()
+                        .items_center()
+                        .gap_3()
+                        .child(Icon::new(IconName::Globe).size_8())
+                        .child(tr("connector_browser"))
+                        .into_any_element()
+                }
                 _ => self.field_form(kind),
             }
         };
@@ -701,6 +681,20 @@ fn configuring(
             || state == Some(connector::State::Connected))
 }
 
+/// Whether each field the method requires has a draft value or, for a secret, a saved one.
+fn ready(
+    declaration: &connector::Declaration,
+    method: &Auth,
+    drafted: impl Fn(&str) -> bool,
+    configured: &[String],
+) -> bool {
+    declaration
+        .fields
+        .iter()
+        .filter(|field| declaration.requires(method, field))
+        .all(|field| drafted(&field.name) || (field.secret && configured.contains(&field.name)))
+}
+
 fn submit_key(method: Kind, configuring: bool, existing: bool) -> &'static str {
     if configuring {
         return "settings_save";
@@ -809,6 +803,60 @@ mod tests {
         ] {
             eprintln!("case: {scenario}");
             check(scenario);
+        }
+    }
+
+    mod required {
+        use super::super::ready;
+        use sailry_protocol::plugin::connector::{Declaration, Kind};
+        use serde_json::json;
+
+        fn declaration(mcp: serde_json::Value) -> Declaration {
+            serde_json::from_value(json!({
+                "id":"service","display":{"label":"Service"},"accounts":"single",
+                "origins":["https://service.example.com"],
+                "auth":[
+                    {"kind":"secret","fields":["token"]},
+                    {"kind":"oauth2","flow":"device_code","authorize":"https://service.example.com/authorize",
+                        "token":"https://service.example.com/token","device":"https://service.example.com/device",
+                        "client":{"bundled":{"client_id":"public-client"}},"refresh":true},
+                    mcp
+                ],
+                "fields":[{"name":"token","title":"Token","secret":true}],
+                "inject":[{"server":"service","header":"Authorization"}]
+            }))
+            .unwrap()
+        }
+
+        #[test]
+        fn skips_secrets_for_bundled_sign_in() {
+            for mcp in [
+                json!({"kind":"mcp_oauth","server":"service"}),
+                json!({"kind":"mcp_oauth","server":"service","client":{"bundled":{"client_id":"public-client"}}}),
+            ] {
+                let declaration = declaration(mcp);
+                for method in declaration
+                    .auth
+                    .iter()
+                    .filter(|auth| auth.kind() != Kind::Secret)
+                {
+                    assert!(
+                        ready(&declaration, method, |_| false, &[]),
+                        "{:?}",
+                        method.kind()
+                    );
+                }
+            }
+        }
+
+        #[test]
+        fn keeps_secret_tokens_required() {
+            let declaration = declaration(json!({"kind":"mcp_oauth","server":"service"}));
+            let secret = &declaration.auth[0];
+            assert_eq!(secret.kind(), Kind::Secret);
+            assert!(!ready(&declaration, secret, |_| false, &[]));
+            assert!(ready(&declaration, secret, |name| name == "token", &[]));
+            assert!(ready(&declaration, secret, |_| false, &["token".into()]));
         }
     }
 }

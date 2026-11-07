@@ -9,6 +9,8 @@ mod attempts;
 mod cancellation;
 #[path = "oauth/consent.rs"]
 mod consent;
+#[path = "oauth/device.rs"]
+mod device;
 #[path = "oauth/lifecycle.rs"]
 mod lifecycle;
 #[path = "oauth/recovery.rs"]
