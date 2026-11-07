@@ -7,105 +7,91 @@ use sailry_link::{Link, NetworkScope};
 
 #[tokio::test]
 async fn preserves_lost_registration() {
-    for remote in [false, true] {
-        let temp = tempfile::tempdir().unwrap();
-        let root = temp.path().join("repository");
-        let repository = init(&root);
-        let linked = temp.path().join("linked");
-        repository.worktree("linked", &linked, None).unwrap();
-        let profile = temp.path().join("node");
-        let node = Node::start_empty(&profile).await.unwrap();
-        let controller = Link::controller(temp.path().join("controller"), NetworkScope::default())
-            .await
-            .unwrap();
-        let address = controller
-            .handle()
-            .pair(node.link().invite().unwrap().ticket())
-            .await
-            .unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(address)
-        } else {
-            node.local()
-        });
-        let project = register(&client, &root).await;
-        let before = snapshot(&client).await;
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("repository");
+    let repository = init(&root);
+    let linked = temp.path().join("linked");
+    repository.worktree("linked", &linked, None).unwrap();
+    let profile = temp.path().join("node");
+    let node = Node::start_empty(&profile).await.unwrap();
+    let controller = Link::controller(temp.path().join("controller"), NetworkScope::default())
+        .await
+        .unwrap();
+    let address = controller
+        .handle()
+        .pair(node.link().invite().unwrap().ticket())
+        .await
+        .unwrap();
+    let client = Client::new(controller.handle().remote(address));
+    let project = register(&client, &root).await;
+    let before = snapshot(&client).await;
 
-        {
-            let sql = ("CREATE TRIGGER lose_result BEFORE UPDATE ON requests WHEN NEW.status='completed' BEGIN SELECT RAISE(ABORT,'injected result loss'); END;").to_owned();
-            node.with_storage(move |db| {
-                Box::pin(async move {
-                    db.execute_batch(sql)
-                        .await
-                        .map_err(crate::database_fixture::fault)
-                })
+    {
+        let sql = ("CREATE TRIGGER lose_result BEFORE UPDATE ON requests WHEN NEW.status='completed' BEGIN SELECT RAISE(ABORT,'injected result loss'); END;").to_owned();
+        node.with_storage(move |db| {
+            Box::pin(async move {
+                db.execute_batch(sql)
+                    .await
+                    .map_err(crate::database_fixture::fault)
             })
-            .await
-            .unwrap()
-        };
-        let request = client.prepare(Command::RegisterWorktree {
-            project: project.id,
-            path: linked.to_str().unwrap().into(),
-        });
-        assert_eq!(
-            client.execute(request.clone()).await.unwrap_err().code,
-            ErrorCode::OutcomeUnknown
-        );
-        assert_eq!(snapshot(&client).await, before);
-        {
-            let sql = ("DROP TRIGGER lose_result").to_owned();
-            node.with_storage(move |db| {
-                Box::pin(async move {
-                    db.execute_batch(sql)
-                        .await
-                        .map_err(crate::database_fixture::fault)
-                })
+        })
+        .await
+        .unwrap()
+    };
+    let request = client.prepare(Command::RegisterWorktree {
+        project: project.id,
+        path: linked.to_str().unwrap().into(),
+    });
+    assert_eq!(
+        client.execute(request.clone()).await.unwrap_err().code,
+        ErrorCode::OutcomeUnknown
+    );
+    assert_eq!(snapshot(&client).await, before);
+    {
+        let sql = ("DROP TRIGGER lose_result").to_owned();
+        node.with_storage(move |db| {
+            Box::pin(async move {
+                db.execute_batch(sql)
+                    .await
+                    .map_err(crate::database_fixture::fault)
             })
-            .await
-            .unwrap()
-        };
+        })
+        .await
+        .unwrap()
+    };
 
-        node.shutdown().await.unwrap();
-        std::fs::write(linked.join("file"), "preserved edit").unwrap();
-        let node = Node::start_empty(&profile).await.unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(node.link().address())
-        } else {
-            node.local()
-        });
-        assert_eq!(
-            client.execute(request.clone()).await.unwrap_err().code,
-            ErrorCode::OutcomeUnknown
-        );
-        assert_eq!(snapshot(&client).await, before);
-        assert_eq!(list(&client, before.worktrees[0].id).await.entries.len(), 2);
-        let recovered = adopt(&client, project.id, &linked).await;
-        assert_eq!(adopt(&client, project.id, &linked).await, recovered);
-        assert_eq!(
-            client.execute(request.clone()).await.unwrap_err().code,
-            ErrorCode::OutcomeUnknown
-        );
-        let registered = snapshot(&client).await;
-        assert_eq!(registered.worktrees.len(), 2);
-        node.shutdown().await.unwrap();
-        let node = Node::start_empty(&profile).await.unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(node.link().address())
-        } else {
-            node.local()
-        });
-        assert_eq!(snapshot(&client).await, registered);
-        assert_eq!(
-            client.execute(request).await.unwrap_err().code,
-            ErrorCode::OutcomeUnknown
-        );
-        assert_eq!(
-            std::fs::read(linked.join("file")).unwrap(),
-            b"preserved edit"
-        );
-        controller.close().await.unwrap();
-        node.shutdown().await.unwrap();
-    }
+    node.shutdown().await.unwrap();
+    std::fs::write(linked.join("file"), "preserved edit").unwrap();
+    let node = Node::start_empty(&profile).await.unwrap();
+    let client = Client::new(controller.handle().remote(node.link().address()));
+    assert_eq!(
+        client.execute(request.clone()).await.unwrap_err().code,
+        ErrorCode::OutcomeUnknown
+    );
+    assert_eq!(snapshot(&client).await, before);
+    assert_eq!(list(&client, before.worktrees[0].id).await.entries.len(), 2);
+    let recovered = adopt(&client, project.id, &linked).await;
+    assert_eq!(adopt(&client, project.id, &linked).await, recovered);
+    assert_eq!(
+        client.execute(request.clone()).await.unwrap_err().code,
+        ErrorCode::OutcomeUnknown
+    );
+    let registered = snapshot(&client).await;
+    assert_eq!(registered.worktrees.len(), 2);
+    node.shutdown().await.unwrap();
+    let node = Node::start_empty(&profile).await.unwrap();
+    let client = Client::new(controller.handle().remote(node.link().address()));
+    assert_eq!(snapshot(&client).await, registered);
+    assert_eq!(
+        client.execute(request).await.unwrap_err().code,
+        ErrorCode::OutcomeUnknown
+    );
+    assert_eq!(
+        std::fs::read(linked.join("file")).unwrap(),
+        b"preserved edit"
+    );
+    controller.close().await.unwrap();
+    node.shutdown().await.unwrap();
 }
 
 #[tokio::test]

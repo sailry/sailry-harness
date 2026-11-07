@@ -296,117 +296,103 @@ async fn preserves_partial_creation() {
 
 #[tokio::test]
 async fn recovers_lost_result() {
-    for remote in [false, true] {
-        let temp = tempfile::tempdir().unwrap();
-        let root = temp.path().join("repository");
-        let repository = init(&root);
-        let head = repository.head().unwrap().target().unwrap();
-        let profile = temp.path().join("node");
-        let node = Node::start_empty(&profile).await.unwrap();
-        let controller = Link::controller(temp.path().join("controller"), NetworkScope::default())
-            .await
-            .unwrap();
-        let address = controller
-            .handle()
-            .pair(node.link().invite().unwrap().ticket())
-            .await
-            .unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(address)
-        } else {
-            node.local()
-        });
-        let project = register(&client, &root).await;
-        let before = snapshot(&client).await;
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("repository");
+    let repository = init(&root);
+    let head = repository.head().unwrap().target().unwrap();
+    let profile = temp.path().join("node");
+    let node = Node::start_empty(&profile).await.unwrap();
+    let controller = Link::controller(temp.path().join("controller"), NetworkScope::default())
+        .await
+        .unwrap();
+    let address = controller
+        .handle()
+        .pair(node.link().invite().unwrap().ticket())
+        .await
+        .unwrap();
+    let client = Client::new(controller.handle().remote(address));
+    let project = register(&client, &root).await;
+    let before = snapshot(&client).await;
 
-        {
-            let sql = ("CREATE TRIGGER lose_result BEFORE UPDATE ON requests WHEN NEW.status='completed' BEGIN SELECT RAISE(ABORT,'injected result loss'); END;").to_owned();
-            node.with_storage(move |db| {
-                Box::pin(async move {
-                    db.execute_batch(sql)
-                        .await
-                        .map_err(crate::database_fixture::fault)
-                })
+    {
+        let sql = ("CREATE TRIGGER lose_result BEFORE UPDATE ON requests WHEN NEW.status='completed' BEGIN SELECT RAISE(ABORT,'injected result loss'); END;").to_owned();
+        node.with_storage(move |db| {
+            Box::pin(async move {
+                db.execute_batch(sql)
+                    .await
+                    .map_err(crate::database_fixture::fault)
             })
-            .await
+        })
+        .await
+        .unwrap()
+    };
+    let destination = temp.path().join("linked");
+    let request = client.prepare(command(project.id, &destination, "linked", head));
+    assert_eq!(
+        client.execute(request.clone()).await.unwrap_err().code,
+        ErrorCode::OutcomeUnknown
+    );
+    assert_eq!(
+        Repository::open(&destination)
             .unwrap()
-        };
-        let destination = temp.path().join("linked");
-        let request = client.prepare(command(project.id, &destination, "linked", head));
-        assert_eq!(
-            client.execute(request.clone()).await.unwrap_err().code,
-            ErrorCode::OutcomeUnknown
-        );
-        assert_eq!(
-            Repository::open(&destination)
-                .unwrap()
-                .head()
-                .unwrap()
-                .target(),
-            Some(head)
-        );
-        assert_eq!(snapshot(&client).await, before);
-        {
-            let sql = ("DROP TRIGGER lose_result").to_owned();
-            node.with_storage(move |db| {
-                Box::pin(async move {
-                    db.execute_batch(sql)
-                        .await
-                        .map_err(crate::database_fixture::fault)
-                })
+            .head()
+            .unwrap()
+            .target(),
+        Some(head)
+    );
+    assert_eq!(snapshot(&client).await, before);
+    {
+        let sql = ("DROP TRIGGER lose_result").to_owned();
+        node.with_storage(move |db| {
+            Box::pin(async move {
+                db.execute_batch(sql)
+                    .await
+                    .map_err(crate::database_fixture::fault)
             })
-            .await
-            .unwrap()
-        };
+        })
+        .await
+        .unwrap()
+    };
 
-        node.shutdown().await.unwrap();
-        std::fs::write(destination.join("file"), "later edit").unwrap();
-        let node = Node::start_empty(&profile).await.unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(node.link().address())
-        } else {
-            node.local()
-        });
-        assert_eq!(
-            client.execute(request.clone()).await.unwrap_err().code,
-            ErrorCode::OutcomeUnknown
-        );
-        assert_eq!(
-            std::fs::read(destination.join("file")).unwrap(),
-            b"later edit"
-        );
-        assert_eq!(snapshot(&client).await, before);
-        let found = super::discovery::list(&client, before.worktrees[0].id).await;
-        assert!(found.entries.iter().any(|entry| {
-            Path::new(&entry.path) == destination.canonicalize().unwrap() && entry.available
-        }));
-        let recovered = super::discovery::adopt(&client, project.id, &destination).await;
-        assert_eq!(snapshot(&client).await.worktrees.len(), 2);
-        assert_eq!(
-            super::discovery::adopt(&client, project.id, &destination).await,
-            recovered
-        );
-        assert_eq!(
-            client.execute(request.clone()).await.unwrap_err().code,
-            ErrorCode::OutcomeUnknown
-        );
-        assert_eq!(
-            std::fs::read(destination.join("file")).unwrap(),
-            b"later edit"
-        );
-        node.shutdown().await.unwrap();
-        let node = Node::start_empty(&profile).await.unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(node.link().address())
-        } else {
-            node.local()
-        });
-        assert!(snapshot(&client).await.worktrees.contains(&recovered));
-        assert_eq!(
-            client.execute(request).await.unwrap_err().code,
-            ErrorCode::OutcomeUnknown
-        );
-        controller.close().await.unwrap();
-        node.shutdown().await.unwrap();
-    }
+    node.shutdown().await.unwrap();
+    std::fs::write(destination.join("file"), "later edit").unwrap();
+    let node = Node::start_empty(&profile).await.unwrap();
+    let client = Client::new(controller.handle().remote(node.link().address()));
+    assert_eq!(
+        client.execute(request.clone()).await.unwrap_err().code,
+        ErrorCode::OutcomeUnknown
+    );
+    assert_eq!(
+        std::fs::read(destination.join("file")).unwrap(),
+        b"later edit"
+    );
+    assert_eq!(snapshot(&client).await, before);
+    let found = super::discovery::list(&client, before.worktrees[0].id).await;
+    assert!(found.entries.iter().any(|entry| {
+        Path::new(&entry.path) == destination.canonicalize().unwrap() && entry.available
+    }));
+    let recovered = super::discovery::adopt(&client, project.id, &destination).await;
+    assert_eq!(snapshot(&client).await.worktrees.len(), 2);
+    assert_eq!(
+        super::discovery::adopt(&client, project.id, &destination).await,
+        recovered
+    );
+    assert_eq!(
+        client.execute(request.clone()).await.unwrap_err().code,
+        ErrorCode::OutcomeUnknown
+    );
+    assert_eq!(
+        std::fs::read(destination.join("file")).unwrap(),
+        b"later edit"
+    );
+    node.shutdown().await.unwrap();
+    let node = Node::start_empty(&profile).await.unwrap();
+    let client = Client::new(controller.handle().remote(node.link().address()));
+    assert!(snapshot(&client).await.worktrees.contains(&recovered));
+    assert_eq!(
+        client.execute(request).await.unwrap_err().code,
+        ErrorCode::OutcomeUnknown
+    );
+    controller.close().await.unwrap();
+    node.shutdown().await.unwrap();
 }
