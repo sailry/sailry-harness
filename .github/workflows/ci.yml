@@ -705,7 +705,7 @@ jobs:
           if test "$FFI" = true; then
             # The same database majors as the macOS Shared job: PostgreSQL 17 and MySQL 8.4 LTS.
             sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
-            curl -fsSL https://repo.mysql.com/RPM-GPG-KEY-mysql-2023 | sudo gpg --dearmor --yes -o /usr/share/keyrings/mysql.gpg
+            curl -fsSL https://repo.mysql.com/RPM-GPG-KEY-mysql-2025 | sudo gpg --dearmor --yes -o /usr/share/keyrings/mysql.gpg
             gpg --show-keys --with-colons /usr/share/keyrings/mysql.gpg | grep -qx 'fpr:::::::::BCA43417C3B485DD128EC6D4B7B3B788A8D3785C:'
             echo 'deb [signed-by=/usr/share/keyrings/mysql.gpg] http://repo.mysql.com/apt/ubuntu noble mysql-8.4-lts' |
               sudo tee /etc/apt/sources.list.d/mysql.list > /dev/null
