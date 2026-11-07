@@ -1363,6 +1363,11 @@ pub enum Command {
         #[serde(default)]
         expected_revision: Option<String>,
     },
+    /// Reads a PNG, JPEG, GIF, WebP or BMP file as bounded model input.
+    ReadImage {
+        worktree: WorktreeId,
+        path: String,
+    },
     FindFiles {
         worktree: WorktreeId,
         globs: Vec<String>,
@@ -1810,6 +1815,7 @@ impl Command {
                 | Self::ReadCodeIndexSettings
                 | Self::ReadHooks { .. }
                 | Self::ReadFileLines { .. }
+                | Self::ReadImage { .. }
                 | Self::FindFiles { .. }
                 | Self::ReadOffice { .. }
                 | Self::ReadNotebook { .. }
@@ -2141,6 +2147,7 @@ pub enum Output {
     Directory(crate::Directory),
     FileContent(crate::FileContent),
     FileLines(crate::FileLines),
+    FileImage(crate::FileImage),
     FileNames(crate::FileNames),
     FileDownload(crate::FileDownload),
     FileUpload(crate::FileUpload),
