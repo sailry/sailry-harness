@@ -28,11 +28,15 @@ def main():
     parser.add_argument("--tag", required=True)
     parser.add_argument("--component", choices=("desktop", "host", "mobile"))
     parser.add_argument("--published", action="store_true")
+    parser.add_argument("--admit", action="store_true",
+                        help="Admit a component build on main before its Checks finish")
     parser.add_argument("--wait-ready", action="store_true")
     parser.add_argument("--wait-published", action="store_true",
                         help="Wait until the version entry publishes this tag after its full Checks")
     parser.add_argument("--event", type=Path)
     args = parser.parse_args()
+    if args.admit and (args.component is None or args.wait_ready or args.wait_published or args.event):
+        parser.error("Admission requires a product component and no waiting or events")
     require_context(args.tag)
     repository = os.environ["GITHUB_REPOSITORY"]
     client = publication.GitHub()
@@ -40,6 +44,12 @@ def main():
     metadata = publication.release(client, repository, args.tag, commit, published=args.published)
     if args.component and metadata is not None and metadata.get("immutable"):
         raise ValueError("Packages cannot be appended to an immutable release")
+    if args.admit:
+        # Readiness later implies main, but builds start before Checks finish.
+        if not publication.on_main(client, repository, commit):
+            raise ValueError("The release tag must point to a commit on main")
+        print(f"Admitted {args.component.title()} build for exact source {commit}")
+        return
     if args.wait_ready:
         if args.component is None:
             parser.error("Waiting requires a product component")

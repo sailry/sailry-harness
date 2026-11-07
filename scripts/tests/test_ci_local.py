@@ -1,6 +1,8 @@
 """Local selection distinguishes mutable development inputs from candidate commits."""
 
+import io
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -183,6 +185,65 @@ class PrePush(unittest.TestCase):
             with patch("sys.stderr"), self.assertRaises(SystemExit):
                 with patch.object(ci_local.ci, "ROOT", root):
                     ci_local.ci.local(["affected", "--target", "main"])
+
+    def test_names_unresolved_target(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            initialize(root)
+            with patch("sys.stderr", new_callable=io.StringIO) as error, self.assertRaises(SystemExit):
+                self.plan(root, "--target", "missing")
+            self.assertIn("Cannot resolve missing; fetch it or pass --target", error.getvalue())
+
+    def test_stops_on_tool_version_mismatch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            initialize(root)
+            git(root, "update-ref", "refs/remotes/origin/main", "HEAD")
+            write(root, "apps/host/src/main.rs")
+            mismatch = {"cargo-nextest": "0.9.1"}
+            with patch.object(ci_local.ci, "ROOT", root), \
+                    patch.object(ci_local.ci, "tool_versions", return_value=mismatch), \
+                    patch.object(ci_local.ci.shutil, "which", return_value="/usr/bin/tool"), \
+                    patch.object(ci_local.ci, "run_check") as run, \
+                    patch("builtins.print") as output:
+                self.assertEqual(ci_local.ci.local(["pre-push"]), 1)
+            run.assert_not_called()
+            self.assertIn("cargo-nextest 0.9.1 (CI uses 0.9.143)", output.call_args.args[0])
+
+    def test_lists_flaky_tests_after_failed_tests(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root, target = Path(directory) / "repository", Path(directory) / "target"
+            root.mkdir()
+            initialize(root)
+            git(root, "update-ref", "refs/remotes/origin/main", "HEAD")
+            write(root, "apps/host/src/main.rs")
+            report = target / "nextest/ci/junit.xml"
+            report.parent.mkdir(parents=True)
+            report.write_text('<testsuites><testsuite name="stale"><testcase name="earlier">'
+                              '<flakyFailure/></testcase></testsuite></testsuites>')
+            seen = []
+
+            def run(name, *arguments):
+                if name == "tests":
+                    seen.append(report.exists())
+                    report.write_text('<testsuites><testsuite name="sailry-host::lifecycle">'
+                                      '<testcase name="restarts" classname="sailry-host::lifecycle"><flakyFailure/></testcase>'
+                                      '<testcase name="stops" classname="sailry-host::lifecycle"><failure/></testcase>'
+                                      '</testsuite></testsuites>')
+                    return 1
+                return 0
+
+            with patch.object(ci_local.ci, "ROOT", root), \
+                    patch.dict(os.environ, {"GITHUB_ACTIONS": "", "GITHUB_STEP_SUMMARY": ""}), \
+                    patch.object(ci_local.ci, "tool_versions", return_value={}), \
+                    patch.object(ci_local.ci.shutil, "which", return_value="/usr/bin/tool"), \
+                    patch.object(ci_local.ci, "run_check", side_effect=run), \
+                    patch("builtins.print") as output:
+                self.assertEqual(ci_local.ci.local(["pre-push", "--target-dir", str(target)]), 1)
+            printed = [call.args[0] for call in output.call_args_list]
+            self.assertEqual(seen, [False])
+            self.assertIn("Flaky test: sailry-host::lifecycle restarts passed after 1 failed attempt(s)", printed)
+            self.assertFalse(any("stale" in line for line in printed if isinstance(line, str)))
 
 
 class Submodules(unittest.TestCase):

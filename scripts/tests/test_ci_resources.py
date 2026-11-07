@@ -570,10 +570,11 @@ class Workflow(unittest.TestCase):
         self.assertIn("-p sailry-host --features sailry-node-runtime/test-support --timings", build)
         self.assertIn("not (package(sailry-host) and not binary(lifecycle))", shared)
         self.assertIn("cargo check --locked -p sailry-desktop --jobs", lint)
-        # Linux Host owns the shipped-feature Host check; macOS lint does not repeat it.
+        # Each Host platform type-checks its own shipped feature set.
         self.assertIn("cargo check --locked -p sailry-host --jobs", host)
-        self.assertNotIn("sailry-host --jobs", lint)
-        self.assertNotIn("name: Host without test features", lint)
+        self.assertIn("cargo check --locked -p sailry-host --jobs", lint)
+        production = lint.split("      - name: Host without test features\n", 1)[1].split("      - ", 1)[0]
+        self.assertIn("if: needs.source.outputs.host == 'true'", production)
         self.assertIn("runs-on: ubuntu-24.04", host)
         self.assertIn("bubblewrap libx11-dev libxi-dev libxtst-dev", host)
         self.assertIn("cargo nextest run --locked -p sailry-host --timings", host)
@@ -642,14 +643,32 @@ class Workflow(unittest.TestCase):
         self.assertIn("flutter test --no-pub", mobile)
         self.assertIn("flutter build ios --release --no-codesign", mobile)
         self.assertIn("runs-on: macos-15", mobile)
-        # The Dart FFI fixture compiles its real Node on Linux rather than in the macOS Mobile job.
-        self.assertNotIn("--test dart", mobile)
-        self.assertNotIn("mobile_ffi", mobile)
+        # Linux runs the Dart FFI fixtures; macOS adds only the Trash-dependent checkpoint contract.
+        self.assertIn("needs.source.outputs.mobile_ffi == 'true'", mobile.split("    steps:\n", 1)[0])
+        self.assertNotIn("--test dart --timings", mobile)
+        checkpoints = mobile.split("      - name: Dart FFI checkpoint recovery\n", 1)[1].split("      - ", 1)[0]
+        self.assertIn("!cancelled()", checkpoints)
+        self.assertIn("--test dart --jobs", checkpoints)
+        self.assertIn("-- --ignored --exact checkpoints::recovers_restore_receipts --nocapture", checkpoints)
+        self.assertIn("OPENSSL_NO_VENDOR: '1'", checkpoints)
+        self.assertNotIn("OPENSSL_NO_VENDOR", mobile.split("    steps:\n", 1)[0])
+        for step in ("uses: ./.github/actions/ghostty-cache", "uses: ./.github/actions/native-cache",
+                     "uses: mlugg/setup-zig@"):
+            self.assertIn(step, mobile)
+        self.assertLess(mobile.index("Unsigned iOS application"), mobile.index("Dart FFI checkpoint recovery"))
         self.assertIn("runs-on: ubuntu-24.04", android)
         self.assertIn("--test dart --timings", android)
         self.assertIn("--skip mcp_peer::stdio_peer --test-threads=4", android)
+        prerequisites = android.split("      - name: Native prerequisites\n", 1)[1].split("      - ", 1)[0]
+        self.assertEqual(android.count("rustup toolchain install"), 1)
+        self.assertEqual(android.count("apt-get install"), 1)
+        for pinned in ("postgresql-17", "'mysql-community-server-core=8.4.*'", "noble mysql-8.4-lts",
+                       "BCA43417C3B485DD128EC6D4B7B3B788A8D3785C", "echo /usr/lib/postgresql/17/bin >> \"$GITHUB_PATH\""):
+            self.assertIn(pinned, prerequisites)
+        self.assertIn("initdb --version | grep -q ' 17\\.'", android)
+        self.assertIn("mysqld --version | grep -q ' 8\\.4\\.'", android)
         for section, title, lane in ((android, "Dart FFI contract fixtures", "mobile_ffi"),
-                                     (android, "Dart FFI prerequisites", "mobile_ffi"),
+                                     (mobile, "Dart FFI checkpoint recovery", "mobile_ffi"),
                                      (android, "ARM64 release APK", "android"),
                                      (android, "Rust boundary and Android initializer", "android"),
                                      (mobile, "Mobile source fixtures", "mobile"),
@@ -691,7 +710,7 @@ class Workflow(unittest.TestCase):
         self.assertIn("path: ${{ steps.identity.outputs.path }}", action)
         # Compilation downloads only speech libraries, so jobs that do not package save that subset.
         for name, target in (("lint", "aarch64-apple-darwin"), ("build", "aarch64-apple-darwin"),
-                             ("android", "x86_64-unknown-linux-gnu")):
+                             ("mobile", "aarch64-apple-darwin"), ("android", "x86_64-unknown-linux-gnu")):
             section = job_section(workflow, name)
             self.assertIn("uses: ./.github/actions/native-cache", section)
             self.assertIn(f"target: {target}\n          libraries: speech", section)
@@ -701,7 +720,6 @@ class Workflow(unittest.TestCase):
             self.assertNotIn("llama-prebuilt", save)
             self.assertIn("path: ${{ steps.native-cache.outputs.path }}", save)
             self.assertNotIn("always()", save)
-        self.assertNotIn("native-cache", job_section(workflow, "mobile"))
         for name, libraries in (("release", "speech"), ("release-host", None)):
             release = (ROOT / f".github/workflows/{name}.yml").read_text()
             self.assertIn("uses: ./.workflow-tools/.github/actions/native-cache", release)
@@ -712,7 +730,7 @@ class Workflow(unittest.TestCase):
             self.assertIn("path: ${{ steps.native-cache.outputs.path }}", save)
             self.assertNotIn("always()", save)
         # Host packaging downloads the decision libraries, so its complete save follows packaging.
-        host = job_section((ROOT / ".github/workflows/release-host.yml").read_text(), "build")
+        host = job_section((ROOT / ".github/workflows/release-host.yml").read_text(), "sign")
         self.assertLess(host.index("name: Sign, notarize and package"), host.index("name: Save native libraries"))
 
     def test_caches_ghostty_inputs_for_compiling_jobs(self):
@@ -720,7 +738,7 @@ class Workflow(unittest.TestCase):
         action = (ROOT / ".github/actions/ghostty-cache/action.yml").read_text()
         self.assertIn("ci.py\" ghostty-key", action)
         self.assertIn("ci.py\" ghostty-source", action)
-        for name in ("lint", "build", "host", "android", "light_linux", "light_macos"):
+        for name in ("lint", "build", "host", "mobile", "android", "light_linux", "light_macos"):
             section = job_section(workflow, name)
             with self.subTest(job=name):
                 self.assertIn("uses: ./.github/actions/ghostty-cache", section)
@@ -732,7 +750,7 @@ class Workflow(unittest.TestCase):
                     self.assertIn("github.ref == 'refs/heads/main'", step)
                     self.assertIn("steps.ghostty.outputs.hit != 'true'", step)
                     self.assertIn("path: ${{ steps.ghostty.outputs.path }}", step)
-        for name in ("mobile", "shared", "desktop"):
+        for name in ("shared", "desktop"):
             self.assertNotIn("ghostty", job_section(workflow, name))
 
     def test_links_system_openssl_only_in_checks(self):
@@ -746,8 +764,14 @@ class Workflow(unittest.TestCase):
             self.assertIn('echo "OPENSSL_DIR=$(brew --prefix openssl@3)"', job_section(workflow, name))
         for name in ("host", "light_linux", "android"):
             self.assertIn("libssl-dev", job_section(workflow, name))
-        # Mobile release builds and iOS keep the vendored library selection.
-        self.assertNotIn("OPENSSL", job_section(workflow, "mobile"))
+        # Mobile release builds and iOS keep the vendored library selection; only the
+        # macOS Dart FFI checkpoint contract links the runner's OpenSSL.
+        mobile = job_section(workflow, "mobile")
+        title = "      - name: Dart FFI checkpoint recovery\n"
+        checkpoints = mobile.split(title, 1)[1].split("      - ", 1)[0]
+        self.assertNotIn("OPENSSL", mobile.replace(title + checkpoints, ""))
+        self.assertIn("OPENSSL_STATIC: '1'", checkpoints)
+        self.assertIn('export OPENSSL_DIR="$(brew --prefix openssl@3)"', checkpoints)
         for path in (ROOT / ".github/workflows").glob("release*.yml"):
             self.assertNotIn("OPENSSL", path.read_text(), path.name)
 
@@ -1095,13 +1119,19 @@ class Profiles(unittest.TestCase):
 
     def test_reports_tests_that_pass_on_retry(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
-        for name, reports in (("shared", "target/nextest/ci/junit.xml target/nextest/databases/junit.xml"),
-                              ("desktop", "target/nextest/ci/junit.xml target/nextest/lifecycle/junit.xml"),
-                              ("host", "target/nextest/ci/junit.xml")):
-            step = job_section(workflow, name).split("      - name: Flaky tests\n", 1)[1].split("      - ", 1)[0]
+        for name, reports in (("shared", {"ci": "tests", "databases": "databases"}),
+                              ("desktop", {"ci": "tests", "lifecycle": "lifecycle"}),
+                              ("host", {"ci": "tests"})):
+            job = job_section(workflow, name)
+            step = job.split("      - name: Flaky tests\n", 1)[1].split("      - ", 1)[0]
+            command = " ".join(step.split("run:", 1)[1].replace(">-", "").split())
+            expected = " ".join(f'"target/nextest/{profile}/junit.xml=${{{{ steps.{step_id}.outcome }}}}"'
+                                for profile, step_id in reports.items())
             with self.subTest(job=name):
                 self.assertIn("if: always()", step)
-                self.assertIn(f"run: python3 scripts/ci.py flaky {reports}\n", step)
+                self.assertEqual(command, f"python3 scripts/ci.py flaky {expected}")
+                for step_id in reports.values():
+                    self.assertIn(f"        id: {step_id}\n", job)
 
 
 class FlakyReport(unittest.TestCase):
@@ -1125,7 +1155,7 @@ class FlakyReport(unittest.TestCase):
             report = Path(directory) / "junit.xml"
             report.write_text(self.REPORT)
             summary = Path(directory) / "summary.md"
-            with patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": str(summary)}), \
+            with patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": str(summary), "GITHUB_ACTIONS": "true"}), \
                     patch("builtins.print") as output:
                 flaky = ci.report_flaky([report, Path(directory) / "missing.xml"])
             self.assertEqual(flaky, [("sailry-node-runtime::agent", "delegation::claim::preserves_fifo", 1)])
@@ -1141,6 +1171,47 @@ class FlakyReport(unittest.TestCase):
             with patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": str(summary)}), patch("builtins.print"):
                 self.assertEqual(ci.report_flaky([Path(directory) / "missing.xml"]), [])
             self.assertFalse(summary.exists())
+
+    def test_prints_plain_text_outside_actions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            report = Path(directory) / "junit.xml"
+            report.write_text(self.REPORT)
+            environment = {name: value for name, value in os.environ.items()
+                           if name not in {"GITHUB_ACTIONS", "GITHUB_STEP_SUMMARY"}}
+            with patch.dict(os.environ, environment, clear=True), patch("builtins.print") as output:
+                ci.report_flaky([report])
+            self.assertIn("Flaky test: sailry-node-runtime::agent delegation::claim::preserves_fifo "
+                          "passed after 1 failed attempt(s)", [call.args[0] for call in output.call_args_list])
+
+    def test_reports_missing_after_test_step(self):
+        with tempfile.TemporaryDirectory() as directory:
+            present = Path(directory) / "junit.xml"
+            present.write_text(self.REPORT)
+            missing = Path(directory) / "missing.xml"
+            cases = (
+                ({missing: "success"}, True, "::error title=Missing test report::"),
+                ({missing: "failure"}, False, "::warning title=Missing test report::"),
+                ({missing: "skipped", present: "success"}, False, None),
+            )
+            for outcomes, failed, prefix in cases:
+                with self.subTest(outcomes=list(outcomes.values())):
+                    with patch.dict(os.environ, {"GITHUB_ACTIONS": "true"}), patch("builtins.print") as output:
+                        self.assertEqual(ci.report_missing(outcomes), failed)
+                    printed = [call.args[0] for call in output.call_args_list]
+                    if prefix is None:
+                        self.assertEqual(printed, [])
+                    else:
+                        self.assertEqual(len(printed), 1)
+                        self.assertTrue(printed[0].startswith(prefix + str(missing)))
+
+    def test_fails_when_passing_step_left_no_report(self):
+        with tempfile.TemporaryDirectory() as directory:
+            missing = Path(directory) / "missing.xml"
+            for outcome, code in (("success", 1), ("failure", 0), ("cancelled", 0)):
+                with self.subTest(outcome=outcome):
+                    result = subprocess.run([sys.executable, str(ROOT / "scripts/ci.py"), "flaky", f"{missing}={outcome}"],
+                                            capture_output=True, text=True, env={**os.environ, "GITHUB_STEP_SUMMARY": ""})
+                    self.assertEqual(result.returncode, code, result.stdout + result.stderr)
 
 
 class ToolVersions(unittest.TestCase):
@@ -1229,19 +1300,54 @@ class GhosttyInputs(unittest.TestCase):
             (ghostty / "build.zig").write_text("// later\n")
             self.git("commit", "--quiet", "-am", "Later", cwd=ghostty)
             script = (f'const GHOSTTY_REPO: &str = "{ghostty.as_uri()}";\n'
-                      f'const GHOSTTY_COMMIT: &str = "{commit}";\n')
+                      f'const GHOSTTY_COMMIT: &str = "{commit}";\n'
+                      'fn main() { let _ = env::var("GHOSTTY_SOURCE_DIR"); }\n')
             bindings, revision = self.repository(root, "bindings", {"crates/libghostty-vt-sys/build.rs": script})
             workspace = root / "workspace"
             workspace.mkdir()
             self.lockfile(workspace, f"git+{bindings.as_uri()}?rev={revision}#{revision}")
             source = workspace / ci.GHOSTTY_CACHE / "source"
-            self.assertTrue(ci.ghostty_source(workspace, source))
+            with patch.object(ci.subprocess, "run", wraps=subprocess.run) as run:
+                self.assertTrue(ci.ghostty_source(workspace, source))
+            self.assertTrue(all(call.kwargs.get("timeout") == ci.GHOSTTY_TIMEOUT for call in run.call_args_list))
             self.assertEqual(self.git("rev-parse", "HEAD", cwd=source), commit)
             self.assertEqual((source / "build.zig").read_text(), "// pinned\n")
             self.assertFalse(source.with_name("source.partial").exists())
             # A restored checkout is reused without contacting either repository.
             with patch.object(ci.subprocess, "run", side_effect=AssertionError("unexpected fetch")):
                 self.assertFalse(ci.ghostty_source(workspace, source))
+
+    def test_requires_source_override(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            ghostty, commit = self.repository(root, "ghostty", {"build.zig": "// pinned\n"})
+            script = (f'const GHOSTTY_REPO: &str = "{ghostty.as_uri()}";\n'
+                      f'const GHOSTTY_COMMIT: &str = "{commit}";\n'
+                      'fn main() { let _ = env::var("GHOSTTY_SOURCE_PATH"); }\n')
+            bindings, revision = self.repository(root, "bindings", {"crates/libghostty-vt-sys/build.rs": script})
+            workspace = root / "workspace"
+            workspace.mkdir()
+            self.lockfile(workspace, f"git+{bindings.as_uri()}?rev={revision}#{revision}")
+            source = workspace / ci.GHOSTTY_CACHE / "source"
+            with self.assertRaisesRegex(ValueError, "no longer reads GHOSTTY_SOURCE_DIR"):
+                ci.ghostty_source(workspace, source)
+            self.assertFalse(source.exists())
+            self.assertFalse(source.with_name("source.partial").exists())
+
+    def test_exports_build_environment(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory).resolve()
+            cache = workspace / ci.GHOSTTY_CACHE
+            (cache / "source").mkdir(parents=True)
+            (cache / "source/build.zig").write_text("// cached\n")
+            environment = workspace / "github.env"
+            result = subprocess.run([sys.executable, str(ROOT / "scripts/ci.py"), "ghostty-source"],
+                                    capture_output=True, text=True,
+                                    env={**os.environ, "GITHUB_WORKSPACE": str(workspace), "GITHUB_ENV": str(environment)})
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(environment.read_text(),
+                             f"GHOSTTY_SOURCE_DIR={cache / 'source'}\nZIG_GLOBAL_CACHE_DIR={cache / 'zig'}\n")
+            self.assertTrue((cache / "zig").is_dir())
 
 
 if __name__ == "__main__":

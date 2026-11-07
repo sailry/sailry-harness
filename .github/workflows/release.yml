@@ -56,13 +56,13 @@ jobs:
             /.github/actions/
             /scripts/
       - name: Require a matching version tag
-        # Builds run alongside Checks; publication waits for the Desktop gate.
+        # Unsigned builds run alongside Checks; symbol upload and publication wait for the Desktop gate.
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           test "$GITHUB_EVENT_NAME" = workflow_dispatch
           test "$GITHUB_REF" = refs/heads/main
-          python3 .workflow-tools/scripts/check-release.py --source "$GITHUB_WORKSPACE" --tag "$RELEASE_TAG"
+          python3 .workflow-tools/scripts/check-release.py --source "$GITHUB_WORKSPACE" --tag "$RELEASE_TAG" --component desktop --admit
       - name: Select native producers
         id: targets
         env:
@@ -180,6 +180,7 @@ jobs:
         run: |
           python3 .workflow-tools/scripts/ci-run.py --parsers -- cargo build --locked --release --timings -p sailry-desktop -p sailry-release
       - name: Collect Desktop debug symbols
+        # The only dsymutil pass for this binary; packaging reuses it by matching UUIDs.
         if: matrix.native == null
         id: symbols
         env:
@@ -213,21 +214,6 @@ jobs:
           path: ${{ runner.temp }}/native-${{ matrix.target }}.tar.gz
           if-no-files-found: error
           retention-days: 14
-      - name: Upload Desktop debug symbols
-        if: matrix.native == null
-        id: symbol-upload
-        continue-on-error: true
-        env:
-          PACKAGE_TARGET: ${{ matrix.target }}
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-          SENTRY_ORG: ${{ vars.SENTRY_ORG || secrets.SENTRY_ORG }}
-          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT || secrets.SENTRY_PROJECT }}
-        run: |
-          python3 .workflow-tools/scripts/package/debug-symbols.py upload \
-            --symbols "target/debug-symbols/desktop/$PACKAGE_TARGET"
-      - name: Report symbol upload failure
-        if: steps.symbol-upload.outcome == 'failure'
-        run: echo '::warning::Desktop debug symbols were preserved, but Sentry upload failed'
       - name: Save native libraries
         if: matrix.native == null && github.ref == 'refs/heads/main' && steps.native-cache.outcome == 'success' && steps.native-cache.outputs.hit != 'true' && hashFiles('target/sherpa-onnx-prebuilt/**/*') != ''
         continue-on-error: true
@@ -308,6 +294,24 @@ jobs:
           fi
           python3 .workflow-tools/scripts/desktop-build.py restore --source "$GITHUB_WORKSPACE" \
             --tag "$RELEASE_TAG" --target "$PACKAGE_TARGET" "${arguments[@]}"
+      - name: Restore Desktop debug symbols
+        # Matching UUIDs let packaging reuse the build job's dSYM instead of running dsymutil again.
+        if: matrix.native == null
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: debug-symbols-desktop-${{ matrix.target }}
+          path: target/debug-symbols/desktop/${{ matrix.target }}
+      - name: Recover Desktop debug symbols
+        if: matrix.native != null
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PACKAGE_TARGET: ${{ matrix.target }}
+          PRODUCER_RUN: ${{ matrix.native.run_id }}
+        run: |
+          gh run download "$PRODUCER_RUN" --repo "$GITHUB_REPOSITORY" \
+            --name "debug-symbols-desktop-$PACKAGE_TARGET" --dir "target/debug-symbols/desktop/$PACKAGE_TARGET"
       - name: Recover signed ARM packages
         if: inputs.resume_intel_from != ''
         env:
@@ -350,6 +354,15 @@ jobs:
           name: packages-${{ matrix.target }}
           path: ${{ steps.package.outputs.directory }}/*
           if-no-files-found: error
+          retention-days: 14
+      - name: Preserve recovered Desktop debug symbols
+        # Builds restored from another run upload their symbols with this run's publication.
+        if: matrix.native != null
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: debug-symbols-desktop-${{ matrix.target }}
+          path: target/debug-symbols/desktop/${{ matrix.target }}
+          if-no-files-found: warn
           retention-days: 14
 
   publish:
@@ -429,3 +442,29 @@ jobs:
                           f'repos/{repository}/actions/workflows/release-desktop-formal.yml/dispatches',
                           '--input', '-'], input=json.dumps({'ref': 'main', 'inputs': inputs}), text=True, check=True)
           PY
+      - name: Restore Desktop debug symbols
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: debug-symbols-desktop-*
+          path: symbols
+      - name: Recover signed ARM debug symbols
+        if: inputs.resume_intel_from != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESUME_INTEL_FROM: ${{ inputs.resume_intel_from }}
+        run: |
+          gh run download "$RESUME_INTEL_FROM" --repo "$GITHUB_REPOSITORY" \
+            --name debug-symbols-desktop-aarch64-apple-darwin --dir symbols/debug-symbols-desktop-aarch64-apple-darwin
+      - name: Upload Desktop debug symbols
+        id: symbol-upload
+        continue-on-error: true
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG || secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT || secrets.SENTRY_PROJECT }}
+        run: python3 .workflow-tools/scripts/package/debug-symbols.py upload --symbols symbols
+      - name: Report symbol upload failure
+        if: steps.symbol-upload.outcome == 'failure'
+        run: echo '::warning::Desktop debug symbols were preserved, but Sentry upload failed'

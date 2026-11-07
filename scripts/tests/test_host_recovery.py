@@ -74,7 +74,7 @@ class Recovery(unittest.TestCase):
         linux = workflow.split("\n  host:\n", 1)[1].split("\n  publish:\n", 1)[0]
         publish = workflow.split("\n  publish:\n", 1)[1]
         self.assertIn("if: inputs.linux_run == ''", linux)
-        self.assertIn("needs.build.result == 'success'", publish)
+        self.assertIn("needs.sign.result == 'success'", publish)
         self.assertIn("needs.host.result == 'skipped' && inputs.linux_run != ''", publish)
         self.assertIn("actions: read", publish)
         self.assertLess(publish.index("scripts/recover-host.py"), publish.index("scripts/publish-packages.py"))

@@ -102,7 +102,7 @@ standard library. Pairing-service dependencies and checks have their own
 ```sh
 just ci fast        # Selected source and formatting checks
 just ci affected    # Add affected lint, tests and production checks
-just ci pre-push    # Before handing off: everything changed since the origin/main merge base
+just ci pre-push    # Before a push or PR: everything changed since the origin/main merge base
 just tools          # Compare local tool versions with CI
 just check          # Rust formatting and Clippy with warnings denied
 just test-source    # Public guides, publication boundaries and source fixtures
@@ -111,7 +111,11 @@ just test-backend   # Shared Rust tests and package runtime contracts
 just test-ui        # Desktop logic and service-contract tests
 ```
 
-`just test-backend` and `just test-ui` use CI's nextest profile. Install the pinned runner with
+`just test-backend`, `just test-ui` and the `tests` check of `just ci` use CI's
+nextest profile, including its retry and timeout settings: a failed integration test
+reruns once, and a hung test fails after five 60-second periods, so a test that hangs
+on both attempts takes about ten minutes. The `tests` check lists tests that passed
+only on retry, even when the check fails. Install the pinned runner with
 `cargo install --locked cargo-nextest --version 0.9.143` if it is not available.
 This selects nextest's execution settings, not Cargo's release build profile.
 Standard test commands skip provider backoff waits against fixture servers;
@@ -147,7 +151,10 @@ of `origin/main`; `--target <branch>` selects another branch. It always runs
 formatting and the source, name and locale checks, runs Clippy with CI's flags for
 the affected packages, then runs the affected product checks. It fails when nothing
 changed since the merge base or when a pinned tool version differs from CI. Off
-macOS, it reports Clippy for macOS-only packages as not run.
+macOS, it reports Clippy for macOS-only packages as not run. Run it once before a
+push or PR and reuse the passing result while its inputs are unchanged; prose-only
+changes select only the source checks. Agent subagents keep to static checks and
+leave this lane to the coordinating agent.
 
 Local builds and tests share the repository's root
 `target` directory; builds from another worktree select that same directory with
@@ -269,7 +276,10 @@ Desktop logic and service-contract tests, and production-feature checks on Apple
 silicon with an explicit Xcode SDK. Intel packaging and compilation run in the
 release workflow.
 Mobile checks include Flutter analysis and controller logic tests, plus Dart FFI
-contracts against isolated real Nodes on Linux. Android builds an ARM64 release
+contracts against isolated real Nodes on Linux with PostgreSQL 17 and MySQL 8.4,
+the database versions the macOS Shared job installs. The macOS Mobile job runs the
+checkpoint contract that restores files from the Trash whenever those contracts are
+selected. Android builds an ARM64 release
 APK and checks its native libraries; iOS builds an unsigned application. Both
 mobile builds check the Rust dependency boundary. Actions and toolchains are
 pinned; Rust and Flutter use committed lockfiles. `Checks passed` requires every
@@ -277,9 +287,10 @@ job selected by the coverage mode to succeed; skipped or cancelled jobs
 do not establish acceptance. Signed release packaging builds exact version tags;
 Mobile also accepts an explicitly selected, checked main commit.
 
-Node integration features share twelve compiled suites instead of linking a
+Node integration features share a small set of compiled suites instead of linking a
 binary per feature. Keep feature files focused and register new files in the
-appropriate suite; the source check rejects missing or duplicate registrations.
+appropriate suite; the source check rejects missing or duplicate registrations in
+every crate that disables automatic test discovery.
 Rust caches retain registry index metadata, compressed crate archives and Git
 databases; Cargo recreates unpacked sources and checkouts. A single backend
 producer fetches the locked workspace sources, shared by Checks and release jobs.
@@ -302,7 +313,9 @@ and backend test in its own process without compiling a binary per test.
 Desktop runs two tests concurrently. Integration-test binaries retry a failed test
 once and the job summary lists tests that passed only on retry; unit tests are not
 retried. A retry pass does not replace diagnosing the flaky test. Hung tests fail
-after five 60-second timeout periods.
+after five 60-second timeout periods; with the retry, one hung integration test can
+hold its slot for about ten minutes. A test step that passes without leaving its
+JUnit report fails the job; a failed step without a report adds a warning.
 Unit tests precede production-feature checks; the lifecycle suite builds its own
 required application executable. JUnit reports remain separate and include
 individual test durations.
@@ -333,7 +346,7 @@ Plugin contracts and the isolated database step reuse that same package graph,
 avoiding a second compilation with different feature unification. Host-only
 changes keep the dedicated lifecycle target. Production checks still verify the
 shipped feature set separately from test-support builds: Desktop on macOS and
-Host on Linux.
+Host on both macOS and Linux.
 
 CI does not supply model credentials, production profiles or OS permissions.
 Live-service and device tests stay opt-in. Real GGUF goldens, cancellation and
@@ -362,16 +375,21 @@ hours; missing, failed, cancelled or incomplete Checks stop publication. A retry
 can reuse successful exact-source results; failed dispatches are not silently
 replayed. The remote tag is checked again after waiting.
 
-Once Checks are found or queued, the entry starts the
+Once the exact-source Checks `Test build` job passes, the entry starts the
 [Desktop](.github/workflows/release.yml) and [Host](.github/workflows/release-host.yml)
-builds, which run alongside Checks. After full Checks pass, it generates notes,
+builds, which then run alongside the remaining Checks; a failed `Test build`
+starts no builds. After full Checks pass, it repeats any flaky-test warnings from
+that Checks run in its own summary, generates notes,
 publishes the version release and starts Mobile and the changelog, because
-TestFlight upload and the changelog are publications. Desktop and Host build and
-package without waiting; each publish job then waits for its exact-source readiness
-gate, including strict lint and shared Node checks, and for the published version
-before uploading assets. It stops when the exact-source Checks end without full
-success. The release can contain only notes while products are still packaging,
-but it is not published while its initial full Checks are pending.
+TestFlight upload and the changelog are publications. Each product workflow first
+admits only a mutable version tag on main. Compilation, symbol collection and
+Desktop's credential-free ad-hoc packaging run without waiting. Host signing,
+notarization and packaging, every Sentry symbol upload and each publish job wait
+for the exact-source readiness gate, including strict lint and shared Node checks;
+publish jobs also wait for the published version before uploading assets. They
+stop when the exact-source Checks end without full success. The release can
+contain only notes while products are still packaging, but it is not published
+while its initial full Checks are pending.
 
 Desktop and Host recovery workflows select `main` and supply the exact version
 tag as their `tag` input. Every product job checks out its selected source; the
@@ -486,8 +504,8 @@ Desktop native recovery reuses preserved binaries for the exact product tag and
 builds only missing architectures. Each artifact retains its original workflow
 run, revision and checksum through formal signing. Symbol files are preserved
 before upload; an upload failure reports a warning without blocking packaging.
-macOS Host packaging runs `dsymutil` once; the required symbol collection after
-packaging reuses that result when the binary and symbol UUIDs match.
+See [debug symbols](docs/hosts.md#source-builds-and-debug-symbols) for how release jobs run
+`dsymutil` once per binary and architecture.
 
 For local verification, build native Desktop and Host, then package into a
 fresh `dist/` directory:

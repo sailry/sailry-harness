@@ -16,7 +16,7 @@
 - Review and audit subagents use `gpt-6-astra` with `xhigh` reasoning.
 - Development and execution subagents inherit the primary agent's current model.
 - Implementation subagents perform only static checks and self-review.
-- Before handing off a change, run `just ci pre-push`, which includes formatting and Clippy. During routine iteration, do not run a standalone build or Clippy after tests.
+- Before a push or PR, the primary agent runs `just ci pre-push` and reuses its passing result while those inputs are unchanged. For prose-only diffs, the source checks that lane already selects are sufficient. Subagents keep to static checks; nobody runs a standalone build or Clippy after tests.
 
 ## Scope and sequence
 

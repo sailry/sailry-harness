@@ -27,8 +27,9 @@ CHECK_JOBS = {
     "shared": {"shared", "host"},
     "desktop": {"desktop"},
     "host": {"host"},
-    "mobile": {"mobile"},
-    # Linux compiles the Dart FFI fixture and its real Node without using macOS capacity.
+    # macOS runs only the Dart FFI checkpoint contract that depends on the platform Trash.
+    "mobile": {"mobile", "mobile_ffi"},
+    # Linux compiles the remaining Dart FFI fixtures and their real Node without using macOS capacity.
     "android": {"android", "mobile_ffi"},
     "services": {"services"},
 }
@@ -42,6 +43,11 @@ TOOLS = {
     "gh": (("gh", "--version"), None),
 }
 GHOSTTY_CACHE = Path(".runtime/ci/ghostty")
+# The libghostty-vt-sys build script reads the source override; Zig reads its global cache.
+GHOSTTY_SOURCE_ENV = "GHOSTTY_SOURCE_DIR"
+ZIG_CACHE_ENV = "ZIG_GLOBAL_CACHE_DIR"
+# A stalled fetch must end before the job timeout so the build script can clone instead.
+GHOSTTY_TIMEOUT = 600
 PRODUCTS = {
     "desktop": {"shared", "desktop"},
     "host": {"shared", "host"},
@@ -91,7 +97,7 @@ LINT_PACKAGES = {
     "host": ("sailry-host",),
     "mobile": ("sailry-mobile-bridge",),
 }
-# Pull requests compile and lint on Linux; these packages have no Linux build in Checks.
+# Clippy runs these packages only on macOS: the full lint job and the pull request macOS job.
 MACOS_LINT = {"sailry-speech", "sailry-content", "sailry-desktop", "sailry-mobile-bridge"}
 # Full selection on pull requests; drafts and other labels defer to the next run.
 FULL_LABEL = "full-ci"
@@ -382,6 +388,13 @@ def check_commands(name, jobs=None, root=ROOT, selection=None, env=None, threads
             (["cargo", "build", "--locked", "-p", "sailry-mobile-bridge", "--lib", *cargo_jobs], "."),
             (["cargo", "test", "--locked", "-p", "sailry-mobile-bridge", "--test", "dart", "--timings", *cargo_jobs, "--", "--ignored", "--skip", "mcp_peer::stdio_peer", "--test-threads=4", "--nocapture"], "."),
         ],
+        # Only macOS restores checkpointed files from the Trash; Linux covers every other contract.
+        "mobile-checkpoints": [
+            (["dart", "pub", "get", "--enforce-lockfile"], "tests/mobile-contract"),
+            (["cargo", "build", "--locked", "-p", "sailry-mobile-bridge", "--lib", *cargo_jobs], "."),
+            (["cargo", "test", "--locked", "-p", "sailry-mobile-bridge", "--test", "dart", *cargo_jobs, "--",
+              "--ignored", "--exact", "checkpoints::recovers_restore_receipts", "--nocapture"], "."),
+        ],
         "mobile-format": [(["dart", "format", "--output=none", "--set-exit-if-changed", "lib", "preview", "test", "tool"], "apps/mobile")],
         "mobile-check": [(["flutter", "analyze", "--no-pub"], "apps/mobile"), (["flutter", "test", "--no-pub"], "apps/mobile")],
         "services": [(["pnpm", task], "services/pairing-relay") for task in ("typecheck", "test", "build", "build:edgeone")],
@@ -498,7 +511,7 @@ def run_check(name, jobs=None, root=ROOT, selection=None, env=None, threads=None
     commands = check_commands(name, jobs, root, selection, env, threads, system)
     if name == "archive":
         (root / TEST_ARCHIVE).parent.mkdir(parents=True, exist_ok=True)
-    if name in {"tests", "archive", "shared", "shared-databases", "plugin-contracts", "backend", "databases", "desktop", "desktop-lifecycle", "host", "host-mac", "mobile-contract"}:
+    if name in {"tests", "archive", "shared", "shared-databases", "plugin-contracts", "backend", "databases", "desktop", "desktop-lifecycle", "host", "host-mac", "mobile-contract", "mobile-checkpoints"}:
         environment = os.environ if env is None else env
         archived = environment.get("CHECK_ARCHIVE") and name in {
             "tests", "shared", "shared-databases", "plugin-contracts", "desktop", "desktop-lifecycle",
@@ -592,16 +605,21 @@ def local(arguments):
     env = {**os.environ, "CARGO_TARGET_DIR": str(target)}
     system = platform.system() if prepush else None
     try:
-        base = ci_local.merge_base(ROOT, args.target or "origin/main") if prepush else args.base
+        if prepush:
+            target_branch = args.target or "origin/main"
+            try:
+                ci_local.revision(ROOT, target_branch)
+            except subprocess.CalledProcessError:
+                parser.error(f"Cannot resolve {target_branch}; fetch it or pass --target")
+        base = ci_local.merge_base(ROOT, target_branch) if prepush else args.base
         source = ci_local.inspect_source(ROOT, "candidate" if args.candidate else "worktree", base, args.head, args.full, args.event)
         selected = {name for name, value in source["selection"].items() if value == "true"}
         plan = local_checks(selected, args.tier, platform.system())
         commands = [{"check": name, **command} for name in plan["checks"]
                     for command in check_commands(name, args.jobs, ROOT, source["selection"], env, args.test_threads, system)]
     except subprocess.CalledProcessError as error:
-        if prepush:
-            parser.error(f"Cannot compare with {args.target or 'origin/main'}; fetch it or pass --target")
-        parser.error(str(error))
+        detail = error.stderr.decode(errors="replace").strip() if isinstance(error.stderr, bytes) else error.stderr
+        parser.error(f"Git failed while inspecting changes: {detail or error}")
     except (OSError, ValueError) as error:
         parser.error(str(error))
     environment = {name: os.getenv(name) for name in (
@@ -632,12 +650,21 @@ def local(arguments):
     if mismatched:
         print("Local tool versions differ from CI: " + "; ".join(mismatched), file=sys.stderr)
         return 1
+    junit = target / "nextest/ci/junit.xml"
     for name in plan["checks"]:
+        if name == "tests":
+            junit.unlink(missing_ok=True)
         try:
             code = run_check(name, args.jobs, ROOT, source["selection"], env, args.test_threads, system)
         except OSError as error:
             print(f"Check {name} could not run: {error}", file=sys.stderr)
             return 1
+        if name == "tests":
+            # Retried integration tests pass silently otherwise; list them even when the check failed.
+            try:
+                report_flaky([junit])
+            except ElementTree.ParseError as error:
+                print(f"Test report could not be read: {error}", file=sys.stderr)
         if code:
             return code
     if args.candidate:
@@ -738,20 +765,22 @@ def ghostty_source(root, directory):
     repository, revision = ghostty_revision(root)
     with tempfile.TemporaryDirectory() as temporary:
         for command in (["init", "--quiet"], ["fetch", "--quiet", "--depth=1", repository, revision]):
-            subprocess.run(["git", *command], cwd=temporary, check=True)
+            subprocess.run(["git", *command], cwd=temporary, check=True, timeout=GHOSTTY_TIMEOUT)
         script = subprocess.run(["git", "show", f"{revision}:crates/libghostty-vt-sys/build.rs"], cwd=temporary,
-                                check=True, capture_output=True, text=True).stdout
+                                check=True, capture_output=True, text=True, timeout=GHOSTTY_TIMEOUT).stdout
     url = re.search(r'^const GHOSTTY_REPO: &str = "([^"\s]+)";$', script, re.MULTILINE)
     commit = re.search(r'^const GHOSTTY_COMMIT: &str = "([0-9a-f]{40})";$', script, re.MULTILINE)
     if url is None or commit is None:
         raise ValueError("The libghostty-vt-sys build script no longer names its Ghostty source")
+    if not re.search(rf'env::var(?:_os)?\("{GHOSTTY_SOURCE_ENV}"\)', script):
+        raise ValueError(f"The libghostty-vt-sys build script no longer reads {GHOSTTY_SOURCE_ENV}")
     partial = directory.with_name(directory.name + ".partial")
     shutil.rmtree(partial, ignore_errors=True)
     partial.parent.mkdir(parents=True, exist_ok=True)
     # Match the build script's own fetch so both paths compile the same tree.
     subprocess.run(["git", "clone", "--quiet", "--config", "core.longpaths=true", "--filter=blob:none",
-                    "--no-checkout", url.group(1), str(partial)], check=True)
-    subprocess.run(["git", "checkout", "--quiet", commit.group(1)], cwd=partial, check=True)
+                    "--no-checkout", url.group(1), str(partial)], check=True, timeout=GHOSTTY_TIMEOUT)
+    subprocess.run(["git", "checkout", "--quiet", commit.group(1)], cwd=partial, check=True, timeout=GHOSTTY_TIMEOUT)
     partial.rename(directory)
     return True
 
@@ -800,10 +829,28 @@ def flaky_tests(paths):
     return flaky
 
 
+def annotation(level, title, message):
+    """A workflow annotation in Actions, plain text elsewhere."""
+    return f"::{level} title={title}::{message}" if os.getenv("GITHUB_ACTIONS") == "true" else f"{title}: {message}"
+
+
+def report_missing(outcomes):
+    """Report JUnit files absent after their test step ran; true when a passing step left none."""
+    failed = False
+    for path, outcome in outcomes.items():
+        if outcome not in {"success", "failure"} or path.is_file():
+            continue
+        # A failed step may stop before nextest writes; a passing one must leave its report.
+        failed |= outcome == "success"
+        level = "error" if outcome == "success" else "warning"
+        print(annotation(level, "Missing test report", f"{path} after its test step reported {outcome}"))
+    return failed
+
+
 def report_flaky(paths):
     flaky = flaky_tests(paths)
     for suite, name, attempts in flaky:
-        print(f"::warning title=Flaky test::{suite} {name} passed after {attempts} failed attempt(s)")
+        print(annotation("warning", "Flaky test", f"{suite} {name} passed after {attempts} failed attempt(s)"))
     if flaky and os.getenv("GITHUB_STEP_SUMMARY"):
         lines = ["### Flaky tests", "", "These passed only on retry. Diagnose them; a retry is not a fix.", ""]
         lines += [f"- `{suite} {name}`: {attempts} failed attempt(s)" for suite, name, attempts in flaky]
@@ -970,15 +1017,19 @@ def main():
             fetched = ghostty_source(workspace, cache / "source")
             (cache / "zig").mkdir(parents=True, exist_ok=True)
             with Path(os.environ["GITHUB_ENV"]).open("a", encoding="utf-8") as target:
-                target.write(f"GHOSTTY_SOURCE_DIR={cache / 'source'}\nZIG_GLOBAL_CACHE_DIR={cache / 'zig'}\n")
-        except (OSError, ValueError, KeyError, subprocess.CalledProcessError) as error:
+                target.write(f"{GHOSTTY_SOURCE_ENV}={cache / 'source'}\n{ZIG_CACHE_ENV}={cache / 'zig'}\n")
+        except (OSError, ValueError, KeyError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
             raise SystemExit(str(error)) from error
         print("Fetched pinned Ghostty source" if fetched else "Reused cached Ghostty source")
     elif len(sys.argv) >= 2 and sys.argv[1] == "flaky":
+        # Each report may name its test step's outcome as `path=outcome`.
+        reports = [argument.partition("=") for argument in sys.argv[2:]]
         try:
-            report_flaky([Path(path) for path in sys.argv[2:]])
+            report_flaky([Path(path) for path, _, _ in reports])
         except (OSError, ElementTree.ParseError) as error:
             raise SystemExit(f"Test reports could not be read: {error}") from error
+        raise SystemExit(1 if report_missing({Path(path): outcome for path, separator, outcome in reports
+                                              if separator}) else 0)
     elif len(sys.argv) >= 2 and sys.argv[1] == "tools" and set(sys.argv[2:]) <= set(TOOLS):
         raise SystemExit(0 if report_tools(sys.argv[2:] or list(TOOLS)) else 1)
     elif len(sys.argv) == 3 and sys.argv[1] == "fixtures" and sys.argv[2] in FIXTURES:
@@ -1000,7 +1051,7 @@ def main():
     else:
         raise SystemExit(
             "Usage: ci.py local [fast|affected|pre-push] [options]|check <name>|source-key <lockfile>|source-cache <save|restore>|cache-usage|select|lint [linux|macos]|report [desktop|host|mobile]|fixtures <owner>|"
-            "speech-key|native-key <target> <shared|static>|ghostty-key|ghostty-source|flaky <junit>...|tools [name...]"
+            "speech-key|native-key <target> <shared|static>|ghostty-key|ghostty-source|flaky <junit[=outcome]>...|tools [name...]"
         )
 
 

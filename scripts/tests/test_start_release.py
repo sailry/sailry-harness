@@ -39,9 +39,13 @@ class FakeGitHub:
                       "status": "completed", "conclusion": "success"}]
         self.jobs = [{"id": index, "name": name, "status": "completed", "conclusion": "success"}
                      for index, name in enumerate(CHECK_JOBS, 1)]
+        self.annotations = {}
 
     def api(self, method, endpoint, payload=None, missing=False):
         self.calls.append((method, endpoint, payload))
+        if "/check-runs/" in endpoint:
+            job = int(endpoint.split("/check-runs/", 1)[1].split("/", 1)[0])
+            return copy.deepcopy(self.annotations.get(job, []))
         if endpoint.endswith("/dispatches"):
             if any(f"/{workflow}/" in endpoint for workflow in self.failed):
                 raise RuntimeError("Fixture dispatch failure")
@@ -167,6 +171,42 @@ class Publication(unittest.TestCase):
         wait.assert_called_once_with(client, REPOSITORY, self.commit, "checks", tag=TAG, ignored_runs=set())
         self.assertFalse(client.release["draft"])
         self.assertEqual(len(self.dispatches(client)), 4)
+
+    def test_builds_wait_for_compiled_tests(self):
+        client = FakeGitHub(self.commit)
+        client.runs[0].update(status="in_progress", conclusion=None)
+        compiled = next(job for job in client.jobs if job["name"] == "Test build")
+        compiled.update(status="in_progress", conclusion=None)
+        def compile_tests(_):
+            self.assertFalse(self.dispatches(client))
+            compiled.update(status="completed", conclusion="success")
+        with patch.object(starter.publication.time, "sleep", side_effect=compile_tests) as sleep, \
+                patch.object(starter.publication, "wait_ready", return_value=42):
+            self.start(client)
+        sleep.assert_called_once_with(60)
+        self.assertEqual(len(self.dispatches(client)), 4)
+
+    def test_failed_test_build_starts_no_builds(self):
+        for conclusion in ("failure", "cancelled"):
+            client = FakeGitHub(self.commit)
+            client.runs[0].update(status="in_progress", conclusion=None)
+            next(job for job in client.jobs if job["name"] == "Test build")["conclusion"] = conclusion
+            with self.subTest(conclusion=conclusion), self.assertRaisesRegex(ValueError, "failed Test build"):
+                self.start(client)
+            self.assertFalse(self.dispatches(client))
+            self.assertIsNone(client.release)
+
+    def test_reports_flaky_tests_from_checks(self):
+        client = FakeGitHub(self.commit)
+        client.annotations = {7: [{"title": "Flaky test", "message": "sailry-node-runtime retries passed after 1 failed attempt(s)"},
+                                  {"title": "Other", "message": "Unrelated"}]}
+        summary = self.root / "summary.md"
+        with patch("builtins.print") as output:
+            starter.start(TAG, self.source, self.tooling, {**self.environment, "GITHUB_STEP_SUMMARY": str(summary)}, client)
+        message = "Host: sailry-node-runtime retries passed after 1 failed attempt(s)"
+        output.assert_any_call(f"::warning title=Flaky test::{message}", flush=True)
+        self.assertIn(f"- {message}", summary.read_text())
+        self.assertNotIn("Unrelated", summary.read_text())
 
     def test_draft_publication_preserves_existing_assets(self):
         release = metadata(draft=True)
@@ -406,6 +446,20 @@ class FullChecks(unittest.TestCase):
             self.require()
         wait.assert_not_called()
         self.assertEqual(len(self.writes()), 1)
+
+    def test_publication_waits_for_new_run_after_failure(self):
+        self.client.runs = [{**self.client.runs[0], "conclusion": "failure"},
+                            {**self.client.runs[0], "id": 43, "status": "queued", "conclusion": None}]
+        def publish(_):
+            self.client.release = metadata()
+        with patch.object(starter.publication.time, "sleep", side_effect=publish) as sleep:
+            published = starter.publication.wait_published(self.client, REPOSITORY, TAG, self.commit)
+        sleep.assert_called_once_with(60)
+        self.assertEqual(published["tag_name"], TAG)
+        self.client.runs.pop()
+        self.client.release = None
+        with self.assertRaisesRegex(ValueError, "ended without success"):
+            starter.publication.wait_published(self.client, REPOSITORY, TAG, self.commit)
 
     def test_run_status_is_rechecked_after_success(self):
         with patch.object(starter.publication, "ready_run", return_value=42), \

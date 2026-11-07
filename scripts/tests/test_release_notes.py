@@ -2,6 +2,7 @@
 
 import ast
 import importlib.util
+import io
 import json
 import os
 from contextlib import chdir
@@ -122,10 +123,12 @@ class ReleaseWorkflows(unittest.TestCase):
             workflow = self.workflow(name)
             self.assertIn('test "$GITHUB_EVENT_NAME" = workflow_dispatch', workflow)
             self.assertIn('test "$GITHUB_REF" = refs/heads/main', workflow)
-            self.assertEqual(workflow.count("persist-credentials: false"),
-                             2 * workflow.count("ref: refs/tags/${{ env.RELEASE_TAG }}"))
-            self.assertEqual(workflow.count("ref: ${{ github.workflow_sha }}"),
-                             workflow.count("ref: refs/tags/${{ env.RELEASE_TAG }}"))
+            checkouts = workflow.count("uses: actions/checkout@")
+            self.assertEqual(workflow.count("persist-credentials: false"), checkouts)
+            self.assertEqual(checkouts, workflow.count("ref: refs/tags/${{ env.RELEASE_TAG }}")
+                             + workflow.count("ref: ${{ github.workflow_sha }}"))
+            self.assertGreaterEqual(workflow.count("ref: ${{ github.workflow_sha }}"),
+                                    workflow.count("ref: refs/tags/${{ env.RELEASE_TAG }}"))
             self.assertIn("uses: ./.workflow-tools/.github/actions/rust-cache", workflow)
             self.assertIn(".workflow-tools/scripts/ci-run.py", workflow)
             self.assertIn('--source "$GITHUB_WORKSPACE"', workflow)
@@ -193,10 +196,8 @@ class ReleaseWorkflows(unittest.TestCase):
         self.assertIn("-p sailry-desktop -p sailry-release", build)
         self.assertNotIn("-p sailry-host", build)
         self.assertIn("name: Preserve native Desktop", build)
-        self.assertEqual(set(re.findall(r"secrets\.([A-Z_]+)", build)), {
-            "SAILRY_SENTRY_DSN", "SAILRY_TELEMETRY_KEY",
-            "SENTRY_AUTH_TOKEN", "SENTRY_ORG", "SENTRY_PROJECT",
-        })
+        self.assertEqual(set(re.findall(r"secrets\.([A-Z_]+)", build)), {"SAILRY_SENTRY_DSN", "SAILRY_TELEMETRY_KEY"})
+        self.assertEqual(set(re.findall(r"secrets\.([A-Z_]+)", publish)), {"SENTRY_AUTH_TOKEN", "SENTRY_ORG", "SENTRY_PROJECT"})
         self.assertIn("needs: [version, build]", packaging)
         self.assertIn("scripts/package-desktop-adhoc.py", packaging)
         self.assertNotIn("secrets.", packaging)
@@ -278,23 +279,34 @@ class ReleaseWorkflows(unittest.TestCase):
         self.assertNotIn("release:", trigger)
         self.assertIn("group: host-release-${{ github.event_name }}-${{ inputs.tag || github.ref_name }}", workflow)
         self.assertIn("--component host --wait-ready --wait-published", workflow)
-        mac = workflow.split("  build:\n", 1)[1].split("  host:\n", 1)[0]
-        linux = workflow.split("  host:\n", 1)[1].split("  publish:\n", 1)[0]
+        mac = workflow.split("  build:\n", 1)[1].split("  gate:\n", 1)[0]
+        gate = workflow.split("  gate:\n", 1)[1].split("  sign:\n", 1)[0]
+        signing = workflow.split("  sign:\n", 1)[1].split("  host:\n", 1)[0]
+        linux = workflow.split("  host:\n", 1)[1].split("  symbols:\n", 1)[0]
         publish = workflow.split("  publish:\n", 1)[1]
         self.assertIn("-p sailry-host", mac)
-        self.assertNotIn("sailry-desktop", mac)
-        self.assertNotIn("sailry-release", mac)
-        self.assertNotIn("SAILRY_UPDATE_SIGNING_KEY", mac)
-        self.assertIn("scripts/package-macos.sh release host", mac)
-        self.assertNotIn("*.dmg", mac)
-        self.assertIn('SHA256SUMS-${{ matrix.target }}', mac)
+        self.assertNotIn("sailry-desktop", mac + signing)
+        self.assertNotIn("sailry-release", mac + signing)
+        self.assertNotIn("SAILRY_UPDATE_SIGNING_KEY", mac + signing)
+        # Unsigned compilation runs alongside Checks; no signing input reaches it.
+        self.assertEqual(set(re.findall(r"secrets\.([A-Z_]+)", mac)), {"SAILRY_SENTRY_DSN", "SAILRY_TELEMETRY_KEY"})
+        self.assertNotIn("APPLE_", mac)
+        self.assertNotIn("package-macos.sh", mac)
+        self.assertIn("--component host --wait-ready", gate)
+        self.assertNotIn("secrets.", gate)
+        self.assertIn("needs: [gate, build]", signing)
+        self.assertNotIn("cargo build", signing)
+        self.assertIn("scripts/package-macos.sh release host", signing)
+        self.assertNotIn("*.dmg", signing)
+        self.assertIn('SHA256SUMS-${{ matrix.target }}', signing)
+        self.assertEqual(set(re.findall(r"secrets\.([A-Z_]+)", linux)), {"SAILRY_SENTRY_DSN", "SAILRY_TELEMETRY_KEY"})
         self.assertIn("ubuntu-24.04-arm", linux)
         self.assertIn("x86_64-unknown-linux-gnu", linux)
         self.assertIn("aarch64-unknown-linux-gnu", linux)
         self.assertIn("scripts/build-host.sh release", linux)
         self.assertIn("scripts/check-host.py", linux)
         self.assertIn("scripts/check-host-install.py", linux)
-        self.assertIn("needs: [build, host]", publish)
+        self.assertIn("needs: [sign, host]", publish)
         self.assertIn("pattern: host-*", publish)
         self.assertIn("SHA256SUMS-installer", publish)
         self.assertIn("--component host", publish)
@@ -546,6 +558,7 @@ class GateWaiting(unittest.TestCase):
                 self.assertNotIn("--wait-ready", admission)
                 self.assertNotIn("--published", admission)
                 self.assertNotIn("cargo build", admission)
+                self.assertIn(f"--component {component} --admit", admission)
                 self.assertIn("timeout-minutes: 320", publish)
                 gate = publish.index(f"--component {component} --wait-ready --wait-published")
                 self.assertLess(gate, publish.index("actions/download-artifact"))
@@ -598,6 +611,39 @@ class GateWaiting(unittest.TestCase):
             self.assertEqual(wait.call_args.args[2:], ("a" * 40, component))
             self.assertEqual(wait.call_args.kwargs, {"tag": "v0.1.0"})
             self.assertTrue(release.call_args.kwargs["published"])
+
+    def test_admits_mutable_main_builds(self):
+        spec = importlib.util.spec_from_file_location("admitting_release", ROOT / "scripts/check-release.py")
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        cases = (({"status": "ahead"}, None, None), ({"status": "identical"}, {"immutable": False}, None),
+                 ({"status": "diverged"}, None, "commit on main"),
+                 ({"status": "ahead"}, {"immutable": True}, "immutable"))
+        for comparison, metadata, error in cases:
+            client = Mock()
+            client.api.return_value = comparison
+            with self.subTest(comparison=comparison, metadata=metadata), \
+                    patch.object(sys, "argv", ["check-release.py", "--tag", "v0.1.0", "--component", "host", "--admit"]), \
+                    patch.dict(os.environ, {"GITHUB_REPOSITORY": "fixture/product"}), \
+                    patch.object(gate, "require_context"), \
+                    patch.object(gate.publication, "GitHub", return_value=client), \
+                    patch.object(gate.publication, "tagged_commit", return_value="a" * 40), \
+                    patch.object(gate.publication, "release", return_value=metadata), \
+                    patch.object(gate.publication, "wait_ready") as wait, \
+                    patch.object(gate.publication, "readiness") as readiness, \
+                    patch("sys.stdout", new_callable=io.StringIO):
+                if error is None:
+                    gate.main()
+                else:
+                    with self.assertRaisesRegex(ValueError, error):
+                        gate.main()
+            wait.assert_not_called()
+            readiness.assert_not_called()
+            if metadata is None or not metadata.get("immutable"):
+                client.api.assert_called_once_with("GET", f"repos/fixture/product/compare/{'a' * 40}...main")
+        with patch.object(sys, "argv", ["check-release.py", "--tag", "v0.1.0", "--admit"]), \
+                patch("sys.stderr", new_callable=io.StringIO), self.assertRaises(SystemExit):
+            gate.main()
 
     def test_missing_publication_fails_before_waiting(self):
         spec = importlib.util.spec_from_file_location("unpublished_release", ROOT / "scripts/check-release.py")

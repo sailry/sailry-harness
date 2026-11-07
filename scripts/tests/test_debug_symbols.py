@@ -5,6 +5,7 @@ import io
 import json
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import tempfile
 from types import SimpleNamespace
@@ -29,11 +30,14 @@ class Collection(unittest.TestCase):
 
     def tools(self, command, **options):
         self.assertTrue(options["capture_output"])
+        if command == ["dsymutil", "--help"]:
+            return SimpleNamespace(stdout=getattr(self, "help", ""))
         self.assertTrue(options["check"])
         if "--debug-info" in command:
             return SimpleNamespace(stdout=b"DW_TAG_compile_unit\nDW_AT_stmt_list (0)")
         if "--uuid" in command:
-            uuid = getattr(self, "uuids", {}).get(Path(command[-1]).suffix, "0" * 8 + "-0000-0000-0000-" + "0" * 12)
+            uuids = getattr(self, "uuids", {})
+            uuid = uuids.get(command[-1], uuids.get(Path(command[-1]).suffix, "0" * 8 + "-0000-0000-0000-" + "0" * 12))
             return SimpleNamespace(stdout=f"UUID: {uuid} (arm64) {command[-1]}\n".encode())
         destination = Path(command[-1])
         if command[0] == "dsymutil":
@@ -49,8 +53,9 @@ class Collection(unittest.TestCase):
             destination = SYMBOLS.collect(self.binary, "aarch64-apple-darwin", self.output)
         self.assertEqual(destination, self.output / "sailry-desktop.dSYM")
         self.assertEqual((destination / "fixture").read_bytes(), b"DWARF")
-        self.assertEqual(run.call_args_list[0].args[0][:3], ["dsymutil", str(self.binary), "-o"])
-        self.assertEqual(run.call_args_list[1].args[0][:3],
+        self.assertEqual(run.call_args_list[0].args[0], ["dsymutil", "--help"])
+        self.assertEqual(run.call_args_list[1].args[0][:3], ["dsymutil", str(self.binary), "-o"])
+        self.assertEqual(run.call_args_list[2].args[0][:3],
                          ["dwarfdump", "--debug-info", "--recurse-depth=0"])
         self.assertEqual(self.binary.read_bytes(), b"native executable")
 
@@ -120,11 +125,11 @@ class Collection(unittest.TestCase):
         self.assertEqual(list(self.output.iterdir()), [existing])
 
     def test_replaces_symbols_for_another_build(self):
-        self.uuids = {"": "1A2B3C4D-0000-0000-0000-000000000001", ".dSYM": "1A2B3C4D-0000-0000-0000-000000000002"}
         with patch.object(SYMBOLS.shutil, "which", return_value="dwarfdump"), \
                 patch.object(SYMBOLS.subprocess, "run", side_effect=self.tools):
             destination = SYMBOLS.collect(self.binary, "aarch64-apple-darwin", self.output)
             (destination / "obsolete").write_bytes(b"old")
+            self.uuids = {str(destination): "1A2B3C4D-0000-0000-0000-000000000002"}
             SYMBOLS.collect(self.binary, "aarch64-apple-darwin", self.output)
         self.assertFalse((destination / "obsolete").exists())
         self.assertEqual(self.binary.read_bytes(), b"native executable")
@@ -138,16 +143,67 @@ class Collection(unittest.TestCase):
         self.assertEqual([call.args[0][:2] for call in run.call_args_list], [["dwarfdump", "--uuid"]] * 2)
         self.assertEqual((destination / "fixture").read_bytes(), b"DWARF")
 
-    def test_regenerates_without_readable_uuids(self):
+    def linked(self, failing=None, optional=False):
+        """Linker commands collection ran, with `failing` breaking the matching attempt."""
+        if self.output.exists():
+            shutil.rmtree(self.output)
+        self.attempt = ""
+
+        def tools(command, **options):
+            if failing == "run" and command[:2] == ["dsymutil", "--linker"]:
+                raise subprocess.CalledProcessError(1, command)
+            if failing == "uuid" and "--uuid" in command and "parallel" in self.attempt:
+                if Path(command[-1]).suffix == ".dSYM":
+                    return SimpleNamespace(stdout=b"UUID: FFFFFFFF-0000-0000-0000-000000000000 (arm64)\n")
+            if command[0] == "dsymutil" and command != ["dsymutil", "--help"]:
+                self.attempt = " ".join(command)
+            return self.tools(command, **options)
+        with patch.object(SYMBOLS.shutil, "which", return_value="dwarfdump"), \
+                patch.object(SYMBOLS.subprocess, "run", side_effect=tools) as run:
+            destination = SYMBOLS.collect(self.binary, "aarch64-apple-darwin", self.output, optional)
+        self.assertEqual(destination, self.output / "sailry-desktop.dSYM")
+        return [call.args[0][:3] for call in run.call_args_list
+                if call.args[0][0] == "dsymutil" and call.args[0] != ["dsymutil", "--help"]]
+
+    def test_prefers_parallel_linker(self):
+        self.help = "  --linker <DWARF linker type>\n"
+        self.assertEqual(self.linked(), [["dsymutil", "--linker", "parallel"]])
+
+    def test_falls_back_to_classic_linker(self):
+        self.help = "  --linker <DWARF linker type>\n"
+        for failing in ("run", "uuid"):
+            with self.subTest(failing=failing):
+                self.assertEqual(self.linked(failing),
+                                 [["dsymutil", "--linker", "parallel"], ["dsymutil", str(self.binary), "-o"]])
+
+    def test_uses_classic_linker_without_option(self):
+        self.help = "  --num-threads <threads>\n"
+        self.assertEqual(self.linked(optional=True), [["dsymutil", str(self.binary), "-o"]])
+
+    def test_fails_when_every_linker_fails(self):
+        self.help = "  --linker <DWARF linker type>\n"
+        with patch.object(SYMBOLS.shutil, "which", return_value="dwarfdump"), \
+                patch.object(SYMBOLS.subprocess, "run", side_effect=lambda command, **options: (
+                    self.tools(command, **options) if command[0] != "dsymutil" or "--help" in command
+                    else (_ for _ in ()).throw(subprocess.CalledProcessError(1, command)))):
+            self.assertIsNone(SYMBOLS.collect(self.binary, "aarch64-apple-darwin", self.output, True))
+            with self.assertRaisesRegex(ValueError, "extraction failed"):
+                SYMBOLS.collect(self.binary, "aarch64-apple-darwin", self.output)
+
+    def test_rejects_unverifiable_uuids(self):
         def unreadable(command, **options):
             if "--uuid" in command:
                 raise subprocess.CalledProcessError(1, command)
             return self.tools(command, **options)
         with patch.object(SYMBOLS.shutil, "which", return_value="dwarfdump"), \
                 patch.object(SYMBOLS.subprocess, "run", side_effect=unreadable) as run:
-            SYMBOLS.collect(self.binary, "aarch64-apple-darwin", self.output)
-            SYMBOLS.collect(self.binary, "aarch64-apple-darwin", self.output)
-        self.assertEqual(sum(call.args[0][0] == "dsymutil" for call in run.call_args_list), 2)
+            self.assertIsNone(SYMBOLS.collect(self.binary, "aarch64-apple-darwin", self.output, True))
+            with self.assertRaisesRegex(ValueError, "did not produce debug symbols"):
+                SYMBOLS.collect(self.binary, "aarch64-apple-darwin", self.output)
+        linked = [call for call in run.call_args_list
+                  if call.args[0][0] == "dsymutil" and "--help" not in call.args[0]]
+        self.assertEqual(len(linked), 2)
+        self.assertFalse((self.output / "sailry-desktop.dSYM").exists())
 
 
 class Cli(unittest.TestCase):
@@ -334,33 +390,67 @@ class Upload(unittest.TestCase):
             self.assertEqual(symbols.read_bytes(), b"retained native debug")
 
 
+def job(workflow, name):
+    source = (ROOT / ".github/workflows" / workflow).read_text()
+    return re.split(r"\n  [a-z_]+:\n", source.split(f"\n  {name}:\n", 1)[1], maxsplit=1)[0]
+
+
 class Workflow(unittest.TestCase):
-    def test_preserves_symbols_without_upload_credentials(self):
-        for name, job in [("release.yml", "build"), ("release-host.yml", "build"),
-                          ("release-host.yml", "host")]:
-            with self.subTest(workflow=name, job=job):
-                source = (ROOT / ".github/workflows" / name).read_text()
-                section = re.split(r"\n  [a-z_]+:\n", source.split(f"\n  {job}:\n", 1)[1], maxsplit=1)[0]
+    def test_collects_symbols_alongside_checks(self):
+        for name, build in [("release.yml", "build"), ("release-host.yml", "build"),
+                            ("release-host.yml", "host")]:
+            with self.subTest(workflow=name, job=build):
+                section = job(name, build)
                 self.assertIn("CARGO_PROFILE_RELEASE_DEBUG: line-tables-only", section)
                 self.assertIn("CARGO_PROFILE_RELEASE_STRIP: none", section)
                 collect = section.index("scripts/package/debug-symbols.py collect")
                 artifact = section.index("name: debug-symbols-")
-                upload = section.index("scripts/package/debug-symbols.py upload")
                 self.assertLess(collect, artifact)
-                self.assertLess(artifact, upload)
-                artifact_step = section[collect:upload]
+                artifact_step = section[collect:]
                 self.assertIn("if: always() && steps.symbols.outcome == 'success'", artifact_step)
                 self.assertIn("if-no-files-found: error", artifact_step)
-                self.assertNotIn("if: env.SENTRY", artifact_step)
-                self.assertIn("SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}", section)
-                self.assertIn("SENTRY_ORG:", section)
-                self.assertIn("SENTRY_PROJECT:", section)
+                self.assertNotIn("debug-symbols.py upload", section)
+                self.assertNotIn("SENTRY_AUTH_TOKEN", section)
+                self.assertNotIn("--wait-ready", section)
+                self.assertNotIn("debug-symbols/", section.split("      - name: Build", 1)[0])
+
+    def test_uploads_symbols_after_gate(self):
+        for name, upload in [("release.yml", "publish"), ("release-host.yml", "symbols")]:
+            with self.subTest(workflow=name, job=upload):
+                section = job(name, upload)
+                if upload == "publish":
+                    gate = section.index("--wait-ready")
+                else:
+                    self.assertIn("needs: [gate, build, host]", section)
+                    self.assertIn("if: always() && needs.gate.result == 'success'", section)
+                    gate = 0
+                start = section.index("      - name: Upload")
+                self.assertLess(gate, start)
+                step = section[start:].split("\n      - ", 1)[0]
+                self.assertIn("continue-on-error: true", step)
+                self.assertIn("SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}", step)
+                self.assertIn("SENTRY_ORG:", step)
+                self.assertIn("SENTRY_PROJECT:", step)
+                self.assertNotIn("GH_TOKEN", step)
                 self.assertNotIn("--include-sources", section)
-                upload_step = section.rfind("      - name: Upload", artifact, upload)
-                self.assertIn("continue-on-error: true", section[upload_step:upload])
                 self.assertIn("if: steps.symbol-upload.outcome == 'failure'", section)
                 self.assertIn("::warning::", section)
-                self.assertNotIn("debug-symbols/", section.split("      - name: Build", 1)[0])
+        signing = job("release-host.yml", "sign")
+        self.assertIn("needs: [gate, build]", signing)
+        self.assertNotIn("SENTRY", signing)
+
+    def test_packaging_reuses_collected_symbols(self):
+        for name, packaging, step in [("release.yml", "package", "Assemble ad-hoc Desktop"),
+                                      ("release-host.yml", "sign", "Sign, notarize and package"),
+                                      ("release-desktop-formal.yml", "sign", "Sign, notarize and package")]:
+            with self.subTest(workflow=name, job=packaging):
+                section = job(name, packaging)
+                self.assertNotIn("debug-symbols.py collect", section)
+                restored = re.search(r"--name \"debug-symbols-desktop-\$PACKAGE_TARGET\""
+                                     r"|name: debug-symbols-host-\$\{\{ matrix\.target \}\}", section)
+                self.assertIsNotNone(restored)
+                self.assertLess(restored.start(), section.index(f"name: {step}"))
+                self.assertIn("target/debug-symbols/", section[restored.start():section.index(f"name: {step}")])
 
     def test_local_packages_collect_without_uploading(self):
         for name in ("package-macos.sh", "package-host.sh", "package-windows.ps1"):

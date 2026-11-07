@@ -128,6 +128,16 @@ jobs:
             --tag "$RELEASE_TAG" --target "$PACKAGE_TARGET" \
             --run "$PRODUCER_RUN" --revision "$PRODUCER_REVISION" --source-sha "$PRODUCT_SOURCE" \
             --artifact-id "$NATIVE_ARTIFACT" --artifact-digest "$NATIVE_DIGEST"
+      - name: Recover Desktop debug symbols
+        # Matching UUIDs let packaging reuse the producer's dSYM instead of running dsymutil again.
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PACKAGE_TARGET: ${{ matrix.target }}
+          PRODUCER_RUN: ${{ matrix.run_id }}
+        run: |
+          gh run download "$PRODUCER_RUN" --repo "$GITHUB_REPOSITORY" \
+            --name "debug-symbols-desktop-$PACKAGE_TARGET" --dir "target/debug-symbols/desktop/$PACKAGE_TARGET"
       - name: Recover signed ARM packages
         if: inputs.signed_arm_from != ''
         env:
@@ -185,6 +195,9 @@ jobs:
             rm SHA256SUMS
           )
           printf 'directory=%s\n' "$task_package" >> "$GITHUB_OUTPUT"
+      - name: Remove temporary signing credentials
+        if: always()
+        run: python3 .workflow-tools/scripts/package/signing-credentials.py cleanup
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: packages-${{ matrix.target }}
@@ -195,9 +208,6 @@ jobs:
             ${{ steps.package.outputs.directory }}/SHA256SUMS-desktop-*
           if-no-files-found: error
           retention-days: 14
-      - name: Remove temporary signing credentials
-        if: always()
-        run: python3 .workflow-tools/scripts/package/signing-credentials.py cleanup
 
   publish:
     name: Append formally signed Desktop packages

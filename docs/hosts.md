@@ -133,6 +133,14 @@ Local macOS, Linux Host and Windows packaging collect existing dSYM, ELF debug o
 PDB files when available, without rebuilding. Symbols stay under
 `target/debug-symbols/<component>/<target>` and outside application archives.
 
+In releases, each build job compiles alongside Checks and collects symbols
+immediately: one `dsymutil` pass per macOS binary and architecture, or `objcopy`
+on Linux. `dsymutil` uses its parallel linker when available and
+reruns once with the classic linker if that fails or produces symbols whose UUIDs
+or line tables do not match the binary. Signing and packaging jobs restore that
+artifact into the same directory, so packaging reuses it when UUIDs match instead
+of running `dsymutil` again. Sentry uploads run only after the readiness gate.
+
 Application packages retain function symbol tables so stack frames can be
 resolved locally before privacy filtering. Reports also retain instruction
 addresses and debug-image identifiers so Sentry can match frames to uploaded

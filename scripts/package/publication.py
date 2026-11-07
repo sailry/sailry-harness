@@ -136,6 +136,11 @@ def remote_commit(client, repository, tag):
     return client.api("GET", f"repos/{repository}/commits/{quote(tag, safe='')}")["sha"]
 
 
+def on_main(client, repository, commit):
+    comparison = client.api("GET", f"repos/{repository}/compare/{commit}...main")
+    return comparison.get("status") in {"ahead", "identical"}
+
+
 def release(client, repository, tag, commit, published=False):
     metadata = client.api("GET", f"repos/{repository}/releases/tags/{quote(tag, safe='')}", missing=True)
     page = 1
@@ -344,6 +349,31 @@ def wait_ready(client, repository, commit, component, tag=None, ignored_runs=())
         if remaining <= 0:
             raise TimeoutError("The exact-source release gate did not become ready within five hours")
         print(f"Waiting for {gate_name(component)} at exact source {commit}", flush=True)
+        time.sleep(min(60, remaining))
+
+
+def wait_job(client, repository, commit, name, tag=None, ignored_runs=()):
+    """Wait for one exact-source Checks job to pass, or for its run to pass when reuse skipped it."""
+    deadline = time.monotonic() + 5 * 60 * 60
+    while True:
+        payload = ci_reuse.pages(client, f"repos/{repository}/actions/workflows/ci.yml/runs?head_sha={commit}", "workflow_runs")
+        runs = [run for run in payload if checks_run(run, commit, tag) and run.get("id") not in ignored_runs]
+        for run in runs:
+            if run.get("status") == "completed" and run.get("conclusion") == "success":
+                return run["id"]
+            jobs = ci_reuse.pages(client, f"repos/{repository}/actions/runs/{run['id']}/jobs?filter=latest", "jobs")
+            job = next((job for job in jobs if job.get("name") == name), None)
+            if job is not None and job.get("status") == "completed":
+                if job.get("conclusion") == "success":
+                    return run["id"]
+                if job.get("conclusion") != "skipped":
+                    raise ValueError(f"The exact-source Checks failed {name}")
+        if runs and all(run.get("status") == "completed" for run in runs):
+            raise ValueError(f"The exact-source Checks ended without a successful {name}")
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError(f"The exact-source {name} did not finish within five hours")
+        print(f"Waiting for {name} at exact source {commit}", flush=True)
         time.sleep(min(60, remaining))
 
 
