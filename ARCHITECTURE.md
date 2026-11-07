@@ -22,7 +22,7 @@ Desktop / GPUI Kit ── Client ──┬── in-process ── local Node
 Mobile / Flutter ── Rust bridge ── Client ── Link / iroh ── Node
 
 Host service ── Node bootstrap + Link endpoint
-Node ── GDK + scoped tools ── providers / files / Git / PTY / SSH / databases
+Node ── Agent loop + scoped tools ── providers / files / Git / PTY / SSH / databases
 ```
 
 Mobile connects to the selected Node directly; Desktop is not a required gateway.
@@ -36,14 +36,14 @@ a controller does not stop already admitted work.
 | `crates/protocol` | IDs, commands, events, snapshots, faults and capabilities | Runtime, UI and concrete transport |
 | `crates/link` | Identity, pairing, authenticated transport, receipt and reconnect | Agent history and business execution |
 | `crates/client` | Typed commands, ordered projections, deduplication and snapshot recovery | UI widgets, Node execution and a business database |
-| `crates/node-runtime` | Admission, persistence, configuration, GDK execution and resource services | GPUI, Flutter and controller presentation |
+| `crates/node-runtime` | Admission, persistence, configuration, Agent execution and resource services | GPUI, Flutter and controller presentation |
 | `crates/runtime-core` | Node errors, profile ownership, workspace layout and confined file primitives | Storage, agents and transport |
 | `crates/local-models` | Local model registry, Hub discovery, CPU scheduling, OCR and decision services | Node storage, admission and controllers |
 | `crates/office` | Office and PDF text extraction | File access and OCR |
 | `crates/databases` | External database drivers and SSH tunnels | Stored connections and approvals |
 | `crates/ssh` | Verified SSH connection setup | Remote commands, files and terminals |
 | `crates/vt` | Ghostty terminal emulation and input encoding | PTY processes and terminal inventory |
-| `crates/mobile-bridge` | Client handles, subscriptions and Rust/Dart adaptation | Node, GDK, PTY, Git execution and tool drivers |
+| `crates/mobile-bridge` | Client handles, subscriptions and Rust/Dart adaptation | Node, Agent execution, provider transport, PTY, Git execution and tool drivers |
 | `crates/speech` | Shared speech capability and native audio integration | Conversation ownership |
 | `crates/embedding` | CPU model loading, token offsets and normalized local vectors | Source grants, indexing and controllers |
 | `crates/ocr` | Shared CPU image recognition and PaddleOCR decoding | Model downloads, source grants and controllers |
@@ -63,7 +63,7 @@ content       → protocol + GPUI Kit
 host          → client + node-runtime
 mobile-bridge → client
 client        → protocol + link
-node-runtime  → protocol + link + GDK + Node service crates
+node-runtime  → protocol + link + rig-core + Node service crates
 local-models  → runtime-core + office + embedding + ocr + decision + model-assets
 databases     → runtime-core + ssh
 link          → protocol + transport dependencies
@@ -75,13 +75,15 @@ Node storage or agents. Node re-exports them under its existing module paths.
 
 Test-only integration fixtures may construct real Nodes without changing the
 production controller boundary. The root Cargo workspace owns pinned Rust
-dependencies and lockfiles. The GDK crates use the Sailry fork of upstream Goose,
-pinned together to one Git commit in the workspace and Cargo.lock. The fork keeps
-small provider extension hooks and fixes; Claude OAuth policy and wire formatting
-remain in Node. Provider request formats and stream completion semantics follow
-that locked revision. Retained third-party source keeps its upstream licenses and
-provenance. Feature modules stay inside their owning crate unless a concrete
-platform, dependency or compile-time boundary requires another crate.
+dependencies and lockfiles. `rig-core` is pinned to `0.46.0` for provider transport
+behind `agent/model/rig`; Rig types do not cross the Sailry-owned model boundary.
+Node owns the Agent loop, tool execution, history, compaction, request recovery and
+authorization. Declared plugin models implement the same model boundary through
+their existing worker. Neither `rig-agent` nor GDK is a runtime dependency.
+Retained Goose-derived operations and provider adaptations keep their original
+source revisions and Apache-2.0 notices; Rig retains its MIT notice. Feature
+modules stay inside their owning crate unless a concrete platform, dependency or
+compile-time boundary requires another crate.
 
 ## Data and ownership
 
@@ -286,7 +288,7 @@ same nondurable local and remote protocol. The `decisions.run` action permits
 read-only tools and Node callbacks to call `sailry/decisions`. Requests are bounded
 before inference; oversized tokenized prompts fail against the model context.
 No decision model is selected, recommended or downloaded automatically. Plugins
-own workflows that use these answers; GDK remains the Agent execution engine.
+own workflows that use these answers; Agent execution stays in the Node loop.
 
 Decision engines use the packaged llama.cpp b11756 C API, checked GGUF metadata
 and its `systemone` template. Laya and OpenJev follow that revision's decision
@@ -365,14 +367,26 @@ bytes. Output pages and previews identify raw byte offsets and truncated retenti
 while model summaries remain bounded. Persisted result previews remain readable
 after the temporary output is evicted.
 
-Goose GDK is the agent execution engine. Node assembles its state machine from
-GDK operations and the applicable Goose application operations. SessionLoader reads
-Sailry canonical records; the Node Sessions EffectHandler is the sole durable
-history writer. GDK messages exist at the execution boundary, not as a second
-store. Client and UI projections remain rebuildable derivatives. Usage reports
-cover Sailry's own canonical events; Client aggregates reports across Nodes while
-keeping source identity and completeness explicit. Provider settings may separately
-display quota observations returned by Sailry's own authenticated model requests;
+The asynchronous turn loop in `agent/engine` owns Agent execution. It runs ordered
+operations for approvals, tools, child work, guidance, compaction, error handling
+and inference. The first applicable stage persists its effects before the next
+session reload; explicit compaction runs alone.
+The existing Node session services read Sailry canonical records and remain the
+sole durable history writer. Model requests, messages and events use Sailry-owned
+types in `agent/model`; `Model` abstracts native Rig transport and declared plugin
+models without another runner or store. Client and UI projections remain
+rebuildable derivatives.
+
+Within a turn, session loads reuse canonical-to-model projections by record identity
+and event sequence. Request preparation reuses tool-result previews while their
+stored revision, visibility and media retention remain unchanged; changed history
+rebuilds the affected projection. Attachment resolution and materialization are
+shared by inference and compaction for that turn, including newly joined guidance.
+These caches do not write history or change the model-visible result.
+
+Usage reports cover Sailry's own canonical events; Client aggregates reports across
+Nodes while keeping source identity and completeness explicit. Provider settings
+may separately display quota observations returned by Sailry's own authenticated model requests;
 missing or expired observations remain unknown. An installed, enabled model
 plugin may also read its current provider's account status through declared
 scoped requests using that provider's authorization and display it independently.
@@ -417,36 +431,36 @@ with the admitted turn. Trigger estimates for pending tool results use the same
 bounded previews as normal inference, so undispatched raw output does not force
 an unnecessary summary.
 
-Automatic and explicit compaction call `goose_context_management::compact` with
-Sailry's concise handoff templates and GDK's structured-summary renderer. The
-handoff preserves current goals, constraints, verified progress, decisions, next
-steps and essential references while removing stale and recoverable detail.
-The result is user-role
-summary text; the parsed file ledger is retained on the canonical compaction
-record. Summary requests have no tools and retain their captured model and account,
+Automatic and explicit compaction use `agent/engine/compact`, with Sailry's concise
+handoff templates and the retained Goose-derived summarizer and structured-summary
+renderer. The handoff preserves current goals, constraints, verified progress,
+decisions, next steps and essential references while removing stale and
+recoverable detail. The result is user-role summary text; the parsed file ledger
+is retained on the canonical compaction record. Summary requests have no tools
+and retain their captured model and account,
 with a separate low supported reasoning effort and an output limit of at most
 8,000 tokens, including reasoning where the provider counts it. The prompt asks
 for under 3,000 tokens. An accepted handoff above 4,000 rendered tokens first
 loses the tail entries of its references, files and decisions, then has its
 longest goal, constraint, task, state or next-step text shortened toward 500
 tokens, and only then loses goals, constraints and tasks beyond the first of
-each. There is no total
-compaction deadline; transport stall timeouts and user cancellation still apply.
+each. There is no total compaction deadline; transport stall timeouts and user
+cancellation still apply.
 There is no background preparation, model-callable compaction tool, prefix
 checkpoint, mandatory-heading check or minimum-reduction gate.
 Individual tool pairs do not trigger separate model summary requests.
 Original records and raw tool output remain intact. The request loader uses the
 latest summary and subsequent continuation, with older originals hidden from the
-agent. Goose's continuation and retained current input remain available after
+agent. The continuation and retained current input remain available after
 compaction; an earlier summary is merged, never retained as that input. Public
 history, fork and rewind still use canonical membership.
 
 Policy, personal instructions, guides and selected capabilities form the stable
 system prompt. Environment, title, plugin turn state, plans, loaded skill resources
-and turn budgets form an agent-only turn context message. As in Goose, the
-canonical writer persists it and inference appends a new one only when session
-state changes, so each request extends the previous request and provider prompt
-caches cover the history. Retained owner parts and the parts a package returns from
+and turn budgets form an agent-only turn context message. The canonical writer
+persists it and inference appends a new one only when session state changes, so
+each request extends the previous request and provider prompt caches cover the
+history. Retained owner parts and the parts a package returns from
 `turn.initialize` are repeated only after compaction hides their earlier copy;
 package instructions stay in the stable system prompt. Skill parts loaded before
 the latest compaction share 24,000 characters, most recently loaded first, and
@@ -463,14 +477,15 @@ is never shortened; an oversized latest turn fails compaction without replacing
 history. Selected capabilities retain their input ownership rather than becoming
 policy for a later task.
 
-Context-length errors can trigger at most two reactive compactions under Goose's
+Context-length errors can trigger at most two reactive compactions under the loop's
 operation ordering. Compaction requests buffer their output and allow at most
 one transient retry; failed, truncated or unparseable attempts do not become
 summaries. Automatic compaction publishes transient progress through the existing
 conversation feed, so controllers distinguish it from completed tools. A terminal
 compaction error reaches `ExitOnError` and ends the turn as a failure. The Node's
 existing queue and explicit retry actions retain unconsumed input. Model and tool
-execution remains in GDK, with no summary-quality gate or Agent-wide retry loop.
+execution remains in the Node loop, with no summary-quality gate or Agent-wide
+retry loop.
 
 Account authorization workflows belong to model authentication packages.
 The default `openai-auth` package retains ChatGPT OAuth's device-code flow and
@@ -482,8 +497,8 @@ request composition and verified claim mappings. The execution Node runs those
 pure steps through its existing private HTTP, PKCE callback, OIDC verification,
 registration, cancellation and persistence services. It alone owns rotating-grant
 fences and credential revision checks. Stored SIWC accounts retain those services;
-the pinned GDK cannot generate through their namespaced authentication path and
-reports that configuration as unavailable.
+the model transport does not support generation through their namespaced
+authentication path and reports that configuration as unavailable.
 Explicit sign-in can replace a channel's account. A changed or unproven identity
 receives a new credential reference; current ordinary sessions using the replaced
 reference receive a new configuration revision, while admitted turns retain their
@@ -503,29 +518,31 @@ Media operations try the admitted model and credential first. Only a definite
 unsupported capability may use an explicitly configured, session-captured fallback;
 authentication, quota, timeout and uncertain outcomes never trigger fallback.
 
-Model execution uses GDK providers over HTTP and SSE. Each request uses the
-admitted configuration, endpoint, authorization and credential revision through
-stream completion. New turns capture the selected model and reasoning effort;
-summary requests use that captured selection. Historical configuration records
-do not override it.
+Native model execution uses Rig providers over HTTP and SSE through the
+Sailry-owned `Model` interface; declared plugin models use their worker transport.
+Each request uses the admitted configuration, endpoint, authorization and
+credential revision through stream completion. New turns capture the selected
+model and reasoning effort; summary requests use that captured selection.
+Historical configuration records do not override it.
 
-Sailry selects GDK's request-scoped recovery for native and declared plugin models:
+Sailry owns request-scoped recovery for native and declared plugin models:
 up to five additional attempts, each 60 seconds after a transient failure. HTTP
 setup and SSE failures share that budget; nested provider backoff is suppressed
 while existing credential refresh remains available. Ordinary requests stop
-automatic recovery once a message or usage has escaped. Compaction buffers each
+automatic recovery once any stream event has escaped. Compaction buffers each
 attempt and discards failed output and usage before retrying. Permanent request,
 authentication and malformed-stream errors remain terminal. Dropping the request
 cancels its active stream or retry delay, without replaying completed tools.
 Sailry adds no forced `tool_choice`, WebSocket transport, connection-local
-continuation or SSE fallback. Outgoing requests omit opaque
-Responses encrypted reasoning and origin-digest replay. Ordinary signed thinking,
-call IDs, text, tool results and historical search or commentary remain available
-through canonical conversion and public projections.
+continuation or SSE fallback. Canonical conversion preserves signed thinking,
+Responses encrypted reasoning, call IDs, text, tool results and historical search
+or commentary. Anthropic and Responses requests omit provider-bound reasoning
+from a different recorded model. Rig replay envelopes stay transient and do not
+become canonical storage.
 
 Terminal provider errors preserve committed history for the existing retry and
 continuation actions. Ordinary conversations have no product iteration limit;
-explicit child-role turn budgets use the corresponding Goose operation.
+explicit child-role turn budgets use the Node's turn-limit operation.
 
 ## Runtime behavior
 
@@ -674,18 +691,20 @@ declarations. Package updates affect subsequent admission, preserving sent captu
 Node freezes configuration, scope and package revisions at turn admission. Tools
 use the same approval, cancellation and durable outcome boundaries. Work mode
 and permissions are distinct; read-only planning does not authorize side effects.
-Approvals for a model response settle before its calls run. GDK then runs adjacent
-native file, search, Git, code-index, web, knowledge and artifact reads and skill
-resource reads concurrently, at most eight at a time. Every other call, including
-browser reads (which navigate and follow the active tab), MCP calls, plugin
-scripts and skill loading, and every call while tool hooks are configured, runs
-alone in request order. Canonical results keep request order, including results
-that Stop interrupts.
+Approvals for a model response settle before its calls run. Node then runs adjacent
+calls registered as both concurrent and read-only together, at most eight at a time.
+This includes native file, search, Git, code-index, web, knowledge and artifact
+reads, skill resource reads, tool discovery, saved tool output and conversation
+reads. Plugin handlers bound to those native operations share their concurrency
+classification; declared flows qualify only when all their operations qualify.
+Browser reads, MCP calls, plain plugin scripts and skill loading run alone in
+request order. Tool hooks that wrap calls also serialize execution. Canonical
+results keep request order, including results that Stop interrupts.
 Main-session guidance joins a running turn only when their captures match. New
 input after a configuration or tool change keeps its own capture and runs as the
 next queued turn; it never inherits an older selection to force inline insertion.
 Selecting an already queued message preserves its original identity and capture.
-Delegated work uses the same GDK engine and canonical history path with an explicit
+Delegated work uses the same Node loop and canonical history path with an explicit
 parent/child association. Closing a view stops observation, not admitted work;
 stopping a turn is an explicit command.
 
@@ -832,7 +851,7 @@ cancellation and unconfirmed service cleanup stop the request. A manually
 selected channel falls back only after temporary failures, and manual model
 selection remains explicit.
 Model search reuses the Node's model credentials and request authorization policy,
-then calls the selected provider's native search API outside the GDK loop.
+then calls the selected provider's native search API outside the Agent loop.
 Citation sources and the
 model-generated summary remain untrusted. Search tokens from an active turn use
 the canonical history writer and existing usage statistics, attributed to the
@@ -917,9 +936,9 @@ without cancelling the child. A foreground command that has run for 30 seconds
 while guidance is pending moves to the session's background commands instead of
 being stopped; its tool call returns the command id and its completion follows up
 like an explicit background command. Stop is the only interruption. The steer
-Operation appends selected user inputs in FIFO order through the same EffectHandler;
-it retains the task and Stop owner and uses the current captured prompt and tool
-owners for the next inference. Each guidance input keeps
+operation appends selected user inputs in FIFO order through the same canonical
+history writer; it retains the task and Stop owner and uses the current captured
+prompt and tool owners for the next inference. Each guidance input keeps
 its own sent-turn identity and becomes consumed only when its canonical user entry commits, while model and
 tool output retain the original task owner and one public completion. If a queued
 input has a different capture, explicit guidance admits a replacement using the
@@ -978,12 +997,20 @@ model-request image projection in batches of five; canonical tool results,
 attachments and sent-turn captures remain unchanged. Native and scripted tool
 declarations can declare the same retention for their own results; an MCP tool
 declaration applies only when its server sets none. `reuse: false` closes that
-server at turn settlement
-instead of pooling it. A session's pooled connection is replaced when its package,
-settings or connector revision changes. It reuses its listed tools until the
-server's `ttlMs` expires or it sends `tools/list_changed`; each turn freezes the
-set it binds. Settlement confirms pending-task cancellation before
-closing the wire. Stdio closure sends EOF and waits up to five seconds
+server at turn settlement instead of pooling it.
+
+One Node-owned MCP pool serves sessions and delegated work. Connections are keyed
+by package digest, settings revision, server, authorization identity and resolved
+launch parameters; worktree identity matters only when it changes the launch.
+Reusable servers connect and discover tools in the background at startup and
+after relevant package or connection changes. Tool discovery uses the shared
+connection's SDK response cache; `tools/list_changed` invalidates that cache,
+and each turn freezes the set it binds. Package, settings and credential changes
+retire affected connections; idle eviction and Node shutdown release them.
+Stopping a turn releases its lease while healthy shared connections remain
+available. Server callbacks retain the active call's captured turn and authority.
+Connection closure confirms pending-task cancellation before closing the wire.
+Stdio closure sends EOF and waits up to five seconds
 for a successful child exit, then kills and reaps when needed. Failed or uncertain
 cleanup returns `OutcomeUnknown`; input is never replayed automatically.
 agent-desktop runs each tool call as its own process and keeps snapshot refs in
@@ -1253,12 +1280,12 @@ including completed, failed, cancelled and interrupted turns with no pending
 execution.
 Queued, running or stopping inputs in other turns are excluded, even if their
 admission happened earlier. Fork and rewind membership remains authoritative.
-Model execution uses the corresponding GDK implementation for supported provider
+Model execution uses the Node's Rig adapter for supported provider
 types, including OpenAI Responses and Chat, Anthropic, Google, Azure Foundry and
 OpenAI-compatible endpoints. Existing endpoint and credential configuration
-retains its Node owner. Provider capabilities follow the pinned GDK implementation;
-provider-hosted web search is not enabled, while declared ordinary search tools
-remain available. The pinned Google adapter does not decode generated inline image
+retains its Node owner. Provider capabilities follow the pinned Rig implementation
+and Node's model adapters; provider-hosted web search is not enabled, while
+declared ordinary search tools remain available. The model event stream does not publish generated inline image
 parts. Canonical image assets and configured media tools retain their supported
 Node service routes. Responses image generation uses the Node's captured request
 authorization and policy for API-key and supported account-authorized routes.
@@ -1325,8 +1352,10 @@ scripts or reads configuration values. Workspace and scripted settings navigatio
 retain Kit's actual `ScriptView` and `ShellRoot` entities under their scoped owners.
 First use loads a page; later selections display the same instance and run its
 normal entry refresh without discarding drafts or briefly unmounting the page.
-Hidden pages pause visibility-bound work. This uses GPUI's retained ownership,
-not a separate KeepAlive, render-description cache or expiry policy.
+Hidden pages pause visibility-bound work. Git and provider-status views refresh
+from visibility and relevant change events, coalesce in-flight reads and pause
+while hidden. This uses GPUI's retained ownership, not a separate KeepAlive,
+render-description cache or expiry policy.
 Leaving the settings area releases prepared resources, not mounted page owners.
 Prepared resources remain bounded, and package/settings revisions, removal,
 invalid scopes and Node changes invalidate the relevant runtime. Window close
