@@ -5015,6 +5015,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'No matches'**
   String get hostNoMatches;
+
+  /// No description provided for @modelFeatureOff.
+  ///
+  /// In en, this message translates to:
+  /// **'Standard'**
+  String get modelFeatureOff;
+
+  /// No description provided for @modelFeatureFast.
+  ///
+  /// In en, this message translates to:
+  /// **'Fast'**
+  String get modelFeatureFast;
+
+  /// No description provided for @modelFeatureSpeed.
+  ///
+  /// In en, this message translates to:
+  /// **'Speed'**
+  String get modelFeatureSpeed;
 }
 
 class _AppLocalizationsDelegate

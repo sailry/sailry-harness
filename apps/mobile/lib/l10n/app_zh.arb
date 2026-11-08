@@ -1003,5 +1003,8 @@
   "hostSearchProcesses": "搜索进程",
   "hostSearchProjects": "搜索项目",
   "hostProcessLimit": "显示前 {count} 个",
-  "hostNoMatches": "无匹配结果"
+  "hostNoMatches": "无匹配结果",
+  "modelFeatureOff": "标准",
+  "modelFeatureFast": "快速",
+  "modelFeatureSpeed": "速度"
 }

@@ -1003,5 +1003,8 @@
   "hostSearchProcesses": "プロセスを検索",
   "hostSearchProjects": "プロジェクトを検索",
   "hostProcessLimit": "上位 {count} 件を表示",
-  "hostNoMatches": "一致なし"
+  "hostNoMatches": "一致なし",
+  "modelFeatureOff": "標準",
+  "modelFeatureFast": "高速",
+  "modelFeatureSpeed": "速度"
 }

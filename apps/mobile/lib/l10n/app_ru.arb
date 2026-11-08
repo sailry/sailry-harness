@@ -1003,5 +1003,8 @@
   "hostSearchProcesses": "Поиск процессов",
   "hostSearchProjects": "Поиск проектов",
   "hostProcessLimit": "Показаны первые {count}",
-  "hostNoMatches": "Нет совпадений"
+  "hostNoMatches": "Нет совпадений",
+  "modelFeatureOff": "Обычно",
+  "modelFeatureFast": "Быстро",
+  "modelFeatureSpeed": "Скорость"
 }

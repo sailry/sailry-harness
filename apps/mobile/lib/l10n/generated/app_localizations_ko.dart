@@ -2556,4 +2556,13 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get hostNoMatches => '일치 항목 없음';
+
+  @override
+  String get modelFeatureOff => '표준';
+
+  @override
+  String get modelFeatureFast => '빠름';
+
+  @override
+  String get modelFeatureSpeed => '속도';
 }

@@ -2602,4 +2602,13 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get hostNoMatches => 'Sin resultados';
+
+  @override
+  String get modelFeatureOff => 'Estándar';
+
+  @override
+  String get modelFeatureFast => 'Rápido';
+
+  @override
+  String get modelFeatureSpeed => 'Velocidad';
 }

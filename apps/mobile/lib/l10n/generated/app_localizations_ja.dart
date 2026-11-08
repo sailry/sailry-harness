@@ -2553,4 +2553,13 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get hostNoMatches => '一致なし';
+
+  @override
+  String get modelFeatureOff => '標準';
+
+  @override
+  String get modelFeatureFast => '高速';
+
+  @override
+  String get modelFeatureSpeed => '速度';
 }

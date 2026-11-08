@@ -2597,6 +2597,15 @@ class AppLocalizationsPt extends AppLocalizations {
 
   @override
   String get hostNoMatches => 'Nenhum resultado';
+
+  @override
+  String get modelFeatureOff => 'Padrão';
+
+  @override
+  String get modelFeatureFast => 'Rápido';
+
+  @override
+  String get modelFeatureSpeed => 'Velocidade';
 }
 
 /// The translations for Portuguese, as used in Brazil (`pt_BR`).

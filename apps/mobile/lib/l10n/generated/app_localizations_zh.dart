@@ -2546,6 +2546,15 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get hostNoMatches => '无匹配结果';
+
+  @override
+  String get modelFeatureOff => '标准';
+
+  @override
+  String get modelFeatureFast => '快速';
+
+  @override
+  String get modelFeatureSpeed => '速度';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -5090,4 +5099,13 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get hostNoMatches => '無相符結果';
+
+  @override
+  String get modelFeatureOff => '標準';
+
+  @override
+  String get modelFeatureFast => '快速';
+
+  @override
+  String get modelFeatureSpeed => '速度';
 }

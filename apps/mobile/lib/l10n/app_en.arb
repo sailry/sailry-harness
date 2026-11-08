@@ -1151,5 +1151,8 @@
       }
     }
   },
-  "hostNoMatches": "No matches"
+  "hostNoMatches": "No matches",
+  "modelFeatureOff": "Standard",
+  "modelFeatureFast": "Fast",
+  "modelFeatureSpeed": "Speed"
 }

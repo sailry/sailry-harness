@@ -1003,5 +1003,8 @@
   "hostSearchProcesses": "Buscar procesos",
   "hostSearchProjects": "Buscar proyectos",
   "hostProcessLimit": "Mostrando los {count} primeros",
-  "hostNoMatches": "Sin resultados"
+  "hostNoMatches": "Sin resultados",
+  "modelFeatureOff": "Estándar",
+  "modelFeatureFast": "Rápido",
+  "modelFeatureSpeed": "Velocidad"
 }

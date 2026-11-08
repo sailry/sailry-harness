@@ -2595,4 +2595,13 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get hostNoMatches => 'Нет совпадений';
+
+  @override
+  String get modelFeatureOff => 'Обычно';
+
+  @override
+  String get modelFeatureFast => 'Быстро';
+
+  @override
+  String get modelFeatureSpeed => 'Скорость';
 }

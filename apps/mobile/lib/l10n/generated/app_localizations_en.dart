@@ -2577,4 +2577,13 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get hostNoMatches => 'No matches';
+
+  @override
+  String get modelFeatureOff => 'Standard';
+
+  @override
+  String get modelFeatureFast => 'Fast';
+
+  @override
+  String get modelFeatureSpeed => 'Speed';
 }

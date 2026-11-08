@@ -2609,4 +2609,13 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get hostNoMatches => 'Aucun résultat';
+
+  @override
+  String get modelFeatureOff => 'Standard';
+
+  @override
+  String get modelFeatureFast => 'Rapide';
+
+  @override
+  String get modelFeatureSpeed => 'Vitesse';
 }

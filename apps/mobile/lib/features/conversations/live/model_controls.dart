@@ -104,6 +104,8 @@ class _ModelControlsState extends State<ModelControls> {
     final efforts = <String>{
       ...(model?['efforts'] as List? ?? []).whereType<String>(),
     }.toList();
+    final features = objects(object(model?['capabilities'])['features']);
+    final chosen = object(selection['features']);
     final initial = model?['default_effort'] ?? 'default';
     final current = member == null
         ? config['effort'] ?? 'default'
@@ -257,6 +259,28 @@ class _ModelControlsState extends State<ModelControls> {
             ),
           ),
         ],
+        for (final feature in features)
+          if (objects(feature['options']).isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: _FeatureChoice(
+                feature: feature,
+                selected: text(chosen[feature['id']]),
+                enabled: enabled,
+                onSelected: (value) {
+                  final next = {...chosen}..remove(feature['id']);
+                  if (value.isNotEmpty) next[text(feature['id'])] = value;
+                  if (member == null) {
+                    _commit({...config, 'features': next});
+                  } else {
+                    _setMember(role, {
+                      ...state!.choose(member, selection),
+                      'features': next,
+                    });
+                  }
+                },
+              ),
+            ),
       ],
     );
   }
@@ -442,4 +466,84 @@ class _ModelChoicesState extends State<ModelChoices> {
       ],
     ),
   );
+}
+
+/// One model-declared choice, such as Speed with Fast and Ultrafast, beside
+/// an off segment. Desktop shows the same declarations as composer toggles.
+class _FeatureChoice extends StatelessWidget {
+  const _FeatureChoice({
+    required this.feature,
+    required this.selected,
+    required this.enabled,
+    required this.onSelected,
+  });
+
+  final Map<String, dynamic> feature;
+
+  /// The selected option ID; empty when the feature is off.
+  final String selected;
+  final bool enabled;
+  final ValueChanged<String> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final speed = feature['id'] == 'speed';
+    final options = objects(feature['options']);
+    String label(Map<String, dynamic> option) => speed && option['id'] == 'fast'
+        ? context.tr('modelFeatureFast')
+        : text(option['name']).isEmpty
+        ? text(option['id'])
+        : text(option['name']);
+    final name = speed
+        ? context.tr('modelFeatureSpeed')
+        : text(feature['name']).isEmpty
+        ? text(feature['id'])
+        : text(feature['name']);
+    final current = options.any((option) => option['id'] == selected)
+        ? selected
+        : '';
+    return Row(
+      children: [
+        SizedBox(
+          width: 88,
+          child: Text(
+            name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 15, color: colors.onSurface),
+          ),
+        ),
+        Expanded(
+          child: SegmentedButton<String>(
+            key: ValueKey('model-feature-${feature['id']}'),
+            expandedInsets: EdgeInsets.zero,
+            showSelectedIcon: false,
+            segments: [
+              ButtonSegment(
+                value: '',
+                label: Text(context.tr('modelFeatureOff')),
+              ),
+              for (final option in options)
+                ButtonSegment(
+                  value: text(option['id']),
+                  label: Text(label(option), overflow: TextOverflow.ellipsis),
+                ),
+            ],
+            selected: {current},
+            onSelectionChanged: enabled
+                ? (value) => onSelected(value.single)
+                : null,
+            style: SegmentedButton.styleFrom(
+              side: BorderSide.none,
+              backgroundColor: colors.surfaceContainer,
+              selectedBackgroundColor: colors.surfaceContainerHigh,
+              selectedForegroundColor: colors.onSurface,
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 }

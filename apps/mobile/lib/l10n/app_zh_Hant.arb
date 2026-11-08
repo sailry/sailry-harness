@@ -1003,5 +1003,8 @@
   "hostSearchProcesses": "搜尋程序",
   "hostSearchProjects": "搜尋專案",
   "hostProcessLimit": "顯示前 {count} 個",
-  "hostNoMatches": "無相符結果"
+  "hostNoMatches": "無相符結果",
+  "modelFeatureOff": "標準",
+  "modelFeatureFast": "快速",
+  "modelFeatureSpeed": "速度"
 }

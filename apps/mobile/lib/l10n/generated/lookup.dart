@@ -836,5 +836,8 @@ String? lookupString(AppLocalizations strings, String key) => switch (key) {
   'hostSearchProjects' => strings.hostSearchProjects,
   'hostProcessLimit' => strings.hostProcessLimit('{count}'),
   'hostNoMatches' => strings.hostNoMatches,
+  'modelFeatureOff' => strings.modelFeatureOff,
+  'modelFeatureFast' => strings.modelFeatureFast,
+  'modelFeatureSpeed' => strings.modelFeatureSpeed,
   _ => null,
 };

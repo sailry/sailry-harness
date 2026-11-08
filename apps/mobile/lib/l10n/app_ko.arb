@@ -1003,5 +1003,8 @@
   "hostSearchProcesses": "프로세스 검색",
   "hostSearchProjects": "프로젝트 검색",
   "hostProcessLimit": "상위 {count}개 표시",
-  "hostNoMatches": "일치 항목 없음"
+  "hostNoMatches": "일치 항목 없음",
+  "modelFeatureOff": "표준",
+  "modelFeatureFast": "빠름",
+  "modelFeatureSpeed": "속도"
 }

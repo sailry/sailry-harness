@@ -2605,4 +2605,13 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get hostNoMatches => 'Keine Treffer';
+
+  @override
+  String get modelFeatureOff => 'Standard';
+
+  @override
+  String get modelFeatureFast => 'Schnell';
+
+  @override
+  String get modelFeatureSpeed => 'Tempo';
 }
