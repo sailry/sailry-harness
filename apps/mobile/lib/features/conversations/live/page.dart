@@ -58,7 +58,8 @@ class LiveConversationPage extends StatefulWidget {
   State<LiveConversationPage> createState() => _LiveConversationPageState();
 }
 
-class _LiveConversationPageState extends State<LiveConversationPage> {
+class _LiveConversationPageState extends State<LiveConversationPage>
+    with WidgetsBindingObserver {
   late final _submission = TurnDraft(
     host: widget.host,
     session: widget.sessionId,
@@ -100,6 +101,8 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
   );
   Object? _error;
   bool _watching = false;
+  bool _restarting = false;
+  bool _away = false;
   Animation<double>? _entrance;
 
   /// Whether the push transition has finished. The transcript is held until
@@ -125,6 +128,7 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _submission.addListener(_rebuild);
     unawaited(_acknowledge());
     unawaited(_watch());
@@ -150,6 +154,24 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
     _entrance?.removeStatusListener(_entered);
     _entrance = null;
     setState(() => _settled = true);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      _away = true;
+    } else if (state == AppLifecycleState.resumed && _away) {
+      _away = false;
+      // The stream can stall in the background; resubscribe for a fresh view.
+      final updates = _updates;
+      if (updates != null) {
+        _restarting = true;
+        unawaited(updates.close());
+      } else if (!_watching && !_closed) {
+        unawaited(_watch());
+      }
+    }
   }
 
   Future<void> _acknowledge() async {
@@ -227,7 +249,7 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
         }
       }
     } catch (error) {
-      if (!_closed && mounted) {
+      if (!_closed && mounted && !_restarting) {
         setState(() => _error = error);
       }
     } finally {
@@ -236,6 +258,10 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
       if (updates != null) {
         await updates.close();
         updates.dispose();
+      }
+      if (_restarting) {
+        _restarting = false;
+        if (!_closed && mounted) unawaited(_watch());
       }
     }
   }
@@ -283,6 +309,7 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
   @override
   void dispose() {
     _closed = true;
+    WidgetsBinding.instance.removeObserver(this);
     _entrance?.removeStatusListener(_entered);
     final updates = _updates;
     if (updates != null) unawaited(updates.close());

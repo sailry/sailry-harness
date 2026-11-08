@@ -238,6 +238,7 @@ class _LiveTasksPageState extends State<LiveTasksPage> {
       return PageFrame(
         title: context.tr('brand'),
         titleSize: 28,
+        onRefresh: selected?.refresh,
         failure: selected?.connected != true
             ? HostState(added: selected != null, failure: selected?.error)
             : null,

@@ -255,17 +255,35 @@ class AppSession extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  bool _away = false;
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      _away = true;
+      return;
+    }
     final owner = controller;
     if (!_closed && state == AppLifecycleState.resumed && owner != null) {
+      final returned = _away;
+      _away = false;
       unawaited(
-        owner.networkChanged().catchError((Object failure) {
-          if (!_closed && controller == owner) {
-            error = failure;
-            _changed();
-          }
-        }),
+        owner
+            .networkChanged()
+            .catchError((Object failure) {
+              if (!_closed && controller == owner) {
+                error = failure;
+                _changed();
+              }
+            })
+            .whenComplete(() {
+              // Views can be stale after a long background period.
+              if (!returned || _closed || controller != owner) return;
+              for (final host in List.of(_hosts)) {
+                unawaited(host.refresh());
+              }
+            }),
       );
     }
   }
@@ -373,6 +391,29 @@ class HostConnection extends ChangeNotifier {
   Updates? _updates;
   bool _closed = false;
   bool _watching = false;
+  bool _restarting = false;
+  Completer<void>? _fresh;
+
+  /// Resubscribes for a fresh snapshot; the platform may stall the update
+  /// stream while the app is in the background. Completes on the first view.
+  Future<void> refresh() async {
+    if (_closed || _connection == null) return;
+    final fresh = _fresh ??= Completer<void>();
+    final updates = _updates;
+    if (updates != null) {
+      _restarting = true;
+      unawaited(updates.close());
+    } else if (!_watching) {
+      unawaited(watch());
+    }
+    await fresh.future.timeout(const Duration(seconds: 10), onTimeout: () {});
+  }
+
+  void _settle() {
+    final fresh = _fresh;
+    _fresh = null;
+    if (fresh != null && !fresh.isCompleted) fresh.complete();
+  }
 
   Future<void> watch() async {
     if (_closed || _watching) return;
@@ -403,10 +444,11 @@ class HostConnection extends ChangeNotifier {
         notifications = objects(view['notifications']);
         childTargets = object(view['child_targets']);
         notifyListeners();
+        _settle();
         if (connected && info.isEmpty) unawaited(inspect());
       }
     } catch (failure) {
-      if (!_closed) {
+      if (!_closed && !_restarting) {
         connected = false;
         transport = {};
         error = failure.toString() == 'channel closed' && observedError != null
@@ -423,6 +465,12 @@ class HostConnection extends ChangeNotifier {
         } finally {
           owned.dispose();
         }
+      }
+      if (_restarting) {
+        _restarting = false;
+        if (!_closed) unawaited(watch());
+      } else {
+        _settle();
       }
     }
   }
@@ -485,6 +533,7 @@ class HostConnection extends ChangeNotifier {
     _closed = true;
     connected = false;
     transport = {};
+    _settle();
     final updates = _updates;
     _updates = null;
     try {

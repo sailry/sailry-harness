@@ -136,6 +136,7 @@ class PageFrame extends StatelessWidget {
     this.backEnabled = true,
     this.subtitle,
     this.titleAccessory,
+    this.onRefresh,
   });
   final String title;
   final List<Widget> actions;
@@ -150,8 +151,21 @@ class PageFrame extends StatelessWidget {
   final bool backEnabled;
   final Widget? subtitle;
   final Widget? titleAccessory;
+
+  /// Enables pull-to-refresh on the page's own scroll view.
+  final Future<void> Function()? onRefresh;
   @override
   Widget build(BuildContext context) {
+    final physics = onRefresh == null
+        ? null
+        : const AlwaysScrollableScrollPhysics();
+    Widget refreshable(double top, Widget child) => onRefresh == null
+        ? child
+        : RefreshIndicator(
+            edgeOffset: top,
+            onRefresh: onRefresh!,
+            child: child,
+          );
     final header = Padding(
       padding: const EdgeInsets.fromLTRB(20, 19, 20, 16),
       child: Row(
@@ -190,33 +204,41 @@ class PageFrame extends StatelessWidget {
                           child: failure,
                         )
                       : empty != null
-                      ? CustomScrollView(
-                          keyboardDismissBehavior:
-                              ScrollViewKeyboardDismissBehavior.onDrag,
-                          slivers: [
-                            SliverPadding(
-                              padding: padding.add(EdgeInsets.only(top: top)),
-                              sliver: SliverToBoxAdapter(child: child),
-                            ),
-                            SliverFillRemaining(
-                              hasScrollBody: false,
-                              child: Padding(
-                                padding: padding.add(
-                                  EdgeInsets.only(bottom: bottomInset),
-                                ),
-                                child: empty,
+                      ? refreshable(
+                          top,
+                          CustomScrollView(
+                            physics: physics,
+                            keyboardDismissBehavior:
+                                ScrollViewKeyboardDismissBehavior.onDrag,
+                            slivers: [
+                              SliverPadding(
+                                padding: padding.add(EdgeInsets.only(top: top)),
+                                sliver: SliverToBoxAdapter(child: child),
                               ),
-                            ),
-                          ],
+                              SliverFillRemaining(
+                                hasScrollBody: false,
+                                child: Padding(
+                                  padding: padding.add(
+                                    EdgeInsets.only(bottom: bottomInset),
+                                  ),
+                                  child: empty,
+                                ),
+                              ),
+                            ],
+                          ),
                         )
                       : scroll
-                      ? SingleChildScrollView(
-                          keyboardDismissBehavior:
-                              ScrollViewKeyboardDismissBehavior.onDrag,
-                          padding: padding.add(
-                            EdgeInsets.only(top: top, bottom: bottomInset),
+                      ? refreshable(
+                          top,
+                          SingleChildScrollView(
+                            physics: physics,
+                            keyboardDismissBehavior:
+                                ScrollViewKeyboardDismissBehavior.onDrag,
+                            padding: padding.add(
+                              EdgeInsets.only(top: top, bottom: bottomInset),
+                            ),
+                            child: child,
                           ),
-                          child: child,
                         )
                       // Pages owning their scroll view start below the header.
                       : Padding(
