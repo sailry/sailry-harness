@@ -7,6 +7,7 @@ pub(crate) mod form;
 pub(crate) mod identicon;
 pub(crate) mod keys;
 pub(crate) mod loading;
+pub(crate) mod media_row;
 pub(crate) mod modal_list;
 mod motion;
 pub(crate) mod overlays;

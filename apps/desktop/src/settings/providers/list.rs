@@ -1,5 +1,6 @@
 use super::*;
 use crate::conversation::usage::{self, external};
+use crate::ui::media_row::{MediaRow, TILE};
 use gpui_kit::component::progress::Progress;
 use sailry_protocol::{Authentication, conversation::quota, plugin::ui::Detail};
 use std::rc::Rc;
@@ -12,7 +13,6 @@ mod tests;
 pub(super) use summary::matches;
 use summary::{AuthKind, Line, Status};
 
-const TILE: f32 = 36.;
 const GAP: f32 = 12.;
 /// Fixed usage column width so values right-align across rows.
 const USAGE: f32 = 156.;
@@ -79,32 +79,18 @@ impl Workspace {
         } else {
             format!("{} · {subtitle} · {count}", tr("preview")).into()
         };
-        let details = v_flex()
+        let details = div()
             .id(("provider-details", id))
             .debug_selector(move || format!("provider-details-{id}"))
             .flex_1()
             .min_w_0()
-            .overflow_hidden()
             .cursor_pointer()
-            .line_height(relative(1.3))
             .when(!channel.enabled, |text| text.opacity(0.45))
             .on_click(cx.listener(move |this, _, _, cx| this.expand_provider(id, cx)))
             .child(
-                div()
-                    .debug_selector(move || format!("provider-name-{id}"))
-                    .min_w_0()
-                    .truncate()
-                    .font_medium()
-                    .child(channel.name.clone()),
-            )
-            .child(
-                div()
-                    .debug_selector(move || format!("provider-kind-{id}"))
-                    .min_w_0()
-                    .truncate()
-                    .text_sm()
-                    .text_color(theme.muted_foreground)
-                    .child(subtitle),
+                MediaRow::new(channel.name.clone())
+                    .leading(tile(channel, TILE))
+                    .description(subtitle),
             );
         let summary = match Status::of(channel, authentication) {
             // Plain status text aligned with the model-count action it replaces.
@@ -132,11 +118,6 @@ impl Workspace {
             .py_3()
             .gap(px(GAP))
             .items_center()
-            .child(
-                tile(channel, TILE)
-                    .when(!channel.enabled, |tile| tile.opacity(0.45))
-                    .into_any_element(),
-            )
             .child(details)
             .child(
                 div()

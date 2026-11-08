@@ -1,6 +1,11 @@
 //! Teams tab rows: the virtual Default team first, then stored teams in Node key order.
 use super::{Catalog, editor::Target, menu};
-use crate::{settings::Workspace, tr, workspace::appearance as identity};
+use crate::{
+    settings::Workspace,
+    tr,
+    ui::media_row::{MediaRow, TILE},
+    workspace::appearance as identity,
+};
 use gpui_kit::component::{avatar::Avatar, list::ListItem, tag::Tag, *};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -14,16 +19,15 @@ pub(super) fn avatar(appearance: Option<&Appearance>, cx: &App) -> Avatar {
 
 /// Leading row icon, sized and shaped like the model provider tiles.
 pub(super) fn tile(appearance: Option<&Appearance>, fallback: Icon, cx: &App) -> Div {
-    const SIZE: f32 = 36.;
     let (icon, fill) = identity::tinted(appearance, fallback, cx);
     h_flex()
-        .size(px(SIZE))
+        .size(px(TILE))
         .flex_shrink_0()
         .items_center()
         .justify_center()
         .rounded(px(11.))
         .bg(fill)
-        .child(icon.size(px(SIZE * 5. / 9.)))
+        .child(icon.size(px(TILE * 5. / 9.)))
 }
 
 /// A role's row tile; roles without an appearance use the standard agent glyph.
@@ -139,36 +143,17 @@ impl Workspace {
                     .w_full()
                     .min_w_0()
                     .gap_3()
-                    .child(tile(
-                        team.and_then(|team| team.appearance.as_ref()),
-                        Icon::from(gpui_kit::assets::IconName::Users),
-                        cx,
-                    ))
                     .child(
-                        v_flex()
-                            .flex_1()
-                            .min_w_0()
-                            .gap_0p5()
-                            .child(
-                                h_flex()
-                                    .min_w_0()
-                                    .gap_2()
-                                    .child(div().truncate().child(name))
-                                    .when(team.is_none(), |row| {
-                                        row.child(
-                                            Tag::secondary().small().child(tr("team_builtin")),
-                                        )
-                                    }),
-                            )
-                            .when(!description.is_empty(), |column| {
-                                column.child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(cx.theme().muted_foreground)
-                                        .truncate()
-                                        .child(description),
-                                )
-                            }),
+                        MediaRow::new(name)
+                            .leading(tile(
+                                team.and_then(|team| team.appearance.as_ref()),
+                                Icon::from(gpui_kit::assets::IconName::Users),
+                                cx,
+                            ))
+                            .when(team.is_none(), |row| {
+                                row.badge(Tag::secondary().small().child(tr("team_builtin")))
+                            })
+                            .when(!description.is_empty(), |row| row.description(description)),
                     )
                     .child(
                         // Side by side rather than stacked; the count beside them gives the total.

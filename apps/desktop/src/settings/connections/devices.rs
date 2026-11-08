@@ -342,21 +342,22 @@ impl Connections {
                     .text_sm()
                     .debug_selector(move || format!("connection-device-{id:?}"))
                     .child(
-                        h_flex()
+                        div()
                             .debug_selector(move || format!("connection-name-{id:?}"))
                             .flex_1()
                             .min_w_0()
-                            .gap_3()
                             .child(
-                                Icon::default()
-                                    .path(platform_icon(
-                                        device.known.platform.as_deref(),
-                                        execution,
-                                    ))
-                                    .size_5()
-                                    .flex_shrink_0(),
-                            )
-                            .child(super::super::entry::caption(name, short, cx)),
+                                crate::ui::media_row::MediaRow::new(name)
+                                    .leading(
+                                        Icon::default()
+                                            .path(platform_icon(
+                                                device.known.platform.as_deref(),
+                                                execution,
+                                            ))
+                                            .size_5(),
+                                    )
+                                    .description(short),
+                            ),
                     )
                     .child(details)
                     .on_mouse_down(

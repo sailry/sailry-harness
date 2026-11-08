@@ -120,6 +120,18 @@ pub(in crate::settings) fn view(status: Option<Status>, cx: &App) -> AnyElement 
     view.into_any_element()
 }
 
+/// The server's last runtime update in local time.
+pub(in crate::settings) fn updated(server: &Mcp) -> Option<String> {
+    let time = i64::try_from(server.runtime.as_ref()?.updated_at_ms)
+        .ok()
+        .and_then(chrono::DateTime::from_timestamp_millis)?;
+    Some(
+        time.with_timezone(&chrono::Local)
+            .format("%Y-%m-%d %H:%M:%S")
+            .to_string(),
+    )
+}
+
 pub(in crate::settings) fn information(enabled: bool, server: &Mcp, cx: &App) -> AnyElement {
     let mut view = v_flex().gap_2();
     if !enabled || disabled(server) {
@@ -137,13 +149,7 @@ pub(in crate::settings) fn information(enabled: bool, server: &Mcp, cx: &App) ->
                     .child(rust_i18n::t!("connector_mcp_tools", n = runtime.tools).to_string()),
             );
         }
-        if let Some(time) = i64::try_from(runtime.updated_at_ms)
-            .ok()
-            .and_then(chrono::DateTime::from_timestamp_millis)
-        {
-            let updated = time
-                .with_timezone(&chrono::Local)
-                .format("%Y-%m-%d %H:%M:%S");
+        if let Some(updated) = updated(server) {
             view = view.child(
                 div()
                     .text_xs()

@@ -10,6 +10,7 @@ use crate::{
     settings::{Workspace, entry::Entry, group::Group},
     theme::DialogStyle as _,
     tr,
+    ui::media_row::MediaRow,
 };
 use gpui_kit::component::{
     button::{Button, ButtonVariants},
@@ -33,28 +34,13 @@ impl Workspace {
             let (name, description) = super::draft::label(role);
             Entry::new(
                 format!("role-{index}"),
-                h_flex()
-                    .min_w_0()
-                    .gap_3()
-                    .child(list::role_tile(role.appearance.as_ref(), cx))
-                    .child(
-                        v_flex()
-                            .flex_1()
-                            .min_w_0()
-                            .gap_0p5()
-                            .child(div().truncate().child(name))
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .truncate()
-                                    .child(if description.is_empty() {
-                                        format!("@{}", role.key).into()
-                                    } else {
-                                        description
-                                    }),
-                            ),
-                    ),
+                MediaRow::new(name)
+                    .leading(list::role_tile(role.appearance.as_ref(), cx))
+                    .description(if description.is_empty() {
+                        format!("@{}", role.key).into()
+                    } else {
+                        description
+                    }),
             )
             .action(
                 Button::new(("role-edit", index))

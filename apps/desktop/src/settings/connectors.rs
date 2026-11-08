@@ -9,7 +9,10 @@ mod filter;
 mod menu;
 pub(in crate::settings) mod status;
 use super::{Workspace, providers::Binding};
-use crate::tr;
+use crate::{
+    tr,
+    ui::media_row::{MediaRow, TILE},
+};
 use gpui_kit::{
     component::{
         button::{Button, ButtonVariants as _},
@@ -443,45 +446,14 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let label = service.label();
-        let description = service
-            .account
-            .as_ref()
-            .and_then(|account| account.identity.as_ref())
-            .map(|identity| identity.name.clone())
-            .filter(|name| !name.is_empty())
-            .or_else(|| {
-                service
-                    .info
-                    .as_ref()
-                    .and_then(crate::plugins::metadata::description)
-            })
-            .unwrap_or_else(|| service.package.name.clone());
-        let icon = service
-            .kind
-            .as_ref()
-            .and_then(|kind| kind.declaration.display.icon.as_ref())
-            .or_else(|| {
-                service
-                    .info
-                    .as_ref()
-                    .and_then(crate::plugins::emblem::glyph)
-            })
-            .map(crate::assets::icons::icon)
-            .unwrap_or_else(|| Icon::new(gpui_kit::assets::IconName::Plug));
         let key = service.key.clone();
         let owner = cx.entity();
         let id = format!("connector-service-{}-{:?}", key.package, key.member);
         let entry = super::entry::Entry::new(
             id.clone(),
-            h_flex()
-                .items_center()
-                .gap_3()
-                .child(
-                    crate::plugins::emblem::surface(&service.package.name, None, px(36.))
-                        .child(icon.size_5()),
-                )
-                .child(super::entry::caption(label.clone(), description, cx)),
+            MediaRow::new(service.label())
+                .leading(tile(service))
+                .description(description(service)),
         )
         .control(details::controls(
             owner,
@@ -510,6 +482,40 @@ impl Workspace {
             )
             .into_any_element()
     }
+}
+
+/// The account identity, else the package description, else its name.
+fn description(service: &catalog::Service) -> String {
+    service
+        .account
+        .as_ref()
+        .and_then(|account| account.identity.as_ref())
+        .map(|identity| identity.name.clone())
+        .filter(|name| !name.is_empty())
+        .or_else(|| {
+            service
+                .info
+                .as_ref()
+                .and_then(crate::plugins::metadata::description)
+        })
+        .unwrap_or_else(|| service.package.name.clone())
+}
+
+/// The connector's declared or package glyph on its emblem surface.
+fn tile(service: &catalog::Service) -> Div {
+    let icon = service
+        .kind
+        .as_ref()
+        .and_then(|kind| kind.declaration.display.icon.as_ref())
+        .or_else(|| {
+            service
+                .info
+                .as_ref()
+                .and_then(crate::plugins::emblem::glyph)
+        })
+        .map(crate::assets::icons::icon)
+        .unwrap_or_else(|| Icon::new(gpui_kit::assets::IconName::Plug));
+    crate::plugins::emblem::surface(&service.package.name, None, px(TILE)).child(icon.size_5())
 }
 
 fn editable<'a>(
