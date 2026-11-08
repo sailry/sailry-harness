@@ -66,6 +66,7 @@ impl RenderOnce for MediaRow {
                 v_flex()
                     .flex_1()
                     .min_w_0()
+                    .gap(px(2.))
                     .line_height(relative(1.3))
                     .child(
                         h_flex()
@@ -91,7 +92,8 @@ impl RenderOnce for MediaRow {
                                 .min_w_0()
                                 .truncate()
                                 .text_sm()
-                                .text_color(theme.muted_foreground)
+                                // Matches the sidebar's secondary text so descriptions recede.
+                                .text_color(theme.muted_foreground.opacity(0.7))
                                 .child(description),
                         )
                     }),
