@@ -85,10 +85,18 @@ fn aggregate(servers: &[Mcp]) -> Option<Status> {
 }
 
 pub(in crate::settings) fn view(status: Option<Status>, cx: &App) -> AnyElement {
+    // Same dot and label treatment as the device list: a centred dot, row-sized muted text.
+    let dot = |color| {
+        div()
+            .size_1p5()
+            .flex_shrink_0()
+            .child(Badge::new().dot().color(color))
+    };
     let mut view = h_flex()
+        .flex_shrink_0()
         .gap_2()
         .items_center()
-        .text_xs()
+        .text_sm()
         .text_color(cx.theme().muted_foreground);
     match status {
         Some(Status::Problem(key)) => view = view.child(tr(key)),
@@ -99,22 +107,12 @@ pub(in crate::settings) fn view(status: Option<Status>, cx: &App) -> AnyElement 
         }
         Some(Status::Connected(tools)) => {
             view = view
-                .child(
-                    Badge::new()
-                        .dot()
-                        .color(cx.theme().success)
-                        .child(div().size_2()),
-                )
+                .child(dot(cx.theme().success))
                 .child(rust_i18n::t!("connector_mcp_tools", n = tools).to_string());
         }
         Some(Status::Failed) => {
             view = view
-                .child(
-                    Badge::new()
-                        .dot()
-                        .color(cx.theme().danger)
-                        .child(div().size_2()),
-                )
+                .child(dot(cx.theme().danger))
                 .child(tr("connector_mcp_failed"));
         }
         None => (),

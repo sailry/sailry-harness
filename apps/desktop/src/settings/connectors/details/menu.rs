@@ -153,7 +153,7 @@ pub(in crate::settings::connectors) fn controls(
         service.key.package, service.key.member
     );
     let mut controls = h_flex()
-        .gap_2()
+        .gap_3()
         .items_center()
         .child(super::super::status::view(
             super::super::status::service(service),

@@ -356,16 +356,7 @@ impl Connections {
                                     .size_5()
                                     .flex_shrink_0(),
                             )
-                            .child(
-                                v_flex()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .gap_0p5()
-                                    .child(div().truncate().child(name))
-                                    .child(
-                                        div().text_color(cx.theme().muted_foreground).child(short),
-                                    ),
-                            ),
+                            .child(super::super::entry::caption(name, short, cx)),
                     )
                     .child(details)
                     .on_mouse_down(

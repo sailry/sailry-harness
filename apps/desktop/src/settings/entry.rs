@@ -5,6 +5,22 @@ use gpui_kit::component::{
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
+/// Title above a muted one-line description; every settings list uses this spacing.
+pub(super) fn caption(title: impl IntoElement, description: impl IntoElement, cx: &App) -> Div {
+    v_flex()
+        .flex_1()
+        .min_w_0()
+        .gap_0p5()
+        .child(div().truncate().child(title))
+        .child(
+            div()
+                .text_xs()
+                .truncate()
+                .text_color(cx.theme().muted_foreground)
+                .child(description),
+        )
+}
+
 /// Settings records keep their independent controls outside the shrinking content slot.
 #[derive(IntoElement)]
 pub(super) struct Entry {

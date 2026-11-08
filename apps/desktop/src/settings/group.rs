@@ -234,7 +234,7 @@ impl RenderOnce for Row {
         let label = v_flex()
             .flex_1()
             .min_w_0()
-            .gap_1()
+            .gap_0p5()
             .when(self.wide, |label| label.min_w(px(160.)))
             .child(
                 h_flex()
@@ -247,6 +247,7 @@ impl RenderOnce for Row {
                 label.child(
                     div()
                         .debug_selector(move || format!("settings-description-{description_key}"))
+                        .text_xs()
                         .text_color(cx.theme().muted_foreground)
                         .child(description),
                 )

@@ -481,24 +481,7 @@ impl Workspace {
                     crate::plugins::emblem::surface(&service.package.name, None, px(36.))
                         .child(icon.size_5()),
                 )
-                .child(
-                    v_flex()
-                        .min_w_0()
-                        .flex_1()
-                        .gap_1()
-                        .child(
-                            h_flex()
-                                .gap_2()
-                                .child(div().truncate().child(label.clone())),
-                        )
-                        .child(
-                            div()
-                                .text_xs()
-                                .truncate()
-                                .text_color(cx.theme().muted_foreground)
-                                .child(description),
-                        ),
-                ),
+                .child(super::entry::caption(label.clone(), description, cx)),
         )
         .control(details::controls(
             owner,

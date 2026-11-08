@@ -25,7 +25,6 @@ impl Workspace {
                 .child(
                     Group::new("settings_general")
                         .heading(false)
-                        .child(self.power(window, cx))
                         .child(Row::new(
                             "settings_language",
                             div()
@@ -36,6 +35,7 @@ impl Workspace {
                                         .accessibility_label(tr("settings_language")),
                                 ),
                         ))
+                        .child(self.power(window, cx))
                         .child(Row::new(
                             "settings_sidebar_metrics",
                             div()
