@@ -504,6 +504,8 @@ Set `fill: true` for equal-width choices across a modal form; it defaults to
 false so page and toolbar tabs retain their content widths. Selection events
 retain the same `{id, value}` payload.
 
+`confirmAction({title, detail, action})` from `sailry/ui` shows the application's OS-native warning dialog with Cancel and the given action label. It resolves `true` only when the action is chosen; a closed view, missing window or another open prompt resolves `false`. Use it for actions that affect state outside the package, such as switching a shared checkout.
+
 `Loading.new(id)` from `sailry/ui` is a nonvisual pending marker. Reads load
 silently without a spinner or input-blocking overlay. Keep the page heading,
 toolbar and scroll container mounted, and retain existing content during refresh.
