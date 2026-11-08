@@ -2,7 +2,41 @@
 use super::*;
 use sailry_protocol::{ErrorCode, Request, Snapshot, terminal::Status};
 
+pub(super) fn items(pinned: bool) -> Vec<(Command, &'static str)> {
+    vec![
+        (Command::Open, "workspace_open_terminal"),
+        if pinned {
+            (Command::Unpin, "workspace_unpin")
+        } else {
+            (Command::Pin, "workspace_pin")
+        },
+        (Command::Copy, "workspace_copy_path"),
+        (Command::Close, "workspace_close_terminal"),
+    ]
+}
+
 impl Dispatch {
+    pub(super) fn terminal_pin(&self, snapshot: &Snapshot) -> Option<(TerminalId, bool)> {
+        let pinned = match self.command {
+            Command::Pin => true,
+            Command::Unpin => false,
+            _ => return None,
+        };
+        let Target::Terminal(id) = self.target else {
+            return None;
+        };
+        if self.node != snapshot.node {
+            return None;
+        }
+        let terminal = snapshot
+            .terminals
+            .iter()
+            .find(|info| info.id == id && info.status != Status::Closed)?;
+        let worktree = terminal.worktree?;
+        snapshot.worktrees.iter().find(|tree| tree.id == worktree)?;
+        Some((id, pinned))
+    }
+
     pub(super) fn terminal_close(&self, snapshot: &Snapshot) -> Option<sailry_protocol::Command> {
         let Target::Terminal(id) = self.target else {
             return None;

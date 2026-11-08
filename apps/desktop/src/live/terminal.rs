@@ -14,6 +14,7 @@ use std::{
 
 mod panes;
 mod row;
+pub(crate) use row::Placement;
 
 #[derive(Default)]
 pub(crate) struct State {

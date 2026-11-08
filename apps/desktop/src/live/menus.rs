@@ -82,11 +82,7 @@ pub(super) fn items(target: Target, local: bool) -> Vec<(Command, &'static str)>
             (Command::Remove, "project_remove"),
         ],
         Target::Session(_) => session::items(false),
-        Target::Terminal(_) => vec![
-            (Command::Open, "workspace_open_terminal"),
-            (Command::Copy, "workspace_copy_path"),
-            (Command::Close, "workspace_close_terminal"),
-        ],
+        Target::Terminal(_) => terminal::items(false),
     }
 }
 
@@ -134,7 +130,12 @@ impl Shell {
                 .show(event.position, window, cx);
             return;
         }
-        let items = items(target, local);
+        let items = match target {
+            Target::Terminal(id) => {
+                terminal::items(crate::preferences::pins::get(node, id, cx).pinned)
+            }
+            _ => items(target, local),
+        };
         let menu = items
             .into_iter()
             .filter(|(command, _)| *command != Command::Revoke)
@@ -230,6 +231,20 @@ impl Shell {
             if self.session_action(action.command, &session, window, cx) {
                 return;
             }
+        }
+        if matches!(action.target, Target::Terminal(_))
+            && matches!(action.command, Command::Pin | Command::Unpin)
+        {
+            if let Some((id, pinned)) = action.terminal_pin(&snapshot) {
+                let mut state = crate::preferences::pins::get(action.node, id, cx);
+                state.pinned = pinned;
+                crate::preferences::pins::set(action.node, id, state, cx);
+                if let Some(error) = cx.global::<crate::preferences::Preferences>().error {
+                    crate::feedback::toast(window, tr(error), Notification::error(tr(error)), cx);
+                }
+                cx.notify();
+            }
+            return;
         }
         if action.command == Command::Copy {
             let value = match action.target {

@@ -1,3 +1,4 @@
+mod details;
 mod groups;
 mod limits;
 mod order;
@@ -6,7 +7,6 @@ mod projects;
 mod recent;
 mod sessions;
 mod settings;
-mod title;
 pub(crate) mod tree;
 mod unassigned;
 
@@ -34,6 +34,7 @@ pub(crate) enum Row {
     Pinned,
     Unassigned,
     PinnedSession(sailry_protocol::SessionId),
+    PinnedTerminal(sailry_protocol::TerminalId),
     RecentSession(sailry_protocol::SessionId),
     RecentPreview(usize, usize),
     LiveProject(sailry_protocol::ProjectId),
@@ -387,6 +388,7 @@ impl Shell {
                 | Row::RecentSession(_)
                 | Row::RecentPreview(..)
                 | Row::PinnedSession(_)
+                | Row::PinnedTerminal(_)
         ) && !selected
             && !hovered;
         ListItem::new(id)

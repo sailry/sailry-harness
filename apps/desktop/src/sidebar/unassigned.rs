@@ -7,19 +7,17 @@ impl Shell {
             return div().into_any_element();
         };
         let empty = !live.view.snapshot.as_ref().is_some_and(|snapshot| {
-            snapshot.sessions.iter().any(|session| {
-                session.project.is_none()
-                    && tree::listed(
-                        session,
-                        crate::preferences::sessions::get(live.selected, session.id, cx).pinned,
-                    )
-            }) || snapshot.terminals.iter().any(|info| {
-                info.status != sailry_protocol::terminal::Status::Closed
-                    && snapshot
-                        .worktrees
-                        .iter()
-                        .any(|tree| Some(tree.id) == info.worktree && tree.project.is_none())
-            })
+            snapshot
+                .sessions
+                .iter()
+                .any(|session| session.project.is_none() && tree::listed(session))
+                || snapshot.terminals.iter().any(|info| {
+                    info.status != sailry_protocol::terminal::Status::Closed
+                        && snapshot
+                            .worktrees
+                            .iter()
+                            .any(|tree| Some(tree.id) == info.worktree && tree.project.is_none())
+                })
         });
         let node = live.selected;
         let open = !self.sidebar.unassigned_closed.contains(&node);
@@ -27,7 +25,7 @@ impl Shell {
             .open(open)
             .gap_0p5()
             .min_h_8()
-            .when(!open || empty, |group| group.flex_shrink_0())
+            .flex_shrink_0()
             .child(
                 h_flex()
                     .id("unassigned-sessions")
@@ -119,6 +117,7 @@ impl Shell {
                     .h_auto()
                     .max_h(rems(7.375))
                     .min_h_0()
+                    .flex_shrink_0()
                     .debug_selector(|| "sidebar-unassigned-viewport".into())
                     .child(
                         v_flex()

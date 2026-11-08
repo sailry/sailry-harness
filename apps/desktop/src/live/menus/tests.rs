@@ -31,3 +31,17 @@ fn limits_host_actions() {
             .contains(&(Command::Delete, "session_delete"))
     );
 }
+
+#[test]
+fn terminal_pin_action_matches_state() {
+    for pinned in [false, true] {
+        let actions = terminal::items(pinned);
+        assert!(actions.contains(&(Command::Open, "workspace_open_terminal")));
+        assert!(actions.contains(&(Command::Close, "workspace_close_terminal")));
+        assert_eq!(actions.contains(&(Command::Pin, "workspace_pin")), !pinned);
+        assert_eq!(
+            actions.contains(&(Command::Unpin, "workspace_unpin")),
+            pinned
+        );
+    }
+}

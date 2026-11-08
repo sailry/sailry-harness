@@ -51,7 +51,7 @@ impl Shell {
                             .sessions
                             .iter()
                             .filter(|(_, session)| {
-                                session.owner.project == id && !session.archived && !session.pinned
+                                session.owner.project == id && !session.archived
                             })
                             .collect();
                         sessions.sort_by_key(|(key, _)| std::cmp::Reverse(**key));

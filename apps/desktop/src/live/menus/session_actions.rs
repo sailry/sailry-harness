@@ -1,6 +1,6 @@
 //! Session context actions use captured identities and existing workflow owners.
 use super::*;
-use crate::preferences::sessions;
+use crate::preferences::pins;
 use sailry_protocol::Session;
 
 impl Shell {
@@ -12,7 +12,7 @@ impl Shell {
     ) -> NativeMenu {
         let live = self.live.as_ref().unwrap();
         let node = live.selected;
-        let state = sessions::get(node, session.id, cx);
+        let state = pins::get(node, session.id, cx);
         let busy = session.activity.run.as_ref().is_some_and(|run| {
             matches!(
                 run.status,
@@ -162,7 +162,7 @@ impl Shell {
         match command {
             Command::Rename => rename::open(Arc::new(live.client()), session, window, cx),
             Command::Pin | Command::Unpin | Command::MarkRead | Command::MarkUnread => {
-                let mut state = sessions::get(node, session.id, cx);
+                let mut state = pins::get(node, session.id, cx);
                 match command {
                     Command::Pin => state.pinned = true,
                     Command::Unpin => state.pinned = false,
@@ -174,7 +174,7 @@ impl Shell {
                     }
                     _ => unreachable!(),
                 }
-                sessions::set(node, session.id, state, cx);
+                pins::set(node, session.id, state, cx);
                 if let Some(error) = cx.global::<crate::preferences::Preferences>().error {
                     crate::feedback::toast(window, tr(error), Notification::error(tr(error)), cx);
                 }

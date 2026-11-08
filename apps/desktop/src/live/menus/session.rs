@@ -67,7 +67,7 @@ impl Shell {
     ) -> AnyElement {
         let id = session.id;
         let archived = session.archived;
-        let pinned = crate::preferences::sessions::get(node, id, cx).pinned;
+        let pinned = crate::preferences::pins::get(node, id, cx).pinned;
         let owner = cx.weak_entity();
         h_flex()
             .gap_0p5()
@@ -228,12 +228,7 @@ impl Change {
                     Ok(Ok(Output::SessionsRemoved(ids))) => Some(ids),
                     Ok(Ok(Output::Session(session))) => {
                         if session.archived {
-                            crate::preferences::sessions::set(
-                                node,
-                                session.id,
-                                Default::default(),
-                                cx,
-                            );
+                            crate::preferences::pins::set(node, session.id, Default::default(), cx);
                         }
                         if forking {
                             let _ = form.owner.update(cx, |shell, cx| {
@@ -273,7 +268,7 @@ impl Change {
                 };
                 if let Some(ids) = removed {
                     for id in &ids {
-                        crate::preferences::sessions::set(node, *id, Default::default(), cx);
+                        crate::preferences::pins::set(node, *id, Default::default(), cx);
                     }
                     let _ = form.owner.update(cx, |shell, cx| {
                         for id in ids {

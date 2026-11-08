@@ -59,6 +59,7 @@ gpui_kit::assets::icon_assets!(
         FolderOpen,
         Frame,
         GalleryVerticalEnd,
+        GitBranch,
         Github,
         Globe,
         HardDrive,
@@ -89,6 +90,8 @@ gpui_kit::assets::icon_assets!(
         PanelRightClose,
         PanelRightOpen,
         Pause,
+        Pin,
+        PinOff,
         Play,
         Plus,
         Redo,
@@ -630,7 +633,7 @@ mod tests {
                 "embedded_component_icons",
                 (|_scenario: &str| {
                     let paths = ComponentAssets.list("icons/").unwrap();
-                    assert_eq!(paths.len(), 106, "embedded component icons");
+                    assert_eq!(paths.len(), 109, "embedded component icons");
                     let names = Assets.list("icons/").unwrap();
                     for path in paths {
                         let bytes = ComponentAssets.load(&path).unwrap().unwrap();

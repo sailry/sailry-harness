@@ -1,2 +1,6 @@
 sidebar_sessions_more: "Mostrar más"
 sidebar_sessions_less: "Mostrar menos"
+sidebar_age_seconds: "%{count}s"
+sidebar_age_minutes: "%{count}m"
+sidebar_age_hours: "%{count}h"
+sidebar_age_days: "%{count}d"

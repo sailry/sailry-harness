@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 pub(crate) mod artifacts;
 mod composer;
 mod dictation;
+pub(crate) mod pins;
 pub(crate) mod plugins;
-pub(crate) mod sessions;
 pub(crate) use composer::{Composer, Model};
 pub(crate) use dictation::{Dictation, Language};
 use std::{
@@ -37,7 +37,8 @@ pub(crate) struct Data {
     pub surfaces: Option<Surfaces>,
     pub shortcuts: Option<std::collections::BTreeMap<String, String>>,
     pub dictation: Option<Dictation>,
-    pub sessions: Option<std::collections::BTreeMap<String, sessions::State>>,
+    #[serde(alias = "sessions")]
+    pub pins: Option<std::collections::BTreeMap<String, pins::State>>,
     pub artifact_drafts: Option<std::collections::BTreeMap<String, artifacts::Draft>>,
     pub plugin_directories: Option<std::collections::BTreeMap<String, plugins::Directory>>,
     pub message_display: Option<MessageDisplay>,
@@ -132,7 +133,7 @@ impl Default for Data {
             surfaces: None,
             shortcuts: None,
             dictation: None,
-            sessions: None,
+            pins: None,
             plugin_directories: None,
             artifact_drafts: None,
             message_display: None,
@@ -198,7 +199,7 @@ pub(crate) struct Preferences {
     path: Option<PathBuf>,
     readable: bool,
     pub error: Option<&'static str>,
-    session_cursors: std::collections::BTreeMap<sailry_protocol::NodeId, u64>,
+    pin_cursors: std::collections::BTreeMap<sailry_protocol::NodeId, u64>,
 }
 impl Global for Preferences {}
 
@@ -251,7 +252,7 @@ impl Preferences {
                 path: Some(path),
                 readable: true,
                 error: None,
-                session_cursors: Default::default(),
+                pin_cursors: Default::default(),
             },
             Err(error) => {
                 eprintln!("could not read desktop preferences: {error}");
@@ -260,7 +261,7 @@ impl Preferences {
                     path: Some(path),
                     readable: false,
                     error: Some("preferences_read_failed"),
-                    session_cursors: Default::default(),
+                    pin_cursors: Default::default(),
                 }
             }
         }

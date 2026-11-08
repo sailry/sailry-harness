@@ -1,7 +1,7 @@
 use super::*;
-use crate::preferences::sessions::State;
+use crate::preferences::pins::{State, Target};
 use core::prelude::v1::test;
-use sailry_protocol::{ProjectId, ProviderId, WorktreeId};
+use sailry_protocol::{ProjectId, ProviderId, SessionId, TerminalId, WorktreeId};
 
 fn session(created: u64, timestamp: i64) -> Session {
     let id = SessionId::new();
@@ -39,18 +39,19 @@ fn combines_pins_and_selected_host_activity() {
     let rows = compose(
         node,
         &sessions,
+        [],
         vec![
             (node, second.clone()),
             (node, running.clone()),
             (other, foreign),
         ],
         |id| {
-            if id == first.id {
+            if id == Target::Session(first.id) {
                 State {
                     pinned: true,
                     order: Some(2),
                 }
-            } else if id == second.id {
+            } else if id == Target::Session(second.id) {
                 State {
                     pinned: true,
                     order: Some(1),
@@ -61,8 +62,8 @@ fn combines_pins_and_selected_host_activity() {
         },
     );
     assert_eq!(
-        rows.iter().map(|session| session.id).collect::<Vec<_>>(),
-        [second.id, first.id, running.id]
+        rows.iter().map(Entry::target).collect::<Vec<_>>(),
+        [second.id, first.id, running.id].map(Target::Session)
     );
 }
 
@@ -74,39 +75,99 @@ fn orders_legacy_pins_before_new_pins() {
     let rows = compose(
         NodeId([1; 32]),
         &[older.clone(), appended.clone(), newer.clone()],
+        [],
         vec![],
         |id| State {
             pinned: true,
-            order: (id == appended.id).then_some(0),
+            order: (id == Target::Session(appended.id)).then_some(0),
         },
     );
     assert_eq!(
-        rows.iter().map(|session| session.id).collect::<Vec<_>>(),
-        [newer.id, older.id, appended.id]
+        rows.iter().map(Entry::target).collect::<Vec<_>>(),
+        [newer.id, older.id, appended.id].map(Target::Session)
     );
 }
 
 #[test]
 fn hides_empty_and_archived_entries() {
     let node = NodeId([1; 32]);
-    assert!(compose(node, &[], vec![], |_| State::default()).is_empty());
+    assert!(compose(node, &[], [], vec![], |_| State::default()).is_empty());
     let mut archived = session(1, 1);
     archived.archived = true;
     assert!(
-        compose(node, &[archived], vec![], |_| State {
-            pinned: true,
-            order: None
+        compose(node, &[archived], [], vec![], |_| {
+            State {
+                pinned: true,
+                order: None,
+            }
         })
         .is_empty()
     );
 }
 
 #[test]
-fn excludes_pins_from_resource_lists() {
+fn retains_pins_in_resource_lists() {
+    let node = NodeId([1; 32]);
     let mut session = session(1, 1);
     for project in [None, Some(ProjectId::new())] {
         session.project = project;
-        assert!(super::super::tree::listed(&session, false));
-        assert!(!super::super::tree::listed(&session, true));
+        let rows = compose(node, std::slice::from_ref(&session), [], vec![], |_| {
+            State {
+                pinned: true,
+                order: Some(0),
+            }
+        });
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].target(), Target::Session(session.id));
+        assert!(super::super::tree::listed(&session));
     }
+}
+
+#[test]
+fn interleaves_terminal_and_session_pins() {
+    let node = NodeId([1; 32]);
+    let first = session(1, 10);
+    let last = session(2, 20);
+    let active = session(3, 30);
+    let terminal = Info {
+        id: TerminalId::new(),
+        worktree: Some(first.worktree),
+        ssh: None,
+        tool: None,
+        access: None,
+        status: Status::Running,
+        activity: None,
+        title: Some("Fixture".into()),
+        directory: None,
+        owner: Some(node),
+        revision: 1,
+    };
+    let mut closed = terminal.clone();
+    closed.id = TerminalId::new();
+    closed.status = Status::Closed;
+    let mut unpinned = terminal.clone();
+    unpinned.id = TerminalId::new();
+    let order = [
+        Target::Session(first.id),
+        Target::Terminal(terminal.id),
+        Target::Session(last.id),
+        Target::Terminal(closed.id),
+    ];
+    let rows = compose(
+        node,
+        &[last, first.clone()],
+        [(None, &terminal), (None, &closed), (None, &unpinned)],
+        vec![(node, active.clone()), (node, first)],
+        |target| {
+            let order = order.iter().position(|candidate| *candidate == target);
+            State {
+                pinned: order.is_some(),
+                order: order.map(|order| order as u64),
+            }
+        },
+    );
+    assert_eq!(
+        rows.iter().map(Entry::target).collect::<Vec<_>>(),
+        [order[0], order[1], order[2], active.id.into()]
+    );
 }

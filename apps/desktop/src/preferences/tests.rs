@@ -300,34 +300,31 @@ fn session_pinning(cx: &mut gpui_kit::TestAppContext) {
     let session = sailry_protocol::SessionId::new();
     cx.update(|cx| {
         cx.set_global(Preferences::open(path.clone()));
-        sessions::set(
+        pins::set(
             first,
             session,
-            sessions::State {
+            pins::State {
                 pinned: true,
                 order: None,
             },
             cx,
         );
-        assert_eq!(
-            sessions::get(second, session, cx),
-            sessions::State::default()
-        );
+        assert_eq!(pins::get(second, session, cx), pins::State::default());
         cx.set_global(Preferences::open(path));
         assert_eq!(
-            sessions::get(first, session, cx),
-            sessions::State {
+            pins::get(first, session, cx),
+            pins::State {
                 pinned: true,
                 order: Some(0)
             }
         );
-        sessions::set(first, session, sessions::get(first, session, cx), cx);
-        assert!(sessions::get(first, session, cx).pinned);
-        sessions::set(first, session, sessions::State::default(), cx);
+        pins::set(first, session, pins::get(first, session, cx), cx);
+        assert!(pins::get(first, session, cx).pinned);
+        pins::set(first, session, pins::State::default(), cx);
         assert!(
             cx.global::<Preferences>()
                 .data
-                .sessions
+                .pins
                 .as_ref()
                 .unwrap()
                 .is_empty()

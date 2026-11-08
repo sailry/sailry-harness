@@ -111,6 +111,20 @@ async fn closes_without_opening_or_claiming() {
             Some(NodeId(*mobile.handle().address().id.as_bytes()))
         );
         let before = snapshot(&client).await;
+        let mut pin = Dispatch {
+            node: node.id(),
+            target: Target::Terminal(info.id),
+            command: Command::Pin,
+        };
+        assert_eq!(pin.terminal_pin(&before), Some((info.id, true)));
+        pin.command = Command::Unpin;
+        assert_eq!(pin.terminal_pin(&before), Some((info.id, false)));
+        pin.node = NodeId([99; 32]);
+        assert!(pin.terminal_pin(&before).is_none());
+        pin.node = node.id();
+        pin.target = Target::Terminal(TerminalId::new());
+        assert!(pin.terminal_pin(&before).is_none());
+        pin.target = Target::Terminal(info.id);
         let action = Dispatch {
             node: node.id(),
             target: Target::Terminal(info.id),
@@ -145,6 +159,7 @@ async fn closes_without_opening_or_claiming() {
         );
         assert_eq!(client.execute(request).await.unwrap(), closed);
         let after = snapshot(&client).await;
+        assert!(pin.terminal_pin(&after).is_none());
         assert!(action.terminal_close(&after).is_none());
         assert_eq!(
             after

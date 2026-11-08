@@ -1,7 +1,8 @@
-//! Session rows keep inline location metadata, navigation and menus on the Kit ListItem.
-//! Hover metadata restores f4d8317d's layout, removed in 3db2cc5f, alongside current status rows.
+//! Session rows keep navigation and actions on Kit controls with rich hover details.
 use super::*;
+use crate::live::menus;
 use crate::shell::session_scope::Key;
+use gpui_kit::component::hover_card::HoverCard;
 use sailry_link::CancellationToken;
 use sailry_protocol::{Command, Output, SessionId};
 
@@ -128,15 +129,13 @@ impl Shell {
         let indicators = !matches!(placement, Placement::Recent { .. });
         let node = live.selected;
         let hovered = self.sidebar.hovered == Some(row_key);
-        let preference = crate::preferences::sessions::get(node, id, cx);
+        let preference = crate::preferences::pins::get(node, id, cx);
         let project = (pinned && preference.pinned && session.project.is_some())
             .then(|| self.session_project_name(node, &session));
         let unread = indicators && session.activity.attention.unread;
         let activity = self.session_lane(node, &session);
         let running = indicators && activity == sailry_client::activity::Lane::Running;
         let waiting = indicators && activity == sailry_client::activity::Lane::Waiting;
-        // Idle rows show when they last ran; hover swaps in the branch and busy rows
-        // keep only the status on their branch elbow.
         let busy = matches!(
             activity,
             sailry_client::activity::Lane::Running | sailry_client::activity::Lane::Waiting
@@ -145,9 +144,9 @@ impl Shell {
             .activity
             .run
             .as_ref()
-            .filter(|_| !busy && !hovered)
+            .filter(|_| !busy)
             .and_then(|run| run.finished_ms.or(run.started_ms))
-            .map(|timestamp| age(chrono::Utc::now().timestamp_millis() - timestamp, timestamp));
+            .map(|timestamp| age(chrono::Utc::now().timestamp_millis() - timestamp));
         let worktree = indicators
             && session.project.is_some()
             && live.view.snapshot.as_ref().is_some_and(|snapshot| {
@@ -162,6 +161,21 @@ impl Shell {
             .branches
             .get(&(node, session.worktree))
             .and_then(|branch| branch.label.clone());
+        let details = super::details::Details {
+            title: title.clone(),
+            project: session
+                .project
+                .map(|_| self.session_project_name(node, &session)),
+            branch,
+            path: self.activity_snapshot(node).and_then(|snapshot| {
+                snapshot
+                    .worktrees
+                    .iter()
+                    .find(|tree| tree.id == session.worktree)
+                    .map(|tree| tree.path.clone().into())
+            }),
+            host: live.name(node),
+        };
         let status = if running {
             Some((
                 crate::ui::loading::small()
@@ -214,6 +228,8 @@ impl Shell {
                 cx,
             )
             .accessibility_label(accessible)
+            .h_7()
+            .flex_shrink_0()
             .pl(entry.map_or(px(30.), |entry| entry.indent()))
             .child(guides)
             .when(running, |row| row.text_color(cx.theme().sidebar_foreground))
@@ -272,19 +288,15 @@ impl Shell {
                             .into_any_element(),
                         )
                     })
-                    .child(super::title::Title::new(
-                        format!("{prefix}-{id}-label"),
-                        title,
-                        hovered,
-                    ))
-                    .when(indicators && preference.pinned, |row| {
-                        row.child(
-                            Icon::new(IconName::Star)
-                                .small()
-                                .text_color(cx.theme().muted_foreground),
-                        )
-                    })
-                    .when_some(project, |row, project| {
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .debug_selector(move || format!("{prefix}-{id}-label"))
+                            .child(title),
+                    )
+                    .when_some(project.filter(|_| !hovered), |row, project| {
                         row.child(
                             div()
                                 .min_w_0()
@@ -294,9 +306,6 @@ impl Shell {
                                 .text_color(cx.theme().muted_foreground)
                                 .child(project),
                         )
-                    })
-                    .when_some(branch.filter(|_| hovered), |row, branch| {
-                        row.child(super::location(format!("{prefix}-{id}-branch"), branch, cx))
                     })
                     .when(worktree, |row| {
                         row.child(
@@ -308,6 +317,46 @@ impl Shell {
                                         .size_4()
                                         .text_color(cx.theme().muted_foreground),
                                 ),
+                        )
+                    })
+                    .when(hovered && session.delegation.is_none(), |row| {
+                        row.child(
+                            h_flex()
+                                .flex_shrink_0()
+                                .gap_0p5()
+                                .child(
+                                    Button::new(format!("{prefix}-{id}-pin"))
+                                        .text()
+                                        .xsmall()
+                                        .size_5()
+                                        .icon(if preference.pinned {
+                                            gpui_kit::assets::IconName::PinOff
+                                        } else {
+                                            gpui_kit::assets::IconName::Pin
+                                        })
+                                        .accessibility_label(tr(if preference.pinned {
+                                            "workspace_unpin"
+                                        } else {
+                                            "workspace_pin"
+                                        }))
+                                        .on_click(cx.listener(move |shell, _, window, cx| {
+                                            cx.stop_propagation();
+                                            shell.live_resource_action(
+                                                &menus::Dispatch {
+                                                    node,
+                                                    target: menus::Target::Session(id),
+                                                    command: if preference.pinned {
+                                                        menus::Command::Unpin
+                                                    } else {
+                                                        menus::Command::Pin
+                                                    },
+                                                },
+                                                window,
+                                                cx,
+                                            );
+                                        })),
+                                )
+                                .child(self.live_session_archive(node, &session, cx)),
                         )
                     })
                     .when_some(age, |row, age| {
@@ -327,7 +376,7 @@ impl Shell {
         } else {
             row
         };
-        row.on_click(cx.listener(move |shell, _, window, cx| {
+        let row = row.on_click(cx.listener(move |shell, _, window, cx| {
             if pinned && !preference.pinned {
                 shell.open_activity(
                     node,
@@ -338,33 +387,23 @@ impl Shell {
             } else {
                 shell.reveal_session(session.clone(), window, cx);
             }
-        }))
-        .into_any_element()
+        }));
+        HoverCard::new(format!("{prefix}-{id}-details"))
+            .anchor(Anchor::LeftCenter)
+            .trigger_style(StyleRefinement::default().w_full().flex_shrink_0())
+            .trigger(row)
+            .content(move |_, window, cx| details.render(window, cx))
+            .into_any_element()
     }
 }
 
-/// Relative age within a week, then the local date of the last run.
-fn age(elapsed_ms: i64, timestamp_ms: i64) -> SharedString {
+fn age(elapsed_ms: i64) -> SharedString {
     let seconds = (elapsed_ms.max(0) / 1000) as u64;
-    if seconds < 60 {
-        return tr("notifications_time_now");
-    }
     let (key, count) = match seconds {
-        60..3600 => ("notifications_time_minutes", seconds / 60),
-        3600..86_400 => ("notifications_time_hours", seconds / 3600),
-        86_400..604_800 => ("notifications_time_days", seconds / 86_400),
-        _ => {
-            use chrono::{Datelike, TimeZone};
-            let Some(date) = chrono::Local.timestamp_millis_opt(timestamp_ms).single() else {
-                return SharedString::default();
-            };
-            let format = if date.year() == chrono::Local::now().year() {
-                "%m-%d"
-            } else {
-                "%Y-%m-%d"
-            };
-            return date.format(format).to_string().into();
-        }
+        0..60 => ("sidebar_age_seconds", seconds),
+        60..3600 => ("sidebar_age_minutes", seconds / 60),
+        3600..86_400 => ("sidebar_age_hours", seconds / 3600),
+        _ => ("sidebar_age_days", seconds / 86_400),
     };
     rust_i18n::t!(key, count = count).to_string().into()
 }
@@ -373,65 +412,25 @@ fn age(elapsed_ms: i64, timestamp_ms: i64) -> SharedString {
 mod tests {
     #[test]
     fn duration_labels() {
-        for (scenario, check) in [
-            (
-                "formats_unit_boundaries",
-                (|_scenario: &str| {
-                    let now = chrono::Utc::now().timestamp_millis();
-                    for elapsed_ms in [-1000, 0, 59_999] {
-                        assert_eq!(
-                            super::age(elapsed_ms, now).as_ref(),
-                            crate::tr("notifications_time_now").as_ref(),
-                            "formats unit boundaries"
-                        );
-                    }
-                    for (elapsed_ms, key, count) in [
-                        (60_000, "notifications_time_minutes", 1u64),
-                        (3_599_999, "notifications_time_minutes", 59),
-                        (3_600_000, "notifications_time_hours", 1),
-                        (86_399_999, "notifications_time_hours", 23),
-                        (86_400_000, "notifications_time_days", 1),
-                        (604_799_999, "notifications_time_days", 6),
-                    ] {
-                        assert_eq!(
-                            super::age(elapsed_ms, now).as_ref(),
-                            rust_i18n::t!(key, count = count).as_ref(),
-                            "formats unit boundaries: elapsed_ms={elapsed_ms}"
-                        );
-                    }
-                    let date = super::age(604_800_000, now - 604_800_000);
-                    assert!(!date.is_empty(), "formats unit boundaries");
-                    assert!(
-                        date.chars()
-                            .all(|char| char.is_ascii_digit() || char == '-'),
-                        "formats unit boundaries: {date}"
-                    );
-                }) as fn(&str),
-            ),
-            (
-                "formats_recent_age",
-                (|_scenario: &str| {
-                    let now = chrono::Utc::now().timestamp_millis();
-                    assert_eq!(
-                        super::age(30_000, now).as_ref(),
-                        crate::tr("notifications_time_now").as_ref(),
-                        "formats recent age"
-                    );
-                    assert_eq!(
-                        super::age(5 * 60_000, now).as_ref(),
-                        rust_i18n::t!("notifications_time_minutes", count = 5u64).as_ref(),
-                        "formats recent age"
-                    );
-                    let old = super::age(30 * 86_400_000, now - 30 * 86_400_000);
-                    assert!(
-                        old.chars().all(|char| char.is_ascii_digit() || char == '-'),
-                        "formats recent age: {old}"
-                    );
-                }),
-            ),
+        for (elapsed_ms, expected) in [
+            (-1000, "0s"),
+            (0, "0s"),
+            (999, "0s"),
+            (1000, "1s"),
+            (59_999, "59s"),
+            (60_000, "1m"),
+            (300_000, "5m"),
+            (3_599_999, "59m"),
+            (3_600_000, "1h"),
+            (72_000_000, "20h"),
+            (86_399_999, "23h"),
+            (86_400_000, "1d"),
+            (604_799_999, "6d"),
+            (604_800_000, "7d"),
+            (950_400_000, "11d"),
+            (2_592_000_000, "30d"),
         ] {
-            eprintln!("case: {scenario}");
-            check(scenario);
+            assert_eq!(super::age(elapsed_ms).as_ref(), expected, "{elapsed_ms}");
         }
     }
 }

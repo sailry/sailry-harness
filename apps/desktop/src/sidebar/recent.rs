@@ -72,12 +72,11 @@ impl Shell {
                 .collect()
         };
         let empty = rows.is_empty();
-        let height = px((32 + rows.len().max(1) * 30).min(220) as f32);
         let open = self.sidebar.recent_open;
         Collapsible::new()
             .open(open)
             .min_h_8()
-            .when(open, |group| group.max_h(height))
+            .when(open, |group| group.flex_1().min_h_16())
             .when(!open, |group| group.flex_shrink_0())
             .child(
                 gpui_kit::base::AccordionTrigger::new("recent-toggle")
@@ -127,7 +126,7 @@ impl Shell {
                 v_flex()
                     .id("sidebar-recent")
                     .relative()
-                    .h_auto()
+                    .flex_1()
                     .min_h_0()
                     .debug_selector(|| "sidebar-recent-viewport".into())
                     .child(

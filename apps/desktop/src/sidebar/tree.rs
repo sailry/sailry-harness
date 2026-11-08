@@ -13,12 +13,11 @@ pub(crate) struct Entry {
     pub ancestors: Vec<bool>,
 }
 
-pub(super) fn listed(session: &sailry_protocol::Session, pinned: bool) -> bool {
+pub(super) fn listed(session: &sailry_protocol::Session) -> bool {
     session.config.resource.is_none()
         && (session.project.is_some() || session.config.assistant.is_none())
         && session.delegation.is_none()
         && !session.archived
-        && !pinned
 }
 
 impl Entry {
@@ -239,11 +238,7 @@ impl Shell {
             .sessions
             .iter()
             .filter_map(|session| {
-                listed(
-                    session,
-                    crate::preferences::sessions::get(node, session.id, cx).pinned,
-                )
-                .then_some((
+                listed(session).then_some((
                     Target::Session(node, session.id),
                     session.project,
                     session,
@@ -386,11 +381,6 @@ impl Shell {
                                 .iter()
                                 .find(|(target, _, _)| *target == row.target)
                                 .unwrap();
-                            let index = terminals
-                                .iter()
-                                .filter(|(_, project, _)| project == owner)
-                                .position(|(target, _, _)| *target == row.target)
-                                .unwrap();
                             if row.folder {
                                 self.split_folder(
                                     row,
@@ -398,7 +388,12 @@ impl Shell {
                                     cx,
                                 )
                             } else {
-                                self.live_terminal_row(*owner, index, info, row, cx)
+                                self.live_terminal_row(
+                                    *owner,
+                                    info,
+                                    crate::live::terminal::Placement::Project(row),
+                                    cx,
+                                )
                             }
                         }
                         Target::Draft => unreachable!(),
