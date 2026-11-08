@@ -8,7 +8,12 @@ use std::{
     sync::{Arc, OnceLock, Weak},
     time::Duration,
 };
-use tokio::{io::AsyncReadExt, sync::Mutex};
+use tokio::{
+    io::{AsyncBufReadExt, AsyncReadExt, BufReader},
+    sync::Mutex,
+};
+
+mod style;
 
 const DEADLINE: Duration = Duration::from_secs(10);
 const MAX_BYTES: u64 = 64 * 1024;
@@ -31,6 +36,7 @@ struct Home {
     package: String,
     invocation: Invocation,
     session: Option<String>,
+    ready: bool,
     collected: bool,
 }
 
@@ -100,84 +106,105 @@ impl Overlay {
         path: PathBuf,
         invocation: Invocation,
     ) -> Option<String> {
-        let operation = async {
-            let mut state = self.state.lock().await;
-            if state.closed {
-                return None;
-            }
-            let current = match self.ingress.get() {
-                Some(ingress) => match ingress.upgrade() {
-                    Some(ingress) => Some(
-                        ingress
-                            .mcp_resources(Some(package.into()))
-                            .await
+        let Ok(mut state) = tokio::time::timeout(DEADLINE, self.state.lock()).await else {
+            report("lock", Some("TIMEOUT"));
+            return None;
+        };
+        if state.closed {
+            return None;
+        }
+        let current = match self.ingress.get() {
+            Some(ingress) => match ingress.upgrade() {
+                Some(ingress) => match tokio::time::timeout(
+                    DEADLINE,
+                    ingress.mcp_resources(Some(package.into())),
+                )
+                .await
+                {
+                    Ok(resources) => Some(
+                        resources
                             .map(|resources| resources.allows_overlay(package))
                             .unwrap_or(false),
                     ),
-                    None => Some(false),
+                    Err(_) => {
+                        report("resources", Some("TIMEOUT"));
+                        return None;
+                    }
                 },
-                None => None,
-            };
-            if !current.unwrap_or(enabled && state.allowed.get(package) != Some(&false)) {
-                if let Some(home) = state.homes.get_mut(&path) {
-                    home.end().await;
-                }
+                None => Some(false),
+            },
+            None => None,
+        };
+        if !current.unwrap_or(enabled && state.allowed.get(package) != Some(&false)) {
+            if let Some(home) = state.homes.get_mut(&path) {
+                home.end().await;
+            }
+            return None;
+        }
+        state.allowed.entry(package.into()).or_insert(true);
+        let home = match state.homes.entry(path.clone()) {
+            std::collections::btree_map::Entry::Occupied(entry) => {
+                let home = entry.into_mut();
+                home.invocation = invocation;
+                home
+            }
+            std::collections::btree_map::Entry::Vacant(entry) => entry.insert(Home {
+                package: package.into(),
+                invocation,
+                session: None,
+                ready: false,
+                collected: false,
+            }),
+        };
+        if home.session.is_some() && !home.ready {
+            home.end().await;
+            if home.session.is_some() {
                 return None;
             }
-            state.allowed.entry(package.into()).or_insert(true);
-            let home = match state.homes.entry(path.clone()) {
-                std::collections::btree_map::Entry::Occupied(entry) => {
-                    let home = entry.into_mut();
-                    home.invocation = invocation;
-                    home
-                }
-                std::collections::btree_map::Entry::Vacant(entry) => entry.insert(Home {
-                    package: package.into(),
-                    invocation,
-                    session: None,
-                    collected: false,
-                }),
-            };
-            if let Some(session) = &home.session
-                && active(&path, session).await
-            {
-                return Some(session.clone());
-            }
-            home.session = None;
-            if !home.collected {
-                home.collected = true;
-                if let Err(code) = home.invocation.run(&["session", "gc", "--ended"]).await {
-                    report("gc", Some(&code));
+        }
+        if let Some(session) = &home.session {
+            match tokio::time::timeout(DEADLINE, active(&path, session)).await {
+                Ok(true) => return Some(session.clone()),
+                Ok(false) => {}
+                Err(_) => {
+                    report("manifest", Some("TIMEOUT"));
+                    return None;
                 }
             }
-            match home
-                .invocation
-                .run(&[
-                    "session",
-                    "start",
-                    "--cursor",
-                    "--no-trace",
-                    "--name",
-                    "sailry",
-                ])
-                .await
-                .and_then(session_id)
-            {
-                Ok(session) => {
-                    home.session = Some(session.clone());
-                    report("start", None);
-                    Some(session)
-                }
-                Err(code) => {
-                    report("start", Some(&code));
-                    None
-                }
+        }
+        home.session = None;
+        home.ready = false;
+        if !home.collected {
+            home.collected = true;
+            if let Err(code) = home.invocation.run(&["session", "gc", "--ended"]).await {
+                report("gc", Some(&code));
             }
-        };
-        match tokio::time::timeout(DEADLINE, operation).await {
-            Ok(session) => session,
-            Err(_) => {
-                report("start", Some("TIMEOUT"));
+        }
+        match home
+            .invocation
+            .run(&["session", "start", "--no-trace", "--name", "sailry"])
+            .await
+            .and_then(session_id)
+        {
+            Ok(session) => {
+                home.session = Some(session.clone());
+                if let Err(code) = tokio::time::timeout(DEADLINE, style::configure(&path, &session))
+                    .await
+                    .unwrap_or_else(|_| Err("TIMEOUT".into()))
+                {
+                    report("configure", Some(&code));
+                    home.end().await;
+                    return None;
+                }
+                home.ready = true;
+                report("start", None);
+                Some(session)
+            }
+            Err(code) => {
+                report("start", Some(&code));
+                if code == "TIMEOUT" {
+                    home.sweep().await;
+                }
                 None
             }
         }
@@ -214,11 +241,40 @@ impl Overlay {
 }
 
 impl Home {
+    async fn sweep(&self) {
+        let sessions = match self.invocation.run(&["session", "list"]).await {
+            Ok(data) => data,
+            Err(code) => {
+                report("list", Some(&code));
+                return;
+            }
+        };
+        for session in sessions["sessions"].as_array().into_iter().flatten() {
+            if session["name"] != "sailry"
+                || session
+                    .get("ended_at")
+                    .is_some_and(|ended| !ended.is_null())
+            {
+                continue;
+            }
+            let Ok(id) = session_id(session.clone()) else {
+                continue;
+            };
+            if self.session.as_ref() != Some(&id) {
+                match self.invocation.run(&["session", "end", &id]).await {
+                    Ok(_) => report("orphan_end", None),
+                    Err(code) => report("orphan_end", Some(&code)),
+                }
+            }
+        }
+    }
+
     async fn end(&mut self) {
         if let Some(session) = &self.session {
             match self.invocation.run(&["session", "end", session]).await {
                 Ok(_) => {
                     self.session = None;
+                    self.ready = false;
                     report("end", None);
                 }
                 Err(code) => report("end", Some(&code)),
@@ -245,12 +301,9 @@ impl Invocation {
         let mut child = command.spawn().map_err(|_| "SPAWN".to_owned())?;
         let output = async {
             let mut bytes = Vec::new();
-            child
-                .stdout
-                .take()
-                .ok_or("OUTPUT")?
-                .take(MAX_BYTES + 1)
-                .read_to_end(&mut bytes)
+            let stdout = child.stdout.take().ok_or("OUTPUT")?;
+            BufReader::new(stdout.take(MAX_BYTES + 1))
+                .read_until(b'\n', &mut bytes)
                 .await
                 .map_err(|_| "OUTPUT")?;
             if bytes.len() as u64 > MAX_BYTES {
@@ -276,7 +329,10 @@ impl Invocation {
         };
         match tokio::time::timeout(DEADLINE, output).await {
             Ok(result) => result,
-            Err(_) => Err("TIMEOUT".into()),
+            Err(_) => {
+                let _ = child.kill().await;
+                Err("TIMEOUT".into())
+            }
         }
     }
 }
@@ -296,11 +352,16 @@ fn session_id(data: Value) -> Result<String, String> {
 }
 
 async fn active(home: &Path, session: &str) -> bool {
-    let Ok(file) =
-        tokio::fs::File::open(home.join("sessions").join(session).join("session.json")).await
-    else {
-        return false;
-    };
+    manifest(home, session).await.is_some_and(|manifest| {
+        manifest.get("id").and_then(Value::as_str) == Some(session)
+            && manifest.get("ended_at").is_none_or(Value::is_null)
+    })
+}
+
+async fn manifest(home: &Path, session: &str) -> Option<Value> {
+    let file = tokio::fs::File::open(home.join("sessions").join(session).join("session.json"))
+        .await
+        .ok()?;
     let mut bytes = Vec::new();
     if file
         .take(MAX_BYTES + 1)
@@ -309,14 +370,9 @@ async fn active(home: &Path, session: &str) -> bool {
         .is_err()
         || bytes.len() as u64 > MAX_BYTES
     {
-        return false;
+        return None;
     }
-    serde_json::from_slice::<Value>(&bytes)
-        .ok()
-        .is_some_and(|manifest| {
-            manifest.get("id").and_then(Value::as_str) == Some(session)
-                && manifest.get("ended_at").is_none_or(Value::is_null)
-        })
+    serde_json::from_slice(&bytes).ok()
 }
 
 pub(crate) fn enabled(values: &BTreeMap<String, Value>) -> bool {

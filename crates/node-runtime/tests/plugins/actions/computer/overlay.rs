@@ -27,14 +27,14 @@ async fn retains_and_releases_cursor_sessions() {
 printf '%s|%s\n' "$*" "$AGENT_DESKTOP_SESSION" >> "$home/calls"
 case "$*" in
   'session gc --ended') printf '{"ok":true,"data":{"removed":[]}}' ;;
-  'session start --cursor --no-trace --name sailry')
+  'session start --no-trace --name sailry')
     count="$(cat "$home/count" 2>/dev/null || printf 0)"
     count=$((count + 1))
     printf '%s' "$count" > "$home/count"
     session="run-fixture-$count"
     mkdir -p "$home/sessions/$session"
     printf '{"id":"%s","ended_at":null}' "$session" > "$home/sessions/$session/session.json"
-    printf '{"ok":true,"data":{"session_id":"%s","rendered":true,"trace":"off"}}' "$session" ;;
+    printf '{"ok":true,"data":{"session_id":"%s","trace":"off"}}' "$session" ;;
   'session end '*)
     printf '{"id":"%s","ended_at":1}' "$3" > "$home/sessions/$3/session.json"
     printf '{"ok":true,"data":{}}' ;;
@@ -211,6 +211,29 @@ async fn ended(home: &Path, session: &str) {
 fn stdio_peer() {
     use std::io::BufRead;
     assert!(std::env::var_os("AGENT_DESKTOP_HOME").is_some());
+    if let Ok(session) = std::env::var("AGENT_DESKTOP_SESSION") {
+        let home = std::env::var("AGENT_DESKTOP_HOME").unwrap();
+        let path = Path::new(&home)
+            .join("sessions")
+            .join(session)
+            .join("session.json");
+        let manifest: Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+        let overlay = &manifest["cursor_overlay"];
+        assert_eq!(overlay["enabled"], true);
+        assert!(overlay.get("label").is_none());
+        assert!(overlay.get("multi_agent").is_none());
+        #[cfg(target_os = "macos")]
+        {
+            let image = &overlay["style"]["images"]["arrow"];
+            assert!(Path::new(image["path"].as_str().unwrap()).is_file());
+            assert_eq!(image["hotspot"], json!({"x": 16, "y": 16}));
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            assert_eq!(overlay["style"]["size"], 0.75);
+            assert!(overlay["style"].get("images").is_none());
+        }
+    }
     println!();
     for line in std::io::stdin().lock().lines() {
         let Ok(line) = line else { break };
