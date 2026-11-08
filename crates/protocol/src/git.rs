@@ -246,6 +246,8 @@ pub struct GitLogCursor {
     /// Immutable traversal root; continuation does not follow a moving HEAD.
     pub head: String,
     pub after: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

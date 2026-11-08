@@ -7,9 +7,6 @@ use sailry_protocol::*;
 
 use super::{Control, diff, fault, open};
 
-mod pages;
-pub(super) use pages::Pages;
-
 pub(super) fn log(
     root: &Path,
     limit: usize,
@@ -17,7 +14,6 @@ pub(super) fn log(
     revision: Option<&str>,
     path: Option<&str>,
     control: &Control,
-    pages: &Pages,
 ) -> Result<GitLog, Fault> {
     if limit == 0 {
         return Err(Fault::invalid("Git history limit must be positive"));
@@ -27,6 +23,9 @@ pub(super) fn log(
     let after = cursor.map(|cursor| commit_id(&cursor.after)).transpose()?;
     if let Some(path) = path {
         super::valid_path(path)?;
+    }
+    if cursor.is_some_and(|cursor| cursor.path.as_deref() != path) {
+        return Err(Fault::invalid("Git history cursor belongs to another path"));
     }
     if revision.is_some_and(|revision| {
         revision.is_empty() || revision.len() > 1024 || revision.chars().any(char::is_control)
@@ -64,58 +63,51 @@ pub(super) fn log(
         }
     };
     let (references, references_truncated) = references(&repository, control)?;
-    let retained = pages.get(root, head, path)?;
-    let capture = if let Some(capture) = retained {
-        capture
-    } else if cursor.is_some() {
-        return Err(Fault::new(
-            ErrorCode::Conflict,
-            "Git history cursor expired; reload history",
-        ));
-    } else {
-        let mut walk = repository.revwalk().map_err(fault)?;
-        walk.set_sorting(Sort::TIME).map_err(fault)?;
-        walk.push(head).map_err(fault)?;
-        let mut commits = Vec::new();
-        for oid in walk {
-            control.check()?;
-            let oid = oid.map_err(fault)?;
-            if path
-                .map(|path| touches(&repository, oid, path))
-                .transpose()?
-                .unwrap_or(true)
-            {
-                commits.push(oid);
-            }
-        }
-        pages.insert(root, head, path, commits)?
-    };
-    let offset = match after {
-        Some(after) => {
-            capture
-                .commits
-                .iter()
-                .position(|oid| *oid == after)
-                .ok_or_else(|| Fault::invalid("Git history cursor does not match the traversal"))?
-                + 1
-        }
-        None => 0,
-    };
+    let mut walk = repository.revwalk().map_err(fault)?;
+    walk.set_sorting(Sort::TIME).map_err(fault)?;
+    walk.push(head).map_err(fault)?;
+    let mut offset = 0;
+    let mut resumed = after.is_none();
+    let mut truncated = false;
     let mut entries = Vec::with_capacity(page_limit);
-    for oid in capture.commits.iter().skip(offset).take(page_limit) {
+    for oid in walk {
         control.check()?;
-        entries.push(entry(&repository, *oid, references.get(oid))?);
+        let oid = oid.map_err(fault)?;
+        #[cfg(test)]
+        tests::VISITED.with(|visited| visited.set(visited.get() + 1));
+        if !path
+            .map(|path| touches(&repository, oid, path))
+            .transpose()?
+            .unwrap_or(true)
+        {
+            continue;
+        }
+        if !resumed {
+            offset += 1;
+            resumed = Some(oid) == after;
+            continue;
+        }
+        if entries.len() == page_limit {
+            truncated = true;
+            break;
+        }
+        entries.push(entry(&repository, oid, references.get(&oid))?);
+    }
+    if !resumed {
+        return Err(Fault::invalid(
+            "Git history cursor does not match the traversal",
+        ));
     }
     if entries.is_empty() && offset > 0 {
         return Err(Fault::invalid("Git history offset is beyond the traversal"));
     }
-    let truncated = offset + entries.len() < capture.commits.len();
     Ok(GitLog {
         kind: RepositoryKind::Ready,
         head: Some(head.to_string()),
         offset,
         next: truncated.then(|| GitLogCursor {
             head: head.to_string(),
+            path: path.map(str::to_owned),
             after: entries
                 .last()
                 .expect("nonempty Git history page")
@@ -127,6 +119,9 @@ pub(super) fn log(
         references_truncated,
     })
 }
+
+#[cfg(test)]
+mod tests;
 
 fn touches(repository: &Repository, oid: Oid, path: &str) -> Result<bool, Fault> {
     let commit = repository.find_commit(oid).map_err(fault)?;
@@ -261,19 +256,4 @@ fn bounded_text(bytes: &[u8], max: usize) -> (String, bool) {
         text[..end].to_owned(),
         bytes.len() > max || std::str::from_utf8(prefix).is_err() || text.len() > max,
     )
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn bounds_utf8_text() {
-        let (text, truncated) = bounded_text("中文提交".as_bytes(), 7);
-        assert_eq!(text, "中文");
-        assert!(truncated);
-        let (text, truncated) = bounded_text(&[0xff; 20], 8);
-        assert!(text.len() <= 8 && truncated);
-        assert_eq!(bounded_text(b"commit", 8), ("commit".into(), false));
-    }
 }

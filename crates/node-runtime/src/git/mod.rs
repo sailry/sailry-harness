@@ -71,7 +71,6 @@ pub(crate) struct Git {
     environment: Arc<crate::process::Environment>,
     statuses: Arc<Mutex<BTreeMap<PathBuf, StatusSlot>>>,
     changes: Arc<changes::Cache>,
-    history: Arc<history::Pages>,
     scans: Arc<scans::Scans>,
 }
 
@@ -82,7 +81,6 @@ impl Git {
             environment,
             statuses: Default::default(),
             changes: Default::default(),
-            history: Default::default(),
             scans: Default::default(),
         }
     }
@@ -289,7 +287,6 @@ impl Git {
         let output = self.output.clone();
         let environment = self.environment.clone();
         let captures = self.changes.clone();
-        let history = self.history.clone();
         let deadline = if matches!(command, Command::ListGitRemoteTags { .. }) {
             Duration::from_secs(125)
         } else {
@@ -438,7 +435,6 @@ impl Git {
                     revision.as_deref(),
                     path.as_deref(),
                     &control,
-                    &history,
                 )
                 .map(Output::GitLog),
                 Command::ReadGitCommit { commit, .. } => {

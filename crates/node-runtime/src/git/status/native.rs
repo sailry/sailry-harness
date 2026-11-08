@@ -7,15 +7,9 @@ pub(in crate::git) fn inspect(
 ) -> Result<GitStatus, Fault> {
     let repository = open(root)?;
     let before = metadata(root)?;
-    let mut args = [
-        "--no-optional-locks",
-        "-c",
-        "core.fsmonitor=false",
-        "-c",
-        "core.untrackedCache=false",
-    ]
-    .map(str::to_owned)
-    .to_vec();
+    let mut args = ["--no-optional-locks", "-c", "core.fsmonitor=false"]
+        .map(str::to_owned)
+        .to_vec();
     let configured = Repository::open_ext(
         root,
         git2::RepositoryOpenFlags::NO_SEARCH,
@@ -187,6 +181,7 @@ fn change(code: u8, staged: bool) -> Result<Status, Fault> {
         (b'D', true) => Status::INDEX_DELETED,
         (b'D', false) => Status::WT_DELETED,
         (b'A', true) => Status::INDEX_NEW,
+        (b'A', false) => Status::INDEX_NEW | Status::WT_MODIFIED,
         _ => {
             return Err(Fault::new(
                 ErrorCode::Unavailable,

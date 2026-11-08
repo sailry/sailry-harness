@@ -28,6 +28,15 @@ fn preserves_classification_without_refreshing_index() {
     std::fs::write(root.join("staged.txt"), "staged\n").unwrap();
     index.add_path(Path::new("staged.txt")).unwrap();
     index.write().unwrap();
+    std::fs::write(root.join("intent.txt"), "intent\n").unwrap();
+    assert!(
+        std::process::Command::new("git")
+            .current_dir(&root)
+            .args(["add", "-N", "intent.txt"])
+            .status()
+            .unwrap()
+            .success()
+    );
     let mut config = repository.config().unwrap();
     config
         .set_str("core.fsmonitor", "sailry-monitor-must-not-run")

@@ -48,12 +48,29 @@ async fn preserves_history_queries_and_cursors() {
         };
         assert_eq!(page.offset, offset);
         assert_eq!(page.entries.len(), 1);
+        if let Some(cursor) = &page.next {
+            assert_eq!(cursor.path.as_deref(), Some("tracked.txt"));
+            let mut changed = cursor.clone();
+            changed.path = None;
+            let changed = command(Some(changed));
+            for client in [&local, &remote] {
+                assert_eq!(
+                    client
+                        .execute(client.prepare(changed.clone()))
+                        .await
+                        .unwrap_err()
+                        .code,
+                    ErrorCode::InvalidRequest
+                );
+            }
+        }
         cursor = page.next;
     }
     assert!(cursor.is_none());
     let invalid = command(Some(GitLogCursor {
         head: previous.unwrap().to_string(),
         after: "0".repeat(40),
+        path: Some("tracked.txt".into()),
     }));
     let expected = local.execute(local.prepare(invalid.clone())).await;
     assert_eq!(remote.execute(remote.prepare(invalid)).await, expected);

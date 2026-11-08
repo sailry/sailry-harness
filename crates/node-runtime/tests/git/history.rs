@@ -155,6 +155,22 @@ async fn shares_read_only_history() {
         else {
             panic!("filtered Git history expected")
         };
+        for index in 0..10 {
+            let Output::GitLog(other) = client
+                .execute(client.prepare(Command::ReadGitLog {
+                    worktree: id,
+                    limit: 1,
+                    cursor: None,
+                    revision: None,
+                    path: Some(format!("missing-{index}.txt")),
+                }))
+                .await
+                .unwrap()
+            else {
+                panic!("filtered Git history expected")
+            };
+            assert!(other.entries.is_empty());
+        }
         let Output::GitLog(continued) = client
             .execute(client.prepare(Command::ReadGitLog {
                 worktree: id,
@@ -464,10 +480,12 @@ async fn retains_pagination_root() {
             GitLogCursor {
                 head: "HEAD".into(),
                 after: expected[6].clone(),
+                path: None,
             },
             GitLogCursor {
                 head: merged.to_string(),
                 after: "0".repeat(40),
+                path: None,
             },
         ] {
             assert_eq!(
