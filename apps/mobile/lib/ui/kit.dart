@@ -164,7 +164,9 @@ class PageFrame extends StatelessWidget {
         : RefreshIndicator(
             edgeOffset: top,
             onRefresh: onRefresh!,
-            child: child,
+            // The indicator's loose Stack would shrink a SingleChildScrollView
+            // to its content and leave the space below it undraggable.
+            child: SizedBox.expand(child: child),
           );
     final header = Padding(
       padding: const EdgeInsets.fromLTRB(20, 19, 20, 16),
@@ -196,7 +198,31 @@ class PageFrame extends StatelessWidget {
                 header: header,
                 builder: (top) => LoadingOverlay(
                   loading: loading,
-                  child: failure != null
+                  child: failure != null && onRefresh != null
+                      // Pulling down on a failure retries it in place. The
+                      // fixed height suits FailureState's own LayoutBuilder.
+                      ? refreshable(
+                          top,
+                          LayoutBuilder(
+                            builder: (context, constraints) =>
+                                SingleChildScrollView(
+                                  physics: physics,
+                                  child: SizedBox(
+                                    height: constraints.maxHeight,
+                                    child: Padding(
+                                      padding: padding.add(
+                                        EdgeInsets.only(
+                                          top: top,
+                                          bottom: bottomInset,
+                                        ),
+                                      ),
+                                      child: failure,
+                                    ),
+                                  ),
+                                ),
+                          ),
+                        )
+                      : failure != null
                       ? Padding(
                           padding: padding.add(
                             EdgeInsets.only(top: top, bottom: bottomInset),
