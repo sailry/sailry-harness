@@ -13,9 +13,7 @@ use std::{
 #[cfg(test)]
 mod tests;
 
-const STATUS_WIDTH: f32 = 88.;
-const ROUTE_WIDTH: f32 = 64.;
-const LATENCY_WIDTH: f32 = 80.;
+// Keeps status aligned across rows when the local Host has no revoke action.
 const ACTION_WIDTH: f32 = 28.;
 
 pub(super) struct Device {
@@ -51,27 +49,29 @@ impl Device {
     }
 
     fn latency_text(&self) -> Option<String> {
-        if self.local {
-            return None;
-        }
-        Some(
-            self.connection
-                .rtt_ms
-                .filter(|_| self.online)
-                .map(|rtt| format!("{rtt} ms"))
-                .unwrap_or_else(|| "—".into()),
-        )
+        self.connection
+            .rtt_ms
+            .filter(|_| self.online && !self.local)
+            .map(|rtt| format!("{rtt} ms"))
     }
 
     fn route_key(&self) -> Option<&'static str> {
-        if self.local {
-            return None;
+        match self.connection.route.filter(|_| self.online && !self.local) {
+            Some(Route::P2p) => Some("connection_route_p2p"),
+            Some(Route::Relay) => Some("connection_route_relay"),
+            _ => None,
         }
-        Some(match self.connection.route.filter(|_| self.online) {
-            Some(Route::P2p) => "connection_route_p2p",
-            Some(Route::Relay) => "connection_route_relay",
-            _ => "connection_route_unknown",
-        })
+    }
+
+    /// Route and latency share one muted label; unknown parts are omitted.
+    fn link_text(&self) -> Option<String> {
+        let parts: Vec<String> = self
+            .route_key()
+            .map(|key| tr(key).to_string())
+            .into_iter()
+            .chain(self.latency_text())
+            .collect();
+        (!parts.is_empty()).then(|| parts.join(" · "))
     }
 }
 
@@ -265,10 +265,9 @@ impl Connections {
                         });
                 let status = h_flex()
                     .debug_selector(move || format!("connection-status-{id:?}"))
+                    .items_center()
                     .gap_2()
-                    .w(px(STATUS_WIDTH))
                     .flex_shrink_0()
-                    .when(execution, |cell| cell.justify_end())
                     .child(
                         div()
                             .size_1p5()
@@ -284,20 +283,13 @@ impl Connections {
                             .text_color(cx.theme().muted_foreground)
                             .child(tr(device.status_key())),
                     );
-                let route = h_flex()
-                    .w(px(ROUTE_WIDTH))
-                    .flex_shrink_0()
-                    .justify_end()
-                    .text_color(cx.theme().muted_foreground)
-                    // Plain text like the status and latency beside it.
-                    .children(device.route_key().map(tr));
-                let latency = div()
-                    .debug_selector(move || format!("connection-latency-{id:?}"))
-                    .w(px(LATENCY_WIDTH))
-                    .flex_shrink_0()
-                    .text_right()
-                    .text_color(cx.theme().muted_foreground)
-                    .children(device.latency_text());
+                let link = device.link_text().map(|text| {
+                    div()
+                        .debug_selector(move || format!("connection-latency-{id:?}"))
+                        .flex_shrink_0()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(text)
+                });
                 let action = h_flex()
                     .debug_selector(move || format!("connection-action-{id:?}"))
                     .w(px(ACTION_WIDTH))
@@ -341,21 +333,13 @@ impl Connections {
                                 })),
                         )
                     });
-                let columns = if execution {
-                    [
-                        route.into_any_element(),
-                        latency.into_any_element(),
-                        action.into_any_element(),
-                        status.into_any_element(),
-                    ]
-                } else {
-                    [
-                        status.into_any_element(),
-                        route.into_any_element(),
-                        latency.into_any_element(),
-                        action.into_any_element(),
-                    ]
-                };
+                let details = h_flex()
+                    .flex_shrink_0()
+                    .items_center()
+                    .gap_4()
+                    .children(link)
+                    .child(status)
+                    .child(action);
                 h_flex()
                     .id(SharedString::from(format!("connection-device-{id:?}")))
                     .py_3()
@@ -389,7 +373,7 @@ impl Connections {
                                     ),
                             ),
                     )
-                    .children(columns)
+                    .child(details)
                     .on_mouse_down(
                         MouseButton::Right,
                         cx.listener(move |_, event: &MouseDownEvent, window, cx| {

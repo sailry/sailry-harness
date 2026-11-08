@@ -40,15 +40,10 @@ fn routes_and_latency() {
         (
             "disconnected",
             device(false, false, Some(Route::Relay), Some(120)),
-            Some("connection_route_unknown"),
-            Some("—"),
+            None,
+            None,
         ),
-        (
-            "unknown",
-            device(false, true, None, None),
-            Some("connection_route_unknown"),
-            Some("—"),
-        ),
+        ("unknown", device(false, true, None, None), None, None),
     ] {
         assert_eq!(device.route_key(), route, "{case}: route");
         assert_eq!(device.latency_text().as_deref(), latency, "{case}: latency");
@@ -64,15 +59,15 @@ fn controller_status_follows_service_presence() {
     phone.known.execution = false;
     phone.observe(&BTreeSet::new());
     assert_eq!(phone.status_key(), "connections_offline");
-    assert_eq!(phone.route_key(), Some("connection_route_unknown"));
-    assert_eq!(phone.latency_text().as_deref(), Some("—"));
+    assert_eq!(phone.route_key(), None);
+    assert_eq!(phone.latency_text(), None);
     phone.observe(&BTreeSet::from([phone.id]));
     assert_eq!(phone.status_key(), "connections_online");
     assert_eq!(phone.route_key(), Some("connection_route_p2p"));
     assert_eq!(phone.latency_text().as_deref(), Some("13 ms"));
     phone.observe(&BTreeSet::from([NodeId([8; 32])]));
     assert_eq!(phone.status_key(), "connections_offline");
-    assert_eq!(phone.latency_text().as_deref(), Some("—"));
+    assert_eq!(phone.latency_text(), None);
 }
 
 #[test]
