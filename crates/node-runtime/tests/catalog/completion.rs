@@ -1,7 +1,7 @@
 use super::*;
 use sailry_protocol::conversation::{Model, Provider};
 
-fn provider() -> Provider {
+pub(super) fn provider() -> Provider {
     Provider {
         request_max_retries: None,
         stream_max_retries: None,
@@ -37,7 +37,7 @@ fn provider() -> Provider {
     }
 }
 
-async fn save(client: &Client, provider: Provider) -> Provider {
+pub(super) async fn save(client: &Client, provider: Provider) -> Provider {
     let Output::Provider(provider) = execute(
         client,
         Command::PutProvider {

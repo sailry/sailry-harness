@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 mod reasoning;
+mod scores;
+pub use scores::*;
 
 /// Reference metadata cached by the execution Node, independent of provider access.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -9,6 +11,10 @@ pub struct Status {
     pub providers: u32,
     pub models: u32,
     pub bytes: u64,
+    #[serde(default)]
+    pub fault: Option<crate::Fault>,
+    #[serde(default)]
+    pub scores: ScoreStatus,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -25,6 +25,8 @@ mod lifecycle;
 mod lookup;
 #[path = "catalog/responses.rs"]
 mod responses;
+#[path = "catalog/scores.rs"]
+mod scores;
 
 struct Fixture {
     _directory: tempfile::TempDir,

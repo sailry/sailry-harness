@@ -247,7 +247,7 @@ impl Node {
         tokio::spawn(Self::start_owned(
             path.as_ref().to_owned(),
             Bootstrap {
-                catalog: providers::catalog::Catalog::new(endpoint.to_owned()),
+                catalog: providers::catalog::Catalog::fixture(endpoint.to_owned()),
                 ..Default::default()
             },
         ))
@@ -558,7 +558,7 @@ impl Node {
         tokio::spawn(Self::start_owned(
             path.as_ref().to_owned(),
             Bootstrap {
-                catalog: providers::catalog::Catalog::new(endpoint.to_owned()),
+                catalog: providers::catalog::Catalog::fixture(endpoint.to_owned()),
                 skip_bundled: true,
                 ..Default::default()
             },
@@ -762,6 +762,11 @@ impl Node {
         endpoint: &str,
     ) -> Result<(), sailry_protocol::Fault> {
         self.ingress.model_catalog_fixtures.set(hub, endpoint)
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_model_scores_fixture(&self, endpoint: &str) -> Result<(), sailry_protocol::Fault> {
+        self.ingress.catalog.scores.fixture(endpoint)
     }
 
     async fn start_owned(path: PathBuf, bootstrap: Bootstrap) -> Result<Self, Error> {

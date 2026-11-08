@@ -40,6 +40,7 @@ pub(crate) fn begin(node: NodeId, caller: NodeId, request: &Request) -> Option<S
         Command::ListDatabases => ("list_databases", None, None),
         Command::ListPluginModels => ("list_plugin_models", None, None),
         Command::ReadModelCatalog(_) => ("read_model_catalog", None, None),
+        Command::ReadModelScores(_) => ("read_model_scores", None, None),
         Command::ReadProjectCatalog => ("read_project_catalog", None, None),
         _ if request.plugin.is_some() => (
             "plugin_command",
@@ -88,6 +89,7 @@ pub(crate) fn begin(node: NodeId, caller: NodeId, request: &Request) -> Option<S
                 | Command::ListDatabases
                 | Command::ListPluginModels
                 | Command::ReadModelCatalog(_)
+                | Command::ReadModelScores(_)
                 | Command::ReadProjectCatalog
         ) {
             Span::query(entry)

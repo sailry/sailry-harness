@@ -851,6 +851,20 @@ preset_anthropic_compatible: Anthropic Compatible
 preset_gemini: Gemini
 preset_gemini_compatible: Gemini Compatible
 provider_catalog: 模型数据
+provider_scores: 模型评分
+provider_scores_source: ModelDial %{date}
+provider_scores_failed: 模型评分更新失败
+model_score_axis_backend: 后端
+model_score_axis_frontend: 前端
+model_score_axis_knowledge: 知识推理
+model_score_axis_aesthetic: 视觉
+model_score_axis_maintainability: 可维护性
+model_score_time: 全套耗时 %{n} 分钟
+model_score_cost: 成本约 %{cost}
+model_score_attribution: 评分：ModelDial · CC BY 4.0
+model_score_details: 详情
+model_score_modified: 已匹配模型名称并四舍五入评分
+model_score_preview: 预览评分
 provider_catalog_status: 模型元数据
 provider_catalog_last_update: 上次更新
 provider_catalog_update: 更新

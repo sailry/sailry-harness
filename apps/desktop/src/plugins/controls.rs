@@ -49,6 +49,7 @@ pub(super) fn module(
     module: HostModule,
     stop: CancellationToken,
     tabs: tabs::Controls,
+    scores: crate::model_picker::Binding,
     cx: &mut App,
 ) -> HostModule {
     let (controls, control_events) = tokio::sync::mpsc::channel::<Value>(32);
@@ -66,7 +67,7 @@ pub(super) fn module(
     let module = focus::extend(module, stop.clone());
     let module = selection::extend(module, controls.clone());
     let module = menu::extend(module, controls.clone());
-    let module = models::extend(module, controls.clone());
+    let module = models::extend(module, controls.clone(), scores);
     let module = segments::extend(module, controls.clone());
     let module = load_more::extend(module, controls.clone());
     let module = measure::extend(module, controls.clone());

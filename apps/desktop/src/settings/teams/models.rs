@@ -23,16 +23,19 @@ use sailry_protocol::{Effort, ProviderId, conversation::features::Feature, role}
 pub(super) struct Models {
     channels: Vec<Channel>,
     providers: Vec<(usize, ProviderId)>,
+    binding: Option<crate::model_picker::Binding>,
 }
 
 impl Models {
     pub fn new(
         channels: Vec<Channel>,
         providers: impl IntoIterator<Item = (usize, ProviderId)>,
+        binding: crate::model_picker::Binding,
     ) -> Self {
         Self {
             channels,
             providers: providers.into_iter().collect(),
+            binding: Some(binding),
         }
     }
 
@@ -100,6 +103,10 @@ impl ModelField {
         let picker = cx.new(|cx| {
             let mut picker = Picker::new();
             picker.set(channels, selection, cx);
+            picker.set_effort(value.as_ref().and_then(|value| value.effort), cx);
+            if let Some(binding) = &models.binding {
+                picker.bind_scores(vec![binding.clone()], cx);
+            }
             picker
         });
         let picked = cx.subscribe(&picker, |field: &mut Self, _, event: &Picked, cx| {
@@ -160,8 +167,8 @@ impl ModelField {
         }
         if let Some(value) = &mut self.value {
             value.effort = effort;
-            cx.notify();
         }
+        self.sync(cx);
     }
 
     /// None follows the lead for every feature; otherwise sets one feature's choice.
@@ -188,8 +195,10 @@ impl ModelField {
             .as_ref()
             .and_then(|value| self.models.selection(value));
         let channels = self.models.channels.clone();
-        self.picker
-            .update(cx, |picker, cx| picker.set(channels, selection, cx));
+        self.picker.update(cx, |picker, cx| {
+            picker.set(channels, selection, cx);
+            picker.set_effort(self.value.as_ref().and_then(|value| value.effort), cx);
+        });
         cx.notify();
     }
 }
@@ -265,6 +274,14 @@ impl Render for ModelField {
                             .child(IconName::ChevronDown),
                     ),
             )
+            .on_open_change({
+                let picker = picker.clone();
+                move |open, _, cx| {
+                    if *open {
+                        picker.update(cx, |picker, cx| picker.reveal(cx));
+                    }
+                }
+            })
             .content({
                 let owner = owner.clone();
                 move |_, _, cx| {
@@ -379,21 +396,36 @@ impl Render for ModelField {
                         .dropdown_caret(true)
                         .disabled(self.disabled)
                         .accessibility_label(effort_label(current))
-                        .dropdown_menu(move |menu, _, _| {
-                            std::iter::once(None)
-                                .chain(choices.iter().copied().map(Some))
-                                .fold(menu, |menu, choice| {
-                                    let owner = owner.clone();
-                                    menu.item(
-                                        PopupMenuItem::new(effort_label(choice))
+                        .dropdown_menu({
+                            let picker = self.picker.clone();
+                            move |menu, _, cx| {
+                                std::iter::once(None)
+                                    .chain(choices.iter().copied().map(Some))
+                                    .fold(menu, |menu, choice| {
+                                        let owner = owner.clone();
+                                        menu.item(
+                                            if picker.read(cx).has_scores(cx) {
+                                                crate::model_picker::effort_item(
+                                                    effort_label(choice),
+                                                    choice.and_then(|effort| {
+                                                        picker.read(cx).effort_score(effort, cx)
+                                                    }),
+                                                    cx,
+                                                )
+                                            } else {
+                                                PopupMenuItem::new(effort_label(choice))
+                                            }
                                             .checked(choice == current)
-                                            .on_click(move |_, _, cx| {
-                                                _ = owner.update(cx, |field, cx| {
-                                                    field.effort(choice, cx)
-                                                });
-                                            }),
-                                    )
-                                })
+                                            .on_click(
+                                                move |_, _, cx| {
+                                                    _ = owner.update(cx, |field, cx| {
+                                                        field.effort(choice, cx)
+                                                    });
+                                                },
+                                            ),
+                                        )
+                                    })
+                            }
                         }),
                 )
             })

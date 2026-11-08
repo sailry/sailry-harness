@@ -318,7 +318,12 @@ enum Job {
         reply: oneshot::Sender<Result<sailry_protocol::conversation::Provider, Fault>>,
     },
     Catalog {
-        download: crate::providers::catalog::Download,
+        download: Result<crate::providers::catalog::Download, Fault>,
+        reply: oneshot::Sender<Result<sailry_protocol::conversation::catalog::Status, Fault>>,
+    },
+    Scores {
+        download: Result<crate::providers::scores::Download, Fault>,
+        revision: u64,
         reply: oneshot::Sender<Result<sailry_protocol::conversation::catalog::Status, Fault>>,
     },
     Remember {
@@ -344,7 +349,7 @@ pub(crate) struct Ingress {
     pub(crate) presets: Arc<crate::providers::presets::Directory>,
     pub(crate) network_presets: Arc<network::presets::Directory>,
     pub(crate) network_probes: Arc<network::probes::Probes>,
-    catalog: crate::providers::catalog::Catalog,
+    pub(crate) catalog: crate::providers::catalog::Catalog,
     #[cfg(any(test, feature = "test-support"))]
     pub(crate) authorization_endpoint: Arc<std::sync::Mutex<Option<String>>>,
     #[cfg(any(test, feature = "test-support"))]

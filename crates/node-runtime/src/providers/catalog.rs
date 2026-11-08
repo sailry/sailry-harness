@@ -12,6 +12,7 @@ const BYTE_LIMIT: usize = 32 * 1024 * 1024;
 pub(crate) struct Catalog {
     source: Source,
     capacity: Arc<Semaphore>,
+    pub(crate) scores: super::scores::Scores,
 }
 
 #[cfg(test)]
@@ -21,13 +22,14 @@ mod tests {
     #[tokio::test]
     async fn isolated_refresh_retains_admission_slot() {
         let catalog = Catalog::empty();
+        let permit = catalog.acquire().unwrap();
         let download = catalog.download().await.unwrap();
         assert!(download.entries.is_empty());
         assert_eq!(download.providers, 0);
         assert_eq!(download.bytes, 2);
-        assert!(matches!(catalog.download().await, Err(error) if error.code == ErrorCode::Busy));
-        drop(download);
-        assert!(catalog.download().await.is_ok());
+        assert!(matches!(catalog.acquire(), Err(error) if error.code == ErrorCode::Busy));
+        drop(permit);
+        assert!(catalog.acquire().is_ok());
     }
 }
 
@@ -42,8 +44,6 @@ pub(crate) struct Download {
     pub entries: Vec<metadata::Entry>,
     pub bytes: u64,
     pub providers: u32,
-    // Keep the refresh slot until the storage transaction completes.
-    _permit: OwnedSemaphorePermit,
 }
 
 impl Default for Catalog {
@@ -57,6 +57,15 @@ impl Catalog {
         Self {
             source: Source::Http(url),
             capacity: Arc::new(Semaphore::new(1)),
+            scores: super::scores::Scores::default(),
+        }
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) fn fixture(url: String) -> Self {
+        Self {
+            scores: super::scores::Scores::empty(),
+            ..Self::new(url)
         }
     }
 
@@ -65,14 +74,18 @@ impl Catalog {
         Self {
             source: Source::Empty,
             capacity: Arc::new(Semaphore::new(1)),
+            scores: super::scores::Scores::empty(),
         }
     }
 
+    pub(crate) fn acquire(&self) -> Result<OwnedSemaphorePermit, Fault> {
+        self.capacity
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| Fault::new(ErrorCode::Busy, "model catalog refresh is already running"))
+    }
+
     pub(crate) async fn download(&self) -> Result<Download, Fault> {
-        let permit =
-            self.capacity.clone().try_acquire_owned().map_err(|_| {
-                Fault::new(ErrorCode::Busy, "model catalog refresh is already running")
-            })?;
         let url = match &self.source {
             Source::Http(url) => url,
             #[cfg(any(test, feature = "test-support"))]
@@ -81,7 +94,6 @@ impl Catalog {
                     entries: Vec::new(),
                     bytes: 2,
                     providers: 0,
-                    _permit: permit,
                 });
             }
         };
@@ -122,7 +134,6 @@ impl Catalog {
                 entries,
                 providers,
                 bytes: size,
-                _permit: permit,
             })
         })
         .await

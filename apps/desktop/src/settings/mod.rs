@@ -295,6 +295,9 @@ impl Workspace {
                     view.provider_link
                         .as_ref()
                         .and_then(|live| live.catalog.feedback()),
+                    view.provider_link
+                        .as_ref()
+                        .and_then(|live| live.catalog.scores_feedback()),
                     cx.try_global::<crate::preferences::Preferences>()
                         .and_then(|preferences| preferences.error),
                     cx.try_global::<crate::theme::Catalog>()

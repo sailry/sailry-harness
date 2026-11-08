@@ -21,7 +21,11 @@ struct Field {
     _subscriptions: Vec<Subscription>,
 }
 
-pub(super) fn extend(module: HostModule, events: tokio::sync::mpsc::Sender<Value>) -> HostModule {
+pub(super) fn extend(
+    module: HostModule,
+    events: tokio::sync::mpsc::Sender<Value>,
+    scores: crate::model_picker::Binding,
+) -> HostModule {
     let fields = Rc::new(RefCell::new(BTreeMap::<String, Field>::new()));
     module.component("ModelPopup", move |args, _, cx| {
         let Ok(props) = decode(args.props()).and_then(|value| {
@@ -72,6 +76,7 @@ pub(super) fn extend(module: HostModule, events: tokio::sync::mpsc::Sender<Value
         field.picker.update(cx, |picker, cx| {
             picker.catalog(&catalog, props.selected.as_deref(), cx);
             picker.composer(props.effort, props.disabled, cx);
+            picker.bind_scores(vec![scores.clone()], cx);
         });
         let title = catalog
             .models
@@ -105,6 +110,14 @@ pub(super) fn extend(module: HostModule, events: tokio::sync::mpsc::Sender<Value
                                     .child(IconName::ChevronDown),
                             ),
                     )
+                    .on_open_change({
+                        let picker = picker.clone();
+                        move |open, _, cx| {
+                            if *open {
+                                picker.update(cx, |picker, cx| picker.reveal(cx));
+                            }
+                        }
+                    })
                     .content(move |_, _, cx| {
                         let popover = cx.entity().downgrade();
                         picker.update(cx, |picker, _| picker.popover = Some(popover));

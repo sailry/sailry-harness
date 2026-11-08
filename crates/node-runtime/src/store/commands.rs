@@ -652,6 +652,19 @@ pub(super) fn execute<'a>(
                 None,
             ))
         }),
+        Command::ReadModelScores(models) => defer(move || async move {
+            Ok((
+                Output::ModelScores(super::providers::scores::read(db, models).await?),
+                None,
+            ))
+        }),
+        Command::SetModelScoresEnabled { enabled } => defer(move || async move {
+            let (status, changed) = super::providers::scores::set_enabled(db, *enabled).await?;
+            Ok((
+                Output::CatalogStatus(status.clone()),
+                changed.then_some(Event::ModelCatalogChanged(status)),
+            ))
+        }),
         Command::PutProvider {
             provider,
             expected_revision,

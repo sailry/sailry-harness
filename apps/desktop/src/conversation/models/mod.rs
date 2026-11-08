@@ -53,7 +53,10 @@ impl Shell {
             model: model.id,
         });
         let channels = self.settings.read(cx).model_channels().to_vec();
-        picker.update(cx, |picker, cx| picker.set(channels, selected, cx));
+        picker.update(cx, |picker, cx| {
+            picker.set(channels, selected, cx);
+            picker.preview_scores();
+        });
         let opening = picker.clone();
         crate::theme::popover(Popover::new("composer-model-popover"), cx)
             .p_2()

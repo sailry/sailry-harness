@@ -254,6 +254,7 @@ fn read(command: &Command) -> bool {
             | Command::ReadProviderKey { .. }
             | Command::ReadCatalogStatus
             | Command::ReadModelCatalog(_)
+            | Command::ReadModelScores(_)
     )
 }
 

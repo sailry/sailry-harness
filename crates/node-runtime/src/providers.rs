@@ -11,6 +11,7 @@ mod metadata;
 pub(crate) mod policy;
 pub(crate) mod presets;
 pub(crate) mod request;
+pub(crate) mod scores;
 pub(crate) use metadata::validate;
 
 use reqwest::{

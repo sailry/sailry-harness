@@ -165,7 +165,17 @@ impl Mounted {
         let browser_surface = browser.clone();
         let ui = super::browser::module(
             super::workspace::module(
-                super::controls::module(ui, host.stop_token(), tabs, cx),
+                super::controls::module(
+                    ui,
+                    host.stop_token(),
+                    tabs,
+                    crate::model_picker::Binding {
+                        client: configuration_binding.client.clone(),
+                        runtime: configuration_binding.runtime.handle().clone(),
+                        providers: Default::default(),
+                    },
+                    cx,
+                ),
                 workspace,
                 host.clone(),
             ),

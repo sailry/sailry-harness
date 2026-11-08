@@ -37,6 +37,7 @@ pub(super) fn accepts(job: &Job) -> bool {
             | Job::Provider { .. }
             | Job::ChannelPresets { .. }
             | Job::Catalog { .. }
+            | Job::Scores { .. }
             | Job::WorktreeRoot { .. }
             | Job::TerminalSettings { .. }
             | Job::SearchPlan { .. }
@@ -393,6 +394,13 @@ pub(super) async fn execute(ingress: Ingress, job: Job) {
             }),
             Job::Catalog { download, reply } => Box::pin(async move {
                 let _ = reply.send(database.cache_catalog(download, events).await);
+            }),
+            Job::Scores {
+                download,
+                revision,
+                reply,
+            } => Box::pin(async move {
+                let _ = reply.send(database.cache_scores(download, revision, events).await);
             }),
             Job::WorktreeRoot { id, reply } => Box::pin(async move {
                 let _ = reply.send(database.worktree_root(id).await);

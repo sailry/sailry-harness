@@ -65,6 +65,15 @@ impl Workspace {
                 live.providers
                     .iter()
                     .map(|(&key, provider)| (key, provider.id)),
+                crate::model_picker::Binding {
+                    client: live.binding.client.clone(),
+                    runtime: live.binding.runtime.handle().clone(),
+                    providers: live
+                        .providers
+                        .iter()
+                        .map(|(&key, provider)| (key, provider.id))
+                        .collect(),
+                },
             ),
         })
     }

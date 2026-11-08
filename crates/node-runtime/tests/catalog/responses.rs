@@ -75,13 +75,7 @@ async fn rejects_invalid_pages() {
     .await;
     let fixture = Fixture::new(&server).await;
     for _ in 0..total {
-        assert!(
-            fixture
-                .client
-                .execute(fixture.client.prepare(Command::RefreshModelCatalog))
-                .await
-                .is_err()
-        );
+        assert!(refresh(&fixture.client).await.fault.is_some());
         assert_eq!(status(&fixture.client).await.revision, 0);
     }
     refresh(&fixture.client).await;
@@ -128,11 +122,7 @@ async fn confines_downloads() {
     })).await;
     let fixture = Fixture::new(&server).await;
     for _ in 0..5 {
-        let error = fixture
-            .client
-            .execute(fixture.client.prepare(Command::RefreshModelCatalog))
-            .await
-            .unwrap_err();
+        let error = refresh(&fixture.client).await.fault.unwrap();
         assert_eq!(error.code, ErrorCode::Unavailable);
         assert!(!error.message.contains(&target.endpoint));
         assert_eq!(status(&fixture.client).await.revision, 0);

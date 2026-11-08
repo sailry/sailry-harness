@@ -1,0 +1,112 @@
+{
+  "snapshot": {
+    "batch_id": "overall-f26004137653ddaeb3be2933",
+    "published_at": "2026-11-07T07:48:26.226Z",
+    "entries": [
+      {
+        "candidate_id": "openrouter-opus55:anthropic/claude-sonnet-5.5:xhigh",
+        "model_id": "anthropic/claude-sonnet-5.5",
+        "reasoning_effort": "xhigh",
+        "backend_score": 84,
+        "frontend_score": 86,
+        "knowledge_score": 85,
+        "overall_score": 81.95,
+        "aesthetic_score": 73,
+        "maintainability_score": 66,
+        "score_policy": "five-axis"
+      },
+      {
+        "candidate_id": "kimi:kimi-for-coding:high",
+        "model_id": "kimi-for-coding",
+        "reasoning_effort": "high",
+        "backend_score": 55,
+        "frontend_score": 65,
+        "knowledge_score": 70,
+        "overall_score": 62.75,
+        "aesthetic_score": 57,
+        "maintainability_score": 53,
+        "score_policy": "five-axis"
+      },
+      {
+        "candidate_id": "kimi:kimi-for-coding:max",
+        "model_id": "kimi-for-coding",
+        "reasoning_effort": "max",
+        "backend_score": null,
+        "frontend_score": null,
+        "knowledge_score": 70,
+        "overall_score": null,
+        "aesthetic_score": null,
+        "maintainability_score": null,
+        "score_policy": "five-axis"
+      },
+      {
+        "candidate_id": "kimi:k3.1-pro:xhigh",
+        "model_id": "k3.1-pro",
+        "reasoning_effort": "xhigh",
+        "backend_score": 81,
+        "frontend_score": 91,
+        "knowledge_score": 80,
+        "overall_score": 80.15,
+        "aesthetic_score": 68,
+        "maintainability_score": 64,
+        "score_policy": "five-axis"
+      },
+      {
+        "candidate_id": "kimi:k3.1-pro:high",
+        "model_id": "k3.1-pro",
+        "reasoning_effort": "high",
+        "backend_score": 68,
+        "frontend_score": 85,
+        "knowledge_score": 80,
+        "overall_score": 75.75,
+        "aesthetic_score": 68,
+        "maintainability_score": 61,
+        "score_policy": "five-axis"
+      },
+      {
+        "candidate_id": "opencode:union-alpha:default",
+        "model_id": "union-alpha",
+        "reasoning_effort": "default",
+        "backend_score": 91,
+        "frontend_score": 84,
+        "knowledge_score": 80,
+        "overall_score": null,
+        "aesthetic_score": null,
+        "maintainability_score": null,
+        "score_policy": "five-axis"
+      }
+    ]
+  },
+  "metrics": {
+    "openrouter-opus55:anthropic/claude-sonnet-5.5:xhigh": {
+      "backend": {"elapsed_ms": 903177, "estimated_api_cost_usd": 1.501428},
+      "frontend": {"elapsed_ms": 1785000, "estimated_api_cost_usd": 1.167138},
+      "knowledge": {"elapsed_ms": 223901, "estimated_api_cost_usd": 0.133898}
+    },
+    "kimi:kimi-for-coding:high": {
+      "backend": {"elapsed_ms": 1333918, "estimated_api_cost_usd": 0.211338},
+      "frontend": {"elapsed_ms": 1438904, "estimated_api_cost_usd": 0.249607},
+      "knowledge": {"elapsed_ms": 1484737, "estimated_api_cost_usd": 0.199523}
+    },
+    "kimi:kimi-for-coding:max": {
+      "knowledge": {"elapsed_ms": 3204489, "estimated_api_cost_usd": 0.589863}
+    },
+    "kimi:k3.1-pro:high": {
+      "backend": {"elapsed_ms": 781588, "estimated_api_cost_usd": 0.614758},
+      "frontend": {"elapsed_ms": 527581, "estimated_api_cost_usd": 0.365658},
+      "knowledge": {"elapsed_ms": 599005, "estimated_api_cost_usd": 0.409486}
+    },
+    "kimi:k3.1-pro:xhigh": {
+      "backend": {"elapsed_ms": 2553912, "estimated_api_cost_usd": 1.873758},
+      "frontend": {"elapsed_ms": 1272534, "estimated_api_cost_usd": 0.746076},
+      "knowledge": {"elapsed_ms": 2746687, "estimated_api_cost_usd": 2.375176}
+    }
+  },
+  "displayNames": {
+    "anthropic/claude-sonnet-5.5": "claude-sonnet-5-5",
+    "kimi-for-coding": "k2.8"
+  },
+  "effortDisplayNames": {
+    "k3.1-pro": {"xhigh": "max"}
+  }
+}

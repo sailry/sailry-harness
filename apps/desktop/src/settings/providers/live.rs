@@ -229,9 +229,7 @@ impl Workspace {
             if snapshot.model_catalog.revision > live.catalog.status.revision {
                 live.catalog.error = None;
             }
-            if snapshot.model_catalog.revision >= live.catalog.status.revision {
-                live.catalog.status = snapshot.model_catalog.clone();
-            }
+            live.catalog.observe(snapshot.model_catalog.clone());
             live.providers.clear();
             for provider in &snapshot.providers {
                 let next = live.ids.len();

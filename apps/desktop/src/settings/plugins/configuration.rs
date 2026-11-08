@@ -273,7 +273,10 @@ impl Editor {
                     )
                 })
             };
-            field.update(cx, |field, _| field.panel = self.panel);
+            field.update(cx, |field, cx| {
+                field.panel = self.panel;
+                field.bind_scores(&self.binding, cx);
+            });
             self.fields.push(field);
         }
         for field in previous {

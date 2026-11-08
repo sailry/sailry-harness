@@ -413,6 +413,20 @@ CREATE TABLE model_catalog (
     body BLOB NOT NULL,
     PRIMARY KEY(provider,id)
 );
+CREATE TABLE model_score_status (
+    id INTEGER PRIMARY KEY CHECK(id=1),
+    body BLOB NOT NULL
+);
+CREATE TABLE model_scores (
+    model TEXT NOT NULL,
+    effort TEXT NOT NULL,
+    body BLOB NOT NULL,
+    PRIMARY KEY(model,effort)
+);
+CREATE TABLE model_score_aliases (
+    alias TEXT PRIMARY KEY,
+    model TEXT NOT NULL
+);
 
 CREATE TABLE dispatch_handlers (
     package TEXT NOT NULL,

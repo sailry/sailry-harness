@@ -3,6 +3,9 @@
 //! one Node; domain suites run their scenarios once through the remote client.
 #[path = "support/database/error.rs"]
 mod database_fixture;
+#[expect(dead_code, reason = "Score contracts reuse the public HTTP fixture")]
+#[path = "discovery_support/mod.rs"]
+mod discovery_support;
 #[path = "support/files.rs"]
 mod file_fixture;
 #[expect(
@@ -24,6 +27,8 @@ mod outcomes;
 mod plugins;
 #[path = "transport/results.rs"]
 mod results;
+#[path = "transport/scores.rs"]
+mod scores;
 #[path = "transport/snapshots.rs"]
 mod snapshots;
 #[path = "transport/subscriptions.rs"]

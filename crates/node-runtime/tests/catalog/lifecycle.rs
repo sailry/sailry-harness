@@ -73,16 +73,14 @@ async fn failed_replacement_preserves_cache() {
     let fixture = Fixture::new(&server).await;
     let before = refresh(&fixture.client).await;
     let original = page(&fixture.client, query()).await;
-    let events = event_count(&fixture.node).await;
-    assert!(
-        fixture
-            .client
-            .execute(fixture.client.prepare(Command::RefreshModelCatalog))
-            .await
-            .is_err()
-    );
-    assert_eq!(status(&fixture.client).await, before);
+    let failed = refresh(&fixture.client).await;
+    assert!(failed.fault.is_some());
+    assert_eq!(failed.revision, before.revision);
+    assert_eq!(failed.updated_at_ms, before.updated_at_ms);
+    assert_eq!(failed.models, before.models);
+    assert_eq!(status(&fixture.client).await, failed);
     assert_eq!(page(&fixture.client, query()).await, original);
+    let events = event_count(&fixture.node).await;
     fixture.node.with_storage(|db| Box::pin(async move { db.execute_batch("CREATE TRIGGER reject_catalog BEFORE INSERT ON model_catalog BEGIN SELECT RAISE(ABORT,'isolated catalog storage failure'); END;").await.map_err(crate::database_fixture::fault) })).await.unwrap();
     assert!(
         fixture
@@ -91,7 +89,7 @@ async fn failed_replacement_preserves_cache() {
             .await
             .is_err()
     );
-    assert_eq!(status(&fixture.client).await, before);
+    assert_eq!(status(&fixture.client).await, failed);
     assert_eq!(page(&fixture.client, query()).await, original);
     assert_eq!(event_count(&fixture.node).await, events);
     fixture

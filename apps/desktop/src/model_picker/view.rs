@@ -17,14 +17,19 @@ impl Picker {
             model: model_id.clone(),
         };
         let selected = self.selected.as_ref() == Some(&selection);
-        let effort = if selected {
-            self.current_effort.unwrap_or(model.effort)
-        } else {
-            model.effort
-        };
+        let effort = scores::effective(
+            selected,
+            self.current_effort.or(self.selected_effort),
+            model.effort,
+        );
         let radio_selection = selection.clone();
         let owner = cx.entity().downgrade();
         let choices = model.efforts.clone();
+        let measured = choices
+            .iter()
+            .map(|effort| (*effort, self.exact(channel, model, *effort, cx)))
+            .collect::<Vec<_>>();
+        let scored = self.measured(channel, model, effort, cx).is_some();
         h_flex()
             .id((SharedString::from(model.id.clone()), id))
             .w_full()
@@ -57,6 +62,7 @@ impl Picker {
                         picker.pick(selection.clone(), effort, window, cx)
                     })),
             )
+            .children(self.score_tag(channel, model, effort, cx))
             .when(
                 selected && self.current_effort.is_some() && !choices.is_empty(),
                 |row| {
@@ -87,20 +93,30 @@ impl Picker {
                             .dropdown_caret(true)
                             .disabled(self.disabled)
                             .debug_selector(|| "composer-model-effort".into())
-                            .dropdown_menu(move |menu, _, _| {
-                                choices.iter().fold(menu, |menu, choice| {
+                            .dropdown_menu(move |menu, _, cx| {
+                                measured.iter().fold(menu, |menu, (choice, score)| {
                                     let choice = *choice;
                                     let owner = owner.clone();
                                     menu.item(
-                                        PopupMenuItem::new(crate::reasoning::label(choice))
-                                            .checked(choice == effort)
-                                            .on_click(move |_, _, cx| {
+                                        if scored {
+                                            scores::effort_item(
+                                                crate::reasoning::label(choice),
+                                                *score,
+                                                cx,
+                                            )
+                                        } else {
+                                            PopupMenuItem::new(crate::reasoning::label(choice))
+                                        }
+                                        .checked(choice == effort)
+                                        .on_click(
+                                            move |_, _, cx| {
                                                 _ = owner.update(cx, |picker, cx| {
                                                     if !picker.disabled {
                                                         cx.emit(EffortPicked(choice));
                                                     }
                                                 });
-                                            }),
+                                            },
+                                        ),
                                     )
                                 })
                             }),
@@ -219,6 +235,13 @@ impl Render for Picker {
             .filter(|channel| !channel.models.is_empty())
             .cloned()
             .collect();
+        self.request_scores(&channels, cx);
+        let scored = channels.iter().any(|group| {
+            group
+                .models
+                .iter()
+                .any(|model| self.measured(group, model, model.effort, cx).is_some())
+        });
         let visible_ids: Vec<_> = channels.iter().map(|c| c.id).collect();
         let mut groups = Accordion::new("composer-model-groups")
             .multiple(true)
@@ -249,49 +272,61 @@ impl Render for Picker {
                 .child(v_flex().w_full().children(rows))
             });
         }
-        h_flex()
+        let body = h_flex()
             .debug_selector(|| "composer-model-picker".into())
             .flex_shrink_0()
             .w(panel_size(window).width)
-            .when(self.categories, |body| body.h(panel_size(window).height))
+            .when(self.categories, |body| body.flex_1().min_h_0())
             .items_stretch()
             .gap_3()
             .when(self.categories, |body| body.child(self.navigation(cx)))
             .child(
-                v_flex().relative().flex_1().min_w_0().gap_2().child(
-                    div()
-                        .id("composer-model-scroll")
-                        .test_support()
-                        .debug_selector(|| "composer-model-scroll".into())
-                        .relative()
-                        .max_h(panel_size(window).height)
-                        .overflow_y_scroll()
-                        .track_scroll(&self.scroll)
-                        .when(channels.is_empty(), |body| {
-                            body.child(
-                                div()
-                                    .debug_selector(|| "composer-model-empty".into())
-                                    .p_2()
-                                    .text_sm()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(tr("composer_model_empty")),
-                            )
-                        })
-                        .when(!channels.is_empty(), |body| {
-                            body.child(groups.on_toggle_click(cx.listener(
-                                move |this, open: &[usize], _, cx| {
-                                    for (index, id) in visible_ids.iter().enumerate() {
-                                        if open.contains(&index) {
-                                            this.expanded.insert(*id);
-                                        } else {
-                                            this.expanded.remove(id);
+                v_flex()
+                    .relative()
+                    .flex_1()
+                    .min_w_0()
+                    .min_h_0()
+                    .gap_2()
+                    .child(
+                        div()
+                            .id("composer-model-scroll")
+                            .test_support()
+                            .debug_selector(|| "composer-model-scroll".into())
+                            .relative()
+                            .min_h_0()
+                            .max_h(panel_size(window).height)
+                            .overflow_y_scroll()
+                            .track_scroll(&self.scroll)
+                            .when(channels.is_empty(), |body| {
+                                body.child(
+                                    div()
+                                        .debug_selector(|| "composer-model-empty".into())
+                                        .p_2()
+                                        .text_sm()
+                                        .text_color(cx.theme().muted_foreground)
+                                        .child(tr("composer_model_empty")),
+                                )
+                            })
+                            .when(!channels.is_empty(), |body| {
+                                body.child(groups.on_toggle_click(cx.listener(
+                                    move |this, open: &[usize], _, cx| {
+                                        for (index, id) in visible_ids.iter().enumerate() {
+                                            if open.contains(&index) {
+                                                this.expanded.insert(*id);
+                                            } else {
+                                                this.expanded.remove(id);
+                                            }
                                         }
-                                    }
-                                    cx.notify();
-                                },
-                            )))
-                        }),
-                ),
-            )
+                                        cx.notify();
+                                    },
+                                )))
+                            }),
+                    ),
+            );
+        v_flex()
+            .w(panel_size(window).width)
+            .when(self.categories, |body| body.h(panel_size(window).height))
+            .child(body)
+            .when(scored, |body| body.child(self.score_footer(cx)))
     }
 }

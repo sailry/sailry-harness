@@ -108,6 +108,9 @@ feature counts by default. They never include conversations, files, credentials,
 names. Turn either off in **Settings › Diagnostics and privacy**, or set `SAILRY_TELEMETRY=off` or
 `DO_NOT_TRACK=1` for the desktop app or a Host.
 
+Sailry downloads public model scores from ModelDial and model metadata from models.dev without
+sending user data; turn off score downloads in **Settings › Models**.
+
 ## Install
 
 [Changelog](CHANGELOG.md) · [Build from source](CONTRIBUTING.md#native-setup)

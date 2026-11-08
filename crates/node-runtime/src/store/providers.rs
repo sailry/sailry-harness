@@ -8,6 +8,7 @@ pub(crate) mod consent;
 pub(in crate::store) mod presets;
 pub(in crate::store) mod quota;
 pub(in crate::store) mod resources;
+pub(super) mod scores;
 pub(in crate::store) use configuration::{Stored, validate_stored};
 use sailry_link::Admission;
 use sailry_protocol::{

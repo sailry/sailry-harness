@@ -147,8 +147,29 @@ impl View {
             }
         };
         let effort = settings.effort;
+        let mut score_bindings = vec![self.binding.client.clone()];
+        if self.binding.defaults.target() != target && member.is_none() && self.session.is_none() {
+            score_bindings.push(self.binding.defaults.clone());
+        }
+        let score_bindings = score_bindings
+            .into_iter()
+            .map(|client| {
+                let node = client.target();
+                crate::model_picker::Binding {
+                    client,
+                    runtime: self.binding.runtime.handle().clone(),
+                    providers: self
+                        .provider_ids
+                        .iter()
+                        .filter(|((source, _), _)| *source == node)
+                        .map(|((_, provider), id)| (*id, *provider))
+                        .collect(),
+                }
+            })
+            .collect();
         self.model_picker.update(cx, |picker, cx| {
             picker.set(channels, selected, cx);
+            picker.bind_scores(score_bindings, cx);
             picker.popover = None;
             picker.composer(effort, blocked || !self.can_pick_model(), cx);
         });

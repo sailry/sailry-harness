@@ -16,12 +16,14 @@ pub(crate) async fn status(db: &Connection) -> Result<catalog::Status, Fault> {
         .prepare("SELECT body FROM model_catalog_status WHERE id=1")
         .await
         .map_err(storage_error)?;
-    let row = match statement.query_row(()).await {
-        Ok(row) => row,
-        Err(turso::Error::QueryReturnedNoRows) => return Ok(catalog::Status::default()),
+    let mut status: catalog::Status = match statement.query_row(()).await {
+        Ok(row) => serde_json::from_slice(&row.get::<Vec<u8>>(0).map_err(storage_error)?)
+            .map_err(storage_error)?,
+        Err(turso::Error::QueryReturnedNoRows) => catalog::Status::default(),
         Err(error) => return Err(storage_error(error)),
     };
-    serde_json::from_slice(&row.get::<Vec<u8>>(0).map_err(storage_error)?).map_err(storage_error)
+    status.scores = super::scores::stored(db).await?.status;
+    Ok(status)
 }
 
 pub(crate) async fn page(db: &Connection, query: &catalog::Query) -> Result<catalog::Page, Fault> {
@@ -173,7 +175,7 @@ async fn replace(db: &Connection, entries: &[metadata::Entry]) -> Result<(), Fau
 impl Database {
     pub(in crate::store) async fn cache_catalog(
         &mut self,
-        download: Download,
+        download: Result<Download, Fault>,
         events: &broadcast::Sender<EventEnvelope>,
     ) -> Result<catalog::Status, Fault> {
         let publication = self.publication.clone();
@@ -183,28 +185,29 @@ impl Database {
             .transaction_with_behavior(TransactionBehavior::Concurrent)
             .await
             .map_err(storage_error)?;
-        let previous = status(&transaction).await?;
-        let revision = previous
-            .revision
-            .checked_add(1)
-            .filter(|revision| *revision <= i64::MAX as u64)
-            .ok_or_else(|| storage_error("catalog revision exhausted"))?;
-        let updated_at_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_err(storage_error)?
-            .as_millis()
-            .try_into()
-            .map_err(storage_error)?;
-        let status = catalog::Status {
-            revision,
-            updated_at_ms: Some(updated_at_ms),
-            providers: download.providers,
-            models: download.entries.len() as u32,
-            bytes: download.bytes,
-        };
-        replace(&transaction, &download.entries).await?;
-        transaction.execute("INSERT INTO model_catalog_status(id,body) VALUES(1,?1) ON CONFLICT(id) DO UPDATE SET body=excluded.body", [encode(&status)?]).await.map_err(storage_error)?;
-        let mut updates = super::completion::refresh(&transaction, node).await?;
+        let mut status = status(&transaction).await?;
+        let mut updates = Vec::new();
+        match download {
+            Ok(download) => {
+                status.revision = status
+                    .revision
+                    .checked_add(1)
+                    .filter(|revision| *revision <= i64::MAX as u64)
+                    .ok_or_else(|| storage_error("catalog revision exhausted"))?;
+                status.updated_at_ms = Some(super::scores::now()?);
+                status.providers = download.providers;
+                status.models = download.entries.len() as u32;
+                status.bytes = download.bytes;
+                status.fault = None;
+                replace(&transaction, &download.entries).await?;
+                write(&transaction, &status).await?;
+                updates = super::completion::refresh(&transaction, node).await?;
+            }
+            Err(fault) => {
+                status.fault = Some(fault);
+                write(&transaction, &status).await?;
+            }
+        }
         updates.extend(
             record(
                 &transaction,
@@ -227,10 +230,11 @@ impl Ingress {
         &self,
         request: Request,
     ) -> Result<Admission, Fault> {
+        let _permit = self.catalog.acquire()?;
         let download = tokio::select! {
             biased;
             _ = self.closed.cancelled() => return Err(unavailable()),
-            result = self.catalog.download() => result?,
+            result = self.catalog.download() => result,
         };
         if self.closed.is_cancelled() {
             return Err(unavailable());
@@ -239,7 +243,30 @@ impl Ingress {
         self.submit(Job::Catalog { download, reply })
             .await
             .map_err(|_| Fault::new(ErrorCode::Busy, "Node request queue is unavailable"))?;
-        let status = response.await.map_err(|_| unavailable())??;
+        let metadata = response.await.map_err(|_| unavailable())?;
+        let storage = self.storage.get().ok_or_else(unavailable)?;
+        let score_status = storage
+            .read(|db| Box::pin(super::scores::stored(db)))
+            .await?;
+        let mut status = metadata.as_ref().ok().cloned();
+        if score_status.status.enabled && self.catalog.scores.available() {
+            let download = tokio::select! {
+                biased;
+                _ = self.closed.cancelled() => return Err(unavailable()),
+                result = self.catalog.scores.download(score_status.etag.as_deref()) => result,
+            };
+            let (reply, response) = oneshot::channel();
+            self.submit(Job::Scores {
+                download,
+                revision: score_status.status.revision,
+                reply,
+            })
+            .await
+            .map_err(|_| unavailable())?;
+            status = Some(response.await.map_err(|_| unavailable())??);
+        }
+        let status = status.ok_or_else(|| metadata.as_ref().unwrap_err().clone())?;
+        metadata?;
         let (reply, completion) = oneshot::channel();
         let _ = reply.send(Ok(Output::CatalogStatus(status)));
         Ok(Admission {
@@ -250,4 +277,14 @@ impl Ingress {
             completion,
         })
     }
+}
+
+async fn write(db: &Connection, status: &catalog::Status) -> Result<(), Fault> {
+    let mut body = serde_json::to_value(status).map_err(storage_error)?;
+    body.as_object_mut().unwrap().remove("scores");
+    db.execute(
+        "INSERT INTO model_catalog_status(id,body) VALUES(1,?1) ON CONFLICT(id) DO UPDATE SET body=excluded.body",
+        [encode(&body)?],
+    ).await.map_err(storage_error)?;
+    Ok(())
 }

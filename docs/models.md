@@ -29,6 +29,11 @@ captured configuration. Existing sessions keep their model selection when resume
 Provider settings opened from a conversation can belong to that model's original
 configuration host. Check the selected host before editing shared credentials.
 
+Model picker scores come from [ModelDial](https://modeldial.com/radar) under
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), matched to model names and rounded
+for display; their details identify the measured effort, batch and publication date.
+Turn downloads and score display off under **Settings → Models → Model data**.
+
 ## If a model is unavailable
 
 - Check the endpoint, protocol and exact model ID against your provider's settings.

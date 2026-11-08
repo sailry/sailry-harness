@@ -80,6 +80,21 @@ pub(super) struct Data<'a> {
 }
 
 impl Setting {
+    pub(super) fn bind_scores(&mut self, binding: &Binding, cx: &mut Context<Self>) {
+        if let Control::Model { picker, .. } = &self.control {
+            picker.update(cx, |picker, cx| {
+                picker.bind_scores(
+                    vec![crate::model_picker::Binding {
+                        client: binding.client.clone(),
+                        runtime: binding.runtime.handle().clone(),
+                        providers: Default::default(),
+                    }],
+                    cx,
+                )
+            });
+        }
+    }
+
     pub fn new(
         name: String,
         spec: Field,

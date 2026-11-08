@@ -37,6 +37,7 @@ struct Group {
 struct Choice {
     id: String,
     label: String,
+    reference: Option<sailry_protocol::conversation::catalog::ModelRef>,
     effort: sailry_protocol::Effort,
     efforts: Vec<sailry_protocol::Effort>,
 }
@@ -66,6 +67,7 @@ impl From<Channel> for Group {
                     },
                     label: model.label().to_owned(),
                     id: model.id,
+                    reference: None,
                     effort: sailry_protocol::Effort::initial(&model.efforts, model.default_effort),
                 })
                 .collect(),
@@ -73,9 +75,12 @@ impl From<Channel> for Group {
     }
 }
 
+mod scores;
 #[cfg(test)]
 mod tests;
 mod view;
+pub(crate) use scores::Binding;
+pub(crate) use scores::{SOURCE as SCORE_SOURCE, date as score_date, effort_item};
 
 pub(crate) struct Picker {
     channels: Vec<Group>,
@@ -87,7 +92,9 @@ pub(crate) struct Picker {
     expanded: BTreeSet<usize>,
     scroll: ScrollHandle,
     current_effort: Option<sailry_protocol::Effort>,
+    selected_effort: Option<sailry_protocol::Effort>,
     disabled: bool,
+    scores: scores::State,
 }
 
 pub(crate) struct Picked {
@@ -113,7 +120,9 @@ impl Picker {
             expanded: BTreeSet::new(),
             scroll: ScrollHandle::new(),
             current_effort: None,
+            selected_effort: None,
             disabled: false,
+            scores: Default::default(),
         }
     }
 
@@ -163,6 +172,12 @@ impl Picker {
             };
             groups[id].models.push(Choice {
                 efforts: crate::reasoning::choices(&model.efforts),
+                reference: model.id.split_once('/').and_then(|(provider, model)| {
+                    Some(sailry_protocol::conversation::catalog::ModelRef {
+                        provider: provider.parse().ok()?,
+                        model: model.to_owned(),
+                    })
+                }),
                 id: model.id.clone(),
                 label: model.model.clone(),
                 effort: sailry_protocol::Effort::initial(&model.efforts, model.default_effort),
@@ -237,6 +252,13 @@ impl Picker {
         }
     }
 
+    pub fn set_effort(&mut self, effort: Option<sailry_protocol::Effort>, cx: &mut Context<Self>) {
+        if self.selected_effort != effort {
+            self.selected_effort = effort;
+            cx.notify();
+        }
+    }
+
     fn pick(
         &mut self,
         selection: Selection,
@@ -254,6 +276,7 @@ impl Picker {
     }
 
     pub fn reveal(&mut self, cx: &mut Context<Self>) {
+        self.scores.requested.clear();
         self.expanded.clear();
         if let Some(channel) = self.selected.as_ref().and_then(|selection| {
             self.channels

@@ -693,6 +693,10 @@ pub enum Command {
     },
     RefreshModelCatalog,
     ReadModelCatalog(crate::conversation::catalog::Query),
+    ReadModelScores(Vec<crate::conversation::catalog::ModelRef>),
+    SetModelScoresEnabled {
+        enabled: bool,
+    },
     DiscoverModels(Box<crate::conversation::discovery::Source>),
     ValidateProvider {
         provider: ProviderId,
@@ -1745,6 +1749,7 @@ impl Command {
                 | Self::ReadCatalogStatus
                 | Self::RefreshModelCatalog
                 | Self::ReadModelCatalog(_)
+                | Self::ReadModelScores(_)
                 | Self::RequestProviderHttp { .. }
                 | Self::DiscoverModels(_)
                 | Self::ValidateProvider { .. }
@@ -2084,6 +2089,7 @@ pub enum Output {
     ChannelPresets(crate::conversation::presets::Listing),
     CatalogStatus(crate::conversation::catalog::Status),
     ModelCatalog(crate::conversation::catalog::Page),
+    ModelScores(crate::conversation::catalog::Scores),
     Conversation(crate::conversation::History),
     ConversationRuns(crate::conversation::runs::Page),
     ConversationRun(crate::conversation::runs::Summary),

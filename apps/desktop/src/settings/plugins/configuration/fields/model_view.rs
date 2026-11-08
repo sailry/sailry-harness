@@ -48,6 +48,14 @@ impl Setting {
                                     .child(IconName::ChevronDown),
                             ),
                     )
+                    .on_open_change({
+                        let picker = picker.clone();
+                        move |open, _, cx| {
+                            if *open {
+                                picker.update(cx, |picker, cx| picker.reveal(cx));
+                            }
+                        }
+                    })
                     .content(move |_, _, cx| {
                         let popover = cx.entity().downgrade();
                         picker.update(cx, |picker, _| picker.popover = Some(popover));
