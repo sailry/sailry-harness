@@ -31,6 +31,8 @@ pub(crate) fn tool_label(name: &str) -> SharedString {
         "list_sessions" => "tool_list_sessions",
         "read_session" => "tool_read_session",
         "search_session" => "tool_search_session",
+        "tool_search" => "tool_find_tools",
+        "read_tool_output" => "tool_read_output",
         "compact_context" => "chat_compact",
         "plan_review" => "composer_mode_plan",
         _ => return name.to_owned().into(),
@@ -45,7 +47,8 @@ pub(crate) fn tool_icon(name: &str) -> Option<Icon> {
         "load_skill" | "read_skill_resource" => IconName::BookOpen,
         "list_sessions" => IconName::Bot,
         "read_session" => IconName::FileText,
-        "search_session" => IconName::Search,
+        "search_session" | "tool_search" => IconName::Search,
+        "read_tool_output" => IconName::FileText,
         _ => return None,
     }))
 }

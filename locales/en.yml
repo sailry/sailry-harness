@@ -112,6 +112,8 @@ tool_read_skill_resource: Read skill resource
 tool_list_sessions: "Find sessions"
 tool_read_session: "Read session"
 tool_search_session: "Search session"
+tool_find_tools: "Find tools"
+tool_read_output: "Read tool output"
 tool_update_plan: Update plan
 tool_database_catalog: Browse database
 tool_database_query: Query database

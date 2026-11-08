@@ -71,8 +71,16 @@ impl Raw {
                 .is_none_or(|display| display.output.is_none())
                 && literal(result).is_some()
         };
+        let error = error(self, metadata.as_ref());
+        let summarized = matches!(
+            self.presentation,
+            Presentation::Summary | Presentation::Hidden
+        );
+        // A summary-only tool's failure headline already shows its whole error.
+        let failure_details =
+            diagnostics && !(summarized && error.as_ref().is_some_and(|error| error.len() <= 1024));
         let has_details = self.result.is_some()
-            && (diagnostics
+            && (failure_details
                 || !self.images.is_empty()
                 || progress(self).is_some()
                 || !matches!(
@@ -115,7 +123,7 @@ impl Raw {
             failure: self.failure.clone(),
             diagnostics,
             expected: metadata.as_ref().and_then(|metadata| metadata.expected),
-            error: error(self, metadata.as_ref()).map(|error| clip(&error, 1024, false)),
+            error: error.map(|error| clip(&error, 1024, false)),
             raw_result: self
                 .display
                 .as_ref()

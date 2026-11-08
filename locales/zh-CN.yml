@@ -2578,6 +2578,8 @@ tool_read_skill_resource: 读取技能资源
 tool_list_sessions: "查找会话"
 tool_read_session: "读取会话"
 tool_search_session: "搜索会话"
+tool_find_tools: "查找工具"
+tool_read_output: "读取工具输出"
 tool_update_plan: 更新计划
 tool_database_catalog: 浏览数据库
 tool_database_query: 查询数据库

@@ -337,8 +337,28 @@ fn preserves_storage_contracts() {
                     assert!(summary.error.is_none(), "{scenario}");
                     raw.failure = Some(Failure { code: None });
                     let summary = raw.summary();
-                    assert!(summary.diagnostics && summary.has_details, "{scenario}");
+                    // The failure headline carries a short error; details add nothing.
+                    assert!(summary.diagnostics, "{scenario}");
+                    assert_eq!(summary.has_details, summary.error.is_none(), "{scenario}");
                     assert_eq!(raw.detail().result, Some(result), "{scenario}");
+                }
+            }),
+        ),
+        (
+            "summary_failures_keep_details_off_headline",
+            (|scenario: &'static str| {
+                let result = json!({"isError":true,"content":[{"type":"text","text":"{\"error\":{\"message\":\"No running application\"}}"}],"structuredContent":{"error":{"message":"No running application"}}});
+                for (presentation, expanded) in [
+                    (Presentation::Summary, false),
+                    (Presentation::Details, true),
+                ] {
+                    let mut raw = source(result.clone());
+                    raw.format = ToolFormat::Mcp;
+                    raw.presentation = presentation;
+                    raw.failure = Some(Failure { code: None });
+                    let summary = raw.summary();
+                    assert!(summary.error.is_some(), "{scenario}");
+                    assert_eq!(summary.has_details, expanded, "{scenario}");
                 }
             }),
         ),

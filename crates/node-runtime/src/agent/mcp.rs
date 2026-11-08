@@ -221,6 +221,10 @@ impl Connections {
         ))
         .await;
         for (config, attempt) in selected.iter().zip(attempts) {
+            let over_limit = attempt
+                .result
+                .as_ref()
+                .is_ok_and(|(_, descriptors, _)| tools.len() + descriptors.len() > MAX_TOOLS);
             let result = match attempt.result {
                 Ok((connection, descriptors, connector))
                     if tools.len() + descriptors.len() <= MAX_TOOLS =>
@@ -342,6 +346,15 @@ impl Connections {
             entry.context.package = Some(config.reference.clone());
             entry.context.handler = Some(config.name.clone());
             entry.connection_reused = Some(attempt.reused);
+            if let Err(error) = &result {
+                entry.reason = Some(if error.code == ErrorCode::Cancelled {
+                    "cancelled"
+                } else if over_limit {
+                    "tool_limit"
+                } else {
+                    attempt.step
+                });
+            }
             entry.duration_us =
                 Some(u64::try_from(attempt.elapsed.as_micros()).unwrap_or(u64::MAX));
             startup.record(entry);
@@ -389,6 +402,8 @@ impl Connections {
 
 struct Attempt {
     reused: bool,
+    /// The connection step a failure stopped at, for diagnostics.
+    step: &'static str,
     elapsed: Duration,
     result: Result<
         (
@@ -426,6 +441,7 @@ impl Target<'_> {
         let started = std::time::Instant::now();
         let mut attempt = ingress.agents.mcp.begin(&config.reference, &config.name);
         let mut reused = false;
+        let mut step = "launch";
         let result = async {
             if index >= crate::plugins::mcp::MAX_SERVERS { return Err(unavailable()); }
             let mut launch = launch?;
@@ -434,10 +450,12 @@ impl Target<'_> {
             if invocation.is_none() && !reuse {
                 return Err(unavailable());
             }
+            step = "authorization";
             let connector = tokio::select! {
                 _ = stop.cancelled() => return Err(cancelled()),
                 result = tokio::time::timeout(Duration::from_secs(10), resources.mcp_authorization(ingress, context, &config.name, &mut launch)) => result.map_err(|_| unavailable())??,
             };
+            step = "connection";
             let connection = if reuse {
                 let mut transport_connector = connector.clone();
                 if let Some(connector) = &mut transport_connector {
@@ -455,6 +473,7 @@ impl Target<'_> {
                 caller.settings = connector.settings;
                 caller.stop = stop.clone();
             }
+            step = "tool_list";
             let listing = async {
                 let _listing = connection.listing.lock().await;
                 if !connection.healthy() {
@@ -490,6 +509,7 @@ impl Target<'_> {
         ingress.agents.mcp.finish(attempt, status);
         Attempt {
             reused,
+            step,
             elapsed: started.elapsed(),
             result,
         }
