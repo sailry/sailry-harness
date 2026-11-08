@@ -4,7 +4,12 @@ import '../../../runtime/json.dart';
 
 /// One session's captured team roster with the host's stored team catalog.
 class SessionTeam {
-  const SessionTeam(this.session, this.teams, {this.catalog = const []});
+  const SessionTeam(
+    this.session,
+    this.teams, {
+    this.catalog = const [],
+    this.providers = const [],
+  });
 
   final Map<String, dynamic> session;
 
@@ -13,6 +18,7 @@ class SessionTeam {
 
   /// Current role identities, used only for their display appearance.
   final List<Map<String, dynamic>> catalog;
+  final List<Map<String, dynamic>> providers;
 
   /// The latest admitted Lead configuration, including changes made in the picker.
   Map<String, dynamic> get config => object(session['config']);
@@ -57,6 +63,54 @@ class SessionTeam {
   Map<String, dynamic> selection(Map<String, dynamic>? member) =>
       (member == null ? null : model(member)) ?? config;
 
+  Map<String, dynamic> features(Map<String, dynamic> member) {
+    final selected = selection(member);
+    return _retainFeatures(
+      selected,
+      object(selected['features'] ?? config['features']),
+    );
+  }
+
+  List<Map<String, dynamic>> featureOptions(Map<String, dynamic> selected) {
+    final provider = providers
+        .where((provider) => provider['id'] == selected['provider'])
+        .firstOrNull;
+    final definition = objects(
+      provider?['models'],
+    ).where((model) => model['id'] == selected['model']).firstOrNull;
+    final declared = objects(object(definition?['capabilities'])['features']);
+    return declared
+        .map((feature) {
+          final options = objects(feature['options'])
+              .where(
+                (option) =>
+                    _supported(provider?['api'], feature['id'], option['id']),
+              )
+              .toList();
+          return {...feature, 'options': options};
+        })
+        .where((feature) => (feature['options'] as List).isNotEmpty)
+        .toList();
+  }
+
+  Map<String, dynamic> _retainFeatures(
+    Map<String, dynamic> selected,
+    Map<String, dynamic> values,
+  ) {
+    final declared = featureOptions(selected);
+    return {
+      for (final entry in values.entries)
+        if (declared.any(
+          (feature) =>
+              feature['id'] == entry.key &&
+              objects(
+                feature['options'],
+              ).any((option) => option['id'] == entry.value),
+        ))
+          entry.key: entry.value,
+    };
+  }
+
   Map<String, dynamic> choose(
     Map<String, dynamic> member,
     Map<String, dynamic> choice,
@@ -66,8 +120,22 @@ class SessionTeam {
       'provider': choice['provider'],
       'model': choice['model'],
       'effort': choice['effort'],
-      if (current?.containsKey('features') ?? false)
-        'features': current!['features'],
+      if (current?['features'] != null)
+        'features': _retainFeatures(choice, object(current!['features'])),
+    };
+  }
+
+  Map<String, dynamic> feature(
+    Map<String, dynamic> member,
+    String id,
+    String option,
+  ) {
+    final selected = selection(member);
+    final chosen = features(member)..remove(id);
+    if (option.isNotEmpty) chosen[id] = option;
+    return {
+      ...choose(member, selected),
+      'features': _retainFeatures(selected, chosen),
     };
   }
 
@@ -76,6 +144,12 @@ class SessionTeam {
   Map<String, dynamic> effort(Map<String, dynamic> member, Object? effort) =>
       choose(member, {...selection(member), 'effort': effort});
 }
+
+bool _supported(Object? api, Object? feature, Object? option) =>
+    api == 'plugin' ||
+    api == 'responses' &&
+        feature == 'speed' &&
+        (option == 'fast' || option == 'ultrafast');
 
 /// Live team state and the owner's revision-checked team commands.
 class TeamChoices {

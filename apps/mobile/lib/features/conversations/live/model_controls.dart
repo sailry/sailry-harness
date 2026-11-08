@@ -104,8 +104,12 @@ class _ModelControlsState extends State<ModelControls> {
     final efforts = <String>{
       ...(model?['efforts'] as List? ?? []).whereType<String>(),
     }.toList();
-    final features = objects(object(model?['capabilities'])['features']);
-    final chosen = object(selection['features']);
+    final features = member == null
+        ? objects(object(model?['capabilities'])['features'])
+        : state!.featureOptions(selection);
+    final chosen = member == null
+        ? object(selection['features'])
+        : state!.features(member);
     final initial = model?['default_effort'] ?? 'default';
     final current = member == null
         ? config['effort'] ?? 'default'
@@ -268,15 +272,15 @@ class _ModelControlsState extends State<ModelControls> {
                 selected: text(chosen[feature['id']]),
                 enabled: enabled,
                 onSelected: (value) {
-                  final next = {...chosen}..remove(feature['id']);
-                  if (value.isNotEmpty) next[text(feature['id'])] = value;
                   if (member == null) {
+                    final next = {...chosen}..remove(feature['id']);
+                    if (value.isNotEmpty) next[text(feature['id'])] = value;
                     _commit({...config, 'features': next});
                   } else {
-                    _setMember(role, {
-                      ...state!.choose(member, selection),
-                      'features': next,
-                    });
+                    _setMember(
+                      role,
+                      state!.feature(member, text(feature['id']), value),
+                    );
                   }
                 },
               ),

@@ -148,6 +148,7 @@ class CreationDraft extends ChangeNotifier {
       },
       teams,
       catalog: roles,
+      providers: providers,
     );
   }
 

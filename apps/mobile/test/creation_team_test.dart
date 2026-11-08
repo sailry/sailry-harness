@@ -5,6 +5,15 @@ import 'package:sailry_mobile/runtime/session.dart';
 
 import 'support/drafts.dart';
 
+const features = [
+  {
+    'id': 'speed',
+    'options': [
+      {'id': 'fast'},
+    ],
+  },
+];
+
 const builder = {'id': 'builder', 'name': 'Builder', 'model': null};
 const reviewer = {
   'id': 'reviewer',
@@ -24,9 +33,26 @@ class Fixture {
     host = HostConnection.test(
       id: 'host',
       label: 'Host',
-      snapshot: snapshot('a', providers: [provider('a'), provider('b')])
-        ..['roles'] = [builder, reviewer]
-        ..['teams'] = [frontend],
+      snapshot:
+          snapshot(
+              'a',
+              providers: [
+                for (final id in ['a', 'b'])
+                  {
+                    ...provider(id),
+                    'api': 'responses',
+                    'models': [
+                      for (final model in objects(provider(id)['models']))
+                        {
+                          ...model,
+                          'capabilities': {'features': features},
+                        },
+                    ],
+                  },
+              ],
+            )
+            ..['roles'] = [builder, reviewer]
+            ..['teams'] = [frontend],
       connection: recovery,
       command: (kind, data) async {
         commands.add((kind, data!));
@@ -197,6 +223,42 @@ void main() {
       });
     }
   });
+
+  test(
+    'switching to an unsupported model admits an explicit empty choice',
+    () async {
+      final fixture = Fixture();
+      addTearDown(fixture.dispose);
+      final draft = fixture.draft;
+      final member = {
+        ...reviewer,
+        'model': {
+          ...object(reviewer['model']),
+          'features': {'speed': 'fast'},
+        },
+      };
+      fixture.host.snapshot['roles'] = [member];
+      fixture.host.snapshot['providers'] = [provider('a'), provider('b')];
+      draft.configureMember(
+        'reviewer',
+        draft.team.choose(member, {
+          'provider': 'b',
+          'model': 'b-second',
+          'effort': 'default',
+        }),
+      );
+      await draft.send(hasInput: true);
+      expect(fixture.commands.last.$1, 'set_session_team');
+      expect(fixture.commands.last.$2['models'], {
+        'reviewer': {
+          'provider': 'b',
+          'model': 'b-second',
+          'effort': 'default',
+          'features': {},
+        },
+      });
+    },
+  );
 
   test('chosen lead is restored before the first turn', () async {
     final fixture = Fixture();

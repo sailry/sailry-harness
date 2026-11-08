@@ -38,6 +38,7 @@ class _ConversationConfigurationState extends State<ConversationConfiguration> {
       _session.value,
       objects(widget.host.snapshot['teams']),
       catalog: objects(widget.host.snapshot['roles']),
+      providers: _providers,
     ),
     onTeam: _selectTeam,
     onMember: (role, model) => _run(

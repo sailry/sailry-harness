@@ -8,6 +8,38 @@ const reviewer = {
 };
 const builder = {'id': 'role-build', 'name': 'Builder', 'model': null};
 
+const features = [
+  {
+    'id': 'speed',
+    'options': [
+      {'id': 'fast'},
+      {'id': 'ultrafast'},
+    ],
+  },
+  {
+    'id': 'detail',
+    'options': [
+      {'id': 'full'},
+    ],
+  },
+];
+
+Map<String, dynamic> provider(
+  String id,
+  String model, {
+  String api = 'plugin',
+  List<Map<String, dynamic>> choices = features,
+}) => {
+  'id': id,
+  'api': api,
+  'models': [
+    {
+      'id': model,
+      'capabilities': {'features': choices},
+    },
+  ],
+};
+
 const frontend = {
   'id': 'team-front',
   'revision': 3,
@@ -110,14 +142,22 @@ void main() {
         for (final overridden in [false, true]) {
           final model = {...reviewer['model']! as Map, 'features': ?features};
           final member = {...reviewer, 'model': model};
-          final state = SessionTeam({
-            ...session(models: overridden ? {'role-review': model} : {}),
-            'config': {
-              'provider': 'p-lead',
-              'model': 'lead',
-              'features': {'speed': 'ultrafast'},
+          final state = SessionTeam(
+            {
+              ...session(models: overridden ? {'role-review': model} : {}),
+              'config': {
+                'provider': 'p-lead',
+                'model': 'lead',
+                'features': {'speed': 'ultrafast'},
+              },
             },
-          }, const []);
+            const [],
+            providers: [
+              provider('p-own', 'own'),
+              provider('p-new', 'new'),
+              provider('p-lead', 'lead'),
+            ],
+          );
           for (final choice in [
             state.choose(member, {
               'provider': 'p-new',
@@ -151,6 +191,197 @@ void main() {
             });
           }
         }
+      }
+    });
+
+    test('feature controls resolve inheritance and explicit disablement', () {
+      for (final inherited in [builder, reviewer]) {
+        for (final override in <Map<String, String>?>[
+          null,
+          {},
+          {'speed': 'fast'},
+        ]) {
+          final state = SessionTeam(
+            {
+              ...session(
+                models: {
+                  if (override != null)
+                    inherited['id'] as String: {
+                      'provider': 'p-own',
+                      'model': 'own',
+                      'features': override,
+                    },
+                },
+              ),
+              'config': {
+                'provider': 'p-lead',
+                'model': 'lead',
+                'features': {
+                  'speed': 'ultrafast',
+                  'detail': 'full',
+                  'unsupported': 'value',
+                },
+              },
+            },
+            const [],
+            providers: [provider('p-own', 'own'), provider('p-lead', 'lead')],
+          );
+          expect(
+            state.features(inherited),
+            override ?? {'speed': 'ultrafast', 'detail': 'full'},
+          );
+          expect(state.feature(inherited, 'speed', '')['features'], {
+            if (override == null) 'detail': 'full',
+          });
+          expect(state.feature(inherited, 'speed', 'fast')['features'], {
+            if (override == null) 'detail': 'full',
+            'speed': 'fast',
+          });
+        }
+      }
+    });
+
+    test('model changes keep supported explicit choices only', () {
+      for (final (choices, retained) in [
+        (features, {'speed': 'fast', 'detail': 'full'}),
+        (
+          [
+            {
+              'id': 'speed',
+              'options': [
+                {'id': 'fast'},
+              ],
+            },
+          ],
+          {'speed': 'fast'},
+        ),
+        (
+          [
+            {
+              'id': 'speed',
+              'options': [
+                {'id': 'ultrafast'},
+              ],
+            },
+          ],
+          <String, String>{},
+        ),
+        (<Map<String, dynamic>>[], <String, String>{}),
+      ]) {
+        for (final explicit in <Map<String, String>?>[
+          null,
+          {},
+          {'speed': 'fast', 'detail': 'full'},
+        ]) {
+          final member = {
+            ...reviewer,
+            'model': {...reviewer['model']! as Map, 'features': ?explicit},
+          };
+          final state = SessionTeam(
+            session(),
+            const [],
+            providers: [provider('p-new', 'new', choices: choices)],
+          );
+          expect(
+            state.choose(member, {
+              'provider': 'p-new',
+              'model': 'new',
+              'effort': 'high',
+            }),
+            {
+              'provider': 'p-new',
+              'model': 'new',
+              'effort': 'high',
+              if (explicit != null)
+                'features': explicit.isEmpty ? {} : retained,
+            },
+          );
+          expect((member['model'] as Map)['features'], explicit);
+        }
+      }
+    });
+
+    test('feature options and selections respect the provider API', () {
+      const advertised = [
+        {
+          'id': 'speed',
+          'options': [
+            {'id': 'fast'},
+            {'id': 'ultrafast'},
+            {'id': 'economy'},
+          ],
+        },
+        {
+          'id': 'detail',
+          'options': [
+            {'id': 'full'},
+          ],
+        },
+      ];
+      const selected = {'provider': 'p-own', 'model': 'own', 'effort': null};
+      for (final api in [
+        'responses',
+        'plugin',
+        'chat_completions',
+        'anthropic',
+        'gemini',
+        'deepseek',
+        'open_code_go',
+        'open_code_zen',
+        'azure_open_ai',
+        'azure_ai',
+      ]) {
+        final expected = switch (api) {
+          'responses' => {'speed': 'fast'},
+          'plugin' => {'speed': 'fast', 'detail': 'full'},
+          _ => <String, String>{},
+        };
+        final state = SessionTeam(
+          {
+            ...session(),
+            'config': {
+              ...selected,
+              'features': {'speed': 'fast', 'detail': 'full'},
+            },
+          },
+          const [],
+          providers: [provider('p-own', 'own', api: api, choices: advertised)],
+        );
+        expect(state.featureOptions(selected), switch (api) {
+          'responses' => [features.first],
+          'plugin' => advertised,
+          _ => [],
+        }, reason: api);
+        expect(state.features(reviewer), expected, reason: api);
+        expect(state.choose(reviewer, selected), selected, reason: api);
+        expect(
+          state.choose({
+            ...reviewer,
+            'model': {
+              ...selected,
+              'features': {'speed': 'fast', 'detail': 'full'},
+            },
+          }, selected),
+          {...selected, 'features': expected},
+          reason: api,
+        );
+        expect(state.feature(reviewer, 'speed', 'ultrafast'), {
+          ...selected,
+          'features': {
+            ...expected,
+            if (api == 'plugin' || api == 'responses') 'speed': 'ultrafast',
+          },
+        }, reason: api);
+        expect(state.feature(reviewer, 'speed', 'economy'), {
+          ...selected,
+          'features': api == 'plugin'
+              ? {'speed': 'economy', 'detail': 'full'}
+              : {},
+        }, reason: api);
+        expect(state.feature(reviewer, 'unadvertised', 'option'), {
+          ...selected,
+          'features': expected,
+        }, reason: api);
       }
     });
 
