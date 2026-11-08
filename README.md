@@ -33,102 +33,82 @@ documents — on the [models you choose](docs/models.md).
   <img src="assets/readme/workspace.webp" width="100%" alt="Sailry desktop home: hosts, active sessions and projects in the sidebar, and a new conversation with quick starts in the center.">
 </p>
 
-## Any computer becomes your host
+## How it works
 
-Install Sailry Host on a laptop, a Linux box in the lab or a rented GPU machine. It runs as a
-background service and keeps projects, terminals and agents on that machine, next to the code
-and data they need.
+<p align="center">
+  <img src="assets/readme/architecture.svg" width="100%" alt="The desktop app and the phone control one or more Hosts over peer-to-peer, end-to-end encrypted links with relay fallback. Each Host runs the agent loop and its tools next to your code and data, keeps credentials, and calls the model providers you choose.">
+</p>
 
-Reach it from the Sailry desktop app or your phone, anywhere in the world. Links go peer to peer
-when a direct path exists and fall back to an encrypted relay when it doesn't — no port
-forwarding, VPN or cloud account. Close the laptop and the work keeps running on the Host.
+- **Any computer becomes a Host.** Install Sailry Host on a laptop, a Linux box in the lab or a
+  rented GPU machine. It runs as a background service, so projects, terminals and agents stay next
+  to the code and data they need, and keep running when you close the laptop.
+- **Reach it from anywhere.** Links go peer to peer when a direct path exists and fall back to an
+  encrypted relay when it doesn't — no port forwarding, VPN or cloud account.
+- **Credentials stay on the Host.** Agents use saved connections by ID and never see passwords or
+  private keys.
 
-## A ChatGPT and Claude Code–class agent, beyond code
+## Features
 
-One conversation, a complete toolbox:
+### An agent beyond code
 
-- **Code** — Standard, Plan and Flagship modes, multi-file `apply_patch` edits, Git and
-  worktrees, terminals and code review.
+- **Code** — Standard, Plan and Flagship modes, multi-file `apply_patch` edits, Git and worktrees,
+  terminals and code review.
 - **Browse and operate** — a built-in browser the agent reads, clicks and screenshots; pick page
   elements straight into the conversation; desktop computer use.
 - **Office work** — read Word, Excel, PowerPoint and PDF (with OCR), write documents and
   interactive HTML previews, generate images and video, search the web and your knowledge base.
-- **Keep going** — long-term memory, goals that run until they are done, reminders and scheduled
-  tasks, and connectors for Notion, Figma, Google Workspace, Microsoft 365, DingTalk, WeCom and
-  Yuque.
+- **Keep going** — long-term memory, searchable history, goals that run until they are done,
+  reminders and scheduled tasks, and connectors for Notion, Figma, Google Workspace,
+  Microsoft 365, DingTalk, WeCom and Yuque.
+- **Local speech and OCR** — voice input and text recognition run on your own machine.
 
-Where Sailry goes further:
-
-- **Agent teams, one model per seat.** Flagship mode fans work out to parallel subagents, each on
-  its own model — DeepSeek writes the code, Claude plans, Codex takes the hard problems — and
-  every step stays visible in the conversation.
-- **Searchable history.** Agents find and reuse your earlier conversations.
-- **Local speech and OCR.** Voice input and text recognition run on your own machine.
+### Agent teams, one model per seat
 
 <p align="center">
-  <img src="assets/readme/conversation.webp" width="100%" alt="A Sailry conversation in a project reviewing an API design before the client is built.">
+  <img src="assets/readme/agent-team.svg" width="100%" alt="A lead agent loops between its model and tools, delegates parts of the task to parallel subagents that each use their own model, and streams every step into the conversation.">
 </p>
 
-## A harness, not just an agent
+Flagship mode fans work out to parallel subagents, each on its own model — DeepSeek writes the
+code, Claude plans, Codex takes the hard problems — and every step stays visible in the
+conversation, where you approve actions as they run.
 
-Sailry wraps the model in a harness built for engineering work. Coding plugins come built in and
-work the moment you open a project — no language servers, drivers or extensions to install:
+### Built-in coding harness
 
-- **Code graph** — bundled parsers index the project for symbol search, file outlines, callers and
-  callees, change impact and a ranked project map, so agents read the right code instead of
-  searching the whole tree.
-- **Databases** — PostgreSQL, MySQL and SQLite through saved connections. Queries run on a
-  read-only connection; writes follow the session's permission policy.
-- **SSH** — run commands and transfer files over SFTP on saved servers, with pinned host keys.
+Coding plugins work the moment you open a project — no language servers, drivers or extensions to
+install. Structured tools return the result the agent needs instead of raw shell output.
 
-Credentials stay on the Host that runs the work. Agents use connections by ID and never see
-passwords or private keys, and structured tools return the result the agent needs instead of
-raw shell output.
+- **Code graph** — symbol search, file outlines, callers and callees, change impact and a ranked
+  project map, so agents read the right code instead of searching the whole tree.
+- **Databases** — PostgreSQL, MySQL and SQLite through saved connections. Queries run read-only;
+  writes follow the session's permission policy.
+- **SSH** — commands and SFTP transfers on saved servers, with pinned host keys.
 
-## Your phone is the remote control
+### Your phone is the remote control
 
 Pair the Android or iOS app with your desktop or any Host using a six-digit code. Pick up any
-session, send and queue messages, answer approvals and follow tools as they run — wherever you
-are. The connection is peer to peer and end-to-end encrypted, and it is free: no account and no
-subscription.
+session, send and queue messages, answer approvals and follow tools as they run. No account and
+no subscription.
 
-## Native, light and fast
+### Native, light and fast
 
-Sailry is written in Rust and drawn on the GPU with GPUI and
-[GPUI Kit](https://github.com/dux-web/gpui-component) — no Electron and no bundled browser engine
-behind the interface. It starts fast, stays
-responsive in long conversations and leaves your memory to your actual work, with less heat and
-less lag.
+Written in Rust and drawn on the GPU with GPUI and
+[GPUI Kit](https://github.com/dux-web/gpui-component) — no Electron and no bundled browser engine.
+It starts fast, stays responsive in long conversations and leaves your memory to your work.
 
-## Extend everything
+### Plugins and themes
 
-- **Open standards.** Packages use the [agent-plugins](https://agent-plugins.org) format and
-  standard `SKILL.md` skills, and MCP servers connect directly.
-- **Native plugin UI.** Plugin pages, panels and settings are written in JavaScript; Sailry
-  renders them with native GPUI Kit components, so extensions feel and perform like the rest of
-  the app.
-- **More models.** Model plugins add providers and accounts.
+<p align="center">
+  <img src="assets/readme/plugins.svg" width="100%" alt="One agent-plugins package adds skills, MCP servers, tools and model providers to the agent through the Host, and JavaScript pages that the desktop app renders with native GPUI Kit components.">
+</p>
+
+- **Open standards** — [agent-plugins](https://agent-plugins.org) packages, standard `SKILL.md`
+  skills and direct MCP servers.
+- **Native plugin UI** — pages, panels and settings written in JavaScript render with the same
+  components as the rest of the app.
+- **Themes** — colors, typography, surfaces and decorations come from one set of tokens, in light
+  and dark. Official themes live in [sailry-themes](https://github.com/sailry/sailry-themes).
 - Browse the official [plugins](https://github.com/sailry/sailry-plugins) or build your own with
   the Apache-2.0 [SDK](sdk/plugins.md).
-
-<p align="center">
-  <img src="assets/readme/market.webp" width="100%" alt="The Sailry market with official plugins such as Browser, Code review, Computer Use, Databases and Context7.">
-</p>
-
-<p align="center">
-  <img src="assets/readme/plugin-city-trader.webp" width="49%" alt="Dream City Tycoon, a plugin page written in JavaScript and rendered with native components.">
-  <img src="assets/readme/plugin-doudizhu.webp" width="49%" alt="Dou Dizhu, a card game plugin with two AI opponents.">
-</p>
-
-## Polished UI, your theme
-
-The theme system is part of the UI layer itself: colors, typography, surfaces and decorations come
-from one set of tokens, in light and dark. Apply themes from the built-in market; official themes
-are open packages in [sailry-themes](https://github.com/sailry/sailry-themes).
-
-<p align="center">
-  <img src="assets/readme/theme-great-sage.webp" width="100%" alt="Sailry with the Great Sage theme: an illustrated backdrop, gilded controls and themed quick starts.">
-</p>
 
 ## Install
 

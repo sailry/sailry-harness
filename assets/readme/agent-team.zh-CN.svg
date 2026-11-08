@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="420" viewBox="0 0 1200 420" role="img" aria-labelledby="title desc">
+  <title id="title">智能体团队</title>
+  <desc id="desc">主智能体在模型和工具之间循环，把任务拆给并行的子智能体，每个子智能体使用自己的模型，每一步都实时显示在会话里。</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#9AA4B2"/></marker>
+    <marker id="link" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#3D8BEF"/></marker>
+  </defs>
+  <rect width="1200" height="420" rx="28" fill="#0F1217"/>
+  <text x="60" y="60" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="14" fill="#9AA4B2" text-anchor="start" letter-spacing="2">你</text>
+  <text x="330" y="60" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="14" fill="#9AA4B2" text-anchor="start" letter-spacing="2">主智能体</text>
+  <text x="760" y="60" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="14" fill="#9AA4B2" text-anchor="start" letter-spacing="2">子智能体 · 各用各的模型</text>
+  <rect x="60" y="96" width="210" height="96" rx="14" fill="#161B22" stroke="#262D38" stroke-width="1.5"/>
+  <text x="84" y="136" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="19" fill="#F2F5F9" text-anchor="start" font-weight="600">你的任务</text>
+  <text x="84" y="164" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="15" fill="#9AA4B2" text-anchor="start">旗舰模式</text>
+  <rect x="60" y="240" width="210" height="120" rx="14" fill="#161B22" stroke="#262D38" stroke-width="1.5"/>
+  <text x="84" y="280" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="19" fill="#F2F5F9" text-anchor="start" font-weight="600">会话</text>
+  <text x="84" y="308" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="14" fill="#9AA4B2" text-anchor="start">每一步都看得见，</text>
+  <text x="84" y="332" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="14" fill="#9AA4B2" text-anchor="start">运行中随时审批</text>
+  <polyline points="270,144 330,144" fill="none" stroke="#9AA4B2" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="300" y="132" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="13" fill="#9AA4B2" text-anchor="middle">任务</text>
+  <polyline points="330,300 270,300" fill="none" stroke="#9AA4B2" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="300" y="288" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="13" fill="#9AA4B2" text-anchor="middle">过程</text>
+  <rect x="330" y="96" width="360" height="264" rx="14" fill="#12161C" stroke="#3D8BEF" stroke-width="1.5"/>
+  <text x="354" y="132" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="19" fill="#F2F5F9" text-anchor="start" font-weight="600">主智能体</text>
+  <text x="354" y="156" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="14" fill="#9AA4B2" text-anchor="start">规划并拆分任务</text>
+  <rect x="354" y="180" width="120" height="56" rx="14" fill="#161B22" stroke="#262D38" stroke-width="1.5"/>
+  <text x="414" y="214" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="16" fill="#F2F5F9" text-anchor="middle">模型</text>
+  <rect x="546" y="180" width="120" height="56" rx="14" fill="#161B22" stroke="#262D38" stroke-width="1.5"/>
+  <text x="606" y="214" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="16" fill="#F2F5F9" text-anchor="middle">工具</text>
+  <polyline points="474,198 546,198" fill="none" stroke="#9AA4B2" stroke-width="2" marker-end="url(#arrow)"/>
+  <polyline points="546,220 474,220" fill="none" stroke="#9AA4B2" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="510" y="258" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="13" fill="#9AA4B2" text-anchor="middle">循环直到完成</text>
+  <rect x="354" y="280" width="312" height="56" rx="14" fill="#161B22" stroke="#262D38" stroke-width="1.5"/>
+  <text x="510" y="314" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="15" fill="#F2F5F9" text-anchor="middle">历史 · 记忆 · 目标</text>
+  <rect x="760" y="96" width="380" height="72" rx="14" fill="#161B22" stroke="#262D38" stroke-width="1.5"/>
+  <text x="784" y="126" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="16" fill="#F2F5F9" text-anchor="start" font-weight="600">规划</text>
+  <text x="784" y="150" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="14" fill="#9AA4B2" text-anchor="start">例如 Claude</text>
+  <polyline points="690,228 722,228 722,132 760,132" fill="none" stroke="#9AA4B2" stroke-width="2" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+  <rect x="760" y="188" width="380" height="72" rx="14" fill="#161B22" stroke="#262D38" stroke-width="1.5"/>
+  <text x="784" y="218" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="16" fill="#F2F5F9" text-anchor="start" font-weight="600">写代码</text>
+  <text x="784" y="242" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="14" fill="#9AA4B2" text-anchor="start">例如 DeepSeek</text>
+  <polyline points="690,228 722,228 722,224 760,224" fill="none" stroke="#9AA4B2" stroke-width="2" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+  <rect x="760" y="280" width="380" height="72" rx="14" fill="#161B22" stroke="#262D38" stroke-width="1.5"/>
+  <text x="784" y="310" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="16" fill="#F2F5F9" text-anchor="start" font-weight="600">攻克难题</text>
+  <text x="784" y="334" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="14" fill="#9AA4B2" text-anchor="start">例如 Codex</text>
+  <polyline points="690,228 722,228 722,316 760,316" fill="none" stroke="#9AA4B2" stroke-width="2" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+  <text x="950" y="396" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="13" fill="#9AA4B2" text-anchor="middle">并行执行，完成后汇报</text>
+</svg>

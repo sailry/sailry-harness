@@ -28,72 +28,60 @@ Sailry 是一个开源的 AI Harness——不只是智能体，而是直接运�
   <img src="assets/readme/workspace.webp" width="100%" alt="Sailry 桌面端首页：左侧是主机、进行中的会话和项目，中间是新会话和快捷入口。">
 </p>
 
-## 任何一台电脑，都能成为你的主机
+## 工作方式
 
-在笔记本、实验室的 Linux 机器或租来的 GPU 机器上安装 Sailry Host。它作为后台服务运行，项目、终端和智能体都留在那台机器上，紧挨着它们需要的代码和数据。
+<p align="center">
+  <img src="assets/readme/architecture.zh-CN.svg" width="100%" alt="桌面端和手机通过端到端加密的 P2P 链路（直连不通时走中继）控制一台或多台 Host。每台 Host 在代码和数据旁边运行智能体循环和工具，保管凭据，并调用你选择的模型服务。">
+</p>
 
-在世界任何地方，用 Sailry 桌面端或手机连上它。能直连就走 P2P，直连不通就自动走加密中继——不用开端口、不用 VPN、不用云账号。合上笔记本，任务照样在 Host 上继续跑。
+- **任何一台电脑都能成为 Host。** 在笔记本、实验室的 Linux 机器或租来的 GPU 机器上安装 Sailry Host。它作为后台服务运行，项目、终端和智能体都留在代码和数据旁边，合上笔记本也照样继续跑。
+- **在哪都能连上。** 能直连就走 P2P，直连不通就自动走加密中继——不用开端口、不用 VPN、不用云账号。
+- **凭据只留在 Host 上。** 智能体通过 ID 使用保存的连接，看不到密码和私钥。
 
-## 对标 ChatGPT 与 Claude Code，而且不止写代码
+## 功能
 
-一个会话，一整套工具：
+### 不只写代码的智能体
 
 - **编程**：标准、计划、旗舰三种模式，`apply_patch` 多文件修改，Git 与 worktree、终端、代码审查。
 - **浏览与操作**：智能体能阅读、点击、截图的内置浏览器；页面元素一键选进对话；桌面电脑操作。
 - **办公**：读取 Word、Excel、PowerPoint 和 PDF（支持 OCR），撰写文档和可交互的 HTML 预览，生成图片和视频，搜索网络和知识库。
-- **持续推进**：长期记忆、做完才停的目标、提醒和定时任务，以及 Notion、Figma、Google Workspace、Microsoft 365、钉钉、企业微信、语雀等连接器。
+- **持续推进**：长期记忆、可检索的历史会话、做完才停的目标、提醒和定时任务，以及 Notion、Figma、Google Workspace、Microsoft 365、钉钉、企业微信、语雀等连接器。
+- **本地语音和 OCR**：语音输入和文字识别都在你自己的机器上完成。
 
-Sailry 更进一步的地方：
-
-- **智能体团队，一个位置一个模型。** 旗舰模式把任务分给并行的子代理，每个子代理用自己的模型——DeepSeek 写代码、Claude 出方案、Codex 攻难题，每一步都在会话里看得见。
-- **可检索的历史。** 智能体能找到并复用你之前的会话。
-- **本地语音和 OCR。** 语音输入和文字识别都在你自己的机器上完成。
+### 智能体团队，一个位置一个模型
 
 <p align="center">
-  <img src="assets/readme/conversation.webp" width="100%" alt="Sailry 项目内的会话：在开发客户端之前评审 API 设计。">
+  <img src="assets/readme/agent-team.zh-CN.svg" width="100%" alt="主智能体在模型和工具之间循环，把任务拆给并行的子智能体，每个子智能体使用自己的模型，每一步都实时显示在会话里。">
 </p>
 
-## 不只是智能体，更是 AI Harness
+旗舰模式把任务分给并行的子智能体，每个子智能体用自己的模型——DeepSeek 写代码、Claude 出方案、Codex 攻难题。每一步都在会话里看得见，运行中随时审批。
 
-Sailry 给模型套上了一层为工程实战打造的 harness。编码插件开箱即用，打开项目就能用，不用另装语言服务器、驱动或扩展：
+### 内置编码 Harness
 
-- **代码图谱**：内置解析器为项目建立索引，支持符号搜索、文件大纲、调用方与被调用方、改动影响分析，以及按引用排序的项目地图，智能体直接读到该读的代码，不用全仓库盲搜。
+编码插件打开项目就能用，不用另装语言服务器、驱动或扩展。结构化工具只返回智能体需要的结果，而不是一大段原始 shell 输出。
+
+- **代码图谱**：符号搜索、文件大纲、调用方与被调用方、改动影响分析，以及按引用排序的项目地图，智能体直接读到该读的代码，不用全仓库盲搜。
 - **数据库**：通过保存的连接访问 PostgreSQL、MySQL 和 SQLite。查询走只读连接；写操作遵循会话的权限策略。
 - **SSH**：在保存的服务器上执行命令、通过 SFTP 传输文件，并固定校验主机密钥。
 
-凭据只保存在执行任务的主机上。智能体通过连接 ID 使用连接，看不到密码和私钥；结构化工具只返回智能体需要的结果，而不是一大段原始 shell 输出。
+### 手机就是你的遥控器
 
-## 手机就是你的遥控器
+用六位配对码把 Android 或 iOS 应用连上桌面端或任意 Host。随时接手任何会话、发送和排队消息、处理审批、查看工具执行过程。不用账号，也没有订阅。
 
-用六位配对码把 Android 或 iOS 应用连上桌面端或任意 Host。随时接手任何会话、发送和排队消息、处理审批、查看工具执行过程——无论你在哪里。连接是 P2P 端到端加密的，而且免费：不用账号，也没有订阅。
+### 原生、轻量、够快
 
-## 原生、轻量、够快
+用 Rust 编写，基于 GPUI 和 [GPUI Kit](https://github.com/dux-web/gpui-component) 在 GPU 上绘制界面——没有 Electron，也没有内置浏览器内核。启动快，长会话依然流畅，内存留给真正的工作。
 
-Sailry 用 Rust 编写，基于 GPUI 和 [GPUI Kit](https://github.com/dux-web/gpui-component) 在 GPU 上绘制界面——没有 Electron，也没有内置浏览器内核。启动快，长会话依然流畅，内存留给真正的工作，不发热、不卡顿。
+### 插件与主题
 
-## 一切皆可扩展
+<p align="center">
+  <img src="assets/readme/plugins.zh-CN.svg" width="100%" alt="一个 agent-plugins 插件包通过 Host 给智能体加上技能、MCP 服务、工具和模型服务商，它的 JavaScript 页面由桌面端用原生 GPUI Kit 组件渲染。">
+</p>
 
-- **开放标准。** 插件包采用 [agent-plugins](https://agent-plugins.org) 格式和标准的 `SKILL.md` 技能，MCP 服务器可直接接入。
-- **原生插件界面。** 插件的页面、面板和设置用 JavaScript 编写，Sailry 用原生 GPUI Kit 组件渲染，扩展的观感和性能与应用本身一致。
-- **更多模型。** 通过模型插件添加更多供应商和账号。
+- **开放标准**：[agent-plugins](https://agent-plugins.org) 插件包、标准的 `SKILL.md` 技能，MCP 服务器可直接接入。
+- **原生插件界面**：用 JavaScript 编写的页面、面板和设置，和应用本身用同一套组件渲染。
+- **主题**：颜色、字体、表面和装饰都来自同一套设计令牌，支持亮色和暗色。官方主题维护在 [sailry-themes](https://github.com/sailry/sailry-themes)。
 - 浏览官方[插件](https://github.com/sailry/sailry-plugins)，或用 Apache-2.0 的 [SDK](sdk/plugins.md) 编写你自己的插件。
-
-<p align="center">
-  <img src="assets/readme/market.webp" width="100%" alt="Sailry 插件市场：浏览器、代码审查、电脑操作、数据库、Context7 等官方插件。">
-</p>
-
-<p align="center">
-  <img src="assets/readme/plugin-city-trader.webp" width="49%" alt="筑梦大亨：用 JavaScript 编写、由原生组件渲染的插件页面。">
-  <img src="assets/readme/plugin-doudizhu.webp" width="49%" alt="斗地主：和两个 AI 对手对战的纸牌游戏插件。">
-</p>
-
-## 精致界面，你的主题
-
-主题系统就是界面层本身：颜色、字体、表面和装饰都来自同一套设计令牌，支持亮色和暗色。在内置主题市场一键应用；官方主题以开放的主题包形式维护在 [sailry-themes](https://github.com/sailry/sailry-themes)。
-
-<p align="center">
-  <img src="assets/readme/theme-great-sage.webp" width="100%" alt="Sailry 使用 Great Sage 主题：插画背景、鎏金控件和主题化的快捷入口。">
-</p>
 
 ## 安装
 

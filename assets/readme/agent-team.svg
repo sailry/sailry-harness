@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="420" viewBox="0 0 1200 420" role="img" aria-labelledby="title desc">
+  <title id="title">Agent teams</title>
+  <desc id="desc">A lead agent loops between its model and tools, delegates parts of the task to parallel subagents that each use their own model, and streams every step into the conversation.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#9AA4B2"/></marker>
+    <marker id="link" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#3D8BEF"/></marker>
+  </defs>
+  <rect width="1200" height="420" rx="28" fill="#0F1217"/>
+  <text x="60" y="60" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="14" fill="#9AA4B2" text-anchor="start" letter-spacing="2">YOU</text>
+  <text x="330" y="60" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="14" fill="#9AA4B2" text-anchor="start" letter-spacing="2">LEAD AGENT</text>
+  <text x="760" y="60" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="14" fill="#9AA4B2" text-anchor="start" letter-spacing="2">SUBAGENTS · ONE MODEL EACH</text>
+  <rect x="60" y="96" width="210" height="96" rx="14" fill="#161B22" stroke="#262D38" stroke-width="1.5"/>
+  <text x="84" y="136" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="19" fill="#F2F5F9" text-anchor="start" font-weight="600">Your task</text>
+  <text x="84" y="164" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="15" fill="#9AA4B2" text-anchor="start">Flagship mode</text>
+  <rect x="60" y="240" width="210" height="120" rx="14" fill="#161B22" stroke="#262D38" stroke-width="1.5"/>
+  <text x="84" y="280" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="19" fill="#F2F5F9" text-anchor="start" font-weight="600">Conversation</text>
+  <text x="84" y="308" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="14" fill="#9AA4B2" text-anchor="start">every step visible,</text>
+  <text x="84" y="332" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="14" fill="#9AA4B2" text-anchor="start">approve as it runs</text>
+  <polyline points="270,144 330,144" fill="none" stroke="#9AA4B2" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="300" y="132" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="13" fill="#9AA4B2" text-anchor="middle">task</text>
+  <polyline points="330,300 270,300" fill="none" stroke="#9AA4B2" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="300" y="288" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="13" fill="#9AA4B2" text-anchor="middle">steps</text>
+  <rect x="330" y="96" width="360" height="264" rx="14" fill="#12161C" stroke="#3D8BEF" stroke-width="1.5"/>
+  <text x="354" y="132" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="19" fill="#F2F5F9" text-anchor="start" font-weight="600">Lead agent</text>
+  <text x="354" y="156" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="14" fill="#9AA4B2" text-anchor="start">plans and splits the work</text>
+  <rect x="354" y="180" width="120" height="56" rx="14" fill="#161B22" stroke="#262D38" stroke-width="1.5"/>
+  <text x="414" y="214" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="16" fill="#F2F5F9" text-anchor="middle">Model</text>
+  <rect x="546" y="180" width="120" height="56" rx="14" fill="#161B22" stroke="#262D38" stroke-width="1.5"/>
+  <text x="606" y="214" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="16" fill="#F2F5F9" text-anchor="middle">Tools</text>
+  <polyline points="474,198 546,198" fill="none" stroke="#9AA4B2" stroke-width="2" marker-end="url(#arrow)"/>
+  <polyline points="546,220 474,220" fill="none" stroke="#9AA4B2" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="510" y="258" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="13" fill="#9AA4B2" text-anchor="middle">loops until done</text>
+  <rect x="354" y="280" width="312" height="56" rx="14" fill="#161B22" stroke="#262D38" stroke-width="1.5"/>
+  <text x="510" y="314" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="15" fill="#F2F5F9" text-anchor="middle">History · memory · goals</text>
+  <rect x="760" y="96" width="380" height="72" rx="14" fill="#161B22" stroke="#262D38" stroke-width="1.5"/>
+  <text x="784" y="126" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="16" fill="#F2F5F9" text-anchor="start" font-weight="600">Planning</text>
+  <text x="784" y="150" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="14" fill="#9AA4B2" text-anchor="start">e.g. Claude</text>
+  <polyline points="690,228 722,228 722,132 760,132" fill="none" stroke="#9AA4B2" stroke-width="2" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+  <rect x="760" y="188" width="380" height="72" rx="14" fill="#161B22" stroke="#262D38" stroke-width="1.5"/>
+  <text x="784" y="218" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="16" fill="#F2F5F9" text-anchor="start" font-weight="600">Coding</text>
+  <text x="784" y="242" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="14" fill="#9AA4B2" text-anchor="start">e.g. DeepSeek</text>
+  <polyline points="690,228 722,228 722,224 760,224" fill="none" stroke="#9AA4B2" stroke-width="2" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+  <rect x="760" y="280" width="380" height="72" rx="14" fill="#161B22" stroke="#262D38" stroke-width="1.5"/>
+  <text x="784" y="310" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="16" fill="#F2F5F9" text-anchor="start" font-weight="600">Hard problems</text>
+  <text x="784" y="334" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="14" fill="#9AA4B2" text-anchor="start">e.g. Codex</text>
+  <polyline points="690,228 722,228 722,316 760,316" fill="none" stroke="#9AA4B2" stroke-width="2" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+  <text x="950" y="396" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="13" fill="#9AA4B2" text-anchor="middle">runs in parallel and reports back</text>
+</svg>
