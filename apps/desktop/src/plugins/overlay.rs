@@ -87,7 +87,7 @@ fn form_popup(
                     DialogTitle::new()
                         .flex_shrink_0()
                         .px_6()
-                        .child(div().pr_6().pb_4().child(title)),
+                        .child(div().pr_6().child(title)),
                 )
                 .child(
                     // Kit 4424427's scroll wrapper carries its own flex bounds.
@@ -103,7 +103,7 @@ fn form_popup(
                             DialogContent::new()
                                 .flex_none()
                                 .px_6()
-                                .pt_4()
+                                .pt_2()
                                 .pb_1()
                                 .gap_4()
                                 .children(body),
