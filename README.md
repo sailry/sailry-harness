@@ -3,26 +3,25 @@
 </p>
 
 <p align="center">
-  <a href="README.zh-CN.md">简体中文</a> ·
-  <a href="#install">Install</a> ·
-  <a href="docs/hosts.md">Hosts</a> ·
-  <a href="docs/models.md">Models</a> ·
-  <a href="sdk/plugins.md">Plugin SDK</a> ·
-  <a href="https://discord.gg/MCDktmDey">Discord</a>
-</p>
-
-<p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square" alt="Apache-2.0 License"></a>
   <a href="#install"><img src="https://img.shields.io/badge/desktop-macOS-lightgrey?style=flat-square&logo=apple&logoColor=white" alt="Desktop on macOS"></a>
   <a href="#host"><img src="https://img.shields.io/badge/host-macOS%20·%20Linux-lightgrey?style=flat-square" alt="Host on macOS and Linux"></a>
   <a href="#mobile"><img src="https://img.shields.io/badge/mobile-Android%20·%20iOS-lightgrey?style=flat-square" alt="Mobile on Android and iOS"></a>
   <a href="https://github.com/sailry/sailry-harness/stargazers"><img src="https://img.shields.io/github/stars/sailry/sailry-harness?style=flat-square&color=yellow" alt="GitHub Stars"></a>
+  <a href="https://discord.gg/MCDktmDey"><img src="https://img.shields.io/badge/chat-Discord-5865F2?style=flat-square&logo=discord&logoColor=white" alt="Discord"></a>
 </p>
 
-Sailry is an open-source AI harness — more than an agent, a native workspace that runs where your
-code and data already live. Install it on any Mac or Linux machine, drive it from the desktop app
-or your phone, and let agent teams work with your files, terminals, browser, Git, databases and
-documents — on the [models you choose](docs/models.md).
+<p align="center">
+  <a href="README.zh-CN.md">简体中文</a> ·
+  <a href="docs/hosts.md">Hosts</a> ·
+  <a href="docs/models.md">Models</a> ·
+  <a href="docs/projects.md">Projects</a> ·
+  <a href="sdk/plugins.md">Plugin SDK</a>
+</p>
+
+Sailry is an open-source AI harness: agent teams that run on your own Mac or Linux machines, next
+to your code and data, driven from the desktop app or your phone on the
+[models you choose](docs/models.md).
 
 > [!NOTE]
 > **Early preview.** Sailry changes quickly between releases. Back up important work before
@@ -40,26 +39,25 @@ documents — on the [models you choose](docs/models.md).
 </p>
 
 - **Any computer becomes a Host.** Install Sailry Host on a laptop, a Linux box in the lab or a
-  rented GPU machine. It runs as a background service, so projects, terminals and agents stay next
-  to the code and data they need, and keep running when you close the laptop.
-- **Reach it from anywhere.** Links go peer to peer when a direct path exists and fall back to an
-  encrypted relay when it doesn't — no port forwarding, VPN or cloud account.
-- **Credentials stay on the Host.** Agents use saved connections by ID and never see passwords or
-  private keys.
+  rented GPU machine. It runs as a background service, so work keeps going when you close the
+  laptop.
+- **Reach it from anywhere.** No port forwarding, VPN or cloud account.
 
 ## Features
 
 ### An agent beyond code
 
-- **Code** — Standard, Plan and Flagship modes, multi-file `apply_patch` edits, Git and worktrees,
-  terminals and code review.
+- **Code** — three work modes (Standard; Plan, which plans without running code or writing
+  files; Flagship, which runs an agent team), multi-file edits, Git and worktrees, terminals
+  and code review.
 - **Browse and operate** — a built-in browser the agent reads, clicks and screenshots; pick page
   elements straight into the conversation; desktop computer use.
 - **Office work** — read Word, Excel, PowerPoint and PDF (with OCR), write documents and
   interactive HTML previews, generate images and video, search the web and your knowledge base.
 - **Keep going** — long-term memory, searchable history, goals that run until they are done,
-  reminders and scheduled tasks, and connectors for Notion, Figma, Google Workspace,
-  Microsoft 365, DingTalk, WeCom and Yuque.
+  reminders and scheduled tasks.
+- **Connectors** — GitHub, Notion, Slack, Linear, Figma, Google Workspace, Microsoft 365, Feishu,
+  DingTalk, WeCom and [more](https://github.com/sailry/sailry-plugins).
 - **Local speech and OCR** — voice input and text recognition run on your own machine.
 
 ### Agent teams, one model per seat
@@ -72,7 +70,7 @@ Flagship mode fans work out to parallel subagents, each on its own model — Dee
 code, Claude plans, Codex takes the hard problems — and every step stays visible in the
 conversation, where you approve actions as they run.
 
-### Built-in coding harness
+### Built-in coding tools
 
 Coding plugins work the moment you open a project — no language servers, drivers or extensions to
 install. Structured tools return the result the agent needs instead of raw shell output.
@@ -80,7 +78,8 @@ install. Structured tools return the result the agent needs instead of raw shell
 - **Code graph** — symbol search, file outlines, callers and callees, change impact and a ranked
   project map, so agents read the right code instead of searching the whole tree.
 - **Databases** — PostgreSQL, MySQL and SQLite through saved connections. Queries run read-only;
-  writes follow the session's permission policy.
+  writes follow the session's permission policy. Agents use connections by ID and never see
+  passwords or private keys.
 - **SSH** — commands and SFTP transfers on saved servers, with pinned host keys.
 
 ### Your phone is the remote control
@@ -109,6 +108,13 @@ It starts fast, stays responsive in long conversations and leaves your memory to
   and dark. Official themes live in [sailry-themes](https://github.com/sailry/sailry-themes).
 - Browse the official [plugins](https://github.com/sailry/sailry-plugins) or build your own with
   the Apache-2.0 [SDK](sdk/plugins.md).
+
+## Privacy
+
+Sailry sends anonymous error reports (app version, device type and error codes) and anonymous
+feature counts by default. They never include conversations, files, credentials, paths or custom
+names. Turn either off in **Settings › Diagnostics and privacy**, or set `SAILRY_TELEMETRY=off` or
+`DO_NOT_TRACK=1` for the desktop app or a Host.
 
 ## Install
 
@@ -144,9 +150,11 @@ curl -fsSL https://github.com/sailry/sailry-harness/releases/latest/download/ins
 
 ## Get started
 
-1. Add a folder or clone a repository as a project on **Local device** or a connected Host.
-2. Choose **Create session**, pick a model and describe your task.
-3. [Add a Host and pair your devices](docs/hosts.md#install-and-pair) to work from anywhere.
+1. [Add a model provider](docs/models.md#add-a-provider) in **Settings → Models** with an
+   API key or a ChatGPT or Claude account.
+2. Add a folder or clone a repository as a project on **Local device** or a connected Host.
+3. Choose **Create session**, pick a model and describe your task.
+4. [Add a Host and pair your devices](docs/hosts.md#install-and-pair) to work from anywhere.
 
 Guides: [Models](docs/models.md) · [Remote hosts](docs/hosts.md) · [Projects and sessions](docs/projects.md)
 
@@ -154,7 +162,8 @@ Guides: [Models](docs/models.md) · [Remote hosts](docs/hosts.md) · [Projects a
 
 Join the [Discord](https://discord.gg/MCDktmDey) or add the maintainer on WeChat for the group
 chat. Please use [GitHub Issues](https://github.com/sailry/sailry-harness/issues) for bug reports
-and feature requests.
+and feature requests, and [SECURITY.md](SECURITY.md) to report vulnerabilities privately.
+Want to contribute? Start with [CONTRIBUTING.md](CONTRIBUTING.md).
 
 <p align="center">
   <img src="assets/readme/wechat.png" width="200" alt="WeChat QR code for the Sailry community">
