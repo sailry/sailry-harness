@@ -120,7 +120,7 @@ impl Workspace {
                         ),
                 )
             })
-            .child(self.plugin_action_retries(cx))
+            .children(self.plugin_action_retries(cx))
             .when(
                 catalog.python.connected && !preparations.is_empty(),
                 |view| {
@@ -168,14 +168,18 @@ impl Workspace {
             .into_any_element()
     }
 
-    pub(super) fn plugin_action_retries(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn plugin_action_retries(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let retries = self.plugin_catalog.retries();
+        if retries.is_empty() {
+            return None;
+        }
         let node = self
             .provider_link
             .as_ref()
             .map(|live| live.binding.client.target());
         v_flex()
             .gap_2()
-            .children(self.plugin_catalog.retries().into_iter().map(|name| {
+            .children(retries.into_iter().map(|name| {
                 h_flex().items_center().gap_2().child(name.clone()).child(
                     crate::feedback::retry(SharedString::from(format!(
                         "plugin-action-retry-{name}"
@@ -194,6 +198,7 @@ impl Workspace {
                 )
             }))
             .into_any_element()
+            .into()
     }
 
     pub(super) fn caption(&self, plugin: &Summary, cx: &App) -> (String, String) {
