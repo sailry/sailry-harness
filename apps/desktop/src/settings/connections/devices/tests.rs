@@ -64,9 +64,11 @@ fn controller_status_follows_service_presence() {
     phone.observe(&BTreeSet::from([phone.id]));
     assert_eq!(phone.status_key(), "connections_online");
     assert_eq!(phone.route_key(), Some("connection_route_p2p"));
+    assert_eq!(phone.label_key(), "connection_route_p2p");
     assert_eq!(phone.latency_text().as_deref(), Some("13 ms"));
     phone.observe(&BTreeSet::from([NodeId([8; 32])]));
     assert_eq!(phone.status_key(), "connections_offline");
+    assert_eq!(phone.label_key(), "connections_offline");
     assert_eq!(phone.latency_text(), None);
 }
 

@@ -63,15 +63,9 @@ impl Device {
         }
     }
 
-    /// Route and latency share one muted label; unknown parts are omitted.
-    fn link_text(&self) -> Option<String> {
-        let parts: Vec<String> = self
-            .route_key()
-            .map(|key| tr(key).to_string())
-            .into_iter()
-            .chain(self.latency_text())
-            .collect();
-        (!parts.is_empty()).then(|| parts.join(" · "))
+    /// An online peer names its route beside the status dot; otherwise its presence.
+    fn label_key(&self) -> &'static str {
+        self.route_key().unwrap_or_else(|| self.status_key())
     }
 }
 
@@ -281,9 +275,9 @@ impl Connections {
                         div()
                             .debug_selector(move || format!("connection-status-label-{id:?}"))
                             .text_color(cx.theme().muted_foreground)
-                            .child(tr(device.status_key())),
+                            .child(tr(device.label_key())),
                     );
-                let link = device.link_text().map(|text| {
+                let latency = device.latency_text().map(|text| {
                     div()
                         .debug_selector(move || format!("connection-latency-{id:?}"))
                         .flex_shrink_0()
@@ -336,8 +330,8 @@ impl Connections {
                 let details = h_flex()
                     .flex_shrink_0()
                     .items_center()
-                    .gap_4()
-                    .children(link)
+                    .gap_3()
+                    .children(latency)
                     .child(status)
                     .child(action);
                 h_flex()
