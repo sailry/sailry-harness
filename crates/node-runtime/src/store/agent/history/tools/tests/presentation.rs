@@ -41,7 +41,7 @@ fn preserves_storage_contracts() {
                 });
                 assert_eq!(raw.detail().content.unwrap().blocks.len(), 2, "{scenario}");
                 assert!(raw.summary().has_details, "{scenario}");
-                raw.failure = Some(Failure { code: None });
+                raw.failure = Some(Failure::runtime(None));
                 assert!(raw.detail().content.is_none(), "{scenario}");
                 assert!(raw.summary().diagnostics, "{scenario}");
                 raw.failure = None;
@@ -149,9 +149,7 @@ fn preserves_storage_contracts() {
                 let original = json!({"isError":true,"error":{"code":"not_configured","message":"Connect"},
         "sailry_content":{"version":1,"blocks":[Block::Card(card.clone())]}});
                 let mut raw = source(original.clone());
-                raw.failure = Some(Failure {
-                    code: Some(ErrorCode::NotConfigured),
-                });
+                raw.failure = Some(Failure::runtime(Some(ErrorCode::NotConfigured)));
                 assert!(raw.summary().published, "{scenario}");
                 assert_eq!(
                     raw.detail().content.unwrap().blocks,
@@ -298,7 +296,7 @@ fn preserves_storage_contracts() {
                     raw.format = format;
                     raw.presentation = Presentation::Summary;
                     assert!(raw.summary().error.is_none(), "{scenario}");
-                    raw.failure = Some(Failure { code: None });
+                    raw.failure = Some(Failure::runtime(None));
                     let summary = raw.summary();
                     assert!(summary.diagnostics && summary.has_details, "{scenario}");
                     assert_eq!(
@@ -335,7 +333,7 @@ fn preserves_storage_contracts() {
                     assert!(!summary.diagnostics && !summary.has_details, "{scenario}");
                     assert!(summary.failure.is_none(), "{scenario}");
                     assert!(summary.error.is_none(), "{scenario}");
-                    raw.failure = Some(Failure { code: None });
+                    raw.failure = Some(Failure::runtime(None));
                     let summary = raw.summary();
                     // The failure headline carries a short error; details add nothing.
                     assert!(summary.diagnostics, "{scenario}");
@@ -355,7 +353,7 @@ fn preserves_storage_contracts() {
                     let mut raw = source(result.clone());
                     raw.format = ToolFormat::Mcp;
                     raw.presentation = presentation;
-                    raw.failure = Some(Failure { code: None });
+                    raw.failure = Some(Failure::runtime(None));
                     let summary = raw.summary();
                     assert!(summary.error.is_some(), "{scenario}");
                     assert_eq!(summary.has_details, expanded, "{scenario}");

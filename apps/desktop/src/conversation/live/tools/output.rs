@@ -1,6 +1,6 @@
 use sailry_protocol::{
-    ErrorCode, Fault,
-    tool::{Failure, ResultDisplay},
+    ErrorCode,
+    tool::{Failure, detail::Summary},
 };
 use serde_json::Value;
 
@@ -24,82 +24,21 @@ impl Preview {
     }
 }
 
-pub(super) fn fault(observed: Option<&Failure>, value: Option<&Value>) -> Option<Fault> {
-    observed?;
-    serde_json::from_value(value?.get("error")?.clone()).ok()
+pub(super) fn failure(summary: Option<&Summary>) -> Option<&str> {
+    summary?
+        .error
+        .as_deref()
+        .filter(|error| !error.trim().is_empty())
 }
 
-pub(super) fn failure(observed: Option<&Failure>, value: Option<&Value>) -> Option<String> {
-    if let Some(fault) = fault(observed, value) {
-        if matches!(
-            fault.details,
-            Some(sailry_protocol::FaultDetails::SystemDiagnostic(_))
-        ) {
-            return Some(crate::tr(crate::conversation::live::failure_key(&fault)).to_string());
-        }
-        return Some(fault.message);
-    }
-    let value = value?;
-    if let Some(display) = ResultDisplay::from_value(value)
-        && !display.diagnostics.is_empty()
-    {
-        return Some(
-            display
-                .diagnostics
-                .into_iter()
-                .map(|item| item.text)
-                .collect::<Vec<_>>()
-                .join("\n"),
-        );
-    }
-    observed?;
-    if let Some(error) = value.get("error").and_then(Value::as_str)
-        && !error.trim().is_empty()
-    {
-        return Some(error.to_owned());
-    }
-    let text = value
-        .get("content")?
-        .as_array()?
-        .iter()
-        .filter(|item| item.get("type").and_then(Value::as_str) == Some("text"))
-        .filter_map(|item| item.get("text").and_then(Value::as_str))
-        .filter(|text| !text.trim().is_empty())
-        .collect::<Vec<_>>()
-        .join("\n");
-    (!text.is_empty()).then_some(text)
-}
-
-pub(super) fn is_error(observed: Option<&Failure>, value: Option<&Value>) -> bool {
-    let Some(observed) = observed else {
-        return false;
-    };
-    if expected(Some(observed), value).is_some() {
-        return false;
-    }
-    !matches!(
-        observed.code,
-        Some(ErrorCode::Cancelled | ErrorCode::OutcomeUnknown)
-    )
-}
-
-pub(super) fn expected(observed: Option<&Failure>, value: Option<&Value>) -> Option<&'static str> {
-    use sailry_protocol::tool::Expected;
-    if observed?.code != Some(ErrorCode::NotFound) {
-        return None;
-    }
-    Some(match ResultDisplay::from_value(value?)?.expected? {
-        Expected::DirectoryNotFound => "tool_directory_missing",
-        Expected::FileNotFound => "tool_file_missing",
-    })
-}
-
-pub(super) fn tool_preview(observed: Option<&Failure>, value: &Value) -> Preview {
-    if let Some(reason) = failure(observed, Some(value))
-        && !reason.trim().is_empty()
-    {
+pub(super) fn tool_preview(
+    observed: Option<&Failure>,
+    summary: Option<&Summary>,
+    value: &Value,
+) -> Preview {
+    if let Some(reason) = failure(summary) {
         return Preview {
-            text: reason,
+            text: reason.to_owned(),
             notices: Vec::new(),
         };
     }

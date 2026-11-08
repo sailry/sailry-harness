@@ -436,7 +436,8 @@ impl HostOperation {
                     context.branch(),
                     context.function_call_id(),
                     &self.name,
-                    failure.code,
+                    failure.failure,
+                    failure.message,
                 );
             }
             if self.operation == Operation::ReadCommand
@@ -652,7 +653,8 @@ impl HostOperation {
                         context.branch(),
                         context.function_call_id(),
                         &self.name,
-                        Some(error.code),
+                        sailry_protocol::tool::Failure::from(error.code),
+                        None,
                     );
                 }
                 files::failure(self.operation, error)

@@ -86,6 +86,8 @@ pub(crate) struct ToolFailure {
     pub id: String,
     pub name: String,
     pub failure: tool::Failure,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
 }
 
 /// A model used outside the main inference; request credentials are never retained.

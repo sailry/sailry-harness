@@ -288,14 +288,22 @@ impl View {
         let card = result.map(|result| {
             let selector = format!("live-tool-result-{key}");
             let images = call.images(page);
-            if let Some(content) = call.content()
-                && output::failure(call.failure.as_ref(), Some(result)).is_none()
-            {
-                return div()
+            let notice = output::failure(call.summary(page)).map(|error| {
+                let selector = format!("live-tool-error-{key}");
+                surface::notice(error.to_owned(), cx)
+                    .when_some(outcome_tone(call, page, cx), |notice, tone| {
+                        notice.text_color(tone)
+                    })
+                    .debug_selector(move || selector.clone())
+            });
+            if let Some(content) = call.content() {
+                return v_flex()
                     .id(selector.clone())
                     .test_support()
                     .min_w_0()
+                    .gap_2()
                     .debug_selector(move || selector.clone())
+                    .children(notice)
                     .child(self.structured(&key, call, page, content, result, cx))
                     .into_any_element();
             }
@@ -315,23 +323,11 @@ impl View {
                         &self.images,
                         cx,
                     ))
-                    .when_some(
-                        output::failure(call.failure.as_ref(), Some(result)),
-                        |column, error| {
-                            let selector = format!("live-tool-error-{key}");
-                            column.child(
-                                surface::notice(error, cx)
-                                    .when_some(outcome_tone(call, result, cx), |notice, tone| {
-                                        notice.text_color(tone)
-                                    })
-                                    .debug_selector(move || selector.clone()),
-                            )
-                        },
-                    )
+                    .children(notice)
                     .into_any_element();
             }
-            let body = if output::fault(call.failure.as_ref(), Some(result)).is_some() {
-                self.generic(&key, call, result, cx)
+            let body = if call.failure.is_some() {
+                self.generic(&key, call, page, result, cx)
             } else if let Some(body) = projection::render(self, &key, call, page, result, cx) {
                 body
             } else if let Some(progress) = &call.progress {
@@ -343,7 +339,7 @@ impl View {
                     cx,
                 )
             } else {
-                self.generic(&key, call, result, cx)
+                self.generic(&key, call, page, result, cx)
             };
             v_flex()
                 .id(selector.clone())
@@ -410,11 +406,12 @@ impl View {
         &self,
         key: &str,
         call: &Call,
+        page: &Page,
         result: &serde_json::Value,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let fault = output::failure(call.failure.as_ref(), Some(result));
-        let body = output::tool_preview(call.failure.as_ref(), result);
+        let fault = output::failure(call.summary(page));
+        let body = output::tool_preview(call.failure.as_ref(), call.summary(page), result);
         let mut actions = Vec::new();
         let copy = self
             .history
@@ -427,7 +424,7 @@ impl View {
         {
             actions.push(self.copy_result(key, call, &snapshot.page, cx));
         }
-        let tone = outcome_tone(call, result, cx);
+        let tone = outcome_tone(call, page, cx);
         let notices = v_flex().children(body.notices.iter().map(|notice| {
             surface::notice(tr(notice), cx).when_some(tone, |notice, tone| notice.text_color(tone))
         }));
@@ -538,16 +535,15 @@ fn activity(id: String, summary: Summary, cx: &App) -> AnyElement {
     disclosure::summary(id, summary.icon, summary.label, summary.detail, cx).into_any_element()
 }
 
-fn outcome_tone(call: &Call, result: &serde_json::Value, cx: &App) -> Option<Hsla> {
-    call.failure.as_ref()?;
-    if output::expected(call.failure.as_ref(), Some(result)).is_some() {
-        return None;
-    }
-    Some(if output::is_error(call.failure.as_ref(), Some(result)) {
-        cx.theme().danger
+fn outcome_tone(call: &Call, page: &Page, cx: &App) -> Option<Hsla> {
+    let row = call.row(page);
+    if row.failed {
+        Some(cx.theme().danger)
+    } else if row.warning {
+        Some(cx.theme().warning)
     } else {
-        cx.theme().warning
-    })
+        None
+    }
 }
 
 /// The header shows the last tool, so its outcome tone is that tool's own;

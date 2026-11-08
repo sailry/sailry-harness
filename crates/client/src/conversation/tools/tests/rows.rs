@@ -2,7 +2,7 @@ use super::*;
 use sailry_protocol::{
     ErrorCode,
     conversation::{Approval, ApprovalSource, ApprovalState},
-    tool::{Failure, Presentation, detail::Summary},
+    tool::{Failure, Origin, Presentation, detail::Summary},
 };
 
 fn returned(summary: Summary) -> Page {
@@ -45,7 +45,7 @@ fn presents_outcomes_and_execution_states() {
                     ),
                 ] {
                     let page = returned(Summary {
-                        failure: Some(Failure { code: Some(code) }),
+                        failure: Some(Failure::runtime(Some(code))),
                         diagnostics: true,
                         expected,
                         has_details: true,
@@ -72,9 +72,7 @@ fn presents_outcomes_and_execution_states() {
             "shows_captured_error_in_summary",
             (|case_name| {
                 let page = returned(Summary {
-                    failure: Some(Failure {
-                        code: Some(ErrorCode::Unavailable),
-                    }),
+                    failure: Some(Failure::runtime(Some(ErrorCode::Unavailable))),
                     error: Some("File could not be read".into()),
                     ..Default::default()
                 });
@@ -110,7 +108,7 @@ fn presents_outcomes_and_execution_states() {
                 ] {
                     let mut call = collect(&page).remove(0);
                     call.state = state;
-                    call.failure = code.map(|code| Failure { code: Some(code) });
+                    call.failure = code.map(|code| Failure::runtime(Some(code)));
                     let row = call.row(&page);
                     assert_eq!(
                         (row.warning, row.failed),
@@ -123,6 +121,88 @@ fn presents_outcomes_and_execution_states() {
         ),
     ] {
         run(case_name);
+    }
+}
+
+#[test]
+fn distinguishes_failure_origins() {
+    for origin in [Origin::Runtime, Origin::Tool] {
+        for code in [
+            None,
+            Some(ErrorCode::Internal),
+            Some(ErrorCode::Unavailable),
+            Some(ErrorCode::InvalidRequest),
+            Some(ErrorCode::NotFound),
+            Some(ErrorCode::Conflict),
+            Some(ErrorCode::RevisionConflict),
+        ] {
+            let page = returned(Summary {
+                failure: Some(Failure { code, origin }),
+                error: Some("No running application matches 'Terminal'".into()),
+                diagnostics: true,
+                ..Default::default()
+            });
+            let calls = collect(&page);
+            let row = calls[0].row(&page);
+            assert_eq!(row.failed, origin == Origin::Runtime, "{origin:?} {code:?}");
+            assert_eq!(row.warning, origin == Origin::Tool, "{origin:?} {code:?}");
+            assert_eq!(
+                row.state,
+                (origin == Origin::Runtime).then_some(RowState::Failed),
+                "{origin:?} {code:?}"
+            );
+            assert_eq!(
+                row.detail.unwrap(),
+                display::Text {
+                    text: "No running application matches 'Terminal'".into(),
+                    code: false,
+                }
+            );
+            assert!(!row.has_details);
+        }
+    }
+}
+
+#[test]
+fn preserves_expected_and_stopped_outcomes() {
+    for origin in [Origin::Runtime, Origin::Tool] {
+        for (code, expected, state, warning) in [
+            (ErrorCode::Cancelled, None, None, false),
+            (
+                ErrorCode::OutcomeUnknown,
+                None,
+                Some(RowState::Interrupted),
+                true,
+            ),
+            (
+                ErrorCode::NotFound,
+                Some(sailry_protocol::tool::Expected::FileNotFound),
+                None,
+                false,
+            ),
+            (
+                ErrorCode::NotFound,
+                Some(sailry_protocol::tool::Expected::DirectoryNotFound),
+                None,
+                false,
+            ),
+        ] {
+            let page = returned(Summary {
+                failure: Some(Failure {
+                    code: Some(code),
+                    origin,
+                }),
+                expected,
+                error: Some("Diagnostic message".into()),
+                path: Some("source.rs".into()),
+                ..Default::default()
+            });
+            let row = collect(&page)[0].row(&page);
+            assert!(!row.failed, "{origin:?} {code:?}");
+            assert_eq!(row.warning, warning, "{origin:?} {code:?}");
+            assert_eq!(row.state, state, "{origin:?} {code:?}");
+            assert_eq!(row.detail.unwrap().text, "source.rs");
+        }
     }
 }
 

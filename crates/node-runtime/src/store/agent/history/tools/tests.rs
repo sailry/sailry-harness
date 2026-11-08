@@ -1,5 +1,6 @@
 use super::*;
 use serde_json::json;
+mod messages;
 mod presentation;
 mod recipes;
 
@@ -76,9 +77,7 @@ fn preserves_storage_contracts() {
                 "error":{"message":"failure 中文".repeat(3000)},
                 "sailry_result":{"version":1, "diagnostics":[{"text":"diagnostic".repeat(4000),"error":true}]}
                     }));
-                raw.failure = Some(Failure {
-                    code: Some(ErrorCode::Unavailable),
-                });
+                raw.failure = Some(Failure::runtime(Some(ErrorCode::Unavailable)));
                 raw.display.as_mut().unwrap().output = Some(
                     serde_json::from_value(json!({
                     "preview":{"parts":[{"value":{"source":"result","path":"/text"},"take":2048}]}

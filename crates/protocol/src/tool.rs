@@ -4,9 +4,11 @@ mod content;
 pub use content::{Block, Content, Diff, File, Table, Text};
 pub mod detail;
 mod display;
+mod failure;
 mod output;
 mod result;
 pub use display::{Alias, AliasKind, Display, Field, Input, InputFormat, projection};
+pub use failure::{Failure, Origin};
 pub use output::{MAX_OUTPUT_PAGE_BYTES, OutputPage, OutputReference};
 pub use result::{Diagnostic, Expected, LocalText, ResultDisplay};
 
@@ -27,14 +29,6 @@ pub enum Presentation {
     Content,
     /// Retains the original result for inspection.
     Details,
-}
-
-/// A failed execution observed by Node independently of returned business data.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Failure {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub code: Option<crate::ErrorCode>,
 }
 
 /// Whether a tool joins consecutive activity or occupies its own transcript row.

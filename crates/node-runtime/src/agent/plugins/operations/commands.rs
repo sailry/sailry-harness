@@ -60,26 +60,36 @@ pub(super) async fn retain(
     value["sailry_command"] = projected.unwrap_or_else(|_| json!({"id":id}));
 }
 
-pub(super) fn failure(output: &Output) -> Option<Failure> {
+pub(super) fn failure(output: &Output) -> Option<crate::agent::observation::Failure> {
     let outcome = match output {
         Output::CommandResult(completion) => &completion.outcome,
         Output::CommandOutput(snapshot) => match &snapshot.info.status {
             Status::Finished(outcome) => outcome,
-            Status::Failed(_) => return Some(Failure { code: None }),
+            Status::Failed(message) => {
+                return Some(crate::agent::observation::Failure {
+                    failure: Failure::runtime(None),
+                    message: Some(message.clone()),
+                });
+            }
             Status::Running | Status::Stopping => return None,
         },
         _ => return None,
     };
-    match outcome {
-        Outcome::Exited(_) => None,
-        Outcome::Signal(_) | Outcome::TimedOut => Some(Failure { code: None }),
-        Outcome::Cancelled => Some(Failure {
-            code: Some(ErrorCode::Cancelled),
-        }),
-        Outcome::Unknown(_) => Some(Failure {
-            code: Some(ErrorCode::OutcomeUnknown),
-        }),
-    }
+    let (failure, message) = match outcome {
+        Outcome::Exited(0) => return None,
+        Outcome::Exited(code) => (
+            Failure::tool(None),
+            Some(format!("Command exited with code {code}")),
+        ),
+        Outcome::Signal(signal) => (
+            Failure::runtime(None),
+            Some(format!("Command terminated by signal {signal}")),
+        ),
+        Outcome::TimedOut => (Failure::runtime(None), Some("Command timed out".into())),
+        Outcome::Cancelled => (Failure::runtime(Some(ErrorCode::Cancelled)), None),
+        Outcome::Unknown(_) => (Failure::runtime(Some(ErrorCode::OutcomeUnknown)), None),
+    };
+    Some(crate::agent::observation::Failure { failure, message })
 }
 
 pub(super) fn annotate(output: &Output, value: &mut Value, workspace: bool) {
@@ -220,22 +230,32 @@ mod tests {
 
     #[test]
     fn distinguishes_operational_outcomes() {
-        for (outcome, expected) in [
-            (Outcome::Exited(0), None),
-            (Outcome::Exited(7), None),
-            (Outcome::Signal(9), Some(Failure { code: None })),
-            (Outcome::TimedOut, Some(Failure { code: None })),
+        for (outcome, expected, message) in [
+            (Outcome::Exited(0), None, None),
+            (
+                Outcome::Exited(7),
+                Some(Failure::tool(None)),
+                Some("Command exited with code 7"),
+            ),
+            (
+                Outcome::Signal(9),
+                Some(Failure::runtime(None)),
+                Some("Command terminated by signal 9"),
+            ),
+            (
+                Outcome::TimedOut,
+                Some(Failure::runtime(None)),
+                Some("Command timed out"),
+            ),
             (
                 Outcome::Cancelled,
-                Some(Failure {
-                    code: Some(ErrorCode::Cancelled),
-                }),
+                Some(Failure::runtime(Some(ErrorCode::Cancelled))),
+                None,
             ),
             (
                 Outcome::Unknown("cleanup is unconfirmed".into()),
-                Some(Failure {
-                    code: Some(ErrorCode::OutcomeUnknown),
-                }),
+                Some(Failure::runtime(Some(ErrorCode::OutcomeUnknown))),
+                None,
             ),
         ] {
             let output = Output::CommandResult(Completion {
@@ -245,7 +265,65 @@ mod tests {
                 elapsed_ms: 1,
             });
             let original = output.clone();
-            assert_eq!(failure(&output), expected);
+            let observed = failure(&output);
+            assert_eq!(
+                observed.as_ref().map(|value| &value.failure),
+                expected.as_ref()
+            );
+            assert_eq!(
+                observed.as_ref().and_then(|value| value.message.as_deref()),
+                message
+            );
+            assert_eq!(output, original);
+        }
+    }
+
+    #[test]
+    fn distinguishes_background_service_failures() {
+        use sailry_protocol::{
+            RequestId, SessionId, TurnId,
+            process::{Info, Snapshot},
+        };
+        for (status, expected, message) in [
+            (Status::Running, None, None),
+            (Status::Stopping, None, None),
+            (
+                Status::Finished(Outcome::Exited(7)),
+                Some(Failure::tool(None)),
+                Some("Command exited with code 7"),
+            ),
+            (
+                Status::Failed("process service failed".into()),
+                Some(Failure::runtime(None)),
+                Some("process service failed"),
+            ),
+        ] {
+            let output = Output::CommandOutput(Snapshot {
+                info: Info {
+                    id: RequestId::new(),
+                    session: SessionId::new(),
+                    turn: TurnId::new(),
+                    command: "fixture".into(),
+                    access: Access::Unrestricted,
+                    pty: false,
+                    cwd: String::new(),
+                    started_ms: 0,
+                    status,
+                    services: vec![],
+                },
+                stdout: Capture::default(),
+                stderr: Capture::default(),
+            });
+            let original = output.clone();
+            let observed = failure(&output);
+            assert_eq!(
+                observed.as_ref().map(|value| &value.failure),
+                expected.as_ref()
+            );
+            assert_eq!(
+                observed.as_ref().and_then(|value| value.message.as_deref()),
+                message
+            );
             assert_eq!(output, original);
         }
     }

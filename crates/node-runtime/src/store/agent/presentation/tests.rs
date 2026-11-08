@@ -4,6 +4,74 @@ use crate::store::agent::tests::fixture::{message, request, response};
 use serde_json::json;
 
 #[test]
+fn distinguishes_failure_origins() {
+    use sailry_protocol::{ErrorCode, tool::Failure as ToolFailure};
+    for (format, result, observed, expected) in [
+        (
+            ToolFormat::Mcp,
+            json!({"isError":true,"content":[]}),
+            None,
+            ToolFailure::tool(None),
+        ),
+        (
+            ToolFormat::McpError,
+            json!({"code":-32602,"message":"Invalid parameters"}),
+            None,
+            ToolFailure::tool(None),
+        ),
+        (
+            ToolFormat::McpError,
+            json!({"code":-32603,"message":"Failed","data":{"code":"invalid_request","message":"Sailry fault"}}),
+            None,
+            ToolFailure::runtime(Some(ErrorCode::InvalidRequest)),
+        ),
+        (
+            ToolFormat::Json,
+            json!({"error":"Unavailable"}),
+            None,
+            ToolFailure::runtime(None),
+        ),
+        (
+            ToolFormat::McpError,
+            json!({"code":-32603,"message":"Wrapped result"}),
+            Some(ToolFailure::from(ErrorCode::Conflict)),
+            ToolFailure::tool(Some(ErrorCode::Conflict)),
+        ),
+    ] {
+        let timeline = crate::agent::observation::Timeline::new();
+        if let Some(observed) = observed {
+            timeline.fail_tool(
+                "",
+                "call",
+                "probe",
+                observed,
+                Some("Original message".into()),
+            );
+        }
+        let mut result = response("call", "probe", result);
+        result.status = ToolStatus::Error;
+        result.format = format;
+        let mut event = message(
+            "response",
+            Role::User,
+            vec![BlockKind::ToolResponse(result)],
+        );
+        let original = serde_json::to_value(&event.message().unwrap().content).unwrap();
+        let captured = capture_failures(&mut event, Some(&timeline));
+        assert_eq!(captured.len(), 1);
+        assert_eq!(captured[0].failure, expected);
+        assert_eq!(
+            captured[0].message.as_deref(),
+            (expected.code == Some(ErrorCode::Conflict)).then_some("Original message")
+        );
+        assert_eq!(
+            serde_json::to_value(&event.message().unwrap().content).unwrap(),
+            original
+        );
+    }
+}
+
+#[test]
 fn preserves_storage_contracts() {
     for (scenario, check) in [
         (
@@ -14,7 +82,13 @@ fn preserves_storage_contracts() {
                     ("cancelled", sailry_protocol::ErrorCode::Cancelled),
                     ("unknown", sailry_protocol::ErrorCode::OutcomeUnknown),
                 ] {
-                    timeline.fail_tool("", id, "same", Some(code));
+                    timeline.fail_tool(
+                        "",
+                        id,
+                        "same",
+                        sailry_protocol::tool::Failure::runtime(Some(code)),
+                        None,
+                    );
                 }
                 let blocks = [
                     ("business", ToolStatus::Success),
@@ -43,8 +117,10 @@ fn preserves_storage_contracts() {
                 assert_eq!(captured[0].failure.code, None, "{scenario}");
                 assert_eq!(captured[1].id, "cancelled", "{scenario}");
                 assert_eq!(
-                    captured[1].failure.code,
-                    Some(sailry_protocol::ErrorCode::Cancelled),
+                    captured[1].failure,
+                    sailry_protocol::tool::Failure::runtime(Some(
+                        sailry_protocol::ErrorCode::Cancelled
+                    )),
                     "{scenario}"
                 );
                 assert_eq!(captured[2].id, "unknown", "{scenario}");
@@ -68,7 +144,10 @@ fn preserves_storage_contracts() {
                     "branch",
                     "failed",
                     "same",
-                    Some(sailry_protocol::ErrorCode::Cancelled),
+                    sailry_protocol::tool::Failure::runtime(Some(
+                        sailry_protocol::ErrorCode::Cancelled,
+                    )),
+                    None,
                 );
                 let mut event = message(
                     "assistant",
@@ -114,7 +193,13 @@ fn preserves_storage_contracts() {
             "preserves_only_matching_response_facts",
             (|scenario: &'static str| {
                 let timeline = crate::agent::observation::Timeline::new();
-                timeline.fail_tool("branch", "failed", "same", None);
+                timeline.fail_tool(
+                    "branch",
+                    "failed",
+                    "same",
+                    sailry_protocol::tool::Failure::runtime(None),
+                    None,
+                );
                 let mut event = message(
                     "assistant",
                     Role::User,

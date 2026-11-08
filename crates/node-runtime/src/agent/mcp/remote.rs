@@ -40,6 +40,18 @@ impl Remote {
     }
 
     fn failed(&self, error: rmcp::ServiceError) -> Fault {
+        let failure = match &error {
+            rmcp::ServiceError::McpError(error) => rpc_failure(error),
+            rmcp::ServiceError::Cancelled { .. } => crate::agent::observation::Failure {
+                failure: sailry_protocol::tool::Failure::runtime(Some(ErrorCode::Cancelled)),
+                message: None,
+            },
+            _ => crate::agent::observation::Failure {
+                failure: sailry_protocol::tool::Failure::runtime(None),
+                message: None,
+            },
+        };
+        self.service.service().failed(failure);
         if matches!(
             error,
             rmcp::ServiceError::UnexpectedResponse
@@ -213,13 +225,29 @@ impl Remote {
                     TaskPayload::Cancelled => {
                         Err(Fault::new(ErrorCode::Cancelled, "MCP task was cancelled"))
                     }
-                    TaskPayload::Failed { error } => Err(Fault::new(
-                        ErrorCode::Unavailable,
-                        detailed
-                            .task
-                            .status_message
-                            .unwrap_or_else(|| Value::Object(error).to_string()),
-                    )),
+                    TaskPayload::Failed { error } => {
+                        let failure =
+                            serde_json::from_value::<ErrorData>(Value::Object(error.clone()))
+                                .map(|error| rpc_failure(&error))
+                                .unwrap_or_else(|_| crate::agent::observation::Failure {
+                                    failure: sailry_protocol::tool::Failure::tool(None),
+                                    message: Some(
+                                        detailed
+                                            .task
+                                            .status_message
+                                            .clone()
+                                            .unwrap_or_else(|| "MCP task failed".into()),
+                                    ),
+                                });
+                        self.service.service().failed(failure);
+                        Err(Fault::new(
+                            ErrorCode::Unavailable,
+                            detailed
+                                .task
+                                .status_message
+                                .unwrap_or_else(|| Value::Object(error).to_string()),
+                        ))
+                    }
                     _ => Err(invalid("MCP terminal task has an unexpected payload")),
                 };
             }
@@ -258,7 +286,7 @@ impl Remote {
                         .peer()
                         .update_task(UpdateTaskParams::new(&id, responses))
                         .await
-                        .map_err(failed)?;
+                        .map_err(|error| self.failed(error))?;
                 }
                 _ => return Err(invalid("MCP task has an unsupported status")),
             }
@@ -365,6 +393,22 @@ impl Remote {
 
 fn invalid(message: impl Into<String>) -> Fault {
     Fault::new(ErrorCode::Unavailable, message)
+}
+fn rpc_failure(error: &ErrorData) -> crate::agent::observation::Failure {
+    let fault = error
+        .data
+        .as_ref()
+        .and_then(|data| serde_json::from_value::<Fault>(data.clone()).ok());
+    match fault {
+        Some(fault) => crate::agent::observation::Failure {
+            failure: sailry_protocol::tool::Failure::runtime(Some(fault.code)),
+            message: Some(fault.message),
+        },
+        None => crate::agent::observation::Failure {
+            failure: sailry_protocol::tool::Failure::tool(None),
+            message: Some(error.message.to_string()),
+        },
+    }
 }
 fn failed(error: impl std::fmt::Display) -> Fault {
     invalid(format!("MCP request failed: {error}"))

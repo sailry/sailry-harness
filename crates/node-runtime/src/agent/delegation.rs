@@ -82,7 +82,8 @@ impl Delegate {
                 context.branch(),
                 context.function_call_id(),
                 &self.name,
-                Some(error.code),
+                sailry_protocol::tool::Failure::from(error.code),
+                None,
             );
         }
     }

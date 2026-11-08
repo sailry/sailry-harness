@@ -167,6 +167,9 @@ pub(super) async fn run(run: Run<'_>) -> Result<Option<String>, Fault> {
             ingress.agents.clone(),
             invocation.turn.id,
         ),
+        remaining: operations::Remaining {
+            timeline: ingress.agents.timeline(invocation.turn.id),
+        },
         foreground: foreground::Foreground::new(children, ingress.clone(), invocation.turn.id),
         steer: steer::Steer {
             ingress: ingress.clone(),
@@ -279,6 +282,7 @@ struct Engine {
     approval: operations::Approval,
     prompt: prompt::Prompt,
     tools: tools::Tools,
+    remaining: operations::Remaining,
     foreground: foreground::Foreground,
     steer: steer::Steer,
     max_turns: Option<operations::MaxTurns>,
@@ -309,10 +313,7 @@ impl Engine {
             );
             stage!(self.approval.run(session, conversation, emit), true);
             stage!(self.tools.run(session, conversation, emit), false);
-            stage!(
-                operations::Remaining.run(session, conversation, emit),
-                false
-            );
+            stage!(self.remaining.run(session, conversation, emit), false);
             stage!(self.foreground.run(session, conversation, emit), false);
             stage!(self.steer.run(session, conversation, emit), false);
             stage!(self.compact.run(session, conversation, emit), false);

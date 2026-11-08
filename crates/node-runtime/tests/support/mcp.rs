@@ -234,11 +234,22 @@ fn stdio_peer() {
                 }
                 if mode == "presentation" {
                     let value = &request["params"]["arguments"]["value"];
+                    if matches!(value.as_str(), Some("rpc_error" | "rpc_fault")) {
+                        let mut error = json!({"code":-32602,"message":"No running application matches 'Terminal'"});
+                        if value == "rpc_fault" {
+                            error["data"] = json!({"code":"unavailable","message":"Sailry service is unavailable"});
+                        }
+                        println!("{}", json!({"jsonrpc":"2.0","id":id,"error":error}));
+                        std::io::stdout().flush().unwrap();
+                        continue;
+                    }
                     let failed = value == "failure";
                     println!(
                         "{}",
                         json!({"jsonrpc":"2.0","id":id,"result":if failed {
                             json!({"isError":true,"content":[{"type":"text","text":"Original MCP failure\n参数错误 🙂"}]})
+                        } else if value == "failure_json" {
+                            json!({"isError":true,"content":[{"type":"text","text":json!({"error":{"code":"APP_NOT_FOUND","message":"No running application matches 'Terminal'"},"suggestion":"Open the application first"}).to_string()}]})
                         } else if value == "business_flags" {
                             json!({"isError":false,"content":[],"structuredContent":{"isError":true,"error":"domain row"}})
                         } else if value.as_str().is_some_and(|value| value.starts_with("large_")) {

@@ -637,6 +637,10 @@ collapsible. Individual calls expand only for Client-projected details; canonica
 raw results remain captured without a separate debug modal. Actual failed-call
 facts share the existing turn observation and canonical history owner, preserving
 error inspection without classifying arbitrary business fields as failures.
+Node captures whether a failure came from the runtime or the tool. Client marks
+runtime faults as failed and tool-reported errors as warnings, preserving expected
+and stopped outcomes. Node extracts the message once for row headlines and details;
+raw error envelopes remain available through explicit result inspection.
 Presentation does not change model results or durable tool output. Separately,
 outgoing model text previews are bounded to 2,000 lines or 50 KiB, whichever is
 reached first. Command previews retain the tail; file and search previews retain

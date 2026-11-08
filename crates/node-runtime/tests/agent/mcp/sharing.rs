@@ -65,6 +65,17 @@ async fn isolates_rpc_errors_between_sessions() {
             "{page:?}"
         );
         let values = results(&fixture.client, &page).await;
+        let view = super::super::progress::observe(&fixture.client, session).await;
+        assert_eq!(view.calls.len(), 2);
+        assert_eq!(
+            view.calls[0].failure,
+            Some(sailry_protocol::tool::Failure::tool(None))
+        );
+        assert_eq!(
+            view.calls[0].summary(&page).unwrap().error.as_deref(),
+            Some("Fixture call failed")
+        );
+        assert!(view.calls[1].failure.is_none());
         assert_eq!(
             values.last().unwrap()["structuredContent"]["value"],
             "complete"

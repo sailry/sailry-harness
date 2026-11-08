@@ -33,13 +33,80 @@ fn call(state: State, code: Option<ErrorCode>) -> Call {
         },
         response: None,
         state,
-        failure: code.map(|code| tool::Failure { code: Some(code) }),
+        failure: code.map(|code| tool::Failure::runtime(Some(code))),
         approval: None,
         question: None,
         progress: None,
         resolved: None,
         detail: None,
     }
+}
+
+#[test]
+fn groups_keep_the_latest_failure_origin() {
+    let page = page();
+    let runtime = call(State::Returned, Some(ErrorCode::Unavailable));
+    let mut tool = call(State::Returned, None);
+    tool.failure = Some(tool::Failure::tool(None));
+    let success = call(State::Returned, None);
+    let warning = group_summary(&[&runtime, &tool], &page);
+    assert!(warning.detail.warning);
+    assert!(!warning.detail.failed);
+    assert!(warning.detail.state.is_none());
+    let failed = group_summary(&[&tool, &runtime], &page);
+    assert!(failed.detail.failed);
+    assert!(!failed.detail.warning);
+    assert_eq!(failed.detail.state, Some(tr("tool_failed")));
+    let recovered = group_summary(&[&runtime, &tool, &success], &page);
+    assert!(!recovered.detail.failed);
+    assert!(!recovered.detail.warning);
+    assert!(summary(&runtime, &page).detail.failed);
+    assert!(summary(&tool, &page).detail.warning);
+}
+
+#[test]
+fn failures_keep_declared_content_and_raw_copy() {
+    let result = json!({
+        "output": {
+            "stdout": "partial command output",
+            "stderr": "the requested command exited",
+            "sailry_content": {
+                "version": 1,
+                "blocks": [
+                    {"kind": "text", "path": "/stdout"},
+                    {"kind": "text", "path": "/stderr"}
+                ]
+            }
+        },
+        "error": {"code": "command_failed", "message": "Command exited with status 1"}
+    });
+    let (mut call, mut page) = raw_fixture(result.clone());
+    call.presentation = tool::Presentation::Content;
+    call.failure = Some(tool::Failure::tool(None));
+    let content = call.presentation.content(&result).unwrap();
+    std::sync::Arc::make_mut(call.detail.as_mut().unwrap()).content = Some(content.clone());
+    let Part::ToolResult { summary: facts, .. } =
+        &mut std::sync::Arc::make_mut(&mut page.entries)[1].parts[0]
+    else {
+        unreachable!()
+    };
+    facts.error = Some("Command exited with status 1".into());
+    facts.diagnostics = true;
+    assert!(call.details(&page));
+    assert!(call.output(&page).is_none());
+    assert_eq!(call.content(), Some(&content));
+    assert_eq!(
+        content::copy(&content, &result, "en"),
+        "partial command output\nthe requested command exited"
+    );
+    assert_eq!(
+        output::tool_preview(call.failure.as_ref(), call.summary(&page), &result).text,
+        "Command exited with status 1"
+    );
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&inspector::copy(&call, &page).unwrap()).unwrap(),
+        result
+    );
 }
 
 mod selection {
@@ -392,9 +459,8 @@ fn outcomes_and_expansion() {
                     !projection::grouped(&call, &page),
                     "avoids duplicate file context"
                 );
-                assert_eq!(
-                    output::failure(call.failure.as_ref(), call.result(&page)).as_deref(),
-                    Some("only regular files can be read"),
+                assert!(
+                    output::failure(call.summary(&page)).is_none(),
                     "avoids duplicate file context"
                 );
                 assert!(
@@ -557,15 +623,14 @@ fn outcomes_and_expansion() {
             (|_scenario: &str| {
                 let result = json!({"error":sailry_protocol::Fault::new(ErrorCode::Unavailable,"Read failed")});
                 let (mut call, mut page) = raw_fixture(result.clone());
-                call.failure = Some(tool::Failure {
-                    code: Some(ErrorCode::Unavailable),
-                });
+                call.failure = Some(tool::Failure::runtime(Some(ErrorCode::Unavailable)));
                 let Part::ToolResult { summary: facts, .. } =
                     &mut std::sync::Arc::make_mut(&mut page.entries)[1].parts[0]
                 else {
                     unreachable!()
                 };
                 facts.diagnostics = true;
+                facts.error = Some("Read failed".into());
                 assert!(call.details(&page), "failed raw keeps diagnostics");
                 assert!(expandable(&[&call], &page), "failed raw keeps diagnostics");
                 assert!(
@@ -577,7 +642,7 @@ fn outcomes_and_expansion() {
                     "failed raw keeps diagnostics"
                 );
                 assert_eq!(
-                    output::tool_preview(call.failure.as_ref(), &result).text,
+                    output::tool_preview(call.failure.as_ref(), call.summary(&page), &result).text,
                     "Read failed",
                     "failed raw keeps diagnostics"
                 );

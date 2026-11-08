@@ -366,10 +366,11 @@ pub(in crate::store::agent) async fn with_sources(
     raw.result = Some(result);
     raw.format = format;
     raw.images = images;
-    raw.failure = super::super::super::presentation::failures(event)?
+    let failure = super::super::super::presentation::failures(event)?
         .into_iter()
-        .find(|failure| failure.index == index && failure.id == id && failure.name == name)
-        .map(|failure| failure.failure);
+        .find(|failure| failure.index == index && failure.id == id && failure.name == name);
+    raw.error = failure.as_ref().and_then(|failure| failure.message.clone());
+    raw.failure = failure.map(|failure| failure.failure);
     Ok(Some(raw))
 }
 

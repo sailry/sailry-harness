@@ -190,21 +190,38 @@ impl<S: CatalogSession + Send + Sync> ToolProvider<S> for Catalog {
         call: CallToolRequestParams,
         emit: &Emitter,
     ) -> Result<CallToolResult, ErrorData> {
+        let rejected = |error: ErrorData| {
+            if let Some(timeline) = &self.timeline {
+                let code = error.data.as_ref().and_then(|data| {
+                    serde_json::from_value::<Fault>(data.clone())
+                        .ok()
+                        .map(|fault| fault.code)
+                });
+                timeline.fail_tool(
+                    "",
+                    id,
+                    call.name.as_ref(),
+                    sailry_protocol::tool::Failure::runtime(code),
+                    None,
+                );
+            }
+            error
+        };
         if session.id() != self.session || self.stop.is_cancelled() {
-            return Err(ErrorData::invalid_request(
+            return Err(rejected(ErrorData::invalid_request(
                 "tool catalog is unavailable",
                 None,
-            ));
+            )));
         }
         let entry = self
             .entries
             .get(call.name.as_ref())
-            .ok_or_else(|| ErrorData::invalid_params("tool is not registered", None))?;
+            .ok_or_else(|| rejected(ErrorData::invalid_params("tool is not registered", None)))?;
         if emit.cancel_token().is_cancelled() {
-            return Err(fault(Fault::new(
+            return Err(rejected(fault(Fault::new(
                 sailry_protocol::ErrorCode::Cancelled,
                 "tool call was cancelled before dispatch",
-            )));
+            ))));
         }
         let mut context = CallContext::new(
             self.session.clone(),
@@ -212,7 +229,8 @@ impl<S: CatalogSession + Send + Sync> ToolProvider<S> for Catalog {
             &call,
             emit.cancel_token().clone(),
             session.context().clone(),
-        )?;
+        )
+        .map_err(rejected)?;
         context.children = self.children.clone();
         if entry.observes {
             context.observed = Some(Arc::new(Observed::collect(
@@ -242,6 +260,15 @@ impl<S: CatalogSession + Send + Sync> ToolProvider<S> for Catalog {
         if let Some(hooks) = &self.hooks
             && let Err(error) = hooks.before(name).await
         {
+            if let Some(timeline) = &self.timeline {
+                timeline.fail_tool(
+                    context.branch(),
+                    id,
+                    name,
+                    sailry_protocol::tool::Failure::runtime(Some(error.code)),
+                    None,
+                );
+            }
             if let Some(metric) = metric {
                 metric.finish(
                     if error.code == sailry_protocol::ErrorCode::PermissionDenied {
@@ -271,20 +298,23 @@ impl<S: CatalogSession + Send + Sync> ToolProvider<S> for Catalog {
         };
         if let Err(error) = &result
             && let Some(timeline) = &self.timeline
+            && timeline.tool_failure(context.branch(), id, name).is_none()
         {
-            let code = error
+            let failure = error
                 .data
                 .clone()
                 .and_then(|data| serde_json::from_value::<Fault>(data).ok())
-                .map(|fault| fault.code);
-            timeline.fail_tool(context.branch(), id, name, code);
+                .map(|fault| sailry_protocol::tool::Failure::from(fault.code))
+                .unwrap_or_else(|| sailry_protocol::tool::Failure::tool(None));
+            timeline.fail_tool(context.branch(), id, name, failure, None);
         }
         if let Some(metric) = metric {
             let failure = self
                 .timeline
                 .as_ref()
                 .and_then(|timeline| timeline.tool_failure(context.branch(), id, name));
-            let (outcome, code) = classify(&result, failure.as_ref());
+            let (outcome, code) =
+                classify(&result, failure.as_ref().map(|observed| &observed.failure));
             metric.finish(outcome, code);
         }
         if let Some(hooks) = &self.hooks {

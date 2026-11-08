@@ -189,3 +189,59 @@ async fn skips_closed_external_and_previous_calls() {
     assert!(events.try_recv().is_err());
     assert_eq!(session.conversation, before);
 }
+
+#[tokio::test]
+async fn records_unhandled_calls_without_changing_results() {
+    use crate::agent::{model::Content, observation::Timeline};
+    let metadata = json!({"provider":"fixture"}).as_object().unwrap().clone();
+    let session = session([
+        Message::user().with_text("use tools"),
+        Message::assistant().with_tool_request_with_metadata(
+            "unknown",
+            Ok(CallToolRequestParams::new("unregistered")),
+            Some(metadata.clone()),
+            Some(json!({EXECUTABLE_KEY: true})),
+        ),
+    ]);
+    let before = session.conversation.clone();
+    let timeline = Timeline::new();
+    let remaining = Remaining {
+        timeline: Some(timeline.clone()),
+    };
+    let (sender, mut receiver) = mpsc::unbounded_channel();
+    let emit = Emitter::new(sender, CancellationToken::new());
+    let Outcome::Applied(transition) = remaining
+        .run(&session, &session.conversation, &emit)
+        .await
+        .unwrap()
+    else {
+        panic!("unhandled calls must produce effects")
+    };
+    assert_eq!(transition.status, RunStatus::Continuing);
+    let [Effect::Conversation(ConversationEffect::AppendMessage(message))] =
+        transition.effects.as_slice()
+    else {
+        panic!("a response message is required")
+    };
+    let [Content::ToolResult(response)] = message.content.as_slice() else {
+        panic!("a tool result is required")
+    };
+    assert_eq!(response.id, "unknown");
+    assert_eq!(response.metadata, Some(metadata));
+    assert_eq!(
+        response.result,
+        Ok(CallToolResult::error(vec![ContentBlock::text(
+            "This tool call was not handled."
+        )]))
+    );
+    let observed = timeline
+        .tool_failure("", "unknown", "unregistered")
+        .unwrap();
+    assert_eq!(
+        observed.failure,
+        sailry_protocol::tool::Failure::runtime(None)
+    );
+    assert!(observed.message.is_none());
+    assert_eq!(receiver.try_recv().unwrap(), *message);
+    assert_eq!(session.conversation, before);
+}

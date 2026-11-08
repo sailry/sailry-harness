@@ -27,6 +27,7 @@ pub(in crate::store::agent) struct Raw {
     pub grouping: Grouping,
     pub images: Vec<sailry_protocol::conversation::Image>,
     pub failure: Option<Failure>,
+    error: Option<String>,
     /// The call's tool admitted child agents when it was recorded.
     pub delegation: bool,
 }
@@ -45,6 +46,7 @@ impl Raw {
             grouping: Default::default(),
             images: Vec::new(),
             failure: None,
+            error: None,
             delegation: false,
         }
     }
@@ -180,6 +182,7 @@ impl Raw {
             self.grouping,
             &self.images,
             &self.failure,
+            &self.error,
         ))
         .expect("public tool values are serializable");
         blake3::hash(&bytes).to_hex().to_string()
@@ -321,6 +324,9 @@ fn error(raw: &Raw, metadata: Option<&ResultDisplay>) -> Option<String> {
         );
     }
     raw.failure.as_ref()?;
+    if let Some(message) = &raw.error {
+        return Some(message.clone());
+    }
     let result = raw.value()?;
     if let Some(message) = result
         .pointer("/error/message")
@@ -345,7 +351,18 @@ fn error(raw: &Raw, metadata: Option<&ResultDisplay>) -> Option<String> {
                 .filter_map(|content| content.get("text").and_then(Value::as_str))
                 .collect::<Vec<_>>()
                 .join("\n");
-            (!message.is_empty()).then_some(message)
+            if message.is_empty() {
+                None
+            } else if let Ok(envelope) = serde_json::from_str::<Value>(&message) {
+                envelope
+                    .pointer("/error/message")
+                    .and_then(Value::as_str)
+                    .or_else(|| envelope.get("message").and_then(Value::as_str))
+                    .or_else(|| envelope.get("error").and_then(Value::as_str))
+                    .map(str::to_owned)
+            } else {
+                Some(message)
+            }
         }
         ToolFormat::Json => None,
     }

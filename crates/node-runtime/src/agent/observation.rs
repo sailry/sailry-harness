@@ -37,8 +37,12 @@ pub(crate) struct Timeline {
     origin: Instant,
     spans: Mutex<Vec<Interval>>,
     next: AtomicU64,
-    failures:
-        Mutex<std::collections::BTreeMap<(String, String, String), sailry_protocol::tool::Failure>>,
+    failures: Mutex<std::collections::BTreeMap<(String, String, String), Failure>>,
+}
+#[derive(Clone)]
+pub(crate) struct Failure {
+    pub failure: sailry_protocol::tool::Failure,
+    pub message: Option<String>,
 }
 pub(crate) struct Span {
     timeline: Arc<Timeline>,
@@ -99,22 +103,18 @@ impl Timeline {
         branch: &str,
         id: &str,
         name: &str,
-        code: Option<sailry_protocol::ErrorCode>,
+        failure: sailry_protocol::tool::Failure,
+        message: Option<String>,
     ) {
         if !id.is_empty() {
             self.failures.lock().unwrap().insert(
                 (branch.to_owned(), id.to_owned(), name.to_owned()),
-                sailry_protocol::tool::Failure { code },
+                Failure { failure, message },
             );
         }
     }
 
-    pub(crate) fn tool_failure(
-        &self,
-        branch: &str,
-        id: &str,
-        name: &str,
-    ) -> Option<sailry_protocol::tool::Failure> {
+    pub(crate) fn tool_failure(&self, branch: &str, id: &str, name: &str) -> Option<Failure> {
         self.failures
             .lock()
             .unwrap()

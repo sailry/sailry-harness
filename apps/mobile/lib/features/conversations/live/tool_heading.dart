@@ -30,20 +30,19 @@ class ToolHeading extends StatelessWidget {
     final row = object(call['row']);
     final waiting = row['pending'] == true || pendingTool(call);
     final active = (running ?? row['running'] == true) && !waiting;
-    final failed =
-        !waiting &&
-        call['state'] != 'running' &&
-        (toolFailed(call) || row['warning'] == true);
+    final failed = !waiting && call['state'] != 'running' && toolFailed(call);
+    final warning =
+        !waiting && call['state'] != 'running' && row['warning'] == true;
     return Semantics(
       value: failed ? context.tr('toolFailed') : null,
       child: ToolRow(
         leading: (color) => toolIcon(call, color),
         label: _title(context, call),
         detail: text(object(row['detail'])['text']),
-        tone: waiting
-            ? RowTone.pending
-            : failed
+        tone: failed
             ? RowTone.failed
+            : waiting || warning
+            ? RowTone.pending
             : RowTone.normal,
         running: active,
       ),

@@ -81,7 +81,9 @@ impl PlanReview {
     }
 }
 
-pub(super) struct Remaining;
+pub(super) struct Remaining {
+    pub timeline: Option<std::sync::Arc<crate::agent::observation::Timeline>>,
+}
 impl Remaining {
     pub(super) async fn run(
         &self,
@@ -95,6 +97,15 @@ impl Remaining {
         }
         let mut message = Message::user();
         for request in requests {
+            if let Some(timeline) = &self.timeline {
+                timeline.fail_tool(
+                    "",
+                    &request.id,
+                    &request.name,
+                    sailry_protocol::tool::Failure::runtime(None),
+                    None,
+                );
+            }
             message.add_tool_response_with_metadata(
                 request.id.clone(),
                 Ok(CallToolResult::error(vec![ContentBlock::text(

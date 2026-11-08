@@ -41,6 +41,7 @@ struct Call {
     stop: CancellationToken,
     waiting: watch::Sender<usize>,
     timing_owner: Option<u64>,
+    failure: Arc<Mutex<Option<crate::agent::observation::Failure>>>,
 }
 
 pub(super) struct Active {
@@ -85,6 +86,7 @@ impl Handler {
             stop: stop.child_token(),
             waiting,
             timing_owner: crate::agent::observation::owner(),
+            failure: Default::default(),
         });
         *self.active.lock().unwrap() = Some(call.clone());
         Active {
@@ -92,9 +94,19 @@ impl Handler {
             call,
         }
     }
+
+    pub fn failed(&self, failure: crate::agent::observation::Failure) {
+        if let Some(call) = self.active.lock().unwrap().as_ref() {
+            *call.failure.lock().unwrap() = Some(failure);
+        }
+    }
 }
 
 impl Active {
+    pub fn failure(&self) -> Arc<Mutex<Option<crate::agent::observation::Failure>>> {
+        self.call.failure.clone()
+    }
+
     pub fn stopped(&self) -> CancellationToken {
         self.call.stop.clone()
     }

@@ -142,7 +142,10 @@ impl HostOperation {
                 changes
                     .files
                     .iter()
-                    .find_map(|file| file.error.as_ref().map(|error| error.code)),
+                    .find_map(|file| file.error.as_ref().map(|error| error.code))
+                    .map(sailry_protocol::tool::Failure::from)
+                    .unwrap_or_else(|| sailry_protocol::tool::Failure::tool(None)),
+                None,
             );
         }
         serde_json::to_value(output)

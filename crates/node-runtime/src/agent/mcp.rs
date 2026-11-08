@@ -655,14 +655,24 @@ impl Bound {
         if self.reuse {
             self.ingress.agents.mcp.failed(&self.connection);
         }
-        if let Ok(value) = &result
-            && (value.is_error.unwrap_or(false))
+        let failure = match &result {
+            Ok(value) if value.is_error == Some(true) => {
+                Some(sailry_protocol::tool::Failure::tool(None))
+            }
+            Err(error) => Some(sailry_protocol::tool::Failure::runtime(Some(error.code))),
+            _ => None,
+        };
+        if let Some(failure) = failure
             && let Some(timeline) = self.ingress.agents.timeline(self.turn)
+            && timeline
+                .tool_failure(context.branch(), context.function_call_id(), self.name())
+                .is_none()
         {
             timeline.fail_tool(
                 context.branch(),
                 context.function_call_id(),
                 self.name(),
+                failure,
                 None,
             );
         }
@@ -789,6 +799,7 @@ impl Bound {
             context.request(),
             &self.stop,
         );
+        let failure = active.failure();
         let (service, mut call) = if self.reuse {
             (service, None)
         } else {
@@ -848,6 +859,12 @@ impl Bound {
                         let mut value = serde_json::to_value(error).unwrap();
                         if let Some(connector) = &self.connector { connector.redact(&mut value); }
                         let error: Fault = serde_json::from_value(value).unwrap();
+                        if let Some(observed) = failure.lock().unwrap().take()
+                            && let Some(timeline) = self.ingress.agents.timeline(self.turn) {
+                            let mut message = observed.message.map(Value::String).unwrap_or(Value::Null);
+                            if let Some(connector) = &self.connector { connector.redact(&mut message); }
+                            timeline.fail_tool(context.branch(), context.function_call_id(), self.name(), observed.failure, message.as_str().map(str::to_owned));
+                        }
                         Err(Fault::new(ErrorCode::OutcomeUnknown, format!("MCP call failed without replay; remote effects may be uncertain: {}", error.message)))
                     },
                     Err(_) => Err(Fault::new(ErrorCode::OutcomeUnknown, "MCP result is unavailable; remote effects may be uncertain")),

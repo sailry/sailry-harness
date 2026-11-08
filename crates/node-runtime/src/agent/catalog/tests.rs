@@ -334,24 +334,17 @@ fn classifies_authoritative_tool_failures() {
     let result = Ok(output.clone());
     assert_eq!(classify(&result, None), (ToolResult::Success, None));
     assert_eq!(
-        classify(
-            &result,
-            Some(&Failure {
-                code: Some(ErrorCode::NotFound)
-            })
-        ),
+        classify(&result, Some(&Failure::tool(Some(ErrorCode::NotFound)))),
         (ToolResult::Error, Some(ErrorCode::NotFound))
     );
     assert_eq!(
-        classify(&result, Some(&Failure { code: None })),
+        classify(&result, Some(&Failure::runtime(None))),
         (ToolResult::Error, None)
     );
     assert_eq!(
         classify(
             &result,
-            Some(&Failure {
-                code: Some(ErrorCode::PermissionDenied)
-            })
+            Some(&Failure::runtime(Some(ErrorCode::PermissionDenied)))
         ),
         (ToolResult::Denied, Some(ErrorCode::PermissionDenied))
     );

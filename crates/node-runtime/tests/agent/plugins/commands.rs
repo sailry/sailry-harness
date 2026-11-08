@@ -104,10 +104,17 @@ async fn reuses_approved_arguments() {
     assert_eq!(output[1].stdout.text, "before");
     let view = super::super::progress::observe(&fixture.client, fixture.session.id).await;
     let calls = &view.calls;
-    assert!(calls[0].failure.is_none());
+    assert_eq!(
+        calls[0].failure,
+        Some(sailry_protocol::tool::Failure::tool(None))
+    );
+    assert_eq!(
+        calls[0].summary(&page).unwrap().error.as_deref(),
+        Some("Command exited with code 7")
+    );
     assert_eq!(
         calls[1].failure,
-        Some(sailry_protocol::tool::Failure { code: None })
+        Some(sailry_protocol::tool::Failure::runtime(None))
     );
     assert!(calls[1].diagnostics(&page));
     assert!(calls[1].details(&page));
@@ -187,6 +194,57 @@ async fn reuses_approved_arguments() {
         "记录 🙂"
     );
     node.shutdown().await.unwrap();
+    fixture.controller.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn explains_failure_without_command_output() {
+    let server = Server::tools(vec![(
+        name("run_command"),
+        json!({"access":"unrestricted","command":"exit 1"}),
+    )])
+    .await;
+    let mut fixture = Fixture::packages(&server, &["commands"]).await;
+    planning::configure(&mut fixture, WorkMode::Code).await;
+    let Output::QueuedTurn(turn) = execute(
+        &fixture,
+        Command::SubmitTurn {
+            session: fixture.session.id,
+            expected_revision: fixture.session.revision,
+            message: "Run the requested command".into(),
+        },
+    )
+    .await
+    else {
+        panic!("turn expected")
+    };
+    let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+    let output = process::results(&fixture.client, &page).await;
+    assert_eq!(output.len(), 1);
+    assert_eq!(output[0].outcome, Outcome::Exited(1));
+    assert!(output[0].stdout.text.is_empty());
+    assert!(output[0].stderr.text.is_empty());
+    let view = super::super::progress::observe(&fixture.client, fixture.session.id).await;
+    assert_eq!(view.calls.len(), 1);
+    let call = &view.calls[0];
+    assert_eq!(
+        call.failure,
+        Some(sailry_protocol::tool::Failure::tool(None))
+    );
+    assert_eq!(
+        call.summary(&page).unwrap().error.as_deref(),
+        Some("Command exited with code 1")
+    );
+    let row = call.row(&page);
+    assert!(row.warning);
+    assert!(!row.failed);
+    assert_eq!(row.detail.unwrap().text, "Command exited with code 1");
+    assert!(
+        results(&fixture.client, &page).await[0]
+            .get("isError")
+            .is_none()
+    );
+    fixture.node.shutdown().await.unwrap();
     fixture.controller.close().await.unwrap();
 }
 

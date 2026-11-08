@@ -99,6 +99,7 @@ pub(super) fn group(
                 view.generic(
                     &format!("{}-{}", call.turn, call.source.key()),
                     call,
+                    page,
                     result,
                     cx,
                 )

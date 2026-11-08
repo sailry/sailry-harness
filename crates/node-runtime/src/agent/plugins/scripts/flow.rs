@@ -81,7 +81,8 @@ impl Script {
                     context.branch(),
                     context.function_call_id(),
                     &self.name,
-                    Some(error.code),
+                    tool::Failure::from(error.code),
+                    None,
                 );
             } else {
                 timeline.forget_failure(context.branch(), context.function_call_id(), &self.name);

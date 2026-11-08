@@ -21,6 +21,10 @@ pub(super) fn capture_failures(
             let observed = timeline.and_then(|timeline| {
                 timeline.tool_failure(&event.provenance.branch, id, &response.name)
             });
+            let message = observed
+                .as_ref()
+                .and_then(|observed| observed.message.clone());
+            let observed = observed.map(|observed| observed.failure);
             let failure = match response.status {
                 ToolStatus::Error => {
                     let encoded = (response.format == ToolFormat::McpError)
@@ -29,12 +33,15 @@ pub(super) fn capture_failures(
                         .and_then(|value| {
                             serde_json::from_value::<sailry_protocol::Fault>(value.clone()).ok()
                         })
-                        .map(|fault| sailry_protocol::tool::Failure {
-                            code: Some(fault.code),
-                        });
+                        .map(|fault| sailry_protocol::tool::Failure::runtime(Some(fault.code)));
                     observed
                         .or(encoded)
-                        .unwrap_or(sailry_protocol::tool::Failure { code: None })
+                        .unwrap_or_else(|| match response.format {
+                            ToolFormat::Mcp | ToolFormat::McpError => {
+                                sailry_protocol::tool::Failure::tool(None)
+                            }
+                            ToolFormat::Json => sailry_protocol::tool::Failure::runtime(None),
+                        })
                 }
                 ToolStatus::Success => observed?,
             };
@@ -43,6 +50,7 @@ pub(super) fn capture_failures(
                 id: id.clone(),
                 name: response.name.clone(),
                 failure,
+                message,
             })
         })
         .collect();

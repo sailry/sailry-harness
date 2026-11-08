@@ -6,6 +6,31 @@ use rmcp::{
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::Notify;
 
+#[test]
+fn preserves_rpc_origin_and_message() {
+    for (error, expected, message) in [
+        (
+            ErrorData::invalid_params("Invalid parameters", None),
+            sailry_protocol::tool::Failure::tool(None),
+            "Invalid parameters",
+        ),
+        (
+            ErrorData::internal_error(
+                "RPC wrapper",
+                Some(json!({"code":"invalid_request","message":"Sailry message"})),
+            ),
+            sailry_protocol::tool::Failure::runtime(Some(ErrorCode::InvalidRequest)),
+            "Sailry message",
+        ),
+    ] {
+        let original = serde_json::to_value(&error).unwrap();
+        let captured = rpc_failure(&error);
+        assert_eq!(captured.failure, expected);
+        assert_eq!(captured.message.as_deref(), Some(message));
+        assert_eq!(serde_json::to_value(&error).unwrap(), original);
+    }
+}
+
 #[derive(Clone, Default)]
 struct Server {
     cancelled: Arc<AtomicBool>,

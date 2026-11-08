@@ -9,7 +9,7 @@ use sailry_protocol::{
     TurnId,
     conversation::{Approval, ApprovalSource, ApprovalState, Entry, Page, Part, Snapshot},
     tool::{
-        Failure, Presentation,
+        Failure, Origin, Presentation,
         detail::{Detail, Reference as DetailReference, Summary},
     },
 };
@@ -178,9 +178,8 @@ fn preserves_bounded_facts_without_raw_values() {
     assert!(!encoded.to_string().contains("domain row"));
     assert!(serde_json::to_string(&detail).unwrap().len() > 100_000);
     assert!(encoded.to_string().len() < 10_000);
-    Arc::make_mut(&mut view.calls)[0].failure = Some(Failure {
-        code: Some(ErrorCode::Unavailable),
-    });
+    Arc::make_mut(&mut view.calls)[0].failure =
+        Some(Failure::runtime(Some(ErrorCode::Unavailable)));
     summary(&mut view).diagnostics = true;
     summary(&mut view).has_details = true;
     let encoded = serialized(&view);
@@ -217,45 +216,69 @@ fn resolves_literal_content_only_in_detail_packet() {
 
 #[test]
 fn failure_does_not_select_success_preview() {
-    let (mut view, mut detail) = fixture(Presentation::Hidden, json!({"error":"Actual failure"}));
-    let resolved = display::Resolved {
-        label: None,
-        input: Default::default(),
-        output: Some(display::Output {
-            preview: "Claimed success".into(),
-            preview_deferred: false,
-            notices: vec![],
-            paths: vec![],
-            path_count: 0,
-            body: None,
-            table: None,
-        }),
-        approval: vec![],
-        status: None,
-        command: None,
-        diagnostics: vec![],
-    };
-    Arc::make_mut(&mut view.calls)[0].failure = Some(Failure { code: None });
-    summary(&mut view).diagnostics = true;
-    summary(&mut view).has_details = true;
-    summary(&mut view).resolved = Some(resolved.clone());
-    Arc::make_mut(&mut view.calls)[0].resolved = Some(resolved.clone());
-    Arc::make_mut(&mut detail).resolved = Some(resolved);
-    let original = serde_json::to_value(&view.snapshot).unwrap();
-    let encoded = serialized(&view);
-    assert_eq!(encoded["calls"][0]["output"], Value::Null);
-    assert_eq!(
-        encoded["calls"][0]["resolved"]["output"]["preview"],
-        "Claimed success"
-    );
-    let packet = packet(
-        &view.calls[0].with_detail(detail),
-        &view.snapshot.as_ref().unwrap().page,
-    )
-    .unwrap();
-    assert_eq!(packet["output"], Value::Null);
-    assert_eq!(packet["result"]["error"], "Actual failure");
-    assert_eq!(encoded["snapshot"], original);
+    for origin in [Origin::Runtime, Origin::Tool] {
+        let (mut view, mut detail) =
+            fixture(Presentation::Hidden, json!({"error":"Actual failure"}));
+        let resolved = display::Resolved {
+            label: None,
+            input: Default::default(),
+            output: Some(display::Output {
+                preview: "Claimed success".into(),
+                preview_deferred: false,
+                notices: vec![],
+                paths: vec![],
+                path_count: 0,
+                body: None,
+                table: None,
+            }),
+            approval: vec![],
+            status: None,
+            command: None,
+            diagnostics: vec![],
+        };
+        Arc::make_mut(&mut view.calls)[0].failure = Some(Failure { code: None, origin });
+        summary(&mut view).diagnostics = true;
+        summary(&mut view).error = Some("Actual failure".into());
+        summary(&mut view).has_details = true;
+        summary(&mut view).resolved = Some(resolved.clone());
+        Arc::make_mut(&mut view.calls)[0].resolved = Some(resolved.clone());
+        Arc::make_mut(&mut detail).resolved = Some(resolved);
+        let original = serde_json::to_value(&view.snapshot).unwrap();
+        let encoded = serialized(&view);
+        assert_eq!(
+            encoded["calls"][0]["row"]["failed"],
+            origin == Origin::Runtime
+        );
+        assert_eq!(
+            encoded["calls"][0]["row"]["warning"],
+            origin == Origin::Tool
+        );
+        assert_eq!(
+            encoded["calls"][0]["row"]["state"],
+            if origin == Origin::Runtime {
+                json!("failed")
+            } else {
+                Value::Null
+            }
+        );
+        assert_eq!(
+            encoded["calls"][0]["row"]["detail"]["text"],
+            "Actual failure"
+        );
+        assert_eq!(encoded["calls"][0]["output"], Value::Null);
+        assert_eq!(
+            encoded["calls"][0]["resolved"]["output"]["preview"],
+            "Claimed success"
+        );
+        let packet = packet(
+            &view.calls[0].with_detail(detail),
+            &view.snapshot.as_ref().unwrap().page,
+        )
+        .unwrap();
+        assert_eq!(packet["output"], Value::Null);
+        assert_eq!(packet["result"]["error"], "Actual failure");
+        assert_eq!(encoded["snapshot"], original);
+    }
 }
 
 #[test]

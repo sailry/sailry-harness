@@ -4,7 +4,7 @@ use sailry_protocol::{
     ErrorCode,
     conversation::{ApprovalState, Page},
     plugin::desktop::Icon,
-    tool::{LocalText, detail::Text},
+    tool::{LocalText, Origin, detail::Text},
 };
 use serde::Serialize;
 
@@ -41,9 +41,11 @@ impl Call {
         let code = self.failure.as_ref().and_then(|failure| failure.code);
         let expected = code == Some(ErrorCode::NotFound)
             && summary.is_some_and(|summary| summary.expected.is_some());
-        let failed = self.failure.is_some()
-            && !expected
-            && !matches!(code, Some(ErrorCode::Cancelled | ErrorCode::OutcomeUnknown));
+        let failure = self.failure.as_ref().filter(|_| {
+            !expected && !matches!(code, Some(ErrorCode::Cancelled | ErrorCode::OutcomeUnknown))
+        });
+        let failed = failure.is_some_and(|failure| failure.origin == Origin::Runtime);
+        let tool_warning = failure.is_some_and(|failure| failure.origin == Origin::Tool);
         let state = if denied {
             Some(RowState::Denied)
         } else if code == Some(ErrorCode::Cancelled) {
@@ -53,6 +55,8 @@ impl Call {
             Some(RowState::Interrupted)
         } else if failed {
             Some(RowState::Failed)
+        } else if tool_warning {
+            None
         } else if pending {
             Some(RowState::Pending)
         } else {
@@ -62,12 +66,12 @@ impl Call {
                 State::Interrupted => Some(RowState::Interrupted),
             }
         };
-        let running = self.state == State::Running && !denied && !failed && !pending;
+        let running = self.state == State::Running && !denied && failure.is_none() && !pending;
         Row {
             label: resolved.and_then(|resolved| resolved.label.clone()),
             icon: summary.and_then(|summary| summary.icon.clone()),
             detail: summary
-                .filter(|_| failed && !denied)
+                .filter(|_| (failed || tool_warning) && !denied)
                 .and_then(|summary| summary.error.as_ref())
                 .filter(|error| !error.trim().is_empty())
                 .map(|error| Text {
@@ -86,10 +90,11 @@ impl Call {
             state: if running { None } else { state },
             failed: !denied && failed,
             warning: !failed
-                && matches!(
-                    state,
-                    Some(RowState::Denied | RowState::Interrupted | RowState::NotExecuted)
-                ),
+                && (tool_warning
+                    || matches!(
+                        state,
+                        Some(RowState::Denied | RowState::Interrupted | RowState::NotExecuted)
+                    )),
             pending,
             running,
             has_details: self.details(page),

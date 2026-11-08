@@ -1,6 +1,9 @@
 //! The local Node client and the paired remote Link client are equivalent at the shared
 //! command and subscription boundary. Each scenario runs through both transports against
 //! one Node; domain suites run their scenarios once through the remote client.
+#[expect(dead_code, reason = "Tool contracts reuse the existing model fixture")]
+#[path = "agent_support/mod.rs"]
+mod agent_support;
 #[path = "support/database/error.rs"]
 mod database_fixture;
 #[expect(dead_code, reason = "Score contracts reuse the public HTTP fixture")]
@@ -33,3 +36,5 @@ mod scores;
 mod snapshots;
 #[path = "transport/subscriptions.rs"]
 mod subscriptions;
+#[path = "transport/tool_failures.rs"]
+mod tool_failures;
