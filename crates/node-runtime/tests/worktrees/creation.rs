@@ -69,6 +69,8 @@ async fn local_and_remote_creation() {
         projection
             .apply(1, subscription.next().await.unwrap())
             .unwrap();
+        let actions = [sailry_protocol::plugin::Action::ReadWorktrees];
+        let catalog = projection.read_cursors().for_actions(&actions);
         let path = temp.path().join(format!("中文-worktree-{sequence}"));
         let name = format!("feature/中文-{sequence}");
         let request = client.prepare(command(project.id, &path, &name, base.id()));
@@ -89,7 +91,10 @@ async fn local_and_remote_creation() {
             matches!(&update, Update::Event(event) if event.event == Event::WorktreeRegistered(worktree.clone()))
         );
         assert_eq!(projection.apply(1, update.clone()).unwrap(), Apply::Applied);
+        let changed = projection.read_cursors().for_actions(&actions);
+        assert!(changed > catalog);
         assert_eq!(projection.apply(1, update).unwrap(), Apply::Ignored);
+        assert_eq!(projection.read_cursors().for_actions(&actions), changed);
         assert!(projection.snapshot().unwrap().worktrees.contains(worktree));
         assert!(snapshot(client).await.worktrees.contains(worktree));
         let linked = Repository::open(&path).unwrap();

@@ -6,6 +6,7 @@ mod quotas;
 mod roles;
 mod sessions;
 mod teams;
+mod worktrees;
 
 fn snapshot(cursor: u64) -> Snapshot {
     Snapshot {

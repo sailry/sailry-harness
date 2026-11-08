@@ -10,6 +10,8 @@ use gpui_kit::{
 };
 use ui::{EventKind, Kind};
 mod indicator;
+#[cfg(test)]
+mod tests;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Form {
@@ -55,6 +57,11 @@ impl Entry {
     }
 
     pub(crate) fn text(&self) -> SharedString {
+        if self.declaration.kind == Kind::Menu
+            && let Some(title) = &self.state.label
+        {
+            return label(title);
+        }
         self.choices()
             .iter()
             .find(|choice| self.state.value.as_str() == Some(&choice.id))
@@ -308,10 +315,9 @@ impl Registry {
                 let owner = cx.weak_entity();
                 button
                     .dropdown_menu_with_anchor(Anchor::BottomLeft, move |menu, _, _| {
-                        choices
-                            .iter()
-                            .enumerate()
-                            .fold(menu, |mut menu, (index, choice)| {
+                        choices.iter().enumerate().fold(
+                            menu.max_h(px(480.)).scrollable(true),
+                            |mut menu, (index, choice)| {
                                 if index > 0 && choices[index - 1].group != choice.group {
                                     menu = menu.separator();
                                 }
@@ -349,7 +355,8 @@ impl Registry {
                                             });
                                         }),
                                 )
-                            })
+                            },
+                        )
                     })
                     .into_any_element()
             }

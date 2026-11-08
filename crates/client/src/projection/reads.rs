@@ -5,6 +5,7 @@ use sailry_protocol::{Event, plugin::Action};
 pub struct ReadCursors {
     roles: u64,
     models: u64,
+    worktrees: u64,
     terminals: u64,
     terminal_tools: u64,
 }
@@ -20,6 +21,7 @@ impl ReadCursors {
             .map(|action| match action {
                 Action::ReadRoles => self.roles,
                 Action::ReadModels => self.models,
+                Action::ReadWorktrees => self.worktrees,
                 Action::ReadTerminals => self.terminals,
                 _ => 0,
             })
@@ -31,6 +33,7 @@ impl ReadCursors {
         *self = Self {
             roles: revision,
             models: revision,
+            worktrees: revision,
             terminals: revision,
             terminal_tools: revision,
         };
@@ -47,6 +50,7 @@ impl ReadCursors {
                 | Event::LocalModelsChanged { .. }
                 | Event::TerminalChanged(_)
                 | Event::TerminalSettingsChanged { .. }
+                | Event::WorktreeRegistered(_)
                 | Event::WorktreeRemoved { .. }
         )
     }
@@ -62,7 +66,12 @@ impl ReadCursors {
                 self.terminals = revision;
                 self.terminal_tools = revision;
             }
-            Event::TerminalChanged(_) | Event::WorktreeRemoved { .. } => self.terminals = revision,
+            Event::TerminalChanged(_) => self.terminals = revision,
+            Event::WorktreeRegistered(_) => self.worktrees = revision,
+            Event::WorktreeRemoved { .. } => {
+                self.worktrees = revision;
+                self.terminals = revision;
+            }
             _ => {}
         }
     }

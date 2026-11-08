@@ -288,6 +288,38 @@ impl View {
 }
 
 impl Binding {
+    fn location_projects(
+        &self,
+        snapshot: Option<&sailry_protocol::Snapshot>,
+        can_retarget: bool,
+    ) -> Vec<serde_json::Value> {
+        snapshot
+            .filter(|snapshot| can_retarget && snapshot.node == self.client.target())
+            .into_iter()
+            .flat_map(|snapshot| &snapshot.projects)
+            .map(|project| serde_json::json!({"id":project.id,"name":project.name}))
+            .collect()
+    }
+
+    fn project_choice(
+        &self,
+        snapshot: Option<&sailry_protocol::Snapshot>,
+        project: Option<ProjectId>,
+        can_retarget: bool,
+    ) -> Result<Choice, String> {
+        if !can_retarget {
+            return Err("conversation project is fixed".into());
+        }
+        let Some(project) = project else {
+            return Ok(Choice::Unassigned);
+        };
+        snapshot
+            .filter(|snapshot| snapshot.node == self.client.target())
+            .and_then(|snapshot| registered_project(snapshot, project))
+            .map(|(project, _)| Choice::Project(project.clone()))
+            .ok_or_else(|| "project is outside the captured node".into())
+    }
+
     pub(super) fn project_available(&self, snapshot: Option<&sailry_protocol::Snapshot>) -> bool {
         self.project.is_none_or(|project| {
             snapshot.is_some_and(|snapshot| {
@@ -465,7 +497,38 @@ impl View {
         serde_json::json!({"surface":"composer","node":crate::live::node_key(self.binding.client.target()),"project":self.binding.project,"worktree":self.binding.worktree,
             "session":self.session.as_ref().map(|session|session.id),"revision":self.session.as_ref().map(|session|session.revision.to_string()),
             "main":main,"project_name":self.binding.project_name.as_ref(),"branch":self.binding.branch.as_ref(),
+            "projects":self.binding.location_projects(self.node.snapshot.as_ref(),self.can_retarget()),
             "can_move":self.can_move(),"can_retarget":self.can_retarget(),"git":self.repository.is_git(),"git_status":self.repository.kind(),"connected":self.connected()})
+    }
+
+    pub(crate) fn select_registered_project(
+        &mut self,
+        project: Option<ProjectId>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        if !self.can_move() {
+            return Err("conversation location is unavailable".into());
+        }
+        let choice = self.binding.project_choice(
+            self.node.snapshot.as_ref(),
+            project,
+            self.can_retarget(),
+        )?;
+        self.select_location(choice, window, cx);
+        Ok(())
+    }
+
+    pub(crate) fn add_location_project(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        if !self.can_move() {
+            return Err("conversation location is unavailable".into());
+        }
+        self.select_location(Choice::AddProject, window, cx);
+        Ok(())
     }
 
     pub(crate) fn select_registered_location(

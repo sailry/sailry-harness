@@ -150,3 +150,83 @@ fn rejects_stale_picker_entries() {
     assert!(registered_project(&snapshot, project).is_none());
     assert_eq!(snapshot.worktrees[0].project, Some(project));
 }
+
+#[test]
+fn exposes_only_bound_project_names() {
+    let mut snapshot = snapshot();
+    let binding = binding(&mut snapshot);
+    assert_eq!(
+        binding.location_projects(Some(&snapshot), true),
+        vec![serde_json::json!({
+            "id":binding.project.unwrap(),
+            "name":"Original",
+        })]
+    );
+    assert!(binding.location_projects(Some(&snapshot), false).is_empty());
+    assert!(binding.location_projects(None, true).is_empty());
+
+    snapshot.node = NodeId([2; 32]);
+    assert!(binding.location_projects(Some(&snapshot), true).is_empty());
+}
+
+#[test]
+fn selects_registered_main_worktree() {
+    let mut snapshot = snapshot();
+    let binding = binding(&mut snapshot);
+    let project = binding.project.unwrap();
+    let choice = binding
+        .project_choice(Some(&snapshot), Some(project), true)
+        .unwrap();
+    assert!(matches!(choice, Choice::Project(entry) if entry.id == project));
+    assert!(
+        binding
+            .project_choice(Some(&snapshot), Some(ProjectId::new()), true)
+            .is_err()
+    );
+    snapshot.worktrees[0].main = false;
+    assert!(
+        binding
+            .project_choice(Some(&snapshot), Some(project), true)
+            .is_err()
+    );
+}
+
+#[test]
+fn rejects_changed_project_scope() {
+    let mut snapshot = snapshot();
+    let binding = binding(&mut snapshot);
+    let project = binding.project;
+    assert!(
+        binding
+            .project_choice(Some(&snapshot), project, false)
+            .is_err()
+    );
+    snapshot.node = NodeId([2; 32]);
+    assert!(
+        binding
+            .project_choice(Some(&snapshot), project, true)
+            .is_err()
+    );
+    snapshot.node = binding.client.target();
+    snapshot.projects.clear();
+    assert!(
+        binding
+            .project_choice(Some(&snapshot), project, true)
+            .is_err()
+    );
+}
+
+#[test]
+fn unassigned_requires_retargeting() {
+    let mut snapshot = snapshot();
+    let binding = binding(&mut snapshot);
+    assert!(matches!(
+        binding.project_choice(Some(&snapshot), None, true),
+        Ok(Choice::Unassigned)
+    ));
+    assert!(
+        binding
+            .project_choice(Some(&snapshot), None, false)
+            .is_err()
+    );
+}

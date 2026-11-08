@@ -13,7 +13,7 @@ use crate::{
 use gpui_kit::*;
 use gpui_shell::{HostError, HostModule};
 use sailry_protocol::{
-    Command, Output, Request, RequestId, RequestOutcome, Snapshot, Worktree, WorktreeId,
+    Command, Output, ProjectId, Request, RequestId, RequestOutcome, Snapshot, Worktree, WorktreeId,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -27,6 +27,8 @@ use std::{
 type Reply = tokio::sync::oneshot::Sender<Result<Value, String>>;
 mod handlers;
 mod navigation;
+#[cfg(test)]
+mod tests;
 pub(super) struct Scope {
     pub binding: Binding,
     pub source: Option<WeakEntity<Chat>>,
@@ -54,14 +56,37 @@ pub(super) struct State {
 #[serde(deny_unknown_fields)]
 struct Selection {
     worktree: Option<WorktreeId>,
+    #[serde(default, deserialize_with = "project_selection")]
+    project: Option<Option<ProjectId>>,
     #[serde(default)]
     fork: bool,
     #[serde(default)]
     projects: bool,
     #[serde(default)]
+    add_project: bool,
+    #[serde(default)]
     overview: bool,
     request: Option<RequestId>,
 }
+
+impl Selection {
+    fn valid(&self) -> bool {
+        usize::from(self.worktree.is_some())
+            + usize::from(self.project.is_some())
+            + usize::from(self.projects)
+            + usize::from(self.add_project)
+            + usize::from(self.overview)
+            == 1
+    }
+}
+
+fn project_selection<'de, D>(deserializer: D) -> Result<Option<Option<ProjectId>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<ProjectId>::deserialize(deserializer).map(Some)
+}
+
 #[derive(Clone)]
 enum Operation {
     OpenResource(Option<String>),
@@ -99,7 +124,7 @@ impl State {
                 .is_none_or(|tree| tree.main);
             json!({"surface":"project","node":crate::live::node_key(self.binding.client.target()),"project":self.binding.project,"worktree":self.binding.worktree,
                 "session":null,"revision":null,"main":main,"project_name":self.binding.project_name.as_ref(),"branch":self.binding.branch.as_ref(),
-                "can_move":self.connected,"can_retarget":false,"git":false,"git_status":"unknown","connected":self.connected})
+                "can_move":self.connected,"can_retarget":false,"projects":[],"git":false,"git_status":"unknown","connected":self.connected})
         };
         if let Some(snapshot) = &self.snapshot {
             self.known.extend(
@@ -198,7 +223,7 @@ pub(super) fn extend(
     let route_owner = owner.clone();
     let route_host = host.clone();
     let declarations = format!(
-        "{}\nexport type ContributionIntent = 'git_branches'|'worktrees'|'create_worktree'|'fork_worktree';\nexport function invokeContribution(intent:ContributionIntent,value?:unknown):Promise<boolean>;\nexport function canInvokeContribution(intent:ContributionIntent):Promise<boolean>;\nexport function readLocation():{{cursor:string;surface:'composer'|'project';node:string;project:string|null;worktree:string|null;session:string|null;revision:string|null;main:boolean;project_name:string;branch:string;can_move:boolean;can_retarget:boolean;git:boolean;git_status:'unknown'|'repository'|'plain_directory';connected:boolean}};\nexport function nextLocationChange(cursor:string):Promise<ReturnType<typeof readLocation>>;\nexport function selectLocation(cursor:string,selection:{{worktree?:string;fork?:boolean;projects?:boolean;overview?:boolean;request?:string}}):Promise<boolean>;\nexport function worktreeHasDrafts(worktree:string,request?:string):Promise<boolean>;\nexport function releaseWorktree(worktree:string,request:string):Promise<void>;",
+        "{}\nexport type ContributionIntent = 'git_branches'|'worktrees'|'create_worktree'|'fork_worktree';\nexport function invokeContribution(intent:ContributionIntent,value?:unknown):Promise<boolean>;\nexport function canInvokeContribution(intent:ContributionIntent):Promise<boolean>;\nexport function readLocation():{{cursor:string;surface:'composer'|'project';node:string;project:string|null;worktree:string|null;session:string|null;revision:string|null;main:boolean;project_name:string;branch:string;can_move:boolean;can_retarget:boolean;projects:{{id:string;name:string}}[];git:boolean;git_status:'unknown'|'repository'|'plain_directory';connected:boolean}};\nexport function nextLocationChange(cursor:string):Promise<ReturnType<typeof readLocation>>;\nexport function selectLocation(cursor:string,selection:{{worktree?:string;project?:string|null;fork?:boolean;projects?:boolean;add_project?:boolean;overview?:boolean;request?:string}}):Promise<boolean>;\nexport function worktreeHasDrafts(worktree:string,request?:string):Promise<boolean>;\nexport function releaseWorktree(worktree:string,request:string):Promise<void>;",
         module.declared().unwrap_or_default()
     );
     let module = module
@@ -446,13 +471,16 @@ impl Shell {
                 .detach();
             }
             Operation::Select(selection) => {
-                if usize::from(selection.worktree.is_some())
-                    + usize::from(selection.projects)
-                    + usize::from(selection.overview)
-                    != 1
+                if !selection.valid()
                     || selection
                         .worktree
                         .is_some_and(|tree| !state.known.contains(&tree))
+                    || selection.project.flatten().is_some_and(|project| {
+                        !state.snapshot.as_ref().is_some_and(|snapshot| {
+                            snapshot.node == node
+                                && snapshot.projects.iter().any(|entry| entry.id == project)
+                        })
+                    })
                 {
                     let _ = reply.send(Err("invalid location selection".into()));
                     return;
@@ -469,18 +497,26 @@ impl Shell {
                         .cloned();
                     let result = source
                         .update(cx, |source, cx| {
-                            source.select_registered_location(
-                                selection.worktree,
-                                selection.fork,
-                                confirmed.as_ref(),
-                                window,
-                                cx,
-                            )
+                            if let Some(project) = selection.project {
+                                source.select_registered_project(project, window, cx)
+                            } else if selection.add_project {
+                                source.add_location_project(window, cx)
+                            } else {
+                                source.select_registered_location(
+                                    selection.worktree,
+                                    selection.fork,
+                                    confirmed.as_ref(),
+                                    window,
+                                    cx,
+                                )
+                            }
                         })
                         .map(|_| Value::Bool(true));
                     let _ = reply.send(result);
                 } else {
                     if selection.projects
+                        || selection.project.is_some()
+                        || selection.add_project
                         || selection.fork
                         || shell.live.as_ref().is_none_or(|live| live.selected != node)
                     {

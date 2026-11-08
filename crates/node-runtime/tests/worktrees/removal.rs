@@ -75,6 +75,8 @@ async fn local_and_remote_removal() {
         let mut events = client.subscribe().await.unwrap();
         let mut projection = Projection::new(fixture.node.id(), 1);
         projection.apply(1, events.next().await.unwrap()).unwrap();
+        let actions = [sailry_protocol::plugin::Action::ReadWorktrees];
+        let catalog = projection.read_cursors().for_actions(&actions);
         let transport = if sequence == 0 {
             fixture.node.local()
         } else {
@@ -182,7 +184,10 @@ async fn local_and_remote_removal() {
             matches!(&update, Update::Event(event) if event.event == Event::WorktreeRemoved { id: tree.id })
         );
         assert_eq!(projection.apply(1, update.clone()).unwrap(), Apply::Applied);
+        let changed = projection.read_cursors().for_actions(&actions);
+        assert!(changed > catalog);
         assert_eq!(projection.apply(1, update).unwrap(), Apply::Ignored);
+        assert_eq!(projection.read_cursors().for_actions(&actions), changed);
         assert_eq!(projection.snapshot().unwrap(), &snapshot(client).await);
         assert!(
             tokio::time::timeout(Duration::from_secs(5), async {
