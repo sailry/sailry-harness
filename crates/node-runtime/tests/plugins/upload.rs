@@ -163,18 +163,26 @@ async fn installs_without_projects() {
     let recovered = Node::start(directory.path().join("node")).await.unwrap();
     let local = Client::new(recovered.local());
     assert_eq!(inventory(&local).await, vec![updated.summary.clone()]);
-    assert_eq!(
-        info(
-            execute(
-                &local,
-                Command::ReadPlugin {
-                    name: "example".into()
-                }
-            )
-            .await
-        ),
-        updated
+    let mut restored = info(
+        execute(
+            &local,
+            Command::ReadPlugin {
+                name: "example".into(),
+            },
+        )
+        .await,
     );
+    for server in &mut restored.mcp {
+        if let Some(runtime) = server.runtime.take() {
+            assert_eq!(runtime.tools, 0);
+            assert_ne!(runtime.state, plugin::mcp::RuntimeState::Connected);
+            assert_eq!(
+                runtime.state == plugin::mcp::RuntimeState::Failed,
+                runtime.fault.is_some()
+            );
+        }
+    }
+    assert_eq!(restored, updated);
     let reconnected = Client::new(controller.handle().remote(recovered.link().address()));
     assert_eq!(info(reconnected.execute(request).await.unwrap()), installed);
     recovered.shutdown().await.unwrap();

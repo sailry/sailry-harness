@@ -276,10 +276,37 @@ mod recovery {
         drop(client);
         controller.close().await.unwrap();
         node.shutdown().await.unwrap();
-        assert!(
-            retained(&profile).await == before,
-            "JSON reads or receipt recovery rewrote stored bodies"
-        );
+        let after = retained(&profile).await;
+        let packages: Vec<_> = before
+            .iter()
+            .filter(|(key, _)| key.starts_with("plugins:"))
+            .map(|(_, body)| serde_json::from_slice::<Info>(body).unwrap())
+            .filter(|info| info.summary.available() && info.mcp.iter().any(|server| server.allowed))
+            .map(|info| info.summary)
+            .collect();
+        let cursor = before
+            .iter()
+            .filter_map(|(key, _)| key.strip_prefix("events:"))
+            .map(|cursor| cursor.parse::<u64>().unwrap())
+            .max()
+            .unwrap_or(0);
+        for body in &before {
+            assert!(after.contains(body), "stored JSON changed: {}", body.0);
+        }
+        for (key, body) in after.iter().filter(|body| !before.contains(body)) {
+            let Some(added) = key.strip_prefix("events:") else {
+                panic!("unexpected stored JSON: {key}");
+            };
+            assert!(added.parse::<u64>().unwrap() > cursor);
+            let event = serde_json::from_slice::<Event>(body).unwrap();
+            let Event::PluginChanged(summary) = event else {
+                panic!("unexpected startup event: {event:?}");
+            };
+            assert!(
+                packages.contains(&summary),
+                "startup changed plugin configuration: {summary:?}"
+            );
+        }
     }
 
     #[tokio::test]
