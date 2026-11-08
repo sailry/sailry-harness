@@ -25,6 +25,7 @@ pub(in crate::conversation::live) struct Chip {
 impl Chip {
     pub(in crate::conversation::live) fn token(&self) -> InlineToken {
         InlineToken::new(format!("{PREFIX}{}", self.key), format!("@{}", self.label))
+            .with_label(self.label.clone())
     }
 }
 
@@ -497,7 +498,7 @@ impl View {
                 card.id,
                 context.range().start
             )))
-            .trigger(token.icon(Icon::default().path("reicon:map/pointer")))
+            .trigger(token.icon(IconName::Maximize).line_height(relative(1.)))
             .content(move |_, _, cx| card.render(&images, cx))
             .into_any_element()
         }

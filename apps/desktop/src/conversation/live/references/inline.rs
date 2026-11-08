@@ -23,7 +23,12 @@ fn id(reference: &Reference) -> SharedString {
 }
 
 pub(in crate::conversation::live) fn token(reference: &Reference) -> InlineToken {
-    InlineToken::new(id(reference), marker(reference))
+    let token = InlineToken::new(id(reference), marker(reference));
+    if matches!(reference.target, Target::Attachment(_)) {
+        token.with_label(reference.label.clone())
+    } else {
+        token
+    }
 }
 
 /// Rehydrate a captured source with its immutable reference metadata. Live typing
