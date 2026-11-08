@@ -6,7 +6,6 @@ import 'package:markdown/markdown.dart' as md;
 import 'package:url_launcher/url_launcher.dart';
 
 import '../l10n/strings.dart';
-import '../ui/icons.dart';
 import '../ui/theme.dart';
 import '../ui/toast.dart';
 import 'chart.dart';
@@ -46,12 +45,11 @@ class MarkdownContent extends StatelessWidget {
         'pre': _CodeBuilder(),
         'sailry-math-inline': MathBuilder(),
         'sailry-math-block': MathBuilder(block: true),
-        if (onOpenFile != null) 'sailry-file': _FileBuilder(onOpenFile!),
       },
       blockSyntaxes: const [MathBlockSyntax()],
       inlineSyntaxes: [
         MathInlineSyntax(),
-        ContentLinks(images: imageBuilder != null, files: onOpenFile != null),
+        ContentLinks(images: imageBuilder != null),
       ],
       imageBuilder: (uri, title, alt) => SizedBox(
         width: double.infinity,
@@ -86,9 +84,17 @@ class MarkdownContent extends StatelessWidget {
         }
       },
     );
-    return VisualScope.contains(context)
-        ? content
-        : VisualScope(child: content);
+    // Tables and code keep horizontal scrolling; the library's scrollbar
+    // draws over the rows, so it stays hidden.
+    final scoped = ScrollbarTheme(
+      data: const ScrollbarThemeData(
+        thumbVisibility: WidgetStatePropertyAll(false),
+        thickness: WidgetStatePropertyAll(0),
+        thumbColor: WidgetStatePropertyAll(Colors.transparent),
+      ),
+      child: content,
+    );
+    return VisualScope.contains(context) ? scoped : VisualScope(child: scoped);
   }
 }
 
@@ -108,7 +114,7 @@ MarkdownStyleSheet contentStyleSheet(ThemeData theme, {bool muted = false}) {
     // Fixed columns activate the library's per-table horizontal scroller.
     // Long cells wrap within a readable width instead of squeezing to fit.
     tableColumnWidth: const FixedColumnWidth(220),
-    tableScrollbarThumbVisibility: true,
+    tableScrollbarThumbVisibility: false,
     tableCellsPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
     tableBorder: TableBorder(
       horizontalInside: BorderSide(color: colors.outlineVariant),
@@ -129,9 +135,8 @@ MarkdownStyleSheet contentStyleSheet(ThemeData theme, {bool muted = false}) {
 
 /// Reuse Markdown's link parser so references, escapes, and code keep their semantics.
 class ContentLinks extends md.LinkSyntax {
-  ContentLinks({required this.images, required this.files});
+  ContentLinks({required this.images});
   final bool images;
-  final bool files;
 
   /// The last text link closed and where its source ends. It takes its
   /// trailing gap once a link directly after it shows which character follows.
@@ -215,14 +220,7 @@ class ContentLinks extends md.LinkSyntax {
           'title': ?link.attributes['title'],
         });
     }
-    if (files &&
-        RegExp(
-          r'\.(pdf|docx?|xlsx?|pptx?|odt|ods|odp|html?|md|markdown|txt|csv|json|ya?ml|toml|xml|rs|dart|py|js|ts|tsx|jsx|css|sh|sql|go|java|c|cpp|h|hpp)$',
-          caseSensitive: false,
-        ).hasMatch(uri.path)) {
-      return md.Element.text('sailry-file', link.textContent)
-        ..attributes['href'] = link.attributes['href']!;
-    }
+    // Other file links stay inline like ordinary links; taps open them.
     return link;
   }
 }
@@ -266,42 +264,6 @@ String? _charAfter(String text, int index) => index < text.length
         text.substring(index, min(text.length, index + 2)).runes.first,
       )
     : null;
-
-class _FileBuilder extends MarkdownElementBuilder {
-  _FileBuilder(this.open);
-  final Future<void> Function(Uri) open;
-
-  @override
-  Widget visitElementAfterWithContext(
-    BuildContext context,
-    md.Element element,
-    TextStyle? preferredStyle,
-    TextStyle? parentStyle,
-  ) {
-    final uri = Uri.parse(element.attributes['href']!);
-    final name = uri.path.split('/').last;
-    return SizedBox(
-      width: double.infinity,
-      child: Card.outlined(
-        margin: const EdgeInsets.symmetric(vertical: 4),
-        child: ListTile(
-          leading: const AppIcon('file'),
-          title: Text(element.textContent.isEmpty ? name : element.textContent),
-          subtitle: element.textContent == name ? null : Text(name),
-          onTap: () async {
-            try {
-              await open(uri);
-            } catch (_) {
-              if (context.mounted) {
-                showToast(context, context.tr('fileLinkUnavailable'));
-              }
-            }
-          },
-        ),
-      ),
-    );
-  }
-}
 
 class _CodeBuilder extends MarkdownElementBuilder {
   @override

@@ -7,7 +7,7 @@ import 'package:sailry_mobile/content/markdown.dart';
 const gap = '\u202f';
 
 List<md.Node> parse(String source) => md.Document(
-  inlineSyntaxes: [ContentLinks(images: false, files: false)],
+  inlineSyntaxes: [ContentLinks(images: false)],
   extensionSet: md.ExtensionSet.gitHubFlavored,
   encodeHtml: false,
 ).parseLines(const LineSplitter().convert(source));
