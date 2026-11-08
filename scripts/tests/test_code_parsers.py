@@ -156,6 +156,7 @@ class BuildEnvironment(unittest.TestCase):
                 environment = ci.parser_environment(root, {"CARGO_TARGET_DIR": "build cache",
                                                            "CARGO_BUILD_TARGET": TARGET}, libraries=True)
             self.assertEqual(environment["CARGO_TARGET_DIR"], "build cache")
+            self.assertEqual(environment["SAILRY_CODE_PARSERS"], str(output))
             self.assertTrue((output / parsers.MANIFEST).is_file())
 
     def test_prepares_libraries_only_for_node_execution(self):

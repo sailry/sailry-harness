@@ -517,6 +517,8 @@ def parser_environment(root, env, libraries):
     # omits embedded queries, while LANGUAGES requests native grammar compilation.
     environment.pop("TSLP_OFFLINE", None)
     environment.pop("TSLP_LANGUAGES", None)
+    if libraries:
+        environment["SAILRY_CODE_PARSERS"] = str(output)
     if libraries and "apple" in target:
         parsers.sign(target, output, "-")
     return environment

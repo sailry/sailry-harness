@@ -195,10 +195,19 @@ just test-ui        # Desktop logic and service-contract tests
 
 Local packaging:
 
+Linux cross-builds also need Zig, LLVM `llvm-ar` and `llvm-strip` (on macOS,
+`brew install llvm@21`), and `cargo-zigbuild 0.23.4` installed under
+`target/tooling`:
+
+```sh
+cargo install --locked cargo-zigbuild --version 0.23.4 --root target/tooling
+rustup target add x86_64-unknown-linux-gnu
+```
+
 ```sh
 cargo build --locked --release -p sailry-desktop -p sailry-host
 SAILRY_SIGNING=developer-id SAILRY_NOTARIZE=1 bash scripts/package-macos.sh release
-bash scripts/build-host.sh release x86_64-unknown-linux-gnu    # needs Zig and cargo-zigbuild 0.23.4
+bash scripts/build-host.sh release x86_64-unknown-linux-gnu
 bash scripts/package-host.sh release x86_64-unknown-linux-gnu
 ```
 

@@ -284,7 +284,8 @@ dispatch service and require an online Node.
   revision, size and SHA-256. One CPU runtime runs one inference at a time, gives
   interactive work priority and releases idle engines. Decision inference uses the
   pinned llama.cpp C API and reports `Unavailable` on unsupported targets, with no
-  fallback. No model is selected or downloaded automatically.
+  fallback. No decision model is selected automatically; embedding initially
+  selects `granite-multi`. Model downloads require explicit installation.
 - **Knowledge.** Retrieval is a Node service used by plugin-owned features. No
   standalone knowledge plugin is bundled. Citations recheck source identity on the
   execution Node.
