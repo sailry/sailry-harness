@@ -114,7 +114,7 @@ names. Turn either off in **Settings › Diagnostics and privacy**, or set `SAIL
 
 | | Download | Requires |
 | --- | --- | --- |
-| **Desktop** | macOS: [Apple silicon](https://github.com/sailry/sailry-harness/releases/latest/download/Sailry-aarch64-apple-darwin.dmg) · [Intel](https://github.com/sailry/sailry-harness/releases/latest/download/Sailry-x86_64-apple-darwin.dmg)<br>Windows: [x64](https://github.com/sailry/sailry-harness/releases/latest/download/Sailry-x86_64-pc-windows-msvc-setup.exe) | macOS 13+ · Windows x64 · Linux planned |
+| **Desktop** | macOS: [Apple silicon](https://github.com/sailry/sailry-harness/releases/latest/download/Sailry-aarch64-apple-darwin.dmg) · [Intel](https://github.com/sailry/sailry-harness/releases/latest/download/Sailry-x86_64-apple-darwin.dmg)<br>Windows: [x64](https://github.com/sailry/sailry-harness/releases/latest/download/Sailry-x86_64-pc-windows-msvc-setup.exe) | macOS 13+ · Windows 10+ (x64) · Linux planned |
 | **Host** | macOS: [Apple silicon](https://github.com/sailry/sailry-harness/releases/latest/download/sailry-host-aarch64-apple-darwin.tar.gz) · [Intel](https://github.com/sailry/sailry-harness/releases/latest/download/sailry-host-x86_64-apple-darwin.tar.gz)<br>Linux: [x64](https://github.com/sailry/sailry-harness/releases/latest/download/sailry-host-x86_64-unknown-linux-gnu.tar.gz) · [ARM64](https://github.com/sailry/sailry-harness/releases/latest/download/sailry-host-aarch64-unknown-linux-gnu.tar.gz) | macOS 13+ · Linux with glibc 2.34+ · Windows planned |
 | **Mobile** | [Android APK](https://github.com/sailry/sailry-harness/releases/latest/download/Sailry-android-arm64.apk) · [iOS TestFlight](https://testflight.apple.com/join/qaTnVrmQ) (beta) | Android 7.0+ · iOS 15+ |
 
