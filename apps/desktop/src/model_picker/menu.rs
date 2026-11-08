@@ -113,17 +113,25 @@ impl Picker {
                                 let (group, model) = picker.choice(&measured)?;
                                 picker.exact(group, model, effort, cx)
                             });
-                            // Kit items pad 8px; the selection fill spans the whole row.
+                            // Kit items pad 8px; the selection fill covers the same
+                            // area as Kit's hover background.
                             div()
+                                .relative()
                                 .w_full()
                                 .min_h(px(26.))
                                 .flex()
                                 .items_center()
-                                .mx(px(-8.))
-                                .px(px(8.))
-                                .rounded(cx.theme().radius)
                                 .when(selected && current == effort, |row| {
-                                    row.bg(cx.theme().primary.opacity(0.12))
+                                    row.child(
+                                        div()
+                                            .absolute()
+                                            .top_0()
+                                            .bottom_0()
+                                            .left(px(-8.))
+                                            .right(px(-8.))
+                                            .rounded(cx.theme().radius)
+                                            .bg(cx.theme().primary.opacity(0.12)),
+                                    )
                                 })
                                 .child(scores::effort_content(
                                     crate::reasoning::label(effort),
