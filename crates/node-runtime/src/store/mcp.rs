@@ -38,6 +38,7 @@ pub(super) enum Operation {
             >,
         >,
     },
+    #[cfg(target_os = "macos")]
     ComputerPermissions {
         caller: sailry_protocol::NodeId,
         request: Box<Request>,
@@ -149,6 +150,7 @@ pub(super) async fn execute(
             let _ =
                 reply.send(plugins::mcp::prepare(&database.connection, &package, &server).await);
         }
+        #[cfg(target_os = "macos")]
         Operation::ComputerPermissions {
             caller,
             request,
@@ -363,6 +365,7 @@ impl Ingress {
         .map_err(|_| unavailable())?;
         response.await.map_err(|_| unavailable())?
     }
+    #[cfg(target_os = "macos")]
     pub(crate) async fn computer_inputs(
         &self,
         caller: sailry_protocol::NodeId,

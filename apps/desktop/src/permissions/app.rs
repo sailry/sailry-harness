@@ -1,9 +1,8 @@
 //! Current-process permissions, distinct from an operation's execution-device requirements.
 use super::*;
-use std::{
-    io,
-    path::{Path, PathBuf},
-};
+#[cfg(any(target_os = "macos", test))]
+use std::io;
+use std::path::{Path, PathBuf};
 
 pub(super) const DISK_SETTINGS: &str =
     "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles";
@@ -128,6 +127,7 @@ fn status(resource: Resource) -> Status {
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn disk_status(path: &Path) -> Status {
     // WWDC 2019 session 701: Trash enumeration needs Full Disk Access.
     // A denied protected open may list the responsible app unchecked in Settings.
@@ -135,6 +135,7 @@ fn disk_status(path: &Path) -> Status {
     disk_result(std::fs::read_dir(path).map(drop))
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn disk_result(result: io::Result<()>) -> Status {
     match result {
         Ok(()) => Status::Granted,

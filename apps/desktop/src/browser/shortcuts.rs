@@ -62,7 +62,7 @@ impl Browser {
 }
 
 pub(super) fn script(cx: &App) -> String {
-    let mut actions = vec![
+    let actions = vec![
         (
             crate::shell::shortcuts::CloseFocused.boxed_clone(),
             "close-tab",
@@ -70,9 +70,9 @@ pub(super) fn script(cx: &App) -> String {
         (annotation::SelectElement.boxed_clone(), "select-element"),
         (NewBrowserTab.boxed_clone(), "new-tab"),
         (ReloadBrowser.boxed_clone(), "reload"),
+        #[cfg(target_os = "macos")]
+        (inspector::Inspect.boxed_clone(), "inspect"),
     ];
-    #[cfg(target_os = "macos")]
-    actions.push((inspector::Inspect.boxed_clone(), "inspect"));
     let keymap = cx.key_bindings();
     let keymap = keymap.borrow();
     let bindings: Vec<_> = actions.into_iter()

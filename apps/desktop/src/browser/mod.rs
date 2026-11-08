@@ -47,6 +47,7 @@ pub(crate) struct Browser {
     tabs: Vec<Tab>,
     #[cfg(target_os = "macos")]
     store: Option<objc2::rc::Retained<objc2_web_kit::WKWebsiteDataStore>>,
+    #[cfg(target_os = "macos")]
     persistent: bool,
     reload: bool,
     selected: usize,
@@ -175,6 +176,7 @@ impl Browser {
         .detach();
         Self {
             reload: false,
+            #[cfg(target_os = "macos")]
             persistent: crate::preferences::data(cx)
                 .browser_persistent
                 .unwrap_or(true),

@@ -262,6 +262,7 @@ impl Sandbox {
         Ok(wrapped)
     }
 
+    #[cfg(unix)]
     pub(crate) fn scratch(&self) -> &Path {
         self._scratch.path()
     }

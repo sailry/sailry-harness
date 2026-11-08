@@ -8,6 +8,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
 pub(crate) fn capture(root: &Path) -> Result<Option<PathBuf>, Fault> {
     if open(root).is_ok() {
         return prepare(root).map(Some);

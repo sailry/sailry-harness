@@ -39,7 +39,7 @@ impl Render for Panel {
                     .children(self.rows().into_iter().map(|card| {
                         let resource = card.resource;
                         let status = card.status;
-                        let granted = matches!(status, Status::Granted | Status::NotNeeded);
+                        let granted = status.satisfied();
                         let opens_settings = self.cards.iter().any(|member| {
                             member.resource == resource
                                 && member.actionable()
@@ -67,7 +67,7 @@ impl Render for Panel {
                                 .when(
                                     card.settings.is_some()
                                         && (resource != Resource::FullDisk || granted)
-                                        && !matches!(status, Status::Denied | Status::Restricted),
+                                        && !status.blocked(),
                                     |row| {
                                         let url = card.settings.unwrap();
                                         row.child(

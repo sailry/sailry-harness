@@ -2,30 +2,36 @@
 #[cfg(target_os = "macos")]
 use crate::permissions::{self, Action as PermissionAction, Card, Failure, Resource, Status};
 use gpui_kit::*;
+#[cfg(target_os = "macos")]
 use sailry_link::CancellationToken;
 use serde_json::{Value, json};
-use std::{cell::RefCell, collections::BTreeMap};
 #[cfg(target_os = "macos")]
 use std::{
+    cell::RefCell,
+    collections::BTreeMap,
     rc::Rc,
     sync::{Arc, Mutex},
 };
 
+#[cfg(target_os = "macos")]
 type Reply = tokio::sync::oneshot::Sender<Result<Value, String>>;
+#[cfg(target_os = "macos")]
 pub(crate) enum Action {
     Scan,
     Import(String),
 }
+#[cfg(target_os = "macos")]
 pub(crate) struct Request {
     pub action: Action,
     pub stop: CancellationToken,
     pub reply: RefCell<Option<Reply>>,
 }
+#[cfg(target_os = "macos")]
 pub(crate) struct Settings {
-    #[cfg(target_os = "macos")]
     profiles: BTreeMap<String, super::chrome::Profile>,
     busy: bool,
 }
+#[cfg(target_os = "macos")]
 impl EventEmitter<Request> for Settings {}
 
 pub(crate) fn snapshot(cx: &App) -> Value {
@@ -47,6 +53,7 @@ pub(crate) fn persistent(value: bool, cx: &mut App) -> Result<(), String> {
     crate::preferences::update(cx, |data| data.browser_persistent = Some(value));
     Ok(())
 }
+#[cfg(target_os = "macos")]
 impl Settings {
     pub(crate) fn new(window: &Window, cx: &mut Context<Self>) -> Self {
         cx.subscribe_in(
@@ -60,21 +67,16 @@ impl Settings {
                     let _ = reply.send(Err("browser_import_unavailable".into()));
                     return;
                 }
-                #[cfg(target_os = "macos")]
                 this.start(&request.action, request.stop.clone(), reply, window, cx);
-                #[cfg(not(target_os = "macos"))]
-                let _ = reply.send(Err("browser_import_unavailable".into()));
             },
         )
         .detach();
         Self {
-            #[cfg(target_os = "macos")]
             profiles: BTreeMap::new(),
             busy: false,
         }
     }
 
-    #[cfg(target_os = "macos")]
     fn start(
         &mut self,
         action: &Action,
@@ -217,7 +219,6 @@ impl Settings {
         }
     }
 
-    #[cfg(target_os = "macos")]
     fn install(
         &mut self,
         import: super::chrome::Import,
@@ -248,7 +249,6 @@ impl Settings {
         .detach();
     }
 
-    #[cfg(target_os = "macos")]
     fn finish_scan(
         &mut self,
         result: super::chrome::Result<Vec<super::chrome::Profile>>,
@@ -263,7 +263,6 @@ impl Settings {
         }
     }
 
-    #[cfg(target_os = "macos")]
     fn scanned(
         &mut self,
         result: super::chrome::Result<Vec<super::chrome::Profile>>,

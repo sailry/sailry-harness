@@ -835,11 +835,11 @@ fn finish(
     let parent_cap = crate::files::path::root(parent)?;
     let identity = crate::files::path::identity::directory(&parent_cap)?;
     let name = format!(".sailry-restore-{}", uuid::Uuid::new_v4());
-    let mut builder = cap_std::fs::DirBuilder::new();
+    let builder = &mut cap_std::fs::DirBuilder::new();
     #[cfg(unix)]
-    cap_std::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    cap_std::fs::DirBuilderExt::mode(builder, 0o700);
     parent_cap
-        .create_dir_with(&name, &builder)
+        .create_dir_with(&name, builder)
         .map_err(backup::io)?;
     let mut destination = Target {
         directory: Some(parent_cap.open_dir_nofollow(&name).map_err(backup::io)?),

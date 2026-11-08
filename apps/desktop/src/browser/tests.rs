@@ -6,6 +6,7 @@ pub(super) fn fixture() -> Browser {
         tabs: vec![Tab::empty(0)],
         #[cfg(target_os = "macos")]
         store: None,
+        #[cfg(target_os = "macos")]
         persistent: false,
         reload: false,
         selected: 0,

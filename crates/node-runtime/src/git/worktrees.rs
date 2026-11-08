@@ -7,6 +7,7 @@ use std::path::Path;
 mod managed;
 pub(crate) use managed::create as managed;
 mod location;
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 pub(crate) use location::capture;
 mod creation;
 pub(crate) use creation::create;

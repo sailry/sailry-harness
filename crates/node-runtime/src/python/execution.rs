@@ -77,13 +77,13 @@ fn directory(profile: &Path, session: SessionId) -> Result<PathBuf, Fault> {
         "sessions".to_owned(),
         session.to_string(),
     ] {
-        let mut options = cap_std::fs::DirBuilder::new();
+        let options = &mut cap_std::fs::DirBuilder::new();
         #[cfg(unix)]
         {
             use cap_std::fs::DirBuilderExt;
             options.mode(0o700);
         }
-        match anchor.create_dir_with(&name, &options) {
+        match anchor.create_dir_with(&name, options) {
             Ok(()) => {}
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
             Err(error) => return Err(storage(error)),
@@ -102,6 +102,7 @@ mod tests {
         Ready {
             python: root.join("bin/python"),
             environment: root.clone(),
+            #[cfg(any(target_os = "macos", target_os = "linux"))]
             runtime: root,
             _lease: None,
             requirements: None,

@@ -1,7 +1,7 @@
 //! Retained object identity adapted from sailry-code 67ae9fa0:
 //! sailry-code-secure-file/src/secure/{identity,windows}.rs (Apache-2.0).
 use cap_std::fs::{Dir, File};
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 use sailry_protocol::ErrorCode;
 use sailry_protocol::Fault;
 
@@ -31,8 +31,8 @@ pub fn directory(dir: &Dir) -> Result<Identity, Fault> {
     }
     #[cfg(windows)]
     {
-        use std::os::windows::io::AsRawHandle;
-        windows::checked(dir.as_raw_handle())
+        use std::os::windows::io::AsHandle;
+        windows::checked(dir.as_handle())
     }
     #[cfg(not(any(unix, windows)))]
     {
@@ -56,8 +56,8 @@ pub fn file(file: &File) -> Result<Identity, Fault> {
     }
     #[cfg(windows)]
     {
-        use std::os::windows::io::AsRawHandle;
-        windows::checked(file.as_raw_handle())
+        use std::os::windows::io::AsHandle;
+        windows::checked(file.as_handle())
     }
     #[cfg(not(any(unix, windows)))]
     {
@@ -77,7 +77,7 @@ pub mod windows {
         mem::{MaybeUninit, size_of},
         os::windows::{
             fs::OpenOptionsExt,
-            io::{AsRawHandle, RawHandle},
+            io::{AsHandle, AsRawHandle, BorrowedHandle},
         },
         path::Path,
     };
@@ -92,20 +92,20 @@ pub mod windows {
             .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
             .open(path)
             .map_err(io_error)?;
-        checked(file.as_raw_handle())?;
+        checked(file.as_handle())?;
         if !file.metadata().map_err(io_error)?.is_dir() {
             return Err(Fault::invalid("expected a directory"));
         }
         Ok(Dir::from_std_file(file))
     }
 
-    pub fn checked(handle: RawHandle) -> Result<Identity, Fault> {
+    pub(super) fn checked(handle: BorrowedHandle<'_>) -> Result<Identity, Fault> {
         let mut tag = MaybeUninit::<FILE_ATTRIBUTE_TAG_INFO>::zeroed();
         // SAFETY: the caller borrows a live file/directory handle. The output
         // buffer is writable and sized for the requested information class.
         let result = unsafe {
             GetFileInformationByHandleEx(
-                handle,
+                handle.as_raw_handle(),
                 FileAttributeTagInfo,
                 tag.as_mut_ptr().cast(),
                 size_of::<FILE_ATTRIBUTE_TAG_INFO>() as u32,
@@ -122,7 +122,7 @@ pub mod windows {
         // SAFETY: the same live handle and a correctly sized output buffer.
         let result = unsafe {
             GetFileInformationByHandleEx(
-                handle,
+                handle.as_raw_handle(),
                 FileIdInfo,
                 info.as_mut_ptr().cast(),
                 size_of::<FILE_ID_INFO>() as u32,

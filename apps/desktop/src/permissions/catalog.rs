@@ -117,11 +117,7 @@ pub(super) fn rows(cards: &[Card]) -> Vec<Card> {
             .collect();
         let mut row = card.clone();
         if members.len() > 1 {
-            row.status = match aggregate(
-                members
-                    .iter()
-                    .map(|member| matches!(member.status, Status::Granted | Status::NotNeeded)),
-            ) {
+            row.status = match aggregate(members.iter().map(|member| member.status.satisfied())) {
                 Aggregate::Authorized => Status::Granted,
                 Aggregate::Partial => Status::Partial,
                 Aggregate::Unauthorized => Status::Required,
@@ -133,7 +129,7 @@ pub(super) fn rows(cards: &[Card]) -> Vec<Card> {
             row.check = members.iter().find_map(|member| member.check.clone());
             row.request = members
                 .iter()
-                .filter(|member| !matches!(member.status, Status::Granted | Status::NotNeeded))
+                .filter(|member| !member.status.satisfied())
                 .find_map(|member| member.request.clone());
         }
         rows.push(row);

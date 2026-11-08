@@ -27,7 +27,7 @@ pub(crate) enum Resource {
 }
 impl Resource {
     fn is_system(self) -> bool {
-        !matches!(self, Self::Chrome | Self::Keychain)
+        self != Self::Chrome && self != Self::Keychain
     }
     fn key(self) -> &'static str {
         match self {
@@ -53,6 +53,14 @@ pub(crate) enum Status {
     Unavailable,
 }
 impl Status {
+    fn satisfied(self) -> bool {
+        self == Self::Granted || self == Self::NotNeeded
+    }
+
+    fn blocked(self) -> bool {
+        self == Self::Denied || self == Self::Restricted
+    }
+
     fn key(self) -> &'static str {
         match self {
             Self::Unknown => "permission_unknown",
@@ -90,17 +98,15 @@ impl Card {
             return None;
         }
         (self.resource == Resource::FullDisk
-            || matches!(self.status, Status::Denied | Status::Restricted)
-                && self.resource != Resource::Chrome)
+            || self.status.blocked() && self.resource != Resource::Chrome)
             .then_some(self.settings)
             .flatten()
     }
 
     fn actionable(&self) -> bool {
-        !matches!(
-            self.status,
-            Status::Granted | Status::NotNeeded | Status::Remote | Status::Unavailable
-        ) && (self.settings_action().is_some() || self.request.is_some())
+        !self.status.satisfied()
+            && !matches!(self.status, Status::Remote | Status::Unavailable)
+            && (self.settings_action().is_some() || self.request.is_some())
     }
 
     fn operation(&self) -> (Option<&'static str>, Option<Action>) {
@@ -324,10 +330,10 @@ impl Panel {
             .iter()
             .find(|resource| {
                 !resource.is_system()
-                    && self.cards.iter().any(|card| {
-                        card.resource == **resource
-                            && !matches!(card.status, Status::Granted | Status::NotNeeded)
-                    })
+                    && self
+                        .cards
+                        .iter()
+                        .any(|card| card.resource == **resource && !card.status.satisfied())
             })
             .copied();
         if let Some(resource) = next {
@@ -405,7 +411,7 @@ impl Panel {
                 self.cards
                     .iter()
                     .filter(|card| card.resource == *resource)
-                    .all(|card| matches!(card.status, Status::Granted | Status::NotNeeded))
+                    .all(|card| card.status.satisfied())
             })
         {
             self.finish(true, window, cx);
@@ -477,13 +483,8 @@ impl Panel {
                         && card.owner.as_ref()
                             == Some(&(entry.identity.device, entry.identity.subject.clone()))
                         && card.resource == Resource::from_kind(entry.identity.kind)
-                        && !matches!(
-                            card.status,
-                            Status::Granted
-                                | Status::NotNeeded
-                                | Status::Remote
-                                | Status::Unavailable
-                        )
+                        && !card.status.satisfied()
+                        && !matches!(card.status, Status::Remote | Status::Unavailable)
                 })
             }))
             .into_iter()
@@ -494,10 +495,8 @@ impl Panel {
             .iter()
             .filter(|card| {
                 card.resource == resource
-                    && !matches!(
-                        card.status,
-                        Status::Granted | Status::NotNeeded | Status::Remote | Status::Unavailable
-                    )
+                    && !card.status.satisfied()
+                    && !matches!(card.status, Status::Remote | Status::Unavailable)
             })
             .filter(|card| {
                 card.owner.as_ref().is_none_or(|owner| {
@@ -523,7 +522,7 @@ impl Panel {
                 self.disk_settings(window, cx);
                 return;
             }
-            if matches!(requests[0].status, Status::Denied | Status::Restricted)
+            if requests[0].status.blocked()
                 && let Some(settings) = requests[0].settings
                 && resource != Resource::Chrome
             {
@@ -538,7 +537,7 @@ impl Panel {
                     self.cards.iter().any(|other| {
                         other.resource == required
                             && other.owner == card.owner
-                            && matches!(other.status, Status::Granted | Status::NotNeeded)
+                            && other.status.satisfied()
                     })
                 })
             })
@@ -566,8 +565,7 @@ impl Panel {
                     match result {
                         Some(Ok(changes)) => {
                             advanced |= changes.iter().any(|(changed, status)| {
-                                *changed == resource
-                                    && matches!(status, Status::Granted | Status::NotNeeded)
+                                *changed == resource && status.satisfied()
                             });
                             flow.apply(&card.owner, changes);
                         }

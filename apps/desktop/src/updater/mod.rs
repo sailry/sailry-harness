@@ -1,4 +1,5 @@
 //! Controller application updates never replace or shut down a remote execution Host.
+#[cfg(any(target_os = "macos", test))]
 mod cached;
 mod config;
 mod discovery;

@@ -1,8 +1,10 @@
 use super::{Failure, Result};
 use serde::Deserialize;
+#[cfg(any(target_os = "macos", test))]
+use std::io::Write as _;
 use std::{
     fs,
-    io::{Read as _, Write as _},
+    io::Read as _,
     path::{Path, PathBuf},
 };
 
@@ -143,6 +145,7 @@ fn cleanup(backup: &Path, installed: Option<&Path>) {
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
 pub(super) fn write(path: &Path, value: &serde_json::Value) -> Result<()> {
     let bytes = serde_json::to_vec(value)
         .map_err(|_| Failure::new("updates_io_failed", "update receipt serialization failed"))?;

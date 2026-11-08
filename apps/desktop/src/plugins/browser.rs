@@ -116,6 +116,7 @@ pub(super) fn module(
             })
             .detach();
     }
+    #[cfg(target_os = "macos")]
     let settings = scope
         .settings
         .then(|| cx.new(|cx| settings::Settings::new(window, cx)));
@@ -134,8 +135,9 @@ pub(super) fn module(
     let preferences_host = host.clone();
     let scan_host = host.clone();
     let import_host = host;
+    #[cfg(target_os = "macos")]
     let profiles = settings.clone();
-    module.function("readBrowser", move |_| {
+    let module = module.function("readBrowser", move |_| {
         read_host.check()?;
         let browser = read_browser.as_ref().ok_or_else(|| HostError::new("browser scope is unavailable"))?;
         gpui_shell::with_current_app(|cx| encode(browser.read(cx).snapshot(cx)))
@@ -218,17 +220,50 @@ pub(super) fn module(
         gpui_shell::with_current_app(|cx| settings::persistent(value,cx))
             .ok_or_else(|| HostError::new("browser settings require an active view"))?.map_err(HostError::new)?;
         Ok(HostValue::Null)
-    }).async_function("listBrowserProfiles", move |_| {
-        permit(&scan_host, scope.settings && scope.read)?;
-        let receive = request_settings(&profiles, settings::Action::Scan, &scan_host)?;
-        Ok(async move { receive.await.map_err(|_| HostError::new("browser settings are closed"))?.map_err(HostError::new).and_then(encode) })
-    }).async_function("importBrowserProfile", move |args| {
-        permit(&import_host, scope.settings && scope.control)?;
-        let receive = request_settings(&settings, settings::Action::Import(args.string(0)?.into()), &import_host)?;
-        Ok(async move { receive.await.map_err(|_| HostError::new("browser settings are closed"))?.map_err(HostError::new).and_then(encode) })
-    }).declarations(declarations)
+    });
+    #[cfg(target_os = "macos")]
+    let module = module
+        .async_function("listBrowserProfiles", move |_| {
+            permit(&scan_host, scope.settings && scope.read)?;
+            let receive = request_settings(&profiles, settings::Action::Scan, &scan_host)?;
+            Ok(async move {
+                receive
+                    .await
+                    .map_err(|_| HostError::new("browser settings are closed"))?
+                    .map_err(HostError::new)
+                    .and_then(encode)
+            })
+        })
+        .async_function("importBrowserProfile", move |args| {
+            permit(&import_host, scope.settings && scope.control)?;
+            let receive = request_settings(
+                &settings,
+                settings::Action::Import(args.string(0)?.into()),
+                &import_host,
+            )?;
+            Ok(async move {
+                receive
+                    .await
+                    .map_err(|_| HostError::new("browser settings are closed"))?
+                    .map_err(HostError::new)
+                    .and_then(encode)
+            })
+        });
+    #[cfg(not(target_os = "macos"))]
+    let module = module
+        .async_function("listBrowserProfiles", move |_| {
+            permit(&scan_host, scope.settings && scope.read)?;
+            Ok(async { Err(HostError::new("browser_import_unavailable")) })
+        })
+        .async_function("importBrowserProfile", move |args| {
+            permit(&import_host, scope.settings && scope.control)?;
+            args.string(0)?;
+            Ok(async { Err(HostError::new("browser_import_unavailable")) })
+        });
+    module.declarations(declarations)
 }
 
+#[cfg(target_os = "macos")]
 fn request_settings(
     settings: &Option<Entity<settings::Settings>>,
     action: settings::Action,

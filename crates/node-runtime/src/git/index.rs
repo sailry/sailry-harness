@@ -11,9 +11,11 @@ use std::{
     path::{Path, PathBuf},
 };
 
+#[cfg(unix)]
 mod lock;
 #[cfg(unix)]
 mod native;
+#[cfg(unix)]
 pub(super) use lock::Lock;
 const MAX_INDEX_BYTES: usize = 16 * 1024 * 1024;
 

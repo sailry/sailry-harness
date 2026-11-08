@@ -51,11 +51,6 @@ pub(crate) fn capture(page: &wry::WebView, width: Option<f64>, fresh: bool) -> R
     Ok(receive)
 }
 
-#[cfg(target_os = "windows")]
-pub(crate) fn snapshot(page: &wry::WebView) -> Result<Pending, ()> {
-    capture(page, None, false)
-}
-
 /// CapturePreview always copies the latest composed frame.
 #[cfg(target_os = "windows")]
 pub(crate) fn capture(

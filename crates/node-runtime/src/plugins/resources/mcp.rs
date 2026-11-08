@@ -447,6 +447,7 @@ impl Host {
         })
     }
 
+    #[cfg(target_os = "macos")]
     pub(crate) fn computer_launch(
         &self,
         info: &Info,

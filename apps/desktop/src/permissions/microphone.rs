@@ -4,8 +4,11 @@ use crate::dictation::permission;
 fn status() -> Status {
     match permission::status() {
         permission::Status::Granted => Status::Granted,
+        #[cfg(target_os = "macos")]
         permission::Status::NotDetermined => Status::Required,
+        #[cfg(target_os = "macos")]
         permission::Status::Denied => Status::Denied,
+        #[cfg(target_os = "macos")]
         permission::Status::Restricted => Status::Restricted,
         permission::Status::Unknown => Status::Unknown,
     }

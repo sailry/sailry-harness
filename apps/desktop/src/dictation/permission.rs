@@ -4,9 +4,12 @@ use super::*;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum Status {
     Unknown,
+    #[cfg(target_os = "macos")]
     NotDetermined,
     Granted,
+    #[cfg(target_os = "macos")]
     Denied,
+    #[cfg(target_os = "macos")]
     Restricted,
 }
 

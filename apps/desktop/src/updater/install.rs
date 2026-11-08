@@ -1,9 +1,12 @@
 //! Whole-application installation through the pinned updater, never a binary-only swap.
-use super::{Failure, Result, cached, config::Config, manifest, package, transfer::Staged};
+use super::{Failure, Result};
+#[cfg(any(target_os = "macos", test))]
+use super::{cached, config::Config, manifest, package, transfer::Staged};
+#[cfg(any(target_os = "macos", test))]
+use std::sync::Arc;
 use std::{
     fs,
     path::{Path, PathBuf},
-    sync::Arc,
 };
 
 pub(super) fn installed() -> Result<PathBuf> {

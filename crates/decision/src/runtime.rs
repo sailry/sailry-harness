@@ -199,6 +199,11 @@ fn version(value: &str) -> Option<(u32, u32)> {
     Some((parts.next()?.parse().ok()?, parts.next()?.parse().ok()?))
 }
 
+#[cfg(any(
+    target_os = "macos",
+    all(target_os = "linux", target_env = "gnu"),
+    test
+))]
 fn at_least(value: &str, minimum: (u32, u32)) -> bool {
     version(value).is_some_and(|value| value >= minimum)
 }

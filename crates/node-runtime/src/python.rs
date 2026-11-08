@@ -52,6 +52,7 @@ pub(crate) struct Progress {
 pub(crate) struct Ready {
     pub python: PathBuf,
     pub environment: PathBuf,
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     pub runtime: PathBuf,
     // A captured skill/MCP launch keeps its environment out of idle cleanup.
     _lease: Option<Arc<()>>,
@@ -190,6 +191,7 @@ impl Manager {
             return Ok(Ready {
                 python: self.runtime.python.clone(),
                 environment: self.runtime.root.clone(),
+                #[cfg(any(target_os = "macos", target_os = "linux"))]
                 runtime: self.runtime.root.clone(),
                 _lease: None,
                 requirements: None,
@@ -254,6 +256,7 @@ impl Manager {
         Ok(Ready {
             python: runtime::python(&path),
             environment: path,
+            #[cfg(any(target_os = "macos", target_os = "linux"))]
             runtime: self.runtime.root.clone(),
             _lease: Some(lease),
             requirements: Some(Arc::new(requirements.clone())),
