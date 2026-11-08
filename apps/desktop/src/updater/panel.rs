@@ -1,17 +1,14 @@
 use super::{
     config::Channel,
-    service::{self, Notice, Service, State},
+    service::{Service, State},
 };
 use crate::{
     settings::group::{Group, Row},
-    theme::DialogStyle as _,
     tr,
 };
-use gpui_kit::component::dialog::DialogButtonProps;
 use gpui_kit::{
     component::{
         button::{Button, ButtonVariants},
-        notification::Notification,
         progress::Progress,
         searchable_list::SearchableListItem,
         select::{Select, SelectEvent, SelectState},
@@ -68,16 +65,6 @@ impl Panel {
             )
         });
         cx.observe(&service, |_, _, cx| cx.notify()).detach();
-        cx.subscribe_in(&service, window, |_, _, notice: &Notice, window, cx| {
-            let summary = tr(notice.key);
-            let message = if notice.error {
-                Notification::error(summary.clone())
-            } else {
-                Notification::success(summary.clone())
-            };
-            crate::feedback::toast(window, summary, message, cx);
-        })
-        .detach();
         cx.subscribe_in(&channel, window, |panel, _, event, _, cx| {
             if cx.try_global::<crate::backend::Services>().is_none() {
                 return;
@@ -97,62 +84,7 @@ impl Panel {
             }
         })
         .detach();
-        let panel = Self { service, channel };
-        panel.receipt(window, cx);
-        panel
-    }
-
-    fn confirm(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let service = self.service.clone();
-        window.open_dialog(cx, move |dialog, _, cx| {
-            let service = service.clone();
-            dialog
-                .form_title(tr("updates_install"), cx)
-                .child(tr("updates_restart_description"))
-                .button_props(
-                    DialogButtonProps::default()
-                        .ok_text(tr("updates_install"))
-                        .cancel_text(tr("settings_cancel")),
-                )
-                .on_ok(move |_, window, cx| {
-                    let service = service.clone();
-                    window.defer(cx, move |window, cx| {
-                        service.update(cx, |service, cx| service.install(window, cx))
-                    });
-                    true
-                })
-        });
-    }
-
-    fn receipt(&self, window: &Window, cx: &mut Context<Self>) {
-        let Some(directory) = service::directory(cx) else {
-            return;
-        };
-        let job = cx
-            .background_executor()
-            .spawn(async move { super::receipt::read(&directory) });
-        let service = self.service.clone();
-        cx.spawn_in(window, async move |_, cx| {
-            let result = job.await;
-            let _ = cx.update(|window, cx| {
-                if let Ok(Some(key)) = result {
-                    crate::feedback::toast(window, tr(key), Notification::success(tr(key)), cx);
-                } else if let Err(error) = result {
-                    eprintln!("desktop update receipt failed: {error}");
-                    service.update(cx, |service, cx| {
-                        service.failure = Some(error.clone());
-                        cx.notify();
-                    });
-                    crate::feedback::toast(
-                        window,
-                        tr(error.key),
-                        Notification::error(tr(error.key)),
-                        cx,
-                    );
-                }
-            });
-        })
-        .detach();
+        Self { service, channel }
     }
 }
 
@@ -221,7 +153,9 @@ impl Render for Panel {
                 .label(tr("updates_install"))
                 .primary()
                 .debug_selector(|| "updates-install".into())
-                .on_click(cx.listener(|panel, _, window, cx| panel.confirm(window, cx))),
+                .on_click(cx.listener(|panel, _, window, cx| {
+                    super::notices::confirm(panel.service.clone(), window, cx)
+                })),
             State::Installing | State::Restarting => Button::new("updates-installing")
                 .label(tr("updates_installing"))
                 .disabled(true),

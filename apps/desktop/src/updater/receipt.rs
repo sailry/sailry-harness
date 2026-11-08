@@ -1,6 +1,10 @@
 use super::{Failure, Result};
 use serde::Deserialize;
-use std::{fs, io::Write as _, path::Path};
+use std::{
+    fs,
+    io::Write as _,
+    path::{Path, PathBuf},
+};
 
 #[derive(Deserialize)]
 struct Receipt {
@@ -10,9 +14,10 @@ struct Receipt {
     message: Option<String>,
     uncertain: Option<bool>,
     installed: Option<bool>,
+    backup: Option<PathBuf>,
 }
 
-pub(super) fn read(directory: &Path) -> Result<Option<&'static str>> {
+pub(super) fn read(directory: &Path, installed: Option<&Path>) -> Result<Option<&'static str>> {
     let path = directory.join("receipt.json");
     let bytes = match fs::read(&path) {
         Ok(bytes) => bytes,
@@ -62,13 +67,73 @@ pub(super) fn read(directory: &Path) -> Result<Option<&'static str>> {
                 .message
                 .unwrap_or_else(|| "the prior update did not complete".into()),
         ))
+    } else if receipt.uncertain == Some(true) {
+        Err(Failure::new(
+            "updates_install_uncertain",
+            receipt
+                .message
+                .unwrap_or_else(|| "the prior installation is unconfirmed".into()),
+        ))
     } else if receipt.application_version.as_deref() != Some(env!("CARGO_PKG_VERSION")) {
         Err(Failure::new(
             "updates_restart_failed",
             "the recorded update does not match the running application",
         ))
     } else {
+        if let Some(backup) = receipt.backup {
+            cleanup(&backup, installed);
+        }
         Ok(Some("updates_completed"))
+    }
+}
+
+fn cleanup(backup: &Path, installed: Option<&Path>) {
+    use sailry_node_runtime::logging::{Area, Entry, Phase};
+    let result = (|| {
+        let Some(installed) = installed else {
+            return Ok(false);
+        };
+        if !backup.is_absolute()
+            || !backup
+                .file_name()
+                .is_some_and(|name| name.to_string_lossy().starts_with(".sailry-update-backup-"))
+            || !fs::symlink_metadata(backup)?.is_dir()
+            || !fs::symlink_metadata(backup.join("Sailry.app"))?.is_dir()
+        {
+            return Ok(false);
+        }
+        let backup = backup.canonicalize()?;
+        let installed = installed.canonicalize()?;
+        if backup.parent() != installed.parent() || backup == installed {
+            return Ok(false);
+        }
+        fs::remove_dir_all(backup)?;
+        Ok::<_, std::io::Error>(true)
+    })();
+    let mut entry = Entry::new(
+        Area::Desktop,
+        if matches!(result, Ok(true)) {
+            Phase::Completed
+        } else {
+            Phase::Failed
+        },
+    );
+    entry.operation = Some("desktop_update");
+    entry.stage = Some("backup_cleanup");
+    match result {
+        Ok(true) => {
+            entry.reason = Some("deleted");
+            entry.emit();
+        }
+        Ok(false) => {
+            entry.reason = Some("unverified");
+            entry.emit_warn();
+        }
+        Err(error) => {
+            entry.reason = Some("delete_failed");
+            entry.detail = Some(error.to_string());
+            entry.emit_warn();
+        }
     }
 }
 

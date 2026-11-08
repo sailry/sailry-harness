@@ -4,6 +4,7 @@ mod config;
 mod discovery;
 mod install;
 mod manifest;
+mod notices;
 mod package;
 mod panel;
 mod receipt;
@@ -17,7 +18,7 @@ mod windows;
 
 pub(crate) use config::Channel;
 pub(crate) use panel::Panel;
-pub(crate) use service::init;
+pub(crate) use service::{init, startup};
 use std::fmt;
 
 type Result<T> = std::result::Result<T, Failure>;
@@ -38,6 +39,17 @@ impl Failure {
 
     fn io(error: std::io::Error) -> Self {
         Self::new("updates_io_failed", error.to_string())
+    }
+
+    fn log(&self) {
+        let mut entry = sailry_node_runtime::logging::Entry::new(
+            sailry_node_runtime::logging::Area::Desktop,
+            sailry_node_runtime::logging::Phase::Failed,
+        );
+        entry.operation = Some(self.key);
+        entry.stage = Some("desktop_update");
+        entry.detail = Some(self.detail.clone());
+        entry.emit_warn();
     }
 }
 

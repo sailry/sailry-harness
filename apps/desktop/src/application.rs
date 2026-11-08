@@ -159,6 +159,7 @@ pub(crate) fn run(#[cfg(feature = "workload-tests")] workload: workload::Scenari
                     });
                 }
                 cx.update(|cx| cx.activate(true));
+                cx.update(updater::startup);
                 cx.update(|cx| {
                     if cx.try_global::<backend::Services>().is_some() {
                         println!("Desktop window ready");

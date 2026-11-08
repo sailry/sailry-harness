@@ -1,4 +1,5 @@
 use super::super::receipt;
+use std::{fs, path::Path};
 
 #[test]
 fn outcomes_and_recovery() {
@@ -19,7 +20,7 @@ fn outcomes_and_recovery() {
                 )
                 .unwrap();
                 assert_eq!(
-                    receipt::read(directory.path()).unwrap(),
+                    receipt::read(directory.path(), None).unwrap(),
                     Some("updates_completed"),
                     "archives valid outcome without discarding recovery information"
                 );
@@ -40,7 +41,7 @@ fn outcomes_and_recovery() {
                     "archives valid outcome without discarding recovery information"
                 );
                 assert!(
-                    receipt::read(directory.path()).unwrap().is_none(),
+                    receipt::read(directory.path(), None).unwrap().is_none(),
                     "archives valid outcome without discarding recovery information"
                 );
             }) as fn(&str),
@@ -52,7 +53,7 @@ fn outcomes_and_recovery() {
                 let path = directory.path().join("receipt.json");
                 std::fs::write(&path, b"incompatible user fixture").unwrap();
                 assert_eq!(
-                    receipt::read(directory.path()).unwrap_err().key,
+                    receipt::read(directory.path(), None).unwrap_err().key,
                     "updates_receipt_unread",
                     "preserves invalid receipt"
                 );
@@ -74,7 +75,7 @@ fn outcomes_and_recovery() {
                     receipt::write(&directory.path().join("receipt.json"), &serde_json::json!({
             "version": 1, "result": "failure", field: true, "message": "isolated failure details"
                 })).unwrap();
-                    let error = receipt::read(directory.path()).unwrap_err();
+                    let error = receipt::read(directory.path(), None).unwrap_err();
                     assert_eq!(
                         error.key, expected,
                         "distinguishes failed restart from an uncertain installation"
@@ -100,7 +101,7 @@ fn outcomes_and_recovery() {
                 .unwrap();
                 std::fs::write(&path, &bytes).unwrap();
                 assert_eq!(
-                    receipt::read(directory.path()).unwrap_err().key,
+                    receipt::read(directory.path(), None).unwrap_err().key,
                     "updates_restart_failed",
                     "rejects unconfirmed application version"
                 );
@@ -131,7 +132,7 @@ fn outcomes_and_recovery() {
                     let bytes = serde_json::to_vec(&value).unwrap();
                     std::fs::write(&path, &bytes).unwrap();
                     assert_eq!(
-                        receipt::read(directory.path()).unwrap_err().key,
+                        receipt::read(directory.path(), None).unwrap_err().key,
                         "updates_receipt_unread",
                         "preserves invalid target version"
                     );
@@ -146,5 +147,150 @@ fn outcomes_and_recovery() {
     ] {
         eprintln!("case: {scenario}");
         check(scenario);
+    }
+}
+
+fn success(directory: &Path, backup: &Path) {
+    receipt::write(
+        &directory.join("receipt.json"),
+        &serde_json::json!({
+            "version": 1,
+            "result": "success",
+            "application_version": env!("CARGO_PKG_VERSION"),
+            "backup": backup,
+        }),
+    )
+    .unwrap();
+}
+
+#[test]
+fn removes_verified_backup() {
+    let directory = tempfile::tempdir().unwrap();
+    let installed = directory.path().join("Sailry.app");
+    let backup = directory.path().join(".sailry-update-backup-previous");
+    fs::create_dir(&installed).unwrap();
+    fs::create_dir_all(backup.join("Sailry.app")).unwrap();
+    fs::write(installed.join("current"), b"running").unwrap();
+    fs::write(backup.join("Sailry.app/previous"), b"previous").unwrap();
+    success(directory.path(), &backup);
+
+    assert_eq!(
+        receipt::read(directory.path(), Some(&installed)).unwrap(),
+        Some("updates_completed"),
+    );
+    assert!(!backup.exists());
+    assert_eq!(fs::read(installed.join("current")).unwrap(), b"running");
+    assert!(!directory.path().join("receipt.json").exists());
+    assert!(
+        receipt::read(directory.path(), Some(&installed))
+            .unwrap()
+            .is_none()
+    );
+    success(directory.path(), &backup);
+    assert!(directory.path().join("receipt.json").is_file());
+}
+
+#[test]
+fn keeps_unverified_backups() {
+    for scenario in ["outside", "prefix", "bundle", "running"] {
+        let directory = tempfile::tempdir().unwrap();
+        let installed = directory.path().join("Sailry.app");
+        fs::create_dir(&installed).unwrap();
+        let backup = match scenario {
+            "outside" => directory
+                .path()
+                .join("elsewhere/.sailry-update-backup-previous"),
+            "prefix" => directory.path().join("previous"),
+            _ => directory.path().join(".sailry-update-backup-previous"),
+        };
+        fs::create_dir_all(&backup).unwrap();
+        if scenario != "bundle" {
+            fs::create_dir(backup.join("Sailry.app")).unwrap();
+        }
+        success(directory.path(), &backup);
+        assert_eq!(
+            receipt::read(
+                directory.path(),
+                (scenario != "running").then_some(installed.as_path()),
+            )
+            .unwrap(),
+            Some("updates_completed"),
+        );
+        assert!(backup.is_dir(), "{scenario}");
+    }
+}
+
+#[test]
+fn keeps_unconfirmed_backups() {
+    for (result, uncertain, version, expected) in [
+        (
+            "failure",
+            false,
+            env!("CARGO_PKG_VERSION"),
+            "updates_install_failed",
+        ),
+        (
+            "failure",
+            true,
+            env!("CARGO_PKG_VERSION"),
+            "updates_install_uncertain",
+        ),
+        (
+            "success",
+            true,
+            env!("CARGO_PKG_VERSION"),
+            "updates_install_uncertain",
+        ),
+        ("success", false, "9.9.9-alpha.2", "updates_restart_failed"),
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let installed = directory.path().join("Sailry.app");
+        let backup = directory.path().join(".sailry-update-backup-previous");
+        fs::create_dir(&installed).unwrap();
+        fs::create_dir_all(backup.join("Sailry.app")).unwrap();
+        receipt::write(
+            &directory.path().join("receipt.json"),
+            &serde_json::json!({
+                "version": 1,
+                "result": result,
+                "uncertain": uncertain,
+                "application_version": version,
+                "backup": backup,
+            }),
+        )
+        .unwrap();
+        assert_eq!(
+            receipt::read(directory.path(), Some(&installed))
+                .unwrap_err()
+                .key,
+            expected,
+        );
+        assert!(backup.join("Sailry.app").is_dir());
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn keeps_symlinked_backups() {
+    for symlink_bundle in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let installed = directory.path().join("Sailry.app");
+        let backup = directory.path().join(".sailry-update-backup-previous");
+        fs::create_dir(&installed).unwrap();
+        fs::write(installed.join("current"), b"running").unwrap();
+        if symlink_bundle {
+            fs::create_dir(&backup).unwrap();
+            std::os::unix::fs::symlink(&installed, backup.join("Sailry.app")).unwrap();
+        } else {
+            fs::create_dir(installed.join("Sailry.app")).unwrap();
+            std::os::unix::fs::symlink(&installed, &backup).unwrap();
+        }
+        success(directory.path(), &backup);
+        assert_eq!(
+            receipt::read(directory.path(), Some(&installed)).unwrap(),
+            Some("updates_completed"),
+        );
+        assert!(backup.exists());
+        assert_eq!(fs::read(installed.join("current")).unwrap(), b"running");
     }
 }

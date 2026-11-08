@@ -35,9 +35,11 @@ pub(super) enum State {
     Stopped,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Notice {
     pub key: &'static str,
     pub error: bool,
+    pub version: Option<String>,
 }
 pub(super) struct Service {
     pub state: State,
@@ -51,6 +53,7 @@ pub(super) struct Service {
     stop: CancellationToken,
     task: Option<Task<()>>,
     operation: u64,
+    receipt_read: bool,
 }
 impl EventEmitter<Notice> for Service {}
 impl Drop for Service {
@@ -59,12 +62,40 @@ impl Drop for Service {
     }
 }
 
-struct Shared(Entity<Service>);
+struct Shared {
+    service: Entity<Service>,
+    notices: Option<Subscription>,
+}
 impl Global for Shared {}
 
 pub(crate) fn init(cx: &mut App) {
     recovery::init(cx);
-    Service::shared(cx);
+    let service = Service::shared(cx);
+    if cx.global::<Shared>().notices.is_none() {
+        let notices = cx.subscribe(&service, super::notices::show);
+        cx.global_mut::<Shared>().notices = Some(notices);
+    }
+}
+
+pub(crate) fn startup(cx: &mut App) {
+    let Some(directory) = directory(cx) else {
+        return;
+    };
+    Service::shared(cx).update(cx, |service, cx| {
+        if service.receipt_read {
+            return;
+        }
+        service.receipt_read = true;
+        let job = cx.background_executor().spawn(async move {
+            let installed = install::installed().ok();
+            super::receipt::read(&directory, installed.as_deref())
+        });
+        cx.spawn(async move |owner, cx| {
+            let result = job.await;
+            let _ = owner.update(cx, |service, cx| service.receipt(result, cx));
+        })
+        .detach();
+    });
 }
 
 enum Update {
@@ -88,10 +119,14 @@ impl Service {
                 stop: CancellationToken::new(),
                 task: None,
                 operation: 0,
+                receipt_read: false,
             });
-            cx.set_global(Shared(service));
+            cx.set_global(Shared {
+                service,
+                notices: None,
+            });
         }
-        cx.global::<Shared>().0.clone()
+        cx.global::<Shared>().service.clone()
     }
 
     pub fn check(&mut self, cx: &mut Context<Self>) {
@@ -240,9 +275,15 @@ impl Service {
                 self.task = None;
             }
             Update::Downloaded(Ok(staged)) => {
-                self.state = State::Ready(staged.selection.release.version.clone());
+                let version = staged.selection.release.version.clone();
+                self.state = State::Ready(version.clone());
                 self.staged = Some(Arc::new(staged));
                 self.task = None;
+                cx.emit(Notice {
+                    key: "updates_ready",
+                    error: false,
+                    version: Some(version),
+                });
             }
             Update::Checked(Err(error)) | Update::Downloaded(Err(error)) => {
                 self.state = self
@@ -252,9 +293,7 @@ impl Service {
                     .unwrap_or(State::Idle);
                 self.task = None;
                 if error.key != "updates_cancelled" {
-                    eprintln!("desktop update failed: {error}");
-                    self.failure = Some(error.clone());
-                    self.notice(error.key, true, cx);
+                    self.failed(error, cx);
                 }
             }
         }
@@ -296,9 +335,7 @@ impl Service {
         }
         let result = self.begin_install(window, cx);
         if let Err(error) = result {
-            eprintln!("desktop update preparation failed: {error}");
-            self.failure = Some(error.clone());
-            self.notice(error.key, true, cx);
+            self.failed(error, cx);
             cx.notify();
         }
     }
@@ -449,9 +486,7 @@ impl Service {
                 }
                 this.task = None;
                 if let Err(error) = result {
-                    eprintln!("desktop update install failed: {error}");
-                    this.failure = Some(error.clone());
-                    this.notice(error.key, true, cx);
+                    this.failed(error, cx);
                 }
                 cx.notify();
             });
@@ -489,8 +524,7 @@ impl Service {
                 Err(error) => {
                     this.state = State::Stopped;
                     this.task = None;
-                    this.failure = Some(error.clone());
-                    this.notice(error.key, true, cx);
+                    this.failed(error, cx);
                     cx.notify();
                 }
             });
@@ -499,7 +533,26 @@ impl Service {
     }
 
     fn notice(&self, key: &'static str, error: bool, cx: &mut Context<Self>) {
-        cx.emit(Notice { key, error });
+        cx.emit(Notice {
+            key,
+            error,
+            version: None,
+        });
+    }
+
+    fn failed(&mut self, error: Failure, cx: &mut Context<Self>) {
+        error.log();
+        self.failure = Some(error.clone());
+        self.notice(error.key, true, cx);
+    }
+
+    fn receipt(&mut self, result: Result<Option<&'static str>>, cx: &mut Context<Self>) {
+        match result {
+            Ok(Some(key)) => self.notice(key, false, cx),
+            Err(error) => self.failed(error, cx),
+            Ok(None) => {}
+        }
+        cx.notify();
     }
 }
 
@@ -521,7 +574,7 @@ fn freeze(window: &mut Window, cx: &mut App) -> Vec<AnyWindowHandle> {
 
 fn barrier(window: &mut Window, cx: &mut App) {
     window.open_dialog(cx, |dialog, _, cx| {
-        let service = cx.global::<Shared>().0.clone();
+        let service = cx.global::<Shared>().service.clone();
         let state = service.read(cx).state.clone();
         let content = if state == State::Stopped {
             gpui_kit::component::v_flex()
