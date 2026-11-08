@@ -26,34 +26,6 @@ impl Family {
             _ => Category::Other,
         }
     }
-
-    #[cfg(test)]
-    pub fn all() -> impl Iterator<Item = Self> {
-        [
-            Self::OpenAi,
-            Self::Anthropic,
-            Self::Gemini,
-            Self::OpenCodeGo,
-            Self::OpenCodeZen,
-            Self::Azure,
-            Self::Other,
-        ]
-        .into_iter()
-        .chain(Vendor::FIRST_PARTY.map(Self::Hosted))
-    }
-
-    pub fn key(self) -> &'static str {
-        match self {
-            Self::OpenAi => "provider_openai",
-            Self::Anthropic => "provider_anthropic",
-            Self::Gemini => "provider_gemini",
-            Self::OpenCodeGo => "provider_opencode_go",
-            Self::OpenCodeZen => "provider_opencode_zen",
-            Self::Azure => "provider_azure",
-            Self::Hosted(vendor) => vendor.key(),
-            Self::Other => "provider_other",
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

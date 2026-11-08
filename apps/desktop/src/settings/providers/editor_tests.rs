@@ -7,8 +7,9 @@ fn declared_labels_and_kinds() {
         (
             "english_names",
             (|_scenario: &str| {
-                let keys = super::super::data::Family::all()
-                    .map(|family| family.key())
+                let keys = super::super::data::Category::ALL
+                    .into_iter()
+                    .map(|category| category.key())
                     .chain(Preset::all().map(|preset| preset.key()));
                 for key in keys {
                     let label = rust_i18n::t!(key, locale = "en");
