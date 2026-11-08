@@ -5618,7 +5618,7 @@ dependencies = [
 [[package]]
 name = "gpui-fast"
 version = "0.1.12"
-source = "git+https://github.com/dux-web/gpui-fast?rev=82d917787a233f508ae06ef12a48518085c47297#82d917787a233f508ae06ef12a48518085c47297"
+source = "git+https://github.com/dux-web/gpui-fast?rev=beff5e992476811ce269672f8b17f4ad29efdcc8#beff5e992476811ce269672f8b17f4ad29efdcc8"
 dependencies = [
  "accesskit",
  "anyhow",
@@ -5687,7 +5687,7 @@ dependencies = [
 [[package]]
 name = "gpui-fast-apple"
 version = "0.1.12"
-source = "git+https://github.com/dux-web/gpui-fast?rev=82d917787a233f508ae06ef12a48518085c47297#82d917787a233f508ae06ef12a48518085c47297"
+source = "git+https://github.com/dux-web/gpui-fast?rev=beff5e992476811ce269672f8b17f4ad29efdcc8#beff5e992476811ce269672f8b17f4ad29efdcc8"
 dependencies = [
  "anyhow",
  "async-task",
@@ -5728,7 +5728,7 @@ dependencies = [
 [[package]]
 name = "gpui-fast-linux"
 version = "0.1.12"
-source = "git+https://github.com/dux-web/gpui-fast?rev=82d917787a233f508ae06ef12a48518085c47297#82d917787a233f508ae06ef12a48518085c47297"
+source = "git+https://github.com/dux-web/gpui-fast?rev=beff5e992476811ce269672f8b17f4ad29efdcc8#beff5e992476811ce269672f8b17f4ad29efdcc8"
 dependencies = [
  "accesskit",
  "accesskit_unix",
@@ -5772,7 +5772,7 @@ dependencies = [
 [[package]]
 name = "gpui-fast-macos"
 version = "0.1.12"
-source = "git+https://github.com/dux-web/gpui-fast?rev=82d917787a233f508ae06ef12a48518085c47297#82d917787a233f508ae06ef12a48518085c47297"
+source = "git+https://github.com/dux-web/gpui-fast?rev=beff5e992476811ce269672f8b17f4ad29efdcc8#beff5e992476811ce269672f8b17f4ad29efdcc8"
 dependencies = [
  "accesskit",
  "accesskit_macos",
@@ -5810,7 +5810,7 @@ dependencies = [
 [[package]]
 name = "gpui-fast-macros"
 version = "0.1.12"
-source = "git+https://github.com/dux-web/gpui-fast?rev=82d917787a233f508ae06ef12a48518085c47297#82d917787a233f508ae06ef12a48518085c47297"
+source = "git+https://github.com/dux-web/gpui-fast?rev=beff5e992476811ce269672f8b17f4ad29efdcc8#beff5e992476811ce269672f8b17f4ad29efdcc8"
 dependencies = [
  "heck 0.5.0",
  "proc-macro2",
@@ -5821,7 +5821,7 @@ dependencies = [
 [[package]]
 name = "gpui-fast-platform"
 version = "0.1.12"
-source = "git+https://github.com/dux-web/gpui-fast?rev=82d917787a233f508ae06ef12a48518085c47297#82d917787a233f508ae06ef12a48518085c47297"
+source = "git+https://github.com/dux-web/gpui-fast?rev=beff5e992476811ce269672f8b17f4ad29efdcc8#beff5e992476811ce269672f8b17f4ad29efdcc8"
 dependencies = [
  "anyhow",
  "console_error_panic_hook",
@@ -5837,7 +5837,7 @@ dependencies = [
 [[package]]
 name = "gpui-fast-web"
 version = "0.1.12"
-source = "git+https://github.com/dux-web/gpui-fast?rev=82d917787a233f508ae06ef12a48518085c47297#82d917787a233f508ae06ef12a48518085c47297"
+source = "git+https://github.com/dux-web/gpui-fast?rev=beff5e992476811ce269672f8b17f4ad29efdcc8#beff5e992476811ce269672f8b17f4ad29efdcc8"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -5866,7 +5866,7 @@ dependencies = [
 [[package]]
 name = "gpui-fast-wgpu"
 version = "0.1.12"
-source = "git+https://github.com/dux-web/gpui-fast?rev=82d917787a233f508ae06ef12a48518085c47297#82d917787a233f508ae06ef12a48518085c47297"
+source = "git+https://github.com/dux-web/gpui-fast?rev=beff5e992476811ce269672f8b17f4ad29efdcc8#beff5e992476811ce269672f8b17f4ad29efdcc8"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -5893,7 +5893,7 @@ dependencies = [
 [[package]]
 name = "gpui-fast-windows"
 version = "0.1.12"
-source = "git+https://github.com/dux-web/gpui-fast?rev=82d917787a233f508ae06ef12a48518085c47297#82d917787a233f508ae06ef12a48518085c47297"
+source = "git+https://github.com/dux-web/gpui-fast?rev=beff5e992476811ce269672f8b17f4ad29efdcc8#beff5e992476811ce269672f8b17f4ad29efdcc8"
 dependencies = [
  "accesskit",
  "accesskit_windows",

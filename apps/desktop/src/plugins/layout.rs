@@ -188,6 +188,9 @@ pub(super) fn extend(module: HostModule) -> HostModule {
                 })
                 .when_some(padding, |header, padding| header.px(px(padding as f32)))
                 .when_some(gap, |header, gap| header.gap(px(gap as f32)))
+                .when(cfg!(target_os = "windows"), |header| {
+                    header.bg(cx.theme().background.blend(cx.theme().tab_bar_segmented))
+                })
                 .when(content, |header| header.bg(cx.theme().background))
                 .children(args.take_children())
                 .into_any_element()

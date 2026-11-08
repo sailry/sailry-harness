@@ -3,6 +3,19 @@
 Release entries supply the corresponding GitHub Release notes. When an entry is
 missing, publication generates it from the tagged Git history.
 
+## [0.1.5](https://github.com/sailry/sailry-harness/releases/tag/v0.1.5) — 2026-11-08
+
+- Replace Goose execution with Sailry's Agent loop and Rig provider integration
+- Share MCP connections while isolating session cancellation, approvals and failures
+- Improve tool execution, Git pagination, file search and failure reporting
+- Add pinned sessions and terminals, project and branch menus, and model scores
+- Refine model controls, connector status, keyboard shortcuts and desktop updates
+- Preserve mobile model features and refresh views when returning to the app
+- Simplify browser element references and correct Windows browser layering and tab contrast
+- Publish macOS and Windows Desktop, macOS and Linux Host, Android and iOS packages
+
+Linux Desktop is not supported in this release.
+
 ## [0.1.4](https://github.com/sailry/sailry-harness/releases/tag/v0.1.4) — 2026-11-05
 
 - Relicense Sailry under Apache-2.0 ([baacb30](https://github.com/sailry/sailry-harness/commit/baacb301f030fc26b45a91acdae7b8396a509eb1))
