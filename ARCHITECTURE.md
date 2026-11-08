@@ -3,17 +3,18 @@
 ## Purpose and scope
 
 Sailry separates execution, transport, shared controller state and presentation.
-Desktop and Host use the same Node implementation. Controllers do not run a
-second agent engine or write another authoritative session history. This document
-describes repository boundaries and runtime contracts, not a delivery plan or a
-claim of platform acceptance.
+Desktop and Host run the same Node implementation. Controllers never run a second
+agent engine or write another authoritative session history. This document
+describes repository boundaries and runtime contracts. It is not a delivery plan
+or a claim of platform acceptance. Coding rules are in [AGENTS.md](AGENTS.md);
+build, test and release procedures are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## System context
 
-Users control AI conversations and development resources through Desktop or
-Mobile. An execution Node owns the work and may run inside Desktop or as Host.
-External systems include model providers, SSH hosts, databases, Git repositories,
-MCP servers and optional pairing/data-relay services.
+Users control AI conversations and development resources from Desktop or Mobile.
+An execution Node owns the work and runs inside Desktop or as Host. External
+systems include model providers, SSH hosts, databases, Git repositories, MCP
+servers and optional pairing and data-relay services.
 
 ```text
 Desktop / GPUI Kit ── Client ──┬── in-process ── local Node
@@ -25,9 +26,19 @@ Host service ── Node bootstrap + Link endpoint
 Node ── Agent loop + scoped tools ── providers / files / Git / PTY / SSH / databases
 ```
 
-Mobile connects to the selected Node directly; Desktop is not a required gateway.
-Host is a long-running headless service, not an interactive agent CLI. Disconnecting
-a controller does not stop already admitted work.
+- **Desktop** composes the UI with GPUI Kit and bundles a local Node.
+- **Mobile** is a Flutter controller. It connects to the selected Node directly;
+  Desktop is not a gateway.
+- **Host** is a long-running headless service, not an interactive agent CLI. Its
+  command line starts and configures the service; conversations and tasks are
+  controlled through the shared protocol.
+- **Link** authenticates peers and carries commands, receipts and subscriptions.
+- **Client** turns Node events into ordered, deduplicated projections.
+- **Protocol** defines the shared command, event and snapshot types.
+- **Plugins** and **themes** are packages maintained in separate repositories and
+  pinned as submodules.
+
+Disconnecting a controller does not stop admitted work.
 
 ## Components and dependencies
 
@@ -55,7 +66,7 @@ a controller does not stop already admitted work.
 | `apps/mobile` | Flutter controller presentation | Independent business rules or credential storage |
 | `services/pairing-relay` | Expiring short-code ticket exchange | Business commands or agent execution |
 
-Production dependency direction is acyclic:
+Production dependencies are acyclic:
 
 ```text
 desktop       → client + node-runtime + content + GPUI Kit
@@ -69,1351 +80,353 @@ databases     → runtime-core + ssh
 link          → protocol + transport dependencies
 ```
 
-Node service crates (`runtime-core`, `local-models`, `office`, `databases`, `ssh`
-and `vt`) depend only on Protocol, each other and external libraries, never on
-Node storage or agents. Node re-exports them under its existing module paths.
-
-Test-only integration fixtures may construct real Nodes without changing the
-production controller boundary. The root Cargo workspace owns pinned Rust
-dependencies and lockfiles. `rig-core` is pinned to `0.46.0` for provider transport
-behind `agent/model/rig`; Rig types do not cross the Sailry-owned model boundary.
-Node owns the Agent loop, tool execution, history, compaction, request recovery and
-authorization. Declared plugin models implement the same model boundary through
-their existing worker. Neither `rig-agent` nor GDK is a runtime dependency.
-Retained Goose-derived operations and provider adaptations keep their original
-source revisions and Apache-2.0 notices; Rig retains its MIT notice. Feature
-modules stay inside their owning crate unless a concrete platform, dependency or
-compile-time boundary requires another crate.
+- Node service crates (`runtime-core`, `local-models`, `office`, `databases`,
+  `ssh`, `vt`) depend only on Protocol, each other and external libraries, never
+  on Node storage or agents. Node re-exports them under its module paths.
+- Desktop does not use Flutter Rust Bridge. The Mobile bridge adapts shared
+  Client contracts, handles and async subscriptions only; it holds no business
+  rules or persistence.
+- Feature modules stay in their owning crate. A new crate needs a concrete
+  dependency, binary, platform, compile-time or testing boundary.
+- Test fixtures may construct real Nodes without changing the production
+  controller boundary.
 
 ## Data and ownership
 
-One profile has one running Node owner, one Link identity and one endpoint.
-Desktop's local Client reuses that owner. Desktop and Host share bootstrap,
-recovery and shutdown. Controller identity, pairing records and rebuildable caches
-are not another Node business database.
-
-Resources retain Node → project → worktree → session/terminal ownership even when
-the worktree layer is hidden in navigation. File and Git actions are confined to
-the captured execution worktree. SSH, database and plugin resources also retain
-their captured Node and resource identity.
-
-The Node owns configuration and immutable sent-turn revisions. Controller
-defaults initialize new sessions; an existing session requires an explicit
-revision-checked command. Resuming elsewhere preserves its effective configuration.
-Configuration and credentials are stored as plaintext in the execution Node's
-configuration database, never public events, logs or UI caches. Projects remain
-at registered paths; profiles contain Node storage, plugin packages/data and
-uploaded attachments.
-
-`Session` is the shared conversation container for controllers, Host automation
-and plugins. `StartSession` atomically creates it and admits its first turn;
-subsequent messages use the same revision-checked queue and canonical history.
-An optional immutable association (`namespace`, `kind`, `id`) links a session to
-an external business object alongside its project and worktree. Association pages
-use creation-order cursors. A plugin can discover and explicitly control its own
-associated main sessions through declared conversation capabilities; its stable
-package name supplies the namespace and captured worktree limits still apply.
-Associations grant no file, terminal or other resource authority.
-
-Execution explicitly selects a single model or a team. Model execution captures
-an empty roster and exposes no delegation tools. Team execution selects either
-the default roster or a named team; the Node applies the team's fixed lead model
-and member choices in the same configuration revision. Exact team selections
-check the requested revision; a selection without a revision resolves the latest
-team at fresh admission. Both freeze the actual team revision, instructions and
-models. Durable request replay retains its original result. Existing stored
-sessions without an execution field retain default-team behavior. Desktop,
-Mobile, Host and plugin SDKs use this same configuration and admission owner.
-
-The Node uses the native Turso Rust driver for `storage/node.turso` and
-`storage/knowledge.turso`. Each database has one shared native handle; an operation
-leases its own connection and keeps related SQL in one transaction. Every
-connection explicitly uses full synchronous durability, and both databases use
-MVCC. Durable sequence counters advance in the same transaction as their records,
-so deleting records does not reuse their identifiers. Existing SQLite files are
-left untouched; startup does not import them or fall back to another engine.
-External database tools retain their separate SQLx drivers.
-
-Channel presets share one Node-owned directory: bundled declarations, the last
-validated partner catalog and enabled package declarations. Listing the directory
-does not require a public-network read; refreshing partner recommendations is an
-explicit read. Saved channels retain a stable source, preset and route identity,
-with user endpoint and credential overrides kept separately. Admission resolves
-that identity against the current directory and captures its request policies and
-exact package resources. An admitted turn does not consult a newer catalog.
-Role providers are captured on each parent turn as well; delegated work inherits
-that turn's provider declarations rather than resolving the current package.
-Historical turn-role defaults come from their own immutable session revision.
-
-Service connections are package-declared resources owned by the execution Node.
-One connection record owns its public fields, private credentials, authentication
-method, consent snapshot and revision. Generic OAuth, token exchange, declarative
-application registration, MCP OAuth and fixed local CLI sources share this owner;
-there is no vendor dispatch. Registration uses the existing private flow runner.
-Only declared origins, headers, MCP servers and environment targets receive
-credentials. OAuth permission or actual MCP endpoint changes suspend use until
-revision-checked consent. Content-only updates from the same publishing owner
-preserve authorization. Public editing revisions advance on every save; sent
-turns capture a private authorization revision that changes when configured
-credentials, authentication targets, consent or enablement change. Unchanged
-authorization preserves captured and new calls, while live revocation and consent
-remain enforced. Private historical settings captures stay intact; current
-authentication reads only connections.
-The public disconnect capability is derived from the current private credentials
-or CLI binding and login state; it does not expose credentials or add stored state.
-
-Local CLI connections bind a public account identity and read transient tokens
-when used. Fixed argv runs without a shell in a minimal environment with bounded
-execution and output. Tokens remain in Node memory and protected injection;
-account changes or sign-out stop use. Connectors settings and inline cards share
-the existing controller authorization presentation and local/remote protocol.
-Application registration does not establish publication, document access or MCP
-entitlement.
-
-Beginning an ordinary task, including delegated work, freezes its user-facing
-input on the existing run record. Conversation projections include that input
-only until canonical user history exists, with attachment metadata but no bytes,
-role instructions or execution configuration.
-Activity summaries remain metadata-only. Logical history pages preserve full
-inputs using turn cursors rather than truncation or synthetic history events.
-Conversation subscriptions publish recent messages before derived statistics.
-Statistics remain pending until the supervised reader publishes authoritative values;
-statistics failures stay separate from message connection failures.
-
-Core Agent tools discover and read conversations on their execution Node without
-requiring an explicit mention. Directory, history, search and explicit conversation
-references share project visibility: project histories span worktrees, while
-unassigned conversations can read other unassigned histories on the same Node.
-Each call rechecks its admitted invocation and target; history access grants no
-file, command or worktree-switch authority. Model-facing reads use public history
-projections with bounded output, revision checks, continuations and explicit content
-truncation. Plugin assistants retain their declared tool selection.
-
-New managed project checkouts live under the main worktree's
-`.sailry/worktrees/<id>`; existing profile-owned checkouts retain their registered
-paths. Git excludes `.sailry/` through `info/exclude`, preserving user ignore files.
-Removing a clean linked worktree without active or queued turns keeps the history
-of sessions that used it; they cannot admit turns there unless a checkout is
-registered again at that path or the conversation moves to another worktree.
-
-Data management backups include both native databases, referenced plugin packages,
-attachments and session HTML documents, and registered managed workspaces.
-Storage maintenance pauses new transactions and drains active connections. It reads
-the backup configuration and resource references in one transaction, checkpoints
-and closes both database handles, copies their complete native file families, and
-reopens them before copying resources. The native MVCC log replaces the database
-extension with `.db-log`; WAL and optional coordination files append `-wal` and
-`-tshm`. Restoring verifies the complete file families before publishing a profile.
-Referenced session documents remain on disk until copying finishes; session
-metadata can still be removed while their physical cleanup waits.
-External project paths remain references. Local folders, WebDAV and S3 publish verified
-password-encrypted age segments before their manifest; uncertain operations keep
-their original request identity. Explicit restore validates the archive into a new empty profile,
-relocates only current profile-owned paths and preserves immutable history.
-Archives without the current storage generation are rejected before any startup
-reset can run; failed restoration does not publish an empty profile.
-Temporary files and model caches are excluded, and restored
-profiles do not start automatically. Export requires a user passphrase; keys and
-Node identity remain inside the authenticated encrypted archive. The passphrase
-stays in the execution Node's configuration and never appears in public snapshots.
-New passphrases require at least eight characters; Desktop confirms a replacement
-before autosaving it. Existing passphrases remain usable to recover older archives.
-Restore accepts a separate passphrase for older backups and authenticates the
-entire stream before publishing any profile. A restored profile retains its Node
-identity; only one copy of that identity should run at a time.
-Controller-selected exports and file restores use caller-bound, verified Client
-transfer streams, so a remote Node's export is saved on the controller device.
-Local and online targets can be enabled together and share one capture and encrypted
-archive. Automatic backups use the existing Node dispatch service and one private
-backup schedule, configured through the same revision-checked settings command.
-Only Node configuration can create this native callback; plugin job authority
-cannot borrow it. Scheduling requires an online Node and reuses the existing latest
-due occurrence recovery; no controller window or additional background service is required.
-
-Knowledge collections, settings and explicit plugin grants remain in the primary
-Node database. `storage/knowledge.turso` contains only derived chunks, native full-text
-indexes and quantized vectors; removing that cache never removes registered
-sources or configuration. Plugins query their captured private storage or granted
-collections through the same Client boundary. Source revisions, tags, paths and
-access grants constrain candidates before ranking. Citations resolve through the
-execution Node and recheck their source identity before returning original text.
-Uninstalled models keep keyword retrieval available. Code discovery continues to
-use filename matching, text search and the worktree code index.
-
-Code outlines refresh only the requested file. Repository queries refresh a
-bounded segment of the worktree index, keep committed progress for the next
-query and report partial results while work remains. Concurrent queries can
-read committed snapshots during that refresh. Node admission precedes indexing;
-the same local and remote completion path carries the query result or cancellation.
-
-Knowledge retrieval is a Node service for plugin-owned features; no standalone
-knowledge plugin is bundled. Desktop settings configure vector models. Plugins
-such as notes and reminders organize their own collections and expose their
-settings, feature switches and conversation tools through shared plugin APIs.
-
-Source watchers request incremental updates; pausing retains existing keyword
-results, and explicit rebuilds invalidate only the selected collection's derived
-data. An explicit installed collection model overrides the global embedding
-selection, including when global vector retrieval is disabled.
-
-One Node-owned local model registry manages OCR, embedding and decision definitions,
-selection, downloads, verified receipts and installation state through the same
-commands and events. Assets require explicit installation and immutable revision,
-size and SHA-256 verification. Existing model IDs, directories and collection
-references survive centralized, backed-up current-format updates; derived vector keys
-and source scopes remain unchanged. The settings singleton retains its choices
-even after all registered models are removed. Committed model configuration
-is applied to that registry before command completion. Installation subscriptions
-carry progress; catalog events carry definition and installation-state changes.
-Knowledge retrieval reads model configuration from the registry. Embedding changes
-invalidate derived vectors; OCR selection and installation changes refresh source
-extraction. Installed state comes from the verified files and receipts; unchanged
-file identities retain their verification across restarts. Earlier valid receipts
-are recognized in place without downloading or reinstalling their models.
-
-One CPU runtime lazily loads local model engines and runs one inference at a time.
-Interactive retrieval and document inspection take priority over queued indexing
-and extraction. The runtime releases idle engines after five minutes and evicts
-the least recently used engines against a 2 GiB asset-size estimate. A larger
-individual model may load alone. Cancellation reaches queued work and active
-engine stages; removal invalidates captures and unloads the engine before deleting
-owned assets. Desktop shares one model panel per Node while speech remains local
-to its controller. Changing a kind's selection or enable choice cancels only that
-kind's inference; its installations continue. Registering definitions and saving
-unchanged choices preserve ongoing work. Mirror changes cancel only downloads
-whose asset URLs change.
-
-Local decision requests use typed binary, choice and score questions through the
-same nondurable local and remote protocol. The `decisions.run` action permits
-read-only tools and Node callbacks to call `sailry/decisions`. Requests are bounded
-before inference; oversized tokenized prompts fail against the model context.
-No decision model is selected, recommended or downloaded automatically. Plugins
-own workflows that use these answers; Agent execution stays in the Node loop.
-
-Decision engines use the packaged llama.cpp b11756 C API, checked GGUF metadata
-and its `systemone` template. Laya and OpenJev follow that revision's decision
-algorithms. One runtime owner performs loading, validation, inference and unloading;
-CPU weights and request contexts share the scheduler with OCR and embedding.
-Model metadata carries the selected Node's execution availability, so a remote
-controller never infers support from its own operating system.
-
-| Target | Decision runtime |
+| Owner | Owns |
 | --- | --- |
-| macOS x64 and ARM64 | macOS 13.3 or later; the application minimum remains 13.0 |
-| Linux x64 | glibc 2.34 or later |
-| Linux ARM64 | glibc 2.38 or later; Host, OCR and embedding retain the 2.34 minimum |
-| Windows x64 and ARM64 | Packaged official CPU runtime |
+| Node | Sessions, canonical history, configuration, credentials, immutable sent-turn revisions, admission and outcomes |
+| Client | Event reduction, ordering, deduplication, snapshot recovery and shared detail caches |
+| GPUI / Flutter | Layout, focus, drafts, selection and expansion |
+| Controller device | Identity, pairing records and rebuildable caches (not a business database) |
 
-Native availability preflights the exact locked libraries and their dynamic
-dependencies, retaining successful handles until restart and retrying failed
-loads on the next request. Verified packaged files are cached independently, so a
-failed dynamic load does not repeat file hashing. Cold checks run outside async
-workers. Models and contexts are still created only by the shared inference
-runtime. Installation checks every tensor; later loads reuse the verified assets
-without repeating that full scan.
+- **One profile, one Node.** A profile has one running Node owner, one Link
+  identity and one endpoint. Desktop's local Client reuses it. Desktop and Host
+  share bootstrap, recovery and shutdown.
+- **Resource ownership.** Resources keep Node → project → worktree →
+  session/terminal ownership even when navigation hides the worktree layer. File
+  and Git actions are confined to the captured worktree. SSH, database and plugin
+  resources keep their captured Node and resource identity.
+- **Session configuration.** Controller defaults initialize new sessions. Changing
+  an existing session needs an explicit revision-checked command. Resuming from
+  another controller keeps the effective configuration.
+- **Credentials.** Configuration and credentials are stored as plaintext in the
+  execution Node's configuration database. There is no encrypted vault or OS
+  keychain. Credentials never appear in public events, logs or UI caches.
+- **Profiles.** A profile contains Node storage, plugin packages and data, and
+  uploaded attachments. Projects stay at their registered paths. Remote execution
+  data stays on the execution Node.
+- **Sessions.** `Session` is the shared conversation container for controllers,
+  Host automation and plugins. `StartSession` atomically creates a session and
+  admits its first turn. An optional immutable association (`namespace`, `kind`,
+  `id`) links a session to an external object. It grants no resource authority.
+- **Execution.** A turn selects a single model or a team. Team execution freezes
+  the team revision, instructions and models with the turn.
 
-Unsupported decision targets retain OCR and embedding. Ordinary metadata remains
-readable, while decision registration, installation and execution report
-`Unavailable`; there is no alternate runtime or silent fallback.
+### Storage
 
-Model discovery reads public Hugging Face or ModelScope catalogs through the
-selected Node. Each registered definition binds its supported algorithm
-and asset hashes to an immutable model identity; branch labels never substitute
-for pinned file revisions. Desktop downloads and selects compatible speech models
-locally, and recording retains its selected model until transcription finishes.
-Both consumers use the packaged ONNX Runtime image; SenseVoice retains Sherpa's
-recognition algorithm. Model updates within supported formats do not require an
-application release, while new algorithms require implementation and validation.
-The shared model installer resumes verified partial downloads when the source
-validator is unchanged, and verifies the complete asset before publishing it.
+- The Node uses the native Turso driver for `storage/node.turso` and
+  `storage/knowledge.turso`. Each database has one shared handle. Each operation
+  leases a connection and keeps related SQL in one transaction, with full
+  synchronous durability and MVCC. Sequence counters advance in the same
+  transaction as their records, so identifiers are never reused.
+- Existing SQLite files are not imported. External database tools keep their own
+  SQLx drivers.
+- Durable conversation records use Sailry-owned `Record`, `Message` and `Block`
+  types. Binary data is stored once per content digest in the Node database.
+  Unknown token counts stay unknown rather than becoming zero.
+- `storage/knowledge.turso` holds only derived chunks, full-text indexes and
+  vectors. Deleting it never removes sources or configuration.
+- Each worktree has a rebuildable code index at
+  `cache/code-index/<WorktreeId>/index.turso`. Source stays in the worktree.
+- New managed checkouts live under the main worktree's `.sailry/worktrees/<id>`,
+  excluded through Git's `info/exclude`.
+- Disposable command, browser and transfer staging lives under the profile's `tmp`
+  directory. Managed command output is bounded per stream and by a shared Node
+  budget.
 
-Desktop and Host bundle Python 3.12.13 in their installation directory. The Node
-lazily verifies that runtime and prepares profile-owned plugin environments from
-captured, hash-locked requirements using prebuilt wheels. Immutable packages share
-environments by runtime and requirements identity. Skills and MCP receive the
-owning interpreter; task scripts and additional environments use the private
-session directory through ordinary command permissions. The Node's PyPI setting
-is independent from model download sources. Python is optional for ordinary
-commands and skills without requirements. Dependency preparation runs outside
-the shared file mutation queue, with one installer per environment; ready
-environments bypass installation. Clients observe transient preparation stages
-through the same local and remote subscription boundary.
-Linux validation retains at most 2,048 directory subscriptions and 16 native
-watchers across the process, evicting the least recently used environments.
-Unwatched or oversized environments use full integrity validation on each access;
-watched environments also revalidate periodically.
+### Contract and storage versions
 
-OCR is an optional Node-owned CPU service using the packaged ONNX Runtime.
-Explicitly installed PaddleOCR definitions retain their selected profile and
-immutable asset revisions, sizes and hashes. Image and scanned-PDF inspection,
-including knowledge extraction, uses this same cancellable service through the
-local or remote Client boundary. Model settings and installation state remain on
-the execution Node.
-The Files package can list OCR definitions and explicitly install or uninstall
-their assets through the same model services and permission policy. Uninstalling
-keeps definitions and settings; it does not select or enable another model.
+Before the first product release, Sailry protocol, wire, schema, storage and
+extension contracts stay at `v1` (numeric fields use `1`) and change in place.
+There are no legacy wire branches, fallback decoders or versioned migration
+framework. Third-party dependency versions, data revisions and event sequences are
+independent of this policy.
 
-Disposable command, browser and transfer staging lives under the configurable
-profile's `tmp` directory, separate from durable worktree outputs and attachments.
-Command scratch is scoped to the admitted turn and retained while its commands
-still use it. Remote files opened by a controller use that controller's local
-profile for their retained copies, not the execution Node's temporary directory.
-Managed command output reserves at most 4 MiB per stream in owned temporary files
-within a shared 256 MiB Node budget. Each stream keeps its first 1 MiB and a
-rolling 3 MiB tail. Completed commands release unused capacity; new commands
-evict least recently read completed output only when it can free enough space.
-Budget eviction preserves command records, and late output cannot invalidate saved
-bytes. Output pages and previews identify raw byte offsets and truncated retention,
-while model summaries remain bounded. Persisted result previews remain readable
-after the temporary output is evicted.
+- Startup adds missing schema objects and fills missing storage fields with their
+  defaults.
+- An update is validated on an isolated snapshot, saved as a private backup, then
+  applied with current-format validation in one transaction. Invalid current-format
+  changes fail without applying the update.
+- The current development baseline stores `node.storage_generation=1`. Owned Node
+  storage without that column is development data: startup removes the Node and
+  knowledge databases and creates an empty current database, without migration or
+  backup. Generation 1 keeps its data. Unknown generations and other invalid
+  current definitions fail without resetting storage.
+- A validation failure never authorizes rebuilding a current database.
+- Startup validates current configuration and recovery records. Historical
+  captures and history are validated when their readers load them.
+- Release compatibility is a separate future decision.
 
-The asynchronous turn loop in `agent/engine` owns Agent execution. It runs ordered
-operations for approvals, tools, child work, guidance, compaction, error handling
-and inference. The first applicable stage persists its effects before the next
-session reload; explicit compaction runs alone.
-The existing Node session services read Sailry canonical records and remain the
-sole durable history writer. Model requests, messages and events use Sailry-owned
-types in `agent/model`; `Model` abstracts native Rig transport and declared plugin
-models without another runner or store. Client and UI projections remain
-rebuildable derivatives.
+### Backups
 
-Within a turn, session loads reuse canonical-to-model projections by record identity
-and event sequence. Request preparation reuses tool-result previews while their
-stored revision, visibility and media retention remain unchanged; changed history
-rebuilds the affected projection. Attachment resolution and materialization are
-shared by inference and compaction for that turn, including newly joined guidance.
-These caches do not write history or change the model-visible result.
+Data management backups include both databases, referenced plugin packages,
+attachments, session documents and registered managed workspaces. Maintenance
+pauses new transactions, checkpoints and closes the databases, and copies their
+complete native file families. Archives are password-encrypted (age) and can target
+local folders, WebDAV or S3. Restore validates into a new empty profile, keeps the
+Node identity and does not start the profile automatically. Only one copy of a
+Node identity should run at a time. Automatic backups use the existing Node
+dispatch service and require an online Node.
 
-Usage reports cover Sailry's own canonical events; Client aggregates reports across
-Nodes while keeping source identity and completeness explicit. Provider settings
-may separately display quota observations returned by Sailry's own authenticated model requests;
-missing or expired observations remain unknown. An installed, enabled model
-plugin may also read its current provider's account status through declared
-scoped requests using that provider's authorization and display it independently.
-Declared account operations use the ordinary durable request ledger; only public
-inputs are retained, and the Node injects authorization during execution.
-Neither source contributes to session usage statistics. External tool histories
-and third-party billing analysis remain outside that boundary.
-
-Durable conversation records use Sailry-owned `Record`, `Message` and indexed
-`Block` types. Message, compaction, configuration, notice and visibility facts
-have explicit record kinds. Input provenance, presentation, execution observations,
-captured context and runtime visibility use typed metadata; extension state retains
-its session, application and user scopes. Original authors, branches, timestamps,
-call identities and part slots remain available to public history projections.
-Unknown token counts remain unknown rather than becoming zero.
-Binary conversation data is stored once in the same Node database under its content
-digest. Record references retain MIME type, size and original position. Structured
-tool JSON stores references for declared binary fields and hydrates the exact JSON
-for public output pages, immutable revisions and artifact receipts. Records and
-their blobs commit in the existing history transaction; exported asset indexes and
-UI rows remain rebuildable projections. The current development baseline stores
-`node.storage_generation=1`, independently of the v1 protocol and `user_version`.
-An existing owned Node database without that column is development data: startup
-closes and removes the Node and knowledge database families and creates an empty
-current database. This reset does not migrate or back up development records.
-Ordinary resource collection removes unreferenced attachments and plugin packages.
-Node identity and external project files remain in place. Generation 1 databases
-retain their data; unknown generation values and other invalid current definitions
-fail without resetting storage. Runtime readers accept only current canonical
-records.
-Streaming drafts and canonical entries retain ordinary text, thinking and tool
-parts. Interruption preserves those parts without a separate commentary phase.
-Context observations pair provider-reported input and output tokens with the
-admitted model's frozen context limit; a later model change does not relabel an
-old observation. Unknown counts remain unknown. Automatic compaction defaults to
-80% of the captured context window, without a fixed token ceiling. The model-data
-settings slider changes this Node-owned default from 1% to 99% and saves on release.
-Each admitted turn captures the percentage; later settings changes affect only new
-admissions, while delegated work and joined guidance retain the captured policy.
-An explicitly configured model threshold overrides that default and is frozen
-with the admitted turn. Trigger estimates for pending tool results use the same
-bounded previews as normal inference, so undispatched raw output does not force
-an unnecessary summary.
-
-Automatic and explicit compaction use `agent/engine/compact`, with Sailry's concise
-handoff templates and the retained Goose-derived summarizer and structured-summary
-renderer. The handoff preserves current goals, constraints, verified progress,
-decisions, next steps and essential references while removing stale and
-recoverable detail. The result is user-role summary text; the parsed file ledger
-is retained on the canonical compaction record. Summary requests have no tools
-and retain their captured model and account,
-with a separate low supported reasoning effort and an output limit of at most
-8,000 tokens, including reasoning where the provider counts it. The prompt asks
-for under 3,000 tokens. An accepted handoff above 4,000 rendered tokens first
-loses the tail entries of its references, files and decisions, then has its
-longest goal, constraint, task, state or next-step text shortened toward 500
-tokens, and only then loses goals, constraints and tasks beyond the first of
-each. There is no total compaction deadline; transport stall timeouts and user
-cancellation still apply.
-There is no background preparation, model-callable compaction tool, prefix
-checkpoint, mandatory-heading check or minimum-reduction gate.
-Individual tool pairs do not trigger separate model summary requests.
-Original records and raw tool output remain intact. The request loader uses the
-latest summary and subsequent continuation, with older originals hidden from the
-agent. The continuation and retained current input remain available after
-compaction; an earlier summary is merged, never retained as that input. Public
-history, fork and rewind still use canonical membership.
-
-Policy, personal instructions, guides and selected capabilities form the stable
-system prompt. Environment, title, plugin turn state, plans, loaded skill resources
-and turn budgets form an agent-only turn context message. The canonical writer
-persists it and inference appends a new one only when session state changes, so
-each request extends the previous request and provider prompt caches cover the
-history. Retained owner parts and the parts a package returns from
-`turn.initialize` are repeated only after compaction hides their earlier copy;
-package instructions stay in the stable system prompt. Skill parts loaded before
-the latest compaction share 24,000 characters, most recently loaded first, and
-the most recent one is always kept. Each older skill becomes a stable line naming
-it and its path until it is loaded again, while the latest plan is kept. Adapted
-payload estimates attribute sources only for a newly appended context within the
-verified terminal text and captured ranges.
-Compaction prepares a separate input projection from canonical history. It omits
-reasoning and bounds older tool results to their first and last 1,000 characters.
-The latest user turn keeps its non-reasoning transcript unshortened. If the rendered
-summary request still exceeds its input budget, older turns progressively lose
-tool output, then non-user content, and finally the turn itself. The latest turn
-is never shortened; an oversized latest turn fails compaction without replacing
-history. Selected capabilities retain their input ownership rather than becoming
-policy for a later task.
-
-Context-length errors can trigger at most two reactive compactions under the loop's
-operation ordering. Compaction requests buffer their output and allow at most
-one transient retry; failed, truncated or unparseable attempts do not become
-summaries. Automatic compaction publishes transient progress through the existing
-conversation feed, so controllers distinguish it from completed tools. A terminal
-compaction error reaches `ExitOnError` and ends the turn as a failure. The Node's
-existing queue and explicit retry actions retain unconsumed input. Model and tool
-execution remains in the Node loop, with no summary-quality gate or Agent-wide
-retry loop.
-
-Account authorization workflows belong to model authentication packages.
-The default `openai-auth` package retains ChatGPT OAuth's device-code flow and
-account-scoped Codex backend, and ChatGPT SIWC's browser registration flow and
-public OpenAI catalog and Responses endpoint. The default `claude-auth` package
-retains Claude subscription OAuth's browser or pasted-code flow. Controllers use
-the common login interaction; packages supply their endpoints, scopes, polling,
-request composition and verified claim mappings. The execution Node runs those
-pure steps through its existing private HTTP, PKCE callback, OIDC verification,
-registration, cancellation and persistence services. It alone owns rotating-grant
-fences and credential revision checks. Stored SIWC accounts retain those services;
-the model transport does not support generation through their namespaced
-authentication path and reports that configuration as unavailable.
-Explicit sign-in can replace a channel's account. A changed or unproven identity
-receives a new credential reference; current ordinary sessions using the replaced
-reference receive a new configuration revision, while admitted turns retain their
-original authorization. Automatic renewal still requires the same account and
-keeps its existing uncertainty fence. Optional public account emails come from the
-authentication adapter and share one credential projection across channel types.
-Stable authentication IDs and private credential codecs preserve existing accounts
-and immutable sent-turn captures. Private account bindings retain the owning
-package and flow across ordinary code updates; changed or ambiguous ownership
-fails explicitly. Model catalogs, request adapters and account usage retain their
-existing owners rather than being duplicated by authentication packages. Model
-capabilities resolve automatically from native and cached metadata; unknown
-capabilities use the configured API contract. Regional vendor endpoints and
-metered/coding product choices remain explicit provider settings. Editing unrelated
-fields does not rewrite an existing endpoint or infer a product from its key.
-Media operations try the admitted model and credential first. Only a definite
-unsupported capability may use an explicitly configured, session-captured fallback;
-authentication, quota, timeout and uncertain outcomes never trigger fallback.
-
-Native model execution uses Rig providers over HTTP and SSE through the
-Sailry-owned `Model` interface; declared plugin models use their worker transport.
-Each request uses the admitted configuration, endpoint, authorization and
-credential revision through stream completion. New turns capture the selected
-model and reasoning effort; summary requests use that captured selection.
-Historical configuration records do not override it.
-
-Sailry owns request-scoped recovery for native and declared plugin models:
-up to five additional attempts, each 60 seconds after a transient failure. HTTP
-setup and SSE failures share that budget; nested provider backoff is suppressed
-while existing credential refresh remains available. Ordinary requests stop
-automatic recovery once any stream event has escaped. Compaction buffers each
-attempt and discards failed output and usage before retrying. Permanent request,
-authentication and malformed-stream errors remain terminal. Dropping the request
-cancels its active stream or retry delay, without replaying completed tools.
-Sailry adds no forced `tool_choice`, WebSocket transport, connection-local
-continuation or SSE fallback. Canonical conversion preserves signed thinking,
-Responses encrypted reasoning, call IDs, text, tool results and historical search
-or commentary. Anthropic and Responses requests omit provider-bound reasoning
-from a different recorded model. Rig replay envelopes stay transient and do not
-become canonical storage.
-
-Terminal provider errors preserve committed history for the existing retry and
-continuation actions. Ordinary conversations have no product iteration limit;
-explicit child-role turn budgets use the Node's turn-limit operation.
-
-## Runtime behavior
-
-### Command admission and recovery
+## Command admission and recovery
 
 1. Client submits a typed command with a stable request ID and captured resources.
-2. Node validates scope, revisions and permissions, then durably admits a durable
-   command before Link acknowledges safe receipt.
+2. Node validates scope, revisions and permissions. A durable command is admitted
+   durably before Link acknowledges safe receipt.
 3. Node executes the operation and records its business outcome.
-4. Client observes the result and ordered events; reconnect uses the original
+4. Client observes the result and ordered events. Reconnect uses the original
    request ID and snapshot/subscription recovery.
 
-Local access uses an in-process adapter, not forced loopback networking, with the
-same command semantics as remote access. Link owns transport ordering and receipt;
-Client owns reduction, deduplication and snapshot recovery; Node owns admission
-and outcomes. Transport receipt is not business success. Uncertain effects remain
-uncertain and are not replayed automatically with a new identity. Conflicts require
-fresh inspection, not silent overwrites.
+- Local access uses an in-process adapter with the same semantics as remote
+  access, not loopback networking.
+- Link owns transport ordering and receipt, Client owns reduction and recovery,
+  Node owns admission and outcomes. Transport receipt is not business success.
+- Uncertain effects are reported as uncertain and never replayed automatically
+  under a new identity. There is no second durable inbox.
+- Conflicts require fresh inspection, never a silent overwrite.
+- Installations of plugins, local models and language packages share one bounded
+  Node queue. Work on the same resource keeps admission order. Failed and
+  uncertain installations remain visible until dismissed.
 
-Node shares one bounded installation queue across resource types. Independent
-resources can prepare concurrently; attempts for the same plugin, local model
-kind or language package stay in admission order through durable completion. Caller-scoped transient snapshots expose real
-phases and measured progress through the same local and remote Client subscription.
-Confirmed success removes a task; failures and uncertain outcomes remain until
-explicitly dismissed. Dismissal changes only the observation, not the command ledger
-or active execution. Captured plugin authority stays private. Controllers own installer
-visibility and locally planned batches, not another execution queue.
-OCR, embedding and decision installation reuse this queue through their shared registry;
-native validation uses the same CPU runtime as inference. Language installation
-keeps its package driver; removal shares that lane without appearing as an installation.
-Speech installation remains with the controller-local speech manager. Public installation
-observations require their model or language capability and expose only explicitly
-owned requests in their original captured plugin scope, never the controller feed.
+## Agent loop and model boundary
 
-### Session HTML documents
+- **Loop.** The asynchronous turn loop in `agent/engine` owns Agent execution. It
+  runs ordered operations for approvals, tools, child work, guidance, compaction,
+  error handling and inference. Each stage persists its effects before the next
+  session reload.
+- **History.** Node session services are the single canonical history writer.
+  Client and UI projections are read-only, rebuildable derivatives.
+- **Model types.** Requests, messages and events use Sailry-owned types in
+  `agent/model`. The `Model` interface covers native Rig transport and declared
+  plugin models.
+- **Rig.** `rig-core` (pinned to `0.46.0` in the root workspace) is used only for
+  provider transport over HTTP and SSE, behind `agent/model/rig`. Rig types never
+  cross that boundary. Neither `rig-agent` nor GDK is a dependency. Supported
+  provider types include OpenAI Responses and Chat, Anthropic, Google, Azure
+  Foundry and OpenAI-compatible endpoints.
+- **Provenance.** Retained Goose-derived operations and provider adaptations keep
+  their source revisions and Apache-2.0 notices. Rig keeps its MIT notice.
+- **Capture.** Admission freezes configuration, scope, model, reasoning effort,
+  credential revision and package revisions. Updates affect only new admission.
+- **Retry.** Sailry owns request-scoped recovery: up to five more attempts, 60
+  seconds apart, after a transient failure. Ordinary requests stop automatic
+  recovery once a stream event has escaped. Permanent request, authentication and
+  malformed-stream errors are terminal. Completed tools are never replayed.
+- **Prompt stability.** Policy, personal instructions, guides and selected
+  capabilities form a stable system prompt. Per-turn state goes in an agent-only
+  context message that is appended only when session state changes, so each
+  request extends the previous one and provider prompt caches stay valid.
+- **Compaction.** Automatic compaction defaults to 80% of the captured context
+  window, configurable per Node and frozen per turn. Summary requests have no tools
+  and use the captured model. Original records and raw tool output are preserved;
+  the request loader uses the latest summary. Context-length errors can trigger at
+  most two reactive compactions.
+- **Tools.** Each turn builds model declarations from its captured tool instances.
+  Additional tools are discovered through `tool_search` without granting
+  permissions. Approvals settle before calls run. Adjacent read-only concurrent
+  calls run together, up to eight at a time. Results keep request order.
+- **Approvals.** Node owns each approval's five-minute deadline.
+- **Work modes.** Standard is the default. Plan is read-only with a reviewed
+  transition to Standard. Flagship has Standard's permissions plus autonomous
+  coordination. Package-declared modes map to a core mode without increasing
+  permissions.
+- **Delegation.** `spawn_agent`, `guide_agent` and `wait_agent` delegate through
+  the same loop and history path with an explicit parent/child association. Child
+  concurrency defaults to eight per root session and is set through
+  `ReadTeamSettings`/`SaveTeamSettings`.
+- **Guidance.** Controllers have one send action. Input sent while a task runs is
+  admitted durably as guidance and joins at the next model boundary. Stop is the
+  only interruption.
+- **Streaming.** Partial text and reasoning use a bounded in-memory feed. Canonical
+  messages commit before durable changes publish. Stopped or failed runs seal
+  visible text as interrupted canonical output.
+- **Background work.** Background children and commands record durable completion
+  evidence. An idle session continues automatically only for completions that opt
+  in.
 
-The Node stores bounded HTML as immutable revisions under its profile, with the
-owning session, turn, source kind and captured plugin reference. The default
-document kind sanitizes fragments and freezes the package's declared template,
-styles and scripts; later package updates do not change saved documents.
-Revision-checked writes are available only to captured
-native tools in running main sessions. Plans permit this contained document write
-without granting project writes or arbitrary plugin callbacks.
+## Tools and resource services
 
-The preview kind preserves self-contained authored HTML, CSS and JavaScript.
-Desktop renders it in the existing native preview adapter's opaque-origin
-sandbox, not the privileged document surface; Mobile uses the same sandboxed
-frame without a package template or page channel. It receives no Node, tool,
-credential, filesystem or conversation-form bridge. Parent and child CSP restrict
-resource loading and navigation; this is not an OS-level zero-egress guarantee.
-The wrapper supplies the controller theme as `--sailry-*` CSS variables and a
-matching `color-scheme`; authored CSS may override them.
-Preview HTML exports preserve that wrapper and original source, not transient
-browser state. Preview PNG export is unavailable; document exports are unchanged.
+- **Commands.** On macOS and Linux, Agent commands run in a workspace sandbox by
+  default: workspace writes, read-only toolchains, private temporary files and no
+  network. Full permission grants the complete environment. Workspace commands
+  cannot write captured Git metadata. User-created terminals start with the full
+  login-shell environment.
+- **Files.** Discovery and search run inside Node with confined paths, ignore rules
+  and bounded pages. Multi-file change sets are validated before one approval and
+  applied in order with per-file revision checks, stopping at the first failure.
+  `apply_patch` accepts the Codex patch format.
+- **Managed worktrees.** Agent and headless file operations stay inside their own
+  checkout and cannot reach `.sailry/worktrees`. Authenticated manual controller
+  workflows can access those descendants through the registered-root services,
+  still protecting Git metadata, the managed checkout root and Node storage.
+- **Web.** Public web reads and search run on the execution Node. Direct reads pin
+  public DNS on every redirect and reject private addresses. Configured HTTP(S)
+  proxies are trusted to route public hostnames; proxy failures do not fall back to
+  direct access. Search channels are tried in saved order.
+- **Code index.** A lazy Node service built on the pinned Tree-sitter language pack.
+  Parsers ship with the application and nothing downloads at runtime. Graph queries
+  are bounded name-based heuristics without type information. The code package owns
+  `code_search`, `code_outline`, `code_context`, `code_impact` and `code_map`.
+  Neither the editor nor the Agent starts language servers.
+- **Local models.** One Node-owned registry manages OCR, embedding and decision
+  models: definitions, explicit installation, and verification of immutable
+  revision, size and SHA-256. One CPU runtime runs one inference at a time, gives
+  interactive work priority and releases idle engines. Decision inference uses the
+  pinned llama.cpp C API and reports `Unavailable` on unsupported targets, with no
+  fallback. No model is selected or downloaded automatically.
+- **Knowledge.** Retrieval is a Node service used by plugin-owned features. No
+  standalone knowledge plugin is bundled. Citations recheck source identity on the
+  execution Node.
+- **Python.** Desktop and Host bundle Python 3.12.13. Plugin environments are
+  prepared lazily from hash-locked requirements using prebuilt wheels. Python is
+  optional for commands and skills without requirements.
+- **Session documents.** Bounded HTML is stored as immutable revisions. Preview
+  HTML renders in an opaque-origin sandbox with no Node, tool, credential or
+  filesystem bridge.
+- **Hooks.** Per-worktree hook scripts are captured at admission, and a launched
+  hook group is never replayed after a crash or cancellation.
 
-On macOS and Windows, Desktop message cards also show a bounded image of a
-preview revision. One controller-owned hidden WebView renders the same sandboxed
-wrapper without a native message channel, polls the content box the frame
-reports, captures a PNG and caches it in memory by Node, artifact, revision,
-theme, width bucket and scale. It reads the HTML through the ordinary artifact
-command; Host never renders thumbnails. Failures, timeouts and Linux keep the
-ordinary card, and a click opens the side panel.
+## Extensions and plugins
 
-Forks and rewind backups preserve canonical document receipts with their original
-write owner. Reads captured to another live conversation expose only revisions
-whose exact receipts remain in its visible history; inherited previews start at
-the published revision and cannot submit forms. Rewinding the owner changes
-conversation history without rolling back its document inventory. Removing an
-owner retains referenced documents until the last live conversation reference is
-removed; backups preserve those retained files and their immutable package assets.
+- **Repositories.** Official plugins live only in `sailry-plugins`, pinned by the
+  `plugins/` submodule. Official themes live in `sailry-themes`, pinned by
+  `themes/`. Builds embed the pinned plugin snapshot for offline use. Desktop owns
+  the reusable theme loader, importer and renderer.
+- **Contract.** Packages use the Agent Plugins manifest and Sailry's v1 extension
+  contract. Node owns validation, immutable resources, grants, private KV,
+  callbacks, tools and dispatch. Admitted work keeps its captured package and
+  settings revision.
+- **Updates.** Startup adds missing default packages without resurrecting removed
+  ones, and refreshes bundled packages only on strictly newer SemVer (versioning
+  rules are in [AGENTS.md](AGENTS.md)). Online marketplaces read the website
+  catalog and acquire resources from GitHub at a captured immutable commit. Update
+  failures keep installed packages.
+- **Ownership.** A plugin owns its pages, panels, dialogs, view state, workflows,
+  tool orchestration, model prompts and product validation, including bundled
+  plugins. Core provides reusable scoped services through Protocol, Client and the
+  plugin SDK: process execution, LSP transport, package installation,
+  persistence, search drivers, credentials, permissions and durable admission.
+- **No package dispatch.** Core never selects UI or behavior by package name or a
+  package-specific renderer ID. Shared lifecycle bindings are validated
+  declarations, such as `enabled_service`, which binds one package's switch to a
+  Node service without granting capabilities. Schema-only plugins use the shared
+  configuration form.
+- **Native bridges.** Limited to reusable Kit or platform gaps, such as terminal
+  rendering, editor integration and protected credential inputs.
+- **Runtimes.** Headless callbacks use a bounded Node-owned QuickJS runtime. Desktop
+  entries use GPUI Kit script bindings and host SDKs (see the
+  [SDK contract](sdk/plugins.md)). The SDK grants no raw OS access. Desktop UI code
+  is trusted, not sandboxed.
+- **Model plugins.** An installed, enabled model plugin is trusted with its
+  configured providers' messages and login credentials, without separate permission
+  checkboxes. Ordinary updates keep that trust. A changed OAuth issuer, client,
+  scopes or flow needs new authorization. Account flows (for example `openai-auth`
+  and `claude-auth`) are package steps that the Node runs through its private
+  HTTP, PKCE, OIDC and credential services.
+- **Service connections.** Package-declared connections are owned by the execution
+  Node. Generic OAuth, token exchange, MCP OAuth and local CLI sources share one
+  owner with no vendor dispatch. Only declared origins, headers, MCP servers and
+  environment targets receive credentials.
+- **MCP.** A Node-owned pool serves sessions and delegated work. Connections are
+  keyed by package digest, settings revision, server, authorization and launch
+  parameters. Server options (`tools`, `exclusive`, `keep_images`, `reuse`) are
+  part of the v1 configuration. Failed or uncertain cleanup returns
+  `OutcomeUnknown` and input is never replayed.
 
-Client projects document receipts into persistent conversation cards and the
-conversation artifact inventory, including receipts from earlier unloaded turns.
-Controllers
-read content through the same authenticated local or remote commands and reuse
-the conversation subscription for coalesced document invalidation. The package
-owns its preview layout and controls; Desktop and Mobile provide native offline
-surfaces with semantic theme tokens and pinned chart, diagram and math libraries.
-Historical revisions are read-only. Editing a form pins its revision so publication
-cannot replace a draft. Form answers enter the normal durable message queue with
-a stable request ID and never approve a plan. Document exports capture rendered content and
-answers, remove scripts and interactive forms, and include Sailry branding.
+## Presentation boundaries
 
-### Agent turns and tools
+- GPUI Kit owns standard controls, semantic themes, focus, keyboard behavior and
+  overlays. Desktop owns product composition and small native adapters.
+- The Ghostty terminal renderer is a custom rendering boundary; the controls
+  around it still use Kit.
+- Flutter consumes shared Client state rather than its own conversation state
+  machine.
+- Mermaid diagrams, formulas and non-trivial raw HTML render in one serialized,
+  controller-owned hidden WebView (macOS and Windows). Message rows embed no
+  WebViews. Failures and Linux keep the original text.
+- Voice reading and global selection shortcuts stay local to the controller and
+  never start an Agent turn.
 
-Conversation tool results default to an activity without successful-result
-expansion. Captured declarations opt into meaningful details, standard content,
-progress or hidden maintenance success. Finite output projections select bodies,
-paths, tables and diffs; explicit JSON projections retain business data without
-turning protocol metadata into ordinary detail rows. Tool groups remain
-collapsible. Individual calls expand only for Client-projected details; canonical
-raw results remain captured without a separate debug modal. Actual failed-call
-facts share the existing turn observation and canonical history owner, preserving
-error inspection without classifying arbitrary business fields as failures.
-Node captures whether a failure came from the runtime or the tool. Client marks
-runtime faults as failed and tool-reported errors as warnings, preserving expected
-and stopped outcomes. Node extracts the message once for row headlines and details;
-raw error envelopes remain available through explicit result inspection.
-Presentation does not change model results or durable tool output. Separately,
-outgoing model text previews are bounded to 2,000 lines or 50 KiB, whichever is
-reached first. Command previews retain the tail; file and search previews retain
-the beginning. Search defaults to 100 matches with 500-character line previews.
-Truncation identifies the retained range and how to continue reading. The existing
-`read_tool_output` tool pages immutable canonical result JSON with byte offsets and
-revision checks; command streams also retain their existing output-page service.
-These previews do not replace canonical results or create another output store.
+## Computer use
 
-Client owns one 64 MiB detail cache and per-view trackers for loading, retries,
-revision invalidation and selected values. A new selection can release an older
-unprotected value held by that tracker when doing so can make room. Pending
-approval payloads remain protected; memory contention never enables approval
-without the parameters. Intrinsically oversized details preserve summary-based
-approval, and rejection remains available without details. Released capacity
-restarts blocked selections without evicting other visible values or reporting
-eviction as an operation failure.
-Desktop selects expanded rows, projected groups and published cards on the
-current page by expansion state, never by scroll position or focus. Collapsing a
-row or leaving the page releases its value. Hidden cached views release their
-selections and select them again from expansion state when displayed; published
-cards keep their measured height meanwhile. Mobile consumes the same tracker
-states. Desktop retains Kit parsing state for tool text while its source
-is retained by Client, and releases it when the view is hidden.
-Plugin snapshots read details directly with bounded concurrency and no automatic
-retry; their returned JSON belongs to the
-caller. Copy and open actions use temporary reads. Superseded background reads are
-silent; explicit reads can refresh their current reference once.
-Node uses one 128 MiB serialized-detail cache, including at most 64 MiB of idle
-LRU entries. Multi-page reads share a lease renewed by access; one reader reaching
-the end does not release another reader's data. Complete single-page reads bypass
-that cache, so active large reads cannot block small details.
+The `computer` package declares a stdio MCP server backed by Sailry's bundled
+`agent-desktop` helper. The helper is staged from pinned, checksum-verified release
+archives and is never downloaded at runtime. It uses semantic accessibility calls
+rather than physical input. Every call goes through ordinary approval and an
+exclusive lock.
 
-Model declarations are built from each turn's captured tool instances, without a
-second persistent schema cache. Ordinary inference uses the current loaded catalog;
-summary requests contain no tools. Common tools follow declared operations and selected mode or role scope; additional tools are
-discovered through `tool_search` from that catalog. Discovery adds declarations and their package
-context for later requests without executing tools or increasing permissions.
-The session state row owns loaded-tool membership and first-seen order. Newly
-loaded declarations append after the common tools and earlier discoveries without
-reordering them. Explicitly discovered and called tools stay loaded until
-compaction. The compaction record keeps, in their original order, the loaded tools
-called or discovered in the history it summarizes; that list replaces the
-membership, and calls before it no longer load declarations. Unloaded tools can be
-discovered again. Tools exposed only by a work mode or assistant do not
-become permanently loaded. Flagship and selected roles
-expose their delegation tools on the first request; agent and team catalog tools
-remain discoverable.
-Changed tool membership is intentional; unchanged loadouts retain the same request
-declarations. Package updates affect subsequent admission, preserving sent captures.
+- On macOS, the helper is a separately signed `Sailry Computer Use.app`
+  (`dev.sailry.computer`, macOS 13+). Accessibility and Screen Recording grants
+  belong to it, not to Desktop or Host.
+- Windows uses `helpers/agent-desktop.exe`. Linux uses `helpers/agent-desktop` and
+  requires glibc 2.35 and an AT-SPI bus.
+- Every platform needs a logged-in graphical session. Desktop and Host keep working
+  when the helper is missing.
+- The Node owns one cursor-overlay session per helper home. The overlay never moves
+  the physical pointer.
 
-Node freezes configuration, scope and package revisions at turn admission. Tools
-use the same approval, cancellation and durable outcome boundaries. Work mode
-and permissions are distinct; read-only planning does not authorize side effects.
-Approvals for a model response settle before its calls run. Node then runs adjacent
-calls registered as both concurrent and read-only together, at most eight at a time.
-This includes native file, search, Git, code-index, web, knowledge and artifact
-reads, skill resource reads, tool discovery, saved tool output and conversation
-reads. Plugin handlers bound to those native operations share their concurrency
-classification; declared flows qualify only when all their operations qualify.
-Browser reads, MCP calls, plain plugin scripts and skill loading run alone in
-request order. Tool hooks that wrap calls also serialize execution. Canonical
-results keep request order, including results that Stop interrupts.
-Main-session guidance joins a running turn only when their captures match. New
-input after a configuration or tool change keeps its own capture and runs as the
-next queued turn; it never inherits an older selection to force inline insertion.
-Selecting an already queued message preserves its original identity and capture.
-Delegated work uses the same Node loop and canonical history path with an explicit
-parent/child association. Closing a view stops observation, not admitted work;
-stopping a turn is an explicit command.
+## Pairing and reconnect
 
-Standard is the default work mode and delegates only on an explicit user request.
-Plan retains the core read-only policy and reviewed transition into Standard.
-Flagship is a core work mode with Standard's permissions and Node-owned autonomous
-coordination instructions; it exposes the delegation tools on the first request.
-Host packages may declare additional modes through validated conversation options.
-Node maps each selected declaration to an effective core mode without increasing
-tool permission, and freezes its package and options with the sent turn. Child
-tasks inherit those effective restrictions. Controllers compose the common selector
-from declarations and change its single selection through revision-checked configuration.
-
-Node owns each tool approval's five-minute deadline; the approval Operation uses
-that durable decision boundary. Expiry requests a decision from the storage actor
-that commits approvals and session rules; it never independently denies a call during commit.
-A closed or expired wait before the actor's commit claim returns a conflict and leaves no
-rule or approved receipt. A commit claimed first settles before expiry is answered.
-Timeout denial can continue the same turn; later turn cancellation can still stop an
-approved tool before execution.
-
-Partial text and reasoning use the Node's bounded, ordered in-memory conversation
-feed without entering the storage worker queue. Publication checks active turn
-ownership and cancellation. Canonical messages and tool results still commit
-through the authoritative canonical history path before publishing durable changes;
-reconnect combines that history with any current drafts from the same feed.
-Visibility changes to committed entries publish ordered reveal and hide changes;
-only structural history changes reset subscriptions. Client publishes the newest
-page of a large turn at once and reads its older entries when requested.
-When a run stops or fails, remaining visible text and reasoning are sealed and
-written as interrupted canonical output before its terminal status is published.
-Completed entries are not duplicated, and incomplete tool calls are not retained.
-
-On macOS and Linux, Agent commands use a workspace sandbox by default. It
-permits workspace writes and read-only access to installed toolchains, with
-private temporary files and no network access. Full permission authorizes
-commands requiring the complete environment automatically; Ask and Project
-retain explicit approval for that access. The Node's conversation setting can
-disable command sandboxing for subsequent calls in existing sessions without
-changing captured access for pending or running commands. User-created
-terminals start with the complete login-shell environment. Startup reserves a
-terminal slot before launching outside the shared inventory lock; concurrent
-opens of the same terminal share the existing result. Stop prevents late starts
-from publishing. Closing a local terminal stops its verified PTY session's job
-groups before its shell, or its existing Windows Job. If the Unix leader has
-already been reaped or its identity cannot be verified, cleanup does not infer
-ownership from a recycled session ID. Configured hooks retain their own execution policies.
-
-Code structure is a lazy Node service backed by the pinned Tree-sitter language pack.
-The application ships verified parser libraries and embedded-language queries; the Node
-loads these resources without runtime downloads. Editor syntax highlighting, editing,
-saving and drafts use Kit; neither the editor nor Agent starts language servers.
-
-Each worktree shares a rebuildable `cache/code-index/<WorktreeId>/index.turso` database
-inside its Node profile. It holds file metadata, full-content BLAKE3 revisions,
-extraction fingerprints, symbols, bounded signatures and Turso native full-text indexes.
-Original source stays in the worktree. A file outline reads only that file; the first
-repository query discovers the worktree through the existing confined, ignore-aware
-file service. Project, editor and session opening do not start repository indexing.
-
-Queries reuse cached extraction after checking complete file hashes. Shared file watchers,
-managed writes, commands and Git operations mark affected paths or invalidate a worktree.
-Bounded parse batches run without writer connections. File replacements and their native
-full-text updates commit together; only a complete traversal establishes deletions.
-Dirty generations retain changes that arrive during parsing. File ranges use zero-based
-UTF-8 byte coordinates, and source expansion checks the indexed full-content revision
-before slicing. Partial and truncated results state their actual limits.
-
-The language pack keeps its extraction tree private, so one bounded syntax tree per
-file serves embedded regions and the pack's bundled tags query. References, their
-innermost enclosing declaration and import keys commit with the file's symbols.
-Graph reads resolve names against one index revision, preferring the same file, then
-imported files, the directory and the worktree; they record that confidence and keep
-several equally near definitions ambiguous instead of choosing one. Callers, callees,
-impact of at most three reverse hops and a personalized PageRank map are bounded,
-name-based heuristics without type information. Languages without tags queries
-contribute declarations but no references.
-
-The code package owns `code_search`, `code_outline`, `code_context`, `code_impact`
-and `code_map` orchestration.
-Its enable switch binds to the generic Node code-index service while retaining the
-installed enable choice. Local and remote controllers use the same Protocol, Client
-and SDK commands. Context composition stays in the plugin, with bounded symbol and
-snippet budgets. Retired language identifiers survive only as historical data;
-current manifests and execution reject retired operations.
-
-Native controllers configure ordered hook scripts per worktree. Admitted turns
-capture each script's order and enabled state; a phase has one durable launch
-receipt, and recovery never replays that group after a crash or cancellation.
-
-Workspace commands cannot write captured Git metadata, including linked repository
-metadata and common directories. Git writes use complete access. macOS also denies
-creating new `.git` paths. Linux protects existing metadata through read-only mounts;
-new metadata paths and replacement of symbolic Git pointers remain outside that
-mount-based protection.
-Repository workspace commands and Agent/headless file operations and discovery
-protect their root's `.sailry/worktrees` subtree. Authenticated manual controller
-file workflows can access its descendants through the same registered-root
-services, preserving Git metadata, managed checkout root and Node-storage
-ownership safeguards. Each child retains its own Agent checkout scope.
-
-File discovery and content searches run inside Node with confined paths,
-ignore rules and bounded result pages, without requiring a system ripgrep.
-Multi-edit operations check the original file revision and publish one complete
-result. Multi-file change sets validate every entry before one approval lists each
-file and its bounded diff, and again after the decision; any invalid entry rejects
-the set without changing file content. Entries then
-apply in order with per-file revision checks and stop at the first failure without
-cross-file rollback. Each content entry keeps its own checkpoint under that approval;
-moves and Trash deletions keep their single-file recovery. The agent's `apply_patch`
-tool accepts the Codex patch format; its Node tool layer resolves a patch into
-structured entries before approval, so the durable command keeps typed entries for
-controllers. Hunk context must match the current file exactly and identify one place.
-An updated, moved or deleted file must still have the latest revision shown by the
-session's model-visible results of Node file operations; otherwise the model reads
-it again. Plugin
-flows cannot compose change sets. Background commands may use a PTY and accept durably admitted input;
-completion, stop and replay retain the original command identity.
-
-Public web reads and search run on the execution Node. Direct web reads validate
-and pin public DNS addresses on every redirect. Web reads alone explicitly use
-configured environment or system HTTP(S) proxies, honoring proxy exclusions.
-A selected proxy receives the original hostname and resolves it remotely; local
-DNS is checked when available, ignoring proxy fake-IP answers. This supports
-TUN proxies and avoids relying on polluted local DNS, but cannot enforce the
-same destination-IP confinement as direct reads: the user-selected proxy is
-trusted to route public hostnames. Literal private URLs and private local DNS
-answers remain rejected, and each redirect is rechecked. Proxy failures do not
-fall back to direct access. Other HTTP clients retain their existing proxy
-configuration. Reads retain bounded paged snapshots and supply untrusted content
-without browser authentication. Search settings
-and credentials belong to that Node. A turn uses the configured Node search tool;
-transient failures can try each configured driver once and respect rate-limit
-cooldowns.
-Successful search pages stay in Node memory for five minutes, with at most 50
-entries keyed by driver selection and normalized request. Settings changes clear
-the cache; driver availability tests always make a fresh request.
-Automatic search tries enabled, configured channels in their saved list order,
-including model search, without changing priority based on query language.
-The search settings page moves channels up or down through revision-checked Node
-settings. With fallback enabled, any failed automatic channel, including
-unsupported or unanswered model search, advances to the next channel;
-cancellation and unconfirmed service cleanup stop the request. A manually
-selected channel falls back only after temporary failures, and manual model
-selection remains explicit.
-Model search reuses the Node's model credentials and request authorization policy,
-then calls the selected provider's native search API outside the Agent loop.
-Citation sources and the
-model-generated summary remain untrusted. Search tokens from an active turn use
-the canonical history writer and existing usage statistics, attributed to the
-selected search provider and model; cache hits add no usage.
-Search keys and manually supplied GitHub credentials are stored as plaintext in
-the Node configuration database. Connecting an existing `gh` login stores its
-account identity, then reads the current token transiently for MCP requests;
-logout, account changes and token rotation invalidate cached connections. Public
-GitHub reads do not require a GitHub MCP credential.
-
-Node owns the agent and team catalogs and freezes the configured roster. Its
-built-in `spawn_agent`, `guide_agent` and `wait_agent` tools delegate, and its
-built-in agent and team tools edit the public catalog through the same
-revision-checked services as settings. Catalog edits do not change existing
-session rosters. Explicit application selects exact agent or team revisions for one
-captured session and affects future admission only; running and queued turns and
-existing children retain their captures. Tool results never expose frozen
-provider configuration or credentials. Delegation selects a matching configured role. An omitted or null role
-uses the parent's effective model and assistant instructions; an unknown explicit
-role is rejected.
-
-Each delegated turn retains its parent tool-call identity; the child session keeps
-its founding ancestry. The same parent session may reuse an idle child without
-losing history or changing its role, effective configuration or worktree. Idle
-reuse captures current packages and settings; initial delegation inherits the
-parent's frozen capture, and guidance retains the active recipient's capture.
-Explicit guidance can also start a new task in an idle child through the same
-durable reuse admission and supervisor, without replaying its completed work.
-Delegation observes completion synchronously by default within a bounded tool-wait
-window. If the admitted child is still queued or running, the tool returns its
-actual session, turn and pending status; observation expiry never cancels or
-replays the child. The existing session-owned supervisor retains execution and
-automatic completion delivery. Explicit Stop and Node shutdown still cancel
-running and queued children. Queue residence does not consume child model or
-command execution deadlines.
-Ordinary sessions without a project can delegate within their existing private
-worktree; resource-bound assistants and nested delegation remain excluded.
-Node owns the child concurrency setting (`team::Settings`), defaulting to eight and
-saved through revision-checked `ReadTeamSettings` and `SaveTeamSettings` commands.
-The service reads its current value when claiming work, and each claimed turn that
-declares `spawn_agent` reports it in delegation turn context. Startup imports a value
-configured in a formerly bundled delegation package once, then removes that
-package's installed bundled copy. Configuration
-changes affect queued work without rewriting its captured model or permissions.
-Running children and FIFO order are scoped to their root parent session, so one
-busy conversation does not queue children from another. Children exceeding that
-budget remain durably queued with their admitted captures; they do not occupy
-root workers.
-Lowering the budget leaves existing executions running. Stop cancels queued
-work, and restart interrupts owned execution waiters without replaying calls.
-Opt-in background children remain
-owned by their main session across guidance handoffs; the main agent can guide
-and wait for them through Node-owned tools in later turns. A successful main turn
-completes after its own execution, hooks and admitted operations settle, without
-waiting for background children. Explicit Stop of an active main turn still
-cancels its owned children; stopping a completed turn does not. Child views are read-only;
-their approvals retain the child identity and are presented in the main session.
-
-Background child and command completions have durable, session-owned evidence.
-An idle main session continues through the ordinary queue using its current
-configuration when a background child completes or a command explicitly requests
-`follow_up`. Commands default to retaining completion evidence without starting
-a model reply. A running background command without output for 15 minutes is not
-stopped; it records separate stall evidence once per silent period, delivered
-under the same rules. Busy sessions collect a bounded batch on their next eligible input;
-automatic completion input includes only children and commands that opted in.
-User-initiated input can collect any pending completion evidence. Pending
-consent, paused queues and removed or archived owners prevent automatic input;
-restart preserves evidence without restarting work or automatically continuing.
-Reservations become delivered only when their marked input is appended to the
-canonical history. Completion input is identified as Node-supplied,
-untrusted result data rather than user speech or new authorization. Explicit
-model result collection consumes the exact source execution; controller polling
-does not. Command summaries and bounded output tails survive restart, while
-complete output remains available only while its process cache entry is retained.
-
-Controllers have one send action. Input sent while a task runs is durably admitted
-as guidance for that task and joins it at the next model boundary; the current
-model response and tool batch always finish first, and guidance never cancels
-them. Foreground child observation and `wait_agent` yield to pending guidance
-without cancelling the child. A foreground command that has run for 30 seconds
-while guidance is pending moves to the session's background commands instead of
-being stopped; its tool call returns the command id and its completion follows up
-like an explicit background command. Stop is the only interruption. The steer
-operation appends selected user inputs in FIFO order through the same canonical
-history writer; it retains the task and Stop owner and uses the current captured
-prompt and tool owners for the next inference. Each guidance input keeps
-its own sent-turn identity and becomes consumed only when its canonical user entry commits, while model and
-tool output retain the original task owner and one public completion. If a queued
-input has a different capture, explicit guidance admits a replacement using the
-recipient's capture without modifying the original sent-turn record. A controller
-may also guide the running main-session task through the same boundary.
-Natural completion advances the queue automatically. Undelivered guidance and the
-contiguous compatible queue suffix become one successor with distinct input owners.
-Stopping a main task with pending guidance permits that successor; stopping without
-guidance, explicit queue pause, failed preparation and restart retain a paused queue.
-Pending guidance appears only in the queue tray, marked by color rather than a
-status label, until its canonical user entry places it in the timeline. Finished
-turn headers show their duration; color carries failure. Desktop and Mobile derive
-this from the shared Client projection.
-
-Successful main-session planning completion ends execution and retains a pending
-review in the same durable history, even after a plain answer; a new user input
-closes that review without changing mode. Plan review has no clarification deadline.
-Ordinary model questions still wait for their answers. Explicitly executing the
-plan atomically admits one coding turn
-and changes the session mode while preserving its permission. Continuing planning
-keeps Plan mode and does not itself admit another turn; subsequent user input or
-an already admitted queue supplies further work.
-Delegated planning answers do not create a separate user review.
-
-### Computer use
-
-The `computer` package declares an ordinary stdio MCP server and discovers its
-native tools on the execution Node. `${SAILRY_COMPUTER_USE}` resolves only to
-Sailry's bundled agent-desktop helper, staged from pinned, checksum-verified
-official release archives; packaging never builds it and nothing downloads it at
-runtime. The package runs `agent-desktop mcp` without `--headed`, so actions use
-semantic accessibility calls rather than physical input, and selects a curated
-subset of its tools. agent-desktop reads each app's accessibility tree; refs
-belong to one snapshot. Its tools declare no read-only annotations, so every call
-uses ordinary approval and the exclusive lock.
-
-The Node owns one cursor-overlay session per helper home. The computer package's
-`cursor_overlay` setting defaults to enabled; the helper draws its cursor without
-moving the physical pointer or recording traces. Launches reuse that session and
-its snapshot namespace. Disabling the setting or package, uninstalling the package,
-and Node shutdown end the session. Overlay startup failures leave ordinary
-headless computer tools available.
-
-macOS places `agent-desktop` and its colocated platform helper in a separately
-signed `Sailry Computer Use.app` (`dev.sailry.computer`) inside Desktop's
-`Contents/Helpers` or Host's `helpers` directory, and requires macOS 13. macOS
-charges Accessibility and Screen Recording to a process tree's responsible app,
-so the Node disclaims responsibility when it spawns the helper; grants then belong
-to the helper app rather than Desktop or Host. Windows uses
-`helpers/agent-desktop.exe`. Linux uses `helpers/agent-desktop` with its clipboard
-owner, requires glibc 2.35 and a reachable AT-SPI bus, and receives the Node's
-display, runtime-directory and session-bus variables. Every platform needs a
-logged-in graphical session. Desktop and Host remain usable when the helper is
-missing.
-
-MCP server options belong to the frozen v1 configuration. `tools` selects the
-server tool names a package exposes; unlisted tools are not registered, counted
-against the 64-tool turn limit or callable, including in explicit checks. `exclusive` serializes
-non-read-only calls by installed package name and server across sessions, after
-ordinary approval. Unconfirmed calls retain that lock through pending-task
-cancellation and connection cleanup. `keep_images` reduces only that server's
-model-request image projection in batches of five; canonical tool results,
-attachments and sent-turn captures remain unchanged. Native and scripted tool
-declarations can declare the same retention for their own results; an MCP tool
-declaration applies only when its server sets none. `reuse: false` closes that
-server at turn settlement instead of pooling it.
-
-One Node-owned MCP pool serves sessions and delegated work. Connections are keyed
-by package digest, settings revision, server, authorization identity and resolved
-launch parameters; worktree identity matters only when it changes the launch.
-Reusable servers connect and discover tools in the background at startup and
-after relevant package or connection changes. Tool discovery uses the shared
-connection's SDK response cache; `tools/list_changed` invalidates that cache,
-and each turn freezes the set it binds. Package, settings and credential changes
-retire affected connections; idle eviction and Node shutdown release them.
-Stopping a turn releases its lease while healthy shared connections remain
-available. Cancelled calls retain their callback context and execution locks until
-the remote operation settles or its connection closes. Server callbacks retain
-the active call's captured turn and authority.
-Connection closure confirms pending-task cancellation before closing the wire.
-Stdio closure sends EOF and waits up to five seconds
-for a successful child exit, then kills and reaps when needed. Failed or uncertain
-cleanup returns `OutcomeUnknown`; input is never replayed automatically.
-agent-desktop runs each tool call as its own process and keeps snapshot refs in
-the package's private data directory. Its overlay session has the separate
-Node-owned lifetime described above.
-
-MCP connection outcomes update the existing plugin metadata projection with each
-server's last runtime state, tool count and public fault. The existing plugin change
-cursor delivers these changes without health polling or prompt changes. Explicit
-reconnect uses the MCP check command; per-call failures and idle eviction preserve
-the last settled connection status.
-
-The existing permission SDK reads the same captured helper, environment and
-responsibility as MCP using bounded `agent-desktop permissions` diagnostics.
-Explicit local requests run `permissions --request`, which prompts for each
-missing grant, then read both grants again in a fresh process. Windows and Linux
-report their execution platform without macOS TCC controls. Historical successful computer
-command receipts are normalized through the central snapshot, private-backup and
-transactional validation path into retained records containing the complete old
-payload. Original request identities and fingerprints, approvals, canonical
-history, immutable package resources and enable choices are preserved; retired
-native computer commands are not executable.
-
-### Pairing and reconnect
-
-The pairing service exchanges a six-digit, 60-second code for an opaque invitation
-ticket. Link authenticates the invited endpoint and persists trust. The service
-can see tickets and is a short-lived trust boundary, not a business relay or
-account system. Already paired peers reconnect without another short code.
-
-An iroh data relay separately carries encrypted traffic when a direct connection
-is unavailable. Pairing-service and data-relay URLs are different configuration.
-Cloudflare and EdgeOne adapters share ticket-exchange logic, with native storage
-adapters. See the [service contract](services/pairing-relay/README.md).
-
-Relay settings belong to the execution Node and apply to its existing Link
-identity and endpoint. A revision-checked durable command persists the desired
-network before applying it; clients distinguish desired and effective settings
-and recover uncertain completion through the original request ID. Pairing on a
-selected network does not change the controller's own relay settings. Connection
-route and RTT are local Link telemetry, separate from the Node event cursor.
-
-## Extension and presentation boundaries
-
-Official theme source lives in `sailry-themes`, pinned by the `themes/` Git
-submodule. Its generated `catalog.json` records manifest metadata and resource
-digests for discovery. Theme updates require strictly newer SemVer precedence;
-same-version changes and build metadata alone do not offer updates. Digests
-verify integrity. Numeric manifest and index formats remain at `1`. Desktop owns
-the reusable local theme loader, importer and renderer; repository theme sources are
-not embedded or installed automatically. Updating the source Gitlink does not
-change a user's selected or installed theme.
-
-The theme marketplace runs on the controller, including when a remote execution
-Node is selected. It reads the official website catalog and its captured source
-commit together, then acquires the strict manifest and its declared assets from
-GitHub at that commit. Catalog resource hints add integrity checks; cached metadata
-alone does not make an unavailable package installable. Installation uses the
-existing staged publication and rollback path, preserves manual imports, and
-records verified official provenance. Updating the active package refreshes its decoded images
-and colors without changing the selected appearance mode.
-
-The application lives in `sailry-harness`; official plugin source lives only in
-`sailry-plugins`. The `plugins/` Git submodule pins a reviewed plugin commit.
-Builds embed that snapshot as ordinary package assets for offline use. Startup
-adds missing selected defaults without resurrecting removed packages.
-Startup refreshes already installed bundled packages only when their shipped
-semantic version has strictly newer precedence, preserving enable choices and
-settings. New official packages start at `0.1.0`; changed package content increments
-the version, ordinarily its patch component. Same-version content changes, build
-metadata alone and older versions do not offer updates. Digests and captured Git
-commits remain immutable resource identities and installation integrity checks,
-not plugin update detectors. Standalone imported skills retain their repository
-commit update identity. This package policy does not declare a product release or
-change Sailry's v1 contracts.
-Removed packages and packages from other sources are not changed by this refresh.
-The online official marketplace reads the website catalog and its captured plugin
-repository commit together, then acquires package and skill resources from GitHub
-at the selected immutable commit.
-The execution Node shares its validated index across plugin and skill listings,
-source lookup and update checks for fifteen minutes. Explicit update checks and marketplace retries
-refresh it; only successful validation replaces the Node-lifetime cache.
-Unavailable networks leave the bundled snapshot installable. Invalid indexes are
-reported, not treated as an offline result. Official installation and updates
-capture immutable repository commits through Node's shared acquisition path.
-Preinstalled packages can update from the official repository without an app
-upgrade; update failures preserve installed packages and are reported honestly.
-Official skill entries come from actual package skill frontmatter, not a separate
-curated history. Older catalogs without a skill inventory use the real bundled
-inventory; those entries remain identified as bundled and resolve their public
-source through ordinary discovery before installation. Plugin listings choose an entire newer bundled entry over an older online version,
-including its actual installation source; metadata is never grafted onto an older
-remote package. Public skills.sh and Skillhub lists use Node-owned read-only pages,
-search and bounded caches keyed by source, query and page. Identical network reads
-share acquisition without serializing other keys. Signed registry details reuse
-verified immutable documents; installation independently verifies the archive.
-Verified registry imports project legacy metadata into the standard skill format
-and retain the original document as `SOURCE-SKILL.md` alongside their provenance.
-Web-hosted entries remain visible with their actual origin and
-directory link when no supported installation source is known. Skill details read
-real SKILL.md text from the resolved Git path, signed registry archive or shipped
-package; inspection neither installs the skill nor executes its instructions.
-Skills.sh single-character filtering is explicitly page-local; its
-search does not invent pagination. Community details validate real repository
-manifests rather than synthetic index documents. Confirmed external Codex or Claude
-Code packages can expose their actual metadata and immutable standalone skills;
-unsupported integrations and hooks are not executed. Invalid declared portable
-manifests still fail validation. Package category, icon
-tint and localized names are presentation metadata. Release notes are plain text
-for the exact package version; displayed access categories do not grant permission.
-
-Packages use the Agent Plugins manifest and Sailry's v1 extension contract.
-Node owns validation, immutable resources, grants, private KV, callbacks,
-tools and dispatch. Updates affect new admission; admitted work retains its
-captured package and settings revision.
-Installed, enabled model plugins are trusted to access their configured providers'
-messages and login credentials without separate permission checkboxes. Ordinary
-code updates retain that trust and existing accounts. Changes to the actual OAuth
-issuer, client, scopes or flow require the corresponding authorization; package,
-provider, preset and revision ownership and protected credential injection remain
-enforced. Historical approval records are retained as data.
-All packages own their pages, panels, dialogs, view state, workflows and model
-prompts. Search and language-service settings are packaged Kit scripts using the
-same captured Client commands for local and remote Nodes. Schema-only plugins
-use the shared configuration form. Core never selects a feature page by package
-name or a package-specific native renderer ID. It owns reusable execution,
-persistence, transport and protected credential services; native UI adapters
-cover documented Kit or platform gaps, without plugin business workflows.
-Package-owned conversation options use the same revision-checked configuration
-and immutable turn capture. Composer contributions select their own behavior;
-initializers receive only the owning package's captured option namespace.
-Retired expanded instructions remain private captured metadata conditioned on
-their exact available tools, without replacing frozen package resources.
-Controller settings actions require a declared settings surface and capability.
-Standard OS permission contributions use a separate declared capability scope and
-package-owned read-only check and explicit request callbacks; they do not require
-a settings page. Settings aggregates one row per permission type while retaining
-the execution device and authorization subject. Only missing subjects are requested,
-with shared onboarding grouped per explicit operation. Core registers permissions
-it actually uses; enabled plugin declarations supply additional subjects and are
-removed from the directory on disablement, uninstall or device switch.
-Agent calls retain their existing tool approvals. An optional `enabled_service`
-binds one installed package's switch to a Node service. The binding is exclusive,
-grants no capabilities, and keeps service shutdown atomic with enablement changes.
-Knowledge retrieval has no standalone package or conversation entry; feature
-plugins use its shared service.
-
-Headless JavaScript callbacks use a bounded Node-owned QuickJS runtime. Desktop
-entries use GPUI Kit script bindings and host-owned SDKs. Desktop and headless
-exports are distinct; see the [SDK contract](sdk/plugins.md). Sailry's SDK does not
-grant raw OS access. Desktop UI code is trusted code, not an OS sandbox.
-Finite tool flows may re-read and recompute a private storage transaction after
-the value owner confirms its key-CAS rejection committed no effects. Each attempt
-retains the captured invocation, rechecks authority and has its own durable
-request. Other failures and uncertain effects cannot authorize another step.
-Packages own reconciliation of changed business data; Node does not replay
-external tools or replace a failed operation with a success result.
-
-GPUI Kit owns standard controls, semantic themes, focus, keyboard behavior and
-overlays. Desktop owns product composition and small native adapters. Ghostty's
-terminal renderer is a custom rendering boundary; surrounding controls still use
-Kit. Flutter consumes shared Client state rather than another conversation state
-machine. UI preview data is isolated from execution and user profiles.
-
-Desktop Markdown charts use native Kit components; Mobile uses Flutter charts
-and a native Sankey painter. Mermaid diagrams and formulas share pinned local
-assets in a serialized controller-owned hidden WebView. Desktop renders validated
-SVG as GPUI images; Mobile renders formula SVG and bounded Mermaid PNG images to
-preserve diagram CSS and markers. Message rows contain no embedded WebViews.
-Prepared visuals follow source and theme changes; unsupported platforms and
-rendering failures retain the original selectable text. The Desktop native adapter
-supports macOS and Windows; Linux retains that source fallback.
-Raw HTML blocks keep their exact source. Desktop lays out common README markup
-natively from an allowlist-sanitized copy: alignment, headings, links, breaks and
-images, which use the surface's Markdown image resolution and network policy.
-Other blocks render an allowlist-sanitized copy in the same WebView with scripts
-and network loads blocked and return a validated PNG; there, only inline `data:`
-raster images display, and text and images remain when no picture is available.
-The document editor shows a visual block's source while the caret is in it.
-
-Browser element annotations retain the selected page, tab and controller view.
-The browser package owns annotation review, note drafts and submission feedback.
-Scoped native services run the in-page picker, validate the selection token and
-bounded capture, and crop the element from the viewport screenshot. A pick
-becomes a composer chip bound to that crop and a compact JSON context marked as
-untrusted page content; both stay hidden drafts that use the existing Client
-attachment upload. A review pick waits for the package's note first. At send,
-each present chip becomes attachment references sharing its label, and drafts of
-removed chips are not sent. Navigation or view changes cancel selection.
-
-Agent browser captures return bounded images as declared tool media, stored once
-per digest in canonical history and sent to vision-capable models; other models
-receive the existing placeholder and the capture's text facts. Script formatters
-never receive media bytes. A capture can target a selector, a read element or a
-viewport rectangle at CSS or device scale; the controller scrolls element targets
-into view, lets layout settle and crops the visible viewport. Linux controllers do
-not capture. Saving a worktree file is optional and confirmed per call. Node
-operation results with images return `sailry-image:<tool-call-id>/<index>`
-references for assistant Markdown. Client resolves them only against images in
-the same conversation for Desktop, Mobile and exports.
-
-The files package's `read_file` reads PNG, JPEG, GIF, WebP and BMP worktree files
-through the Node's confined image read and returns them as the same tool media.
-Files up to 5 MiB that providers accept pass through unchanged; larger sides,
-bitmaps and animations are downscaled to 1568 pixels and re-encoded. The source
-revision counts as a model-visible read, and models without vision receive the
-format, dimensions and size.
-
-System voice reading and global selection shortcuts remain controller-local.
-Selection insertion rechecks the captured Node, worktree and conversation before
-changing a draft; neither reading nor selection starts an Agent turn.
+- The pairing service exchanges a six-digit, 60-second code for an opaque
+  invitation ticket. Link authenticates the invited endpoint and persists trust.
+  The service is a short-lived trust boundary, not a business relay or account
+  system.
+- Paired peers reconnect without a new code. Established trust survives restart.
+- A separate iroh data relay carries encrypted traffic when a direct connection is
+  unavailable. Pairing-service and data-relay URLs are separate settings.
+- Relay settings belong to the execution Node and are changed by a
+  revision-checked durable command. Pairing on a selected network does not change
+  the controller's own relay settings.
+- Cloudflare and EdgeOne adapters share the ticket-exchange logic. See the
+  [service contract](services/pairing-relay/README.md).
 
 ## Deployment and operations
 
-Host metrics use one Node-owned sampler. Desktop observes them through Client.
-The Desktop sidebar requests CPU and memory only; the Host page requests detailed
-process, disk, network and GPU data. Both paths use the same authenticated command
-locally and remotely. Core and detailed sampling keep independent one-second
-refresh intervals in the same cache, so sidebar polling does not enumerate
-processes or reset detailed I/O measurement intervals.
+- Desktop bundles presentation and a local Node. Host deploys the same Node as a
+  headless process with a private profile and explicit network and pairing
+  options. Pairing is opt-in for Host.
+- Host archives are released independently of Desktop. The official installer
+  verifies tag-bound assets and starts systemd or launchd. Desktop's Add Host
+  command runs that installer over Node-owned SSH and pairs through a private
+  bootstrap ticket. It never uploads a bundled Host or overwrites a profile.
+- The `sailry` management command talks to the running Host over a profile-private,
+  owner-only Unix socket with a v1 control envelope. It never opens another Node or
+  persistence owner. `submit` and `wait` use ordinary Client commands and
+  subscriptions and never grant approvals. Usage is described in
+  [Host automation](CONTRIBUTING.md#host-automation).
+- Host metrics use one Node-owned sampler, read through the same authenticated
+  command locally and remotely.
+- Desktop finds updates through GitHub Releases and verifies a signed `update-v1`
+  catalog and the archive signature. Stable takes final versions only; the
+  experience channel also takes prereleases. Release packaging is described in
+  [CONTRIBUTING.md](CONTRIBUTING.md#release-packages).
+- Shutdown cancels invitations and releases runtime resources through the Node
+  lifecycle. A disconnected client is not a shutdown signal. Restore reads durable
+  facts and never silently reruns interrupted side effects.
+- Notifications (plugin notices, maintenance failures, session and terminal
+  outcomes) live in one Node-owned store that Client reduces the same way locally
+  and remotely.
 
-Desktop bundles presentation and a local Node. Host deploys the same Node as a
-headless process, using a private profile and explicit network/pairing options.
-Only one process may own that profile. Pairing is opt-in for Host; established
-peer trust survives restart. Host release archives are independent from Desktop;
-the official installer verifies tag-bound assets and starts systemd or launchd.
-Ordinary branch pushes and pull requests do not start Checks. A version workflow
-validates an exact product tag against trusted main history and requires a
-completed full Checks run for that exact SHA before publication. It reuses a
-verified full result or explicitly dispatches Checks on the tag and waits within
-the existing five-hour limit. Missing, failed, cancelled or incomplete checks do
-not permit publication. Manual Checks remain available for diagnosis without
-publishing. After rechecking the tag, the version workflow generates its notes,
-publishes the version release and dispatches Desktop, Host, Mobile and changelog
-workflows independently. Each product retains its readiness gate at its exact
-source in main or selected-tag Checks, including strict lint and shared Node
-checks, before building distribution packages. Product packaging can finish
-independently. A newly published release can initially contain only notes after
-full Checks have passed; its packages appear as each product finishes.
-Desktop appends explicitly named ad-hoc macOS arm64 and x64 packages, then starts
-formal signing from its preserved native artifacts. Formal signing adds signed
-and notarized canonical packages and publishes the release's signed
-`update-v1.json` catalog only after the complete signed set is available. Apple
-signing failures leave the initial public packages available. Desktop separately
-appends an unsigned portable Windows x64 archive, a per-user installer of the same
-bundle and their checksums after the same gate; both are outside the update catalog. Host appends macOS
-and Linux arm64 and x64 archives independently of Desktop. Published tags and
-existing asset bytes are preserved; release immutability remains disabled while
-these assets are appended. Host installation is available once its assets appear.
-Mobile appends signed Android APKs and iOS IPAs with their source metadata and
-checksums to the same tagged release. Manual Mobile dispatch can instead select
-an already checked product commit independently of pinned workflow tooling and
-retain only Actions artifacts; metadata records both revisions. Tagged builds
-always use their exact source. Mobile can upload iOS builds to App Store Connect
-for TestFlight; manual dispatch can select a platform and preserve the IPA without
-uploading. Apple processing, export compliance and tester-group access remain
-App Store Connect steps.
-The release-only `sailry-release` tool owns Desktop archive and catalog signing;
-it is not linked into Desktop, Host or Node. Desktop discovers published releases
-through GitHub's API and selects the highest compatible SemVer in its channel
-with complete formal assets and a signed catalog. Stable excludes SemVer prereleases;
-experience includes stable and prerelease versions. Desktop verifies the exact
-v1 catalog payload, version and tag-bound archive URL, then the archive's
-filename-bound signature. Ad-hoc packages are not automatic update candidates.
-Desktop's Add Host command invokes that installer through Node-owned SSH, then
-pairs through a private bootstrap ticket. It never uploads a bundled Host or
-overwrites an existing profile. Desktop still includes its own local Node.
-Office inspection uses Rust. Desktop previews original Office files and PDFs
-offline in its sidebar WebView; it does not require conversion or provide a native
-PDF export command. Document skills use the execution Node's bundled Python and
-prepared plugin environments through ordinary command permissions.
-Document attachment reads use the executing conversation's visible history,
-including completed, failed, cancelled and interrupted turns with no pending
-execution.
-Queued, running or stopping inputs in other turns are excluded, even if their
-admission happened earlier. Fork and rewind membership remains authoritative.
-Model execution uses the Node's Rig adapter for supported provider
-types, including OpenAI Responses and Chat, Anthropic, Google, Azure Foundry and
-OpenAI-compatible endpoints. Existing endpoint and credential configuration
-retains its Node owner. Provider capabilities follow the pinned Rig implementation
-and Node's model adapters; provider-hosted web search is not enabled, while
-declared ordinary search tools remain available. The model event stream does not publish generated inline image
-parts. Canonical image assets and configured media tools retain their supported
-Node service routes. Responses image generation uses the Node's captured request
-authorization and policy for API-key and supported account-authorized routes.
-A bounded JSON/SSE media adapter requires a completed image result before publishing
-the validated PNG through the existing file service. Only a definite initial
-capability rejection permits the captured fallback; an uncertain submitted request
-is not replayed. Provider diagnostics are bounded and credential-redacted.
-HTTP clients use the shared ring TLS provider.
+## Security constraints
 
-The `sailry` management command controls the installed service. Sharing uses a
-profile-private Unix socket to request an invitation from the running Host; the
-management process does not open another Node or persistence owner. The socket
-uses a v1 control envelope and owner-only access. Disconnecting the sharing
-command cancels that invitation without revoking already established peer trust.
-The `submit` and `wait` subcommands use that socket to reach the same Node through
-Client commands and conversation subscriptions. New tasks use atomic session and
-first-turn admission; existing sessions use revision-checked turn admission.
-Request IDs retain the Node's durable replay identity. Management output reports
-canonical turn status and pending approvals or questions as JSON. Disconnect,
-timeout and observation cancellation leave admitted execution running, and task
-management never grants approval or creates another Node or history writer.
-The lower-level macOS launchd helper still only generates a service definition.
-Service lifecycle and local verification are also documented in the
-[pairing guide](services/pairing-relay/README.md#run-and-verify).
-
-Shutdown cancels invitations and releases shared runtime resources through Node's
-lifecycle. A disconnected client is not a shutdown signal. Restore reads durable
-facts; it does not silently rerun interrupted side effects. Protected profiles,
-credentials and local logs are not distributable source.
-
-Before the first product release, Sailry protocol, wire, storage and extension
-contracts remain v1 and change in place. Startup adds missing schema objects and
-fills missing storage fields with their defaults. Updates remain centralized and
-simple, with no historical state inference or versioned migration framework. Each
-update is validated on an isolated snapshot, backed up privately and applied with
-current-format validation in one transaction. The backup retains original records.
-The development baseline rebuild for databases without a storage generation
-uses the separate reset path described above; validation failures
-never authorize rebuilding a current database. Normal startup validates current
-configuration and records used by recovery, including the latest saved session
-order. Immutable historical captures, receipts and history are validated when their
-authoritative readers load them; unrelated archive damage therefore fails that
-read instead of blocking startup. Upgrades and backup acceptance still validate
-the complete stored data before applying changes. Runtime readers accept the current
-Sailry record format, and the private backup retains original bytes.
-Third-party dependency versions, ordinary
-data revisions and event sequences are independent. Release compatibility remains
-a separate decision.
-
-Core Settings owns connector, plugin, standalone skill and appearance management.
-The native Market provides discovery, search, details, installation and available
-package updates. Marketplace information uses the existing side pane for plugins,
-skills and themes; Appearance retains its theme dialog. Plugin configuration opens
-from core management actions and follows its declared settings surface. Declared
-settings pages join the Settings menu at their declared group and order, including
-pages rendered by the shared schema form. Configuration actions select the same
-menu entry and retained page owner. Other configurable plugins use the
-shared schema form dialog, with the Node and package captured when opened. MCP authorization is available
-from connection cards and plugin details.
-Plugins without configuration fields or a settings surface have no configuration action.
-Scripted settings pages preload up to four validated resource bundles per captured
-Node, warming on settings entry. Preloading never executes
-scripts or reads configuration values. Workspace and scripted settings navigation
-retain Kit's actual `ScriptView` and `ShellRoot` entities under their scoped owners.
-First use loads a page; later selections display the same instance and run its
-normal entry refresh without discarding drafts or briefly unmounting the page.
-Hidden pages pause visibility-bound work. Git and provider-status views refresh
-from visibility and relevant change events, coalesce in-flight reads and pause
-while hidden. This uses GPUI's retained ownership, not a separate KeepAlive,
-render-description cache or expiry policy.
-Leaving the settings area releases prepared resources, not mounted page owners.
-Prepared resources remain bounded, and package/settings revisions, removal,
-invalid scopes and Node changes invalidate the relevant runtime. Window close
-releases all page owners; already admitted Node tasks remain Node-owned.
-
-Conversation export reads canonical history through Client. Per-reply actions select
-one turn's user message and final reply; session exports include all user messages
-and final replies.
-Tool activity, reasoning and diagnostics are excluded. Markdown retains source syntax;
-HTML prerenders formulas, diagrams and charts as inline static SVG and embeds
-attachments in one scriptless file. Desktop's existing native WebView boundary
-renders static HTML and bounded PNG tiles on macOS and Windows. Export captures
-Node/session identity, supports cancellation and preserves changed destination files.
-HTML and images include Sailry branding and the static website QR code.
-
-The execution Node persists plugin notices, context-maintenance failures, and
-session or terminal completion outcomes in one notification store. System notices
-are committed with their source transition; diagnostics reference canonical event
-and turn identities and contain safe classifications, not model content or provider
-response bodies. Client reduces the same ordered notification events for local and
-remote connections. Read and delete-read commands target each notice's execution
-Node and do not change the underlying session, task, or terminal. Desktop exposes
-durable history through the bell popover's notification-center entry, with optional
-typed details and source navigation. Live approval and input reminders retain their
-existing transient attention behavior in the popover.
-
-## Security and quality constraints
-
-Authenticated Node/resource access, path confinement, Node-owned credentials,
-revision checks and honest uncertain outcomes are the primary boundaries.
-Destructive actions identify their target and consequence. Imported sources and
-resources retain their licenses; the root Apache-2.0 license does not replace those
-notices. Native OS permissions remain platform responsibilities.
-
-Changed shared behavior requires domain evidence through the paired remote client;
-a change to the command or subscription boundary itself also needs the transport
-contract suite, which runs each contract through both clients. Local-only behavior
-keeps the local client. UI interaction, native OS acceptance, real-service
-integration and performance are separate results. Isolated fixtures never mutate
-user profiles. Build success is not device or whole-product acceptance; local
-pairing fixtures and bundling do not prove cloud deployment. Test conventions are in [CONTRIBUTING.md](CONTRIBUTING.md).
+- The primary boundaries are authenticated Node and resource access, path
+  confinement, Node-owned credentials, revision checks and honest reporting of
+  uncertain outcomes.
+- Destructive actions name their target and consequence.
+- Public web reads reject private addresses. Preview HTML and browser content are
+  untrusted.
+- Native OS permissions remain the platform's responsibility.
+- Protected profiles, credentials and local logs are not distributable source.
+- Imported sources and resources keep their licenses. The root Apache-2.0 license
+  does not replace those notices.

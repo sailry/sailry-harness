@@ -1,135 +1,102 @@
 # Sailry engineering rules
 
-## New-session bootstrap
+Read [ARCHITECTURE.md](ARCHITECTURE.md) before changing code. Build, test, CI and
+release procedures are in [CONTRIBUTING.md](CONTRIBUTING.md); package rules are in
+[`plugins/AGENTS.md`](plugins/AGENTS.md) and [`themes/AGENTS.md`](themes/AGENTS.md).
 
-- This file is the entry point for a new AI session. Read `ARCHITECTURE.md` before changing code.
-- Start by running `git status --short` and `git log --oneline -5`. Git commits and verified test output are the delivery authority; prior chat claims are not.
-- Determine the active task from the user's latest instructions, committed implementation, and verified results.
-- Preserve every pre-existing uncommitted file until its ownership and purpose are understood; audit it rather than treating it as generated output or delivered work.
-- External reference worktrees are read-only unless the user explicitly authorizes changes. Use reviewed, committed source as the reference; never import mixed working-tree experiments wholesale.
-- When current library APIs are needed, follow the repository's Context7 instructions and verify examples against the exact pinned dependency revision.
+## Scope
 
-## Agent delegation
+- Finish the authorized task against its acceptance criteria. Do unlisted work only
+  as a demonstrated prerequisite or blocking defect; optional improvements,
+  speculative hardening and later-phase work are not completion gates.
+- Follow the current architecture and accepted UI. A refactor does not authorize
+  deleting existing functions. Update docs only when requested or required by a
+  behavior change; internal plans and reports are not source.
 
-- The primary agent coordinates, delegates, and integrates work, and runs consolidated runtime tests.
-- Parallelize independent tasks with disjoint file ownership. Use isolated worktrees when changes conflict.
-- Review and audit subagents use `gpt-6-astra` with `xhigh` reasoning.
-- Development and execution subagents inherit the primary agent's current model.
-- Implementation subagents perform only static checks and self-review.
-- Before a push or PR, the primary agent runs `just ci pre-push` and reuses its passing result while those inputs are unchanged. For prose-only diffs, the source checks that lane already selects are sufficient. Subagents keep to static checks; nobody runs a standalone build or Clippy after tests.
+## Git and workspace
 
-## Scope and sequence
+- Check `git status` first. Preserve uncommitted files you do not own, stage only
+  your own, and commit locally unless a push or PR is requested. Keep commits
+  reviewable. External reference worktrees are read-only unless authorized.
+- All local Rust builds share the root `target` directory (other worktrees set
+  `CARGO_TARGET_DIR`). Run one Cargo process at a time, never create per-task target
+  directories, and keep SDK, `PKG_CONFIG_PATH`, target and Rust flags stable.
+- Reuse fixed-purpose `.runtime` directories and worktree paths, without run IDs,
+  timestamps or UUIDs. Clear an invalid cache only after stopping its owner and
+  inspecting it; cleanup never touches plugin or theme repositories, source
+  worktrees, user profiles or unrelated source.
 
-- Before implementation, map the change to the user's authorized task. Complete that task against its stated acceptance criteria. Instructions to continue or finish all tasks preserve this scope. Unlisted work must be a demonstrated prerequisite or blocking defect for the active task; optional improvements, speculative hardening, historical discoveries, and later-phase work must not become new completion gates.
-- Usage statistics cover only Sailry's own sessions, including shared Client aggregation across Sailry Nodes. An installed, enabled model plugin may separately display its current provider's account status through declared scoped read requests using that provider's authorization. Keep this status separate from session usage statistics; do not collect third-party tool histories (such as Codex or Claude Code) or analyze third-party billing data.
+## Validation
 
-- Maintain the new product in this repository. Do not depend on a separately maintained Sailry Platform repository.
-- Official theme packages and their generated catalog belong in the independent `sailry-themes` repository pinned by `themes/`; follow its `AGENTS.md`. Keep reusable theme loading, validation, installation and rendering in the application. Commit package changes separately and publish referenced theme commits before parent Gitlinks.
-- Desktop uses `gpui-kit`; Agent execution uses Sailry's Node-owned loop with `rig-core` for provider transport. Do not introduce another desktop stack or Agent engine without an explicitly authorized architecture change.
-- Host is a long-running headless service that Desktop and Mobile connect to, not an interactive CLI Agent. Its command-line entry starts/configures the service; conversations, Agent tasks, and development tools are controlled through the shared protocol, without a separate prompt loop or TUI.
-- Preview data must be clearly identified and must not trigger models, tools, network pairing, terminals, or user-data mutations.
-- Mobile is a Flutter controller. Preserve its Rust dependency boundary; a desktop-only Rust client test is not mobile acceptance. Do not expand an authorized desktop task into Mobile product work.
-- Features use the same local and remote command/subscription boundary. Changed shared behavior needs domain evidence through the paired remote client; a change to the command/subscription boundary itself also needs coverage in the transport contract suite, which runs each contract through both clients. Local-only behavior keeps the local client, pairing and Link behavior keep the remote client, and only intentionally different behavior runs on both.
-- Inspect and reuse suitable committed source and tests when migrating behavior. Normalize ownership and naming, remove redundant adapters, and preserve provenance. Do not assume every component needs rewriting or can be imported unchanged.
-- Follow the current architecture and accepted UI. Public architecture belongs in root `ARCHITECTURE.md`; coding and test conventions belong here and in `CONTRIBUTING.md`. Public user guides belong in the explicitly tracked `docs/` files; internal plans and reports are not public source. Update documentation only when requested or required by an authorized behavior change.
+- Choose checks from the change and its dependency boundaries, following the
+  [test conventions](CONTRIBUTING.md#test-conventions). Reuse passing results until
+  relevant code, dependencies, configuration or environment change.
+- Diagnose failures and verify fixes; never weaken assertions or report unverified
+  behavior as complete. Run `just ci pre-push` once before a push or PR; prose-only
+  changes need diff review, not product builds.
 
-## Stage delivery
+## Language and product copy
 
-- Use an existing task as the delivery unit. Complete its cohesive implementation before final validation; do not create a separate build/test cycle for each field, helper, or small UI change. Keep commits reviewable without fragmenting acceptance.
-- Once the task's stated acceptance criteria and relevant checks pass, self-review, commit, and advance to the next authorized task. Do not add completion gates or reopen finished work without a concrete change, failure, or evidence gap. Report the commit hash and actual verification results to the user.
-- Choose validation from the actual change and affected behavior or dependency boundaries. Reuse existing tests and fixtures; add coverage for changed behavior or a demonstrated defect. Broaden beyond the relevant checks only for a concrete uncovered risk or failure. A stage boundary alone does not require workspace-wide tests, all-target builds, or every Mobile contract. Preserve relevant logic, protocol, remote service-integration and transport-contract coverage. Changes limited to prose instructions need diff review, not product builds or tests.
-- Reuse passing results while the code and validation inputs relevant to those results remain unchanged. Rerun after an affected implementation, dependency, configuration, or environment change, a relevant failure, or evidence invalidating the earlier result. Diagnose failed checks and verify the correction; do not weaken assertions or mark unverified behavior complete to reduce testing. CI retries a failed integration test once and reports a retry pass as flaky; diagnose that test rather than treating the retry as a fix.
-- Keep feature-stage commits small enough to review; never leave an entire reconstruction as an uncommitted working tree.
-- A compile pass, model response, or mocked transport test proves only its own scope. Do not report full integration or performance acceptance from narrower evidence.
-- Stage only files owned by the current task. Preserve unrelated changes. Commit locally unless the user explicitly requests a push or PR.
-- Share the repository's root `target` directory for local Rust builds and tests, including builds from reference worktrees. Coordinate one Cargo owner across the shared cache; do not create per-task target directories or run competing Cargo processes. Use Cargo's standard target-triple subdirectories for other platforms. Keep SDK, `PKG_CONFIG_PATH`, target and Rust flags stable, and preserve an explicitly selected `CARGO_TARGET_DIR` consistently across commands. Development profiles disable incremental state while reusing normal dependency and build caches.
-- Reuse fixed-purpose `.runtime` directories and worktree paths. Do not create a fresh run ID, timestamp or UUID directory for each iteration of the same purpose. If a reusable cache is invalid, stop its owner, inspect its contents and then clear and regenerate only that cache. Never include plugin or theme repositories, source worktrees, active resources, user profiles or unrelated source in cleanup.
-- Reconcile the active task with committed implementation and verified results when resuming. Keep delivery evidence in tests and Git; do not append reports, test transcripts, or commit ledgers to docs.
+- Source, identifiers, comments, logs, diagnostics, developer errors and public
+  docs are English. Other languages live only in i18n resources under stable keys,
+  or in fixtures that test Unicode.
+- Copy is minimal: short labels, direct actions ("Save", "Retry"), consistent terms,
+  no filler, no terminal punctuation on short UI text, open prompts ("Describe your
+  task").
+- Operation success and failure appear only as toasts, never repeated in pages or
+  dialogs and never replacing content or drafts. Toasts still distinguish failure,
+  conflict and uncertain outcomes. Destructive and consent prompts name the target
+  and consequence once.
 
-## Code and dependency boundaries
+## GPUI Kit
 
-- New Sailry-owned plugin packages start at `0.1.0`. Increase the semantic version when package content changes; ordinary updates increment the patch version. Bundled refresh and update checks require strictly newer SemVer precedence, not content differences. Same-version changes, build metadata alone and older versions do not offer an update. Immutable digests and captured Git commits still verify installation integrity and identify frozen resources. Preserve installed configuration, enable choices, removed records and historical captures. This package policy does not declare a product release or change the v1 contract policy. Plugin repository rules are in `plugins/AGENTS.md`.
-- Before the first product release, all Sailry-owned protocol, wire, schema, storage-format, and extension-contract versions stay at `v1` (numeric fields use `1`). Change the current definition in place; do not increment versions per feature or add legacy wire branches or fallback decoders. Keep third-party dependency versions and ordinary data revisions, event sequences, and request IDs unchanged. Startup adds missing schema objects and fills missing storage fields with their defaults. Keep upgrades simple and centralized; do not infer historical states or introduce a versioned migration framework. Validate updates on an isolated snapshot, save a private backup before writing, and apply updates and current-format validation in one transaction. Preserve current-format sessions, configuration, credentials and sent-turn captures. Explicitly recognized pre-GDK Node storage is backed up in full and rebuilt as an empty current database, with its private backup path logged; do not convert its old records. Never reset storage because of an arbitrary validation failure or delete its backup. Invalid current-format changes must fail without applying an upgrade. Cover upgrades and rollback with isolated profiles and remote-path evidence. Introduce release compatibility only after an explicit product release decision.
-- Write all source code, identifiers, comments, doc comments, test names, logs, diagnostics, developer-facing errors and public documentation in English. Chinese or other product-visible languages must exist only in i18n resources and be referenced by stable localization keys.
-- Let crate, module, type, `impl`, and test-module scopes provide context. Keep function, type, trait, variable, and test names concise and precise; do not repeat the full module/type/path in a name or create sentence-length identifiers. Avoid obscure abbreviations and one-letter names except conventional iterators or coordinates.
-- Group tests by the unit or behavior under test so individual test names describe only the distinguishing behavior. Prefer `mod panel_visibility { fn preserves_manual_choice() }` over a single globally overqualified test name.
-- The naming check rejects repeated owning-scope prefixes and allows at most seven semantic words in function identifiers and twelve in string-based test labels. Acronyms count as one word; required Python `test_` prefixes do not count. Files and modules supply context for free functions and tests; methods use their type's actual namespace, including when an `impl` spans multiple files. Do not add a test group solely to shorten names. Shorten names without truncating them or discarding the distinguishing behavior. Generated bindings and third-party source are excluded; passing the check does not replace semantic naming review.
-- Follow the mandatory GPUI Kit reuse rules below; product layout requirements do not authorize replacing framework controls or its design system.
-- Use GPUI Kit's re-exported GPUI; do not independently select a conflicting GPUI revision.
-- Keep presentation code out of Protocol, Link, Client, and Node Runtime. Client owns UI-independent event reduction, ordering, deduplication, and snapshot recovery; GPUI and Flutter own layout, focus, drafts, selection, and expansion. Do not implement separate conversation state machines in each UI.
-- Desktop and Host use the same Node bootstrap and shutdown implementation. One data profile has one running Node owner and one Link identity/endpoint; local Client access reuses them rather than starting a second runtime. Mobile carries only Client/Link and a thin FFI adapter, not Node, Agent execution, model-provider transport, PTY, Git execution, database-tool drivers, or GPUI. Client-side identity and cache storage are allowed; they are not another business database.
-- The execution Node owns effective session configuration and immutable sent-turn revisions. Another client resumes that configuration; controller defaults apply to new sessions, and changing an existing session requires an explicit revision-checked command. Store configuration and credentials directly as plaintext in the execution Node's existing configuration storage. Do not introduce encrypted vaults or OS keychain storage unless the user explicitly requests them. Keep credentials out of public events, logs, UI caches and committed source.
-- Node owns the Agent loop in `agent/engine`, including operation ordering, tools, cancellation, compaction and effects. Provider requests and events use Sailry-owned types in `agent/model`; Rig types stay inside `agent/model/rig`. Use `rig-core` only for provider transport, without `rig-agent` or GDK dependencies. One authoritative canonical history writer persists effects; session loading and UI projections are read-only derivatives, not another runner or history writer. Retained Goose-derived source keeps its original attribution and Apache-2.0 notices.
-- A durable command must reach durable Node admission before Link acknowledges safe receipt. Keep transport receipt distinct from business completion; reuse stable request IDs and report uncertain side effects without automatic replay. Do not add a second durable inbox by default.
-- Desktop does not use Flutter Rust Bridge. The Mobile bridge only adapts shared Rust client contracts, handles and async subscriptions; it must not copy business rules or become another persistence layer.
-- Keep feature modules inside their owning crate. Create another crate only for a demonstrated dependency, binary, platform, compile-time, or testing boundary.
-- Pin external dependencies and commit applicable lockfiles. The exact `rig-core` version belongs in the root Cargo workspace and Cargo.lock, not absolute developer-machine paths. Review provider behavior and update provenance when changing that pin.
-- Do not add a JavaScript runtime merely because the UI framework offers scripting. The application Shell layout is unrelated to enabling `gpui-shell`.
+- Check the pinned Kit components first and use one whenever it fits, with Kit's
+  re-exported GPUI, semantic theme and sizing APIs, and one application theme. No
+  page-local palettes, one-to-one wrappers or copied framework internals.
+- Custom rendering needs a verified framework gap, explained and recorded with the
+  code (for example the Ghostty terminal renderer).
+- Right-click menus are OS-native; left-click menus use Kit menus or popovers.
+- Approved layouts are the baseline: connect functionality without restyling them.
 
-## File organization and design
+## Code organization
 
-- Organize code by feature and cohesive responsibility. Do not accumulate independent components, classes, types, handlers, and services in one file. Keep application entry points and Shell composition thin; do not turn `main.rs`, `shell.rs`, or `pages.rs` into catch-all implementations.
-- Extract substantial components and independently changing responsibilities into focused modules within their owning crate. Keep small, tightly related types and private helpers together; do not enforce one file per type/function or split solely to meet an arbitrary line limit.
-- Follow the architecture's ownership boundaries when splitting files: UI composition and presentation state stay in UI modules; execution, persistence, and transport stay with their respective backend owners. Moving mixed responsibilities into several files does not by itself fix the boundary.
-- Prefer composition, explicit dependencies, and small interfaces over inheritance hierarchies or global mutable access. Modules expose only what consumers need and must not introduce circular dependencies or duplicate state ownership.
-- Use design patterns to solve demonstrated problems: adapters at external or platform boundaries, strategies for genuinely interchangeable behavior, and explicit state transitions for complex lifecycles. Reuse the existing owner and framework mechanisms; do not create parallel state machines or require a pattern for every component.
-- Avoid speculative base classes, one-to-one wrappers, pass-through service layers, generic utility dumping grounds, and traits or factories without a concrete substitution or testing need. Choose the simplest structure that keeps responsibilities clear and changes testable.
-- Keep focused tests near the behavior they cover; move large test suites and fixtures into dedicated test modules. During review, check file cohesion, dependency direction, interface size, and duplicated logic. Refactor affected responsibilities with behavior-preserving tests, without expanding into unrelated rewrites.
+- Organize by feature inside the owning crate; keep `main.rs`, `shell.rs` and
+  `pages.rs` thin. Prefer composition and small interfaces over speculative base
+  types, pass-through layers or traits without a concrete need. Keep names concise
+  and let scopes supply context ([limits](CONTRIBUTING.md#test-conventions)). Add a
+  platform adapter only for a verified gap.
 
-## Practical safety and portability
+## Dependencies and versions
 
-- Prefer standard-library and maintained cross-platform crate APIs for paths, files, directories, and other OS resources. Keep business workflows shared across platforms; add a small platform adapter only for a verified dependency gap, never duplicate an entire feature for Unix and Windows.
-- Keep safeguards proportional to concrete risks: authenticated resource access, path confinement, credential protection, ordinary revision-conflict detection, and confirmation for destructive actions. Do not add redundant approvals, speculative permission systems, or repeated confirmations to already authorized operations.
-- Do not make optional hardening or platform-specific atomic exchange/rollback a prerequisite for ordinary editing and saving. Use a shared library-backed save path, preserve drafts on failure, and report actual conflicts or uncertain outcomes; do not claim database-style isolation from uncooperative external writers.
-- Simplification must preserve necessary access boundaries and honest failure reporting. Missing platform integration is an implementation task, not an invented security restriction; distinguish library support, compilation, and actual platform acceptance.
-- Literal non-English text is allowed in fixtures specifically testing Unicode paths, input, or content. Keep test names, comments, diagnostics, and developer-facing messages in English; do not obscure intentional language fixtures with Unicode escapes.
+- Pin external dependencies and commit lockfiles. The exact `rig-core` version lives
+  in the root workspace and `Cargo.lock`. No other desktop stack, Agent engine or
+  JavaScript runtime without an authorized architecture change.
+- Sailry-owned contracts stay at `v1` and change in place until the first release
+  ([details](ARCHITECTURE.md#contract-and-storage-versions)).
+- New Sailry plugin packages start at `0.1.0`. Changed content bumps the SemVer,
+  usually the patch. Updates need strictly newer precedence; same-version changes,
+  build metadata and older versions never offer one. Preserve installed
+  configuration, enable choices and removed records.
 
-## Open-ended texting: minimal product copy
+## Product boundaries
 
-- Apply this rule to all application-authored, user-visible text: navigation, titles, buttons, menus, placeholders, tooltips, empty states, notifications, status, errors, and confirmations, including plugin-contributed UI. Keep copy concise, natural, and open-ended.
-- Say only what the user needs at that moment. Prefer a short label or one clear sentence; remove filler, repeated context, obvious instructions, promotional language, and implementation explanations. Do not add descriptions or tooltips that merely repeat the label.
-- Name actions directly, such as "Save", "Connect", or "Retry". Use consistent terms for the same action or resource. Omit terminal punctuation from short UI copy by default, including titles, labels, buttons, prompts, tooltips, and status text. Retain necessary punctuation between sentences in multi-sentence explanations and within meaningful syntax; do not alter code, paths, or user-authored content. Avoid arbitrary character limits that damage clarity or localization.
-- Keep task prompts open to the user's intent. Use invitations such as "Describe your task" rather than prescribing a workflow, assuming a task, or listing every available capability. Specific forms should still name the information they require.
-- Report status and outcomes plainly. Errors should state what happened and, when useful, one next action. Preserve essential distinctions such as unsaved changes, conflicts, unavailable features, and uncertain outcomes; brevity must not conceal risk or imply success.
-- Use toast notifications as the only presentation for application-authored operation success and failure feedback, including validation, connection tests, queries, saves, and plugin actions. Do not repeat these messages in page bodies, panels, forms, or dialogs, and do not replace existing content or discard drafts with an outcome message. Keep necessary loading state, retry controls, and consent or destructive-action confirmations; a toast must still distinguish failure, conflict, and uncertain outcomes honestly.
-- For destructive actions or required consent, identify the target and consequence briefly. Keep necessary warnings, choices, and recovery information; do not add repeated confirmations or long defensive disclaimers.
-- Put optional explanation and technical diagnostics behind an appropriate help or details entry when needed. Keep accessible names meaningful. Do not shorten user content, code, raw tool output, or requested Agent answers merely to satisfy UI-copy brevity.
-- Keep product copy in i18n resources with stable keys, and preserve meaning across locales. Review new and touched copy with each feature; do not restyle approved layouts or perform unrelated bulk rewrites to enforce this rule.
+- Preview data is clearly identified and never triggers models, tools, pairing,
+  terminals or user-data changes.
+- Mobile is a Flutter controller with only Client, Link and a thin FFI adapter. A
+  desktop-only Rust test is not Mobile acceptance; desktop tasks do not expand into
+  Mobile work.
+- Usage statistics cover only Sailry's own sessions. An enabled model plugin may
+  show its provider's account status separately. Never collect third-party tool
+  histories or analyze third-party billing.
+- Plugins own their UI and workflows; core provides scoped services
+  ([details](ARCHITECTURE.md#extensions-and-plugins)).
 
-## Plugin ownership boundaries
+## Safety
 
-- A plugin owns its pages, panels, dialogs, view state, feature workflows, tool orchestration, and product-specific validation. Keep these implementations in that plugin's package, including bundled plugins. Contributing navigation metadata while rendering the feature in Desktop does not satisfy this boundary.
-- Core provides reusable, scoped services through Protocol, Client, and the public plugin SDK. Process execution, LSP transport and package installation, persistence, search drivers, credentials, permissions, and durable admission remain service responsibilities. Plugins decide when and how to compose those services; core must not implement a plugin's workflow behind a package-specific adapter.
-- Do not dispatch plugin UI or behavior by a bundled package name, or add native settings renderer selectors for individual plugins. Express shared lifecycle bindings through validated declarations and enforce them in the existing host owner. Defaults and package installation inventories may identify packages; they must not carry feature logic.
-- Installing and enabling a model plugin trusts it to access messages and login credentials for its configured providers without separate permission checkboxes. Ordinary package updates preserve that trust and existing accounts; a changed OAuth issuer, client, scopes or flow still requires the corresponding authorization. Preserve exact package, provider, preset and revision ownership and protected credential injection.
-- Reuse Kit controls and the common schema configuration form. Native bridges are limited to reusable platform or framework gaps, such as terminal rendering, editor integration, and protected credential inputs. Keep them free of plugin-specific page composition and document the verified gap.
-- Review every affected package's entry points, settings, tools, state, and lifecycle together with its core call sites. A migration must remove the old core implementation, preserve the accepted interactions and data, and verify the service through the remote path. Adding an SDK facade around a core-owned feature page is not a migration.
-
-## Mandatory GPUI Kit reuse
-
-- Preserve the approved Sailry information architecture and three-column layout. Compose that layout with GPUI Kit components; do not reproduce the old Flutter widget implementation or its separate styling system.
-- Before implementing a control or interaction, inspect the selected GPUI Kit version's components, documentation, and examples. Use an existing supported component whenever it meets the requirement, including navigation, headers, buttons, inputs, tabs, lists, trees, tables, resizable panels, dialogs, menus, tooltips, and command/search overlays.
-- Reuse the framework's semantic theme and sizing APIs for colors, typography, borders, radii, spacing, and hover/focus/disabled/selected states wherever available. Use one application theme configuration; do not create page-local palettes or a parallel token system. Product-specific column widths and layout constraints may use named application constants where the framework has no corresponding token.
-- Keep framework focus, keyboard, accessibility, overlay, and theme-switching behavior intact. Do not substitute hand-painted lookalikes or static mock controls for available interactive components.
-- Application-owned UI modules contain business composition and small necessary adapters, not one-to-one wrappers around every Kit component, copied framework internals, or another generic UI library.
-- Custom rendering or controls require a verified framework gap. Explain the gap to the user and record the reason with the implementation before adding it. The planned Ghostty terminal renderer is such a boundary; ordinary controls around it still use Kit.
-- Review component and theme reuse when changing UI composition. Visual similarity alone is not evidence that the framework components were reused.
-
-## Functional parity and verification
-
-- Deliver the whole product through the authorized tasks, not just the UI preview. Track UI implementation, real service integration, remote-path verification, and affected transport contracts separately; mark a task complete only with evidence for its stated scope.
-- Use the committed old Code Flutter implementation as the reference for existing entry points, resource ownership, actions, and conversation behavior. Restore missing functions through Kit composition, not copied Flutter styling. Record the source revision and any verified framework gap with the affected feature.
-- Preserve host -> project -> worktree -> session/terminal ownership even when the worktree layer is hidden in navigation. An architecture refactor does not authorize deleting existing functions.
-- Manual controller file workflows may access `.sailry/worktrees` descendants through the existing authenticated registered-root services. Agent and headless file operations and discovery remain confined to their own checkout; manual access never bypasses Git metadata, managed checkout root, Node-storage, revision or native permission protections.
-- Treat user-approved visual components and layouts as the baseline. Connect functionality to those components without restyling them. Functional additions may require local layout adjustments; explain the reason and cover affected logic and service contracts. Do not redesign unrelated surfaces.
-- All right-click menus must use OS-native context menus; left-click menus must use Kit menus/popovers. Verify platform support rather than presenting a toolkit fallback as OS-native behavior.
-- Use simulated-window, rendered-layout, mouse or keyboard interaction checks only as temporary development and debugging aids. Remove them after debugging; do not retain them as committed permanent tests or include them in CI, release or other standardized validation. Do not turn temporary checks into completion gates. Framework control interactions belong to GPUI Kit; application checks focus on Sailry's own behavior.
-- Preserve static checks and ordinary logic, protocol, persistence, remote service-integration and transport-contract tests, including controller behavior that can be verified without a simulated window. Development-time interaction review is not a release gate or evidence of verification unless actually performed.
-- Do not replace removed UI interaction tests with automatic screenshot, pixel, OS-interaction or real-service end-to-end gates. Add or run those checks only when explicitly requested, and report their prerequisites and actual results separately. Investigate reported layout issues within the authorized scope without inventing a new acceptance gate. Keep performance measurements opt-in and separate from functional acceptance.
-
-## Preservation and safety
-
-- External reference worktrees are read-only unless the user authorizes otherwise.
-- Preserve source provenance and license notices when importing reviewed code. Do not copy the entire old dirty tree or reset it to an older Git HEAD.
-- Do not commit `.runtime`, `.preview`, credentials, `.npmrc`, local Cargo overrides, generated build directories, or private endpoint data.
-- No destructive operations on old worktrees, user projects, sessions, credentials, or databases are part of the UI-preview phase.
+- Keep safeguards proportional: authenticated access, path confinement, credential
+  protection, revision conflicts and destructive-action confirmation. No redundant
+  approvals or speculative permission systems. Saves keep drafts on failure and
+  report real conflicts or uncertain outcomes.
+- No destructive operations on user projects, sessions, credentials or databases.
+- Never commit `.runtime`, `.preview`, credentials, `.npmrc`, local Cargo overrides,
+  build output or private endpoint data.
