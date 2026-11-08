@@ -391,8 +391,11 @@ impl Registry {
 
 type Pick = Rc<dyn Fn(String, &mut Window, &mut App)>;
 
+/// Kit fixes menu rows at 26px with no larger size; long lists read better taller.
+const ROW: f32 = 32.;
+
 fn bounded(menu: PopupMenu) -> PopupMenu {
-    menu.min_w(px(220.))
+    menu.min_w(px(240.))
         .max_w(px(320.))
         .max_h(px(360.))
         .scrollable(true)
@@ -444,7 +447,9 @@ fn rows(
                     h_flex()
                         .w_full()
                         .min_w_0()
+                        .min_h(px(ROW))
                         .gap_4()
+                        .items_center()
                         .justify_between()
                         .child(div().min_w_0().truncate().child(title.clone()))
                         .child(
@@ -456,7 +461,15 @@ fn rows(
                         )
                 })
             }
-            None => PopupMenuItem::new(title),
+            None => PopupMenuItem::element(move |_, _| {
+                div()
+                    .min_h(px(ROW))
+                    .flex()
+                    .items_center()
+                    .min_w_0()
+                    .truncate()
+                    .child(title.clone())
+            }),
         };
         let value = choice.id.clone();
         let pick = pick.clone();
