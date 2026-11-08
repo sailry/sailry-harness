@@ -136,7 +136,6 @@ impl RenderOnce for List {
                     .border_color(border)
                     .rounded(cx.theme().radius_lg)
                     .overflow_hidden()
-                    .bg(cx.theme().secondary)
             }
         };
         let divided = !self.borderless;

@@ -306,7 +306,7 @@ impl Workspace {
                         .and_then(|extension| extension.tint),
                     info.and_then(emblem::glyph),
                     info.and_then(|info| info.icon.as_deref()),
-                    px(48.),
+                    px(36.),
                 ))
                 .into_any_element(),
             cx,

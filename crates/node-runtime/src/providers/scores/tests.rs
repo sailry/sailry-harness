@@ -68,6 +68,28 @@ fn rejects_invalid_downloads() {
 }
 
 #[test]
+fn skips_malformed_rows() {
+    let original: Value = serde_json::from_slice(FIXTURE).unwrap();
+    let count = parse::parse(FIXTURE).unwrap().entries.len();
+    for (field, value) in [
+        ("reasoning_effort", json!("minimal")),
+        ("backend_score", Value::Null),
+        ("frontend_score", json!(120)),
+        ("overall_score", json!(-1)),
+    ] {
+        let mut data = original.clone();
+        data["snapshot"]["entries"][0][field] = value;
+        let parsed = parse::parse(&serde_json::to_vec(&data).unwrap()).unwrap();
+        assert_eq!(parsed.entries.len(), count - 1, "{field}");
+    }
+    let mut data = original;
+    data["snapshot"]["entries"][0]["backend_score"] = json!(84.6);
+    let parsed = parse::parse(&serde_json::to_vec(&data).unwrap()).unwrap();
+    assert_eq!(parsed.entries.len(), count);
+    assert!(parsed.entries.iter().any(|entry| entry.score.axes[0] == 85));
+}
+
+#[test]
 fn maps_default_efforts_without_metrics() {
     let mut data: Value = serde_json::from_slice(FIXTURE).unwrap();
     data["metrics"] = json!({});

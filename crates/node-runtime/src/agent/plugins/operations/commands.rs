@@ -65,27 +65,22 @@ pub(super) fn failure(output: &Output) -> Option<crate::agent::observation::Fail
         Output::CommandResult(completion) => &completion.outcome,
         Output::CommandOutput(snapshot) => match &snapshot.info.status {
             Status::Finished(outcome) => outcome,
-            Status::Failed(message) => {
+            Status::Failed(_) => {
                 return Some(crate::agent::observation::Failure {
                     failure: Failure::runtime(None),
-                    message: Some(message.clone()),
+                    message: None,
                 });
             }
             Status::Running | Status::Stopping => return None,
         },
         _ => return None,
     };
+    // Headlines are left to the controllers' localized outcome labels; the
+    // command's own output keeps the exit status and stderr.
     let (failure, message) = match outcome {
         Outcome::Exited(0) => return None,
-        Outcome::Exited(code) => (
-            Failure::tool(None),
-            Some(format!("Command exited with code {code}")),
-        ),
-        Outcome::Signal(signal) => (
-            Failure::runtime(None),
-            Some(format!("Command terminated by signal {signal}")),
-        ),
-        Outcome::TimedOut => (Failure::runtime(None), Some("Command timed out".into())),
+        Outcome::Exited(_) => (Failure::tool(None), None),
+        Outcome::Signal(_) | Outcome::TimedOut => (Failure::runtime(None), None),
         Outcome::Cancelled => (Failure::runtime(Some(ErrorCode::Cancelled)), None),
         Outcome::Unknown(_) => (Failure::runtime(Some(ErrorCode::OutcomeUnknown)), None),
     };
@@ -232,21 +227,9 @@ mod tests {
     fn distinguishes_operational_outcomes() {
         for (outcome, expected, message) in [
             (Outcome::Exited(0), None, None),
-            (
-                Outcome::Exited(7),
-                Some(Failure::tool(None)),
-                Some("Command exited with code 7"),
-            ),
-            (
-                Outcome::Signal(9),
-                Some(Failure::runtime(None)),
-                Some("Command terminated by signal 9"),
-            ),
-            (
-                Outcome::TimedOut,
-                Some(Failure::runtime(None)),
-                Some("Command timed out"),
-            ),
+            (Outcome::Exited(7), Some(Failure::tool(None)), None),
+            (Outcome::Signal(9), Some(Failure::runtime(None)), None),
+            (Outcome::TimedOut, Some(Failure::runtime(None)), None),
             (
                 Outcome::Cancelled,
                 Some(Failure::runtime(Some(ErrorCode::Cancelled))),
@@ -290,12 +273,12 @@ mod tests {
             (
                 Status::Finished(Outcome::Exited(7)),
                 Some(Failure::tool(None)),
-                Some("Command exited with code 7"),
+                None,
             ),
             (
                 Status::Failed("process service failed".into()),
                 Some(Failure::runtime(None)),
-                Some("process service failed"),
+                None,
             ),
         ] {
             let output = Output::CommandOutput(Snapshot {

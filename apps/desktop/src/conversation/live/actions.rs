@@ -16,6 +16,8 @@ pub(super) enum Action {
     Roster(Input, Vec<super::model_controls::team::Step>),
     Move(WorktreeId),
     ForkAt(WorktreeId),
+    /// Creates the new conversation's managed worktree, then sends the draft there.
+    Base(Delivery),
     Compact(Option<String>),
     Stop,
     Fork(TurnId),
@@ -100,6 +102,26 @@ impl View {
             || !self.drafts_sendable(cx)
             || (self.binding.project.is_some() && self.binding.worktree.is_none())
         {
+            return;
+        }
+        if self.session.is_none()
+            && let Some(base) = self.base.clone()
+            && let (Some(project), Some(source)) = (self.binding.project, self.binding.worktree)
+        {
+            self.execute(
+                Command::CreateManagedWorktree {
+                    project,
+                    source,
+                    branch: base.branch,
+                    expected_head: String::new(),
+                    expected_index: String::new(),
+                    include_changes: false,
+                    base: Some(base.commit),
+                },
+                Action::Base(delivery),
+                window,
+                cx,
+            );
             return;
         }
         let references = self.active_references(cx);
@@ -408,6 +430,28 @@ impl View {
                             view.error = Some("chat_action_unknown");
                         }
                     }
+                    Ok(Ok(Output::Worktree(tree))) if matches!(action, Action::Base(_)) => {
+                        let Action::Base(delivery) = action else {
+                            unreachable!()
+                        };
+                        view.retry = None;
+                        let mut binding = view.binding.clone();
+                        binding.worktree = Some(tree.id);
+                        if let Some(base) = view.base.clone() {
+                            binding.branch = base.branch.into();
+                        }
+                        if tree.project == view.binding.project && view.can_retarget() {
+                            // The new view starts without a base, so the resend
+                            // below submits in the created worktree.
+                            view.retarget(binding, window, cx);
+                            cx.emit(Event::LocationChanged);
+                            if view.binding.worktree == Some(tree.id) {
+                                view.send_draft(delivery, window, cx);
+                            }
+                        } else {
+                            view.error = Some("worktree_context_changed");
+                        }
+                    }
                     Ok(Ok(Output::Session(session)))
                         if matches!(action, Action::Move(_) | Action::ForkAt(_)) =>
                     {
@@ -565,6 +609,16 @@ impl View {
                                         "location_changed"
                                     }
                                     _ => error_key(&error),
+                                }
+                            } else if matches!(action, Action::Base(_)) {
+                                match error.code {
+                                    ErrorCode::Conflict | ErrorCode::RevisionConflict => {
+                                        "worktree_conflict"
+                                    }
+                                    ErrorCode::NotFound => "worktree_not_found",
+                                    ErrorCode::InvalidRequest => "worktree_invalid",
+                                    ErrorCode::OutcomeUnknown => "worktree_outcome_unknown",
+                                    _ => "worktree_request_failed",
                                 }
                             } else if matches!(action, Action::Rewind(_) | Action::Replace) {
                                 match error.code {

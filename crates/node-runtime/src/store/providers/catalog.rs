@@ -249,7 +249,7 @@ impl Ingress {
             .read(|db| Box::pin(super::scores::stored(db)))
             .await?;
         let mut status = metadata.as_ref().ok().cloned();
-        if score_status.status.enabled && self.catalog.scores.available() {
+        if self.catalog.scores.available() {
             let download = tokio::select! {
                 biased;
                 _ = self.closed.cancelled() => return Err(unavailable()),

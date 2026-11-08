@@ -2,12 +2,13 @@ use super::*;
 use gpui_kit::{
     component::{
         button::{Button, ButtonVariants},
-        menu::{DropdownMenu, PopupMenuItem},
+        menu::{DropdownMenu, PopupMenu, PopupMenuItem},
         switch::Switch,
         *,
     },
     prelude::FluentBuilder as _,
 };
+use std::rc::Rc;
 use ui::{EventKind, Kind};
 mod indicator;
 #[cfg(test)]
@@ -62,8 +63,7 @@ impl Entry {
         {
             return label(title);
         }
-        self.choices()
-            .iter()
+        ui::Choice::selectable(self.choices())
             .find(|choice| self.state.value.as_str() == Some(&choice.id))
             .map(|choice| label(&choice.label))
             .unwrap_or_else(|| label(self.state.label.as_ref().unwrap_or(&self.declaration.label)))
@@ -270,7 +270,10 @@ impl Registry {
                 })
                 .when(header, |button| button.small())
                 .icon(control_icon)
-                .dropdown_caret(entry.state.dropdown && !matches!(form, Form::Icons | Form::Model))
+                .dropdown_caret(
+                    (entry.state.dropdown || entry.declaration.kind == Kind::Menu)
+                        && !matches!(form, Form::Icons | Form::Model),
+                )
                 .when(matches!(form, Form::Toolbar | Form::Project), |button| {
                     button.label(entry.text())
                 })
@@ -310,52 +313,41 @@ impl Registry {
                 .into_any_element()
             }
             Kind::Select | Kind::Menu => {
-                let choices = entry.choices().to_vec();
-                let selected = entry.state.value.clone();
+                let choices: Rc<[ui::Choice]> = entry.choices().into();
+                let selected: Option<SharedString> = entry
+                    .state
+                    .value
+                    .as_str()
+                    .map(|value| value.to_owned().into());
                 let owner = cx.weak_entity();
-                button
-                    .dropdown_menu_with_anchor(Anchor::BottomLeft, move |menu, _, _| {
-                        choices.iter().enumerate().fold(
-                            menu.max_h(px(480.)).scrollable(true),
-                            |mut menu, (index, choice)| {
-                                if index > 0 && choices[index - 1].group != choice.group {
-                                    menu = menu.separator();
-                                }
-                                let owner = owner.clone();
-                                let key = key.clone();
-                                let value = choice.id.clone();
-                                menu.item(
-                                    PopupMenuItem::new(label(&choice.label))
-                                        .checked(selected.as_str() == Some(&choice.id))
-                                        .disabled(!enabled || !choice.enabled)
-                                        .when_some(choice.icon.as_deref(), |item, name| {
-                                            item.icon(icon(Some(name)))
-                                        })
-                                        .on_click(move |_, window, cx| {
-                                            if form == Form::Project {
-                                                if let Some(registry) = owner.upgrade() {
-                                                    native::Dispatch::new(
-                                                        registry,
-                                                        key.clone(),
-                                                        EventKind::Change,
-                                                        value.clone().into(),
-                                                    )
-                                                    .emit(cx);
-                                                }
-                                                return;
-                                            }
-                                            let _ = owner.update(cx, |registry, cx| {
-                                                registry.invoke(
-                                                    &key,
-                                                    EventKind::Change,
-                                                    value.clone().into(),
-                                                    window,
-                                                    cx,
-                                                )
-                                            });
-                                        }),
+                let pick: Pick =
+                    Rc::new(move |value: String, window: &mut Window, cx: &mut App| {
+                        if form == Form::Project {
+                            if let Some(registry) = owner.upgrade() {
+                                native::Dispatch::new(
+                                    registry,
+                                    key.clone(),
+                                    EventKind::Change,
+                                    value.into(),
                                 )
-                            },
+                                .emit(cx);
+                            }
+                            return;
+                        }
+                        let _ = owner.update(cx, |registry, cx| {
+                            registry.invoke(&key, EventKind::Change, value.into(), window, cx)
+                        });
+                    });
+                button
+                    .dropdown_menu_with_anchor(Anchor::BottomLeft, move |menu, window, cx| {
+                        rows(
+                            bounded(menu),
+                            &choices,
+                            selected.clone(),
+                            enabled,
+                            pick.clone(),
+                            window,
+                            cx,
                         )
                     })
                     .into_any_element()
@@ -395,4 +387,87 @@ impl Registry {
             Kind::Metric | Kind::Indicator => div().into_any_element(),
         }
     }
+}
+
+type Pick = Rc<dyn Fn(String, &mut Window, &mut App)>;
+
+fn bounded(menu: PopupMenu) -> PopupMenu {
+    menu.min_w(px(220.))
+        .max_w(px(320.))
+        .max_h(px(360.))
+        .scrollable(true)
+}
+
+/// Contribution choices as Kit rows: groups are separated, descriptions sit
+/// muted on the right and a choice with children opens one submenu level.
+fn rows(
+    mut menu: PopupMenu,
+    choices: &Rc<[ui::Choice]>,
+    selected: Option<SharedString>,
+    enabled: bool,
+    pick: Pick,
+    window: &mut Window,
+    cx: &mut Context<PopupMenu>,
+) -> PopupMenu {
+    for (index, choice) in choices.iter().enumerate() {
+        if index > 0 && choices[index - 1].group != choice.group {
+            menu = menu.separator();
+        }
+        if !choice.children.is_empty() {
+            let children: Rc<[ui::Choice]> = choice.children.clone().into();
+            let selected = selected.clone();
+            let pick = pick.clone();
+            menu = menu.submenu_with_icon(
+                choice.icon.as_deref().map(|name| icon(Some(name))),
+                label(&choice.label),
+                window,
+                cx,
+                move |menu, window, cx| {
+                    rows(
+                        bounded(menu),
+                        &children,
+                        selected.clone(),
+                        enabled,
+                        pick.clone(),
+                        window,
+                        cx,
+                    )
+                },
+            );
+            continue;
+        }
+        let title = label(&choice.label);
+        let item = match &choice.description {
+            Some(description) => {
+                let description = label(description);
+                PopupMenuItem::element(move |_, cx| {
+                    h_flex()
+                        .w_full()
+                        .min_w_0()
+                        .gap_4()
+                        .justify_between()
+                        .child(div().min_w_0().truncate().child(title.clone()))
+                        .child(
+                            div()
+                                .flex_shrink_0()
+                                .text_xs()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(description.clone()),
+                        )
+                })
+            }
+            None => PopupMenuItem::new(title),
+        };
+        let value = choice.id.clone();
+        let pick = pick.clone();
+        menu = menu.item(
+            item.checked(selected.as_deref() == Some(choice.id.as_str()))
+                .disabled(!enabled || !choice.enabled)
+                .when_some(choice.icon.as_deref(), |item, name| {
+                    item.icon(icon(Some(name)))
+                })
+                .on_click(move |_, window, cx| pick(value.clone(), window, cx)),
+        );
+    }
+    menu
 }

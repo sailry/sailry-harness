@@ -66,6 +66,8 @@ struct Selection {
     add_project: bool,
     #[serde(default)]
     overview: bool,
+    /// Starts a new conversation from another branch without switching the checkout.
+    base: Option<crate::conversation::live::SessionBase>,
     request: Option<RequestId>,
 }
 
@@ -76,7 +78,9 @@ impl Selection {
             + usize::from(self.projects)
             + usize::from(self.add_project)
             + usize::from(self.overview)
+            + usize::from(self.base.is_some())
             == 1
+            && (self.base.is_none() || (!self.fork && self.request.is_none()))
     }
 }
 
@@ -223,7 +227,7 @@ pub(super) fn extend(
     let route_owner = owner.clone();
     let route_host = host.clone();
     let declarations = format!(
-        "{}\nexport type ContributionIntent = 'git_branches'|'worktrees'|'create_worktree'|'fork_worktree';\nexport function invokeContribution(intent:ContributionIntent,value?:unknown):Promise<boolean>;\nexport function canInvokeContribution(intent:ContributionIntent):Promise<boolean>;\nexport function readLocation():{{cursor:string;surface:'composer'|'project';node:string;project:string|null;worktree:string|null;session:string|null;revision:string|null;main:boolean;project_name:string;branch:string;can_move:boolean;can_retarget:boolean;projects:{{id:string;name:string}}[];git:boolean;git_status:'unknown'|'repository'|'plain_directory';connected:boolean}};\nexport function nextLocationChange(cursor:string):Promise<ReturnType<typeof readLocation>>;\nexport function selectLocation(cursor:string,selection:{{worktree?:string;project?:string|null;fork?:boolean;projects?:boolean;add_project?:boolean;overview?:boolean;request?:string}}):Promise<boolean>;\nexport function worktreeHasDrafts(worktree:string,request?:string):Promise<boolean>;\nexport function releaseWorktree(worktree:string,request:string):Promise<void>;",
+        "{}\nexport type ContributionIntent = 'git_branches'|'worktrees'|'create_worktree'|'fork_worktree';\nexport function invokeContribution(intent:ContributionIntent,value?:unknown):Promise<boolean>;\nexport function canInvokeContribution(intent:ContributionIntent):Promise<boolean>;\nexport function readLocation():{{cursor:string;surface:'composer'|'project';node:string;project:string|null;worktree:string|null;session:string|null;revision:string|null;main:boolean;project_name:string;branch:string;can_move:boolean;can_retarget:boolean;projects:{{id:string;name:string}}[];git:boolean;git_status:'unknown'|'repository'|'plain_directory';connected:boolean;base?:SessionBase|null}};\nexport type SessionBase = {{from:string;branch:string;commit:string}};\nexport function nextLocationChange(cursor:string):Promise<ReturnType<typeof readLocation>>;\nexport function selectLocation(cursor:string,selection:{{worktree?:string;project?:string|null;fork?:boolean;projects?:boolean;add_project?:boolean;overview?:boolean;base?:SessionBase;request?:string}}):Promise<boolean>;\nexport function worktreeHasDrafts(worktree:string,request?:string):Promise<boolean>;\nexport function releaseWorktree(worktree:string,request:string):Promise<void>;",
         module.declared().unwrap_or_default()
     );
     let module = module
@@ -497,7 +501,9 @@ impl Shell {
                         .cloned();
                     let result = source
                         .update(cx, |source, cx| {
-                            if let Some(project) = selection.project {
+                            if let Some(base) = selection.base.clone() {
+                                source.select_session_base(base, cx)
+                            } else if let Some(project) = selection.project {
                                 source.select_registered_project(project, window, cx)
                             } else if selection.add_project {
                                 source.add_location_project(window, cx)
@@ -515,6 +521,7 @@ impl Shell {
                     let _ = reply.send(result);
                 } else {
                     if selection.projects
+                        || selection.base.is_some()
                         || selection.project.is_some()
                         || selection.add_project
                         || selection.fork

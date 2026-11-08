@@ -104,17 +104,4 @@ mod access {
         assert_eq!(Access::of(Preset::AzureOpenAi, false, true), Access::Cloud);
         assert_eq!(Access::of(Preset::ChatGptOAuth, true, false), Access::Login);
     }
-
-    #[test]
-    fn summary_never_repeats_family() {
-        let family = SharedString::from("OpenAI");
-        assert_eq!(
-            method_summary(&family, "OpenAI".into(), Access::Key),
-            tr("provider_access_key")
-        );
-        assert_eq!(
-            method_summary(&family, "ChatGPT OAuth".into(), Access::Login),
-            SharedString::from("ChatGPT OAuth")
-        );
-    }
 }

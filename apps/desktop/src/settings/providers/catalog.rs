@@ -1,5 +1,4 @@
 use super::*;
-use gpui_kit::component::switch::Switch;
 use sailry_link::CancellationToken;
 use sailry_node_runtime::logging::{Area, Entry, Phase, Span};
 use sailry_protocol::{Command, ErrorCode, Output, conversation::catalog};
@@ -30,10 +29,15 @@ pub(in crate::settings) struct State {
     pub refresh: Option<Refresh>,
     pub error: Option<Failure>,
     scores_error: Option<Failure>,
-    toggle: Option<Refresh>,
 }
 
 impl State {
+    fn last_update(&self) -> Option<u64> {
+        self.status
+            .updated_at_ms
+            .max(self.status.scores.updated_at_ms)
+    }
+
     pub(in crate::settings) fn feedback(&self) -> Option<&'static str> {
         self.error
             .as_ref()
@@ -67,15 +71,10 @@ impl State {
                     key: "provider_catalog_failed",
                     source,
                 });
-                self.scores_error = status
-                    .scores
-                    .fault
-                    .as_ref()
-                    .filter(|_| status.scores.enabled)
-                    .map(|_| Failure {
-                        key: "provider_scores_failed",
-                        source,
-                    });
+                self.scores_error = status.scores.fault.as_ref().map(|_| Failure {
+                    key: "provider_scores_failed",
+                    source,
+                });
                 self.observe(status);
             }
             Err(code) => {
@@ -132,15 +131,12 @@ impl Workspace {
                 result = binding.client.execute(request) => Some(result),
             };
             match &result {
-                Some(Ok(Output::CatalogStatus(status))) => match status.fault.as_ref().or(status
-                    .scores
-                    .fault
-                    .as_ref()
-                    .filter(|_| status.scores.enabled))
-                {
-                    Some(fault) => diagnostic.finish(Phase::Failed, Some(fault.code)),
-                    None => diagnostic.finish(Phase::Completed, None),
-                },
+                Some(Ok(Output::CatalogStatus(status))) => {
+                    match status.fault.as_ref().or(status.scores.fault.as_ref()) {
+                        Some(fault) => diagnostic.finish(Phase::Failed, Some(fault.code)),
+                        None => diagnostic.finish(Phase::Completed, None),
+                    }
+                }
                 Some(Err(error)) => diagnostic.finish(Phase::Failed, Some(error.code)),
                 None => diagnostic.finish(Phase::Cancelled, Some(ErrorCode::Cancelled)),
                 _ => diagnostic.finish(Phase::Failed, Some(ErrorCode::Internal)),
@@ -174,55 +170,6 @@ impl Workspace {
         cx.notify();
     }
 
-    fn set_scores(&mut self, enabled: bool, cx: &mut Context<Self>) {
-        let Some(live) = &mut self.provider_link else {
-            self.providers.scores_enabled = enabled;
-            cx.notify();
-            return;
-        };
-        if !live.connected || live.catalog.toggle.is_some() {
-            return;
-        }
-        let binding = live.binding.clone();
-        let node = binding.client.target();
-        let stop = CancellationToken::new();
-        let cancelled = stop.clone();
-        let job = binding.runtime.spawn(async move {
-            tokio::select! {
-                _ = cancelled.cancelled() => None,
-                result = binding.client.execute(binding.client.prepare(Command::SetModelScoresEnabled { enabled })) => Some(result),
-            }
-        });
-        live.catalog.scores_error = None;
-        live.catalog.toggle = Some(Refresh {
-            stop,
-            _task: cx.spawn(async move |owner, cx| {
-                let result = job.await;
-                let _ = owner.update(cx, |owner, cx| {
-                    let Some(live) = owner
-                        .provider_link
-                        .as_mut()
-                        .filter(|live| live.binding.client.target() == node)
-                    else {
-                        return;
-                    };
-                    live.catalog.toggle = None;
-                    match result {
-                        Ok(Some(Ok(Output::CatalogStatus(status)))) => live.catalog.observe(status),
-                        _ => {
-                            live.catalog.scores_error = Some(Failure {
-                                key: "provider_scores_failed",
-                                source: Source::Manual,
-                            })
-                        }
-                    }
-                    cx.notify();
-                });
-            }),
-        });
-        cx.notify();
-    }
-
     pub(super) fn model_catalog(
         &mut self,
         window: &mut Window,
@@ -232,20 +179,15 @@ impl Workspace {
         let live = self.provider_link.as_ref();
         let loading = live.is_some_and(|live| live.catalog.refresh.is_some());
         let preview = self.providers.catalog_revision > 0;
-        let scores = live.map(|live| &live.catalog.status.scores);
-        let scores_enabled = scores.map_or(self.providers.scores_enabled, |status| status.enabled);
-        let scores_updated = scores.is_some_and(|status| status.updated_at_ms.is_some());
-        let scores_source = scores
-            .and_then(|status| status.published_at.as_deref())
-            .map(crate::model_picker::score_date)
-            .map(|date| rust_i18n::t!("provider_scores_source", date = date).to_string());
+        let scores_updated = live
+            .map(|live| live.catalog.status.scores.updated_at_ms.is_some())
+            .unwrap_or(preview);
         let updated = live
             .map(|live| live.catalog.status.revision > 0)
             .unwrap_or(preview);
         let updated_at = if let Some(live) = live {
             live.catalog
-                .status
-                .updated_at_ms
+                .last_update()
                 .and_then(|value| i64::try_from(value).ok())
                 .and_then(chrono::DateTime::from_timestamp_millis)
                 .map(|date| {
@@ -297,39 +239,33 @@ impl Workspace {
             ))
             .child(Row::new(
                 "provider_scores",
-                h_flex()
-                    .gap_3()
-                    .child(div().text_color(cx.theme().muted_foreground).child(tr(
-                        if live.is_none() {
-                            "model_score_preview"
-                        } else if scores_updated {
-                            "provider_catalog_updated"
+                div()
+                    .debug_selector(move || {
+                        if scores_updated {
+                            "scores-updated"
                         } else {
-                            "provider_catalog_never"
-                        },
-                    )))
-                    .when_some(scores_source, |row, source| {
-                        row.child(
-                            Button::new("model-scores-source")
-                                .text()
-                                .small()
-                                .label(source)
-                                .on_click(|_, _, cx| {
-                                    cx.open_url(crate::model_picker::SCORE_SOURCE)
-                                }),
-                        )
+                            "scores-empty"
+                        }
+                        .into()
                     })
-                    .child(
-                        Switch::new("model-scores-enabled")
-                            .accessibility_label(tr("provider_scores"))
-                            .checked(scores_enabled)
-                            .disabled(live.is_some_and(|live| {
-                                !live.connected || live.catalog.toggle.is_some()
-                            }))
-                            .on_click(cx.listener(|owner, enabled: &bool, _, cx| {
-                                owner.set_scores(*enabled, cx)
-                            })),
-                    ),
+                    .text_color(if scores_updated {
+                        cx.theme().success
+                    } else {
+                        cx.theme().muted_foreground
+                    })
+                    .child(tr(if scores_updated {
+                        "provider_catalog_updated"
+                    } else {
+                        "provider_catalog_never"
+                    })),
+            ))
+            // CC BY 4.0 attribution for the score data shown in model pickers.
+            .child(Row::new(
+                "provider_scores_source",
+                Button::new("model-scores-source")
+                    .link()
+                    .label("ModelDial · CC BY 4.0")
+                    .on_click(|_, _, cx| cx.open_url("https://modeldial.com/radar")),
             ))
             .child(Row::new("provider_catalog_last_update", updated_at))
             .child(compaction)

@@ -10,7 +10,7 @@ use sailry_protocol::{
 use std::time::Duration;
 
 #[tokio::test]
-async fn preserves_reads_settings_and_status_projection() {
+async fn preserves_reads_and_status_projection() {
     let source = Server::start(ModelApi::Anthropic, |_| {
         Reply::Json(serde_json::from_str(include_str!("../fixtures/model-scores.json")).unwrap())
     })
@@ -77,10 +77,6 @@ async fn preserves_reads_settings_and_status_projection() {
         },
     ]);
     for client in [&local, &remote] {
-        client
-            .execute(client.prepare(Command::SetModelScoresEnabled { enabled: true }))
-            .await
-            .unwrap();
         let mut updates = client.subscribe().await.unwrap();
         let mut projection = Projection::new(client.target(), 1);
         client.recover(&mut projection, 1).await.unwrap();
@@ -91,6 +87,13 @@ async fn preserves_reads_settings_and_status_projection() {
         else {
             panic!("catalog status expected")
         };
+        assert_eq!(status.scores.models, 3);
+        assert!(
+            serde_json::to_value(&status.scores)
+                .unwrap()
+                .get("enabled")
+                .is_none()
+        );
         let admission = client.dispatch(client.prepare(read.clone())).await.unwrap();
         assert!(!admission.receipt.durable);
         let expected = admission.completion.await.unwrap().unwrap();
@@ -112,27 +115,6 @@ async fn preserves_reads_settings_and_status_projection() {
         assert_eq!(scores.scores[0].efforts[0].overall, 81.95);
         tokio::time::timeout(Duration::from_secs(5), async {
             while projection.snapshot().unwrap().model_catalog != status {
-                projection.apply(1, updates.next().await.unwrap()).unwrap();
-            }
-        })
-        .await
-        .unwrap();
-        let Output::CatalogStatus(disabled) = client
-            .execute(client.prepare(Command::SetModelScoresEnabled { enabled: false }))
-            .await
-            .unwrap()
-        else {
-            panic!("catalog status expected")
-        };
-        assert!(!disabled.scores.enabled && disabled.scores.revision > status.scores.revision);
-        let Output::ModelScores(empty) =
-            client.execute(client.prepare(read.clone())).await.unwrap()
-        else {
-            panic!("model scores expected")
-        };
-        assert!(empty.scores.is_empty());
-        tokio::time::timeout(Duration::from_secs(5), async {
-            while projection.snapshot().unwrap().model_catalog != disabled {
                 projection.apply(1, updates.next().await.unwrap()).unwrap();
             }
         })

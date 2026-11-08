@@ -188,6 +188,8 @@ impl View {
             if entry.declaration.align == align
                 // The location chooser already owns these two worktree actions.
                 && !location_action(&entry.declaration)
+                // Indicators report a running conversation; a new draft has no usage yet.
+                && (entry.declaration.kind != ui::Kind::Indicator || self.session.is_some())
                 && layout.includes(&entry.declaration, form)
             {
                 entries.push((

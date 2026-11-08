@@ -1,10 +1,9 @@
 use super::*;
+use gpui_kit::base::Popup;
 use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::component::{
     accordion::Accordion,
     button::{Button, ButtonVariants},
-    menu::{DropdownMenu, PopupMenuItem},
-    radio::Radio,
     *,
 };
 
@@ -22,120 +21,80 @@ impl Picker {
             self.current_effort.or(self.selected_effort),
             model.effort,
         );
-        let radio_selection = selection.clone();
-        let owner = cx.entity().downgrade();
-        let choices = model.efforts.clone();
-        let measured = choices
-            .iter()
-            .map(|effort| (*effort, self.exact(channel, model, *effort, cx)))
-            .collect::<Vec<_>>();
-        let scored = self.measured(channel, model, effort, cx).is_some();
-        h_flex()
-            .id((SharedString::from(model.id.clone()), id))
+        let hover_selection = selection.clone();
+        let has_efforts = self.effort_controls && !model.efforts.is_empty();
+        let row = Button::new((SharedString::from(format!("model-{}", model.id)), id))
+            .custom(crate::theme::subtle_button(cx).active(cx.theme().primary.opacity(0.12)))
+            .selected(selected)
+            .toggled(selected)
             .w_full()
             .min_w_0()
-            .gap_2()
-            .pr_3()
+            .h_8()
+            .px_2()
             .rounded(cx.theme().radius_lg)
+            .disabled(self.disabled)
+            .accessibility_label(model.label.clone())
+            .debug_selector(move || format!("composer-model-option-{id}-{model_id}"))
             .child(
-                Button::new((SharedString::from(format!("model-{}", model.id)), id))
-                    .text()
-                    .flex_1()
+                h_flex()
+                    .w_full()
                     .min_w_0()
-                    .h_8()
-                    .px_2()
-                    .disabled(self.disabled)
-                    .accessibility_label(model.label.clone())
-                    .debug_selector(move || format!("composer-model-option-{id}-{model_id}"))
+                    .gap_2()
                     .child(
-                        h_flex().w_full().min_w_0().gap_2().child(
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .truncate()
-                                .text_sm()
-                                .line_height(px(20.))
-                                .child(model.label.clone()),
-                        ),
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .text_sm()
+                            .line_height(px(20.))
+                            .child(model.label.clone()),
                     )
-                    .on_click(cx.listener(move |picker, _, window, cx| {
-                        picker.pick(selection.clone(), effort, window, cx)
-                    })),
+                    .children(self.score_tag(channel, model, effort, cx)),
             )
-            .children(self.score_tag(channel, model, effort, cx))
-            .when(
-                selected && self.current_effort.is_some() && !choices.is_empty(),
-                |row| {
-                    let label = crate::reasoning::label(effort);
-                    let selector = label.clone();
-                    row.child(
-                        Button::new("composer-model-effort")
-                            .custom(
-                                crate::theme::subtle_button(cx)
-                                    .color(cx.theme().secondary_active)
-                                    .hover(cx.theme().secondary_active)
-                                    .active(cx.theme().secondary_active),
-                            )
-                            .small()
-                            .h_7()
-                            .px_3()
-                            .rounded_full()
-                            .accessibility_label(label.clone())
-                            .child(
-                                div()
-                                    .debug_selector(move || {
-                                        format!("composer-model-effort-value-{selector}")
-                                    })
-                                    .text_sm()
-                                    .line_height(px(20.))
-                                    .child(label),
-                            )
-                            .dropdown_caret(true)
-                            .disabled(self.disabled)
-                            .debug_selector(|| "composer-model-effort".into())
-                            .dropdown_menu(move |menu, _, cx| {
-                                measured.iter().fold(menu, |menu, (choice, score)| {
-                                    let choice = *choice;
-                                    let owner = owner.clone();
-                                    menu.item(
-                                        if scored {
-                                            scores::effort_item(
-                                                crate::reasoning::label(choice),
-                                                *score,
-                                                cx,
-                                            )
-                                        } else {
-                                            PopupMenuItem::new(crate::reasoning::label(choice))
-                                        }
-                                        .checked(choice == effort)
-                                        .on_click(
-                                            move |_, _, cx| {
-                                                _ = owner.update(cx, |picker, cx| {
-                                                    if !picker.disabled {
-                                                        cx.emit(EffortPicked(choice));
-                                                    }
-                                                });
-                                            },
-                                        ),
-                                    )
-                                })
-                            }),
-                    )
-                },
+            .on_hover(cx.listener(move |picker, hovered: &bool, window, cx| {
+                if *hovered {
+                    picker.open_efforts(hover_selection.clone(), window, cx);
+                }
+            }))
+            .on_click(cx.listener(move |picker, _, window, cx| {
+                if has_efforts {
+                    picker.open_efforts(selection.clone(), window, cx);
+                } else {
+                    picker.pick(selection.clone(), effort, window, cx);
+                }
+            }));
+        if !has_efforts {
+            return row.into_any_element();
+        }
+        let selection = Selection {
+            channel: id,
+            model: model.id.clone(),
+        };
+        let menu = self
+            .submenu
+            .as_ref()
+            .filter(|submenu| submenu.selection == selection)
+            .map(|submenu| (submenu.menu.clone(), submenu.bounds.clone()));
+        Popup::new(
+            (
+                SharedString::from(format!("model-efforts-{}", model.id)),
+                id,
+            ),
+            row,
+        )
+        .anchor(Anchor::LeftCenter)
+        .offset(px(4.))
+        .w_full()
+        .when_some(menu, |popup, (menu, bounds)| {
+            popup.content(
+                div().relative().child(menu).child(
+                    canvas(move |current, _, _| bounds.set(current), |_, _, _, _| {})
+                        .absolute()
+                        .inset_0(),
+                ),
             )
-            .child(
-                Radio::new((SharedString::from(format!("model-radio-{}", model.id)), id))
-                    .checked(selected)
-                    .disabled(self.disabled)
-                    .small()
-                    .w_4()
-                    .justify_center()
-                    .accessibility_label(model.label.clone())
-                    .on_click(cx.listener(move |picker, _, window, cx| {
-                        picker.pick(radio_selection.clone(), effort, window, cx)
-                    })),
-            )
-            .into_any_element()
+        })
+        .into_any_element()
     }
 
     fn navigation(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -203,6 +162,7 @@ impl Picker {
                             .h_10()
                             .rounded_full()
                             .on_click(cx.listener(move |picker, _, _, cx| {
+                                picker.submenu = None;
                                 picker.family = family.clone();
                                 picker.open_first();
                                 cx.notify();
@@ -236,12 +196,6 @@ impl Render for Picker {
             .cloned()
             .collect();
         self.request_scores(&channels, cx);
-        let scored = channels.iter().any(|group| {
-            group
-                .models
-                .iter()
-                .any(|model| self.measured(group, model, model.effort, cx).is_some())
-        });
         let visible_ids: Vec<_> = channels.iter().map(|c| c.id).collect();
         let mut groups = Accordion::new("composer-model-groups")
             .multiple(true)
@@ -310,6 +264,7 @@ impl Render for Picker {
                             .when(!channels.is_empty(), |body| {
                                 body.child(groups.on_toggle_click(cx.listener(
                                     move |this, open: &[usize], _, cx| {
+                                        this.submenu = None;
                                         for (index, id) in visible_ids.iter().enumerate() {
                                             if open.contains(&index) {
                                                 this.expanded.insert(*id);
@@ -327,6 +282,5 @@ impl Render for Picker {
             .w(panel_size(window).width)
             .when(self.categories, |body| body.h(panel_size(window).height))
             .child(body)
-            .when(scored, |body| body.child(self.score_footer(cx)))
     }
 }

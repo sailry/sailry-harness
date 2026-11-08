@@ -108,10 +108,7 @@ async fn reuses_approved_arguments() {
         calls[0].failure,
         Some(sailry_protocol::tool::Failure::tool(None))
     );
-    assert_eq!(
-        calls[0].summary(&page).unwrap().error.as_deref(),
-        Some("Command exited with code 7")
-    );
+    assert_eq!(calls[0].summary(&page).unwrap().error, None);
     assert_eq!(
         calls[1].failure,
         Some(sailry_protocol::tool::Failure::runtime(None))
@@ -231,14 +228,10 @@ async fn explains_failure_without_command_output() {
         call.failure,
         Some(sailry_protocol::tool::Failure::tool(None))
     );
-    assert_eq!(
-        call.summary(&page).unwrap().error.as_deref(),
-        Some("Command exited with code 1")
-    );
+    assert_eq!(call.summary(&page).unwrap().error, None);
     let row = call.row(&page);
     assert!(row.warning);
     assert!(!row.failed);
-    assert_eq!(row.detail.unwrap().text, "Command exited with code 1");
     assert!(
         results(&fixture.client, &page).await[0]
             .get("isError")

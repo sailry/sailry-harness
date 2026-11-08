@@ -438,7 +438,6 @@ pub struct Store {
     pub expanded: Option<usize>,
     pub channels: Vec<Channel>,
     pub catalog_revision: usize,
-    pub scores_enabled: bool,
     next_id: usize,
 }
 
@@ -464,7 +463,6 @@ impl Default for Store {
                 default_model: "preview-text-1".into(),
             }],
             catalog_revision: 0,
-            scores_enabled: true,
             next_id: 1,
         }
     }

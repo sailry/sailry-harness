@@ -257,57 +257,50 @@ async fn confines_downloads() {
 }
 
 #[tokio::test]
-async fn disables_downloads_and_discards_pending_results() {
+async fn ignores_obsolete_disabled_state() {
     let metadata = Server::start(ModelApi::Anthropic, |_| Reply::Json(data())).await;
-    let release = Arc::new(tokio::sync::Notify::new());
-    let barrier = release.clone();
-    let count = AtomicUsize::new(0);
-    let source = Server::start(ModelApi::Anthropic, move |_| {
-        if count.fetch_add(1, Ordering::SeqCst) == 1 {
-            Reply::Delayed(barrier.clone(), serde_json::from_str(BODY).unwrap())
-        } else {
-            response()
-        }
-    })
-    .await;
+    let source = Server::start(ModelApi::Anthropic, |_| response()).await;
     let fixture = Fixture::new(&metadata).await;
     fixture
         .node
         .set_model_scores_fixture(&source.endpoint)
         .unwrap();
     let reference = reference(&fixture.client).await;
-    refresh(&fixture.client).await;
-    let client = fixture.client.clone();
-    let pending = tokio::spawn(async move { refresh(&client).await });
-    source.wait_requests(2).await;
-    let Output::CatalogStatus(disabled) = execute(
-        &fixture.client,
-        Command::SetModelScoresEnabled { enabled: false },
-    )
-    .await
-    else {
-        panic!("model catalog status expected")
-    };
-    assert!(!disabled.scores.enabled);
-    assert_eq!(disabled.scores.models, 0);
+    let mut stored = serde_json::to_value(catalog::ScoreStatus::default()).unwrap();
+    stored["enabled"] = json!(false);
+    stored["etag"] = Value::Null;
+    stored["entries"] = json!(0);
+    let body = serde_json::to_vec(&stored).unwrap();
+    fixture
+        .node
+        .with_storage(|db| {
+            Box::pin(async move {
+                db.execute(
+                    "INSERT INTO model_score_status(id,body) VALUES(1,?1)",
+                    [body],
+                )
+                .await
+                .map_err(crate::database_fixture::fault)?;
+                Ok(())
+            })
+        })
+        .await
+        .unwrap();
+    assert!(
+        serde_json::to_value(status(&fixture.client).await.scores)
+            .unwrap()
+            .get("enabled")
+            .is_none()
+    );
     assert!(scores(&fixture.client, &reference).await.scores.is_empty());
-    release.notify_one();
-    assert!(!pending.await.unwrap().scores.enabled);
-    refresh(&fixture.client).await;
+    let updated = refresh(&fixture.client).await;
+    assert_eq!((updated.scores.revision, updated.scores.models), (1, 3));
+    assert!(updated.scores.fault.is_none());
+    let cached = scores(&fixture.client, &reference).await;
+    assert_eq!(cached.scores.len(), 1);
+    let revalidated = refresh(&fixture.client).await;
+    assert_eq!(revalidated.scores.revision, updated.scores.revision);
+    assert_eq!(scores(&fixture.client, &reference).await, cached);
     assert_eq!(source.requests.lock().unwrap().len(), 2);
-    let counts = fixture.node.with_storage(|db| Box::pin(async move {
-        let row = db.prepare("SELECT (SELECT count(*) FROM model_scores),(SELECT count(*) FROM model_score_aliases)")
-            .await.map_err(crate::database_fixture::fault)?.query_row(()).await.map_err(crate::database_fixture::fault)?;
-        Ok((row.get::<i64>(0).map_err(crate::database_fixture::fault)?, row.get::<i64>(1).map_err(crate::database_fixture::fault)?))
-    })).await.unwrap();
-    assert_eq!(counts, (0, 0));
-    execute(
-        &fixture.client,
-        Command::SetModelScoresEnabled { enabled: true },
-    )
-    .await;
-    let restored = refresh(&fixture.client).await;
-    assert!(restored.scores.enabled && restored.scores.models == 3);
-    assert_eq!(scores(&fixture.client, &reference).await.scores.len(), 1);
     fixture.close().await;
 }

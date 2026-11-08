@@ -22,6 +22,9 @@ enum Change {
         expected_head: String,
         expected_index: String,
         include_changes: bool,
+        /// Full commit to start from instead of the captured checkout.
+        #[serde(default)]
+        base: Option<String>,
     },
     Remove {
         worktree: WorktreeId,
@@ -51,6 +54,7 @@ impl Change {
                 expected_head,
                 expected_index,
                 include_changes,
+                base,
             } => Command::CreateManagedWorktree {
                 project,
                 source,
@@ -58,6 +62,7 @@ impl Change {
                 expected_head,
                 expected_index,
                 include_changes,
+                base,
             },
             Self::Remove {
                 worktree,

@@ -130,7 +130,9 @@ impl Render for Panel {
                     .when(!self.content_sized, |panel| panel.flex_1())
                     .min_h_0()
                     .min_w_0()
-                    .overflow_hidden()
+                    // Content-sized menus and popovers paint their ring and shadow
+                    // outside their bounds; clipping would cut the rounded corners.
+                    .when(!self.content_sized, |panel| panel.overflow_hidden())
                     .child(mounted.root.read(cx).content().clone())
                     .when(
                         self.initialization.loading() || !self.connected || !mounted.active(),

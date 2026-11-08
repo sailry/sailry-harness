@@ -137,17 +137,5 @@ fn timestamp(
     .to_string()
 }
 
-pub(super) fn full_time(run: &Run) -> Option<String> {
-    full_at(run.finished_ms?)
-}
-
-pub(super) fn full_at(timestamp_ms: i64) -> Option<String> {
-    chrono::DateTime::from_timestamp_millis(timestamp_ms).map(|time| {
-        time.with_timezone(&chrono::Local)
-            .format("%Y-%m-%d %H:%M")
-            .to_string()
-    })
-}
-
 #[cfg(test)]
 mod tests;

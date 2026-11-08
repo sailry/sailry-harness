@@ -11,9 +11,20 @@ pub(crate) fn create(
     head: &str,
     expected_index: &str,
     include_changes: bool,
+    base: Option<&str>,
     id: &str,
 ) -> Result<String, Fault> {
     let repository = open(source)?;
+    // A base commit starts the checkout elsewhere, so the source snapshot is not
+    // compared and its changes cannot be carried over.
+    if let Some(base) = base {
+        if include_changes {
+            return Err(Fault::invalid(
+                "a base commit cannot include source changes",
+            ));
+        }
+        return checkout(source, directory, branch, base, id);
+    }
     let commit = repository
         .head()
         .map_err(fault)?
@@ -27,13 +38,6 @@ pub(crate) fn create(
             ErrorCode::Conflict,
             "resolve index conflicts before creating a worktree",
         ));
-    }
-    let root = directory
-        .parent()
-        .and_then(Path::parent)
-        .ok_or_else(|| Fault::invalid("managed worktree directory is unavailable"))?;
-    if super::location::prepare(root)? != directory {
-        return Err(Fault::invalid("managed worktree directory is invalid"));
     }
     let changes = if include_changes {
         let base = commit.tree().map_err(fault)?;
@@ -67,11 +71,7 @@ pub(crate) fn create(
     } else {
         None
     };
-    let destination = directory.join(id);
-    let destination = destination
-        .to_str()
-        .ok_or_else(|| Fault::invalid("worktree path is not UTF-8"))?;
-    let path = super::creation::create(source, destination, branch, head, id)?;
+    let path = checkout(source, directory, branch, head, id)?;
     if let Some((working, staged)) = changes {
         let target = open(Path::new(&path)).map_err(|error| unknown(error.message))?;
         for (diff, location) in [
@@ -91,4 +91,30 @@ fn unknown(error: impl std::fmt::Display) -> Fault {
         ErrorCode::OutcomeUnknown,
         format!("worktree was created but copying changes did not complete: {error}"),
     )
+}
+
+fn managed(directory: &Path) -> Result<(), Fault> {
+    let root = directory
+        .parent()
+        .and_then(Path::parent)
+        .ok_or_else(|| Fault::invalid("managed worktree directory is unavailable"))?;
+    if super::location::prepare(root)? != directory {
+        return Err(Fault::invalid("managed worktree directory is invalid"));
+    }
+    Ok(())
+}
+
+fn checkout(
+    source: &Path,
+    directory: &Path,
+    branch: &str,
+    commit: &str,
+    id: &str,
+) -> Result<String, Fault> {
+    managed(directory)?;
+    let destination = directory.join(id);
+    let destination = destination
+        .to_str()
+        .ok_or_else(|| Fault::invalid("worktree path is not UTF-8"))?;
+    super::creation::create(source, destination, branch, commit, id)
 }

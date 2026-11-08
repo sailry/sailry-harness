@@ -18,6 +18,9 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use sailry_protocol::{Effort, ProviderId, conversation::features::Feature, role};
 
+#[cfg(test)]
+mod tests;
+
 /// Enabled provider channels and their Node provider identities.
 #[derive(Clone, Default)]
 pub(super) struct Models {
@@ -151,11 +154,10 @@ impl ModelField {
             effort: None,
             features: None,
         };
-        let current = self.value.as_ref().and_then(|value| value.effort);
         value.effort = self
             .models
             .find(&value)
-            .and_then(|model| draft::effort(model, current));
+            .and_then(|model| draft::effort(model, Some(event.effort)));
         // Node keeps only the explicit choices the new model offers.
         value.features = self.value.as_ref().and_then(|value| value.features.clone());
         self.set(Some(value), cx);
@@ -257,6 +259,7 @@ impl Render for ModelField {
         let choose = crate::theme::popover(Popover::new("team-model"), cx)
             .p_2()
             .anchor(Anchor::TopLeft)
+            .overlay_closable(false)
             .trigger_style(StyleRefinement::default().w_full())
             .trigger(
                 Button::new("team-model-trigger")
@@ -292,6 +295,7 @@ impl Render for ModelField {
                         .is_some_and(|field| field.read(cx).value.is_none());
                     let clear = {
                         let owner = owner.clone();
+                        let popover = popover.clone();
                         move |window: &mut Window, cx: &mut App| {
                             _ = owner.update(cx, |field, cx| {
                                 if !field.disabled {
@@ -302,7 +306,7 @@ impl Render for ModelField {
                         }
                     };
                     let radio = clear.clone();
-                    v_flex()
+                    let content = v_flex()
                         .gap_1()
                         .child(
                             h_flex()
@@ -338,7 +342,8 @@ impl Render for ModelField {
                                 ),
                         )
                         .child(Separator::horizontal())
-                        .child(picker.clone())
+                        .child(picker.clone());
+                    Picker::surface(picker.clone(), popover, content)
                 }
             });
         h_flex()

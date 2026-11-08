@@ -498,7 +498,30 @@ impl View {
             "session":self.session.as_ref().map(|session|session.id),"revision":self.session.as_ref().map(|session|session.revision.to_string()),
             "main":main,"project_name":self.binding.project_name.as_ref(),"branch":self.binding.branch.as_ref(),
             "projects":self.binding.location_projects(self.node.snapshot.as_ref(),self.can_retarget()),
-            "can_move":self.can_move(),"can_retarget":self.can_retarget(),"git":self.repository.is_git(),"git_status":self.repository.kind(),"connected":self.connected()})
+            "can_move":self.can_move(),"can_retarget":self.can_retarget(),"git":self.repository.is_git(),"git_status":self.repository.kind(),"connected":self.connected(),
+            "base":self.session.is_none().then_some(self.base.as_ref()).flatten()})
+    }
+
+    /// Records where a new conversation starts; the worktree is created on send.
+    pub(crate) fn select_session_base(
+        &mut self,
+        base: SessionBase,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        if !self.can_move()
+            || self.session.is_some()
+            || self.binding.project.is_none()
+            || self.binding.worktree.is_none()
+            || !self.repository.is_git()
+        {
+            return Err("conversation location is unavailable".into());
+        }
+        if !base.valid() {
+            return Err("invalid session base".into());
+        }
+        self.base = Some(base);
+        cx.notify();
+        Ok(())
     }
 
     pub(crate) fn select_registered_project(
@@ -515,6 +538,7 @@ impl View {
             project,
             self.can_retarget(),
         )?;
+        self.base = None;
         self.select_location(choice, window, cx);
         Ok(())
     }
@@ -542,6 +566,7 @@ impl View {
         if !self.can_move() {
             return Err("conversation location is unavailable".into());
         }
+        self.base = None;
         if let Some(worktree) = worktree {
             if !confirmed
                 .is_some_and(|tree| tree.id == worktree && tree.project == self.binding.project)

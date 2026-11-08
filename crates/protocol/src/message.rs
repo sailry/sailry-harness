@@ -694,9 +694,6 @@ pub enum Command {
     RefreshModelCatalog,
     ReadModelCatalog(crate::conversation::catalog::Query),
     ReadModelScores(Vec<crate::conversation::catalog::ModelRef>),
-    SetModelScoresEnabled {
-        enabled: bool,
-    },
     DiscoverModels(Box<crate::conversation::discovery::Source>),
     ValidateProvider {
         provider: ProviderId,
@@ -1197,6 +1194,11 @@ pub enum Command {
         expected_head: String,
         expected_index: String,
         include_changes: bool,
+        /// Starts the new branch at this full commit instead of the source checkout.
+        /// The source HEAD and index are then not compared and `include_changes`
+        /// must be false.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        base: Option<String>,
     },
     /// Removes a clean linked worktree without active turns, retaining its branch
     /// and the history of sessions that used it.

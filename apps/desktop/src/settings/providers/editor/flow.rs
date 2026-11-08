@@ -72,7 +72,7 @@ impl Flow {
     }
 }
 
-/// How a method connects, shown as its icon and one-line description.
+/// How a method connects, shown as its one-line description.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Access {
     Key,
@@ -102,28 +102,6 @@ impl Access {
             Self::Cloud => "provider_access_cloud",
         }
     }
-}
-
-/// Second summary line: the method name, or its access kind when the name
-/// would only repeat the family.
-fn method_summary(family: &SharedString, method: SharedString, access: Access) -> SharedString {
-    if method == *family {
-        tr(access.key())
-    } else {
-        method
-    }
-}
-
-fn icon_tile(size: Pixels, icon: impl IntoElement, cx: &App) -> Div {
-    div()
-        .size(size)
-        .flex_shrink_0()
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded(cx.theme().radius)
-        .bg(cx.theme().muted)
-        .child(icon)
 }
 
 /// Methods behind the current configuration: a login opens alone, while an API
@@ -215,55 +193,6 @@ impl Editor {
                 )
             })
             .into_any_element()
-    }
-
-    pub(super) fn selection(&self, cx: &Context<Self>) -> impl IntoElement {
-        let family = self.selection_name();
-        let method = method_summary(
-            &family,
-            self.method_label(),
-            Access::of(self.preset, self.uses_login(), self.custom_endpoint()),
-        );
-        h_flex()
-            .w_full()
-            .min_w_0()
-            .items_center()
-            .gap_3()
-            .p_3()
-            .border_1()
-            .border_color(cx.theme().border)
-            .rounded(cx.theme().radius_lg)
-            .bg(cx.theme().secondary)
-            .child(icon_tile(px(40.), self.directory_icon(), cx))
-            .child(
-                v_flex()
-                    .flex_1()
-                    .min_w_0()
-                    .gap_0p5()
-                    .child(div().truncate().font_medium().child(family))
-                    .child(
-                        div()
-                            .truncate()
-                            .text_sm()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(method),
-                    ),
-            )
-            .when(self.editing.is_none(), |row| {
-                row.child(
-                    Button::new("provider-change")
-                        .ghost()
-                        .small()
-                        .label(tr("provider_change"))
-                        .disabled(self.navigation_blocked())
-                        .on_click(cx.listener(|editor, _, _, cx| {
-                            if !editor.navigation_blocked() {
-                                editor.flow.step = Step::Brand;
-                                cx.notify();
-                            }
-                        })),
-                )
-            })
     }
 
     pub(super) fn choices(&self, cx: &Context<Self>) -> AnyElement {

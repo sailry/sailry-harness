@@ -613,7 +613,6 @@ impl Render for Editor {
                         .child(tr("provider_editor_preview")),
                 )
             })
-            .child(self.selection(cx))
             .children(self.source_label())
             .children(self.suggestions(cx))
             .child(form)

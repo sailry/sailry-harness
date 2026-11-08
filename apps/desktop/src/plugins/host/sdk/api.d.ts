@@ -116,6 +116,8 @@ export type LocalizedLabel = { label: string; locales?: Record<string, string> }
 export type ContributionChoice = {
   id: string; label: LocalizedLabel; description?: LocalizedLabel;
   icon?: string; group?: LocalizedLabel; enabled?: boolean;
+  /** One nested level shown as a submenu; the parent row itself is not selectable. */
+  children?: ContributionChoice[];
 };
 /** revision is the opaque providerRevision:credentialRevision context token. */
 export type ProviderScope = {provider:string;revision:string;credential:{node:string;id:string}};
@@ -213,7 +215,8 @@ export function prepareGitChange(draft: Json): string;
 export function readWorktreeCatalog(): Promise<Json>;
 /** Native Git checkout discovery for this captured repository. */
 export function listWorktrees(): Promise<Json>;
-/** Register, create, managed-create or remove, with the source captured by this instance. */
+/** Register, create, managed-create or remove, with the source captured by this instance.
+ * A managed draft may name `base`, a full commit to start from; it then carries no source changes. */
 export function prepareWorktreeChange(draft: Json): string;
 /** Registered projects and worktrees only; requires projects.read and an unscoped context. */
 export function readProjectCatalog(): Promise<Json>;

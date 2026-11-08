@@ -48,7 +48,13 @@ fn retains_plain_text_and_unicode_spacing() {
         Some("  参数错误 🙂\nTry another value  ")
     );
     assert_eq!(raw.detail().result, Some(result));
-    for message in ["Malformed {\"error\":", "Ordinary failure", " \n "] {
+    for message in [
+        "Malformed {\"error\":",
+        "Ordinary failure",
+        " \n ",
+        "404",
+        "[\"busy\"]",
+    ] {
         let raw = source(json!({"isError":true,"content":[{"type":"text","text":message}]}));
         assert_eq!(raw.summary().error.as_deref(), Some(message));
     }

@@ -267,26 +267,6 @@ impl Editor {
         }
     }
 
-    pub(super) fn directory_icon(&self) -> AnyElement {
-        self.selected.as_ref().map_or_else(
-            || self.preset.category().icon().size_8().into_any_element(),
-            |entry| presets::render_icon(entry, rems(2.)),
-        )
-    }
-
-    pub(super) fn selection_name(&self) -> SharedString {
-        self.selected
-            .as_ref()
-            .map_or_else(|| tr(self.preset.family().key()), super::entry::brand_label)
-    }
-
-    pub(super) fn method_label(&self) -> SharedString {
-        self.selected.as_ref().map_or_else(
-            || tr(self.preset.key()),
-            |entry| presets::label(&entry.preset).into(),
-        )
-    }
-
     pub(super) fn suggestions(&self, cx: &Context<Self>) -> Option<Div> {
         if !self.suggestions_active() {
             return None;

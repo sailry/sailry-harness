@@ -69,35 +69,39 @@ pub(crate) fn append(
                 };
             }
             Kind::Menu => {
-                let choices = entry.choices();
-                let mut submenu = NativeMenu::new();
-                for (index, choice) in choices.iter().enumerate() {
-                    if index > 0 && choices[index - 1].group != choice.group {
-                        submenu = submenu.separator();
-                    }
-                    let action = Box::new(Dispatch {
-                        registry: registry.clone(),
-                        key: entry.key.clone(),
-                        kind: EventKind::Change,
-                        value: choice.id.clone().into(),
-                    });
-                    let label = controls::label(&choice.label);
-                    let disabled = !entry.state.enabled || !choice.enabled;
-                    submenu = if let Some(name) = choice.icon.as_deref() {
-                        submenu.menu_with_icon_disabled(
-                            label,
-                            controls::icon(Some(name)),
-                            disabled,
-                            action,
-                        )
-                    } else {
-                        submenu.menu_with_disabled(label, disabled, action)
-                    };
-                }
-                menu = menu.submenu(controls::label(&entry.declaration.label), submenu);
+                let menu_label = controls::label(&entry.declaration.label);
+                menu = menu.submenu(menu_label, choices(&registry, &entry, entry.choices()));
             }
             _ => {}
         }
     }
     menu
+}
+
+/// One native submenu level per choice that carries children.
+fn choices(registry: &Entity<Registry>, entry: &Entry, choices: &[ui::Choice]) -> NativeMenu {
+    let mut submenu = NativeMenu::new();
+    for (index, choice) in choices.iter().enumerate() {
+        if index > 0 && choices[index - 1].group != choice.group {
+            submenu = submenu.separator();
+        }
+        let label = controls::label(&choice.label);
+        if !choice.children.is_empty() {
+            submenu = submenu.submenu(label, self::choices(registry, entry, &choice.children));
+            continue;
+        }
+        let action = Box::new(Dispatch {
+            registry: registry.clone(),
+            key: entry.key.clone(),
+            kind: EventKind::Change,
+            value: choice.id.clone().into(),
+        });
+        let disabled = !entry.state.enabled || !choice.enabled;
+        submenu = if let Some(name) = choice.icon.as_deref() {
+            submenu.menu_with_icon_disabled(label, controls::icon(Some(name)), disabled, action)
+        } else {
+            submenu.menu_with_disabled(label, disabled, action)
+        };
+    }
+    submenu
 }

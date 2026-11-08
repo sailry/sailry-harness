@@ -82,6 +82,30 @@ pub(crate) struct Binding {
     pub branch: SharedString,
 }
 
+/// A new conversation's starting branch. Sending creates a managed worktree on
+/// `branch` from `commit`; the bound checkout itself is never switched.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SessionBase {
+    /// Name the composer shows for the pending start, such as the chosen branch.
+    pub from: String,
+    pub branch: String,
+    pub commit: String,
+}
+
+impl SessionBase {
+    pub(crate) fn valid(&self) -> bool {
+        !self.from.is_empty()
+            && self.from.len() <= 1024
+            && !self.from.chars().any(char::is_control)
+            && !self.branch.is_empty()
+            && self.branch.len() <= 1024
+            && !self.branch.chars().any(char::is_control)
+            && self.commit.len() == 40
+            && self.commit.bytes().all(|byte| byte.is_ascii_hexdigit())
+    }
+}
+
 #[derive(Clone)]
 pub(crate) enum Event {
     PluginMounted(Entity<crate::plugins::Panel>),
@@ -128,6 +152,7 @@ pub(crate) struct View {
     resource: Option<sailry_protocol::connection::Resource>,
     assistant: Option<sailry_protocol::plugin::conversation::Binding>,
     binding: Binding,
+    base: Option<SessionBase>,
     hosts: Vec<(NodeId, SharedString)>,
     draft_mode: Option<sailry_protocol::WorkMode>,
     draft_permission: Option<sailry_protocol::Permission>,
@@ -471,6 +496,7 @@ impl View {
             config_owner: binding.client.target(),
             team_draft: Default::default(),
             binding,
+            base: None,
             hosts: Vec::new(),
             draft_mode: remembered.as_ref().map(|selection| selection.mode),
             draft_permission: remembered.as_ref().map(|selection| selection.permission),

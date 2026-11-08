@@ -366,6 +366,7 @@ pub(super) fn execute(roots: &Roots, request: &Request) -> Response {
             expected_head,
             expected_index,
             include_changes,
+            base,
             ..
         } => {
             let id = WorktreeId::new();
@@ -376,6 +377,7 @@ pub(super) fn execute(roots: &Roots, request: &Request) -> Response {
                 expected_head,
                 expected_index,
                 *include_changes,
+                base.as_deref(),
                 &id.to_string(),
             )
             .map(|path| {

@@ -25,7 +25,7 @@ impl Cache {
         {
             return;
         }
-        if self.status.revision != status.revision || !status.enabled {
+        if self.status.revision != status.revision {
             self.loaded.clear();
             self.rows.clear();
         }
@@ -33,7 +33,7 @@ impl Cache {
     }
 
     fn merge(&mut self, references: &[catalog::ModelRef], scores: catalog::Scores) {
-        if !self.status.enabled || self.status.revision != scores.revision {
+        if self.status.revision != scores.revision {
             return;
         }
         self.loaded.extend(references.iter().map(key));
@@ -51,10 +51,9 @@ fn key(reference: &catalog::ModelRef) -> Key {
 }
 
 fn stale(status: &catalog::ScoreStatus, now: u64) -> bool {
-    status.enabled
-        && status
-            .checked_at_ms
-            .is_none_or(|checked| now.saturating_sub(checked) >= 86_400_000)
+    status
+        .checked_at_ms
+        .is_none_or(|checked| now.saturating_sub(checked) >= 86_400_000)
 }
 
 pub(super) struct Host {
@@ -107,9 +106,6 @@ pub(super) fn get(binding: &Binding, cx: &mut App) -> Entity<Host> {
 
 impl Host {
     pub fn scores(&self, reference: &catalog::ModelRef) -> Option<&[catalog::EffortScore]> {
-        if !self.cache.status.enabled {
-            return None;
-        }
         self.cache.rows.get(&key(reference)).map(Vec::as_slice)
     }
 
@@ -156,7 +152,7 @@ impl Host {
     }
 
     fn flush(&mut self, cx: &mut Context<Self>) {
-        if !self.known || !self.connected || !self.cache.status.enabled {
+        if !self.known || !self.connected {
             return;
         }
         if self.refresh_requested && !self.refreshing {

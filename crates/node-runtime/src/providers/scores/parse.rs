@@ -50,11 +50,11 @@ struct Row {
     model_id: String,
     reasoning_effort: String,
     overall_score: Option<f32>,
-    backend_score: Option<u8>,
-    frontend_score: Option<u8>,
-    knowledge_score: Option<u8>,
-    aesthetic_score: Option<u8>,
-    maintainability_score: Option<u8>,
+    backend_score: Option<f64>,
+    frontend_score: Option<f64>,
+    knowledge_score: Option<f64>,
+    aesthetic_score: Option<f64>,
+    maintainability_score: Option<f64>,
 }
 
 #[derive(Deserialize)]
@@ -87,7 +87,8 @@ pub(super) fn parse(bytes: &[u8]) -> Result<Dataset, Fault> {
             || row.model_id.is_empty()
             || row.model_id.len() > 256
         {
-            return Err(unavailable("model score is invalid"));
+            // One malformed row must not discard the rest of the snapshot.
+            continue;
         }
         let axes = [
             row.backend_score,
@@ -96,7 +97,11 @@ pub(super) fn parse(bytes: &[u8]) -> Result<Dataset, Fault> {
             row.aesthetic_score,
             row.maintainability_score,
         ]
-        .map(|score| score.filter(|score| *score <= 100));
+        .map(|score| {
+            score
+                .filter(|score| score.is_finite() && (0.0..=100.0).contains(score))
+                .map(|score| score.round() as u8)
+        });
         let [
             Some(backend),
             Some(frontend),
@@ -105,7 +110,7 @@ pub(super) fn parse(bytes: &[u8]) -> Result<Dataset, Fault> {
             Some(maintainability),
         ] = axes
         else {
-            return Err(unavailable("model score axes are invalid"));
+            continue;
         };
         let effort = document
             .efforts
@@ -119,38 +124,33 @@ pub(super) fn parse(bytes: &[u8]) -> Result<Dataset, Fault> {
             "xhigh" => Effort::XHigh,
             "max" => Effort::Max,
             "default" | "unknown" => Effort::Default,
-            _ => return Err(unavailable("model score effort is invalid")),
+            _ => continue,
         };
         let key = serde_json::to_value(effort)
             .unwrap()
             .as_str()
             .unwrap()
             .to_owned();
-        let metrics = document.metrics.get(&row.candidate_id);
-        let mut elapsed_ms = None;
-        let mut cost_usd = None;
-        for axis in AXES {
-            if let Some(metric) = metrics.and_then(|metrics| metrics.get(axis)) {
-                if let Some(elapsed) = metric.elapsed_ms {
-                    elapsed_ms = Some(
-                        elapsed_ms
-                            .unwrap_or(0u64)
-                            .checked_add(elapsed)
-                            .ok_or_else(|| unavailable("model score elapsed time is invalid"))?,
-                    );
-                }
-                if let Some(cost) = metric.estimated_api_cost_usd {
-                    if !cost.is_finite() || cost < 0.0 {
-                        return Err(unavailable("model score cost is invalid"));
-                    }
-                    let total = cost_usd.unwrap_or(0.0) + cost;
-                    if !f32::is_finite(total) {
-                        return Err(unavailable("model score cost is invalid"));
-                    }
-                    cost_usd = Some(total);
-                }
-            }
-        }
+        // Metrics are optional context; an invalid value drops only that total.
+        let metrics: Vec<_> = AXES
+            .iter()
+            .filter_map(|axis| document.metrics.get(&row.candidate_id)?.get(*axis))
+            .collect();
+        let elapsed_ms = metrics
+            .iter()
+            .filter_map(|metric| metric.elapsed_ms)
+            .try_fold(None::<u64>, |total, elapsed| {
+                total.unwrap_or(0).checked_add(elapsed).map(Some)
+            })
+            .flatten();
+        let cost_usd = metrics
+            .iter()
+            .filter_map(|metric| metric.estimated_api_cost_usd)
+            .try_fold(None::<f32>, |total, cost| {
+                let total = total.unwrap_or(0.0) + cost;
+                (cost.is_finite() && cost >= 0.0 && total.is_finite()).then_some(Some(total))
+            })
+            .flatten();
         entries
             .entry((row.model_id.clone(), key.clone()))
             .or_insert(Entry {

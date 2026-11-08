@@ -2,6 +2,56 @@ use super::*;
 use core::prelude::v1::test;
 
 #[test]
+fn last_update_tracks_both_sources() {
+    let mut state = State::default();
+    assert_eq!(state.last_update(), None);
+    state.observe(catalog::Status {
+        revision: 1,
+        updated_at_ms: Some(100),
+        scores: catalog::ScoreStatus {
+            revision: 1,
+            updated_at_ms: Some(80),
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    assert_eq!(state.last_update(), Some(100));
+    state.observe(catalog::Status {
+        revision: 1,
+        updated_at_ms: Some(100),
+        scores: catalog::ScoreStatus {
+            revision: 2,
+            updated_at_ms: Some(200),
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    assert_eq!(state.last_update(), Some(200));
+    state.observe(catalog::Status {
+        revision: 2,
+        updated_at_ms: Some(150),
+        scores: catalog::ScoreStatus {
+            revision: 3,
+            updated_at_ms: Some(200),
+            checked_at_ms: Some(300),
+            fault: Some(sailry_protocol::Fault::new(
+                ErrorCode::Unavailable,
+                "Source unavailable",
+            )),
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    assert_eq!(state.last_update(), Some(200));
+    state.observe(catalog::Status {
+        revision: 3,
+        updated_at_ms: Some(400),
+        ..Default::default()
+    });
+    assert_eq!(state.last_update(), Some(400));
+}
+
+#[test]
 fn source_failures_remain_independent() {
     for source in [Source::Automatic, Source::Manual] {
         for (metadata_failed, scores_failed) in [(true, false), (false, true), (true, true)] {
@@ -35,13 +85,13 @@ fn source_failures_remain_independent() {
 }
 
 #[test]
-fn observations_preserve_newer_score_preferences() {
+fn observations_preserve_newer_scores() {
     let mut state = State::default();
     state.observe(catalog::Status {
         revision: 5,
         scores: catalog::ScoreStatus {
             revision: 4,
-            enabled: false,
+            models: 3,
             ..Default::default()
         },
         ..Default::default()
@@ -56,7 +106,7 @@ fn observations_preserve_newer_score_preferences() {
     });
     assert_eq!(state.status.revision, 6);
     assert_eq!(state.status.scores.revision, 4);
-    assert!(!state.status.scores.enabled);
+    assert_eq!(state.status.scores.models, 3);
     state.observe(catalog::Status {
         revision: 5,
         scores: catalog::ScoreStatus {

@@ -94,6 +94,7 @@ pub(super) fn extend(
             .child(
                 crate::theme::popover(Popover::new(SharedString::from(id.clone())), cx)
                     .p_2()
+                    .overlay_closable(false)
                     .anchor(Anchor::TopLeft)
                     .trigger(
                         Button::new(SharedString::from(id))
@@ -120,8 +121,8 @@ pub(super) fn extend(
                     })
                     .content(move |_, _, cx| {
                         let popover = cx.entity().downgrade();
-                        picker.update(cx, |picker, _| picker.popover = Some(popover));
-                        picker.clone()
+                        picker.update(cx, |picker, _| picker.popover = Some(popover.clone()));
+                        Picker::surface(picker.clone(), popover, picker.clone())
                     }),
             )
             .into_any_element()

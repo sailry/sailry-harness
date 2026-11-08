@@ -67,9 +67,3 @@ fn preview_requires_explicit_activation() {
     assert!(picker.scores.sources.is_empty());
     assert!(picker.scores.requested.is_empty());
 }
-
-#[test]
-fn publication_dates_use_calendar_days() {
-    assert_eq!(date("2026-11-07T12:34:56Z"), "2026-11-07");
-    assert_eq!(date("2026-11-07"), "2026-11-07");
-}

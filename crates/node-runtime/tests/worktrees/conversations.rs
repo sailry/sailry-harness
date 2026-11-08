@@ -63,6 +63,7 @@ async fn creates_and_relocates() {
             expected_head: status.head.unwrap(),
             expected_index: status.index_revision.unwrap(),
             include_changes: true,
+            base: None,
         });
         let Output::Worktree(tree) = client.execute(request.clone()).await.unwrap() else {
             panic!("worktree expected")
@@ -169,4 +170,67 @@ async fn creates_and_relocates() {
         before.sessions
     );
     node.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn starts_from_base_commit() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("repository");
+    let repository = creation::init(&root);
+    let base = repository.head().unwrap().peel_to_commit().unwrap();
+    std::fs::write(root.join("file"), "advanced").unwrap();
+    let mut index = repository.index().unwrap();
+    index.add_path(Path::new("file")).unwrap();
+    index.write().unwrap();
+    let tree = repository.find_tree(index.write_tree().unwrap()).unwrap();
+    let author = git2::Signature::now("Fixture", "fixture@example.invalid").unwrap();
+    repository
+        .commit(Some("HEAD"), &author, &author, "Advanced", &tree, &[&base])
+        .unwrap();
+    std::fs::write(root.join("file"), "uncommitted").unwrap();
+    let node = Node::start_empty(temp.path().join("node")).await.unwrap();
+    let local = Client::new(node.local());
+    let project = register(&local, &root).await;
+    let source = snapshot(&local).await.worktrees[0].id;
+    let controller = Link::controller(temp.path().join("controller"), NetworkScope::default())
+        .await
+        .unwrap();
+    let address = controller
+        .handle()
+        .pair(node.link().invite().unwrap().ticket())
+        .await
+        .unwrap();
+    let remote = Client::new(controller.handle().remote(address));
+    for (number, client) in [&local, &remote].into_iter().enumerate() {
+        let create = |include_changes| Command::CreateManagedWorktree {
+            project: project.id,
+            source,
+            branch: format!("sailry/base-{number}"),
+            expected_head: String::new(),
+            expected_index: String::new(),
+            include_changes,
+            base: Some(base.id().to_string()),
+        };
+        let rejected = client.execute(client.prepare(create(true))).await;
+        assert_eq!(rejected.unwrap_err().code, ErrorCode::InvalidRequest);
+        let Output::Worktree(tree) = client.execute(client.prepare(create(false))).await.unwrap()
+        else {
+            panic!("worktree expected")
+        };
+        assert_eq!(tree.project, Some(project.id));
+        assert_eq!(
+            std::fs::read(Path::new(&tree.path).join("file")).unwrap(),
+            b"base"
+        );
+        let linked = git2::Repository::open(&tree.path).unwrap();
+        assert_eq!(
+            linked.head().unwrap().shorthand().unwrap(),
+            format!("sailry/base-{number}")
+        );
+        assert_eq!(
+            linked.head().unwrap().peel_to_commit().unwrap().id(),
+            base.id()
+        );
+    }
+    assert_eq!(std::fs::read(root.join("file")).unwrap(), b"uncommitted");
 }

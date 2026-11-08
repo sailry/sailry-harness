@@ -159,6 +159,9 @@ pub struct Choice {
     pub description: Option<Navigation>,
     pub icon: Option<String>,
     pub group: Option<Navigation>,
+    /// One nested level rendered as a submenu; the parent row is not selectable.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub children: Vec<Choice>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -312,6 +315,7 @@ impl Contribution {
                 !matches!(self.slot, Slot::Statistics | Slot::Footer | Slot::Provider)
                     && self.handler.as_ref().is_some_and(|name| identifier(name))
                     && choices(&self.choices)
+                    && (self.kind == Kind::Menu || flat(&self.choices))
                     && (matches!(self.kind, Kind::Select | Kind::Picker | Kind::Menu)
                         || self.choices.is_empty())
             }
@@ -344,17 +348,50 @@ pub fn valid(entries: &[Contribution]) -> bool {
 }
 
 fn choices(entries: &[Choice]) -> bool {
-    entries.len() <= MAX_CHOICES
-        && entries.iter().enumerate().all(|(index, entry)| {
-            !entry.id.is_empty()
-                && entry.id.len() <= 512
-                && !entry.id.chars().any(char::is_control)
-                && entry.label.valid()
-                && icon(&entry.icon)
-                && entry.description.as_ref().is_none_or(Navigation::valid)
-                && entry.group.as_ref().is_none_or(Navigation::valid)
-                && !entries[..index].iter().any(|before| before.id == entry.id)
+    let all = || {
+        entries
+            .iter()
+            .flat_map(|entry| std::iter::once(entry).chain(&entry.children))
+    };
+    all().count() <= MAX_CHOICES
+        && entries.iter().all(|entry| {
+            choice(entry)
+                && entry
+                    .children
+                    .iter()
+                    .all(|child| child.children.is_empty() && choice(child))
         })
+        && all()
+            .enumerate()
+            .all(|(index, entry)| !all().take(index).any(|before| before.id == entry.id))
+}
+
+/// Only Menus render submenus; Select and Picker rows stay flat.
+fn flat(entries: &[Choice]) -> bool {
+    entries.iter().all(|entry| entry.children.is_empty())
+}
+
+impl Choice {
+    /// Rows a selection may name: childless entries and every submenu child.
+    pub fn selectable(entries: &[Choice]) -> impl Iterator<Item = &Choice> {
+        entries.iter().flat_map(|entry| {
+            if entry.children.is_empty() {
+                std::slice::from_ref(entry)
+            } else {
+                entry.children.as_slice()
+            }
+        })
+    }
+}
+
+fn choice(entry: &Choice) -> bool {
+    !entry.id.is_empty()
+        && entry.id.len() <= 512
+        && !entry.id.chars().any(char::is_control)
+        && entry.label.valid()
+        && icon(&entry.icon)
+        && entry.description.as_ref().is_none_or(Navigation::valid)
+        && entry.group.as_ref().is_none_or(Navigation::valid)
 }
 
 impl State {
@@ -394,7 +431,9 @@ impl State {
             && self.label.as_ref().is_none_or(Navigation::valid)
             && icon(&self.icon)
             && (!self.dropdown || matches!(entry.kind, Kind::Button | Kind::Popover))
-            && self.choices.as_ref().is_none_or(|entries| choices(entries))
+            && self.choices.as_ref().is_none_or(|entries| {
+                choices(entries) && (entry.kind == Kind::Menu || flat(entries))
+            })
             && self.segments.len() <= 16
             && (self.segments.is_empty() || matches!(entry.slot, Slot::Status | Slot::Model))
             && self.segments.iter().all(|segment| segment.label.valid())

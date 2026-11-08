@@ -426,8 +426,10 @@ impl View {
         }
         let panel = self.model_controls.clone();
         let opening = panel.clone();
+        let picker = self.model_picker.clone();
         let popover = crate::theme::popover(Popover::new("live-model-popover"), cx)
             .open(panel.read(cx).opened)
+            .overlay_closable(false)
             .anchor(Anchor::BottomRight)
             .bottom_2()
             .p_3()
@@ -435,7 +437,9 @@ impl View {
             .on_open_change(move |open, window, cx| {
                 opening.update(cx, |panel, cx| panel.open(*open, window, cx));
             })
-            .content(move |_, _, _| panel.clone());
+            .content(move |_, _, cx| {
+                Picker::surface(picker.clone(), cx.entity().downgrade(), panel.clone())
+            });
         chip.child(popover).into_any_element()
     }
 
@@ -525,6 +529,7 @@ impl Panel {
             },
         )
         .detach();
+        cx.observe(&picker, |_, _, cx| cx.notify()).detach();
         let observer = cx.observe(&contributions, |_, _, cx| cx.notify());
         Self {
             opened: false,
@@ -644,7 +649,7 @@ impl Render for Panel {
         let height = transition(
             "model-controls-height",
             match self.layer {
-                Layer::Main => px(104. + team::ROW_HEIGHT),
+                Layer::Main => px(108. + team::ROW_HEIGHT),
                 Layer::Models | Layer::Teams => size.height,
             },
             Transition::new(cx.theme().motion_tokens().duration_normal)
@@ -672,6 +677,8 @@ impl Render for Panel {
                     .into_any_element();
             }
         }
+        self.picker
+            .update(cx, |picker, cx| picker.request_selected_score(cx));
         let current = settings
             .choices
             .iter()
@@ -723,11 +730,11 @@ impl Render for Panel {
         let member = settings.member;
         let locked = settings.busy || !settings.connected || (member.is_some() && settings.pending);
         let owner = self.owner.clone();
+        let picker = self.picker.clone();
         let reset = Button::new("model-controls-reset")
             .rounded_full()
             .ghost()
-            .small()
-            .size_6()
+            .size_7()
             .icon(gpui_kit::assets::IconName::RotateCcw)
             .accessibility_label(tr("composer_effort_reset"))
             .tooltip(tr("composer_effort_reset"))
@@ -758,14 +765,14 @@ impl Render for Panel {
                         h_flex()
                             .relative()
                             .w_full()
-                            .h_6()
+                            .h_7()
                             .justify_center()
                             .child(
                                 h_flex()
                                     .absolute()
                                     .left_0()
                                     .top_0()
-                                    .h_6()
+                                    .h_7()
                                     .items_center()
                                     .gap_1()
                                     .when(
@@ -788,13 +795,25 @@ impl Render for Panel {
                             )
                             .child(
                                 div()
-                                    .text_sm()
+                                    .id("model-controls-effort")
+                                    .text_base()
                                     .text_color(color)
                                     .debug_selector(|| "model-controls-effort".into())
                                     .child(if settings.choices.is_empty() {
                                         tr("composer_effort_unavailable")
                                     } else {
                                         crate::reasoning::label(selected)
+                                    })
+                                    .when(picker.read(cx).has_scores(cx), |label| {
+                                        label.tooltip(move |window, cx| {
+                                            picker
+                                                .read(cx)
+                                                .score_tooltip(selected, cx)
+                                                .unwrap_or_else(|| {
+                                                    Tooltip::new(crate::reasoning::label(selected))
+                                                })
+                                                .build(window, cx)
+                                        })
                                     }),
                             )
                             .child(
@@ -802,7 +821,7 @@ impl Render for Panel {
                                     .absolute()
                                     .right_0()
                                     .top_0()
-                                    .h_6()
+                                    .h_7()
                                     .items_center()
                                     .gap_1()
                                     .when(member.is_none(), |row| row.children(contributions))

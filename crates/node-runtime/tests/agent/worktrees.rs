@@ -166,6 +166,7 @@ async fn creates_registered_checkout() {
             expected_head: commit,
             expected_index: child_status.index_revision.unwrap(),
             include_changes: true,
+            base: None,
         },
     )
     .await
@@ -354,6 +355,7 @@ async fn isolates_child_writes() {
             expected_head: commit.clone(),
             expected_index: status.index_revision.unwrap(),
             include_changes: false,
+            base: None,
         },
     )
     .await
@@ -565,6 +567,7 @@ async fn runs_parallel_checkouts() {
                 expected_head: commit.clone(),
                 expected_index: status.index_revision.clone().unwrap(),
                 include_changes: false,
+                base: None,
             },
         )
         .await

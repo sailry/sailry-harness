@@ -179,8 +179,11 @@ fn parameters(request: &ToolCall) -> CallToolRequestParams {
         .with_arguments(request.arguments.as_object().cloned().unwrap_or_default())
 }
 
+/// A stopped call is a Sailry runtime outcome, encoded as a fault so its row
+/// reads "interrupted" rather than a tool-reported error.
 pub(super) fn interrupted_call() -> Result<CallToolResult, ErrorData> {
-    Ok(CallToolResult::error(vec![
-        rmcp::model::ContentBlock::text("Tool call was interrupted before completing"),
-    ]))
+    Err(crate::agent::catalog::fault(sailry_protocol::Fault::new(
+        sailry_protocol::ErrorCode::OutcomeUnknown,
+        "Tool call was interrupted before completing",
+    )))
 }

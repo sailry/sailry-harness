@@ -104,6 +104,7 @@ fn requires_one_selector() {
         json!({"projects":true}),
         json!({"add_project":true}),
         json!({"overview":true}),
+        json!({"base":{"from":"dev","branch":"sailry/1a2b3c4d","commit":"a".repeat(40)}}),
     ];
     assert!(
         !serde_json::from_value::<Selection>(json!({}))
@@ -128,6 +129,34 @@ fn requires_one_selector() {
                     .valid()
             );
         }
+    }
+}
+
+#[test]
+fn bases_decline_worktree_modifiers() {
+    let base = json!({"from":"dev","branch":"sailry/1a2b3c4d","commit":"a".repeat(40)});
+    let selection: Selection = serde_json::from_value(json!({"base":base})).unwrap();
+    assert!(selection.valid());
+    assert!(selection.base.as_ref().is_some_and(|base| base.valid()));
+    for modifier in [json!({"fork":true}), json!({"request":RequestId::new()})] {
+        let mut combined = json!({"base":base});
+        combined
+            .as_object_mut()
+            .unwrap()
+            .extend(modifier.as_object().unwrap().clone());
+        assert!(
+            !serde_json::from_value::<Selection>(combined)
+                .unwrap()
+                .valid()
+        );
+    }
+    for invalid in [
+        json!({"from":"dev","branch":"","commit":"a".repeat(40)}),
+        json!({"from":"dev","branch":"sailry/x","commit":"abc"}),
+        json!({"from":"","branch":"sailry/x","commit":"a".repeat(40)}),
+    ] {
+        let base: crate::conversation::live::SessionBase = serde_json::from_value(invalid).unwrap();
+        assert!(!base.valid());
     }
 }
 

@@ -740,6 +740,14 @@
     "Choice": {
       "additionalProperties": false,
       "properties": {
+        "children": {
+          "default": [],
+          "description": "One nested level rendered as a submenu; the parent row is not selectable.",
+          "items": {
+            "$ref": "#/$defs/Choice"
+          },
+          "type": "array"
+        },
         "description": {
           "anyOf": [
             {

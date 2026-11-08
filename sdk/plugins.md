@@ -701,6 +701,14 @@ below 680 logical pixels secondary composer controls move into settings; below
 440 context controls move there as well. Indicators remain beside the explicit
 model selector and send control. Placement does not change contribution values.
 
+A `menu` contribution renders its `choices` as a Kit popup menu. The string
+`value` names the checked choice. Consecutive choices with the same `group` share
+a section and groups are separated. A choice `description` appears as muted text
+on the right of its row. A choice with `children` opens one submenu level; the
+parent row is not selectable and children cannot nest further. Children count
+toward the 256-choice limit and every id is unique across the whole menu. Only
+`menu` contributions accept `children`; Select and Picker choices stay flat.
+
 The `status` slot supports Buttons and Popovers computed by the execution Node,
 including with no Desktop connected. A Host package declaring Status entries must
 declare `host.status` and require Sailry `0.1.0-alpha.9` or later:

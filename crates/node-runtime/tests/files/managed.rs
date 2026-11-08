@@ -52,6 +52,7 @@ async fn checkout(fixture: &Fixture, client: &Client) -> Worktree {
             expected_head: status.head.unwrap(),
             expected_index: status.index_revision.unwrap(),
             include_changes: false,
+            base: None,
         },
     )
     .await

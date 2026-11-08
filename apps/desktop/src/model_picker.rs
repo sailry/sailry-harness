@@ -75,12 +75,13 @@ impl From<Channel> for Group {
     }
 }
 
+mod menu;
 mod scores;
 #[cfg(test)]
 mod tests;
 mod view;
 pub(crate) use scores::Binding;
-pub(crate) use scores::{SOURCE as SCORE_SOURCE, date as score_date, effort_item};
+pub(crate) use scores::effort_item;
 
 pub(crate) struct Picker {
     channels: Vec<Group>,
@@ -93,8 +94,10 @@ pub(crate) struct Picker {
     scroll: ScrollHandle,
     current_effort: Option<sailry_protocol::Effort>,
     selected_effort: Option<sailry_protocol::Effort>,
+    effort_controls: bool,
     disabled: bool,
     scores: scores::State,
+    submenu: Option<menu::Efforts>,
 }
 
 pub(crate) struct Picked {
@@ -121,8 +124,10 @@ impl Picker {
             scroll: ScrollHandle::new(),
             current_effort: None,
             selected_effort: None,
+            effort_controls: false,
             disabled: false,
             scores: Default::default(),
+            submenu: None,
         }
     }
 
@@ -205,6 +210,7 @@ impl Picker {
         cx: &mut Context<Self>,
     ) {
         if self.channels != channels || self.selected != selected {
+            self.submenu = None;
             let changed = self.selected != selected
                 || self
                     .selected
@@ -245,7 +251,9 @@ impl Picker {
         disabled: bool,
         cx: &mut Context<Self>,
     ) {
+        self.effort_controls = true;
         if self.current_effort != Some(effort) || self.disabled != disabled {
+            self.submenu = None;
             self.current_effort = Some(effort);
             self.disabled = disabled;
             cx.notify();
@@ -253,7 +261,9 @@ impl Picker {
     }
 
     pub fn set_effort(&mut self, effort: Option<sailry_protocol::Effort>, cx: &mut Context<Self>) {
-        if self.selected_effort != effort {
+        if !self.effort_controls || self.selected_effort != effort {
+            self.effort_controls = true;
+            self.submenu = None;
             self.selected_effort = effort;
             cx.notify();
         }
@@ -269,6 +279,7 @@ impl Picker {
         if self.disabled {
             return;
         }
+        self.submenu = None;
         cx.emit(Picked { selection, effort });
         if let Some(popover) = &self.popover {
             _ = popover.update(cx, |state, cx| state.dismiss(window, cx));
@@ -276,6 +287,7 @@ impl Picker {
     }
 
     pub fn reveal(&mut self, cx: &mut Context<Self>) {
+        self.submenu = None;
         self.scores.requested.clear();
         self.expanded.clear();
         if let Some(channel) = self.selected.as_ref().and_then(|selection| {
@@ -312,5 +324,17 @@ impl Picker {
         self.channels
             .iter()
             .any(|channel| channel.family == family && !channel.models.is_empty())
+    }
+
+    fn choice(&self, selection: &Selection) -> Option<(&Group, &Choice)> {
+        let group = self
+            .channels
+            .iter()
+            .find(|group| group.id == selection.channel)?;
+        let model = group
+            .models
+            .iter()
+            .find(|model| model.id == selection.model)?;
+        Some((group, model))
     }
 }

@@ -301,7 +301,7 @@ impl Workspace {
                 info.extension.as_ref().and_then(|extension| extension.tint),
                 Some(&icon),
                 None,
-                px(48.),
+                px(36.),
             ),
             cx,
         )

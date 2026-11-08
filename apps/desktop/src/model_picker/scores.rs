@@ -4,12 +4,12 @@ use sailry_protocol::{Effort, NodeId, ProviderId, conversation::catalog};
 use std::{collections::BTreeMap, sync::Arc};
 
 mod cache;
+mod ring;
 mod view;
-pub(crate) use view::{date, effort_item};
+pub(in crate::model_picker) use view::effort_content;
+pub(crate) use view::effort_item;
 #[cfg(test)]
 mod tests;
-
-pub(crate) const SOURCE: &str = "https://modeldial.com/radar";
 
 #[derive(Clone)]
 pub(crate) struct Binding {
@@ -27,15 +27,13 @@ struct Bound {
 #[derive(Default)]
 pub(super) struct State {
     sources: BTreeMap<NodeId, Bound>,
-    pub(super) requested: BTreeMap<NodeId, (u64, bool, Vec<catalog::ModelRef>)>,
+    pub(super) requested: BTreeMap<NodeId, (u64, Vec<catalog::ModelRef>)>,
     preview: bool,
 }
 
 #[derive(Clone)]
 pub(super) struct Measured {
     score: catalog::EffortScore,
-    batch: Option<String>,
-    published: Option<String>,
     preview: bool,
 }
 
@@ -140,7 +138,7 @@ impl Picker {
                 })
                 .collect::<Vec<_>>();
             let status = &bound.host.read(cx).cache.status;
-            let request = (status.revision, status.enabled, references.clone());
+            let request = (status.revision, references.clone());
             if self.scores.requested.get(node) == Some(&request) {
                 continue;
             }
@@ -149,6 +147,15 @@ impl Picker {
                 .host
                 .update(cx, |host, cx| host.request(references, cx));
         }
+    }
+
+    pub fn request_selected_score(&mut self, cx: &mut Context<Self>) {
+        let Some((group, model)) = self.selected_choice() else {
+            return;
+        };
+        let mut group = group.clone();
+        group.models = vec![model.clone()];
+        self.request_scores(&[group], cx);
     }
 
     pub(super) fn measured(
@@ -167,8 +174,6 @@ impl Picker {
                     elapsed_ms: Some(7_200_000),
                     cost_usd: Some(12.5),
                 },
-                batch: None,
-                published: None,
                 preview: true,
             });
         }
@@ -177,9 +182,14 @@ impl Picker {
             let host = bound.host.read(cx);
             let scores = host.scores(&reference)?;
             Some(Measured {
-                score: nearest(scores, effort)?.clone(),
-                batch: host.cache.status.batch.clone(),
-                published: host.cache.status.published_at.clone(),
+                // An explicit effort shows only its own measurement; the
+                // provider default borrows the nearest measured effort.
+                score: if effort == Effort::Default {
+                    nearest(scores, effort)?
+                } else {
+                    scores.iter().find(|score| score.effort == effort)?
+                }
+                .clone(),
                 preview: false,
             })
         })
@@ -197,32 +207,17 @@ impl Picker {
     }
 
     pub fn effort_score(&self, effort: Effort, cx: &App) -> Option<f32> {
-        let selection = self.selected.as_ref()?;
-        let group = self
-            .channels
-            .iter()
-            .find(|group| group.id == selection.channel)?;
-        let model = group
-            .models
-            .iter()
-            .find(|model| model.id == selection.model)?;
+        let (group, model) = self.selected_choice()?;
         self.exact(group, model, effort, cx)
     }
 
     pub fn has_scores(&self, cx: &App) -> bool {
-        self.selected
-            .as_ref()
-            .and_then(|selection| {
-                let group = self
-                    .channels
-                    .iter()
-                    .find(|group| group.id == selection.channel)?;
-                let model = group
-                    .models
-                    .iter()
-                    .find(|model| model.id == selection.model)?;
-                self.measured(group, model, model.effort, cx)
-            })
+        self.selected_choice()
+            .and_then(|(group, model)| self.measured(group, model, model.effort, cx))
             .is_some()
+    }
+
+    fn selected_choice(&self) -> Option<(&Group, &Choice)> {
+        self.choice(self.selected.as_ref()?)
     }
 }

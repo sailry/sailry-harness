@@ -237,21 +237,14 @@ impl View {
                     .gap_2()
                     .debug_selector(move || format!("live-user-footer-{turn}"))
                     .when_some(sent_ms.and_then(frame::at), |row, time| {
-                        let full = sent_ms
-                            .and_then(frame::full_at)
-                            .unwrap_or_else(|| time.clone());
                         row.child(
                             h_flex()
                                 .id(format!("user-time-{turn}"))
-                                .text_xs()
+                                .text_size(cx.theme().typography_tokens().sm.size)
                                 .text_color(cx.theme().muted_foreground)
                                 .opacity(0.)
                                 .group_hover(format!("user-footer-{turn}"), |style| {
                                     style.opacity(1.)
-                                })
-                                .tooltip(move |window, cx| {
-                                    gpui_kit::component::tooltip::Tooltip::new(full.clone())
-                                        .build(window, cx)
                                 })
                                 .child(time),
                         )

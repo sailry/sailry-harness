@@ -424,7 +424,11 @@ impl Registry {
     pub(crate) fn overlays(&self, window: &Window, cx: &App) -> Vec<AnyElement> {
         self.mounted
             .values()
-            .filter(|mounted| mounted.overlay && mounted.active(cx))
+            .filter(|mounted| {
+                mounted.overlay
+                    && mounted.active(cx)
+                    && !mounted.bridge.popover_open(|slot| self.accepts(slot))
+            })
             .map(|mounted| {
                 deferred(
                     anchored().position(point(px(0.), px(0.))).child(

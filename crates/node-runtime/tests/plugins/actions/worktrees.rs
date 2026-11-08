@@ -52,6 +52,7 @@ async fn confines_management_and_retains_admitted_results() {
             expected_head: head.clone(),
             expected_index: status.index_revision.unwrap(),
             include_changes: false,
+            base: None,
         })
         .with_plugin(context.clone());
     let admitted = client.dispatch(create.clone()).await.unwrap();

@@ -328,6 +328,21 @@ fn error(raw: &Raw, metadata: Option<&ResultDisplay>) -> Option<String> {
         return Some(message.clone());
     }
     let result = raw.value()?;
+    // System diagnostics carry model-facing English; controllers show their
+    // localized outcome label instead.
+    let diagnostic = [result.get("error"), result.get("data")]
+        .into_iter()
+        .flatten()
+        .filter_map(|value| serde_json::from_value::<sailry_protocol::Fault>(value.clone()).ok())
+        .any(|fault| {
+            matches!(
+                fault.details,
+                Some(sailry_protocol::FaultDetails::SystemDiagnostic(_))
+            )
+        });
+    if diagnostic {
+        return None;
+    }
     if let Some(message) = result
         .pointer("/error/message")
         .or_else(|| result.get("error"))
@@ -353,7 +368,10 @@ fn error(raw: &Raw, metadata: Option<&ResultDisplay>) -> Option<String> {
                 .join("\n");
             if message.is_empty() {
                 None
-            } else if let Ok(envelope) = serde_json::from_str::<Value>(&message) {
+            } else if let Ok(envelope @ Value::Object(_)) = serde_json::from_str::<Value>(&message)
+            {
+                // Objects without a message leave the headline to the details;
+                // other JSON-looking text is the server's own message.
                 envelope
                     .pointer("/error/message")
                     .and_then(Value::as_str)

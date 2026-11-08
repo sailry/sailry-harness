@@ -68,6 +68,16 @@ impl Bridge {
         self.updates.borrow().get(id).cloned()
     }
 
+    pub(super) fn popover_open(&self, accepts: impl Fn(ui::Slot) -> bool) -> bool {
+        self.declarations.iter().any(|entry| {
+            entry.kind == ui::Kind::Popover
+                && accepts(entry.slot)
+                && self
+                    .state(&entry.id)
+                    .is_some_and(|state| state.visible && state.value.as_bool() == Some(true))
+        })
+    }
+
     pub fn ready(&self) -> bool {
         self.current
             .lock()
@@ -319,9 +329,10 @@ impl Bridge {
             (ui::Kind::Toggle | ui::Kind::Popover | ui::Kind::Indicator, EventKind::Change) => {
                 value.is_boolean()
             }
-            (ui::Kind::Select | ui::Kind::Menu | ui::Kind::Picker, EventKind::Change) => choices
-                .iter()
-                .any(|choice| choice.enabled && value.as_str() == Some(&choice.id)),
+            (ui::Kind::Select | ui::Kind::Menu | ui::Kind::Picker, EventKind::Change) => {
+                ui::Choice::selectable(choices)
+                    .any(|choice| choice.enabled && value.as_str() == Some(&choice.id))
+            }
             (ui::Kind::Picker, EventKind::Search) => {
                 value.as_str().is_some_and(|query| query.len() <= 4096)
             }

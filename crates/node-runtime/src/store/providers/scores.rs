@@ -53,31 +53,6 @@ fn increment(revision: u64) -> Result<u64, Fault> {
         .ok_or_else(|| storage_error("model scores revision exhausted"))
 }
 
-pub(crate) async fn set_enabled(
-    db: &Connection,
-    enabled: bool,
-) -> Result<(catalog::Status, bool), Fault> {
-    let mut state = stored(db).await?;
-    let changed = state.status.enabled != enabled;
-    if changed {
-        state.status.enabled = enabled;
-        state.status.revision = increment(state.status.revision)?;
-        state.status.fault = None;
-        state.status.checked_at_ms = None;
-        if !enabled {
-            clear(db).await?;
-            state.etag = None;
-            state.entries = 0;
-            state.status.updated_at_ms = None;
-            state.status.batch = None;
-            state.status.published_at = None;
-            state.status.models = 0;
-        }
-        write(db, &state).await?;
-    }
-    Ok((super::catalog::status(db).await?, changed))
-}
-
 async fn clear(db: &Connection) -> Result<(), Fault> {
     db.execute("DELETE FROM model_scores", ())
         .await
@@ -176,7 +151,7 @@ impl Database {
             .await
             .map_err(storage_error)?;
         let mut state = stored(&transaction).await?;
-        if state.status.enabled && state.status.revision == revision {
+        if state.status.revision == revision {
             state.status.checked_at_ms = Some(now()?);
             match download {
                 Ok(Download::Unchanged) => state.status.fault = None,
@@ -224,6 +199,9 @@ pub(crate) async fn read(
     db: &Connection,
     references: &[catalog::ModelRef],
 ) -> Result<catalog::Scores, Fault> {
+    if references.len() > 512 {
+        return Err(Fault::invalid("too many model score references"));
+    }
     let state = stored(db).await?;
     let mut output = catalog::Scores {
         revision: state.status.revision,
@@ -231,7 +209,7 @@ pub(crate) async fn read(
         published_at: state.status.published_at,
         scores: Vec::new(),
     };
-    if !state.status.enabled || state.entries == 0 || references.is_empty() {
+    if state.entries == 0 || references.is_empty() {
         return Ok(output);
     }
     let rows = rows(db).await?;

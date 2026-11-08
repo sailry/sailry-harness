@@ -15,6 +15,42 @@ fn state(value: Value) -> State {
     serde_json::from_value(value).unwrap()
 }
 
+#[test]
+fn open_popovers_use_their_visible_surface() {
+    let bridge = Bridge::new(vec![
+        serde_json::from_value(json!({
+            "id":"location", "slot":"context", "kind":"popover",
+            "label":{"label":"Location"}, "handler":"location"
+        }))
+        .unwrap(),
+        serde_json::from_value(json!({
+            "id":"mode", "slot":"composer", "kind":"toggle",
+            "label":{"label":"Mode"}, "handler":"mode"
+        }))
+        .unwrap(),
+    ]);
+    assert!(!bridge.popover_open(|_| true));
+    bridge
+        .publish(vec![state(json!({"id":"mode","value":true}))])
+        .unwrap();
+    assert!(!bridge.popover_open(|_| true));
+    bridge
+        .publish(vec![state(json!({"id":"location","value":true}))])
+        .unwrap();
+    assert!(bridge.popover_open(|slot| slot == ui::Slot::Context));
+    assert!(!bridge.popover_open(ui::Slot::is_project));
+    bridge
+        .publish(vec![state(
+            json!({"id":"location","value":true,"visible":false}),
+        )])
+        .unwrap();
+    assert!(!bridge.popover_open(|_| true));
+    bridge
+        .publish(vec![state(json!({"id":"location","value":false}))])
+        .unwrap();
+    assert!(!bridge.popover_open(|_| true));
+}
+
 #[tokio::test]
 async fn exposes_current_state_before_projection() {
     let bridge = Bridge::new(vec![

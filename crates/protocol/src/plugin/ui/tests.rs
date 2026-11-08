@@ -114,6 +114,52 @@ fn preserves_wire_and_validation() {
             }),
         ),
         (
+            "menu_choices_nest_one_level",
+            (|scenario: &'static str| {
+                let leaf = |id: &str| json!({"id": id, "label": {"label": id}});
+                let choice: Choice =
+                    serde_json::from_value(json!({"id":"remote","label":{"label":"Remote"}}))
+                        .unwrap();
+                assert!(choice.children.is_empty(), "{scenario}");
+                assert!(
+                    serde_json::to_value(&choice)
+                        .unwrap()
+                        .get("children")
+                        .is_none(),
+                    "{scenario}"
+                );
+                let mut entry = contribution(Slot::Context, Kind::Menu);
+                let state = |choices: Value, value: Value| -> State {
+                    serde_json::from_value(json!({"id":"action","value":value,"choices":choices}))
+                        .unwrap()
+                };
+                let nested = json!([
+                    {"id":"main","label":{"label":"main"},"description":{"label":"Current"}},
+                    {"id":"remote","label":{"label":"Remote"},"children":[leaf("origin/dev")]}
+                ]);
+                let current = state(nested.clone(), json!("origin/dev"));
+                assert!(current.valid(&entry), "{scenario}");
+                let ids: Vec<_> = Choice::selectable(current.choices.as_deref().unwrap())
+                    .map(|choice| choice.id.as_str())
+                    .collect();
+                assert_eq!(ids, ["main", "origin/dev"], "{scenario}");
+                let deep = json!([{"id":"a","label":{"label":"a"},"children":[
+                    {"id":"b","label":{"label":"b"},"children":[leaf("c")]}
+                ]}]);
+                assert!(!state(deep, Value::Null).valid(&entry), "{scenario}");
+                let duplicate =
+                    json!([leaf("a"), {"id":"group","label":{"label":"g"},"children":[leaf("a")]}]);
+                assert!(!state(duplicate, Value::Null).valid(&entry), "{scenario}");
+                let children: Vec<_> = (0..MAX_CHOICES)
+                    .map(|index| leaf(&format!("c{index}")))
+                    .collect();
+                let crowded = json!([{"id":"group","label":{"label":"g"},"children":children}]);
+                assert!(!state(crowded, Value::Null).valid(&entry), "{scenario}");
+                entry.kind = Kind::Select;
+                assert!(!state(nested, Value::Null).valid(&entry), "{scenario}");
+            }),
+        ),
+        (
             "project_menu_accepts_native_actions",
             (|scenario: &'static str| {
                 for kind in [Kind::Button, Kind::Menu] {

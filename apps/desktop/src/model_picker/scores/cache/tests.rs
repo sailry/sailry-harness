@@ -57,33 +57,14 @@ fn revision_invalidates_rows_and_misses() {
 }
 
 #[test]
-fn disable_rejects_pending_reads_and_status() {
-    let mut cache = Cache::default();
-    let model = reference(ProviderId::new());
-    cache.merge(&[model.clone()], response(0, &model));
-    assert_eq!(cache.rows.len(), 1);
-    cache.accept(catalog::ScoreStatus {
-        revision: 1,
-        enabled: false,
-        ..Default::default()
-    });
-    cache.merge(&[model.clone()], response(1, &model));
-    cache.accept(catalog::ScoreStatus::default());
-    assert!(!cache.status.enabled);
-    assert!(cache.rows.is_empty());
-    assert!(cache.loaded.is_empty());
-}
-
-#[test]
-fn stale_uses_check_time_and_enablement() {
+fn stale_uses_check_time() {
     let mut status = catalog::ScoreStatus::default();
     assert!(stale(&status, 5));
     status.checked_at_ms = Some(10);
     assert!(!stale(&status, 5));
     assert!(!stale(&status, 86_400_009));
     assert!(stale(&status, 86_400_010));
-    status.enabled = false;
-    assert!(!stale(&status, 172_800_000));
+    assert!(stale(&status, 172_800_000));
 }
 
 #[test]
@@ -99,6 +80,8 @@ fn older_checks_cannot_replace_current_failures() {
         ..Default::default()
     };
     cache.accept(current.clone());
+    cache.accept(catalog::ScoreStatus::default());
+    assert_eq!(cache.status, current);
     cache.accept(catalog::ScoreStatus {
         revision: 4,
         checked_at_ms: Some(50),

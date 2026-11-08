@@ -302,6 +302,7 @@ pub(super) fn command(
                 expected_head: input.expected_head,
                 expected_index: input.expected_index,
                 include_changes: input.include_changes,
+                base: None,
             }
         }
         Operation::RegisterWorktree => {

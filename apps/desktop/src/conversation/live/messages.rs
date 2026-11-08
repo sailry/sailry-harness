@@ -803,18 +803,13 @@ impl View {
                     row.child(self.export_menu(turn, cx))
                 })
                 .when_some(frame::finished(run), |row, time| {
-                    let full = frame::full_time(run).unwrap_or_else(|| time.clone());
                     row.child(
                         h_flex()
                             .id(format!("{turn}-timestamp"))
-                            .text_xs()
+                            .text_size(cx.theme().typography_tokens().sm.size)
                             .text_color(cx.theme().muted_foreground)
                             .opacity(0.)
                             .group_hover(format!("footer-{turn}"), |style| style.opacity(1.))
-                            .tooltip(move |window, cx| {
-                                gpui_kit::component::tooltip::Tooltip::new(full.clone())
-                                    .build(window, cx)
-                            })
                             .child(time),
                     )
                 }),
