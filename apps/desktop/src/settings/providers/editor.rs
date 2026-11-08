@@ -79,7 +79,7 @@ pub(super) fn open(
         let desired = match editor.read(cx).flow.step {
             flow::Step::Brand => px(560.),
             flow::Step::Method => px(540.),
-            flow::Step::Configure => px(760.),
+            flow::Step::Configure => px(640.),
         };
         let width = (window.viewport_size().width - px(48.)).min(desired);
         let save = editor.clone();
