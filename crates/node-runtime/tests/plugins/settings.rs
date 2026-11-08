@@ -13,6 +13,13 @@ mod targets;
 #[path = "settings/versions.rs"]
 mod versions;
 
+fn assert_configuration(mut current: plugin::Info, expected: &plugin::Info) {
+    for server in &mut current.mcp {
+        server.runtime = None;
+    }
+    assert_eq!(&current, expected);
+}
+
 fn declare(root: &Path, title: &str) {
     let mut manifest: serde_json::Value =
         serde_json::from_slice(&fs::read(root.join("plugin.json")).unwrap()).unwrap();
@@ -54,17 +61,17 @@ async fn recovers_versioned_forms() {
     assert_eq!(first.skills.len(), 1);
     assert_eq!(first.mcp.len(), 1);
     declare(&root, "Changed form");
-    assert_eq!(
+    assert_configuration(
         info(
             execute(
                 &client,
                 Command::ReadPlugin {
-                    name: "example".into()
-                }
+                    name: "example".into(),
+                },
             )
-            .await
+            .await,
         ),
-        first
+        &first,
     );
     let second = info(execute(&client, install(worktree, first.summary.revision)).await);
     assert_ne!(second.summary.digest, first.summary.digest);
@@ -80,17 +87,17 @@ async fn recovers_versioned_forms() {
             .unwrap();
     // Reconnect through the same authenticated path and persistent peer identity.
     let reconnected = Client::new(controller.handle().remote(reopened.link().address()));
-    assert_eq!(
+    assert_configuration(
         info(
             execute(
                 &reconnected,
                 Command::ReadPlugin {
-                    name: "example".into()
-                }
+                    name: "example".into(),
+                },
             )
-            .await
+            .await,
         ),
-        second
+        &second,
     );
     assert_eq!(info(reconnected.execute(request).await.unwrap()), first);
     reopened.shutdown().await.unwrap();
@@ -134,17 +141,17 @@ async fn isolates_forms() {
     );
     assert_eq!(invalid.skills, two.skills);
     assert_eq!(invalid.mcp, two.mcp);
-    assert_eq!(
+    assert_configuration(
         info(
             execute(
                 &first.3,
                 Command::ReadPlugin {
-                    name: "example".into()
-                }
+                    name: "example".into(),
+                },
             )
-            .await
+            .await,
         ),
-        one
+        &one,
     );
     first.1.shutdown().await.unwrap();
     second.1.shutdown().await.unwrap();

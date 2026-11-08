@@ -51,12 +51,15 @@ export function bounded({step,outcome}) {
     assert_eq!(output[0]["stable"], true);
     let view = super::super::super::progress::observe(&fixture.client, fixture.session.id).await;
     assert!(view.calls[0].failure.is_none());
-    for call in &view.calls[1..] {
+    for (call, result) in view.calls[1..].iter().zip(&output[1..]) {
         assert_eq!(
             call.failure.as_ref().and_then(|failure| failure.code),
             Some(ErrorCode::RevisionConflict)
         );
-        assert!(call.details(&page));
+        assert!(!call.details(&page));
+        let row = call.row(&page);
+        assert!(row.warning && !row.failed);
+        assert_eq!(row.detail.unwrap().text, result["error"]["message"]);
     }
     for key in ["partial", "head"] {
         assert_eq!(value(&fixture, &package, key).await.revision, 1);

@@ -88,7 +88,7 @@ pub(super) fn messages(
                     }
                     assistant.push(block);
                 }
-                Role::User => user.push(user_content(content)?),
+                Role::User => user.push(user_content(content, origin, media)?),
             }
         }
         flush(&mut messages, &mut assistant, &mut user, origin);
@@ -251,12 +251,33 @@ fn assistant_content(
     })
 }
 
-fn user_content(content: Content) -> Result<UserContent, Error> {
+fn user_content(
+    content: Content,
+    origin: &Origin,
+    media: &mut super::super::media::Media,
+) -> Result<UserContent, Error> {
     Ok(match content {
         Content::Text { text } => UserContent::Text(Text::new(text)),
         Content::Image {
             media_type, data, ..
-        } => UserContent::Image(image(media_type, data)?),
+        } => {
+            let image = image(media_type, data)?;
+            if origin.api.as_str() == "openai.chat" {
+                let url = match &image.data {
+                    DocumentSourceKind::Base64(data) => format!(
+                        "data:{};base64,{data}",
+                        image.media_type.as_ref().unwrap().to_mime_type()
+                    ),
+                    DocumentSourceKind::Url(url) => url.clone(),
+                    _ => return Err(invalid("image source is unsupported")),
+                };
+                media.input(json!({
+                    "type":"image_url","image_url":{"url":url,"detail":"auto"},
+                }))
+            } else {
+                UserContent::Image(image)
+            }
+        }
         Content::Document {
             media_type,
             name,
@@ -264,6 +285,21 @@ fn user_content(content: Content) -> Result<UserContent, Error> {
         } => {
             let media_type = DocumentMediaType::from_mime_type(&media_type)
                 .ok_or_else(|| invalid("document media type is unsupported"))?;
+            if media_type == DocumentMediaType::PDF
+                && matches!(origin.api.as_str(), "openai.chat" | "openai.responses")
+            {
+                let file = json!({
+                    "filename":name.unwrap_or_else(|| "document.pdf".into()),
+                    "file_data":format!("data:application/pdf;base64,{data_base64}"),
+                });
+                return Ok(media.input(if origin.api.as_str() == "openai.responses" {
+                    let mut part = file;
+                    part["type"] = "input_file".into();
+                    part
+                } else {
+                    json!({"type":"file","file":file})
+                }));
+            }
             UserContent::Document(Document {
                 data: DocumentData::File(DocumentSourceKind::Base64(data_base64)),
                 media_type: Some(media_type),

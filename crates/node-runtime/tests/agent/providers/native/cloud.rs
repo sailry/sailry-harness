@@ -98,6 +98,11 @@ async fn restores_frozen_requests() {
         assert_eq!(requests.len(), 2, "{api:?}");
         for request in requests {
             assert!(!request.body.to_string().contains(server::KEY));
+            assert_eq!(request.body["max_tokens"], 512, "{api:?}");
+            assert!(
+                request.body.get("max_completion_tokens").is_none(),
+                "{api:?}"
+            );
             match api {
                 ModelApi::AzureOpenAi => {
                     assert_eq!(
@@ -107,7 +112,6 @@ async fn restores_frozen_requests() {
                     assert_eq!(request.headers["api-key"], server::KEY);
                     assert!(!request.headers.contains_key("authorization"));
                     assert_eq!(request.body["reasoning_effort"], "high");
-                    assert_eq!(request.body["max_completion_tokens"], 512);
                 }
                 ModelApi::AzureAi => {
                     assert_eq!(
@@ -116,7 +120,6 @@ async fn restores_frozen_requests() {
                     );
                     assert_eq!(request.headers["api-key"], server::KEY);
                     assert_eq!(request.body["model"], "fixture-a");
-                    assert_eq!(request.body["max_tokens"], 512);
                 }
                 _ => unreachable!(),
             }

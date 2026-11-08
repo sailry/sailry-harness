@@ -8,12 +8,12 @@ pub(crate) fn create(
     source: &Path,
     directory: &Path,
     branch: &str,
-    head: &str,
-    expected_index: &str,
+    expected: (&str, &str),
     include_changes: bool,
     base: Option<&str>,
     id: &str,
 ) -> Result<String, Fault> {
+    let (head, expected_index) = expected;
     let repository = open(source)?;
     // A base commit starts the checkout elsewhere, so the source snapshot is not
     // compared and its changes cannot be carried over.
@@ -23,6 +23,7 @@ pub(crate) fn create(
                 "a base commit cannot include source changes",
             ));
         }
+        managed(directory)?;
         return checkout(source, directory, branch, base, id);
     }
     let commit = repository
@@ -39,6 +40,7 @@ pub(crate) fn create(
             "resolve index conflicts before creating a worktree",
         ));
     }
+    managed(directory)?;
     let changes = if include_changes {
         let base = commit.tree().map_err(fault)?;
         let mut snapshot = repository.index().map_err(fault)?;
@@ -111,7 +113,6 @@ fn checkout(
     commit: &str,
     id: &str,
 ) -> Result<String, Fault> {
-    managed(directory)?;
     let destination = directory.join(id);
     let destination = destination
         .to_str()

@@ -468,7 +468,10 @@ async fn applies_tool_settings() {
                 let context = turn_context(request);
                 assert!(!context.contains(&id.to_string()));
                 assert!(!context.contains(POLICY));
-                assert_eq!(system_text(request).contains(POLICY), enabled);
+                assert_eq!(
+                    system_text(request).matches(POLICY).count(),
+                    usize::from(enabled)
+                );
                 assert!(
                     request["messages"]
                         .as_array()

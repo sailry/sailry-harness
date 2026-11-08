@@ -83,7 +83,13 @@ async fn idless_mcp_results_keep_execution_facts() {
     assert_ne!(results[0].id, results[1].id);
     let failed = results.iter().find(|call| call.failure.is_some()).unwrap();
     assert!(failed.diagnostics(&page));
-    assert!(failed.details(&page));
+    assert!(!failed.details(&page));
+    let row = failed.row(&page);
+    assert!(row.warning && !row.failed);
+    assert_eq!(
+        row.detail.unwrap().text,
+        "Original MCP failure\n参数错误 🙂"
+    );
     assert_eq!(
         failed.result(&page),
         Some(

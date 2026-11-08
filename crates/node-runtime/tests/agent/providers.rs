@@ -83,7 +83,8 @@ async fn atomic_save() {
         Some(format!("Bearer {marker}").as_str())
     );
     let requests = server.requests.lock().unwrap().clone();
-    assert_eq!(requests[0]["max_completion_tokens"], 32);
+    assert_eq!(requests[0]["max_tokens"], 32);
+    assert!(requests[0].get("max_completion_tokens").is_none());
     assert_eq!(requests[0]["reasoning_effort"], "high");
     let snapshot = client
         .execute(client.prepare(Command::Snapshot))

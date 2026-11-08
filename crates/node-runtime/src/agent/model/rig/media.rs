@@ -1,4 +1,4 @@
-use rig_core::message::{Text, ToolResultContent};
+use rig_core::message::{Text, ToolResultContent, UserContent};
 use sailry_protocol::conversation::ModelApi;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -9,6 +9,7 @@ const FIELD: &str = "__sailry_tool_media";
 #[derive(Default, Serialize, Deserialize)]
 pub(super) struct Media {
     items: BTreeMap<String, Blob>,
+    inputs: BTreeMap<String, Value>,
     nested: bool,
 }
 
@@ -25,9 +26,15 @@ impl Media {
         ToolResultContent::Text(Text::new(marker))
     }
 
+    pub(super) fn input(&mut self, part: Value) -> UserContent {
+        let marker = format!("sailry-media:{}", uuid::Uuid::new_v4());
+        self.inputs.insert(marker.clone(), part);
+        UserContent::Text(Text::new(marker))
+    }
+
     pub(super) fn attach(mut self, params: &mut serde_json::Map<String, Value>, model: &str) {
         params.remove(FIELD);
-        if !self.items.is_empty() {
+        if !self.items.is_empty() || !self.inputs.is_empty() {
             self.nested = model.to_lowercase().starts_with("gemini-3");
             params.insert(FIELD.into(), json!(self));
         }
@@ -40,11 +47,35 @@ pub(super) fn restore(body: &mut Value, api: ModelApi) -> Result<(), serde_json:
     };
     let media: Media = serde_json::from_value(value)?;
     match api {
+        ModelApi::ChatCompletions | ModelApi::DeepSeek => inputs(&mut body["messages"], &media),
+        ModelApi::Responses => inputs(&mut body["input"], &media),
         ModelApi::Anthropic => anthropic(body, &media),
         ModelApi::Gemini => gemini(body, &media),
         _ => {}
     }
     Ok(())
+}
+
+fn inputs(messages: &mut Value, media: &Media) {
+    for message in messages.as_array_mut().into_iter().flatten() {
+        if message["role"] != "user" {
+            continue;
+        }
+        let content = &mut message["content"];
+        if let Some(part) = content.as_str().and_then(|marker| media.inputs.get(marker)) {
+            *content = json!([part]);
+            continue;
+        }
+        for part in content.as_array_mut().into_iter().flatten() {
+            if matches!(part["type"].as_str(), Some("text" | "input_text"))
+                && let Some(original) = part["text"]
+                    .as_str()
+                    .and_then(|marker| media.inputs.get(marker))
+            {
+                *part = original.clone();
+            }
+        }
+    }
 }
 
 fn anthropic(body: &mut Value, media: &Media) {

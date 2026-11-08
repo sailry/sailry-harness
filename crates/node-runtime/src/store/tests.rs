@@ -7,6 +7,7 @@ use tempfile::TempDir;
 use crate::Node;
 
 mod concurrency;
+mod peers;
 
 async fn node() -> (TempDir, Node, Client) {
     let directory = tempfile::tempdir().unwrap();

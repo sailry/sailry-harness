@@ -173,7 +173,7 @@ async fn reads_history_with_and_without_mentions() {
         view.calls[7].presentation,
         sailry_protocol::tool::Presentation::Summary
     );
-    assert!(view.calls[7].details(&captured));
+    assert!(!view.calls[7].details(&captured));
     assert_eq!(
         view.calls[7].failure.as_ref().unwrap().code,
         Some(ErrorCode::NotFound)
@@ -212,6 +212,9 @@ async fn reads_history_with_and_without_mentions() {
     assert_eq!(results[6]["matches"].as_array().unwrap().len(), 1);
     assert_eq!(results[6]["matches"][0]["turn"], first.to_string());
     assert_eq!(results[7]["data"]["code"], "not_found");
+    let row = view.calls[7].row(&captured);
+    assert!(row.warning && !row.failed);
+    assert_eq!(row.detail.unwrap().text, results[7]["message"]);
     let detail = crate::agent_support::details::read(
         &client,
         view.calls[7].detail_reference(&captured).unwrap(),

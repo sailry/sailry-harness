@@ -207,10 +207,11 @@ async fn independent_resume() {
     let page = finished(&destination, session.id, turn.id).await;
     assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
     assert!(defaults.requests.lock().unwrap().is_empty());
-    assert_eq!(
-        selected.requests.lock().unwrap()[0]["max_completion_tokens"],
-        32
-    );
+    {
+        let requests = selected.requests.lock().unwrap();
+        assert_eq!(requests[0]["max_tokens"], 32);
+        assert!(requests[0].get("max_completion_tokens").is_none());
+    }
     assert_eq!(
         selected.authorization.lock().unwrap()[0].as_deref(),
         Some(format!("Bearer {marker}").as_str())

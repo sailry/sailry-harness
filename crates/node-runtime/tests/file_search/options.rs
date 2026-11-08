@@ -494,41 +494,61 @@ async fn confines_symlinked_rules_and_large_files() {
         fixture.root.join("secret.rs"),
     )
     .unwrap();
-    std::fs::write(fixture.root.join("visible.rs"), "needle inside").unwrap();
+    std::fs::write(
+        fixture.root.join("visible.rs"),
+        "needle inside\nneedle retained",
+    )
+    .unwrap();
     std::fs::File::create(fixture.root.join("huge.rs"))
         .unwrap()
         .set_len(64 * 1024 * 1024 + 1)
         .unwrap();
     for client in fixture.clients() {
-        let result = query(
-            &fixture,
-            &client,
-            FileSearch {
-                query: "needle".into(),
-                ..Default::default()
-            },
-        )
-        .await;
-        assert_eq!(result.matches.len(), 1);
-        assert_eq!(result.matches[0].line, "needle inside");
-        assert!(result.partial && result.next_offset.is_none());
-        assert!(
-            result
-                .diagnostics
-                .iter()
-                .any(|item| item.path == "huge.rs" && item.message.contains("64 MiB"))
-        );
-        assert!(
-            result
-                .diagnostics
-                .iter()
-                .any(|item| item.message.contains("not a regular file"))
-        );
-        assert!(
-            !serde_json::to_string(&result)
-                .unwrap()
-                .contains("private credential")
-        );
+        for (offset, line, next) in [(0, "needle inside", Some(1)), (1, "needle retained", None)] {
+            let result = query(
+                &fixture,
+                &client,
+                FileSearch {
+                    query: "needle".into(),
+                    limit: 1,
+                    offset,
+                    ..Default::default()
+                },
+            )
+            .await;
+            assert_eq!(
+                result.matches,
+                [SearchMatch {
+                    path: "visible.rs".into(),
+                    line_number: offset + 1,
+                    line: line.into(),
+                    matched: true,
+                    truncated: false,
+                }]
+            );
+            assert!(!result.partial, "{result:?}");
+            assert_eq!(result.offset, offset);
+            assert_eq!(result.next_offset, next);
+            assert_eq!(result.truncated, next.is_some());
+            assert!(result.skipped > 0);
+            assert!(
+                result
+                    .diagnostics
+                    .iter()
+                    .any(|item| item.path == "huge.rs" && item.message.contains("64 MiB"))
+            );
+            assert!(
+                result
+                    .diagnostics
+                    .iter()
+                    .any(|item| item.message.contains("not a regular file"))
+            );
+            assert!(
+                !serde_json::to_string(&result)
+                    .unwrap()
+                    .contains("private credential")
+            );
+        }
     }
     fixture.close().await;
 }

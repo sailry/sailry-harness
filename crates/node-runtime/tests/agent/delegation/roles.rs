@@ -207,7 +207,7 @@ async fn inherits_parent_model() {
             .unwrap();
         assert_eq!(child["reasoning_effort"], "high");
         assert_eq!(child["model"], requests[0]["model"]);
-        assert_eq!(child["messages"][0]["role"], "developer");
+        assert_eq!(child["messages"][0]["role"], "system");
         let identity = child["messages"][0].to_string();
         assert!(identity.contains("You are a delegated child"));
         assert!(identity.contains("Your final message returns to the parent agent, not the user"));

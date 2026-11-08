@@ -132,20 +132,16 @@ async fn retains_history_after_brief_removal() {
     {
         let requests = server.requests.lock().unwrap();
         let request = &requests[0];
-        assert!(!system_prompt(request).contains(&instructions));
+        let initial_policy = system_prompt(request);
+        assert_eq!(initial_policy.matches(&instructions).count(), 1);
         assert!(has_tool(request, "tool_search"));
         assert!(!has_tool(request, "write_brief"));
         assert!(has_tool(&requests[1], "write_brief"));
         for name in ["read_brief", "list_briefs"] {
             assert!(!has_tool(&requests[1], name));
         }
-        for (index, request) in requests.iter().enumerate() {
-            assert_eq!(
-                node_context(request, "Work mode")
-                    .matches(&instructions)
-                    .count(),
-                usize::from(index > 0),
-            );
+        for request in requests.iter() {
+            assert_eq!(system_prompt(request), initial_policy);
             assert!(!turn_context(request).contains(&instructions));
             assert!(
                 request["messages"]

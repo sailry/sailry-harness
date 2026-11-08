@@ -124,6 +124,44 @@ fn shared_context_is_injected_once() {
 }
 
 #[test]
+fn retains_tool_instructions_with_static_guidance() {
+    let mut catalog = catalog();
+    let guidance = "Plugin database\nUse the captured database".to_owned();
+    catalog.initial.insert(guidance.clone());
+    catalog.entries[0].context.insert(0, guidance);
+    let mut loaded = Vec::new();
+    let result = catalog.output(
+        Arguments {
+            query: "query_database".into(),
+            limit: Some(1),
+        },
+        &mut loaded,
+    );
+    assert_eq!(
+        result,
+        json!({
+            "tools":[{"name":"query_database","description":"Read database rows"}],
+            "sailry_context":"Database context",
+        })
+    );
+    let repeated = catalog.output(
+        Arguments {
+            query: "query_database".into(),
+            limit: Some(1),
+        },
+        &mut loaded,
+    );
+    assert_eq!(
+        repeated,
+        json!({
+            "tools":[{"name":"query_database","description":"Read database rows"}],
+            "sailry_context":"",
+        })
+    );
+    assert_eq!(loaded, ["query_database"]);
+}
+
+#[test]
 fn ignores_noise_and_weak_matches() {
     let catalog = catalog();
     for query in [

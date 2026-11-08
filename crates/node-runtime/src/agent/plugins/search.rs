@@ -37,6 +37,17 @@ pub(super) fn bind(
         .iter()
         .filter(|entry| !entry.deferred || loaded.contains(entry.tool.name.as_ref()))
         .flat_map(|entry| contexts(invocation, entry))
+        .chain(invocation.plugins.iter().filter_map(|package| {
+            if !package.summary.available() || !super::guidance_selected(invocation, package, tools)
+            {
+                return None;
+            }
+            package
+                .extension
+                .as_ref()
+                .and_then(|extension| extension.instructions.as_deref())
+                .map(|instructions| super::guidance(&package.summary.name, instructions))
+        }))
         .collect();
     let entries: Vec<_> = tools
         .iter()

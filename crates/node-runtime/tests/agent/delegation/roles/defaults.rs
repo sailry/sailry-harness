@@ -78,7 +78,7 @@ fn has_delegate(request: &Value) -> bool {
 }
 
 fn context(request: &Value, personal: &str) -> String {
-    assert_eq!(request["messages"][0]["role"], "developer");
+    assert_eq!(request["messages"][0]["role"], "system");
     let baseline = message_text(&request["messages"][0]["content"]);
     assert!(baseline.contains("You are Sailry"));
     let instructions = prompt(request);

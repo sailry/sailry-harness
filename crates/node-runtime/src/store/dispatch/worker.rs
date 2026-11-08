@@ -41,12 +41,7 @@ pub(in crate::store) async fn tick(
     let publication = database.publication.clone();
     let mut write = Some(database.write().await?);
     let result: Result<_, Fault> = async {
-        let mut transaction = database
-            .connection
-            .unchecked_transaction()
-            .await
-            .map_err(storage_error)?;
-        transaction.set_drop_behavior(turso::transaction::DropBehavior::Ignore);
+        let transaction = crate::store::database::conflict::begin(&database.connection).await?;
         let observers = if recover {
             jobs::observers(&transaction, database.node).await?
         } else {
@@ -105,12 +100,7 @@ pub(in crate::store) async fn finish(
     let publication = database.publication.clone();
     let mut write = Some(database.write().await?);
     let result: Result<_, Fault> = async {
-        let mut transaction = database
-            .connection
-            .unchecked_transaction()
-            .await
-            .map_err(storage_error)?;
-        transaction.set_drop_behavior(turso::transaction::DropBehavior::Ignore);
+        let transaction = crate::store::database::conflict::begin(&database.connection).await?;
         let package = jobs::finish(&transaction, id, result).await?;
         let event = changed_event(&transaction, database.node, vec![package]).await?;
         let publication = publication.lock().await;

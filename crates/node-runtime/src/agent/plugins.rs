@@ -181,7 +181,7 @@ pub(super) async fn bind(
         }
         if supports_tools
             && package.summary.available()
-            && guidance_selected(invocation, package)
+            && guidance_selected(invocation, package, &bound.tools)
             && let Some(instructions) = package
                 .extension
                 .as_ref()
@@ -224,7 +224,23 @@ fn guidance(package: &str, instructions: &str) -> String {
     format!("Plugin {package}\n{instructions}")
 }
 
-fn guidance_selected(invocation: &Invocation, package: &sailry_protocol::plugin::Info) -> bool {
+fn guidance_selected(
+    invocation: &Invocation,
+    package: &sailry_protocol::plugin::Info,
+    tools: &[ToolRegistration],
+) -> bool {
+    if package.extension.as_ref().is_some_and(|extension| {
+        extension
+            .host
+            .as_ref()
+            .is_some_and(|host| host.turn.is_some())
+            && extension.tools.iter().all(|tool| tool.handler.is_some())
+    }) && !tools
+        .iter()
+        .any(|entry| entry.plugin.as_deref() == Some(package.summary.name.as_str()))
+    {
+        return false;
+    }
     if let Some(binding) = &invocation.turn.config.assistant {
         return binding.package == package.summary.reference()
             || crate::plugins::conversation::declaration(binding, &invocation.plugins)

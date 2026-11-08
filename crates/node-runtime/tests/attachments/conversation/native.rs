@@ -172,7 +172,7 @@ async fn restores_native_inputs() {
             };
             let image = parts
                 .iter()
-                .find(|part| part["type"] == "image" || !part["inline_data"].is_null())
+                .find(|part| part["type"] == "image" || !part["inlineData"].is_null())
                 .unwrap();
             match api {
                 ModelApi::Anthropic => {
@@ -189,18 +189,18 @@ async fn restores_native_inputs() {
                     assert!(body["tools"].as_array().is_none_or(Vec::is_empty));
                 }
                 ModelApi::Gemini => {
-                    assert_eq!(image["inline_data"]["mime_type"], "image/png");
-                    assert_eq!(image["inline_data"]["data"], encoded);
+                    assert_eq!(image["inlineData"]["mimeType"], "image/png");
+                    assert_eq!(image["inlineData"]["data"], encoded);
                     let pdf = parts
                         .iter()
-                        .find(|part| part["inline_data"]["mime_type"] == "application/pdf")
+                        .find(|part| part["inlineData"]["mimeType"] == "application/pdf")
                         .unwrap();
-                    assert_eq!(pdf["inline_data"]["data"], pdf_encoded);
+                    assert_eq!(pdf["inlineData"]["data"], pdf_encoded);
                     for (name, mime, bytes) in media() {
                         assert!(
                             parts
                                 .iter()
-                                .all(|part| part["inline_data"]["mime_type"] != mime)
+                                .all(|part| part["inlineData"]["mimeType"] != mime)
                         );
                         let serialized = body.to_string();
                         assert!(serialized.contains(name));

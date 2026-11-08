@@ -5,6 +5,8 @@ use std::collections::BTreeMap;
 
 #[path = "tests/calendar.rs"]
 mod calendar;
+#[path = "tests/concurrency.rs"]
+mod concurrency;
 
 struct Fixture {
     database: Database,

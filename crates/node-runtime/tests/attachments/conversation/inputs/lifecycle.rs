@@ -78,19 +78,51 @@ async fn verifies_after_approval() {
             !matches!(page.runs[0].status, Status::Running | Status::Stopping)
         })
         .await;
-        assert_eq!(history.runs[0].status, Status::Failed, "{:?}", history.runs);
         assert_eq!(
-            history.runs[0].error.as_ref().unwrap().code,
-            ErrorCode::RevisionConflict
+            history.runs[0].status,
+            Status::Completed,
+            "{:?}",
+            history.runs
         );
-        assert!(
-            results(&client, &history, None)
-                .await
-                .iter()
-                .any(|result| result["error"]["code"] == "revision_conflict")
+        assert_eq!(history.runs[0].error, None);
+        let outcomes = results(&client, &history, None).await;
+        assert_eq!(outcomes.len(), 1);
+        assert_eq!(outcomes[0]["isError"], true);
+        assert_eq!(
+            serde_json::from_value::<Fault>(outcomes[0]["error"].clone()).unwrap(),
+            Fault::new(ErrorCode::RevisionConflict, "attachment content changed")
+        );
+        let failures = history
+            .entries
+            .iter()
+            .flat_map(|entry| &entry.parts)
+            .filter_map(|part| match part {
+                Part::ToolResult { summary, .. } => Some(summary.failure.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            failures,
+            vec![Some(sailry_protocol::tool::Failure::tool(Some(
+                ErrorCode::RevisionConflict
+            )))]
         );
         assert!(!fixture.root.join("unexpected.txt").exists());
-        assert_eq!(server.requests.lock().unwrap().len(), 1);
+        let requests = server.requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert!(
+            requests[1]["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|message| {
+                    message["role"] == "tool"
+                        && message["content"].as_str().is_some_and(|content| {
+                            content.contains("revision_conflict")
+                                && content.contains("attachment content changed")
+                        })
+                })
+        );
     }
     fixture.close().await;
 }

@@ -143,15 +143,26 @@ async fn retains_uncertain_cleanup_and_hook_failure() {
     else {
         panic!("plugin expected")
     };
-    enable_end(&fixture, "failed").await;
+    enable_end(&fixture, "completed").await;
 
     let (request, turn) = submit(&fixture).await;
     let page = finished(&fixture.client, fixture.session.id, turn.id).await;
     failure(
         &page,
         turn.id,
-        ErrorCode::OutcomeUnknown,
-        "MCP task termination could not be confirmed",
+        ErrorCode::Unavailable,
+        "turn_end hook failed: Exited(9)",
+    );
+    assert_eq!(
+        page.runs
+            .iter()
+            .find(|run| run.turn == turn.id)
+            .unwrap()
+            .error,
+        Some(Fault::new(
+            ErrorCode::Unavailable,
+            "turn_end hook failed: Exited(9)"
+        ))
     );
     let commands = process::results(&fixture.client, &page).await;
     assert_eq!(commands.len(), 1);
@@ -193,22 +204,39 @@ async fn retains_uncertain_cleanup_and_hook_failure() {
     assert_eq!(peer.tasks.updates.load(Ordering::SeqCst), 0);
     assert!(page.questions.is_empty());
     assert_eq!(server.requests.lock().unwrap().len(), 3);
-    assert!(
-        results(&fixture.client, &page)
-            .await
-            .iter()
-            .any(
-                |result| result["code"] == rmcp::model::ErrorCode::INTERNAL_ERROR.0
-                    && result["data"]["code"] == "outcome_unknown"
-            )
+    let uncertain = results(&fixture.client, &page)
+        .await
+        .into_iter()
+        .filter(|result| result["data"]["code"] == "outcome_unknown")
+        .collect::<Vec<_>>();
+    assert_eq!(uncertain.len(), 1);
+    let error: rmcp::ErrorData = serde_json::from_value(uncertain[0].clone()).unwrap();
+    assert_eq!(error.code, rmcp::model::ErrorCode::INTERNAL_ERROR);
+    let fault: Fault = serde_json::from_value(error.data.unwrap()).unwrap();
+    assert_eq!(
+        fault,
+        Fault::new(
+            ErrorCode::OutcomeUnknown,
+            "MCP result is unavailable; remote effects may be uncertain"
+        )
     );
     assert_eq!(
         fixture.client.execute(request).await.unwrap(),
         Output::QueuedTurn(turn)
     );
     assert_eq!(history(&fixture.client, fixture.session.id).await, page);
-    fixture.node.shutdown().await.unwrap();
+    let shutdown = fixture.node.shutdown().await.unwrap_err();
     fixture.controller.close().await.unwrap();
+    let sailry_node_runtime::Error::Link(error) = shutdown else {
+        panic!("unexpected shutdown error: {shutdown:?}");
+    };
+    assert_eq!(
+        error,
+        Fault::new(
+            ErrorCode::OutcomeUnknown,
+            "MCP task termination could not be confirmed"
+        )
+    );
 }
 
 #[tokio::test]
@@ -248,13 +276,16 @@ async fn shows_failed_title_tool() {
     );
     assert!(!call.hidden(&page));
     assert!(call.diagnostics(&page));
-    assert!(call.details(&page));
+    assert!(!call.details(&page));
     let result = call.result(&page).unwrap();
     assert!(call.failure.is_some());
     assert!(result.get("isError").is_none());
     let error: rmcp::ErrorData = serde_json::from_value(result.clone()).unwrap();
     let fault: Fault = serde_json::from_value(error.data.unwrap()).unwrap();
     assert!(fault.message.contains("before_tool hook failed"));
+    let row = call.row(&page);
+    assert!(row.failed);
+    assert_eq!(row.detail.unwrap().text, fault.message);
     let Output::Snapshot(snapshot) = execute(&fixture.client, Command::Snapshot).await else {
         panic!("snapshot expected")
     };

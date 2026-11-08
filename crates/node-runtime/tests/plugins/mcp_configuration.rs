@@ -357,18 +357,19 @@ async fn edits_unbound_siblings() {
             configuration
         );
     }
-    assert_eq!(
-        info(
-            execute(
-                &client,
-                Command::ReadPlugin {
-                    name: "example".into()
-                }
-            )
-            .await
-        ),
-        latest
+    let mut current = info(
+        execute(
+            &client,
+            Command::ReadPlugin {
+                name: "example".into(),
+            },
+        )
+        .await,
     );
+    for server in &mut current.mcp {
+        server.runtime = None;
+    }
+    assert_eq!(current, latest);
     let Output::PluginSettings(kept) = execute(
         &client,
         Command::SavePluginSettings {

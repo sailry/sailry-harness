@@ -1,6 +1,7 @@
 use super::*;
 use sailry_protocol::{Effort, conversation::connection::Options};
 
+mod media;
 mod reasoning;
 
 #[tokio::test]
