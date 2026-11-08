@@ -283,7 +283,7 @@ impl Sessions {
                                 .id
                                 .clone()
                                 .ok_or_else(|| Fault::invalid("tool call identity is missing"))?,
-                            patch: json!({"goose.executable":true}),
+                            patch: json!({EXECUTABLE_KEY:true}),
                         }))
                     }
                     Decision::Deny | Decision::DenyWithReason(_) => {

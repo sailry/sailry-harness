@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+pub(crate) const EXECUTABLE_KEY: &str = "sailry.executable";
+pub(crate) const EXTERNAL_DISPATCH_KEY: &str = "sailry.external_dispatch";
+
 /// An original part slot remains stable when engine-only blocks are removed.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct Block {

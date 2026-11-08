@@ -4,6 +4,8 @@ use sailry_protocol::{artifact::Kind, hooks::Settings};
 use std::sync::LazyLock;
 use turso::Connection;
 
+mod tool_metadata;
+
 static HOOKS: LazyLock<Vec<u8>> = LazyLock::new(|| {
     serde_json::to_vec(&Settings::default()).expect("default hook settings encode")
 });
@@ -47,6 +49,7 @@ pub(super) async fn needed(connection: &Connection) -> Result<bool, Error> {
         }
     }
     Ok(crate::store::roles::needs_refresh(connection).await?
+        || tool_metadata::needed(connection).await?
         || tools_pending(connection).await?
         || crate::store::search::pending_defaults(connection)
             .await
@@ -57,6 +60,7 @@ pub(super) async fn needed(connection: &Connection) -> Result<bool, Error> {
 }
 
 pub(super) async fn apply(connection: &Connection) -> Result<(), Error> {
+    tool_metadata::apply(connection).await?;
     let kind = serde_json::to_value(Kind::default()).expect("default artifact kind encodes");
     let kind = kind.as_str().expect("artifact kind is a string");
     for table in ARTIFACTS {
@@ -114,8 +118,8 @@ mod tests {
         // History tables are unnecessary after the persisted default converges.
         connection
             .execute_batch(
-                "CREATE TABLE node(singleton INTEGER PRIMARY KEY,tool_defaults INTEGER);
-                 INSERT INTO node VALUES(1,1);
+                "CREATE TABLE node(singleton INTEGER PRIMARY KEY,tool_defaults INTEGER,tool_metadata_names INTEGER);
+                 INSERT INTO node VALUES(1,1,1);
                  CREATE TABLE artifacts(body BLOB);
                  CREATE TABLE artifact_revisions(body BLOB);
                  CREATE TABLE roles(key TEXT,body BLOB);

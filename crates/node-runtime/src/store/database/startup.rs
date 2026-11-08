@@ -88,7 +88,7 @@ async fn initialize(
         Err(turso::Error::QueryReturnedNoRows) => {
             transaction
                 .execute(
-                    "INSERT INTO node(singleton,identity,tool_defaults) VALUES(1,?1,1)",
+                    "INSERT INTO node(singleton,identity,tool_defaults,tool_metadata_names) VALUES(1,?1,1,1)",
                     [&node.0[..]],
                 )
                 .await?;

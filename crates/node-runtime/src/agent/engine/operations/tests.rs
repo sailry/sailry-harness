@@ -1,4 +1,5 @@
 use super::*;
+use crate::agent::canonical::EXTERNAL_DISPATCH_KEY;
 use rmcp::model::{CallToolRequestParams, ErrorData};
 use sailry_link::CancellationToken;
 use sailry_protocol::TurnId;
@@ -140,13 +141,13 @@ async fn skips_closed_external_and_previous_calls() {
                 "external-read",
                 Ok(CallToolRequestParams::new("read")),
                 None,
-                Some(json!({"goose.external_dispatch": true})),
+                Some(json!({EXTERNAL_DISPATCH_KEY: true})),
             )
             .with_tool_request_with_metadata(
                 "external-write",
                 Ok(CallToolRequestParams::new("write")),
                 None,
-                Some(json!({"goose.external_dispatch": true})),
+                Some(json!({EXTERNAL_DISPATCH_KEY: true})),
             )
             .with_tool_request_with_metadata(
                 "allowed-read",

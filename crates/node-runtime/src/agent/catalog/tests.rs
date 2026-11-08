@@ -24,10 +24,10 @@ fn moves_context_without_changing_output() {
 
 mod concurrency {
     use super::*;
-    use crate::agent::canonical::Context;
     use crate::agent::{
+        canonical::{Context, EXECUTABLE_KEY},
         controls::Controls,
-        engine::{ConversationEffect, Effect, Outcome, conversation::EXECUTABLE_KEY, tools::Tools},
+        engine::{ConversationEffect, Effect, Outcome, tools::Tools},
         model::{Content, Message},
     };
     use crate::store::agent::RuntimeSession as Session;

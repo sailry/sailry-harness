@@ -4,7 +4,10 @@
 use super::{ConversationEffect, conversation::*, operation::*};
 use super::{Effect, Session};
 use crate::agent::model::Message;
-use crate::{agent::canonical::ToolIdentity, store::agent::ApprovalBinding};
+use crate::{
+    agent::canonical::{EXECUTABLE_KEY, ToolIdentity},
+    store::agent::ApprovalBinding,
+};
 use rmcp::model::{CallToolResult, ContentBlock};
 use std::collections::{BTreeMap, BTreeSet};
 

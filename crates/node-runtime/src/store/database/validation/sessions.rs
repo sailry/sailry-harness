@@ -9,6 +9,9 @@ use sailry_protocol::{
 };
 use std::path::{Path, PathBuf};
 
+#[path = "sessions/tools.rs"]
+mod tools;
+
 struct Fixture {
     _root: tempfile::TempDir,
     profile: PathBuf,

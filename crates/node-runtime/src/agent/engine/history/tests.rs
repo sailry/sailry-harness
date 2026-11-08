@@ -235,7 +235,7 @@ async fn preserves_call_metadata() {
             name: "read_file".into(),
             arguments: json!({"path":"one"}),
             metadata: provider.clone(),
-            tool_meta: Some(json!({"title":"Read","foreign":{"count":2},"goose.executable":true})),
+            tool_meta: Some(json!({"title":"Read","foreign":{"count":2},EXECUTABLE_KEY:true})),
             error: None,
         })],
     );

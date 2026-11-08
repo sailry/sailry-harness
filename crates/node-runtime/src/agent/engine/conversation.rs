@@ -1,9 +1,10 @@
 //! Turn boundaries derived from Goose 14741e9a operation.rs (Apache-2.0).
 //! See third_party_licenses/goose-Apache-2.0.txt.
-use crate::agent::model::{Content, ErrorKind, Message, Role, types::ToolCall};
+use crate::agent::{
+    canonical::{EXECUTABLE_KEY, EXTERNAL_DISPATCH_KEY},
+    model::{Content, ErrorKind, Message, Role, types::ToolCall},
+};
 use std::collections::BTreeSet;
-
-pub(crate) const EXECUTABLE_KEY: &str = "goose.executable";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum EffectiveRole {
@@ -85,7 +86,7 @@ pub(crate) fn request_executable(call: &ToolCall) -> Option<bool> {
 pub(crate) fn external(call: &ToolCall) -> bool {
     call.tool_meta
         .as_ref()
-        .and_then(|meta| meta.get("goose.external_dispatch"))
+        .and_then(|meta| meta.get(EXTERNAL_DISPATCH_KEY))
         .and_then(serde_json::Value::as_bool)
         == Some(true)
 }
