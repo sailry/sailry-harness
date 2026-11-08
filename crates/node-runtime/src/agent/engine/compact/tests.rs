@@ -277,6 +277,132 @@ fn discovery(name: &str) -> CallToolResult {
     }))
 }
 
+#[tokio::test]
+async fn filters_audiences_before_summary() {
+    let directory = tempfile::tempdir().unwrap();
+    let node = crate::Node::start_empty(directory.path().join("node"))
+        .await
+        .unwrap();
+    let stop = CancellationToken::new();
+    let invocation = invocation(&node);
+    let result = serde_json::from_value(serde_json::json!({
+        "content":[
+            {"type":"text","text":"Private UI table","annotations":{"audience":["user"]}},
+            {"type":"text","text":"Model-visible result","annotations":{"audience":["assistant"]}},
+            {"type":"image","data":"AQID","mimeType":"image/png","annotations":{"audience":["user"]}}
+        ],
+        "isError":false
+    }))
+    .unwrap();
+    let messages = [
+        Message::user()
+            .with_generated_id()
+            .with_text("Read the result"),
+        Message::user()
+            .with_generated_id()
+            .with_content(Content::Image {
+                media_type: "image/png".into(),
+                data: model::types::Image::Inline {
+                    data_base64: "AQID".into(),
+                },
+                annotations: Some(serde_json::json!({"audience":["user"]})),
+            }),
+    ]
+    .into_iter()
+    .chain(exchange("read", "read_file", result, false))
+    .map(|message| (invocation.turn.id, message))
+    .collect();
+    let session = super::super::tests::session(messages);
+    let original = session.conversation.clone();
+    let provider = Scripted::new([reply(structured(
+        serde_json::json!({"user_intent":["Read the result"]}),
+    ))]);
+    let preparer = preparer(&node, &invocation, &stop);
+    let prepared = preparer.prepare_messages(&session).await.unwrap();
+    assert_eq!(prepared.len(), 3);
+    let Content::ToolResult(result) = &prepared[2].content[0] else {
+        panic!("tool response expected")
+    };
+    assert_eq!(result.result.as_ref().unwrap().content.len(), 1);
+    assert_eq!(
+        result.result.as_ref().unwrap().content[0]
+            .as_text()
+            .unwrap()
+            .text,
+        "Model-visible result"
+    );
+    let operation = Compaction {
+        provider: provider.clone(),
+        config: config("scripted-fixture"),
+        context: 64_000,
+        threshold: 0.8,
+        preparer,
+        manual: true,
+    };
+    operation
+        .compact(&session, &session.conversation, "summary-fixture")
+        .await
+        .unwrap();
+    {
+        let requests = provider.systems.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        let sent = &requests[0];
+        assert!(sent.contains("Model-visible result"));
+        assert!(!sent.contains("Private UI table"));
+        assert!(!sent.contains("[image:"));
+        assert!(!sent.contains("Image output omitted"));
+        assert!(!sent.contains("<empty message>"));
+    }
+    assert_eq!(session.conversation, original);
+    node.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn finished_history_skips_inference_inputs() {
+    let directory = tempfile::tempdir().unwrap();
+    let node = crate::Node::start_empty(directory.path().join("node"))
+        .await
+        .unwrap();
+    let stop = CancellationToken::new();
+    let invocation = invocation(&node);
+    let provider = Arc::new(Unexpected::default());
+    let inference = super::super::inference::Inference::new(
+        model::Binding {
+            provider: provider.clone(),
+            config: config("fixture"),
+            owner: "fixture".into(),
+            sources: Default::default(),
+            names: Default::default(),
+        },
+        preparer(&node, &invocation, &stop),
+    );
+    let (sender, _) = tokio::sync::mpsc::unbounded_channel();
+    let emit = Emitter::new(sender, stop);
+    for completed in [
+        Message::assistant().with_text("Completed"),
+        Message::assistant().with_visibility(false, true),
+    ] {
+        let session = super::super::tests::session(vec![
+            (
+                invocation.turn.id,
+                Message::user().with_generated_id().with_text("Task"),
+            ),
+            (invocation.turn.id, completed.with_generated_id()),
+        ]);
+        let result = inference
+            .run(
+                &session,
+                async { Err(anyhow::anyhow!("prompt inputs must not be prepared")) },
+                &emit,
+            )
+            .await
+            .unwrap();
+        assert!(matches!(result, Outcome::NotApplicable));
+    }
+    assert_eq!(provider.requests.load(Ordering::SeqCst), 0);
+    node.shutdown().await.unwrap();
+}
+
 #[test]
 fn keeps_tools_used_since_compaction() {
     let messages: Vec<_> = [

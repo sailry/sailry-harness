@@ -176,14 +176,12 @@ pub(super) async fn bind(
         super::delegation::tools::context(invocation, &bound.tools, |name| bound.mounted(name));
     bound.context.push_str(&delegation);
     for package in &invocation.plugins {
-        let mounted = bound.tools.iter().any(|tool| {
-            bound.mounted(tool.tool.name.as_ref())
-                && tool.plugin.as_deref() == Some(package.summary.name.as_str())
-        });
         if let Some(instructions) = bound.instructions.get(&package.summary.name) {
             bound.context.push_str(instructions);
         }
-        if mounted
+        if supports_tools
+            && package.summary.available()
+            && guidance_selected(invocation, package)
             && let Some(instructions) = package
                 .extension
                 .as_ref()
@@ -224,6 +222,28 @@ pub(super) async fn bind(
 /// Static package instructions carry their owner so the model can scope them.
 fn guidance(package: &str, instructions: &str) -> String {
     format!("Plugin {package}\n{instructions}")
+}
+
+fn guidance_selected(invocation: &Invocation, package: &sailry_protocol::plugin::Info) -> bool {
+    if let Some(binding) = &invocation.turn.config.assistant {
+        return binding.package == package.summary.reference()
+            || crate::plugins::conversation::declaration(binding, &invocation.plugins)
+                .is_ok_and(|declaration| {
+                    declaration.tools.iter().any(|tool| {
+                        matches!(tool, sailry_protocol::plugin::conversation::Tool::Package { package: name, .. }
+                            if *name == package.summary.name)
+                    })
+                });
+    }
+    if invocation.child.is_some() {
+        return package.extension.as_ref().is_some_and(|extension| {
+            extension
+                .tools
+                .iter()
+                .any(|tool| selection::declared(invocation, package, tool))
+        });
+    }
+    invocation.connections.bound.is_none()
 }
 
 /// Native and scripted tools declare their own image retention; MCP tools use their server.

@@ -180,12 +180,35 @@ async fn allows_cleanup_before_forced_stop() {
     .await;
     running.ready().await;
     let pid = child(directory.path());
+    let started = Instant::now();
     running.stop.cancel();
     assert_eq!(running.finish().await.outcome, Outcome::Cancelled);
+    assert!(started.elapsed() < super::super::CLEANUP_TIMEOUT);
     assert_eq!(
         std::fs::read_to_string(directory.path().join("cleanup.txt")).unwrap(),
         "cleaned"
     );
+    gone(pid).await;
+}
+
+#[tokio::test]
+async fn shutdown_interrupts_graceful_stop() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut running = Running::start(
+        directory.path(),
+        &directory.path().join("home"),
+        "trap '' TERM; sleep 60 & child_pid=$!; printf '%s' \"$child_pid\" > child.pid; printf 'ready'; wait \"$child_pid\"",
+        Access::Unrestricted,
+    )
+    .await;
+    running.ready().await;
+    let pid = child(directory.path());
+    running.stop.cancel();
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let started = Instant::now();
+    running.closed.cancel();
+    assert_eq!(running.finish().await.outcome, Outcome::Cancelled);
+    assert!(started.elapsed() < Duration::from_secs(1));
     gone(pid).await;
 }
 

@@ -33,12 +33,13 @@ struct Process {
 
 impl Process {
     #[cfg(unix)]
-    fn signal(&self, signal: i32) -> Result<(), Fault> {
+    fn signal(&self, signal: i32) -> Result<bool, Fault> {
+        let Some(pid) = self.child.process_id() else {
+            return Ok(false);
+        };
         // SAFETY: portable-pty creates a session whose process-group leader is
         // this retained child. The negative PID targets only that owned group.
-        if let Some(pid) = self.child.process_id()
-            && unsafe { libc::kill(-(pid as i32), signal) } != 0
-        {
+        if unsafe { libc::kill(-(pid as i32), signal) } != 0 {
             let error = std::io::Error::last_os_error();
             let absent = error.raw_os_error() == Some(libc::ESRCH);
             #[cfg(target_os = "macos")]
@@ -51,8 +52,9 @@ impl Process {
             if !absent {
                 return Err(failure(error));
             }
+            return Ok(false);
         }
-        Ok(())
+        Ok(true)
     }
 
     fn terminate(&mut self) -> Result<(), Fault> {
@@ -132,7 +134,8 @@ pub(super) async fn execute(
     let input_error = Arc::new(Mutex::new(None));
     #[cfg(windows)]
     let write_error = input_error.clone();
-    let ready = progress.clone();
+    let changed = Arc::new(AtomicBool::new(false));
+    let dirty = changed.clone();
     let drained = Arc::new(AtomicBool::new(false));
     let finished = drained.clone();
     let activity = retained.clone();
@@ -160,7 +163,7 @@ pub(super) async fn execute(
             }
         };
         if changed {
-            ready.send_replace((output.capture(), Capture::default()));
+            dirty.store(true, Ordering::Release);
         }
         true
     });
@@ -243,6 +246,7 @@ pub(super) async fn execute(
     .map_err(|_| failure("command PTY launch failed"))??;
     retained.spawned();
     let mut tick = tokio::time::interval(Duration::from_millis(20));
+    let mut next_progress = tokio::time::Instant::now();
     let mut input_open = true;
     let mut pending = None;
     let mut outcome = loop {
@@ -257,6 +261,10 @@ pub(super) async fn execute(
                 }
             }
             _ = tick.tick() => {
+                if tokio::time::Instant::now() >= next_progress && changed.swap(false, Ordering::AcqRel) {
+                    super::output::publish(progress, (buffer.lock().unwrap().capture(), Capture::default()));
+                    next_progress = tokio::time::Instant::now() + super::output::PROGRESS_INTERVAL;
+                }
                 match process.child.try_wait() {
                     Ok(Some(status)) => break match status.signal() {
                         Some(signal) => Outcome::Unknown(format!("command terminated by {signal}; numeric signal is unavailable")),
@@ -280,7 +288,28 @@ pub(super) async fn execute(
     };
     #[cfg(unix)]
     if stop.is_cancelled() && !closed.is_cancelled() && process.signal(libc::SIGTERM).is_ok() {
-        tokio::time::sleep(super::CLEANUP_TIMEOUT).await;
+        let settled = async {
+            loop {
+                if matches!(process.child.try_wait(), Ok(Some(_))) {
+                    if !matches!(process.signal(0), Ok(true)) {
+                        break;
+                    }
+                    #[cfg(target_os = "macos")]
+                    if process
+                        .group
+                        .as_ref()
+                        .is_some_and(super::macos::Group::settled)
+                    {
+                        break;
+                    }
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        };
+        tokio::select! {
+            _ = closed.cancelled() => {}
+            _ = tokio::time::timeout(super::CLEANUP_TIMEOUT, settled) => {}
+        }
     }
     if let Err(error) = process.terminate() {
         outcome = Outcome::Unknown(error.message);
@@ -329,6 +358,7 @@ pub(super) async fn execute(
     process.io.as_mut().unwrap().stop();
     buffer.lock().unwrap().finish();
     let stdout = buffer.lock().unwrap().capture();
+    super::output::publish(progress, (stdout.clone(), Capture::default()));
     Ok(Completion {
         outcome,
         stdout,

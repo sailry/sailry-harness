@@ -18,20 +18,27 @@ pub(super) fn visible(messages: &[Message]) -> anyhow::Result<Vec<Message>> {
     Ok(messages
         .iter()
         .enumerate()
-        .filter(|(_, message)| message.is_agent_visible())
-        .map(|(index, message)| {
-            let mut message = message.clone();
+        .filter_map(|(index, message)| {
+            let mut message = super::super::conversation::visible(message.clone())?;
             message.content.retain(|content| match content {
                 Content::Error { .. } => false,
                 Content::ToolCall(call) if index < start => answered.contains(call.id.as_str()),
                 _ => true,
             });
-            message
+            (!message.content.is_empty()).then_some(message)
         })
         .collect())
 }
 
 pub(super) fn applies(messages: &[Message]) -> bool {
+    if messages
+        .iter()
+        .rev()
+        .find(|message| message.is_agent_visible())
+        .is_some_and(|message| message.role == Role::Assistant && message.content.is_empty())
+    {
+        return false;
+    }
     let Ok(visible) = visible(messages) else {
         return false;
     };

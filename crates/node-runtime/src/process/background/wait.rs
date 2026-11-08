@@ -10,6 +10,7 @@ impl Commands {
         closed: CancellationToken,
     ) -> sailry_link::Pending<'static, Result<(), Fault>> {
         let owner = self.clone();
+        let until = until.filter(|text| !text.is_empty());
         let mut changes = self.changes.subscribe();
         let channels = {
             let entries = self.entries.lock().unwrap();

@@ -13,7 +13,10 @@ pub(super) fn prepare(request: &mut Request, api: ModelApi, configured: ModelApi
         ModelApi::Responses | ModelApi::ChatCompletions | ModelApi::DeepSeek => {
             openai(request, api, configured);
         }
-        ModelApi::Anthropic => anthropic(request),
+        ModelApi::Anthropic => {
+            anthropic(request);
+            request.params.remove("budget_tokens");
+        }
         ModelApi::Gemini => {
             if let Some(thinking) = gemini(request) {
                 let generation = request
@@ -29,16 +32,25 @@ pub(super) fn prepare(request: &mut Request, api: ModelApi, configured: ModelApi
         _ => {}
     }
     request.effort = Effort::Default;
-    request.params.remove("budget_tokens");
+}
+
+pub(super) fn openai_reasoning(request: &Request) -> bool {
+    if super::super::context::family(&request.model).is_some_and(|family| family != "openai") {
+        return false;
+    }
+    request.reasoning.unwrap_or_else(|| {
+        Catalog::builtin()
+            .resolve(&format!(
+                "openai/{}",
+                request.model.rsplit('/').next().unwrap_or(&request.model)
+            ))
+            .map(|resolved| resolved.spec.reasoning.supported())
+            .unwrap_or_else(|_| super::cloud::responses_model(&request.model))
+    })
 }
 
 fn openai(request: &mut Request, api: ModelApi, configured: ModelApi) {
-    let reasoning = request.reasoning.unwrap_or_else(|| {
-        Catalog::builtin()
-            .resolve(&format!("openai/{}", request.model))
-            .map(|resolved| resolved.spec.reasoning.supported())
-            .unwrap_or_else(|_| super::cloud::responses_model(&request.model))
-    });
+    let reasoning = openai_reasoning(request);
     if reasoning {
         request.temperature = None;
     }

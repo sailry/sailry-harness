@@ -1,5 +1,21 @@
 //! Plain handlers inherit their declared capabilities, not an implicit read-only claim.
+use super::super::operations;
 use sailry_protocol::{plugin::Action, tool};
+
+pub(super) fn concurrent(handler: &tool::Handler) -> bool {
+    handler
+        .operation
+        .map(operations::concurrent)
+        .unwrap_or_else(|| {
+            handler.flow.as_ref().is_some_and(|flow| {
+                !flow.operations.is_empty()
+                    && flow
+                        .operations
+                        .iter()
+                        .all(|operation| operations::concurrent(*operation))
+            })
+        })
+}
 
 pub(in crate::agent::plugins) fn read_only(handler: &tool::Handler, actions: &[Action]) -> bool {
     if let Some(operation) = handler.operation {
@@ -21,6 +37,30 @@ pub(in crate::agent::plugins) fn read_only(handler: &tool::Handler, actions: &[A
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn concurrency_requires_declared_read_operations() {
+        for (binding, expected) in [
+            (json!({}), false),
+            (json!({"read_only":true}), false),
+            (json!({"operation":"files.read"}), true),
+            (json!({"operation":"storage.set"}), false),
+            (json!({"flow":{"operations":[]}}), false),
+            (json!({"flow":{"operations":["files.read"]}}), true),
+            (
+                json!({"flow":{"operations":["files.read","storage.set"]}}),
+                false,
+            ),
+        ] {
+            let mut definition = json!({"name":"run","parameters":{"type":"object"}});
+            definition
+                .as_object_mut()
+                .unwrap()
+                .extend(binding.as_object().unwrap().clone());
+            let handler = serde_json::from_value(definition).unwrap();
+            assert_eq!(concurrent(&handler), expected, "{binding}");
+        }
+    }
 
     #[test]
     fn classifies_plain_handlers_by_permissions() {

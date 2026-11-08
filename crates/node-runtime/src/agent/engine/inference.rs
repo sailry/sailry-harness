@@ -187,7 +187,7 @@ impl Inference {
     pub(super) async fn run(
         &self,
         session: &Session,
-        input: InferenceInput,
+        input: impl Future<Output = anyhow::Result<InferenceInput>>,
         emit: &Emitter,
     ) -> anyhow::Result<Outcome> {
         if super::conversation::trailing_error(&session.conversation).is_some()
@@ -199,6 +199,7 @@ impl Inference {
         if !projection::applies(&conversation) {
             return not_applicable();
         }
+        let input = input.await?;
         let prepared = self.preparer.prepare(session, &conversation, input).await?;
         let mut messages = projection::visible(&conversation)?;
         messages.extend(prepared.additional_messages.iter().cloned());

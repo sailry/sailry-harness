@@ -133,6 +133,12 @@ fn separates_command_environments() {
             ("DB_PASSWORD_FILE", "private"),
             ("AWS_PROFILE", "private"),
             ("TOKEN", "private"),
+            ("GITHUBTOKEN", "private"),
+            ("SERVICE_SECRET_FILE", "private"),
+            ("MYSQL_PWD_PASSWD", "private"),
+            ("provider_apikey", "private"),
+            ("GOOGLE_APPLICATION_CREDENTIALS", "private"),
+            ("DATABASE_DSN", "private"),
         ]
         .map(|(key, value)| (key.into(), value.into())),
     );
@@ -158,6 +164,12 @@ fn separates_command_environments() {
             "DB_PASSWORD_FILE",
             "AWS_PROFILE",
             "TOKEN",
+            "GITHUBTOKEN",
+            "SERVICE_SECRET_FILE",
+            "MYSQL_PWD_PASSWD",
+            "provider_apikey",
+            "GOOGLE_APPLICATION_CREDENTIALS",
+            "DATABASE_DSN",
         ] {
             assert!(!values.contains_key(OsStr::new(key)), "{access:?}: {key}");
         }
@@ -169,6 +181,22 @@ fn separates_command_environments() {
             assert_eq!(command.get_env(key).is_some(), included);
             assert!(!environment.terminal.contains_key(OsStr::new(key)));
             assert!(!environment.values.contains_key(OsStr::new(key)));
+        }
+    }
+}
+
+#[test]
+fn matches_scoped_names_by_platform() {
+    for insensitive in [false, true] {
+        for key in ["SSH_AUTH_SOCK", "USER", "LC_MESSAGES"] {
+            assert!(scoped_variable(OsStr::new(key), insensitive));
+            assert_eq!(
+                scoped_variable(OsStr::new(&key.to_ascii_lowercase()), insensitive),
+                insensitive
+            );
+        }
+        for key in ["http_proxy", "HTTP_PROXY", "HtTp_PrOxY"] {
+            assert!(scoped_variable(OsStr::new(key), insensitive));
         }
     }
 }

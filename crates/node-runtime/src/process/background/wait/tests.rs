@@ -134,6 +134,18 @@ async fn joins_split_substring() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn empty_text_waits_for_output() {
+    for promoted in [false, true] {
+        let fixture = Fixture::new(promoted);
+        fixture.append("before");
+        let mut waiting = Box::pin(fixture.wait(30_000, Some("")));
+        assert!(futures::poll!(waiting.as_mut()).is_pending());
+        fixture.append("after");
+        waiting.await.unwrap();
+    }
+}
+
+#[tokio::test(start_paused = true)]
 async fn wakes_on_exit_without_output() {
     let fixture = Fixture::new(false);
     let mut waiting = Box::pin(fixture.wait(30_000, Some("absent")));

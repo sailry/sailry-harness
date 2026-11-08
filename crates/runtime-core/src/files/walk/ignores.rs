@@ -40,21 +40,19 @@ pub(super) fn base(
     let repository = match repository(directory, root, control) {
         Ok(repository) => repository,
         Err(error) => {
-            report.diagnostic(".git", &error.message);
+            report.notice(".git", &error.message);
             None
         }
     };
+    let Some(repository) = repository else {
+        return layers;
+    };
     let configured = repository
-        .as_ref()
-        .map(|repository| {
-            repository
-                .config()
-                .and_then(|config| config.get_path("core.excludesFile"))
-        })
-        .transpose();
+        .config()
+        .and_then(|config| config.get_path("core.excludesFile"));
     match configured {
-        Ok(Some(configured)) if configured.as_os_str().is_empty() => {}
-        Ok(Some(configured)) => {
+        Ok(configured) if configured.as_os_str().is_empty() => {}
+        Ok(configured) => {
             let configured = root.join(configured);
             let loaded: Result<Option<Gitignore>, Fault> = (|| {
                 let name = configured
@@ -70,11 +68,11 @@ pub(super) fn base(
             match loaded {
                 Ok(Some(rules)) => layers.push(rules),
                 Ok(None) => {}
-                Err(error) => report.diagnostic("", &error.message),
+                Err(error) => report.notice("", &error.message),
             }
         }
         Err(error) if error.code() != git2::ErrorCode::NotFound => {
-            report.diagnostic(
+            report.notice(
                 "",
                 &format!("could not load Git ignore configuration: {error}"),
             );
@@ -82,14 +80,11 @@ pub(super) fn base(
         _ => {
             let (global, error) = GitignoreBuilder::new(".").build_global();
             if let Some(error) = error {
-                report.diagnostic("", &format!("could not load global ignore rules: {error}"));
+                report.notice("", &format!("could not load global ignore rules: {error}"));
             }
             layers.push(global);
         }
     }
-    let Some(repository) = repository else {
-        return layers;
-    };
     if let Ok(directory) = path::root(repository.commondir())
         && let Ok(info) = path::descend(directory, &["info"])
         && let Some(exclude) = load_file(&info, Path::new(""), "exclude", control, report)
@@ -153,7 +148,7 @@ fn load_file(
     match result {
         Ok(matcher) => matcher,
         Err(error) => {
-            report.diagnostic(&label, &error.message);
+            report.notice(&label, &error.message);
             None
         }
     }

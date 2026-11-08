@@ -201,6 +201,19 @@ fn swap_claude(model: &str) -> Option<String> {
     None
 }
 
+pub(in crate::agent::model) fn family(model: &str) -> Option<&'static str> {
+    let model = strip_prefix(model).to_ascii_lowercase();
+    infer(&model).or_else(|| {
+        if model.contains("kimi") {
+            Some("moonshotai")
+        } else if model.contains("minimax") {
+            Some("minimax")
+        } else {
+            None
+        }
+    })
+}
+
 fn infer(model: &str) -> Option<&'static str> {
     let model = model.to_lowercase();
     for (provider, matches) in [

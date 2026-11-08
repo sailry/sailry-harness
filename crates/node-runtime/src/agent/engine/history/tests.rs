@@ -17,7 +17,7 @@ fn preserves_optional_reasoning_usage() {
     }
 }
 
-async fn database() -> (turso::Database, Connection) {
+pub(super) async fn database() -> (turso::Database, Connection) {
     let database = turso::Builder::new_local(":memory:").build().await.unwrap();
     let db = database.connect().unwrap();
     db.execute(

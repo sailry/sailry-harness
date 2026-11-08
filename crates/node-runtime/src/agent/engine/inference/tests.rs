@@ -525,6 +525,99 @@ mod projection {
     use super::*;
 
     #[test]
+    fn filters_audiences_without_mutating_history() {
+        use rmcp::model::{CallToolRequestParams, CallToolResult};
+        let result: CallToolResult = serde_json::from_value(serde_json::json!({
+            "content":[
+                {"type":"text","text":"Only the user sees this","annotations":{"audience":["user"]}},
+                {"type":"text","text":"Only the model sees this","annotations":{"audience":["assistant"]}},
+                {"type":"text","text":"Both audiences","annotations":{"audience":["user","assistant"]}},
+                {"type":"text","text":"Unannotated"},
+                {"type":"text","text":"No audience","annotations":{"audience":[]}},
+                {"type":"image","data":"AQID","mimeType":"image/png","annotations":{"audience":["user"]}},
+                {"type":"audio","data":"AQID","mimeType":"audio/wav","annotations":{"audience":["user"]}},
+                {"type":"resource","resource":{"uri":"file:///saved","text":"Private resource"},"annotations":{"audience":["user"]}},
+                {"type":"resource_link","uri":"file:///saved","name":"Private link","annotations":{"audience":["user"]}}
+            ],
+            "isError":false
+        }))
+        .unwrap();
+        let messages = vec![
+            Message::user().with_text("Read the result"),
+            Message::user().with_content(Content::Image {
+                media_type: "image/png".into(),
+                data: model::types::Image::Inline {
+                    data_base64: "AQID".into(),
+                },
+                annotations: Some(serde_json::json!({"audience":["user"]})),
+            }),
+            Message::assistant()
+                .with_tool_request("read", Ok(CallToolRequestParams::new("read_file"))),
+            Message::user().with_tool_response("read", Ok(result)),
+        ];
+        let original = messages.clone();
+        let visible = super::super::projection::visible(&messages).unwrap();
+        assert_eq!(visible.len(), 3);
+        let request = model::Config::default().request(
+            String::new(),
+            super::super::projection::prepare(visible, "owner"),
+            Vec::new(),
+        );
+        let Content::ToolResult(response) = &request.messages.last().unwrap().content[0] else {
+            panic!("tool response expected")
+        };
+        let result = response.result.as_ref().unwrap();
+        assert_eq!(
+            result
+                .content
+                .iter()
+                .map(|content| content.as_text().unwrap().text.as_str())
+                .collect::<Vec<_>>(),
+            ["Only the model sees this", "Both audiences", "Unannotated"]
+        );
+        assert_eq!(messages, original);
+    }
+
+    #[test]
+    fn retains_empty_filtered_tool_responses() {
+        let result = serde_json::from_value(serde_json::json!({
+            "content":[{"type":"text","text":"User only","annotations":{"audience":["user"]}}],
+            "isError":false
+        }))
+        .unwrap();
+        let messages = vec![
+            Message::user().with_text("Read the result"),
+            Message::assistant().with_tool_request(
+                "read",
+                Ok(rmcp::model::CallToolRequestParams::new("read_file")),
+            ),
+            Message::user().with_tool_response("read", Ok(result)),
+        ];
+        let visible = super::super::projection::visible(&messages).unwrap();
+        assert_eq!(visible.len(), 3);
+        let Content::ToolResult(response) = &visible[2].content[0] else {
+            panic!("empty tool response expected")
+        };
+        assert_eq!(response.id, "read");
+        assert!(response.result.as_ref().unwrap().content.is_empty());
+        assert!(super::super::projection::applies(&messages));
+        let prepared = super::super::projection::prepare(visible, "owner");
+        assert_eq!(prepared.len(), 3);
+        assert!(matches!(&prepared[1].content[0], Content::ToolCall(call) if call.id == "read"));
+        let Content::ToolResult(response) = &prepared[2].content[0] else {
+            panic!("paired tool response expected")
+        };
+        assert_eq!(response.id, "read");
+        assert_eq!(
+            response.result.as_ref().unwrap().content[0]
+                .as_text()
+                .unwrap()
+                .text,
+            "(empty result)"
+        );
+    }
+
+    #[test]
     fn removes_old_orphans_without_mutating_history() {
         let messages = vec![
             Message::user().with_text("Previous task"),

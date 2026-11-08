@@ -23,6 +23,10 @@ impl Report {
         self.partial = true;
         self.truncated = true;
         self.skipped += 1;
+        self.notice(path, message);
+    }
+
+    fn notice(&mut self, path: &str, message: &str) {
         // Diagnostics describe omitted data without allowing a large tree to
         // produce an unbounded response. The aggregate skipped count is retained.
         if self.diagnostics.len() < 100 {
@@ -51,7 +55,19 @@ pub struct Globs {
 
 impl Globs {
     pub fn is_match(&self, relative: &str, scope: &str) -> bool {
-        let relative = relative
+        self.matched(relative, scope)
+            .map(|index| self.included[index])
+            .unwrap_or_else(|| !self.included.contains(&true))
+    }
+
+    fn excludes_directory(&self, relative: &str, scope: &str) -> bool {
+        self.matched(relative, scope).is_some_and(|index| {
+            !self.included[index] && !self.included[index + 1..].contains(&true)
+        })
+    }
+
+    fn matched(&self, relative: &str, scope: &str) -> Option<usize> {
+        let mut relative = relative
             .strip_prefix(scope)
             .and_then(|suffix| suffix.strip_prefix('/'))
             .unwrap_or_else(|| {
@@ -61,11 +77,18 @@ impl Globs {
                     relative
                 }
             });
-        self.matcher
-            .matches(relative)
-            .last()
-            .map(|index| self.included[*index])
-            .unwrap_or_else(|| !self.included.contains(&true))
+        let mut matched = self.matcher.matches(relative).last().copied();
+        while let Some((parent, _)) = relative.rsplit_once('/') {
+            let excluded = self
+                .matcher
+                .matches(parent)
+                .into_iter()
+                .filter(|index| !self.included[*index])
+                .max();
+            matched = matched.max(excluded);
+            relative = parent;
+        }
+        matched
     }
 }
 
@@ -116,10 +139,7 @@ pub fn find<'a>(
         ));
     }
     let matcher = globs(patterns)?;
-    let mut listing = collect(root, scope, control)?;
-    listing
-        .entries
-        .retain(|entry| matcher.is_match(&entry.path, scope));
+    let mut listing = collect_matching(root, scope, usize::MAX, Some(&matcher), control)?;
     listing.entries.sort_by(|left, right| {
         right
             .modified
@@ -162,11 +182,21 @@ pub fn collect_bounded<'a>(
     limit: usize,
     control: &Control,
 ) -> Result<Listing, Fault> {
+    collect_matching(root, scope, limit, None, control)
+}
+
+fn collect_matching<'a>(
+    root: impl Into<super::Scope<'a>>,
+    scope: &str,
+    limit: usize,
+    globs: Option<&Globs>,
+    control: &Control,
+) -> Result<Listing, Fault> {
     let mut entries = Vec::new();
     let report = traverse(
         root,
         scope,
-        true,
+        globs,
         control,
         &mut |_, _, relative, metadata| {
             if entries.len() >= limit {
@@ -186,16 +216,19 @@ pub fn collect_bounded<'a>(
 pub fn visit<'a>(
     root: impl Into<super::Scope<'a>>,
     scope: &str,
+    globs: &Globs,
     control: &Control,
     visitor: &mut impl FnMut(&Dir, &str, &str, &Metadata) -> Result<bool, Fault>,
 ) -> Result<Report, Fault> {
-    traverse(root, scope, true, control, visitor, &mut |_, _| Ok(()))
+    traverse(root, scope, Some(globs), control, visitor, &mut |_, _| {
+        Ok(())
+    })
 }
 
 fn traverse<'a>(
     root: impl Into<super::Scope<'a>>,
     scope: &str,
-    respect_ignores: bool,
+    globs: Option<&Globs>,
     control: &Control,
     visitor: &mut impl FnMut(&Dir, &str, &str, &Metadata) -> Result<bool, Fault>,
     enter: &mut impl FnMut(&Dir, &str) -> Result<(), Fault>,
@@ -214,21 +247,14 @@ fn traverse<'a>(
     let Some(mut directory) = readable(path::root(root.path()), scope, &mut report)? else {
         return Ok(report);
     };
-    let mut layers = Vec::new();
-    if respect_ignores {
-        layers.extend(ignores::base(&directory, root.path(), control, &mut report));
-    }
+    let mut layers = ignores::base(&directory, root.path(), control, &mut report);
     let mut overrides = Vec::new();
     let mut prefix = String::new();
     for (index, part) in parts.iter().enumerate() {
-        if respect_ignores
-            && let Some(layer) = ignores::load(&directory, &prefix, control, &mut report)
-        {
+        if let Some(layer) = ignores::load(&directory, &prefix, control, &mut report) {
             layers.push(layer);
         }
-        if respect_ignores
-            && let Some(layer) = ignores::override_rules(&directory, &prefix, control, &mut report)
-        {
+        if let Some(layer) = ignores::override_rules(&directory, &prefix, control, &mut report) {
             overrides.push(layer);
         }
         let relative = if prefix.is_empty() {
@@ -253,7 +279,9 @@ fn traverse<'a>(
             if index + 1 != parts.len() {
                 return Err(Fault::invalid("search path has a file as a parent"));
             }
-            visitor(&directory, part, &relative, &metadata)?;
+            if globs.is_none_or(|globs| globs.is_match(&relative, scope)) {
+                visitor(&directory, part, &relative, &metadata)?;
+            }
             report.visited += 1;
             return Ok(report);
         }
@@ -266,7 +294,8 @@ fn traverse<'a>(
     }
     let result = Walker {
         access: root.access,
-        respect_ignores,
+        globs,
+        scope,
         layers,
         overrides,
         control,
@@ -279,9 +308,7 @@ fn traverse<'a>(
         Err(error) if error.code == ErrorCode::PermissionDenied => {
             report.diagnostic(scope, &error.message);
         }
-        Err(error)
-            if respect_ignores && matches!(error.code, ErrorCode::Cancelled | ErrorCode::Busy) =>
-        {
+        Err(error) if matches!(error.code, ErrorCode::Cancelled | ErrorCode::Busy) => {
             report.diagnostic(
                 scope,
                 "scan interrupted; results are partial, narrow path before retrying",
@@ -311,7 +338,8 @@ fn readable<T>(
 
 struct Walker<'a, F, D> {
     access: super::Access,
-    respect_ignores: bool,
+    globs: Option<&'a Globs>,
+    scope: &'a str,
     layers: Vec<Gitignore>,
     overrides: Vec<Gitignore>,
     control: &'a Control,
@@ -327,19 +355,14 @@ where
 {
     fn descend(&mut self, directory: &Dir, prefix: &str, depth: usize) -> Result<bool, Fault> {
         let control = self.control;
-        let respect_ignores = self.respect_ignores;
         control.check()?;
         (self.enter)(directory, prefix)?;
         let inherited = self.layers.len();
         let inherited_overrides = self.overrides.len();
-        if respect_ignores
-            && let Some(layer) = ignores::load(directory, prefix, control, self.report)
-        {
+        if let Some(layer) = ignores::load(directory, prefix, control, self.report) {
             self.layers.push(layer);
         }
-        if respect_ignores
-            && let Some(layer) = ignores::override_rules(directory, prefix, control, self.report)
-        {
+        if let Some(layer) = ignores::override_rules(directory, prefix, control, self.report) {
             self.overrides.push(layer);
         }
         let result = self.contents(directory, prefix, depth);
@@ -350,7 +373,6 @@ where
 
     fn contents(&mut self, directory: &Dir, prefix: &str, depth: usize) -> Result<bool, Fault> {
         let control = self.control;
-        let respect_ignores = self.respect_ignores;
         let mut names = Vec::new();
         for entry in directory.entries().map_err(io_error)? {
             control.check()?;
@@ -407,16 +429,20 @@ where
                     self.report.skipped += 1;
                     return Ok(true);
                 }
-                if respect_ignores
-                    && ignores::excludes(
-                        self.overrides.iter().rev().chain(self.layers.iter().rev()),
-                        &relative,
-                        metadata.is_dir(),
-                    )
-                {
+                if ignores::excludes(
+                    self.overrides.iter().rev().chain(self.layers.iter().rev()),
+                    &relative,
+                    metadata.is_dir(),
+                ) {
                     return Ok(true);
                 }
                 if metadata.is_dir() {
+                    if self
+                        .globs
+                        .is_some_and(|globs| globs.excludes_directory(&relative, self.scope))
+                    {
+                        return Ok(true);
+                    }
                     if depth >= 64 {
                         self.report
                             .diagnostic(&relative, "directory nesting exceeds the 64-level limit");
@@ -426,7 +452,11 @@ where
                     if !self.descend(&child, &relative, depth + 1)? {
                         return Ok(false);
                     }
-                } else if !(self.visitor)(directory, &name, &relative, &metadata)? {
+                } else if self
+                    .globs
+                    .is_none_or(|globs| globs.is_match(&relative, self.scope))
+                    && !(self.visitor)(directory, &name, &relative, &metadata)?
+                {
                     self.report.truncated = true;
                     return Ok(false);
                 }

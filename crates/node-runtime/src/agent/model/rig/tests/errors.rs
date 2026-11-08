@@ -1,6 +1,52 @@
 use super::*;
 
 #[tokio::test]
+async fn retries_unverifiable_reasoning_from_full_error() {
+    for body in [
+        json!({"message":"Encrypted content could not be verified"}),
+        json!({"error":{"details":["Encrypted content could not be verified"]}}),
+        json!({"error":"Encrypted content could not be verified"}),
+    ] {
+        let server = Server::start(vec![
+            fixtures::rejection(400, body, ""),
+            fixtures::responses(false),
+        ])
+        .await;
+        let provider = provider(ModelApi::Responses, server.endpoint.clone());
+        let model = native(&provider, "fixture", "key", HeaderMap::new());
+        let mut input = request("fixture");
+        let mut previous = Message::assistant()
+            .with_thinking("Previous reasoning", "encrypted-fixture")
+            .with_text("Earlier answer");
+        previous.metadata.inference = Some(crate::agent::model::types::Inference {
+            requested_model: "fixture".into(),
+            ..Default::default()
+        });
+        input
+            .messages
+            .extend([previous, Message::user().with_text("Continue")]);
+        collect(&model, input, CancellationToken::new())
+            .await
+            .unwrap();
+        let sent = server.finish().await;
+        assert_eq!(sent.len(), 2);
+        assert!(
+            sent[0].body["input"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|item| item["type"] == "reasoning")
+        );
+        let mut original = sent[0].body.clone();
+        original["input"]
+            .as_array_mut()
+            .unwrap()
+            .retain(|item| item["type"] != "reasoning");
+        assert_eq!(sent[1].body, original);
+    }
+}
+
+#[tokio::test]
 async fn classifies_http_rejections() {
     for (status, body, expected) in [
         (

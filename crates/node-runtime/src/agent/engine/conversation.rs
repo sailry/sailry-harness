@@ -6,6 +6,40 @@ use crate::agent::{
 };
 use std::collections::BTreeSet;
 
+pub(super) fn visible(mut message: Message) -> Option<Message> {
+    if !message.is_agent_visible() {
+        return None;
+    }
+    message.content.retain_mut(|content| match content {
+        Content::Image { annotations, .. } => annotations
+            .as_ref()
+            .and_then(|annotations| annotations.get("audience"))
+            .and_then(serde_json::Value::as_array)
+            .is_none_or(|audience| audience.iter().any(|role| role == "assistant")),
+        Content::ToolResult(response) => {
+            if let Ok(result) = &mut response.result {
+                result.content.retain(|content| {
+                    use rmcp::model::ContentBlock;
+                    let annotations = match content {
+                        ContentBlock::Text(content) => content.annotations.as_ref(),
+                        ContentBlock::Image(content) => content.annotations.as_ref(),
+                        ContentBlock::Audio(content) => content.annotations.as_ref(),
+                        ContentBlock::Resource(content) => content.annotations.as_ref(),
+                        ContentBlock::ResourceLink(content) => content.annotations.as_ref(),
+                        _ => None,
+                    };
+                    annotations
+                        .and_then(|annotations| annotations.audience.as_ref())
+                        .is_none_or(|audience| audience.contains(&rmcp::model::Role::Assistant))
+                });
+            }
+            true
+        }
+        _ => true,
+    });
+    (!message.content.is_empty()).then_some(message)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum EffectiveRole {
     User,

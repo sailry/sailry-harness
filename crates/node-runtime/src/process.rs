@@ -314,7 +314,7 @@ async fn execute_configured(
                             }),
                             result = &mut write => break result.map_err(|error| Outcome::Unknown(format!("command input failed: {error}"))),
                             _ = capture.changed(), if progress.is_some() => {
-                                progress.unwrap().send_replace(capture.snapshot());
+                                output::publish(progress.unwrap(), capture.snapshot());
                             },
                         }
                     };
@@ -323,14 +323,30 @@ async fn execute_configured(
                     }
                 }
                 _ = capture.changed(), if progress.is_some() => {
-                    progress.unwrap().send_replace(capture.snapshot());
+                    output::publish(progress.unwrap(), capture.snapshot());
                 }
             }
         }
     };
     #[cfg(unix)]
     if stop.is_cancelled() && !closed.is_cancelled() && child.inner.signal(libc::SIGTERM).is_ok() {
-        tokio::time::sleep(CLEANUP_TIMEOUT).await;
+        let settled = async {
+            let _ = child.wait_root().await;
+            loop {
+                if child.inner.signal(0).is_err() {
+                    break;
+                }
+                #[cfg(target_os = "macos")]
+                if group.as_ref().is_some_and(macos::Group::settled) {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        };
+        tokio::select! {
+            _ = closed.cancelled() => {}
+            _ = tokio::time::timeout(CLEANUP_TIMEOUT, settled) => {}
+        }
     }
     // Terminate remaining members of this command's group/Job after root exit, too.
     let cleanup = child.inner.start_kill();
@@ -356,6 +372,9 @@ async fn execute_configured(
         Err(_) => outcome = Outcome::Unknown("command cleanup timed out".into()),
     }
     let (stdout, stderr, error) = capture.finish(CLEANUP_TIMEOUT).await;
+    if let Some(progress) = progress {
+        output::publish(progress, (stdout.clone(), stderr.clone()));
+    }
     if let Some(error) = error {
         outcome = Outcome::Unknown(error);
     }

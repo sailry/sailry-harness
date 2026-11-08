@@ -18,10 +18,36 @@ fn encrypted_content_follows_capability() {
         ("gpt-6-fixture", None, Effort::High, true),
         ("unknown-fixture", None, Effort::High, false),
         ("reasoning-fixture", Some(true), Effort::Disabled, true),
+        ("deepseek-r1", Some(true), Effort::High, false),
+        ("qwen/Qwen3-Thinking", Some(true), Effort::High, false),
+        ("z-ai/GLM-5", Some(true), Effort::High, false),
+        ("moonshotai/kimi-k2.5", Some(true), Effort::High, false),
+        ("claude-sonnet-4-5", Some(true), Effort::High, false),
     ] {
         let mut request = input(model, capability, effort);
         prepare(&mut request, ModelApi::Responses, ModelApi::Responses);
         assert_eq!(request.params.contains_key("include"), included, "{model}");
+    }
+}
+
+#[test]
+fn native_budget_is_consumed_after_translation() {
+    for (api, name, field) in [
+        (ModelApi::Anthropic, "claude-sonnet-4-5", "budget_tokens"),
+        (ModelApi::Gemini, "gemini-2.5-pro", "thinking_budget"),
+    ] {
+        let mut request = input(name, Some(true), Effort::Budget(2048));
+        request.params.insert(field.into(), json!(4096));
+        prepare(&mut request, api, api);
+        assert!(!request.params.contains_key(field));
+        if api == ModelApi::Anthropic {
+            assert_eq!(request.params["thinking"]["budget_tokens"], 4096);
+        } else {
+            assert_eq!(
+                request.params["generationConfig"]["thinkingConfig"]["thinkingBudget"],
+                4096
+            );
+        }
     }
 }
 

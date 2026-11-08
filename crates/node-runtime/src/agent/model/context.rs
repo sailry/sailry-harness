@@ -6,6 +6,7 @@ use serde_json::Value;
 use std::time::Duration;
 
 mod catalog;
+pub(super) use catalog::family;
 pub(super) use catalog::limit as fallback;
 
 pub(in crate::agent) async fn limit(
@@ -75,7 +76,10 @@ async fn discover(
     model: &str,
 ) -> Result<Option<usize>, Fault> {
     let provider = &resolved.provider;
-    let headers = policy::headers(provider, &resolved.credentials)?;
+    let mut headers = policy::headers(provider, &resolved.credentials)?;
+    headers.entry(reqwest::header::USER_AGENT).or_insert(
+        reqwest::header::HeaderValue::from_static(concat!("Sailry/", env!("CARGO_PKG_VERSION"))),
+    );
     let mut endpoint = crate::providers::endpoint_url(&provider.endpoint)?;
     let client = ingress.model_clients.http(Some(endpoint.origin()))?;
     if provider.api == ModelApi::AzureAi {
@@ -142,6 +146,64 @@ fn allocated(body: &Value, model: &str) -> Option<usize> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[tokio::test]
+    async fn discovery_identifies_sailry() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = format!("http://{}/v1", listener.local_addr().unwrap());
+        let served = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            loop {
+                let mut bytes = [0; 2048];
+                let count = socket.read(&mut bytes).await.unwrap();
+                assert!(count > 0);
+                request.extend_from_slice(&bytes[..count]);
+                if request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            let body = json!({"data":[{"id":"fixture","meta":{"n_ctx":32768}}]}).to_string();
+            socket
+                .write_all(
+                    format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    )
+                    .as_bytes(),
+                )
+                .await
+                .unwrap();
+            String::from_utf8(request).unwrap()
+        });
+        let directory = tempfile::tempdir().unwrap();
+        let node = crate::Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
+        let mut provider = policy::fixture::provider(Authentication::ApiKey, ModelApi::Responses);
+        provider.endpoint = endpoint;
+        let resolved = policy::Resolved {
+            provider,
+            revision: None,
+            credentials: policy::Credentials::ApiKey(None),
+        };
+        assert_eq!(
+            discover(&node.ingress, &resolved, "fixture").await.unwrap(),
+            Some(32768)
+        );
+        let request = served.await.unwrap();
+        assert!(request.starts_with("GET /v1/models HTTP/1.1\r\n"));
+        assert!(request.lines().any(|line| {
+            line.split_once(':').is_some_and(|(name, value)| {
+                name.eq_ignore_ascii_case("user-agent")
+                    && value.trim() == concat!("Sailry/", env!("CARGO_PKG_VERSION"))
+            })
+        }));
+        node.shutdown().await.unwrap();
+    }
 
     #[test]
     fn selects_allocated_context() {

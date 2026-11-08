@@ -73,11 +73,10 @@ pub(super) fn search<'a>(
     let report = walk::visit(
         root,
         &options.path,
+        &globs,
         control,
         &mut |directory, name, relative, metadata| {
-            if !globs.is_match(relative, &options.path)
-                || types.matched(relative, false).is_ignore()
-            {
+            if types.matched(relative, false).is_ignore() {
                 return Ok(true);
             }
             result.scanned_files += 1;

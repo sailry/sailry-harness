@@ -258,6 +258,7 @@ mod unix {
             if ignores_term {
                 assert!(started.elapsed() >= CLEANUP_TIMEOUT);
             } else {
+                assert!(started.elapsed() < CLEANUP_TIMEOUT);
                 assert_eq!(
                     std::fs::read_to_string(directory.path().join("cleanup.txt")).unwrap(),
                     "cleaned"
@@ -265,6 +266,32 @@ mod unix {
             }
             gone(child).await;
         }
+    }
+
+    #[tokio::test]
+    async fn shutdown_interrupts_graceful_stop() {
+        let directory = tempfile::tempdir().unwrap();
+        let request = launch(
+            directory.path(),
+            "trap '' TERM; sleep 60 & task_pid=$!; printf '%s' \"$task_pid\" > child.pid; wait \"$task_pid\"",
+        );
+        let stop = CancellationToken::new();
+        let closed = CancellationToken::new();
+        let stopping = stop.clone();
+        let closing = closed.clone();
+        let running = tokio::spawn(async move {
+            execute(request, &Environment::ambient(), &stopping, &closing)
+                .await
+                .unwrap()
+        });
+        let child = pid(&directory.path().join("child.pid")).await;
+        stop.cancel();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let started = Instant::now();
+        closed.cancel();
+        assert_eq!(running.await.unwrap().outcome, Outcome::Cancelled);
+        assert!(started.elapsed() < Duration::from_secs(1));
+        gone(child).await;
     }
 
     #[tokio::test]

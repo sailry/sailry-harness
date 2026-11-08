@@ -427,7 +427,7 @@ fn reports_entries_removed_during_traversal() {
     let report = traverse(
         root.path(),
         "",
-        true,
+        None,
         &control(),
         &mut |_, _, relative, _| {
             paths.push(relative.to_owned());
@@ -501,7 +501,7 @@ fn interrupted_walk_has_no_safe_continuation() {
     let report = traverse(
         root.path(),
         "",
-        true,
+        None,
         &control,
         &mut |_, _, relative, _| {
             paths.push(relative.to_owned());
@@ -533,7 +533,8 @@ fn never_reads_symlinked_ignore_rules() {
     std::fs::write(root.path().join("visible.rs"), "").unwrap();
     let result = find(root.path(), &["**/*.rs".into()], &control()).unwrap();
     assert_eq!(result.paths, ["visible.rs"]);
-    assert!(result.partial);
+    assert!(!result.partial);
+    assert!(!result.truncated);
     assert!(result.next_offset.is_none());
     assert!(
         result
@@ -547,4 +548,79 @@ fn never_reads_symlinked_ignore_rules() {
             .iter()
             .any(|item| item.message.contains("*.rs"))
     );
+}
+
+#[test]
+fn prunes_excluded_directories() {
+    let root = directory();
+    for folder in ["node_modules", "src/node_modules"] {
+        std::fs::create_dir_all(root.path().join(folder).join(".gitignore")).unwrap();
+        std::fs::write(root.path().join(folder).join("hidden.rs"), "").unwrap();
+    }
+    std::fs::write(root.path().join("src/main.rs"), "").unwrap();
+    let result = find(
+        root.path(),
+        &["*.rs".into(), "!node_modules".into()],
+        &control(),
+    )
+    .unwrap();
+    assert_eq!(result.paths, ["src/main.rs"]);
+    assert!(result.diagnostics.is_empty());
+    assert!(!result.partial);
+    assert_eq!(result.visited, 4);
+}
+
+#[test]
+fn preserves_reincluded_descendants() {
+    let root = directory();
+    std::fs::create_dir_all(root.path().join("vendor/nested")).unwrap();
+    for name in [
+        "main.rs",
+        "vendor/keep.rs",
+        "vendor/drop.rs",
+        "vendor/nested/drop.rs",
+    ] {
+        std::fs::write(root.path().join(name), "").unwrap();
+        timestamp(&root.path().join(name), 1000);
+    }
+    for (patterns, expected) in [
+        (
+            vec!["*.rs", "!vendor", "vendor/keep.rs"],
+            vec!["main.rs", "vendor/keep.rs"],
+        ),
+        (vec!["*.rs", "!vendor", "main.rs"], vec!["main.rs"]),
+        (vec!["*.rs", "vendor/keep.rs", "!vendor"], vec!["main.rs"]),
+    ] {
+        let patterns = patterns.into_iter().map(str::to_owned).collect::<Vec<_>>();
+        let result = find(root.path(), &patterns, &control()).unwrap();
+        assert_eq!(result.paths, expected);
+        assert!(!result.partial);
+    }
+}
+
+#[test]
+fn ignore_errors_preserve_pagination() {
+    let root = directory();
+    std::fs::create_dir(root.path().join(".gitignore")).unwrap();
+    for name in ["a.rs", "b.rs"] {
+        std::fs::write(root.path().join(name), "").unwrap();
+        timestamp(&root.path().join(name), 1000);
+    }
+    for (offset, name) in ["a.rs", "b.rs"].into_iter().enumerate() {
+        let result = super::find(root.path(), &["*.rs".into()], "", 1, offset, &control()).unwrap();
+        assert_eq!(result.paths, [name]);
+        assert!(!result.partial);
+        assert_eq!(result.truncated, offset == 0);
+        assert_eq!(result.next_offset, (offset == 0).then_some(1));
+        assert!(!result.diagnostics.is_empty());
+    }
+}
+
+#[test]
+fn ordinary_directories_skip_global_ignores() {
+    let root = directory();
+    let directory = path::root(root.path()).unwrap();
+    let mut report = Report::default();
+    assert!(ignores::base(&directory, root.path(), &control(), &mut report).is_empty());
+    assert!(report.diagnostics.is_empty());
 }

@@ -24,9 +24,8 @@ pub(super) fn request(mut source: Request, api: ModelApi) -> Result<CompletionRe
     source.params.remove(super::wire::HISTORY_TOOLS);
     source.params.remove(super::wire::SYSTEM_ROLE);
     source.params.remove(super::wire::TOOL_IDS);
-    if matches!(api, ModelApi::ChatCompletions | ModelApi::DeepSeek)
-        && let Some(reasoning) = source.reasoning
-    {
+    if matches!(api, ModelApi::ChatCompletions | ModelApi::DeepSeek) {
+        let reasoning = super::parameters::openai_reasoning(&source);
         source.params.insert(
             super::wire::SYSTEM_ROLE.into(),
             if reasoning { "developer" } else { "system" }.into(),

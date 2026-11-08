@@ -470,7 +470,7 @@ async fn execute_with(
     let deferred: std::collections::BTreeSet<_> = extensions
         .tools
         .iter()
-        .filter(|entry| entry.deferred)
+        .filter(|entry| entry.deferred && !extensions.mounted(entry.tool.name.as_ref()))
         .map(|entry| names.name(entry.tool.name.as_ref()))
         .collect();
     if !deferred.is_empty() {

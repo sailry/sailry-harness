@@ -1,6 +1,8 @@
 use super::*;
 use sailry_protocol::{Effort, conversation::connection::Options};
 
+mod reasoning;
+
 #[tokio::test]
 async fn preserves_anthropic_cache_breakpoints() {
     let server = Server::start(vec![fixtures::anthropic(false)]).await;

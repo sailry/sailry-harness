@@ -112,7 +112,7 @@ async fn observes_output_substrings_and_exit() {
                 offset: snapshot.stdout.text.len(),
                 limit: 128,
                 wait_ms: 30_000,
-                until: None,
+                until: Some(String::new()),
             }))
             .await
             .unwrap();

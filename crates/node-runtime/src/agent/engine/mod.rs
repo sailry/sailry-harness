@@ -330,14 +330,17 @@ impl Engine {
             for callback in &self.callbacks {
                 stage!(callback.run(session, conversation, emit), false);
             }
-            let mut input = prompt::InferenceInput {
-                tools: self.tools.definitions(session).await?,
-                instructions: self.prompt.instructions(session).await?,
-                contexts: self.prompt.contexts(session).await?,
+            let input = async {
+                let mut input = prompt::InferenceInput {
+                    tools: self.tools.definitions(session).await?,
+                    instructions: self.prompt.instructions(session).await?,
+                    contexts: self.prompt.contexts(session).await?,
+                };
+                if let Some(limit) = &self.max_turns {
+                    input.contexts.extend(limit.contexts(conversation).await?);
+                }
+                Ok(input)
             };
-            if let Some(limit) = &self.max_turns {
-                input.contexts.extend(limit.contexts(conversation).await?);
-            }
             stage!(self.inference.run(session, input, emit), false);
         }
         Ok((

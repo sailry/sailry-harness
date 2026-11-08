@@ -199,16 +199,9 @@ impl HttpClientExt for Transport {
                 let status = response.status();
                 let headers = response.headers().clone();
                 let bytes = response.bytes().await.map_err(Error::instance)?;
-                let error = serde_json::from_slice::<serde_json::Value>(&bytes).ok();
-                let rejected = error
-                    .as_ref()
-                    .and_then(|error| error.pointer("/error/message"))
-                    .and_then(serde_json::Value::as_str)
-                    .map(str::to_lowercase)
-                    .is_some_and(|message| {
-                        message.contains("encrypted content")
-                            && message.contains("could not be verified")
-                    });
+                let error = String::from_utf8_lossy(&bytes).to_ascii_lowercase();
+                let rejected =
+                    error.contains("encrypted content") && error.contains("could not be verified");
                 if rejected {
                     let mut body: serde_json::Value = serde_json::from_slice(
                         request

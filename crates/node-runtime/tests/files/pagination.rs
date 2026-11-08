@@ -1,6 +1,77 @@
 use super::*;
 
 #[tokio::test]
+async fn pages_with_ignore_errors_and_exclusions() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = temp.path().join("project");
+    std::fs::create_dir_all(project.join(".gitignore")).unwrap();
+    std::fs::create_dir_all(project.join("node_modules")).unwrap();
+    for name in ["a.rs", "b.rs", "node_modules/hidden.rs"] {
+        std::fs::write(project.join(name), "needle\n").unwrap();
+    }
+    let node = Node::start_empty(temp.path().join("node")).await.unwrap();
+    let local = Client::new(node.local());
+    let id = worktree(&local, &project).await;
+    let controller = Link::controller(temp.path().join("controller"), NetworkScope::default())
+        .await
+        .unwrap();
+    let invite = node.link().invite().unwrap();
+    let address = controller.handle().pair(invite.ticket()).await.unwrap();
+    let remote = Client::new(controller.handle().remote(address));
+    for client in [&local, &remote] {
+        let globs = vec!["*.rs".into(), "!node_modules".into()];
+        let mut found = std::collections::BTreeSet::new();
+        for offset in 0..2 {
+            let Output::FileNames(result) = client
+                .execute(client.prepare(Command::FindFiles {
+                    worktree: id,
+                    globs: globs.clone(),
+                    path: String::new(),
+                    limit: 1,
+                    offset,
+                }))
+                .await
+                .unwrap()
+            else {
+                panic!("file names expected")
+            };
+            assert!(!result.partial);
+            assert!(!result.diagnostics.is_empty());
+            assert_eq!(result.next_offset, (offset == 0).then_some(1));
+            found.extend(result.paths);
+            let Output::SearchResults(result) = client
+                .execute(client.prepare(Command::SearchFiles {
+                    worktree: id,
+                    options: FileSearch {
+                        query: "needle".into(),
+                        globs: globs.clone(),
+                        limit: 1,
+                        offset,
+                        context: 0,
+                        ..Default::default()
+                    },
+                }))
+                .await
+                .unwrap()
+            else {
+                panic!("search results expected")
+            };
+            assert!(!result.partial);
+            assert!(!result.diagnostics.is_empty());
+            assert_eq!(result.next_offset, (offset == 0).then_some(1));
+            assert_eq!(result.matches.len(), 1);
+            assert_eq!(result.matches[0].path, ["a.rs", "b.rs"][offset]);
+        }
+        assert_eq!(
+            found,
+            std::collections::BTreeSet::from(["a.rs".into(), "b.rs".into()])
+        );
+    }
+    controller.close().await.unwrap();
+    node.shutdown().await.unwrap();
+}
+
+#[tokio::test]
 async fn preserves_context_and_pages_large_requests() {
     let temp = tempfile::tempdir().unwrap();
     let project = temp.path().join("project");

@@ -107,7 +107,12 @@ pub(super) struct Preparer {
 }
 impl Preparer {
     pub(super) async fn prepare_messages(&self, session: &Session) -> anyhow::Result<Vec<Message>> {
-        let mut messages = session.conversation.clone();
+        let mut messages: Vec<_> = session
+            .conversation
+            .iter()
+            .cloned()
+            .filter_map(super::conversation::visible)
+            .collect();
         self.hydrate(&mut messages).await?;
         self.output.lock().await.project(&mut messages);
         // Compaction hydrates without these owner prompt parts, so it retains

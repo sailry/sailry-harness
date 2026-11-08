@@ -157,8 +157,9 @@ impl Compaction {
         };
         let mut projected: Vec<_> = conversation
             .iter()
-            .filter(|message| !message.is_turn_context() && message.is_agent_visible())
+            .filter(|message| !message.is_turn_context())
             .cloned()
+            .filter_map(super::conversation::visible)
             .collect();
         self.preparer.hydrate(&mut projected).await?;
         let input = input::prepare(

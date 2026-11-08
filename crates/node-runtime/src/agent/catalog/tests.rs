@@ -158,9 +158,14 @@ mod concurrency {
         let request = requests
             .iter()
             .fold(Message::assistant(), |message, (id, name)| {
+                let parameters = if *name == "malformed" {
+                    Err(ErrorData::invalid_params("malformed arguments", None))
+                } else {
+                    Ok(CallToolRequestParams::new(*name))
+                };
                 message.with_tool_request_with_metadata(
                     *id,
-                    Ok(CallToolRequestParams::new(*name)),
+                    parameters,
                     None,
                     Some(json!({EXECUTABLE_KEY: true})),
                 )
@@ -251,6 +256,32 @@ mod concurrency {
         assert!(write > probe.position("end read-2"));
         assert_eq!(probe.position("end write"), write + 1);
         assert!(probe.position("start read-3") > write + 1);
+    }
+
+    #[tokio::test]
+    async fn malformed_call_preserves_read_batch() {
+        let probe = Arc::new(Probe::default());
+        let results = execute(
+            &probe,
+            &[
+                ("read-1", "read"),
+                ("invalid", "malformed"),
+                ("read-2", "read"),
+            ],
+            None,
+        )
+        .await;
+        assert_eq!(
+            results,
+            [
+                ("read-1".to_owned(), true),
+                ("invalid".to_owned(), false),
+                ("read-2".to_owned(), true),
+            ]
+        );
+        assert_eq!(probe.reads.load(Ordering::SeqCst), 2);
+        assert!(!probe.wrote.load(Ordering::SeqCst));
+        assert_eq!(probe.log.lock().unwrap().len(), 4);
     }
 
     #[tokio::test]

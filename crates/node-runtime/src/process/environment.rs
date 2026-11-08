@@ -84,7 +84,7 @@ impl Environment {
         for (key, value) in values {
             if !secret(&key) {
                 result.unrestricted.insert(key.clone(), value.clone());
-                if scoped_variable(&key) {
+                if scoped_variable(&key, cfg!(windows)) {
                     result.scoped.insert(key.clone(), value.clone());
                 }
             }
@@ -284,18 +284,24 @@ impl Environment {
 
 fn secret(key: &OsStr) -> bool {
     let name = key.to_string_lossy().to_ascii_uppercase();
-    matches!(name.as_str(), "TOKEN" | "SECRET" | "KEY")
-        || name.ends_with("_TOKEN")
-        || name.ends_with("_SECRET")
+    name == "KEY"
+        || ["TOKEN", "SECRET", "PASSW", "APIKEY", "CREDENTIAL"]
+            .iter()
+            .any(|part| name.contains(part))
         || name.ends_with("_KEY")
-        || name.contains("PASSWORD")
+        || name.ends_with("_DSN")
         || name.starts_with("AWS_")
 }
 
-fn scoped_variable(key: &OsStr) -> bool {
+fn scoped_variable(key: &OsStr, insensitive: bool) -> bool {
     let name = key.to_string_lossy();
-    matches!(name.as_ref(), "SSH_AUTH_SOCK" | "USER")
-        || name.starts_with("LC_")
+    let scoped = if insensitive {
+        name.to_ascii_uppercase()
+    } else {
+        name.to_string()
+    };
+    matches!(scoped.as_str(), "SSH_AUTH_SOCK" | "USER")
+        || scoped.starts_with("LC_")
         || matches!(
             name.to_ascii_lowercase().as_str(),
             "http_proxy" | "https_proxy" | "all_proxy" | "no_proxy" | "ftp_proxy"

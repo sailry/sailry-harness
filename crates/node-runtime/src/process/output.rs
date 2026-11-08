@@ -16,6 +16,20 @@ pub(crate) use encoding::Encoding;
 pub(crate) use retained::{Budget, COMMAND_LIMIT, Retained, clear};
 
 const LIMIT: usize = 64 * 1024;
+pub(super) const PROGRESS_INTERVAL: Duration = Duration::from_millis(100);
+
+pub(super) fn publish(
+    progress: &tokio::sync::watch::Sender<(Capture, Capture)>,
+    snapshot: (Capture, Capture),
+) {
+    progress.send_if_modified(|current| {
+        if *current == snapshot {
+            return false;
+        }
+        *current = snapshot;
+        true
+    });
+}
 
 /// Locate UTF-8 boundaries without overlapping the retained byte ranges.
 pub(crate) fn edges(bytes: &[u8], head: usize, tail: usize) -> (usize, usize) {
@@ -204,6 +218,7 @@ pub(crate) struct Drain {
     stdout: Reader,
     stderr: Reader,
     changes: tokio::sync::watch::Receiver<()>,
+    next_change: tokio::time::Instant,
 }
 
 impl Drain {
@@ -252,14 +267,17 @@ impl Drain {
                 changes,
             ),
             changes: changed,
+            next_change: tokio::time::Instant::now(),
         }
     }
 
     pub async fn changed(&mut self) {
+        tokio::time::sleep_until(self.next_change).await;
         if self.changes.changed().await.is_err() {
             std::future::pending::<()>().await;
         }
         self.changes.borrow_and_update();
+        self.next_change = tokio::time::Instant::now() + PROGRESS_INTERVAL;
     }
 
     pub fn snapshot(&self) -> (Capture, Capture) {
@@ -297,6 +315,50 @@ impl Drain {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn publishes_only_changed_content() {
+        let (progress, mut receiver) =
+            tokio::sync::watch::channel((Capture::default(), Capture::default()));
+        publish(&progress, (Capture::default(), Capture::default()));
+        assert!(!receiver.has_changed().unwrap());
+        let snapshot = (
+            Capture {
+                text: "ready".into(),
+                ..Capture::default()
+            },
+            Capture::default(),
+        );
+        publish(&progress, snapshot.clone());
+        assert_eq!(*receiver.borrow_and_update(), snapshot);
+        publish(&progress, snapshot);
+        assert!(!receiver.has_changed().unwrap());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn coalesces_output_between_publications() {
+        use tokio::io::AsyncWriteExt;
+
+        let (mut writer, reader) = tokio::io::duplex(64);
+        let mut drain = Drain::with_retained(reader, tokio::io::empty(), true, None);
+        writer.write_all(b"first").await.unwrap();
+        drain.changed().await;
+        assert_eq!(drain.snapshot().0.text, "first");
+        writer.write_all(b"second").await.unwrap();
+        writer.write_all(b"third").await.unwrap();
+        let mut changed = Box::pin(drain.changed());
+        assert!(futures::poll!(changed.as_mut()).is_pending());
+        tokio::time::advance(PROGRESS_INTERVAL - Duration::from_millis(1)).await;
+        assert!(futures::poll!(changed.as_mut()).is_pending());
+        tokio::time::advance(Duration::from_millis(1)).await;
+        changed.await;
+        assert_eq!(drain.snapshot().0.text, "firstsecondthird");
+        writer.write_all(b"final").await.unwrap();
+        writer.shutdown().await.unwrap();
+        let (stdout, _, error) = drain.finish(Duration::from_secs(1)).await;
+        assert!(error.is_none());
+        assert_eq!(stdout.text, "firstsecondthirdfinal");
+    }
 
     #[test]
     fn bounds_incomplete_suffix_after_invalid_bytes() {

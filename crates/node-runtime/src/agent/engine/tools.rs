@@ -146,8 +146,8 @@ impl Tools {
                     break;
                 }
                 let concurrent = |request: &ToolCall| {
-                    request.error.is_none()
-                        && self.provider.concurrent(session, &parameters(request))
+                    request.error.is_some()
+                        || self.provider.concurrent(session, &parameters(request))
                 };
                 let end = if concurrent(&requests[start]) {
                     requests[start..]
