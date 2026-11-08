@@ -5,8 +5,8 @@
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square" alt="Apache-2.0 许可证"></a>
   <a href="#安装"><img src="https://img.shields.io/badge/desktop-macOS-lightgrey?style=flat-square&logo=apple&logoColor=white" alt="桌面端支持 macOS"></a>
-  <a href="#host"><img src="https://img.shields.io/badge/host-macOS%20·%20Linux-lightgrey?style=flat-square" alt="Host 支持 macOS 和 Linux"></a>
-  <a href="#移动端"><img src="https://img.shields.io/badge/mobile-Android%20·%20iOS-lightgrey?style=flat-square" alt="移动端支持 Android 和 iOS"></a>
+  <a href="#安装"><img src="https://img.shields.io/badge/host-macOS%20·%20Linux-lightgrey?style=flat-square" alt="Host 支持 macOS 和 Linux"></a>
+  <a href="#安装"><img src="https://img.shields.io/badge/mobile-Android%20·%20iOS-lightgrey?style=flat-square" alt="移动端支持 Android 和 iOS"></a>
   <a href="https://github.com/sailry/sailry-harness/stargazers"><img src="https://img.shields.io/github/stars/sailry/sailry-harness?style=flat-square&color=yellow" alt="GitHub Stars"></a>
   <a href="https://discord.gg/MCDktmDey"><img src="https://img.shields.io/badge/chat-Discord-5865F2?style=flat-square&logo=discord&logoColor=white" alt="Discord"></a>
 </p>
@@ -50,10 +50,6 @@ Sailry 是一个开源的 AI Harness：智能体团队运行在你自己的 Mac 
 
 ### 智能体团队，一个位置一个模型
 
-<p align="center">
-  <img src="assets/readme/agent-team.zh-CN.svg" width="100%" alt="主智能体在模型和工具之间循环，把任务拆给并行的子智能体，每个子智能体使用自己的模型，每一步都实时显示在会话里。">
-</p>
-
 旗舰模式把任务分给并行的子智能体，每个子智能体用自己的模型——DeepSeek 写代码、Claude 出方案、Codex 攻难题。每一步都在会话里看得见，运行中随时审批。
 
 ### 内置编码工具
@@ -74,10 +70,6 @@ Sailry 是一个开源的 AI Harness：智能体团队运行在你自己的 Mac 
 
 ### 插件与主题
 
-<p align="center">
-  <img src="assets/readme/plugins.zh-CN.svg" width="100%" alt="一个 agent-plugins 插件包通过 Host 给智能体加上技能、MCP 服务、工具和模型服务商，它的 JavaScript 页面由桌面端用原生 GPUI Kit 组件渲染。">
-</p>
-
 - **开放标准**：[agent-plugins](https://agent-plugins.org) 插件包、标准的 `SKILL.md` 技能，MCP 服务器可直接接入。
 - **原生插件界面**：用 JavaScript 编写的页面、面板和设置，和应用本身用同一套组件渲染。
 - **主题**：颜色、字体、表面和装饰都来自同一套设计令牌，支持亮色和暗色。官方主题维护在 [sailry-themes](https://github.com/sailry/sailry-themes)。
@@ -91,33 +83,17 @@ Sailry 默认发送匿名错误报告（应用版本、设备类型和错误代�
 
 [更新日志](CHANGELOG.md) · [从源码构建](CONTRIBUTING.md#native-setup)
 
-### 桌面端
+| | 下载 | 系统要求 |
+| --- | --- | --- |
+| **桌面端** | macOS：[Apple 芯片](https://github.com/sailry/sailry-harness/releases/latest/download/Sailry-aarch64-apple-darwin.dmg) · [Intel](https://github.com/sailry/sailry-harness/releases/latest/download/Sailry-x86_64-apple-darwin.dmg) | macOS 13+ · Windows 和 Linux 计划中 |
+| **Host** | macOS：[Apple 芯片](https://github.com/sailry/sailry-harness/releases/latest/download/sailry-host-aarch64-apple-darwin.tar.gz) · [Intel](https://github.com/sailry/sailry-harness/releases/latest/download/sailry-host-x86_64-apple-darwin.tar.gz)<br>Linux：[x64](https://github.com/sailry/sailry-harness/releases/latest/download/sailry-host-x86_64-unknown-linux-gnu.tar.gz) · [ARM64](https://github.com/sailry/sailry-harness/releases/latest/download/sailry-host-aarch64-unknown-linux-gnu.tar.gz) | macOS 13+ · Linux（glibc 2.34+）· Windows 计划中 |
+| **移动端** | [Android APK](https://github.com/sailry/sailry-harness/releases/latest/download/Sailry-android-arm64.apk) · [iOS TestFlight](https://testflight.apple.com/join/qaTnVrmQ)（测试版） | Android 7.0+ · iOS 15+ |
 
-| 系统 | 架构 | 状态 | 下载 |
-| --- | --- | --- | --- |
-| macOS 13+ | Apple 芯片 / Intel | 支持 | [Apple 芯片](https://github.com/sailry/sailry-harness/releases/latest/download/Sailry-aarch64-apple-darwin.dmg) · [Intel](https://github.com/sailry/sailry-harness/releases/latest/download/Sailry-x86_64-apple-darwin.dmg) |
-| Windows · Linux | x64 / ARM64 | 计划中 | — |
-
-### Host
-
-在 macOS 或 Linux 机器上安装：
+也可以在终端里安装 Host：
 
 ```sh
 curl -fsSL https://github.com/sailry/sailry-harness/releases/latest/download/install-host.sh | bash
 ```
-
-| 系统 | 架构 | 状态 | 下载 |
-| --- | --- | --- | --- |
-| macOS 13+ | Apple 芯片 / Intel | 支持 | [Apple 芯片](https://github.com/sailry/sailry-harness/releases/latest/download/sailry-host-aarch64-apple-darwin.tar.gz) · [Intel](https://github.com/sailry/sailry-harness/releases/latest/download/sailry-host-x86_64-apple-darwin.tar.gz) |
-| Linux · glibc 2.34+ | x64 / ARM64 | 支持 | [x64](https://github.com/sailry/sailry-harness/releases/latest/download/sailry-host-x86_64-unknown-linux-gnu.tar.gz) · [ARM64](https://github.com/sailry/sailry-harness/releases/latest/download/sailry-host-aarch64-unknown-linux-gnu.tar.gz) |
-| Windows | — | 计划中 | — |
-
-### 移动端
-
-| 系统 | 架构 | 状态 | 下载 |
-| --- | --- | --- | --- |
-| Android 7.0+ | ARM64 | 支持 | [APK](https://github.com/sailry/sailry-harness/releases/latest/download/Sailry-android-arm64.apk) |
-| iOS 15+ | ARM64 | 测试版 | [TestFlight](https://testflight.apple.com/join/qaTnVrmQ) |
 
 ## 开始使用
 

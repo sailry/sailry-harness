@@ -5,8 +5,8 @@
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue?style=flat-square" alt="Apache-2.0 License"></a>
   <a href="#install"><img src="https://img.shields.io/badge/desktop-macOS-lightgrey?style=flat-square&logo=apple&logoColor=white" alt="Desktop on macOS"></a>
-  <a href="#host"><img src="https://img.shields.io/badge/host-macOS%20·%20Linux-lightgrey?style=flat-square" alt="Host on macOS and Linux"></a>
-  <a href="#mobile"><img src="https://img.shields.io/badge/mobile-Android%20·%20iOS-lightgrey?style=flat-square" alt="Mobile on Android and iOS"></a>
+  <a href="#install"><img src="https://img.shields.io/badge/host-macOS%20·%20Linux-lightgrey?style=flat-square" alt="Host on macOS and Linux"></a>
+  <a href="#install"><img src="https://img.shields.io/badge/mobile-Android%20·%20iOS-lightgrey?style=flat-square" alt="Mobile on Android and iOS"></a>
   <a href="https://github.com/sailry/sailry-harness/stargazers"><img src="https://img.shields.io/github/stars/sailry/sailry-harness?style=flat-square&color=yellow" alt="GitHub Stars"></a>
   <a href="https://discord.gg/MCDktmDey"><img src="https://img.shields.io/badge/chat-Discord-5865F2?style=flat-square&logo=discord&logoColor=white" alt="Discord"></a>
 </p>
@@ -62,10 +62,6 @@ to your code and data, driven from the desktop app or your phone on the
 
 ### Agent teams, one model per seat
 
-<p align="center">
-  <img src="assets/readme/agent-team.svg" width="100%" alt="A lead agent loops between its model and tools, delegates parts of the task to parallel subagents that each use their own model, and streams every step into the conversation.">
-</p>
-
 Flagship mode fans work out to parallel subagents, each on its own model — DeepSeek writes the
 code, Claude plans, Codex takes the hard problems — and every step stays visible in the
 conversation, where you approve actions as they run.
@@ -96,10 +92,6 @@ It starts fast, stays responsive in long conversations and leaves your memory to
 
 ### Plugins and themes
 
-<p align="center">
-  <img src="assets/readme/plugins.svg" width="100%" alt="One agent-plugins package adds skills, MCP servers, tools and model providers to the agent through the Host, and JavaScript pages that the desktop app renders with native GPUI Kit components.">
-</p>
-
 - **Open standards** — [agent-plugins](https://agent-plugins.org) packages, standard `SKILL.md`
   skills and direct MCP servers.
 - **Native plugin UI** — pages, panels and settings written in JavaScript render with the same
@@ -120,33 +112,17 @@ names. Turn either off in **Settings › Diagnostics and privacy**, or set `SAIL
 
 [Changelog](CHANGELOG.md) · [Build from source](CONTRIBUTING.md#native-setup)
 
-### Desktop
+| | Download | Requires |
+| --- | --- | --- |
+| **Desktop** | macOS: [Apple silicon](https://github.com/sailry/sailry-harness/releases/latest/download/Sailry-aarch64-apple-darwin.dmg) · [Intel](https://github.com/sailry/sailry-harness/releases/latest/download/Sailry-x86_64-apple-darwin.dmg) | macOS 13+ · Windows and Linux planned |
+| **Host** | macOS: [Apple silicon](https://github.com/sailry/sailry-harness/releases/latest/download/sailry-host-aarch64-apple-darwin.tar.gz) · [Intel](https://github.com/sailry/sailry-harness/releases/latest/download/sailry-host-x86_64-apple-darwin.tar.gz)<br>Linux: [x64](https://github.com/sailry/sailry-harness/releases/latest/download/sailry-host-x86_64-unknown-linux-gnu.tar.gz) · [ARM64](https://github.com/sailry/sailry-harness/releases/latest/download/sailry-host-aarch64-unknown-linux-gnu.tar.gz) | macOS 13+ · Linux with glibc 2.34+ · Windows planned |
+| **Mobile** | [Android APK](https://github.com/sailry/sailry-harness/releases/latest/download/Sailry-android-arm64.apk) · [iOS TestFlight](https://testflight.apple.com/join/qaTnVrmQ) (beta) | Android 7.0+ · iOS 15+ |
 
-| Platform | Architecture | Status | Download |
-| --- | --- | --- | --- |
-| macOS 13+ | Apple silicon / Intel | Supported | [Apple silicon](https://github.com/sailry/sailry-harness/releases/latest/download/Sailry-aarch64-apple-darwin.dmg) · [Intel](https://github.com/sailry/sailry-harness/releases/latest/download/Sailry-x86_64-apple-darwin.dmg) |
-| Windows · Linux | x64 / ARM64 | Planned | — |
-
-### Host
-
-Install on a macOS or Linux machine:
+Or install a Host from the terminal:
 
 ```sh
 curl -fsSL https://github.com/sailry/sailry-harness/releases/latest/download/install-host.sh | bash
 ```
-
-| Platform | Architecture | Status | Download |
-| --- | --- | --- | --- |
-| macOS 13+ | Apple silicon / Intel | Supported | [Apple silicon](https://github.com/sailry/sailry-harness/releases/latest/download/sailry-host-aarch64-apple-darwin.tar.gz) · [Intel](https://github.com/sailry/sailry-harness/releases/latest/download/sailry-host-x86_64-apple-darwin.tar.gz) |
-| Linux · glibc 2.34+ | x64 / ARM64 | Supported | [x64](https://github.com/sailry/sailry-harness/releases/latest/download/sailry-host-x86_64-unknown-linux-gnu.tar.gz) · [ARM64](https://github.com/sailry/sailry-harness/releases/latest/download/sailry-host-aarch64-unknown-linux-gnu.tar.gz) |
-| Windows | — | Planned | — |
-
-### Mobile
-
-| Platform | Architecture | Status | Download |
-| --- | --- | --- | --- |
-| Android 7.0+ | ARM64 | Supported | [APK](https://github.com/sailry/sailry-harness/releases/latest/download/Sailry-android-arm64.apk) |
-| iOS 15+ | ARM64 | Beta | [TestFlight](https://testflight.apple.com/join/qaTnVrmQ) |
 
 ## Get started
 
