@@ -95,12 +95,14 @@ pub(crate) fn button(window: &mut Window, cx: &mut App) -> AnyElement {
                                     .child(crate::ui::status_ring::progress(
                                         "installations-ring".into(),
                                         cx.theme().progress_bar,
-                                        px(2.),
+                                        px(1.5),
                                         (!measured.is_empty()).then_some(value / 100.),
                                     )),
                             )
                         })
-                        .size_8()
+                        // The ring stays close to the rail's 16px icons; the
+                        // arrow shrinks inside it while installing.
+                        .size_5()
                         .flex_shrink_0()
                         .flex()
                         .items_center()
@@ -108,12 +110,17 @@ pub(crate) fn button(window: &mut Window, cx: &mut App) -> AnyElement {
                         .when(attention, |icon| {
                             icon.child(
                                 Badge::new().dot().color(cx.theme().danger).child(
-                                    Icon::new(gpui_kit::assets::IconName::Download).size_4(),
+                                    Icon::new(gpui_kit::assets::IconName::Download).map(|icon| {
+                                        if active { icon.size_3() } else { icon.size_4() }
+                                    }),
                                 ),
                             )
                         })
                         .when(!attention, |icon| {
-                            icon.child(Icon::new(gpui_kit::assets::IconName::Download).size_4())
+                            icon.child(
+                                Icon::new(gpui_kit::assets::IconName::Download)
+                                    .map(|icon| if active { icon.size_3() } else { icon.size_4() }),
+                            )
                         })
                         .when(pending, |icon| {
                             icon.debug_selector(|| "installations-pending".into())
