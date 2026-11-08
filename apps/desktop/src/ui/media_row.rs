@@ -1,7 +1,7 @@
 //! Leading tile with a title and muted one-line description, shared by settings lists
 //! so every record uses the same sizes and spacing.
 use gpui_kit::{
-    component::{ActiveTheme as _, h_flex, v_flex},
+    component::{ActiveTheme as _, StyledExt as _, h_flex, v_flex},
     prelude::FluentBuilder as _,
     *,
 };
