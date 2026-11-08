@@ -174,7 +174,6 @@ impl Shell {
                     .find(|tree| tree.id == session.worktree)
                     .map(|tree| tree.path.clone().into())
             }),
-            host: live.name(node),
         };
         let status = if running {
             Some((
