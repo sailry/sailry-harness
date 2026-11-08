@@ -67,6 +67,7 @@ impl Shell {
     ) -> AnyElement {
         let id = session.id;
         let archived = session.archived;
+        let pinned = crate::preferences::sessions::get(node, id, cx).pinned;
         let owner = cx.weak_entity();
         h_flex()
             .gap_0p5()
@@ -79,40 +80,43 @@ impl Shell {
                     .accessibility_label(tr("more"))
                     .debug_selector(move || format!("session-more-{id}"))
                     .dropdown_menu(move |menu, _, _| {
-                        items(archived)
-                            .into_iter()
-                            .fold(menu, |menu, (command, label)| {
-                                let menu =
-                                    if matches!(command, Command::Archive | Command::Unarchive) {
-                                        menu.separator()
-                                    } else {
-                                        menu
-                                    };
-                                let owner = owner.clone();
-                                menu.item(
-                                    PopupMenuItem::new(tr(label))
-                                        .disabled(
-                                            command == Command::ExportImage
-                                                && !cfg!(any(
-                                                    target_os = "macos",
-                                                    target_os = "windows"
-                                                )),
-                                        )
-                                        .on_click(move |_, window, cx| {
-                                            let _ = owner.update(cx, |shell, cx| {
-                                                shell.live_resource_action(
-                                                    &Dispatch {
-                                                        node,
-                                                        target: Target::Session(id),
-                                                        command,
-                                                    },
-                                                    window,
-                                                    cx,
-                                                );
-                                            });
-                                        }),
-                                )
-                            })
+                        std::iter::once(if pinned {
+                            (Command::Unpin, "workspace_unpin")
+                        } else {
+                            (Command::Pin, "workspace_pin")
+                        })
+                        .chain(items(archived))
+                        .fold(menu, |menu, (command, label)| {
+                            let menu = if matches!(command, Command::Archive | Command::Unarchive) {
+                                menu.separator()
+                            } else {
+                                menu
+                            };
+                            let owner = owner.clone();
+                            menu.item(
+                                PopupMenuItem::new(tr(label))
+                                    .disabled(
+                                        command == Command::ExportImage
+                                            && !cfg!(any(
+                                                target_os = "macos",
+                                                target_os = "windows"
+                                            )),
+                                    )
+                                    .on_click(move |_, window, cx| {
+                                        let _ = owner.update(cx, |shell, cx| {
+                                            shell.live_resource_action(
+                                                &Dispatch {
+                                                    node,
+                                                    target: Target::Session(id),
+                                                    command,
+                                                },
+                                                window,
+                                                cx,
+                                            );
+                                        });
+                                    }),
+                            )
+                        })
                     }),
             )
             .into_any_element()
@@ -223,6 +227,14 @@ impl Change {
                 let removed = match result {
                     Ok(Ok(Output::SessionsRemoved(ids))) => Some(ids),
                     Ok(Ok(Output::Session(session))) => {
+                        if session.archived {
+                            crate::preferences::sessions::set(
+                                node,
+                                session.id,
+                                Default::default(),
+                                cx,
+                            );
+                        }
                         if forking {
                             let _ = form.owner.update(cx, |shell, cx| {
                                 if shell
@@ -260,6 +272,9 @@ impl Change {
                     }
                 };
                 if let Some(ids) = removed {
+                    for id in &ids {
+                        crate::preferences::sessions::set(node, *id, Default::default(), cx);
+                    }
                     let _ = form.owner.update(cx, |shell, cx| {
                         for id in ids {
                             shell.close_session_view(Key::Session(node, id), window, cx);

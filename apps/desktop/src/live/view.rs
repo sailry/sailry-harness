@@ -52,103 +52,6 @@ impl Shell {
         cx.notify();
     }
 
-    pub(crate) fn live_host_rows(&self, cx: &mut Context<Self>) -> AnyElement {
-        let live = self.live.as_ref().unwrap();
-        v_flex()
-            .gap_0p5()
-            .children(
-                std::iter::once(live.services.local.target())
-                    .chain(
-                        live.hosts
-                            .keys()
-                            .copied()
-                            .filter(|node| *node != live.services.local.target()),
-                    )
-                    .map(|node| {
-                        let name = live.name(node);
-                        let update = host_update(live.host_versions.get(&node));
-                        let update_host = update == Some(true);
-                        self.sidebar_row(
-                            SharedString::from(format!("live-host-{}", node_key(node))),
-                            Row::LiveHost(node),
-                            live.selected == node,
-                            cx,
-                        )
-                        .debug_selector(move || format!("live-host-{}", node_key(node)))
-                        .on_mouse_down(
-                            MouseButton::Right,
-                            cx.listener(move |shell, event, window, cx| {
-                                shell.live_resource_menu(
-                                    node,
-                                    menus::Target::Host,
-                                    event,
-                                    window,
-                                    cx,
-                                );
-                            }),
-                        )
-                        .child(
-                            h_flex()
-                                .gap_2()
-                                .child(Icon::new(IconName::Cpu))
-                                .child(div().flex_1().min_w_0().truncate().child(name))
-                                .when(update.is_some(), |row| {
-                                    row.child(
-                                        Button::new(SharedString::from(format!(
-                                            "host-update-{}",
-                                            node_key(node)
-                                        )))
-                                        .icon(IconName::ArrowUp)
-                                        .ghost()
-                                        .xsmall()
-                                        .tooltip(tr(if update_host {
-                                            "host_update"
-                                        } else {
-                                            "updates_check"
-                                        }))
-                                        .on_click(
-                                            cx.listener(move |shell, _, window, cx| {
-                                                cx.stop_propagation();
-                                                shell.update_live_host(node, window, cx);
-                                            }),
-                                        ),
-                                    )
-                                }),
-                        )
-                        .on_click(cx.listener(
-                            move |shell, _, window, cx| shell.select_live_host(node, window, cx),
-                        ))
-                    }),
-            )
-            .into_any_element()
-    }
-
-    fn update_live_host(&mut self, node: NodeId, window: &mut Window, cx: &mut Context<Self>) {
-        use crate::theme::DialogStyle as _;
-        let Some(versions) = self
-            .live
-            .as_ref()
-            .and_then(|live| live.host_versions.get(&node))
-        else {
-            return;
-        };
-        let Some(update_host) = host_update(Some(versions)) else {
-            return;
-        };
-        if update_host {
-            self.update_host(node, window, cx);
-        } else if let Some(version) = versions.1.clone() {
-            let panel = cx.new(|cx| crate::updater::Panel::new(window, cx));
-            window.open_dialog(cx, move |dialog, _, cx| {
-                dialog
-                    .form_title(tr("updates"), cx)
-                    .w(px(560.))
-                    .child(panel.clone())
-            });
-            crate::updater::check_version(&version, cx);
-        }
-    }
-
     pub(crate) fn live_project_rows(&self, cx: &mut Context<Self>) -> AnyElement {
         let live = self.live.as_ref().unwrap();
         let projects = live
@@ -238,24 +141,5 @@ impl Shell {
                     .content(self.live_resource_rows(Some(id), cx))
             }))
             .into_any_element()
-    }
-}
-
-/// The update a Host's advertised build calls for: `Some(true)` updates the
-/// Host, `Some(false)` this controller, and `None` neither.
-///
-/// Protocol compatibility only admits the connection; a compatible Host with
-/// an older product release can still be updated.
-fn host_update(versions: Option<&(Option<u16>, Option<String>)>) -> Option<bool> {
-    let (protocol, version) = versions?;
-    match sailry_link::check_host(*protocol, version.as_deref()) {
-        Err(error) => Some(matches!(
-            error.details,
-            Some(sailry_protocol::FaultDetails::VersionMismatch {
-                update_host: true,
-                ..
-            })
-        )),
-        Ok(()) => sailry_link::host_outdated(version.as_deref()).then_some(true),
     }
 }

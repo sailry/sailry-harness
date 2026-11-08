@@ -168,7 +168,8 @@ feature_unpin: Unpin from sidebar
 
 recent_sessions: Recent
 
-active_sessions: Active
+sidebar_pinned: Pinned
+sidebar_host_update: Update
 activity_running: Running
 activity_board_waiting: Awaiting approval
 worktree_prune_on_select: Unavailable · click to clean up
@@ -185,7 +186,6 @@ activity_waiting: Needs attention
 activity_completed: Completed
 activity_failed: Failed
 
-active_sessions_empty: No activity
 
 project_icon_folder: Folder
 project_icon_code: Code

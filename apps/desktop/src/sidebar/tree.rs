@@ -13,6 +13,14 @@ pub(crate) struct Entry {
     pub ancestors: Vec<bool>,
 }
 
+pub(super) fn listed(session: &sailry_protocol::Session, pinned: bool) -> bool {
+    session.config.resource.is_none()
+        && (session.project.is_some() || session.config.assistant.is_none())
+        && session.delegation.is_none()
+        && !session.archived
+        && !pinned
+}
+
 impl Entry {
     pub fn indent(&self) -> Pixels {
         px(30. + self.ancestors.len() as f32 * 18.)
@@ -231,11 +239,15 @@ impl Shell {
             .sessions
             .iter()
             .filter_map(|session| {
-                (session.config.resource.is_none()
-                    && (session.project.is_some() || session.config.assistant.is_none())
-                    && session.delegation.is_none()
-                    && !session.archived)
-                    .then_some((Target::Session(node, session.id), session.project, session))
+                listed(
+                    session,
+                    crate::preferences::sessions::get(node, session.id, cx).pinned,
+                )
+                .then_some((
+                    Target::Session(node, session.id),
+                    session.project,
+                    session,
+                ))
             })
             .collect();
         let updated = crate::preferences::data(cx).session_order
@@ -243,7 +255,6 @@ impl Shell {
         // Stable sorting keeps the Node's creation and manual order for ties.
         // Sessions that have not run yet stay first, like newly created ones.
         sessions.sort_by_key(|(_, _, session)| {
-            let pinned = crate::preferences::sessions::get(node, session.id, cx).pinned;
             let last = updated
                 .then(|| {
                     session
@@ -253,7 +264,7 @@ impl Shell {
                         .and_then(|run| run.finished_ms.or(run.started_ms))
                 })
                 .flatten();
-            (!pinned, last.is_some(), std::cmp::Reverse(last))
+            (last.is_some(), std::cmp::Reverse(last))
         });
         let entries: Vec<_> = terminals
             .iter()
@@ -286,10 +297,9 @@ impl Shell {
         let node = live.selected;
         let rows = self.live_resource_order(&self.terminal_entries(), cx);
         let mut sessions: Vec<_> = self
-            .active_sessions()
+            .pinned_sessions(cx)
             .into_iter()
-            .filter(|(owner, _)| *owner == node)
-            .map(|(_, session)| session.id)
+            .map(|session| session.id)
             .collect();
         for project in
             std::iter::once(None).chain(snapshot.projects.iter().map(|project| Some(project.id)))
@@ -337,14 +347,15 @@ impl Shell {
         let node = live.selected;
         let terminals = self.terminal_entries();
         let rows = self.live_resource_order(&terminals, cx);
-        let group = project_id.map_or(limits::Group::Unassigned(node), |project| {
-            limits::Group::Project(node, project)
-        });
+        let group = project_id.map(|project| limits::Group::Project(node, project));
         let rows = rows
             .into_iter()
             .filter(|row| row.project == project_id)
             .collect();
-        let (rows, more) = window(rows, self.sidebar.sessions_expanded(group));
+        let (rows, more) = match group {
+            Some(group) => window(rows, self.sidebar.sessions_expanded(group)),
+            None => (rows, false),
+        };
         v_flex()
             .gap_0p5()
             .children(
@@ -393,7 +404,7 @@ impl Shell {
                         Target::Draft => unreachable!(),
                     }),
             )
-            .children(self.more_sessions(group, more, cx))
+            .children(group.and_then(|group| self.more_sessions(group, more, cx)))
             .into_any_element()
     }
 }

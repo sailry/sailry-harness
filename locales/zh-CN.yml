@@ -2615,9 +2615,9 @@ feature_unpin: 取消固定
 
 recent_sessions: 最近
 
-active_sessions: 活动
+sidebar_pinned: 置顶
+sidebar_host_update: 更新
 
-active_sessions_empty: 暂无活动
 
 artifact_open: 打开
 artifact_open_with: 打开方式

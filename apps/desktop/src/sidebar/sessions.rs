@@ -8,7 +8,7 @@ use sailry_protocol::{Command, Output, SessionId};
 pub(crate) enum Placement<'a> {
     Project(&'a super::tree::Entry),
     Recent { last: bool },
-    Active { last: bool },
+    Pinned { last: bool },
 }
 
 #[derive(Default)]
@@ -114,7 +114,7 @@ impl Shell {
         let live = self.live.as_ref().unwrap();
         let session = session.clone();
         let id = session.id;
-        let active = matches!(placement, Placement::Active { .. });
+        let pinned = matches!(placement, Placement::Pinned { .. });
         let (prefix, row_key, entry, last) = match placement {
             Placement::Project(entry) => (
                 "live-session",
@@ -123,12 +123,14 @@ impl Shell {
                 entry.last,
             ),
             Placement::Recent { last } => ("recent-session", Row::RecentSession(id), None, last),
-            Placement::Active { last } => ("active-session", Row::ActiveSession(id), None, last),
+            Placement::Pinned { last } => ("pinned-session", Row::PinnedSession(id), None, last),
         };
         let indicators = !matches!(placement, Placement::Recent { .. });
         let node = live.selected;
         let hovered = self.sidebar.hovered == Some(row_key);
         let preference = crate::preferences::sessions::get(node, id, cx);
+        let project = (pinned && preference.pinned && session.project.is_some())
+            .then(|| self.session_project_name(node, &session));
         let unread = indicators && session.activity.attention.unread;
         let activity = self.session_lane(node, &session);
         let running = indicators && activity == sailry_client::activity::Lane::Running;
@@ -282,6 +284,17 @@ impl Shell {
                                 .text_color(cx.theme().muted_foreground),
                         )
                     })
+                    .when_some(project, |row, project| {
+                        row.child(
+                            div()
+                                .min_w_0()
+                                .max_w_20()
+                                .truncate()
+                                .text_xs()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(project),
+                        )
+                    })
                     .when_some(branch.filter(|_| hovered), |row, branch| {
                         row.child(super::location(format!("{prefix}-{id}-branch"), branch, cx))
                     })
@@ -315,7 +328,7 @@ impl Shell {
             row
         };
         row.on_click(cx.listener(move |shell, _, window, cx| {
-            if active {
+            if pinned && !preference.pinned {
                 shell.open_activity(
                     node,
                     sailry_client::activity::Target::Session(id),

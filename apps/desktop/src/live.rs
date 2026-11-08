@@ -203,6 +203,7 @@ impl State {
                         if let Some(live) = &mut shell.live
                             && live.selected == node
                         {
+                            crate::preferences::sessions::reconcile(&view, cx);
                             live.accept_view(view);
                             if let Some(snapshot) = &live.view.snapshot {
                                 shell.terminals.prune(node, snapshot);

@@ -144,8 +144,7 @@ impl Shell {
                             }),
                     )
                     .overflow_y_scroll()
-                    .track_scroll(&self.sidebar.recent_scroll)
-                    .vertical_scrollbar(&self.sidebar.recent_scroll),
+                    .track_scroll(&self.sidebar.recent_scroll),
             )
     }
 }

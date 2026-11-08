@@ -1,7 +1,7 @@
-mod active;
 mod groups;
 mod limits;
 mod order;
+mod pinned;
 mod projects;
 mod recent;
 mod sessions;
@@ -29,22 +29,19 @@ pub(crate) const WIDTH_RANGE: std::ops::Range<f32> = 200. ..320.;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Row {
-    Hosts,
     Projects,
     Recent,
-    Active,
+    Pinned,
     Unassigned,
-    ActiveSession(sailry_protocol::SessionId),
+    PinnedSession(sailry_protocol::SessionId),
     RecentSession(sailry_protocol::SessionId),
     RecentPreview(usize, usize),
-    LiveHost(sailry_protocol::NodeId),
     LiveProject(sailry_protocol::ProjectId),
     LiveTerminal(sailry_protocol::TerminalId),
     LiveSession(sailry_protocol::SessionId),
     Group(crate::panes::Target),
     Setting(Section),
     PluginSetting(sailry_protocol::plugin::desktop::SettingsGroup, usize),
-    Host(usize),
     Project(usize),
     Session(usize, usize),
     Terminal(usize, usize),
@@ -56,12 +53,12 @@ pub struct State {
     pub(crate) order_pending: bool,
     closed_groups: BTreeSet<crate::panes::Target>,
     expanded_sessions: BTreeSet<limits::Group>,
-    hosts_closed: bool,
     projects_closed: bool,
     recent_open: bool,
-    active_closed: bool,
+    pinned_closed: bool,
+    pub(crate) preview_pins: Vec<(usize, usize)>,
     unassigned_closed: BTreeSet<sailry_protocol::NodeId>,
-    active_scroll: ScrollHandle,
+    pinned_scroll: ScrollHandle,
     // Explicit Kit viewports keep natural heights; the convenience wrapper fills its parent.
     projects_scroll: ScrollHandle,
     unassigned_scroll: ScrollHandle,
@@ -238,119 +235,7 @@ impl Shell {
                         .px_3()
                         .py_2()
                         .gap_1()
-                        .child(
-                            Collapsible::new()
-                                .flex_shrink_0()
-                                .open(!self.sidebar.hosts_closed)
-                                .child(
-                                    h_flex()
-                                        .id("hosts-heading")
-                                        .debug_selector(|| "hosts-heading".into())
-                                        .h_8()
-                                        .flex_shrink_0()
-                                        .px_2()
-                                        .gap_1()
-                                        .text_sm()
-                                        .text_color(cx.theme().muted_foreground.opacity(0.7))
-                                        .on_hover(cx.listener(|shell, hovered, _, cx| {
-                                            if *hovered {
-                                                shell.sidebar.hovered = Some(Row::Hosts);
-                                            } else if shell.sidebar.hovered == Some(Row::Hosts) {
-                                                shell.sidebar.hovered = None;
-                                            }
-                                            cx.notify();
-                                        }))
-                                        .on_click(cx.listener(|shell, _, _, cx| {
-                                            shell.sidebar.hosts_closed =
-                                                !shell.sidebar.hosts_closed;
-                                            cx.notify();
-                                        }))
-                                        .child(
-                                            div()
-                                                .flex_shrink_0()
-                                                .debug_selector(|| "hosts-label".into())
-                                                .child(tr("hosts")),
-                                        )
-                                        .child(div().flex_1())
-                                        .child(
-                                            Button::new("host-add")
-                                                .ghost()
-                                                .xsmall()
-                                                .icon(
-                                                    Icon::new(IconName::Plus)
-                                                        .size(px(14.))
-                                                        .text_color(
-                                                            cx.theme()
-                                                                .sidebar_foreground
-                                                                .opacity(0.5),
-                                                        ),
-                                                )
-                                                .when(
-                                                    self.sidebar.hovered != Some(Row::Hosts),
-                                                    |button| {
-                                                        button
-                                                            .opacity(0.)
-                                                            .focus(|style| style.opacity(1.))
-                                                    },
-                                                )
-                                                .tooltip(tr("host_add"))
-                                                .accessibility_label(tr("host_add"))
-                                                .debug_selector(|| "host-add".into())
-                                                .on_click(cx.listener(|this, _, window, cx| {
-                                                    cx.stop_propagation();
-                                                    this.add_host(window, cx);
-                                                })),
-                                        )
-                                        .child(
-                                            gpui_kit::base::AccordionTrigger::new("hosts-toggle")
-                                                .open(!self.sidebar.hosts_closed)
-                                                .tab_index(0)
-                                                .h_flex()
-                                                .h_8()
-                                                .flex_shrink_0()
-                                                .justify_end()
-                                                .aria_label(tr("hosts"))
-                                                .debug_selector(|| "hosts-toggle".into())
-                                                .child(
-                                                    div()
-                                                        .flex()
-                                                        .w_5()
-                                                        .items_center()
-                                                        .justify_center()
-                                                        .debug_selector(|| {
-                                                            "hosts-disclosure".into()
-                                                        })
-                                                        .child(
-                                                            Icon::new(
-                                                                if self.sidebar.hosts_closed {
-                                                                    IconName::ChevronRight
-                                                                } else {
-                                                                    IconName::ChevronDown
-                                                                },
-                                                            )
-                                                            .size(px(12.))
-                                                            .when(
-                                                                self.sidebar.hovered
-                                                                    != Some(Row::Hosts),
-                                                                |icon| icon.opacity(0.),
-                                                            ),
-                                                        ),
-                                                )
-                                                .on_change({
-                                                    let shell = cx.entity().downgrade();
-                                                    move |open, _, _, cx| {
-                                                        cx.stop_propagation();
-                                                        let _ = shell.update(cx, |shell, cx| {
-                                                            shell.sidebar.hosts_closed = !open;
-                                                            cx.notify();
-                                                        });
-                                                    }
-                                                }),
-                                        ),
-                                )
-                                .content(self.host_rows(cx)),
-                        )
-                        .child(self.active_group(cx))
+                        .children(self.pinned_group(cx))
                         .child(self.unassigned_sessions(cx))
                         .child(
                             Collapsible::new()
@@ -474,8 +359,7 @@ impl Shell {
                                         .debug_selector(|| "sidebar-projects-viewport".into())
                                         .child(v_flex().flex_none().child(self.project_rows(cx)))
                                         .overflow_y_scroll()
-                                        .track_scroll(&self.sidebar.projects_scroll)
-                                        .vertical_scrollbar(&self.sidebar.projects_scroll),
+                                        .track_scroll(&self.sidebar.projects_scroll),
                                 ),
                         )
                         .child(self.recent_sessions(cx)),
@@ -502,7 +386,7 @@ impl Shell {
                 | Row::LiveTerminal(_)
                 | Row::RecentSession(_)
                 | Row::RecentPreview(..)
-                | Row::ActiveSession(_)
+                | Row::PinnedSession(_)
         ) && !selected
             && !hovered;
         ListItem::new(id)
@@ -526,7 +410,7 @@ impl Shell {
                         return;
                     }
                     this.sidebar.hovered = Some(row);
-                    if let Row::LiveSession(id) | Row::RecentSession(id) | Row::ActiveSession(id) =
+                    if let Row::LiveSession(id) | Row::RecentSession(id) | Row::PinnedSession(id) =
                         row
                     {
                         this.load_sidebar_branch(id, cx);
@@ -546,38 +430,6 @@ impl Shell {
             .text_sm()
             .text_color(cx.theme().muted_foreground.opacity(0.7))
             .child(tr(key))
-    }
-
-    fn host_rows(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        if self.live.is_some() {
-            return self.live_host_rows(cx).into_any_element();
-        }
-        v_flex()
-            .gap_0p5()
-            .children(
-                ["local_host_name", "remote_host_name"]
-                    .into_iter()
-                    .enumerate()
-                    .map(|(host, name)| {
-                        self.sidebar_row(("host", host), Row::Host(host), self.host == host, cx)
-                            .debug_selector(move || format!("host-{host}"))
-                            .tooltip(move |window, cx| Tooltip::new(tr(name)).build(window, cx))
-                            .child(
-                                h_flex().gap_2().child(Icon::new(IconName::Cpu)).child(
-                                    div()
-                                        .debug_selector(move || format!("host-name-{host}"))
-                                        .flex_1()
-                                        .min_w_0()
-                                        .truncate()
-                                        .child(tr(name)),
-                                ),
-                            )
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.select_host(host, window, cx)
-                            }))
-                    }),
-            )
-            .into_any_element()
     }
 
     fn sidebar_footer(&self, cx: &mut Context<Self>) -> impl IntoElement {

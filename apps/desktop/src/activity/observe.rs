@@ -31,6 +31,7 @@ impl Shell {
                             if cancellation.is_cancelled() {
                                 return;
                             }
+                            crate::preferences::sessions::reconcile(&view, cx);
                             let notices =
                                 view.snapshot.as_ref().map(|_| view.notifications.clone());
                             if let Some(observer) = shell.activity.observers.get_mut(&node) {

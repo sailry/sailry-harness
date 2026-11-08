@@ -37,12 +37,7 @@ impl Shell {
             .iter()
             .find(|session| session.id == target_id)?;
         let project = source_session.project?;
-        if destination.project != Some(project)
-            || source_session.archived
-            || destination.archived
-            || crate::preferences::sessions::get(node, source_id, cx).pinned
-                != crate::preferences::sessions::get(node, target_id, cx).pinned
-        {
+        if destination.project != Some(project) || source_session.archived || destination.archived {
             return None;
         }
         let expected: Vec<_> = snapshot

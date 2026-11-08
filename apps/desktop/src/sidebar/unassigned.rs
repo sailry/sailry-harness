@@ -9,10 +9,10 @@ impl Shell {
         let empty = !live.view.snapshot.as_ref().is_some_and(|snapshot| {
             snapshot.sessions.iter().any(|session| {
                 session.project.is_none()
-                    && session.config.resource.is_none()
-                    && session.config.assistant.is_none()
-                    && session.delegation.is_none()
-                    && !session.archived
+                    && tree::listed(
+                        session,
+                        crate::preferences::sessions::get(live.selected, session.id, cx).pinned,
+                    )
             }) || snapshot.terminals.iter().any(|info| {
                 info.status != sailry_protocol::terminal::Status::Closed
                     && snapshot
@@ -117,6 +117,7 @@ impl Shell {
                     .id("sidebar-unassigned")
                     .relative()
                     .h_auto()
+                    .max_h(rems(7.375))
                     .min_h_0()
                     .debug_selector(|| "sidebar-unassigned-viewport".into())
                     .child(
@@ -132,8 +133,7 @@ impl Shell {
                             }),
                     )
                     .overflow_y_scroll()
-                    .track_scroll(&self.sidebar.unassigned_scroll)
-                    .vertical_scrollbar(&self.sidebar.unassigned_scroll),
+                    .track_scroll(&self.sidebar.unassigned_scroll),
             )
             .into_any_element()
     }

@@ -304,6 +304,10 @@ impl Shell {
                 if let Target::Session(key) = action.target {
                     let session = self.workspace.sessions.get_mut(&key).unwrap();
                     session.pinned = !session.pinned;
+                    self.sidebar.preview_pins.retain(|pinned| *pinned != key);
+                    if session.pinned {
+                        self.sidebar.preview_pins.push(key);
+                    }
                 }
             }
             Command::Copy => {
@@ -433,6 +437,8 @@ impl Shell {
                     return;
                 };
                 session.archived = true;
+                session.pinned = false;
+                self.sidebar.preview_pins.retain(|pinned| *pinned != key);
                 let project = session.owner.project;
                 if self.page == Page::Conversation && (self.host, self.session) == key {
                     self.close_resource_panel(cx);

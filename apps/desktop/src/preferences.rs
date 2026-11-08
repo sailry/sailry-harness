@@ -198,6 +198,7 @@ pub(crate) struct Preferences {
     path: Option<PathBuf>,
     readable: bool,
     pub error: Option<&'static str>,
+    session_cursors: std::collections::BTreeMap<sailry_protocol::NodeId, u64>,
 }
 impl Global for Preferences {}
 
@@ -250,6 +251,7 @@ impl Preferences {
                 path: Some(path),
                 readable: true,
                 error: None,
+                session_cursors: Default::default(),
             },
             Err(error) => {
                 eprintln!("could not read desktop preferences: {error}");
@@ -258,6 +260,7 @@ impl Preferences {
                     path: Some(path),
                     readable: false,
                     error: Some("preferences_read_failed"),
+                    session_cursors: Default::default(),
                 }
             }
         }

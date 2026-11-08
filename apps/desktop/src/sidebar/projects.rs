@@ -50,11 +50,11 @@ impl Shell {
                             .workspace
                             .sessions
                             .iter()
-                            .filter(|(_, session)| session.owner.project == id && !session.archived)
+                            .filter(|(_, session)| {
+                                session.owner.project == id && !session.archived && !session.pinned
+                            })
                             .collect();
-                        sessions.sort_by_key(|(key, session)| {
-                            (!session.pinned, std::cmp::Reverse(**key))
-                        });
+                        sessions.sort_by_key(|(key, _)| std::cmp::Reverse(**key));
                         let group = limits::Group::PreviewProject(self.host, id);
                         let more = sessions.len() > limits::INITIAL;
                         sessions.truncate(self.sidebar.session_limit(group));
@@ -224,13 +224,6 @@ impl Shell {
                                                         .w_full()
                                                         .min_w_0()
                                                         .overflow_hidden()
-                                                        .when(session.pinned, |row| {
-                                                            row.child(
-                                                                Icon::new(IconName::Star)
-                                                                    .size_3()
-                                                                    .mr_1(),
-                                                            )
-                                                        })
                                                         .child(
                                                             div()
                                                                 .flex_1()
