@@ -268,6 +268,7 @@ async fn isolates_missing_helpers() {
             missing,
             None,
             false,
+            false,
         )
         .await;
     assert_eq!(configured.len(), 2);
@@ -297,7 +298,13 @@ async fn expands_helper_inputs_once() {
         Ok(PathBuf::from("/packaged/helper"))
     }
     let mut configured = resources
-        .configured(&crate::process::Environment::ambient(), helper, None, false)
+        .configured(
+            &crate::process::Environment::ambient(),
+            helper,
+            None,
+            false,
+            false,
+        )
         .await;
     let Launch::Stdio {
         command,

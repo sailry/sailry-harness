@@ -13,6 +13,7 @@ use std::{
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
+    sync::Notify,
 };
 
 pub struct Server {
@@ -27,6 +28,7 @@ pub struct Server {
     pub requests: Arc<Mutex<Vec<String>>>,
     token: Arc<Mutex<String>>,
     secret: Option<Arc<Mutex<String>>>,
+    refresh_release: Arc<Notify>,
     stop: CancellationToken,
 }
 
@@ -99,6 +101,7 @@ impl Server {
         let denied = Arc::new(AtomicBool::new(false));
         let requests = Arc::new(Mutex::new(Vec::new()));
         let token = Arc::new(Mutex::new("access-initial".to_owned()));
+        let refresh_release = Arc::new(Notify::new());
         let stop = CancellationToken::new();
         let shutdown = stop.clone();
         let issuer = Arc::new(Issuer {
@@ -120,6 +123,7 @@ impl Server {
             callback: Mutex::new(None),
             with_refresh,
             error: error.map(str::to_owned),
+            refresh_release: refresh_release.clone(),
         });
         tokio::spawn(async move {
             let mut work = tokio::task::JoinSet::<io::Result<()>>::new();
@@ -148,12 +152,17 @@ impl Server {
             requests,
             token,
             secret,
+            refresh_release,
             stop,
         }
     }
 
     pub fn expire(&self) {
         *self.token.lock().unwrap() = "expired-access".into();
+    }
+
+    pub fn release_refresh(&self) {
+        self.refresh_release.notify_one();
     }
 
     pub fn replace_secret(&self, value: &str) {
@@ -194,6 +203,7 @@ struct Issuer {
     callback: Mutex<Option<String>>,
     with_refresh: bool,
     error: Option<String>,
+    refresh_release: Arc<Notify>,
 }
 
 pub async fn visit(value: &str) -> String {
@@ -392,7 +402,10 @@ impl Issuer {
                     let revision = self.refreshes.fetch_add(1, Ordering::SeqCst) + 1;
                     let status = self.status.load(Ordering::SeqCst);
                     if status == 0 {
-                        let _ = stream.read(&mut buffer).await;
+                        tokio::select! {
+                            _ = stream.read(&mut buffer) => {},
+                            _ = self.refresh_release.notified() => {},
+                        }
                         return Ok(());
                     }
                     if status == 1 {

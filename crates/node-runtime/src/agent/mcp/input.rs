@@ -15,7 +15,22 @@ use tokio::sync::watch;
 
 pub(super) struct Handler {
     active: Mutex<Option<Arc<Call>>>,
-    pub serial: tokio::sync::Mutex<()>,
+    pub serial: Arc<tokio::sync::Mutex<()>>,
+}
+
+pub(super) async fn wait<T>(
+    stop: &CancellationToken,
+    closed: &CancellationToken,
+    future: impl Future<Output = Result<T, Fault>>,
+) -> Result<T, Fault> {
+    tokio::select! {
+        biased;
+        _ = stop.cancelled() => Err(Fault::new(ErrorCode::Cancelled, "MCP invocation was cancelled")),
+        _ = closed.cancelled() => Err(Fault::new(ErrorCode::Unavailable, "MCP connection is closed")),
+        result = tokio::time::timeout(Duration::from_secs(120), future) => {
+            result.unwrap_or_else(|_| Err(Fault::new(ErrorCode::Busy, "MCP server is busy")))
+        }
+    }
 }
 
 struct Call {
@@ -28,14 +43,20 @@ struct Call {
     timing_owner: Option<u64>,
 }
 
-pub(super) struct Active<'a> {
-    handler: &'a Handler,
+pub(super) struct Active {
+    handler: Arc<Handler>,
     call: Arc<Call>,
 }
 
-impl Drop for Active<'_> {
+impl Drop for Active {
     fn drop(&mut self) {
-        self.handler.active.lock().unwrap().take();
+        let mut active = self.handler.active.lock().unwrap();
+        if active
+            .as_ref()
+            .is_some_and(|call| Arc::ptr_eq(call, &self.call))
+        {
+            active.take();
+        }
         self.call.stop.cancel();
     }
 }
@@ -44,17 +65,17 @@ impl Handler {
     pub fn new() -> Self {
         Self {
             active: Mutex::new(None),
-            serial: tokio::sync::Mutex::new(()),
+            serial: Arc::new(tokio::sync::Mutex::new(())),
         }
     }
     pub fn begin(
-        &self,
+        self: &Arc<Self>,
         ingress: Arc<Ingress>,
         turn: TurnId,
         session: String,
         parent: ToolIdentity,
         stop: &CancellationToken,
-    ) -> Active<'_> {
+    ) -> Active {
         let (waiting, _) = watch::channel(0);
         let call = Arc::new(Call {
             ingress,
@@ -67,13 +88,17 @@ impl Handler {
         });
         *self.active.lock().unwrap() = Some(call.clone());
         Active {
-            handler: self,
+            handler: self.clone(),
             call,
         }
     }
 }
 
-impl Active<'_> {
+impl Active {
+    pub fn stopped(&self) -> CancellationToken {
+        self.call.stop.clone()
+    }
+
     pub async fn run<T>(&self, future: impl Future<Output = T>) -> Result<T, ()> {
         deadline(self.call.waiting.subscribe(), &self.call.stop, future).await
     }
@@ -253,6 +278,32 @@ fn failed() -> rmcp::ErrorData {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test(start_paused = true)]
+    async fn bounds_other_call_waits() {
+        let stop = CancellationToken::new();
+        let closed = CancellationToken::new();
+        let lock = tokio::sync::Mutex::new(());
+        let held = lock.lock().await;
+        let fault = wait(&stop, &closed, async { Ok(lock.lock().await) })
+            .await
+            .unwrap_err();
+        assert_eq!(fault.code, ErrorCode::Busy);
+        drop(held);
+        assert!(
+            wait(&stop, &closed, async { Ok(lock.lock().await) })
+                .await
+                .is_ok()
+        );
+        stop.cancel();
+        assert_eq!(
+            wait(&stop, &closed, async { Ok(()) })
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::Cancelled
+        );
+    }
 
     #[tokio::test(start_paused = true)]
     async fn excludes_user_wait() {

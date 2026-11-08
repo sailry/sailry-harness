@@ -215,6 +215,35 @@ fn records_safe_model_causes_without_empty_fields() {
     assert!(!serde_json::to_string(record).unwrap().contains("PRIVATE_"));
 }
 
+#[test]
+fn keeps_diagnostic_detail_local() {
+    let directory = tempfile::tempdir().unwrap();
+    let (writer, worker) = writer(
+        directory.path(),
+        MAX_FILE_BYTES,
+        RETAINED_FILES,
+        QUEUED_LINES,
+    )
+    .unwrap();
+    let dispatch = tracing::Dispatch::new(subscriber(writer, Application::Desktop));
+    tracing::dispatcher::with_default(&dispatch, || {
+        let mut entry = Entry::new(Area::Desktop, Phase::Failed);
+        entry.operation = Some("updates_install_failed");
+        entry.stage = Some("desktop_update");
+        entry.detail = Some("Permission denied (os error 1)\n\0\u{1b}".into());
+        entry.emit_warn();
+    });
+    drop(worker);
+    let records = lines(directory.path());
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0]["level"], "WARN");
+    assert_eq!(records[0]["operation"], "updates_install_failed");
+    assert_eq!(records[0]["detail"], "Permission denied (os error 1)");
+    let remote = format::remote(records[0].as_object().unwrap());
+    assert_eq!(remote["operation"], "updates_install_failed");
+    assert!(remote.get("detail").is_none());
+}
+
 #[derive(Clone, Default)]
 struct Capture(Arc<Mutex<Vec<Emission>>>);
 

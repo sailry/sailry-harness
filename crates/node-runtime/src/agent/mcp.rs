@@ -9,6 +9,8 @@ pub(super) mod warm;
 pub(crate) use pool::Pool;
 mod remote;
 mod schema;
+mod settlement;
+mod status;
 mod transport;
 
 use super::catalog::Registration;
@@ -59,6 +61,7 @@ struct Connected {
     retired: AtomicBool,
     used: std::sync::Mutex<std::time::Instant>,
     listing: tokio::sync::Mutex<()>,
+    cleanup: Option<pool::Cleanup>,
 }
 
 impl Connected {
@@ -113,6 +116,7 @@ impl Connected {
             retired: AtomicBool::new(false),
             used: std::sync::Mutex::new(std::time::Instant::now()),
             listing: tokio::sync::Mutex::new(()),
+            cleanup: None,
         })
     }
 
@@ -130,22 +134,30 @@ impl Connected {
     async fn release(self: &Arc<Self>) -> Result<(), Fault> {
         *self.used.lock().unwrap() = std::time::Instant::now();
         if self.reuse
-            && self.healthy()
-            && (!self.retired.load(Ordering::Relaxed) || Arc::strong_count(self) > 1)
+            && (Arc::strong_count(self) > 1
+                || (self.healthy() && !self.retired.load(Ordering::Relaxed)))
         {
             Ok(())
         } else {
             self.close().await
         }
     }
+
+    fn retain(&self, task: tokio::task::JoinHandle<()>) {
+        if let Some(cleanup) = &self.cleanup {
+            let mut cleanup = cleanup.lock().unwrap();
+            cleanup.retain(|task| !task.is_finished());
+            cleanup.push(task);
+        }
+    }
 }
 
 impl Drop for Connected {
     fn drop(&mut self) {
-        if self.retired.load(Ordering::Relaxed) && !self.poisoned.load(Ordering::Relaxed) {
+        if self.reuse && !self.closed.load(Ordering::Relaxed) {
             let transport = self.transport.clone();
             let package = self.reference.clone();
-            tokio::spawn(async move {
+            let task = tokio::spawn(async move {
                 if let Err(error) = transport.lock().await.close().await {
                     let mut entry = crate::logging::Entry::new(
                         crate::logging::Area::Run,
@@ -158,6 +170,7 @@ impl Drop for Connected {
                     entry.emit_warn();
                 }
             });
+            self.retain(task);
         }
     }
 }
@@ -282,6 +295,7 @@ impl Connections {
                                     })
                             });
                         let bound = Arc::new(Bound {
+                            connection: connection.clone(),
                             name: alias(&config.plugin, &config.name, &descriptor.name),
                             description: format!(
                                 "MCP {}/{}/{}\n{}",
@@ -296,6 +310,7 @@ impl Connections {
                             ingress: ingress.clone(),
                             handler: connection.handler.clone(),
                             poisoned: connection.poisoned.clone(),
+                            reuse: connection.reuse,
                             turn: invocation.turn.id,
                             session: invocation.turn.session.to_string(),
                             stop: stop.clone(),
@@ -409,6 +424,7 @@ impl Target<'_> {
             stop,
         } = self;
         let started = std::time::Instant::now();
+        let attempt = ingress.agents.mcp.begin(&config.reference, &config.name);
         let mut reused = false;
         let result = async {
             if index >= crate::plugins::mcp::MAX_SERVERS { return Err(unavailable()); }
@@ -419,7 +435,7 @@ impl Target<'_> {
                 return Err(unavailable());
             }
             let connector = tokio::select! {
-                _ = stop.cancelled() => return Err(unavailable()),
+                _ = stop.cancelled() => return Err(cancelled()),
                 result = tokio::time::timeout(Duration::from_secs(10), resources.mcp_authorization(ingress, context, &config.name, &mut launch)) => result.map_err(|_| unavailable())??,
             };
             let connection = if reuse {
@@ -431,6 +447,7 @@ impl Target<'_> {
                 reused = pooled;
                 connection
             } else {
+                ingress.agents.mcp.started(&config.reference, &config.name);
                 Arc::new(Connected::open(config.reference.clone(), launch, connector.clone(), false, stop, &ingress.environment).await?)
             };
             let mut caller = connection.connector.clone();
@@ -448,15 +465,29 @@ impl Target<'_> {
             let listed = tokio::select! {
                 _ = stop.cancelled() => {
                     connection.release().await?;
-                    return Err(unavailable());
+                    return Err(cancelled());
                 }
                 result = tokio::time::timeout(Duration::from_secs(10), listing) => result.unwrap_or_else(|_| Err(unavailable())),
             };
             match listed {
                 Ok(descriptors) => Ok((connection, descriptors, caller)),
-                Err(_) => connection.close().await.and(Err(unavailable())),
+                Err(_) => {
+                    if !connection.reuse {
+                        connection.close().await?;
+                    }
+                    Err(unavailable())
+                }
             }
         }.await;
+        let status = if stop.is_cancelled() {
+            Err(cancelled())
+        } else {
+            result
+                .as_ref()
+                .map(|(_, tools, _)| tools.len())
+                .map_err(Clone::clone)
+        };
+        ingress.agents.mcp.finish(attempt, status);
         Attempt {
             reused,
             elapsed: started.elapsed(),
@@ -548,6 +579,7 @@ pub(super) fn is_alias(name: &str) -> bool {
 }
 
 struct Bound {
+    connection: Arc<Connected>,
     package: sailry_protocol::plugin::Reference,
     name: String,
     description: String,
@@ -559,6 +591,7 @@ struct Bound {
     session: String,
     stop: CancellationToken,
     poisoned: Arc<AtomicBool>,
+    reuse: bool,
     connector: Option<crate::plugins::connectors::mcp::Authorization>,
     python: Option<crate::python::Ready>,
     exclusive: Option<Arc<tokio::sync::Mutex<()>>>,
@@ -599,6 +632,9 @@ impl Bound {
         };
         let mut span = diagnostics::begin(identity, "call", &self.stop);
         let result = self.call(context.clone(), arguments, &mut span).await;
+        if self.reuse {
+            self.ingress.agents.mcp.failed(&self.connection);
+        }
         if let Ok(value) = &result
             && (value.is_error.unwrap_or(false))
             && let Some(timeline) = self.ingress.agents.timeline(self.turn)
@@ -690,16 +726,16 @@ impl Bound {
             let serial = tokio::select! {
                 _ = self.stop.cancelled() => return Err(Fault::invalid("MCP invocation was cancelled")),
                 _ = self.closed.cancelled() => return Err(Fault::invalid("MCP connection is closed")),
-                guard = self.handler.serial.lock() => guard,
+                guard = self.handler.serial.clone().lock_owned() => guard,
             };
             Ok::<_, Fault>((service, serial))
         };
-        let (service, _serial) = diagnostics::stage(
+        let (service, serial) = diagnostics::stage(
             span,
             &self.stop,
             "lock_wait",
             ErrorCode::Unavailable,
-            waiting,
+            input::wait(&self.stop, &self.closed, waiting),
         )
         .await?;
         if context.is_cancelled()
@@ -720,7 +756,6 @@ impl Bound {
             .await
             .is_err()
         {
-            self.poisoned.store(true, Ordering::Relaxed);
             return Err(Fault::invalid("MCP connection is unavailable or changed"));
         }
         diagnostics::external(span);
@@ -734,23 +769,52 @@ impl Bound {
             context.request(),
             &self.stop,
         );
-        let mut call = service.map(|guard| {
-            transport::Call::new(
-                self.transport.clone(),
-                self.closed.clone(),
-                guard,
-                self.poisoned.clone(),
+        let (service, mut call) = if self.reuse {
+            (service, None)
+        } else {
+            (
+                None,
+                service.map(|guard| {
+                    transport::Call::new(
+                        self.transport.clone(),
+                        self.closed.clone(),
+                        guard,
+                        self.poisoned.clone(),
+                    )
+                }),
             )
-        });
-        let pending = Pending(Some(&*self.poisoned));
+        };
+        let pending = Pending((!self.reuse).then_some(&*self.poisoned));
+        let operation = async {
+            if self.reuse {
+                settlement::Owner {
+                    connection: self.connection.clone(),
+                    active,
+                    service,
+                    serial,
+                    shutdown: self.ingress.agents.stopped.clone(),
+                }
+                .run(self.descriptor.name.to_string(), args.clone())
+                .await
+            } else {
+                let _serial = serial;
+                let stopped = active.stopped();
+                active
+                    .run(
+                        self.toolset
+                            .call(&self.descriptor.name, args.clone(), &stopped),
+                    )
+                    .await
+            }
+        };
         let result = tokio::select! {
             biased;
             _ = self.stop.cancelled() => Err(Fault::invalid("MCP invocation was cancelled; remote effects may be uncertain")),
-            result = active.run(self.toolset.call(&self.descriptor.name, args.clone())) => {
+            result = operation => {
                 pending.answered();
                 if matches!(&result, Ok(Ok(_))) {
                     if let Some(call) = &mut call { call.confirmed(); }
-                } else { self.poisoned.store(true, Ordering::Relaxed); }
+                } else if !self.reuse { self.poisoned.store(true, Ordering::Relaxed); }
                 match result {
                     Ok(Ok(value)) => {
                         if let Some(connector) = &self.connector {
@@ -774,8 +838,7 @@ impl Bound {
     }
 }
 
-/// A remote call abandoned before its answer may still run on the server, so its
-/// connection is not reused, including after a cancelled turn.
+/// Nonreusable calls retain their transport until remote cleanup is confirmed.
 struct Pending<'a>(Option<&'a AtomicBool>);
 
 impl Pending<'_> {
@@ -815,6 +878,10 @@ impl ToolProvider<CallContext> for Bound {
 
 fn unavailable() -> Fault {
     Fault::new(ErrorCode::Unavailable, "MCP server is unavailable")
+}
+
+fn cancelled() -> Fault {
+    Fault::new(ErrorCode::Cancelled, "MCP connection was cancelled")
 }
 
 #[cfg(test)]

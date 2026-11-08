@@ -13,6 +13,10 @@ type Resources = Vec<(
 type Authorizations = BTreeMap<String, Vec<(sailry_protocol::plugin::connector::Id, u64)>>;
 
 pub(super) enum Operation {
+    RuntimeChanged {
+        packages: Vec<String>,
+        reply: oneshot::Sender<Result<(), Fault>>,
+    },
     Resources {
         package: Option<String>,
         reply: oneshot::Sender<Result<Resources, Fault>>,
@@ -82,6 +86,32 @@ pub(super) async fn execute(
     events: &broadcast::Sender<EventEnvelope>,
 ) {
     match operation {
+        Operation::RuntimeChanged { packages, reply } => {
+            let result = (async || {
+                let publication = database.publication.clone();
+                let transaction = database
+                    .connection
+                    .unchecked_transaction()
+                    .await
+                    .map_err(storage_error)?;
+                let mut changes = Vec::new();
+                for package in packages {
+                    if let Some(info) = plugins::get(&transaction, &package).await? {
+                        changes.push(sailry_protocol::Event::PluginChanged(info.summary));
+                    }
+                }
+                let envelopes =
+                    super::database::record(&transaction, database.node, changes).await?;
+                let publication = publication.lock().await;
+                crate::store::database::conflict::commit(transaction).await?;
+                for envelope in envelopes {
+                    publication.send(events, envelope);
+                }
+                Ok(())
+            })()
+            .await;
+            let _ = reply.send(result);
+        }
         Operation::Resources { package, reply } => {
             let result = async {
                 let mut resources = Vec::new();
@@ -259,6 +289,17 @@ async fn authorizations(
 }
 
 impl Ingress {
+    async fn mcp_runtime_changed(&self, packages: Vec<String>) -> Result<(), Fault> {
+        let (reply, response) = oneshot::channel();
+        self.submit(Job::McpCredentials(Operation::RuntimeChanged {
+            packages,
+            reply,
+        }))
+        .await
+        .map_err(|_| unavailable())?;
+        response.await.map_err(|_| unavailable())?
+    }
+
     async fn mcp_authorizations(&self, package: Option<String>) -> Result<Authorizations, Fault> {
         let (reply, response) = oneshot::channel();
         self.submit(Job::McpCredentials(Operation::Authorizations {
@@ -476,6 +517,9 @@ pub(super) fn start(ingress: &Arc<Ingress>) {
                         active = false;
                     }
                 },
+                packages = ingress.agents.mcp.changes() => {
+                    cleanup(&ingress, ingress.mcp_runtime_changed(packages).await);
+                }
                 _ = expiry.tick() => {
                     cleanup(&ingress, ingress.agents.mcp.expire().await);
                 }

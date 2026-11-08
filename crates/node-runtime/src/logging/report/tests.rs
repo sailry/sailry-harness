@@ -231,6 +231,7 @@ fn accepts_only_public_metadata() {
                 ] {
                     let mut fields = fields.as_object().unwrap().clone();
                     fields.insert("phase".into(), "failed".into());
+                    fields.insert("detail".into(), "PRIVATE_DETAIL".into());
                     let event = Event {
                         logger: Some("sailry".into()),
                         level: sentry::protocol::Level::Error,
@@ -357,7 +358,7 @@ fn accepts_only_public_metadata() {
         "settings_revision":3, "revision":4, "generation":5, "sequence":6,
         "transport":"remote", "parse_field":"private_field", "parse_event":"private_event",
         "bytes":7, "upstream_status":401, "status":"failed", "attempt":8,
-        "stage":"private_stage", "source_kind":"private_source", "platform":"private_platform",
+        "stage":"private_stage", "detail":"PRIVATE_DETAIL", "source_kind":"private_source", "platform":"private_platform",
         "wait_ms":9, "end_to_end_us":10, "rtt_ms":11, "first_token_us":14,
         "last_content_us":15, "provider_name":"private_provider", "model":"private_model",
         "handler":"private_handler", "invocation":"private_invocation", "digest":digest,
@@ -433,7 +434,7 @@ fn accepts_only_public_metadata() {
             "filters_malformed_diagnostic_lines",
             (|case_name| {
                 let file = tempfile::NamedTempFile::new().unwrap();
-                std::fs::write(file.path(), "PRIVATE_RAW_MESSAGE\n2026-10-30T00:00:00Z ERROR host reason=\"unterminated\n2026-10-30T00:00:00Z ERROR host reason=safe count=7 path=/Users/PRIVATE_USER\n").unwrap();
+                std::fs::write(file.path(), "PRIVATE_RAW_MESSAGE\n2026-10-30T00:00:00Z ERROR host reason=\"unterminated\n2026-10-30T00:00:00Z ERROR host reason=safe count=7 detail=\"PRIVATE_DETAIL\" path=/Users/PRIVATE_USER\n").unwrap();
                 let attachment = diagnostics::attachment(Some(file.path().to_owned())).unwrap();
                 let text = String::from_utf8(attachment.buffer).unwrap();
                 assert_eq!(text.lines().count(), 1, "{case_name}");

@@ -64,6 +64,7 @@ const FIELDS: &[(&str, Disclosure)] = &[
     ("command", Disclosure::Local),
     ("operation", Disclosure::Public),
     ("stage", Disclosure::Local),
+    ("detail", Disclosure::Local),
     ("source_kind", Disclosure::Local),
     ("reason", Disclosure::Local),
     ("cause_code", Disclosure::Public),

@@ -65,6 +65,37 @@ fn inherit(env: &mut BTreeMap<String, String>, read: impl Fn(&str) -> Option<Str
     }
 }
 
+pub(crate) fn prepare_home(data: &cap_std::fs::Dir, home: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use cap_std::fs::PermissionsExt;
+        data.set_permissions(".", cap_std::fs::Permissions::from_mode(0o700))?;
+    }
+    #[cfg(not(unix))]
+    let _ = data;
+    let mut builder = std::fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        builder.mode(0o700);
+    }
+    builder.create(home)?;
+    let metadata = std::fs::symlink_metadata(home)?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "computer helper home must be a directory",
+        ));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(home, std::fs::Permissions::from_mode(0o700))?;
+    }
+    Ok(())
+}
+
 /// macOS charges TCC grants to a process tree's responsible app. Disclaiming
 /// makes the signed helper app, rather than Desktop or Host, own them.
 ///

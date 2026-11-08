@@ -130,6 +130,7 @@ async fn preserves_and_rejects_refresh_credentials() {
             assert_eq!(page.runs.last().unwrap().status, Status::Cancelled);
             assert_eq!(stored(&fixture.node, row.id).await, before);
             issuer.status.store(200, Ordering::SeqCst);
+            issuer.release_refresh();
             recover(&fixture, &peer, 3).await;
 
             issuer.status.store(rejection, Ordering::SeqCst);

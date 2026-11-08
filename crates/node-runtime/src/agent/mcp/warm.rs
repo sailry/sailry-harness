@@ -2,12 +2,13 @@ use super::*;
 
 pub(crate) async fn run(ingress: &Arc<Ingress>, package: Option<String>, stop: &CancellationToken) {
     let complete = package.is_none();
-    let resources = match ingress.mcp_resources(package).await {
+    let resources = match ingress.mcp_resources(package.clone()).await {
         Ok(resources) => resources,
         Err(_) => return,
     };
-    let mut selected = resources.mcp(&ingress.environment).await;
-    selected.retain(|config| config.options.reuse);
+    let mut selected = resources
+        .warm(&ingress.environment, package.as_deref())
+        .await;
     if complete && let Err(error) = ingress.agents.mcp.reconcile().await {
         let mut entry =
             crate::logging::Entry::new(crate::logging::Area::Run, crate::logging::Phase::Failed);

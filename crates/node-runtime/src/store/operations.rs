@@ -125,7 +125,10 @@ pub(super) async fn execute(ingress: Ingress, job: Job) {
         | Job::PrepareHunk { .. }
         | Job::ResolveCredential { .. } => true,
         Job::Agent(operation) => agent::readonly(operation),
-        Job::McpCredentials(operation) => !matches!(operation, mcp::Operation::Save { .. }),
+        Job::McpCredentials(operation) => !matches!(
+            operation,
+            mcp::Operation::Save { .. } | mcp::Operation::RuntimeChanged { .. }
+        ),
         _ => false,
     };
     let mut database = match storage.context(readonly).await {
@@ -144,7 +147,11 @@ pub(super) async fn execute(ingress: Ingress, job: Job) {
                 request,
                 reply,
             } => Box::pin(async move {
-                let _ = reply.send(database.read(caller, &request).await);
+                let mut result = database.read(caller, &request).await;
+                if let Ok(sailry_protocol::Output::Plugin(info)) = &mut result {
+                    agents.mcp.project(info);
+                }
+                let _ = reply.send(result);
             }),
             Job::CheckPlugin {
                 caller,

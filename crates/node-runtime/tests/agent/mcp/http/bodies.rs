@@ -319,11 +319,7 @@ async fn isolates_failed_discovery() {
             }
             fixture.client.execute(request).await.unwrap();
             assert_eq!(http.count("initialize"), 1, "{case_name}");
-            assert_eq!(
-                http.count("tools/list"),
-                if method == "tools/list" { 1 } else { 2 },
-                "{case_name}"
-            );
+            assert_eq!(http.count("tools/list"), 2, "{case_name}");
             assert_eq!(
                 http.count("tools/call"),
                 usize::from(method == "tools/call"),
@@ -334,11 +330,31 @@ async fn isolates_failed_discovery() {
                 usize::from(method == "tools/call"),
                 "{case_name}"
             );
-            assert_eq!(http.deletes(), 1, "{case_name}");
+            assert_eq!(
+                http.deletes(),
+                usize::from(method == "tools/call"),
+                "{case_name}"
+            );
+            if method == "tools/list" {
+                let exposed = peer::exposed("remote", "read");
+                assert!(
+                    model.requests.lock().unwrap().iter().all(|request| {
+                        request["tools"]
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .all(|declaration| declaration["function"]["name"] != exposed)
+                    }),
+                    "{case_name}"
+                );
+            }
             peers.push(http);
         }
     }
     let fixture = shared.unwrap();
     fixture.controller.close().await.unwrap();
     fixture.node.shutdown().await.unwrap();
+    for peer in peers {
+        assert_eq!(peer.deletes(), 1);
+    }
 }

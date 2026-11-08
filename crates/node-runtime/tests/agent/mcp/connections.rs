@@ -21,11 +21,7 @@ pub(super) fn requests(data: &Path, method: &str) -> usize {
 fn ignores_unfinished_log_record() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("requests.jsonl");
-    fs::write(
-        &path,
-        "{\"method\":\"tools/list\"}\n{\"method\":\"tools/",
-    )
-    .unwrap();
+    fs::write(&path, "{\"method\":\"tools/list\"}\n{\"method\":\"tools/").unwrap();
     assert_eq!(requests(directory.path(), "tools/list"), 1);
     fs::write(
         path,

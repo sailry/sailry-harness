@@ -105,7 +105,7 @@ pub struct Context {
     pub attachment: Option<AttachmentId>,
 }
 
-/// This allowlist deliberately has no message, input, output, URL or path field.
+/// Operation payloads stay excluded; diagnostic detail remains local.
 #[derive(Clone)]
 pub struct Entry {
     pub area: Area,
@@ -114,6 +114,7 @@ pub struct Entry {
     pub command: Option<&'static str>,
     pub operation: Option<&'static str>,
     pub stage: Option<&'static str>,
+    pub detail: Option<String>,
     pub source_kind: Option<&'static str>,
     pub reason: Option<&'static str>,
     pub cause_code: Option<&'static str>,
@@ -165,6 +166,7 @@ impl Entry {
             command: None,
             operation: None,
             stage: None,
+            detail: None,
             source_kind: None,
             reason: None,
             cause_code: None,
@@ -243,6 +245,7 @@ impl Entry {
             call = id(context.call.map(|value| value.to_string())),
             artifact_id = id(context.artifact.map(|value| value.to_string())), attachment_id = id(context.attachment.map(|value| value.to_string())), revision = self.revision,
             command = self.command.unwrap_or_default(), operation = self.operation.unwrap_or_default(), stage = self.stage.unwrap_or_default(), source_kind = self.source_kind.unwrap_or_default(), reason = self.reason.unwrap_or_default(),
+            detail = self.detail.as_deref().unwrap_or_default(),
             cause_code = self.cause_code.unwrap_or_default(), cause_component = self.cause_component.unwrap_or_default(), cause_category = self.cause_category.unwrap_or_default(), upstream_status = self.upstream_status, websocket_close_code = self.websocket_close_code,
             attempt = self.attempt, limit = self.limit, request_mode = self.request_mode.unwrap_or_default(), stream = self.stream, budget = self.budget,
             transport = self.transport.unwrap_or_default(), connection_reused = self.connection_reused, fallback_reason = self.fallback_reason.unwrap_or_default(), continuation = self.continuation.unwrap_or_default(),

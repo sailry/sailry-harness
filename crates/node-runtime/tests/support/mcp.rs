@@ -95,7 +95,7 @@ fn stdio_peer() {
     append(&data.join("launches"), "x");
     let root = std::env::var("PLUGIN_ROOT").unwrap();
     let mode = std::env::var("SAILRY_MCP_MODE").unwrap();
-    let mut pending = None;
+    let mut pending: Option<(Value, Value)> = None;
     for line in std::io::stdin().lock().lines() {
         let Ok(line) = line else {
             break;
@@ -113,14 +113,27 @@ fn stdio_peer() {
             std::io::stdout().flush().unwrap();
             continue;
         }
-        if request["method"].is_null() && id == "form-request" {
-            if let Some(call) = pending.take() {
+        if request["method"].is_null() && pending.as_ref().is_some_and(|(_, form)| id == form) {
+            if let Some((call, _)) = pending.take() {
                 println!(
                     "{}",
                     json!({"jsonrpc":"2.0","id":call,"result":{"content":[{"type":"text","text":"Input received"}],"structuredContent":request["result"]}})
                 );
                 std::io::stdout().flush().unwrap();
             }
+            continue;
+        }
+        if request["method"] == "notifications/cancelled"
+            && pending
+                .as_ref()
+                .is_some_and(|(call, _)| call == &request["params"]["requestId"])
+        {
+            let (call, _) = pending.take().unwrap();
+            println!(
+                "{}",
+                json!({"jsonrpc":"2.0","id":call,"error":{"code":-32800,"message":"fixture call cancelled"}})
+            );
+            std::io::stdout().flush().unwrap();
             continue;
         }
         if request["method"] == "initialize" && mode == "bad_handshake" {
@@ -169,7 +182,8 @@ fn stdio_peer() {
             }
             "tools/call" => {
                 if mode.starts_with("elicitation") {
-                    pending = Some(id.clone());
+                    let form = Value::String(format!("form-{id}"));
+                    pending = Some((id.clone(), form.clone()));
                     let schema = Path::new(&root).join("form.json");
                     let schema = if schema.exists() {
                         serde_json::from_slice(&fs::read(schema).unwrap()).unwrap()
@@ -178,7 +192,7 @@ fn stdio_peer() {
                     };
                     println!(
                         "{}",
-                        json!({"jsonrpc":"2.0","id":"form-request","method":"elicitation/create","params":{"mode":"form","message":"Choose how to prepare the report","requestedSchema":schema}})
+                        json!({"jsonrpc":"2.0","id":form,"method":"elicitation/create","params":{"mode":"form","message":"Choose how to prepare the report","requestedSchema":schema}})
                     );
                     std::io::stdout().flush().unwrap();
                     if mode == "elicitation_cancel" {
@@ -189,7 +203,7 @@ fn stdio_peer() {
                             }
                             println!(
                                 "{}",
-                                json!({"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":"form-request","reason":"fixture cancelled input"}})
+                                json!({"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":form,"reason":"fixture cancelled input"}})
                             );
                             std::io::stdout().flush().unwrap();
                         });
@@ -203,6 +217,21 @@ fn stdio_peer() {
                     );
                 }
                 let name = request["params"]["name"].as_str().unwrap();
+                if mode == "rpc_error" && request["params"]["arguments"]["value"] == "fail" {
+                    fs::write(data.join("failing"), "ready").unwrap();
+                    while !data.join("release_error").exists() {
+                        std::thread::sleep(std::time::Duration::from_millis(10));
+                    }
+                    println!(
+                        "{}",
+                        json!({
+                            "jsonrpc":"2.0","id":id,
+                            "error":{"code":-32603,"message":"Fixture call failed"}
+                        })
+                    );
+                    std::io::stdout().flush().unwrap();
+                    continue;
+                }
                 if mode == "presentation" {
                     let value = &request["params"]["arguments"]["value"];
                     let failed = value == "failure";

@@ -9,10 +9,9 @@ use rmcp::{
     Peer,
     model::{
         CallToolRequest, CallToolRequestParams, CallToolResponse, CallToolResult, CancelTaskParams,
-        CancelledNotification, CancelledNotificationParam, ClientRequest, ClientResult,
-        ErrorCode as RpcCode, GetExtensions, GetMeta, GetTaskParams, InputRequest, InputRequests,
-        InputResponses, NumberOrString, ServerRequest, ServerResult, Task, TaskPayload,
-        UpdateTaskParams,
+        ClientRequest, ClientResult, CustomNotification, ErrorCode as RpcCode, GetExtensions,
+        GetMeta, GetTaskParams, InputRequest, InputRequests, InputResponses, NumberOrString,
+        ServerRequest, ServerResult, Task, TaskPayload, UpdateTaskParams,
     },
     service::{PeerRequestOptions, RequestContext, Service as _},
 };
@@ -22,6 +21,7 @@ use tokio::sync::Mutex;
 pub(super) struct Remote {
     service: Service,
     tasks: Mutex<BTreeSet<String>>,
+    broken: AtomicBool,
 }
 
 impl Remote {
@@ -29,25 +29,54 @@ impl Remote {
         Arc::new(Self {
             service,
             tasks: Mutex::new(BTreeSet::new()),
+            broken: AtomicBool::new(false),
         })
     }
 
     pub(super) fn is_closed(&self) -> bool {
-        self.service.is_closed() || self.service.peer().is_transport_closed()
+        self.broken.load(Ordering::Relaxed)
+            || self.service.is_closed()
+            || self.service.peer().is_transport_closed()
+    }
+
+    fn failed(&self, error: rmcp::ServiceError) -> Fault {
+        if matches!(
+            error,
+            rmcp::ServiceError::UnexpectedResponse
+                | rmcp::ServiceError::TransportSend(_)
+                | rmcp::ServiceError::TransportClosed
+        ) {
+            self.broken.store(true, Ordering::Relaxed);
+        }
+        failed(error)
+    }
+
+    fn unexpected(&self, message: &str) -> Fault {
+        self.broken.store(true, Ordering::Relaxed);
+        invalid(message)
     }
 
     pub(super) async fn call(
         &self,
         name: &str,
         arguments: serde_json::Map<String, Value>,
+        stop: &CancellationToken,
     ) -> Result<CallToolResult, Fault> {
         let mut params = CallToolRequestParams::new(name.to_owned()).with_arguments(arguments);
         let mut state_rounds = 0u32;
         for _ in 0..10 {
-            match self.send(params.clone()).await? {
+            if stop.is_cancelled() {
+                return Err(cancelled());
+            }
+            match self.send(params.clone(), stop).await? {
                 CallToolResponse::Complete(result) => return Ok(result),
-                CallToolResponse::Task(created) => return Box::pin(self.task(created.task)).await,
+                CallToolResponse::Task(created) => {
+                    return Box::pin(self.task(created.task, stop)).await;
+                }
                 CallToolResponse::InputRequired(input) => {
+                    if stop.is_cancelled() {
+                        return Err(cancelled());
+                    }
                     let requests = input.input_requests.filter(|requests| !requests.is_empty());
                     if requests.is_none() && input.request_state.is_none() {
                         return Err(invalid("MCP input has neither requests nor state"));
@@ -72,7 +101,11 @@ impl Remote {
         Err(invalid("MCP tool exceeded the SDK input round limit"))
     }
 
-    async fn send(&self, params: CallToolRequestParams) -> Result<CallToolResponse, Fault> {
+    async fn send(
+        &self,
+        params: CallToolRequestParams,
+        stop: &CancellationToken,
+    ) -> Result<CallToolResponse, Fault> {
         let handle = self
             .service
             .peer()
@@ -81,25 +114,34 @@ impl Remote {
                 PeerRequestOptions::no_options(),
             )
             .await
-            .map_err(failed)?;
+            .map_err(|error| self.failed(error))?;
         let cancel = Cancel {
             peer: Some(handle.peer.clone()),
             target: Target::Request(handle.id.clone()),
         };
-        let result = handle.await_response().await;
+        let response = handle.await_response();
+        tokio::pin!(response);
+        let result = tokio::select! {
+            biased;
+            result = &mut response => result,
+            _ = stop.cancelled() => {
+                cancel.notify().await;
+                response.await
+            }
+        };
         cancel.disarm();
-        match result.map_err(failed)? {
+        match result.map_err(|error| self.failed(error))? {
             ServerResult::CallToolResult(result) => Ok(CallToolResponse::Complete(result)),
             ServerResult::InputRequiredResult(result) => {
                 Ok(CallToolResponse::InputRequired(result))
             }
             ServerResult::CreateTaskResult(result) => Ok(CallToolResponse::Task(result)),
-            _ => Err(invalid("MCP tool returned an unexpected response")),
+            _ => Err(self.unexpected("MCP tool returned an unexpected response")),
         }
     }
 
-    async fn task(&self, initial: Task) -> Result<CallToolResult, Fault> {
-        let id = initial.task_id;
+    async fn task(&self, initial: Task, stop: &CancellationToken) -> Result<CallToolResult, Fault> {
+        let id = initial.task_id.clone();
         if id.is_empty() || id.len() > 16 * 1024 {
             return Err(invalid("MCP task identity is invalid"));
         }
@@ -108,6 +150,37 @@ impl Remote {
             peer: Some(self.service.peer().clone()),
             target: Target::Task(id.clone()),
         };
+        let interval = Duration::from_millis(initial.poll_interval_ms.unwrap_or(1000).max(1));
+        let result = tokio::select! {
+            biased;
+            _ = stop.cancelled() => Err(cancelled()),
+            result = self.poll_task(initial) => result,
+        };
+        if self.tasks.lock().await.contains(&id) {
+            stop.cancel();
+            cancel.notify().await;
+            loop {
+                if self.is_closed() {
+                    return Err(Fault::new(
+                        ErrorCode::OutcomeUnknown,
+                        "MCP task termination is unconfirmed",
+                    ));
+                }
+                match tokio::time::timeout(Duration::from_secs(120), self.settled(&id)).await {
+                    Ok(Ok(true)) => {
+                        self.tasks.lock().await.remove(&id);
+                        break;
+                    }
+                    _ => tokio::time::sleep(interval).await,
+                }
+            }
+        }
+        cancel.disarm();
+        result
+    }
+
+    async fn poll_task(&self, initial: Task) -> Result<CallToolResult, Fault> {
+        let id = initial.task_id;
         if !self
             .service
             .peer_info()
@@ -125,15 +198,14 @@ impl Remote {
                 .peer()
                 .get_task(GetTaskParams::new(&id))
                 .await
-                .map_err(failed)?
+                .map_err(|error| self.failed(error))?
                 .task;
             if detailed.task.task_id != id {
-                return Err(invalid("MCP task identity changed"));
+                return Err(self.unexpected("MCP task identity changed"));
             }
             interval = detailed.task.poll_interval_ms.unwrap_or(interval).max(1);
             if detailed.task.status.is_terminal() {
                 self.tasks.lock().await.remove(&id);
-                cancel.disarm();
                 return match detailed.payload {
                     TaskPayload::Completed { result } => {
                         serde_json::from_value(Value::Object(result)).map_err(failed)
@@ -282,11 +354,11 @@ impl Remote {
     async fn settled(&self, id: &str) -> Result<bool, Fault> {
         match self.service.peer().get_task(GetTaskParams::new(id)).await {
             Ok(result) if result.task.task.task_id != id => {
-                Err(invalid("MCP task identity changed"))
+                Err(self.unexpected("MCP task identity changed"))
             }
             Ok(result) => Ok(result.task.status().is_terminal()),
             Err(error) if finished(&error) => Ok(true),
-            Err(error) => Err(failed(error)),
+            Err(error) => Err(self.failed(error)),
         }
     }
 }
@@ -314,6 +386,12 @@ enum Target {
 }
 
 impl Cancel {
+    async fn notify(&self) {
+        if let Some(peer) = &self.peer {
+            notify(peer.clone(), self.target.clone()).await;
+        }
+    }
+
     fn disarm(mut self) {
         self.peer = None;
     }
@@ -327,27 +405,29 @@ impl Drop for Cancel {
             return;
         };
         let target = self.target.clone();
-        runtime.spawn(async move {
-            let _ = tokio::time::timeout(Duration::from_secs(2), async move {
-                match target {
-                    Target::Request(id) => {
-                        let notification =
-                            CancelledNotification::new(CancelledNotificationParam::new(
-                                Some(id),
-                                Some("the client stopped waiting for this tools/call".into()),
-                            ));
-                        let _ = peer.send_notification(notification.into()).await;
-                    }
-                    Target::Task(id) => {
-                        // An acknowledgement does not prove termination; turn cleanup
-                        // retains the task identity until its terminal status is read.
-                        let _ = peer.cancel_task(CancelTaskParams::new(id)).await;
-                    }
-                }
-            })
-            .await;
-        });
+        runtime.spawn(notify(peer, target));
     }
+}
+
+async fn notify(peer: Peer<RoleClient>, target: Target) {
+    let _ = tokio::time::timeout(Duration::from_secs(2), async move {
+        match target {
+            Target::Request(id) => {
+                let notification = CustomNotification::new(
+                    "notifications/cancelled",
+                    Some(json!({
+                        "requestId": id,
+                        "reason": "the client stopped waiting for this tools/call",
+                    })),
+                );
+                let _ = peer.send_notification(notification.into()).await;
+            }
+            Target::Task(id) => {
+                let _ = peer.cancel_task(CancelTaskParams::new(id)).await;
+            }
+        }
+    })
+    .await;
 }
 
 #[cfg(test)]

@@ -183,6 +183,7 @@ impl Resources {
             crate::computer::helper::executable,
             None,
             false,
+            false,
         )
         .await
     }
@@ -197,8 +198,42 @@ impl Resources {
             crate::computer::helper::executable,
             Some(server),
             true,
+            false,
         )
         .await
+    }
+
+    pub(crate) async fn warm(
+        &self,
+        environment: &crate::process::Environment,
+        package: Option<&str>,
+    ) -> Vec<Configured> {
+        let allowed = self
+            .packages
+            .iter()
+            .filter(|package| self.allows_overlay(&package.summary.name))
+            .map(|package| package.summary.name.clone())
+            .collect::<Vec<_>>();
+        self.host.overlay.retain(package, &allowed).await;
+        self.configured(
+            environment,
+            crate::computer::helper::executable,
+            None,
+            false,
+            true,
+        )
+        .await
+    }
+
+    pub(crate) fn allows_overlay(&self, name: &str) -> bool {
+        self.packages
+            .iter()
+            .any(|package| package.summary.name == name && package.summary.available())
+            && self.settings.get(name).is_none_or(|settings| {
+                settings
+                    .as_ref()
+                    .is_ok_and(|settings| crate::computer::overlay::enabled(&settings.values))
+            })
     }
 
     async fn configured(
@@ -207,6 +242,7 @@ impl Resources {
         helper: fn() -> Result<PathBuf, Fault>,
         selected: Option<&str>,
         diagnostic: bool,
+        reusable: bool,
     ) -> Vec<Configured> {
         let mut configured = Vec::new();
         for (index, package) in self.packages.iter().enumerate() {
@@ -296,6 +332,20 @@ impl Resources {
                             Err(failure.clone().unwrap_or_else(unavailable)),
                         )
                     });
+                if reusable && !options.reuse {
+                    continue;
+                }
+                if let Ok(launch) = &mut launch {
+                    let enabled = self
+                        .settings
+                        .get(&package.summary.name)
+                        .and_then(|settings| settings.as_ref().ok())
+                        .is_none_or(|settings| crate::computer::overlay::enabled(&settings.values));
+                    self.host
+                        .overlay
+                        .attach(&package.summary.name, enabled, launch, environment)
+                        .await;
+                }
                 if let Ok(Launch::Stdio {
                     command,
                     args,
@@ -562,6 +612,19 @@ fn prepare(
             }
             if computer {
                 crate::computer::helper::session(&mut env);
+                if let Some(home) = env.get("AGENT_DESKTOP_HOME")
+                    && let Err(error) =
+                        crate::computer::helper::prepare_home(&data, Path::new(home))
+                {
+                    let mut entry = crate::logging::Entry::new(
+                        crate::logging::Area::Plugin,
+                        crate::logging::Phase::Failed,
+                    );
+                    entry.stage = Some("computer_overlay");
+                    entry.reason = Some("home_permissions");
+                    entry.detail = Some(format!("{:?}", error.kind()));
+                    entry.emit_warn();
+                }
             }
             env.insert("PLUGIN_ROOT".into(), root_text.into());
             env.insert("PLUGIN_DATA".into(), data_text.into());

@@ -625,7 +625,7 @@ async fn rejects_expired_lists_after_failed_refresh() {
     let http = Http::start(Reply::ListExpiry(failed.clone())).await;
     let tool = alias("remote", "read");
     let exposed = peer::exposed("remote", "read");
-    let model = Server::scripted_tools(vec![(tool, json!({"value":"first"}))]).await;
+    let model = Server::scripted_tools(vec![(tool.clone(), json!({"value":"first"}))]).await;
     let fixture = process::Fixture::packages(&model, &[]).await;
     package(
         &fixture.root,
@@ -660,7 +660,7 @@ async fn rejects_expired_lists_after_failed_refresh() {
     assert_eq!(http.count("initialize"), 1);
     assert_eq!(http.count("tools/list"), 2);
     assert_eq!(http.count("tools/call"), 1);
-    assert_eq!(http.deletes(), 1);
+    assert_eq!(http.deletes(), 0);
     let request = model.requests.lock().unwrap().last().unwrap().clone();
     assert!(
         request["tools"]
@@ -673,6 +673,27 @@ async fn rejects_expired_lists_after_failed_refresh() {
         request["messages"]
             .to_string()
             .contains("MCP server example/remote is unavailable")
+    );
+
+    failed.store(false, Ordering::SeqCst);
+    model.replace_tools(vec![(tool, json!({"value":"recovered"}))]);
+    let (_, turn) = submit(&fixture, false).await;
+    let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+    assert_eq!(page.runs.last().unwrap().status, Status::Completed);
+    assert_eq!(
+        results(&fixture.client, &page).await.last().unwrap()["structuredContent"]["value"],
+        "recovered"
+    );
+    assert_eq!(http.count("initialize"), 1);
+    assert_eq!(http.count("tools/list"), 3);
+    assert_eq!(http.count("tools/call"), 2);
+    assert_eq!(http.deletes(), 0);
+    assert!(
+        model.requests.lock().unwrap().last().unwrap()["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|declaration| declaration["function"]["name"] == exposed)
     );
     fixture.node.shutdown().await.unwrap();
     assert_eq!(http.deletes(), 1);

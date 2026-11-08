@@ -548,7 +548,7 @@ pub enum Command {
         server: String,
         allowed: bool,
     },
-    /// Explicitly initializes and lists one server, then confirms cleanup on the Node.
+    /// Refreshes a shared MCP connection or checks a private transport on the Node.
     CheckPluginMcp {
         package: crate::plugin::Reference,
         server: String,

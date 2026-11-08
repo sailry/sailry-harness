@@ -25,6 +25,23 @@ pub enum Availability {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Runtime {
+    pub state: RuntimeState,
+    pub tools: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fault: Option<crate::Fault>,
+    pub updated_at_ms: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeState {
+    Connecting,
+    Connected,
+    Failed,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Check {
     pub package: super::Reference,
     pub server: String,
@@ -243,6 +260,38 @@ impl Definition {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn preserves_optional_runtime() {
+        let original =
+            json!({"name":"service","transport":"stdio","allowed":true,"availability":"available"});
+        let mut server: super::super::Mcp = serde_json::from_value(original.clone()).unwrap();
+        assert_eq!(server.runtime, None);
+        assert_eq!(serde_json::to_value(&server).unwrap(), original);
+        server.runtime = Some(Runtime {
+            state: RuntimeState::Connected,
+            tools: 4,
+            fault: None,
+            updated_at_ms: 42,
+        });
+        let encoded = serde_json::to_value(&server).unwrap();
+        assert_eq!(encoded["runtime"]["state"], "connected");
+        assert_eq!(encoded["runtime"]["tools"], 4);
+        assert_eq!(
+            serde_json::from_value::<super::super::Mcp>(encoded).unwrap(),
+            server
+        );
+        server.runtime.as_mut().unwrap().state = RuntimeState::Failed;
+        server.runtime.as_mut().unwrap().fault = Some(crate::Fault::new(
+            crate::ErrorCode::Unavailable,
+            "MCP server is unavailable",
+        ));
+        assert_eq!(
+            serde_json::from_slice::<super::super::Mcp>(&serde_json::to_vec(&server).unwrap())
+                .unwrap(),
+            server,
+        );
+    }
 
     #[test]
     fn preserves_wire_and_validation() {

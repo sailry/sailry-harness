@@ -48,7 +48,7 @@ async fn cancels_tasks_before_transport_closure() {
         peer.tasks
             .ignore_cancel
             .store(ignore_cancel, Ordering::SeqCst);
-        let model = Server::tools(vec![(alias("input", "read"), json!({}))]).await;
+        let model = Server::turn_tools(vec![(alias("input", "read"), json!({}))]).await;
         let fixture = process::Fixture::packages(&model, &[]).await;
         peer.package(&fixture.root.join("package"));
         install(&fixture, 0).await;
@@ -99,13 +99,63 @@ async fn cancels_tasks_before_transport_closure() {
         assert_eq!(peer.tasks.updates.load(Ordering::SeqCst), 0);
         assert_eq!(peer.calls.load(Ordering::SeqCst), 1);
         assert_eq!(model.requests.lock().unwrap().len(), 1);
+        assert!(page.runs[0].error.is_none());
+        assert_eq!(peer.initializations.load(Ordering::SeqCst), 1);
+        super::runtime::state(&fixture, Some(plugin::mcp::RuntimeState::Connected)).await;
+        let (_, resumed) = submit(&fixture, false).await;
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while model.requests.lock().unwrap().len() < 2 {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("resumed model request deadline");
         if ignore_cancel {
-            assert_eq!(
-                page.runs[0].error.as_ref().unwrap().code,
-                ErrorCode::OutcomeUnknown
+            assert!(
+                tokio::time::timeout(Duration::from_millis(150), async {
+                    while peer.calls.load(Ordering::SeqCst) == 1 {
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                    }
+                })
+                .await
+                .is_err(),
+                "an unconfirmed task must keep its serial lock"
             );
+            assert_eq!(peer.tasks.trace().len(), 1);
+        } else {
+            let (_, question) = questions::pending(&fixture.client, fixture.session.id).await;
+            assert_eq!(question.turn, resumed.id);
+            execute(
+                &fixture.client,
+                Command::ResolveQuestion {
+                    session: fixture.session.id,
+                    question: question.id,
+                    response: Response::Cancel,
+                },
+            )
+            .await;
+            let page = finished(&fixture.client, fixture.session.id, resumed.id).await;
+            assert_eq!(page.runs.last().unwrap().status, Status::Completed);
+            assert_eq!(peer.calls.load(Ordering::SeqCst), 2);
+            assert_eq!(peer.tasks.updates.load(Ordering::SeqCst), 2);
         }
-        fixture.node.shutdown().await.unwrap();
+        assert_eq!(peer.initializations.load(Ordering::SeqCst), 1);
+        let result = fixture.node.shutdown().await;
+        if ignore_cancel {
+            assert!(
+                matches!(
+                    &result,
+                    Err(sailry_node_runtime::Error::Link(Fault {
+                        code: ErrorCode::OutcomeUnknown,
+                        ..
+                    }))
+                ),
+                "{result:?}"
+            );
+            assert_eq!(peer.calls.load(Ordering::SeqCst), 1);
+        } else {
+            result.unwrap();
+        }
         fixture.controller.close().await.unwrap();
     }
 }

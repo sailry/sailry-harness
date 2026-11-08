@@ -3,10 +3,13 @@ use super::*;
 use plugin::mcp::Availability;
 
 async fn read(client: &Client, name: &str) -> plugin::Info {
-    let Output::Plugin(info) = execute(client, Command::ReadPlugin { name: name.into() }).await
+    let Output::Plugin(mut info) = execute(client, Command::ReadPlugin { name: name.into() }).await
     else {
         panic!("plugin expected")
     };
+    for server in &mut info.mcp {
+        server.runtime = None;
+    }
     info
 }
 
@@ -201,7 +204,6 @@ async fn lists_declared_tools() {
             .collect::<Vec<_>>(),
         ["read", "hold"]
     );
-    reaped(&fixture.node.profile().join("plugins/data/example"));
     fixture.node.shutdown().await.unwrap();
     fixture.controller.close().await.unwrap();
 }

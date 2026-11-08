@@ -192,7 +192,7 @@ async fn preserves_resumed_batches() {
 #[tokio::test]
 async fn closes_cancelled_input() {
     for server_cancel in [false, true] {
-        let model = Server::tools(vec![(alias("native", "read"), json!({}))]).await;
+        let model = Server::turn_tools(vec![(alias("native", "read"), json!({}))]).await;
         let fixture = fixture(
             &model,
             if server_cancel {
@@ -245,8 +245,42 @@ async fn closes_cancelled_input() {
                 .code,
             ErrorCode::Conflict
         );
-        reaped(&fixture.node.profile().join("plugins/data/example"));
+        let data = fixture.node.profile().join("plugins/data/example");
+        let child = fs::read_to_string(data.join("pid")).unwrap();
+        super::runtime::state(&fixture, Some(plugin::mcp::RuntimeState::Connected)).await;
+        if server_cancel {
+            fs::remove_file(data.join("cancel_input")).unwrap();
+        }
+        let (_, resumed) = submit(&fixture, false).await;
+        let (_, question) = questions::pending(&fixture.client, fixture.session.id).await;
+        assert_eq!(question.turn, resumed.id);
+        execute(
+            &fixture.client,
+            Command::ResolveQuestion {
+                session: fixture.session.id,
+                question: question.id,
+                response: Response::Cancel,
+            },
+        )
+        .await;
+        let page = finished(&fixture.client, fixture.session.id, resumed.id).await;
+        assert_eq!(page.runs.last().unwrap().status, Status::Completed);
+        assert_eq!(fs::read_to_string(data.join("pid")).unwrap(), child);
+        assert_eq!(fs::read_to_string(data.join("launches")).unwrap(), "x");
+        assert_eq!(super::connections::requests(&data, "initialize"), 1);
+        assert_eq!(super::connections::requests(&data, "tools/call"), 2);
+        let output = tool_details(&fixture.client, &page)
+            .await
+            .into_iter()
+            .rev()
+            .find(|(name, _)| name == &alias("native", "read"))
+            .unwrap()
+            .1
+            .result
+            .unwrap();
+        assert_eq!(output["structuredContent"]["action"], "cancel");
         fixture.node.shutdown().await.unwrap();
+        reaped(&data);
         fixture.controller.close().await.unwrap();
     }
 }

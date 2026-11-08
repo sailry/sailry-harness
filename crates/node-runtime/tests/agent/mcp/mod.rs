@@ -43,7 +43,11 @@ mod presentation;
 #[cfg(all(unix, feature = "test-support"))]
 mod python;
 #[cfg(unix)]
+mod runtime;
+#[cfg(unix)]
 mod settings;
+#[cfg(unix)]
+mod settlement;
 #[cfg(unix)]
 mod sharing;
 #[cfg(unix)]

@@ -35,6 +35,7 @@ async fn launches_the_bundled_interpreter() {
             transport: plugin::McpTransport::Stdio,
             allowed: true,
             availability: Default::default(),
+            runtime: None,
         }]
     );
     let (_, turn) = submit(&fixture, false).await;

@@ -404,6 +404,8 @@ pub struct Mcp {
     pub allowed: bool,
     #[serde(default)]
     pub availability: mcp::Availability,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime: Option<mcp::Runtime>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

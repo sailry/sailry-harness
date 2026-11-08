@@ -47,6 +47,7 @@ pub(crate) struct Host {
     profile: Option<PathBuf>,
     pub(crate) authorizations: std::sync::Arc<authorization::Clients>,
     pub(crate) connectors: std::sync::Arc<connectors::Service>,
+    pub(crate) overlay: std::sync::Arc<crate::computer::overlay::Overlay>,
     github: github::Github,
     pub(crate) registry: registry::Registry,
     official_catalog: std::sync::Arc<catalog::official::Cache>,
@@ -117,6 +118,7 @@ impl Host {
             profile,
             authorizations: Default::default(),
             connectors: Default::default(),
+            overlay: Default::default(),
             github: Default::default(),
             registry: Default::default(),
             official_catalog: Default::default(),
@@ -429,6 +431,7 @@ fn describe(
             transport: server.transport(),
             allowed: true,
             availability: Default::default(),
+            runtime: None,
             host: match server {
                 mcp::Server::Http { url, .. } | mcp::Server::Sse { url, .. } => {
                     url::Url::parse(url)

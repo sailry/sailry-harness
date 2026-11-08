@@ -1,5 +1,134 @@
 use super::{connections::requests, *};
 
+async fn another_session(fixture: &mut process::Fixture) {
+    let root = fixture.directory.path().join("sharing-project");
+    fs::create_dir(&root).unwrap();
+    let Output::Project(project) = execute(
+        &fixture.client,
+        Command::RegisterProject {
+            name: "Sharing project".into(),
+            path: root.to_str().unwrap().into(),
+        },
+    )
+    .await
+    else {
+        panic!("project expected");
+    };
+    let Output::Session(session) = execute(
+        &fixture.client,
+        Command::CreateSession {
+            project: Some(project.id),
+            worktree: None,
+            config: Some(fixture.session.config.clone()),
+        },
+    )
+    .await
+    else {
+        panic!("session expected");
+    };
+    fixture.session = session;
+}
+
+#[tokio::test]
+async fn isolates_rpc_errors_between_sessions() {
+    let model = Server::turn_tools(vec![
+        (alias("native", "read"), json!({"value":"fail"})),
+        (alias("native", "read"), json!({"value":"complete"})),
+    ])
+    .await;
+    let mut fixture = process::Fixture::packages(&model, &[]).await;
+    package(
+        &fixture.root,
+        json!({"native":peer::config("mcp::peer::stdio_peer","rpc_error")}),
+        "shared",
+    );
+    install(&fixture, 0).await;
+    let first = fixture.session.id;
+    let (_, first_turn) = submit(&fixture, false).await;
+    let data = fixture.node.profile().join("plugins/data/example");
+    present(&data.join("failing")).await;
+    another_session(&mut fixture).await;
+    let (_, second_turn) = submit(&fixture, false).await;
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while model.requests.lock().unwrap().len() < 2 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("second session bind deadline");
+    fs::write(data.join("release_error"), "ready").unwrap();
+    for (session, turn) in [(first, first_turn.id), (fixture.session.id, second_turn.id)] {
+        let page = finished(&fixture.client, session, turn).await;
+        assert_eq!(
+            page.runs.last().unwrap().status,
+            Status::Completed,
+            "{page:?}"
+        );
+        let values = results(&fixture.client, &page).await;
+        assert_eq!(
+            values.last().unwrap()["structuredContent"]["value"],
+            "complete"
+        );
+    }
+    assert_eq!(requests(&data, "initialize"), 1);
+    assert_eq!(requests(&data, "tools/call"), 4);
+    super::runtime::state(&fixture, Some(plugin::mcp::RuntimeState::Connected)).await;
+    fixture.node.shutdown().await.unwrap();
+    fixture.controller.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn isolates_stop_during_shared_elicitation() {
+    use question::Response;
+    use std::sync::atomic::Ordering;
+
+    let peer = input::Server::url("https://example.invalid/continue", false).await;
+    let model = Server::turn_tools(vec![(alias("input", "read"), json!({}))]).await;
+    let mut fixture = process::Fixture::packages(&model, &[]).await;
+    peer.package(&fixture.root.join("package"));
+    install(&fixture, 0).await;
+    let first = fixture.session.id;
+    let (_, first_turn) = submit(&fixture, false).await;
+    let (_, first_question) = questions::pending(&fixture.client, first).await;
+    another_session(&mut fixture).await;
+    let (_, second_turn) = submit(&fixture, false).await;
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while model.requests.lock().unwrap().len() < 2 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("second session bind deadline");
+    execute(
+        &fixture.client,
+        Command::StopTurn {
+            turn: first_turn.id,
+        },
+    )
+    .await;
+    let (_, second_question) = questions::pending(&fixture.client, fixture.session.id).await;
+    assert_eq!(second_question.turn, second_turn.id);
+    assert_ne!(second_question.id, first_question.id);
+    execute(
+        &fixture.client,
+        Command::ResolveQuestion {
+            session: fixture.session.id,
+            question: second_question.id,
+            response: Response::Decline,
+        },
+    )
+    .await;
+    let cancelled = finished(&fixture.client, first, first_turn.id).await;
+    let completed = finished(&fixture.client, fixture.session.id, second_turn.id).await;
+    assert_eq!(cancelled.runs[0].status, Status::Cancelled);
+    assert_eq!(completed.runs[0].status, Status::Completed, "{completed:?}");
+    assert_eq!(peer.initializations.load(Ordering::SeqCst), 1);
+    assert_eq!(peer.calls.load(Ordering::SeqCst), 2);
+    super::runtime::state(&fixture, Some(plugin::mcp::RuntimeState::Connected)).await;
+    fixture.node.shutdown().await.unwrap();
+    fixture.controller.close().await.unwrap();
+}
+
 pub(super) async fn warmed(data: &Path, connections: usize) {
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {

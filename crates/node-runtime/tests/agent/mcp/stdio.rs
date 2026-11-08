@@ -352,7 +352,28 @@ async fn closes_children() {
                 execute(&fixture.client, Command::StopTurn { turn: turn.id }).await;
                 let page = finished(&fixture.client, fixture.session.id, turn.id).await;
                 assert_eq!(page.runs[0].status, Status::Cancelled, "{:?}", page.runs);
-                reaped(&data);
+                if mode == "normal" {
+                    super::runtime::state(&fixture, Some(plugin::mcp::RuntimeState::Connected))
+                        .await;
+                    let child = fs::read_to_string(data.join("pid"))
+                        .unwrap()
+                        .parse()
+                        .unwrap();
+                    assert_eq!(unsafe { libc::kill(child, 0) }, 0);
+                    assert_eq!(fs::read_to_string(data.join("launches")).unwrap(), "x");
+                    assert_eq!(super::connections::requests(&data, "initialize"), 1);
+                    assert_eq!(super::connections::requests(&data, "tools/call"), 1);
+                    tokio::time::timeout(Duration::from_secs(10), async {
+                        while super::connections::requests(&data, "notifications/cancelled") == 0 {
+                            tokio::time::sleep(Duration::from_millis(10)).await;
+                        }
+                    })
+                    .await
+                    .expect("call cancellation deadline");
+                    assert!(!data.join("closures").exists());
+                } else {
+                    reaped(&data);
+                }
                 fixture.node.shutdown().await.unwrap();
             }
             reaped(&data);

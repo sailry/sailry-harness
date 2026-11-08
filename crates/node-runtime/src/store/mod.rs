@@ -1446,6 +1446,7 @@ mapped }).await
             let _ = store.shutdown().await;
             return Err(Error::from(error));
         }
+        store.ingress.plugins.overlay.bind(&store.ingress);
         mcp::start(&store.ingress);
         Ok(store)
     }
@@ -1487,6 +1488,7 @@ mapped }).await
 
     pub(crate) async fn shutdown(mut self) -> Result<(), Error> {
         self.stop_admission();
+        self.ingress.plugins.overlay.shutdown().await;
         if let Some(knowledge) = self.ingress.knowledge.get() {
             knowledge.shutdown().await;
         }

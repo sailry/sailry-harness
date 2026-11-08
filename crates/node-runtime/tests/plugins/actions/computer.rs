@@ -5,6 +5,10 @@ use sailry_protocol::{
     plugin::{self, Context},
 };
 
+#[cfg(unix)]
+#[path = "computer/overlay.rs"]
+mod overlay;
+
 #[tokio::test]
 async fn reads_permissions_without_prompting() {
     #[cfg(target_os = "macos")]

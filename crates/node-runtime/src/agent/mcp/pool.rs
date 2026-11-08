@@ -11,6 +11,7 @@ use tokio::sync::{Notify, OnceCell};
 const MAX_CONNECTIONS: usize = 32;
 const IDLE_TTL: Duration = Duration::from_secs(30 * 60);
 type Services = BTreeMap<(String, String), Weak<tokio::sync::Mutex<()>>>;
+pub(super) type Cleanup = Arc<Mutex<Vec<tokio::task::JoinHandle<()>>>>;
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct Key {
@@ -28,6 +29,20 @@ impl Key {
         launch: &Launch,
         connector: Option<&crate::plugins::connectors::mcp::Authorization>,
     ) -> Result<Self, Fault> {
+        let authorization = connector.map(|connector| {
+            let injected: Vec<_> = connector
+                .targets
+                .iter()
+                .filter_map(|(_, injection)| {
+                    let name = injection.env.as_deref()?;
+                    match launch {
+                        Launch::Stdio { env, .. } => Some((name, env.get(name))),
+                        _ => None,
+                    }
+                })
+                .collect();
+            json!([connector.key(), injected])
+        });
         let launch = match launch {
             Launch::Stdio {
                 command,
@@ -56,7 +71,7 @@ impl Key {
             digest: config.reference.digest.clone(),
             settings: config.reference.settings_revision,
             server: config.name.clone(),
-            authorization: fingerprint(&json!(connector.map(|value| value.key())))?,
+            authorization: fingerprint(&json!(authorization))?,
             launch: fingerprint(&launch)?,
         })
     }
@@ -105,7 +120,7 @@ impl Entry {
             Ok(connection) => {
                 connection.retired.store(true, Ordering::Relaxed);
                 if connection.closed.load(Ordering::Relaxed)
-                    || (!force && connection.healthy() && Arc::strong_count(&connection) > 2)
+                    || (!force && Arc::strong_count(&connection) > 2)
                 {
                     Ok(())
                 } else {
@@ -123,6 +138,8 @@ pub(crate) struct Pool {
     current: Mutex<BTreeMap<String, sailry_protocol::plugin::Summary>>,
     initialized: AtomicBool,
     services: Mutex<Services>,
+    cleanup: Cleanup,
+    status: status::Status,
     stopped: CancellationToken,
 }
 
@@ -140,7 +157,67 @@ impl Pool {
                 || previous.available() != summary.available()
         });
         current.insert(summary.name.clone(), summary.clone());
+        if changed {
+            self.status.remove(Some(&summary.name));
+        }
         changed
+    }
+
+    pub(crate) fn project(&self, info: &mut sailry_protocol::plugin::Info) {
+        self.status.project(info);
+    }
+
+    pub(crate) async fn changes(&self) -> Vec<String> {
+        self.status.changes().await
+    }
+
+    pub(super) fn begin(&self, reference: &Reference, server: &str) -> Option<status::Attempt> {
+        self.reusable(reference)
+            .then(|| self.status.begin(reference, server))
+    }
+
+    pub(super) fn started(&self, reference: &Reference, server: &str) {
+        self.status.started(reference, server);
+    }
+
+    pub(super) fn finish(&self, attempt: Option<status::Attempt>, result: Result<usize, Fault>) {
+        if let Some(attempt) = attempt {
+            self.status.finish(attempt, result);
+        }
+    }
+
+    pub(super) fn failed(&self, connection: &Arc<Connected>) {
+        if connection.healthy() {
+            return;
+        }
+        let retired = self
+            .entries
+            .lock()
+            .unwrap()
+            .extract_if(.., |_, entry| {
+                entry.connection.get().is_some_and(|result| {
+                    result
+                        .as_ref()
+                        .is_ok_and(|current| Arc::ptr_eq(current, connection))
+                })
+            })
+            .map(|(key, entry)| {
+                self.status.failed(&connection.reference, &key.server);
+                entry
+            })
+            .collect();
+        self.retire(retired);
+    }
+
+    pub(super) fn reconnect(&self, package: &str, server: &str) {
+        let retired = self
+            .entries
+            .lock()
+            .unwrap()
+            .extract_if(.., |key, _| key.package == package && key.server == server)
+            .map(|(_, entry)| entry)
+            .collect();
+        self.retire(retired);
     }
 
     pub(super) fn reusable(&self, reference: &Reference) -> bool {
@@ -183,7 +260,7 @@ impl Pool {
         let selected = (|| {
             let mut entries = self.entries.lock().unwrap();
             if self.stopped.is_cancelled() || stop.is_cancelled() {
-                return Err(unavailable());
+                return Err(cancelled());
             }
             retired.extend(
                 entries
@@ -227,6 +304,7 @@ impl Pool {
             let opening = entry.clone();
             let reference = config.reference.clone();
             let environment = ingress.environment.clone();
+            let cleanup = self.cleanup.clone();
             tokio::spawn(async move {
                 let result = Connected::open(
                     reference,
@@ -237,17 +315,23 @@ impl Pool {
                     &environment,
                 )
                 .await
-                .map(Arc::new);
+                .map(|mut connection| {
+                    connection.cleanup = Some(cleanup);
+                    Arc::new(connection)
+                });
                 let _ = opening.connection.set(result);
                 opening.ready.notify_waiters();
             });
             Ok((entry, false))
         })();
-        close(retired, false).await?;
+        self.retire(retired);
         let (entry, reused) = selected?;
+        if !reused {
+            self.started(&config.reference, &config.name);
+        }
         let connection = tokio::select! {
-            _ = stop.cancelled() => return Err(unavailable()),
-            _ = self.stopped.cancelled() => return Err(unavailable()),
+            _ = stop.cancelled() => return Err(cancelled()),
+            _ = self.stopped.cancelled() => return Err(cancelled()),
             result = entry.get() => result?,
         };
         if entry.stop.is_cancelled() || !connection.healthy() {
@@ -258,6 +342,7 @@ impl Pool {
     }
 
     pub(crate) async fn invalidate(&self, package: Option<&str>) -> Result<(), Fault> {
+        self.status.remove(package);
         if let Some(package) = package
             && let Some(summary) = self.current.lock().unwrap().get_mut(package)
         {
@@ -272,7 +357,12 @@ impl Pool {
                 .map(|(_, entry)| entry)
                 .collect()
         };
-        close(retired, self.stopped.is_cancelled()).await
+        if self.stopped.is_cancelled() {
+            close(retired, true).await
+        } else {
+            self.retire(retired);
+            Ok(())
+        }
     }
 
     pub(crate) async fn refresh(
@@ -337,6 +427,12 @@ impl Pool {
                         .get(&key)
                         .is_some_and(|current| Arc::ptr_eq(current, &entry))
                     {
+                        if valid
+                            && let Some(Ok(connection)) = entry.connection.get()
+                            && !connection.healthy()
+                        {
+                            self.status.failed(&connection.reference, &key.server);
+                        }
                         return entries.remove(&key);
                     }
                 }
@@ -344,7 +440,8 @@ impl Pool {
             },
         ))
         .await;
-        close(retired.into_iter().flatten().collect(), false).await
+        self.retire(retired.into_iter().flatten().collect());
+        Ok(())
     }
 
     pub(crate) async fn expire(&self) -> Result<(), Fault> {
@@ -357,12 +454,46 @@ impl Pool {
                 .map(|(_, entry)| entry)
                 .collect()
         };
-        close(retired, false).await
+        self.retire(retired);
+        Ok(())
     }
 
     pub(crate) async fn close(&self) -> Result<(), Fault> {
         self.stopped.cancel();
-        self.invalidate(None).await
+        let result = self.invalidate(None).await;
+        loop {
+            let cleanup = std::mem::take(&mut *self.cleanup.lock().unwrap());
+            if cleanup.is_empty() {
+                break;
+            }
+            for task in cleanup {
+                let _ = task.await;
+            }
+        }
+        result
+    }
+
+    fn retire(&self, entries: Vec<Arc<Entry>>) {
+        let mut cleanup = self.cleanup.lock().unwrap();
+        cleanup.retain(|task| !task.is_finished());
+        for entry in entries {
+            entry.stop.cancel();
+            if let Some(Ok(connection)) = entry.connection.get() {
+                connection.retired.store(true, Ordering::Relaxed);
+            }
+            cleanup.push(tokio::spawn(async move {
+                if let Err(error) = entry.close(false).await {
+                    let mut log = crate::logging::Entry::new(
+                        crate::logging::Area::Run,
+                        crate::logging::Phase::Failed,
+                    );
+                    log.stage = Some("mcp_server");
+                    log.reason = Some("connection_cleanup");
+                    log.code = Some(error.code);
+                    log.emit_warn();
+                }
+            }));
+        }
     }
 }
 

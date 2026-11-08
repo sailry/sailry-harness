@@ -216,11 +216,15 @@ async fn handles_answers_and_stopped_input() {
         Server::tools(vec![(alias("native", "read"), json!({}))]).await,
         Server::tools(vec![(alias("native", "read"), json!({}))]).await,
         Server::tools(vec![(alias("native", "read"), json!({}))]).await,
+        Server::tools(vec![(alias("native", "read"), json!({}))]).await,
     ];
     let mut fixture = fixture(&models[0]).await;
     let data = fixture.node.profile().join("plugins/data/example");
     let mut children = Vec::new();
-    for (index, case_name) in ["accept", "cancel", "stop"].into_iter().enumerate() {
+    for (index, case_name) in ["accept", "cancel", "stop", "resumed"]
+        .into_iter()
+        .enumerate()
+    {
         let model = &models[index];
         if index > 0 {
             select_case(&mut fixture, model, &format!("modern-{case_name}")).await;
@@ -271,7 +275,7 @@ async fn handles_answers_and_stopped_input() {
                 "x",
                 "{case_name}"
             );
-            reaped(&data);
+            super::runtime::state(&fixture, Some(plugin::mcp::RuntimeState::Connected)).await;
         } else {
             let cancel = case_name == "cancel";
             let (_, turn) = submit(&fixture, false).await;
@@ -351,8 +355,12 @@ async fn handles_answers_and_stopped_input() {
                 .unwrap(),
         );
     }
+    assert!(children.windows(2).all(|pair| pair[0] == pair[1]));
     fixture.node.shutdown().await.unwrap();
-    for (case_name, pid) in ["accept", "cancel", "stop"].into_iter().zip(children) {
+    for (case_name, pid) in ["accept", "cancel", "stop", "resumed"]
+        .into_iter()
+        .zip(children)
+    {
         // SAFETY: signal 0 only probes a PID captured from this fixture.
         assert_ne!(
             unsafe { libc::kill(pid, 0) },

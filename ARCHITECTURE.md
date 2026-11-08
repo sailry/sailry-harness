@@ -975,6 +975,13 @@ subset of its tools. agent-desktop reads each app's accessibility tree; refs
 belong to one snapshot. Its tools declare no read-only annotations, so every call
 uses ordinary approval and the exclusive lock.
 
+The Node owns one cursor-overlay session per helper home. The computer package's
+`cursor_overlay` setting defaults to enabled; the helper draws its cursor without
+moving the physical pointer or recording traces. Launches reuse that session and
+its snapshot namespace. Disabling the setting or package, uninstalling the package,
+and Node shutdown end the session. Overlay startup failures leave ordinary
+headless computer tools available.
+
 macOS places `agent-desktop` and its colocated platform helper in a separately
 signed `Sailry Computer Use.app` (`dev.sailry.computer`) inside Desktop's
 `Contents/Helpers` or Host's `helpers` directory, and requires macOS 13. macOS
@@ -1008,13 +1015,22 @@ connection's SDK response cache; `tools/list_changed` invalidates that cache,
 and each turn freezes the set it binds. Package, settings and credential changes
 retire affected connections; idle eviction and Node shutdown release them.
 Stopping a turn releases its lease while healthy shared connections remain
-available. Server callbacks retain the active call's captured turn and authority.
+available. Cancelled calls retain their callback context and execution locks until
+the remote operation settles or its connection closes. Server callbacks retain
+the active call's captured turn and authority.
 Connection closure confirms pending-task cancellation before closing the wire.
 Stdio closure sends EOF and waits up to five seconds
 for a successful child exit, then kills and reaps when needed. Failed or uncertain
 cleanup returns `OutcomeUnknown`; input is never replayed automatically.
 agent-desktop runs each tool call as its own process and keeps snapshot refs in
-the package's private data directory, so EOF needs no helper-specific cleanup.
+the package's private data directory. Its overlay session has the separate
+Node-owned lifetime described above.
+
+MCP connection outcomes update the existing plugin metadata projection with each
+server's last runtime state, tool count and public fault. The existing plugin change
+cursor delivers these changes without health polling or prompt changes. Explicit
+reconnect uses the MCP check command; per-call failures and idle eviction preserve
+the last settled connection status.
 
 The existing permission SDK reads the same captured helper, environment and
 responsibility as MCP using bounded `agent-desktop permissions` diagnostics.
