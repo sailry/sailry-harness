@@ -126,8 +126,9 @@ pub(in crate::settings) fn information(enabled: bool, server: &Mcp, cx: &App) ->
         return view.into_any_element();
     }
     if let Some(runtime) = &server.runtime {
-        if runtime.state != RuntimeState::Connected
-            || server.availability != Availability::Available
+        if runtime.tools > 0
+            && (runtime.state != RuntimeState::Connected
+                || server.availability != Availability::Available)
         {
             view = view.child(
                 div()

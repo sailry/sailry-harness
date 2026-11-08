@@ -424,7 +424,7 @@ impl Target<'_> {
             stop,
         } = self;
         let started = std::time::Instant::now();
-        let attempt = ingress.agents.mcp.begin(&config.reference, &config.name);
+        let mut attempt = ingress.agents.mcp.begin(&config.reference, &config.name);
         let mut reused = false;
         let result = async {
             if index >= crate::plugins::mcp::MAX_SERVERS { return Err(unavailable()); }
@@ -443,7 +443,7 @@ impl Target<'_> {
                 if let Some(connector) = &mut transport_connector {
                     connector.stop = ingress.agents.stopped.clone();
                 }
-                let (connection, pooled) = ingress.agents.mcp.lease(config, launch, transport_connector, ingress, stop, invocation.is_some()).await?;
+                let (connection, pooled) = ingress.agents.mcp.lease(config, launch, transport_connector, ingress, pool::Lease { stop, retry_failed: invocation.is_some(), attempt: &mut attempt }).await?;
                 reused = pooled;
                 connection
             } else {
@@ -470,8 +470,8 @@ impl Target<'_> {
                 result = tokio::time::timeout(Duration::from_secs(10), listing) => result.unwrap_or_else(|_| Err(unavailable())),
             };
             match listed {
-                Ok(descriptors) => Ok((connection, descriptors, caller)),
-                Err(_) => {
+                Ok(descriptors) if connection.healthy() => Ok((connection, descriptors, caller)),
+                _ => {
                     if !connection.reuse {
                         connection.close().await?;
                     }
@@ -793,6 +793,7 @@ impl Bound {
                     service,
                     serial,
                     shutdown: self.ingress.agents.stopped.clone(),
+                    ingress: self.ingress.clone(),
                 }
                 .run(self.descriptor.name.to_string(), args.clone())
                 .await

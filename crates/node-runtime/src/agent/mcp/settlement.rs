@@ -7,6 +7,7 @@ pub(super) struct Owner {
     pub service: Option<OwnedMutexGuard<()>>,
     pub serial: OwnedMutexGuard<()>,
     pub shutdown: CancellationToken,
+    pub ingress: Arc<Ingress>,
 }
 
 impl Owner {
@@ -26,6 +27,7 @@ impl Owner {
                 service,
                 serial,
                 shutdown,
+                ingress,
             } = self;
             let _service = service;
             let _serial = serial;
@@ -45,10 +47,17 @@ impl Owner {
                     _ = shutdown.cancelled() => {
                         let _ = connection.close().await;
                     }
-                    _ = &mut operation => {}
+                    result = tokio::time::timeout(Duration::from_secs(10), &mut operation) => {
+                        if result.is_err() {
+                            connection.poisoned.store(true, Ordering::Relaxed);
+                            ingress.agents.mcp.failed(&connection);
+                            return;
+                        }
+                    }
                 }
             }
             if !connection.closed.load(Ordering::Relaxed) && !connection.healthy() {
+                ingress.agents.mcp.failed(&connection);
                 let _ = connection.close().await;
             }
             drop(active);

@@ -42,6 +42,7 @@ fn stdio_peer() {
     append(&data.join("launches"), "x");
     let mut first = None;
     let mut cancelled = false;
+    let mut blocked = false;
     for line in std::io::stdin().lock().lines() {
         let Ok(line) = line else { break };
         let Ok(request) = serde_json::from_str::<Value>(&line) else {
@@ -60,6 +61,9 @@ fn stdio_peer() {
         if method == "notifications/cancelled" {
             assert_eq!(request["params"]["requestId"], first.clone().unwrap());
             fs::write(data.join("cancelled"), "ready").unwrap();
+            if mode.ends_with("_ignored") {
+                continue;
+            }
             late();
             let data = data.to_owned();
             let id = first.take().unwrap();
@@ -85,7 +89,7 @@ fn stdio_peer() {
             }
             "initialize" => {
                 let mut capabilities = json!({"tools":{}});
-                if mode == "task" {
+                if mode.starts_with("task") {
                     capabilities["extensions"] = json!({"io.modelcontextprotocol/tasks":{}});
                 }
                 respond(
@@ -100,14 +104,18 @@ fn stdio_peer() {
                 append(&data.join("calls"), &format!("{value}\n"));
                 fs::write(data.join(format!("entered.{value}")), "ready").unwrap();
                 if value == "first" {
+                    blocked = true;
                     first = Some(id.clone());
-                    if mode == "task" {
+                    if mode.starts_with("task") {
                         let mut created = task("working");
                         created["resultType"] = json!("task");
                         respond(id, created);
                     }
                 } else {
-                    assert!(data.join("release").exists(), "prior call has not settled");
+                    assert!(
+                        !blocked || data.join("release").exists(),
+                        "prior call has not settled"
+                    );
                     respond(
                         id,
                         json!({"content":[{"type":"text","text":"Second finished"}]}),
@@ -137,6 +145,71 @@ fn stdio_peer() {
     }
     fs::write(data.join("closed"), "ready").unwrap();
     std::process::exit(0);
+}
+
+#[tokio::test]
+async fn retires_cancellation_ignoring_shared_connection() {
+    for mode in ["request_ignored", "task_ignored"] {
+        let model =
+            Server::scripted_tools(vec![(alias("native", "write"), json!({"value":"first"}))])
+                .await;
+        let mut fixture = process::Fixture::packages(&model, &[]).await;
+        let mut server = peer::config("mcp::settlement::stdio_peer", mode);
+        server["exclusive"] = json!(true);
+        server["reuse"] = json!(true);
+        package(&fixture.root, json!({"native":server}), "0.1.0");
+        install(&fixture, 0).await;
+        let first_session = fixture.session.id;
+        let (_, first) = submit(&fixture, false).await;
+        let (_, approval) = approvals::pending(&fixture.client, first_session).await;
+        process::decide(&fixture.client, &approval, Decision::Approve).await;
+        let data = fixture.node.profile().join("plugins/data/example");
+        present(&data.join("entered.first")).await;
+        execute(&fixture.client, Command::StopTurn { turn: first.id }).await;
+        present(&data.join("cancelled")).await;
+        tokio::time::timeout(Duration::from_secs(20), async {
+            loop {
+                let Output::Plugin(info) = execute(
+                    &fixture.client,
+                    Command::ReadPlugin {
+                        name: "example".into(),
+                    },
+                )
+                .await
+                else {
+                    panic!("plugin expected");
+                };
+                if info.mcp[0]
+                    .runtime
+                    .as_ref()
+                    .is_some_and(|runtime| runtime.state == plugin::mcp::RuntimeState::Failed)
+                {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("cancelled MCP settlement deadline");
+        next_session(&mut fixture).await;
+        model.replace_tools(vec![(alias("native", "write"), json!({"value":"second"}))]);
+        let (_, second) = submit(&fixture, false).await;
+        let (_, approval) = approvals::pending(&fixture.client, fixture.session.id).await;
+        process::decide(&fixture.client, &approval, Decision::Approve).await;
+        let completed = finished(&fixture.client, fixture.session.id, second.id).await;
+        assert_eq!(completed.runs.last().unwrap().status, Status::Completed);
+        let cancelled = finished(&fixture.client, first_session, first.id).await;
+        assert_eq!(cancelled.runs.last().unwrap().status, Status::Cancelled);
+        assert_eq!(
+            fs::read_to_string(data.join("calls")).unwrap(),
+            "first\nsecond\n"
+        );
+        assert_eq!(fs::read(data.join("launches")).unwrap(), b"xx");
+        assert!(!data.join("release").exists());
+        super::runtime::state(&fixture, Some(plugin::mcp::RuntimeState::Connected)).await;
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
+    }
 }
 
 async fn next_session(fixture: &mut process::Fixture) {

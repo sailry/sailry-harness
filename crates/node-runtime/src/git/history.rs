@@ -66,7 +66,7 @@ pub(super) fn log(
     let mut walk = repository.revwalk().map_err(fault)?;
     walk.set_sorting(Sort::TIME).map_err(fault)?;
     walk.push(head).map_err(fault)?;
-    let mut offset = 0;
+    let offset = cursor.map_or(0, |cursor| cursor.offset);
     let mut resumed = after.is_none();
     let mut truncated = false;
     let mut entries = Vec::with_capacity(page_limit);
@@ -75,16 +75,15 @@ pub(super) fn log(
         let oid = oid.map_err(fault)?;
         #[cfg(test)]
         tests::VISITED.with(|visited| visited.set(visited.get() + 1));
+        if !resumed {
+            resumed = Some(oid) == after;
+            continue;
+        }
         if !path
             .map(|path| touches(&repository, oid, path))
             .transpose()?
             .unwrap_or(true)
         {
-            continue;
-        }
-        if !resumed {
-            offset += 1;
-            resumed = Some(oid) == after;
             continue;
         }
         if entries.len() == page_limit {
@@ -107,6 +106,7 @@ pub(super) fn log(
         offset,
         next: truncated.then(|| GitLogCursor {
             head: head.to_string(),
+            offset: offset.saturating_add(entries.len()),
             path: path.map(str::to_owned),
             after: entries
                 .last()
@@ -124,6 +124,8 @@ pub(super) fn log(
 mod tests;
 
 fn touches(repository: &Repository, oid: Oid, path: &str) -> Result<bool, Fault> {
+    #[cfg(test)]
+    tests::COMPARED.with(|compared| compared.set(compared.get() + 1));
     let commit = repository.find_commit(oid).map_err(fault)?;
     let entry = |tree: git2::Tree<'_>| match tree.get_path(Path::new(path)) {
         Ok(entry) => Ok(Some((entry.id(), entry.filemode()))),

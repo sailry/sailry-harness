@@ -144,7 +144,7 @@ pub(super) fn parameters(operation: Operation) -> Value {
             vec!["worktree", "path", "scope"],
         ),
         Operation::ReadGitLog => (
-            json!({"worktree":target,"limit":{"type":"integer","minimum":1,"maximum":9_007_199_254_740_991u64},"cursor":{"type":["object","null"],"properties":{"head":string,"after":string},"required":["head","after"],"additionalProperties":false},"revision":{"type":["string","null"]},"path":{"type":["string","null"]}}),
+            json!({"worktree":target,"limit":{"type":"integer","minimum":1,"maximum":9_007_199_254_740_991u64},"cursor":{"type":["object","null"],"properties":{"head":string,"after":string,"offset":{"type":"integer","minimum":0},"path":target},"required":["head","after","offset"],"additionalProperties":false},"revision":target,"path":target}),
             vec!["worktree", "limit", "cursor", "revision", "path"],
         ),
         Operation::ReadGitShow => (

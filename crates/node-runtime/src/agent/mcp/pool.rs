@@ -13,6 +13,12 @@ const IDLE_TTL: Duration = Duration::from_secs(30 * 60);
 type Services = BTreeMap<(String, String), Weak<tokio::sync::Mutex<()>>>;
 pub(super) type Cleanup = Arc<Mutex<Vec<tokio::task::JoinHandle<()>>>>;
 
+pub(super) struct Lease<'a> {
+    pub stop: &'a CancellationToken,
+    pub retry_failed: bool,
+    pub attempt: &'a mut Option<status::Attempt>,
+}
+
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct Key {
     package: String,
@@ -252,9 +258,13 @@ impl Pool {
         launch: Launch,
         connector: Option<crate::plugins::connectors::mcp::Authorization>,
         ingress: &Arc<Ingress>,
-        stop: &CancellationToken,
-        retry_failed: bool,
+        lease: Lease<'_>,
     ) -> Result<(Arc<Connected>, bool), Fault> {
+        let Lease {
+            stop,
+            retry_failed,
+            attempt,
+        } = lease;
         let key = Key::new(config, &launch, connector.as_ref())?;
         let mut retired = Vec::new();
         let selected = (|| {
@@ -280,6 +290,7 @@ impl Pool {
                     .map(|(_, entry)| entry),
             );
             if let Some(entry) = entries.get(&key) {
+                *attempt = self.begin(&config.reference, &config.name);
                 return Ok((entry.clone(), true));
             }
             if entries.len() >= MAX_CONNECTIONS {
@@ -301,6 +312,8 @@ impl Pool {
                 created: Instant::now(),
             });
             entries.insert(key, entry.clone());
+            *attempt = self.begin(&config.reference, &config.name);
+            self.started(&config.reference, &config.name);
             let opening = entry.clone();
             let reference = config.reference.clone();
             let environment = ingress.environment.clone();
@@ -326,9 +339,6 @@ impl Pool {
         })();
         self.retire(retired);
         let (entry, reused) = selected?;
-        if !reused {
-            self.started(&config.reference, &config.name);
-        }
         let connection = tokio::select! {
             _ = stop.cancelled() => return Err(cancelled()),
             _ = self.stopped.cancelled() => return Err(cancelled()),

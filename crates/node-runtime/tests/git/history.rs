@@ -480,11 +480,13 @@ async fn retains_pagination_root() {
             GitLogCursor {
                 head: "HEAD".into(),
                 after: expected[6].clone(),
+                offset: 7,
                 path: None,
             },
             GitLogCursor {
                 head: merged.to_string(),
                 after: "0".repeat(40),
+                offset: 7,
                 path: None,
             },
         ] {

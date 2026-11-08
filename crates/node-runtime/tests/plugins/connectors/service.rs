@@ -13,6 +13,8 @@ use std::collections::BTreeMap;
 mod cli;
 #[path = "service/health.rs"]
 mod health;
+#[path = "service/login.rs"]
+mod login;
 
 const ORIGIN: &str = "https://service.example.com";
 const TOKEN: &str = "connector-private-service-token";

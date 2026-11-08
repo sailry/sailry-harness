@@ -23,7 +23,7 @@ use std::{
 };
 use zeroize::Zeroizing;
 
-const DEADLINE: Duration = Duration::from_secs(900);
+pub(crate) const DEADLINE: Duration = Duration::from_secs(900);
 const BODY_LIMIT: usize = 64 * 1024;
 pub(crate) const CHATGPT_ENDPOINT: &str = "https://api.openai.com/v1";
 pub(crate) const CODEX_ENDPOINT: &str = "https://chatgpt.com/backend-api/codex";

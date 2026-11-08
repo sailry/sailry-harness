@@ -12,6 +12,9 @@ pub(super) fn prepare(request: &mut Request, api: ModelApi, configured: ModelApi
     match api {
         ModelApi::Responses | ModelApi::ChatCompletions | ModelApi::DeepSeek => {
             openai(request, api, configured);
+            if !matches!(configured, ModelApi::OpenCodeGo | ModelApi::OpenCodeZen) {
+                request.params.remove("budget_tokens");
+            }
         }
         ModelApi::Anthropic => {
             anthropic(request);
@@ -35,9 +38,10 @@ pub(super) fn prepare(request: &mut Request, api: ModelApi, configured: ModelApi
 }
 
 pub(super) fn openai_reasoning(request: &Request) -> bool {
-    if super::super::context::family(&request.model).is_some_and(|family| family != "openai") {
-        return false;
-    }
+    super::super::context::family(&request.model) == Some("openai") && reasoning(request)
+}
+
+fn reasoning(request: &Request) -> bool {
     request.reasoning.unwrap_or_else(|| {
         Catalog::builtin()
             .resolve(&format!(
@@ -50,8 +54,8 @@ pub(super) fn openai_reasoning(request: &Request) -> bool {
 }
 
 fn openai(request: &mut Request, api: ModelApi, configured: ModelApi) {
-    let reasoning = openai_reasoning(request);
-    if reasoning {
+    let openai = openai_reasoning(request);
+    if openai {
         request.temperature = None;
     }
     if request.reasoning != Some(false)
@@ -63,7 +67,7 @@ fn openai(request: &mut Request, api: ModelApi, configured: ModelApi) {
             .or_insert_with(|| effort.into());
     }
     if api == ModelApi::Responses {
-        if reasoning {
+        if reasoning(request) {
             request
                 .params
                 .entry("include")
@@ -80,7 +84,7 @@ fn openai(request: &mut Request, api: ModelApi, configured: ModelApi) {
             }
         }
     } else if let Some(tokens) = request.max_tokens.take() {
-        let field = if reasoning && api != ModelApi::DeepSeek && configured != ModelApi::AzureAi {
+        let field = if openai && api != ModelApi::DeepSeek && configured != ModelApi::AzureAi {
             "max_completion_tokens"
         } else {
             "max_tokens"

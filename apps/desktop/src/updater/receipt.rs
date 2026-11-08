@@ -2,7 +2,7 @@ use super::{Failure, Result};
 use serde::Deserialize;
 use std::{
     fs,
-    io::Write as _,
+    io::{Read as _, Write as _},
     path::{Path, PathBuf},
 };
 
@@ -19,11 +19,24 @@ struct Receipt {
 
 pub(super) fn read(directory: &Path, installed: Option<&Path>) -> Result<Option<&'static str>> {
     let path = directory.join("receipt.json");
-    let bytes = match fs::read(&path) {
-        Ok(bytes) => bytes,
+    let file = match fs::File::open(&path) {
+        Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(Failure::io(error)),
     };
+    let receipts = directory.join("receipts");
+    fs::create_dir_all(&receipts).map_err(Failure::io)?;
+    let archived = tempfile::Builder::new()
+        .prefix("receipt-")
+        .suffix(".json")
+        .tempfile_in(&receipts)
+        .map_err(Failure::io)?;
+    fs::rename(&path, archived.path()).map_err(Failure::io)?;
+    archived.keep().map_err(|error| Failure::io(error.error))?;
+    let mut bytes = Vec::new();
+    file.take(64 * 1024 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(Failure::io)?;
     if bytes.len() > 64 * 1024 {
         return Err(Failure::new(
             "updates_receipt_unread",
@@ -45,15 +58,6 @@ pub(super) fn read(directory: &Path, installed: Option<&Path>) -> Result<Option<
             "the update receipt has an unsupported definition",
         ));
     }
-    let receipts = directory.join("receipts");
-    fs::create_dir_all(&receipts).map_err(Failure::io)?;
-    let archived = tempfile::Builder::new()
-        .prefix("receipt-")
-        .suffix(".json")
-        .tempfile_in(&receipts)
-        .map_err(Failure::io)?;
-    fs::rename(&path, archived.path()).map_err(Failure::io)?;
-    archived.keep().map_err(|error| Failure::io(error.error))?;
     if receipt.result == "failure" {
         Err(Failure::new(
             if receipt.installed == Some(true) {
@@ -97,13 +101,15 @@ fn cleanup(backup: &Path, installed: Option<&Path>) {
             || !backup
                 .file_name()
                 .is_some_and(|name| name.to_string_lossy().starts_with(".sailry-update-backup-"))
-            || !fs::symlink_metadata(backup)?.is_dir()
-            || !fs::symlink_metadata(backup.join("Sailry.app"))?.is_dir()
+            || !fs::symlink_metadata(backup).is_ok_and(|metadata| metadata.is_dir())
+            || !fs::symlink_metadata(backup.join("Sailry.app"))
+                .is_ok_and(|metadata| metadata.is_dir())
         {
             return Ok(false);
         }
-        let backup = backup.canonicalize()?;
-        let installed = installed.canonicalize()?;
+        let (Ok(backup), Ok(installed)) = (backup.canonicalize(), installed.canonicalize()) else {
+            return Ok(false);
+        };
         if backup.parent() != installed.parent() || backup == installed {
             return Ok(false);
         }
@@ -126,7 +132,7 @@ fn cleanup(backup: &Path, installed: Option<&Path>) {
             entry.emit();
         }
         Ok(false) => {
-            entry.reason = Some("unverified");
+            entry.reason = Some("kept_unverified");
             entry.emit_warn();
         }
         Err(error) => {

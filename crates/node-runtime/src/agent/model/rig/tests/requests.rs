@@ -391,7 +391,9 @@ async fn keeps_azure_deployment_and_version() {
         api_version: "2025-01-01-preview".into(),
     });
     let model = native(&provider, "deployment", "azure-key", HeaderMap::new());
-    collect(&model, request("deployment"), CancellationToken::new())
+    let mut input = request("deployment");
+    input.params.insert("budget_tokens".into(), json!(4096));
+    collect(&model, input, CancellationToken::new())
         .await
         .unwrap();
     let captured = server.finish().await;
@@ -402,6 +404,7 @@ async fn keeps_azure_deployment_and_version() {
     );
     assert_eq!(captured[0].headers["api-key"], "azure-key");
     assert!(!captured[0].headers.contains_key("authorization"));
+    assert!(captured[0].body.get("budget_tokens").is_none());
 }
 
 #[tokio::test]
@@ -412,11 +415,13 @@ async fn keeps_foundry_maas_routes() {
         let model = native(&provider, "fixture", "foundry-key", HeaderMap::new());
         let mut input = request("fixture");
         input.params.insert("max_tokens".into(), json!(512));
+        input.params.insert("budget_tokens".into(), json!(4096));
         collect(&model, input, CancellationToken::new())
             .await
             .unwrap();
         let captured = server.finish().await;
         assert_eq!(captured.len(), 1);
+        assert!(captured[0].body.get("budget_tokens").is_none());
         assert_eq!(
             captured[0].path,
             if suffix.starts_with("/proxy") {

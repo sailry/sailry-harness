@@ -22,12 +22,13 @@ struct Records {
 struct Record {
     reference: Reference,
     sequence: u64,
+    settled_sequence: u64,
     runtime: Option<Runtime>,
     settled: Option<Runtime>,
 }
 
 pub(super) struct Attempt {
-    package: String,
+    reference: Reference,
     server: String,
     sequence: u64,
 }
@@ -37,11 +38,11 @@ impl Status {
         let mut records = self.records.lock().unwrap();
         records.sequence += 1;
         let attempt = Attempt {
-            package: reference.name.clone(),
+            reference: reference.clone(),
             server: server.into(),
             sequence: records.sequence,
         };
-        let key = (attempt.package.clone(), attempt.server.clone());
+        let key = (attempt.reference.name.clone(), attempt.server.clone());
         let previous = records
             .servers
             .remove(&key)
@@ -51,6 +52,9 @@ impl Status {
             Record {
                 reference: reference.clone(),
                 sequence: attempt.sequence,
+                settled_sequence: previous
+                    .as_ref()
+                    .map_or(0, |record| record.settled_sequence),
                 runtime: previous.as_ref().and_then(|record| record.runtime.clone()),
                 settled: previous.and_then(|record| record.settled),
             },
@@ -82,11 +86,19 @@ impl Status {
         let mut records = self.records.lock().unwrap();
         let Some(record) = records
             .servers
-            .get_mut(&(attempt.package.clone(), attempt.server))
-            .filter(|record| record.sequence == attempt.sequence)
+            .get_mut(&(attempt.reference.name.clone(), attempt.server))
+            .filter(|record| {
+                record.reference == attempt.reference && attempt.sequence > record.settled_sequence
+            })
         else {
             return;
         };
+        let interrupted = result
+            .as_ref()
+            .is_err_and(|error| matches!(error.code, ErrorCode::Busy | ErrorCode::Cancelled));
+        if interrupted && record.sequence != attempt.sequence {
+            return;
+        }
         let next = match result {
             Ok(tools) => Some(runtime(RuntimeState::Connected, tools)),
             Err(error) if matches!(error.code, ErrorCode::Busy | ErrorCode::Cancelled) => {
@@ -98,28 +110,38 @@ impl Status {
                 Some(failed)
             }
         };
-        if record.runtime != next {
-            record.runtime = next.clone();
-            record.settled = next;
-            self.publish(&mut records, &attempt.package);
+        let changed = !equivalent(record.runtime.as_ref(), next.as_ref());
+        if changed {
+            record.runtime = next;
+        }
+        if !interrupted {
+            record.settled_sequence = attempt.sequence;
+            record.settled = record.runtime.clone();
+        }
+        if changed {
+            self.publish(&mut records, &attempt.reference.name);
         }
     }
 
     pub(super) fn failed(&self, reference: &Reference, server: &str) {
         let mut records = self.records.lock().unwrap();
+        records.sequence += 1;
+        let sequence = records.sequence;
         let Some(record) = records
             .servers
             .get_mut(&(reference.name.clone(), server.into()))
-            .filter(|record| {
-                record.reference == *reference
-                    && record
-                        .runtime
-                        .as_ref()
-                        .is_none_or(|runtime| runtime.state != RuntimeState::Failed)
-            })
+            .filter(|record| record.reference == *reference)
         else {
             return;
         };
+        record.settled_sequence = sequence;
+        if record
+            .runtime
+            .as_ref()
+            .is_some_and(|runtime| runtime.state == RuntimeState::Failed)
+        {
+            return;
+        }
         record.runtime = Some(runtime(RuntimeState::Failed, 0));
         record.settled = record.runtime.clone();
         self.publish(&mut records, &reference.name);
@@ -163,6 +185,18 @@ impl Status {
     fn publish(&self, records: &mut Records, package: &str) {
         records.pending.insert(package.into());
         self.changed.notify_one();
+    }
+}
+
+fn equivalent(current: Option<&Runtime>, next: Option<&Runtime>) -> bool {
+    match (current, next) {
+        (Some(current), Some(next)) => {
+            current.state == next.state
+                && current.tools == next.tools
+                && current.fault == next.fault
+        }
+        (None, None) => true,
+        _ => false,
     }
 }
 

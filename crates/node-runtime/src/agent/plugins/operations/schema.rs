@@ -800,6 +800,42 @@ mod tests {
     }
 
     #[test]
+    fn history_preserves_filtered_cursor() {
+        let cursor = sailry_protocol::GitLogCursor {
+            head: "a".repeat(40),
+            after: "b".repeat(40),
+            offset: 20,
+            path: Some("src/main.rs".into()),
+        };
+        let arguments = json!({
+            "worktree": null, "limit": 10, "cursor": cursor,
+            "revision": null, "path": "src/main.rs"
+        });
+        let schema = parameters(Operation::ReadGitLog);
+        let validator = jsonschema::draft202012::options().build(&schema).unwrap();
+        assert!(validator.is_valid(&arguments));
+        let source = sailry_protocol::Worktree {
+            id: sailry_protocol::WorktreeId::new(),
+            project: Some(sailry_protocol::ProjectId::new()),
+            path: "/fixture".into(),
+            main: true,
+        };
+        let captured = source.id;
+        let Command::ReadGitLog {
+            cursor: Some(actual),
+            path,
+            worktree,
+            ..
+        } = repository::command(Operation::ReadGitLog, arguments, captured, &[source]).unwrap()
+        else {
+            panic!("history request expected")
+        };
+        assert_eq!(actual, cursor);
+        assert_eq!(path.as_deref(), Some("src/main.rs"));
+        assert_eq!(worktree, captured);
+    }
+
+    #[test]
     fn fetch_preserves_long_urls_and_defaults() {
         let url = format!("https://example.com/page?query={}", "x".repeat(8193));
         let arguments = json!({"url":url});

@@ -47,7 +47,7 @@ fn outcomes_and_recovery() {
             }) as fn(&str),
         ),
         (
-            "preserves_invalid_receipt",
+            "archives_invalid_receipt",
             (|_scenario: &str| {
                 let directory = tempfile::tempdir().unwrap();
                 let path = directory.path().join("receipt.json");
@@ -55,13 +55,15 @@ fn outcomes_and_recovery() {
                 assert_eq!(
                     receipt::read(directory.path(), None).unwrap_err().key,
                     "updates_receipt_unread",
-                    "preserves invalid receipt"
+                    "archives invalid receipt"
                 );
+                assert!(!path.exists());
                 assert_eq!(
-                    std::fs::read(path).unwrap(),
+                    archive_contents(directory.path()),
                     b"incompatible user fixture",
-                    "preserves invalid receipt"
+                    "archives invalid receipt"
                 );
+                assert!(receipt::read(directory.path(), None).unwrap().is_none());
             }),
         ),
         (
@@ -120,7 +122,7 @@ fn outcomes_and_recovery() {
             }),
         ),
         (
-            "preserves_invalid_target_version",
+            "archives_invalid_target_version",
             (|_scenario: &str| {
                 for target in [None, Some(""), Some("invalid version")] {
                     let directory = tempfile::tempdir().unwrap();
@@ -134,12 +136,13 @@ fn outcomes_and_recovery() {
                     assert_eq!(
                         receipt::read(directory.path(), None).unwrap_err().key,
                         "updates_receipt_unread",
-                        "preserves invalid target version"
+                        "archives invalid target version"
                     );
+                    assert!(!path.exists());
                     assert_eq!(
-                        std::fs::read(&path).unwrap(),
+                        archive_contents(directory.path()),
                         bytes,
-                        "preserves invalid target version"
+                        "archives invalid target version"
                     );
                 }
             }),
@@ -147,6 +150,41 @@ fn outcomes_and_recovery() {
     ] {
         eprintln!("case: {scenario}");
         check(scenario);
+    }
+}
+
+fn archive_contents(directory: &Path) -> Vec<u8> {
+    let path = fs::read_dir(directory.join("receipts"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    fs::read(path).unwrap()
+}
+
+#[test]
+fn quarantines_unreadable_outcomes_once() {
+    for contents in [
+        vec![b'x'; 64 * 1024 + 1],
+        br#"{"version":2,"result":"success","application_version":"1.0.0"}"#.to_vec(),
+        br#"{"version":1,"result":"unexpected"}"#.to_vec(),
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("receipt.json");
+        fs::write(&path, &contents).unwrap();
+        assert_eq!(
+            receipt::read(directory.path(), None).unwrap_err().key,
+            "updates_receipt_unread"
+        );
+        assert!(!path.exists());
+        assert_eq!(archive_contents(directory.path()), contents);
+        assert!(receipt::read(directory.path(), None).unwrap().is_none());
+        success(directory.path(), &directory.path().join("unverified"));
+        assert_eq!(
+            receipt::read(directory.path(), None).unwrap(),
+            Some("updates_completed")
+        );
     }
 }
 

@@ -214,7 +214,7 @@ fn reads_startup_receipt_once(cx: &mut TestAppContext) {
             observed.borrow_mut().push(notice.clone());
         })
     });
-    cx.update(super::startup);
+    service.update(cx, |service, cx| service.startup(updater.clone(), cx));
     cx.run_until_parked();
     assert!(!receipt.exists());
     assert_eq!(
@@ -222,7 +222,7 @@ fn reads_startup_receipt_once(cx: &mut TestAppContext) {
         1
     );
     super::super::receipt::write(&receipt, &outcome).unwrap();
-    cx.update(super::startup);
+    service.update(cx, |service, cx| service.startup(updater.clone(), cx));
     cx.run_until_parked();
     assert!(receipt.exists());
     assert_eq!(
@@ -233,4 +233,26 @@ fn reads_startup_receipt_once(cx: &mut TestAppContext) {
             version: None,
         }],
     );
+}
+
+#[gpui_kit::test]
+fn preview_leaves_receipt_untouched(cx: &mut TestAppContext) {
+    let directory = tempfile::tempdir().unwrap();
+    let updater = directory.path().join("updater");
+    std::fs::create_dir(&updater).unwrap();
+    let receipt = updater.join("receipt.json");
+    let contents = b"isolated preview receipt";
+    std::fs::write(&receipt, contents).unwrap();
+    cx.update(|cx| {
+        cx.set_global(crate::preferences::Preferences::open(
+            directory.path().join("preferences.json"),
+        ));
+        super::init(cx);
+        super::startup(cx);
+    });
+    cx.run_until_parked();
+    assert_eq!(std::fs::read(receipt).unwrap(), contents);
+    assert!(!updater.join("receipts").exists());
+    let service = cx.update(Service::shared);
+    cx.update(|cx| assert!(!service.read(cx).receipt_read));
 }

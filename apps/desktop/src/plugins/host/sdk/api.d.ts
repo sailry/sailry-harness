@@ -196,7 +196,7 @@ export function inspectGit(): Promise<GitStatus>;
 export function prepareGitIndex(draft: GitIndexDraft): string;
 /** Requires git.write. Reuse the original ID to recover an uncertain commit result. */
 export function prepareGitCommit(draft: GitCommitDraft): string;
-export type GitLogCursor = {head: string; after: string};
+export type GitLogCursor = {head: string; after: string; offset: number; path?: string | null};
 export type GitDiff = {path: string; scope: "all" | "staged" | "unstaged"; text: string; additions: number; deletions: number; binary: boolean; truncated: boolean};
 /** All repository reads retain this instance's captured worktree. */
 export function listGitBranches(): Promise<Json>;

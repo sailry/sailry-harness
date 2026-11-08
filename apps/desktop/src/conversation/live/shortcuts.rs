@@ -107,7 +107,7 @@ impl View {
             composer || transcript,
             composing,
             composer && self.references.open,
-            (composer && !selection.is_empty()) || (transcript && self.selection.is_some()),
+            (composer && !selection.is_empty()) || self.selection.is_some(),
             !self.readonly() && self.active_run().is_some(),
         ) {
             EscapeTarget::Composition => {

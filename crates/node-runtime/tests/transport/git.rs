@@ -70,6 +70,7 @@ async fn preserves_history_queries_and_cursors() {
     let invalid = command(Some(GitLogCursor {
         head: previous.unwrap().to_string(),
         after: "0".repeat(40),
+        offset: 0,
         path: Some("tracked.txt".into()),
     }));
     let expected = local.execute(local.prepare(invalid.clone())).await;

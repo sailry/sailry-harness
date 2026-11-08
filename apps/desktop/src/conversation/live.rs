@@ -820,6 +820,14 @@ impl Render for View {
             .child(
                 div()
                     .track_focus(&self.transcript_focus)
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|view, _, window, cx| {
+                            if view.input.read(cx).focus_handle(cx).is_focused(window) {
+                                window.prevent_default();
+                            }
+                        }),
+                    )
                     .debug_selector(|| "live-history-viewport".into())
                     .flex_1()
                     .min_h_0()

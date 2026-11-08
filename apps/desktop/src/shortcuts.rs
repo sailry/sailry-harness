@@ -92,7 +92,7 @@ pub(crate) fn init(cx: &mut App) {
         "app.search",
         "search",
         "secondary-k",
-        &[None],
+        &[Some(context)],
         shell::Search,
         cx,
     );
@@ -100,7 +100,7 @@ pub(crate) fn init(cx: &mut App) {
         "sidebar.toggle",
         "sidebar_toggle",
         "secondary-b",
-        &[None],
+        &[Some(context)],
         shell::ToggleSidebar,
         cx,
     );

@@ -78,24 +78,13 @@ pub(crate) fn init(cx: &mut App) {
 }
 
 pub(crate) fn startup(cx: &mut App) {
+    if !cx.has_global::<Services>() {
+        return;
+    }
     let Some(directory) = directory(cx) else {
         return;
     };
-    Service::shared(cx).update(cx, |service, cx| {
-        if service.receipt_read {
-            return;
-        }
-        service.receipt_read = true;
-        let job = cx.background_executor().spawn(async move {
-            let installed = install::installed().ok();
-            super::receipt::read(&directory, installed.as_deref())
-        });
-        cx.spawn(async move |owner, cx| {
-            let result = job.await;
-            let _ = owner.update(cx, |service, cx| service.receipt(result, cx));
-        })
-        .detach();
-    });
+    Service::shared(cx).update(cx, |service, cx| service.startup(directory, cx));
 }
 
 enum Update {
@@ -105,6 +94,22 @@ enum Update {
 }
 
 impl Service {
+    fn startup(&mut self, directory: PathBuf, cx: &mut Context<Self>) {
+        if self.receipt_read {
+            return;
+        }
+        self.receipt_read = true;
+        let job = cx.background_executor().spawn(async move {
+            let installed = install::installed().ok();
+            super::receipt::read(&directory, installed.as_deref())
+        });
+        cx.spawn(async move |owner, cx| {
+            let result = job.await;
+            let _ = owner.update(cx, |service, cx| service.receipt(result, cx));
+        })
+        .detach();
+    }
+
     pub(super) fn shared(cx: &mut App) -> Entity<Self> {
         if !cx.has_global::<Shared>() {
             let service = cx.new(|_| Self {

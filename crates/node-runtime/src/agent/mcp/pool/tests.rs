@@ -62,8 +62,11 @@ impl Fixture {
                 self.launch("unchanged"),
                 None,
                 &self.node.ingress,
-                &CancellationToken::new(),
-                true,
+                Lease {
+                    stop: &CancellationToken::new(),
+                    retry_failed: true,
+                    attempt: &mut None,
+                },
             )
             .await
             .map(|(connection, _)| connection)
@@ -221,8 +224,11 @@ async fn retires_rotated_tokens_after_last_lease() {
             first_launch,
             Some(authorization.clone()),
             &fixture.node.ingress,
-            &CancellationToken::new(),
-            true,
+            Lease {
+                stop: &CancellationToken::new(),
+                retry_failed: true,
+                attempt: &mut None,
+            },
         )
         .await
         .unwrap();
@@ -235,8 +241,11 @@ async fn retires_rotated_tokens_after_last_lease() {
             second_launch,
             Some(authorization),
             &fixture.node.ingress,
-            &CancellationToken::new(),
-            true,
+            Lease {
+                stop: &CancellationToken::new(),
+                retry_failed: true,
+                attempt: &mut None,
+            },
         )
         .await
         .unwrap();
@@ -306,6 +315,160 @@ fn preserves_status_after_cancelled_attempts() {
     pool.finish(attempt, Err(cancelled()));
     pool.project(&mut projected);
     assert_eq!(projected.mcp[0].runtime, connected);
+}
+
+#[tokio::test]
+async fn unchanged_status_preserves_timestamp_and_events() {
+    let pool = Pool::default();
+    pool.observe(&package());
+    for result in [Ok(4), Err(unavailable())] {
+        let initial = pool.begin(&package().reference(), "native");
+        pool.finish(initial, result.clone());
+        let mut projected = info();
+        pool.project(&mut projected);
+        let previous = projected.mcp[0].runtime.clone();
+        assert_eq!(pool.changes().await, vec!["example"]);
+        tokio::time::sleep(Duration::from_millis(2)).await;
+        for _ in 0..3 {
+            let attempt = pool.begin(&package().reference(), "native");
+            pool.finish(attempt, result.clone());
+        }
+        pool.project(&mut projected);
+        assert_eq!(projected.mcp[0].runtime, previous);
+        assert!(
+            tokio::time::timeout(Duration::ZERO, pool.changes())
+                .await
+                .is_err()
+        );
+    }
+}
+
+#[test]
+fn cancelled_attempt_preserves_earlier_success() {
+    for interrupted_first in [false, true] {
+        for code in [ErrorCode::Busy, ErrorCode::Cancelled] {
+            let pool = Pool::default();
+            pool.observe(&package());
+            let initial = pool.begin(&package().reference(), "native");
+            pool.finish(initial, Err(unavailable()));
+            let success = pool.begin(&package().reference(), "native");
+            let interrupted = pool.begin(&package().reference(), "native");
+            let failure = Err(Fault::new(code, "MCP connection was interrupted"));
+            if interrupted_first {
+                pool.finish(interrupted, failure);
+                pool.finish(success, Ok(4));
+            } else {
+                pool.finish(success, Ok(4));
+                pool.finish(interrupted, failure);
+            }
+            let mut projected = info();
+            pool.project(&mut projected);
+            let runtime = projected.mcp[0].runtime.as_ref().unwrap();
+            assert_eq!(runtime.state, RuntimeState::Connected);
+            assert_eq!(runtime.tools, 4);
+        }
+    }
+}
+
+#[test]
+fn earlier_result_preserves_newer_package() {
+    let pool = Pool::default();
+    let mut summary = package();
+    pool.observe(&summary);
+    let previous = pool.begin(&summary.reference(), "native");
+    summary.settings_revision += 1;
+    pool.observe(&summary);
+    let current = pool.begin(&summary.reference(), "native");
+    pool.started(&summary.reference(), "native");
+    pool.finish(previous, Ok(4));
+    let mut projected = info();
+    projected.summary = summary;
+    pool.project(&mut projected);
+    assert_eq!(
+        projected.mcp[0].runtime.as_ref().unwrap().state,
+        RuntimeState::Connecting
+    );
+    pool.finish(current, Ok(7));
+    pool.project(&mut projected);
+    assert_eq!(projected.mcp[0].runtime.as_ref().unwrap().tools, 7);
+}
+
+#[test]
+fn transport_failure_invalidates_pending_results() {
+    for result in [Ok(4), Err(unavailable())] {
+        let pool = Pool::default();
+        pool.observe(&package());
+        let initial = pool.begin(&package().reference(), "native");
+        pool.finish(initial, result);
+        let pending = pool.begin(&package().reference(), "native");
+        pool.status.failed(&package().reference(), "native");
+        pool.finish(pending, Ok(7));
+        let mut projected = info();
+        pool.project(&mut projected);
+        assert_eq!(
+            projected.mcp[0].runtime.as_ref().unwrap().state,
+            RuntimeState::Failed
+        );
+    }
+}
+
+#[tokio::test]
+async fn replacement_open_records_outcome() {
+    for failed in [false, true] {
+        let fixture = Fixture::new().await;
+        let pool = &fixture.pool;
+        let first = fixture.lease("native").await.unwrap();
+        let initial = pool.begin(&package().reference(), "native");
+        pool.finish(initial, Ok(4));
+        let mut waiting = pool.begin(&package().reference(), "native");
+        first.poisoned.store(true, Ordering::Relaxed);
+        pool.failed(&first);
+        let mut launch = fixture.launch("unchanged");
+        if failed && let Launch::Stdio { env, .. } = &mut launch {
+            env.insert("SAILRY_MCP_MODE".into(), "bad_handshake".into());
+        }
+        let replacement = pool
+            .lease(
+                &config("native"),
+                launch,
+                None,
+                &fixture.node.ingress,
+                Lease {
+                    stop: &CancellationToken::new(),
+                    retry_failed: true,
+                    attempt: &mut waiting,
+                },
+            )
+            .await;
+        let mut projected = info();
+        pool.project(&mut projected);
+        assert_eq!(
+            projected.mcp[0].runtime.as_ref().unwrap().state,
+            RuntimeState::Connecting
+        );
+        assert_eq!(replacement.is_err(), failed);
+        if let Ok((connection, _)) = &replacement {
+            assert!(!Arc::ptr_eq(connection, &first));
+        }
+        pool.finish(
+            waiting,
+            replacement.as_ref().map(|_| 7).map_err(Clone::clone),
+        );
+        pool.project(&mut projected);
+        let runtime = projected.mcp[0].runtime.as_ref().unwrap();
+        assert_eq!(
+            runtime.state,
+            if failed {
+                RuntimeState::Failed
+            } else {
+                RuntimeState::Connected
+            }
+        );
+        assert_eq!(runtime.tools, if failed { 0 } else { 7 });
+        drop(replacement);
+        drop(first);
+        fixture.close().await;
+    }
 }
 
 #[test]

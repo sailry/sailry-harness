@@ -6,6 +6,7 @@ use std::{
 
 thread_local! {
     pub(super) static VISITED: Cell<usize> = const { Cell::new(0) };
+    pub(super) static COMPARED: Cell<usize> = const { Cell::new(0) };
 }
 
 #[test]
@@ -58,9 +59,11 @@ fn bounds_filtered_traversal() {
         deadline: Instant::now() + Duration::from_secs(5),
     };
     VISITED.set(0);
+    COMPARED.set(0);
     let first = log(&root, 2, None, None, Some("target.rs"), &control).unwrap();
     assert_eq!(first.entries.len(), 2);
     assert_eq!(VISITED.get(), 7);
+    assert_eq!(COMPARED.get(), 7);
     assert!(first.truncated);
     assert_eq!(
         log(
@@ -81,6 +84,8 @@ fn bounds_filtered_traversal() {
             .code,
         ErrorCode::InvalidRequest
     );
+    VISITED.set(0);
+    COMPARED.set(0);
     let next = log(
         &root,
         2,
@@ -92,9 +97,21 @@ fn bounds_filtered_traversal() {
     .unwrap();
     assert_eq!(next.offset, 2);
     assert_eq!(next.entries.len(), 2);
+    assert_eq!(VISITED.get(), 13);
+    assert_eq!(COMPARED.get(), 9);
     assert!(
         next.entries
             .iter()
             .all(|entry| first.entries.iter().all(|previous| entry.id != previous.id))
     );
+    let mut cursor = next.next;
+    for page in 2..10 {
+        VISITED.set(0);
+        COMPARED.set(0);
+        let next = log(&root, 2, cursor.as_ref(), None, Some("target.rs"), &control).unwrap();
+        assert_eq!(next.offset, page * 2);
+        assert_eq!(VISITED.get(), page * 6 + 7);
+        assert_eq!(COMPARED.get(), 9);
+        cursor = next.next;
+    }
 }

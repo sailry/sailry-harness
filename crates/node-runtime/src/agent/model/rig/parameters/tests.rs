@@ -18,11 +18,11 @@ fn encrypted_content_follows_capability() {
         ("gpt-6-fixture", None, Effort::High, true),
         ("unknown-fixture", None, Effort::High, false),
         ("reasoning-fixture", Some(true), Effort::Disabled, true),
-        ("deepseek-r1", Some(true), Effort::High, false),
-        ("qwen/Qwen3-Thinking", Some(true), Effort::High, false),
-        ("z-ai/GLM-5", Some(true), Effort::High, false),
-        ("moonshotai/kimi-k2.5", Some(true), Effort::High, false),
-        ("claude-sonnet-4-5", Some(true), Effort::High, false),
+        ("deepseek-r1", Some(true), Effort::High, true),
+        ("qwen/Qwen3-Thinking", Some(true), Effort::High, true),
+        ("z-ai/GLM-5", Some(true), Effort::High, true),
+        ("moonshotai/kimi-k2.5", Some(true), Effort::High, true),
+        ("claude-sonnet-4-5", Some(true), Effort::High, true),
     ] {
         let mut request = input(model, capability, effort);
         prepare(&mut request, ModelApi::Responses, ModelApi::Responses);
@@ -88,7 +88,7 @@ fn output_field_follows_channel() {
         (ModelApi::AzureAi, ModelApi::ChatCompletions, "max_tokens"),
         (ModelApi::DeepSeek, ModelApi::DeepSeek, "max_tokens"),
     ] {
-        let mut request = input("fixture", Some(true), Effort::High);
+        let mut request = input("gpt-6-fixture", Some(true), Effort::High);
         prepare(&mut request, effective, configured);
         assert_eq!(request.params[field], 8192);
         assert_eq!(request.max_tokens, None);

@@ -668,7 +668,7 @@ impl Service {
                 .await?;
                 progress(sailry_protocol::conversation::login::State::Browser {
                     authorization_url: pending.url().into(),
-                    expires_at_ms: now() + 900_000,
+                    expires_at_ms: now() + login::DEADLINE.as_millis() as u64,
                 })
                 .await?;
                 let callback = tokio::select! {biased;_=stop.cancelled()=>return Err(cancelled()),callback=callback.ok_or_else(unavailable)?=>callback.map_err(|_|cancelled())?};

@@ -3,6 +3,11 @@ use super::*;
 use crate::store::database::storage_error;
 use crate::store::plugins::connectors::{self as connections, Record};
 use sailry_protocol::plugin::connector::{self as connector, Attempt, LoginState, LoginUpdate};
+use std::time::Duration;
+use tokio::time::Instant;
+
+#[cfg(test)]
+mod tests;
 
 pub(super) struct Entry {
     updates: watch::Sender<LoginUpdate>,
@@ -243,21 +248,77 @@ impl Worker {
                 let environment = self.environment.clone();
                 let sender = self.sender.clone();
                 let input = input.clone();
-                self.runtime.spawn(async move{
-                    let id=attempt.id;
-                    let operation=async{
-                        if let Some(connector::Auth::McpOauth{server,..})=target.declaration.auth.iter().find(|auth|auth.kind()==target.method){target.mcp_endpoint=Some(resources.mcp_endpoint(&target.package.name,server).await?);}
-                        host.connectors.authorize(crate::plugins::connectors::Login{target,input,host:host.clone(),service,environment,callback:Some(returned),stop:stop.clone()},|state|{
-                            let state=match state{
-                                login::State::Pending{verification_url,user_code,expires_at_ms}=>LoginState::Device{code:user_code,url:verification_url,expires_at_ms},
-                                login::State::Browser{authorization_url,expires_at_ms}=>LoginState::Browser{url:authorization_url,expires_at_ms},
-                                _=>LoginState::Exchanging,
-                            };
-                            let sender=sender.clone();async move{sender.send(Job::Login(Box::new(super::Progress::Connector(Box::new(Progress::Prompt{caller,id,state}))))).await.map_err(|_|super::super::unavailable())}
-                        }).await.map(Box::new)
+                self.runtime.spawn(async move {
+                    let id = attempt.id;
+                    let duration = crate::providers::login::DEADLINE;
+                    let deadline = Instant::now() + duration;
+                    let expires_at_ms =
+                        crate::plugins::connectors::now() + duration.as_millis() as u64;
+                    let (expiry, reported) = oneshot::channel();
+                    let operation = async {
+                        if let Some(connector::Auth::McpOauth { server, .. }) = target
+                            .declaration
+                            .auth
+                            .iter()
+                            .find(|auth| auth.kind() == target.method)
+                        {
+                            target.mcp_endpoint =
+                                Some(resources.mcp_endpoint(&target.package.name, server).await?);
+                        }
+                        host.connectors
+                            .authorize(
+                                crate::plugins::connectors::Login {
+                                    target,
+                                    input,
+                                    host: host.clone(),
+                                    service,
+                                    environment,
+                                    callback: Some(returned),
+                                    stop: stop.clone(),
+                                },
+                                |state| {
+                                    let state = prompt(state, expires_at_ms);
+                                    if let LoginState::Device { expires_at_ms, .. }
+                                    | LoginState::Browser { expires_at_ms, .. } = &state
+                                    {
+                                        let remaining = expires_at_ms
+                                            .saturating_sub(crate::plugins::connectors::now());
+                                        let _ = expiry.send(
+                                            Instant::now() + Duration::from_millis(remaining),
+                                        );
+                                    }
+                                    let sender = sender.clone();
+                                    async move {
+                                        sender
+                                            .send(Job::Login(Box::new(super::Progress::Connector(
+                                                Box::new(Progress::Prompt { caller, id, state }),
+                                            ))))
+                                            .await
+                                            .map_err(|_| super::super::unavailable())
+                                    }
+                                },
+                            )
+                            .await
+                            .map(Box::new)
                     };
-                    let result=tokio::select!{biased;_=stop.cancelled()=>Err(Fault::new(ErrorCode::Cancelled,"connector authorization cancelled")),result=tokio::time::timeout(std::time::Duration::from_secs(900),AssertUnwindSafe(operation).catch_unwind())=>result.ok().and_then(Result::ok).unwrap_or_else(||Err(super::super::unavailable()))};
-                    let _=sender.send(Job::Login(Box::new(super::Progress::Connector(Box::new(Progress::Finished{caller,id,result}))))).await;
+                    let result = tokio::select! {
+                        biased;
+                        _ = stop.cancelled() => Err(Fault::new(
+                            ErrorCode::Cancelled,
+                            "connector authorization cancelled",
+                        )),
+                        _ = expire(deadline, reported) => {
+                            stop.cancel();
+                            Err(Fault::new(ErrorCode::Expired, "connector authorization expired"))
+                        },
+                        result = AssertUnwindSafe(operation).catch_unwind() =>
+                            result.unwrap_or_else(|_| Err(super::super::unavailable())),
+                    };
+                    let _ = sender
+                        .send(Job::Login(Box::new(super::Progress::Connector(Box::new(
+                            Progress::Finished { caller, id, result },
+                        )))))
+                        .await;
                 });
                 Ok(output)
             }
@@ -595,7 +656,7 @@ async fn commit(
     let (outcome, failed) = match (checked, result) {
         (Err(error), _) => (Err(error), false),
         (Ok(()), Err(error)) => {
-            let failed = error.code != ErrorCode::Cancelled;
+            let failed = !matches!(error.code, ErrorCode::Cancelled | ErrorCode::Expired);
             (Err(error), failed)
         }
         (Ok(()), Ok(target)) => {
@@ -672,6 +733,37 @@ fn apply(record: &mut Record, target: crate::plugins::connectors::Target) -> Res
     record.state = connector::State::Connected;
     record.checked_at_ms = Some(crate::plugins::connectors::now());
     Ok(())
+}
+
+fn prompt(state: login::State, deadline: u64) -> LoginState {
+    match state {
+        login::State::Pending {
+            verification_url,
+            user_code,
+            expires_at_ms,
+        } => LoginState::Device {
+            code: user_code,
+            url: verification_url,
+            expires_at_ms: expires_at_ms.min(deadline),
+        },
+        login::State::Browser {
+            authorization_url,
+            expires_at_ms,
+        } => LoginState::Browser {
+            url: authorization_url,
+            expires_at_ms: expires_at_ms.min(deadline),
+        },
+        _ => LoginState::Exchanging,
+    }
+}
+
+async fn expire(deadline: Instant, reported: oneshot::Receiver<Instant>) {
+    let reported = tokio::time::timeout_at(deadline, reported)
+        .await
+        .ok()
+        .and_then(Result::ok)
+        .unwrap_or(deadline);
+    tokio::time::sleep_until(reported.min(deadline)).await;
 }
 
 fn missing() -> Fault {

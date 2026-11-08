@@ -340,6 +340,41 @@ fn preserves_terminal_control_keys() {
 }
 
 #[gpui::test]
+fn application_bindings_share_terminal_scope(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        init(cx);
+        let terminal = [
+            KeyContext::parse("Sailry").unwrap(),
+            KeyContext::parse("SailryTerminal").unwrap(),
+        ];
+        for id in [
+            "conversation.new",
+            "folder.open",
+            "app.search",
+            "sidebar.toggle",
+            "app.shortcuts",
+        ] {
+            let entry = cx
+                .global::<Registry>()
+                .entries
+                .iter()
+                .find(|entry| entry.id == id)
+                .unwrap();
+            for binding in &entry.bindings {
+                let predicate = binding.predicate().unwrap();
+                assert_eq!(predicate.depth_of(&terminal[..1]), Some(1), "{id}");
+                assert_eq!(
+                    predicate.depth_of(&terminal),
+                    (cx.platform_info().os == OperatingSystem::Mac).then_some(1),
+                    "{id}"
+                );
+            }
+        }
+    });
+}
+
+#[gpui::test]
 fn mode_cycle_requires_composer_context(cx: &mut TestAppContext) {
     cx.update(|cx| {
         crate::conversation::live::shortcuts::init(cx);
