@@ -144,8 +144,10 @@ fn forms(sse: bool, oauth: bool, input: Input) {
         .unwrap();
     let status = super::wait(child);
     let pages = runtime.block_on(tools::pages(&Client::new(node.local()), &sessions));
+    let initializations = peer.initializations.load(Ordering::SeqCst);
     runtime.block_on(node.shutdown()).unwrap();
     assert!(status.success());
+    assert_eq!(initializations, 1);
     assert_eq!(pages[0].runs[0].status, Status::Completed);
     assert_eq!(pages[0].questions[1].state, State::Declined);
     assert_eq!(pages[0].runs[1].status, Status::Completed);
@@ -165,7 +167,6 @@ fn forms(sse: bool, oauth: bool, input: Input) {
     );
     runtime.block_on(node.shutdown()).unwrap();
     assert_eq!(peer.calls.load(Ordering::SeqCst), 5);
-    assert_eq!(peer.initializations.load(Ordering::SeqCst), 2);
     if let Some(issuer) = issuer {
         assert_eq!(issuer.exchanges.load(Ordering::SeqCst), 1);
     }

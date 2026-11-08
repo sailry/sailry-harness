@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:sailry_bridge/api.dart';
 import 'package:sailry_bridge/frb_generated.dart';
-import 'approvals.dart' show denied, hasPending, pending;
+import 'approvals.dart' show denied, hasPending, interrupted, pending;
 import 'conversation.dart'
     show canonicalJson, check, detail, execute, trackedDetail, until;
 import 'attachments/support.dart'
@@ -299,16 +299,8 @@ Future<void> main() async {
   );
   final interruptedCall = call(stopped, 0);
   final interruption = (await detail(connection, interruptedCall))['result'];
-  const interruptionMessage =
-      'tool call was interrupted; its outcome may be unknown; do not replay it automatically';
   check(
-    interruptedCall['state'] == 'returned' &&
-        canonicalJson(interruption) ==
-            canonicalJson({
-              'code': -32603,
-              'message': interruptionMessage,
-              'data': {'code': 'cancelled', 'message': interruptionMessage},
-            }),
+    interruptedCall['state'] == 'returned' && interrupted(interruption),
     'stop retains the interrupted outcome without claiming success: ${canonicalJson(interruption)}',
   );
   check(

@@ -144,30 +144,30 @@ impl Database {
         if body.len() > 8192 || address.addrs.len() > 16 {
             return Err(Fault::invalid("peer address exceeds limits"));
         }
-        let mut write = Some(self.write().await?);
-        let result = async {
-            let transaction = conflict::begin(&self.connection).await?;
-            transaction
-                .execute(
-                    "INSERT INTO link_addresses(identity,address) VALUES(?1,?2) \
-                     ON CONFLICT(identity) DO UPDATE SET address=excluded.address",
-                    params![&address.id.as_bytes()[..], body],
-                )
-                .await
-                .map_err(storage_error)?;
-            conflict::commit(transaction).await?;
-            drop(write.take());
-            Ok(())
-        }
-        .await;
-        if let Some(write) = write {
+        let write = self.write().await?;
+        for attempt in 0..=conflict::RETRIES {
+            let result = async {
+                let transaction = conflict::begin(&self.connection).await?;
+                transaction
+                    .execute(
+                        "INSERT INTO link_addresses(identity,address) VALUES(?1,?2) \
+                         ON CONFLICT(identity) DO UPDATE SET address=excluded.address",
+                        params![&address.id.as_bytes()[..], body.as_str()],
+                    )
+                    .await
+                    .map_err(storage_error)?;
+                conflict::commit(transaction).await
+            }
+            .await;
             if let Err(error) = conflict::rollback(&self.connection).await {
                 self.connection.hold_write(write);
                 return Err(error);
             }
-            drop(write);
+            if !conflict::again(&result, attempt).await {
+                return result;
+            }
         }
-        result
+        unreachable!("the final attempt returns its result")
     }
 
     pub(super) async fn peers(&self) -> Result<Vec<NodeId>, Fault> {
@@ -185,51 +185,51 @@ impl Database {
     }
 
     pub(super) async fn set_trust(&mut self, peer: NodeId, trusted: bool) -> Result<(), Fault> {
-        let mut write = Some(self.write().await?);
-        let result = async {
-            let transaction = conflict::begin(&self.connection).await?;
-            if trusted {
-                let count: i64 = transaction
-                    .prepare("SELECT count(*) FROM link_peers")
-                    .await
-                    .map_err(storage_error)?
-                    .query_row(())
-                    .await
-                    .map_err(storage_error)?
-                    .get(0)
-                    .map_err(storage_error)?;
-                if count >= 128 && !self.peers().await?.contains(&peer) {
-                    return Err(Fault::new(
-                        ErrorCode::Busy,
-                        "paired device capacity exhausted",
-                    ));
+        let write = self.write().await?;
+        for attempt in 0..=conflict::RETRIES {
+            let result = async {
+                let transaction = conflict::begin(&self.connection).await?;
+                if trusted {
+                    let count: i64 = transaction
+                        .prepare("SELECT count(*) FROM link_peers")
+                        .await
+                        .map_err(storage_error)?
+                        .query_row(())
+                        .await
+                        .map_err(storage_error)?
+                        .get(0)
+                        .map_err(storage_error)?;
+                    if count >= 128 && !self.peers().await?.contains(&peer) {
+                        return Err(Fault::new(
+                            ErrorCode::Busy,
+                            "paired device capacity exhausted",
+                        ));
+                    }
+                    transaction
+                        .execute(
+                            "INSERT OR IGNORE INTO link_peers(identity) VALUES(?1)",
+                            [&peer.0[..]],
+                        )
+                        .await
+                        .map_err(storage_error)?;
+                } else {
+                    transaction
+                        .execute("DELETE FROM link_peers WHERE identity=?1", [&peer.0[..]])
+                        .await
+                        .map_err(storage_error)?;
                 }
-                transaction
-                    .execute(
-                        "INSERT OR IGNORE INTO link_peers(identity) VALUES(?1)",
-                        [&peer.0[..]],
-                    )
-                    .await
-                    .map_err(storage_error)?;
-            } else {
-                transaction
-                    .execute("DELETE FROM link_peers WHERE identity=?1", [&peer.0[..]])
-                    .await
-                    .map_err(storage_error)?;
+                conflict::commit(transaction).await
             }
-            conflict::commit(transaction).await?;
-            drop(write.take());
-            Ok(())
-        }
-        .await;
-        if let Some(write) = write {
+            .await;
             if let Err(error) = conflict::rollback(&self.connection).await {
                 self.connection.hold_write(write);
                 return Err(error);
             }
-            drop(write);
+            if !conflict::again(&result, attempt).await {
+                return result;
+            }
         }
-        result
+        unreachable!("the final attempt returns its result")
     }
 
     #[cfg(test)]

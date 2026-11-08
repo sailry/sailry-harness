@@ -88,19 +88,26 @@ Future<void> main() async {
         'revision_conflict',
     'stale pagination is rejected',
   );
-  final refresh = await connection.prepare(
-    command: jsonEncode({'kind': 'refresh_model_catalog'}),
-  );
+  final failed = (await execute(
+    connection,
+    'refresh_model_catalog',
+    null,
+  ))['data'];
   check(
-    jsonDecode(await connection.execute(request: refresh))['Err'] != null,
+    failed['fault']?['code'] == 'unavailable',
     'failed refresh is explicit',
+  );
+  final preserved = Map<String, dynamic>.from(failed)..['fault'] = null;
+  check(
+    jsonEncode(preserved) == jsonEncode(current),
+    'failure preserves old cache',
   );
   check(
     jsonEncode(
           (await execute(connection, 'read_catalog_status', null))['data'],
         ) ==
-        jsonEncode(current),
-    'failure preserves old cache',
+        jsonEncode(failed),
+    'refresh failure remains visible in catalog status',
   );
   check(
     (await execute(connection, 'list_providers', null))['data'].isEmpty,
@@ -116,7 +123,7 @@ Future<void> main() async {
     jsonEncode(
           (await execute(connection, 'read_catalog_status', null))['data'],
         ) ==
-        jsonEncode(current),
+        jsonEncode(failed),
     'new controller resumes execution catalog',
   );
   check(

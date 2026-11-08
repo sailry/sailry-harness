@@ -234,14 +234,7 @@ Future<void> main() async {
   check(
     cancelled['calls'][1]['state'] == 'returned' &&
         cancelled['calls'][1]['approval']['state'] == 'cancelled' &&
-        interrupted['isError'] == true &&
-        canonicalJson(interrupted['content']) ==
-            canonicalJson([
-              {
-                'type': 'text',
-                'text': 'Tool call was interrupted before completing',
-              },
-            ]),
+        approvals.interrupted(interrupted),
     'stop retains the interrupted outcome and closes the pending approval',
   );
   final late = await connection.prepare(
@@ -257,7 +250,7 @@ Future<void> main() async {
   check(
     jsonDecode(await connection.execute(request: late))['Err']?['code'] ==
         'conflict',
-    'late approval cannot restart the stopped MCP server',
+    'late approval cannot dispatch the stopped MCP call',
   );
   await close();
   RustLib.dispose();

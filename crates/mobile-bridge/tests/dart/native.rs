@@ -136,7 +136,7 @@ fn resumes_without_source() {
                             .unwrap()
                             .iter()
                             .flat_map(|message| message["parts"].as_array().unwrap())
-                            .all(|part| part["inline_data"]["mime_type"] != mime)
+                            .all(|part| part["inlineData"]["mimeType"] != mime)
                     );
                 }
                 let serialized = request.body.to_string();
@@ -164,7 +164,7 @@ fn resumes_without_source() {
                 .flatten()
                 .find(|part| {
                     part["type"] == "document"
-                        || part["inline_data"]["mime_type"] == "application/pdf"
+                        || part["inlineData"]["mimeType"] == "application/pdf"
                 })
                 .expect("native PDF input expected");
             if api == ModelApi::Anthropic {
@@ -185,7 +185,7 @@ fn resumes_without_source() {
                         .contains(&format!("/models/{model}:streamGenerateContent"))
                 );
                 assert_eq!(request.body["generationConfig"]["maxOutputTokens"], 4096);
-                assert_eq!(pdf["inline_data"]["data"], encoded);
+                assert_eq!(pdf["inlineData"]["data"], encoded);
                 assert_eq!(
                     request.body["generationConfig"]["thinkingConfig"],
                     serde_json::json!({"thinkingBudget":1024,"includeThoughts":true})

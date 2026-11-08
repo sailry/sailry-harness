@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:sailry_bridge/api.dart';
 import 'package:sailry_bridge/frb_generated.dart';
+import 'approvals.dart' show interrupted;
 import 'conversation.dart' show canonicalJson, check, detail, execute, until;
 
 bool hasPending(Map<String, dynamic> snapshot) =>
@@ -266,19 +267,12 @@ Future<void> main() async {
   }).timeout(const Duration(seconds: 10));
   final closed = (cancelled['calls'] as List).single;
   final result = (await detail(connection, closed))['result'];
-  const interruptionMessage =
-      'tool call was interrupted; its outcome may be unknown; do not replay it automatically';
   check(
     closed['state'] == 'returned' &&
         closed['question']['state']['kind'] == 'cancelled' &&
         closed['question']['id'] == stopped['id'] &&
         !hasPending(cancelled['snapshot']) &&
-        canonicalJson(result) ==
-            canonicalJson({
-              'code': -32603,
-              'message': interruptionMessage,
-              'data': {'code': 'cancelled', 'message': interruptionMessage},
-            }),
+        interrupted(result),
     'stop retains the cancellation fault and closes the question: ${canonicalJson(result)}',
   );
   await reject(stopped['id'], text('too late'), 'conflict');

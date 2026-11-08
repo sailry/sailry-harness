@@ -3,7 +3,8 @@ import 'dart:io';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:sailry_bridge/api.dart';
 import 'package:sailry_bridge/frb_generated.dart';
-import 'conversation.dart' show check, detail, execute, trackedDetail, until;
+import 'conversation.dart'
+    show canonicalJson, check, detail, execute, trackedDetail, until;
 
 bool hasPending(Map<String, dynamic> snapshot) =>
     (snapshot['page']['approvals'] as List).any(
@@ -30,12 +31,15 @@ bool denied(Map<String, dynamic> result) =>
           content['text'] == 'Tool execution was denied.',
     );
 
-bool interrupted(Map<String, dynamic> result) =>
-    result['isError'] == true &&
-    (result['content'] as List).length == 1 &&
-    result['content'][0]['type'] == 'text' &&
-    result['content'][0]['text'] ==
-        'Tool call was interrupted before completing';
+bool interrupted(Map<String, dynamic> result) {
+  const message = 'Tool call was interrupted before completing';
+  return canonicalJson(result) ==
+      canonicalJson({
+        'code': -32603,
+        'message': message,
+        'data': {'code': 'outcome_unknown', 'message': message},
+      });
+}
 
 Future<void> main() async {
   final env = Platform.environment;

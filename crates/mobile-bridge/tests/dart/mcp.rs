@@ -96,22 +96,28 @@ fn controls_host_tools() {
         .unwrap()
         .parse()
         .unwrap();
-    let reaped = !std::process::Command::new("kill")
+    let running = std::process::Command::new("kill")
         .args(["-0", &pid.to_string()])
         .output()
         .unwrap()
         .status
         .success();
+    assert!(running, "shared MCP child must outlive the stopped turn");
     runtime.block_on(node.shutdown()).unwrap();
     assert!(status.success());
     assert!(
-        reaped,
-        "stopped MCP child must be reaped before Node shutdown"
+        !std::process::Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .output()
+            .unwrap()
+            .status
+            .success(),
+        "shared MCP child must be reaped during Node shutdown"
     );
     assert_eq!(pages[0].runs[0].status, Status::Completed);
     assert_eq!(pages[1].runs[0].status, Status::Cancelled);
     assert_eq!(fs::read_to_string(data.join("effects")).unwrap(), content);
-    assert_eq!(fs::read_to_string(data.join("launches")).unwrap(), "xx");
+    assert_eq!(fs::read_to_string(data.join("launches")).unwrap(), "x");
     assert!(!directory.path().join("controller/plugins").exists());
     runtime.block_on(async {
         let node = Node::start(directory.path().join("node")).await.unwrap();
@@ -135,7 +141,6 @@ fn controls_host_tools() {
         node.shutdown().await.unwrap();
     });
     assert_eq!(fs::read_to_string(data.join("effects")).unwrap(), content);
-    assert_eq!(fs::read_to_string(data.join("launches")).unwrap(), "xx");
     let requests = server.requests.lock().unwrap();
     assert_eq!(requests.len(), 6);
     let results: Vec<_> = requests[3]["messages"]

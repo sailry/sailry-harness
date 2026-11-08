@@ -7,6 +7,7 @@ missing, publication generates it from the tagged Git history.
 
 - Replace Goose execution with Sailry's Agent loop and Rig provider integration
 - Share MCP connections while isolating session cancellation, approvals and failures
+- Keep device pairing reliable during concurrent storage writes
 - Improve tool execution, Git pagination, file search and failure reporting
 - Add pinned sessions and terminals, project and branch menus, and model scores
 - Refine model controls, connector status, keyboard shortcuts and desktop updates
