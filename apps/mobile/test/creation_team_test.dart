@@ -162,6 +162,42 @@ void main() {
     expect(fixture.commands, hasLength(2));
   });
 
+  test('member model and effort retain features through admission', () async {
+    for (final features in <Map<String, String>?>[
+      {'speed': 'fast'},
+      {},
+      null,
+    ]) {
+      final fixture = Fixture();
+      addTearDown(fixture.dispose);
+      final draft = fixture.draft;
+      final member = {
+        ...reviewer,
+        'model': {...object(reviewer['model']), 'features': ?features},
+      };
+      fixture.host.snapshot['roles'] = [builder, member];
+      draft.configureMember(
+        'reviewer',
+        draft.team.choose(member, {
+          'provider': 'b',
+          'model': 'b-second',
+          'effort': 'default',
+        }),
+      );
+      draft.configureMember('reviewer', draft.team.effort(member, 'high'));
+      await draft.send(hasInput: true);
+      final models = object(fixture.commands.last.$2['models']);
+      expect(models, {
+        'reviewer': {
+          'provider': 'b',
+          'model': 'b-second',
+          'effort': 'high',
+          'features': ?features,
+        },
+      });
+    }
+  });
+
   test('chosen lead is restored before the first turn', () async {
     final fixture = Fixture();
     addTearDown(fixture.dispose);

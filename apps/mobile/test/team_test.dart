@@ -101,6 +101,59 @@ void main() {
   });
 
   group('SessionTeam', () {
+    test('member changes preserve explicit and inherited features', () {
+      for (final features in <Map<String, String>?>[
+        {'speed': 'fast'},
+        {},
+        null,
+      ]) {
+        for (final overridden in [false, true]) {
+          final model = {...reviewer['model']! as Map, 'features': ?features};
+          final member = {...reviewer, 'model': model};
+          final state = SessionTeam({
+            ...session(models: overridden ? {'role-review': model} : {}),
+            'config': {
+              'provider': 'p-lead',
+              'model': 'lead',
+              'features': {'speed': 'ultrafast'},
+            },
+          }, const []);
+          for (final choice in [
+            state.choose(member, {
+              'provider': 'p-new',
+              'model': 'new',
+              'effort': 'high',
+            }),
+            state.effort(member, 'high'),
+            state.effort(builder, 'high'),
+            state.choose(builder, {
+              'provider': 'p-new',
+              'model': 'new',
+              'effort': 'high',
+            }),
+          ].indexed) {
+            final output =
+                memberCommand(
+                      'session-1',
+                      8,
+                      choice.$1 < 2 ? 'role-review' : 'role-build',
+                      choice.$2,
+                    )['model']
+                    as Map;
+            final own = choice.$1 < 2;
+            expect(output.containsKey('features'), own && features != null);
+            expect(output['features'], own ? features : null);
+            expect(output['effort'], 'high');
+            expect(output['model'], switch (choice.$1) {
+              1 => 'own',
+              2 => 'lead',
+              _ => 'new',
+            });
+          }
+        }
+      }
+    });
+
     test("resolves current and captured member appearances", () {
       for (final (caseName, run) in <(String, void Function(String))>[
         (

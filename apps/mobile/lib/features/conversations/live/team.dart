@@ -57,12 +57,24 @@ class SessionTeam {
   Map<String, dynamic> selection(Map<String, dynamic>? member) =>
       (member == null ? null : model(member)) ?? config;
 
+  Map<String, dynamic> choose(
+    Map<String, dynamic> member,
+    Map<String, dynamic> choice,
+  ) {
+    final current = model(member);
+    return {
+      'provider': choice['provider'],
+      'model': choice['model'],
+      'effort': choice['effort'],
+      if (current?.containsKey('features') ?? false)
+        'features': current!['features'],
+    };
+  }
+
   /// A member's current model with another effort; a member following the
   /// Lead fixes the Lead model.
-  Map<String, dynamic> effort(Map<String, dynamic> member, Object? effort) => {
-    ...selection(member),
-    'effort': effort,
-  };
+  Map<String, dynamic> effort(Map<String, dynamic> member, Object? effort) =>
+      choose(member, {...selection(member), 'effort': effort});
 }
 
 /// Live team state and the owner's revision-checked team commands.
@@ -116,6 +128,7 @@ Map<String, dynamic> memberCommand(
           'provider': model['provider'],
           'model': model['model'],
           'effort': model['effort'],
+          if (model.containsKey('features')) 'features': model['features'],
         },
 };
 

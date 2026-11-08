@@ -190,6 +190,7 @@ class CreationDraft extends ChangeNotifier {
         'provider': model['provider'],
         'model': model['model'],
         'effort': model['effort'],
+        if (model.containsKey('features')) 'features': model['features'],
       };
     }
     if (_admitted != null) _stage = _Stage.team;

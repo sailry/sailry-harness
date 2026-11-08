@@ -201,7 +201,7 @@ class _ModelControlsState extends State<ModelControls> {
                     final latest = widget.team?.read().config ?? config;
                     _commit({...latest, ...choice});
                   } else {
-                    await _setMember(role, choice);
+                    await _setMember(role, state!.choose(member, choice));
                   }
                 },
           child: Row(
