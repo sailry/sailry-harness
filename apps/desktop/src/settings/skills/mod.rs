@@ -296,7 +296,13 @@ impl Workspace {
                 .clone()
                 .unwrap_or_else(|| skill.name.clone()),
             skill.description.clone(),
-            crate::plugins::emblem::render(&info.summary.name, Some(&icon), None, px(48.), cx),
+            crate::plugins::emblem::grid(
+                &info.summary.name,
+                info.extension.as_ref().and_then(|extension| extension.tint),
+                Some(&icon),
+                None,
+                px(48.),
+            ),
             cx,
         )
         .on_click(move |_, window, cx| {

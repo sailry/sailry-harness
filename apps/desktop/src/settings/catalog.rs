@@ -32,7 +32,7 @@ impl Workspace {
                                 "settings_build_release"
                             }),
                         ))
-                        .child(Row::new("settings_license", tr("settings_license_pending"))),
+                        .child(Row::new("settings_license", env!("CARGO_PKG_LICENSE"))),
                 )
                 .child(self.updater.clone())
                 .into_any_element(),
