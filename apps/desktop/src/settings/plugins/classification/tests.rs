@@ -30,6 +30,7 @@ fn provenance_and_ownership() {
                     transport: McpTransport::Stdio,
                     allowed: true,
                     availability: mcp::Availability::Available,
+                    runtime: None,
                 });
                 assert_eq!(
                     Kind::of(&info),

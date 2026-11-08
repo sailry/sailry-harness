@@ -39,7 +39,7 @@ fn fixture(method: Kind, fields: bool) -> (Connection, Type) {
 fn available_actions() {
     for (scenario, check) in [
         (
-            "uses_one_management_menu_for_every_method",
+            "labels_actions_by_authentication_method",
             (|_scenario: &str| {
                 for method in [
                     Kind::Secret,
@@ -49,14 +49,19 @@ fn available_actions() {
                     Kind::LocalCli,
                 ] {
                     let (row, kind) = fixture(method, false);
+                    let edit = match method {
+                        Kind::Oauth2 | Kind::McpOauth => "connector_reauthorize",
+                        Kind::LocalCli => "connector_bind",
+                        _ => "connector_configure",
+                    };
                     assert_eq!(
                         items(&row, Some(&kind)),
                         [
-                            Item::Action(Operation::Edit, "connector_configure"),
+                            Item::Action(Operation::Edit, edit),
                             Item::Action(Operation::Probe, "connector_probe"),
                             Item::Action(Operation::Remove, "connector_remove"),
                         ],
-                        "uses one management menu for every method"
+                        "labels actions by authentication method"
                     );
                 }
             }) as fn(&str),
@@ -89,10 +94,13 @@ fn available_actions() {
                             expected,
                             "checks only backend supported states"
                         );
-                        assert!(
-                            actions.contains(&Item::Action(Operation::Edit, "connector_configure")),
-                            "checks only backend supported states"
-                        );
+                        let edit = match state {
+                            State::NeedsConfirmation => "connector_confirm",
+                            State::NotConnected => "connector_connect",
+                            State::Connected => "connector_configure",
+                            _ => "connector_reauthorize",
+                        };
+                        assert!(actions.contains(&Item::Action(Operation::Edit, edit)));
                         assert!(
                             actions.contains(&Item::Action(Operation::Remove, "connector_remove")),
                             "checks only backend supported states"
@@ -109,7 +117,7 @@ fn available_actions() {
                 assert_eq!(
                     items(&row, Some(&kind)),
                     [
-                        Item::Action(Operation::Edit, "connector_configure"),
+                        Item::Action(Operation::Edit, "connector_reauthorize"),
                         Item::Action(Operation::Remove, "connector_remove"),
                     ],
                     "keeps disabled configuration accessible"

@@ -34,6 +34,7 @@ fn info(name: &str, servers: &[&str]) -> Info {
                 transport: McpTransport::StreamableHttp,
                 allowed: true,
                 availability: Availability::Available,
+                runtime: None,
             })
             .collect(),
         settings: None,
@@ -292,8 +293,8 @@ fn account_identity_and_configuration() {
         "configuration change: account"
     );
     assert_eq!(
-        super::super::status(&after[0]),
-        Some("connector_package_disabled"),
+        super::super::status::service(&after[0]),
+        None,
         "configuration change: disabled status"
     );
 }
@@ -306,7 +307,7 @@ fn keeps_anonymous_instances_accountless() {
     assert!(services[0].account.is_none());
     assert!(services[0].kind.is_none());
     assert!(services[0].allowed(&services[0].servers[0]));
-    assert!(super::super::status(&services[0]).is_none());
+    assert!(super::super::status::service(&services[0]).is_none());
 }
 
 #[test]
@@ -374,17 +375,109 @@ fn exposes_only_valid_legacy_switch_disablement() {
         changed.account.as_mut().unwrap().state = state;
         changed.servers[0].availability = availability;
         assert!(changed.allowed(&changed.servers[0]));
-        assert_eq!(super::super::status(&changed), Some(reason));
+        assert_eq!(super::super::status::service(&changed), None);
+        changed.account.as_mut().unwrap().enabled = true;
+        assert_eq!(
+            super::super::status::service(&changed),
+            Some(super::super::status::Status::Problem(reason)),
+        );
     }
     let mut disabled = service.clone();
     disabled.account.as_mut().unwrap().enabled = true;
     disabled.info.as_mut().unwrap().summary.enabled = false;
     disabled.servers[0].availability = Availability::PackageDisabled;
     assert!(disabled.allowed(&disabled.servers[0]));
-    assert_eq!(
-        super::super::status(&disabled),
-        Some("connector_package_disabled")
-    );
+    assert_eq!(super::super::status::service(&disabled), None);
     disabled.servers[0].allowed = false;
     assert!(!disabled.allowed(&disabled.servers[0]));
+}
+
+#[test]
+fn accountless_rows_follow_bound_availability() {
+    for availability in [Availability::Available, Availability::ConnectionRequired] {
+        let mut info = info("context", &["server"]);
+        info.mcp[0].availability = availability;
+        let mut kind = kind(&info, "account", &["server"]);
+        kind.declaration.fields[0].optional = availability == Availability::Available;
+        let services = directory(
+            std::slice::from_ref(&kind),
+            &[],
+            std::slice::from_ref(&info),
+        );
+        assert_eq!(services.len(), 1);
+        assert_eq!(services[0].key.member, Member::Connector("account".into()));
+        assert!(services[0].account.is_none());
+        assert_eq!(services[0].servers[0].availability, availability);
+        let account = account(&kind);
+        let connected = directory(
+            std::slice::from_ref(&kind),
+            std::slice::from_ref(&account),
+            std::slice::from_ref(&info),
+        );
+        assert_eq!(connected.len(), 1);
+        assert_eq!(connected[0].key.member, Member::Account(account.id));
+        info.summary.enabled = false;
+        assert!(
+            directory(
+                std::slice::from_ref(&kind),
+                &[],
+                std::slice::from_ref(&info)
+            )
+            .is_empty()
+        );
+    }
+}
+
+#[test]
+fn connector_identity_survives_display_changes() {
+    let info = info("service", &["read", "write"]);
+    let mut kinds = [
+        kind(&info, "personal", &["read"]),
+        kind(&info, "team", &["write"]),
+    ];
+    let before = directory(&kinds, &[], std::slice::from_ref(&info));
+    assert_eq!(before.len(), 2);
+    assert_ne!(before[0].key, before[1].key);
+    for kind in &mut kinds {
+        kind.declaration.display.label = "Service".into();
+    }
+    let after = directory(&kinds, &[], &[info]);
+    assert_eq!(
+        before
+            .into_iter()
+            .map(|service| service.key)
+            .collect::<BTreeSet<_>>(),
+        after.into_iter().map(|service| service.key).collect(),
+    );
+}
+
+#[test]
+fn authentication_filter_uses_declared_requirements() {
+    let anonymous = directory(&[], &[], &[manual("mcp-anonymous")]).remove(0);
+    assert!(anonymous.matches(filter::Method::None, ""));
+    assert!(anonymous.matches(filter::Method::All, ""));
+    assert!(!anonymous.matches(filter::Method::Secret, ""));
+    let info = info("optional", &["server"]);
+    let mut kind = kind(&info, "account", &["server"]);
+    kind.declaration.fields[0].optional = true;
+    let optional = directory(
+        std::slice::from_ref(&kind),
+        &[],
+        std::slice::from_ref(&info),
+    )
+    .remove(0);
+    assert!(!optional.matches(filter::Method::None, ""));
+    assert!(optional.matches(filter::Method::Secret, ""));
+    kind.declaration.auth.clear();
+    let anonymous = directory(&[kind], &[], &[info]).remove(0);
+    assert!(anonymous.matches(filter::Method::None, ""));
+    assert!(!anonymous.matches(filter::Method::Secret, ""));
+    let mut credential = manual("mcp-credential");
+    credential.mcp_source = Some(
+        serde_json::from_value(json!({
+            "type": "stdio", "command": "fixture", "args": [], "env": ["TOKEN"]
+        }))
+        .unwrap(),
+    );
+    assert!(!directory(&[], &[], &[credential])[0].matches(filter::Method::None, ""));
 }

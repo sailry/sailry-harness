@@ -100,6 +100,9 @@ impl EventEmitter<Event> for Registry {}
 impl Registry {
     pub(crate) fn set_visible(&self, visible: bool, cx: &App) {
         self.visible.set(visible);
+        if let Some(feed) = &self.status {
+            feed.set_visible(visible);
+        }
         for mounted in self.mounted.values() {
             mounted.panel.read(cx).set_visible(visible);
         }

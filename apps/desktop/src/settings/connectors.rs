@@ -7,6 +7,7 @@ mod editor;
 pub(in crate::settings) use editor::manage;
 mod filter;
 mod menu;
+pub(in crate::settings) mod status;
 use super::{Workspace, providers::Binding};
 use crate::tr;
 use gpui_kit::{
@@ -136,19 +137,20 @@ fn availability(value: sailry_protocol::plugin::mcp::Availability) -> Option<&'s
     }
 }
 
-fn status(service: &catalog::Service) -> Option<&'static str> {
+fn problem(service: &catalog::Service) -> Option<&'static str> {
     if !service.enabled() {
-        return Some("connector_package_disabled");
+        return None;
     }
     if service.manual() {
         return service
             .servers
             .iter()
+            .filter(|server| !status::disabled(server))
             .find_map(|server| availability(server.availability));
     }
     if let Some(account) = &service.account {
         if !account.enabled {
-            return Some("connector_account_disabled");
+            return None;
         }
         match account.state {
             connector::State::NotConnected => return Some("connector_not_connected"),
@@ -162,6 +164,7 @@ fn status(service: &catalog::Service) -> Option<&'static str> {
     service
         .servers
         .iter()
+        .filter(|server| !status::disabled(server))
         .find_map(|server| availability(server.availability))
         .or_else(|| {
             (service.servers.is_empty() && service.account.is_none())
@@ -441,7 +444,6 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let label = service.label();
-        let status = status(service);
         let description = service
             .account
             .as_ref()
@@ -475,7 +477,10 @@ impl Workspace {
             h_flex()
                 .items_center()
                 .gap_3()
-                .child(crate::plugins::emblem::surface(&label, None, px(36.)).child(icon.size_5()))
+                .child(
+                    crate::plugins::emblem::surface(&service.package.name, None, px(36.))
+                        .child(icon.size_5()),
+                )
                 .child(
                     v_flex()
                         .min_w_0()
@@ -484,10 +489,7 @@ impl Workspace {
                         .child(
                             h_flex()
                                 .gap_2()
-                                .child(div().truncate().child(label.clone()))
-                                .when_some(status, |row, key| {
-                                    row.child(Tag::new().child(tr(key)).xsmall())
-                                }),
+                                .child(div().truncate().child(label.clone())),
                         )
                         .child(
                             div()
@@ -544,7 +546,7 @@ fn title(navigation: &sailry_protocol::plugin::desktop::Navigation) -> String {
         .cloned()
         .unwrap_or_else(|| navigation.label.clone())
 }
-fn failure(error: Fault, window: &mut Window, cx: &mut App) {
+pub(in crate::settings) fn failure(error: Fault, window: &mut Window, cx: &mut App) {
     let key = match error.code {
         ErrorCode::RevisionConflict => "connector_conflict",
         ErrorCode::OutcomeUnknown => "connector_unknown",

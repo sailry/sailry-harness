@@ -6,6 +6,7 @@ use sailry_protocol::{
 };
 
 mod menu;
+mod view;
 pub(super) use menu::controls;
 
 pub(super) struct Details {
@@ -128,7 +129,12 @@ impl Details {
         let Some(service) = self.service(cx) else {
             return;
         };
-        if !service.enabled() || !self.pending.insert(server.name.clone()) {
+        if !service
+            .servers
+            .iter()
+            .any(|current| current.name == server.name && checkable(&service, current))
+            || !self.pending.insert(server.name.clone())
+        {
             return;
         }
         let package = service.package;
@@ -177,8 +183,14 @@ impl Details {
                         }
                         crate::feedback::toast(
                             window,
-                            tr("connector_checked"),
-                            notification::Notification::success(tr("connector_checked")),
+                            tr("connector_mcp_reconnect"),
+                            notification::Notification::success(
+                                rust_i18n::t!(
+                                    "connector_mcp_reconnected",
+                                    n = checked.result.tools.len()
+                                )
+                                .to_string(),
+                            ),
                             cx,
                         );
                     }
@@ -335,10 +347,12 @@ impl Details {
 fn checkable(service: &catalog::Service, server: &Mcp) -> bool {
     use sailry_protocol::plugin::mcp::Availability;
     service.enabled()
-        && matches!(
-            server.availability,
-            Availability::Available | Availability::ServerDisabled
-        )
+        && service
+            .account
+            .as_ref()
+            .is_none_or(|account| account.enabled)
+        && server.allowed
+        && server.availability == Availability::Available
 }
 
 fn same_toggle(request: &Request, expected: &Reference, name: &str, value: bool) -> bool {

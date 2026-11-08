@@ -5,6 +5,7 @@ use sailry_protocol::plugin::{Info, Mcp, Reference};
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum Member {
     Account(connector::Id),
+    Connector(String),
     Mcp,
 }
 
@@ -63,17 +64,32 @@ impl Service {
     }
 
     pub fn matches(&self, method: filter::Method, query: &str) -> bool {
-        let method_matches = match &self.account {
-            Some(account) => method.matches(account.method),
-            None => self
-                .kind
+        let method_matches = if method == filter::Method::All {
+            true
+        } else if method == filter::Method::None {
+            self.kind
                 .as_ref()
-                .map_or(method == filter::Method::All, |kind| {
-                    kind.declaration
-                        .auth
-                        .iter()
-                        .any(|auth| method.matches(auth.kind()))
-                }),
+                .is_some_and(|kind| kind.declaration.auth.is_empty())
+                || self.manual()
+                    && self.kind.is_none()
+                    && self
+                        .info
+                        .as_ref()
+                        .and_then(|info| info.mcp_source.as_ref())
+                        .is_some_and(|source| source.slots().is_empty())
+        } else {
+            match &self.account {
+                Some(account) => method.matches(account.method),
+                None => self
+                    .kind
+                    .as_ref()
+                    .map_or(method == filter::Method::All, |kind| {
+                        kind.declaration
+                            .auth
+                            .iter()
+                            .any(|auth| method.matches(auth.kind()))
+                    }),
+            }
         };
         method_matches
             && format!(
@@ -177,6 +193,42 @@ pub(super) fn collect(
                 })
                 .cloned()
                 .collect(),
+        });
+    }
+    for kind in types.iter().filter(|kind| kind.enabled) {
+        if accounts.iter().any(|account| {
+            account.package.name == kind.package.name && account.connector == kind.declaration.id
+        }) {
+            continue;
+        }
+        let Some(info) = metadata.get(&kind.package.name).filter(|info| {
+            info.summary.enabled
+                && info.mcp_source.is_none()
+                && info.summary.reference() == kind.package
+        }) else {
+            continue;
+        };
+        let servers = info
+            .mcp
+            .iter()
+            .filter(|server| {
+                crate::plugins::metadata::binds_server(&kind.declaration, &server.name)
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        if servers.is_empty() {
+            continue;
+        }
+        services.push(Service {
+            key: Key {
+                package: kind.package.name.clone(),
+                member: Member::Connector(kind.declaration.id.clone()),
+            },
+            package: kind.package.clone(),
+            kind: Some(kind.clone()),
+            account: None,
+            info: Some(info.clone()),
+            servers,
         });
     }
     services.sort_by_cached_key(|service| service.label().to_lowercase());

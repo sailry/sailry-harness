@@ -289,7 +289,8 @@ impl Workspace {
                 .channels
                 .sort_by(|left, right| left.name.cmp(&right.name).then(left.id.cmp(&right.id)));
             self.roles = self.role_catalog.accept(&snapshot.roles, &live.providers);
-            self.plugin_catalog.accept(snapshot, cx);
+            self.plugin_catalog
+                .accept(snapshot, &view.package_cursors, cx);
         }
         if let Some(plugins) = directory_plugins {
             self.read_channel_directory(plugins, cx);

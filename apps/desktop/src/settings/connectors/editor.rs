@@ -23,6 +23,10 @@ pub(super) fn open(
 ) {
     mount(owner, connection, None, None, window, cx);
 }
+
+pub(super) fn select(owner: Entity<Workspace>, kind: Type, window: &mut Window, cx: &mut App) {
+    mount(owner, None, Some(kind), None, window, cx);
+}
 pub(in crate::settings) fn manage(
     owner: Entity<Workspace>,
     package: sailry_protocol::plugin::Reference,
@@ -470,6 +474,31 @@ impl Editor {
         form.into_any_element()
     }
 
+    fn artwork(&self, size: Pixels, cx: &App) -> AnyElement {
+        let Some(kind) = self.kind() else {
+            return div().into_any_element();
+        };
+        let glyph = kind.declaration.display.icon.clone().or_else(|| {
+            self.owner
+                .read(cx)
+                .plugin_catalog
+                .metadata
+                .as_ref()
+                .and_then(|metadata| metadata.read(cx).entries.get(&kind.package.name))
+                .and_then(crate::plugins::emblem::glyph)
+                .cloned()
+        });
+        crate::plugins::emblem::surface(&kind.package.name, None, size)
+            .child(
+                glyph
+                    .as_ref()
+                    .map(crate::assets::icons::icon)
+                    .unwrap_or_else(|| Icon::new(gpui_kit::assets::IconName::Plug))
+                    .size(size * 0.5),
+            )
+            .into_any_element()
+    }
+
     fn normal(&self, cx: &mut Context<Self>) -> AnyElement {
         let Some(kind) = self.kind() else {
             return if self.target.is_some() {
@@ -494,10 +523,7 @@ impl Editor {
                         .on_click(cx.listener(|this, _, window, cx| this.back(window, cx))),
                 )
             })
-            .child(
-                crate::plugins::emblem::surface(&title, None, px(32.))
-                    .child(Icon::new(gpui_kit::assets::IconName::Plug).size_4()),
-            )
+            .child(self.artwork(px(32.), cx))
             .child(div().text_lg().font_semibold().child(title));
         let methods = TabBar::new("connector-methods")
             .segmented()

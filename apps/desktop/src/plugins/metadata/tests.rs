@@ -353,9 +353,44 @@ fn connected(name: &str) -> Info {
             transport: sailry_protocol::plugin::McpTransport::StreamableHttp,
             allowed: true,
             availability: sailry_protocol::plugin::mcp::Availability::Available,
+            runtime: None,
         })
         .into();
     value
+}
+
+#[test]
+fn runtime_refresh_preserves_last_availability() {
+    let mut cache = cache();
+    let mut github = connected("github");
+    github.mcp[0].runtime = Some(sailry_protocol::plugin::mcp::Runtime {
+        state: sailry_protocol::plugin::mcp::RuntimeState::Connected,
+        tools: 8,
+        fault: None,
+        updated_at_ms: 1,
+    });
+    let unrelated = info("other");
+    cache.expected = vec![github.summary.clone(), unrelated.summary.clone()];
+    cache.entries = BTreeMap::from([
+        ("github".into(), github.clone()),
+        ("other".into(), unrelated),
+    ]);
+    let stop = cache.stop.child_token();
+    cache.reads.insert(
+        "github".into(),
+        Read {
+            expected: github.summary.clone(),
+            stop: stop.clone(),
+            pending: true,
+            _task: None,
+        },
+    );
+    assert_eq!(
+        cache.changed(&BTreeSet::from(["github".into(), "other".into()])),
+        [github.summary.clone()]
+    );
+    assert!(stop.is_cancelled());
+    assert_eq!(cache.entries["github"], github);
 }
 
 #[test]

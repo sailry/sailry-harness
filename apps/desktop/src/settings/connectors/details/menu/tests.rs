@@ -34,6 +34,7 @@ fn service() -> catalog::Service {
             transport: sailry_protocol::plugin::McpTransport::Stdio,
             allowed: true,
             availability: Availability::Available,
+            runtime: None,
         }],
     }
 }
@@ -54,8 +55,9 @@ fn instance_actions() {
                     items(&service),
                     [
                         Item::Service(Operation::Configure, "connector_configure", true),
-                        Item::Service(Operation::Check, "connector_probe", true),
                         Item::Service(Operation::Remove, "connector_remove", true),
+                        Item::Service(Operation::Check, "connector_mcp_reconnect", true),
+                        Item::Service(Operation::Details, "connector_details", true),
                     ],
                     "exposes one instance menu"
                 );
@@ -94,8 +96,9 @@ fn instance_actions() {
                     items(&service),
                     [
                         Item::Account(Account::Edit, "connector_configure", true),
-                        Item::Account(Account::Probe, "connector_probe", true),
                         Item::Account(Account::Remove, "connector_remove", true),
+                        Item::Service(Operation::Check, "connector_mcp_reconnect", true),
+                        Item::Service(Operation::Details, "connector_details", true),
                     ],
                     "account management uses the actual id"
                 );
@@ -103,9 +106,9 @@ fn instance_actions() {
                 assert_eq!(
                     items(&service),
                     [
-                        Item::Account(Account::Edit, "connector_configure", false),
-                        Item::Account(Account::Probe, "connector_probe", false),
                         Item::Account(Account::Remove, "connector_remove", true),
+                        Item::Service(Operation::Check, "connector_mcp_reconnect", true),
+                        Item::Service(Operation::Details, "connector_details", true),
                     ],
                     "account management uses the actual id"
                 );
@@ -120,8 +123,8 @@ fn instance_actions() {
                     items(&service),
                     [
                         Item::Service(Operation::Configure, "connector_configure", true),
-                        Item::Service(Operation::Check, "connector_probe", false),
                         Item::Service(Operation::Remove, "connector_remove", true),
+                        Item::Service(Operation::Details, "connector_details", true),
                     ],
                     "disabled packages never offer a restore action"
                 );
@@ -141,8 +144,8 @@ fn instance_actions() {
                     items(&service),
                     [
                         Item::Service(Operation::Configure, "connector_configure", true),
-                        Item::Service(Operation::Check, "connector_probe", false),
                         Item::Service(Operation::Remove, "connector_remove", true),
+                        Item::Service(Operation::Details, "connector_details", true),
                     ],
                     "missing authorization keeps configuration reachable"
                 );
@@ -152,4 +155,63 @@ fn instance_actions() {
         eprintln!("case: {scenario}");
         check(scenario);
     }
+}
+
+#[test]
+fn accountless_authentication_actions() {
+    let mut service = service();
+    service.key.member = catalog::Member::Connector("account".into());
+    service.info.as_mut().unwrap().mcp_source = None;
+    service.kind = Some(
+        serde_json::from_value(serde_json::json!({
+            "package": service.package, "enabled": true,
+            "declaration": {
+                "id": "account", "display": {"label": "Account"}, "accounts": "single",
+                "origins": ["https://example.com"],
+                "auth": [{"kind": "secret", "fields": ["token"]}],
+                "fields": [{"name": "token", "title": "Token", "secret": true, "optional": true}],
+                "inject": [{"server": "server", "header": "Authorization"}]
+            }
+        }))
+        .unwrap(),
+    );
+    assert_eq!(
+        switch_target(&service),
+        Some(Toggle::Server("server".into()))
+    );
+    assert_eq!(
+        items(&service),
+        [
+            Item::Service(Operation::Credentials, "connector_add_credentials", true),
+            Item::Service(Operation::Check, "connector_mcp_reconnect", true),
+            Item::Service(Operation::Details, "connector_details", true),
+        ],
+    );
+    service.servers[0].availability = Availability::ConnectionRequired;
+    assert_eq!(
+        items(&service),
+        [
+            Item::Service(Operation::Credentials, "connector_connect", true),
+            Item::Service(Operation::Details, "connector_details", true),
+        ],
+    );
+    service.servers[0].availability = Availability::Available;
+    service.kind.as_mut().unwrap().declaration.auth.clear();
+    assert_eq!(
+        items(&service),
+        [
+            Item::Service(Operation::Check, "connector_mcp_reconnect", true),
+            Item::Service(Operation::Details, "connector_details", true),
+        ],
+    );
+}
+
+#[test]
+fn details_remain_available_during_reconnect() {
+    let details = Item::Service(Operation::Details, "connector_details", true);
+    let reconnect = Item::Service(Operation::Check, "connector_mcp_reconnect", true);
+    assert!(details.available(false, true));
+    assert!(!reconnect.available(false, false));
+    assert!(!reconnect.available(true, true));
+    assert!(reconnect.available(true, false));
 }

@@ -10,6 +10,7 @@ use sailry_protocol::{
 
 mod contents;
 mod history;
+mod mcp;
 mod permissions;
 use crate::settings::market::details::rows;
 mod versions;
@@ -51,6 +52,7 @@ pub(crate) struct Details {
     required: Option<String>,
     stop: CancellationToken,
     task: Option<Task<()>>,
+    reconnecting: std::collections::BTreeSet<String>,
 }
 
 impl Drop for Details {
@@ -166,6 +168,18 @@ fn mount(
         )
         .detach();
         cx.observe(&update_state, |_, _, cx| cx.notify()).detach();
+        if let Some(metadata) = owner.read(cx).plugin_catalog.metadata.clone() {
+            cx.observe(&metadata, |details: &mut Details, metadata, cx| {
+                if let Target::Installed(expected) = &details.target
+                    && let Some(info) = metadata.read(cx).entries.get(&expected.name)
+                    && info.summary.reference() == expected.reference()
+                {
+                    details.info = Some(info.clone());
+                    cx.notify();
+                }
+            })
+            .detach();
+        }
         if let Target::Catalog { market, .. } = &target
             && let Some(market) = market.upgrade()
         {
@@ -184,6 +198,7 @@ fn mount(
             required: None,
             stop,
             task: None,
+            reconnecting: Default::default(),
         }
     });
     details.update(cx, |_, cx| {

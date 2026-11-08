@@ -119,22 +119,27 @@ fn scoped_results_and_drafts() {
             }),
         ),
         (
-            "permits_explicit_checks_before_agent_enablement",
+            "reconnect_requires_an_available_enabled_server",
             (|_scenario: &str| {
                 let service = service();
                 let mut server = Mcp {
                     name: "server".into(),
                     host: None,
                     transport: sailry_protocol::plugin::McpTransport::StreamableHttp,
-                    allowed: false,
-                    availability: Availability::ServerDisabled,
+                    allowed: true,
+                    availability: Availability::Available,
+                    runtime: None,
                 };
                 assert!(
                     checkable(&service, &server),
-                    "permits explicit checks before agent enablement"
+                    "reconnect requires an available enabled server"
                 );
+                server.allowed = false;
+                assert!(!checkable(&service, &server));
+                server.allowed = true;
                 for unavailable in [
                     Availability::PackageDisabled,
+                    Availability::ServerDisabled,
                     Availability::ConfigurationRequired,
                     Availability::ConnectionRequired,
                     Availability::ConnectionDisabled,
@@ -145,7 +150,7 @@ fn scoped_results_and_drafts() {
                     server.availability = unavailable;
                     assert!(
                         !checkable(&service, &server),
-                        "permits explicit checks before agent enablement"
+                        "reconnect requires an available enabled server"
                     );
                 }
             }),
@@ -201,6 +206,7 @@ fn scoped_results_and_drafts() {
                     transport: sailry_protocol::plugin::McpTransport::Stdio,
                     allowed: true,
                     availability: Availability::Available,
+                    runtime: None,
                 }];
                 let mut drafts = BTreeMap::from([("server".into(), false)]);
                 retain_drafts(&mut drafts, &BTreeSet::new(), &BTreeMap::new(), &service);

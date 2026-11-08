@@ -11,6 +11,7 @@ pub(in crate::settings) struct Catalog {
     pub(in crate::settings) updates: Option<Entity<super::updates::State>>,
     pub(super) inventory: Option<super::inventory::Inventory>,
     actions: std::collections::BTreeMap<String, Action>,
+    cursors: std::collections::BTreeMap<String, u64>,
     pub(in crate::settings) error: Option<&'static str>,
     pub(in crate::settings) required: Option<(String, Binding)>,
 }
@@ -70,7 +71,34 @@ impl Catalog {
         Some((action.binding.clone(), action.request.clone()))
     }
 
-    pub(in crate::settings) fn accept(&mut self, snapshot: &Snapshot, cx: &mut App) {
+    fn changed(
+        &mut self,
+        packages: &[Summary],
+        cursors: &std::collections::BTreeMap<String, u64>,
+    ) -> std::collections::BTreeSet<String> {
+        let changed = packages
+            .iter()
+            .filter(|package| {
+                self.packages.contains(package)
+                    && self.cursors.get(&package.name).is_some_and(|previous| {
+                        cursors
+                            .get(&package.name)
+                            .is_some_and(|current| previous != current)
+                    })
+            })
+            .map(|package| package.name.clone())
+            .collect();
+        self.cursors.clone_from(cursors);
+        changed
+    }
+
+    pub(in crate::settings) fn accept(
+        &mut self,
+        snapshot: &Snapshot,
+        cursors: &std::collections::BTreeMap<String, u64>,
+        cx: &mut App,
+    ) {
+        let changed = self.changed(&snapshot.plugins, cursors);
         self.packages = snapshot.plugins.clone();
         if let Some(state) = &self.updates {
             state.update(cx, |state, cx| {
@@ -79,7 +107,10 @@ impl Catalog {
             });
         }
         if let Some(metadata) = &self.metadata {
-            metadata.update(cx, |metadata, cx| metadata.accept(&snapshot.plugins, cx));
+            metadata.update(cx, |metadata, cx| {
+                metadata.accept(&snapshot.plugins, cx);
+                metadata.refresh_packages(&changed, cx);
+            });
         }
     }
 }

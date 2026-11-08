@@ -62,7 +62,7 @@ impl Details {
 }
 
 impl Details {
-    pub(super) fn contents(&self, info: &Info, cx: &App) -> AnyElement {
+    pub(super) fn contents(&self, info: &Info, cx: &Context<Self>) -> AnyElement {
         let locale = rust_i18n::locale();
         let mut body = v_flex().gap_5();
         if let Some(extension) = &info.extension
@@ -149,7 +149,21 @@ impl Details {
                         |host| format!("{transport} · {host}"),
                     );
                     let allowed = matches!(self.target, Target::Installed(_));
-                    let action = div().when(allowed, |view| {
+                    let owner = cx.entity();
+                    let selected = server.name.clone();
+                    let action = h_flex().gap_2().items_center()
+                        .child(crate::settings::connectors::status::view(
+                            crate::settings::connectors::status::server(info.summary.enabled, server), cx))
+                        .when(allowed, |view| view.child(
+                            Button::new(format!("plugin-mcp-reconnect-{}", server.name))
+                                .ghost().small().icon(IconName::RotateCw)
+                                .accessibility_label(tr("connector_mcp_reconnect"))
+                                .disabled(self.pending(cx) || !info.summary.enabled || !server.allowed
+                                    || server.availability != sailry_protocol::plugin::mcp::Availability::Available
+                                    || self.reconnecting.contains(&server.name))
+                                .on_click(move |_, window, cx| owner.update(cx, |details, cx| details.reconnect(selected.clone(), window, cx)))
+                        ))
+                        .when(allowed, |view| {
                         view.child(
                             Button::new(SharedString::from(format!(
                                 "plugin-mcp-auth-{}",
@@ -170,7 +184,7 @@ impl Details {
                             }),
                         )
                     });
-                    rows::row(
+                    v_flex().gap_2().child(rows::row(
                         format!("plugin-mcp-{}", server.name),
                         IconName::Server,
                         server.name.clone(),
@@ -178,7 +192,8 @@ impl Details {
                         action,
                         cx,
                     )
-                    .font_family(cx.theme().mono_font_family.clone())
+                    .font_family(cx.theme().mono_font_family.clone()))
+                    .child(crate::settings::connectors::status::information(info.summary.enabled, server, cx))
                     .into_any_element()
                 })
                 .collect();

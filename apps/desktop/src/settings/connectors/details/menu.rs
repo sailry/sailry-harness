@@ -8,7 +8,9 @@ use gpui_kit::component::{
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Operation {
     Configure,
+    Credentials,
     Check,
+    Details,
     Remove,
 }
 
@@ -39,50 +41,81 @@ impl Item {
             Self::Account(_, _, enabled) | Self::Service(_, _, enabled) => enabled,
         }
     }
+
+    fn available(self, online: bool, busy: bool) -> bool {
+        self.enabled()
+            && (matches!(self, Self::Service(Operation::Details, _, _)) || online && !busy)
+    }
 }
 
 fn items(service: &catalog::Service) -> Vec<Item> {
-    if service.manual() {
-        return vec![
+    let mut items = if service.manual() {
+        vec![
             Item::Service(
                 Operation::Configure,
                 "connector_configure",
                 service.info.is_some(),
             ),
             Item::Service(
-                Operation::Check,
-                "connector_probe",
-                service
-                    .servers
-                    .iter()
-                    .any(|server| checkable(service, server)),
-            ),
-            Item::Service(
                 Operation::Remove,
                 "connector_remove",
                 service.info.is_some(),
             ),
-        ];
-    }
-    let Some(account) = &service.account else {
-        return Vec::new();
+        ]
+    } else if let Some(account) = &service.account {
+        super::super::menu::items(account, service.kind.as_ref())
+            .into_iter()
+            .filter(|entry| {
+                service.servers.is_empty()
+                    || !matches!(
+                        entry,
+                        super::super::menu::Item::Action(super::super::menu::Operation::Probe, _)
+                    )
+            })
+            .map(|super::super::menu::Item::Action(operation, label)| {
+                Item::Account(operation, label, true)
+            })
+            .collect()
+    } else {
+        service
+            .kind
+            .as_ref()
+            .filter(|kind| !kind.declaration.auth.is_empty())
+            .map(|_| {
+                vec![Item::Service(
+                    Operation::Credentials,
+                    if service.servers.iter().any(|server| {
+                        server.availability
+                            == sailry_protocol::plugin::mcp::Availability::ConnectionRequired
+                    }) {
+                        "connector_connect"
+                    } else {
+                        "connector_add_credentials"
+                    },
+                    service.enabled(),
+                )]
+            })
+            .unwrap_or_default()
     };
-    use super::super::menu::{Item as Entry, Operation as Account};
-    let available = super::super::menu::items(account, service.kind.as_ref());
-    [
-        (Account::Edit, "connector_configure"),
-        (Account::Probe, "connector_probe"),
-        (Account::Remove, "connector_remove"),
-    ]
-    .into_iter()
-    .map(|(operation, label)| {
-        Item::Account(
-            operation,
-            label,
-            available.contains(&Entry::Action(operation, label)),
-        )
-    })
-    .collect()
+    if service
+        .servers
+        .iter()
+        .any(|server| checkable(service, server))
+    {
+        items.push(Item::Service(
+            Operation::Check,
+            "connector_mcp_reconnect",
+            true,
+        ));
+    }
+    if !service.servers.is_empty() {
+        items.push(Item::Service(
+            Operation::Details,
+            "connector_details",
+            service.info.is_some(),
+        ));
+    }
+    items
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -92,13 +125,13 @@ enum Toggle {
 }
 
 fn switch_target(service: &catalog::Service) -> Option<Toggle> {
-    match service.key.member {
+    match &service.key.member {
         catalog::Member::Account(id) => service
             .account
             .as_ref()
-            .filter(|account| account.id == id)
+            .filter(|account| account.id == *id)
             .map(|account| Toggle::Account(account.id)),
-        catalog::Member::Mcp => match service.servers.as_slice() {
+        catalog::Member::Mcp | catalog::Member::Connector(_) => match service.servers.as_slice() {
             [server] => Some(Toggle::Server(server.name.clone())),
             _ => None,
         },
@@ -119,7 +152,33 @@ pub(in crate::settings::connectors) fn controls(
         "connector-controls-{}-{:?}",
         service.key.package, service.key.member
     );
-    let mut controls = h_flex().gap_2().items_center();
+    let mut controls = h_flex()
+        .gap_2()
+        .items_center()
+        .child(super::super::status::view(
+            super::super::status::service(service),
+            cx,
+        ));
+    if service.account.is_none()
+        && service.enabled()
+        && service.servers.iter().any(|server| {
+            !super::super::status::disabled(server)
+                && server.availability
+                    == sailry_protocol::plugin::mcp::Availability::ConnectionRequired
+        })
+        && let Some(kind) = service.kind.clone()
+    {
+        let connect = owner.clone();
+        controls = controls.child(
+            Button::new(format!("{id}-connect"))
+                .small()
+                .label(tr("connector_connect"))
+                .disabled(!online)
+                .on_click(move |_, window, cx| {
+                    super::super::editor::select(connect.clone(), kind.clone(), window, cx)
+                }),
+        );
+    }
     let target = switch_target(service);
     if let Some(account) = service
         .account
@@ -213,7 +272,7 @@ pub(in crate::settings::connectors) fn controls(
                             let owner = menu_owner.clone();
                             menu.item(
                                 PopupMenuItem::new(tr(entry.label()))
-                                    .disabled(!entry.enabled() || !online || busy)
+                                    .disabled(!entry.available(online, busy))
                                     .on_click(move |_, window, cx| {
                                         if let Some(owner) = owner.upgrade() {
                                             dispatch(&owner, node, &service, entry, window, cx);
@@ -290,7 +349,7 @@ impl Workspace {
         let mut menu = Menu::new("");
         for entry in items(service) {
             let item = match entry {
-                Item::Account(operation, label, enabled) => {
+                Item::Account(operation, label, _) => {
                     let Some(account) = &service.account else {
                         continue;
                     };
@@ -298,9 +357,9 @@ impl Workspace {
                         tr(label),
                         super::super::menu::Dispatch::new(account, operation, Some(node)),
                     )
-                    .disabled(!enabled || !online || busy)
+                    .disabled(!entry.available(online, busy))
                 }
-                Item::Service(operation, label, enabled) => MenuItem::action(
+                Item::Service(operation, label, _) => MenuItem::action(
                     tr(label),
                     Dispatch {
                         node,
@@ -309,7 +368,7 @@ impl Workspace {
                         operation,
                     },
                 )
-                .disabled(!enabled || !online || busy),
+                .disabled(!entry.available(online, busy)),
             };
             menu.items.push(item);
         }
@@ -353,7 +412,7 @@ impl Workspace {
         };
         if !items(&service).iter().any(|entry| matches!(entry, Item::Service(operation, _, true) if *operation == action.operation)) { return }
         let details = self.service_controller(&service, window, cx);
-        if !details.read(cx).pending.is_empty() {
+        if action.operation != Operation::Details && !details.read(cx).pending.is_empty() {
             return;
         }
         let owner = cx.entity();
@@ -386,6 +445,12 @@ impl Workspace {
                         details.check(server.clone(), window, cx);
                     }
                 }),
+                Operation::Details => view::open(details, window, cx),
+                Operation::Credentials => {
+                    if let Some(kind) = service.kind {
+                        super::super::editor::select(owner, kind, window, cx);
+                    }
+                }
                 Operation::Remove => {
                     if let Some(info) = service.info {
                         super::super::super::plugins::dialog::open(

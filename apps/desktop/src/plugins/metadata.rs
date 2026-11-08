@@ -198,6 +198,34 @@ impl Metadata {
         self.load(expected, cx);
     }
 
+    pub(crate) fn refresh_packages(&mut self, packages: &BTreeSet<String>, cx: &mut Context<Self>) {
+        let expected = self.changed(packages);
+        if !expected.is_empty() {
+            self.load(expected, cx);
+        }
+    }
+
+    fn changed(&mut self, packages: &BTreeSet<String>) -> Vec<Summary> {
+        let expected: Vec<_> = self
+            .expected
+            .iter()
+            .filter(|summary| {
+                packages.contains(&summary.name)
+                    && self
+                        .entries
+                        .get(&summary.name)
+                        .is_none_or(|info| !info.mcp.is_empty())
+            })
+            .cloned()
+            .collect();
+        for summary in &expected {
+            self.reads.remove(&summary.name);
+            self.errors.remove(&summary.name);
+            self.diagnostics.remove(&summary.name);
+        }
+        expected
+    }
+
     fn reset(&mut self, packages: &BTreeSet<String>) -> Vec<Summary> {
         let expected = self
             .expected

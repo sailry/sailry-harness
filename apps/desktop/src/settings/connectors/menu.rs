@@ -47,9 +47,28 @@ pub(super) fn checkable(row: &Connection) -> bool {
 
 pub(super) fn items(row: &Connection, kind: Option<&Type>) -> Vec<Item> {
     let mut entries = Vec::new();
-    if kind.is_some() {
-        entries.push(Item::Action(Operation::Edit, "connector_configure"));
-        if checkable(row) && kind.is_some_and(|kind| kind.enabled) {
+    if let Some(kind) = kind {
+        let label = if row.state == connector::State::NeedsConfirmation {
+            "connector_confirm"
+        } else {
+            match row.method {
+                connector::Kind::LocalCli => "connector_bind",
+                connector::Kind::Oauth2 | connector::Kind::McpOauth => {
+                    if row.state == connector::State::NotConnected {
+                        "connector_connect"
+                    } else if row.state != connector::State::Connected
+                        || kind.declaration.fields.is_empty()
+                    {
+                        "connector_reauthorize"
+                    } else {
+                        "connector_configure"
+                    }
+                }
+                connector::Kind::Secret | connector::Kind::Application => "connector_configure",
+            }
+        };
+        entries.push(Item::Action(Operation::Edit, label));
+        if checkable(row) && kind.enabled {
             entries.push(Item::Action(Operation::Probe, "connector_probe"));
         }
     }

@@ -7,7 +7,7 @@ enum Message {
     Attempt(connector::Attempt),
     State(LoginState),
     Saved(Connection),
-    Failed(Fault),
+    Failed(Fault, bool),
 }
 
 impl Editor {
@@ -168,8 +168,7 @@ impl Editor {
                             if let Some(reply) = browser_reply.take() {
                                 let _: Result<(), crate::oauth::page::Outcome> = reply.send(crate::oauth::page::Outcome::Cancelled);
                             }
-                            client.execute(cancellation.clone()).await?;
-                            return Ok(());
+                            return Err(Fault::new(ErrorCode::Cancelled, "connector login cancelled"));
                         },
                         returned = async {
                             match &mut callback_task {
@@ -223,7 +222,8 @@ impl Editor {
                 }
             };
             if let Err(error) = operation.await {
-                let _ = sender.send(Message::Failed(error));
+                let cancelled = !editing && matches!(client.execute(cancellation).await, Ok(Output::ConnectorLogin(_)));
+                let _ = sender.send(Message::Failed(error, cancelled));
             }
         });
         let keep_alive = cx.entity();
@@ -256,7 +256,7 @@ impl Editor {
                             {
                                 cx.open_url(url);
                             }
-                            this.flow = Some(state);
+                            this.flow = continuation(state);
                         }
                         Message::Saved(_connection) => {
                             this.request = None;
@@ -264,19 +264,23 @@ impl Editor {
                             this.pending = false;
                             this.closed = true;
                             window.close_dialog(cx);
-                            crate::feedback::toast(window, tr("connector_saved"), notification::Notification::success(tr("connector_saved")), cx);
+                            crate::feedback::toast(window, tr(success), notification::Notification::success(tr(success)), cx);
                         }
-                        Message::Failed(error) => {
-                            if !matches!(error.code, ErrorCode::OutcomeUnknown | ErrorCode::Unavailable) {
+                        Message::Failed(error, cancelled) => {
+                            if cancelled || !matches!(error.code, ErrorCode::OutcomeUnknown | ErrorCode::Unavailable) {
                                 this.request = None;
                                 this.callback = None;
                             }
                             this.pending = false;
-                            this.flow = interactive.then_some(LoginState::Failed(error.clone()));
-                            if editing {
-                                failure(error, window, cx);
-                            } else {
-                                crate::feedback::error(failure_key(error.code), "", &tr(failure_key(error.code)), window, cx);
+                            this.flow = interactive.then(|| continuation(if error.code == ErrorCode::Cancelled {
+                                LoginState::Cancelled
+                            } else { LoginState::Failed(error.clone()) })).flatten();
+                            if error.code != ErrorCode::Cancelled {
+                                if editing {
+                                    failure(error, window, cx);
+                                } else {
+                                    crate::feedback::error(failure_key(error.code), "", &tr(failure_key(error.code)), window, cx);
+                                }
                             }
                         }
                     }
@@ -319,18 +323,22 @@ impl Editor {
             .kind()
             .map(|kind| super::super::title(&kind.declaration.display))
             .unwrap_or_default();
-        Authorization::new(
-            crate::plugins::emblem::surface(&title, None, px(TILE))
-                .child(Icon::new(gpui_kit::assets::IconName::Plug).size_6()),
-            title,
-            flow,
-        )
-        .busy(matches!(
-            self.flow,
-            Some(LoginState::Starting | LoginState::Exchanging)
-        ))
-        .on_refresh(move |window, cx| owner.update(cx, |this, cx| this.submit(false, window, cx)))
-        .into_any_element()
+        Authorization::new(self.artwork(px(TILE), cx), title, flow)
+            .busy(matches!(
+                self.flow,
+                Some(LoginState::Starting | LoginState::Exchanging)
+            ))
+            .on_refresh(move |window, cx| {
+                owner.update(cx, |this, cx| this.submit(false, window, cx))
+            })
+            .into_any_element()
+    }
+}
+
+fn continuation(state: LoginState) -> Option<LoginState> {
+    match state {
+        LoginState::Cancelled | LoginState::Connected(_) => None,
+        state => Some(state),
     }
 }
 
@@ -343,9 +351,9 @@ fn success_key(method: Kind, configuring: bool) -> &'static str {
         return "connector_saved";
     }
     match method {
-        Kind::Oauth2 | Kind::McpOauth => "connector_authorized",
+        Kind::Oauth2 | Kind::McpOauth => "connector_connected",
         Kind::LocalCli => "connector_bound",
-        Kind::Secret | Kind::Application => "connector_saved",
+        Kind::Secret | Kind::Application => "connector_connected",
     }
 }
 
@@ -360,9 +368,22 @@ fn failure_key(code: ErrorCode) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::super::submit_key;
-    use super::{failure_key, success_key, updates};
+    use super::{continuation, failure_key, success_key, updates};
     use sailry_protocol::ErrorCode;
-    use sailry_protocol::plugin::connector::Kind;
+    use sailry_protocol::plugin::connector::{Kind, LoginState};
+
+    #[test]
+    fn cancellation_returns_to_form() {
+        assert!(continuation(LoginState::Cancelled).is_none());
+        assert!(matches!(
+            continuation(LoginState::Starting),
+            Some(LoginState::Starting)
+        ));
+        assert!(matches!(
+            continuation(LoginState::Exchanging),
+            Some(LoginState::Exchanging)
+        ));
+    }
 
     #[test]
     fn configuration_and_binding() {
@@ -402,10 +423,10 @@ mod tests {
                         );
                         let (submit, success) = match method {
                             Kind::Oauth2 | Kind::McpOauth => {
-                                ("connector_authorize", "connector_authorized")
+                                ("connector_authorize", "connector_connected")
                             }
                             Kind::LocalCli => ("connector_bind", "connector_bound"),
-                            _ => ("settings_save", "connector_saved"),
+                            _ => ("settings_save", "connector_connected"),
                         };
                         assert_eq!(
                             submit_key(method, false, false),

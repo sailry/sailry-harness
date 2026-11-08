@@ -45,6 +45,7 @@ pub(super) struct Feed {
     open: BTreeMap<Key, bool>,
     pending: BTreeMap<Key, Pending>,
     stop: CancellationToken,
+    visibility: watch::Sender<bool>,
     _watcher: tokio::task::JoinHandle<()>,
     _updates: Task<()>,
 }
@@ -79,14 +80,15 @@ impl Drop for Feed {
 }
 
 impl Feed {
-    fn new(binding: &Binding, scope: FeedScope, cx: &mut Context<Registry>) -> Self {
+    fn new(binding: &Binding, scope: FeedScope, visible: bool, cx: &mut Context<Registry>) -> Self {
         let (updates, view) = watch::channel(feed::View::default());
         let mut receiver = view.clone();
         let stop = CancellationToken::new();
         let cancellation = stop.clone();
         let client = binding.client.clone();
+        let (visibility, receiver_visibility) = watch::channel(visible);
         let watcher = binding.runtime.spawn(async move {
-            client.watch_status(scope, updates, cancellation).await;
+            observe(client, scope, updates, receiver_visibility, cancellation).await;
         });
         let node = binding.client.target();
         let updates = cx.spawn(async move |registry, cx| {
@@ -117,9 +119,20 @@ impl Feed {
             open: BTreeMap::new(),
             pending: BTreeMap::new(),
             stop,
+            visibility,
             _watcher: watcher,
             _updates: updates,
         }
+    }
+
+    pub(super) fn set_visible(&self, visible: bool) {
+        self.visibility.send_if_modified(|current| {
+            if *current == visible {
+                return false;
+            }
+            *current = visible;
+            true
+        });
     }
 
     fn key(&self, entry: &feed::Entry) -> Key {
@@ -235,7 +248,7 @@ impl Registry {
         if self.surface != Surface::Composer || !scope.valid() {
             self.status = None;
         } else if self.status.is_none() {
-            self.status = Some(Feed::new(binding, scope, cx));
+            self.status = Some(Feed::new(binding, scope, self.visible.get(), cx));
         }
     }
 
@@ -425,6 +438,24 @@ impl Registry {
         );
         cx.notify();
         Ok(())
+    }
+}
+
+async fn observe(
+    client: Arc<sailry_client::Client>,
+    scope: FeedScope,
+    updates: watch::Sender<feed::View>,
+    mut visibility: watch::Receiver<bool>,
+    stop: CancellationToken,
+) {
+    loop {
+        let visible = *visibility.borrow_and_update();
+        tokio::select! {
+            biased;
+            _ = stop.cancelled() => return,
+            result = visibility.changed() => if result.is_err() { return; },
+            _ = client.watch_status(scope, updates.clone(), stop.clone()), if visible => return,
+        }
     }
 }
 

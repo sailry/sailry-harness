@@ -50,6 +50,7 @@ impl Editor {
                     .display
                     .icon
                     .as_ref()
+                    .or_else(|| info.and_then(crate::plugins::emblem::glyph))
                     .map(crate::assets::icons::icon)
                     .unwrap_or_else(|| Icon::new(gpui_kit::assets::IconName::Plug));
                 let accessibility = match &description {
@@ -59,7 +60,7 @@ impl Editor {
                 Some(
                     Row::new(format!("connector-type-{index}"), label.clone())
                         .leading(
-                            crate::plugins::emblem::surface(&label, None, px(32.))
+                            crate::plugins::emblem::surface(&kind.package.name, None, px(32.))
                                 .child(icon.size_5()),
                         )
                         .when_some(description, |row, description| row.subtitle(description))

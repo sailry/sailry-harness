@@ -5,6 +5,7 @@ use gpui_kit::component::searchable_list::SearchableListItem;
 pub(super) enum Method {
     #[default]
     All,
+    None,
     Oauth,
     Application,
     Secret,
@@ -12,8 +13,9 @@ pub(super) enum Method {
 }
 
 impl Method {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::All,
+        Self::None,
         Self::Oauth,
         Self::Application,
         Self::Secret,
@@ -23,6 +25,7 @@ impl Method {
     pub fn matches(self, kind: connector::Kind) -> bool {
         match self {
             Self::All => true,
+            Self::None => false,
             Self::Oauth => matches!(kind, connector::Kind::Oauth2 | connector::Kind::McpOauth),
             Self::Application => kind == connector::Kind::Application,
             Self::Secret => kind == connector::Kind::Secret,
@@ -37,6 +40,7 @@ impl SearchableListItem for Method {
     fn title(&self) -> SharedString {
         tr(match self {
             Self::All => "connector_all_methods",
+            Self::None => "connector_no_auth",
             Self::Oauth => "connector_oauth",
             Self::Application => "connector_application",
             Self::Secret => "connector_token",

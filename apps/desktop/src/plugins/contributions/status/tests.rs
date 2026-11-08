@@ -3,6 +3,8 @@ use core::prelude::v1::test;
 use sailry_protocol::{Command, plugin::Context};
 use serde_json::json;
 
+mod visibility;
+
 fn source() -> feed::Entry {
     serde_json::from_value(json!({
         "package": {"name": "fixture", "digest": "captured", "settings_revision": 3},
