@@ -28,6 +28,8 @@ pub(crate) fn init(cx: &mut App) {
     crate::resources::init(cx);
     crate::terminal::init(cx);
     crate::conversation::live::shortcuts::init(cx);
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    crate::browser::shortcuts::init(cx);
     cx.bind_keys([
         KeyBinding::load("secondary-q", Box::new(Quit), None, false, None, cx)
             .expect("static shortcut"),

@@ -150,6 +150,7 @@ pub(crate) struct View {
     attachments: attachments::Drafts,
     images: Entity<attachments::images::Images>,
     scroller: Entity<MessageScrollerState>,
+    transcript_focus: FocusHandle,
     message_display: crate::preferences::MessageDisplay,
     message_text_size: u8,
     rows: Vec<TurnId>,
@@ -489,6 +490,7 @@ impl View {
             attachments,
             images,
             scroller,
+            transcript_focus: cx.focus_handle(),
             message_display: crate::preferences::data(cx)
                 .message_display
                 .unwrap_or_default(),
@@ -817,6 +819,7 @@ impl Render for View {
             ))
             .child(
                 div()
+                    .track_focus(&self.transcript_focus)
                     .debug_selector(|| "live-history-viewport".into())
                     .flex_1()
                     .min_h_0()

@@ -373,11 +373,6 @@ fn preserves_wire_and_validation() {
                     );
                 }
                 for key in [
-                    "",
-                    " ",
-                    "ctrl-g ctrl-g ctrl-g",
-                    "ctrl-g\nctrl-g",
-                    "中文",
                     "secondary-n",
                     "cmd-alt-n",
                     "ctrl-o",
@@ -396,6 +391,16 @@ fn preserves_wire_and_validation() {
                     "escape",
                     "up",
                     "secondary-n secondary-p",
+                ] {
+                    desktop.renderers[0].shortcut = Some(key.into());
+                    assert!(desktop.valid(), "{scenario}");
+                }
+                for key in [
+                    "",
+                    " ",
+                    "ctrl-g ctrl-g ctrl-g",
+                    "ctrl-g\nctrl-g",
+                    "中文",
                     &"x".repeat(129),
                 ] {
                     desktop.renderers[0].shortcut = Some(key.into());

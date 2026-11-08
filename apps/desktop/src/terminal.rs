@@ -42,10 +42,11 @@ fn failure(error: &sailry_protocol::Fault) -> &'static str {
 }
 
 pub(crate) fn init(cx: &mut App) {
+    let (right, down) = split_keys(cx.platform_info().os);
     for (key, action) in [
         ("ctrl-shift-`", NewTerminal.boxed_clone()),
-        ("secondary-d", SplitTerminalRight.boxed_clone()),
-        ("secondary-shift-d", SplitTerminalDown.boxed_clone()),
+        (right, SplitTerminalRight.boxed_clone()),
+        (down, SplitTerminalDown.boxed_clone()),
     ] {
         cx.bind_keys([KeyBinding::load(
             key,
@@ -150,6 +151,14 @@ pub(crate) fn init(cx: &mut App) {
         .expect("static shortcut"),
         KeyBinding::new("escape", Close, Some("TerminalSearch > Input")),
     ]);
+}
+
+fn split_keys(os: OperatingSystem) -> (&'static str, &'static str) {
+    if os == OperatingSystem::Mac {
+        ("cmd-d", "cmd-shift-d")
+    } else {
+        ("ctrl-shift-d", "ctrl-shift-alt-d")
+    }
 }
 
 pub(crate) struct View {

@@ -2,6 +2,21 @@ use super::*;
 use core::prelude::v1::test;
 
 #[test]
+fn split_preserves_terminal_eof() {
+    assert_eq!(split_keys(OperatingSystem::Mac), ("cmd-d", "cmd-shift-d"));
+    for os in [OperatingSystem::Windows, OperatingSystem::Linux] {
+        let (right, down) = split_keys(os);
+        assert_eq!((right, down), ("ctrl-shift-d", "ctrl-shift-alt-d"));
+        for key in [right, down] {
+            assert_ne!(
+                Keystroke::parse_with_os(key, os).unwrap(),
+                Keystroke::parse_with_os("ctrl-d", os).unwrap()
+            );
+        }
+    }
+}
+
+#[test]
 fn selection_and_attachment() {
     for (scenario, check) in [
         (

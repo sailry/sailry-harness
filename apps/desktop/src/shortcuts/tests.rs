@@ -191,6 +191,11 @@ fn defaults_include_cross_platform_commands(cx: &mut TestAppContext) {
                 1
             );
         }
+        let (split_right, split_down) = if cx.platform_info().os == OperatingSystem::Mac {
+            ("secondary-d", "secondary-shift-d")
+        } else {
+            ("ctrl-shift-d", "ctrl-shift-alt-d")
+        };
         for key in [
             "secondary-n",
             "secondary-alt-n",
@@ -205,8 +210,8 @@ fn defaults_include_cross_platform_commands(cx: &mut TestAppContext) {
             "secondary-shift-m",
             "shift-tab",
             "ctrl-shift-`",
-            "secondary-d",
-            "secondary-shift-d",
+            split_right,
+            split_down,
         ] {
             assert_eq!(
                 save("app.search", Some(key), cx),
@@ -278,5 +283,139 @@ fn existing_override_precedes_new_default(cx: &mut TestAppContext) {
         save("app.search", None, cx).unwrap();
         save("panel.toggle", None, cx).unwrap();
         assert_eq!(key("panel.toggle", cx).as_deref(), Some("secondary-alt-b"));
+    });
+}
+
+#[gpui::test]
+fn restores_fixed_binding_after_override_reset(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        let mut preferences = crate::preferences::Preferences::default();
+        preferences.data.shortcuts = Some(std::collections::BTreeMap::from([(
+            "app.search".into(),
+            "secondary-l".into(),
+        )]));
+        cx.set_global(preferences);
+        crate::shell::shortcuts::init(cx);
+        init(cx);
+        let focus = crate::conversation::live::shortcuts::FocusComposer;
+        assert_eq!(key("app.search", cx).as_deref(), Some("secondary-l"));
+        assert_eq!(
+            cx.key_bindings()
+                .borrow()
+                .bindings_for_action(&focus)
+                .count(),
+            0
+        );
+        save("app.search", Some("secondary-l"), cx).unwrap();
+        save("app.search", None, cx).unwrap();
+        assert_eq!(
+            cx.key_bindings()
+                .borrow()
+                .bindings_for_action(&focus)
+                .count(),
+            1
+        );
+    });
+}
+
+#[test]
+fn preserves_terminal_control_keys() {
+    let terminal = [
+        KeyContext::parse("Sailry").unwrap(),
+        KeyContext::parse("SailryTerminal").unwrap(),
+    ];
+    for os in [
+        OperatingSystem::Mac,
+        OperatingSystem::Windows,
+        OperatingSystem::Linux,
+    ] {
+        let predicate = KeyBindingContextPredicate::parse(application_context(os)).unwrap();
+        assert_eq!(predicate.depth_of(&terminal[..1]), Some(1));
+        assert_eq!(
+            predicate.depth_of(&terminal),
+            (os == OperatingSystem::Mac).then_some(1)
+        );
+    }
+}
+
+#[gpui::test]
+fn mode_cycle_requires_composer_context(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        crate::conversation::live::shortcuts::init(cx);
+        let bindings = cx.key_bindings();
+        let bindings = bindings.borrow();
+        let binding = bindings
+            .bindings_for_action(&crate::conversation::live::shortcuts::CycleMode)
+            .next()
+            .unwrap();
+        let predicate = binding.predicate().unwrap();
+        let question = [
+            KeyContext::parse("LiveConversation").unwrap(),
+            KeyContext::parse("Input").unwrap(),
+        ];
+        assert_eq!(predicate.depth_of(&question), None);
+        let composer = [
+            question[0].clone(),
+            KeyContext::parse("ConversationComposer").unwrap(),
+            question[1].clone(),
+        ];
+        assert_eq!(predicate.depth_of(&composer), Some(2));
+    });
+}
+
+#[gpui::test]
+fn renderer_conflicts_follow_platform_bindings(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        cx.set_global(crate::preferences::Preferences::default());
+        crate::shell::shortcuts::init(cx);
+        init(cx);
+        assert!(renderer_conflict("secondary-n", cx));
+        assert!(renderer_conflict("secondary-l", cx));
+        assert!(renderer_conflict("shift-tab", cx));
+        assert_eq!(
+            renderer_conflict("ctrl-n", cx),
+            cx.platform_info().os != OperatingSystem::Mac
+        );
+    });
+}
+
+#[gpui::test]
+fn installed_resource_remains_available(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        cx.set_global(crate::preferences::Preferences::default());
+        crate::shell::shortcuts::init(cx);
+        init(cx);
+        let shortcut = "secondary-t";
+        assert!(!renderer_conflict(shortcut, cx));
+        let bindings = crate::ui::keys::Bindings::new(cx);
+        bindings.update(cx, |bindings, cx| {
+            bindings.replace(
+                vec![
+                    KeyBinding::load(
+                        shortcut,
+                        Box::new(crate::resources::shortcuts::OpenResource(
+                            sailry_protocol::plugin::desktop::ResourceKind::Browser,
+                        )),
+                        Some(
+                            KeyBindingContextPredicate::parse(&bindings.context())
+                                .unwrap()
+                                .into(),
+                        ),
+                        false,
+                        None,
+                        cx,
+                    )
+                    .unwrap(),
+                ],
+                cx,
+            );
+        });
+        assert!(!renderer_conflict(shortcut, cx));
+        save("app.search", Some("secondary-alt-j"), cx).unwrap();
+        assert!(!renderer_conflict(shortcut, cx));
+        assert!(renderer_conflict("secondary-l", cx));
     });
 }

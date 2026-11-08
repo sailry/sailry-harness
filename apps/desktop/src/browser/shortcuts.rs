@@ -3,65 +3,25 @@ use super::*;
 
 actions!(sailry, [NewBrowserTab, ReloadBrowser]);
 
-pub(super) fn init(cx: &mut App) {
-    if cx
-        .key_bindings()
-        .borrow()
-        .bindings_for_action(&NewBrowserTab)
-        .next()
-        .is_none()
-    {
-        for (key, action) in [
-            ("secondary-t", NewBrowserTab.boxed_clone()),
-            ("secondary-r", ReloadBrowser.boxed_clone()),
-        ] {
-            cx.bind_keys([KeyBinding::load(
-                key,
-                action,
-                Some(
-                    KeyBindingContextPredicate::parse("SailryBrowser")
-                        .expect("static shortcut context")
-                        .into(),
-                ),
-                false,
-                None,
-                cx,
-            )
-            .expect("static shortcut")]);
-        }
+pub(crate) fn init(cx: &mut App) {
+    #[derive(Default)]
+    struct Installed;
+    impl Global for Installed {}
+    if cx.has_global::<Installed>() {
+        return;
     }
-    if cx
-        .key_bindings()
-        .borrow()
-        .bindings_for_action(&annotation::SelectElement)
-        .next()
-        .is_none()
-    {
+    cx.set_global(Installed);
+    let actions = [
+        ("secondary-t", NewBrowserTab.boxed_clone()),
+        ("secondary-r", ReloadBrowser.boxed_clone()),
+        ("secondary-shift-c", annotation::SelectElement.boxed_clone()),
+        #[cfg(target_os = "macos")]
+        ("secondary-shift-i", inspector::Inspect.boxed_clone()),
+    ];
+    for (key, action) in actions {
         cx.bind_keys([KeyBinding::load(
-            "secondary-shift-c",
-            Box::new(annotation::SelectElement),
-            Some(
-                KeyBindingContextPredicate::parse("SailryBrowser")
-                    .expect("static shortcut context")
-                    .into(),
-            ),
-            false,
-            None,
-            cx,
-        )
-        .expect("static shortcut")]);
-    }
-    #[cfg(target_os = "macos")]
-    if cx
-        .key_bindings()
-        .borrow()
-        .bindings_for_action(&inspector::Inspect)
-        .next()
-        .is_none()
-    {
-        cx.bind_keys([KeyBinding::load(
-            "secondary-shift-i",
-            Box::new(inspector::Inspect),
+            key,
+            action,
             Some(
                 KeyBindingContextPredicate::parse("SailryBrowser")
                     .expect("static shortcut context")

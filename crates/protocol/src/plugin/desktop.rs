@@ -266,7 +266,6 @@ impl Manifest {
                             && key
                                 .bytes()
                                 .all(|byte| byte.is_ascii_graphic() || byte == b' ')
-                            && !reserved_shortcut(key)
                     })
                     && (match renderer.resource {
                         ResourceKind::Terminal => renderer
@@ -301,53 +300,6 @@ impl Manifest {
             } else {
                 valid_paths(self.resources.iter().map(String::as_str))
             }
-    }
-}
-
-fn reserved_shortcut(key: &str) -> bool {
-    let key = key.split_whitespace().next().unwrap_or_default();
-    let mut parts = key.rsplit('-');
-    let key = parts.next().unwrap_or_default();
-    let mut primary = false;
-    let mut platform = false;
-    let mut control = false;
-    let mut alt = false;
-    let mut shift = key.len() == 1 && key.as_bytes()[0].is_ascii_uppercase();
-    let key = key.to_ascii_lowercase();
-    for modifier in parts {
-        match modifier.to_ascii_lowercase().as_str() {
-            "secondary" => primary = true,
-            "cmd" | "super" | "win" => {
-                primary = true;
-                platform = true;
-            }
-            "ctrl" => control = true,
-            "alt" => alt = true,
-            "shift" => shift = true,
-            _ => return false,
-        }
-    }
-    if !primary && !control {
-        return !alt
-            && matches!(
-                (shift, key.as_str()),
-                (false, "escape" | "up") | (true, "tab")
-            );
-    }
-    if platform && control {
-        return false;
-    }
-    match (alt, shift, key.as_str()) {
-        (
-            false,
-            false,
-            "n" | "o" | "k" | "b" | "/" | "." | "l" | "enter" | "q" | "w" | "," | "f" | "d",
-        ) => true,
-        (true, false, "n" | "b") => true,
-        (false, true, "r" | "[" | "]" | "m" | "d") => true,
-        (true, false, "space") => control,
-        (false, true, "`") => control,
-        _ => false,
     }
 }
 

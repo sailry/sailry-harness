@@ -5,18 +5,26 @@ use sailry_protocol::conversation::{Entry, Part};
 actions!(sailry, [StopTurn, FocusComposer, CycleMode, ModelControls]);
 
 pub(crate) fn init(cx: &mut App) {
-    for (key, action) in [
-        ("escape", Escape.boxed_clone()),
-        ("secondary-.", StopTurn.boxed_clone()),
-        ("secondary-l", FocusComposer.boxed_clone()),
-        ("shift-tab", CycleMode.boxed_clone()),
-        ("secondary-shift-m", ModelControls.boxed_clone()),
+    for (key, action, context) in [
+        ("escape", Escape.boxed_clone(), "LiveConversation"),
+        ("secondary-.", StopTurn.boxed_clone(), "LiveConversation"),
+        (
+            "secondary-l",
+            FocusComposer.boxed_clone(),
+            "LiveConversation",
+        ),
+        ("shift-tab", CycleMode.boxed_clone(), "ConversationComposer"),
+        (
+            "secondary-shift-m",
+            ModelControls.boxed_clone(),
+            "LiveConversation",
+        ),
     ] {
         cx.bind_keys([KeyBinding::load(
             key,
             action,
             Some(
-                KeyBindingContextPredicate::parse("LiveConversation")
+                KeyBindingContextPredicate::parse(context)
                     .expect("static shortcut context")
                     .into(),
             ),
@@ -38,12 +46,15 @@ enum EscapeTarget {
 }
 
 fn escape_target(
+    focused: bool,
     composing: bool,
     references: bool,
     selection: bool,
     running: bool,
 ) -> EscapeTarget {
-    if composing {
+    if !focused {
+        EscapeTarget::None
+    } else if composing {
         EscapeTarget::Composition
     } else if references {
         EscapeTarget::References
@@ -61,6 +72,13 @@ fn last_message(entries: &[Entry]) -> Option<String> {
         .iter()
         .filter(|entry| entry.author == "user")
         .max_by_key(|entry| entry.sequence)?;
+    if entry
+        .parts
+        .iter()
+        .any(|part| !matches!(part, Part::Text(_)))
+    {
+        return None;
+    }
     let text: String = entry
         .parts
         .iter()
@@ -74,14 +92,22 @@ fn last_message(entries: &[Entry]) -> Option<String> {
 
 impl View {
     pub(super) fn escape(&mut self, _: &Escape, window: &mut Window, cx: &mut Context<Self>) {
-        let composing = self.input.update(cx, |input, cx| {
-            input.marked_text_range(window, cx).is_some()
-        });
-        let selection = self.input.read(cx).selected_range();
+        let composer = self.input.read(cx).focus_handle(cx).is_focused(window);
+        let transcript = self.transcript_focus.is_focused(window);
+        let composing = composer
+            && self.input.update(cx, |input, cx| {
+                input.marked_text_range(window, cx).is_some()
+            });
+        let selection = if composer {
+            self.input.read(cx).selected_range()
+        } else {
+            0..0
+        };
         match escape_target(
+            composer || transcript,
             composing,
-            self.references.open,
-            !selection.is_empty() || self.selection.is_some(),
+            composer && self.references.open,
+            (composer && !selection.is_empty()) || (transcript && self.selection.is_some()),
             !self.readonly() && self.active_run().is_some(),
         ) {
             EscapeTarget::Composition => {
@@ -90,7 +116,7 @@ impl View {
             }
             EscapeTarget::References => self.reference_action("escape", window, cx),
             EscapeTarget::Selection => {
-                if !selection.is_empty() {
+                if composer && !selection.is_empty() {
                     self.input.update(cx, |input, cx| {
                         input.set_selected_range(selection.end..selection.end, cx)
                     });
@@ -98,7 +124,10 @@ impl View {
                 self.dismiss_selection(cx);
             }
             EscapeTarget::Turn => self.stop(window, cx),
-            EscapeTarget::None => return,
+            EscapeTarget::None => {
+                cx.propagate();
+                return;
+            }
         }
         cx.stop_propagation();
         window.prevent_default();
@@ -163,9 +192,11 @@ impl View {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.input.update(cx, |input, cx| {
-            input.marked_text_range(window, cx).is_some()
-        }) {
+        if !self.input.read(cx).focus_handle(cx).is_focused(window)
+            || self.input.update(cx, |input, cx| {
+                input.marked_text_range(window, cx).is_some()
+            })
+        {
             cx.propagate();
             return;
         }
@@ -226,20 +257,27 @@ mod tests {
     #[test]
     fn escape_preserves_composition_and_selection() {
         assert_eq!(
-            escape_target(true, true, true, true),
+            escape_target(true, true, true, true, true),
             EscapeTarget::Composition
         );
         assert_eq!(
-            escape_target(false, true, true, true),
+            escape_target(true, false, true, true, true),
             EscapeTarget::References
         );
         assert_eq!(
-            escape_target(false, false, true, true),
+            escape_target(true, false, false, true, true),
             EscapeTarget::Selection
         );
-        assert_eq!(escape_target(false, false, false, true), EscapeTarget::Turn);
         assert_eq!(
-            escape_target(false, false, false, false),
+            escape_target(true, false, false, false, true),
+            EscapeTarget::Turn
+        );
+        assert_eq!(
+            escape_target(true, false, false, false, false),
+            EscapeTarget::None
+        );
+        assert_eq!(
+            escape_target(false, true, true, true, true),
             EscapeTarget::None
         );
     }
@@ -258,7 +296,7 @@ mod tests {
             search_suggestions: None,
             usage: None,
         };
-        let entries = [
+        let mut entries = [
             entry(1, "user", "Earlier"),
             entry(3, "user", "Latest"),
             entry(4, "assistant", "Answer"),
@@ -267,5 +305,9 @@ mod tests {
         assert_eq!(last_message(&entries).as_deref(), Some("Latest"));
         assert_eq!(last_message(&entries[2..]), None);
         assert_eq!(last_message(&[]), None);
+        entries[1]
+            .parts
+            .push(Part::Resource(serde_json::json!({"fixture": "attachment"})));
+        assert_eq!(last_message(&entries), None);
     }
 }

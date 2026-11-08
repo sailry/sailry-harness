@@ -228,6 +228,54 @@ fn refresh_override_after_browser(cx: &mut TestAppContext) {
     refresh_override(true, cx);
 }
 
+#[gpui::test]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn existing_override_survives_initialization(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        let mut preferences = crate::preferences::Preferences::default();
+        preferences.data.shortcuts = Some(std::collections::BTreeMap::from([(
+            "app.search".into(),
+            "secondary-t".into(),
+        )]));
+        cx.set_global(preferences);
+        crate::shell::shortcuts::init(cx);
+        crate::shortcuts::init(cx);
+        for _ in 0..2 {
+            shortcuts::init(cx);
+            assert_eq!(
+                cx.key_bindings()
+                    .borrow()
+                    .bindings_for_action(&shortcuts::NewBrowserTab)
+                    .count(),
+                0
+            );
+            assert!(!shortcuts::script(cx).contains("\"action\":\"new-tab\""));
+        }
+        crate::shortcuts::save("app.search", Some("secondary-t"), cx).unwrap();
+        shortcuts::init(cx);
+        assert_eq!(
+            cx.key_bindings()
+                .borrow()
+                .bindings_for_action(&shortcuts::NewBrowserTab)
+                .count(),
+            0
+        );
+        crate::shortcuts::save("app.search", None, cx).unwrap();
+        for _ in 0..2 {
+            shortcuts::init(cx);
+            assert_eq!(
+                cx.key_bindings()
+                    .borrow()
+                    .bindings_for_action(&shortcuts::NewBrowserTab)
+                    .count(),
+                1
+            );
+            assert!(shortcuts::script(cx).contains("\"action\":\"new-tab\""));
+        }
+    });
+}
+
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 fn refresh_override(browser_first: bool, cx: &mut TestAppContext) {
     cx.update(|cx| {

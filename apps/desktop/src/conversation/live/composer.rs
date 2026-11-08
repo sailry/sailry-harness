@@ -186,6 +186,7 @@ impl View {
     ) -> Stateful<Div> {
         div()
             .id(selector)
+            .key_context("ConversationComposer")
             .debug_selector(move || selector.into())
             .capture_action(cx.listener(View::paste_attachments))
             .capture_action(cx.listener(|view, action: &Enter, window, cx| {
