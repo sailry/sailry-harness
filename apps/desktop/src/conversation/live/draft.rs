@@ -56,12 +56,27 @@ impl View {
         }
         let sources = self.bound_sources();
         let next_attachment = self.release_draft_attachments();
-        let mut next = Self::with_input(binding, None, Some(self.input.clone()), window, cx);
+        let same_node = binding.client.target() == self.binding.client.target();
+        let (node, defaults) = if same_node {
+            (self.node.clone(), self.defaults.clone())
+        } else {
+            (NodeView::default(), NodeView::default())
+        };
+        let mut next = Self::with_input(
+            binding,
+            None,
+            Some(self.input.clone()),
+            node,
+            defaults,
+            window,
+            cx,
+        );
         next.sidebar = self.sidebar;
         next.composer_options = self.composer_options;
-        if next.binding.client.target() == self.binding.client.target() {
+        if same_node {
             next.config = self.config.clone();
             next.config_owner = self.config_owner;
+            next.provider_ids = self.provider_ids.clone();
             next.draft_mode = self.draft_mode;
             next.draft_permission = self.draft_permission;
             next.team_draft = self.team_draft.clone();

@@ -18,7 +18,7 @@ impl Editor {
             choices.dedup_by_key(|route| route.protocol);
             let current = self.selected_route().cloned();
             let owner = cx.entity();
-            return h_flex()
+            return v_flex()
                 .w_full()
                 .gap_2()
                 .when(choices.len() > 1, |row| {
@@ -53,7 +53,7 @@ impl Editor {
         }
         let preset = self.preset;
         let disabled = self.editing.is_some() || self.provider.is_some() || self.pending;
-        h_flex()
+        v_flex()
             .debug_selector(|| "provider-kind-row".into())
             .w_full()
             .gap_2()

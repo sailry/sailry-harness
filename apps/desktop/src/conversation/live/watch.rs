@@ -69,10 +69,11 @@ impl View {
 pub(super) fn node(
     binding: &Binding,
     defaults: bool,
+    initial: NodeView,
     stop: &CancellationToken,
     cx: &mut Context<View>,
 ) -> Task<()> {
-    let (sender, mut receiver) = tokio::sync::watch::channel(NodeView::default());
+    let (sender, mut receiver) = tokio::sync::watch::channel(initial);
     let client = if defaults {
         binding.defaults.clone()
     } else {

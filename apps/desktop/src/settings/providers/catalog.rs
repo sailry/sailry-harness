@@ -259,14 +259,6 @@ impl Workspace {
                         "provider_catalog_never"
                     })),
             ))
-            // CC BY 4.0 attribution for the score data shown in model pickers.
-            .child(Row::new(
-                "provider_scores_source",
-                Button::new("model-scores-source")
-                    .link()
-                    .label("ModelDial · CC BY 4.0")
-                    .on_click(|_, _, cx| cx.open_url("https://modeldial.com/radar")),
-            ))
             .child(Row::new("provider_catalog_last_update", updated_at))
             .child(compaction)
     }

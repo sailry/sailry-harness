@@ -22,6 +22,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 pub(super) use live::Binding;
 pub(super) use live::Live;
 pub(super) use live::local as bind_local;
+pub(super) use live::model as configured_model;
 pub(crate) use live::{channel, logo};
 
 use super::{

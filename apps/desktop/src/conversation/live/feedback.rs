@@ -176,13 +176,19 @@ impl View {
 
     fn reconnect(&mut self, cx: &mut Context<Self>) {
         if self.node.error.is_some() {
-            self._node = watch::node(&self.binding, false, &self.stop, cx);
-            self._python = watch::python(&self.binding, &self.stop, cx);
             self.node.error = None;
+            self._node = watch::node(&self.binding, false, self.node.clone(), &self.stop, cx);
+            self._python = watch::python(&self.binding, &self.stop, cx);
         }
         if self.defaults.error.is_some() {
-            self._defaults = Some(watch::node(&self.binding, true, &self.defaults_stop, cx));
             self.defaults.error = None;
+            self._defaults = Some(watch::node(
+                &self.binding,
+                true,
+                self.defaults.clone(),
+                &self.defaults_stop,
+                cx,
+            ));
         }
         if let Some(session) = self.session() {
             let (subscription, older) =

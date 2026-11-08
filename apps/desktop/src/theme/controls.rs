@@ -1,6 +1,6 @@
 use super::*;
 use core::prelude::v1::test;
-use gpui_kit::component::{ThemeMode, button::ButtonVariants as _};
+use gpui_kit::component::ThemeMode;
 use gpui_kit::*;
 
 #[gpui::test]

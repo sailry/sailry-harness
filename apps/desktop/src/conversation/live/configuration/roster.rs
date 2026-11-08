@@ -314,12 +314,15 @@ impl View {
                     .models
                     .iter()
                     .find(|entry| entry.id == selection.model)?;
+                let mut features = self.member_model(role).and_then(|model| model.features);
+                if let Some(features) = &mut features {
+                    entry.retain_features(provider.api, features);
+                }
                 Some(role::Model {
                     provider: provider.id,
                     model: entry.id.clone(),
                     effort: entry.reasoning.then_some(effort),
-                    // An explicit choice survives a model change; Node keeps what it offers.
-                    features: self.member_model(role).and_then(|model| model.features),
+                    features,
                 })
             });
         if let Some(model) = model {

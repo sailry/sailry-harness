@@ -76,7 +76,7 @@ async fn releases_hidden_subscription_and_retains_view() {
     tokio::task::yield_now().await;
     assert!(received.try_recv().is_err());
     visibility.send_replace(true);
-    assert_eq!(next(&mut received).await, true);
+    assert!(next(&mut received).await);
     tokio::time::timeout(std::time::Duration::from_secs(2), view.changed())
         .await
         .unwrap()
@@ -84,12 +84,12 @@ async fn releases_hidden_subscription_and_retains_view() {
     assert!(view.borrow().connected);
     assert_eq!(view.borrow().entries.len(), 1);
     visibility.send_replace(false);
-    assert_eq!(next(&mut received).await, false);
+    assert!(!next(&mut received).await);
     assert_eq!(view.borrow().entries.len(), 1);
     visibility.send_replace(true);
-    assert_eq!(next(&mut received).await, true);
+    assert!(next(&mut received).await);
     stop.cancel();
-    assert_eq!(next(&mut received).await, false);
+    assert!(!next(&mut received).await);
     observer.await.unwrap();
 }
 

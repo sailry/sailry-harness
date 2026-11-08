@@ -148,18 +148,29 @@ impl ModelField {
         let Some(provider) = self.models.provider(event.selection.channel) else {
             return;
         };
+        let Some(channel) = self
+            .models
+            .channels
+            .iter()
+            .find(|channel| channel.id == event.selection.channel)
+        else {
+            return;
+        };
         let mut value = role::Model {
             provider,
             model: event.selection.model.clone(),
             effort: None,
             features: None,
         };
-        value.effort = self
-            .models
-            .find(&value)
-            .and_then(|model| draft::effort(model, Some(event.effort)));
-        // Node keeps only the explicit choices the new model offers.
+        let Some(model) = self.models.find(&value) else {
+            return;
+        };
+        value.effort = draft::effort(model, Some(event.effort));
         value.features = self.value.as_ref().and_then(|value| value.features.clone());
+        if let Some(features) = &mut value.features {
+            crate::settings::providers::configured_model(model)
+                .retain_features(channel.preset.api(), features);
+        }
         self.set(Some(value), cx);
     }
 

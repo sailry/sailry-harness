@@ -852,7 +852,6 @@ preset_gemini: Gemini
 preset_gemini_compatible: Gemini Compatible
 provider_catalog: 模型数据
 provider_scores: 模型评分
-provider_scores_source: 评分来源
 provider_scores_failed: 模型评分更新失败
 model_score_axis_backend: 后端
 model_score_axis_frontend: 前端

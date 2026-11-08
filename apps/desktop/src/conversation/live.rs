@@ -245,13 +245,23 @@ impl View {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        Self::with_input(binding, session, None, window, cx)
+        Self::with_input(
+            binding,
+            session,
+            None,
+            NodeView::default(),
+            NodeView::default(),
+            window,
+            cx,
+        )
     }
 
     fn with_input(
         binding: Binding,
         session: Option<Session>,
         input: Option<Entity<TextareaState>>,
+        node_view: NodeView,
+        defaults_view: NodeView,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -318,11 +328,11 @@ impl View {
         })
         .detach();
         let stop = CancellationToken::new();
-        let node = watch::node(&binding, false, &stop, cx);
+        let node = watch::node(&binding, false, node_view.clone(), &stop, cx);
         let python = watch::python(&binding, &stop, cx);
         let defaults_stop = stop.child_token();
         let defaults = (session.is_none() && binding.defaults.target() != binding.client.target())
-            .then(|| watch::node(&binding, true, &defaults_stop, cx));
+            .then(|| watch::node(&binding, true, defaults_view.clone(), &defaults_stop, cx));
         let (history, older) = session
             .as_ref()
             .map(|session| watch::history(&binding, session.id, History::default(), &stop, cx))
@@ -502,8 +512,8 @@ impl View {
             draft_permission: remembered.as_ref().map(|selection| selection.permission),
             preparing: None,
             session,
-            node: NodeView::default(),
-            defaults: NodeView::default(),
+            node: node_view,
+            defaults: defaults_view,
             history: History::default(),
             pending_history: None,
             history_window: window.window_handle(),

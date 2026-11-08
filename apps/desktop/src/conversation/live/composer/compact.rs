@@ -79,6 +79,7 @@ impl View {
         let panel = self.composer_settings.clone();
         let opening = panel.clone();
         let model = self.model_controls.clone();
+        let picker = self.model_picker.clone();
         let current = self
             .config
             .as_ref()
@@ -98,6 +99,7 @@ impl View {
         );
         crate::theme::popover(Popover::new("composer-settings-popover"), cx)
             .open(model.read(cx).opened)
+            .overlay_closable(false)
             .anchor(Anchor::BottomLeft)
             .bottom_2()
             .p_2()
@@ -117,7 +119,13 @@ impl View {
                     opening.update(cx, |panel, cx| panel.show(Page::Settings, window, cx));
                 }
             })
-            .content(move |_, _, _| panel.clone())
+            .content(move |_, _, cx| {
+                crate::model_picker::Picker::surface(
+                    picker.clone(),
+                    cx.entity().downgrade(),
+                    panel.clone(),
+                )
+            })
             .into_any_element()
     }
 

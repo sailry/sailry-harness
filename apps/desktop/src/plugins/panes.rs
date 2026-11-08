@@ -166,8 +166,7 @@ impl Shell {
                 } => {
                     shell.open_plugin_pane(
                         panel.clone(),
-                        event.package.clone(),
-                        *resource,
+                        (event.package.clone(), *resource),
                         title.clone(),
                         event.split,
                         window,
@@ -217,13 +216,13 @@ impl Shell {
     fn open_plugin_pane(
         &mut self,
         source: Entity<Panel>,
-        package: Reference,
-        resource: Resource,
+        resource: (Reference, Resource),
         title: String,
         split: Option<Split>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let (package, resource) = resource;
         let state = source.read(cx);
         if !state.connected
             || state.selected.as_ref() != Some(&package)
@@ -250,8 +249,7 @@ impl Shell {
             move |shell, window, cx| {
                 shell.open_plugin_pane(
                     source.clone(),
-                    package.clone(),
-                    resource,
+                    (package.clone(), resource),
                     title.clone(),
                     split,
                     window,

@@ -13,6 +13,8 @@ use std::rc::Rc;
 
 const PREFIX: &str = "element:";
 
+type Bindings = Vec<(usize, usize)>;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::conversation::live) struct Chip {
     pub key: usize,
@@ -108,9 +110,9 @@ pub(in crate::conversation::live) fn positions(
 pub(in crate::conversation::live) fn restore(
     chips: Vec<recovery::Chip>,
     count: usize,
-) -> Option<(Vec<Chip>, Vec<(usize, usize)>)> {
+) -> Option<(Vec<Chip>, Bindings)> {
     let mut restored: Vec<Chip> = Vec::new();
-    let mut bindings: Vec<(usize, usize)> = Vec::new();
+    let mut bindings: Bindings = Vec::new();
     for chip in chips {
         if chip.label.trim().is_empty()
             || restored

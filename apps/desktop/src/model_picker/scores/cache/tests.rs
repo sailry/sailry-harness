@@ -52,7 +52,7 @@ fn revision_invalidates_rows_and_misses() {
     });
     assert!(cache.loaded.is_empty());
     assert!(cache.rows.is_empty());
-    cache.merge(&[matched.clone()], response(4, &matched));
+    cache.merge(std::slice::from_ref(&matched), response(4, &matched));
     assert!(cache.rows.is_empty());
 }
 
@@ -102,7 +102,7 @@ fn providers_keep_identical_model_names_separate() {
     let mut cache = Cache::default();
     let first = reference(ProviderId::new());
     let second = reference(ProviderId::new());
-    cache.merge(&[first.clone()], response(0, &first));
+    cache.merge(std::slice::from_ref(&first), response(0, &first));
     assert!(cache.loaded.contains(&key(&first)));
     assert!(!cache.loaded.contains(&key(&second)));
     assert!(!cache.rows.contains_key(&key(&second)));

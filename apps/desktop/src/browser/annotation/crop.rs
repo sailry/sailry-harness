@@ -29,14 +29,12 @@ pub(crate) fn region(bounds: [f64; 4], viewport: [f64; 2], size: (u32, u32)) -> 
     let bottom = ((bounds[1] + bounds[3] + PADDING) * vertical)
         .ceil()
         .clamp(0., height);
-    (right > left && bottom > top).then(|| {
-        [
-            left as u32,
-            top as u32,
-            (right - left) as u32,
-            (bottom - top) as u32,
-        ]
-    })
+    (right > left && bottom > top).then_some([
+        left as u32,
+        top as u32,
+        (right - left) as u32,
+        (bottom - top) as u32,
+    ])
 }
 
 /// Crops an encoded viewport screenshot to the element as a JPEG.
