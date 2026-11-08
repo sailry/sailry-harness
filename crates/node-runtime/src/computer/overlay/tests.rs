@@ -58,7 +58,7 @@ printf '%s\n' "$*" >> "$home/calls"
 case "$*" in
   'session gc --ended')
     if [ "$mode" = slow_steps ]; then sleep 6; fi
-    printf '{"ok":true,"data":{"removed":[]}}' ;;
+    printf '{"version":"2.6","ok":true,"command":"session","data":{"removed":[]}}\n' ;;
   'session start --no-trace --name sailry')
     case "$mode" in
       failed) printf '{"ok":false,"error":{"code":"INTERNAL","message":"private content"}}'; exit 1 ;;
@@ -69,7 +69,7 @@ case "$*" in
     printf '%s' "$count" > "$home/count"
     session="run-fixture-$count"
     mkdir -p "$home/sessions/$session"
-    printf '{"id":"%s","name":"sailry","created_at":1,"ended_at":null,"trace":"off","artifacts":"events"}' "$session" > "$home/sessions/$session/session.json"
+    printf '{"id":"%s","name":"sailry","created_at":1,"trace":"off","artifacts":"events"}' "$session" > "$home/sessions/$session/session.json"
     if [ "$mode" = config_failed ]; then mkdir "$home/sessions/$session/cursor.png"; fi
     if [ "$mode" = stalled_start ]; then exec sleep 30; fi
     if [ "$mode" = slow_steps ]; then sleep 6; fi
@@ -77,7 +77,7 @@ case "$*" in
       sleep 30 &
       printf '%s' "$!" > "$home/stdout-child"
     fi
-    printf '{"ok":true,"data":{"session_id":"%s","trace":"off"}}\n' "$session" ;;
+    printf '{"version":"2.6","ok":true,"command":"session","data":{"activation":{"environment":"AGENT_DESKTOP_SESSION","value":"%s"},"artifacts":"events","created_at":1,"name":"sailry","next":"export AGENT_DESKTOP_SESSION=%s","session_id":"%s","trace":"off"}}\n' "$session" "$session" "$session" ;;
   'session list') cat "$home/list" ;;
   'session end '*)
     if [ -f "$home/end-failed" ]; then
@@ -85,7 +85,7 @@ case "$*" in
       exit 1
     fi
     printf '{"id":"%s","ended_at":1}' "$3" > "$home/sessions/$3/session.json"
-    printf '{"ok":true,"data":{}}' ;;
+    printf '{"version":"2.6","ok":true,"command":"session","data":{"ended_at":1,"session_id":"%s"}}\n' "$3" ;;
   *) exit 64 ;;
 esac
 "#,
@@ -265,6 +265,49 @@ esac
         std::fs::remove_file(fixture.home.join("mode")).unwrap();
         assert_eq!(fixture.attach(true).await.as_deref(), Some("run-fixture-2"));
         fixture.overlay.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn shutdown_interrupts_pending_start() {
+        let fixture = Fixture::new();
+        std::fs::write(fixture.home.join("mode"), "stalled_start").unwrap();
+        std::fs::write(
+            fixture.home.join("list"),
+            serde_json::to_vec(&json!({
+                "version": "2.6",
+                "ok": true,
+                "command": "session",
+                "data": {"sessions": [{
+                    "artifacts": "events",
+                    "created_at": 1,
+                    "ended_at": null,
+                    "name": "sailry",
+                    "session_id": "run-fixture-1",
+                    "trace": "off"
+                }]}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let shutdown = async {
+            while !fixture
+                .home
+                .join("sessions/run-fixture-1/session.json")
+                .exists()
+            {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            fixture.overlay.shutdown().await;
+        };
+        let (session, ()) = tokio::time::timeout(Duration::from_secs(3), async {
+            tokio::join!(fixture.attach(true), shutdown)
+        })
+        .await
+        .expect("shutdown must interrupt the helper start");
+        assert_eq!(session, None);
+        assert!(!active(&fixture.home, "run-fixture-1").await);
+        assert_eq!(fixture.calls().last().unwrap(), "session end run-fixture-1");
+        assert_eq!(fixture.attach(true).await, None);
     }
 
     #[tokio::test]

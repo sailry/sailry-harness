@@ -1,4 +1,5 @@
 use crate::{plugins::resources::mcp::Launch, process::Environment};
+use sailry_link::CancellationToken;
 use serde::Deserialize;
 use serde_json::Value;
 use std::{
@@ -23,13 +24,13 @@ const SESSION: &str = "AGENT_DESKTOP_SESSION";
 pub(crate) struct Overlay {
     state: Mutex<State>,
     ingress: OnceLock<Weak<crate::store::Ingress>>,
+    stopping: CancellationToken,
 }
 
 #[derive(Default)]
 struct State {
     homes: BTreeMap<PathBuf, Home>,
     allowed: BTreeMap<String, bool>,
-    closed: bool,
 }
 
 struct Home {
@@ -45,6 +46,7 @@ struct Invocation {
     cwd: PathBuf,
     env: BTreeMap<String, String>,
     environment: Environment,
+    stopping: CancellationToken,
 }
 
 #[derive(Deserialize)]
@@ -93,6 +95,7 @@ impl Overlay {
             cwd: cwd.clone(),
             env: env.clone(),
             environment: environment.clone(),
+            stopping: self.stopping.clone(),
         };
         if let Some(session) = self.ensure(package, enabled, home, invocation).await {
             env.entry(SESSION.into()).or_insert(session);
@@ -110,17 +113,19 @@ impl Overlay {
             report("lock", Some("TIMEOUT"));
             return None;
         };
-        if state.closed {
+        if self.stopping.is_cancelled() {
             return None;
         }
         let current = match self.ingress.get() {
             Some(ingress) => match ingress.upgrade() {
-                Some(ingress) => match tokio::time::timeout(
-                    DEADLINE,
-                    ingress.mcp_resources(Some(package.into())),
-                )
-                .await
-                {
+                Some(ingress) => match tokio::select! {
+                    biased;
+                    _ = self.stopping.cancelled() => return None,
+                    result = tokio::time::timeout(
+                        DEADLINE,
+                        ingress.mcp_resources(Some(package.into())),
+                    ) => result,
+                } {
                     Ok(resources) => Some(
                         resources
                             .map(|resources| resources.allows_overlay(package))
@@ -180,6 +185,9 @@ impl Overlay {
                 report("gc", Some(&code));
             }
         }
+        if self.stopping.is_cancelled() {
+            return None;
+        }
         match home
             .invocation
             .run(&["session", "start", "--no-trace", "--name", "sailry"])
@@ -188,10 +196,13 @@ impl Overlay {
         {
             Ok(session) => {
                 home.session = Some(session.clone());
-                if let Err(code) = tokio::time::timeout(DEADLINE, style::configure(&path, &session))
-                    .await
-                    .unwrap_or_else(|_| Err("TIMEOUT".into()))
-                {
+                let configured = tokio::select! {
+                    biased;
+                    _ = self.stopping.cancelled() => Err("CANCELLED".into()),
+                    result = tokio::time::timeout(DEADLINE, style::configure(&path, &session)) =>
+                        result.unwrap_or_else(|_| Err("TIMEOUT".into())),
+                };
+                if let Err(code) = configured {
                     report("configure", Some(&code));
                     home.end().await;
                     return None;
@@ -202,7 +213,7 @@ impl Overlay {
             }
             Err(code) => {
                 report("start", Some(&code));
-                if code == "TIMEOUT" {
+                if matches!(code.as_str(), "TIMEOUT" | "CANCELLED") {
                     home.sweep().await;
                 }
                 None
@@ -232,11 +243,9 @@ impl Overlay {
     }
 
     pub(crate) async fn shutdown(&self) {
+        self.stopping.cancel();
         let mut state = self.state.lock().await;
-        state.closed = true;
-        for home in state.homes.values_mut() {
-            home.end().await;
-        }
+        futures::future::join_all(state.homes.values_mut().map(Home::end)).await;
     }
 }
 
@@ -249,6 +258,7 @@ impl Home {
                 return;
             }
         };
+        let mut cleanup = Vec::new();
         for session in sessions["sessions"].as_array().into_iter().flatten() {
             if session["name"] != "sailry"
                 || session
@@ -261,12 +271,15 @@ impl Home {
                 continue;
             };
             if self.session.as_ref() != Some(&id) {
-                match self.invocation.run(&["session", "end", &id]).await {
-                    Ok(_) => report("orphan_end", None),
-                    Err(code) => report("orphan_end", Some(&code)),
-                }
+                cleanup.push(async move {
+                    match self.invocation.run(&["session", "end", &id]).await {
+                        Ok(_) => report("orphan_end", None),
+                        Err(code) => report("orphan_end", Some(&code)),
+                    }
+                });
             }
         }
+        futures::future::join_all(cleanup).await;
     }
 
     async fn end(&mut self) {
@@ -327,13 +340,20 @@ impl Invocation {
             }
             Ok(envelope.data)
         };
-        match tokio::time::timeout(DEADLINE, output).await {
-            Ok(result) => result,
-            Err(_) => {
-                let _ = child.kill().await;
-                Err("TIMEOUT".into())
-            }
+        let interruptible = matches!(args, ["session", "start", ..] | ["session", "gc", ..]);
+        let result = tokio::select! {
+            biased;
+            _ = self.stopping.cancelled(), if interruptible => Err("CANCELLED".into()),
+            result = tokio::time::timeout(DEADLINE, output) =>
+                result.unwrap_or_else(|_| Err("TIMEOUT".into())),
+        };
+        if result
+            .as_ref()
+            .is_err_and(|code| matches!(code.as_str(), "TIMEOUT" | "CANCELLED"))
+        {
+            let _ = child.kill().await;
         }
+        result
     }
 }
 

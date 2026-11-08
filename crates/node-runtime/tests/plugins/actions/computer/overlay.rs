@@ -15,29 +15,32 @@ async fn retains_and_releases_cursor_sessions() {
         helpers.join("agent-desktop")
     };
     fs::create_dir_all(executable.parent().unwrap()).unwrap();
-    fs::write(
-        root.join("binary"),
-        std::env::current_exe().unwrap().to_str().unwrap(),
-    )
-    .unwrap();
+    let peer = std::env::current_exe().unwrap();
+    #[cfg(target_os = "macos")]
+    let peer = {
+        let copied = root.join("mcp-peer");
+        fs::copy(&peer, &copied).unwrap();
+        copied
+    };
+    fs::write(root.join("binary"), peer.to_str().unwrap()).unwrap();
     let fixture = format!(
         "#!/bin/sh\nfixture='{}'\n{}",
         root.to_str().unwrap().replace('\'', "'\\''"),
         r#"home="$AGENT_DESKTOP_HOME"
 printf '%s|%s\n' "$*" "$AGENT_DESKTOP_SESSION" >> "$home/calls"
 case "$*" in
-  'session gc --ended') printf '{"ok":true,"data":{"removed":[]}}' ;;
+  'session gc --ended') printf '{"version":"2.6","ok":true,"command":"session","data":{"removed":[]}}\n' ;;
   'session start --no-trace --name sailry')
     count="$(cat "$home/count" 2>/dev/null || printf 0)"
     count=$((count + 1))
     printf '%s' "$count" > "$home/count"
     session="run-fixture-$count"
     mkdir -p "$home/sessions/$session"
-    printf '{"id":"%s","ended_at":null}' "$session" > "$home/sessions/$session/session.json"
-    printf '{"ok":true,"data":{"session_id":"%s","trace":"off"}}' "$session" ;;
+    printf '{"id":"%s","name":"sailry","created_at":1,"trace":"off","artifacts":"events"}' "$session" > "$home/sessions/$session/session.json"
+    printf '{"version":"2.6","ok":true,"command":"session","data":{"activation":{"environment":"AGENT_DESKTOP_SESSION","value":"%s"},"artifacts":"events","created_at":1,"name":"sailry","next":"export AGENT_DESKTOP_SESSION=%s","session_id":"%s","trace":"off"}}\n' "$session" "$session" "$session" ;;
   'session end '*)
     printf '{"id":"%s","ended_at":1}' "$3" > "$home/sessions/$3/session.json"
-    printf '{"ok":true,"data":{}}' ;;
+    printf '{"version":"2.6","ok":true,"command":"session","data":{"ended_at":1,"session_id":"%s"}}\n' "$3" ;;
   mcp)
     exec "$(cat "$fixture/binary")" --exact plugins::actions::computer::overlay::stdio_peer --ignored --nocapture --test-threads=1 ;;
   *) exit 64 ;;
