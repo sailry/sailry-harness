@@ -892,7 +892,6 @@ provider_configuration_invalid: "Проверьте модель и конфиг
 provider_models: "Модели"
 provider_model_id: "Идентификация модели"
 provider_context: "Контекстное ограничение (токен)"
-provider_advanced: "Дополнительно"
 provider_new_model: "Новая модель"
 provider_default: "Модель по умолчанию"
 provider_set_default: "Установить по умолчанию"

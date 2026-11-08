@@ -73,10 +73,11 @@ impl Workspace {
         let expanded = self.providers.expanded == Some(id);
         let theme = cx.theme();
         let subtitle = summary::subtitle(channel);
-        let subtitle = if self.provider_link.is_some() {
-            subtitle
+        let count = rust_i18n::t!("provider_model_count", count = channel.models.len());
+        let subtitle: SharedString = if self.provider_link.is_some() {
+            format!("{subtitle} · {count}").into()
         } else {
-            format!("{} · {subtitle}", tr("preview")).into()
+            format!("{} · {subtitle} · {count}", tr("preview")).into()
         };
         let details = v_flex()
             .id(("provider-details", id))
@@ -84,8 +85,8 @@ impl Workspace {
             .flex_1()
             .min_w_0()
             .overflow_hidden()
-            .gap_0p5()
             .cursor_pointer()
+            .line_height(relative(1.3))
             .when(!channel.enabled, |text| text.opacity(0.45))
             .on_click(cx.listener(move |this, _, _, cx| this.expand_provider(id, cx)))
             .child(
@@ -118,24 +119,8 @@ impl Workspace {
                 .child(div().size(px(6.)).rounded_full().bg(theme.warning))
                 .child(tr(status.key()))
                 .into_any_element(),
-            None => Button::new(("provider-models", id))
-                .ghost()
-                .small()
-                .flex_shrink_0()
-                .debug_selector(move || format!("provider-count-{id}"))
-                .label(
-                    rust_i18n::t!("provider_model_count", count = channel.models.len()).to_string(),
-                )
-                .child(
-                    Icon::new(if expanded {
-                        IconName::ChevronDown
-                    } else {
-                        IconName::ChevronRight
-                    })
-                    .xsmall(),
-                )
-                .on_click(cx.listener(move |this, _, _, cx| this.expand_provider(id, cx)))
-                .into_any_element(),
+            // The row itself expands; its model count sits in the subtitle.
+            None => div().into_any_element(),
         };
         let usage = Self::provider_usage(
             id,

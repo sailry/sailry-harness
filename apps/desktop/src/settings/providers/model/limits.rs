@@ -37,10 +37,19 @@ impl Editor {
             }));
         crate::ui::form::vertical()
             .child(
-                Field::new().label(tr("provider_context")).child(
+                // Title on the left and presets on the right share one row.
+                Field::new().child(
                     v_flex()
                         .gap_2()
-                        .child(h_flex().w_full().flex_wrap().gap_2().child(presets))
+                        .child(
+                            h_flex()
+                                .w_full()
+                                .items_center()
+                                .justify_between()
+                                .gap_2()
+                                .child(div().text_sm().font_medium().child(tr("provider_context")))
+                                .child(h_flex().flex_wrap().justify_end().gap_1().child(presets)),
+                        )
                         .child(
                             div()
                                 .debug_selector(move || format!("model-context-input-{key}"))

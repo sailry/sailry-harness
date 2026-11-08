@@ -998,7 +998,6 @@ provider_configuration_invalid: 请检查模型和接口配置
 provider_models: 模型
 provider_model_id: 模型 ID
 provider_context: 上下文容量（Tokens）
-provider_advanced: 高级设置
 provider_new_model: 新模型
 provider_default: 默认模型
 provider_set_default: 设为默认

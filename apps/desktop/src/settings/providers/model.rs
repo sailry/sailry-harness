@@ -7,7 +7,6 @@ use crate::tr;
 use crate::ui::modal_list::Row;
 use gpui_kit::component::{
     button::{Button, ButtonVariants},
-    collapsible::Collapsible,
     form::Field,
     input::{Input, InputState},
     *,
@@ -21,7 +20,6 @@ pub(super) struct Draft {
     context: Entity<InputState>,
     efforts: reasoning::Rows,
     pub expanded: bool,
-    pub advanced: bool,
     model: Model,
     missing: completion::Missing,
 }
@@ -74,7 +72,6 @@ impl Draft {
             }),
             efforts: reasoning::Rows::new(&model, window, cx),
             expanded: false,
-            advanced: false,
             model,
             missing: Default::default(),
         }
@@ -222,29 +219,7 @@ impl Editor {
                 .and_then(|value| value.reasoning)
                 != Some(false)
         {
-            let details = v_flex().gap_4().pt_3().child(self.reasoning(index, cx));
-            let advanced = Button::new(("model-advanced", key))
-                .debug_selector(move || format!("model-advanced-{key}"))
-                .text()
-                .label(tr("provider_advanced"))
-                .icon(if draft.advanced {
-                    IconName::ChevronDown
-                } else {
-                    IconName::ChevronRight
-                })
-                .on_click(cx.listener(move |editor, _, window, cx| {
-                    editor.models[index].advanced = !editor.models[index].advanced;
-                    if !editor.models[index].advanced {
-                        editor.focus.focus(window, cx);
-                    }
-                    cx.notify();
-                }));
-            content = content.child(
-                Collapsible::new()
-                    .open(draft.advanced)
-                    .child(h_flex().child(advanced))
-                    .content(details),
-            );
+            content = content.child(self.reasoning(index, cx));
         }
         content.into_any_element()
     }

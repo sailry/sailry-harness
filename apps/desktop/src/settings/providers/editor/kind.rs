@@ -19,11 +19,13 @@ impl Editor {
             let current = self.selected_route().cloned();
             let owner = cx.entity();
             return h_flex()
+                .w_full()
                 .gap_2()
                 .when(choices.len() > 1, |row| {
                     row.child(
                         Button::new("provider-api")
-                            .w(rems(9.))
+                            .w_full()
+                            .justify_between()
                             .label(current.as_ref().map_or_else(
                                 || tr("provider_api"),
                                 |route| protocol_label(route.protocol),
@@ -53,15 +55,15 @@ impl Editor {
         let disabled = self.editing.is_some() || self.provider.is_some() || self.pending;
         h_flex()
             .debug_selector(|| "provider-kind-row".into())
-            .flex_shrink_0()
+            .w_full()
             .gap_2()
             .when(!preset.protocols().is_empty(), |row| {
                 let owner = cx.entity();
                 row.child(
                     Button::new("provider-api")
                         .debug_selector(|| "provider-api".into())
-                        .w(rems(9.))
-                        .flex_shrink_0()
+                        .w_full()
+                        .justify_between()
                         .label(tr(preset.protocol_key()))
                         .accessibility_label(tr("provider_api"))
                         .dropdown_caret(true)
