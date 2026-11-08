@@ -60,7 +60,7 @@ impl Feed {
         let node = NodeId([1; 32]);
         Arc::new(Self {
             node,
-            changes: watch::channel(Ok(Update::Snapshot(snapshot(node, 0)))).0,
+            changes: watch::channel(Ok(Update::Snapshot(Box::new(snapshot(node, 0))))).0,
             reads: Mutex::new(Vec::new()),
             subscriptions: AtomicUsize::new(0),
         })
@@ -205,7 +205,7 @@ async fn correlates_recovery_without_logging_events() {
         receive(&mut receiver, |view| view.error.is_some()).await;
         let _ = feed
             .changes
-            .send_replace(Ok(Update::Snapshot(snapshot(feed.node, 30))));
+            .send_replace(Ok(Update::Snapshot(Box::new(snapshot(feed.node, 30)))));
         receive(&mut receiver, |view| {
             view.connected
                 && view

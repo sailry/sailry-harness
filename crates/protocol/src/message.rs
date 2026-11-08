@@ -2439,7 +2439,7 @@ pub enum Update {
         #[serde(default)]
         references: u64,
     },
-    Snapshot(Snapshot),
+    Snapshot(Box<Snapshot>),
     Event(EventEnvelope),
     ResetRequired,
 }

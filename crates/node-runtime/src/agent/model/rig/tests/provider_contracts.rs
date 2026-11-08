@@ -1,14 +1,9 @@
 use super::*;
+use crate::tests::http as discovery;
 use futures::StreamExt;
 use rmcp::model::{CallToolRequestParams, CallToolResult, ContentBlock};
 use std::sync::Arc;
 
-#[expect(
-    dead_code,
-    reason = "The shared HTTP fixture includes modes used by integration tests"
-)]
-#[path = "../../../../../tests/discovery_support/mod.rs"]
-mod discovery;
 #[expect(
     dead_code,
     reason = "The shared provider fixture includes modes used by integration tests"

@@ -44,7 +44,7 @@ async fn rejects_unary_responses() {
     let completed: Value = serde_json::from_str(
         body.lines()
             .filter_map(|line| line.strip_prefix("data: "))
-            .last()
+            .next_back()
             .unwrap(),
     )
     .unwrap();

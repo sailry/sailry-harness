@@ -316,7 +316,7 @@ fn operation_logs(messages: &[Message]) -> Vec<String> {
         .collect();
     messages
         .iter()
-        .filter_map(|message| message.metadata.operations.as_deref())
+        .filter_map(|message| message.metadata.operations.as_ref())
         .flat_map(|operations| operations.iter())
         .filter_map(|(operation, notes)| {
             notes

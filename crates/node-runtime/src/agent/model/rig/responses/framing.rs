@@ -8,7 +8,7 @@ pub(in crate::agent::model::rig) fn stream(body: BoxedStream) -> BoxedStream {
         |(mut body, mut lines, mut pending)| async move {
             loop {
                 if let Some(line) = pending.pop_front() {
-                    if let Some(frame) = event(&line)? {
+                    if let Some(frame) = event(&line).map_err(Error::instance)? {
                         return Ok(Some((frame, (body, lines, pending))));
                     }
                     continue;
@@ -28,8 +28,8 @@ pub(in crate::agent::model::rig) fn stream(body: BoxedStream) -> BoxedStream {
     ))
 }
 
-fn event(line: &[u8]) -> Result<Option<Bytes>, Error> {
-    let line = std::str::from_utf8(line).map_err(Error::instance)?;
+fn event(line: &[u8]) -> Result<Option<Bytes>, std::str::Utf8Error> {
+    let line = std::str::from_utf8(line)?;
     if line.trim().is_empty() {
         return Ok(None);
     }

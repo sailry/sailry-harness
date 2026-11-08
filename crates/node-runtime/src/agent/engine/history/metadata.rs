@@ -153,7 +153,6 @@ pub(super) fn project(record: &Record) -> model::Metadata {
                     .execution
                     .as_ref()
                     .is_some_and(|execution| execution.purpose == Some(Purpose::Compaction)),
-            ..model::Usage::default()
         }));
     }
     output

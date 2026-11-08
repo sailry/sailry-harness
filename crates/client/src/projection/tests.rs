@@ -58,7 +58,9 @@ fn orders_and_deduplicates_shared_cursors() {
             "duplicates_do_not_change_state",
             (|case_name| {
                 let mut projection = Projection::new(NodeId([1; 32]), 1);
-                projection.apply(1, Update::Snapshot(snapshot(0))).unwrap();
+                projection
+                    .apply(1, Update::Snapshot(Box::new(snapshot(0))))
+                    .unwrap();
                 assert_eq!(
                     projection.apply(1, event(1)).unwrap(),
                     Apply::Applied,
@@ -84,7 +86,7 @@ fn orders_and_deduplicates_shared_cursors() {
                 let mut projection = Projection::new(state.node, 1);
                 assert_eq!(
                     projection
-                        .apply(1, Update::Snapshot(state.clone()))
+                        .apply(1, Update::Snapshot(Box::new(state.clone())))
                         .unwrap(),
                     Apply::Applied,
                     "{case_name}"
@@ -113,7 +115,9 @@ fn orders_and_deduplicates_shared_cursors() {
             "dispatch_invalidation_advances_shared_cursor",
             (|case_name| {
                 let mut projection = Projection::new(NodeId([1; 32]), 1);
-                projection.apply(1, Update::Snapshot(snapshot(0))).unwrap();
+                projection
+                    .apply(1, Update::Snapshot(Box::new(snapshot(0))))
+                    .unwrap();
                 let update = Update::Event(EventEnvelope {
                     node: NodeId([1; 32]),
                     cursor: 1,
@@ -144,7 +148,9 @@ fn orders_and_deduplicates_shared_cursors() {
             (|case_name| {
                 let node = NodeId([1; 32]);
                 let mut projection = Projection::new(node, 1);
-                projection.apply(1, Update::Snapshot(snapshot(0))).unwrap();
+                projection
+                    .apply(1, Update::Snapshot(Box::new(snapshot(0))))
+                    .unwrap();
                 for (index, event) in [
                     Event::LocalModelsChanged { models: vec![] },
                     Event::LocalModelSettingsChanged { revision: 3 },
@@ -193,7 +199,7 @@ fn rejects_invalid_subscription_updates() {
                 let mut projection = Projection::new(node, 1);
                 let initial = snapshot(0);
                 projection
-                    .apply(1, Update::Snapshot(initial.clone()))
+                    .apply(1, Update::Snapshot(Box::new(initial.clone())))
                     .unwrap();
                 let update = Update::Status(sailry_protocol::plugin::ui::status::Snapshot {
                     node,
@@ -217,7 +223,9 @@ fn rejects_invalid_subscription_updates() {
             (|case_name| {
                 let node = NodeId([1; 32]);
                 let mut projection = Projection::new(node, 1);
-                projection.apply(1, Update::Snapshot(snapshot(0))).unwrap();
+                projection
+                    .apply(1, Update::Snapshot(Box::new(snapshot(0))))
+                    .unwrap();
                 let update = serde_json::from_value::<Update>(serde_json::json!({
                     "kind": "event",
                     "data": {
@@ -239,9 +247,13 @@ fn rejects_invalid_subscription_updates() {
             "rejects_foreign_or_stale_snapshots",
             (|case_name| {
                 let mut projection = Projection::new(NodeId([1; 32]), 1);
-                projection.apply(1, Update::Snapshot(snapshot(2))).unwrap();
+                projection
+                    .apply(1, Update::Snapshot(Box::new(snapshot(2))))
+                    .unwrap();
                 assert_eq!(
-                    projection.apply(1, Update::Snapshot(snapshot(1))).unwrap(),
+                    projection
+                        .apply(1, Update::Snapshot(Box::new(snapshot(1))))
+                        .unwrap(),
                     Apply::Ignored,
                     "{case_name}"
                 );
@@ -249,7 +261,7 @@ fn rejects_invalid_subscription_updates() {
                 other.node = NodeId([2; 32]);
                 assert_eq!(
                     projection
-                        .apply(1, Update::Snapshot(other))
+                        .apply(1, Update::Snapshot(Box::new(other)))
                         .unwrap_err()
                         .code,
                     ErrorCode::WrongTarget,
@@ -270,7 +282,9 @@ fn recovers_gaps_and_replaced_generations() {
             "gaps_require_snapshot",
             (|case_name| {
                 let mut projection = Projection::new(NodeId([1; 32]), 1);
-                projection.apply(1, Update::Snapshot(snapshot(0))).unwrap();
+                projection
+                    .apply(1, Update::Snapshot(Box::new(snapshot(0))))
+                    .unwrap();
                 assert_eq!(
                     projection.apply(1, event(2)).unwrap(),
                     Apply::Recover,
@@ -281,7 +295,9 @@ fn recovers_gaps_and_replaced_generations() {
                     Apply::Recover,
                     "{case_name}"
                 );
-                projection.apply(1, Update::Snapshot(snapshot(2))).unwrap();
+                projection
+                    .apply(1, Update::Snapshot(Box::new(snapshot(2))))
+                    .unwrap();
                 assert_eq!(
                     projection.apply(1, event(3)).unwrap(),
                     Apply::Applied,
@@ -293,7 +309,9 @@ fn recovers_gaps_and_replaced_generations() {
             "rejects_previous_generation",
             (|case_name| {
                 let mut projection = Projection::new(NodeId([1; 32]), 1);
-                projection.apply(1, Update::Snapshot(snapshot(0))).unwrap();
+                projection
+                    .apply(1, Update::Snapshot(Box::new(snapshot(0))))
+                    .unwrap();
                 projection.reconnect(2).unwrap();
                 assert_eq!(
                     projection.apply(1, event(1)).unwrap(),
@@ -301,11 +319,15 @@ fn recovers_gaps_and_replaced_generations() {
                     "{case_name}"
                 );
                 assert_eq!(
-                    projection.apply(1, Update::Snapshot(snapshot(99))).unwrap(),
+                    projection
+                        .apply(1, Update::Snapshot(Box::new(snapshot(99))))
+                        .unwrap(),
                     Apply::Ignored,
                     "{case_name}"
                 );
-                projection.apply(2, Update::Snapshot(snapshot(1))).unwrap();
+                projection
+                    .apply(2, Update::Snapshot(Box::new(snapshot(1))))
+                    .unwrap();
                 assert_eq!(
                     projection.apply(2, event(2)).unwrap(),
                     Apply::Applied,
@@ -321,12 +343,12 @@ fn recovers_gaps_and_replaced_generations() {
                 let mut current = snapshot(100);
                 current.defaults.revision = 9;
                 projection
-                    .apply(1, Update::Snapshot(current.clone()))
+                    .apply(1, Update::Snapshot(Box::new(current.clone())))
                     .unwrap();
                 projection.reconnect(2).unwrap();
                 assert_eq!(
                     projection
-                        .apply(1, Update::Snapshot(snapshot(200)))
+                        .apply(1, Update::Snapshot(Box::new(snapshot(200))))
                         .unwrap(),
                     Apply::Ignored,
                     "{case_name}"
@@ -335,7 +357,7 @@ fn recovers_gaps_and_replaced_generations() {
                 restored.defaults.revision = 3;
                 assert_eq!(
                     projection
-                        .apply(2, Update::Snapshot(restored.clone()))
+                        .apply(2, Update::Snapshot(Box::new(restored.clone())))
                         .unwrap(),
                     Apply::Applied,
                     "{case_name}"
@@ -352,7 +374,9 @@ fn recovers_gaps_and_replaced_generations() {
                     "{case_name}"
                 );
                 assert_eq!(
-                    projection.apply(2, Update::Snapshot(snapshot(19))).unwrap(),
+                    projection
+                        .apply(2, Update::Snapshot(Box::new(snapshot(19))))
+                        .unwrap(),
                     Apply::Ignored,
                     "{case_name}"
                 );
@@ -390,7 +414,9 @@ fn terminal_updates_preserve_order() {
     };
     let mut state = snapshot(0);
     state.terminals = vec![first.clone(), second.clone()];
-    projection.apply(1, Update::Snapshot(state)).unwrap();
+    projection
+        .apply(1, Update::Snapshot(Box::new(state)))
+        .unwrap();
     let mut changed = first.clone();
     changed.title = Some("Server".into());
     projection
@@ -413,7 +439,9 @@ fn terminal_updates_preserve_order() {
 fn invalidates_credentials_on_revision_and_recovery() {
     let node = NodeId([1; 32]);
     let mut projection = Projection::new(node, 1);
-    projection.apply(1, Update::Snapshot(snapshot(0))).unwrap();
+    projection
+        .apply(1, Update::Snapshot(Box::new(snapshot(0))))
+        .unwrap();
     let initial = projection.credential_cursor();
     let credential = sailry_protocol::CredentialRef {
         node,
@@ -444,7 +472,9 @@ fn invalidates_credentials_on_revision_and_recovery() {
     );
     assert!(projection.credential_cursor() > changed);
     let reset = projection.credential_cursor();
-    projection.apply(1, Update::Snapshot(snapshot(2))).unwrap();
+    projection
+        .apply(1, Update::Snapshot(Box::new(snapshot(2))))
+        .unwrap();
     assert!(projection.credential_cursor() > reset);
     let recovered = projection.credential_cursor();
     projection.reconnect(2).unwrap();
@@ -457,7 +487,9 @@ fn invalidates_credentials_on_revision_and_recovery() {
 #[test]
 fn power_policy_revision_follows_authority() {
     let mut projection = Projection::new(NodeId([1; 32]), 1);
-    projection.apply(1, Update::Snapshot(snapshot(0))).unwrap();
+    projection
+        .apply(1, Update::Snapshot(Box::new(snapshot(0))))
+        .unwrap();
     projection
         .apply(
             1,

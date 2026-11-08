@@ -61,7 +61,9 @@ fn reconciles_selected_credential_observations() {
                 let mut state = snapshot(0);
                 state.providers.push(provider.clone());
                 let mut projection = Projection::new(state.node, 1);
-                projection.apply(1, Update::Snapshot(state)).unwrap();
+                projection
+                    .apply(1, Update::Snapshot(Box::new(state)))
+                    .unwrap();
                 let quota = observation(&provider);
                 let update = change(
                     1,
@@ -145,7 +147,9 @@ fn reconciles_selected_credential_observations() {
                     valid.clone(),
                 ];
                 let mut projection = Projection::new(state.node, 1);
-                projection.apply(1, Update::Snapshot(state)).unwrap();
+                projection
+                    .apply(1, Update::Snapshot(Box::new(state)))
+                    .unwrap();
                 assert_eq!(
                     projection.snapshot().unwrap().provider_quotas,
                     vec![valid],
@@ -184,7 +188,9 @@ fn reconciles_selected_credential_observations() {
                 state.providers.push(provider.clone());
                 state.provider_quotas.push(observation(&provider));
                 let mut projection = Projection::new(state.node, 1);
-                projection.apply(1, Update::Snapshot(state)).unwrap();
+                projection
+                    .apply(1, Update::Snapshot(Box::new(state)))
+                    .unwrap();
                 provider.credential.as_mut().unwrap().id = CredentialId::new();
                 provider.revision += 1;
                 projection
@@ -234,7 +240,7 @@ fn reconciles_selected_credential_observations() {
                 state.provider_quotas.push(observation(&provider));
                 let mut projection = Projection::new(state.node, 1);
                 projection
-                    .apply(1, Update::Snapshot(state.clone()))
+                    .apply(1, Update::Snapshot(Box::new(state.clone())))
                     .unwrap();
                 let clear = change(
                     2,
@@ -262,7 +268,7 @@ fn reconciles_selected_credential_observations() {
                 state.cursor = 2;
                 state.provider_quotas.clear();
                 projection
-                    .apply(2, Update::Snapshot(state.clone()))
+                    .apply(2, Update::Snapshot(Box::new(state.clone())))
                     .unwrap();
                 assert_eq!(
                     projection.apply(2, clear).unwrap(),
@@ -285,7 +291,9 @@ fn reconciles_selected_credential_observations() {
                 state.providers.push(provider);
                 state.provider_quotas.push(quota.clone());
                 let mut projection = Projection::new(state.node, 1);
-                projection.apply(1, Update::Snapshot(state)).unwrap();
+                projection
+                    .apply(1, Update::Snapshot(Box::new(state)))
+                    .unwrap();
                 assert_eq!(
                     projection.snapshot().unwrap().provider_quotas,
                     vec![quota],

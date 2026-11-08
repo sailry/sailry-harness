@@ -137,7 +137,9 @@ async fn archives_restores_and_removes() {
     );
     let mut projection = Projection::new(node.id(), 1);
     let cursor = original.cursor;
-    projection.apply(1, Update::Snapshot(original)).unwrap();
+    projection
+        .apply(1, Update::Snapshot(Box::new(original)))
+        .unwrap();
     for (index, event) in [
         Event::SessionChanged(Box::new(archived)),
         Event::SessionChanged(Box::new(restored)),

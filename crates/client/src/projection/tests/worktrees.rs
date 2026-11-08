@@ -16,7 +16,9 @@ fn invalidates_inventory_without_moving_selection() {
     let mut state = snapshot(0);
     state.worktrees.push(main.clone());
     let mut projection = Projection::new(state.node, 1);
-    projection.apply(1, Update::Snapshot(state)).unwrap();
+    projection
+        .apply(1, Update::Snapshot(Box::new(state)))
+        .unwrap();
     let settled = projection.settled_cursors()[&main.id];
     let actions = [Action::ReadWorktrees];
     let before = projection.read_cursors();
@@ -75,7 +77,7 @@ fn recovers_project_and_connection_changes() {
     state.worktrees.push(tree);
     let mut projection = Projection::new(state.node, 1);
     projection
-        .apply(1, Update::Snapshot(state.clone()))
+        .apply(1, Update::Snapshot(Box::new(state.clone())))
         .unwrap();
     let actions = [Action::ReadWorktrees];
     assert!(projection.read_cursors().for_actions(&actions) > 0);
@@ -110,7 +112,7 @@ fn recovers_project_and_connection_changes() {
             Apply::Recover
         );
         projection
-            .apply(1, Update::Snapshot(state.clone()))
+            .apply(1, Update::Snapshot(Box::new(state.clone())))
             .unwrap();
         assert!(projection.read_cursors().for_actions(&actions) > previous);
     }
@@ -118,12 +120,14 @@ fn recovers_project_and_connection_changes() {
     let previous = projection.read_cursors().for_actions(&actions);
     projection.apply(1, Update::ResetRequired).unwrap();
     projection
-        .apply(1, Update::Snapshot(state.clone()))
+        .apply(1, Update::Snapshot(Box::new(state.clone())))
         .unwrap();
     assert!(projection.read_cursors().for_actions(&actions) > previous);
     let previous = projection.read_cursors().for_actions(&actions);
     projection.reconnect(2).unwrap();
     assert_eq!(projection.apply(1, event(4)).unwrap(), Apply::Ignored);
-    projection.apply(2, Update::Snapshot(state)).unwrap();
+    projection
+        .apply(2, Update::Snapshot(Box::new(state)))
+        .unwrap();
     assert!(projection.read_cursors().for_actions(&actions) > previous);
 }

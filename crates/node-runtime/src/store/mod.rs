@@ -1686,7 +1686,7 @@ impl Handler for Ingress {
             };
             let cursor = snapshot.cursor;
             Ok(Box::new(Events {
-                initial: Some(Update::Snapshot(snapshot)),
+                initial: Some(Update::Snapshot(Box::new(snapshot))),
                 receiver,
                 closed: self.closed.clone(),
                 storage: self.storage.get().cloned().ok_or_else(unavailable)?,

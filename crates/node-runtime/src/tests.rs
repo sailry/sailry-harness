@@ -1,5 +1,12 @@
 use std::time::Duration;
 
+#[expect(
+    dead_code,
+    reason = "The shared HTTP fixture includes modes used by integration tests"
+)]
+#[path = "../tests/discovery_support/mod.rs"]
+pub(crate) mod http;
+
 fn tempdir() -> std::io::Result<tempfile::TempDir> {
     let directory = tempfile::tempdir()?;
     #[cfg(unix)]

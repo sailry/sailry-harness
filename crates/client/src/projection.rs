@@ -121,7 +121,7 @@ impl Projection {
                     .collect();
                 self.settled.reset(&snapshot);
                 self.read_cursors.reset(self.package_revision);
-                self.snapshot = Some(snapshot);
+                self.snapshot = Some(*snapshot);
                 self.recovery = false;
                 Ok(Apply::Applied)
             }

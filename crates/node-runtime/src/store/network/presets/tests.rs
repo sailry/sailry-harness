@@ -1,17 +1,11 @@
 use super::*;
+use crate::tests::http;
 use sailry_protocol::{conversation::ModelApi, network::Selection};
 use serde_json::{Value, json};
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
 };
-
-#[allow(
-    dead_code,
-    reason = "Shared HTTP fixture also supports provider-specific responses"
-)]
-#[path = "../../../../tests/discovery_support/mod.rs"]
-mod http;
 
 // Test source data only; production presets always come from a successful fetch.
 const SOURCE: &[u8] = include_bytes!(concat!(

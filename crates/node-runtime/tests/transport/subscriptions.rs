@@ -20,7 +20,7 @@ async fn snapshot(updates: &mut dyn Subscription) -> Snapshot {
     let Update::Snapshot(snapshot) = next(updates).await else {
         panic!("initial snapshot expected")
     };
-    snapshot
+    *snapshot
 }
 
 async fn registered(updates: &mut dyn Subscription, project: ProjectId) -> EventEnvelope {

@@ -15,7 +15,7 @@ impl Feed {
         let node = NodeId([1; 32]);
         Arc::new(Self {
             node,
-            changes: watch::channel(Ok(Update::Snapshot(snapshot(node)))).0,
+            changes: watch::channel(Ok(Update::Snapshot(Box::new(snapshot(node))))).0,
             subscriptions: AtomicUsize::new(0),
             telemetry: watch::channel(Default::default()).0,
         })
@@ -166,7 +166,7 @@ async fn shares_reducer_until_last_observer_closes() {
 
     let _ = feed
         .changes
-        .send_replace(Ok(Update::Snapshot(snapshot(feed.node))));
+        .send_replace(Ok(Update::Snapshot(Box::new(snapshot(feed.node)))));
     let (stop, mut receiver, job) = start(feed.clone(), observers.clone());
     receive(&mut receiver, |view| view.connected).await;
     assert_eq!(feed.subscriptions.load(Ordering::SeqCst), 2);

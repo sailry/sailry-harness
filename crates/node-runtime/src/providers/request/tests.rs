@@ -151,7 +151,7 @@ fn applies_fixed_json_baselines() {
         let mut body = json!({"model":"fixture-model", "input":[{"role":"user", "content":"Task"}], "max_output_tokens":64, "temperature":0.25});
         prepared.apply_json(&mut body).unwrap();
         let expected = if authentication == Authentication::ChatGptOAuth {
-            json!({"model":"fixture-model", "input":[{"role":"user", "content":"Task"}], "instructions":"Captured system", "prompt_cache_key":fixture::SESSION})
+            json!({"model":"fixture-model", "input":[{"role":"user", "content":"Task"}], "instructions":"Captured system", "prompt_cache_key":fixture::SESSION, "store":false})
         } else if authentication == Authentication::ChatGpt {
             json!({"model":"fixture-model", "input":[{"role":"user", "content":"Task"}], "instructions":"Captured system", "store":false, "stream":true})
         } else {

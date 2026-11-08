@@ -400,19 +400,18 @@ impl Connections {
     }
 }
 
+type Binding = (
+    Arc<Connected>,
+    Vec<Descriptor>,
+    Option<crate::plugins::connectors::mcp::Authorization>,
+);
+
 struct Attempt {
     reused: bool,
     /// The connection step a failure stopped at, for diagnostics.
     step: &'static str,
     elapsed: Duration,
-    result: Result<
-        (
-            Arc<Connected>,
-            Vec<Descriptor>,
-            Option<crate::plugins::connectors::mcp::Authorization>,
-        ),
-        Fault,
-    >,
+    result: Result<Binding, Fault>,
 }
 
 /// Turn inputs shared by the concurrent server attempts of one bind.

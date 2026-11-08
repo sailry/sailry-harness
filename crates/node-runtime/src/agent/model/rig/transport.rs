@@ -1,4 +1,4 @@
-use futures::StreamExt;
+use futures::TryStreamExt;
 use reqwest::header::{HeaderMap, HeaderValue};
 use rig_core::http_client::{
     Bytes, Error, HttpClientExt, LazyBody, MultipartForm, Request, Response, StreamingResponse,
@@ -61,9 +61,12 @@ impl Transport {
         })
     }
 
-    fn prepare<T: Into<Bytes>>(&self, request: Request<T>) -> Result<reqwest::Request, Error> {
+    fn prepare<T: Into<Bytes>>(
+        &self,
+        request: Request<T>,
+    ) -> Result<reqwest::Request, Box<dyn std::error::Error + Send + Sync>> {
         let (parts, body) = request.into_parts();
-        let mut endpoint = url::Url::parse(&parts.uri.to_string()).map_err(Error::instance)?;
+        let mut endpoint = url::Url::parse(&parts.uri.to_string())?;
         let mut query = endpoint
             .query_pairs()
             .filter(|(name, _)| name != "key")
@@ -92,8 +95,8 @@ impl Transport {
                 | ModelApi::Responses
         ) || self.deployment.is_some()
         {
-            let mut value = serde_json::from_slice(&body).map_err(Error::instance)?;
-            super::media::restore(&mut value, self.api).map_err(Error::instance)?;
+            let mut value = serde_json::from_slice(&body)?;
+            super::media::restore(&mut value, self.api)?;
             if matches!(self.api, ModelApi::ChatCompletions | ModelApi::DeepSeek) {
                 super::schema::chat(&mut value);
             }
@@ -116,18 +119,17 @@ impl Transport {
                 value["model"] = deployment.clone().into();
             }
             super::wire::prepare(&mut value, self.api);
-            body = serde_json::to_vec(&value).map_err(Error::instance)?.into();
+            body = serde_json::to_vec(&value)?.into();
         }
         let mut request = self
             .client
             .request(parts.method, endpoint)
             .headers(headers)
             .body(body)
-            .build()
-            .map_err(Error::instance)?;
+            .build()?;
         if let Some(agent) = &self.claude {
             crate::providers::claude::decorate(&mut request, agent)
-                .map_err(|error| Error::instance(std::io::Error::other(error.message)))?;
+                .map_err(|error| std::io::Error::other(error.message))?;
         }
         super::super::observation::prepared(
             request
@@ -151,7 +153,10 @@ impl HttpClientExt for Transport {
         let request = self.prepare(request);
         let client = self.client.clone();
         async move {
-            let response = client.execute(request?).await.map_err(Error::instance)?;
+            let response = client
+                .execute(request.map_err(Error::Instance)?)
+                .await
+                .map_err(Error::instance)?;
             super::super::observation::headers(response.status().as_u16());
             let mut builder = Response::builder().status(response.status());
             *builder.headers_mut().ok_or(Error::NoHeaders)? = response.headers().clone();
@@ -170,11 +175,9 @@ impl HttpClientExt for Transport {
     where
         U: From<Bytes> + Send + 'static,
     {
-        async {
-            Err(Error::unbuilt(std::io::Error::other(
-                "model completion does not use multipart requests",
-            )))
-        }
+        std::future::ready(Err(Error::unbuilt(std::io::Error::other(
+            "model completion does not use multipart requests",
+        ))))
     }
 
     fn send_streaming<T>(
@@ -188,7 +191,7 @@ impl HttpClientExt for Transport {
         let client = self.client.clone();
         let api = self.api;
         async move {
-            let request = request?;
+            let request = request.map_err(Error::Instance)?;
             let replay = (api == ModelApi::Responses)
                 .then(|| request.try_clone())
                 .flatten();
@@ -241,9 +244,7 @@ impl HttpClientExt for Transport {
                     HeaderValue::from_static("text/event-stream"),
                 );
             }
-            let stream = response
-                .bytes_stream()
-                .map(|result| result.map_err(Error::instance));
+            let stream = response.bytes_stream().map_err(Error::instance);
             let stream = Box::pin(stream) as rig_core::http_client::BoxedStream;
             let stream = if responses {
                 super::responses::framing::stream(stream)

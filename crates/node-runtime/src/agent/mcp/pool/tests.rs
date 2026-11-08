@@ -164,10 +164,11 @@ async fn bounds_capacity_and_retires_idle() {
     assert!(!stopped.is_cancelled());
     drop(idle);
     let next = fixture.lease("next").await.unwrap();
-    let entries = fixture.pool.entries.lock().unwrap();
-    assert_eq!(entries.len(), MAX_CONNECTIONS);
-    assert!(entries.keys().all(|key| key.server != "idle"));
-    drop(entries);
+    {
+        let entries = fixture.pool.entries.lock().unwrap();
+        assert_eq!(entries.len(), MAX_CONNECTIONS);
+        assert!(entries.keys().all(|key| key.server != "idle"));
+    }
     tokio::time::timeout(Duration::from_secs(10), stopped.cancelled())
         .await
         .unwrap();

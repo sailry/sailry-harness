@@ -1,6 +1,7 @@
 use super::RigModel;
 use crate::agent::model::{
     registry,
+    testing::server::{self, Server},
     types::{
         Content, Error, ErrorKind, Event, Finish, Image, Message, Model, Request, Role, Tool,
         ToolResult,
@@ -24,12 +25,8 @@ mod history;
 mod parity;
 mod provider_contracts;
 mod requests;
-#[path = "../factory/tests/server.rs"]
-mod server;
 mod stalled;
 mod streaming;
-
-use server::Server;
 
 fn provider(api: ModelApi, endpoint: String) -> sailry_protocol::conversation::Provider {
     serde_json::from_value(json!({

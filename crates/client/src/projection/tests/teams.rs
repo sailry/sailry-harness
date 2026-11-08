@@ -33,7 +33,9 @@ fn recovers_ordered_identity_and_settings() {
                 let mut state = snapshot(2);
                 let stored = profile("review", vec![RoleId::new()]);
                 state.teams = vec![stored.clone()];
-                projection.apply(1, Update::Snapshot(state)).unwrap();
+                projection
+                    .apply(1, Update::Snapshot(Box::new(state)))
+                    .unwrap();
                 assert_eq!(
                     projection.snapshot().unwrap().teams,
                     [stored],
@@ -45,7 +47,9 @@ fn recovers_ordered_identity_and_settings() {
             "updates_identity_and_order",
             (|case_name| {
                 let mut projection = Projection::new(NodeId([1; 32]), 1);
-                projection.apply(1, Update::Snapshot(snapshot(0))).unwrap();
+                projection
+                    .apply(1, Update::Snapshot(Box::new(snapshot(0))))
+                    .unwrap();
                 let role = RoleId::new();
                 let kept = RoleId::new();
                 let mut review = profile("review", vec![role, kept]);
@@ -92,7 +96,9 @@ fn recovers_ordered_identity_and_settings() {
                 let mut projection = Projection::new(NodeId([1; 32]), 1);
                 let mut state = snapshot(0);
                 state.team_settings_revision = 2;
-                projection.apply(1, Update::Snapshot(state)).unwrap();
+                projection
+                    .apply(1, Update::Snapshot(Box::new(state)))
+                    .unwrap();
                 assert_eq!(
                     projection.snapshot().unwrap().team_settings_revision,
                     2,
@@ -114,7 +120,9 @@ fn recovers_ordered_identity_and_settings() {
                 let mut projection = Projection::new(NodeId([1; 32]), 1);
                 let mut state = snapshot(0);
                 state.compaction_settings_revision = 2;
-                projection.apply(1, Update::Snapshot(state)).unwrap();
+                projection
+                    .apply(1, Update::Snapshot(Box::new(state)))
+                    .unwrap();
                 assert_eq!(
                     projection.snapshot().unwrap().compaction_settings_revision,
                     2,

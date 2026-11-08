@@ -9,7 +9,9 @@ fn invalidates_only_accepted_package_and_catalog_changes() {
             (|case_name| {
                 use sailry_protocol::plugin::Action;
                 let mut projection = Projection::new(NodeId([1; 32]), 1);
-                projection.apply(1, Update::Snapshot(snapshot(0))).unwrap();
+                projection
+                    .apply(1, Update::Snapshot(Box::new(snapshot(0))))
+                    .unwrap();
                 let roles = [Action::ReadRoles];
                 let models = [Action::ReadModels];
                 let terminals = [Action::ReadTerminals];
@@ -58,7 +60,9 @@ fn invalidates_only_accepted_package_and_catalog_changes() {
                 projection.apply(1, event(5)).unwrap();
                 assert_eq!(projection.read_cursors(), before, "{case_name}");
                 projection.apply(1, Update::ResetRequired).unwrap();
-                projection.apply(1, Update::Snapshot(snapshot(5))).unwrap();
+                projection
+                    .apply(1, Update::Snapshot(Box::new(snapshot(5))))
+                    .unwrap();
                 assert!(
                     projection.read_cursors().for_actions(&roles) > before.for_actions(&roles),
                     "{case_name}"
@@ -74,7 +78,9 @@ fn invalidates_only_accepted_package_and_catalog_changes() {
             "reduces_inventory_in_node_order",
             (|case_name| {
                 let mut projection = Projection::new(NodeId([1; 32]), 1);
-                projection.apply(1, Update::Snapshot(snapshot(0))).unwrap();
+                projection
+                    .apply(1, Update::Snapshot(Box::new(snapshot(0))))
+                    .unwrap();
                 let plugin = Summary {
                     compatibility: Default::default(),
                     name: "analysis".into(),
@@ -163,7 +169,7 @@ fn invalidates_only_accepted_package_and_catalog_changes() {
                     })
                     .collect();
                 projection
-                    .apply(1, Update::Snapshot(state.clone()))
+                    .apply(1, Update::Snapshot(Box::new(state.clone())))
                     .unwrap();
                 assert_eq!(projection.package_cursors()["example"], 1, "{case_name}");
                 projection.apply(1, event(11)).unwrap();
@@ -195,7 +201,7 @@ fn invalidates_only_accepted_package_and_catalog_changes() {
                 );
                 state.cursor = 15;
                 projection
-                    .apply(2, Update::Snapshot(state.clone()))
+                    .apply(2, Update::Snapshot(Box::new(state.clone())))
                     .unwrap();
                 assert_eq!(projection.package_cursors()["example"], 3, "{case_name}");
                 assert_eq!(projection.package_cursors()["other"], 3, "{case_name}");
@@ -205,7 +211,9 @@ fn invalidates_only_accepted_package_and_catalog_changes() {
                     Apply::Recover,
                     "{case_name}"
                 );
-                projection.apply(2, Update::Snapshot(state)).unwrap();
+                projection
+                    .apply(2, Update::Snapshot(Box::new(state)))
+                    .unwrap();
                 assert_eq!(projection.package_cursors()["example"], 4, "{case_name}");
                 assert_eq!(projection.package_cursors()["other"], 4, "{case_name}");
                 assert_eq!(projection.snapshot().unwrap().cursor, 15, "{case_name}");

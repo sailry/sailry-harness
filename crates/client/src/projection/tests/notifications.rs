@@ -167,7 +167,9 @@ fn reconciles_durable_history_and_read_state() {
                 let snapshot = snapshot(0);
                 let node = snapshot.node;
                 let mut projection = Projection::new(node, 1);
-                projection.apply(1, Update::Snapshot(snapshot)).unwrap();
+                projection
+                    .apply(1, Update::Snapshot(Box::new(snapshot)))
+                    .unwrap();
                 let mut entry = notice(1, false);
                 let mut feed = Feed::default();
                 let mut inbox = Inbox::default();

@@ -5,8 +5,7 @@ use reqwest::header::HeaderMap;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
-#[path = "factory/tests/server.rs"]
-mod server;
+pub(super) mod server;
 
 pub(crate) async fn collect(mut stream: ModelStream) -> Result<(Message, Usage), Error> {
     let mut blocks = BTreeMap::new();

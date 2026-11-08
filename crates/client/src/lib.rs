@@ -170,7 +170,7 @@ impl Client {
         let result = async {
             match self.execute(request).await? {
                 Output::Snapshot(snapshot) => {
-                    projection.apply(generation, Update::Snapshot(snapshot))?;
+                    projection.apply(generation, Update::Snapshot(Box::new(snapshot)))?;
                     Ok(())
                 }
                 _ => Err(Fault::new(

@@ -444,7 +444,10 @@ async fn restores_new_profiles_without_external_mutation() {
         };
         let mut projection = Projection::new(node.id(), 1);
         projection
-            .apply(1, sailry_protocol::Update::Snapshot(current.clone()))
+            .apply(
+                1,
+                sailry_protocol::Update::Snapshot(Box::new(current.clone())),
+            )
             .unwrap();
         let id = node.id();
         node.shutdown().await.unwrap();

@@ -269,21 +269,20 @@ async fn save(target: &Client, request: &Request) -> Result<Provider> {
             _ => Err("save_failed_or_invalid_completion_no_replay"),
         },
         other => {
-            if let Ok(items) = providers(target).await {
-                if let Command::SaveProvider {
+            if let Ok(items) = providers(target).await
+                && let Command::SaveProvider {
                     provider: draft, ..
                 } = &request.command
+            {
+                for provider in items
+                    .iter()
+                    .filter(|provider| provider.id == draft.id || provider.name == NAME)
                 {
-                    for provider in items
-                        .iter()
-                        .filter(|provider| provider.id == draft.id || provider.name == NAME)
-                    {
-                        println!(
-                            "status=unconfirmed_target_metadata provider={} revision={}",
-                            redacted(provider.id),
-                            provider.revision
-                        );
-                    }
+                    println!(
+                        "status=unconfirmed_target_metadata provider={} revision={}",
+                        redacted(provider.id),
+                        provider.revision
+                    );
                 }
             }
             match other {

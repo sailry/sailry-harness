@@ -2,7 +2,7 @@ use super::super::database::{Database, encode, record, storage_error};
 use crate::providers::scores::{Dataset, Download, matching};
 use sailry_protocol::{conversation::catalog, *};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};
 use tokio::sync::broadcast;
 use turso::{Connection, params, transaction::TransactionBehavior};
 
@@ -222,11 +222,8 @@ pub(crate) async fn read(
         if !seen.insert((reference.provider, &reference.model)) {
             continue;
         }
-        if !providers.contains_key(&reference.provider) {
-            providers.insert(
-                reference.provider,
-                super::super::agent::providers::get(db, reference.provider).await?,
-            );
+        if let Entry::Vacant(entry) = providers.entry(reference.provider) {
+            entry.insert(super::super::agent::providers::get(db, reference.provider).await?);
         }
         let Some(provider) = &providers[&reference.provider] else {
             continue;

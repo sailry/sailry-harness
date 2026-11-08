@@ -46,7 +46,7 @@ pub(super) async fn write(
             }
         },
         Reply::Update(update) => match update.as_ref() {
-            Update::Snapshot(snapshot) => (snapshot, Delivery::Update),
+            Update::Snapshot(snapshot) => (snapshot.as_ref(), Delivery::Update),
             _ => {
                 return core
                     .wait(super::write_with(stream, reply, compressed))
@@ -163,7 +163,9 @@ impl Assembly {
                     Delivery::Completed => {
                         Reply::Completed(Box::new(Ok(Output::Snapshot(snapshot))))
                     }
-                    Delivery::Update => Reply::Update(Box::new(Update::Snapshot(snapshot))),
+                    Delivery::Update => {
+                        Reply::Update(Box::new(Update::Snapshot(Box::new(snapshot))))
+                    }
                 }))
             }
             reply => {

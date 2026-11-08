@@ -1,7 +1,7 @@
 use super::*;
 use crate::agent::model::{
     Content as Part, Message, Model,
-    testing::{collect, roundtrip},
+    testing::{collect, roundtrip, server::Server},
 };
 use rmcp::model::{CallToolResult, ContentBlock as Content, Tool};
 use sailry_protocol::conversation::connection::Options;
@@ -11,8 +11,6 @@ const ANTHROPIC_API_VERSION: &str = "2023-06-01";
 
 mod configuration;
 mod google;
-mod server;
-use server::Server;
 
 fn provider(api: ModelApi, endpoint: String) -> Provider {
     serde_json::from_value(json!({

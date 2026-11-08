@@ -133,7 +133,7 @@ fn allocated(body: &Value, model: &str) -> Option<usize> {
     let selected = models
         .iter()
         .find(|entry| entry.get("id").and_then(Value::as_str) == Some(model))
-        .or_else(|| match models.as_slice() {
+        .or(match models.as_slice() {
             [only] => Some(only),
             _ => None,
         })?;

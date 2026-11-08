@@ -9,13 +9,13 @@ use tokio::{
     task::JoinHandle,
 };
 
-pub(super) struct Request {
+pub(in crate::agent::model) struct Request {
     pub path: String,
     pub headers: BTreeMap<String, String>,
     pub body: Value,
 }
 
-pub(super) struct Server {
+pub(in crate::agent::model) struct Server {
     pub endpoint: String,
     requests: Arc<Mutex<Vec<Request>>>,
     task: Option<JoinHandle<()>>,

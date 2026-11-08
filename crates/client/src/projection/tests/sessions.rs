@@ -52,7 +52,9 @@ fn follows_settled_and_descendant_activity() {
                     .collect();
                 let node = state.node;
                 let mut projection = Projection::new(node, 1);
-                projection.apply(1, Update::Snapshot(state)).unwrap();
+                projection
+                    .apply(1, Update::Snapshot(Box::new(state)))
+                    .unwrap();
                 let unchanged = Event::ConversationChanged {
                     session: first.id,
                     activity: Box::new(first.activity.clone()),
@@ -157,7 +159,7 @@ fn follows_settled_and_descendant_activity() {
                 state.sessions = vec![parent.clone(), child.clone()];
                 let mut projection = Projection::new(state.node, 1);
                 projection
-                    .apply(1, Update::Snapshot(state.clone()))
+                    .apply(1, Update::Snapshot(Box::new(state.clone())))
                     .unwrap();
                 assert_eq!(
                     aggregate_lane(&parent, &projection.snapshot().unwrap().sessions),
@@ -219,7 +221,9 @@ fn follows_settled_and_descendant_activity() {
                 state.cursor = 5;
                 child.activity.run.as_mut().unwrap().status = Status::Running;
                 state.sessions[1] = child;
-                projection.apply(2, Update::Snapshot(state)).unwrap();
+                projection
+                    .apply(2, Update::Snapshot(Box::new(state)))
+                    .unwrap();
                 assert_eq!(
                     aggregate_lane(&parent, &projection.snapshot().unwrap().sessions),
                     Lane::Running,
@@ -251,7 +255,9 @@ fn recovers_new_workspaces_and_admitted_turns() {
                         });
                     }
                     let mut projection = Projection::new(state.node, 1);
-                    projection.apply(1, Update::Snapshot(state)).unwrap();
+                    projection
+                        .apply(1, Update::Snapshot(Box::new(state)))
+                        .unwrap();
                     let turn = QueuedTurn {
                         id: TurnId::new(),
                         kind: conversation::RunKind::Task,
@@ -307,7 +313,7 @@ fn recovers_new_workspaces_and_admitted_turns() {
                 let mut state = snapshot(0);
                 let mut projection = Projection::new(state.node, 1);
                 projection
-                    .apply(1, Update::Snapshot(state.clone()))
+                    .apply(1, Update::Snapshot(Box::new(state.clone())))
                     .unwrap();
                 let event = Update::Event(EventEnvelope {
                     node: state.node,
@@ -327,7 +333,9 @@ fn recovers_new_workspaces_and_admitted_turns() {
                     main: false,
                 });
                 state.sessions.push(created.clone());
-                projection.apply(1, Update::Snapshot(state)).unwrap();
+                projection
+                    .apply(1, Update::Snapshot(Box::new(state)))
+                    .unwrap();
                 created.activity.title = "Updated".into();
                 assert_ne!(
                     projection
@@ -367,7 +375,9 @@ fn preserves_position_through_rewind_and_reorder() {
                 let mut state = snapshot(0);
                 state.sessions = vec![second.clone(), first.clone()];
                 let mut projection = Projection::new(state.node, 1);
-                projection.apply(1, Update::Snapshot(state)).unwrap();
+                projection
+                    .apply(1, Update::Snapshot(Box::new(state)))
+                    .unwrap();
                 let changed = Update::Event(EventEnvelope {
                     node: NodeId([1; 32]),
                     cursor: 1,
@@ -428,7 +438,7 @@ fn preserves_position_through_rewind_and_reorder() {
                 let recovered = projection.snapshot().unwrap().clone();
                 projection.reconnect(2).unwrap();
                 projection
-                    .apply(2, Update::Snapshot(recovered.clone()))
+                    .apply(2, Update::Snapshot(Box::new(recovered.clone())))
                     .unwrap();
                 assert_eq!(
                     projection.snapshot().unwrap().sessions,
@@ -445,7 +455,9 @@ fn preserves_position_through_rewind_and_reorder() {
                 let mut state = snapshot(0);
                 state.sessions = vec![second.clone(), first.clone()];
                 let mut projection = Projection::new(state.node, 1);
-                projection.apply(1, Update::Snapshot(state)).unwrap();
+                projection
+                    .apply(1, Update::Snapshot(Box::new(state)))
+                    .unwrap();
                 let mut updated = first;
                 updated.activity.title = "Retained history".into();
                 let changed = Update::Event(EventEnvelope {
@@ -478,7 +490,9 @@ fn preserves_position_through_rewind_and_reorder() {
                 let mut state = snapshot(0);
                 state.sessions = vec![second.clone(), first.clone()];
                 let mut projection = Projection::new(state.node, 1);
-                projection.apply(1, Update::Snapshot(state)).unwrap();
+                projection
+                    .apply(1, Update::Snapshot(Box::new(state)))
+                    .unwrap();
                 let mut cursor = 0;
                 let mut apply = |projection: &mut Projection, event| {
                     cursor += 1;

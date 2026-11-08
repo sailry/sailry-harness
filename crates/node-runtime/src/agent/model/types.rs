@@ -265,7 +265,7 @@ pub(crate) struct Metadata {
     pub compaction_summary: bool,
     pub usage: Option<Box<Usage>>,
     pub operation_logs: Vec<String>,
-    pub operations: Option<Box<BTreeMap<String, Map<String, Value>>>>,
+    pub operations: Option<BTreeMap<String, Map<String, Value>>>,
 }
 
 impl Default for Metadata {
@@ -292,7 +292,7 @@ impl Metadata {
 
     pub(crate) fn set_operation_note(&mut self, operation: &str, key: &str, value: Value) {
         self.operations
-            .get_or_insert_with(Box::default)
+            .get_or_insert_default()
             .entry(operation.to_owned())
             .or_default()
             .insert(key.to_owned(), value);

@@ -76,7 +76,7 @@ fn exposes_complete_delivery() {
                 assert_eq!(*response, Ok(Output::Snapshot(snapshot.clone())));
             }
             (Delivery::Update, Reply::Update(update)) => {
-                assert_eq!(*update, Update::Snapshot(snapshot.clone()));
+                assert_eq!(*update, Update::Snapshot(Box::new(snapshot.clone())));
             }
             _ => panic!("snapshot delivery expected"),
         }
@@ -196,7 +196,7 @@ async fn cancellation_preserves_pages() {
     let Reply::Update(update) = reader.reply(&mut recv).await.unwrap() else {
         panic!("snapshot update expected")
     };
-    assert_eq!(*update, Update::Snapshot(snapshot));
+    assert_eq!(*update, Update::Snapshot(Box::new(snapshot)));
     client.close().await;
     server.close().await;
 }
