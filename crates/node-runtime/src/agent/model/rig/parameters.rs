@@ -55,7 +55,7 @@ fn reasoning(request: &Request) -> bool {
 
 fn openai(request: &mut Request, api: ModelApi, configured: ModelApi) {
     let openai = openai_reasoning(request);
-    if openai {
+    if openai || configured == ModelApi::AzureAi && reasoning(request) {
         request.temperature = None;
     }
     if request.reasoning != Some(false)

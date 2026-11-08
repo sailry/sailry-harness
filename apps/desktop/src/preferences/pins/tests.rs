@@ -91,6 +91,59 @@ fn preserves_legacy_pins(cx: &mut TestAppContext) {
 }
 
 #[gpui_kit::test]
+fn retains_only_registered_hosts(cx: &mut TestAppContext) {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("preferences.json");
+    let local = NodeId([1; 32]);
+    let offline = NodeId([2; 32]);
+    let removed = NodeId([3; 32]);
+    let session = SessionId::new();
+    let terminal = TerminalId::new();
+    cx.update(|cx| {
+        cx.set_global(Preferences::open(path.clone()));
+        for node in [local, offline, removed] {
+            for target in [Target::Session(session), Target::Terminal(terminal)] {
+                set(
+                    node,
+                    target,
+                    State {
+                        pinned: true,
+                        order: None,
+                    },
+                    cx,
+                );
+            }
+            cx.global_mut::<Preferences>().pin_cursors.insert(node, 10);
+        }
+        retain_hosts([local, offline], cx);
+        assert_eq!(get(removed, session, cx), State::default());
+        assert_eq!(get(removed, terminal, cx), State::default());
+        assert!(
+            !cx.global::<Preferences>()
+                .pin_cursors
+                .contains_key(&removed)
+        );
+        for node in [local, offline] {
+            assert_eq!(get(node, session, cx).order, Some(0));
+            assert_eq!(get(node, terminal, cx).order, Some(1));
+            assert_eq!(cx.global::<Preferences>().pin_cursors[&node], 10);
+        }
+        let retained = cx.global::<Preferences>().data.clone();
+        retain_hosts([local, offline], cx);
+        assert_eq!(cx.global::<Preferences>().data, retained);
+        cx.set_global(Preferences::open(path));
+        assert_eq!(cx.global::<Preferences>().data, retained);
+        assert_eq!(get(removed, session, cx), State::default());
+        assert_eq!(get(removed, terminal, cx), State::default());
+        retain_hosts([local], cx);
+        assert_eq!(get(offline, session, cx), State::default());
+        assert_eq!(get(offline, terminal, cx), State::default());
+        assert!(get(local, session, cx).pinned);
+        assert!(get(local, terminal, cx).pinned);
+    });
+}
+
+#[gpui_kit::test]
 fn reconciles_only_authoritative_host_resources(cx: &mut TestAppContext) {
     use sailry_protocol::{Defaults, Snapshot};
     let node = NodeId([1; 32]);

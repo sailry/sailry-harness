@@ -115,7 +115,7 @@ impl Shell {
                     .id("sidebar-unassigned")
                     .relative()
                     .h_auto()
-                    .max_h(rems(7.375))
+                    .max_h(rems(SESSION_VIEWPORT_HEIGHT))
                     .min_h_0()
                     .flex_shrink_0()
                     .debug_selector(|| "sidebar-unassigned-viewport".into())

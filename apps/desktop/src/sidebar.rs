@@ -26,6 +26,7 @@ use gpui_kit::*;
 use std::collections::BTreeSet;
 
 pub(crate) const WIDTH_RANGE: std::ops::Range<f32> = 200. ..320.;
+const SESSION_VIEWPORT_HEIGHT: f32 = 7.375;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Row {

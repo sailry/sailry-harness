@@ -97,6 +97,26 @@ fn output_field_follows_channel() {
 }
 
 #[test]
+fn deployment_temperature_follows_azure_capability() {
+    for (configured, capability, expected) in [
+        (ModelApi::AzureAi, Some(true), None),
+        (ModelApi::AzureAi, Some(false), Some(0.7)),
+        (ModelApi::AzureAi, None, Some(0.7)),
+        (ModelApi::ChatCompletions, Some(true), Some(0.7)),
+    ] {
+        let mut request = input("private-deployment", capability, Effort::High);
+        request.temperature = Some(0.7);
+        prepare(&mut request, ModelApi::ChatCompletions, configured);
+        assert_eq!(
+            request.temperature, expected,
+            "{configured:?}/{capability:?}"
+        );
+        assert_eq!(request.params["max_tokens"], 8192);
+        assert!(!request.params.contains_key("max_completion_tokens"));
+    }
+}
+
+#[test]
 fn budget_preserves_answer_capacity() {
     for (effort, output, expected) in [
         (Effort::Low, 8192, Some(4000)),

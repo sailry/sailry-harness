@@ -76,7 +76,9 @@ impl Shell {
         Collapsible::new()
             .open(open)
             .min_h_8()
-            .when(open, |group| group.flex_1().min_h_16())
+            .when(open, |group| {
+                group.flex_1().min_h(rems(SESSION_VIEWPORT_HEIGHT + 2.))
+            })
             .when(!open, |group| group.flex_shrink_0())
             .child(
                 gpui_kit::base::AccordionTrigger::new("recent-toggle")

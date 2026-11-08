@@ -75,6 +75,30 @@ pub(crate) fn set(node: NodeId, target: impl Into<Target>, mut state: State, cx:
     });
 }
 
+pub(crate) fn retain_hosts(nodes: impl IntoIterator<Item = NodeId>, cx: &mut App) {
+    let nodes = nodes.into_iter().collect::<std::collections::BTreeSet<_>>();
+    let prefixes = nodes.iter().copied().map(prefix).collect::<Vec<_>>();
+    let keep = |key: &String| prefixes.iter().any(|prefix| key.starts_with(prefix));
+    super::init(cx);
+    let preferences = cx.global_mut::<Preferences>();
+    preferences
+        .pin_cursors
+        .retain(|node, _| nodes.contains(node));
+    if preferences
+        .data
+        .pins
+        .as_ref()
+        .is_none_or(|pins| pins.keys().all(&keep))
+    {
+        return;
+    }
+    super::update(cx, |data| {
+        if let Some(pins) = &mut data.pins {
+            pins.retain(|key, _| keep(key));
+        }
+    });
+}
+
 pub(crate) fn reconcile(view: &sailry_client::View, cx: &mut App) {
     let Some(snapshot) = view
         .snapshot

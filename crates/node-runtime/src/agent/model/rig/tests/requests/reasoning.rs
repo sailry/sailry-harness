@@ -72,6 +72,38 @@ async fn openai_policy_respects_capability_and_aliases() {
 }
 
 #[tokio::test]
+async fn azure_deployments_omit_reasoning_temperature() {
+    for capability in [Some(true), Some(false), None] {
+        let name = "private-deployment";
+        let server = Server::start(vec![fixtures::chat()]).await;
+        let provider = provider(ModelApi::AzureAi, server.endpoint.clone());
+        let model = native(&provider, name, "azure-key", HeaderMap::new());
+        let mut input = request(name);
+        input.reasoning = capability;
+        input.temperature = Some(0.7);
+        collect(&model, input, CancellationToken::new())
+            .await
+            .unwrap();
+        let sent = server.finish().await;
+        assert_eq!(sent.len(), 1);
+        let body = &sent[0].body;
+        assert_eq!(
+            body.get("temperature"),
+            (capability != Some(true)).then_some(&json!(0.7)),
+            "{capability:?}"
+        );
+        assert_eq!(body["model"], name);
+        assert_eq!(body["messages"][0]["role"], "system");
+        assert_eq!(body["max_tokens"], 512);
+        assert!(body.get("max_completion_tokens").is_none());
+        assert_eq!(
+            sent[0].path,
+            "/v1/chat/completions?api-version=2024-05-01-preview"
+        );
+    }
+}
+
+#[tokio::test]
 async fn budget_follows_configured_gateway() {
     for (api, suffix, name, responses) in [
         (ModelApi::OpenCodeGo, "/zen/go/v1", "glm-5", false),
