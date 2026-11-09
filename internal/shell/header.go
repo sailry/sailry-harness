@@ -37,7 +37,7 @@ func (a *App) header(c *ui.Context, f frame) {
 			if !a.NavOpen {
 				icon = icons.PanelLeftOpen
 			}
-			kit.IconButtonHint(c.Key("toggle"), icon, i18n.T(c, "sidebar_toggle"), hint("sidebar.toggle"), 28, false).
+			kit.IconButtonHint(c.Key("toggle"), icon, i18n.T(c, "sidebar_toggle"), a.hint("sidebar.toggle"), 28, false).
 				OnClick(func() { a.NavOpen = !a.NavOpen })
 			a.trail(c)
 			ui.Spacer(c)
@@ -51,7 +51,7 @@ func (a *App) header(c *ui.Context, f frame) {
 			})
 			if a.Page == ConversationPage {
 				label := i18n.T(c, "details")
-				b := kit.IconButtonHint(c.Key("details"), icons.PanelRight, label, hint("panel.toggle"), 28, f.showsPanel).OnClick(a.togglePanel)
+				b := kit.IconButtonHint(c.Key("details"), icons.PanelRight, label, a.hint("panel.toggle"), 28, f.showsPanel).OnClick(a.togglePanel)
 				if !f.fitted {
 					// Too narrow: the panel stays chosen and shows when there is room.
 					b.Opacity(0.5)

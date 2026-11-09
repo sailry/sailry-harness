@@ -1,6 +1,7 @@
 // Package icons holds the SVG icons the reference app draws: Lucide icons as
 // Kit bundles them (svg/LICENSE-LUCIDE), Sailry's reicon glyphs, the Remix
-// Icon status glyphs of assets/icons/remix (Apache-2.0) and provider logos
+// Icon status glyphs of assets/icons/remix (Apache-2.0), the Simple Icons
+// platform logos of assets/icons/os (CC0, svg/LICENSE-OS) and provider logos
 // (svg/PROVIDERS-SOURCE.md). ui.Icon draws them in the text color.
 package icons
 
@@ -128,17 +129,23 @@ var (
 	FileImage      = load("file-image")
 
 	// The composer's (queue, modes, model controls, file picker).
-	Replace   = load("replace")
-	Map       = load("map")
-	Crown     = load("crown")
-	Zap       = load("zap")
-	House     = load("house")
-	Download  = load("download")
-	HardDrive = load("hard-drive")
-	MenuLines = load("menu")
-	Delete    = load("delete")
-	Shield    = load("reicon-shield")
-	ShieldOff = load("reicon-shield-off")
+	Replace    = load("replace")
+	Map        = load("map")
+	Crown      = load("crown")
+	Zap        = load("zap")
+	House      = load("house")
+	Download   = load("download")
+	HardDrive  = load("hard-drive")
+	MenuLines  = load("menu")
+	Delete     = load("delete")
+	Shield     = load("reicon-shield")
+	ShieldOff  = load("reicon-shield-off")
+	Device     = load("reicon-device")
+	Smartphone = load("reicon-smartphone")
+	Android    = load("os-android")
+	Apple      = load("os-apple")
+	Linux      = load("os-linux")
+	Windows    = load("os-windows11")
 
 	Providers = map[string]*ui.SVG{
 		"anthropic": load("provider-anthropic"),

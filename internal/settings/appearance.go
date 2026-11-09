@@ -14,14 +14,17 @@ type Look struct {
 	Theme   *string // the theme package's ID; empty is the built-in theme
 	Mode    *theme.Mode
 	Effects *bool // the theme's animated effects
+	// Surfaces are the window materials' opacities the transparency
+	// sliders set.
+	Surfaces *theme.Surfaces
 }
 
 // previewHeight is a theme card's preview (h_24).
 const previewHeight = 96
 
 // appearance is settings/appearance.rs: the interface group (mode and
-// effects), the gallery of theme packages, and the selected theme's
-// details.
+// effects), the transparency sliders, the gallery of theme packages with
+// its update check and import, and the selected theme's details.
 func appearance(c *ui.Context, look Look) {
 	kit.Group(c, "interface", i18n.T(c, "settings_interface"), "", nil, func() {
 		kit.Card(c, func() {
@@ -33,7 +36,13 @@ func appearance(c *ui.Context, look Look) {
 			kit.SwitchRow(c, "effects", i18n.T(c, "appearance_effects"), "", look.Effects)
 		})
 	})
-	kit.Group(c, "packages", i18n.T(c, "appearance_packages"), "", nil, func() {
+	transparency(c, look.Surfaces)
+	kit.Group(c, "packages", i18n.T(c, "appearance_packages"), "", func() {
+		// Checking for updates asks the network; importing reads a file.
+		kit.Secondary(c.Key("updates"), i18n.T(c, "plugins_check_updates")).OnClick(func() { notice(c) })
+		label := i18n.T(c, "appearance_import")
+		kit.Primary(c.Key("import"), label, false).Children(func() { ui.Text(c, label).FontSize(14) }).OnClick(func() { notice(c) })
+	}, func() {
 		ui.Grid(c.Key("gallery")).Columns(3).Gap(12).FillWidth().Children(func() {
 			for _, pkg := range theme.Packages {
 				themeCard(c, pkg, look.Theme)
@@ -133,5 +142,31 @@ func details(c *ui.Context, pkg *theme.Package) {
 		info("version", i18n.T(c, "settings_version"), pkg.Release)
 		info("author", i18n.T(c, "appearance_author"), pkg.License.Author)
 		info("license", i18n.T(c, "settings_license"), pkg.License.Name)
+	})
+}
+
+// transparency is appearance/opacity.rs: the container's and the window's
+// opacity as sliders of transparency, 0 opaque to 100 at 45% opacity,
+// their value after them.
+func transparency(c *ui.Context, s *theme.Surfaces) {
+	p := theme.Of(c)
+	kit.Group(c, "transparency", i18n.T(c, "appearance_transparency"), "", nil, func() {
+		kit.Card(c, func() {
+			for _, row := range []struct {
+				key     string
+				opacity *float32
+			}{{"appearance_main_transparency", &s.Main}, {"appearance_sidebar_transparency", &s.Sidebar}} {
+				title := i18n.T(c, row.key)
+				kit.Row(c, row.key, title, "", func() {
+					v := float64(1-*row.opacity) * 100 / 0.55
+					ui.Row(c).Width(240).Gap(12).Children(func() {
+						if ui.Slider(c.Key("slider"), &v, 0, 100).Label(title).Grow(1).Changed() {
+							*row.opacity = float32(1 - v*0.55/100)
+						}
+						ui.Textf(c, "%d%%", int(v+0.5)).FontSize(14).Width(40).TextAlign(ui.End).TextColor(p.SurfaceForeground)
+					})
+				})
+			}
+		})
 	})
 }

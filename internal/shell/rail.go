@@ -102,9 +102,9 @@ func (a *App) rail(c *ui.Context) {
 		ui.Spacer(c)
 		a.bell(c)
 		a.hosts(c)
-		kit.IconButtonHint(c.Key("search"), icons.Search, i18n.T(c, "search"), hint("app.search"), 36, a.search.open).
+		kit.IconButtonHint(c.Key("search"), icons.Search, i18n.T(c, "search"), a.hint("app.search"), 36, a.search.open).
 			OnClick(func() { a.openSearch() })
-		kit.IconButtonHint(c.Key("settings"), icons.Settings, i18n.T(c, "settings"), hint("app.settings"), 36, a.Page == SettingsPage).
+		kit.IconButtonHint(c.Key("settings"), icons.Settings, i18n.T(c, "settings"), a.hint("app.settings"), 36, a.Page == SettingsPage).
 			OnClick(func() { a.Page = SettingsPage })
 	})
 }

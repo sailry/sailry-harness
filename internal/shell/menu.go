@@ -6,6 +6,7 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-go/internal/i18n"
+	"github.com/sailry/sailry-go/internal/kit"
 )
 
 // Website and Feedback are the Help menu's pages (app_menu.rs).
@@ -141,5 +142,5 @@ func Accelerator(mods ui.Modifiers, key ui.Key) string {
 			parts = append(parts, m.s)
 		}
 	}
-	return strings.Join(append(parts, keyName(key)), "+")
+	return strings.Join(append(parts, kit.KeyName(key)), "+")
 }

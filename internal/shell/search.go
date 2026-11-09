@@ -123,11 +123,15 @@ func (a *App) catalog(c *ui.Context, folder string) []Group {
 		return []Group{{Choices: list}}
 	case "settings":
 		var list []Choice
-		for _, sec := range []settings.Section{settings.Appearance, settings.Providers, settings.Plugins} {
-			list = append(list, Choice{ID: string(sec), Label: t(string(sec)), Icon: icons.Settings,
-				Selected: a.Page == SettingsPage && a.Settings.Section == sec, run: func() {
-					a.Page, a.Settings.Section = SettingsPage, sec
-				}})
+		for _, g := range settings.Groups {
+			for _, it := range g.Items {
+				sec := it.Section
+				list = append(list, Choice{ID: string(sec), Label: t(string(sec)), Icon: it.Icon,
+					Selected: a.Page == SettingsPage && a.Settings.Section == sec, run: func() {
+						a.Page = SettingsPage
+						a.Settings.Open(sec)
+					}})
+			}
 		}
 		return []Group{{Heading: t("settings"), Choices: list}}
 	}

@@ -62,9 +62,11 @@ const (
 type App struct {
 	Data *preview.Data
 	// Theme is the selected theme package's ID; empty is the built-in one.
-	Theme    string
-	Mode     theme.Mode
-	Effects  bool // the theme's animated effects
+	Theme   string
+	Mode    theme.Mode
+	Effects bool // the theme's animated effects
+	// Surfaces are the window materials' opacities (Appearance).
+	Surfaces theme.Surfaces
 	Page     Page
 	NavOpen  bool
 	NavWidth float32
@@ -110,7 +112,7 @@ type App struct {
 // New makes the app over the preview dataset, showing its large conversation.
 func New(d *preview.Data) *App {
 	a := &App{
-		Data: d, NavOpen: true, NavWidth: NavWidth, PanelWidth: PanelWidth, Effects: true,
+		Data: d, NavOpen: true, NavWidth: NavWidth, PanelWidth: PanelWidth, Effects: true, Surfaces: theme.DefaultSurfaces,
 		Sidebar:  sidebar.New(d, preview.Big),
 		Settings: settings.New(),
 		Messages: conversation.New(),
@@ -162,14 +164,14 @@ func (a *App) View(c *ui.Context) {
 		// surfaces). Only while the app follows the system: a forced mode
 		// paints opaque, so the band never shows a material of the other
 		// appearance.
-		band, panel = p.TitleBar.Alpha(theme.SidebarOpacity), p.Background.Alpha(theme.PanelOpacity)
+		band, panel = p.TitleBar.Alpha(a.Surfaces.Sidebar), p.Background.Alpha(a.Surfaces.Main)
 	}
 	c.Root().Background(band)
 	// The window's art and effects lie under the band and the panel, which
 	// turns translucent over them as over the window material.
 	window := kit.Backdrop(c, "background.window")
 	if window != nil {
-		panel = p.Background.Alpha(theme.PanelOpacity)
+		panel = p.Background.Alpha(a.Surfaces.Main)
 	}
 	root := kit.Draws(ui.Column(c.Key("frame")).Fill(), window)
 	f := a.frame(c, root)
@@ -266,7 +268,7 @@ func (a *App) details(c *ui.Context, f frame, fill ui.Color) {
 		a.pane(c, col, &a.panelPane, true, func() { a.closeTab(c) })
 		col.Children(func() {
 			a.Panel.Paged = a.paged()
-			panel.View(c, a.Panel, a.project(), KeyText)
+			panel.View(c, a.Panel, a.project(), kit.KeyText)
 		})
 	})
 }
@@ -337,7 +339,7 @@ func adjacent(a *App, forward bool) string {
 func (a *App) page(c *ui.Context) {
 	switch a.Page {
 	case SettingsPage:
-		settings.Page(c, a.Settings, a.Data, settings.Look{Theme: &a.Theme, Mode: &a.Mode, Effects: &a.Effects})
+		settings.Page(c, a.Settings, a.Data, settings.Look{Theme: &a.Theme, Mode: &a.Mode, Effects: &a.Effects, Surfaces: &a.Surfaces})
 		return
 	case FilesPage, GitPage, ActivityPage, MarketPage:
 		a.featurePage(c)

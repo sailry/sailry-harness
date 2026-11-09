@@ -117,6 +117,14 @@ const (
 	SidebarOpacity = 0.45
 )
 
+// Surfaces are the window materials' opacities, 0 to 1, that the
+// Appearance page's transparency sliders set (preferences.rs Surfaces):
+// the main panel's and the outer sidebar band's.
+type Surfaces struct{ Main, Sidebar float32 }
+
+// DefaultSurfaces are Surfaces::default.
+var DefaultSurfaces = Surfaces{Main: PanelOpacity, Sidebar: SidebarOpacity}
+
 // Radius2xl is Kit's radius_2xl: the composer's and the mode cards'.
 func (p *Palette) Radius2xl() float32 { return p.Radius * 2.5 }
 

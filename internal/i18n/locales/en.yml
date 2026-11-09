@@ -547,3 +547,277 @@ reference_files_description: Preview files in the current worktree
 reference_agents_description: Reference configured subagents
 reference_sessions_description: Available sessions
 reference_context_description: Host, project and worktree
+appearance_import: Import theme
+appearance_main_transparency: Container
+appearance_sidebar_transparency: Window
+appearance_transparency: Background opacity
+backup_archive_all: Archive all sessions
+backup_archive_all_action: Archive all
+backup_archived_sessions: Archived sessions
+backup_bucket: Bucket
+backup_choose_directory: Choose folder
+backup_clear_credentials: Clear credentials
+backup_configure: Configure
+backup_confirm_passphrase: Confirm passphrase
+backup_conflict: Backup settings or destination changed; reload to review
+backup_delete: Delete
+backup_delete_all: Delete all sessions
+backup_delete_all_action: Delete all
+backup_delete_all_consequence: Delete all sessions, including archived sessions. This cannot be undone; project files and account settings are kept
+backup_destination: Backup storage
+backup_endpoint: Endpoint
+backup_export: Export
+backup_export_data: Export data
+backup_failed: Backup operation failed
+backup_identity: Username or access key ID
+backup_import: Restore from file
+backup_invalid: Check the backup configuration
+backup_keep_secret: Keep existing
+backup_local: Local
+backup_local_directory: Node backup folder
+backup_manage: Manage
+backup_no_archived: No archived sessions
+backup_now: Back up now
+backup_passphrase: Encryption passphrase
+backup_passphrase_invalid: Use at least 8 characters
+backup_passphrase_mismatch: Passphrases do not match
+backup_passphrase_required: Enter a backup passphrase
+backup_prefix: Prefix
+backup_region: Region
+backup_restore: Restore
+backup_restore_storage: Restore from storage
+backup_s3: S3
+backup_saved: Settings saved
+backup_schedule_enabled: Automatic backup
+backup_schedule_time: Daily time
+backup_secret: Password or secret key
+backup_session_token: Session token
+backup_timezone: Time zone
+backup_unarchive: Unarchive
+backup_unknown: Backup outcome is unknown; retry the same request or inspect the remote list
+backup_webdav: WebDAV
+connection_route_p2p: P2P
+connection_route_relay: Relay
+connections_device: Device %{id}
+connections_hosts: Hosts
+connections_mobile: Mobile
+connections_offline: Offline
+connections_online: Online
+connections_revoke_confirm: Removing pairing requires reconnecting
+dictation_access: Microphone access
+dictation_access_granted: Allowed
+dictation_access_hint: Allow access for this app; checks again when you return
+dictation_input: Input
+dictation_language: Recognition language
+dictation_language_auto: Auto-detect
+dictation_language_chinese: Chinese
+dictation_language_english: English
+dictation_local_model: Local model
+dictation_microphone_default: System default
+dictation_microphone_label: Microphone
+dictation_model_name: SenseVoice INT8
+form_name_hint: Name
+form_passphrase_hint: Private key passphrase (optional)
+form_private_key_hint: Paste private key
+form_value_hint: Enter value
+form_variable_hint: e.g. LANG
+hooks_add: Add hook
+hooks_after_tool: After tool
+hooks_before_tool: Before tool
+hooks_command: Command
+hooks_configure: Configure hook
+hooks_conflict: Hooks changed; reload before saving
+hooks_consent: Run these scripts for future turns in this worktree
+hooks_empty: No hooks
+hooks_enable: Enable hooks
+hooks_enabled: Enabled
+hooks_failed: Hooks could not be saved
+hooks_invalid: Invalid command or timeout
+hooks_name: Name
+hooks_phase: Phase
+hooks_remove: Remove hook
+hooks_saved: Hooks saved
+hooks_scope_workspace: Scripts can write this worktree; network access is blocked
+hooks_scripts: Scripts
+hooks_settings: Hooks
+hooks_settings_description: Configure scripts for this worktree
+hooks_timeout: Timeout (ms)
+hooks_turn_end: Turn end
+hooks_unknown: Hook save is uncertain; retry the original request
+host_install: Install and connect
+host_pairing_hint: Connect to an existing Sailry device
+host_pairing_mode: Pairing code
+knowledge_downloading: Downloading
+knowledge_install: Install
+knowledge_installed: Installed
+knowledge_missing: Not installed
+knowledge_model_details: Details
+live_revoke: Remove pairing
+local_models_available: Available
+local_models_empty: No installed models
+local_models_status: Status
+message_display_compact: Compact
+message_display_detailed: Detailed
+message_text_extra_large: Extra large
+message_text_large: Large
+message_text_size_value: '%{size}px'
+message_text_small: Small
+message_text_standard: Standard
+model_library_manage: Manage models
+model_library_select: Select
+model_library_selected: Selected
+model_library_source: Source
+pairing_connect: Connect device
+pairing_local_code: Local pairing code
+pairing_preview_disabled: UI preview does not connect real devices; start with --data-dir to pair
+pairing_relay_address: iroh address
+pairing_relay_address_hint: https://relay.example.com
+pairing_relay_custom: Custom
+pairing_relay_iroh: Public network
+pairing_relay_server: Connection server
+pairing_share: Share this device
+pairing_share_hint: Enter this code in Remote Connections on another device
+permission_check: Check
+permission_disk_help: If Sailry is missing, add it with + or drag the app into the list
+permission_full_disk: Full Disk Access
+permission_granted: Authorized
+permission_not_needed: Not needed
+permission_request: Request access
+permission_settings: Open settings
+permission_show_app: Show app
+permission_title: System access
+plugins_check_updates: Check updates
+power_prevent_sleep: Prevent sleep
+power_prevent_sleep_description: The display can still turn off
+power_settings_conflict: Settings changed; reload to continue
+power_settings_failed: Could not load or save power settings
+power_settings_saved: Saved
+power_settings_unknown: Save outcome is unknown; reload to check
+runtime_ocr: Text recognition
+runtime_ocr_enable: Enable OCR
+runtime_ocr_model: OCR model
+runtime_python: Python
+runtime_python_bundled: Bundled
+runtime_python_custom: Custom
+runtime_python_custom_url: Package index URL
+runtime_python_index: Package index
+runtime_python_version: Version
+sandbox_settings_conflict: Command sandbox settings changed; reload to continue
+sandbox_settings_failed: Could not load or save command sandbox settings
+sandbox_settings_saved: Saved
+sandbox_settings_unknown: Saving command sandbox settings could not be confirmed; reload to check
+session_order_created: Created
+session_order_updated: Updated
+settings_about_description: App version and build information
+settings_backup_description: Manage data and backups
+settings_build: Build type
+settings_command_sandbox: Command sandbox
+settings_command_sandbox_description: Applies to subsequent commands in all sessions
+settings_connections_description: Manage paired devices and remote Node connections
+settings_connectors_description: Manage service connections
+settings_conversation_description: Adjust how conversation messages are displayed
+settings_decision: Decisions
+settings_decision_description: Configure local decision models
+settings_dictation_description: Transcribe locally into the message draft
+settings_empty: No items
+settings_execution: Execution
+settings_font_family: Font
+settings_font_size: Font size
+settings_general_description: Manage notifications and device pairing service
+settings_global_commands: Global commands
+settings_knowledge_description: Knowledge on the selected host
+settings_language: Language
+settings_language_chinese: 简体中文
+settings_language_english: English
+settings_language_french: Français
+settings_language_german: Deutsch
+settings_language_japanese: 日本語
+settings_language_korean: 한국어
+settings_language_portuguese_brazil: Português (Brasil)
+settings_language_restart: Restart to apply language
+settings_language_russian: Русский
+settings_language_spanish: Español
+settings_language_system: Follow system
+settings_language_traditional_chinese: 繁體中文
+settings_message_display: Message display
+settings_message_display_description: Compact mode hides reasoning and groups adjacent tools
+settings_message_text_size: Text size
+settings_messages: Messages
+settings_name: Name
+settings_notifications: Notifications
+settings_notify_approval: Approval request notifications
+settings_notify_completed: Task completion notifications
+settings_notify_failed: Task failure notifications
+settings_notify_system: System notifications
+settings_ocr: OCR
+settings_ocr_description: Configure text recognition
+settings_paste_description: Confirm before pasting multiple lines
+settings_paste_protection: Multiline paste protection
+settings_permissions_description: Sailry's system access
+settings_runtime: Runtime
+settings_runtime_description: Configure this Node
+settings_save: Save
+settings_seconds: '%{count} seconds'
+settings_session_order: Session order
+settings_sessions: Sessions
+settings_shortcuts_description: View global commands and keyboard shortcuts
+settings_sidebar_metrics: Performance indicator
+settings_skills_description: Manage skills available to sessions
+settings_teams_description: Roles and teams for subagents
+settings_terminal_description: Terminal environment and display
+settings_terminal_display: Display and input
+settings_toast_description: How long in-app notifications remain visible
+settings_toast_duration: Notification duration
+shortcut_activate: Show Sailry
+shortcut_clear: Clear shortcut
+shortcut_conflict: Shortcut conflicts with an existing action
+shortcut_disabled: Not set
+shortcut_invalid: Invalid shortcut format
+shortcut_record: Press shortcut
+shortcut_reset: Reset to default
+shortcut_selection: Use selected text
+shortcut_unavailable: Shortcut unavailable
+ssh_host: Host
+ssh_key_file: Private key file
+ssh_key_path: Key file
+ssh_passphrase: Private key passphrase
+ssh_password: Password
+ssh_port: Port
+ssh_private_key: Private key
+ssh_username: Username
+telemetry_conflict: Settings changed. Reload and try again
+telemetry_errors: Send error reports
+telemetry_errors_description: App version, device type and error codes
+telemetry_excludes: No conversations, files, credentials, paths or custom names
+telemetry_failed: Could not load or save privacy settings
+telemetry_identity: Anonymous ID
+telemetry_metrics: Share anonymous usage
+telemetry_metrics_description: Anonymous feature counts
+telemetry_reset_action: Reset
+telemetry_saved: Privacy settings saved
+telemetry_send_action: Send diagnostics
+telemetry_support: Support
+telemetry_title: Diagnostics and privacy
+telemetry_unknown: The result is unknown. Reload to check
+terminal_environment: Global environment variables
+terminal_environment_add: Add environment variable
+terminal_input: Input
+terminal_settings_conflict: Terminal settings changed; your edits are kept
+terminal_settings_failed: Could not read or save terminal settings
+terminal_settings_unknown: Save result unconfirmed; reload and review
+terminal_shell: Default shell
+terminal_shell_default: Host default
+terminal_shell_group: Shell
+terminal_value: Value
+terminal_variable: Variable name
+terminal_variable_duplicate: Variable already exists
+terminal_variable_invalid: Invalid variable name, reserved setting or code-loading variable
+updates_channel: Update channel
+updates_channel_experience: Experience
+updates_channel_stable: Stable
+updates_check: Check for updates
+updates_version: Version
+settings_notify_system_description: Receive system notifications from the app
+settings_notify_approval_description: Notify when tasks need confirmation or authorization
+settings_notify_completed_description: Notify when a session task completes
+settings_notify_failed_description: Notify when tasks fail or are interrupted

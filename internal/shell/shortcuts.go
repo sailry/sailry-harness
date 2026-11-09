@@ -1,99 +1,55 @@
 package shell
 
 import (
-	"runtime"
-	"strings"
-
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-go/internal/i18n"
+	"github.com/sailry/sailry-go/internal/kit"
 	"github.com/sailry/sailry-go/internal/panel"
+	"github.com/sailry/sailry-go/internal/settings"
 )
 
-// Shortcut is a key of the window (shortcuts.rs, shell/shortcuts.rs):
-// its id and label, as the Shortcuts settings will list them.
-type Shortcut struct {
-	ID    string
-	Label string // i18n key
-	Mods  ui.Modifiers
-	Key   ui.Key
-}
+// Shortcut is a key of the window (shortcuts.rs, shell/shortcuts.rs): its
+// id, label and default key, as the Shortcuts settings list them.
+type Shortcut = settings.Shortcut
 
-// Shortcuts are the reference's keys this phase handles, ⌘ standing for
-// Ctrl off macOS. The panel's resource keys follow (panel.Resources).
-var Shortcuts = []Shortcut{
-	{"conversation.new", "menu_new_conversation", ui.Cmd, ui.KeyN},
-	{"project.new", "menu_new_project", ui.Cmd | ui.Alt, ui.KeyN},
-	{"folder.open", "menu_open_folder", ui.Cmd, ui.KeyO},
-	{"app.search", "search", ui.Cmd, ui.KeyK},
-	{"sidebar.toggle", "sidebar_toggle", ui.Cmd, ui.KeyB},
-	{"panel.toggle", "shortcut_inspector", ui.Cmd | ui.Alt, ui.KeyB},
-	{"host.refresh", "shortcut_sync", ui.Cmd | ui.Shift, ui.KeyR},
-	{"conversation.previous", "shortcut_previous_conversation", ui.Cmd | ui.Shift, ui.KeyBracketLeft},
-	{"conversation.next", "shortcut_next_conversation", ui.Cmd | ui.Shift, ui.KeyBracketRight},
-	{"app.shortcuts", "settings_shortcuts", ui.Cmd, ui.KeySlash},
-	{"app.settings", "settings", ui.Cmd, ui.KeyComma},
-	{"conversation.find", "chat_search", ui.Cmd, ui.KeyF},
+// Shortcuts are the reference's window keys, ⌘ standing for Ctrl off
+// macOS: the Shortcuts settings' registry, which the user may rebind
+// (App.binding), then Settings and Find, which are fixed. The system's
+// shortcuts are not the window's. The panel's resource keys follow
+// (panel.Resources).
+var Shortcuts = append(window(settings.Registry),
+	Shortcut{ID: "app.settings", Label: "settings", Mods: ui.Cmd, Key: ui.KeyComma},
+	Shortcut{ID: "conversation.find", Label: "chat_search", Mods: ui.Cmd, Key: ui.KeyF},
+)
+
+func window(all []Shortcut) []Shortcut {
+	var out []Shortcut
+	for _, s := range all {
+		if !s.System {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // CloseFocused is ⌘W (shell/shortcuts.rs CloseFocused). The reference binds
 // it on the panes that close, not on the window: the right panel and an
 // independent page take it while the focus is inside them (App.pane), and
 // anywhere else it does nothing.
-var CloseFocused = Shortcut{"close", "menu_close_tab", ui.Cmd, ui.KeyW}
+var CloseFocused = Shortcut{ID: "close", Label: "menu_close_tab", Mods: ui.Cmd, Key: ui.KeyW}
 
-// KeyText writes a shortcut as menus show it: ⌥⇧⌘B on macOS, Ctrl+Alt+B
-// elsewhere.
-func KeyText(mods ui.Modifiers, key ui.Key) string {
-	mac := runtime.GOOS == "darwin"
-	name := keyName(key)
-	if mac {
-		var b strings.Builder
-		for _, m := range []struct {
-			mod ui.Modifiers
-			s   string
-		}{{ui.Ctrl, "⌃"}, {ui.Alt, "⌥"}, {ui.Shift, "⇧"}, {ui.Super, "⌘"}} {
-			if mods&m.mod != 0 {
-				b.WriteString(m.s)
-			}
-		}
-		return b.String() + name
-	}
-	var parts []string
-	for _, m := range []struct {
-		mod ui.Modifiers
-		s   string
-	}{{ui.Ctrl, "Ctrl"}, {ui.Alt, "Alt"}, {ui.Shift, "Shift"}, {ui.Super, "Super"}} {
-		if mods&m.mod != 0 {
-			parts = append(parts, m.s)
-		}
-	}
-	return strings.Join(append(parts, name), "+")
-}
+// binding is a shortcut on the key the user gave it; false when turned
+// off.
+func (a *App) binding(s Shortcut) (Shortcut, bool) { return a.Settings.Keys.Bound(s) }
 
-func keyName(k ui.Key) string {
-	switch k {
-	case ui.KeyBracketLeft:
-		return "["
-	case ui.KeyBracketRight:
-		return "]"
-	case ui.KeySlash:
-		return "/"
-	case ui.KeyComma:
-		return ","
-	case ui.KeyBackquote:
-		return "`"
-	}
-	if k >= ui.KeyA && k <= ui.KeyZ {
-		return string(rune('A' + int(k-ui.KeyA)))
-	}
-	return "?"
-}
-
-// hint is the text of a shortcut by its id.
-func hint(id string) string {
+// hint is the text of a shortcut by its id, on its key now.
+func (a *App) hint(id string) string {
 	for _, s := range Shortcuts {
-		if s.ID == id {
-			return KeyText(s.Mods, s.Key)
+		if s.ID != id {
+			continue
+		}
+		if s, ok := a.binding(s); ok {
+			return kit.KeyText(s.Mods, s.Key)
 		}
 	}
 	return ""
@@ -113,15 +69,27 @@ func hint(id string) string {
 // shows (dialog). This is the scoping MyGo's menus lack.
 
 // shortcuts runs the window's shortcuts and the commands the menu sent.
+// While the Shortcuts page records a key, the window takes none, so every
+// key reaches the recorder, and a menu item's key is recorded instead of
+// run (the menu takes its keys before the window).
 func (a *App) shortcuts(c *ui.Context) {
+	sent := a.sent
+	a.sent = nil
+	if a.Settings.Keys.Recording() {
+		for _, id := range sent {
+			if s, ok := shortcutOf(id); ok {
+				a.Settings.Keys.Take(settings.Chord{Mods: s.Mods, Key: s.Key})
+			}
+		}
+		return
+	}
 	for _, s := range Shortcuts {
-		if !c.Shortcut(s.Mods, s.Key) || c.ShortcutRepeated() && s.ID != "conversation.previous" && s.ID != "conversation.next" {
+		s, ok := a.binding(s)
+		if !ok || !c.Shortcut(s.Mods, s.Key) || c.ShortcutRepeated() && s.ID != "conversation.previous" && s.ID != "conversation.next" {
 			continue
 		}
 		a.run(c, s.ID)
 	}
-	sent := a.sent
-	a.sent = nil
 	for _, id := range sent {
 		switch {
 		case id == CloseFocused.ID:
@@ -196,8 +164,13 @@ func (a *App) run(c *ui.Context, id string) {
 			a.Page = ConversationPage
 			a.Sidebar.Selected = next
 		}
-	case "app.shortcuts", "app.settings", "app.about":
-		// Settings has no Shortcuts or About section before phase 5.
+	case "app.shortcuts":
+		a.Page = SettingsPage
+		a.Settings.Open(settings.Shortcuts)
+	case "app.about":
+		a.Page = SettingsPage
+		a.Settings.Open(settings.About)
+	case "app.settings":
 		a.Page = SettingsPage
 	case "help.website":
 		c.OpenURL(Website)

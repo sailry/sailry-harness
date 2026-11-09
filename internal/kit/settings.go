@@ -159,3 +159,77 @@ func ButtonRow(c *ui.Context, key any, title, description, action string, danger
 		b.OnClick(onClick)
 	})
 }
+
+// WideRow is a Row whose control takes 256 DIPs and wraps under the title
+// when the page is narrow (settings/group.rs Row::wide): selects, inputs
+// and sliders.
+func WideRow(c *ui.Context, key any, title, description string, control func()) ui.Element {
+	p := theme.Of(c)
+	return ui.Row(c.Key(key)).Padding(12, 0).Gap(16).MinHeight(56).Wrap().Children(func() {
+		ui.Column(c).Grow(1).Shrink(1).MinWidth(160).Gap(2).Children(func() {
+			ui.Text(c, title).FontSize(14).TextColor(p.SurfaceForeground)
+			if description != "" {
+				ui.Text(c, description).FontSize(14).TextColor(p.Description())
+			}
+		})
+		ui.Row(c).Width(256).MaxWidthPercent(100).Margin(0, 0, 0, ui.Auto).Gap(8).Justify(ui.End).Children(control)
+	})
+}
+
+// EmptyGroup is a group without rows (settings/group.rs Group::empty): a
+// dashed card holding the empty state's muted icon and label.
+func EmptyGroup(c *ui.Context, icon *ui.SVG, label string) ui.Element {
+	p := theme.Of(c)
+	return ui.Column(c.Key("empty-group")).Border(1, p.Border).BorderStyle(ui.BorderDashed).Radius(p.RadiusLg).
+		Padding(24, 16).Gap(8).AlignItems(ui.Center).Background(p.Surface).Children(func() {
+		ui.Icon(c, icon).FontSize(24).TextColor(p.MutedForeground)
+		ui.Text(c, label).FontSize(14).TextAlign(ui.Center).TextColor(p.MutedForeground)
+	})
+}
+
+// Entry is a record in a group's card (settings/entry.rs): its content,
+// then an optional control and small ghost actions, 12 above and below.
+// control and actions may be nil.
+func Entry(c *ui.Context, key any, content, control, actions func()) ui.Element {
+	return ui.Row(c.Key(key)).Padding(12, 0).Gap(12).MinHeight(56).Children(func() {
+		ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Children(content)
+		if control != nil {
+			ui.Row(c).Shrink(0).Children(control)
+		}
+		if actions != nil {
+			ui.Row(c).Shrink(0).Gap(8).Children(actions)
+		}
+	})
+}
+
+// Record is an entry's content: a medium title over a muted detail, each
+// on one line; detail may be "".
+func Record(c *ui.Context, title, detail string) {
+	p := theme.Of(c)
+	ui.Column(c).MinWidth(0).Gap(4).Children(func() {
+		ui.Text(c, title).FontSize(14).FontWeight(500).SingleLine().TextColor(p.SurfaceForeground)
+		if detail != "" {
+			ui.Text(c, detail).FontSize(14).SingleLine().TextColor(p.MutedForeground)
+		}
+	})
+}
+
+// Action is an entry's small ghost icon button, named by label for its
+// tooltip and assistive technology.
+func Action(c *ui.Context, icon *ui.SVG, label string, disabled bool) ui.Element {
+	b := IconButton(c, icon, label, 28, false).Disabled(disabled)
+	if disabled {
+		b.Opacity(0.5)
+	}
+	return b
+}
+
+// TextAction is an entry's small ghost button with a label.
+func TextAction(c *ui.Context, label string, disabled bool) ui.Element {
+	b := GhostLook(c, ui.ButtonBase(c).Label(label).Disabled(disabled), false).Height(28).PaddingX(8).
+		Children(func() { ui.Text(c, label).FontSize(14).SingleLine() })
+	if disabled {
+		b.Opacity(0.5)
+	}
+	return b
+}

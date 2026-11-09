@@ -293,9 +293,10 @@ func TestWorktreeMenu(t *testing.T) {
 func TestSettingsNavigation(t *testing.T) {
 	a, tt := newTester(t)
 	click(t, tt, "Settings")
-	if a.Page != SettingsPage || a.Settings.Section != settings.Providers {
+	if a.Page != SettingsPage || a.Settings.Section != settings.General {
 		t.Fatalf("page %d section %q", a.Page, a.Settings.Section)
 	}
+	click(t, tt, i18n.In("en", "settings_providers"))
 	snapshot(t, tt, "providers-light")
 	for _, want := range []string{"Anthropic", "OpenAI", i18n.In("en", "settings_providers_description")} {
 		if !tt.HasText(want) {
