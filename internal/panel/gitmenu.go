@@ -40,6 +40,7 @@ type picker struct {
 	open  bool
 	title string
 	query string
+	sel   int
 	items []action
 }
 

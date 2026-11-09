@@ -136,6 +136,9 @@ MyGo bases.
 - A `kit.Segmented` inside a dialog, and the plugin details tabs, fill
   their width (`SegmentedProps{Block: true}`, the segments sharing it
   evenly); elsewhere it is as wide as its labels.
+- Every searchable list of choices (the search, the Git branch and other
+  pickers) is a `kit.Command`: the query over a divider, 36 DIP rows under
+  group headings, a divider between groups. No page builds its own.
 - Pickers with a small, known set of choices (the composer's project,
   worktree, mode and permission) are a `kit.MenuButton` dropdown, not a
   searchable command dialog.

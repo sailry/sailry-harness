@@ -10,7 +10,6 @@ import (
 	"github.com/sailry/sailry-go/internal/kit"
 	"github.com/sailry/sailry-go/internal/settings"
 	"github.com/sailry/sailry-go/internal/sidebar"
-	"github.com/sailry/sailry-go/internal/theme"
 )
 
 // Choice is a row of the search (shell/search/catalog.rs): a label with
@@ -162,97 +161,33 @@ func (a *App) searchOverlay(c *ui.Context) {
 	if !s.open {
 		return
 	}
-	p := theme.Of(c)
 	groups := Filter(a.catalog(c, s.folder), s.query)
 	var rows []Choice
+	var items []kit.CommandItem
 	for _, g := range groups {
-		rows = append(rows, g.Choices...)
-	}
-	if s.sel >= len(rows) {
-		s.sel = 0
-	}
-	choose := func(ch Choice) {
-		if ch.Folder != "" {
-			s.folder, s.query, s.sel = ch.Folder, "", 0
-			return
+		for _, ch := range g.Choices {
+			rows = append(rows, ch)
+			items = append(items, kit.CommandItem{ID: ch.ID, Label: ch.Label, Icon: ch.Icon, Group: g.Heading,
+				Folder: ch.Folder != "", Checked: ch.Selected})
 		}
-		s.open = false
-		ch.run()
 	}
-	w, _ := c.Size()
-	kit.Dialog(c.Key("search"), &s.open, func() {
-		ui.Row(c.Key("query")).Height(45).PaddingX(12).Gap(8).Shrink(0).BorderWidth(0, 0, 1, 0).BorderColor(p.Border).Children(func() {
-			ui.Icon(c, icons.Search).FontSize(16).TextColor(p.MutedForeground)
-			in := ui.TextInputBase(c.Key("input"), &s.query).Grow(1).FontSize(14).TextColor(p.PopoverForeground).
-				Placeholder(i18n.T(c, "search")).Label(i18n.T(c, "search")).AutoFocus()
-			if in.Changed() {
-				s.sel = 0
+	kit.Command(c, "search", &s.open, &s.query, &s.sel, items, kit.CommandProps{
+		Placeholder: i18n.T(c, "search"), Empty: i18n.T(c, "connection_search_empty"),
+		// A folder has no back row: Backspace or Escape on an empty
+		// query goes back to the root, as in search.rs.
+		Back: func() bool {
+			if s.folder == "" {
+				return false
 			}
-			if in.Shortcut(0, ui.KeyDown) {
-				s.sel = Next(len(rows), s.sel, false)
-			}
-			if in.Shortcut(0, ui.KeyUp) {
-				s.sel = Next(len(rows), s.sel, true)
-			}
-			in.OnSubmit(func() {
-				if s.sel >= 0 && s.sel < len(rows) {
-					choose(rows[s.sel])
-				}
-			})
-			if in.Shortcut(0, ui.KeyEscape) {
-				switch {
-				case s.query != "":
-					s.query, s.sel = "", 0
-				case s.folder != "":
-					s.folder, s.sel = "", 0
-				default:
-					s.open = false
-				}
-			}
-			// The input takes Backspace even when empty, so a Shortcut
-			// never sees it: its key handler does.
-			in.OnTextKey(func(k ui.TextKey) bool {
-				if k.Key != ui.KeyBackspace || k.Mods != 0 || k.Text() != "" || s.folder == "" {
-					return false
-				}
-				s.folder, s.sel = "", 0
-				return true
-			})
-		})
-		ui.Scroll(c.Key(s.folder)).MaxHeight(344).Padding(8).Children(func() {
-			if len(rows) == 0 {
-				ui.Text(c, i18n.T(c, "connection_search_empty")).FontSize(14).Padding(12).TextColor(p.MutedForeground)
-				return
-			}
-			i := 0
-			for _, g := range groups {
-				if g.Heading != "" {
-					ui.Text(c, g.Heading).FontSize(14).Height(28).PaddingX(8).TextColor(p.MutedForeground)
-				}
-				for _, ch := range g.Choices {
-					idx := i
-					i++
-					row := ui.ButtonBase(c.Key(ch.ID)).Label(ch.Label).Height(36).PaddingX(8).Gap(8).Radius(p.Radius).Shrink(0).
-						TextColor(p.PopoverForeground)
-					if row.Hovered() {
-						s.sel = idx
-					}
-					if idx == s.sel {
-						row.Background(p.Hover).TextColor(p.HoverForeground).ScrollIntoView()
-					}
-					row.Children(func() {
-						ui.Icon(c, ch.Icon).FontSize(16)
-						ui.Text(c, ch.Label).FontSize(14).SingleLine().Grow(1).Shrink(1)
-						switch {
-						case ch.Folder != "":
-							ui.Icon(c, icons.ChevronRight).FontSize(14).TextColor(p.MutedForeground)
-						case ch.Selected:
-							ui.Icon(c, icons.Check).FontSize(14)
-						}
-					}).OnClick(func() { choose(ch) })
-				}
-			}
-		})
-	}).Width(min(480, w-40)).MaxHeightPercent(60).Padding(0).Gap(0).
-		Label(i18n.T(c, "search")).Clip()
+			s.folder = ""
+			return true
+		},
+	}, func(i int) {
+		if ch := rows[i]; ch.Folder != "" {
+			s.folder, s.query, s.sel = ch.Folder, "", 0
+		} else {
+			s.open = false
+			ch.run()
+		}
+	})
 }

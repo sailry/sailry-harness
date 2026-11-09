@@ -403,58 +403,25 @@ func commitBranch(cm preview.Commit, current string) string {
 
 // gitDialogs are the picker and the confirmation, when showing.
 func (pr *Project) gitDialogs(c *ui.Context) {
-	p := theme.Of(c)
 	v := &pr.Git
 	if pk := &v.picker; pk.open {
-		w, _ := c.Size()
 		q := strings.ToLower(strings.TrimSpace(pk.query))
 		var items []action
+		var rows []kit.CommandItem
 		for _, it := range pk.items {
 			if q == "" || strings.Contains(strings.ToLower(it.label), q) {
 				items = append(items, it)
+				rows = append(rows, kit.CommandItem{Label: it.label, Detail: it.detail, Icon: it.icon, Group: it.group,
+					Checked: it.checked, Disabled: it.disabled})
 			}
 		}
-		var chosen *action
-		kit.Dialog(c.Key("git-picker"), &pk.open, func() {
-			ui.Text(c, pk.title).FontSize(16).FontWeight(600).TextColor(p.PopoverForeground)
-			ui.SearchField(c.Key("search"), &pk.query).Placeholder(pk.title).Label(pk.title).FillWidth().AutoFocus()
-			ui.Scroll(c.Key("rows")).MaxHeight(360).Gap(2).Children(func() {
-				if len(items) == 0 {
-					ui.Text(c, i18n.T(c, "git_no_matches")).FontSize(14).Padding(12).TextColor(p.MutedForeground)
-				}
-				group := ""
-				for i, it := range items {
-					if it.group != group {
-						group = it.group
-						ui.Text(c, group).FontSize(12).Padding(8, 8, 4, 8).TextColor(p.MutedForeground)
-					}
-					b := ui.ButtonBase(c.Key(i)).Label(it.label).Height(36).PaddingX(8).Gap(8).Radius(p.Radius).Justify(ui.Start).
-						Disabled(it.disabled).Cursor(ui.CursorPointer).TextColor(p.PopoverForeground).Shrink(0)
-					switch {
-					case it.disabled:
-						b.Opacity(0.5)
-					case b.Hovered() || b.FocusVisible():
-						b.Background(p.Hover)
-					}
-					b.Children(func() {
-						if it.icon != nil {
-							ui.Icon(c, it.icon).FontSize(16).Shrink(0)
-						}
-						ui.Text(c, it.label).FontSize(14).SingleLine().Grow(1).Shrink(1).MinWidth(0)
-						if it.detail != "" {
-							ui.Text(c, it.detail).FontSize(12).SingleLine().Shrink(0).TextColor(p.MutedForeground)
-						}
-						if it.checked {
-							ui.Icon(c, icons.Check).FontSize(14).Shrink(0)
-						}
-					}).OnClick(func() { chosen = &items[i] })
-				}
-			})
-		}).Width(min(480, w-48)).Gap(8).Label(pk.title)
-		if chosen != nil {
+		kit.Command(c, "git-picker", &pk.open, &pk.query, &pk.sel, rows, kit.CommandProps{
+			Placeholder: pk.title, Empty: i18n.T(c, "git_no_matches"),
+		}, func(i int) {
+			it := items[i]
 			*pk = picker{}
-			chosen.run(c)
-		}
+			it.run(c)
+		})
 	}
 	if cf := &v.confirm; cf.open {
 		// Destructive: the target named and the consequence said once.
