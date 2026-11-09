@@ -4,8 +4,9 @@
 package kit
 
 import (
+	"fmt"
 	"hash/fnv"
-	"math"
+	"strings"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -60,38 +61,77 @@ func Shimmer(c *ui.Context, text string, size float32, color ui.Color) ui.Elemen
 	})
 }
 
-// Identicon is a subagent's 16 DIP mark (ui/identicon.rs): a ring of four
-// segments in a color picked from its ID, turning while it runs (a 450 ms
-// turn each second). Custom drawing: MyGo's Avatar draws initials, not
-// procedural marks.
+// Identicon is a subagent's mark (ui/identicon.rs child): its agent mark
+// in its color while it runs, turning, and muted once it settles.
 func Identicon(c *ui.Context, id string, running bool, size float32) ui.Element {
-	p := theme.Of(c)
-	h := fnv.New32a()
-	h.Write([]byte(id))
-	color := p.MutedForeground
+	color := theme.Of(c).MutedForeground
 	if running {
-		pair := theme.Identicon[h.Sum32()%uint32(len(theme.Identicon))]
-		color = pair[1]
-		if p.Dark {
-			color = pair[0]
-		}
+		color = AgentColor(c, id)
 	}
-	seed := h.Sum32()
+	return Agent(c, id, color, running, size)
+}
+
+// AgentColor is the color an agent's ID picks (ui/identicon.rs tint).
+func AgentColor(c *ui.Context, id string) ui.Color {
+	_, tint := identity(id)
+	pair := theme.Identicon[tint]
+	if theme.Of(c).Dark {
+		return pair[0]
+	}
+	return pair[1]
+}
+
+// Agent is an agent's procedural mark (ui/identicon.rs agent): one of eight
+// SVG designs its ID picks, drawn as an icon in color. Turning, it makes a
+// 450 ms smoothstep revolution each second (identicon::rotation), at
+// kit.FPS, and rests under Reduce Motion. Custom drawing: MyGo's Avatar
+// draws initials, not procedural marks, and Element.Loop runs at the
+// display's rate.
+func Agent(c *ui.Context, id string, color ui.Color, turning bool, size float32) ui.Element {
+	shape, _ := identity(id)
+	svg := agentDesigns[shape]
+	if !turning || c.Preferences().ReduceMotion {
+		return ui.Icon(c, svg).FontSize(size).TextColor(color).Shrink(0)
+	}
 	return ui.Box(c).Size(size, size).Shrink(0).Draw(func(pt *ui.Painter, r ui.Rect) {
-		angle := float64(0)
-		if running {
-			pt.AnimationFrameRate(FPS)
-			ms := float64(pt.Now().UnixMilli() % 1000)
-			t := math.Min(ms/450, 1)
-			angle = (t * t * (3 - 2*t)) * math.Pi / 2 // smoothstep, then rest
-		}
-		cx, cy, rad := r.X+r.W/2, r.Y+r.H/2, r.W*0.36
-		for i := range 4 {
-			a := angle + float64(i)*math.Pi/2
-			x := cx + rad*float32(math.Cos(a))
-			y := cy + rad*float32(math.Sin(a))
-			d := r.W * (0.22 + 0.08*float32((seed>>(i*3))&3)/3)
-			pt.Fill(ui.Rect{X: x - d/2, Y: y - d/2, W: d, H: d}, color.Alpha(0.55+0.15*float32(i)), d/2)
-		}
+		pt.AnimationFrameRate(FPS)
+		t := min(float32(pt.Now().UnixMilli()%1000)/450, 1)
+		turn := t * t * (3 - 2*t) * 360
+		pt.Transform(ui.Rotation(turn), r.X+r.W/2, r.Y+r.H/2, func() { pt.Icon(svg, r, color) })
 	})
 }
+
+// identity is the design and color an ID picks: FNV-1a 64 of its bytes,
+// modulo 8 and its bits from 16 modulo 8, the same on every platform.
+func identity(id string) (shape, tint int) {
+	h := fnv.New64a()
+	h.Write([]byte(id))
+	sum := h.Sum64()
+	return int(sum % 8), int((sum >> 16) % 8)
+}
+
+// agentDesigns are ui/identicon.rs's eight designs: a petal repeated around
+// the center, then a center dot.
+var agentDesigns = func() (out [8]*ui.SVG) {
+	counts := [8]int{6, 4, 8, 8, 5, 6, 4, 10}
+	petals := [8]string{
+		"<ellipse cx='12' cy='6.8' rx='3.1' ry='4.5' opacity='.45'/><ellipse cx='12' cy='6.3' rx='1.5' ry='2.3' opacity='.5'/>",
+		"<circle cx='12' cy='6.5' r='4.5' opacity='.45'/><circle cx='12' cy='5.6' r='2' opacity='.42'/>",
+		"<rect x='10.6' y='1.5' width='2.8' height='7.2' rx='1.4' opacity='.7'/>",
+		"<path d='M12 2 Q16 9 12 12 Q8 9 12 2' opacity='.42'/>",
+		"<ellipse cx='12' cy='6.5' rx='3.7' ry='4.8' opacity='.5'/>",
+		"<circle cx='12' cy='5.5' r='2.6' opacity='.6'/><circle cx='12' cy='9' r='1.4' opacity='.42'/>",
+		"<path d='M12 2 L15 8 L12 12 L9 8 Z' opacity='.6'/><circle cx='12' cy='5' r='1.3' opacity='.45'/>",
+		"<ellipse cx='12' cy='6.5' rx='1.4' ry='4.8' opacity='.5'/>",
+	}
+	for shape := range out {
+		var b strings.Builder
+		b.WriteString("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='black'>")
+		for i := range counts[shape] {
+			fmt.Fprintf(&b, "<g transform='rotate(%g 12 12)'>%s</g>", float32(i)*360/float32(counts[shape]), petals[shape])
+		}
+		b.WriteString("<circle cx='12' cy='12' r='2.3' opacity='.85'/></svg>")
+		out[shape] = ui.MustParseSVG([]byte(b.String()))
+	}
+	return out
+}()

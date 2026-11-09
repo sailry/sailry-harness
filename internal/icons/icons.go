@@ -1,6 +1,7 @@
 // Package icons holds the SVG icons the reference app draws: Lucide icons as
-// Kit bundles them (svg/LICENSE-LUCIDE), Sailry's reicon glyphs and provider
-// logos (svg/PROVIDERS-SOURCE.md). ui.Icon draws them in the text color.
+// Kit bundles them (svg/LICENSE-LUCIDE), Sailry's reicon glyphs, the Remix
+// Icon status glyphs of assets/icons/remix (Apache-2.0) and provider logos
+// (svg/PROVIDERS-SOURCE.md). ui.Icon draws them in the text color.
 package icons
 
 import (
@@ -104,6 +105,11 @@ var (
 	Microphone = load("reicon-microphone")
 	Writing    = load("reicon-writing")
 	Help       = load("reicon-help-circle")
+
+	// Activity lanes (activity/icons.rs).
+	ProgressWaiting   = load("remix-progress-4")
+	ProgressRunning   = load("remix-progress-2")
+	ProgressCompleted = load("remix-progress-6")
 
 	Providers = map[string]*ui.SVG{
 		"anthropic": load("provider-anthropic"),
