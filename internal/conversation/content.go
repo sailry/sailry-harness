@@ -3,9 +3,15 @@ package conversation
 import (
 	"fmt"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/firede/limu"
+	"github.com/firede/limu/layout"
+	"github.com/firede/limu/limumygo"
+	"github.com/firede/limu/scene"
+	"github.com/firede/limu/style"
 	"github.com/sailry/sailry-go/internal/i18n"
 	"github.com/sailry/sailry-go/internal/icons"
 	"github.com/sailry/sailry-go/internal/kit"
@@ -150,23 +156,70 @@ func (s *State) thumbnails(c *ui.Context, key string, list []Image, end bool) {
 	})
 }
 
-// visual is an SVG the model drew, fitted to the column on the group box.
+// visual is a chart or diagram the model drew, from its Mermaid source:
+// limu lays it out to the card's width in the app's fonts, and limumygo
+// paints it in the theme's colors on the group box. A source limu cannot
+// read shows as code.
 func visual(c *ui.Context, key string, v *Visual) {
 	p := theme.Of(c)
-	if v == nil || v.Source == nil {
+	if v == nil || v.Mermaid == "" {
 		return
 	}
-	w, h := v.Source.Size()
 	box := ui.Column(c.Key(key)).FillWidth().Gap(8).Padding(12).Radius(p.RadiusLg).Border(1, p.Border).Background(p.Surface.Alpha(0.8))
+	w := box.LayoutBounds().W - 24
 	box.Children(func() {
 		if v.Title != "" {
 			ui.Text(c, v.Title).FontSize(12).TextColor(p.MutedForeground)
 		}
-		img := ui.Image(c, v.Source).FillWidth().Fit(ui.Contain)
-		if w > 0 && h > 0 {
-			img.AspectRatio(w / h).MaxWidth(w)
+		sc, err := diagram(v.Mermaid, w)
+		if err != nil {
+			kit.Code(c, ui.Column(c.Key("source")), v.Mermaid, kit.CodeOptions{Tint: true})
+			return
 		}
+		look := &limumygo.Options{Look: style.Look{Theme: diagramTheme(p), ThemeOnly: true}, Fonts: limumygo.DefaultFonts}
+		ui.Row(c.Key("diagram")).FillWidth().Justify(ui.Center).Children(func() {
+			limumygo.View(c, sc, look).Label(v.Title)
+		})
 	})
+}
+
+// diagramKey is a laid out diagram: its source, at a width.
+type diagramKey struct {
+	src   string
+	width int
+}
+
+// diagrams keeps the scenes laid out, as layout measures every label.
+var diagrams sync.Map
+
+// diagram is src laid out for a width (a frame's whole DIPs; none before
+// the first layout), in the app's fonts and 14 DIP text.
+func diagram(src string, width float32) (*scene.Scene, error) {
+	k := diagramKey{src, max(int(width), 0)}
+	if sc, ok := diagrams.Load(k); ok {
+		return sc.(*scene.Scene), nil
+	}
+	o := &layout.Options{Measurer: limumygo.DefaultFonts, FontSize: 14, MaxWidth: float64(k.width), Snap: 0.5}
+	sc, err := limu.Layout(src, o)
+	if err != nil {
+		return nil, err
+	}
+	diagrams.Store(k, sc)
+	return sc, nil
+}
+
+// diagramTheme is limu's theme in the palette's colors: no fill behind
+// the diagram, the text, lines and outlines of the transcript, and the
+// series in the primary and the theme's accents.
+func diagramTheme(p *theme.Palette) *style.Theme {
+	col := func(c ui.Color) style.Color { return style.Color{R: c.R, G: c.G, B: c.B, A: c.A} }
+	return &style.Theme{
+		Bg: col(p.Surface.Alpha(0)), Fg: col(p.Foreground), Muted: col(p.MutedForeground), Line: col(p.MutedForeground),
+		Surface: col(p.Muted), SurfaceAlt: col(p.Secondary), Border: col(p.Border), Accent: col(p.Primary), Critical: col(p.Danger),
+		Series:      [8]style.Color{col(p.Primary), col(p.Orange), col(p.Success), col(p.Danger), col(p.Blue), col(p.Green), col(p.Yellow), col(p.Magenta)},
+		Radius:      float64(p.Radius) / 2,
+		StrokeWidth: 1,
+	}
 }
 
 // notices are background results, on the user's side as a bubble: each

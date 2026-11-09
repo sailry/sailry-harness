@@ -130,6 +130,11 @@ func TestLiveBlocks(t *testing.T) {
 			if r.older == 0 {
 				t.Errorf("the start in view asked for no older page")
 			}
+			// The chart is limu's, laid out to the card's width.
+			d, ok := tt.AccessByRole(ui.RoleImage, "Frames per day")
+			if !ok || d.Bounds.W < 300 {
+				t.Errorf("%s dark=%v: no chart: %v", lang, dark, d.Bounds)
+			}
 			if dir := os.Getenv("SAILRY_SNAPSHOTS"); dir != "" {
 				name := "live-" + lang
 				if dark {

@@ -213,7 +213,7 @@ Kit `MessageScroller`, in `jump.go`:
 | `FilesBlock` / `Block.Files` (`File`) | File cards; a document with `Image` shows it on top |
 | `SearchBlock` / `Block.Sources` | Globe "Search results" disclosure listing the sources |
 | `RetryBlock` / `Block.Retry` (`Attempt`, `Limit`, `Reason` key, `Detail`, `Exhausted`) | Network row, shimmer while active, the provider's message when opened |
-| `VisualBlock` / `Block.Visual` (`Title`, `Source *ui.SVG`) | The SVG fitted on the group box |
+| `VisualBlock` / `Block.Visual` (`Title`, `Mermaid`) | The chart or diagram on the group box: limu (`github.com/firede/limu` and `limumygo` v0.5.0) lays the Mermaid source out to the card's width in the app's fonts, cached per source and width, and paints it in the palette (`ThemeOnly`); a source limu cannot read shows as code |
 | `File` (`Path`, `Mime`, `Kind`, `Text`, `Image`, `State`, `Editable`) | Card label/kind, the preview tab's content or state |
 | `Session.Older`, `LoadingOlder`, `OlderFailed` | Row before the first turn: loader (reaching it calls `LoadOlder`), failure with Retry |
 | `Session.Loading` | Loader and "Loading conversation" instead of the list |

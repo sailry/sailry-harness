@@ -38,16 +38,8 @@ var pictures = sync.OnceValue(func() []cv.Image {
 	}
 })
 
-var chart = sync.OnceValue(func() *ui.SVG {
-	return ui.MustParseSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" width="480" height="220" viewBox="0 0 480 220">
-<rect width="480" height="220" fill="none"/>
-<g fill="#6b8afd"><rect x="40" y="120" width="48" height="80" rx="4"/><rect x="120" y="70" width="48" height="130" rx="4"/>
-<rect x="200" y="96" width="48" height="104" rx="4"/><rect x="280" y="40" width="48" height="160" rx="4"/></g>
-<g fill="#f2a65a"><rect x="360" y="24" width="48" height="176" rx="4"/></g>
-<path d="M30 200H450" stroke="#888" stroke-width="1"/>
-<g font-family="sans-serif" font-size="12" fill="#888"><text x="48" y="215">Mon</text><text x="128" y="215">Tue</text>
-<text x="208" y="215">Wed</text><text x="288" y="215">Thu</text><text x="368" y="215">Fri</text></g></svg>`))
-})
+// chart is the frames per day the artifacts scene draws.
+const chart = "xychart-beta\n    title \"Frames per day\"\n    x-axis [Mon, Tue, Wed, Thu, Fri]\n    y-axis \"frames\" 0 --> 180\n    bar [80, 130, 104, 160, 176]\n"
 
 const reportMD = "# Scroll report\n\nFrames stayed under **1.2 ms** while scrolling 500 turns.\n\n| Case | ms |\n|---|---|\n| Steady | 0.18 |\n| Hover | 0.19 |\n| Scroll | 0.95 |\n\n- Rows build only in view\n- Markdown parses once\n"
 
@@ -89,7 +81,7 @@ func artifacts(id string) cv.Turn {
 		text("The report, the benchmark and the exports are ready."),
 		{Kind: cv.FilesBlock, Files: outputs(id)},
 		{Kind: cv.ImagesBlock, Images: pics[2:]},
-		{Kind: cv.VisualBlock, Visual: &cv.Visual{Title: "Frames per day", Source: chart()}},
+		{Kind: cv.VisualBlock, Visual: &cv.Visual{Title: "Frames per day", Mermaid: chart}},
 	}
 	return cv.Turn{User: "Write the scroll report and export the invoice.", Reply: r}
 }

@@ -98,7 +98,7 @@ const (
 	FilesBlock                      // Files: output files as cards
 	SearchBlock                     // grounding: Text is the answer, Sources its pages
 	RetryBlock                      // Retry: the model request retried
-	VisualBlock                     // Visual: an SVG the model drew
+	VisualBlock                     // Visual: a chart or diagram the model drew
 )
 
 // Block is one part of a reply.
@@ -187,10 +187,11 @@ type Retry struct {
 	Exhausted      bool
 }
 
-// Visual is an SVG the model drew, shown in place (content/visuals).
+// Visual is a diagram or chart the model drew, as Mermaid source, shown
+// in place (content/visuals), laid out by limu.
 type Visual struct {
-	Title  string
-	Source *ui.SVG
+	Title   string
+	Mermaid string
 }
 
 // NoticeOutcome is how a background task ended.
