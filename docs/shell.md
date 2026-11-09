@@ -2,11 +2,11 @@
 
 The main window's frame: the header band, the feature rail, the sidebar
 column and the right panel beside the page, their motion and resizing,
-the window's shortcuts, the search, the activity centre, the knowledge
-viewer and the UI preferences kept across launches
+the window's shortcuts and native app menu, the search, the activity
+centre, the knowledge viewer and the UI preferences kept across launches
 (sailry-public `shell.rs`, `shell/{frame,frame/*,rail,rail/*,header,
 splits,limits,search,search/*,activity,activity/*,knowledge,knowledge/*,
-shortcuts}.rs`, `shortcuts.rs`, `activity/*.rs`).
+shortcuts}.rs`, `shortcuts.rs`, `app_menu.rs`, `activity/*.rs`).
 
 ## Package and files
 
@@ -18,7 +18,8 @@ shortcuts}.rs`, `shortcuts.rs`, `activity/*.rs`).
 | `header.go` | The header: brand, sidebar toggle, breadcrumbs, activity strip, preview tag, details toggle |
 | `rail.go` | `Features`, `MoveFeature`, the rail, More, the host picker |
 | `pages.go` | The rail features' pages, `Navigate`, `ClosePage`, the selected project's `panel.Project` |
-| `shortcuts.go` | `Shortcuts`, `KeyText`, the window's key handling |
+| `shortcuts.go` | `Shortcuts`, `CloseFocused`, `KeyText`, the window's key handling, the menu's commands (`Do`) |
+| `menu.go` | `Menu`, `Accelerator`: the native app menu |
 | `search.go` | `Choice`, `Group`, `Filter`, `Next`, the search overlay |
 | `activity.go` | `NoticeAge`, `SortNotices`, the activity centre and the header's strip |
 | `knowledge.go` | `Source`, `ParseSource`, the knowledge viewer |
@@ -88,21 +89,64 @@ shortcut.
 
 ## Shortcuts
 
-| Key (macOS) | Action |
-|---|---|
-| ⌘N | New conversation |
-| ⌥⌘N | Project editor |
-| ⌘O, ⇧⌘R | Open folder, Sync: preview toast |
-| ⌘K | Search |
-| ⌘B | Sidebar |
-| ⌥⌘B | Right panel |
-| ⇧⌘[ / ⇧⌘] | Previous / next conversation (`sidebar.Adjacent` over `Order`) |
-| ⌘/ , ⌘, | Settings |
-| ⌘W | Close the panel's tab, then the panel |
-| ⌘T, ⌃`, ⌘P, ⌃⇧G | Browser, Terminal, Files, Git in the panel (conversation page only) |
+Keys go to the innermost scope that takes them, as MyGo dispatches a key,
+and a key one scope takes never reaches the next:
 
-⌘ is Ctrl off macOS (`ui.Cmd`). `KeyText` writes them for tooltips, menus
-and the launcher.
+1. Floating layer: the focus inside a dialog, popover or the search, then
+   `Element.OverlayShortcut` of the overlays, the top one first
+   (`PopoverBase` and `DialogBase` close on Escape).
+2. Focused pane: the right panel and the main column (a page) take the
+   focus as they are clicked (`Focusable`, a `ui.Handle`) and ⌘W through
+   `Element.Shortcut` while it is inside them (`App.pane`).
+3. Conversation: the composer's text input takes its editing keys first.
+4. Window: `Context.Shortcut` (`App.shortcuts`), which a modal dialog
+   holds.
+5. App: the native menu (`menu.go`).
+
+| Key (macOS) | Scope | Action |
+|---|---|---|
+| Esc | floating layer | Close the topmost layer only (the search clears its query first) |
+| ⌘W | right panel focused | Close its active tab, the panel with its last; the focus goes back to the conversation |
+| ⌘W | Files or Git page (any independent page) focused | Close the page, back to the conversation |
+| ⌘W | anything else | Nothing |
+| ⌘A ⌘C ⌘V ⌘X ⌘Z ⇧⌘Z, arrows, ⌘← ⌘→ | text input | Edit the text (Edit menu roles) |
+| ⌘N | window | New conversation |
+| ⌥⌘N | window | Project editor |
+| ⌘O, ⇧⌘R | window | Open folder, Sync: preview toast |
+| ⌘K | window | Search |
+| ⌘B | window | Sidebar |
+| ⌥⌘B | window | Right panel |
+| ⇧⌘[ / ⇧⌘] | window | Previous / next conversation (`sidebar.Adjacent` over `Order`) |
+| ⌘/ , ⌘, | window | Settings |
+| ⌘T, ⌃`, ⌘P, ⌃⇧G | window, conversation page | Browser, Terminal, Files, Git in the panel |
+| ⇧⌘W | app | Close Window |
+| ⌘Q | app | Quit |
+| ⌘H, ⌥⌘H, ⌘M, ⌃⌘F | app | Hide, Hide Others, Minimize, Full Screen |
+
+⌘ is Ctrl off macOS (`ui.Cmd`); the app menu's Close Window, Hide, Hide
+Others, Minimize and Full Screen are on Command (`ui.Super`) as
+`app_menu.rs` binds them. `KeyText` writes keys for tooltips and the
+launcher, `Accelerator` for the menu.
+
+## App menu
+
+`App.Menu(lang, send)` returns `app_menu.rs`'s menus for
+`mygo.App.SetMenu`, labelled by the `menu_*` keys: App (About, Settings,
+Services, Hide, Hide Others, Show All, Quit), File (New Conversation, New
+Project, Open Folder, Save, Close Tab, Close Window), Edit (Undo, Redo,
+Cut, Copy, Paste, Select All), View (Search, Find in Conversation, Toggle
+Sidebar, Toggle Details, Full Screen, then the rail's features), Window
+(Minimize, Zoom, Bring All to Front) and Help (Website, Feedback, Logs).
+The system's items are MyGo roles. The app's items send their command's
+ID, which `cmd/sailry` passes to `App.Do`.
+
+The menu takes its items' keys before the window on every platform, so a
+command from the menu runs in the next frame scoped as its key would be:
+Close Tab closes what ⌘W closes where the focus is (`closeFocused`, by
+`Context.FocusWithin` of the panes' handles), and the window's commands
+wait while the search, the knowledge viewer or the project editor shows,
+as a modal dialog holds the window's shortcuts. This is the only scoping
+added over MyGo's own.
 
 ## Search
 
@@ -165,6 +209,10 @@ pins and order belong in the preferences beside the rest of `Prefs`.
 
 ## Tests
 
+`internal/shell/shortcuts_test.go`: ⌘W in a focused panel tab, a focused
+Files or Git page and with nothing closable focused; Escape closing only
+the popover; a text input keeping ⌘A and ⌘Z; the menu's items, keys and
+translations; menu commands scoped as their keys.
 `internal/shell/frame_test.go`: ⌘⌥B, ⌘P, ⌃⇧G and ⌘W on the panel;
 ⌘B and preferences round-tripping; ⌘K search opening a conversation;
 the activity centre opening a conversation and the knowledge viewer
@@ -186,3 +234,7 @@ Phase 1–2 screens.
 | ⌘/ opens Settings | No Shortcuts section before phase 5 |
 | The rail's More rows are a popover, not a menu | Rows hold a pin button and drag to reorder |
 | Global ⌃⌥Space is not registered | System shortcuts are phase 6 |
+| About opens Settings, which has no About section | Settings sections beyond Appearance, Providers and Plugins are later phases |
+| Save (⌘S), Find in Conversation (⌘F) and Logs are disabled | The preview has no file editor, find bar or log folder |
+| ⌘., ⌘L, ⇧⌘M, ⇧Tab and the conversation's Escape targets are not bound | The live conversation's controls (`conversation/live/shortcuts.rs`) come with the live session |
+| The View menu's features are those at launch | The menu is set once; rail reordering does not rebuild it |
