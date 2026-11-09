@@ -25,14 +25,14 @@ func TestPanelOpensWithShortcutsAndTabs(t *testing.T) {
 	if a.Panel.Active.Kind != panel.Files || !tt.HasText("README.md") {
 		t.Fatalf("⌘P did not show the file tree: %q", tt.Texts())
 	}
-	// The tab shows the chosen file beside the tree; choosing another
-	// shows it there, opening no tab.
+	// The tab shows the project's file beside the tree; choosing another
+	// opens it in its own tab, the tree staying beside it.
 	if !tt.HasText("A native desktop Agent workspace.") {
 		t.Fatalf("the Files tab does not show the file: %q", tt.Texts())
 	}
-	click(t, tt, "go.mod")
+	clickTree(t, tt, "go.mod")
 	tt.Frame()
-	if len(a.Panel.Tabs) != 1 || a.Panel.Active.Kind != panel.Files || !codeHas(tt, "Code editor", "require github.com/egoist/mygo v0.8.3") {
+	if len(a.Panel.Tabs) != 2 || a.Panel.Active != (panel.Tab{Kind: panel.Files, ID: "sailry-go/go.mod"}) || !codeHas(tt, "Code editor", "require github.com/egoist/mygo v0.8.3") {
 		t.Fatalf("the file did not show in the Files tab: %v %q", a.Panel.Tabs, tt.Texts())
 	}
 	snapshot(t, tt, "panel-files")
@@ -40,15 +40,22 @@ func TestPanelOpensWithShortcutsAndTabs(t *testing.T) {
 	tt.Frame()
 	click(t, tt, "docs/example.md")
 	tt.Frame()
-	if len(a.Panel.Tabs) != 2 || a.Panel.Active.Kind != panel.Changes || !codeHas(tt, "New text", "search: command palette") {
-		t.Fatalf("no diff: %q", tt.Texts())
+	if len(a.Panel.Tabs) != 4 || a.Panel.Active != (panel.Tab{Kind: panel.Changes, ID: "docs/example.md"}) ||
+		!codeHas(tt, "New text", "search: command palette") {
+		t.Fatalf("no diff tab: %v %q", a.Panel.Tabs, tt.Texts())
+	}
+	// Choosing a tab shows its item and its kind's side list.
+	click(t, tt, "README.md")
+	tt.Frame()
+	if row, ok := tt.AccessByRole(ui.RoleTreeItem, "README.md"); !ok || !row.Selected || !tt.HasText("A native desktop Agent workspace.") {
+		t.Fatalf("the README tab does not show beside the tree: %q", tt.Texts())
 	}
 	snapshot(t, tt, "panel-changes")
 	for _, k := range []panel.Kind{panel.History, panel.Documents, panel.Browser, panel.Terminal} {
 		a.Panel.Open(k)
 	}
-	// Files, Git and those four: one flat strip.
-	if len(a.Panel.Tabs) != 6 {
+	// Two files, two diffs and those four: one flat strip.
+	if len(a.Panel.Tabs) != 8 {
 		t.Fatalf("tabs %v", a.Panel.Tabs)
 	}
 	tt.Frame()
@@ -56,7 +63,7 @@ func TestPanelOpensWithShortcutsAndTabs(t *testing.T) {
 		t.Errorf("no terminal placeholder: %q", tt.Texts())
 	}
 	if _, ok := tt.Access(i18n.In("en", "navigation_tabs")); !ok {
-		t.Error("six tabs show no overflow menu")
+		t.Error("eight tabs show no overflow menu")
 	}
 	// ⌘F in the terminal opens its find bar, not the conversation's.
 	click(t, tt, i18n.In("en", "workspace_reset_terminal"))
@@ -69,7 +76,7 @@ func TestPanelOpensWithShortcutsAndTabs(t *testing.T) {
 	snapshot(t, tt, "panel-terminal")
 	// ⌘W in the panel closes the active tab, then the others, then the
 	// panel.
-	for range 8 {
+	for range 10 {
 		tt.Key(ui.Cmd, ui.KeyW)
 		tt.Frame()
 	}
@@ -256,3 +263,4 @@ func TestMoreDragShowsInsertionLine(t *testing.T) {
 		t.Errorf("order %v, want %v", a.features, want)
 	}
 }
+

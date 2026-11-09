@@ -13,7 +13,7 @@ its width, motion, toggle and ⌘W (`docs/shell.md`).
 | File | Holds |
 |---|---|
 | `model.go` | `Kind`, `Resource`, `Resources`, `Tab`, `State`, and the rules `Opened`, `Closed`, `Overflow` |
-| `project.go` | `Project`, `FileView`, `GitView`, `Projects`: Files and Git state per project |
+| `project.go` | `Project`, `FileView`, `GitView`, `Projects`: open files and diffs per project; the split |
 | `panel.go` | `View` and `Page`, the two hosts: the strip, the launcher, the file tree and file view, the change list and hunks, checkpoints, documents |
 | `tools.go` | The browser and terminal tabs' chrome, per tab: the browser's history and address, the terminal's folder, resets and find bar; `State.Find` |
 
@@ -27,6 +27,7 @@ panel.View(c, s, pr, shell.KeyText)   // the tab host; KeyText writes the launch
 panel.Page(c, panel.Files, pr)        // the page host, in the main column
 s.Open(panel.Files)                   // the launcher, "+" and the frame's ⌘P, ⌘T, ⌃`, ⌃⇧G
 s.Show(panel.Tab{Kind: panel.Documents, ID: id}) // open or focus one item's tab
+s.Show(panel.Tab{Kind: panel.Files, ID: path})   // a file's tab, opened in the project too
 s.Close(s.Active)                     // ⌘W; false when no tab is left
 ```
 
@@ -34,32 +35,42 @@ s.Close(s.Active)                     // ⌘W; false when no tab is left
 
 Files and Git are each one two-column component drawn by two hosts:
 `Page`, the rail's independent page in the main column, and `View`, the
-right panel's `Files` and `Changes` tabs (at most one each). Both draw the
-same layout (`resources/split.rs`): the main area on the left (the shown
-file's content, or the shown change's diff) and the side list on the
-right (the tree, or the change list) past MyGo's `Split` divider, 220
-DIPs at first, dragged between 180 and 480 with the main area keeping
-180. Choosing in the side list shows the item in the main area of the
-same tab; it opens no tab. The strip stays one flat row: switching tabs
-swaps the whole content. Their state is a `Project` (`FileView`: shown
-file, open folders, Document/Source, tree and text scroll, tree width;
-`GitView`: shown change, commit draft, list scroll, list width), which
-`Projects.Of` makes once per project ID and returns to both hosts: a file
-chosen on the page is the one the Files tab shows, and the reverse, while
-the Files and Git tabs each keep their own selection and scroll, and
-another project keeps its own. MyGo binds a `ScrollState` to one
-container per build, so while the page and the closing panel both draw a
-resource (`State.Paged`), the page owns its scrolling. Documents,
-browser, terminal, subagent and file-preview tabs are single-pane.
+right panel's tabs. Both draw the same layout (`resources/split.rs`): the
+main area on the left and the side list on the right (the tree, or the
+change list), 220 DIPs at first, dragged between 180 and 480 with the
+main area keeping 180. The list is a fixed-width column past our own 6
+DIP drag handle, not MyGo's `Split`: that sizes its first pane, and
+converting the list's width from the last frame's layout drew a first
+frame (a page switched to, a tab chosen, the panel opening) at the
+minimum; the panel's motion moves only the main area.
+
+Every open file and every open diff is its own item: three open files
+and one diff are four tabs in the panel's one flat strip. The active
+tab decides the content: its item in the main area, the tree beside a
+file tab, the change list beside a diff tab. Choosing in the side list
+opens or focuses that item's tab. The page heads its main area with a
+strip of the same kind's open items. The items are the project's
+(`Project`: `FileView` open files, each with its own Document/Source
+and text scroll, the shown file, open folders, tree scroll and width;
+`GitView` open diffs, each viewer with its own scroll, the shown
+change, commit draft, list scroll and width), which `Projects.Of` makes
+once per project ID: opening or closing an item on the page opens or
+closes its panel tab, and the reverse (`State.Sync`, every panel frame
+and before a shortcut opens a tab); the item chosen last in either host
+is the one the other opens first; another project swaps the panel's item
+tabs for its own. MyGo binds a `ScrollState` to one container per build,
+so while the page and the closing panel both draw a resource
+(`State.Paged`), the page owns its scrolling. Documents, browser,
+terminal, subagent and file-preview tabs are single-pane.
 
 ## View model
 
 | Type / field | Meaning |
 |---|---|
 | `Resource{Kind, Icon, Label, Mods, Key}` | A tab and launcher row; `Key` 0 for none |
-| `Tab{Kind, ID}` | An open item: `Files`, `Changes`, `History` (ID ""), `Documents` (by document ID), `Browser` and `Terminal` (by number), `Artifact` and `Subagent` (by ID); a saved tab of a kind no longer shown is dropped |
+| `Tab{Kind, ID}` | An open item: `Files` and `Changes` (by path; "" until the project names the item shown last), `History` (ID ""), `Documents` (by document ID), `Browser` and `Terminal` (by number), `Artifact` and `Subagent` (by ID); a saved tab of a kind no longer shown is dropped |
 | `State.Tabs`, `Active` | Open tabs in order, the one shown (kept across launches by the shell) |
-| `Project` | One project's Files and Git state, shared by page and tab |
+| `Project` | One project's open files and diffs and their state, shared by page and tabs |
 | `preview.Workspace.Files` | `FileNode` tree: folders have `Children`, files `Text` |
 | `preview.Workspace.Changes` | `FileChange{Path, Status M/A/D, Added, Removed, Hunks}`; `Hunk{Header, Lines}`; `DiffLine{Kind, Old, New, Text}` |
 | `preview.Workspace.Checkpoints` | `Checkpoint{ID, Turn, Time, Files, Added, Removed}`, newest first |
@@ -68,25 +79,26 @@ browser, terminal, subagent and file-preview tabs are single-pane.
 ### Layout
 
 - Strip: one flat row, no tabs inside tabs. 40 DIPs, tabs 28 high up to
-  180 wide with the item's type icon and title (a document's title); the active tab in
+  180 wide with the item's type icon and title (a file's or diff's name, a document's title); the active tab in
   `tab_active`; the close button shows on hover or on the active tab. It
   scrolls sideways; past `Overflow` (4) tabs a chevron (`navigation_tabs`)
   lists all with a check; "+" lists every resource with its shortcut and
-  each document. Opening an open item focuses its tab. Menus are
-  `kit.MenuButton`.
+  each document; Files and Git open the file or diff shown last. Opening
+  an open item focuses its tab. Menus are `kit.MenuButton`. The pages'
+  strips draw the same tabs, without "+" and the chevron.
 - Launcher: `details`, then 40 DIP secondary rows up to 440 wide: icon,
   label, Kbd shortcut. Order: Browser ⌘T, Terminal ⌃`, Files ⌘P, Git ⌃⇧G,
   History, Docs.
-- Files: the file in the main area, the tree in the side list, in the
-  page and the Files tab alike. The tree has no
+- Files: the tab's file in the main area, the tree in the side list
+  selecting it, in the page and a file tab alike. The tree has no
   title and starts at 8 DIPs (rows 28, 16 per level from 8). File view
   toolbar: Save, Undo, Redo (disabled, read-only), Find, and
   Document | Source for markdown (rendered with MyGo's markdown, code
   blocks in MyGo's editor). Text in MyGo's read-only editor (`kit.Code`:
   highlighted, line numbers, mono 13 at 1.6, no caret, trailing line breaks left out). Status bar: path (right-click: Copy path),
   `Ln 1, Col 1`, UTF-8, language.
-- Changes: the diff in the main area, the change list in the side list,
-  in the page and the Git tab alike (list: `changes`, Stage all disabled
+- Changes: the tab's diff in the main area, the change list in the side
+  list selecting it, in the page and a diff tab alike (list: `changes`, Stage all disabled
   with `git_actions_preview`; rows: file icon, name, status letter in
   warning/success/danger). The diff is MyGo's diff viewer
   (`kit.Diff`), unified as Rust's content diff view: highlighted, old and
@@ -116,7 +128,7 @@ browser, terminal, subagent and file-preview tabs are single-pane.
 | Action | Effect in the preview |
 |---|---|
 | Open, choose and close tabs | `State` |
-| Choose a file or a change | Shown in the same tab's or page's main area |
+| Choose a file or a change | Opens or focuses its tab, in the panel and the page alike |
 | New tab, New terminal | Another browser or terminal tab |
 | Back, Forward | The tab's history |
 | Close (terminal) | Closes the tab |
@@ -142,16 +154,21 @@ the same chrome when their plugins land.
 ## Tests
 
 `internal/panel/model_test.go`: tabs open once, closing picks the next,
-items are flat tabs (Files and Git once, new browser pages, retired kinds
-dropped), a browser tab's history (going drops the forward part).
-`internal/shell/frame_test.go`: ⌘⌥B opens the launcher, ⌘P the Files tab
-showing the file beside the tree, another file in the same tab, ⌃⇧G the
-Git tab, a change's diff in it (read through the diff viewer's accessible
-text), six tabs show the overflow menu, Reset counts and ⌘F in the terminal
-opens its find bar, ⌘W closes tabs then the panel.
-`internal/shell/pages_test.go`: the rail's
-Files and Git open pages, a file chosen on the page shows in the Files tab
-and a change chosen in the Git tab on the page, no tab opening, another project keeps its own.
+items are flat tabs (new browser pages, retired kinds dropped), each file
+and diff its own tab shared with the project (closing on either side,
+another project swapping them), a browser tab's history (going drops the
+forward part).
+`internal/shell/frame_test.go`: ⌘⌥B opens the launcher, ⌘P a file tab
+beside the tree, a file chosen in the tree its own tab, ⌃⇧G and a change
+a diff tab (read through the diff viewer's accessible text), choosing a
+tab shows its item beside its list, eight tabs show the overflow menu,
+Reset counts and ⌘F in the terminal opens its find bar, ⌘W closes tabs
+then the panel; collapsed, the header clears the traffic lights.
+`internal/shell/pages_test.go`: the rail's Files and Git open pages, the
+page's open files are the panel's file tabs, a change chosen in a tab
+shows on the page, a diff closed on the page drops its tab, another
+project keeps its own; the first frame of a page lays the side list out
+at its width.
 
 ## Deviations
 
@@ -161,6 +178,8 @@ and a change chosen in the Git tab on the page, no tab opening, another project 
 | Every open item is a tab in one flat strip | The plan asks for tabs; the reference holds one resource and tabs only a resource's documents |
 | Checkpoints and documents are tabs | The reference restores checkpoints from a turn and draws documents in a plugin |
 | Files and Git keep their state per project | The reference keeps one and resets it when the project changes |
+| Each open file and diff is a tab, also on the pages' strips | The plan asks for several files and diffs open at once |
+| The split's list is a fixed column past our own drag handle | MyGo's `Split` sizes its first pane, so a first frame jumped |
 | Hunks show in the Git tab's main area, not a dialog | One place for the preview's diffs |
 | Browser and terminal are placeholders in their chrome | Rendering is later work (MyGo WebView, libghostty-vt) |
 | The browser's chrome is core | In the reference the browser plugin draws it; the preview has no plugin UI host |

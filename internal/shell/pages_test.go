@@ -1,9 +1,11 @@
 package shell
 
 import (
+	"slices"
 	"testing"
 	"time"
 
+	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-go/internal/i18n"
 	"github.com/sailry/sailry-go/internal/panel"
 )
@@ -57,23 +59,26 @@ func TestPageAndTabShareProjectState(t *testing.T) {
 	}
 	a.Navigate(FilesPage)
 	tt.Frame()
-	click(t, tt, "go.mod")
+	clickTree(t, tt, "go.mod")
 	tt.Frame()
 	if first.Files.File() != "sailry-go/go.mod" {
 		t.Fatalf("the page showed %q", first.Files.File())
 	}
-	// The panel's Files tab selects the file the page chose and shows it
-	// beside the tree.
+	// The panel's file tabs are the page's open files, the one the page
+	// chose shown beside the tree.
 	a.Navigate(ConversationPage)
 	a.openPanel(panel.Files)
 	tt.Frame()
 	tt.Advance(time.Second)
 	tt.Frame()
-	if row, ok := tt.Access("go.mod"); !ok || !row.Selected {
+	if row, ok := tt.AccessByRole(ui.RoleTreeItem, "go.mod"); !ok || !row.Selected {
 		t.Fatalf("the tree does not select the page's file: %q", tt.Texts())
 	}
 	if !codeHas(tt, "Code editor", "require github.com/egoist/mygo v0.8.3") {
 		t.Fatalf("the Files tab does not show the page's file: %q", tt.Texts())
+	}
+	if want := []panel.Tab{{Kind: panel.Files, ID: "sailry-go/README.md"}, {Kind: panel.Files, ID: "sailry-go/go.mod"}}; !slices.Equal(a.Panel.Tabs, want) {
+		t.Fatalf("the panel's tabs %v, want the page's files", a.Panel.Tabs)
 	}
 	snapshot(t, tt, "tab-files-shared")
 	// And the reverse: a change chosen in the Git tab shows on the page.
@@ -81,7 +86,7 @@ func TestPageAndTabShareProjectState(t *testing.T) {
 	tt.Frame()
 	click(t, tt, "docs/example.md")
 	tt.Frame()
-	if a.Panel.Active != (panel.Tab{Kind: panel.Changes}) || len(a.Panel.Tabs) != 2 || !codeHas(tt, "New text", "search: command palette") {
+	if a.Panel.Active != (panel.Tab{Kind: panel.Changes, ID: "docs/example.md"}) || len(a.Panel.Tabs) != 4 || !codeHas(tt, "New text", "search: command palette") {
 		t.Fatalf("the change does not show in the Git tab: %v %q", a.Panel.Tabs, tt.Texts())
 	}
 	a.Navigate(GitPage)
@@ -89,6 +94,16 @@ func TestPageAndTabShareProjectState(t *testing.T) {
 	if first.Git.Change() != "docs/example.md" || !codeHas(tt, "New text", "search: command palette") {
 		t.Fatalf("the page does not show the tab's change %q: %q", first.Git.Change(), tt.Texts())
 	}
+	// Closing a diff on the page's strip closes its panel tab.
+	if len(first.Git.Open()) != 2 {
+		t.Fatalf("the page's diffs %v", first.Git.Open())
+	}
+	first.Git.Close("docs/example.md")
+	a.Panel.Sync(first)
+	if slices.Contains(a.Panel.Tabs, panel.Tab{Kind: panel.Changes, ID: "docs/example.md"}) {
+		t.Fatalf("the closed diff kept its tab: %v", a.Panel.Tabs)
+	}
+	first.Git.Show("docs/example.md")
 	// Another project starts from its own state and leaves this one's.
 	other := a.Data.Projects[1]
 	a.Sidebar.Selected = other.Conversations[0].ID
@@ -103,5 +118,22 @@ func TestPageAndTabShareProjectState(t *testing.T) {
 	}
 	if first.Files.File() != "sailry-go/go.mod" || first.Git.Change() != "docs/example.md" {
 		t.Errorf("the first project lost its state: %q %q", first.Files.File(), first.Git.Change())
+	}
+}
+
+// The first frame of a page already lays the side list out at its width
+// (220), with no frame at the split's minimum.
+func TestSplitFirstFrame(t *testing.T) {
+	a, tt := newTester(t)
+	a.Navigate(FilesPage)
+	tt.Frame()
+	row, ok := tt.AccessByRole(ui.RoleTreeItem, "sailry-go")
+	if !ok {
+		t.Fatalf("no tree: %q", tt.Texts())
+	}
+	// The row fills the list inside its 8 DIP padding, at the window's
+	// right edge.
+	if got := 1280 - row.Bounds.X + 8; got < 219 || got > 221 || row.Bounds.W < 203 || row.Bounds.W > 205 {
+		t.Errorf("the first frame's side list is %v wide, row %v", got, row.Bounds)
 	}
 }

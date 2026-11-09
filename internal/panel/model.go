@@ -64,10 +64,10 @@ func ResourceOf(k Kind) Resource {
 // all (navigation_tabs.rs: more than 4).
 const Overflow = 4
 
-// Tab is an open item: a kind and which one of it. Files, Changes and
-// History have one tab each (ID ""), which shows the file or diff chosen
-// in its own list; a document is by its ID, a browser page and a
-// terminal by a number.
+// Tab is an open item: a kind and which one of it. A file and a diff are
+// by their path, each its own tab (ID "" until the shown project names
+// the item to open); History has one tab (ID ""); a document is by its
+// ID, a browser page and a terminal by a number.
 type Tab struct {
 	Kind Kind   `json:"kind"`
 	ID   string `json:"id,omitempty"`
@@ -105,6 +105,11 @@ type State struct {
 	// Paged is the resource a page of the same project shows, "" for
 	// none: that page owns the resource's scrolling (Page).
 	Paged Kind
+	// pr is the shown project, whose open files and diffs are the
+	// strip's file and diff tabs (sync); synced is set after the first
+	// project, which takes the tabs restored at start-up.
+	pr     *Project
+	synced bool
 
 	// Cwd is the folder a new terminal starts in, the shown project's
 	// (the shell sets it).
@@ -124,8 +129,15 @@ func New(w *preview.Workspace) *State {
 }
 
 // Open shows a resource of the launcher, the "+" menu or a shortcut: its
-// tab when one is open, else a new one. Documents opens the first.
+// tab when one is open, else a new one. Documents opens the first; Files
+// and Changes the project's file or diff shown last.
 func (s *State) Open(k Kind) {
+	if item(k) {
+		// The project's item shown last; the panel names it as it syncs
+		// when no project is known yet.
+		s.Show(Tab{Kind: k, ID: s.shown(k)})
+		return
+	}
 	for _, t := range s.Tabs {
 		if t.Kind == k {
 			s.Show(t)
@@ -156,6 +168,9 @@ func (s *State) Show(t Tab) {
 	if !t.valid() {
 		return
 	}
+	if item(t.Kind) && t.ID != "" && s.pr != nil {
+		s.pr.show(t.Kind, t.ID)
+	}
 	s.Tabs, s.Active = Opened(s.Tabs, t), t
 	if t.Kind == Browser || t.Kind == Terminal {
 		var n int
@@ -182,8 +197,77 @@ func (t Tab) valid() bool {
 
 // Close closes t's tab. It reports whether a tab is left.
 func (s *State) Close(t Tab) bool {
+	if item(t.Kind) && t.ID != "" && s.pr != nil {
+		s.pr.close(t.Kind, t.ID)
+	}
 	s.Tabs, s.Active = Closed(s.Tabs, t, s.Active)
 	return len(s.Tabs) > 0
+}
+
+// item reports whether k's tabs are a project's files or diffs.
+func item(k Kind) bool { return k == Files || k == Changes }
+
+// shown is the shown project's item of k shown last, "" without one.
+func (s *State) shown(k Kind) string {
+	if s.pr == nil {
+		return ""
+	}
+	return s.pr.shown(k)
+}
+
+// Sync makes the strip's file and diff tabs the project's open items, as
+// the page's strip shows them (docs/panel.md, Components and hosts): a
+// tab with no item yet takes the one shown last, items opened or closed
+// on the page are added or dropped, and another project's are swapped
+// for this one's. The first project takes the tabs restored at start-up.
+// Without a project the tabs stay and show the project prompt.
+func (s *State) Sync(pr *Project) {
+	s.pr = pr
+	if pr == nil {
+		return
+	}
+	if !s.synced {
+		s.synced = true
+		for _, t := range s.Tabs {
+			if item(t.Kind) && t.ID != "" {
+				pr.show(t.Kind, t.ID)
+			}
+		}
+		if item(s.Active.Kind) && s.Active.ID != "" {
+			pr.show(s.Active.Kind, s.Active.ID)
+		}
+	}
+	var tabs []Tab
+	for _, t := range s.Tabs {
+		if item(t.Kind) {
+			if t.ID == "" && pr.shown(t.Kind) != "" {
+				id := pr.shown(t.Kind)
+				pr.show(t.Kind, id)
+				if s.Active == t {
+					s.Active = Tab{t.Kind, id}
+				}
+				t.ID = id
+			}
+			if t.ID != "" && !slices.Contains(pr.items(t.Kind), t.ID) {
+				continue
+			}
+		}
+		tabs = Opened(tabs, t)
+	}
+	for _, k := range []Kind{Files, Changes} {
+		for _, id := range pr.items(k) {
+			tabs = Opened(tabs, Tab{k, id})
+		}
+	}
+	if !slices.Equal(tabs, s.Tabs) {
+		if !slices.Contains(tabs, s.Active) {
+			_, s.Active = Closed(s.Tabs, s.Active, s.Active)
+			if !slices.Contains(tabs, s.Active) && len(tabs) > 0 {
+				s.Active = tabs[0]
+			}
+		}
+		s.Tabs = tabs
+	}
 }
 
 // owns reports whether the panel owns the scrolling of t's resource,

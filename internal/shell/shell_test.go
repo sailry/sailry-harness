@@ -29,6 +29,18 @@ func newTester(t *testing.T) (*App, *ui.Tester) {
 	return a, tt
 }
 
+// clickTree clicks the file tree's row labelled label, not a tab of the
+// same name.
+func clickTree(t *testing.T, tt *ui.Tester, label string) {
+	t.Helper()
+	e, ok := tt.AccessByRole(ui.RoleTreeItem, label)
+	if !ok {
+		t.Fatalf("no tree row %q", label)
+	}
+	b := e.Bounds
+	tt.ClickAt(b.X+b.W/2, b.Y+b.H/2)
+}
+
 // codeHas reports whether the editor or diff side labelled label shows s.
 func codeHas(tt *ui.Tester, label, s string) bool {
 	e, ok := tt.Access(label)

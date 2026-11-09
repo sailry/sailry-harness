@@ -35,6 +35,7 @@ type Shortcut func(mods ui.Modifiers, key ui.Key) string
 // project's state, nil when the conversation has none; keys writes the
 // launcher's shortcuts.
 func View(c *ui.Context, s *State, pr *Project, keys Shortcut) {
+	s.Sync(pr)
 	if len(s.Tabs) == 0 {
 		launcher(c, s, keys)
 		return
@@ -45,9 +46,9 @@ func View(c *ui.Context, s *State, pr *Project, keys Shortcut) {
 	ui.Column(c.Key(t)).Grow(1).MinHeight(0).Children(func() {
 		switch t.Kind {
 		case Files, Changes:
-			// The whole component: the list chooses what the main area
-			// shows, in this tab.
-			pr.view(c, t.Kind, own)
+			// The whole component for this tab's item: the side list
+			// opens or focuses another item's tab.
+			pr.view(c, t.Kind, t.ID, own, nil, func(path string) { s.Show(Tab{t.Kind, path}) })
 		case History:
 			s.history(c)
 		case Documents:
@@ -79,6 +80,10 @@ func (s *State) look(c *ui.Context, t Tab) (*ui.SVG, string) {
 			title = i18n.T(c, "chat_child")
 		}
 		return icons.Bot, title
+	case Files, Changes:
+		if t.ID != "" {
+			return itemLook(t.Kind, t.ID)
+		}
 	case Documents:
 		for _, d := range s.Data.Documents {
 			if d.ID == t.ID {
@@ -90,27 +95,104 @@ func (s *State) look(c *ui.Context, t Tab) (*ui.SVG, string) {
 	return r.Icon, i18n.T(c, r.Label)
 }
 
-// Page builds a project resource, Files or Changes, as an independent
-// page in the main column: the page host, over the same Project the tab
-// shows.
-func Page(c *ui.Context, k Kind, pr *Project) {
-	ui.Column(c.Key(k)).Grow(1).MinHeight(0).Children(func() { pr.view(c, k, true) })
+// itemLook is a file or diff tab's icon and title: the file's name.
+func itemLook(k Kind, path string) (*ui.SVG, string) {
+	icon := icons.File
+	if k == Changes {
+		icon = icons.Network
+	}
+	return icon, path[strings.LastIndex(path, "/")+1:]
 }
 
-// view is the Files or Git component in either host, or the project
-// prompt when there is no project. The host that owns the scrolling keeps
-// it in the project; while the page and the closing panel both show a
-// resource, the page owns it, as MyGo binds a ScrollState to one
-// container per build.
-func (pr *Project) view(c *ui.Context, k Kind, own bool) {
+// Page builds a project resource, Files or Changes, as an independent
+// page in the main column: the page host, over the same Project the tabs
+// show. A strip of the open items heads its main area; the item shown
+// last opens with the page.
+func Page(c *ui.Context, k Kind, pr *Project) {
+	ui.Column(c.Key(k)).Grow(1).MinHeight(0).Children(func() {
+		if pr != nil && pr.shown(k) != "" {
+			pr.show(k, pr.shown(k))
+		}
+		pr.view(c, k, pr.shownOr(k), true, func() { pr.strip(c, k) }, func(path string) { pr.show(k, path) })
+	})
+}
+
+// shownOr is the item shown, "" without a project.
+func (pr *Project) shownOr(k Kind) string {
+	if pr == nil {
+		return ""
+	}
+	return pr.shown(k)
+}
+
+// strip is the page's row of open items, as the panel's strip draws them.
+func (pr *Project) strip(c *ui.Context, k Kind) {
+	p := theme.Of(c)
+	ui.Row(c.Key("items")).Height(barHeight).Shrink(0).PaddingX(8).BorderWidth(0, 0, 1, 0).BorderColor(p.Border).Children(func() {
+		ui.ScrollHorizontal(c.Key("tabs")).Grow(1).Shrink(1).MinWidth(0).Scrollbars(false).Children(func() {
+			ui.Row(c).Gap(4).Height(barHeight).Children(func() {
+				closed := ""
+				for _, path := range pr.items(k) {
+					icon, label := itemLook(k, path)
+					tab(c, path, icon, label, path == pr.shown(k), func() { pr.show(k, path) }, func() { closed = path })
+				}
+				if closed != "" {
+					pr.close(k, closed)
+				}
+			})
+		})
+	})
+}
+
+// tab is a strip's tab (tabs.rs): 28 DIPs up to 180 wide, the icon and
+// the title, the active one in tab_active, its close button showing on
+// hover or on the active tab.
+func tab(c *ui.Context, key any, icon *ui.SVG, label string, active bool, show, close func()) {
+	p := theme.Of(c)
+	b := ui.ButtonBase(c.Key(key)).Label(label).Height(tabHeight).MaxWidth(tabMax).PaddingStart(8).PaddingEnd(4).
+		Gap(6).Radius(p.Radius).Cursor(ui.CursorPointer).TextColor(p.MutedForeground)
+	hovered := b.Hovered()
+	switch {
+	case active:
+		b.Background(p.TabActive).TextColor(p.TabActiveText).AccessSelected(true).ScrollIntoView()
+	case hovered:
+		b.TextColor(p.Foreground)
+	}
+	b.Children(func() {
+		ui.Icon(c, icon).FontSize(14).Shrink(0)
+		ui.Text(c, label).FontSize(14).SingleLine().Shrink(1)
+		x := kit.IconButton(c.Key("close"), icons.Close, i18n.T(c, "close"), 20, false).OnClick(close)
+		if !hovered && !active && !x.FocusVisible() {
+			x.Opacity(0)
+		}
+	}).OnClick(show)
+}
+
+// view is the Files or Git component in either host for the item path,
+// or the project prompt when there is no project: head heads the main
+// area (the page's strip), and the side list's choice calls open. The
+// host that owns the scrolling keeps it in the project; while the page
+// and the closing panel both show a resource, the page owns it, as MyGo
+// binds a ScrollState to one container per build.
+func (pr *Project) view(c *ui.Context, k Kind, path string, own bool, head func(), open func(path string)) {
 	if pr == nil {
 		kit.Empty(c, ResourceOf(k).Icon, i18n.T(c, "resource_project_empty"), "", nil).Grow(1).Justify(ui.Center)
 		return
 	}
+	main := func() {
+		if head != nil {
+			head()
+		}
+		if k == Files {
+			pr.filePreview(c, path, own)
+		} else {
+			pr.diff(c, path)
+		}
+	}
 	if k == Files {
-		pr.files(c, own)
+		split(c, "files", &pr.Files.side, main, func() { pr.tree(c, path, own, open) })
 	} else {
-		pr.changes(c, own)
+		split(c, "changes", &pr.Git.side, main, func() { pr.changeList(c, path, own, open) })
 	}
 }
 
@@ -135,24 +217,7 @@ func (s *State) strip(c *ui.Context, pr *Project, keys Shortcut) {
 				var closed *Tab
 				for _, t := range s.Tabs {
 					icon, label := s.look(c, t)
-					active := t == s.Active
-					tab := ui.ButtonBase(c.Key(t)).Label(label).Height(tabHeight).MaxWidth(tabMax).PaddingStart(8).PaddingEnd(4).
-						Gap(6).Radius(p.Radius).Cursor(ui.CursorPointer).TextColor(p.MutedForeground)
-					hovered := tab.Hovered()
-					switch {
-					case active:
-						tab.Background(p.TabActive).TextColor(p.TabActiveText).AccessSelected(true).ScrollIntoView()
-					case hovered:
-						tab.TextColor(p.Foreground)
-					}
-					tab.Children(func() {
-						ui.Icon(c, icon).FontSize(14).Shrink(0)
-						ui.Text(c, label).FontSize(14).SingleLine().Shrink(1)
-						x := kit.IconButton(c.Key("close"), icons.Close, i18n.T(c, "close"), 20, false).OnClick(func() { closed = &t })
-						if !hovered && !active && !x.FocusVisible() {
-							x.Opacity(0)
-						}
-					}).OnClick(func() { s.Show(t) })
+					tab(c, t, icon, label, t == s.Active, func() { s.Show(t) }, func() { closed = &t })
 				}
 				if closed != nil {
 					s.Close(*closed)
@@ -255,17 +320,10 @@ func status(c *ui.Context, path string, after func()) {
 	})
 }
 
-// files is the Files page: the shown file's preview beside the tree
-// (preview_files.rs: the preview first, the list after).
-func (pr *Project) files(c *ui.Context, own bool) {
-	v := &pr.Files
-	split(c, "files", &v.side, func() { pr.filePreview(c, v.file, own) }, func() { pr.tree(c, own, v.Show) })
-}
-
 // tree is the project's file tree, starting at preview_files.rs's p_2 with
 // no title: 28 DIP rows indented 16 per level from 8. A file's click
-// calls open with its path; the shown file is selected.
-func (pr *Project) tree(c *ui.Context, own bool, open func(path string)) {
+// calls open with its path; the file shown, shown, is selected.
+func (pr *Project) tree(c *ui.Context, shown string, own bool, open func(path string)) {
 	v := &pr.Files
 	p := theme.Of(c)
 	ui.Scroll(c.Key("scroll")).TrackScroll(scroll(&v.tree, own)).Grow(1).Padding(8).Children(func() {
@@ -285,7 +343,7 @@ func (pr *Project) tree(c *ui.Context, own bool, open func(path string)) {
 				item := tree.Item(folder)
 				row := item.Row.Height(rowHeight).PaddingStart(8 + 16*float32(item.Depth())).PaddingEnd(8).Gap(8).
 					Radius(p.Radius).Cursor(ui.CursorPointer).Label(n.Name)
-				selected := n.Path == v.file
+				selected := n.Path == shown
 				text := p.MutedForeground
 				switch {
 				case selected:
@@ -332,16 +390,16 @@ func findFile(n *preview.FileNode, path string) *preview.FileNode {
 	return nil
 }
 
-// filePreview is the shown file, read-only: the toolbar (Save, Undo and
-// Redo disabled, Find, Document | Source for markdown), the text with
-// line numbers, and the status bar.
+// filePreview is an open file, read-only, in its own view: the toolbar
+// (Save, Undo and Redo disabled, Find, Document | Source for markdown),
+// the text with line numbers, and the status bar.
 func (pr *Project) filePreview(c *ui.Context, path string, own bool) {
-	v := &pr.Files
 	f := findFile(pr.Data.Files, path)
 	if f == nil {
 		kit.Empty(c, icons.File, i18n.T(c, "file_empty"), "", nil)
 		return
 	}
+	v := pr.Files.item(path)
 	md := strings.HasSuffix(f.Name, ".md")
 	toolbar(c, "toolbar", func() {
 		kit.IconButton(c.Key("save"), icons.Save, i18n.T(c, "files_save"), 28, false).Disabled(true)
@@ -387,16 +445,9 @@ func statusColor(p *theme.Palette, st string) ui.Color {
 	return p.Warning
 }
 
-// changes is the Git page: the shown file's hunks beside the list and
-// the commit box (preview_git.rs, hunks/render.rs).
-func (pr *Project) changes(c *ui.Context, own bool) {
-	v := &pr.Git
-	split(c, "changes", &v.side, func() { pr.diff(c, v.change) }, func() { pr.changeList(c, own, v.Show) })
-}
-
 // changeList is the working tree's changes over the commit box. A
 // change's click calls open with its path; the shown change is selected.
-func (pr *Project) changeList(c *ui.Context, own bool, open func(path string)) {
+func (pr *Project) changeList(c *ui.Context, shown string, own bool, open func(path string)) {
 	p := theme.Of(c)
 	v := &pr.Git
 	ui.Row(c).Height(barHeight).PaddingStart(12).PaddingEnd(8).Shrink(0).Children(func() {
@@ -410,7 +461,7 @@ func (pr *Project) changeList(c *ui.Context, own bool, open func(path string)) {
 			b := ui.ButtonBase(c.Key(ch.Path)).Label(ch.Path).Height(rowHeight).PaddingX(8).Gap(8).Radius(p.Radius).
 				Cursor(ui.CursorPointer).TextColor(p.MutedForeground)
 			switch {
-			case ch.Path == v.change:
+			case ch.Path == shown:
 				b.Background(p.Hover).TextColor(p.HoverForeground).AccessSelected(true)
 			case b.Hovered():
 				b.TextColor(p.Foreground)

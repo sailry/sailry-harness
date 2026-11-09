@@ -359,6 +359,7 @@ func (a *App) togglePanel() {
 // openPanel shows a resource in the right panel.
 func (a *App) openPanel(k panel.Kind) {
 	a.Page, a.PanelOpen = ConversationPage, true
+	a.Panel.Sync(a.project())
 	a.Panel.Open(k)
 }
 
