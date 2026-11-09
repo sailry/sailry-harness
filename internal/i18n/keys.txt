@@ -514,7 +514,6 @@ reference_context
 reference_databases
 reference_ssh
 reference_empty
-reference_preview
 reference_remove
 reference_host
 reference_project

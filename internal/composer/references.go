@@ -305,8 +305,7 @@ func (s *State) pickerKey(c *ui.Context, ctx *Context, actions Actions, k ui.Tex
 }
 
 // referencePicker is view.rs composer_references: a panel over the
-// surface, at its start, 340 wide: the page's title, with Back inside a
-// page, then rows 48 high, five showing, and the hint. Its rows take no
+// surface, as wide as it: rows 36 high, eight showing. Its rows take no
 // focus, so typing goes on in the draft.
 func (s *State) referencePicker(c *ui.Context, ctx *Context, actions Actions, surface ui.Element) {
 	st := &s.ref
@@ -329,19 +328,17 @@ func (s *State) referencePicker(c *ui.Context, ctx *Context, actions Actions, su
 	case st.at.marker == '/':
 		title = i18n.T(c, "composer_commands")
 	}
-	w, _ := c.Size()
+	// As wide as the composer's surface, with no header or footer: the
+	// keys move, choose and go back (Backspace on an empty query).
+	width := surface.LayoutBounds().W
+	if width <= 0 {
+		w, _ := c.Size()
+		width = min(340, w-48)
+	}
 	ui.Overlay(c, func() {
 		kit.Floating(c, ui.Column(c.Key("reference-picker"))).AttachTo(surface, ui.AnchorTopStart, ui.AnchorBottomStart).Margin(0, 0, 4, 0).
-			Width(min(340, w-48)).Padding(4).Gap(4).Role(ui.RoleList).Label(title).Children(func() {
-			ui.Row(c.Key("title")).Gap(4).PaddingX(4).MinWidth(0).AlignItems(ui.Center).Children(func() {
-				if len(st.path) > 0 {
-					kit.IconButton(c.Key("back"), icons.ArrowLeft, i18n.T(c, "reference_back"), 24, false).OnClick(func() {
-						st.path, st.sel, s.focus = st.path[:len(st.path)-1], 0, true
-					})
-				}
-				ui.Text(c, title).FontSize(14).SingleLine().Padding(4).Grow(1).MinWidth(0)
-			})
-			h := float32(min(max(len(rows), 1), 5) * 48)
+			Width(width).Padding(4).Role(ui.RoleList).Label(title).Children(func() {
+			h := float32(min(max(len(rows), 1), 8) * 36)
 			ui.Scroll(c.Key(len(st.path))).Height(h).Children(func() {
 				if len(rows) == 0 {
 					ui.Text(c, i18n.T(c, "reference_empty")).FontSize(14).Padding(12).TextColor(p.MutedForeground)
@@ -351,19 +348,18 @@ func (s *State) referencePicker(c *ui.Context, ctx *Context, actions Actions, su
 					s.referenceRow(c, ctx, actions, r, i)
 				}
 			})
-			ui.Text(c, i18n.T(c, "reference_preview")).FontSize(12).Padding(0, 8, 4, 8).TextColor(p.MutedForeground)
 		})
 	})
 }
 
-// referenceRow is view.rs render_item: the icon, the label over its
-// description, the check on the selected row, a chevron for a page.
+// referenceRow is view.rs render_item, on one line: the icon, the label, its
+// muted description, a chevron for a page.
 func (s *State) referenceRow(c *ui.Context, ctx *Context, actions Actions, r Reference, i int) {
 	p := theme.Of(c)
 	st := &s.ref
 	selected := i == st.sel
 	name := label(c, r)
-	b := ui.ButtonBase(c.Key(r.ID)).Label(name).FillWidth().Height(48).PaddingX(8).Gap(8).Radius(p.Radius).Shrink(0).
+	b := ui.ButtonBase(c.Key(r.ID)).Label(name).FillWidth().Height(36).PaddingX(8).Gap(8).Radius(p.Radius).Shrink(0).
 		AlignItems(ui.Center).Role(ui.RoleOption).AccessSelected(selected).TabStop(false)
 	if b.Hovered() {
 		st.sel = i
@@ -377,17 +373,12 @@ func (s *State) referenceRow(c *ui.Context, ctx *Context, actions Actions, r Ref
 	}
 	b.Children(func() {
 		ui.Icon(c, icon).FontSize(16).Shrink(0).TextColor(p.MutedForeground)
-		ui.Column(c).Grow(1).MinWidth(0).Gap(2).Children(func() {
-			ui.Text(c, name).FontSize(14).LineHeight(1.25).SingleLine()
-			if d := description(c, r); d != "" {
-				ui.Text(c, d).FontSize(12).LineHeight(1.25).SingleLine().TextColor(p.MutedForeground)
-			}
-		})
-		ui.Box(c).Size(16, 16).Shrink(0).Children(func() {
-			if selected {
-				ui.Icon(c, icons.Check).FontSize(16)
-			}
-		})
+		ui.Text(c, name).FontSize(14).SingleLine().Shrink(0).MaxWidth(240)
+		if d := description(c, r); d != "" {
+			ui.Text(c, d).FontSize(13).SingleLine().Grow(1).Shrink(1).MinWidth(0).TextColor(p.MutedForeground)
+		} else {
+			ui.Spacer(c)
+		}
 		if r.Kind == Page || (r.Kind == Folder && r.Insert == "") {
 			ui.Icon(c, icons.ChevronRight).FontSize(12).Shrink(0)
 		}

@@ -496,7 +496,6 @@ reference_context: 工作区上下文
 reference_databases: 数据库
 reference_ssh: SSH 连接
 reference_empty: 没有匹配的引用
-reference_preview: 仅引用预览 · 输入筛选，↑↓ 选择，Enter 确认
 reference_remove: 移除引用
 reference_host: 主机
 reference_project: 项目

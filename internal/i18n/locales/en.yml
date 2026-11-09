@@ -496,7 +496,6 @@ reference_context: Workspace context
 reference_databases: Database
 reference_ssh: SSH connections
 reference_empty: No matching references
-reference_preview: Reference preview · Filter, ↑↓ to select, Enter to confirm
 reference_remove: Remove reference
 reference_host: Host
 reference_project: Project
