@@ -16,7 +16,8 @@ import (
 // unique across the dataset.
 type scene func(id string) cv.Turn
 
-var scenes = []scene{explore, edit, failed, refused, sessions, questions, delegated, planned, answered}
+var scenes = []scene{explore, edit, failed, refused, sessions, questions, delegated, planned, answered,
+	attachments, artifacts, grounded, retried, changed, noticed, compacted}
 
 // Turns makes n finished turns; seed varies them between conversations.
 func Turns(conv string, n, seed int) []cv.Turn {

@@ -41,7 +41,7 @@ func Send(c *Conversation, text string, now time.Time) {
 }
 
 // Playing reports a reply the preview is still playing.
-func (c *Conversation) Playing() bool { return c.stream != nil }
+func (c *Conversation) Playing() bool { return c.stream != nil || c.Session.LoadingOlder }
 
 // Running reports a reply that is still going, played or static.
 func (c *Conversation) Running() bool {
@@ -51,6 +51,7 @@ func (c *Conversation) Running() bool {
 
 // Advance moves the playing reply to where it is at now.
 func Advance(c *Conversation, now time.Time) {
+	page(c, now)
 	s := c.stream
 	if s == nil {
 		return

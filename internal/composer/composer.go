@@ -37,6 +37,9 @@ type State struct {
 	Effort  float64 // index into Efforts
 	Branch  int     // index into Branches
 	Running bool    // a reply is running: Stop replaces Send
+	// Metrics builds the context bar's usage at its end (conversation
+	// UsageBar), nil for none.
+	Metrics func(c *ui.Context)
 
 	picker bool // the model picker is open
 	list   bool // it shows the model list rather than its main panel
@@ -102,8 +105,12 @@ func View(c *ui.Context, s *State, models []Model, in Interactions, actions Acti
 				s.sendButton(c, submit, stop)
 			})
 		})
-		ui.Row(c).MinHeight(32).MarginX(12).Padding(4, 8).Gap(4).TextColor(p.MutedForeground).Children(func() {
+		ui.Row(c).MinHeight(32).MarginX(12).Padding(4, 8).Gap(4).TextColor(p.MutedForeground).AlignItems(ui.Center).Children(func() {
 			s.branchMenu(c)
+			if s.Metrics != nil {
+				ui.Spacer(c)
+				s.Metrics(c)
+			}
 		})
 	})
 }

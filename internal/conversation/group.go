@@ -42,10 +42,11 @@ func Compact(blocks []Block) []Block {
 }
 
 // work reports a block that belongs in the collapsible work region:
-// everything but text, questions and tool blocks of interactions alone.
+// everything but text, questions, the answer's pictures, files and
+// visuals, and tool blocks of interactions alone.
 func work(b Block) bool {
 	switch b.Kind {
-	case TextBlock, QuestionBlock:
+	case TextBlock, QuestionBlock, ImagesBlock, FilesBlock, VisualBlock:
 		return false
 	case ToolsBlock:
 		for _, c := range b.Calls {

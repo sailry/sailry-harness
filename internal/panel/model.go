@@ -10,6 +10,8 @@ import (
 	"slices"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/markdown"
+	"github.com/sailry/sailry-go/internal/conversation"
 	"github.com/sailry/sailry-go/internal/icons"
 	"github.com/sailry/sailry-go/internal/preview"
 )
@@ -108,8 +110,14 @@ type State struct {
 	// none: that page owns the resource's scrolling (Page).
 	Paged Kind
 
-	address string
-	pages   int // browser pages and terminals opened, for their IDs
+	address   string
+	pages     int                          // browser pages and terminals opened, for their IDs
+	artifacts map[string]conversation.File // the conversation files previewed, by ID
+	md        markdown.Options             // their Markdown and code
+	children  map[string]string            // the subagent sessions open, their titles by ID
+	// Child builds a subagent's session in its tab, the transcript the
+	// shell owns (subagents/panel/view.rs).
+	Child func(c *ui.Context, id string)
 }
 
 func New(w *preview.Workspace) *State {

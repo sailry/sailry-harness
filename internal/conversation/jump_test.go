@@ -21,7 +21,7 @@ func streamTester(t *testing.T) (*ui.ListState, *preview.Conversation, *ui.Teste
 		if cv.Playing() {
 			c.After(preview.Tick)
 		}
-		ui.Column(c).Fill().Children(func() { conversation.View(c, s, cv.ID, cv.Turns, noActions{}) })
+		ui.Column(c).Fill().Children(func() { conversation.View(c, s, cv.ID, cv.Turns, nil, noActions{}) })
 	}, 900, 640)
 	tt.SetLocale("en")
 	tt.Frame()

@@ -6,6 +6,7 @@
 package shell
 
 import (
+	"strings"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -95,6 +96,8 @@ type App struct {
 	// conversation or a page shows, and the right panel (pane).
 	mainPane, panelPane ui.Handle
 	sent                []string // the native menu's commands (Do)
+	// children are the subagent sessions opened in the panel, by ID.
+	children map[string][]conversation.Turn
 }
 
 // New makes the app over the preview dataset, showing its large conversation.
@@ -337,7 +340,11 @@ func (a *App) page(c *ui.Context) {
 	}
 	comp := a.Composer(cv.ID)
 	comp.Running = cv.Running()
+	comp.Metrics = func(c *ui.Context) { conversation.UsageBar(c, cv.Session.Usage) }
 	act := &actions{a: a, c: c, cv: cv}
+	a.Panel.Child = func(c *ui.Context, id string) {
+		conversation.View(c, a.Messages, id, a.children[id], nil, act)
+	}
 	if len(cv.Turns) == 0 {
 		// A new session welcomes with the theme's hero and the mode
 		// cards, whose prompts go to the composer as drafts.
@@ -346,7 +353,7 @@ func (a *App) page(c *ui.Context) {
 		}, func(prompt string) { comp.Draft = prompt })
 		return
 	}
-	conversation.View(c, a.Messages, cv.ID, cv.Turns, act)
+	conversation.View(c, a.Messages, cv.ID, cv.Turns, &cv.Session, act)
 	composer.View(c, comp, a.Data.Models, cv.Waiting, act)
 }
 
@@ -393,8 +400,59 @@ func (x *actions) DeclineQuestion(id string) {
 	preview.Resolve(x.cv, id, conversation.QuestionDeclined, nil)
 }
 
-// OpenChild has no child session to open in the preview.
-func (x *actions) OpenChild(string) { x.c.Toast(i18n.T(x.c, "preview_notice")) }
+// OpenChild shows a subagent's session in a tab of the right panel: the
+// preview's made-up run for it.
+func (x *actions) OpenChild(id string) {
+	title := ""
+	for _, t := range x.cv.Turns {
+		for _, b := range t.Reply.Blocks {
+			for _, k := range b.Children {
+				if k.ID == id {
+					title = k.Title
+				}
+			}
+		}
+	}
+	if x.a.children == nil {
+		x.a.children = map[string][]conversation.Turn{}
+	}
+	if _, ok := x.a.children[id]; !ok {
+		x.a.children[id] = preview.ChildTurns(id, title)
+	}
+	x.a.Page, x.a.PanelOpen = ConversationPage, true
+	x.a.Panel.ShowChild(id, title)
+}
 
-// Retry does not run a turn again in the preview.
-func (x *actions) Retry(string) { x.c.Toast(i18n.T(x.c, "preview_notice")) }
+// The transcript's actions that would run a model, change the session,
+// write a file or leave the window only say so in the preview.
+func (x *actions) notice() { x.c.Toast(i18n.T(x.c, "preview_notice")) }
+
+func (x *actions) Retry(string)                                          { x.notice() }
+func (x *actions) Fork(string)                                           { x.notice() }
+func (x *actions) Rewind(string)                                         { x.notice() }
+func (x *actions) Worktree(string)                                       { x.notice() }
+func (x *actions) Export(string, conversation.ExportFormat)              { x.notice() }
+func (x *actions) Read(string, string)                                   { x.notice() }
+func (x *actions) Edit(string)                                           { x.notice() }
+func (x *actions) FileAction(conversation.File, conversation.FileAction) { x.notice() }
+func (x *actions) Undo(string, string)                                   { x.notice() }
+func (x *actions) Review(string, string)                                 { x.notice() }
+func (x *actions) Reconnect()                                            { x.notice() }
+
+// Quote adds the quoted selection to the end of the draft.
+func (x *actions) Quote(text string) {
+	comp := x.a.Composer(x.cv.ID)
+	if comp.Draft != "" && !strings.HasSuffix(comp.Draft, "\n\n") {
+		comp.Draft += "\n\n"
+	}
+	comp.Draft += text
+}
+
+// LoadOlder reveals the next page of the preview's older turns.
+func (x *actions) LoadOlder() { preview.LoadOlder(x.cv) }
+
+// OpenFile shows a file's preview as a tab of the right panel.
+func (x *actions) OpenFile(f conversation.File) {
+	x.a.Page, x.a.PanelOpen = ConversationPage, true
+	x.a.Panel.ShowArtifact(f)
+}

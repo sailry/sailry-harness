@@ -355,3 +355,75 @@ menu_help: Help
 menu_website: Website
 menu_feedback: Feedback
 menu_logs: Logs
+artifact_open: Open
+artifact_preview: Preview
+artifact_preview_changed: File has changed
+artifact_preview_failed: Could not load preview
+artifact_preview_large: File too large to preview
+artifact_preview_loading: Loading preview
+artifact_preview_unavailable: Preview unavailable for this file
+artifact_request_edit: Request edit
+background_notice_title: Background results
+background_outcome_cancelled: Cancelled
+background_outcome_completed: Completed
+background_outcome_failed: Failed
+background_outcome_interrupted: Interrupted
+background_outcome_stalled: No recent output
+background_outcome_stopped: Stopped
+background_outcome_timed_out: Timed out
+background_outcome_unknown: Outcome uncertain
+chat_compact_cancelled: Compaction cancelled
+chat_compact_failed: Compaction failed
+chat_compact_queued: Waiting to compact
+chat_compact_unneeded: Compaction not needed
+chat_compacted: Context compacted
+chat_compacting: Compacting context
+chat_history_failed: History failed to load
+chat_history_loading: Loading conversation
+chat_image_fit: Fit to window
+chat_image_flip_horizontal: Flip horizontally
+chat_image_flip_vertical: Flip vertically
+chat_image_next: Next image
+chat_image_preview: Image preview
+chat_image_previous: Previous image
+chat_image_rotate: Rotate
+chat_image_zoom_in: Zoom in
+chat_image_zoom_out: Zoom out
+chat_model_connection_retried: Connection retried
+chat_model_rate_limited: Model rate limit reached
+chat_model_reconnecting: Retrying request %{attempt}/%{limit}
+chat_model_reconnecting_continuously: Reconnecting
+chat_model_retried: Model request retried %{attempt}/%{limit}
+chat_model_retry_exhausted: Retry limit reached
+chat_model_server_overloaded: Model service overloaded
+chat_reconnecting: Reconnecting
+chat_rewind: Rewind to this turn
+chat_rewind_action: Rewind
+chat_rewind_confirm: Keep this turn and remove later messages? Files stay unchanged
+chat_search: Search conversation
+chat_search_query: Search text
+chat_search_result: Search results
+chat_status_unsynced: Status not synced
+compact_reason_unknown: No further details were recorded for this failure
+composer_cache: Cache
+composer_compression_hint: 'Context compaction: no runtime data (UI preview)'
+composer_cost: Cost
+composer_speed: Speed
+composer_tokens: Tokens
+composer_turns: Turns
+files_download: Save as
+files_open_system: Open
+hunks_review: Review blocks
+message_edit: Edit
+message_quote: Quote
+plugins_view_offline: Host disconnected
+reader_read: Read aloud
+reader_stop: Stop reading
+turn_changes_count: Edited %{count} files
+turn_changes_less: Show fewer files
+turn_changes_more: Show %{count} more files
+turn_changes_review: Review
+turn_changes_undo: Undo
+turn_changes_undone: Undone
+turn_compacting: Compacting
+turn_tools_running: Running

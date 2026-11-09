@@ -7,7 +7,6 @@ package conversation
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -31,14 +30,19 @@ const (
 // each keeps its place, and the disclosures opened. It holds no
 // conversation data.
 type State struct {
-	lists  map[string]*ui.ListState
-	open   map[string]*bool
-	work   map[string]bool // work regions the user opened or closed
-	built  map[string]bool // lists built once, so laid out
-	md     markdown.Options
-	themes map[*theme.Palette]*markdown.Theme // by theme package and mode
-	light  float32                            // the welcome wordmark's beam, in window DIPs
-	lit    bool                               // the pointer has moved over the welcome page
+	lists     map[string]*ui.ListState
+	open      map[string]*bool
+	work      map[string]bool // work regions the user opened or closed
+	built     map[string]bool // lists built once, so laid out
+	md        markdown.Options
+	themes    map[*theme.Palette]*markdown.Theme // by theme package and mode
+	light     float32                            // the welcome wordmark's beam, in window DIPs
+	lit       bool                               // the pointer has moved over the welcome page
+	view      Viewer                             // the image viewer
+	rewind    string                             // the turn whose rewind waits to be confirmed
+	reading   string                             // the turn read aloud
+	find      search                             // the search bar
+	wantOlder bool                               // the start came into view this frame
 }
 
 func New() *State {
@@ -56,23 +60,39 @@ func (s *State) List(id string) *ui.ListState {
 }
 
 // View builds the transcript of conversation id: its turns in a list that
-// follows its end, and the jump button over it.
-func View(c *ui.Context, s *State, id string, turns []Turn, actions Actions) {
+// follows its end, the session's states around them, the search bar and
+// the jump button over it, and the image viewer and rewind confirmation
+// over the window. sess may be nil.
+func View(c *ui.Context, s *State, id string, turns []Turn, sess *Session, actions Actions) {
 	s.md.Theme = s.markdownTheme(theme.Of(c))
+	s.md.ShareSelection = true
+	if sess != nil && sess.Loading {
+		loading(c)
+		return
+	}
 	l := s.List(id)
 	l.Key = func(i int) any { return turns[i].ID }
 	n := len(turns)
+	s.wantOlder = false
+	banner(c, sess, actions)
 	// The theme's conversation effects lie under the turns.
 	kit.Draws(ui.Box(c.Key(id)).Grow(1), kit.Backdrop(c, "conversation")).Children(func() {
 		ui.List(c, l, n, func(i int) {
-			s.turn(c, &turns[i], i == 0, i == n-1, actions)
+			s.turn(c, i, &turns[i], n, sess, actions)
 		}).Fill().Role(ui.RoleLog)
 		jump(c, l, n, !s.built[id])
 		s.built[id] = true
+		s.searchBar(c, id, turns)
 	})
+	if s.wantOlder && !sess.LoadingOlder {
+		actions.LoadOlder()
+	}
+	s.viewer(c, actions)
+	s.confirmRewind(c, actions)
 }
 
-func (s *State) turn(c *ui.Context, t *Turn, first, last bool, actions Actions) {
+func (s *State) turn(c *ui.Context, i int, t *Turn, n int, sess *Session, actions Actions) {
+	first, last := i == 0, i == n-1
 	top, bottom := float32(0), float32(turnBottom)
 	if first {
 		top = 24
@@ -80,21 +100,66 @@ func (s *State) turn(c *ui.Context, t *Turn, first, last bool, actions Actions) 
 	if last {
 		bottom = 24
 	}
-	ui.Column(c).FillWidth().MaxWidth(theme.ContentWidth).Margin(0, ui.Auto).Padding(top, padX, bottom, padX).Gap(turnGap).Children(func() {
-		if t.User != "" {
-			userMessage(c, t.User)
+	q, current, marked := s.highlight(i, t)
+	col := ui.Column(c).FillWidth().MaxWidth(theme.ContentWidth).Margin(0, ui.Auto).Padding(top, padX, bottom, padX).Gap(turnGap).Selectable()
+	col.Children(func() {
+		if first {
+			s.older(c, sess, actions)
 		}
-		s.reply(c, t, actions)
+		selection(c, col, actions)
+		if t.Compaction != nil {
+			s.compaction(c, t)
+			return
+		}
+		if t.User != "" || len(t.Images) > 0 || len(t.Files) > 0 {
+			ui.Column(c.Key("user")).Gap(8).Children(func() {
+				if t.User != "" {
+					var hl []ui.Span
+					if marked {
+						hl = spans(t.User, q, current, theme.Of(c))
+					}
+					userMessage(c, t.User, hl)
+				}
+				if len(t.Images) > 0 {
+					s.thumbnails(c, "user-images", t.Images, true)
+				}
+				if len(t.Files) > 0 {
+					ui.Row(c).Justify(ui.End).Children(func() {
+						ui.Column(c).Width(bubbleMax).Children(func() { files(c, "user-files", t.Files, actions) })
+					})
+				}
+				userFooter(c, t, actions)
+			})
+		}
+		if len(t.Notices) > 0 {
+			notices(c, t.Notices)
+		}
+		if !t.Reply.Notice || len(t.Reply.Blocks) > 0 {
+			mark := ""
+			if marked {
+				mark = q
+			}
+			s.reply(c, t, mark, actions)
+		}
+		if last && sess != nil {
+			diagnostic(c, sess.Diagnostic)
+		}
 	})
 }
 
 // userMessage is the muted bubble on the right (theme/messages.rs), in the
-// package's user message colors, border and radius, with its corner art.
-func userMessage(c *ui.Context, text string) {
+// package's user message colors, border and radius, with its corner art;
+// marks, when set, are its text with the search's matches marked.
+func userMessage(c *ui.Context, text string, marks []ui.Span) {
 	p := theme.Of(c)
 	ui.Row(c).Justify(ui.End).Children(func() {
-		b := ui.Text(c, text).Selectable().FontSize(14).LineHeight(1.6).Padding(9, 14).Radius(p.Radius).
-			Background(p.Muted).TextColor(p.Foreground).MaxWidth(bubbleMax)
+		var b ui.Element
+		if marks != nil {
+			b = ui.RichText(c, marks...)
+		} else {
+			b = ui.Text(c, text)
+		}
+		b.FontSize(14).LineHeight(1.6).Padding(9, 14).Radius(p.Radius).Background(p.Muted).TextColor(p.Foreground).MaxWidth(bubbleMax)
 		v := p.Variant
 		if v == nil {
 			return
@@ -152,7 +217,7 @@ func Elapsed(d time.Duration) string {
 // reply is the assistant's message: a header with the run's status over a
 // separator, the work region folded under it, the answer, and the footer
 // once the run ends (messages.rs render_turn).
-func (s *State) reply(c *ui.Context, t *Turn, actions Actions) {
+func (s *State) reply(c *ui.Context, t *Turn, mark string, actions Actions) {
 	p := theme.Of(c)
 	r := &t.Reply
 	blocks := Compact(r.Blocks)
@@ -205,15 +270,25 @@ func (s *State) reply(c *ui.Context, t *Turn, actions Actions) {
 			}
 		})
 		if from < len(blocks) {
+			answer := blocks[from:]
+			if len(r.Citations) > 0 {
+				answer = cited(answer, r.Citations)
+			}
+			if mark != "" {
+				answer = markBlocks(answer, mark)
+			}
 			ui.Column(c.Key("answer")).Gap(workGap).Children(func() {
-				s.blocks(c, t.ID, blocks[from:], active, actions)
+				s.blocks(c, t.ID, answer, active, actions)
 			})
+		}
+		if !active && r.Changes != nil {
+			s.changes(c, t.ID, r.Changes, actions)
 		}
 		if active && showPhase(r, blocks) {
 			phaseRow(c, r)
 		}
 		if !active {
-			footer(c, t, blocks, actions)
+			s.footer(c, t, blocks, actions)
 		}
 	})
 }
@@ -233,7 +308,7 @@ func (s *State) blocks(c *ui.Context, turn string, blocks []Block, continuing bo
 				head := Call{Label: i18n.T(c, "turn_reasoning"), Icon: "bot", Running: continuing && last}
 				s.disclosure(c, "reasoning-"+key, func(hovered, open bool) { summary(c, head, hovered, true, open) }, 4, 8, func() {
 					ui.Scroll(c).MaxHeight(160).Children(func() {
-						ui.Text(c, b.Text).Selectable().FontSize(14).LineHeight(22.0 / 14).TextColor(p.MutedForeground)
+						ui.Text(c, b.Text).FontSize(14).LineHeight(22.0 / 14).TextColor(p.MutedForeground)
 					})
 				})
 			case ToolsBlock:
@@ -244,11 +319,21 @@ func (s *State) blocks(c *ui.Context, turn string, blocks []Block, continuing bo
 				s.children(c, b.Children, actions)
 			case ProgressBlock:
 				s.steps(c, key, b.Steps, continuing)
+			case ImagesBlock:
+				s.thumbnails(c, "images", b.Images, false)
+			case FilesBlock:
+				files(c, "files", b.Files, actions)
+			case SearchBlock:
+				s.grounding(c, key, b)
+			case RetryBlock:
+				s.retry(c, key, b.Retry, continuing && last)
+			case VisualBlock:
+				visual(c, "visual", b.Visual)
 			case ErrorBlock:
 				head := Call{Label: b.Label, Icon: "triangle-alert", Failed: true}
 				s.disclosure(c, "error-"+key, func(hovered, open bool) { summary(c, head, hovered, true, open) }, 4, 8, func() {
 					ui.Scroll(c).MaxHeight(160).Children(func() {
-						ui.Text(c, b.Text).Selectable().FontSize(14).TextColor(p.Danger)
+						ui.Text(c, b.Text).FontSize(14).TextColor(p.Danger)
 					})
 				})
 			}
@@ -298,35 +383,8 @@ func phaseRow(c *ui.Context, r *Reply) {
 		label = i18n.T(c, "turn_thinking")
 	}
 	ui.Row(c.Key("phase")).Gap(8).Height(rowHeight).Children(func() {
-		kit.Orb(c, 16)
+		kit.Indicator(c, Indicator(r.Phase), 16)
 		kit.Shimmer(c, label, 14, p.MutedForeground)
-	})
-}
-
-// footer is the ended run's actions: copy the answer, and retry a run
-// that failed, stopped or broke off.
-func footer(c *ui.Context, t *Turn, blocks []Block, actions Actions) {
-	p := theme.Of(c)
-	var parts []string
-	for _, b := range blocks[AnswerFrom(blocks):] {
-		if b.Kind == TextBlock {
-			parts = append(parts, b.Text)
-		}
-	}
-	text := strings.Join(parts, "\n\n")
-	ui.Row(c.Key("footer")).Gap(8).Children(func() {
-		if text != "" {
-			kit.IconButton(c.Key("copy"), icons.Copy, i18n.T(c, "turn_copy"), 28, false).TextColor(p.MutedForeground).
-				OnClick(func() {
-					c.WriteClipboard(text)
-					c.Toast(i18n.T(c, "content_copied"))
-				})
-		}
-		switch t.Reply.Status {
-		case Failed, Interrupted, Cancelled:
-			kit.IconButton(c.Key("retry"), icons.RotateCw, i18n.T(c, "chat_retry"), 28, false).TextColor(p.MutedForeground).
-				OnClick(func() { actions.Retry(t.ID) })
-		}
 	})
 }
 
@@ -359,6 +417,7 @@ func (s *State) markdownTheme(p *theme.Palette) *markdown.Theme {
 		CodeBlockBackground: p.Foreground.Alpha(0.035),
 		CodeBlockBorder:     p.Border,
 		CodeBlockRadius:     p.Radius,
+		Mark:                p.Warning.Alpha(0.35),
 		CodeBlockPadding:    12.0 / 14, // ems; the reference pads 12 x 10
 		Rule:                p.Border,
 		TableBorder:         p.Border,
@@ -367,4 +426,19 @@ func (s *State) markdownTheme(p *theme.Palette) *markdown.Theme {
 	}
 	s.themes[p] = th
 	return th
+}
+
+// Indicator is the thinking indicator's figure for a phase (ui/thinking
+// state): searching while it thinks or waits, composing while it writes,
+// working while children run, a still ring otherwise.
+func Indicator(ph Phase) kit.Thinking {
+	switch ph {
+	case Thinking, AwaitingResponse, PhaseNone:
+		return kit.Searching
+	case Generating:
+		return kit.Composing
+	case WaitingChildren:
+		return kit.Working
+	}
+	return kit.Breathing
 }

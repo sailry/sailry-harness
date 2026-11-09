@@ -6,6 +6,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
+	"github.com/sailry/sailry-go/internal/conversation"
 	"github.com/sailry/sailry-go/internal/i18n"
 	"github.com/sailry/sailry-go/internal/icons"
 	"github.com/sailry/sailry-go/internal/kit"
@@ -62,6 +63,12 @@ func View(c *ui.Context, s *State, pr *Project, keys Shortcut) {
 			s.history(c)
 		case Documents:
 			s.document(c, t.ID)
+		case Artifact:
+			s.artifact(c, t.ID)
+		case Subagent:
+			if s.Child != nil {
+				s.Child(c, t.ID)
+			}
 		case Browser:
 			browser(c, s)
 		case Terminal:
@@ -104,6 +111,16 @@ func (s *State) look(c *ui.Context, t Tab) (*ui.SVG, string) {
 		return icons.File, t.ID[strings.LastIndex(t.ID, "/")+1:]
 	case Diff:
 		return ResourceOf(Changes).Icon, t.ID[strings.LastIndex(t.ID, "/")+1:]
+	case Artifact:
+		if f, ok := s.artifacts[t.ID]; ok {
+			return conversation.FileIcon(f), f.Name()
+		}
+	case Subagent:
+		title := s.children[t.ID]
+		if title == "" {
+			title = i18n.T(c, "chat_child")
+		}
+		return icons.Bot, title
 	case Documents:
 		for _, d := range s.Data.Documents {
 			if d.ID == t.ID {

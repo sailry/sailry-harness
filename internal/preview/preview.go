@@ -37,8 +37,13 @@ type Conversation struct {
 	Turns    []conversation.Turn
 	// Waiting is what the running reply waits on the user for.
 	Waiting composer.Interactions
+	// Session is the conversation around its turns: older pages, the
+	// connection, a diagnostic and usage.
+	Session conversation.Session
 
-	stream *stream // the reply the preview plays after a send
+	stream *stream             // the reply the preview plays after a send
+	older  []conversation.Turn // the turns before the first shown
+	paging time.Time           // when the page asked for started loading
 }
 
 type Project struct {
@@ -93,6 +98,8 @@ func Load() *Data {
 			c.Turns[len(c.Turns)-1] = live(c.Turns[len(c.Turns)-1].ID)
 			c.Waiting = waiting(c.Turns[len(c.Turns)-1].ID)
 		}
+		stamp(c.Turns)
+		c.Session.Usage = usage(len(c.Turns))
 		return c
 	}
 	d.Projects = []*Project{
@@ -148,7 +155,20 @@ func Load() *Data {
 		conv("chat/sql", "Window functions explained", Idle, 3*24*time.Hour, 6),
 		conv("chat/haiku", "Haiku about compilers", Idle, 7*24*time.Hour, 2),
 		conv("chat/shell", "zsh completion errors", Idle, 11*24*time.Hour, 4),
+		conv("chat/paging", "Long history, paged", Idle, 13*24*time.Hour, 64),
+		conv("chat/offline", "Connection recovering", Idle, 14*24*time.Hour, 6),
+		conv("chat/loading", "History loading", Idle, 15*24*time.Hour, 4),
 	}
+	// Older pages: the last 8 turns show, the rest load 8 at a time.
+	pg := d.Unassigned[len(d.Unassigned)-3]
+	pg.older, pg.Turns = pg.Turns[:len(pg.Turns)-8], pg.Turns[len(pg.Turns)-8:]
+	pg.Session.Older = len(pg.older)
+	off := d.Unassigned[len(d.Unassigned)-2]
+	off.Session.Connection = conversation.Reconnecting
+	off.Session.Diagnostic = &conversation.Diagnostic{Title: "Model request rejected", Fields: [][2]string{
+		{"provider", "anthropic"}, {"status", "400"}, {"type", "invalid_request_error"}, {"request", "req_01J9…"},
+	}, Detail: `{"type":"error","error":{"type":"invalid_request_error","message":"max_tokens: 64000 > 32000"}}`}
+	d.Unassigned[len(d.Unassigned)-1].Session.Loading = true
 	d.Models = []Model{
 		{ID: "claude-opus-5-5", Name: "Claude Opus 5.5", Provider: "Anthropic", Reasoning: true},
 		{ID: "claude-sonnet-5-5", Name: "Claude Sonnet 5.5", Provider: "Anthropic", Reasoning: true},

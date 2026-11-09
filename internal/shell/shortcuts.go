@@ -32,6 +32,7 @@ var Shortcuts = []Shortcut{
 	{"conversation.next", "shortcut_next_conversation", ui.Cmd | ui.Shift, ui.KeyBracketRight},
 	{"app.shortcuts", "settings_shortcuts", ui.Cmd, ui.KeySlash},
 	{"app.settings", "settings", ui.Cmd, ui.KeyComma},
+	{"conversation.find", "chat_search", ui.Cmd, ui.KeyF},
 }
 
 // CloseFocused is ⌘W (shell/shortcuts.rs CloseFocused). The reference binds
@@ -170,6 +171,12 @@ func (a *App) run(c *ui.Context, id string) {
 		return
 	}
 	switch id {
+	case "conversation.find":
+		// Find in the conversation (live/shortcuts.rs): from the
+		// conversation, its input or the search bar, not from the panel.
+		if a.Page == ConversationPage && !(a.PanelOpen && c.FocusWithin(a.panelPane)) {
+			a.Messages.OpenSearch(a.Sidebar.Selected)
+		}
 	case "conversation.new":
 		a.Page = ConversationPage
 		a.Sidebar.NewChat()

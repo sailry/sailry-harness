@@ -1,6 +1,11 @@
 package conversation
 
-import "time"
+import (
+	"strings"
+	"time"
+
+	"github.com/egoist/mygo/ui"
+)
 
 // This file is the transcript's contract: the view models a backend fills
 // and the actions the transcript emits. The view groups, colors and lays
@@ -41,9 +46,21 @@ const (
 
 // Turn is a user message and the reply to it.
 type Turn struct {
-	ID    string
-	User  string
-	Reply Reply
+	ID   string
+	User string
+	// Sent is when the user message was sent; the footer shows it on hover.
+	Sent time.Time
+	// Images and Files are the message's attachments: thumbnails and file
+	// cards under the bubble (messages/user.rs, thumbnail.rs, files.rs).
+	Images []Image
+	Files  []File
+	// Notices are background results delivered with the turn, shown as a
+	// bubble on the user's side (messages/notices.rs).
+	Notices []Notice
+	// Compaction makes the turn a context compaction: a marker row, its
+	// summary or failure, and no reply frame (messages/compaction.rs).
+	Compaction *Compaction
+	Reply      Reply
 }
 
 // Reply is the assistant's part of a turn: blocks in order.
@@ -53,6 +70,17 @@ type Reply struct {
 	Phase   Phase
 	Waiting int // children waited for, with WaitingChildren
 	Blocks  []Block
+	// Finished is when the run ended; the footer shows it on hover.
+	Finished time.Time
+	// Citations are the answer's sources, numbered links placed at their
+	// End (a rune offset into the answer's text) or after it (citations.rs).
+	Citations []Citation
+	// Changes is the files the turn edited, the card after the answer
+	// (messages/changes.rs); nil for none.
+	Changes *Changes
+	// Notice marks a run that only delivered background notices: no footer
+	// menus (messages.rs run.notice).
+	Notice bool
 }
 
 // BlockKind says what a block holds.
@@ -66,6 +94,11 @@ const (
 	ChildrenBlock                   // Children: subagent sessions
 	ProgressBlock                   // Steps: a task's progress
 	ErrorBlock                      // the turn's failure: Label and Text
+	ImagesBlock                     // Images: generated or attached pictures
+	FilesBlock                      // Files: output files as cards
+	SearchBlock                     // grounding: Text is the answer, Sources its pages
+	RetryBlock                      // Retry: the model request retried
+	VisualBlock                     // Visual: an SVG the model drew
 )
 
 // Block is one part of a reply.
@@ -77,6 +110,142 @@ type Block struct {
 	Question *Question
 	Children []Child
 	Steps    []Step
+	Images   []Image
+	Files    []File
+	Sources  []Citation
+	Retry    *Retry
+	Visual   *Visual
+}
+
+// Image is a picture of a message: its name, size in pixels and the
+// decoded source, nil while it loads (thumbnail.rs).
+type Image struct {
+	ID, Name      string
+	Width, Height int
+	Source        ui.ImageSource
+}
+
+// FileKind is how the file preview shows a file (content/files).
+type FileKind int
+
+const (
+	TextFile     FileKind = iota // plain text
+	CodeFile                     // highlighted by its extension
+	MarkdownFile                 // rendered Markdown
+	ImageFile                    // Image
+	PDFFile                      // pages; see docs: MyGo v0.8.3 has no PDF view
+	OtherFile                    // no preview: open it in another app
+)
+
+// PreviewState is what the preview of a file has come to.
+type PreviewState int
+
+const (
+	PreviewReady PreviewState = iota
+	PreviewLoading
+	PreviewFailed
+	PreviewLarge   // past the 2 MiB preview limit
+	PreviewChanged // the file changed since the turn wrote it
+)
+
+// File is a file a message attached or a turn produced, as a card that
+// opens its preview in the right panel (content/files/card.rs).
+type File struct {
+	ID   string
+	Path string // worktree-relative; its last element is the label
+	Mime string
+	Size int64
+	Kind FileKind
+	// Text is a text, code or Markdown file's content; Image a picture's.
+	Text  string
+	Image *Image
+	Pages int // a PDF's
+	State PreviewState
+	// Editable lets Request edit act on the file (card.rs can_edit).
+	Editable bool
+}
+
+// Name is the file's label: the last element of its path.
+func (f File) Name() string {
+	if i := strings.LastIndexByte(f.Path, '/'); i >= 0 {
+		return f.Path[i+1:]
+	}
+	return f.Path
+}
+
+// Citation is a source of the answer or of a search: its address, title
+// and the rune offset in the answer where its mark goes (0: after it).
+type Citation struct {
+	URI, Title string
+	End        int
+}
+
+// Retry is a model request retried (messages/retry.rs): the attempt of
+// Limit, its reason (an i18n key, chat_model_*) and whether it gave up.
+type Retry struct {
+	Attempt, Limit int
+	Reason         string
+	Detail         string // the provider's message, shown when opened
+	Exhausted      bool
+}
+
+// Visual is an SVG the model drew, shown in place (content/visuals).
+type Visual struct {
+	Title  string
+	Source *ui.SVG
+}
+
+// NoticeOutcome is how a background task ended.
+type NoticeOutcome int
+
+const (
+	OutcomeCompleted NoticeOutcome = iota
+	OutcomeFailed
+	OutcomeCancelled
+	OutcomeStopped
+	OutcomeTimedOut
+	OutcomeInterrupted
+	OutcomeUnknown
+	OutcomeStalled
+)
+
+// Notice is a background task's result: an agent's or a command's.
+type Notice struct {
+	Title   string
+	Agent   bool
+	Outcome NoticeOutcome
+}
+
+// CompactionState is where a context compaction is.
+type CompactionState int
+
+const (
+	Compacted CompactionState = iota
+	CompactionRunning
+	CompactionQueued
+	CompactionFailed
+	CompactionCancelled
+	CompactionUnneeded
+)
+
+// Compaction is a compaction turn: its state, the summary it wrote and,
+// failed, the cause.
+type Compaction struct {
+	State   CompactionState
+	Summary string
+	Cause   string
+}
+
+// Changes is the files a turn edited, and which the user undid.
+type Changes struct {
+	Files  []ChangedFile
+	Undone map[string]bool // by path; "" undid them all
+}
+
+// ChangedFile is an edited file: its path and line counts.
+type ChangedFile struct {
+	Path           string
+	Added, Removed int
 }
 
 // RowState is the state text a tool row shows (tools/row.rs).
@@ -217,10 +386,105 @@ type Step struct {
 	State StepState
 }
 
-// Actions is what the transcript asks of the backend.
+// Actions is what the transcript asks of the backend. Copying, search,
+// selection and the image viewer are the view's own.
 type Actions interface {
 	// OpenChild opens a subagent's session.
 	OpenChild(id string)
-	// Retry runs a failed turn again.
+	// Retry runs a failed turn again (resend.rs).
 	Retry(turn string)
+	// Fork starts a session from the conversation up to turn (forks.rs).
+	Fork(turn string)
+	// Rewind keeps turn and removes the later ones, once confirmed
+	// (rewind.rs).
+	Rewind(turn string)
+	// Worktree creates a worktree to go on in (forks.rs).
+	Worktree(turn string)
+	// Export saves turn, or the conversation for "", as Markdown, HTML or
+	// an image (export.rs).
+	Export(turn string, format ExportFormat)
+	// Read reads the answer aloud, or stops it (reader).
+	Read(turn, text string)
+	// Edit edits a sent message (messages/user.rs).
+	Edit(turn string)
+	// OpenFile shows a file in the right panel's preview.
+	OpenFile(f File)
+	// FileAction is a file card's menu: open it in another app, save it,
+	// or ask the model to edit it.
+	FileAction(f File, action FileAction)
+	// Undo reverts a turn's changes to path, or all of them for "", and
+	// Review opens their review (changes.rs).
+	Undo(turn, path string)
+	Review(turn, path string)
+	// LoadOlder asks for the page before the first turn (paging.rs).
+	LoadOlder()
+	// Reconnect retries the connection while recovering (recovery.rs).
+	Reconnect()
+	// Quote adds a selection to the draft, quoted (selection.rs).
+	Quote(text string)
+}
+
+// ExportFormat is what a turn or conversation exports to.
+type ExportFormat int
+
+const (
+	ExportMarkdown ExportFormat = iota
+	ExportHTML
+	ExportImage
+)
+
+// FileAction is an action of a file card's menu.
+type FileAction int
+
+const (
+	OpenExternal FileAction = iota
+	Download
+	RequestEdit
+)
+
+// Session is the conversation around its turns: its history paging, its
+// connection, a diagnostic of what failed, and its usage (live/paging.rs,
+// recovery.rs, diagnostic.rs, loading.rs, conversation/usage). nil is a
+// loaded, connected session at its start.
+type Session struct {
+	// Older is how many turns come before the first one shown, 0 at the
+	// start; LoadingOlder while the page before loads, OlderFailed when it
+	// did not.
+	Older        int
+	LoadingOlder bool
+	OlderFailed  bool
+	// Loading is the first page loading: no turns to show yet.
+	Loading    bool
+	Connection Connection
+	Diagnostic *Diagnostic
+	Usage      *Usage
+}
+
+// Connection is the session's link to its host (recovery.rs).
+type Connection int
+
+const (
+	Connected Connection = iota
+	Reconnecting
+	Offline
+)
+
+// Diagnostic is a failure the session reports in detail (diagnostic.rs):
+// its heading, the fields of the error in order, and the raw message.
+type Diagnostic struct {
+	Title  string
+	Fields [][2]string
+	Detail string
+}
+
+// Usage is the session's metrics in the composer's context bar
+// (conversation/usage): tokens, generation speed, estimated cost, cached
+// tokens and turns, and how full the context window is (0 to 1).
+type Usage struct {
+	Tokens  int
+	Speed   float64 // tokens a second
+	Cost    float64 // USD
+	Cached  int
+	Turns   int
+	Context float64
 }

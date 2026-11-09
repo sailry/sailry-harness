@@ -12,8 +12,21 @@ import (
 // noActions ignores the transcript's actions.
 type noActions struct{}
 
-func (noActions) OpenChild(string) {}
-func (noActions) Retry(string)     {}
+func (noActions) OpenChild(string)                                      {}
+func (noActions) Retry(string)                                          {}
+func (noActions) Fork(string)                                           {}
+func (noActions) Rewind(string)                                         {}
+func (noActions) Worktree(string)                                       {}
+func (noActions) Export(string, conversation.ExportFormat)              {}
+func (noActions) Read(string, string)                                   {}
+func (noActions) Edit(string)                                           {}
+func (noActions) OpenFile(conversation.File)                            {}
+func (noActions) FileAction(conversation.File, conversation.FileAction) {}
+func (noActions) Undo(string, string)                                   {}
+func (noActions) Review(string, string)                                 {}
+func (noActions) LoadOlder()                                            {}
+func (noActions) Reconnect()                                            {}
+func (noActions) Quote(string)                                          {}
 
 // bigTester shows the 1000-turn conversation at the window's default
 // size, scrolled to its end as it opens.
@@ -25,7 +38,7 @@ func bigTester(tb testing.TB) (*conversation.State, *preview.Conversation, *ui.T
 	}
 	s := conversation.New()
 	tt := ui.NewTester(func(c *ui.Context) {
-		ui.Column(c).Fill().Children(func() { conversation.View(c, s, cv.ID, cv.Turns, noActions{}) })
+		ui.Column(c).Fill().Children(func() { conversation.View(c, s, cv.ID, cv.Turns, nil, noActions{}) })
 	}, 1024, 760)
 	tt.Frame()
 	return s, cv, tt

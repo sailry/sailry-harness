@@ -112,6 +112,20 @@ var (
 	ProgressWaiting   = load("remix-progress-4")
 	ProgressRunning   = load("remix-progress-2")
 	ProgressCompleted = load("remix-progress-6")
+	// Phase 4a: transcript blocks, file preview, image viewer, usage.
+	ListChecks     = load("list-checks")
+	Square         = load("square")
+	Minimize       = load("minimize")
+	ChartPie       = load("chart-pie")
+	Gauge          = load("gauge")
+	DollarSign     = load("dollar-sign")
+	MemoryStick    = load("memory-stick")
+	MessagesSquare = load("messages-square")
+	Image          = load("image")
+	ChevronUp      = load("chevron-up")
+	Quote          = load("text-quote")
+	FileCode       = load("file-code")
+	FileImage      = load("file-image")
 
 	Providers = map[string]*ui.SVG{
 		"anthropic": load("provider-anthropic"),
