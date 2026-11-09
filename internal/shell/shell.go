@@ -138,6 +138,7 @@ func (a *App) View(c *ui.Context) {
 			})
 		})
 	})
+	kit.Toasts(c)
 }
 
 // header is the band above the rail and the panel: the app's name over the
@@ -172,7 +173,7 @@ func (a *App) header(c *ui.Context) {
 			ui.Text(c, a.title(c)).FontSize(14).SingleLine().Grow(1).Shrink(1).TextColor(p.Foreground)
 			// Preview data is identified wherever it shows.
 			// An opaque fill keeps it legible over the translucent band.
-			ui.Row(c.Key("preview")).Radius(999).Background(p.Background).Tooltip(i18n.T(c, "preview_notice")).Children(func() {
+			kit.Tip(c, ui.Row(c.Key("preview")).Radius(999).Background(p.Background), i18n.T(c, "preview_notice")).Children(func() {
 				kit.Tag(c, i18n.T(c, "preview"))
 			})
 		})

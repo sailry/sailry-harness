@@ -137,17 +137,11 @@ func capsule(c *ui.Context, label string, open bool) ui.Element {
 	})
 }
 
-// popover is theme/floating.rs: the floating fill, borderless with a
-// shadow in light, outlined in dark; 320 DIPs wide, anchored at its
-// bottom right 8 DIPs over the capsule.
+// popover is theme/floating.rs on the frosted surface (kit.Floating):
+// 320 DIPs wide, anchored at its bottom right 8 DIPs over the capsule.
 func popover(c *ui.Context, panel, anchor ui.Element) ui.Element {
-	p := theme.Of(c)
-	panel.AttachTo(anchor, ui.AnchorBottomEnd, ui.AnchorTopEnd).Margin(0, 0, 8, 0).Width(320).Padding(12).
-		Radius(p.RadiusLg).Background(p.Popover).TextColor(p.PopoverForeground).Shadow(0, 4, 12, 0, theme.Shade(0.12))
-	if p.Dark {
-		panel.Border(1, p.Border)
-	}
-	return panel
+	return kit.Floating(c, panel).AttachTo(anchor, ui.AnchorBottomEnd, ui.AnchorTopEnd).Margin(0, 0, 8, 0).Width(320).Padding(12).
+		Shadow(0, 4, 12, 0, theme.Shade(0.12))
 }
 
 func (s *State) approvals(c *ui.Context, list []Approval, actions Actions) {
@@ -221,12 +215,11 @@ func (s *State) approval(c *ui.Context, a Approval, first bool, actions Actions)
 		kit.Ghost(c.Key("deny"), i18n.T(c, "approval_reject"), false).Height(28).PaddingX(12).MinWidth(48).
 			Children(func() { ui.Text(c, i18n.T(c, "approval_reject")).FontSize(14) }).
 			OnClick(func() { actions.Decide(a.ID, Deny, "") })
-		kit.IconButton(c.Key("deny-options"), icons.ChevronDown, i18n.T(c, "approval_deny_reason"), 28, false).
-			PopoverMenuButton(func(m *ui.Menu) {
-				if m.Item(i18n.T(c, "approval_deny_reason")).Chosen() {
-					s.in.reasons[a.ID] = new(string)
-				}
-			})
+		kit.IconMenu(c, "deny-options", icons.ChevronDown, i18n.T(c, "approval_deny_reason"), 28, false, nil, func(m *kit.Menu) {
+			if m.Item(kit.Item{Label: i18n.T(c, "approval_deny_reason")}) {
+				s.in.reasons[a.ID] = new(string)
+			}
+		})
 		allow := i18n.T(c, "approval_allow_once")
 		var b ui.Element
 		if first {
@@ -238,19 +231,18 @@ func (s *State) approval(c *ui.Context, a Approval, first bool, actions Actions)
 			b.Radius(14)
 		}
 		if a.Unrestricted {
-			b.Tooltip(i18n.T(c, "approval_unrestricted"))
+			kit.Tip(c, b, i18n.T(c, "approval_unrestricted"))
 		}
 		b.MinWidth(48).Children(func() { ui.Text(c, allow).FontSize(14) }).OnClick(func() { actions.Decide(a.ID, Allow, "") })
 		if a.Remember {
-			kit.IconButton(c.Key("allow-options"), icons.ChevronDown, i18n.T(c, "approval_allow_session"), 28, false).
-				PopoverMenuButton(func(m *ui.Menu) {
-					if m.Item(i18n.T(c, "approval_allow_session")).Chosen() {
-						actions.Decide(a.ID, AllowSession, "")
-					}
-					if a.Prefix != "" && m.Item(i18n.T(c, "approval_allow_prefix", "prefix", a.Prefix)).Chosen() {
-						actions.Decide(a.ID, AllowPrefix, "")
-					}
-				})
+			kit.IconMenu(c, "allow-options", icons.ChevronDown, i18n.T(c, "approval_allow_session"), 28, false, nil, func(m *kit.Menu) {
+				if m.Item(kit.Item{Label: i18n.T(c, "approval_allow_session")}) {
+					actions.Decide(a.ID, AllowSession, "")
+				}
+				if a.Prefix != "" && m.Item(kit.Item{Label: i18n.T(c, "approval_allow_prefix", "prefix", a.Prefix)}) {
+					actions.Decide(a.ID, AllowPrefix, "")
+				}
+			})
 		}
 	})
 }

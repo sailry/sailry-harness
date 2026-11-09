@@ -99,6 +99,22 @@ halo, scan sweeps a line; positions come from a hash of the index and seed
 and stop with Reduce Motion, the effects switch, or a hidden window (MyGo
 holds frames of an occluded one).
 
+### Floating layers
+
+Every floating layer is frosted (`internal/kit/floating.go`): menus drawn
+in the window, popovers, dialogs, tooltips, hover cards, select popups,
+the session search and toasts. `kit.Frosted` is a material of a backdrop
+blur (`glass.Blur`, 24 DIPs) under the popover color at
+`theme.FloatingAlpha` (78%); `kit.Floating` adds the radius, border,
+shadow and text color. With Reduce Transparency the tint is the opaque
+popover color and nothing blurs. The kit wrappers are built on MyGo's
+headless bases (`MenuBase`, `PopoverBase`, `DialogBase`, `TooltipBase`,
+`SelectBase`, `ToastViewportBase`), so the keys, focus, placement and
+motion stay MyGo's: `kit.Menu`/`MenuButton`/`IconMenu`, `kit.Tip`,
+`kit.HoverCard`, `kit.Select`, `kit.Dialog`, `kit.Toasts`. Right-click
+menus stay the system's (`Element.ContextMenu`). Switching to Liquid
+Glass is one line in `Frosted` (`glass.Glass{}`).
+
 ## Wiring a backend
 
 Theme packages are files; a backend adds installed ones beside the
@@ -150,3 +166,4 @@ applies a package, shows its details and turns effects off.
 | The window's opacity controls are not on the page | Not in this phase |
 | `message.assistant.*`, `banner.*`, `brand`, `button.send/stop` art and `icon.*` of the rail are read but not drawn | No shipped package uses them |
 | Pinned conversations use `icon.group.recent` | The reference declares the group icons but draws none |
+| Floating layers are frosted (backdrop blur under a 78% popover tint) | A deliberate upgrade: the reference's are the popover color at 95% because GPUI has no backdrop blur |

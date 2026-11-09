@@ -188,3 +188,4 @@ approval_preview_result: Preview approval recorded. No files, commands or models
 file_changes_shortened: Diff shortened
 interaction_input: Enter an answer or details
 approval_unrestricted: Full filesystem and network access
+close: Close

@@ -196,3 +196,5 @@ approval_preview_result
 file_changes_shortened
 interaction_input
 approval_unrestricted
+# Floating layers
+close

@@ -115,7 +115,7 @@ func (s *State) sendButton(c *ui.Context, submit, stop func()) {
 		if v != nil {
 			action(b, v.Composer.Stop, false)
 		}
-		b.Tooltip(i18n.T(c, "chat_stop")).Children(func() { ui.Icon(c, icons.Stop).FontSize(16) }).OnClick(stop)
+		kit.Tip(c, b, i18n.T(c, "chat_stop")).Children(func() { ui.Icon(c, icons.Stop).FontSize(16) }).OnClick(stop)
 		return
 	}
 	empty := strings.TrimSpace(s.Draft) == ""
@@ -123,7 +123,7 @@ func (s *State) sendButton(c *ui.Context, submit, stop func()) {
 	if v != nil {
 		action(b, v.Composer.Send, empty)
 	}
-	b.Tooltip(i18n.T(c, "send")).Children(func() { ui.Icon(c, icons.ArrowUp).FontSize(16) }).OnClick(submit)
+	kit.Tip(c, b, i18n.T(c, "send")).Children(func() { ui.Icon(c, icons.ArrowUp).FontSize(16) }).OnClick(submit)
 }
 
 // action paints send or stop in the package's colors (theme/composer.rs);
@@ -168,8 +168,8 @@ func (s *State) modelChip(c *ui.Context, models []Model) {
 	}).OnClick(func() { s.picker, s.list = !s.picker, false })
 	ui.PopoverBase(c, chip, &s.picker, func(panel ui.Element) {
 		// The reference's popover: padding 12, width 296, the floating fill.
-		panel.AttachTo(chip, ui.AnchorTopEnd, ui.AnchorBottomEnd).Margin(0, 0, 6, 0).Width(296).Padding(12).Gap(8).
-			Radius(p.Radius*2).Background(p.Popover).TextColor(p.PopoverForeground).Border(1, p.Border).Shadow(0, 8, 24, 0, theme.Shade(0.18))
+		kit.Floating(c, panel).AttachTo(chip, ui.AnchorTopEnd, ui.AnchorBottomEnd).Margin(0, 0, 6, 0).Width(296).Padding(12).Gap(8).
+			Radius(p.Radius * 2)
 		if s.list {
 			s.modelList(c, models)
 		} else {
@@ -226,13 +226,15 @@ func (s *State) branchMenu(c *ui.Context) {
 		icon = icons.Network
 	}
 	label := i18n.T(c, Branches[s.Branch])
-	kit.Ghost(c.Key("branch"), label, false).Height(28).PaddingX(10).Gap(6).Radius(14).MaxWidth(224).
-		TextColor(theme.Of(c).MutedForeground).Children(func() {
-		ui.Icon(c, icon).FontSize(14)
-		ui.Text(c, label).FontSize(14).SingleLine()
-	}).PopoverMenuButton(func(m *ui.Menu) {
+	kit.MenuButton(c, "branch", func(t ui.Element) {
+		kit.GhostLook(c, t, false).Label(label).Height(28).PaddingX(10).Gap(6).Radius(14).MaxWidth(224).
+			TextColor(theme.Of(c).MutedForeground).Children(func() {
+			ui.Icon(c, icon).FontSize(14)
+			ui.Text(c, label).FontSize(14).SingleLine()
+		})
+	}, nil, func(m *kit.Menu) {
 		for i, key := range Branches {
-			if m.Item(i18n.T(c, key)).Checked(i == s.Branch).Chosen() {
+			if m.Item(kit.Item{Label: i18n.T(c, key), Checked: i == s.Branch}) {
 				s.Branch = i
 			}
 		}

@@ -38,7 +38,7 @@ func jump(c *ui.Context, l *ui.ListState, n int, first bool) {
 	}
 	label := i18n.T(c, "turn_latest")
 	wrap.Bottom(8 + 8*v).Opacity(v).Children(func() {
-		b := ui.ButtonBase(c.Key("latest")).Label(label).Tooltip(label).Size(32, 32).Radius(16).
+		b := kit.Tip(c, ui.ButtonBase(c.Key("latest")), label).Label(label).Size(32, 32).Radius(16).
 			Border(1, p.Border).Background(p.Background).TextColor(p.Foreground).Center().
 			Cursor(ui.CursorPointer).Disabled(!visible)
 		if visible && b.Hovered() {

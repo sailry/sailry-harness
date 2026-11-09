@@ -15,8 +15,8 @@ func Dialog(c *ui.Context, open *bool, width float32, title, description string,
 	}
 	return ui.DialogBase(c, open, func(backdrop, panel ui.Element) {
 		backdrop.Background(theme.Shade(0.4))
-		panel.Width(width).MaxWidthPercent(92).MaxHeightPercent(86).Padding(24).Gap(16).Radius(p.Radius*2).
-			Background(p.Popover).TextColor(p.PopoverForeground).Border(1, p.Border).Shadow(0, 16, 48, 0, theme.Shade(0.24)).Label(title)
+		Floating(c, panel).Width(width).MaxWidthPercent(92).MaxHeightPercent(86).Padding(24).Gap(16).Radius(p.Radius*2).
+			Shadow(0, 16, 48, 0, theme.Shade(0.24)).Label(title)
 		ui.Column(c).Gap(6).Children(func() {
 			ui.Text(c, title).FontSize(16).FontWeight(600).TextColor(p.PopoverForeground)
 			if description != "" {

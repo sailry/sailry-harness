@@ -11,22 +11,14 @@ import (
 // transparent, accent on hover, secondary_active when pressed or selected.
 // It is a MyGo ButtonBase, which keeps focus, keys and accessibility.
 func Ghost(c *ui.Context, label string, selected bool) ui.Element {
-	p := theme.Of(c)
-	b := ui.ButtonBase(c).Label(label).Radius(p.Radius).Center().TextColor(p.Foreground).Cursor(ui.CursorPointer)
-	switch {
-	case b.Pressed() || selected:
-		b.Background(p.Active)
-	case b.Hovered():
-		b.Background(p.Hover)
-	}
-	return b
+	return GhostLook(c, ui.ButtonBase(c).Label(label), selected)
 }
 
 // IconButton is a square ghost button holding one icon, named by label for
 // its tooltip and assistive technology. Kit sizes: xsmall 20, small 28,
 // default 32, rail 36; icons are 16 (14 below 24).
 func IconButton(c *ui.Context, icon *ui.SVG, label string, size float32, selected bool) ui.Element {
-	b := Ghost(c, label, selected).Size(size, size).Tooltip(label)
+	b := Tip(c, Ghost(c, label, selected).Size(size, size), label)
 	glyph := float32(16)
 	if size < 24 {
 		glyph = 14

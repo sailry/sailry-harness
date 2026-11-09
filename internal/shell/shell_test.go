@@ -229,9 +229,8 @@ func TestModelPickerAndEffort(t *testing.T) {
 func TestBranchMenu(t *testing.T) {
 	a, tt := newTester(t)
 	click(t, tt, "main")
-	if err := tt.ChooseMenuItem("preview/ui"); err != nil {
-		t.Fatalf("%v: menu %q", err, tt.Menu())
-	}
+	// The menu is drawn in the window on the frosted surface.
+	click(t, tt, "preview/ui")
 	if a.Composer(preview.Big).Branch != 1 {
 		t.Error("the branch was not chosen")
 	}

@@ -45,10 +45,10 @@ func ResourceCard(c *ui.Context, key any, title, description string, tile func()
 
 // CardMenu is a card's "…" menu (plugins_actions), shown while the card is
 // hovered or the menu has the focus.
-func CardMenu(c *ui.Context, label string, hovered bool, build func(m *ui.Menu)) ui.Element {
-	b := IconButton(c.Key("menu"), icons.Ellipsis, label, 28, false)
+func CardMenu(c *ui.Context, label string, hovered bool, build func(m *Menu)) ui.Element {
+	b := IconMenu(c, "menu", icons.Ellipsis, label, 28, false, nil, build)
 	if !hovered && !b.FocusVisible() {
 		b.Opacity(0)
 	}
-	return b.PopoverMenuButton(build)
+	return b
 }
