@@ -147,10 +147,10 @@ func (a *App) catalog(c *ui.Context, folder string) []Group {
 }
 
 // searchOverlay is the search (shell/search.rs, command_picker.rs): a
-// frosted dialog 480 wide near the top, the query over the rows of the
-// folder, 36 DIPs each, under 28 DIP headings. Up and Down move, Enter
-// opens a folder or runs the row, Escape clears the query and then
-// closes, Backspace on an empty query goes back to the root.
+// dialog 480 wide, the query over the rows of the folder, 36 DIPs each,
+// under 28 DIP headings. Up and Down move, Enter opens a folder or runs
+// the row, Escape clears the query and then closes, Backspace on an empty
+// query goes back to the root.
 func (a *App) searchOverlay(c *ui.Context) {
 	s := &a.search
 	if !s.open {
@@ -174,9 +174,7 @@ func (a *App) searchOverlay(c *ui.Context) {
 		ch.run()
 	}
 	w, _ := c.Size()
-	ui.DialogBase(c.Key("search"), &s.open, func(backdrop, panel ui.Element) {
-		backdrop.Background(theme.Shade(0.2)).Justify(ui.Start).Padding(64, 0, 0, 0)
-		kit.Floating(c, panel).Width(min(480, w-40)).MaxHeightPercent(60).Label(i18n.T(c, "search")).Clip()
+	ui.Modal(c.Key("search"), &s.open, func() {
 		if s.folder != "" {
 			ui.Row(c.Key("back")).Height(36).PaddingX(4).Shrink(0).BorderWidth(0, 0, 1, 0).BorderColor(p.Border).Children(func() {
 				back := i18n.T(c, "reference_back")
@@ -249,5 +247,5 @@ func (a *App) searchOverlay(c *ui.Context) {
 				}
 			}
 		})
-	})
+	}).Width(min(480, w-40)).MaxHeightPercent(60).Label(i18n.T(c, "search")).Clip()
 }

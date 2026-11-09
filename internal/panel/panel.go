@@ -124,22 +124,22 @@ func (s *State) strip(c *ui.Context, keys Shortcut) {
 			})
 		})
 		if len(s.Tabs) > Overflow {
-			kit.IconMenu(c, "all", icons.ChevronDown, i18n.T(c, "navigation_tabs"), 28, false, nil, func(m *kit.Menu) {
+			kit.IconButton(c.Key("all"), icons.ChevronDown, i18n.T(c, "navigation_tabs"), 28, false).PopoverMenuButton(func(m *ui.Menu) {
 				for _, k := range s.Tabs {
 					r := ResourceOf(k)
-					if m.Item(kit.Item{Label: i18n.T(c, r.Label), Icon: r.Icon, Checked: k == s.Active}) {
+					if m.Item(i18n.T(c, r.Label)).Icon(icons.Menu(r.Icon)).Checked(k == s.Active).Chosen() {
 						s.Active = k
 					}
 				}
 			})
 		}
-		kit.IconMenu(c, "add", icons.Plus, i18n.T(c, "details"), 28, false, nil, func(m *kit.Menu) {
+		kit.IconButton(c.Key("add"), icons.Plus, i18n.T(c, "details"), 28, false).PopoverMenuButton(func(m *ui.Menu) {
 			for _, r := range Resources {
-				hint := ""
+				it := m.Item(i18n.T(c, r.Label)).Icon(icons.Menu(r.Icon)).Checked(r.Kind == s.Active)
 				if r.Key != 0 {
-					hint = keys(r.Mods, r.Key)
+					it.Shortcut(r.Mods, r.Key)
 				}
-				if m.Item(kit.Item{Label: i18n.T(c, r.Label), Icon: r.Icon, Hint: hint, Checked: r.Kind == s.Active}) {
+				if it.Chosen() {
 					s.Open(r.Kind)
 				}
 			}
@@ -365,7 +365,7 @@ func (pr *Project) changes(c *ui.Context, own bool) {
 					case b.Hovered():
 						b.TextColor(p.Foreground)
 					}
-					kit.Tip(c, b, ch.Path).Children(func() {
+					b.Tooltip(ch.Path).Children(func() {
 						ui.Icon(c, icons.File).FontSize(16).TextColor(p.MutedForeground)
 						ui.Text(c, name).FontSize(14).SingleLine().Grow(1).Shrink(1)
 						ui.Text(c, ch.Status).FontSize(12).FontWeight(600).TextColor(statusColor(p, ch.Status))

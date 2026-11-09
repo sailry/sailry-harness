@@ -372,7 +372,7 @@ func (s *State) conversation(c *ui.Context, cv *preview.Conversation, kind rowKi
 		s.reorder(c, b, cv)
 	}
 	b.ContextMenu(func(m *ui.Menu) { s.sessionMenu(c, m, cv) })
-	kit.HoverCard(c, b, 320, func() { s.details(c, cv) })
+	b.Tooltip(s.details(c, cv))
 	b.TextColor(text).Children(func() {
 		if kind == rowTree {
 			guide(c, last)
@@ -466,31 +466,21 @@ func (s *State) TogglePin(cv *preview.Conversation) {
 }
 
 // details is the hover card of a session row (sidebar/details.rs): its
-// title, then its project, branch and worktree path.
-func (s *State) details(c *ui.Context, cv *preview.Conversation) {
-	p := theme.Of(c)
-	ui.Text(c, Title(c, cv)).FontSize(14).FontWeight(500).MaxLines(3)
+// title, then its project, branch and worktree path. MyGo has no styled
+// hover card, so it is the row's styled tooltip.
+func (s *State) details(c *ui.Context, cv *preview.Conversation) string {
+	text := Title(c, cv)
 	pr := s.Data.ProjectOf(cv.ID)
 	if pr == nil {
-		return
+		return text
 	}
-	line := func(icon *ui.SVG, text string) {
-		ui.Row(c).Gap(6).Children(func() {
-			ui.Icon(c, icon).FontSize(12).TextColor(p.MutedForeground)
-			ui.Text(c, text).FontSize(12).SingleLine().Shrink(1).TextColor(p.MutedForeground)
-		})
-	}
-	ui.Column(c).Gap(4).Children(func() {
-		line(icons.Folder, pr.Name)
-		branch, path := pr.Branch, pr.Path
-		for _, w := range pr.Worktrees {
-			if cv.Worktree != "" && w.Branch == cv.Worktree {
-				branch, path = w.Branch, w.Path
-			}
+	branch, path := pr.Branch, pr.Path
+	for _, w := range pr.Worktrees {
+		if cv.Worktree != "" && w.Branch == cv.Worktree {
+			branch, path = w.Branch, w.Path
 		}
-		line(icons.GitBranch, branch)
-		ui.Text(c, path).FontSize(12).Font("monospace").TextColor(p.MutedForeground)
-	})
+	}
+	return text + "\n" + pr.Name + "\n" + branch + "\n" + path
 }
 
 // guide draws the dashed tree line and its arm to the row (sidebar/tree.rs):

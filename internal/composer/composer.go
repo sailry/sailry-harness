@@ -115,7 +115,7 @@ func (s *State) sendButton(c *ui.Context, submit, stop func()) {
 		if v != nil {
 			action(b, v.Composer.Stop, false)
 		}
-		kit.Tip(c, b, i18n.T(c, "chat_stop")).Children(func() { ui.Icon(c, icons.Stop).FontSize(16) }).OnClick(stop)
+		b.Tooltip(i18n.T(c, "chat_stop")).Children(func() { ui.Icon(c, icons.Stop).FontSize(16) }).OnClick(stop)
 		return
 	}
 	empty := strings.TrimSpace(s.Draft) == ""
@@ -123,7 +123,7 @@ func (s *State) sendButton(c *ui.Context, submit, stop func()) {
 	if v != nil {
 		action(b, v.Composer.Send, empty)
 	}
-	kit.Tip(c, b, i18n.T(c, "send")).Children(func() { ui.Icon(c, icons.ArrowUp).FontSize(16) }).OnClick(submit)
+	b.Tooltip(i18n.T(c, "send")).Children(func() { ui.Icon(c, icons.ArrowUp).FontSize(16) }).OnClick(submit)
 }
 
 // action paints send or stop in the package's colors (theme/composer.rs);
@@ -166,16 +166,17 @@ func (s *State) modelChip(c *ui.Context, models []Model) {
 		ui.Text(c, m.Name).FontSize(14).SingleLine().Shrink(1)
 		ui.Text(c, s.EffortName(c, m)).FontSize(14).SingleLine().Shrink(0).TextColor(p.MutedForeground)
 	}).OnClick(func() { s.picker, s.list = !s.picker, false })
-	ui.PopoverBase(c, chip, &s.picker, func(panel ui.Element) {
-		// The reference's popover: padding 12, width 296, the floating fill.
-		kit.Floating(c, panel).AttachTo(chip, ui.AnchorTopEnd, ui.AnchorBottomEnd).Margin(0, 0, 6, 0).Width(296).Padding(12).Gap(8).
-			Radius(p.Radius * 2)
+	// The reference's popover: 296 wide, above the chip, right-aligned.
+	panel := ui.Popover(c, chip, &s.picker, func() {
 		if s.list {
 			s.modelList(c, models)
 		} else {
 			s.mainPanel(c, m)
 		}
 	})
+	if panel != (ui.Element{}) {
+		panel.AttachTo(chip, ui.AnchorTopEnd, ui.AnchorBottomEnd).Margin(0, 0, 6, 0).Width(296).Gap(8)
+	}
 }
 
 // mainPanel shows the effort, the model, and the effort slider.
@@ -226,15 +227,13 @@ func (s *State) branchMenu(c *ui.Context) {
 		icon = icons.Network
 	}
 	label := i18n.T(c, Branches[s.Branch])
-	kit.MenuButton(c, "branch", func(t ui.Element) {
-		kit.GhostLook(c, t, false).Label(label).Height(28).PaddingX(10).Gap(6).Radius(14).MaxWidth(224).
-			TextColor(theme.Of(c).MutedForeground).Children(func() {
-			ui.Icon(c, icon).FontSize(14)
-			ui.Text(c, label).FontSize(14).SingleLine()
-		})
-	}, nil, func(m *kit.Menu) {
+	kit.GhostLook(c, ui.ButtonBase(c.Key("branch")), false).Label(label).Height(28).PaddingX(10).Gap(6).Radius(14).MaxWidth(224).
+		TextColor(theme.Of(c).MutedForeground).Children(func() {
+		ui.Icon(c, icon).FontSize(14)
+		ui.Text(c, label).FontSize(14).SingleLine()
+	}).PopoverMenuButton(func(m *ui.Menu) {
 		for i, key := range Branches {
-			if m.Item(kit.Item{Label: i18n.T(c, key), Checked: i == s.Branch}) {
+			if m.Item(i18n.T(c, key)).Checked(i == s.Branch).Chosen() {
 				s.Branch = i
 			}
 		}

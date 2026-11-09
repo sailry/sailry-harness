@@ -187,7 +187,7 @@ func TestMoveFeature(t *testing.T) {
 func TestMoreDragShowsInsertionLine(t *testing.T) {
 	a, tt := newTester(t)
 	// Off the rail, so their names are the popover's rows alone.
-	for _, id := range []string{"page:activity", "page:files", "page:git"} {
+	for _, id := range []string{"page:activity", "page:files", "page:git", "page:settings_plugins"} {
 		a.unpinned[id] = true
 	}
 	a.more = true

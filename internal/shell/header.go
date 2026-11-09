@@ -46,7 +46,7 @@ func (a *App) header(c *ui.Context, f frame) {
 			}
 			// Preview data is identified wherever it shows.
 			// An opaque fill keeps it legible over the translucent band.
-			kit.Tip(c, ui.Row(c.Key("preview")).Radius(999).Background(p.Background), i18n.T(c, "preview_notice")).Children(func() {
+			ui.Row(c.Key("preview")).Radius(999).Background(p.Background).Tooltip(i18n.T(c, "preview_notice")).Children(func() {
 				kit.Tag(c, i18n.T(c, "preview"))
 			})
 			if a.Page == ConversationPage {

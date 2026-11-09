@@ -6,7 +6,9 @@ package icons
 
 import (
 	"embed"
+	"sync"
 
+	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -132,3 +134,20 @@ func init() {
 
 // ByName returns a named icon, nil when unknown.
 func ByName(name string) *ui.SVG { return named[name] }
+
+// menuIcons are the menu item icons made so far, by their SVG.
+var menuIcons sync.Map
+
+// Menu returns icon as a menu item's template icon (ui.MenuItem.Icon),
+// made once and kept.
+func Menu(icon *ui.SVG) ui.MenuIcon {
+	if v, ok := menuIcons.Load(icon); ok {
+		return v.(ui.MenuIcon)
+	}
+	mi, err := mygo.NewMenuIconSVG(icon, true)
+	if err != nil {
+		panic(err)
+	}
+	v, _ := menuIcons.LoadOrStore(icon, mi)
+	return v.(ui.MenuIcon)
+}

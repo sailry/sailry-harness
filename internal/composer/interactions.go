@@ -137,19 +137,21 @@ func capsule(c *ui.Context, label string, open bool) ui.Element {
 	})
 }
 
-// popover is theme/floating.rs on the frosted surface (kit.Floating):
-// 320 DIPs wide, anchored at its bottom right 8 DIPs over the capsule.
-func popover(c *ui.Context, panel, anchor ui.Element) ui.Element {
-	return kit.Floating(c, panel).AttachTo(anchor, ui.AnchorTopEnd, ui.AnchorBottomEnd).Margin(0, 0, 8, 0).Width(320).Padding(12).
-		Shadow(0, 4, 12, 0, theme.Shade(0.12))
+// place puts a capsule's popover (MyGo's, as it is) 320 DIPs wide,
+// anchored at its bottom right 8 DIPs over the capsule (Anchor::BottomRight,
+// bottom_2), its parts gap apart. It does nothing while the popover is
+// closed.
+func place(panel, anchor ui.Element, gap float32) {
+	if panel != (ui.Element{}) {
+		panel.AttachTo(anchor, ui.AnchorTopEnd, ui.AnchorBottomEnd).Margin(0, 0, 8, 0).Width(320).Gap(gap)
+	}
 }
 
 func (s *State) approvals(c *ui.Context, list []Approval, actions Actions) {
 	p := theme.Of(c)
 	label := i18n.T(c, "approval_live_count", "count", len(list))
 	trigger := capsule(c.Key("approvals"), label, s.in.approvals).OnClick(func() { s.in.approvals = !s.in.approvals })
-	ui.PopoverBase(c, trigger, &s.in.approvals, func(panel ui.Element) {
-		popover(c, panel, trigger)
+	place(ui.Popover(c, trigger, &s.in.approvals, func() {
 		ui.Scroll(c).MaxHeight(256).Gap(12).Children(func() {
 			for i, a := range list {
 				row := ui.Column(c.Key(a.ID)).Gap(8).Label(a.Title)
@@ -159,7 +161,7 @@ func (s *State) approvals(c *ui.Context, list []Approval, actions Actions) {
 				row.Children(func() { s.approval(c, a, i == 0, actions) })
 			}
 		})
-	})
+	}), trigger, 0)
 }
 
 // approval is one request: who asks, the tool, where, what, the decision.
@@ -215,8 +217,8 @@ func (s *State) approval(c *ui.Context, a Approval, first bool, actions Actions)
 		kit.Ghost(c.Key("deny"), i18n.T(c, "approval_reject"), false).Height(28).PaddingX(12).MinWidth(48).
 			Children(func() { ui.Text(c, i18n.T(c, "approval_reject")).FontSize(14) }).
 			OnClick(func() { actions.Decide(a.ID, Deny, "") })
-		kit.IconMenu(c, "deny-options", icons.ChevronDown, i18n.T(c, "approval_deny_reason"), 28, false, nil, func(m *kit.Menu) {
-			if m.Item(kit.Item{Label: i18n.T(c, "approval_deny_reason")}) {
+		kit.IconButton(c.Key("deny-options"), icons.ChevronDown, i18n.T(c, "approval_deny_reason"), 28, false).PopoverMenuButton(func(m *ui.Menu) {
+			if m.Item(i18n.T(c, "approval_deny_reason")).Chosen() {
 				s.in.reasons[a.ID] = new(string)
 			}
 		})
@@ -231,15 +233,15 @@ func (s *State) approval(c *ui.Context, a Approval, first bool, actions Actions)
 			b.Radius(14)
 		}
 		if a.Unrestricted {
-			kit.Tip(c, b, i18n.T(c, "approval_unrestricted"))
+			b.Tooltip(i18n.T(c, "approval_unrestricted"))
 		}
 		b.MinWidth(48).Children(func() { ui.Text(c, allow).FontSize(14) }).OnClick(func() { actions.Decide(a.ID, Allow, "") })
 		if a.Remember {
-			kit.IconMenu(c, "allow-options", icons.ChevronDown, i18n.T(c, "approval_allow_session"), 28, false, nil, func(m *kit.Menu) {
-				if m.Item(kit.Item{Label: i18n.T(c, "approval_allow_session")}) {
+			kit.IconButton(c.Key("allow-options"), icons.ChevronDown, i18n.T(c, "approval_allow_session"), 28, false).PopoverMenuButton(func(m *ui.Menu) {
+				if m.Item(i18n.T(c, "approval_allow_session")).Chosen() {
 					actions.Decide(a.ID, AllowSession, "")
 				}
-				if a.Prefix != "" && m.Item(kit.Item{Label: i18n.T(c, "approval_allow_prefix", "prefix", a.Prefix)}) {
+				if a.Prefix != "" && m.Item(i18n.T(c, "approval_allow_prefix", "prefix", a.Prefix)).Chosen() {
 					actions.Decide(a.ID, AllowPrefix, "")
 				}
 			})
@@ -293,8 +295,7 @@ func (s *State) ask(c *ui.Context, q *Ask, actions Actions) {
 	}
 	label := i18n.T(c, "question_reply")
 	trigger := capsule(c.Key("question"), label, in.question).OnClick(func() { in.question = !in.question })
-	ui.PopoverBase(c, trigger, &in.question, func(panel ui.Element) {
-		popover(c, panel, trigger).Gap(16)
+	place(ui.Popover(c, trigger, &in.question, func() {
 		ui.Scroll(c).Gap(16).Children(func() {
 			ui.Text(c, q.Prompt).FontSize(14).FontWeight(500)
 			other := len(q.Options) // the index of Other
@@ -349,7 +350,7 @@ func (s *State) ask(c *ui.Context, q *Ask, actions Actions) {
 					}
 				})
 		})
-	})
+	}), trigger, 16)
 }
 
 // answer is the draft's answer, nil while it answers nothing.

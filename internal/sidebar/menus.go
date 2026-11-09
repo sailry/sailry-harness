@@ -208,7 +208,9 @@ func (s *State) renameRow(c *ui.Context, cv *preview.Conversation) {
 func (s *State) dialogs(c *ui.Context) {
 	s.editorDialog(c)
 	if s.confirm.open {
-		kit.Confirm(c.Key("confirm"), &s.confirm.open, s.confirm.title, s.confirm.message, i18n.T(c, "settings_cancel"),
-			s.confirm.action, s.confirm.run)
+		if ui.AlertDialog(c.Key("confirm"), &s.confirm.open, s.confirm.title, s.confirm.message, i18n.T(c, "settings_cancel"),
+			s.confirm.action) == 1 {
+			s.confirm.run()
+		}
 	}
 }

@@ -51,7 +51,7 @@ func noticeLook(p *theme.Palette, k preview.NoticeKind) (*ui.SVG, ui.Color, stri
 }
 
 // bell is the activity centre (activity/notifications.rs): a bell with a
-// dot while notices are unread, opening a frosted popover to its right
+// dot while notices are unread, opening a popover to its right
 // with Mark all as read, Delete read and the notices, newest first.
 func (a *App) bell(c *ui.Context) {
 	p := theme.Of(c)
@@ -69,9 +69,8 @@ func (a *App) bell(c *ui.Context) {
 			pt.Fill(ui.Rect{X: r.X + r.W - 12, Y: r.Y + 6, W: 6, H: 6}, p.Danger, 3)
 		})
 	}
-	ui.PopoverBase(c, b, &a.activity, func(panel ui.Element) {
-		w, h := c.Size()
-		kit.Floating(c, panel).AttachTo(b, ui.AnchorRight, ui.AnchorLeft).MarginStart(8).Width(min(320, w-32)).Padding(8).Gap(4)
+	w, h := c.Size()
+	panel := ui.Popover(c, b, &a.activity, func() {
 		ui.Row(c.Key("head")).Height(40).PaddingStart(8).Gap(4).Children(func() {
 			center := i18n.T(c, "notification_center")
 			kit.Ghost(c.Key("center"), center, false).Height(28).PaddingX(4).Gap(4).Children(func() {
@@ -101,6 +100,9 @@ func (a *App) bell(c *ui.Context) {
 			}
 		})
 	})
+	if panel != (ui.Element{}) {
+		panel.AttachTo(b, ui.AnchorRight, ui.AnchorLeft).MarginStart(8).Width(min(320, w-32)).Gap(4)
+	}
 }
 
 // noticeRow is a 40 DIP row: the kind's glyph, the title (medium while
@@ -120,7 +122,7 @@ func (a *App) noticeRow(c *ui.Context, n *preview.Notice) {
 	if row.Hovered() {
 		row.Background(p.Hover)
 	}
-	kit.Tip(c, row, n.Title).TextColor(text).Children(func() {
+	row.Tooltip(n.Title).TextColor(text).Children(func() {
 		ui.Icon(c, glyph).FontSize(16).TextColor(color).Shrink(0)
 		t := ui.Text(c, n.Title).FontSize(14).SingleLine().Grow(1).Shrink(1)
 		if !n.Read {
@@ -263,18 +265,20 @@ func (a *App) overflow(c *ui.Context, l lane, list []*preview.Conversation, rest
 		b := ui.ButtonBase(c.Key("button")).Label(fmt.Sprintf("%s · +%d", name, rest)).Size(28, 28).
 			Radius(p.Radius).Center().Cursor(ui.CursorPointer).OnClick(func() { *open = !*open })
 		b.HasPopup(ui.PopupDialog).Expanded(*open)
-		kit.Tip(c, b, name).Children(func() {
+		b.Tooltip(name).Children(func() {
 			ui.Textf(c, "+%d", rest).FontSize(12).TextColor(color)
 		})
-		ui.PopoverBase(c, b, open, func(panel ui.Element) {
-			_, h := c.Size()
-			kit.Floating(c, panel).AttachTo(b, ui.AnchorBottomEnd, ui.AnchorTopEnd).Margin(4, 0, 0, 0).Width(300).Padding(8)
+		_, h := c.Size()
+		panel := ui.Popover(c, b, open, func() {
 			ui.Scroll(c.Key("list")).MaxHeight(min(320, h-96)).Gap(4).Children(func() {
 				for _, cv := range list {
 					a.overflowRow(c, cv, l, open)
 				}
 			})
 		})
+		if panel != (ui.Element{}) {
+			panel.AttachTo(b, ui.AnchorBottomEnd, ui.AnchorTopEnd).Margin(4, 0, 0, 0).Width(300)
+		}
 	})
 }
 
@@ -296,23 +300,13 @@ func (a *App) overflowRow(c *ui.Context, cv *preview.Conversation, l lane, open 
 	a.preview(c, row, cv)
 }
 
-// preview is a session's hover card (ui/session_preview.rs): its title in
-// up to two semibold lines over its project, 280 DIPs wide on Kit's 12 DIP
-// padding. Its top is 40 DIPs below the trigger's (12 below an avatar),
-// lined up with the trigger's right edge.
+// preview is a session's hover card (ui/session_preview.rs): MyGo has no
+// styled hover card, so it is the styled tooltip of its title over its
+// project.
 func (a *App) preview(c *ui.Context, anchor ui.Element, cv *preview.Conversation) {
-	p := theme.Of(c)
 	project := i18n.T(c, "activity_no_project")
 	if pr := a.Data.ProjectOf(cv.ID); pr != nil {
 		project = pr.Name
 	}
-	ui.TooltipBase(c, anchor, func(tip ui.Element) {
-		w, _ := c.Size()
-		kit.Floating(c, tip).AttachTo(anchor, ui.AnchorTopEnd, ui.AnchorTopEnd).Margin(40, 0, 0, 0).
-			Width(min(280, w-48) + 24).Padding(12).Gap(8)
-		tip.Children(func() {
-			ui.Text(c, sidebar.Title(c, cv)).FontSize(14).FontWeight(600).LineHeight(20).MaxLines(2)
-			ui.Text(c, project).FontSize(12).SingleLine().TextColor(p.MutedForeground)
-		})
-	})
+	anchor.Tooltip(sidebar.Title(c, cv) + "\n" + project)
 }

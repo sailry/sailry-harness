@@ -102,7 +102,6 @@ var (
 	warning = ui.Hex("#f59e0b")
 	white   = ui.Hex("#ffffff")
 	tooltip = ui.Hex("#3a3a3a") // the built-in dark theme's tooltips
-	black   = ui.Hex("#000000")
 )
 
 // base are Kit's base colors (default-theme.json): Tailwind 600 in light,
@@ -135,9 +134,6 @@ var Identicon = [8][2]ui.Color{
 	{ui.Hex("#2dd4bf"), ui.Hex("#0d9488")}, {ui.Hex("#a78bfa"), ui.Hex("#7c3aed")},
 	{ui.Hex("#fb923c"), ui.Hex("#ea580c")}, {ui.Hex("#818cf8"), ui.Hex("#4f46e5")},
 }
-
-// Shade is black at alpha a: drop shadows and the dialog scrim.
-func Shade(a float32) ui.Color { return black.Alpha(a) }
 
 // Opacity is white at alpha a, the tint that fades a picture.
 func Opacity(a float32) ui.Color { return white.Alpha(a) }

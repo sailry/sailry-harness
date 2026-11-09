@@ -94,7 +94,7 @@ func SwitchRow(c *ui.Context, key any, title, description string, on *bool) bool
 func SelectRow(c *ui.Context, key any, title, description string, chosen *string, options []string) bool {
 	changed := false
 	Row(c, key, title, description, func() {
-		changed = Select(c.Key("select"), chosen, options).Label(title).MinWidth(160).Changed()
+		changed = ui.Select(c.Key("select"), chosen, options).Label(title).MinWidth(160).Changed()
 	})
 	return changed
 }

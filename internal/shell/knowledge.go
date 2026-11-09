@@ -61,7 +61,7 @@ func (a *App) openKnowledge(c *ui.Context, link string) {
 }
 
 // knowledge is the knowledge source viewer (shell/knowledge/viewer.rs): a
-// frosted dialog up to 800 wide with the page's title, where it is from,
+// dialog up to 800 wide with the page's title, where it is from,
 // its text, and Previous, Next and Close. The preview pages through its
 // citation in memory.
 func (a *App) knowledge(c *ui.Context) {
@@ -72,18 +72,21 @@ func (a *App) knowledge(c *ui.Context) {
 	p := theme.Of(c)
 	w, h := c.Size()
 	ct := r.cite
-	kit.Dialog(c.Key("knowledge"), &r.open, min(800, w-48), i18n.T(c, "knowledge_source"), "", func() {
+	title := i18n.T(c, "knowledge_source")
+	ui.Modal(c.Key("knowledge"), &r.open, func() {
+		ui.Text(c, title).FontSize(16).FontWeight(600)
 		ui.Text(c, ct.Title).FontSize(14).FontWeight(500)
 		lines := i18n.T(c, "knowledge_lines", "start", ct.Start, "end", ct.End)
 		ui.Text(c, i18n.T(c, ct.Host)+" · "+ct.Path+" · "+lines).FontSize(12).TextColor(p.MutedForeground)
 		ui.Scroll(c.Key("text")).MaxHeight(max(160, h-260)).Padding(12).Radius(p.Radius).Background(p.Muted).Children(func() {
 			ui.Text(c, ct.Pages[r.page]).FontSize(12).Font("monospace").PreserveSpaces().Selectable()
 		})
-	}, func() {
-		kit.Secondary(c.Key("previous"), i18n.T(c, "knowledge_previous")).Disabled(r.page == 0).OnClick(func() { r.page-- })
-		kit.Secondary(c.Key("next"), i18n.T(c, "knowledge_next")).Disabled(r.page >= len(ct.Pages)-1).OnClick(func() { r.page++ })
-		kit.Secondary(c.Key("close"), i18n.T(c, "knowledge_close")).OnClick(func() { r.open = false })
-	})
+		ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
+			kit.Secondary(c.Key("previous"), i18n.T(c, "knowledge_previous")).Disabled(r.page == 0).OnClick(func() { r.page-- })
+			kit.Secondary(c.Key("next"), i18n.T(c, "knowledge_next")).Disabled(r.page >= len(ct.Pages)-1).OnClick(func() { r.page++ })
+			kit.Secondary(c.Key("close"), i18n.T(c, "knowledge_close")).OnClick(func() { r.open = false })
+		})
+	}).Width(min(800, w-48)).Label(title)
 }
 
 // overlays are the window's search and knowledge viewer.

@@ -173,7 +173,6 @@ func (a *App) View(c *ui.Context) {
 		})
 	})
 	a.overlays(c)
-	kit.Toasts(c)
 }
 
 // frame is where the columns are in this frame: how open each is, from 0

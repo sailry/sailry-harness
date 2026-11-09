@@ -122,58 +122,65 @@ func (s *State) editorDialog(c *ui.Context) {
 	if e.Project != nil {
 		title = i18n.T(c, "project_edit")
 	}
-	kit.Dialog(c.Key("editor"), &e.Open, 560, title, i18n.T(c, "project_editor_preview"), func() {
-		if e.Project == nil {
-			ui.Segmented(c.Key("source"), &e.Clone, i18n.T(c, "project_local"), i18n.T(c, "project_clone"))
-		}
-		kit.Field(c, "name", i18n.T(c, "project_name"), "", func() {
-			ui.TextInput(c.Key("input"), &e.Name).Placeholder(i18n.T(c, "project_name_placeholder")).Label(i18n.T(c, "project_name")).FillWidth()
+	ui.Modal(c.Key("editor"), &e.Open, func() {
+		ui.Column(c.Key("head")).Gap(6).Children(func() {
+			ui.Text(c, title).FontSize(16).FontWeight(600)
+			ui.Text(c, i18n.T(c, "project_editor_preview")).FontSize(14).TextColor(p.MutedForeground)
 		})
-		kit.Field(c, "host", i18n.T(c, "project_host"), "", func() {
-			sel := kit.Select(c.Key("select"), &e.Host, hosts).Label(i18n.T(c, "project_host"))
-			if e.Project != nil {
-				sel.Disabled(true)
+		ui.Scroll(c.Key("body")).Grow(1).Shrink(1).Gap(12).Children(func() {
+			if e.Project == nil {
+				ui.Segmented(c.Key("source"), &e.Clone, i18n.T(c, "project_local"), i18n.T(c, "project_clone"))
 			}
-		})
-		if e.Clone == 1 && e.Project == nil {
-			kit.Field(c, "repo", i18n.T(c, "project_repository"), "", func() {
-				ui.TextInput(c.Key("input"), &e.Repo).Placeholder(i18n.T(c, "project_repository_placeholder")).Label(i18n.T(c, "project_repository")).FillWidth()
+			kit.Field(c, "name", i18n.T(c, "project_name"), "", func() {
+				ui.TextInput(c.Key("input"), &e.Name).Placeholder(i18n.T(c, "project_name_placeholder")).Label(i18n.T(c, "project_name")).FillWidth()
 			})
-			kit.Field(c, "branch", i18n.T(c, "project_branch"), "", func() {
-				ui.TextInput(c.Key("input"), &e.Branch).Placeholder(i18n.T(c, "project_branch_placeholder")).Label(i18n.T(c, "project_branch")).FillWidth()
+			kit.Field(c, "host", i18n.T(c, "project_host"), "", func() {
+				sel := ui.Select(c.Key("select"), &e.Host, hosts).Label(i18n.T(c, "project_host"))
+				if e.Project != nil {
+					sel.Disabled(true)
+				}
 			})
-		}
-		label := i18n.T(c, "project_path")
-		hint := ""
-		if e.Clone == 1 && e.Project == nil {
-			label = i18n.T(c, "project_destination")
-			if e.Path != "" && e.Name != "" {
-				hint = Destination(e.Path, e.Name)
-			}
-		}
-		kit.Field(c, "path", label, hint, func() {
-			ui.Row(c).Gap(6).Children(func() {
-				ui.TextInput(c.Key("input"), &e.Path).Placeholder(i18n.T(c, "project_path_placeholder")).Label(label).Grow(1)
-				// The folder picker would read the disk.
-				kit.IconButton(c.Key("browse"), icons.FolderOpen, i18n.T(c, "directory_title"), 32, false).
-					Border(1, p.Input).OnClick(func() { notice(c) })
-			})
-		})
-	}, func() {
-		kit.Secondary(c.Key("cancel"), i18n.T(c, "settings_cancel")).OnClick(func() { e.Open = false })
-		save := i18n.T(c, "settings_save_preview")
-		kit.Primary(c.Key("save"), save, false).Children(func() { ui.Text(c, save).FontSize(14) }).OnClick(func() {
-			problem := CheckProject(e.Name, e.Path, hostID, s.Data.Projects, e.Project)
 			if e.Clone == 1 && e.Project == nil {
-				problem = CheckClone(e.Name, e.Repo, e.Path)
+				kit.Field(c, "repo", i18n.T(c, "project_repository"), "", func() {
+					ui.TextInput(c.Key("input"), &e.Repo).Placeholder(i18n.T(c, "project_repository_placeholder")).Label(i18n.T(c, "project_repository")).FillWidth()
+				})
+				kit.Field(c, "branch", i18n.T(c, "project_branch"), "", func() {
+					ui.TextInput(c.Key("input"), &e.Branch).Placeholder(i18n.T(c, "project_branch_placeholder")).Label(i18n.T(c, "project_branch")).FillWidth()
+				})
 			}
-			if problem != "" {
-				kit.Toast(c, kit.Failed, i18n.T(c, problem))
-				return
+			label := i18n.T(c, "project_path")
+			hint := ""
+			if e.Clone == 1 && e.Project == nil {
+				label = i18n.T(c, "project_destination")
+				if e.Path != "" && e.Name != "" {
+					hint = Destination(e.Path, e.Name)
+				}
 			}
-			s.saveProject(hostID)
+			kit.Field(c, "path", label, hint, func() {
+				ui.Row(c).Gap(6).Children(func() {
+					ui.TextInput(c.Key("input"), &e.Path).Placeholder(i18n.T(c, "project_path_placeholder")).Label(label).Grow(1)
+					// The folder picker would read the disk.
+					kit.IconButton(c.Key("browse"), icons.FolderOpen, i18n.T(c, "directory_title"), 32, false).
+						Border(1, p.Input).OnClick(func() { notice(c) })
+				})
+			})
 		})
-	})
+		ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
+			kit.Secondary(c.Key("cancel"), i18n.T(c, "settings_cancel")).OnClick(func() { e.Open = false })
+			save := i18n.T(c, "settings_save_preview")
+			kit.Primary(c.Key("save"), save, false).Children(func() { ui.Text(c, save).FontSize(14) }).OnClick(func() {
+				problem := CheckProject(e.Name, e.Path, hostID, s.Data.Projects, e.Project)
+				if e.Clone == 1 && e.Project == nil {
+					problem = CheckClone(e.Name, e.Repo, e.Path)
+				}
+				if problem != "" {
+					kit.Toast(c, kit.Failed, i18n.T(c, problem))
+					return
+				}
+				s.saveProject(hostID)
+			})
+		})
+	}).Width(560).Label(title)
 }
 
 // saveProject applies the editor's draft to the preview, in memory.

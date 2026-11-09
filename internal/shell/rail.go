@@ -112,16 +112,15 @@ func (a *App) rail(c *ui.Context) {
 // featureDrag is the value a More row drags.
 type featureDrag struct{ id string }
 
-// moreButton is More (shell/rail/more.rs): every feature in a frosted
-// popover to its right, each opening it, with a pin that keeps it on the
+// moreButton is More (shell/rail/more.rs): every feature in a popover to
+// its right, each opening it, with a pin that keeps it on the
 // rail; rows drag to reorder, Market staying last.
 func (a *App) moreButton(c *ui.Context) {
 	p := theme.Of(c)
 	label := i18n.T(c, "features_all")
 	b := kit.IconButton(c.Key("more"), icons.Ellipsis, label, 36, a.more).OnClick(func() { a.more = !a.more })
 	b.HasPopup(ui.PopupMenu).Expanded(a.more)
-	ui.PopoverBase(c, b, &a.more, func(panel ui.Element) {
-		kit.Floating(c, panel).AttachTo(b, ui.AnchorRight, ui.AnchorLeft).MarginStart(8).MinWidth(240).MaxHeight(480).Padding(4).Gap(1)
+	panel := ui.Popover(c, b, &a.more, func() {
 		ui.Scroll(c.Key("features")).Gap(1).Children(func() {
 			for _, id := range a.features {
 				f, ok := featureOf(id)
@@ -179,6 +178,9 @@ func (a *App) moreButton(c *ui.Context) {
 			}
 		})
 	})
+	if panel != (ui.Element{}) {
+		panel.AttachTo(b, ui.AnchorRight, ui.AnchorLeft).MarginStart(8).MinWidth(240).MaxHeight(480)
+	}
 }
 
 // featureEdge is where a row takes a dragged feature: after it when the
@@ -217,23 +219,22 @@ func (a *App) hosts(c *ui.Context) {
 	for _, h := range a.Data.Hosts {
 		update = update || h.Update
 	}
-	b := kit.IconMenu(c, "hosts", icons.Monitor, i18n.T(c, "hosts"), 36, false, func(panel, t ui.Element) {
-		panel.AttachTo(t, ui.AnchorRight, ui.AnchorLeft).MarginStart(8)
-	}, func(m *kit.Menu) {
+	b := kit.IconButton(c.Key("hosts"), icons.Monitor, i18n.T(c, "hosts"), 36, false)
+	b.PopoverMenuButton(func(m *ui.Menu) {
 		for _, h := range a.Data.Hosts {
 			hint := ""
 			if h.Update {
 				hint = i18n.T(c, "sidebar_host_update")
 			}
-			if m.Item(kit.Item{Label: i18n.T(c, h.Name), Icon: icons.Cpu, Checked: h.Local, Hint: hint}) {
+			if m.Item(i18n.T(c, h.Name)).Icon(icons.Menu(icons.Cpu)).Checked(h.Local).Trailing(hint).Chosen() {
 				c.Toast(i18n.T(c, "preview_notice"))
 			}
 		}
 		m.Separator()
-		if m.Item(kit.Item{Label: i18n.T(c, "host_add"), Icon: icons.Plus}) {
+		if m.Item(i18n.T(c, "host_add")).Icon(icons.Menu(icons.Plus)).Chosen() {
 			c.Toast(i18n.T(c, "preview_notice"))
 		}
-	})
+	}, ui.PopoverMenuButtonOptions{At: ui.AnchorRight, Self: ui.AnchorLeft})
 	b.ContextMenu(func(m *ui.Menu) {
 		for _, key := range []string{"workspace_host", "connection_action_edit"} {
 			if m.Item(i18n.T(c, key)).Chosen() {

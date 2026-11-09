@@ -14,6 +14,19 @@ func Ghost(c *ui.Context, label string, selected bool) ui.Element {
 	return GhostLook(c, ui.ButtonBase(c).Label(label), selected)
 }
 
+// GhostLook gives a button without a look Kit's ghost states, as Ghost.
+func GhostLook(c *ui.Context, b ui.Element, selected bool) ui.Element {
+	p := theme.Of(c)
+	b.Radius(p.Radius).Center().TextColor(p.Foreground).Cursor(ui.CursorPointer)
+	switch {
+	case b.Pressed() || selected:
+		b.Background(p.Active)
+	case b.Hovered():
+		b.Background(p.Hover)
+	}
+	return b
+}
+
 // IconButton is a square ghost button holding one icon, named by label for
 // its tooltip and assistive technology. Kit sizes: xsmall 20, small 28,
 // default 32, rail 36; icons are 16 (14 below 24).
@@ -26,9 +39,9 @@ func IconButton(c *ui.Context, icon *ui.SVG, label string, size float32, selecte
 func IconButtonHint(c *ui.Context, icon *ui.SVG, label, hint string, size float32, selected bool) ui.Element {
 	tip := label
 	if hint != "" {
-		tip += "  " + hint
+		tip += " " + hint
 	}
-	b := Tip(c, Ghost(c, label, selected).Size(size, size), tip)
+	b := Ghost(c, label, selected).Size(size, size).Tooltip(tip)
 	glyph := float32(16)
 	if size < 24 {
 		glyph = 14

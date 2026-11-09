@@ -6,6 +6,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -184,14 +185,15 @@ func TestApprovalsAndQuestion(t *testing.T) {
 	// The question: choose an option and submit.
 	clickButton(t, tt, i18n.In("en", "question_reply"))
 	// The popover sits above its capsule, right-aligned with it, 8 DIPs
-	// apart (Anchor::BottomRight, bottom_2): Submit ends at its padding.
+	// apart (Anchor::BottomRight, bottom_2): Submit ends at MyGo's popover
+	// padding (4) and border (1).
 	capsule, _ := tt.AccessByRole(ui.RoleButton, i18n.In("en", "question_reply"))
 	submit, _ := tt.AccessByRole(ui.RoleButton, i18n.In("en", "interaction_submit"))
 	cb, sb := capsule.Bounds, submit.Bounds
-	if d := (cb.X + cb.W) - (sb.X + sb.W); d < 12 || d > 14 {
+	if d := (cb.X + cb.W) - (sb.X + sb.W); d < 4 || d > 6 {
 		t.Errorf("the question popover is not right-aligned with its capsule: capsule %v, Submit %v", cb, sb)
 	}
-	if d := cb.Y - (sb.Y + sb.H); d < 20 || d > 22 {
+	if d := cb.Y - (sb.Y + sb.H); d < 12 || d > 14 {
 		t.Errorf("the question popover is not 8 DIPs above its capsule: capsule %v, Submit %v", cb, sb)
 	}
 	click(t, tt, "Use the spinner")
@@ -240,8 +242,14 @@ func TestModelPickerAndEffort(t *testing.T) {
 func TestBranchMenu(t *testing.T) {
 	a, tt := newTester(t)
 	click(t, tt, "main")
-	// The menu is drawn in the window on the frosted surface.
-	click(t, tt, "preview/ui")
+	// The menu is MyGo's, drawn in the window.
+	if got := tt.Menu(); !slices.Equal(got, []string{i18n.In("en", composer.Branches[0]), i18n.In("en", composer.Branches[1])}) {
+		t.Fatalf("branch menu %q", got)
+	}
+	if err := tt.ChooseMenuItem("preview/ui"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
 	if a.Composer(preview.Big).Branch != 1 {
 		t.Error("the branch was not chosen")
 	}
