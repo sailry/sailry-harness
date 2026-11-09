@@ -115,11 +115,20 @@ func devices(c *ui.Context, m *Model, execution bool) {
 						ui.Text(c, i18n.T(c, status)).FontSize(14).TextColor(p.MutedForeground)
 					})
 					ui.Row(c).Width(28).Justify(ui.End).Children(func() {
-						if !d.Local {
-							kit.Action(c.Key("revoke"), icons.Close, i18n.T(c, "live_revoke"), false).OnClick(func() {
-								m.pairing.revoking = &d
-							})
+						if d.Local {
+							return
 						}
+						kit.MenuButton(c.Key("menu"), "device-menu-"+d.ID, func(b ui.Element) {
+							kit.IconLook(c, b, icons.EllipsisVertical, i18n.T(c, "more"), "", 28, false)
+						}, func(menu *kit.Menu) {
+							// Editing a host's network asks the host for it.
+							if execution && menu.Item(i18n.T(c, "connection_action_edit")).Chosen() {
+								notice(c)
+							}
+							if menu.Item(i18n.T(c, "live_revoke")).Danger().Chosen() {
+								m.pairing.revoking = &d
+							}
+						}, kit.MenuOptions{At: ui.AnchorBottomEnd, Self: ui.AnchorTopEnd})
 					})
 				})
 			})
@@ -172,7 +181,7 @@ func platformIcon(d preview.Device) *ui.SVG {
 func relayFields(c *ui.Context, pr *pairing, relays []string) {
 	options := relayOptions(c, relays)
 	label := i18n.T(c, "pairing_relay_server")
-	pick(c, "relay", label, &pr.relay, options, false).Fill()
+	kit.Field(c, "relay", label, "", func() { pick(c, "relay", label, &pr.relay, options, false).Fill() })
 	if pr.relay == len(options)-1 {
 		title := i18n.T(c, "pairing_relay_address")
 		kit.Field(c, "address", title, "", func() {
@@ -190,59 +199,74 @@ func addHost(c *ui.Context, m *Model) {
 	}
 	p := theme.Of(c)
 	title := i18n.T(c, "host_add")
+	// The title over its hint; the method as segments; the pairing code
+	// large and centered, or the SSH login with host and port on one row;
+	// the relay network last, as it rarely changes.
 	kit.Dialog(c.Key("add-host"), &pr.adding, func() {
-		ui.Text(c, title).FontSize(16).FontWeight(600)
-		ui.Scroll(c.Key("body")).Grow(1).Shrink(1).Gap(16).Children(func() {
-			relayFields(c, pr, m.Relays)
-			pick(c, "method", i18n.T(c, "connection"), &pr.method, labels(c, methods), false).Fill()
+		ui.Column(c.Key("head")).Gap(4).Children(func() {
+			ui.Text(c, title).FontSize(16).FontWeight(600)
+			ui.Text(c, i18n.T(c, "host_pairing_hint")).FontSize(14).TextColor(p.MutedForeground)
+		})
+		ui.Scroll(c.Key("body")).Grow(1).Shrink(1).Gap(16).Padding(4, 0, 0, 0).Children(func() {
+			kit.Segmented(c, "method", &pr.method, labels(c, methods), kit.SegmentedProps{Block: true}).Label(i18n.T(c, "connection"))
 			if Method(pr.method) == ByPairing {
-				ui.Column(c.Key("code")).Gap(12).Padding(20, 0).AlignItems(ui.Center).Children(func() {
+				ui.Row(c.Key("code")).FillWidth().Justify(ui.Center).Padding(16, 0).Children(func() {
 					// Six digits (link rendezvous valid_code); a full code
 					// would pair, which the preview does not.
-					kit.InputOTP(c, "input", &pr.code, kit.InputOTPProps{Length: 6}).Label(i18n.T(c, "host_pairing_mode"))
-					ui.Text(c, i18n.T(c, "host_pairing_hint")).FontSize(14).TextColor(p.MutedForeground)
+					kit.InputOTP(c, "input", &pr.code, kit.InputOTPProps{Length: 6, Size: kit.SizeLarge}).Label(i18n.T(c, "host_pairing_mode"))
 				})
-				return
+			} else {
+				sshFields(c, pr)
 			}
-			for _, f := range []struct {
-				key   string
-				value *string
-			}{{"settings_name", &pr.name}, {"ssh_host", &pr.host}, {"ssh_port", &pr.port}, {"ssh_username", &pr.user}} {
-				label := i18n.T(c, f.key)
-				kit.Field(c, f.key, label, "", func() { ui.TextInput(c.Key("input"), f.value).Label(label).FillWidth() })
-			}
-			switch Method(pr.method) {
-			case ByPassword:
-				label := i18n.T(c, "ssh_password")
-				kit.Field(c, "secret", label, "", func() { ui.TextInput(c.Key("input"), &pr.secret).Password().Label(label).FillWidth() })
-			case ByPrivateKey:
-				label := i18n.T(c, "ssh_private_key")
-				kit.Field(c, "key", label, "", func() {
-					ui.TextArea(c.Key("input"), &pr.key).Label(label).Placeholder(i18n.T(c, "form_private_key_hint")).FillWidth().Height(96).Font("monospace")
-				})
-			case ByKeyFile:
-				label := i18n.T(c, "ssh_key_path")
-				kit.Field(c, "path", label, "", func() {
-					ui.Row(c).Gap(6).Children(func() {
-						ui.TextInput(c.Key("input"), &pr.key).Label(label).Placeholder("~/.ssh/id_ed25519").Grow(1)
-						// Choosing the file reads the disk.
-						kit.IconButton(c.Key("browse"), icons.FolderOpen, i18n.T(c, "ssh_key_file"), 32, false).Border(1, p.Input).OnClick(func() { notice(c) })
-					})
-				})
-			}
-			if Method(pr.method) != ByPassword {
-				label := i18n.T(c, "ssh_passphrase")
-				kit.Field(c, "passphrase", label, "", func() {
-					ui.TextInput(c.Key("input"), &pr.passphrase).Password().Label(label).Placeholder(i18n.T(c, "form_passphrase_hint")).FillWidth()
-				})
-			}
+			relayFields(c, pr, m.Relays)
 		})
 		action := i18n.T(c, "pairing_connect")
 		if Method(pr.method) != ByPairing {
 			action = i18n.T(c, "host_install")
 		}
 		footer(c, action, func() { pr.adding = false }, func() { notice(c) })
-	}).Width(min(560, width(c)-48)).Label(title)
+	}).Width(min(520, width(c)-48)).Label(title)
+}
+
+// sshFields are hosts/editor.rs's login: the name, the host and port on
+// one row, the user, then the method's secret.
+func sshFields(c *ui.Context, pr *pairing) {
+	p := theme.Of(c)
+	field := func(key string, value *string) {
+		label := i18n.T(c, key)
+		kit.Field(c, key, label, "", func() { ui.TextInput(c.Key("input"), value).Label(label).FillWidth() })
+	}
+	field("settings_name", &pr.name)
+	ui.Row(c.Key("address")).Gap(12).Children(func() {
+		ui.Column(c.Key("host")).Grow(1).MinWidth(0).Children(func() { field("ssh_host", &pr.host) })
+		ui.Column(c.Key("port")).Width(96).Shrink(0).Children(func() { field("ssh_port", &pr.port) })
+	})
+	field("ssh_username", &pr.user)
+	switch Method(pr.method) {
+	case ByPassword:
+		label := i18n.T(c, "ssh_password")
+		kit.Field(c, "secret", label, "", func() { ui.TextInput(c.Key("input"), &pr.secret).Password().Label(label).FillWidth() })
+	case ByPrivateKey:
+		label := i18n.T(c, "ssh_private_key")
+		kit.Field(c, "key", label, "", func() {
+			ui.TextArea(c.Key("input"), &pr.key).Label(label).Placeholder(i18n.T(c, "form_private_key_hint")).FillWidth().Height(96).Font("monospace")
+		})
+	case ByKeyFile:
+		label := i18n.T(c, "ssh_key_path")
+		kit.Field(c, "path", label, "", func() {
+			ui.Row(c).Gap(6).Children(func() {
+				ui.TextInput(c.Key("input"), &pr.key).Label(label).Placeholder("~/.ssh/id_ed25519").Grow(1)
+				// Choosing the file reads the disk.
+				kit.IconButton(c.Key("browse"), icons.FolderOpen, i18n.T(c, "ssh_key_file"), 32, false).Border(1, p.Input).OnClick(func() { notice(c) })
+			})
+		})
+	}
+	if Method(pr.method) != ByPassword {
+		label := i18n.T(c, "ssh_passphrase")
+		kit.Field(c, "passphrase", label, "", func() {
+			ui.TextInput(c.Key("input"), &pr.passphrase).Password().Label(label).Placeholder(i18n.T(c, "form_passphrase_hint")).FillWidth()
+		})
+	}
 }
 
 // shareCode is the share dialog (connections/dialog.rs shared_code): the

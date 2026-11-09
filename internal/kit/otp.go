@@ -46,6 +46,9 @@ type InputOTPProps struct {
 	Alphanumeric bool
 	// OnComplete runs with the code once all of its characters are in.
 	OnComplete func(code string)
+	// Size is the cells' size: 32 square by default, 48 by 56 with a 24
+	// DIP character for SizeLarge (a pairing code).
+	Size Size
 }
 
 // InputOTP edits a one-time code in a row of cells, one character each,
@@ -67,6 +70,10 @@ func InputOTP(c *ui.Context, key any, value *string, o InputOTPProps) ui.Element
 	if string(clean) != *value {
 		*value = string(clean)
 	}
+	w, h, font, radius := float32(32), float32(32), float32(14), p.Radius
+	if o.Size == SizeLarge {
+		w, h, font, radius = 48, 56, 24, p.RadiusLg
+	}
 	root := ui.Row(c.Key(key)).Gap(8).AlignItems(ui.Center).AlignSelf(ui.Start).Shrink(0)
 	last := ui.Local(root, "last", func() string { return *value })
 	if *value != *last {
@@ -86,8 +93,8 @@ func InputOTP(c *ui.Context, key any, value *string, o InputOTPProps) ui.Element
 			if active {
 				border = t.Focus
 			}
-			ui.Row(c.Key(i)).Width(32).MinHeight(32).Radius(p.Radius).Background(t.Surface).Border(1, border).
-				AlignItems(ui.Center).Justify(ui.Center).FontSize(14).TextColor(p.Foreground).IgnoreInput(true).
+			ui.Row(c.Key(i)).Width(w).MinHeight(h).Radius(radius).Background(t.Surface).Border(1, border).
+				AlignItems(ui.Center).Justify(ui.Center).FontSize(font).TextColor(p.Foreground).IgnoreInput(true).
 				Children(func() {
 					if i < len(clean) {
 						ui.Text(c, string(clean[i])).FontFeatures("tnum")
