@@ -202,8 +202,10 @@ the app preferences.
 - Connections follows the reference (paired hosts and mobile devices, the
   Add host dialog with pairing and SSH methods), not a separate SSH list.
   The add dialog's sharing scope section (hosts/sharing.rs) and WSL are
-  not built. The pairing code is a plain text input, not Kit's OTP cells;
-  the share dialog shows empty cells since the preview has no code.
+  not built. The pairing code is `kit.InputOTP` (six digit cells, from
+  Lobe MyGo's field.InputOTP, MIT), whose full code would pair, which the
+  preview does not; the share dialog shows empty cells since the preview
+  has no code.
 - Shortcut buttons show the key as text, not Kit `Kbd` chips. A key needs
   ⌘, ⌃ or ⌥ (or is a function key); the reference accepts what GPUI's
   keystroke parser does.

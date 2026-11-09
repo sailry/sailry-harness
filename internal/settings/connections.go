@@ -197,8 +197,9 @@ func addHost(c *ui.Context, m *Model) {
 			pick(c, "method", i18n.T(c, "connection"), &pr.method, labels(c, methods), false).Fill()
 			if Method(pr.method) == ByPairing {
 				ui.Column(c.Key("code")).Gap(12).Padding(20, 0).AlignItems(ui.Center).Children(func() {
-					ui.TextInput(c.Key("input"), &pr.code).Label(i18n.T(c, "host_pairing_mode")).Placeholder("000000").
-						Width(200).FontSize(24).TextAlign(ui.Center).Font("monospace")
+					// Six digits (link rendezvous valid_code); a full code
+					// would pair, which the preview does not.
+					kit.InputOTP(c, "input", &pr.code, kit.InputOTPProps{Length: 6}).Label(i18n.T(c, "host_pairing_mode"))
 					ui.Text(c, i18n.T(c, "host_pairing_hint")).FontSize(14).TextColor(p.MutedForeground)
 				})
 				return

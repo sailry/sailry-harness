@@ -111,3 +111,25 @@ func TestSegmentedMatchesInput(t *testing.T) {
 		t.Errorf("input %v, segmented %v", in.Bounds, seg.Bounds)
 	}
 }
+
+// InputOTP keeps digits only, up to its length, and reports the full code.
+func TestInputOTP(t *testing.T) {
+	code, done := "", ""
+	tt := ui.NewTester(func(c *ui.Context) {
+		theme.Apply(c, "", theme.Light)
+		ui.Column(c).Fill().Padding(20).Children(func() {
+			InputOTP(c, "otp", &code, InputOTPProps{OnComplete: func(s string) { done = s }}).Label("Code")
+		})
+	}, 400, 200)
+	tt.Frame()
+	if err := tt.Click("Code"); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range "12a3456789" {
+		tt.Type(string(r))
+		tt.Frame()
+	}
+	if code != "123456" || done != "123456" {
+		t.Errorf("code %q, completed %q", code, done)
+	}
+}
