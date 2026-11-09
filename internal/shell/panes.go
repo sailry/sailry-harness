@@ -210,7 +210,9 @@ func (a *App) paneView(c *ui.Context, t panes.Target) {
 	h := w.handle(t)
 	col := ui.Column(c.Key(t)).Grow(1).MinWidth(0).MinHeight(0).AlignItems(ui.Stretch)
 	a.pane(c, col, h, true, func() { a.requestClose(c, t) })
-	if w.Active != t && c.FocusWithin(*h) {
+	// A pane ⌘W just closed still has the focus in this build; the focus
+	// goes to the group's next pane, not back to it.
+	if w.Active != t && w.Group(t) >= 0 && c.FocusWithin(*h) {
 		a.focusPane(t)
 	}
 	if t.Kind == panes.Terminal {

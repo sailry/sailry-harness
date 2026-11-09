@@ -331,30 +331,91 @@ func TestTerminalSplitKeys(t *testing.T) {
 	snapshot(t, tt, "panes-terminal-keys")
 }
 
-// A drop applies while the panes build: a pane moved onto an earlier one
-// leaves the tree the build walks unchanged, so the build does not reach
-// the moved pane twice and bind its focus handle again.
-func TestDragOntoEarlierPane(t *testing.T) {
-	a, tt := newTester(t)
+// splitTwo shows the big conversation and the theme chat side by side,
+// returning the bounds of the first pane under its header: as wide as
+// the second, which runs from the split handle to the window's edge.
+func splitTwo(t *testing.T, a *App, tt *ui.Tester) ui.Rect {
+	t.Helper()
 	if !a.panes.Drop(session(preview.Big), session(themeChat), panes.Right) {
 		t.Fatal("drop")
 	}
 	tt.Frame()
 	tt.Frame()
-	var handles []ui.AccessInfo
+	var handle, split ui.AccessInfo
 	for _, e := range tt.AccessAll() {
-		if e.Role == ui.RoleButton && e.Name == "Drag to split" {
-			handles = append(handles, e)
+		switch {
+		case e.Role == ui.RoleButton && e.Name == "Drag to split":
+			handle = e
+		case e.Role == ui.RoleSplitter && e.Bounds.H > split.Bounds.H:
+			split = e
 		}
 	}
-	if len(handles) != 2 {
-		t.Fatalf("%d handles", len(handles))
+	if handle.Name == "" || split.Bounds.H == 0 {
+		t.Fatal("no split")
 	}
-	// The theme pane's handle to the centre of the big pane, on its left.
-	from, to := handles[1], handles[0].Bounds
-	dragTo(t, tt, from, to.X-200, to.Y+300, nil)
-	if got := a.panes.Displayed().Targets(); !slices.Equal(got, []panes.Target{session(themeChat), session(preview.Big)}) {
-		t.Fatalf("swap: %v", got)
+	top := handle.Bounds.Y + handle.Bounds.H
+	w := 1280 - (split.Bounds.X + split.Bounds.W)
+	return ui.Rect{X: split.Bounds.X - w, Y: top, W: w, H: split.Bounds.Y + split.Bounds.H - top}
+}
+
+// Splitting A | B and dragging B's header into A, at its centre or any
+// edge: the drop applies while the panes build, and the tree the build
+// walks stays as it was, so B is neither built twice nor indexed past.
+func TestDragPaneIntoEarlierPane(t *testing.T) {
+	big, theme := session(preview.Big), session(themeChat)
+	for _, c := range []struct {
+		name   string
+		fx, fy float32
+		want   func(*panes.Node) bool
+	}{
+		{"centre", 0.5, 0.5, func(g *panes.Node) bool {
+			return g.Axis == panes.Row && slices.Equal(g.Targets(), []panes.Target{theme, big})
+		}},
+		{"left", 0.1, 0.5, func(g *panes.Node) bool {
+			return g.Axis == panes.Row && slices.Equal(g.Targets(), []panes.Target{theme, big})
+		}},
+		{"right", 0.9, 0.5, func(g *panes.Node) bool {
+			return g.Axis == panes.Row && slices.Equal(g.Targets(), []panes.Target{big, theme})
+		}},
+		{"top", 0.5, 0.1, func(g *panes.Node) bool {
+			return g.Axis == panes.Column && slices.Equal(g.Targets(), []panes.Target{theme, big})
+		}},
+		{"bottom", 0.5, 0.9, func(g *panes.Node) bool {
+			return g.Axis == panes.Column && slices.Equal(g.Targets(), []panes.Target{big, theme})
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			a, tt := newTester(t)
+			r := splitTwo(t, a, tt)
+			var from ui.AccessInfo
+			for _, e := range tt.AccessAll() {
+				if e.Role == ui.RoleButton && e.Name == "Drag to split" && e.Bounds.X > r.X+r.W {
+					from = e
+				}
+			}
+			dragTo(t, tt, from, r.X+r.W*c.fx, r.Y+r.H*c.fy, nil)
+			if g := a.panes.Displayed(); g == nil || !c.want(g) {
+				t.Fatalf("groups %+v", a.panes.Groups[0].Targets())
+			}
+			tt.Frame()
+		})
 	}
+}
+
+// ⌘W in the first of two panes closes it while the panes build; the tree
+// the build walks keeps both children, so it does not index past one,
+// and the focus goes to the other pane (close.rs close_pane).
+func TestCloseEarlierPaneByKey(t *testing.T) {
+	a, tt := newTester(t)
+	r := splitTwo(t, a, tt)
+	tt.ClickAt(r.X+r.W/2, r.Y+200)
 	tt.Frame()
+	if a.panes.Active != session(preview.Big) {
+		t.Fatalf("active %v", a.panes.Active)
+	}
+	tt.Key(ui.Cmd, ui.KeyW)
+	tt.Frame()
+	if len(a.panes.Groups) != 0 || a.panes.Active != session(themeChat) || a.Sidebar.Selected != themeChat {
+		t.Fatalf("groups %v, active %v, selected %q", a.panes.Groups, a.panes.Active, a.Sidebar.Selected)
+	}
 }
