@@ -992,3 +992,71 @@ mcp_remove_slot: Remove item
 mcp_install_stdio_help: Enter the command and arguments for the selected host; add private values in the credential fields
 mcp_install_http_help: Enter the MCP endpoint; use credential fields for private headers or authorize with OAuth
 mcp_configuration_saved: MCP configuration saved
+team_invalid: Enter a team name
+team_name_taken: A team with this name already exists
+teams_role_invalid: Check the role identifier and name
+role_duplicate: Identifier already exists
+teams_settings_failed: Could not save concurrency
+teams_settings_conflict: Settings changed; reload and save again
+teams_settings_unknown: Save outcome unknown; retry to check
+role_preset_review: Code review
+role_review_description: Review changes and report evidence-backed findings
+role_prompt_review: |-
+    Review code and changes within the assigned scope, focusing on correctness, edge cases, regression risks and existing conventions.
+    Read relevant implementations and tests first, then report evidence-backed findings with locations, impact and recommendations. Do not modify files; state plainly when no issues are found.
+role_preset_implement: Implementation
+role_implement_description: Implement focused changes and verify them
+role_prompt_implement: |-
+    Complete the assigned implementation, first understanding the existing architecture, coding conventions and acceptance requirements.
+    Reuse existing capabilities, keep changes focused and verify affected behavior. Report what was completed, actual checks and remaining limitations.
+role_preset_test: Verification
+role_test_description: Run checks and report verified results
+role_prompt_test: |-
+    Verify the assigned change or behavior. Find the relevant existing tests and checks, run the narrowest ones that cover the scope, and add focused coverage only when asked.
+    Report the exact commands, results and failures with their likely cause. Do not change implementation code to make checks pass.
+role_preset_docs: Documentation
+role_docs_description: Write and update project documentation
+role_prompt_docs: |-
+    Write or update documentation for the assigned scope. Read the relevant code and existing documents first, follow their structure and terminology, and keep the text concise and accurate.
+    Report which files changed and any facts you could not confirm.
+team_role_one: 1 role
+team_role_count: '%{count} roles'
+teams_concurrency: Child concurrency
+teams_concurrency_description: Maximum running subagents per conversation
+teams_roles: Roles
+team_new: New team
+role_new: New role
+team_delete: Delete team
+team_delete_prompt: Delete team “%{name}”? Its roles are kept
+team_deleted: Team deleted
+teams_role_delete_prompt: Delete role “%{name}”? It is removed from every team
+teams_role_deleted: Role deleted
+team_builtin: Built-in
+team_default: Default team
+team_default_description: All roles, following the conversation model
+team_follow_conversation: Follow conversation
+teams_roles_empty: No roles
+role_inherit: Inherit session model
+teams_read_only: Read-only
+role_effort_inherit: Auto
+team_edit: Edit team
+teams_description: Description
+team_lead_model: Lead model
+team_lead_instructions: Lead prompt
+team_members: Members
+team_members_empty: No roles yet
+teams_follow_lead: Follow lead
+team_member_remove: Remove from team
+team_add_role: Add role
+team_duplicate: Duplicate
+team_copy_name: '%{name} copy'
+team_create: Create
+team_saved: Team saved
+teams_role_edit: Edit role
+role_presets: Presets
+role_id: Identifier
+teams_key_hint: e.g. code-reviewer
+teams_model: Model
+role_instructions: Instructions
+role_save: Save
+teams_role_saved: Role saved

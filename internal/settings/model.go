@@ -178,6 +178,17 @@ type Model struct {
 	connDetails  string
 	connRemoving string
 
+	// Teams (settings/teams, roles.rs): the teams, the roles, the child
+	// concurrency and the tab (0 teams, 1 roles).
+	Teams        []preview.Team
+	Roles        []preview.Role
+	Concurrency  Stored[float64]
+	TeamTab      int
+	teamEdit     teamEditor
+	roleEdit     roleEditor
+	teamRemoving string
+	roleRemoving string
+
 	// Terminal (terminal.rs, terminal/host.rs).
 	Host            Stored[TerminalHost]
 	Shells          []preview.Shell
@@ -233,9 +244,11 @@ var ToastSeconds = []int{3, 5, 8, 10}
 func NewModel(d *preview.Settings) *Model {
 	pr := preview.ProvidersData()
 	cn := preview.ConnectorsData()
+	td := preview.TeamsData()
 	m := &Model{
 		Channels: pr.Channels, Brands: pr.Brands, Catalog: pr.Catalog, Compaction: stored(pr.Compaction),
 		Services: cn.Services, ConnTypes: cn.Types, ConnAccounts: cn.Accounts,
+		Teams: td.Teams, Roles: td.Roles, Concurrency: stored(td.Concurrency),
 		Notify: [4]bool{true, true, true, true}, Toast: 1,
 		Power:     stored(d.PreventSleep),
 		Telemetry: stored(Telemetry{Errors: d.Errors, Metrics: d.Metrics}),

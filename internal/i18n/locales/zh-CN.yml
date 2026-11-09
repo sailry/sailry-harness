@@ -992,3 +992,71 @@ mcp_remove_slot: 移除此项
 mcp_install_stdio_help: 输入所选主机执行的命令和参数，私密值填写在凭据字段中
 mcp_install_http_help: 输入 MCP 地址，私密请求头填写在凭据字段中，或使用 OAuth 授权
 mcp_configuration_saved: 已保存 MCP 配置
+team_invalid: 请输入团队名称
+team_name_taken: 已有同名团队
+teams_role_invalid: 请检查角色标识和名称
+role_duplicate: 标识已存在
+teams_settings_failed: 无法保存并发数
+teams_settings_conflict: 设置已变更，请重新加载后保存
+teams_settings_unknown: 保存结果未知，请重试确认
+role_preset_review: 代码审查
+role_review_description: 审查变更并报告有证据的问题
+role_prompt_review: |-
+    审查指定范围内的代码和变更，重点检查正确性、边界条件、回归风险和现有规范。
+    先阅读相关实现与测试，再报告有证据支持的问题，注明位置、影响和建议。不要自行修改文件；没有发现问题时如实说明。
+role_preset_implement: 开发实现
+role_implement_description: 完成聚焦的改动并验证
+role_prompt_implement: |-
+    完成交付范围内的实现，先理解现有架构、代码规范和验收要求。
+    复用已有能力，保持改动聚焦，验证受影响的行为。报告实际完成的内容、检查结果和仍存在的限制。
+role_preset_test: 测试验证
+role_test_description: 运行检查并报告验证结果
+role_prompt_test: |-
+    验证指定的改动或行为。先找到相关的现有测试和检查，运行覆盖该范围的最小集合，只有在要求时才补充测试。
+    报告实际执行的命令、结果和失败原因。不要为了让检查通过而修改实现代码。
+role_preset_docs: 文档编写
+role_docs_description: 编写和更新项目文档
+role_prompt_docs: |-
+    为指定范围编写或更新文档。先阅读相关代码和现有文档，沿用它们的结构和术语，保持内容简洁准确。
+    报告修改了哪些文件，以及无法确认的内容。
+team_role_one: 1 个角色
+team_role_count: '%{count} 个角色'
+teams_concurrency: 子代理并发数
+teams_concurrency_description: 每个会话同时运行的子代理上限
+teams_roles: 角色
+team_new: 新建团队
+role_new: 新建角色
+team_delete: 删除团队
+team_delete_prompt: 删除团队“%{name}”？其中的角色会保留
+team_deleted: 团队已删除
+teams_role_delete_prompt: 删除角色“%{name}”？它会从所有团队中移除
+teams_role_deleted: 角色已删除
+team_builtin: 内置
+team_default: 默认团队
+team_default_description: 包含全部角色，跟随对话模型
+team_follow_conversation: 跟随对话
+teams_roles_empty: 暂无角色
+role_inherit: 继承会话模型
+teams_read_only: 只读
+role_effort_inherit: 自动
+team_edit: 编辑团队
+teams_description: 描述
+team_lead_model: 组长模型
+team_lead_instructions: 组长提示词
+team_members: 成员
+team_members_empty: 还没有角色
+teams_follow_lead: 跟随组长
+team_member_remove: 移出团队
+team_add_role: 添加角色
+team_duplicate: 复制为新团队
+team_copy_name: '%{name} 副本'
+team_create: 创建
+team_saved: 团队已保存
+teams_role_edit: 编辑角色
+role_presets: 预设
+role_id: 标识
+teams_key_hint: 如 code-reviewer
+teams_model: 模型
+role_instructions: 提示词
+role_save: 保存
+teams_role_saved: 角色已保存

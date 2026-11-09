@@ -175,3 +175,24 @@ func TestConnectors(t *testing.T) {
 		t.Error("bad URL passed")
 	}
 }
+
+// Team and role checks (teams/editor/save.rs, form.rs profile).
+func TestTeams(t *testing.T) {
+	m := NewModel(preview.SettingsData())
+	if got := m.saveTeam(preview.Team{Name: " "}); got != "team_invalid" {
+		t.Errorf("blank team: %q", got)
+	}
+	if got := m.saveTeam(preview.Team{Name: "study"}); got != "team_name_taken" {
+		t.Errorf("taken name: %q", got)
+	}
+	n := len(m.Teams)
+	if got := m.saveTeam(preview.Team{Name: "Docs"}); got != "" || len(m.Teams) != n+1 {
+		t.Errorf("new team: %q", got)
+	}
+	if got := m.saveRole(preview.Role{Name: "X", Key: "Bad Key"}); got != "teams_role_invalid" {
+		t.Errorf("bad key: %q", got)
+	}
+	if got := m.saveRole(preview.Role{Name: "X", Key: "tester"}); got != "role_duplicate" {
+		t.Errorf("duplicate key: %q", got)
+	}
+}

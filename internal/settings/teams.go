@@ -1,0 +1,479 @@
+package settings
+
+import (
+	"fmt"
+	"slices"
+	"strings"
+
+	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-go/internal/i18n"
+	"github.com/sailry/sailry-go/internal/icons"
+	"github.com/sailry/sailry-go/internal/kit"
+	"github.com/sailry/sailry-go/internal/preview"
+	"github.com/sailry/sailry-go/internal/theme"
+)
+
+// The Teams page (settings/teams, roles.rs): the child concurrency, the
+// Teams and Roles tabs with New, the Default team and the saved teams,
+// the roles; the team editor (name, description, lead model and effort,
+// lead prompt, members) and the role editor (presets, name, identifier,
+// description, model and effort, read-only, instructions).
+
+var concurrencyMessages = Messages{"", "teams_settings_failed", "teams_settings_conflict", "teams_settings_unknown"}
+
+// rolePresets are the role editor's presets (draft.rs Preset): label,
+// description and prompt keys.
+var rolePresets = [][3]string{
+	{"role_preset_review", "role_review_description", "role_prompt_review"},
+	{"role_preset_implement", "role_implement_description", "role_prompt_implement"},
+	{"role_preset_test", "role_test_description", "role_prompt_test"},
+	{"role_preset_docs", "role_docs_description", "role_prompt_docs"},
+}
+
+// teamEditor edits a team: the Default team (default), a new one
+// (team.ID == "") or a saved one.
+type teamEditor struct {
+	open bool
+	def  bool
+	team preview.Team
+}
+
+// roleEditor edits a role, a new one when role.ID == "".
+type roleEditor struct {
+	open bool
+	role preview.Role
+}
+
+// modelChoices are the channels' models as "channel/model" with their
+// labels, after none (the "" choice labeled follow).
+func (m *Model) modelChoices(c *ui.Context, follow string) (ids, names []string) {
+	ids, names = []string{""}, []string{i18n.T(c, follow)}
+	for _, ch := range m.Channels {
+		if !ch.Enabled {
+			continue
+		}
+		for _, x := range ch.Models {
+			ids = append(ids, ch.ID+"/"+x.ID)
+			names = append(names, ch.Name+" · "+x.Name)
+		}
+	}
+	return ids, names
+}
+
+// efforts are a model's efforts after Auto.
+func (m *Model) efforts(c *ui.Context, id string) []string {
+	out := []string{""}
+	ch, model, _ := strings.Cut(id, "/")
+	if x := m.channel(ch); x != nil {
+		for _, y := range x.Models {
+			if y.ID == model {
+				out = append(out, y.Efforts...)
+			}
+		}
+	}
+	return out
+}
+
+// modelSummary is models.rs summary: the model's label, or follow.
+func (m *Model) modelSummary(c *ui.Context, id, follow string) string {
+	ids, names := m.modelChoices(c, follow)
+	if i := slices.Index(ids, id); i >= 0 {
+		return names[i]
+	}
+	return id
+}
+
+func roleCount(c *ui.Context, n int) string {
+	if n == 1 {
+		return i18n.T(c, "team_role_one")
+	}
+	return i18n.T(c, "team_role_count", "count", n)
+}
+
+func (m *Model) role(id string) *preview.Role {
+	for i := range m.Roles {
+		if m.Roles[i].ID == id {
+			return &m.Roles[i]
+		}
+	}
+	return nil
+}
+
+func teams(c *ui.Context, m *Model) {
+	t := func(k string, a ...any) string { return i18n.T(c, k, a...) }
+	ui.Column(c.Key("teams")).Gap(16).Children(func() {
+		kit.Card(c, func() {
+			kit.WideRow(c, "concurrency", t("teams_concurrency"), t("teams_concurrency_description"), func() {
+				if ui.StepSlider(c.Key("slider"), &m.Concurrency.Draft, 1, 16, 1).Label(t("teams_concurrency")).Grow(1).Changed() {
+					report(c, m.Concurrency.Commit(), concurrencyMessages)
+				}
+				ui.Textf(c, "%.0f", m.Concurrency.Draft).FontSize(14).Width(24).TextAlign(ui.End)
+			})
+		})
+		ui.Row(c.Key("bar")).Gap(12).Children(func() {
+			ui.Segmented(c.Key("tabs"), &m.TeamTab, t("settings_teams"), t("teams_roles")).Label(t("settings_teams"))
+			ui.Spacer(c)
+			label := t("team_new")
+			if m.TeamTab == 1 {
+				label = t("role_new")
+			}
+			iconButton(c, "new", icons.Plus, label, true, false).OnClick(func() {
+				if m.TeamTab == 0 {
+					m.teamEdit = teamEditor{open: true}
+				} else {
+					m.roleEdit = roleEditor{open: true}
+				}
+			})
+		})
+		if m.TeamTab == 0 {
+			teamRows(c, m)
+		} else {
+			roleRows(c, m)
+		}
+	})
+	teamDialog(c, m)
+	roleDialog(c, m)
+	if tm := m.team(m.teamRemoving); tm != nil {
+		open := true
+		if confirm(c, "delete-team", &open, t("team_delete")+" "+tm.Name, t("team_delete_prompt", "name", tm.Name), t("settings_delete")) {
+			m.Teams = slices.DeleteFunc(m.Teams, func(x preview.Team) bool { return x.ID == tm.ID })
+			m.teamEdit.open = false
+			kit.Toast(c, kit.Done, t("team_deleted"))
+		}
+		if !open {
+			m.teamRemoving = ""
+		}
+	}
+	if r := m.role(m.roleRemoving); r != nil {
+		open := true
+		if confirm(c, "delete-role", &open, t("settings_delete")+" "+r.Name, t("teams_role_delete_prompt", "name", r.Name), t("settings_delete")) {
+			m.Roles = slices.DeleteFunc(m.Roles, func(x preview.Role) bool { return x.ID == r.ID })
+			for i := range m.Teams {
+				m.Teams[i].Members = slices.DeleteFunc(m.Teams[i].Members, func(id string) bool { return id == r.ID })
+			}
+			kit.Toast(c, kit.Done, t("teams_role_deleted"))
+		}
+		if !open {
+			m.roleRemoving = ""
+		}
+	}
+}
+
+func (m *Model) team(id string) *preview.Team {
+	for i := range m.Teams {
+		if id != "" && m.Teams[i].ID == id {
+			return &m.Teams[i]
+		}
+	}
+	return nil
+}
+
+// teamRows is list.rs team_rows: the Default team, then the saved teams,
+// each with its members' marks; clicking opens the editor.
+func teamRows(c *ui.Context, m *Model) {
+	p := theme.Of(c)
+	row := func(key, name, desc, meta string, builtin bool, members []string, open func()) {
+		b := ui.ButtonBase(c.Key(key)).Label(name).Padding(12, 16).Margin(0, -16).Gap(12).Justify(ui.Start).Cursor(ui.CursorPointer).OnClick(open)
+		if b.Hovered() {
+			b.Background(p.Hover)
+		}
+		b.Children(func() {
+			kit.MediaRow(c, name, desc, func() { kit.Tile(c, name, icons.Users) }, func() {
+				if builtin {
+					kit.Tag(c, i18n.T(c, "team_builtin"))
+				}
+			})
+			ui.Row(c).Shrink(0).Gap(4).Children(func() {
+				for i, id := range members[:min(5, len(members))] {
+					if r := m.role(id); r != nil {
+						ui.Row(c.Key(i)).Size(20, 20).Radius(10).Center().Background(kit.AgentColor(c, r.ID)).TextColor(theme.OnTint).Children(func() {
+							ui.Text(c, string([]rune(r.Name)[:1])).FontSize(10).FontWeight(600)
+						})
+					}
+				}
+			})
+			ui.Text(c, meta).FontSize(14).Shrink(0).TextColor(p.MutedForeground)
+		})
+	}
+	kit.Card(c, func() {
+		all := make([]string, len(m.Roles))
+		for i, r := range m.Roles {
+			all[i] = r.ID
+		}
+		row("default", i18n.T(c, "team_default"), i18n.T(c, "team_default_description"), roleCount(c, len(all)), true, all, func() {
+			m.teamEdit = teamEditor{open: true, def: true, team: preview.Team{Name: i18n.T(c, "team_default"), Members: all}}
+		})
+		for i := range m.Teams {
+			tm := &m.Teams[i]
+			meta := roleCount(c, len(tm.Members)) + " · " + m.modelSummary(c, tm.Lead, "team_follow_conversation")
+			row(tm.ID, tm.Name, tm.Description, meta, false, tm.Members, func() {
+				x := *tm
+				x.Members = slices.Clone(tm.Members)
+				m.teamEdit = teamEditor{open: true, team: x}
+			})
+		}
+	})
+}
+
+// roleRows is roles.rs role_rows: each role with its model, and its edit
+// and delete actions.
+func roleRows(c *ui.Context, m *Model) {
+	if len(m.Roles) == 0 {
+		kit.EmptyGroup(c, icons.Bot, i18n.T(c, "teams_roles_empty"))
+		return
+	}
+	kit.Card(c, func() {
+		for i := range m.Roles {
+			r := &m.Roles[i]
+			desc := m.modelSummary(c, r.Model, "role_inherit")
+			if r.ReadOnly {
+				desc += " · " + i18n.T(c, "teams_read_only")
+			}
+			kit.Entry(c, r.ID, func() {
+				kit.MediaRow(c, r.Name, desc, func() { kit.Agent(c, r.ID, kit.AgentColor(c, r.ID), false, kit.TileSize) }, nil)
+			}, nil, func() {
+				kit.Action(c.Key("edit"), icons.Pencil, i18n.T(c, "settings_edit"), false).OnClick(func() { m.roleEdit = roleEditor{open: true, role: *r} })
+				kit.Action(c.Key("delete"), icons.Trash, i18n.T(c, "settings_delete"), r.Builtin).OnClick(func() { m.roleRemoving = r.ID })
+			})
+		}
+	})
+}
+
+// modelField is a model select of "" (labeled follow) and the channels'
+// models, with its effort select after it.
+func modelField(c *ui.Context, m *Model, key, label, follow string, model, effort *string) {
+	ids, names := m.modelChoices(c, follow)
+	kit.Field(c, key, label, "", func() {
+		ui.Row(c).Gap(8).Children(func() {
+			chosen := max(0, slices.Index(ids, *model))
+			if pick(c, "model", label, &chosen, names, false).Grow(1).Changed() {
+				*model, *effort = ids[chosen], ""
+			}
+			efs := m.efforts(c, *model)
+			if len(efs) > 1 {
+				shown := make([]string, len(efs))
+				for i, x := range efs {
+					shown[i] = x
+					if x == "" {
+						shown[i] = i18n.T(c, "role_effort_inherit")
+					}
+				}
+				e := max(0, slices.Index(efs, *effort))
+				if pick(c, "effort", i18n.T(c, "provider_efforts"), &e, shown, false).Width(140).Changed() {
+					*effort = efs[e]
+				}
+			}
+		})
+	})
+}
+
+// teamDialog is teams/editor: name, description, lead model, lead prompt
+// and the members; the Default team only shows its members. Its footer
+// duplicates, deletes, cancels and saves.
+func teamDialog(c *ui.Context, m *Model) {
+	e := &m.teamEdit
+	if !e.open {
+		return
+	}
+	t := func(k string, a ...any) string { return i18n.T(c, k, a...) }
+	title := t("team_edit")
+	if e.team.ID == "" && !e.def {
+		title = t("team_new")
+	}
+	kit.Dialog(c.Key("team-editor"), &e.open, func() {
+		ui.Text(c, title).FontSize(16).FontWeight(600)
+		ui.Scroll(c.Key("body")).Grow(1).Shrink(1).Gap(16).Children(func() {
+			if e.def {
+				ui.Text(c, t("team_default_description")).FontSize(14).TextColor(theme.Of(c).MutedForeground)
+			} else {
+				kit.Field(c, "name", t("settings_name"), "", func() {
+					ui.TextInput(c.Key("input"), &e.team.Name).Label(t("settings_name")).Placeholder(t("form_name_hint")).FillWidth()
+				})
+				kit.Field(c, "description", t("teams_description"), "", func() {
+					ui.TextInput(c.Key("input"), &e.team.Description).Label(t("teams_description")).Placeholder(t("teams_description")).FillWidth()
+				})
+				modelField(c, m, "lead", t("team_lead_model"), "team_follow_conversation", &e.team.Lead, &e.team.Effort)
+				kit.Field(c, "instructions", t("team_lead_instructions"), "", func() {
+					ui.TextArea(c.Key("input"), &e.team.Instructions).Label(t("team_lead_instructions")).FillWidth().MinHeight(80)
+				})
+			}
+			members := e.team.Members
+			modalList(c, "members", t("team_members"), roleCount(c, len(members)), t("team_members_empty"), len(members), func() {
+				for i, id := range members {
+					r := m.role(id)
+					if r == nil {
+						continue
+					}
+					sub := m.modelSummary(c, r.Model, "teams_follow_lead")
+					if r.ReadOnly {
+						sub += " · " + t("teams_read_only")
+					}
+					row := listRow{subtitle: sub, leading: func() { kit.Agent(c, r.ID, kit.AgentColor(c, r.ID), false, 28) }}
+					if !e.def {
+						row.remove, row.removeLabel = func() { e.team.Members = slices.Delete(e.team.Members, i, i+1) }, t("team_member_remove")
+					}
+					row.row(c, id, r.Name)
+				}
+			}, func() {
+				if e.def {
+					return
+				}
+				kit.MenuButton(c.Key("add-role"), "team-add-role", func(b ui.Element) {
+					kit.GhostLook(c, b.Label(t("team_add_role")), false).Radius(0).Height(rowSingle).PaddingX(16).Gap(6).FillWidth().Children(func() {
+						ui.Icon(c, icons.Plus).FontSize(16)
+						ui.Text(c, t("team_add_role")).FontSize(14)
+					})
+				}, func(menu *Menu) {
+					for _, r := range m.Roles {
+						if slices.Contains(e.team.Members, r.ID) {
+							continue
+						}
+						if menu.Item(r.Name).Description(r.Description).Chosen() {
+							e.team.Members = append(e.team.Members, r.ID)
+						}
+					}
+				})
+			})
+		})
+		ui.Row(c.Key("footer")).Gap(8).Children(func() {
+			if !e.def && e.team.ID != "" {
+				kit.Secondary(c.Key("duplicate"), t("team_duplicate")).OnClick(func() {
+					x := e.team
+					x.ID, x.Name, x.Members = "", t("team_copy_name", "name", x.Name), slices.Clone(x.Members)
+					e.team = x
+				})
+				kit.Danger(c.Key("delete"), t("team_delete")).OnClick(func() { m.teamRemoving = e.team.ID })
+			}
+			ui.Spacer(c)
+			if e.def {
+				kit.Secondary(c.Key("close"), t("close")).OnClick(func() { e.open = false })
+				return
+			}
+			kit.Secondary(c.Key("cancel"), t("settings_cancel")).OnClick(func() { e.open = false })
+			action := t("settings_save")
+			if e.team.ID == "" {
+				action = t("team_create")
+			}
+			kit.Primary(c.Key("ok"), action, false).Children(func() { ui.Text(c, action).FontSize(14) }).OnClick(func() {
+				if problem := m.saveTeam(e.team); problem != "" {
+					kit.Toast(c, kit.Failed, t(problem))
+					return
+				}
+				kit.Toast(c, kit.Done, t("team_saved"))
+				e.open = false
+			})
+		})
+	}).Width(min(600, width(c)-48)).Label(title)
+}
+
+// saveTeam checks and stores a team: the i18n key of the problem, or "".
+func (m *Model) saveTeam(x preview.Team) string {
+	x.Name = strings.TrimSpace(x.Name)
+	if x.Name == "" {
+		return "team_invalid"
+	}
+	for _, y := range m.Teams {
+		if y.ID != x.ID && strings.EqualFold(y.Name, x.Name) {
+			return "team_name_taken"
+		}
+	}
+	if tm := m.team(x.ID); tm != nil {
+		*tm = x
+		return ""
+	}
+	x.ID = fmt.Sprintf("team-%d", len(m.Teams)+1)
+	m.Teams = append(m.Teams, x)
+	return ""
+}
+
+// saveRole checks and stores a role: the i18n key of the problem, or "".
+func (m *Model) saveRole(r preview.Role) string {
+	r.Name, r.Key = strings.TrimSpace(r.Name), strings.TrimSpace(r.Key)
+	valid := r.Key != "" && r.Name != ""
+	for _, ch := range r.Key {
+		if !(ch >= 'a' && ch <= 'z' || ch >= '0' && ch <= '9' || ch == '-' || ch == '_') {
+			valid = false
+		}
+	}
+	if !valid {
+		return "teams_role_invalid"
+	}
+	for _, y := range m.Roles {
+		if y.ID != r.ID && y.Key == r.Key {
+			return "role_duplicate"
+		}
+	}
+	if x := m.role(r.ID); x != nil {
+		*x = r
+		return ""
+	}
+	r.ID = r.Key
+	m.Roles = append(m.Roles, r)
+	return ""
+}
+
+// roleDialog is form.rs dialog: presets for a new role, name and
+// identifier side by side, description, model, read-only and the
+// instructions.
+func roleDialog(c *ui.Context, m *Model) {
+	e := &m.roleEdit
+	if !e.open {
+		return
+	}
+	t := func(k string, a ...any) string { return i18n.T(c, k, a...) }
+	title := t("teams_role_edit")
+	if e.role.ID == "" {
+		title = t("role_new")
+	}
+	locked := e.role.Builtin
+	kit.Dialog(c.Key("role-editor"), &e.open, func() {
+		ui.Text(c, title).FontSize(16).FontWeight(600)
+		ui.Scroll(c.Key("body")).Grow(1).Shrink(1).Gap(16).Children(func() {
+			if e.role.ID == "" {
+				kit.Field(c, "presets", t("role_presets"), "", func() {
+					ui.Row(c).Wrap().Gap(6).Children(func() {
+						for _, pr := range rolePresets {
+							kit.Secondary(c.Key(pr[0]), t(pr[0])).Height(28).OnClick(func() {
+								e.role.Name, e.role.Description, e.role.Instructions = t(pr[0]), t(pr[1]), t(pr[2])
+								if e.role.Key == "" {
+									e.role.Key = strings.TrimPrefix(pr[0], "role_preset_")
+								}
+							})
+						}
+					})
+				})
+			}
+			ui.Row(c.Key("pair")).Gap(16).AlignItems(ui.Start).Children(func() {
+				ui.Column(c).Grow(1).Basis(0).Children(func() {
+					kit.Field(c, "name", t("settings_name"), "", func() {
+						ui.TextInput(c.Key("input"), &e.role.Name).Label(t("settings_name")).Placeholder(t("form_name_hint")).FillWidth().Disabled(locked)
+					})
+				})
+				ui.Column(c).Grow(1).Basis(0).Children(func() {
+					kit.Field(c, "key", t("role_id"), "", func() {
+						ui.TextInput(c.Key("input"), &e.role.Key).Label(t("role_id")).Placeholder(t("teams_key_hint")).FillWidth().Disabled(locked)
+					})
+				})
+			})
+			kit.Field(c, "description", t("teams_description"), "", func() {
+				ui.TextInput(c.Key("input"), &e.role.Description).Label(t("teams_description")).FillWidth().Disabled(locked)
+			})
+			modelField(c, m, "model", t("teams_model"), "role_inherit", &e.role.Model, &e.role.Effort)
+			ui.Row(c.Key("read-only")).Gap(8).Children(func() {
+				ui.Text(c, t("teams_read_only")).FontSize(14).Grow(1)
+				ui.Switch(c.Key("switch"), &e.role.ReadOnly).Label(t("teams_read_only")).Disabled(locked)
+			})
+			kit.Field(c, "instructions", t("role_instructions"), "", func() {
+				ui.TextArea(c.Key("input"), &e.role.Instructions).Label(t("role_instructions")).FillWidth().MinHeight(120).Disabled(locked)
+			})
+		})
+		footer(c, t("role_save"), func() { e.open = false }, func() {
+			if problem := m.saveRole(e.role); problem != "" {
+				kit.Toast(c, kit.Failed, t(problem))
+				return
+			}
+			kit.Toast(c, kit.Done, t("teams_role_saved"))
+			e.open = false
+		})
+	}).Width(min(600, width(c)-48)).Label(title)
+}

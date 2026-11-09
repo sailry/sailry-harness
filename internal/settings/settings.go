@@ -141,6 +141,8 @@ func Page(c *ui.Context, s *State, d *preview.Data, look Look) {
 			providers(c, s)
 		case Connectors:
 			connectors(c, s.Model)
+		case Teams:
+			teams(c, s.Model)
 		case Plugins:
 			plugins(c, d)
 		case Terminal:

@@ -253,3 +253,48 @@ func ConnectorsData() *Connectors {
 		Accounts: []string{"octo-dev (github.com)", "octo-work (github.example.com)"},
 	}
 }
+
+// Role is a subagent role (role::Profile).
+type Role struct {
+	ID, Key, Name, Description string
+	Model                      string // "channel/model"; "" inherits the session's
+	Effort                     string // "" auto
+	ReadOnly                   bool
+	Instructions               string
+	Builtin                    bool
+}
+
+// Team is a team of roles led by a model (team::Profile).
+type Team struct {
+	ID, Name, Description string
+	Members               []string // role IDs
+	Lead                  string   // "channel/model"; "" follows the conversation
+	Effort                string
+	Instructions          string
+}
+
+// TeamSet is the teams page's dataset.
+type TeamSet struct {
+	Teams       []Team
+	Roles       []Role
+	Concurrency float64
+}
+
+// TeamsData builds the teams' dataset, fresh each call.
+func TeamsData() *TeamSet {
+	return &TeamSet{
+		Concurrency: 4,
+		Roles: []Role{
+			{ID: "explore", Key: "explore", Name: "Explore code", Description: "Read the current project's code and report findings", ReadOnly: true, Builtin: true},
+			{ID: "research", Key: "research", Name: "Web research", Description: "Investigate public web sources", ReadOnly: true, Builtin: true},
+			{ID: "reviewer", Key: "code-reviewer", Name: "Reviewer", Description: "Review changes and report evidence-backed findings",
+				Model: "anthropic/claude-opus-5-5", Effort: "high", ReadOnly: true, Instructions: "Review code and changes within the assigned scope."},
+			{ID: "tester", Key: "tester", Name: "Tester", Description: "Run checks and report verified results", Instructions: "Verify the assigned change."},
+		},
+		Teams: []Team{
+			{ID: "ship", Name: "Ship it", Description: "Implement, test and review", Members: []string{"explore", "tester", "reviewer"},
+				Lead: "anthropic/claude-sonnet-5-5", Effort: "medium"},
+			{ID: "study", Name: "Study", Description: "Research before a change", Members: []string{"explore", "research"}},
+		},
+	}
+}
