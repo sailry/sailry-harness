@@ -23,6 +23,7 @@ import (
 	"github.com/sailry/sailry-go/internal/settings"
 	"github.com/sailry/sailry-go/internal/sidebar"
 	"github.com/sailry/sailry-go/internal/theme"
+	"github.com/sailry/sailry-go/internal/transfers"
 )
 
 // Frame metrics of preview.rs, shell/limits.rs and shell/frame.rs.
@@ -118,6 +119,14 @@ type App struct {
 	hosts   map[string]*host.Host
 	hostUI  map[string]*host.State
 	Metrics bool
+
+	// installs is the installation queue the rail's button shows;
+	// download is the Save as dialog's transfer, played from downloaded
+	// on the frame clock (preview).
+	installs     *transfers.Queue
+	installsOpen bool
+	download     transfers.Download
+	downloaded   time.Time
 }
 
 // New makes the app over the preview dataset, showing its large conversation.
@@ -132,6 +141,7 @@ func New(d *preview.Data) *App {
 		drafts:   map[string]*composer.State{},
 		unpinned: map[string]bool{},
 		Host:     "local",
+		installs: preview.Installations(),
 		Metrics:  true,
 	}
 	for _, f := range Features {
@@ -571,11 +581,14 @@ func (x *actions) LoadOlder() { preview.LoadOlder(x.cv) }
 // FileAction opens a file in the system's app; saving and asking for
 // edits only say so in the preview.
 func (x *actions) FileAction(f conversation.File, a conversation.FileAction) {
-	if a == conversation.OpenExternal {
+	switch a {
+	case conversation.OpenExternal:
 		x.openSystem(f)
-		return
+	case conversation.Download:
+		x.a.startDownload(f.Name())
+	default:
+		x.notice()
 	}
-	x.notice()
 }
 
 // openSystem hands a file to the system's default app through MyGo's

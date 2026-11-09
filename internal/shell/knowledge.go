@@ -93,4 +93,5 @@ func (a *App) knowledge(c *ui.Context) {
 func (a *App) overlays(c *ui.Context) {
 	a.searchOverlay(c)
 	a.knowledge(c)
+	a.downloadDialog(c)
 }

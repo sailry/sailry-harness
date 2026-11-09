@@ -8,6 +8,7 @@ import (
 	"github.com/sailry/sailry-go/internal/icons"
 	"github.com/sailry/sailry-go/internal/kit"
 	"github.com/sailry/sailry-go/internal/theme"
+	"github.com/sailry/sailry-go/internal/transfers"
 )
 
 // Feature is a rail entry (shell/rail/features.rs).
@@ -101,6 +102,9 @@ func (a *App) rail(c *ui.Context) {
 		a.moreButton(c)
 		ui.Spacer(c)
 		a.bell(c)
+		if transfers.Visible(a.installs) {
+			transfers.Button(c, a.installs, &a.installsOpen, func(transfers.Entry) { c.Toast(i18n.T(c, "preview_notice")) })
+		}
 		a.hostPicker(c)
 		kit.IconButtonHint(c.Key("search"), icons.Search, i18n.T(c, "search"), a.hint("app.search"), 36, a.search.open).
 			OnClick(func() { a.openSearch() })
