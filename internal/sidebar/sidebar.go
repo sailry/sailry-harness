@@ -497,21 +497,17 @@ func guide(c *ui.Context, last bool) {
 		BorderWidth(1, 0, 0, 0).BorderStyle(ui.BorderDashed).BorderColor(color).PassThrough()
 }
 
-// status puts the conversation's state in the 12x12 slot on the elbow.
+// status puts the conversation's state in the 12x12 slot on the elbow: the
+// loader while it runs, otherwise the status dot in its tone.
 func status(c *ui.Context, st preview.Status) {
-	p := theme.Of(c)
 	slot := ui.Box(c).Absolute().Left(guideX-6).Top(rowHeight/2-6).Size(12, 12).Center().PassThrough()
 	switch st {
 	case preview.Running:
 		slot.Label(i18n.T(c, "activity_running")).Children(func() { kit.Loader(c, 12) })
 	case preview.Waiting:
-		slot.Label(i18n.T(c, "activity_waiting")).Children(func() {
-			ui.Icon(c, icons.Info).FontSize(12).TextColor(p.Warning)
-		})
+		slot.Children(func() { kit.StatusDot(c, kit.Caution, i18n.T(c, "activity_waiting")) })
 	case preview.Unread:
-		slot.Label(i18n.T(c, "notification_unread")).Children(func() {
-			ui.Box(c).Size(8, 8).Radius(4).Background(p.Primary)
-		})
+		slot.Children(func() { kit.StatusDot(c, kit.Info, i18n.T(c, "notification_unread")) })
 	}
 }
 

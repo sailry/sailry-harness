@@ -173,3 +173,9 @@ func Badge(c *ui.Context, text string, tone Tone) ui.Element {
 func StatusDot(c *ui.Context, tone Tone, label string) ui.Element {
 	return ui.Box(c).Size(8, 8).Shrink(0).Radius(4).Background(tone.color(theme.Of(c))).Label(label)
 }
+
+// StatusRing is the status dot on a mark: the same 8 DIP dot in a 1 DIP
+// ring of the color under it, so it stands apart from the mark.
+func StatusRing(c *ui.Context, tone Tone, under ui.Color) ui.Element {
+	return ui.Box(c).Size(10, 10).Shrink(0).Radius(5).Background(tone.color(theme.Of(c))).Border(1, under)
+}

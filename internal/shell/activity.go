@@ -158,16 +158,16 @@ func (l lane) key() string {
 	return [...]string{"activity_waiting", "activity_running", "activity_completed"}[l]
 }
 
-// look is the lane's badge glyph and its color, and the progress glyph
+// look is the lane's status tone and its color, and the progress glyph
 // that marks it in lists (activity/icons.rs).
-func (l lane) look(p *theme.Palette) (badge, glyph *ui.SVG, color ui.Color) {
+func (l lane) look(p *theme.Palette) (tone kit.Tone, glyph *ui.SVG, color ui.Color) {
 	switch l {
 	case laneWaiting:
-		return icons.TriangleAlert, icons.ProgressWaiting, p.Warning
+		return kit.Caution, icons.ProgressWaiting, p.Warning
 	case laneCompleted:
-		return icons.Check, icons.ProgressCompleted, p.Success
+		return kit.Positive, icons.ProgressCompleted, p.Success
 	}
-	return nil, icons.ProgressRunning, p.Primary
+	return kit.Info, icons.ProgressRunning, p.Primary
 }
 
 // strip is the header's activity strip (shell/activity/strip.rs): the
@@ -225,25 +225,21 @@ func (a *App) strip(c *ui.Context) {
 
 // avatar is a session's 28 DIP text button (Kit's text variant: no fill,
 // no selected state) holding its 20 DIP agent mark: turning in its color
-// while it runs, otherwise in the lane's color with Kit's small icon Badge,
-// a 10 DIP disc with a 1 DIP background ring and an 8 DIP glyph at its
-// bottom right.
+// while it runs, otherwise in the lane's color with the lane's status dot
+// in a 1 DIP background ring at its bottom right.
 func (a *App) avatar(c *ui.Context, cv *preview.Conversation, l lane) {
 	p := theme.Of(c)
 	title := sidebar.Title(c, cv)
 	b := ui.ButtonBase(c.Key(cv.ID)).Label(title+" · "+i18n.T(c, l.key())).Size(28, 28).Radius(p.Radius).Center().Shrink(0).Cursor(ui.CursorPointer)
 	b.Children(func() {
-		badge, _, color := l.look(p)
-		if badge == nil {
+		tone, _, color := l.look(p)
+		if l == laneRunning {
 			kit.Agent(c, cv.ID, kit.AgentColor(c, cv.ID), true, 20)
 			return
 		}
 		ui.Box(c).Size(20, 20).Shrink(0).Children(func() {
 			kit.Agent(c, cv.ID, color, false, 20)
-			ui.Row(c).Absolute().Right(0).Bottom(0).Size(10, 10).Radius(5).Center().
-				Background(color).Border(1, p.Background).Children(func() {
-				ui.Icon(c, badge).FontSize(8).TextColor(theme.OnTint)
-			})
+			kit.StatusRing(c, tone, p.Background).Absolute().Right(0).Bottom(0)
 		})
 	}).OnClick(func() { a.Page, a.Sidebar.Selected = ConversationPage, cv.ID })
 	a.preview(c, b, cv)
