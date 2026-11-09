@@ -21,6 +21,11 @@ and performs no backend work. The runtime components and contracts below describ
 the target as their assigned backend phases land; their presence here does not
 claim implementation or platform acceptance.
 
+B1 supplies the shared v1 protocol and wire codec. B2 adds profile ownership,
+confined files and storage initialization behind an explicit `--data-dir`;
+the desktop still shows preview data. The storage engine is the plan's SQLite
+fallback after the required Turso load failed. Live Client wiring is B3.
+
 ## System context
 
 Users control AI conversations and development resources from Desktop or Mobile.
@@ -145,20 +150,23 @@ link         → protocol + transport dependencies
 
 ### Storage
 
-- The Node uses the pinned Turso Go driver through purego for `storage/node.turso` and
-  `storage/knowledge.turso`. Each database has one shared handle. Each operation
-  leases a connection and keeps related SQL in one transaction, with full
-  synchronous durability and MVCC. Sequence counters advance in the same
-  transaction as their records, so identifiers are never reused.
+- The Node uses the pinned `modernc.org/sqlite` fallback for
+  `storage/node.sqlite` and `storage/knowledge.sqlite`. B2's required Turso
+  contention load exhausted the prescribed retries. Each file has one writer
+  goroutine that group-commits queued operations in a `BEGIN IMMEDIATE`
+  transaction, with a savepoint per operation, WAL and full synchronous
+  durability. Callers receive results after commit. Reads use a separate
+  read-only pool. Sequence counters advance with their records, so identifiers
+  are never reused.
 - Existing SQLite files are not imported. External database tools use their own
   PostgreSQL, MySQL and SQLite drivers, separate from Node storage.
 - Durable conversation records use Sailry-owned `Record`, `Message` and `Block`
   types. Binary data is stored once per content digest in the Node database.
   Unknown token counts stay unknown rather than becoming zero.
-- `storage/knowledge.turso` holds only derived chunks, full-text indexes and
+- `storage/knowledge.sqlite` holds only derived chunks, full-text indexes and
   vectors. Deleting it never removes sources or configuration.
 - Each worktree has a rebuildable code index at
-  `cache/code-index/<WorktreeId>/index.turso`. Source stays in the worktree.
+  `cache/code-index/<WorktreeId>/index.sqlite`. Source stays in the worktree.
 - New managed checkouts live under the main worktree's `.sailry/worktrees/<id>`,
   excluded through Git's `info/exclude`.
 - Disposable command, browser and transfer staging lives under the profile's `tmp`
@@ -186,12 +194,13 @@ independent of this policy.
 - A validation failure never authorizes rebuilding a current database.
 - Startup validates current configuration and recovery records. Historical
   captures and history are validated when their readers load them.
-- Release option A uses the same Turso schema, file layout and JSON shapes as the
-  Rust Node, so release builds can open `~/.sailry` in place after cross-engine
-  acceptance. Source builds default to `~/.sailry-go`; implementer runs use
-  `--data-dir .runtime/profiles/<fixed-name>`. A SQLite fallback in B2 cancels
-  option A and requires a new release-profile decision.
-- Schema objects, stored JSON shapes and profile files follow the Rust source.
+- The selected SQLite fallback cancels release option A. It refuses Turso
+  profiles and performs no import. A release profile decision is required before
+  packaging; source builds still default to `~/.sailry-go`. Implementer runs use
+  `--data-dir .runtime/profiles/<fixed-name>`.
+- Schema objects, stored JSON shapes and profile files follow the Rust source;
+  the SQLite fallback supplies FTS5 external-content indexes and native SQLite
+  file families in place of Turso's index methods and file families.
   The one user-decided Go-only field is `surfaces.blur` in
   `desktop/preferences.json`, in percent with the UI default when absent.
   Theme packages define colors; surface transparency and blur are app settings.

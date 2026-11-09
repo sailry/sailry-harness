@@ -1,0 +1,565 @@
+package store
+
+import (
+	"bytes"
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+
+	"github.com/google/uuid"
+	"github.com/sailry/sailry-harness/internal/core"
+	"github.com/sailry/sailry-harness/internal/protocol"
+)
+
+const applicationID = 0x5341494c
+
+type Store struct {
+	Node      *Handle
+	Knowledge *Handle
+	NodeID    protocol.NodeID
+	Profile   string
+}
+
+func (storage *Store) Close() error {
+	var knowledge, node error
+	if storage.Knowledge != nil {
+		knowledge = storage.Knowledge.Close()
+	}
+	if storage.Node != nil {
+		node = storage.Node.Close()
+	}
+	return errors.Join(knowledge, node)
+}
+
+// Open is called only by the owner of the profile's advisory lock.
+func Open(ctx context.Context, profile string, node protocol.NodeID) (_ *Store, failure error) {
+	storage := filepath.Join(profile, "storage")
+	if err := refuseTursoProfile(storage); err != nil {
+		return nil, err
+	}
+	if err := core.PrivateDirectory(storage); err != nil {
+		return nil, err
+	}
+	path := filepath.Join(storage, "node.sqlite")
+	handle, err := OpenHandle(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if failure != nil && handle != nil {
+			_ = handle.Close()
+		}
+	}()
+	definition, err := prepareSchema(ctx, handle, node)
+	if err != nil {
+		return nil, err
+	}
+	if definition.state == schemaRebuild {
+		closed, err := handle.Pause(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if err := closed.Close(); err != nil {
+			return nil, err
+		}
+		if err := handle.Close(); err != nil {
+			return nil, err
+		}
+		if err := clearDatabase(filepath.Join(storage, "knowledge.sqlite")); err != nil {
+			return nil, err
+		}
+		if err := clearDatabase(path); err != nil {
+			return nil, err
+		}
+		handle, err = OpenHandle(ctx, path)
+		if err != nil {
+			return nil, err
+		}
+		definition, err = prepareSchema(ctx, handle, node)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if definition.state == schemaUpdate {
+		if err := rehearseSchemaUpdate(ctx, handle, definition, node); err != nil {
+			return nil, err
+		}
+	}
+	if err := handle.Write(ctx, func(connection *sql.Conn) error {
+		return definition.initialize(ctx, connection, node)
+	}); err != nil {
+		return nil, err
+	}
+	knowledge, err := OpenHandle(ctx, filepath.Join(storage, "knowledge.sqlite"))
+	if err != nil {
+		return nil, err
+	}
+	if err := knowledge.Write(ctx, func(connection *sql.Conn) error {
+		if _, err := connection.ExecContext(ctx, sqliteSchema(KnowledgeSchema)); err != nil {
+			return err
+		}
+		var version int64
+		if err := connection.QueryRowContext(ctx, "SELECT version FROM metadata WHERE singleton=1").Scan(&version); err != nil {
+			return err
+		}
+		if version != 1 {
+			return errors.New("knowledge index: unexpected derived index format")
+		}
+		return nil
+	}); err != nil {
+		_ = knowledge.Close()
+		return nil, err
+	}
+	return &Store{Node: handle, Knowledge: knowledge, NodeID: node, Profile: profile}, nil
+}
+
+func refuseTursoProfile(storage string) error {
+	for _, name := range []string{"node", "knowledge"} {
+		path := filepath.Join(storage, name+".turso")
+		for _, member := range []string{path, filepath.Join(storage, name+".db-log"), path + "-wal", path + "-tshm"} {
+			if _, err := os.Lstat(member); err == nil {
+				return incompatibleDatabase(member, "this profile uses the Turso storage engine; the SQLite fallback requires a separate data directory")
+			} else if !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+type schemaState uint8
+
+const (
+	schemaFresh schemaState = iota
+	schemaCurrent
+	schemaUpdate
+	schemaRebuild
+)
+
+type currentSchema struct {
+	state    schemaState
+	expected schemaObjects
+	plan     schemaPlan
+	path     string
+}
+
+func prepareSchema(ctx context.Context, handle *Handle, node protocol.NodeID) (currentSchema, error) {
+	definition := currentSchema{path: handle.Path()}
+	err := handle.Read(ctx, func(connection *sql.Conn) error {
+		fresh, err := schemaOwnership(ctx, connection, definition.path)
+		if err != nil {
+			return err
+		}
+		if !fresh {
+			if err := verifyNodeIdentity(ctx, connection, definition.path, node); err != nil {
+				return err
+			}
+			current, err := currentGeneration(ctx, connection, definition.path)
+			if err != nil {
+				return err
+			}
+			if !current {
+				definition.state = schemaRebuild
+				return nil
+			}
+		}
+		definition.expected, err = referenceSchema(ctx, filepath.Dir(handle.Path()))
+		if err != nil {
+			return err
+		}
+		if fresh {
+			definition.state = schemaFresh
+			return nil
+		}
+		definition.plan, err = prepareSchemaPlan(ctx, connection, definition.path, definition.expected)
+		if err != nil {
+			return err
+		}
+		definition.state = schemaUpdate
+		if len(definition.plan.statements) != 0 {
+			return nil
+		}
+		if err := verifySchemaObjects(ctx, connection, definition.path, definition.expected); err != nil {
+			return err
+		}
+		pending, err := upgradesNeeded(ctx, connection)
+		if err != nil {
+			return err
+		}
+		if !pending {
+			definition.state = schemaCurrent
+		}
+		return nil
+	})
+	return definition, err
+}
+
+func (definition currentSchema) initialize(ctx context.Context, connection *sql.Conn, node protocol.NodeID) error {
+	switch definition.state {
+	case schemaFresh:
+		if _, err := connection.ExecContext(ctx, sqliteSchema(NodeSchema)); err != nil {
+			return err
+		}
+	case schemaUpdate:
+		if err := definition.plan.apply(ctx, connection); err != nil {
+			return err
+		}
+		if err := applyUpgrades(ctx, connection); err != nil {
+			return err
+		}
+	case schemaRebuild:
+		return errors.New("Node storage without a generation requires a development reset")
+	}
+	if definition.state == schemaUpdate && definition.plan.added[schemaObject{"database_profiles", "password_target"}] {
+		if err := reconcileDatabaseTargets(ctx, connection); err != nil {
+			return err
+		}
+	}
+	if definition.state != schemaCurrent {
+		if err := initializeDefaults(ctx, connection); err != nil {
+			return err
+		}
+		if definition.state == schemaFresh || definition.plan.created["roles"] {
+			if err := initializeRoles(ctx, connection); err != nil {
+				return err
+			}
+		}
+		if definition.state == schemaFresh || definition.plan.created["local_model_settings"] {
+			if err := initializeLocalModels(ctx, connection); err != nil {
+				return err
+			}
+		}
+		if err := verifySchemaObjects(ctx, connection, definition.path, definition.expected); err != nil {
+			return err
+		}
+	}
+	if _, err := connection.ExecContext(ctx, fmt.Sprintf("PRAGMA application_id=%d; PRAGMA user_version=1", applicationID)); err != nil {
+		return err
+	}
+	var stored []byte
+	err := connection.QueryRowContext(ctx, "SELECT identity FROM node WHERE singleton=1").Scan(&stored)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		if _, err := connection.ExecContext(ctx, "INSERT INTO node(singleton,identity,tool_defaults,tool_metadata_names) VALUES(1,?1,1,1)", node[:]); err != nil {
+			return err
+		}
+	case err != nil:
+		return err
+	case !bytes.Equal(stored, node[:]):
+		return errors.New("Node identity does not match its database")
+	}
+	validate := validateStored
+	if definition.state == schemaCurrent {
+		validate = validateStartup
+	}
+	if err := validate(ctx, connection); err != nil {
+		return err
+	}
+	return auditReferences(ctx, connection)
+}
+
+func rehearseSchemaUpdate(ctx context.Context, handle *Handle, definition currentSchema, node protocol.NodeID) error {
+	closed, err := handle.Pause(ctx)
+	if err != nil {
+		return err
+	}
+	defer closed.Close()
+	preview, err := previewDatabase(handle.Path())
+	if err != nil {
+		return err
+	}
+	defer preview.close()
+	rehearsal, err := OpenHandle(ctx, preview.path)
+	if err != nil {
+		return err
+	}
+	rehearsalError := rehearsal.Write(ctx, func(connection *sql.Conn) error {
+		return definition.initialize(ctx, connection, node)
+	})
+	if err := errors.Join(rehearsalError, rehearsal.Close()); err != nil {
+		return err
+	}
+	if _, err := saveBeforeUpgrade(handle.Path()); err != nil {
+		return err
+	}
+	return closed.Reopen(ctx)
+}
+
+func schemaOwnership(ctx context.Context, connection *sql.Conn, path string) (bool, error) {
+	var application, version int64
+	if err := connection.QueryRowContext(ctx, "PRAGMA application_id").Scan(&application); err != nil {
+		return false, err
+	}
+	if err := connection.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
+		return false, err
+	}
+	if application == 0 && version == 0 {
+		objects, err := readSchemaObjects(ctx, connection)
+		if err != nil {
+			return false, err
+		}
+		if len(objects) == 0 {
+			return true, nil
+		}
+	}
+	if application != applicationID {
+		return false, incompatibleDatabase(path, fmt.Sprintf("application_id is %#x, expected %#x", application, applicationID))
+	}
+	if version != 1 {
+		return false, incompatibleDatabase(path, fmt.Sprintf("user_version is %d, expected 1", version))
+	}
+	return false, nil
+}
+
+func verifyNodeIdentity(ctx context.Context, connection *sql.Conn, path string, node protocol.NodeID) error {
+	var stored []byte
+	if err := connection.QueryRowContext(ctx, "SELECT identity FROM node WHERE singleton=1").Scan(&stored); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if !bytes.Equal(stored, node[:]) {
+		return incompatibleDatabase(path, "Node identity is missing or does not match its database")
+	}
+	return nil
+}
+
+func currentGeneration(ctx context.Context, connection *sql.Conn, path string) (bool, error) {
+	rows, err := connection.QueryContext(ctx, "PRAGMA table_info(node)")
+	if err != nil {
+		return false, err
+	}
+	declared := false
+	for rows.Next() {
+		var position, notNull, primary int64
+		var name, kind string
+		var defaultValue any
+		if err := rows.Scan(&position, &name, &kind, &notNull, &defaultValue, &primary); err != nil {
+			_ = rows.Close()
+			return false, err
+		}
+		if name == "storage_generation" {
+			declared = true
+		}
+	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+		return false, err
+	}
+	if !declared {
+		return false, nil
+	}
+	var current bool
+	if err := connection.QueryRowContext(ctx, "SELECT CASE WHEN typeof(storage_generation)='integer' AND storage_generation=1 THEN 1 ELSE 0 END FROM node WHERE singleton=1").Scan(&current); err != nil {
+		return false, err
+	}
+	if !current {
+		return false, incompatibleDatabase(path, "node.storage_generation is invalid or unsupported")
+	}
+	return true, nil
+}
+
+func referenceSchema(ctx context.Context, parent string) (schemaObjects, error) {
+	directory := filepath.Join(parent, ".schema-reference-"+uuid.NewString())
+	if err := core.PrivateDirectory(directory); err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(directory)
+	handle, err := OpenHandle(ctx, filepath.Join(directory, "reference.sqlite"))
+	if err != nil {
+		return nil, err
+	}
+	defer handle.Close()
+	if err := handle.Write(ctx, func(connection *sql.Conn) error {
+		_, err := connection.ExecContext(ctx, sqliteSchema(NodeSchema))
+		return err
+	}); err != nil {
+		return nil, err
+	}
+	var objects schemaObjects
+	err = handle.Read(ctx, func(connection *sql.Conn) error {
+		var err error
+		objects, err = readSchemaObjects(ctx, connection)
+		return err
+	})
+	return objects, err
+}
+
+func readSchemaObjects(ctx context.Context, connection *sql.Conn) (schemaObjects, error) {
+	rows, err := connection.QueryContext(ctx, "SELECT name,type,sql FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*' AND sql IS NOT NULL")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	objects := make(schemaObjects)
+	for rows.Next() {
+		var name, kind, declaration string
+		if err := rows.Scan(&name, &kind, &declaration); err != nil {
+			return nil, err
+		}
+		objects[schemaObject{kind, name}] = declaration
+	}
+	return objects, rows.Err()
+}
+
+func sortedObjects(objects schemaObjects) []schemaObject {
+	identities := make([]schemaObject, 0, len(objects))
+	for identity := range objects {
+		identities = append(identities, identity)
+	}
+	slices.SortFunc(identities, func(left, right schemaObject) int {
+		if comparison := strings.Compare(left.kind, right.kind); comparison != 0 {
+			return comparison
+		}
+		return strings.Compare(left.name, right.name)
+	})
+	return identities
+}
+
+func removeRetainedTables(actual schemaObjects, path string) error {
+	retained := map[string]string{
+		"code_settings": "CREATE TABLE code_settings (singleton INTEGER PRIMARY KEY CHECK(singleton=1),body BLOB NOT NULL)",
+		"code_startups": "CREATE TABLE code_startups (worktree TEXT NOT NULL REFERENCES worktrees(id) ON DELETE CASCADE,root TEXT NOT NULL,server TEXT NOT NULL,body BLOB NOT NULL,PRIMARY KEY(worktree,root,server))",
+	}
+	for _, name := range sortedKeys(retained) {
+		identity := schemaObject{"table", name}
+		if stored, exists := actual[identity]; exists {
+			if normalizeSQL(stored) != normalizeSQL(retained[name]) {
+				return incompatibleDatabase(path, fmt.Sprintf("retained table %q does not match its definition", name))
+			}
+			delete(actual, identity)
+		}
+	}
+	return nil
+}
+
+func verifySchemaObjects(ctx context.Context, connection *sql.Conn, path string, expected schemaObjects) error {
+	actual, err := readSchemaObjects(ctx, connection)
+	if err != nil {
+		return err
+	}
+	if err := removeRetainedTables(actual, path); err != nil {
+		return err
+	}
+	for _, identity := range sortedObjects(expected) {
+		storedSQL, exists := actual[identity]
+		if !exists {
+			return incompatibleDatabase(path, fmt.Sprintf("schema object %q is missing", identity.name))
+		}
+		if normalizeSQL(storedSQL) == normalizeSQL(expected[identity]) {
+			continue
+		}
+		if identity.kind != "table" {
+			return incompatibleDatabase(path, fmt.Sprintf("schema object %q does not match the current definition", identity.name))
+		}
+		wanted, err := parseTable(expected[identity])
+		if err != nil {
+			return err
+		}
+		stored, err := parseTable(storedSQL)
+		if err != nil {
+			return err
+		}
+		for _, field := range sortedKeys(wanted.columns) {
+			existing, exists := stored.columns[field]
+			if !exists {
+				return incompatibleDatabase(path, fmt.Sprintf("column %s.%s is missing", identity.name, field))
+			}
+			if schemaColumn(identity.name, field, existing) != schemaColumn(identity.name, field, wanted.columns[field]) {
+				return incompatibleDatabase(path, fmt.Sprintf("column %s.%s does not match the current definition", identity.name, field))
+			}
+		}
+		for _, field := range sortedKeys(stored.columns) {
+			if _, exists := wanted.columns[field]; !exists {
+				return incompatibleDatabase(path, fmt.Sprintf("column %s.%s is not part of the current schema", identity.name, field))
+			}
+		}
+		if !sameTableShape(wanted, stored) {
+			return incompatibleDatabase(path, fmt.Sprintf("table %q does not match the current constraints", identity.name))
+		}
+	}
+	for _, identity := range sortedObjects(actual) {
+		if _, exists := expected[identity]; !exists {
+			return incompatibleDatabase(path, fmt.Sprintf("schema object %q (%s) is not part of the current schema", identity.name, identity.kind))
+		}
+	}
+	return nil
+}
+
+func auditReferences(ctx context.Context, connection *sql.Conn) error {
+	tables, err := schemaTableNames(NodeSchema)
+	if err != nil {
+		return err
+	}
+	for _, table := range tables {
+		if err := auditTableReferences(ctx, connection, table); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func auditTableReferences(ctx context.Context, connection *sql.Conn, table string) error {
+	rows, err := connection.QueryContext(ctx, "PRAGMA foreign_key_list("+quoteIdentifier(table)+")")
+	if err != nil {
+		return err
+	}
+	type columns struct {
+		child, parent string
+	}
+	type foreignKey struct {
+		parent string
+		fields map[int64]columns
+	}
+	keys := make(map[int64]*foreignKey)
+	for rows.Next() {
+		var id, position int64
+		var parent, childColumn, parentColumn, update, deleteAction, match string
+		if err := rows.Scan(&id, &position, &parent, &childColumn, &parentColumn, &update, &deleteAction, &match); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		if keys[id] == nil {
+			keys[id] = &foreignKey{parent: parent, fields: make(map[int64]columns)}
+		}
+		key := keys[id]
+		if _, duplicate := key.fields[position]; duplicate || key.parent != parent {
+			_ = rows.Close()
+			return errors.New("invalid stored foreign key declaration")
+		}
+		key.fields[position] = columns{childColumn, parentColumn}
+	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+		return err
+	}
+	identities := make([]int64, 0, len(keys))
+	for identity := range keys {
+		identities = append(identities, identity)
+	}
+	slices.Sort(identities)
+	for _, identity := range identities {
+		key := keys[identity]
+		positions := make([]int64, 0, len(key.fields))
+		for position := range key.fields {
+			positions = append(positions, position)
+		}
+		slices.Sort(positions)
+		var present, matching []string
+		for _, position := range positions {
+			field := key.fields[position]
+			present = append(present, "c."+quoteIdentifier(field.child)+" IS NOT NULL")
+			matching = append(matching, "p."+quoteIdentifier(field.parent)+"=c."+quoteIdentifier(field.child))
+		}
+		query := "SELECT EXISTS(SELECT 1 FROM " + quoteIdentifier(table) + " c WHERE " + strings.Join(present, " AND ") + " AND NOT EXISTS(SELECT 1 FROM " + quoteIdentifier(key.parent) + " p WHERE " + strings.Join(matching, " AND ") + "))"
+		var invalid bool
+		if err := connection.QueryRowContext(ctx, query).Scan(&invalid); err != nil {
+			return err
+		}
+		if invalid {
+			return fmt.Errorf("invalid stored reference in %s; existing data was not changed", table)
+		}
+	}
+	return nil
+}

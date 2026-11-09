@@ -214,6 +214,12 @@ bounds in). `LoadPrefs` falls back to the defaults and clamps widths.
 
 ## Wiring a backend
 
+The desktop entry point opens the locked Node profile only when `--data-dir`
+is supplied during B2. Profile storage uses the selected SQLite fallback and
+keeps the Link identity across restarts. Startup failures are reported before
+creating the window. The shell still uses preview data until the B3 Client
+projection and live action adapters land.
+
 Notices come from the activity stream (`activity::Notice`); reading one
 sends `MarkNotificationRead`. The search's sessions come from the
 client's recent sessions; its hosts from the live hosts. Knowledge pages

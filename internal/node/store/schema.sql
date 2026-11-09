@@ -1,0 +1,537 @@
+CREATE TABLE IF NOT EXISTS node (
+    singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+    identity BLOB NOT NULL CHECK(length(identity)=32),
+    storage_generation INTEGER NOT NULL DEFAULT 1,
+    plugin_defaults INTEGER NOT NULL DEFAULT 0 CHECK(plugin_defaults IN (0,1)),
+    tool_defaults INTEGER NOT NULL DEFAULT 0 CHECK(tool_defaults IN (0,1)),
+    tool_metadata_names INTEGER NOT NULL DEFAULT 0 CHECK(tool_metadata_names IN (0,1))
+);
+CREATE TABLE counters (
+    namespace TEXT PRIMARY KEY,
+    value INTEGER NOT NULL CHECK(typeof(value)='integer' AND value>0)
+);
+CREATE TABLE IF NOT EXISTS oauth_hosts (
+    singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+    host_id TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS oauth_registrations (
+    provider TEXT PRIMARY KEY,
+    client_id TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS requests (
+    caller BLOB NOT NULL,
+    id TEXT NOT NULL,
+    body BLOB NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('admitted','completed','unknown')),
+    result TEXT,
+    PRIMARY KEY(caller,id)
+);
+CREATE TABLE IF NOT EXISTS projects (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    path TEXT NOT NULL UNIQUE,
+    appearance BLOB NOT NULL
+);
+CREATE TABLE IF NOT EXISTS defaults (
+    singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+    revision INTEGER NOT NULL,
+    config BLOB NOT NULL
+);
+CREATE TABLE IF NOT EXISTS removed_projects (
+    project TEXT PRIMARY KEY REFERENCES projects(id)
+);
+CREATE TABLE IF NOT EXISTS sessions (
+    id TEXT PRIMARY KEY,
+    state TEXT NOT NULL DEFAULT 'active' CHECK(state IN ('active','archived','removed')),
+    project TEXT REFERENCES projects(id),
+    worktree TEXT REFERENCES worktrees(id),
+    revision INTEGER NOT NULL,
+    history_revision INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE IF NOT EXISTS session_attention (
+    session TEXT PRIMARY KEY REFERENCES sessions(id),
+    revision INTEGER NOT NULL,
+    unread INTEGER NOT NULL CHECK(unread IN (0,1))
+);
+CREATE TABLE IF NOT EXISTS session_associations (
+    session TEXT PRIMARY KEY REFERENCES sessions(id),
+    namespace TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    identity TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS session_association_identity ON session_associations(namespace,kind,identity);
+CREATE TABLE IF NOT EXISTS artifacts (
+    id TEXT PRIMARY KEY,
+    session TEXT NOT NULL REFERENCES sessions(id),
+    body BLOB NOT NULL
+);
+CREATE INDEX IF NOT EXISTS artifact_session ON artifacts(session);
+CREATE TABLE IF NOT EXISTS artifact_revisions (
+    artifact TEXT NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE,
+    revision INTEGER NOT NULL CHECK(revision>0),
+    body BLOB NOT NULL,
+    digest TEXT NOT NULL,
+    warnings BLOB NOT NULL,
+    PRIMARY KEY(artifact,revision)
+);
+CREATE TABLE IF NOT EXISTS worktrees (
+    id TEXT PRIMARY KEY,
+    project TEXT REFERENCES projects(id),
+    path TEXT NOT NULL UNIQUE,
+    main INTEGER NOT NULL CHECK(main IN (0,1))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS worktree_main ON worktrees(project) WHERE main=1;
+CREATE TABLE IF NOT EXISTS removed_worktrees (
+    worktree TEXT PRIMARY KEY REFERENCES worktrees(id)
+);
+CREATE TABLE IF NOT EXISTS attachments (
+    id TEXT PRIMARY KEY,
+    worktree TEXT NOT NULL REFERENCES worktrees(id) ON DELETE CASCADE,
+    caller BLOB NOT NULL,
+    body BLOB NOT NULL
+);
+CREATE TABLE IF NOT EXISTS session_revisions (
+    session TEXT NOT NULL REFERENCES sessions(id),
+    revision INTEGER NOT NULL,
+    worktree TEXT NOT NULL REFERENCES worktrees(id),
+    config BLOB NOT NULL,
+    profile BLOB,
+    roles BLOB NOT NULL,
+    PRIMARY KEY(session,revision)
+);
+CREATE TABLE IF NOT EXISTS media_settings (
+    singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+    body BLOB NOT NULL
+);
+CREATE TABLE telemetry_settings (
+    singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+    body BLOB NOT NULL
+);
+CREATE TABLE knowledge_collections (
+    id TEXT PRIMARY KEY,
+    revision INTEGER NOT NULL CHECK(revision>0),
+    generation INTEGER NOT NULL CHECK(generation>0),
+    body BLOB NOT NULL
+);
+CREATE TABLE IF NOT EXISTS session_media (
+    session TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+    body BLOB NOT NULL
+);
+CREATE TABLE IF NOT EXISTS turns (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL CHECK(kind IN ('task','compaction')),
+    plugins BLOB NOT NULL,
+    roles BLOB,
+    instructions BLOB NOT NULL DEFAULT X'5B5D',
+    session TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    request TEXT NOT NULL,
+    caller BLOB NOT NULL,
+    FOREIGN KEY(session,revision) REFERENCES session_revisions(session,revision),
+    FOREIGN KEY(caller,request) REFERENCES requests(caller,id)
+);
+CREATE INDEX IF NOT EXISTS turns_session ON turns(session);
+CREATE TABLE IF NOT EXISTS events (
+    cursor INTEGER PRIMARY KEY,
+    body BLOB NOT NULL
+);
+CREATE INDEX IF NOT EXISTS usage_metadata_events ON events(cursor)
+WHERE json_extract(body,'$.kind') IN (
+    'project_registered','project_changed','project_removed',
+    'ssh_changed','ssh_removed','database_changed','database_removed',
+    'session_changed','sessions_removed','session_rewound');
+CREATE TABLE IF NOT EXISTS agent_delegations (
+    turn TEXT PRIMARY KEY REFERENCES turns(id),
+    parent_turn TEXT NOT NULL REFERENCES turns(id),
+    entry TEXT NOT NULL,
+    part INTEGER NOT NULL,
+    body BLOB NOT NULL
+);
+CREATE INDEX IF NOT EXISTS agent_delegations_call ON agent_delegations(parent_turn,entry,part);
+CREATE TABLE IF NOT EXISTS link_peers (
+    identity BLOB PRIMARY KEY CHECK(length(identity)=32)
+);
+CREATE TABLE IF NOT EXISTS link_addresses (
+    identity BLOB PRIMARY KEY REFERENCES link_peers(identity) ON DELETE CASCADE,
+    address TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS plugin_settings (
+    plugin TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    body BLOB NOT NULL,
+    PRIMARY KEY(plugin,revision)
+);
+CREATE TABLE plugin_connections (
+    id TEXT PRIMARY KEY,
+    plugin TEXT NOT NULL,
+    connector TEXT NOT NULL,
+    revision INTEGER NOT NULL CHECK(revision>0),
+    body BLOB NOT NULL
+);
+CREATE INDEX plugin_connections_owner ON plugin_connections(plugin,connector);
+CREATE TABLE turn_connections (
+    turn TEXT NOT NULL REFERENCES turns(id),
+    plugin TEXT NOT NULL,
+    connector TEXT NOT NULL,
+    connection TEXT NOT NULL,
+    revision INTEGER NOT NULL CHECK(revision>0),
+    PRIMARY KEY(turn,connection)
+);
+CREATE INDEX turn_connections_owner ON turn_connections(turn,plugin,connector);
+CREATE TABLE plugin_values (
+    name TEXT NOT NULL,
+    key TEXT NOT NULL,
+    revision INTEGER NOT NULL CHECK(revision>0),
+    value BLOB,
+    index_data BLOB,
+    PRIMARY KEY(name,key)
+);
+-- Opaque private checkpoints share immutable records across conversation branches.
+CREATE TABLE plugin_conversation_records (
+    sequence INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value BLOB
+);
+CREATE TABLE plugin_conversation_history (
+    session TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    record INTEGER NOT NULL REFERENCES plugin_conversation_records(sequence),
+    turn TEXT REFERENCES turns(id),
+    PRIMARY KEY(session,record)
+);
+CREATE INDEX plugin_conversation_history_turn ON plugin_conversation_history(session,turn,record);
+CREATE TABLE plugin_conversation_values (
+    name TEXT NOT NULL,
+    session TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    key TEXT NOT NULL,
+    revision INTEGER NOT NULL CHECK(revision>0),
+    record INTEGER REFERENCES plugin_conversation_records(sequence),
+    restored INTEGER NOT NULL CHECK(restored IN (0,1)),
+    PRIMARY KEY(name,session,key)
+);
+CREATE TABLE IF NOT EXISTS terminals (
+    id TEXT PRIMARY KEY,
+    worktree TEXT REFERENCES worktrees(id) ON DELETE CASCADE,
+    body BLOB NOT NULL
+);
+CREATE TABLE IF NOT EXISTS terminal_settings (
+    singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+    body BLOB NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sandbox_settings (
+    singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+    body BLOB NOT NULL
+);
+CREATE TABLE IF NOT EXISTS search_settings (
+    singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+    body BLOB NOT NULL
+);
+CREATE TABLE IF NOT EXISTS providers (
+    id TEXT PRIMARY KEY,
+    body BLOB NOT NULL
+);
+CREATE TABLE IF NOT EXISTS roles (
+    id TEXT PRIMARY KEY,
+    key TEXT NOT NULL UNIQUE,
+    body BLOB NOT NULL
+);
+CREATE TABLE IF NOT EXISTS teams (
+    id TEXT PRIMARY KEY,
+    key TEXT NOT NULL UNIQUE,
+    body BLOB NOT NULL
+);
+CREATE TABLE IF NOT EXISTS team_settings (
+    singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+    body BLOB NOT NULL
+);
+CREATE TABLE IF NOT EXISTS ssh_profiles (
+    id TEXT PRIMARY KEY,
+    body BLOB NOT NULL,
+    credential TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS database_profiles (
+    id TEXT PRIMARY KEY,
+    body BLOB NOT NULL,
+    password TEXT NOT NULL,
+    password_target BLOB
+);
+CREATE TABLE IF NOT EXISTS agent_runs (
+    turn TEXT PRIMARY KEY REFERENCES turns(id),
+    ready INTEGER NOT NULL CHECK(ready IN (0,1)),
+    body BLOB NOT NULL,
+    provider BLOB,
+    input BLOB DEFAULT NULL,
+    hooks BLOB NOT NULL,
+    compaction_percent INTEGER NOT NULL DEFAULT 80 CHECK(compaction_percent BETWEEN 1 AND 99)
+);
+CREATE TABLE IF NOT EXISTS agent_events (
+    sequence INTEGER PRIMARY KEY,
+    session TEXT NOT NULL REFERENCES sessions(id),
+    id TEXT NOT NULL,
+    turn TEXT NOT NULL REFERENCES turns(id),
+    body BLOB NOT NULL,
+    UNIQUE(session,id)
+);
+CREATE TABLE IF NOT EXISTS agent_blobs (
+    digest TEXT PRIMARY KEY CHECK(length(digest)=64),
+    bytes BLOB NOT NULL
+);
+CREATE TABLE IF NOT EXISTS conversation_turns (
+    session TEXT NOT NULL REFERENCES sessions(id),
+    turn TEXT NOT NULL REFERENCES turns(id),
+    PRIMARY KEY(session,turn)
+);
+CREATE TABLE IF NOT EXISTS turn_attachments (
+    turn TEXT NOT NULL REFERENCES turns(id),
+    attachment TEXT NOT NULL REFERENCES attachments(id),
+    position INTEGER NOT NULL,
+    PRIMARY KEY(turn,attachment),
+    UNIQUE(turn,position)
+);
+CREATE INDEX IF NOT EXISTS attachment_turns ON turn_attachments(attachment);
+CREATE TABLE IF NOT EXISTS conversation_events (
+    session TEXT NOT NULL REFERENCES sessions(id),
+    sequence INTEGER NOT NULL REFERENCES agent_events(sequence),
+    PRIMARY KEY(session,sequence)
+);
+CREATE TABLE IF NOT EXISTS session_forks (
+    session TEXT PRIMARY KEY REFERENCES sessions(id),
+    source TEXT NOT NULL REFERENCES sessions(id),
+    through_turn TEXT NOT NULL REFERENCES turns(id)
+);
+CREATE TABLE IF NOT EXISTS agent_queues (
+    session TEXT PRIMARY KEY REFERENCES sessions(id),
+    revision INTEGER NOT NULL,
+    paused INTEGER NOT NULL CHECK(paused IN (0,1))
+);
+CREATE TABLE IF NOT EXISTS agent_pending (
+    turn TEXT PRIMARY KEY REFERENCES turns(id),
+    position INTEGER NOT NULL,
+    revision INTEGER NOT NULL,
+    request TEXT NOT NULL,
+    caller BLOB NOT NULL,
+    recipient TEXT REFERENCES turns(id),
+    FOREIGN KEY(caller,request) REFERENCES requests(caller,id)
+);
+CREATE INDEX IF NOT EXISTS agent_events_id ON agent_events(id);
+CREATE INDEX IF NOT EXISTS agent_events_turn ON agent_events(turn,sequence);
+CREATE INDEX IF NOT EXISTS agent_visibility ON agent_events(
+    json_extract(body,'$.message'),sequence DESC
+) WHERE json_extract(body,'$.kind')='operation' AND json_extract(body,'$.operation')='visibility';
+CREATE INDEX IF NOT EXISTS agent_usage ON agent_events(
+    turn,
+    max(0,coalesce(json_extract(body,'$.usage.input'),json_extract(body,'$.summary.usage.input'))),
+    max(0,coalesce(json_extract(body,'$.usage.output'),json_extract(body,'$.summary.usage.output'))),
+    max(0,coalesce(coalesce(json_extract(body,'$.usage.cache_read'),json_extract(body,'$.summary.usage.cache_read')),0)),
+    max(0,coalesce(coalesce(json_extract(body,'$.usage.reasoning'),json_extract(body,'$.summary.usage.reasoning')),0))
+) WHERE coalesce(json_type(body,'$.usage'),json_type(body,'$.summary.usage'))='object';
+CREATE INDEX IF NOT EXISTS agent_usage_time ON agent_events(
+    substr(json_extract(body,'$.created'),1,19),
+    sequence,
+    turn,
+    json_extract(body,'$.created'),
+    max(0,coalesce(json_extract(body,'$.usage.input'),json_extract(body,'$.summary.usage.input'))),
+    max(0,coalesce(json_extract(body,'$.usage.output'),json_extract(body,'$.summary.usage.output'))),
+    max(0,coalesce(coalesce(json_extract(body,'$.usage.cache_read'),json_extract(body,'$.summary.usage.cache_read')),0)),
+    max(0,coalesce(coalesce(json_extract(body,'$.usage.reasoning'),json_extract(body,'$.summary.usage.reasoning')),0))
+) WHERE coalesce(json_type(body,'$.usage'),json_type(body,'$.summary.usage'))='object';
+CREATE TABLE IF NOT EXISTS agent_approvals (
+    id TEXT PRIMARY KEY,
+    turn TEXT NOT NULL REFERENCES turns(id),
+    call TEXT NOT NULL,
+    body BLOB NOT NULL,
+    binding BLOB NOT NULL,
+    prepared BLOB NOT NULL DEFAULT X'6e756c6c',
+    request TEXT NOT NULL,
+    claimed INTEGER NOT NULL CHECK(claimed IN (0,1)),
+    UNIQUE(turn,call)
+);
+CREATE TABLE IF NOT EXISTS agent_approval_rules (
+    session TEXT NOT NULL REFERENCES sessions(id),
+    worktree TEXT NOT NULL REFERENCES worktrees(id),
+    binding BLOB NOT NULL,
+    choice BLOB NOT NULL,
+    approval TEXT NOT NULL REFERENCES agent_approvals(id),
+    PRIMARY KEY(session,worktree,binding,choice)
+);
+CREATE TABLE IF NOT EXISTS agent_questions (
+    id TEXT PRIMARY KEY,
+    turn TEXT NOT NULL REFERENCES turns(id),
+    call TEXT NOT NULL,
+    body BLOB NOT NULL,
+    UNIQUE(turn,call)
+);
+CREATE TABLE IF NOT EXISTS file_checkpoints (
+    id TEXT PRIMARY KEY,
+    turn TEXT NOT NULL REFERENCES turns(id),
+    approval TEXT NOT NULL UNIQUE REFERENCES agent_approvals(id),
+    body BLOB NOT NULL,
+    before_text TEXT,
+    after_text TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS file_checkpoints_turn ON file_checkpoints(turn);
+-- Later files of one change set; the approval's checkpoint row holds the first file.
+CREATE TABLE IF NOT EXISTS file_checkpoint_entries (
+    id TEXT PRIMARY KEY,
+    checkpoint TEXT NOT NULL REFERENCES file_checkpoints(id),
+    position INTEGER NOT NULL,
+    body BLOB NOT NULL,
+    before_text TEXT,
+    after_text TEXT NOT NULL,
+    UNIQUE(checkpoint,position)
+);
+CREATE TABLE IF NOT EXISTS agent_state (
+    owner TEXT NOT NULL,
+    key TEXT NOT NULL,
+    body BLOB NOT NULL,
+    PRIMARY KEY(owner,key)
+);
+CREATE TABLE IF NOT EXISTS agent_continuations (
+    turn TEXT PRIMARY KEY REFERENCES turns(id),
+    body BLOB NOT NULL
+);
+CREATE TABLE IF NOT EXISTS plugins (
+    name TEXT PRIMARY KEY,
+    revision INTEGER NOT NULL,
+    -- Highest issued configuration revision; retained across removal and collection.
+    settings_revision INTEGER NOT NULL DEFAULT 0,
+    installed INTEGER NOT NULL CHECK(installed IN (0,1)),
+    body BLOB NOT NULL
+);
+CREATE TABLE IF NOT EXISTS plugin_packages (
+    digest TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    body BLOB NOT NULL
+);
+CREATE TABLE model_catalog_status (
+    id INTEGER PRIMARY KEY CHECK(id=1),
+    body BLOB NOT NULL
+);
+CREATE TABLE model_catalog (
+    provider TEXT NOT NULL,
+    id TEXT NOT NULL,
+    body BLOB NOT NULL,
+    PRIMARY KEY(provider,id)
+);
+CREATE TABLE model_score_status (
+    id INTEGER PRIMARY KEY CHECK(id=1),
+    body BLOB NOT NULL
+);
+CREATE TABLE model_scores (
+    model TEXT NOT NULL,
+    effort TEXT NOT NULL,
+    body BLOB NOT NULL,
+    PRIMARY KEY(model,effort)
+);
+CREATE TABLE model_score_aliases (
+    alias TEXT PRIMARY KEY,
+    model TEXT NOT NULL
+);
+
+CREATE TABLE dispatch_handlers (
+    package TEXT NOT NULL,
+    name TEXT NOT NULL,
+    source TEXT NOT NULL,
+    topic TEXT NOT NULL,
+    body BLOB NOT NULL,
+    reference BLOB NOT NULL,
+    PRIMARY KEY(package,name)
+);
+CREATE INDEX dispatch_handlers_source ON dispatch_handlers(source,topic);
+CREATE TABLE dispatch_schedules (
+    package TEXT NOT NULL,
+    id TEXT NOT NULL,
+    next_ms INTEGER,
+    body BLOB NOT NULL,
+    PRIMARY KEY(package,id)
+);
+CREATE INDEX dispatch_schedules_due ON dispatch_schedules(next_ms);
+CREATE TABLE dispatch_events (
+    sequence INTEGER PRIMARY KEY,
+    id TEXT NOT NULL UNIQUE,
+    body BLOB NOT NULL
+);
+CREATE TABLE dispatch_jobs (
+    sequence INTEGER PRIMARY KEY,
+    id TEXT NOT NULL UNIQUE,
+    package TEXT NOT NULL,
+    queue TEXT NOT NULL,
+    status TEXT NOT NULL,
+    body BLOB NOT NULL,
+    callback BLOB NOT NULL,
+    reference BLOB NOT NULL
+);
+CREATE INDEX dispatch_jobs_queue ON dispatch_jobs(package,queue,status,sequence);
+CREATE TABLE notifications (
+    sequence INTEGER PRIMARY KEY,
+    id TEXT NOT NULL UNIQUE,
+    body BLOB NOT NULL
+);
+
+CREATE TABLE code_index_settings (singleton INTEGER PRIMARY KEY CHECK(singleton=1),body BLOB NOT NULL);
+CREATE TABLE python_settings (singleton INTEGER PRIMARY KEY CHECK(singleton=1),body BLOB NOT NULL);
+
+CREATE TABLE hook_settings (
+    worktree TEXT PRIMARY KEY REFERENCES worktrees(id) ON DELETE CASCADE,
+    body BLOB NOT NULL
+);
+CREATE TABLE hook_executions (
+    turn TEXT NOT NULL REFERENCES turns(id) ON DELETE CASCADE,
+    phase TEXT NOT NULL CHECK(phase IN ('before_tool','after_tool','turn_end')),
+    ordinal INTEGER NOT NULL CHECK(ordinal>=0),
+    result BLOB,
+    PRIMARY KEY(turn,phase,ordinal)
+);
+
+CREATE TABLE backup_settings (singleton INTEGER PRIMARY KEY CHECK(singleton=1),body BLOB NOT NULL);
+
+CREATE TABLE IF NOT EXISTS agent_background (
+    id TEXT PRIMARY KEY,
+    session TEXT NOT NULL REFERENCES sessions(id),
+    turn TEXT NOT NULL REFERENCES turns(id),
+    kind TEXT NOT NULL CHECK(kind IN ('agent','command')),
+    source TEXT NOT NULL,
+    state TEXT NOT NULL CHECK(state IN ('running','pending','delivered','consumed','dismissed')),
+    delivery TEXT REFERENCES turns(id),
+    sequence INTEGER NOT NULL,
+    body BLOB NOT NULL
+);
+CREATE INDEX IF NOT EXISTS agent_background_session ON agent_background(session,state,sequence);
+CREATE INDEX IF NOT EXISTS agent_background_sequence ON agent_background(sequence);
+CREATE TABLE IF NOT EXISTS background_settings (
+    singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+    body BLOB NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS agent_background_source ON agent_background(kind,source,state);
+
+CREATE TABLE IF NOT EXISTS network_settings (
+    singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+    body BLOB NOT NULL
+);
+
+-- Startup and recovery visit current state without decoding historical payloads.
+CREATE INDEX IF NOT EXISTS requests_status ON requests(status);
+CREATE INDEX IF NOT EXISTS events_kind ON events(json_extract(body,'$.kind'));
+CREATE INDEX IF NOT EXISTS agent_runs_status ON agent_runs(json_extract(body,'$.status'));
+CREATE INDEX IF NOT EXISTS agent_approvals_state ON agent_approvals(json_extract(body,'$.state'));
+CREATE INDEX IF NOT EXISTS agent_questions_state ON agent_questions(json_extract(body,'$.state.kind'));
+CREATE INDEX IF NOT EXISTS agent_background_state ON agent_background(state);
+CREATE INDEX IF NOT EXISTS dispatch_jobs_status ON dispatch_jobs(status);
+
+CREATE TABLE channel_presets (singleton INTEGER PRIMARY KEY CHECK(singleton=1),body BLOB NOT NULL);
+
+CREATE TABLE local_models (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    digest TEXT NOT NULL UNIQUE,
+    body BLOB NOT NULL
+);
+CREATE TABLE local_model_settings (
+    singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+    body BLOB NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS power_settings (singleton INTEGER PRIMARY KEY CHECK(singleton=1), body BLOB NOT NULL);
+
+CREATE TABLE compaction_settings (singleton INTEGER PRIMARY KEY CHECK(singleton=1), body BLOB NOT NULL);

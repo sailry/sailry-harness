@@ -1,0 +1,7 @@
+Source: reviewed Rust reference
+Commit: eaad1b7f18e448c8c4e9e9286e19560c8a351ae1
+
+schema.sql: crates/node-runtime/src/store/schema.sql
+database/schema/upgrades/: crates/node-runtime/src/store/database/schema/upgrades/
+knowledge/schema.sql: crates/node-runtime/src/knowledge/index/schema.sql
+code_index/schema.sql: crates/node-runtime/src/code_index/index/schema.sql

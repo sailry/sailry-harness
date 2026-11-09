@@ -7,8 +7,9 @@ code. The Go module and repository are `github.com/sailry/sailry-harness`.
 
 The B0 architecture pass preserves the accepted desktop preview. The Node, Client,
 Link, Host, Mobile adapter and plugin runtimes described in ARCHITECTURE.md are
-the backend target; their phases have not landed in B0. Implement one assigned
-phase at a time and stop for user acceptance before the next.
+the backend target; their phases have not landed in B0. Implement authorized
+phases in order, with centralized integration checks and a report per phase.
+The user has authorized continuing through B14 without confirmation pauses.
 
 The checkout is self-contained: locale sources live in `locales/`, plugin SDK
 declarations in `sdk/`, and official packages in the pinned submodules. Setup,
@@ -68,10 +69,12 @@ export GOTOOLCHAIN=go1.27.3 CGO_ENABLED=0
 go run ./cmd/sailry-desktop
 ```
 
-At B0 this always shows preview data. MyGo still keeps window bounds and
+The desktop currently shows preview data. With B2, an explicit `--data-dir`
+opens and initializes its isolated Node profile before showing that preview.
+Without this flag, preview startup does not open a Node profile. MyGo still keeps window bounds and
 `shell.Prefs` in its application-data folder. For implementer UI checks, isolate
-that folder with MyGo's path override in a disposable harness. The backend
-`--data-dir` flag lands in B2 and `--preview` in B3; B0 does not implement them.
+that folder with MyGo's path override in a disposable harness. The
+`--preview` flag and default live startup land in B3.
 
 Once B2 adds the profile flag, implementer runs use
 `--data-dir .runtime/profiles/<fixed-name>`. Development defaults to
@@ -189,11 +192,11 @@ Release work is B14. Allowed packaging tools are `mygo build`, `flutter build`,
 the specified `native/*/build.sh` scripts and the ported Host `release.sh`.
 Signing credentials, profiles, binaries and native artifacts never enter Git.
 
-Release option A opens the Rust-compatible Turso profile in place. Source builds
-keep `~/.sailry-go`; only release packaging sets the default to `~/.sailry`.
-B14 acceptance first tests copies through `--data-dir`, with Rust closed,
-and proves both engines can reopen the data. A B2 SQLite fallback cancels option A
-and requires a new profile decision. Updater feed compatibility, bundle identity
+B2 selected the prescribed SQLite fallback after the Turso contention load
+failed. It refuses Turso profiles, performs no import and cancels release option A.
+Source builds keep `~/.sailry-go`. Release packaging must preserve a separate
+profile rather than opening `~/.sailry`; the user delegated unresolved
+implementation decisions to the coordinator. Updater feed compatibility, bundle identity
 and signing acceptance remain later-phase work.
 
 ## Host automation

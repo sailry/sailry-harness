@@ -1,0 +1,16 @@
+[
+  {"name":"ascii","hex":"706c61696e2074657874","want":"plain text"},
+  {"name":"utf8","hex":"e4b8ade696870d0a7465787409f09f9982","want":"中文\r\ntext\t🙂"},
+  {"name":"utf8 bom","hex":"efbbbfe4b8ade696870d0a7465787409f09f9982","want":"中文\r\ntext\t🙂"},
+  {"name":"gbk","hex":"d6d0cec40d0a74657874","want":"中文\r\ntext"},
+  {"name":"gb18030 supplementary","hex":"d6d0cec49532823695308532","want":"中文𠀀🙂"},
+  {"name":"gb18030 replacement scalar","hex":"8431a437","want":"�"},
+  {"name":"nul","hex":"746578740062696e617279","error":"binary"},
+  {"name":"c0 control","hex":"0174657874","error":"binary"},
+  {"name":"delete","hex":"7f74657874","error":"binary"},
+  {"name":"unicode control","hex":"74657874c285","error":"binary"},
+  {"name":"malformed tail","hex":"74657874ff","error":"unsupported"},
+  {"name":"short gbk","hex":"81","error":"unsupported"},
+  {"name":"short gb18030","hex":"813081","error":"unsupported"},
+  {"name":"bom forbids gbk fallback","hex":"efbbbfd6d0","error":"unsupported"}
+]

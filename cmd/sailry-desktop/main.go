@@ -3,7 +3,10 @@
 package main
 
 import (
+	"context"
+	"flag"
 	"log"
+	"path/filepath"
 
 	"github.com/egoist/mygo"
 	// MyGo's own strings (menus, dialogs, controls) in Chinese.
@@ -13,9 +16,27 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
+	"github.com/sailry/sailry-harness/internal/node"
 )
 
 func main() {
+	dataDir := flag.String("data-dir", "", "Open the Node profile in this directory")
+	flag.Parse()
+	if *dataDir != "" {
+		path, err := filepath.Abs(*dataDir)
+		if err != nil {
+			log.Fatal(err)
+		}
+		profile, err := node.OpenProfile(context.Background(), path)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer func() {
+			if err := profile.Close(); err != nil {
+				log.Printf("profile close: %v", err)
+			}
+		}()
+	}
 	mygo.App.SetLanguages(i18n.Languages...)
 	app := shell.New(preview.Load())
 	app.OnMode = func(m theme.Mode) {
