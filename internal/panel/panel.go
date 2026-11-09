@@ -213,8 +213,8 @@ func (pr *Project) files(c *ui.Context, own bool) {
 	ui.Row(c).Grow(1).MinHeight(0).AlignItems(ui.Stretch).Children(func() {
 		ui.Column(c.Key("preview")).Grow(1).MinWidth(0).Children(func() { pr.filePreview(c, own) })
 		ui.Column(c.Key("tree")).Width(220).Shrink(0).BorderWidth(0, 0, 0, 1).BorderColor(p.Border).Children(func() {
-			ui.Text(c, i18n.T(c, "file_tree")).FontSize(14).FontWeight(500).Height(barHeight).PaddingX(12).Shrink(0)
-			ui.Scroll(c.Key("scroll")).TrackScroll(scroll(&v.tree, own)).Grow(1).Padding(0, 8, 8, 8).Children(func() {
+			// No title: the tree starts at preview_files.rs's p_2.
+			ui.Scroll(c.Key("scroll")).TrackScroll(scroll(&v.tree, own)).Grow(1).Padding(8).Children(func() {
 				tree := ui.TreeBase(c)
 				tree.Root.Children(func() {
 					var node func(n *preview.FileNode)

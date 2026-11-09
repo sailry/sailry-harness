@@ -17,7 +17,7 @@ func TestRailOpensPages(t *testing.T) {
 	if a.Page != FilesPage || len(a.Panel.Tabs) != 0 || a.PanelOpen {
 		t.Fatalf("Files opened page %d, tabs %v, panel %v", a.Page, a.Panel.Tabs, a.PanelOpen)
 	}
-	if !tt.HasText("A native desktop Agent workspace.") || !tt.HasText(i18n.In("en", "file_tree")) {
+	if !tt.HasText("A native desktop Agent workspace.") || !tt.HasText("example.md") {
 		t.Fatalf("no files page: %q", tt.Texts())
 	}
 	snapshot(t, tt, "page-files")
