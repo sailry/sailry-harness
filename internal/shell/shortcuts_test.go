@@ -30,7 +30,7 @@ func TestCloseTabInFocusedPanel(t *testing.T) {
 	if len(a.Panel.Tabs) != 2 || a.Panel.Active.Kind != panel.Changes {
 		t.Fatalf("tabs %v, active %q", a.Panel.Tabs, a.Panel.Active)
 	}
-	click(t, tt, "File changes") // inside the panel
+	click(t, tt, "Tracked · 3") // inside the panel
 	tt.Key(ui.Cmd, ui.KeyW)
 	tt.Frame()
 	if len(a.Panel.Tabs) != 1 || a.Panel.Active.Kind != panel.Files || !a.PanelOpen {
@@ -57,7 +57,7 @@ func TestCloseFocusedPage(t *testing.T) {
 	for _, f := range []struct {
 		label, inside string
 		page          Page
-	}{{"files", "A native desktop Agent workspace.", FilesPage}, {"git", "File changes", GitPage}} {
+	}{{"files", "A native desktop Agent workspace.", FilesPage}, {"git", "Tracked · 3", GitPage}} {
 		a, tt := newTester(t)
 		clickButton(t, tt, i18n.In("en", f.label))
 		settle(tt)

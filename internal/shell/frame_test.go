@@ -38,16 +38,17 @@ func TestPanelOpensWithShortcutsAndTabs(t *testing.T) {
 	snapshot(t, tt, "panel-files")
 	tt.Key(ui.Ctrl|ui.Shift, ui.KeyG)
 	tt.Frame()
-	click(t, tt, "docs/example.md")
+	clickTree(t, tt, "example.md")
 	tt.Frame()
 	if len(a.Panel.Tabs) != 4 || a.Panel.Active != (panel.Tab{Kind: panel.Changes, ID: "docs/example.md"}) ||
 		!codeHas(tt, "New text", "search: command palette") {
 		t.Fatalf("no diff tab: %v %q", a.Panel.Tabs, tt.Texts())
 	}
-	// Choosing a tab shows its item and its kind's side list.
+	// Choosing a tab shows its item and its kind's side list, whose
+	// selection stays the tree's own, as the files plugin's explorer.
 	click(t, tt, "README.md")
 	tt.Frame()
-	if row, ok := tt.AccessByRole(ui.RoleTreeItem, "README.md"); !ok || !row.Selected || !tt.HasText("A native desktop Agent workspace.") {
+	if _, ok := tt.AccessByRole(ui.RoleTreeItem, "README.md"); !ok || !tt.HasText("A native desktop Agent workspace.") {
 		t.Fatalf("the README tab does not show beside the tree: %q", tt.Texts())
 	}
 	snapshot(t, tt, "panel-changes")

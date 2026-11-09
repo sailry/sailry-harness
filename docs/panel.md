@@ -14,7 +14,9 @@ its width, motion, toggle and ⌘W (`docs/shell.md`).
 |---|---|
 | `model.go` | `Kind`, `Resource`, `Resources`, `Tab`, `State`, and the rules `Opened`, `Closed`, `Overflow` |
 | `project.go` | `Project`, `FileView`, `GitView`, `Projects`: open files and diffs per project; the split |
-| `panel.go` | `View` and `Page`, the two hosts: the strip, the launcher, the file tree and file view, the change list and hunks, checkpoints, documents |
+| `panel.go` | `View` and `Page`, the two hosts: the strip, the launcher, the file view, hunks, checkpoints, documents |
+| `files.go`, `selection.go` | The file tree, its selection (the files plugin's `explorer.js`), keys, drag and right-click menu |
+| `git.go`, `gitmenu.go`, `changes.go` | The Git component's side column (the git plugin's `view.js`), its menus and picker (`menus.js`), the change list's rows (`changes.js`), All changes |
 | `tools.go` | The browser and terminal tabs' chrome, per tab: the browser's history and address, the terminal's folder, resets and find bar; `State.Find` |
 
 ## Entry point
@@ -24,7 +26,7 @@ s := panel.New(data.Workspace)
 ps := panel.NewProjects(data.Workspace)
 pr := ps.Of(project.ID)               // nil: no project, the hosts ask for one
 panel.View(c, s, pr, shell.KeyText)   // the tab host; KeyText writes the launcher's shortcuts
-panel.Page(c, panel.Files, pr)        // the page host, in the main column
+panel.Page(c, panel.Files, pr, files) // the page host, in the main column; files goes to the Files page
 s.Open(panel.Files)                   // the launcher, "+" and the frame's ⌘P, ⌘T, ⌃`, ⌃⇧G
 s.Show(panel.Tab{Kind: panel.Documents, ID: id}) // open or focus one item's tab
 s.Show(panel.Tab{Kind: panel.Files, ID: path})   // a file's tab, opened in the project too
@@ -89,22 +91,37 @@ terminal, subagent and file-preview tabs are single-pane.
 - Launcher: `details`, then 40 DIP secondary rows up to 440 wide: icon,
   label, Kbd shortcut. Order: Browser ⌘T, Terminal ⌃`, Files ⌘P, Git ⌃⇧G,
   History, Docs.
-- Files: the tab's file in the main area, the tree in the side list
-  selecting it, in the page and a file tab alike. The tree has no
-  title and starts at 8 DIPs (rows 28, 16 per level from 8). File view
+- Files: the tab's file in the main area, the tree in the side list, in
+  the page and a file tab alike. The tree has no title and starts at 8
+  DIPs (rows 28, 16 per level from 8). It selects as the files plugin's
+  explorer: a click one row (a file opens, a folder opens or closes),
+  ⌘-click (Ctrl elsewhere) adds or removes one, ⇧-click the rows from the
+  anchor; the arrows move the selection, ⇧↑/⇧↓ extend it, → and ← open
+  and close folders, ⌘A selects every row, Enter opens. Its right-click
+  menu (the system's) acts on the selection, less rows inside a folder
+  also selected; F2, ⌘C, ⌘X, ⌘V and a row dropped on a folder would write
+  files. File view
   toolbar: Save, Undo, Redo (disabled; edits stay in the view), Find, and
   Document | Source for markdown (`kit.Markdown`'s `Document` variant:
   MyGo's markdown in the app theme, code blocks in MyGo's editor). Text in MyGo's editor (`kit.Code`, editable:
   highlighted, line numbers, mono 13 at 1.6, the caret showing, trailing line breaks left out). Status bar: path (right-click: Copy path),
   `Ln 1, Col 1`, UTF-8, language.
-- Changes: the tab's diff in the main area, the change list in the side
-  list selecting it, in the page and a diff tab alike (list: `changes`, Stage all disabled
-  with `git_actions_preview`; rows: file icon, name, status letter in
-  warning/success/danger). The diff is MyGo's diff viewer
+- Changes: the tab's diff, or All changes, in the main area, the git
+  plugin's details in the side list, in the page and a diff tab alike:
+  the branch (the checkout picker), the actions menu (`menus.js` root
+  with its submenus) and Refresh; Changes | History (`kit.Segmented`,
+  Block); Diff (All changes), the total `+N −M` and Stage or Unstage
+  (`kit.SplitButton`); the change list, a tree grouped Tracked ·
+  Untracked at first (or Staged · Unstaged, or none), as folders or flat,
+  sorted by path, name or status, its rows the status letter in
+  warning/success/danger, name, folder when flat, `+N −M` and a stage box;
+  the commit box (options line, message with expand, Commit with its
+  menu). A click or the arrows open a change's diff, which stays
+  selected; a row's right-click menu acts on every change in it. The
+  history lists the commits with their id, author and branch. The diff is MyGo's diff viewer
   (`kit.Diff`), unified as Rust's content diff view: highlighted, old and
   new numbers, word changes, and on the change under the pointer Revert
-  and Keep (`editor.DefaultHunkActions`) and Stage. Commit box: message, Commit (disabled),
-  `git_preview_only`. Status bar: path, `+N −M`.
+  and Keep (`editor.DefaultHunkActions`) and Stage. Status bar: path, `+N −M`.
 - History: a card per checkpoint: the turn, its age, the files, `+N −M`
   and `turn_changes_undo_all`.
 - Documents: a tab per document, rendered.
@@ -137,6 +154,8 @@ terminal, subagent and file-preview tabs are single-pane.
 | Close (terminal) | Closes the tab |
 | Find (terminal) | The find bar, nothing to match |
 | Revert, Keep, Stage a change, Undo changes, Find, Reload, address, Reset | `preview_notice` toast: they write files, git, load pages or start a shell; Reset also counts |
+| Git: pull, push, fetch, commit, stage, discard (after its confirmation), branch, stash, tag and remote actions, Refresh; Files: open, copy, cut, rename, trash, new, move | `preview_notice` toast |
+| Git: view options, commit options and amend, pickers, history selection; Files: selection, folders | Work in the view |
 | Copy path | Clipboard |
 
 ## Wiring a backend
@@ -161,6 +180,11 @@ items are flat tabs (new browser pages, retired kinds dropped), each file
 and diff its own tab shared with the project (closing on either side,
 another project swapping them), a browser tab's history (going drops the
 forward part).
+`internal/panel/git_test.go`: the grouped sections and the ⋯ menu's View
+options regrouping them, a folder's right-click menu and its
+confirmation, Commit's menu and amending, the history, All changes; the
+file tree's click, ⌘-click, ⇧-click, ⇧↓, ⌘A, right-click selection and
+Copy path, and its arrows, → and Enter.
 `internal/shell/frame_test.go`: ⌘⌥B opens the launcher, ⌘P a file tab
 beside the tree, a file chosen in the tree its own tab, ⌃⇧G and a change
 a diff tab (read through the diff viewer's accessible text), choosing a
@@ -184,5 +208,6 @@ at its width.
 | Each open file and diff is a tab, also on the pages' strips | The plan asks for several files and diffs open at once |
 | The split's list is a fixed column past our own drag handle | MyGo's `Split` sizes its first pane, so a first frame jumped |
 | Hunks show in the Git tab's main area, not a dialog | One place for the preview's diffs |
+| Git forms (new branch, remote, tag), Output, a commit's and a stash's documents show the notice | They need a repository; the preview has none |
 | Browser and terminal are placeholders in their chrome | Rendering is later work (MyGo WebView, libghostty-vt) |
 | The browser's chrome is core | In the reference the browser plugin draws it; the preview has no plugin UI host |

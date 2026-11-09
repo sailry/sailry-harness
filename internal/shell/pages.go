@@ -76,7 +76,7 @@ func (a *App) extensionDetails() bool {
 // the reference's preview shows them, unavailable.
 func (a *App) featurePage(c *ui.Context) {
 	if k := a.paged(); k != "" {
-		panel.Page(c, k, a.project())
+		panel.Page(c, k, a.project(), func() { a.Navigate(FilesPage) })
 		return
 	}
 	f, _ := featureOf(a.feature())

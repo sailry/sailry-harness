@@ -84,7 +84,7 @@ func TestPageAndTabShareProjectState(t *testing.T) {
 	// And the reverse: a change chosen in the Git tab shows on the page.
 	a.openPanel(panel.Changes)
 	tt.Frame()
-	click(t, tt, "docs/example.md")
+	clickTree(t, tt, "example.md")
 	tt.Frame()
 	if a.Panel.Active != (panel.Tab{Kind: panel.Changes, ID: "docs/example.md"}) || len(a.Panel.Tabs) != 4 || !codeHas(tt, "New text", "search: command palette") {
 		t.Fatalf("the change does not show in the Git tab: %v %q", a.Panel.Tabs, tt.Texts())

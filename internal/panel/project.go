@@ -19,15 +19,20 @@ type Project struct {
 	Data  *preview.Workspace
 	Files FileView
 	Git   GitView
+	// reveal shows a file of the tree in the host's Files, as the host
+	// showing the project last sets it.
+	reveal func(path string)
 }
 
 // FileView is the Files component's state: the files open, each with its
-// own view, and the tree's.
+// own view, and the tree's: its open folders and its selection.
 type FileView struct {
 	file    string   // the file shown last, by path
 	open    []string // the files open, in order
 	items   map[string]*fileItem
 	folders map[string]*bool
+	sel     selection
+	focus   string // the row to take the keyboard focus, "" for none
 	tree    ui.ScrollState
 	side    float32 // the tree's width
 }
@@ -39,13 +44,32 @@ type fileItem struct {
 }
 
 // GitView is the Git component's state: the diffs open (each viewer
-// keeps its own scroll), the list's and the commit draft.
+// keeps its own scroll), the details' view (repository.js: the list's
+// layout, its rows open and its cursor, Changes or History, the commit
+// draft and options) and the picker or confirmation showing.
 type GitView struct {
-	change string   // the changed file shown last, by path
-	open   []string // the diffs open, in order
-	commit string
-	list   ui.ScrollState
-	side   float32 // the list's width
+	change   string   // the changed file shown last, by path, or allChanges
+	open     []string // the diffs open, in order
+	scope    string   // the scope the diff shown opened in: all, staged, unstaged
+	nav      changeNav
+	expanded map[string]*bool // the list's groups and folders, by row
+	current  string           // the row of the list's cursor
+	view     int              // 0 Changes, 1 History
+	commitID string           // the commit chosen in the history
+	folded   map[string]bool  // All changes' files closed
+	commit   string           // the commit message
+	draft    string           // the message before amending
+	tall     bool             // the message box expanded
+	amend    bool
+	signoff  bool
+	skip     bool   // skip hooks
+	after    string // what the commit does after: none, push, sync
+	chord    bool   // Ctrl+G pressed, its second key to come
+	picker   picker
+	confirm  confirm
+	list     ui.ScrollState
+	history  ui.ScrollState
+	side     float32 // the list's width
 }
 
 // File is the path of the file shown.
@@ -92,6 +116,9 @@ func (v *GitView) Open() []string { return v.open }
 func (v *GitView) Show(path string) {
 	if path == "" {
 		return
+	}
+	if path != v.change {
+		v.scope = "all"
 	}
 	v.change = path
 	if !slices.Contains(v.open, path) {
@@ -169,7 +196,8 @@ func (ps *Projects) Of(id string) *Project {
 		return p
 	}
 	p := &Project{ID: id, Data: ps.data, Files: FileView{file: "sailry-go/README.md", items: map[string]*fileItem{},
-		folders: map[string]*bool{}, side: sideWidth}, Git: GitView{side: sideWidth}}
+		folders: map[string]*bool{}, sel: selection{selected: map[string]bool{}}, side: sideWidth},
+		Git: GitView{side: sideWidth, scope: "all", nav: defaultNav, expanded: map[string]*bool{}, folded: map[string]bool{}, after: "none"}}
 	if len(ps.data.Changes) > 0 {
 		p.Git.change = ps.data.Changes[0].Path
 	}

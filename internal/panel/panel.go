@@ -48,6 +48,7 @@ func View(c *ui.Context, s *State, pr *Project, keys Shortcut) {
 		case Files, Changes:
 			// The whole component for this tab's item: the side list
 			// opens or focuses another item's tab.
+			pr.reveal = func(path string) { s.Show(Tab{Files, path}) }
 			pr.view(c, t.Kind, t.ID, own, nil, func(path string) { s.Show(Tab{t.Kind, path}) })
 		case History:
 			s.history(c)
@@ -82,7 +83,7 @@ func (s *State) look(c *ui.Context, t Tab) (*ui.SVG, string) {
 		return icons.Bot, title
 	case Files, Changes:
 		if t.ID != "" {
-			return itemLook(t.Kind, t.ID)
+			return itemLook(c, t.Kind, t.ID)
 		}
 	case Documents:
 		for _, d := range s.Data.Documents {
@@ -101,11 +102,15 @@ func (s *State) Title(c *ui.Context, t Tab) string {
 	return label
 }
 
-// itemLook is a file or diff tab's icon and title: the file's name.
-func itemLook(k Kind, path string) (*ui.SVG, string) {
+// itemLook is a file or diff tab's icon and title: the file's name, or
+// All changes.
+func itemLook(c *ui.Context, k Kind, path string) (*ui.SVG, string) {
 	icon := icons.File
 	if k == Changes {
 		icon = icons.Network
+		if path == allChanges {
+			return icon, i18n.T(c, "git_all_changes")
+		}
 	}
 	return icon, path[strings.LastIndex(path, "/")+1:]
 }
@@ -113,11 +118,15 @@ func itemLook(k Kind, path string) (*ui.SVG, string) {
 // Page builds a project resource, Files or Changes, as an independent
 // page in the main column: the page host, over the same Project the tabs
 // show. A strip of the open items heads its main area; the item shown
-// last opens with the page.
-func Page(c *ui.Context, k Kind, pr *Project) {
+// last opens with the page. files goes to the Files page, where Git's
+// Open source shows a file.
+func Page(c *ui.Context, k Kind, pr *Project, files func()) {
 	ui.Column(c.Key(k)).Grow(1).MinHeight(0).Children(func() {
 		if pr != nil && pr.shown(k) != "" {
 			pr.show(k, pr.shown(k))
+		}
+		if pr != nil {
+			pr.reveal = func(string) { files() }
 		}
 		pr.view(c, k, pr.shownOr(k), true, func() { pr.strip(c, k) }, func(path string) { pr.show(k, path) })
 	})
@@ -139,7 +148,7 @@ func (pr *Project) strip(c *ui.Context, k Kind) {
 			ui.Row(c).Gap(4).Height(barHeight).Children(func() {
 				closed := ""
 				for _, path := range pr.items(k) {
-					icon, label := itemLook(k, path)
+					icon, label := itemLook(c, k, path)
 					tab(c, path, icon, label, path == pr.shown(k), nil, func() { pr.show(k, path) }, func() { closed = path })
 				}
 				if closed != "" {
@@ -196,17 +205,24 @@ func (pr *Project) view(c *ui.Context, k Kind, path string, own bool, head func(
 		if head != nil {
 			head()
 		}
-		if k == Files {
+		switch {
+		case k == Files:
 			pr.filePreview(c, path, own)
-		} else {
+		case path == allChanges:
+			pr.combined(c)
+		default:
 			pr.diff(c, path)
 		}
 	}
 	if k == Files {
-		split(c, "files", &pr.Files.side, main, func() { pr.tree(c, path, own, open) })
-	} else {
-		split(c, "changes", &pr.Git.side, main, func() { pr.changeList(c, path, own, open) })
+		split(c, "files", &pr.Files.side, main, func() { pr.tree(c, own, open) })
+		return
 	}
+	box := ui.Column(c.Key("git")).Grow(1).MinHeight(0)
+	pr.gitKeys(c, box)
+	box.Children(func() {
+		split(c, "changes", &pr.Git.side, main, func() { pr.gitDetails(c, own, open) })
+	})
 }
 
 // scroll is the project's ScrollState s for the host that owns it, nil
@@ -344,64 +360,6 @@ func status(c *ui.Context, path string, after func()) {
 	})
 }
 
-// tree is the project's file tree, starting at preview_files.rs's p_2 with
-// no title: 28 DIP rows indented 16 per level from 8. A file's click
-// calls open with its path; the file shown, shown, is selected.
-func (pr *Project) tree(c *ui.Context, shown string, own bool, open func(path string)) {
-	v := &pr.Files
-	p := theme.Of(c)
-	ui.Scroll(c.Key("scroll")).TrackScroll(scroll(&v.tree, own)).Grow(1).Padding(8).Children(func() {
-		tree := ui.TreeBase(c)
-		tree.Root.Children(func() {
-			var node func(n *preview.FileNode)
-			node = func(n *preview.FileNode) {
-				c.Key(n.Path)
-				var folder *bool
-				if n.Children != nil {
-					if v.folders[n.Path] == nil {
-						o := true
-						v.folders[n.Path] = &o
-					}
-					folder = v.folders[n.Path]
-				}
-				item := tree.Item(folder)
-				row := item.Row.Height(rowHeight).PaddingStart(8 + 16*float32(item.Depth())).PaddingEnd(8).Gap(8).
-					Radius(p.Radius).Cursor(ui.CursorPointer).Label(n.Name)
-				selected := n.Path == shown
-				text := p.MutedForeground
-				switch {
-				case selected:
-					row.Background(p.Hover).AccessSelected(true)
-					text = p.HoverForeground
-				case row.Hovered():
-					text = p.Foreground
-				}
-				if row.Clicked() {
-					if folder != nil {
-						*folder = !*folder
-					} else {
-						open(n.Path)
-					}
-				}
-				row.TextColor(text).Children(func() {
-					icon := icons.File
-					if folder != nil {
-						icon = icons.Folder
-					}
-					ui.Icon(c, icon).FontSize(16).TextColor(p.MutedForeground)
-					ui.Text(c, n.Name).FontSize(14).SingleLine().Shrink(1)
-				})
-				item.Group(func() {
-					for _, kid := range n.Children {
-						node(kid)
-					}
-				})
-			}
-			node(pr.Data.Files)
-		})
-	})
-}
-
 func findFile(n *preview.FileNode, path string) *preview.FileNode {
 	if n.Path == path {
 		return n
@@ -455,58 +413,6 @@ func (pr *Project) filePreview(c *ui.Context, path string, own bool) {
 		ui.Text(c, i18n.T(c, "files_cursor_position", "line", 1, "column", 1)).FontSize(12).SingleLine()
 		ui.Text(c, "UTF-8").FontSize(12).SingleLine()
 		ui.Text(c, lang).FontSize(12).SingleLine()
-	})
-}
-
-// statusColor is the color of a change's letter.
-func statusColor(p *theme.Palette, st string) ui.Color {
-	switch st {
-	case "A":
-		return p.Success
-	case "D":
-		return p.Danger
-	}
-	return p.Warning
-}
-
-// changeList is the working tree's changes over the commit box. A
-// change's click calls open with its path; the shown change is selected.
-func (pr *Project) changeList(c *ui.Context, shown string, own bool, open func(path string)) {
-	p := theme.Of(c)
-	v := &pr.Git
-	ui.Row(c).Height(barHeight).PaddingStart(12).PaddingEnd(8).Shrink(0).Children(func() {
-		ui.Text(c, i18n.T(c, "changes")).FontSize(14).FontWeight(500).Grow(1)
-		kit.IconButtonHint(c.Key("stage"), icons.Plus, i18n.T(c, "git_stage_all"), i18n.T(c, "git_actions_preview"), 24, false).
-			Disabled(true)
-	})
-	ui.Scroll(c.Key("files")).TrackScroll(scroll(&v.list, own)).Grow(1).Padding(0, 8, 8, 8).Gap(2).Children(func() {
-		for _, ch := range pr.Data.Changes {
-			name := ch.Path[strings.LastIndex(ch.Path, "/")+1:]
-			b := ui.ButtonBase(c.Key(ch.Path)).Label(ch.Path).Height(rowHeight).PaddingX(8).Gap(8).Radius(p.Radius).
-				Cursor(ui.CursorPointer).TextColor(p.MutedForeground)
-			switch {
-			case ch.Path == shown:
-				b.Background(p.Hover).TextColor(p.HoverForeground).AccessSelected(true)
-			case b.Hovered():
-				b.TextColor(p.Foreground)
-			}
-			kit.Tooltip(c, b, ch.Path)
-			b.Children(func() {
-				ui.Icon(c, icons.File).FontSize(16).TextColor(p.MutedForeground)
-				ui.Text(c, name).FontSize(14).SingleLine().Grow(1).Shrink(1)
-				ui.Text(c, ch.Status).FontSize(12).FontWeight(600).TextColor(statusColor(p, ch.Status))
-			}).OnClick(func() { open(ch.Path) })
-		}
-	})
-	ui.Column(c.Key("commit")).Padding(12).Gap(8).Shrink(0).BorderWidth(1, 0, 0, 0).BorderColor(p.Border).Children(func() {
-		ui.TextArea(c.Key("message"), &v.commit).Placeholder(i18n.T(c, "git_commit_message")).Label(i18n.T(c, "git_commit_message")).
-			FillWidth().Height(64)
-		commit := i18n.T(c, "git_commit")
-		kit.Primary(c.Key("commit"), commit, true).FillWidth().Children(func() {
-			ui.Icon(c, icons.Check).FontSize(14)
-			ui.Text(c, commit).FontSize(14)
-		})
-		ui.Text(c, i18n.T(c, "git_preview_only")).FontSize(12).TextColor(p.MutedForeground)
 	})
 }
 
