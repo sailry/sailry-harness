@@ -48,7 +48,9 @@ func TestPanelOpensWithShortcutsAndTabs(t *testing.T) {
 		t.Error("six tabs show no overflow menu")
 	}
 	snapshot(t, tt, "panel-terminal")
-	// ⌘W closes the active tab, then the others, then the panel.
+	// ⌘W in the panel closes the active tab, then the others, then the
+	// panel.
+	click(t, tt, i18n.In("en", "resource_terminal_preview"))
 	for range 6 {
 		tt.Key(ui.Cmd, ui.KeyW)
 		tt.Frame()

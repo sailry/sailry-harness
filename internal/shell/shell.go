@@ -91,6 +91,9 @@ type App struct {
 	activity bool // the activity centre's popover
 	reading  *reading
 	shown    string // the conversation selected when a project page opened
+	// The panes that take the focus: the main column, where the
+	// conversation or a page shows, and the right panel (pane).
+	mainPane, panelPane ui.Handle
 }
 
 // New makes the app over the preview dataset, showing its large conversation.
@@ -161,8 +164,9 @@ func (a *App) View(c *ui.Context) {
 			ui.Row(c.Key("panel")).Grow(1).MinWidth(0).AlignItems(ui.Stretch).BorderWidth(1, 0, 0, 1).BorderColor(p.SidebarBorder).
 				Radius(p.RadiusLg, 0, 0, 0).Clip().Children(func() {
 				a.nav(c, f, panel)
-				kit.Draws(ui.Column(c.Key("main")).Grow(1).MinWidth(0).Background(panel), kit.Backdrop(c, "background.content")).
-					Children(func() { a.page(c) })
+				main := kit.Draws(ui.Column(c.Key("main")).Grow(1).MinWidth(0).Background(panel), kit.Backdrop(c, "background.content"))
+				a.pane(c, main, &a.mainPane, a.closable(), func() { a.ClosePage() })
+				main.Children(func() { a.page(c) })
 				a.details(c, f, panel)
 			})
 		})
@@ -241,11 +245,12 @@ func (a *App) details(c *ui.Context, f frame, fill ui.Color) {
 		})
 	}
 	ui.Row(c.Key("details")).Width(f.panelW * f.details).Shrink(0).ClipX().Justify(ui.End).AlignItems(ui.Stretch).Children(func() {
-		ui.Column(c.Key("content")).Width(f.panelW).Shrink(0).Background(fill).BorderWidth(0, 0, 0, 1).BorderColor(p.Border).
-			Children(func() {
-				a.Panel.Paged = a.paged()
-				panel.View(c, a.Panel, a.project(), KeyText)
-			})
+		col := ui.Column(c.Key("content")).Width(f.panelW).Shrink(0).Background(fill).BorderWidth(0, 0, 0, 1).BorderColor(p.Border)
+		a.pane(c, col, &a.panelPane, true, func() { a.closeTab(c) })
+		col.Children(func() {
+			a.Panel.Paged = a.paged()
+			panel.View(c, a.Panel, a.project(), KeyText)
+		})
 	})
 }
 
@@ -280,14 +285,27 @@ func (a *App) openPanel(k panel.Kind) {
 	a.Panel.Open(k)
 }
 
-// closeFocused is ⌘W: the panel's active tab, the panel with none left.
-func (a *App) closeFocused() {
-	if !a.PanelOpen || a.Page != ConversationPage {
+// pane makes e a pane the focus goes into as it is clicked, as the
+// reference's track_focus on a mouse down, and has it take ⌘W
+// (CloseFocused) while the focus is inside it and it can close: the
+// innermost element taking a key gets it (Element.Shortcut), so the panel
+// and a page close only themselves, and nothing outside them sees the key.
+func (a *App) pane(c *ui.Context, e ui.Element, ref *ui.Handle, closes bool, close func()) {
+	e.Focusable().FocusRing(false).Bind(ref)
+	if closes && e.Shortcut(CloseFocused.Mods, CloseFocused.Key) && !c.ShortcutRepeated() {
+		close()
+	}
+}
+
+// closeTab is ⌘W in the right panel (resources/close.rs): its active tab,
+// the panel itself with none left, the focus then going back to the
+// conversation.
+func (a *App) closeTab(c *ui.Context) {
+	if a.Panel.Active != "" && a.Panel.Close(a.Panel.Active) {
 		return
 	}
-	if a.Panel.Active == "" || !a.Panel.Close(a.Panel.Active) {
-		a.PanelOpen = false
-	}
+	a.PanelOpen = false
+	a.mainPane.Focus(c)
 }
 
 // adjacent is the conversation after or before the selected one in the

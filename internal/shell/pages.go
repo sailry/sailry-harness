@@ -35,12 +35,17 @@ func (a *App) Navigate(p Page) {
 // ClosePage closes the independent page shown, back to the conversation.
 // It reports whether there was one to close.
 func (a *App) ClosePage() bool {
-	switch a.Page {
-	case ConversationPage, SettingsPage:
+	if !a.closable() {
 		return false
 	}
 	a.Page = ConversationPage
 	return true
+}
+
+// closable reports whether the page shown is an independent page, which
+// ⌘W closes.
+func (a *App) closable() bool {
+	return a.Page != ConversationPage && a.Page != SettingsPage
 }
 
 // followSelection goes back to the conversation when the sidebar selects

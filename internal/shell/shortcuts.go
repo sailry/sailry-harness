@@ -32,8 +32,13 @@ var Shortcuts = []Shortcut{
 	{"conversation.next", "shortcut_next_conversation", ui.Cmd | ui.Shift, ui.KeyBracketRight},
 	{"app.shortcuts", "settings_shortcuts", ui.Cmd, ui.KeySlash},
 	{"app.settings", "settings", ui.Cmd, ui.KeyComma},
-	{"close", "close", ui.Cmd, ui.KeyW},
 }
+
+// CloseFocused is ⌘W (shell/shortcuts.rs CloseFocused). The reference binds
+// it on the panes that close, not on the window: the right panel and an
+// independent page take it while the focus is inside them (App.pane), and
+// anywhere else it does nothing.
+var CloseFocused = Shortcut{"close", "menu_close_tab", ui.Cmd, ui.KeyW}
 
 // KeyText writes a shortcut as menus show it: ⌥⇧⌘B on macOS, Ctrl+Alt+B
 // elsewhere.
@@ -93,39 +98,20 @@ func hint(id string) string {
 	return ""
 }
 
-// shortcuts runs the window's shortcuts. A dialog showing holds them
-// (its own Escape and Enter go first).
+// Keys go to the innermost scope that takes them, as MyGo dispatches a key:
+// the focused element and those around it first (a text input's editing
+// keys, then a pane's Element.Shortcut: App.pane), then the overlays,
+// the one on top first (Element.OverlayShortcut: PopoverBase and
+// DialogBase close on Escape), then the window (Context.Shortcut, below),
+// which a modal dialog holds. A key taken by one never reaches the next.
+
+// shortcuts runs the window's shortcuts.
 func (a *App) shortcuts(c *ui.Context) {
 	for _, s := range Shortcuts {
 		if !c.Shortcut(s.Mods, s.Key) || c.ShortcutRepeated() && s.ID != "conversation.previous" && s.ID != "conversation.next" {
 			continue
 		}
-		switch s.ID {
-		case "conversation.new":
-			a.Page = ConversationPage
-			a.Sidebar.NewChat()
-		case "project.new":
-			a.Sidebar.OpenEditor(nil)
-		case "folder.open", "host.refresh":
-			// Opening a folder reads the disk; a sync asks the Node.
-			c.Toast(i18n.T(c, "preview_notice"))
-		case "app.search":
-			a.search.open = !a.search.open
-		case "sidebar.toggle":
-			a.NavOpen = !a.NavOpen
-		case "panel.toggle":
-			a.togglePanel()
-		case "conversation.previous", "conversation.next":
-			if id := adjacent(a, s.ID == "conversation.next"); id != "" {
-				a.Page = ConversationPage
-				a.Sidebar.Selected = id
-			}
-		case "app.shortcuts", "app.settings":
-			// Settings has no Shortcuts section before phase 5.
-			a.Page = SettingsPage
-		case "close":
-			a.closeFocused()
-		}
+		a.run(c, s.ID)
 	}
 	if a.Page != ConversationPage {
 		return
@@ -134,5 +120,33 @@ func (a *App) shortcuts(c *ui.Context) {
 		if r.Key != 0 && c.Shortcut(r.Mods, r.Key) && !c.ShortcutRepeated() {
 			a.openPanel(r.Kind)
 		}
+	}
+}
+
+// run carries out a window command.
+func (a *App) run(c *ui.Context, id string) {
+	switch id {
+	case "conversation.new":
+		a.Page = ConversationPage
+		a.Sidebar.NewChat()
+	case "project.new":
+		a.Sidebar.OpenEditor(nil)
+	case "folder.open", "host.refresh":
+		// Opening a folder reads the disk; a sync asks the Node.
+		c.Toast(i18n.T(c, "preview_notice"))
+	case "app.search":
+		a.search.open = !a.search.open
+	case "sidebar.toggle":
+		a.NavOpen = !a.NavOpen
+	case "panel.toggle":
+		a.togglePanel()
+	case "conversation.previous", "conversation.next":
+		if next := adjacent(a, id == "conversation.next"); next != "" {
+			a.Page = ConversationPage
+			a.Sidebar.Selected = next
+		}
+	case "app.shortcuts", "app.settings":
+		// Settings has no Shortcuts section before phase 5.
+		a.Page = SettingsPage
 	}
 }
