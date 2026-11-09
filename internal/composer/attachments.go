@@ -153,7 +153,7 @@ func (s *State) attachments(c *ui.Context, actions Actions) {
 	if len(s.Attachments) == 0 {
 		return
 	}
-	s.strip(c.Key("attachments"), s.Attachments, actions).Padding(8, 2, 2, 2)
+	s.strip(c.Key("attachments"), s.Attachments, actions).FillWidth().Shrink(0).Padding(8, 2, 2, 2)
 }
 
 // strip is the row of list's cards. With actions nil the cards only show
@@ -163,7 +163,7 @@ func (s *State) strip(c *ui.Context, list []*Attachment, actions Actions) ui.Ele
 	// are opaque, as a theme's muted fill may be all but transparent.
 	shown := theme.Of(c).Muted
 	shown.A = 255
-	return ui.ScrollHorizontal(c).FillWidth().Shrink(0).Gap(8).Children(func() {
+	return ui.ScrollHorizontal(c).Gap(8).Children(func() {
 		for _, a := range list {
 			s.card(c, a, list, actions)
 		}

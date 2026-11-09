@@ -558,8 +558,9 @@ func TestQueueEditorShowsAttachments(t *testing.T) {
 		t.Fatalf("the editor does not show the message's file: %q", tt.Texts())
 	}
 	save, ok := tt.AccessByRole(ui.RoleButton, i18n.In("en", "queue_save"))
-	if !ok || card.Bounds.Y < save.Bounds.Y+save.Bounds.H {
-		t.Fatalf("the file %v is not below the actions %v", card.Bounds, save.Bounds)
+	if !ok || card.Bounds.Y > save.Bounds.Y+save.Bounds.H || card.Bounds.Y+card.Bounds.H < save.Bounds.Y ||
+		card.Bounds.X+card.Bounds.W > save.Bounds.X {
+		t.Fatalf("the file %v is not on the actions' row before them %v", card.Bounds, save.Bounds)
 	}
 	// The text area pads its text by 4: the card starts where the text does.
 	if d := card.Bounds.X - (input.Bounds.X + 4); d < -0.5 || d > 0.5 {

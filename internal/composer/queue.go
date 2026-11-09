@@ -171,7 +171,13 @@ func (s *State) queueEditor(c *ui.Context, ctx *Context, actions Actions) {
 			}
 			return false
 		})
-		ui.Row(c.Key("queue-actions")).FillWidth().Justify(ui.End).Gap(8).Children(func() {
+		// One row: the message's files at the text's inset, scrolling in
+		// the room they have, then the actions at the end.
+		ui.Row(c.Key("queue-actions")).FillWidth().Gap(8).AlignItems(ui.Center).Children(func() {
+			if len(item.Attachments) > 0 {
+				s.strip(c.Key("queue-attachments"), item.Attachments, nil).Shrink(1).MinWidth(0).PaddingX(4)
+			}
+			ui.Spacer(c)
 			button := func(key, label string) ui.Element {
 				return kit.Ghost(c.Key(key), label, false).Height(28).PaddingX(12).Radius(14).Border(1, p.Border).
 					Children(func() { ui.Text(c, label).FontSize(14) })
@@ -187,9 +193,5 @@ func (s *State) queueEditor(c *ui.Context, ctx *Context, actions Actions) {
 			kit.Primary(c.Key("save"), i18n.T(c, "queue_save"), changed || empty).Height(28).Radius(14).
 				Children(func() { ui.Text(c, i18n.T(c, "queue_save")).FontSize(14) }).OnClick(save)
 		})
-		if len(item.Attachments) > 0 {
-			// The text area's own padding is the text's inset.
-			s.strip(c.Key("queue-attachments"), item.Attachments, nil).PaddingX(4)
-		}
 	})
 }
