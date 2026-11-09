@@ -118,7 +118,7 @@ const (
 	// FloatingAlpha is the tint of the frosted floating layers over their
 	// blurred backdrop (kit.Frosted): enough of the popover color that its
 	// text keeps the contrast it has on the opaque surface.
-	FloatingAlpha = 0.78
+	FloatingAlpha = 0.90
 )
 
 // Radius2xl is Kit's radius_2xl: the composer's and the mode cards'.
