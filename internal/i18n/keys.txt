@@ -61,6 +61,30 @@ appearance_mode
 appearance_system
 appearance_light
 appearance_dark
+appearance_packages
+appearance_selected
+appearance_details
+appearance_author
+appearance_effects
+settings_interface
+settings_theme_builtin
+settings_version
+settings_license
+# Welcome
+welcome_name
+welcome_title
+welcome_explore
+welcome_explore_detail
+welcome_explore_prompt
+welcome_build
+welcome_build_detail
+welcome_build_prompt
+welcome_review
+welcome_review_detail
+welcome_review_prompt
+welcome_plan
+welcome_plan_detail
+welcome_plan_prompt
 # Providers
 provider_channels
 provider_list_search

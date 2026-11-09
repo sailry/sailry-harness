@@ -68,8 +68,19 @@ func View(c *ui.Context, s *State, models []Model, in Interactions, actions Acti
 	}
 	ui.Column(c.Key("composer")).FillWidth().MaxWidth(Width).Margin(0, ui.Auto).Padding(8, 24, 16, 24).Gap(8).Children(func() {
 		s.interactions(c, in, actions)
-		// theme/composer.rs surface: padding 12, radius_2xl (2.5 x 6), muted.
-		ui.Column(c).Padding(12).Gap(8).Radius(15).Background(p.Muted).Children(func() {
+		// theme/composer.rs surface: padding 12, radius_2xl (2.5 x the
+		// radius), muted, the package's border width in the input border
+		// color, and its corner art under the controls.
+		surface := ui.Column(c).Padding(12).Gap(8).Radius(p.Radius2xl()).Background(p.Muted)
+		if v := p.Variant; v != nil {
+			if w := v.Composer.BorderWidth; w > 0 {
+				surface.Border(w, p.Input)
+			}
+			if v.Asset("composer.top_left") != nil || v.Asset("composer.bottom_right") != nil {
+				surface.Draw(func(pt *ui.Painter, r ui.Rect) { kit.Corners(pt, r, v, "composer") })
+			}
+		}
+		surface.Children(func() {
 			ui.TextAreaBase(c.Key("draft"), &s.Draft).Label(i18n.T(c, "composer")).Placeholder(i18n.T(c, "composer")).
 				PlaceholderColor(p.MutedForeground).Lines(2, 6).FontSize(14).LineHeight(1.5).TextColor(p.Foreground).
 				OnTextKey(func(k ui.TextKey) bool {
@@ -98,14 +109,40 @@ func View(c *ui.Context, s *State, models []Model, in Interactions, actions Acti
 }
 
 func (s *State) sendButton(c *ui.Context, submit, stop func()) {
+	v := theme.Of(c).Variant
 	if s.Running {
-		kit.Primary(c.Key("stop"), i18n.T(c, "chat_stop"), false).Size(32, 32).PaddingX(0).Radius(16).
-			Tooltip(i18n.T(c, "chat_stop")).Children(func() { ui.Icon(c, icons.Stop).FontSize(16) }).OnClick(stop)
+		b := kit.Primary(c.Key("stop"), i18n.T(c, "chat_stop"), false).Size(32, 32).PaddingX(0).Radius(16)
+		if v != nil {
+			action(b, v.Composer.Stop, false)
+		}
+		b.Tooltip(i18n.T(c, "chat_stop")).Children(func() { ui.Icon(c, icons.Stop).FontSize(16) }).OnClick(stop)
 		return
 	}
 	empty := strings.TrimSpace(s.Draft) == ""
-	kit.Primary(c.Key("send"), i18n.T(c, "send"), empty).Size(32, 32).PaddingX(0).Radius(16).
-		Tooltip(i18n.T(c, "send")).Children(func() { ui.Icon(c, icons.ArrowUp).FontSize(16) }).OnClick(submit)
+	b := kit.Primary(c.Key("send"), i18n.T(c, "send"), empty).Size(32, 32).PaddingX(0).Radius(16)
+	if v != nil {
+		action(b, v.Composer.Send, empty)
+	}
+	b.Tooltip(i18n.T(c, "send")).Children(func() { ui.Icon(c, icons.ArrowUp).FontSize(16) }).OnClick(submit)
+}
+
+// action paints send or stop in the package's colors (theme/composer.rs);
+// disabled, the button keeps Kit's look.
+func action(b ui.Element, a *theme.Action, disabled bool) {
+	if a == nil || disabled {
+		return
+	}
+	bg := a.Background.Or(ui.Transparent)
+	switch {
+	case b.Pressed():
+		bg = a.Active.Or(bg)
+	case b.Hovered():
+		bg = a.Hover.Or(bg)
+	}
+	b.Background(bg)
+	if a.Foreground.OK {
+		b.TextColor(a.Foreground.V)
+	}
 }
 
 // Chosen returns the model chosen, the first one when the ID is unknown.

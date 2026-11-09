@@ -58,6 +58,29 @@ appearance_mode: Theme mode
 appearance_system: System
 appearance_light: Light
 appearance_dark: Dark
+appearance_packages: Theme packages
+appearance_selected: Selected
+appearance_details: Details
+appearance_author: Author
+appearance_effects: Theme animation
+settings_interface: Interface theme
+settings_theme_builtin: Default
+settings_version: Version
+settings_license: License
+welcome_name: ' Sailry'
+welcome_title: What would you like to do today
+welcome_explore: Explore project
+welcome_explore_detail: Understand structure and entry points
+welcome_explore_prompt: Help me understand this project's structure, key modules and entry points
+welcome_build: Build an idea
+welcome_build_detail: Bring an idea to life
+welcome_build_prompt: I'd like to add a feature to this project. Confirm the requirements with me and plan the implementation first.
+welcome_review: Review changes
+welcome_review_detail: Check changes and potential issues
+welcome_review_prompt: Review the current project changes, focusing on potential issues and missing tests
+welcome_plan: Make a plan
+welcome_plan_detail: Clarify goals and steps
+welcome_plan_prompt: Help me make a step-by-step plan for the upcoming development work
 provider_channels: Channels
 provider_list_search: Search providers or models
 settings_add: Add

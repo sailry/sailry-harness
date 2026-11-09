@@ -98,7 +98,13 @@ func (a *App) View(c *ui.Context) {
 		band, panel = p.TitleBar.Alpha(theme.SidebarOpacity), p.Background.Alpha(theme.PanelOpacity)
 	}
 	c.Root().Background(band)
-	ui.Column(c).Fill().Children(func() {
+	// The window's art and effects lie under the band and the panel, which
+	// turns translucent over them as over the window material.
+	window := kit.Backdrop(c, "background.window")
+	if window != nil {
+		panel = p.Background.Alpha(theme.PanelOpacity)
+	}
+	kit.Draws(ui.Column(c).Fill(), window).Children(func() {
 		a.header(c)
 		ui.Row(c).Grow(1).AlignItems(ui.Stretch).Children(func() {
 			a.rail(c)
@@ -107,14 +113,16 @@ func (a *App) View(c *ui.Context) {
 			ui.Row(c.Key("panel")).Grow(1).AlignItems(ui.Stretch).BorderWidth(1, 0, 0, 1).BorderColor(p.SidebarBorder).
 				Radius(8, 0, 0, 0).Clip().Children(func() {
 				main := func() {
-					ui.Column(c.Key("main")).Fill().Background(panel).Children(func() { a.page(c) })
+					kit.Draws(ui.Column(c.Key("main")).Fill().Background(panel), kit.Backdrop(c, "background.content")).
+						Children(func() { a.page(c) })
 				}
 				if !a.NavOpen {
 					main()
 					return
 				}
 				nav := func() {
-					ui.Column(c.Key("nav")).Fill().Background(p.Sidebar.Alpha(float32(panel.A) / 255)).Children(func() {
+					col := ui.Column(c.Key("nav")).Fill().Background(p.Sidebar.Alpha(float32(panel.A) / 255))
+					kit.Draws(col, kit.Backdrop(c, "background.sidebar")).Children(func() {
 						if a.Page == SettingsPage {
 							settings.Nav(c, a.Settings)
 						} else {
@@ -218,6 +226,14 @@ func (a *App) page(c *ui.Context) {
 	comp := a.Composer(cv.ID)
 	comp.Running = cv.Running()
 	act := &actions{a: a, c: c, cv: cv}
+	if len(cv.Turns) == 0 {
+		// A new session welcomes with the theme's hero and the mode
+		// cards, whose prompts go to the composer as drafts.
+		conversation.Welcome(c, a.Messages, func() {
+			composer.View(c, comp, a.Data.Models, cv.Waiting, act)
+		}, func(prompt string) { comp.Draft = prompt })
+		return
+	}
 	conversation.View(c, a.Messages, cv.ID, cv.Turns, act)
 	composer.View(c, comp, a.Data.Models, cv.Waiting, act)
 }

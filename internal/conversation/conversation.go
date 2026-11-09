@@ -37,6 +37,8 @@ type State struct {
 	built  map[string]bool // lists built once, so laid out
 	md     markdown.Options
 	themes map[*theme.Palette]*markdown.Theme // by theme package and mode
+	light  float32                            // the welcome wordmark's beam, in window DIPs
+	lit    bool                               // the pointer has moved over the welcome page
 }
 
 func New() *State {
@@ -60,7 +62,8 @@ func View(c *ui.Context, s *State, id string, turns []Turn, actions Actions) {
 	l := s.List(id)
 	l.Key = func(i int) any { return turns[i].ID }
 	n := len(turns)
-	ui.Box(c.Key(id)).Grow(1).Children(func() {
+	// The theme's conversation effects lie under the turns.
+	kit.Draws(ui.Box(c.Key(id)).Grow(1), kit.Backdrop(c, "conversation")).Children(func() {
 		ui.List(c, l, n, func(i int) {
 			s.turn(c, &turns[i], i == 0, i == n-1, actions)
 		}).Fill().Role(ui.RoleLog)
@@ -85,12 +88,29 @@ func (s *State) turn(c *ui.Context, t *Turn, first, last bool, actions Actions) 
 	})
 }
 
-// userMessage is the muted bubble on the right (theme/messages.rs).
+// userMessage is the muted bubble on the right (theme/messages.rs), in the
+// package's user message colors, border and radius, with its corner art.
 func userMessage(c *ui.Context, text string) {
 	p := theme.Of(c)
 	ui.Row(c).Justify(ui.End).Children(func() {
-		ui.Text(c, text).Selectable().FontSize(14).LineHeight(1.6).Padding(9, 14).Radius(6).
+		b := ui.Text(c, text).Selectable().FontSize(14).LineHeight(1.6).Padding(9, 14).Radius(p.Radius).
 			Background(p.Muted).TextColor(p.Foreground).MaxWidth(bubbleMax)
+		v := p.Variant
+		if v == nil {
+			return
+		}
+		if m, ok := v.Messages["user"]; ok {
+			b.Background(m.Background.Or(p.Muted)).TextColor(m.Foreground.Or(p.Foreground))
+			if m.Radius != nil {
+				b.Radius(*m.Radius)
+			}
+			if m.BorderWidth > 0 {
+				b.Border(m.BorderWidth, m.Border.Or(p.Border))
+			}
+		}
+		if v.Asset("message.user.top_left") != nil || v.Asset("message.user.bottom_right") != nil {
+			b.Draw(func(pt *ui.Painter, r ui.Rect) { kit.Corners(pt, r, v, "message.user") })
+		}
 	})
 }
 
@@ -310,6 +330,15 @@ func footer(c *ui.Context, t *Turn, blocks []Block, actions Actions) {
 	})
 }
 
+// assistant is the reply's text color: the package's assistant message
+// foreground, else the theme's.
+func assistant(p *theme.Palette) ui.Color {
+	if p.Variant != nil {
+		return p.Variant.Messages["assistant"].Foreground.Or(p.Foreground)
+	}
+	return p.Foreground
+}
+
 // markdownTheme is the reply's look (crates/content markdown/style.rs): 14
 // DIP text on 24 DIP lines, code blocks on a 3.5% foreground tint.
 func (s *State) markdownTheme(p *theme.Palette) *markdown.Theme {
@@ -321,7 +350,7 @@ func (s *State) markdownTheme(p *theme.Palette) *markdown.Theme {
 		LineHeight:          24.0 / 14,
 		CodeSize:            13.0 / 14, // ems: Kit's 13 DIP mono size
 		CodeLineHeight:      18 / 12.5,
-		Text:                p.Foreground,
+		Text:                assistant(p),
 		Muted:               p.MutedForeground,
 		Link:                p.Link,
 		Strong:              p.Primary, // answers emphasize in primary

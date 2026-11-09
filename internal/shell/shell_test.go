@@ -1,6 +1,7 @@
 package shell
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"image/png"
 	"os"
@@ -317,4 +318,56 @@ func TestChinese(t *testing.T) {
 		}
 	}
 	snapshot(t, tt, "conversation-zh")
+}
+
+// newChat opens a new conversation through the sidebar's button, over the
+// navigation at the top (the rail's button has the same name).
+func newChat(t *testing.T, a *App, tt *ui.Tester) *preview.Conversation {
+	t.Helper()
+	before := a.Sidebar.Selected
+	tt.ClickAt(RailWidth+NavWidth/2, HeaderHeight+32)
+	cv := a.Data.Find(a.Sidebar.Selected)
+	if cv == nil || cv.ID == before || len(cv.Turns) != 0 {
+		t.Fatalf("no new conversation: %q", a.Sidebar.Selected)
+	}
+	return cv
+}
+
+// A new conversation welcomes; a mode card puts its prompt in the draft.
+func TestWelcome(t *testing.T) {
+	a, tt := newTester(t)
+	cv := newChat(t, a, tt)
+	if !tt.HasText(i18n.In("en", "welcome_title")) {
+		t.Fatalf("no welcome: %q", tt.Texts())
+	}
+	clickButton(t, tt, i18n.In("en", "welcome_review"))
+	if got, want := a.Composer(cv.ID).Draft, i18n.In("en", "welcome_review_prompt"); got != want {
+		t.Errorf("draft %q, want the card's prompt", got)
+	}
+}
+
+// Every shipped theme paints the transcript and the welcome page in both
+// modes, each differently.
+func TestThemePackages(t *testing.T) {
+	seen := map[string]string{}
+	for _, pkg := range theme.Packages {
+		for _, mode := range []theme.Mode{theme.Light, theme.Dark} {
+			name := fmt.Sprintf("%s-%d", pkg.ID, mode)
+			a, tt := newTester(t)
+			a.Theme, a.Mode = pkg.ID, mode
+			tt.Frame()
+			snapshot(t, tt, "theme-"+name)
+			sum := fmt.Sprintf("%x", sha256.Sum256(tt.Image().Pix))
+			if other, ok := seen[sum]; ok {
+				t.Errorf("%s paints as %s", name, other)
+			}
+			seen[sum] = name
+			newChat(t, a, tt)
+			tt.Advance(100 * time.Millisecond)
+			snapshot(t, tt, "welcome-"+name)
+			if !tt.HasText(i18n.In("en", "welcome_title")) {
+				t.Errorf("%s: no welcome", name)
+			}
+		}
+	}
 }

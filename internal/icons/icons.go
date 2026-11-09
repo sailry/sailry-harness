@@ -71,6 +71,8 @@ var (
 	Pause      = load("pause")
 	ArrowRight = load("arrow-right")
 	CircleUser = load("circle-user")
+	Eye        = load("eye")
+	Dashboard  = load("layout-dashboard")
 
 	Chat       = load("reicon-messages-chat-round")
 	Command    = load("reicon-it-terminal-square")

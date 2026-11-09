@@ -52,7 +52,8 @@ func (s *State) opened(key string) *bool {
 // View builds the navigation column's content.
 func View(c *ui.Context, s *State) {
 	ui.Column(c).Padding(16, 12, 8, 12).Children(func() {
-		kit.Primary(c.Key("new"), i18n.T(c, "conversation"), false).FillWidth().Children(func() {
+		b := kit.Primary(c.Key("new"), i18n.T(c, "conversation"), false).FillWidth()
+		kit.NewSessionArt(c, b).Children(func() {
 			ui.Icon(c, icons.Plus).FontSize(16)
 			ui.Text(c, i18n.T(c, "conversation")).FontSize(14).SingleLine()
 		}).OnClick(s.newChat)
@@ -88,8 +89,13 @@ func View(c *ui.Context, s *State) {
 	})
 }
 
+// groupIcons are the theme's icon.group.* slots of the sections; pinned
+// conversations take the recent group's.
+var groupIcons = map[string]string{"pinned": "group.recent", "unassigned": "group.unassigned", "projects": "group.projects"}
+
 // section is a collapsible group under a muted title whose chevron shows
-// while the pointer is over it (sidebar.rs section headers).
+// while the pointer is over it (sidebar.rs section headers). A theme with
+// an icon for the group shows it before the title.
 func section(c *ui.Context, s *State, key, title string, body func()) {
 	p := theme.Of(c)
 	ui.Column(c.Key(key)).Children(func() {
@@ -97,6 +103,9 @@ func section(c *ui.Context, s *State, key, title string, body func()) {
 		hovered := parts.Trigger.Hovered()
 		parts.Trigger.Height(32).PaddingX(8).Gap(4).Radius(p.Radius).Cursor(ui.CursorPointer).
 			TextColor(p.MutedForeground.Alpha(0.7)).Children(func() {
+			if icon := groupIcons[key]; kit.HasArtIcon(c, icon) {
+				kit.ArtIcon(c, icon, nil, 16, ui.Color{}).Margin(0, 4, 0, 0)
+			}
 			ui.Text(c, title).FontSize(14).SingleLine()
 			chevron := ui.Icon(c, icons.ChevronDown).FontSize(12).Rotate(-90 * (1 - parts.Progress()))
 			if !hovered {
