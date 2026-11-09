@@ -189,3 +189,133 @@ file_changes_shortened: 差异已截断
 interaction_input: 输入回答或补充说明…
 approval_unrestricted: 完整文件系统和网络访问
 close: 关闭
+shell_sessions: 会话
+notifications: 通知
+hosts: 主机
+host_add: 添加主机
+sidebar_host_update: 更新
+local_host_name: sailry-mac.local
+remote_host_name: design-node.local
+features_all: 全部功能
+feature_pin: 固定到侧栏
+feature_unpin: 取消固定
+shortcut_inspector: 切换上下文面板
+menu_new_conversation: 新建对话
+menu_new_project: 新建项目
+menu_open_folder: 打开文件夹
+shortcut_previous_conversation: 上一个对话
+shortcut_next_conversation: 下一个对话
+shortcut_sync: 刷新主机状态
+workspace_host: 主机信息
+connection_action_edit: 编辑
+reference_back: 返回上一级
+connection_search_empty: 无匹配结果
+activity_completed: 已完成
+activity_failed: 失败
+activity_idle: 空闲
+activity_approval: 待批准
+activity_input: 待回复
+activity_no_project: 对话
+notification_center: 通知中心
+notifications_read_all: 全部已读
+notification_delete_read: 删除已读
+notifications_empty: 暂无通知
+notifications_time_now: 刚刚
+notifications_time_minutes: '%{count} 分钟前'
+notifications_time_hours: '%{count} 小时前'
+notifications_time_days: '%{count} 天前'
+knowledge_source: 来源
+knowledge_previous: 上一页
+knowledge_next: 下一页
+knowledge_close: 关闭
+knowledge_lines: 第 %{start}–%{end} 行
+knowledge_citation_invalid: 来源链接无效
+recent_sessions: 最近
+workspace_archive: 归档会话
+session_unarchive: 取消归档
+session_delete: 删除会话
+workspace_rename: 重命名
+session_title_required: 请输入名称
+session_mark_read: 标记为已读
+session_mark_unread: 标记为未读
+content_copy: 复制
+workspace_copy_title: 复制标题
+session_copy_id: 复制会话 ID
+workspace_copy_path: 复制路径
+conversation_export: 导出
+conversation_export_markdown: Markdown
+conversation_export_html: HTML
+conversation_export_image: 图片
+session_fork: 分叉
+session_fork_here: 创建聊天分支
+session_fork_worktree: 在新工作树中创建聊天分支
+files_open: 打开文件
+session_new_window: 在新窗口中打开
+workspace_open_session: 打开会话
+project_edit: 编辑项目
+project_remove: 移除项目
+workspace_new_terminal: 创建终端
+workspace_records: 会话记录
+project_trust: 管理项目信任
+worktree_manage: 管理 worktree
+worktree_create: 创建 worktree
+worktree_remove: 删除 worktree
+cli_launch: 启动 AI CLI
+workspace_memory_only: 仅修改示例
+workspace_confirm: 确认
+project_remove_named: 确认移除项目“%{name}”？将关闭其终端，文件和会话会保留
+project_remove_preview: 移除示例记录
+project_name: 项目名称
+project_host: 主机
+project_path: 项目路径
+project_destination: 保存位置
+project_repository: 仓库
+project_branch: 分支
+project_local: 本地
+project_clone: 克隆
+project_editor_preview: 项目示例，不修改文件
+project_name_placeholder: 输入名称
+project_path_placeholder: 选择目录
+project_repository_placeholder: https://github.com/org/repository.git
+project_branch_placeholder: 默认分支
+directory_title: 选择目录
+project_required: 请填写项目名称和路径
+project_duplicate_path: 此主机已添加相同路径的项目
+project_clone_required: 请填写名称、仓库和保存位置
+settings_cancel: 取消
+settings_save_preview: 保存示例
+connection_no_projects: 暂无项目
+workspace_project: 项目概览
+resource_browser: 浏览器
+terminal: 终端
+resource_terminal_preview: 终端 UI 预览，未启动 Shell 或执行命令
+resource_browser_preview: 浏览器 UI 预览，未加载网页或访问网络
+file_tree: 项目文件
+file_empty: 打开文件
+files_save: 保存
+files_undo: 撤销
+files_redo: 重做
+files_find: 搜索
+files_cursor_position: 行 {line}, 列 {column}
+files_copy_path: 复制路径
+changes: 文件变更
+git_stage_all: 暂存全部
+git_actions_preview: UI 预览，未接入真实 Git 操作
+git_commit_message: 提交说明
+git_commit: 提交
+git_preview_only: 仅预览，不执行 Git 操作
+git_diff_empty: 选择变更
+git_view_history: 历史
+hunks_reject: 拒绝
+hunks_stage: 暂存
+hunks_accept: 接受
+hunks_accepted: 已接受此块
+hunks_state_accepted: 已接受
+navigation_tabs: 打开的标签
+market_category_documents: 文档
+turn_changes_undo_all: 撤销修改
+browser_back: 后退
+browser_forward: 前进
+browser_reload: 刷新
+browser_address: 搜索或输入网址
+browser_new_tab: 新标签页

@@ -189,3 +189,133 @@ file_changes_shortened: Diff shortened
 interaction_input: Enter an answer or details
 approval_unrestricted: Full filesystem and network access
 close: Close
+shell_sessions: Chats
+notifications: Notifications
+hosts: Hosts
+host_add: Add host
+sidebar_host_update: Update
+local_host_name: sailry-mac.local
+remote_host_name: design-node.local
+features_all: All features
+feature_pin: Pin to sidebar
+feature_unpin: Unpin from sidebar
+shortcut_inspector: Toggle context panel
+menu_new_conversation: New Conversation
+menu_new_project: New Project
+menu_open_folder: Open Folder
+shortcut_previous_conversation: Previous conversation
+shortcut_next_conversation: Next conversation
+shortcut_sync: Sync
+workspace_host: Host information
+connection_action_edit: Edit
+reference_back: Back
+connection_search_empty: No matches
+activity_completed: Completed
+activity_failed: Failed
+activity_idle: Idle
+activity_approval: Awaiting approval
+activity_input: Awaiting reply
+activity_no_project: Chats
+notification_center: Notification center
+notifications_read_all: Mark all as read
+notification_delete_read: Delete read
+notifications_empty: No notifications
+notifications_time_now: Just now
+notifications_time_minutes: '%{count} min ago'
+notifications_time_hours: '%{count} h ago'
+notifications_time_days: '%{count} d ago'
+knowledge_source: Source
+knowledge_previous: Previous
+knowledge_next: Next
+knowledge_close: Close
+knowledge_lines: Lines %{start}–%{end}
+knowledge_citation_invalid: Invalid source link
+recent_sessions: Recent
+workspace_archive: Archive session
+session_unarchive: Unarchive
+session_delete: Delete session
+workspace_rename: Rename
+session_title_required: Enter a name
+session_mark_read: Mark as read
+session_mark_unread: Mark as unread
+content_copy: Copy
+workspace_copy_title: Copy title
+session_copy_id: Copy session ID
+workspace_copy_path: Copy path
+conversation_export: Export
+conversation_export_markdown: Markdown
+conversation_export_html: HTML
+conversation_export_image: Image
+session_fork: Fork
+session_fork_here: Fork conversation
+session_fork_worktree: Fork in new worktree
+files_open: Open file
+session_new_window: Open in new window
+workspace_open_session: Open session
+project_edit: Edit project
+project_remove: Remove project
+workspace_new_terminal: Create terminal
+workspace_records: Session records
+project_trust: Manage project trust
+worktree_manage: Manage worktrees
+worktree_create: New worktree
+worktree_remove: Remove worktree
+cli_launch: Launch AI CLI
+workspace_memory_only: Changes preview only
+workspace_confirm: Confirm
+project_remove_named: Remove project “%{name}”? Its terminals will close; files and sessions will be kept
+project_remove_preview: Remove preview record
+project_name: Project name
+project_host: Host
+project_path: Project path
+project_destination: Destination
+project_repository: Repository
+project_branch: Branches
+project_local: Local
+project_clone: Clone
+project_editor_preview: Project preview; no files are changed
+project_name_placeholder: Enter a name
+project_path_placeholder: Select directory
+project_repository_placeholder: https://github.com/org/repository.git
+project_branch_placeholder: Default branch
+directory_title: Select directory
+project_required: Enter a project name and path
+project_duplicate_path: This host already has a project at this path
+project_clone_required: Enter a name, repository and destination
+settings_cancel: Cancel
+settings_save_preview: Save preview
+connection_no_projects: No projects
+workspace_project: Project overview
+resource_browser: Browser
+terminal: Terminal
+resource_terminal_preview: Terminal UI preview; no shell or commands started
+resource_browser_preview: Browser preview; no pages or network requests are loaded
+file_tree: Project files
+file_empty: Open a file
+files_save: Save
+files_undo: Undo
+files_redo: Redo
+files_find: Find
+files_cursor_position: Ln {line}, Col {column}
+files_copy_path: Copy path
+changes: File changes
+git_stage_all: Stage all
+git_actions_preview: Git actions
+git_commit_message: Commit message
+git_commit: Commit
+git_preview_only: Preview
+git_diff_empty: No diff
+git_view_history: History
+hunks_reject: Reject
+hunks_stage: Stage
+hunks_accept: Accept
+hunks_accepted: Block accepted
+hunks_state_accepted: Accepted
+navigation_tabs: Open tabs
+market_category_documents: Docs
+turn_changes_undo_all: Undo changes
+browser_back: Back
+browser_forward: Forward
+browser_reload: Reload
+browser_address: Search or enter an address
+browser_new_tab: New tab

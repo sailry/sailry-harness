@@ -22,12 +22,19 @@ const (
 )
 
 type Conversation struct {
-	ID      string
-	Title   string
-	Status  Status
-	Pinned  bool
-	Updated time.Time
-	Turns   []conversation.Turn
+	ID     string
+	Title  string
+	Status Status
+	Pinned bool
+	// PinOrder is where a pin goes among the pinned (preferences/pins.rs):
+	// nil for a pin made before pins had an order.
+	PinOrder *int
+	Archived bool
+	Updated  time.Time
+	// Created is the order the conversation was made in, newest highest.
+	Created  int
+	Worktree string // the branch of its worktree; "" is the project's main one
+	Turns    []conversation.Turn
 	// Waiting is what the running reply waits on the user for.
 	Waiting composer.Interactions
 
@@ -39,6 +46,9 @@ type Project struct {
 	Name          string
 	Path          string
 	Branch        string
+	Host          string // the Host's ID
+	Worktrees     []Worktree
+	Trusted       bool
 	Conversations []*Conversation
 }
 
@@ -49,6 +59,7 @@ type Data struct {
 	Models     []Model
 	Providers  []Provider
 	Plugins    []Plugin
+	*Workspace
 }
 
 type Model = composer.Model
@@ -76,7 +87,7 @@ func Load() *Data {
 	n := 0
 	conv := func(id, title string, st Status, ago time.Duration, msgs int) *Conversation {
 		n++
-		c := &Conversation{ID: id, Title: title, Status: st, Updated: Now.Add(-ago)}
+		c := &Conversation{ID: id, Title: title, Status: st, Updated: Now.Add(-ago), Created: 1000 - int(ago/time.Minute)}
 		c.Turns = Turns(id, msgs/2, n)
 		if st == Running {
 			c.Turns[len(c.Turns)-1] = live(c.Turns[len(c.Turns)-1].ID)
@@ -117,8 +128,19 @@ func Load() *Data {
 			conv("api/docs", "OpenAPI descriptions", Idle, 10*24*time.Hour, 4),
 		}},
 	}
-	d.Projects[0].Conversations[2].Pinned = true
-	d.Projects[1].Conversations[0].Pinned = true
+	order := func(n int) *int { return &n }
+	d.Projects[0].Conversations[2].Pinned, d.Projects[0].Conversations[2].PinOrder = true, order(0)
+	d.Projects[1].Conversations[0].Pinned, d.Projects[1].Conversations[0].PinOrder = true, order(1)
+	d.Projects[3].Conversations[1].Pinned = true // a pin from before pins had an order
+	d.Projects[0].Conversations[3].Worktree = "split-view"
+	d.Projects[0].Conversations[6].Archived = true
+	for _, p := range d.Projects {
+		p.Host, p.Trusted = "local", true
+		p.Worktrees = []Worktree{{Branch: p.Branch, Path: p.Path, Main: true}}
+	}
+	d.Projects[0].Worktrees = append(d.Projects[0].Worktrees, Worktree{Branch: "split-view", Path: "~/Web/sailry-go-split-view"})
+	d.Projects[3].Host, d.Projects[3].Trusted = "remote", false
+	d.Workspace = workspace()
 	d.Unassigned = []*Conversation{
 		conv("chat/regex", "Regex for semantic versions", Idle, 15*time.Minute, 4),
 		conv("chat/translate", "Translate release notes", Unread, 2*time.Hour, 4),

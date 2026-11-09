@@ -64,7 +64,9 @@ func In(lang, key string, args ...any) string {
 		}
 	}
 	for i := 0; i+1 < len(args); i += 2 {
-		s = strings.ReplaceAll(s, "%{"+fmt.Sprint(args[i])+"}", fmt.Sprint(args[i+1]))
+		// A few reference strings name their values {name}, without %.
+		name, v := fmt.Sprint(args[i]), fmt.Sprint(args[i+1])
+		s = strings.ReplaceAll(strings.ReplaceAll(s, "%{"+name+"}", v), "{"+name+"}", v)
 	}
 	return s
 }
