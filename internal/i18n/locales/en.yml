@@ -657,6 +657,7 @@ hooks_unknown: Hook save is uncertain; retry the original request
 host_install: Install and connect
 host_pairing_hint: Connect to an existing Sailry device
 host_pairing_mode: Pairing code
+connection: Connection
 knowledge_downloading: Downloading
 knowledge_install: Install
 knowledge_installed: Installed
@@ -693,6 +694,12 @@ permission_full_disk: Full Disk Access
 permission_granted: Authorized
 permission_not_needed: Not needed
 permission_request: Request access
+permission_accessibility: Accessibility
+permission_screen: Screen recording
+permission_microphone: Microphone
+permission_keychain: Chrome Keychain
+permission_required: Unauthorized
+permission_unknown: Not checked
 permission_settings: Open settings
 permission_show_app: Show app
 permission_title: System access

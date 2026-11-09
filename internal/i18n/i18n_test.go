@@ -2,7 +2,13 @@ package i18n
 
 import (
 	"bufio"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"io/fs"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -30,6 +36,48 @@ func TestCatalogsComplete(t *testing.T) {
 			if !want[k] {
 				t.Errorf("%s: %s is not in keys.txt", lang, k)
 			}
+		}
+	}
+}
+
+// Every literal key the source passes to i18n.T or i18n.In is in the
+// English catalog, so no view shows a raw key.
+func TestSourceKeys(t *testing.T) {
+	fset := token.NewFileSet()
+	for _, dir := range []string{"../../internal", "../../cmd"} {
+		err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return err
+			}
+			f, err := parser.ParseFile(fset, path, nil, 0)
+			if err != nil {
+				return err
+			}
+			ast.Inspect(f, func(n ast.Node) bool {
+				call, ok := n.(*ast.CallExpr)
+				if !ok || len(call.Args) < 2 {
+					return true
+				}
+				sel, ok := call.Fun.(*ast.SelectorExpr)
+				if !ok || (sel.Sel.Name != "T" && sel.Sel.Name != "In") {
+					return true
+				}
+				if pkg, ok := sel.X.(*ast.Ident); !ok || pkg.Name != "i18n" {
+					return true
+				}
+				lit, ok := call.Args[1].(*ast.BasicLit)
+				if !ok || lit.Kind != token.STRING {
+					return true
+				}
+				if key, _ := strconv.Unquote(lit.Value); catalogs["en"][key] == "" {
+					t.Errorf("%s: %s is not in the catalog", fset.Position(lit.Pos()), key)
+				}
+				return true
+			})
+			return nil
+		})
+		if err != nil && !os.IsNotExist(err) {
+			t.Fatal(err)
 		}
 	}
 }

@@ -676,6 +676,7 @@ hooks_unknown
 host_install
 host_pairing_hint
 host_pairing_mode
+connection
 knowledge_downloading
 knowledge_install
 knowledge_installed
@@ -712,6 +713,12 @@ permission_full_disk
 permission_granted
 permission_not_needed
 permission_request
+permission_accessibility
+permission_screen
+permission_microphone
+permission_keychain
+permission_required
+permission_unknown
 permission_settings
 permission_show_app
 permission_title

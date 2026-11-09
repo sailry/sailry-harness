@@ -657,6 +657,7 @@ hooks_unknown: 保存结果不确定，请重试原请求
 host_install: 安装并连接
 host_pairing_hint: 连接已安装 Sailry 的设备
 host_pairing_mode: 配对码
+connection: 主机管理
 knowledge_downloading: 下载中
 knowledge_install: 安装
 knowledge_installed: 已安装
@@ -693,6 +694,12 @@ permission_full_disk: 完全磁盘访问
 permission_granted: 已授权
 permission_not_needed: 无需授权
 permission_request: 请求授权
+permission_accessibility: 辅助功能
+permission_screen: 屏幕录制
+permission_microphone: 麦克风
+permission_keychain: Chrome 钥匙串
+permission_required: 未授权
+permission_unknown: 尚未检查
 permission_settings: 打开设置
 permission_show_app: 显示应用
 permission_title: 系统权限
