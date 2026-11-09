@@ -300,19 +300,24 @@ fn filename(value: &str) -> Option<String> {
         path
     };
     if value.len() > 512
-        || value.contains('\\')
-        || value.contains(':')
         || !path
             .components()
             .all(|component| matches!(component, Component::Normal(_)))
     {
         return None;
     }
-    let path = path.to_str()?;
+    let path = path
+        .iter()
+        .map(|part| part.to_str())
+        .collect::<Option<Vec<_>>>()?
+        .join("/");
+    if path.contains(['\\', ':']) {
+        return None;
+    }
     let path = if path.starts_with("crates/") || path.starts_with("apps/") {
         path.splitn(3, '/').nth(2)?
     } else {
-        path
+        &path
     };
     if path.is_empty() || path.chars().any(char::is_control) {
         return None;

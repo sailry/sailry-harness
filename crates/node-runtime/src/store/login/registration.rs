@@ -131,9 +131,13 @@ mod tests {
     #[tokio::test]
     async fn records_during_other_writes() {
         let root = tempfile::tempdir().unwrap();
-        let mut database = Database::open(&root.path().join("node.turso"), NodeId([87; 32]), None)
-            .await
-            .unwrap();
+        let mut database = Database::open(
+            &crate::store::tests::profile(&root).join("node.turso"),
+            NodeId([87; 32]),
+            None,
+        )
+        .await
+        .unwrap();
         let provider = Provider {
             id: ProviderId::new(),
             revision: 1,
@@ -218,9 +222,11 @@ mod tests {
     #[tokio::test]
     async fn remains_stable_across_registrations() {
         let root = tempfile::tempdir().unwrap();
-        let handle = crate::store::database::engine(&root.path().join("registration.turso"))
-            .await
-            .unwrap();
+        let handle = crate::store::database::engine(
+            &crate::store::tests::profile(&root).join("registration.turso"),
+        )
+        .await
+        .unwrap();
         let database = crate::store::database::connect(&handle).await.unwrap();
         database.execute_batch("BEGIN; CREATE TABLE oauth_hosts(singleton INTEGER PRIMARY KEY CHECK(singleton=1),host_id TEXT NOT NULL); CREATE TABLE oauth_registrations(provider TEXT PRIMARY KEY,client_id TEXT NOT NULL); COMMIT").await.unwrap();
         let first = host_id(&database).await.unwrap();

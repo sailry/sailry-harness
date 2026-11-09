@@ -166,6 +166,8 @@ async fn restores_frozen_databases_and_watermarks() {
     .unwrap();
     assert_eq!(restored, record);
     assert_eq!(path, target);
+    crate::profile::private_directory(&target).unwrap();
+    crate::profile::private_directory(&target.join("storage")).unwrap();
     assert_eq!(std::fs::read(&legacy).unwrap(), b"untouched legacy fixture");
     assert!(!target.join("storage/node.sqlite3").exists());
     for name in ["node.turso", "knowledge.turso"] {
@@ -283,7 +285,7 @@ async fn cancels_with_active_knowledge_lease() {
 async fn preserves_private_credentials_and_conflicts() {
     let root = tempfile::tempdir().unwrap();
     let database = Database::open(
-        &root.path().join("node.turso"),
+        &crate::store::tests::profile(&root).join("node.turso"),
         sailry_protocol::NodeId([1; 32]),
         None,
     )
@@ -468,7 +470,7 @@ async fn relocates_only_current_owned_paths() {
     let original = root.join("original");
     let target = root.join("restored");
     let staging = root.join("staging");
-    std::fs::create_dir_all(staging.join("storage")).unwrap();
+    crate::profile::private_directory(&staging.join("storage")).unwrap();
     let path = staging.join("storage/node.turso");
     let handle = Handle::new(
         path.clone(),
@@ -999,7 +1001,7 @@ async fn copies_consistent_state_without_blocking_commands() {
 async fn rejects_invalid_schedule_without_writing() {
     let root = tempfile::tempdir().unwrap();
     let database = Database::open(
-        &root.path().join("node.turso"),
+        &crate::store::tests::profile(&root).join("node.turso"),
         sailry_protocol::NodeId([1; 32]),
         None,
     )

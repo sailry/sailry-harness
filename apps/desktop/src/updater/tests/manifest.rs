@@ -171,9 +171,15 @@ fn trust_and_selection() {
             "rejects_target_and_system_mismatch",
             (|_scenario: &str| {
                 let mut release = fixture::release();
-                release.target = "x86_64-pc-windows-msvc".into();
-                release.bundle = "Sailry".into();
-                release.executable = "sailry-desktop.exe".into();
+                release.target = if release.target.ends_with("apple-darwin") {
+                    "x86_64-pc-windows-msvc"
+                } else {
+                    "x86_64-apple-darwin"
+                }
+                .into();
+                let (bundle, executable) = manifest::layout(&release.target).unwrap();
+                release.bundle = bundle.into();
+                release.executable = executable.into();
                 assert_eq!(
                     manifest::select(&fixture::signed(&[release]), &fixture::config())
                         .unwrap_err()

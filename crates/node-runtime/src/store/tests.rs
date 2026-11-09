@@ -9,6 +9,12 @@ use crate::Node;
 mod concurrency;
 mod peers;
 
+pub(super) fn profile(directory: &TempDir) -> std::path::PathBuf {
+    let path = directory.path().join("profile");
+    crate::profile::private_directory(&path).unwrap();
+    path.canonicalize().unwrap()
+}
+
 async fn node() -> (TempDir, Node, Client) {
     let directory = tempfile::tempdir().unwrap();
     let node = Node::start_empty(directory.path().join("profile"))

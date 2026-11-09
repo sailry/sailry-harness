@@ -3,6 +3,8 @@ use super::*;
 #[tokio::test]
 async fn queues_edits_without_cancelling_current_pass() {
     let directory = tempfile::tempdir().unwrap();
+    let storage = directory.path().join("storage");
+    crate::profile::private_directory(&storage).unwrap();
     let registry = crate::models::registry::Registry::new(
         Some(directory.path().into()),
         CancellationToken::new(),
@@ -12,9 +14,7 @@ async fn queues_edits_without_cancelling_current_pass() {
     let stop = CancellationToken::new();
     let owner = Arc::new(Service {
         models,
-        index: Index::open(&directory.path().join("knowledge.turso"))
-            .await
-            .unwrap(),
+        index: Index::open(&storage.join("knowledge.turso")).await.unwrap(),
         ingress: Weak::new(),
         wake: sender,
         cancel: Mutex::new(stop.child_token()),

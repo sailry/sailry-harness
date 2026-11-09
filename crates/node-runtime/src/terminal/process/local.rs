@@ -267,6 +267,8 @@ fn scratch(profile: Option<&Path>) -> Result<tempfile::TempDir, Fault> {
         None => builder.tempdir(),
     }
     .map_err(failure)?;
+    #[cfg(windows)]
+    std::fs::remove_dir(directory.path()).map_err(failure)?;
     crate::profile::private_directory(directory.path()).map_err(failure)?;
     Ok(directory)
 }

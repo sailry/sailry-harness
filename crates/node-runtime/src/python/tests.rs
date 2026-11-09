@@ -260,7 +260,17 @@ fn detects_corruption_and_missing_files() {
     integrity::seal(&environment, &runtime, &key, &cancel).unwrap();
     let mut cache = integrity::Cache::default();
     assert!(integrity::valid(&environment, &runtime, &key, &mut cache, &cancel).unwrap());
-    std::fs::write(environment.join("package.py"), "other").unwrap();
+    let package = environment.join("package.py");
+    let modified = package.metadata().unwrap().modified().unwrap();
+    std::fs::write(&package, "other").unwrap();
+    std::fs::File::options()
+        .write(true)
+        .open(&package)
+        .unwrap()
+        .set_times(
+            std::fs::FileTimes::new().set_modified(modified + std::time::Duration::from_secs(1)),
+        )
+        .unwrap();
     assert!(!integrity::valid(&environment, &runtime, &key, &mut cache, &cancel).unwrap());
     std::fs::write(environment.join("package.py"), "first").unwrap();
     assert!(integrity::valid(&environment, &runtime, &key, &mut cache, &cancel).unwrap());

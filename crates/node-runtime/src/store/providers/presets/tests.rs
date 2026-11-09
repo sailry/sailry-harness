@@ -5,7 +5,7 @@ use serde_json::json;
 
 async fn database() -> (tempfile::TempDir, Database) {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().canonicalize().unwrap().join("node.turso");
+    let path = crate::store::tests::profile(&directory).join("node.turso");
     let database = Database::open(&path, NodeId([17; 32]), None).await.unwrap();
     (directory, database)
 }
@@ -129,7 +129,7 @@ async fn retains_partner_declarations_across_reopen() {
     );
     database.close().await.unwrap();
     let database = Database::open(
-        &directory.path().canonicalize().unwrap().join("node.turso"),
+        &crate::store::tests::profile(&directory).join("node.turso"),
         NodeId([17; 32]),
         None,
     )
@@ -358,7 +358,7 @@ async fn discards_only_a_corrupt_suggestion_cache() {
         .unwrap();
     database.close().await.unwrap();
     let database = Database::open(
-        &directory.path().canonicalize().unwrap().join("node.turso"),
+        &crate::store::tests::profile(&directory).join("node.turso"),
         NodeId([17; 32]),
         None,
     )

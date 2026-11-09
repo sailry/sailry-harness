@@ -17,7 +17,7 @@ async fn roundtrips_maximum_signed_values() {
         .await
         .unwrap();
     drop(index);
-    let index = Index::open(&directory.path().join("knowledge.turso"))
+    let index = Index::open(&directory.path().join("storage/knowledge.turso"))
         .await
         .unwrap();
     index.bind(&binding).await.unwrap();

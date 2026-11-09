@@ -188,18 +188,20 @@ fn configuration(
     values: &[(String, String)],
     cancel: &CancellationToken,
 ) -> Result<(), Fault> {
-    let fragment = tempfile::NamedTempFile::new_in(directory).map_err(io)?;
+    let fragment = tempfile::NamedTempFile::new_in(directory)
+        .map_err(io)?
+        .into_temp_path();
     let mut output = std::fs::File::create(directory.join("config")).map_err(io)?;
     for (name, value) in values {
         cancelled(cancel)?;
-        std::fs::write(fragment.path(), []).map_err(io)?;
+        std::fs::write(&fragment, []).map_err(io)?;
         // libgit2 serializes names and escaping, including repeated or empty values.
-        Config::open(fragment.path())
+        Config::open(&fragment)
             .map_err(io)?
             .set_str(name, value)
             .map_err(io)?;
         output
-            .write_all(&std::fs::read(fragment.path()).map_err(io)?)
+            .write_all(&std::fs::read(&fragment).map_err(io)?)
             .map_err(io)?;
     }
     output

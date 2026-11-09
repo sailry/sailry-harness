@@ -174,7 +174,8 @@ fn fixed_shortcuts_reach_webviews(cx: &mut TestAppContext) {
             .find(|binding| binding["action"] == "close-tab")
             .unwrap();
         assert_eq!(close["strokes"][0]["key"], "w");
-        assert_eq!(close["strokes"][0]["meta"], true);
+        assert_eq!(close["strokes"][0]["meta"], cfg!(target_os = "macos"));
+        assert_eq!(close["strokes"][0]["ctrl"], !cfg!(target_os = "macos"));
         for (action, key) in [("new-tab", "t"), ("reload", "r")] {
             let binding = bindings
                 .as_array()

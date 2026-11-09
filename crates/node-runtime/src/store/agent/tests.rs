@@ -168,7 +168,7 @@ pub(super) fn command<'a>(
 #[tokio::test]
 async fn rebuilds_from_durable_events() {
     let fixture = tempfile::tempdir().unwrap();
-    let path = fixture.path().canonicalize().unwrap().join("node.turso");
+    let path = crate::store::tests::profile(&fixture).join("node.turso");
     let node = NodeId([31; 32]);
     let mut database = Database::open(&path, node, None).await.unwrap();
     let (events, _) = broadcast::channel(64);

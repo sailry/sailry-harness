@@ -2,9 +2,11 @@ use super::*;
 use serde_json::json;
 
 async fn database(directory: &tempfile::TempDir) -> (turso::Database, Connection) {
-    let database = crate::store::database::engine(&directory.path().join("assets.turso"))
-        .await
-        .unwrap();
+    let database = crate::store::database::engine(
+        &crate::store::tests::profile(directory).join("assets.turso"),
+    )
+    .await
+    .unwrap();
     let connection = database.connect().unwrap();
     connection
         .execute(

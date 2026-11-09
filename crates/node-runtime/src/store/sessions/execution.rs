@@ -62,9 +62,13 @@ mod tests {
 
     async fn fixture() -> (tempfile::TempDir, Database, Provider, team::Profile) {
         let root = tempfile::tempdir().unwrap();
-        let database = Database::open(&root.path().join("node.turso"), NodeId([72; 32]), None)
-            .await
-            .unwrap();
+        let database = Database::open(
+            &crate::store::tests::profile(&root).join("node.turso"),
+            NodeId([72; 32]),
+            None,
+        )
+        .await
+        .unwrap();
         let provider: Provider = serde_json::from_value(json!({
             "id": ProviderId::new(), "revision": 1, "name": "Execution fixture",
             "api": "responses", "authentication": "api_key",

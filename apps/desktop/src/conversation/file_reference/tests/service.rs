@@ -96,10 +96,10 @@ fn reads_the_execution_nodes_registered_files() {
                 .iter()
                 .find(|entry| entry.id == fixture.sessions[index].worktree)
                 .unwrap();
-            for link in [
-                format!("{}/{path}#L2", project.path),
-                format!("file://{}/{path}#L2", project.path),
-            ] {
+            let mut url =
+                url::Url::from_file_path(std::path::Path::new(&project.path).join(path)).unwrap();
+            url.set_fragment(Some("L2"));
+            for link in [format!("{}/{path}#L2", project.path), url.into()] {
                 let Some((
                     owner,
                     Target::Workspace {

@@ -198,6 +198,7 @@ pub(crate) struct Preferences {
     pub data: Data,
     path: Option<PathBuf>,
     readable: bool,
+    startup_save: bool,
     pub error: Option<&'static str>,
     pin_cursors: std::collections::BTreeMap<sailry_protocol::NodeId, u64>,
 }
@@ -219,9 +220,15 @@ impl Preferences {
         let mut preferences = Self::open(path);
         if preferences.readable && preferences.data.welcome_seen.is_none() {
             preferences.data.welcome_seen = Some(existing);
-            preferences.save();
+            preferences.startup_save = true;
         }
         preferences
+    }
+
+    pub fn finish_startup(&mut self) {
+        if std::mem::take(&mut self.startup_save) {
+            self.save();
+        }
     }
 
     fn welcome_pending(&self) -> bool {
@@ -251,6 +258,7 @@ impl Preferences {
                 data,
                 path: Some(path),
                 readable: true,
+                startup_save: false,
                 error: None,
                 pin_cursors: Default::default(),
             },
@@ -260,6 +268,7 @@ impl Preferences {
                     data: Data::default(),
                     path: Some(path),
                     readable: false,
+                    startup_save: false,
                     error: Some("preferences_read_failed"),
                     pin_cursors: Default::default(),
                 }

@@ -49,6 +49,7 @@ impl Snapshot {
             .prefix("backup-")
             .tempdir_in(temporary)
             .map_err(io)?;
+        crate::profile::private_directory(&directory.path().join("storage")).map_err(io)?;
         Ok(Self {
             directory,
             manifest: Manifest {
@@ -65,7 +66,6 @@ impl Snapshot {
     #[cfg(test)]
     pub(crate) fn database_path(&self) -> Result<PathBuf, Fault> {
         let directory = files::path::root(self.directory.path())?;
-        directory.create_dir("storage").map_err(io)?;
         let storage = directory.open_dir_nofollow("storage").map_err(io)?;
         let _ = create(&storage, "node.turso")?;
         Ok(self.directory.path().join("storage/node.turso"))
@@ -450,10 +450,10 @@ impl Manifest {
             let family = crate::profile::database_files(&Path::new("storage").join(name));
             if family
                 .iter()
-                .any(|path| path.to_str().is_some_and(|path| paths.contains(path)))
+                .any(|path| paths.iter().any(|entry| Path::new(entry) == path))
                 && family[..2]
                     .iter()
-                    .any(|path| path.to_str().is_none_or(|path| !paths.contains(path)))
+                    .any(|path| !paths.iter().any(|entry| Path::new(entry) == path))
             {
                 return Err(Fault::invalid("backup database or logical log is missing"));
             }
@@ -466,7 +466,7 @@ fn database(path: &str) -> bool {
     DATABASES.iter().any(|name| {
         crate::profile::database_files(&Path::new("storage").join(name))
             .iter()
-            .any(|candidate| candidate.to_str() == Some(path))
+            .any(|candidate| candidate == Path::new(path))
     })
 }
 
@@ -507,6 +507,8 @@ pub(crate) fn unpack(
     first.read_to_end(&mut bytes).map_err(io)?;
     let manifest: Manifest = serde_json::from_slice(&bytes).map_err(io)?;
     manifest.validate()?;
+    let _destination = files::path::root(destination)?;
+    crate::profile::private_directory(&destination.join("storage")).map_err(io)?;
     let mut expected: std::collections::BTreeMap<_, _> = manifest
         .files
         .iter()

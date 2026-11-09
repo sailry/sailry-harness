@@ -835,15 +835,12 @@ fn finish(
     let parent_cap = crate::files::path::root(parent)?;
     let identity = crate::files::path::identity::directory(&parent_cap)?;
     let name = format!(".sailry-restore-{}", uuid::Uuid::new_v4());
-    let builder = &mut cap_std::fs::DirBuilder::new();
-    #[cfg(unix)]
-    cap_std::fs::DirBuilderExt::mode(builder, 0o700);
-    parent_cap
-        .create_dir_with(&name, builder)
-        .map_err(backup::io)?;
+    let staging = parent.join(&name);
+    crate::profile::private_directory(&staging).map_err(storage_error)?;
     let mut destination = Target {
         directory: Some(parent_cap.open_dir_nofollow(&name).map_err(backup::io)?),
     };
+    crate::profile::private_directory(&staging.join("storage")).map_err(storage_error)?;
     backup::archive::transfer(
         staged.directory.path(),
         destination.directory.as_ref().unwrap(),
@@ -854,7 +851,7 @@ fn finish(
         let relative = backup
             .strip_prefix(staged.directory.path())
             .map_err(backup::io)?;
-        let retained = parent.join(&name).join(relative);
+        let retained = staging.join(relative);
         crate::profile::private_directory(retained.parent().unwrap()).map_err(storage_error)?;
         super::database::schema::backup::copy(backup, &retained).map_err(storage_error)?;
     }
@@ -872,10 +869,17 @@ fn finish(
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => return Err(backup::io(error)),
     }
-    parent_cap
-        .rename(&name, &parent_cap, target_name)
-        .map_err(backup::io)?;
+    let staged_identity =
+        crate::files::path::identity::directory(destination.directory.as_ref().unwrap())?;
     drop(destination.directory.take());
+    if let Err(error) = parent_cap.rename(&name, &parent_cap, target_name) {
+        if let Ok(directory) = parent_cap.open_dir_nofollow(&name)
+            && crate::files::path::identity::directory(&directory).ok() == Some(staged_identity)
+        {
+            destination.directory = Some(directory);
+        }
+        return Err(backup::io(error));
+    }
     Ok((staged.record, target.to_owned()))
 }
 

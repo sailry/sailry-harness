@@ -279,7 +279,7 @@ async fn fixture() -> (tempfile::TempDir, PathBuf, NodeId, Database) {
         .unwrap()
         .join("storage")
         .join("node.turso");
-    std::fs::create_dir(path.parent().unwrap()).unwrap();
+    crate::profile::private_directory(path.parent().unwrap()).unwrap();
     let node = NodeId([31; 32]);
     let database = Database::open(&path, node, None).await.unwrap();
     (directory, path, node, database)

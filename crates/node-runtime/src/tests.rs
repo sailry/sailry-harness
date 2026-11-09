@@ -9,6 +9,11 @@ pub(crate) mod http;
 
 fn tempdir() -> std::io::Result<tempfile::TempDir> {
     let directory = tempfile::tempdir()?;
+    #[cfg(windows)]
+    {
+        std::fs::remove_dir(directory.path())?;
+        crate::profile::private_directory(directory.path()).map_err(std::io::Error::other)?;
+    }
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -67,10 +72,14 @@ async fn startup_failure_releases_lock() {
     let directory = tempdir().unwrap();
     let obstacle = directory.path().join("storage");
     std::fs::write(&obstacle, "startup fault").unwrap();
+    let result = Node::start(directory.path()).await;
+    #[cfg(windows)]
     assert!(matches!(
-        Node::start(directory.path()).await,
-        Err(Error::Io(_))
+        result,
+        Err(Error::InvalidProfile { path, .. }) if path.ends_with("storage")
     ));
+    #[cfg(not(windows))]
+    assert!(matches!(result, Err(Error::Io(_))));
     assert!(directory.path().join("node.lock").exists());
     std::fs::remove_file(&obstacle).unwrap();
     Node::start(directory.path())

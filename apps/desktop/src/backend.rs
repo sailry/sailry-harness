@@ -73,7 +73,7 @@ impl Owner {
                 signal(SignalKind::interrupt())?,
             )
         };
-        let preferences = crate::preferences::Preferences::for_startup(&options.data_dir);
+        let mut preferences = crate::preferences::Preferences::for_startup(&options.data_dir);
         let relays = if options.relays.is_empty() {
             preferences.data.iroh_relays.clone().unwrap_or_default()
         } else {
@@ -85,6 +85,7 @@ impl Owner {
             NetworkScope::CustomRelays(relays)
         };
         let node = runtime.block_on(Node::start_with_network(options.data_dir, scope))?;
+        preferences.finish_startup();
         Ok(Self {
             services: Services {
                 profile: node.profile().to_path_buf(),

@@ -29,9 +29,13 @@ struct Fixture {
 impl Fixture {
     async fn new() -> Self {
         let root = tempfile::tempdir().unwrap();
-        let database = Database::open(&root.path().join("node.turso"), NodeId([19; 32]), None)
-            .await
-            .unwrap();
+        let database = Database::open(
+            &crate::store::tests::profile(&root).join("node.turso"),
+            NodeId([19; 32]),
+            None,
+        )
+        .await
+        .unwrap();
         let package = package(&database.connection, 'a', true).await;
         seed(&database.connection).await;
         Self {

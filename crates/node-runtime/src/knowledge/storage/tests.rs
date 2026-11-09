@@ -102,9 +102,9 @@ fn retains_unindexed_and_partial_keyword_results() {
 #[tokio::test]
 async fn filters_any_tags_before_bounded_vector_ranks() {
     let directory = tempfile::tempdir_in(std::env::temp_dir().canonicalize().unwrap()).unwrap();
-    let index = Index::open(&directory.path().join("knowledge.turso"))
-        .await
-        .unwrap();
+    let storage = directory.path().join("storage");
+    crate::profile::private_directory(&storage).unwrap();
+    let index = Index::open(&storage.join("knowledge.turso")).await.unwrap();
     let binding = Binding {
         id: KnowledgeId::new(),
         generation: 1,

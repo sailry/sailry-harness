@@ -326,7 +326,10 @@ mod tests {
             identity::directory(&root(&folder).unwrap()).unwrap()
         );
         assert!(root(Path::new("relative/root")).is_err());
-        assert!(root(&base.join("..")).is_err());
+        let mut unnormalized = base.into_os_string();
+        unnormalized.push(std::path::MAIN_SEPARATOR_STR);
+        unnormalized.push("..");
+        assert!(root(Path::new(&unnormalized)).is_err());
     }
 
     #[cfg(unix)]

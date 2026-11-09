@@ -37,33 +37,84 @@ pub(crate) fn locate(
 /// Resolve file URLs and Markdown paths against the captured execution directory.
 pub(crate) fn resolve(link: &str, root: &str) -> Option<Target> {
     let (target, line) = parts(link)?;
-    let root = root.replace('\\', "/");
+    let root = node_path(root);
     let mut base = url::Url::parse("file:///").ok()?;
-    base.set_path(&format!("{}/", root.trim_end_matches('/')));
-    let root = base.to_file_path().ok()?;
-    let target = target.replace('\\', "/");
-    let url = if target.as_bytes().get(1) == Some(&b':') {
+    base.set_path(&format!(
+        "{}/",
+        root.trim_end_matches('/').replace('%', "%25")
+    ));
+    let root = format!("{}/", file_path(&base)?.trim_end_matches('/'));
+    let target = node_path(target);
+    let url = if target.as_bytes().get(1) == Some(&b':') || target.starts_with("//") {
         let mut url = url::Url::parse("file:///").ok()?;
         url.set_path(&target);
         url
     } else {
         base.join(&target).ok()?
     };
-    if url.scheme() != "file" {
-        return None;
-    }
-    let path = url.to_file_path().ok()?;
-    if path.to_str()?.contains('\0') {
-        return None;
-    }
-    if let Ok(relative) = path.strip_prefix(root) {
+    let path = file_path(&url)?;
+    if let Some(relative) = path
+        .strip_prefix(root.as_str())
+        .or_else(|| (path == root.trim_end_matches('/')).then_some(""))
+    {
         Some(Target::Workspace {
-            path: relative.to_str()?.replace('\\', "/"),
+            path: relative.to_owned(),
             line,
         })
     } else {
-        Some(Target::External(path))
+        Some(Target::External(path.into()))
     }
+}
+
+fn node_path(path: &str) -> String {
+    let path = path.replace('\\', "/");
+    if let Some(path) = path.strip_prefix("//?/UNC/") {
+        format!("//{path}")
+    } else {
+        path.strip_prefix("//?/").unwrap_or(&path).to_owned()
+    }
+}
+
+fn file_path(url: &url::Url) -> Option<String> {
+    if url.scheme() != "file" || url.host_str().is_some() {
+        return None;
+    }
+    let path = percent_encoding::percent_decode_str(url.path())
+        .decode_utf8()
+        .ok()?
+        .replace('\\', "/");
+    if path.contains('\0') {
+        return None;
+    }
+    let drive = path.as_bytes().get(1).is_some_and(u8::is_ascii_alphabetic)
+        && path.as_bytes().get(2) == Some(&b':')
+        && (path.len() == 3 || path.as_bytes().get(3) == Some(&b'/'));
+    let network = path.starts_with("//");
+    let volume = if network { 2 } else { usize::from(drive) };
+    let mut parts = Vec::new();
+    for part in path.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                if parts.len() > volume {
+                    parts.pop();
+                }
+            }
+            part => parts.push(part),
+        }
+    }
+    let mut path = parts.join("/");
+    if drive {
+        path[..1].make_ascii_uppercase();
+        if parts.len() == 1 {
+            path.push('/');
+        }
+    } else if network {
+        path.insert_str(0, "//");
+    } else {
+        path.insert(0, '/');
+    }
+    Some(path)
 }
 
 #[cfg(test)]
@@ -100,7 +151,14 @@ fn parts(link: &str) -> Option<(&str, Option<usize>)> {
         }
         None => None,
     };
-    let target = target.split('?').next()?;
+    let prefix = if target.starts_with(r"\\?\") || target.starts_with("//?/") {
+        4
+    } else {
+        0
+    };
+    let target = target[prefix..]
+        .find('?')
+        .map_or(target, |offset| &target[..prefix + offset]);
     let target = match target.rsplit_once(':') {
         Some((path, suffix)) if digits(suffix) => {
             if line.is_some() {

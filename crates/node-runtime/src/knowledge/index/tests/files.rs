@@ -189,7 +189,7 @@ async fn fills_missing_derived_table_without_losing_sources() {
         .await
         .unwrap();
     drop(index);
-    let index = Index::open(&directory.path().join("knowledge.turso"))
+    let index = Index::open(&directory.path().join("storage/knowledge.turso"))
         .await
         .unwrap();
     assert_eq!(index.counts(&selected).await.unwrap(), (1, 1));

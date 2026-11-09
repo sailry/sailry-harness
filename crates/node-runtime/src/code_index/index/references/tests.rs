@@ -32,9 +32,9 @@ async fn replaces_and_removes_rows_with_files() {
         stop.clone(),
     );
     let resources = service.resources().await.unwrap();
-    let index = Index::open(&directory.path().join("index.turso"))
-        .await
-        .unwrap();
+    let storage = directory.path().join("storage");
+    crate::profile::private_directory(&storage).unwrap();
+    let index = Index::open(&storage.join("index.turso")).await.unwrap();
     let parse = |source: &str| {
         resources
             .parser

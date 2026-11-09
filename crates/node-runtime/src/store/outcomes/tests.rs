@@ -35,7 +35,7 @@ async fn command(
 
 async fn preserves_effect(conflicts: usize) {
     let directory = tempfile::tempdir().unwrap();
-    let root = directory.path().canonicalize().unwrap();
+    let root = crate::store::tests::profile(&directory);
     let mut database = Database::open(&root.join("node.turso"), NodeId([83; 32]), None)
         .await
         .unwrap();
@@ -156,7 +156,7 @@ async fn preserves_external(conflicts: usize, known_failure: bool) {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     let directory = tempfile::tempdir().unwrap();
-    let root = directory.path().canonicalize().unwrap();
+    let root = crate::store::tests::profile(&directory);
     let caller = NodeId([84; 32]);
     let mut database = Database::open(&root.join("node.turso"), caller, None)
         .await

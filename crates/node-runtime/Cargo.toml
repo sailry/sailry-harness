@@ -159,6 +159,7 @@ chrono-tz.workspace = true
 futures.workspace = true
 reqwest = { workspace = true, features = ["form"] }
 url.workspace = true
+percent-encoding = "=2.3.2"
 hyper-util = { workspace = true, features = ["client-proxy"] }
 
 [target.'cfg(unix)'.dependencies]

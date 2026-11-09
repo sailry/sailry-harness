@@ -13,9 +13,9 @@ async fn binds_unicode_across_statement_boundaries() {
         stop.clone(),
     );
     let resources = service.resources().await.unwrap();
-    let index = Index::open(&directory.path().join("index.turso"))
-        .await
-        .unwrap();
+    let storage = directory.path().join("storage");
+    crate::profile::private_directory(&storage).unwrap();
+    let index = Index::open(&storage.join("index.turso")).await.unwrap();
     for (revision, count) in [BATCH_SYMBOLS - 1, BATCH_SYMBOLS, BATCH_SYMBOLS + 1]
         .into_iter()
         .enumerate()

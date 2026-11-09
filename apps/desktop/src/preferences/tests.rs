@@ -504,18 +504,30 @@ mod welcome {
         let directory = tempfile::tempdir().unwrap();
         let profile = directory.path().join("new");
         std::fs::create_dir_all(profile.join("logs/desktop")).unwrap();
-        let preferences = Preferences::for_startup(&profile);
+        let mut preferences = Preferences::for_startup(&profile);
         assert!(preferences.welcome_pending());
         assert_eq!(preferences.data.version, 1);
         assert_eq!(preferences.error, None);
+        assert!(!profile.join("desktop/preferences.json").exists());
+        preferences.finish_startup();
         assert!(Preferences::open(profile.join("desktop/preferences.json")).welcome_pending());
+    }
+
+    #[test]
+    fn leaves_fresh_profile_creation_to_owner() {
+        let directory = tempfile::tempdir().unwrap();
+        let profile = directory.path().join("node");
+        let preferences = Preferences::for_startup(&profile);
+        assert!(preferences.welcome_pending());
+        assert_eq!(preferences.data.welcome_seen, Some(false));
+        assert!(!profile.exists());
     }
 
     #[test]
     fn preserves_pending_until_dismissed() {
         let directory = tempfile::tempdir().unwrap();
         let profile = directory.path();
-        Preferences::for_startup(profile);
+        Preferences::for_startup(profile).finish_startup();
         std::fs::create_dir_all(profile.join("storage")).unwrap();
         std::fs::write(profile.join("storage/node.turso"), b"existing Node storage").unwrap();
         let mut restored = Preferences::for_startup(profile);
@@ -541,10 +553,11 @@ mod welcome {
         let mut old = serde_json::to_value(&expected).unwrap();
         old.as_object_mut().unwrap().remove("welcome_seen");
         std::fs::write(&path, serde_json::to_vec(&old).unwrap()).unwrap();
-        let preferences = Preferences::for_startup(directory.path());
+        let mut preferences = Preferences::for_startup(directory.path());
         expected.welcome_seen = Some(true);
         assert_eq!(preferences.data, expected);
         assert!(!preferences.welcome_pending());
+        preferences.finish_startup();
         assert_eq!(Preferences::open(path).data, expected);
     }
 
@@ -556,9 +569,10 @@ mod welcome {
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             let original = b"existing Node storage";
             std::fs::write(&path, original).unwrap();
-            let preferences = Preferences::for_startup(directory.path());
+            let mut preferences = Preferences::for_startup(directory.path());
             assert_eq!(preferences.data.welcome_seen, Some(true));
             assert!(!preferences.welcome_pending());
+            preferences.finish_startup();
             assert_eq!(std::fs::read(path).unwrap(), original);
         }
     }
@@ -573,6 +587,7 @@ mod welcome {
         let mut preferences = Preferences::for_startup(directory.path());
         assert_eq!(preferences.error, Some("preferences_read_failed"));
         assert!(!preferences.welcome_pending());
+        preferences.finish_startup();
         preferences.mark_welcome_seen();
         assert_eq!(std::fs::read(path).unwrap(), original);
     }

@@ -10,7 +10,7 @@ async fn persists_intent_before_applying() {
     .await
     .unwrap();
     let id = NodeId(*link.handle().address().id.as_bytes());
-    let path = root.path().canonicalize().unwrap().join("node.turso");
+    let path = crate::store::tests::profile(&root).join("node.turso");
     let mut db = Database::open(&path, id, None).await.unwrap();
     *db.network_link.lock().unwrap() = Some(link.handle());
     let desired = Selection::Custom {

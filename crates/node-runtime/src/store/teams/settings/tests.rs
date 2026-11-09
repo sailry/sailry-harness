@@ -4,7 +4,7 @@ use sailry_protocol::NodeId;
 
 async fn open() -> (tempfile::TempDir, Database) {
     let root = tempfile::tempdir().unwrap();
-    let path = root.path().canonicalize().unwrap().join("node.turso");
+    let path = crate::store::tests::profile(&root).join("node.turso");
     let database = Database::open(&path, NodeId([35; 32]), None).await.unwrap();
     (root, database)
 }

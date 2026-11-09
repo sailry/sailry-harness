@@ -18,7 +18,7 @@ impl Fixture {
     async fn new() -> Self {
         let directory = tempfile::tempdir().unwrap();
         let database = Database::open(
-            &directory.path().canonicalize().unwrap().join("node.turso"),
+            &crate::store::tests::profile(&directory).join("node.turso"),
             protocol::NodeId([61; 32]),
             None,
         )

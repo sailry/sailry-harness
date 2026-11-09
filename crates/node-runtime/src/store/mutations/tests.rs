@@ -123,7 +123,7 @@ async fn blocked() -> (Fixture, Gate) {
     let fixture = Fixture::start(move |root, request| {
         if matches!(&request.command, Command::WriteFile { path, .. } if path == "blocked") {
             let _ = entered.send(());
-            released.recv_timeout(Duration::from_secs(10)).unwrap();
+            released.recv().unwrap();
         }
         mutations::execute(root, request)
     })

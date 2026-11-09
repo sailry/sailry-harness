@@ -3,8 +3,9 @@ use super::*;
 #[tokio::test]
 async fn failed_cache_cleanup_preserves_reset_marker() {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("node.turso");
-    let knowledge = directory.path().join("knowledge.turso");
+    let profile = crate::store::tests::profile(&directory);
+    let path = profile.join("node.turso");
+    let knowledge = profile.join("knowledge.turso");
     let node = NodeId([90; 32]);
     {
         let (handle, connection) = empty(&path, node, None).await.unwrap();

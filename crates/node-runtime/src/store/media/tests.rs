@@ -206,7 +206,7 @@ async fn captures_login_override_options() {
     let (mut provider, _) = fixture();
     let directory = tempfile::tempdir().unwrap();
     let database = crate::store::database::Database::open(
-        &directory.path().canonicalize().unwrap().join("node.turso"),
+        &crate::store::tests::profile(&directory).join("node.turso"),
         NodeId([18; 32]),
         None,
     )
@@ -257,7 +257,7 @@ async fn resolves_catalog_without_rewriting_provider() {
     provider.credential = None;
     let directory = tempfile::tempdir().unwrap();
     let database = crate::store::database::Database::open(
-        &directory.path().canonicalize().unwrap().join("node.turso"),
+        &crate::store::tests::profile(&directory).join("node.turso"),
         NodeId([20; 32]),
         None,
     )
@@ -308,7 +308,7 @@ async fn resolves_catalog_without_rewriting_provider() {
 async fn preserves_settings_revisions() {
     let directory = tempfile::tempdir().unwrap();
     let database = crate::store::database::Database::open(
-        &directory.path().canonicalize().unwrap().join("node.turso"),
+        &crate::store::tests::profile(&directory).join("node.turso"),
         NodeId([19; 32]),
         None,
     )

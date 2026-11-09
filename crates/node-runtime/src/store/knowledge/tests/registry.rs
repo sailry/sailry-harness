@@ -148,7 +148,7 @@ async fn rejects_invalid_definitions_without_writes() {
 #[tokio::test]
 async fn requires_model_install_grant() {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().canonicalize().unwrap().join("node.turso");
+    let path = crate::store::tests::profile(&directory).join("node.turso");
     let node = NodeId([19; 32]);
     let db = Database::open(&path, node, None).await.unwrap();
     let owner = package(
@@ -274,7 +274,7 @@ async fn refuses_unknown_selections_without_side_effects() {
 #[tokio::test]
 async fn restores_immutable_metadata_and_selection() {
     let profile = tempfile::tempdir().unwrap();
-    let path = profile.path().canonicalize().unwrap().join("node.turso");
+    let path = crate::store::tests::profile(&profile).join("node.turso");
     let node = NodeId([37; 32]);
     let db = Database::open(&path, node, None).await.unwrap();
     let model = register(&db.connection, &metadata()).await;

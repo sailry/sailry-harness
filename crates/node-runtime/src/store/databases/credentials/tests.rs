@@ -38,7 +38,7 @@ async fn save(db: &Connection, profile: Profile, password: Option<&str>) -> Resu
 
 async fn database() -> (tempfile::TempDir, Database) {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().canonicalize().unwrap().join("node.turso");
+    let path = crate::store::tests::profile(&directory).join("node.turso");
     let db = Database::open(&path, NodeId([12; 32]), None).await.unwrap();
     (directory, db)
 }
@@ -258,7 +258,7 @@ async fn defaults_only_self_describing_legacy_targets() {
 #[tokio::test]
 async fn upgrades_on_private_snapshot_and_preserves_passwords() {
     let (directory, database) = database().await;
-    let path = directory.path().canonicalize().unwrap().join("node.turso");
+    let path = crate::store::tests::profile(&directory).join("node.turso");
     let original = save(&database.connection, profile(), Some("legacy-password"))
         .await
         .unwrap();
@@ -290,7 +290,7 @@ async fn upgrades_on_private_snapshot_and_preserves_passwords() {
     .unwrap();
     assert_eq!(password, "legacy-password");
     upgraded.close().await.unwrap();
-    let backups = std::fs::read_dir(directory.path().join("backups"))
+    let backups = std::fs::read_dir(crate::store::tests::profile(&directory).join("backups"))
         .unwrap()
         .map(|entry| entry.unwrap().path())
         .collect::<Vec<_>>();
@@ -343,7 +343,7 @@ mapped }).await.unwrap();
     assert!(Database::open(&path, NodeId([12; 32]), None).await.is_err());
     assert_eq!(family(&path), before);
     let snapshots: std::collections::BTreeSet<_> =
-        std::fs::read_dir(directory.path().join("backups"))
+        std::fs::read_dir(crate::store::tests::profile(&directory).join("backups"))
             .unwrap()
             .map(|entry| entry.unwrap().path())
             .filter(|path| path.is_dir())

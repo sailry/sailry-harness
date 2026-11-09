@@ -15,7 +15,9 @@ fn private(path: &Path) {
 #[test]
 fn restricts_scratch_and_profile_temporary_storage() {
     let profile = tempfile::tempdir().unwrap();
-    for source in [Some(profile.path()), None] {
+    let path = profile.path().join("profile");
+    private(&path);
+    for source in [Some(path.as_path()), None] {
         let temporary = scratch(source).unwrap();
         private(temporary.path());
         if let Some(profile) = source {

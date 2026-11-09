@@ -13,7 +13,7 @@ struct Fixture {
 impl Fixture {
     async fn new() -> Self {
         let directory = tempfile::tempdir().unwrap();
-        let root = directory.path().canonicalize().unwrap();
+        let root = crate::store::tests::profile(&directory);
         let path = root.join("node.turso");
         let database = Database::open(&path, sailry_protocol::NodeId([74; 32]), Some(root.clone()))
             .await
@@ -141,7 +141,7 @@ impl Fixture {
         let database = Database::open_with_plugins(
             &self.path,
             node,
-            Some(self.directory.path().canonicalize()?),
+            Some(crate::store::tests::profile(&self.directory)),
             Some(&self.host),
         )
         .await?;
@@ -214,10 +214,11 @@ async fn imports_credentials_and_preserves_captures() {
                 assert_eq!(row.secrets["app_secret"].expose(), "private-app_secret");
             }
         }
-        let backup = std::fs::read_dir(fixture.directory.path().join("backups"))
-            .unwrap()
-            .map(|entry| entry.unwrap().path())
-            .collect::<Vec<_>>();
+        let backup =
+            std::fs::read_dir(crate::store::tests::profile(&fixture.directory).join("backups"))
+                .unwrap()
+                .map(|entry| entry.unwrap().path())
+                .collect::<Vec<_>>();
         assert_eq!(backup.len(), 1);
         let backup_handle = crate::store::database::engine(&backup[0].join("node.turso"))
             .await
@@ -248,7 +249,7 @@ async fn imports_credentials_and_preserves_captures() {
         drop(backup_handle);
         fixture.upgrade().await.unwrap();
         assert_eq!(
-            std::fs::read_dir(fixture.directory.path().join("backups"))
+            std::fs::read_dir(crate::store::tests::profile(&fixture.directory).join("backups"))
                 .unwrap()
                 .filter(|entry| entry.as_ref().unwrap().path().is_dir())
                 .count(),
@@ -489,7 +490,11 @@ mapped }).await.unwrap(),0);
         inventory
     );
 
-    assert!(!fixture.directory.path().join("backups").exists());
+    assert!(
+        !crate::store::tests::profile(&fixture.directory)
+            .join("backups")
+            .exists()
+    );
 }
 
 #[tokio::test]

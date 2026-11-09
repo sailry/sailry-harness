@@ -4,7 +4,7 @@ use crate::store::database::Database;
 #[tokio::test]
 async fn preserves_definitions_without_derived_database() {
     let directory = tempfile::tempdir().unwrap();
-    let root = directory.path().canonicalize().unwrap();
+    let root = crate::store::tests::profile(&directory);
     let path = root.join("node.turso");
     let derived = root.join("knowledge.turso");
     let source = root.join("reference.txt");
@@ -122,7 +122,7 @@ async fn preserves_definitions_without_derived_database() {
 #[tokio::test]
 async fn adds_missing_tables_with_original_backup() {
     let directory = tempfile::tempdir().unwrap();
-    let root = directory.path().canonicalize().unwrap();
+    let root = crate::store::tests::profile(&directory);
     let path = root.join("node.turso");
     let node = NodeId([32; 32]);
     let db = Database::open(&path, node, None).await.unwrap();
@@ -215,7 +215,7 @@ async fn adds_missing_tables_with_original_backup() {
 #[tokio::test]
 async fn malformed_configuration_preserves_original_profile() {
     let directory = tempfile::tempdir().unwrap();
-    let root = directory.path().canonicalize().unwrap();
+    let root = crate::store::tests::profile(&directory);
     let path = root.join("node.turso");
     let node = NodeId([33; 32]);
     let db = Database::open(&path, node, None).await.unwrap();

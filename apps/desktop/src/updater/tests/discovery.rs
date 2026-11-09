@@ -9,13 +9,20 @@ use std::collections::BTreeMap;
 
 fn release(base: &str, version: &str) -> Value {
     let mut assets = vec!["update-v1.json".to_owned()];
-    for target in ["aarch64-apple-darwin", "x86_64-apple-darwin"] {
+    let targets = if fixture::config().target.ends_with("apple-darwin") {
+        ["aarch64-apple-darwin", "x86_64-apple-darwin"]
+    } else {
+        ["aarch64-pc-windows-msvc", "x86_64-pc-windows-msvc"]
+    };
+    for target in targets {
         assets.extend([
-            format!("Sailry-{target}.dmg"),
             format!("Sailry-{target}.zip"),
             format!("Sailry-{target}.zip.update.json"),
             format!("SHA256SUMS-desktop-{target}"),
         ]);
+        if target.ends_with("apple-darwin") {
+            assets.push(format!("Sailry-{target}.dmg"));
+        }
     }
     json!({"tag_name":format!("v{version}"), "draft":false,
         "prerelease": !semver::Version::parse(version).unwrap().pre.is_empty(),
@@ -167,15 +174,9 @@ fn immutable_release_identity() {
                         .is_err(),
                     "rejects mutable urls and incomplete formal assets"
                 );
-                for missing in [
-                    "Sailry-x86_64-apple-darwin.zip.update.json",
-                    "Sailry-aarch64-apple-darwin.dmg",
-                ] {
+                for missing in 0..release(base, "1.0.0")["assets"].as_array().unwrap().len() {
                     let mut value = release(base, "1.0.0");
-                    value["assets"]
-                        .as_array_mut()
-                        .unwrap()
-                        .retain(|asset| asset["name"] != missing);
+                    value["assets"].as_array_mut().unwrap().remove(missing);
                     assert!(
                         serde_json::from_value::<Release>(value)
                             .unwrap()

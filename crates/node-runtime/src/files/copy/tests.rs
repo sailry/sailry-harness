@@ -61,19 +61,34 @@ fn validates_roots_before_publication() {
         let changed = if replace_source { &source } else { &target };
         let result = publish(&source, &target, "content", "copied", None, &|phase| {
             if matches!(phase, Phase::Prepared) {
-                fs::rename(changed, base.join("retained")).unwrap();
-                fs::create_dir(changed).unwrap();
-                if replace_source {
-                    fs::write(source.join("content"), "replacement").unwrap();
+                let renamed = fs::rename(changed, base.join("retained"));
+                #[cfg(windows)]
+                assert_eq!(renamed.unwrap_err().raw_os_error(), Some(32));
+                #[cfg(not(windows))]
+                {
+                    renamed.unwrap();
+                    fs::create_dir(changed).unwrap();
+                    if replace_source {
+                        fs::write(source.join("content"), "replacement").unwrap();
+                    }
                 }
             }
         });
-        assert_eq!(result.unwrap_err().code, ErrorCode::RevisionConflict);
-        assert!(!target.join("copied").exists());
-        assert!(!base.join("retained/copied").exists());
-        if !replace_source {
-            assert_eq!(fs::read_dir(base.join("retained")).unwrap().count(), 0);
+        #[cfg(windows)]
+        {
+            result.unwrap();
+            assert_eq!(fs::read(target.join("copied")).unwrap(), b"saved bytes");
+            assert_eq!(fs::read(source.join("content")).unwrap(), b"saved bytes");
         }
+        #[cfg(not(windows))]
+        {
+            assert_eq!(result.unwrap_err().code, ErrorCode::RevisionConflict);
+            assert!(!target.join("copied").exists());
+            if !replace_source {
+                assert_eq!(fs::read_dir(base.join("retained")).unwrap().count(), 0);
+            }
+        }
+        assert!(!base.join("retained/copied").exists());
     }
 }
 

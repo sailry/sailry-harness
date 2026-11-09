@@ -8,7 +8,9 @@ use sailry_protocol::NodeId;
 
 async fn fixture() -> (tempfile::TempDir, turso::Database, Connection) {
     let directory = tempfile::tempdir().unwrap();
-    let database = engine(&directory.path().join("node.turso")).await.unwrap();
+    let database = engine(&crate::store::tests::profile(&directory).join("node.turso"))
+        .await
+        .unwrap();
     let connection = connect(&database).await.unwrap();
     connection
         .execute("CREATE TABLE records(body BLOB)", ())
@@ -82,9 +84,13 @@ async fn accepts_optional_defaults_without_rewriting_bytes() {
 #[tokio::test]
 async fn validates_archives_only_when_requested() {
     let directory = tempfile::tempdir().unwrap();
-    let database = Database::open(&directory.path().join("node.turso"), NodeId([53; 32]), None)
-        .await
-        .unwrap();
+    let database = Database::open(
+        &crate::store::tests::profile(&directory).join("node.turso"),
+        NodeId([53; 32]),
+        None,
+    )
+    .await
+    .unwrap();
     database
         .connection
         .execute("BEGIN CONCURRENT", ())

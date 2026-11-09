@@ -89,8 +89,18 @@ impl WatchFilter {
         self.metadata.clear();
         self.tracked.clear();
         if let Some(repository) = &self.repository {
-            self.metadata.push(repository.path().to_path_buf());
-            self.metadata.push(repository.commondir().to_path_buf());
+            self.metadata.push(
+                repository
+                    .path()
+                    .canonicalize()
+                    .map_err(crate::files::io_error)?,
+            );
+            self.metadata.push(
+                repository
+                    .commondir()
+                    .canonicalize()
+                    .map_err(crate::files::io_error)?,
+            );
             self.metadata.sort_unstable();
             self.metadata.dedup();
             let mut index = repository.index().map_err(fault)?;
@@ -131,9 +141,9 @@ impl WatchFilter {
                         | "config.worktree"
                         | "commondir"
                         | "shallow"
-                        | "info/exclude"
                 )
-            ) || relative.starts_with("refs")
+            ) || relative == Path::new("info/exclude")
+                || relative.starts_with("refs")
         })
     }
 
@@ -195,6 +205,7 @@ mod tests {
         let mut filter = WatchFilter::new(&root).unwrap();
         assert!(filter.changed(&[root.join(".git/index")]));
         assert!(filter.changed(&[root.join(".git/HEAD")]));
+        assert!(filter.changed(&[root.join(".git/info/exclude")]));
         assert!(filter.changed(&[root.join(".git/refs/heads/main")]));
         assert!(!filter.changed(&[root.join(".git/index.lock")]));
         assert!(!filter.changed(&[root.join(".git/objects/ab/object")]));
@@ -264,13 +275,17 @@ mod tests {
         let linked = root.join("linked");
         repository.worktree("linked", &linked, None).unwrap();
         let linked_repository = open(&linked).unwrap();
-        let metadata = linked_repository.path().to_path_buf();
-        let common = linked_repository.commondir().to_path_buf();
+        let metadata = linked_repository.path().canonicalize().unwrap();
+        let common = linked_repository.commondir().canonicalize().unwrap();
         let roots = super::super::Git::watch_roots(&linked).unwrap();
         assert!(roots.contains(&metadata));
         assert!(roots.contains(&common));
         assert_eq!(roots.len(), 2);
         let mut filter = WatchFilter::new(&linked).unwrap();
+        for watched in &roots {
+            assert!(filter.changed(&[watched.join("HEAD")]));
+            assert!(filter.references_changed(&[watched.join("HEAD")]));
+        }
         assert!(filter.changed(&[metadata.join("HEAD")]));
         assert!(filter.changed(&[metadata.join("index")]));
         assert!(filter.changed(&[common.join("refs/heads/main")]));

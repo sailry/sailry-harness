@@ -6,7 +6,8 @@ use serde_json::json;
 #[tokio::test]
 async fn preserves_current_defaults_and_identity() {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("node.turso");
+    let profile = crate::store::tests::profile(&directory);
+    let path = profile.join("node.turso");
     let node = NodeId([62; 32]);
     let database = Database::open(&path, node, None).await.unwrap();
     let mut settings = read(&database.connection).await.unwrap();
@@ -18,7 +19,7 @@ async fn preserves_current_defaults_and_identity() {
     database.close().await.unwrap();
     let database = Database::open(&path, node, None).await.unwrap();
     assert_eq!(read(&database.connection).await.unwrap(), settings);
-    assert!(!directory.path().join("backups").exists());
+    assert!(!profile.join("backups").exists());
     database.close().await.unwrap();
 }
 
@@ -30,7 +31,8 @@ async fn rejects_invalid_values_without_replacing_data() {
         json!({"revision":3,"installation_id":"00000000-0000-0000-0000-000000000000"}),
     ] {
         let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("node.turso");
+        let profile = crate::store::tests::profile(&directory);
+        let path = profile.join("node.turso");
         let node = NodeId([63; 32]);
         let database = Database::open(&path, node, None).await.unwrap();
         let body = serde_json::to_vec(&value).unwrap();
@@ -44,7 +46,7 @@ async fn rejects_invalid_values_without_replacing_data() {
         let handle = crate::store::database::engine(&path).await.unwrap();
         let connection = crate::store::database::connect(&handle).await.unwrap();
         assert_eq!(super::body(&connection).await.unwrap().unwrap(), body);
-        assert!(!directory.path().join("backups").exists());
+        assert!(!profile.join("backups").exists());
     }
 }
 

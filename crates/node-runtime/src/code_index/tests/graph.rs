@@ -207,7 +207,17 @@ async fn follows_incremental_updates_and_deletions() {
     assert!(updated.callers.is_empty(), "{:?}", updated.callers);
     std::fs::remove_file(fixture.root.join("chain/a.rs")).unwrap();
     fixture.service.changed(fixture.id, None);
-    let removed = fixture.graph(query(View::Callers, Some("a"), &[])).await;
+    let removed = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let page = fixture.graph(query(View::Callers, Some("a"), &[])).await;
+            if !page.partial && !page.truncated {
+                break page;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
     assert!(removed.targets.is_empty());
     let callees = fixture.graph(query(View::Callees, Some("b"), &[])).await;
     assert_eq!(callees.callees.len(), 1);

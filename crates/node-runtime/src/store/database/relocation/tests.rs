@@ -40,7 +40,7 @@ async fn revision(
 async fn confines_session_edits() {
     let temp = tempfile::tempdir().unwrap();
     let profile = temp.path().canonicalize().unwrap().join("node");
-    std::fs::create_dir_all(profile.join("storage")).unwrap();
+    crate::profile::private_directory(&profile.join("storage")).unwrap();
     let database = Database::open(
         &profile.join("storage/node.turso"),
         NodeId([48; 32]),
@@ -178,7 +178,7 @@ async fn confines_bound_workspace_edits() {
     for config in [ssh, sql, assistant] {
         let temp = tempfile::tempdir().unwrap();
         let profile = temp.path().canonicalize().unwrap().join("node");
-        std::fs::create_dir_all(profile.join("storage")).unwrap();
+        crate::profile::private_directory(&profile.join("storage")).unwrap();
         let database = Database::open(
             &profile.join("storage/node.turso"),
             NodeId([49; 32]),
@@ -353,7 +353,7 @@ async fn confines_bound_workspace_edits() {
 async fn confines_managed_edits() {
     let temp = tempfile::tempdir().unwrap();
     let profile = temp.path().canonicalize().unwrap().join("node");
-    std::fs::create_dir_all(profile.join("storage")).unwrap();
+    crate::profile::private_directory(&profile.join("storage")).unwrap();
     let database = Database::open(
         &profile.join("storage/node.turso"),
         NodeId([47; 32]),
@@ -438,7 +438,7 @@ async fn recognizes_project_checkouts() {
     let main = base.join("project");
     let profile = base.join("node");
     std::fs::create_dir(&main).unwrap();
-    std::fs::create_dir_all(profile.join("storage")).unwrap();
+    crate::profile::private_directory(&profile.join("storage")).unwrap();
     let database = Database::open(
         &profile.join("storage/node.turso"),
         NodeId([49; 32]),

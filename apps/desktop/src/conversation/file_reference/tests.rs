@@ -174,6 +174,96 @@ fn scoped_targets() {
             }),
         ),
         (
+            "resolves_windows_execution_paths",
+            (|_scenario: &str| {
+                for root in ["C:/project", r"\\?\C:\project"] {
+                    for link in [
+                        "build%20notes.md#L3",
+                        "C:/project/build notes.md:3",
+                        r"C:\project\build notes.md#L3",
+                        r"\\?\C:\project\build notes.md#L3",
+                        "file:///C:/project/build%20notes.md#L3",
+                        "file:///c:/project/build%20notes.md#L3",
+                    ] {
+                        assert_eq!(
+                            resolve(link, root),
+                            Some(Target::Workspace {
+                                path: "build notes.md".into(),
+                                line: Some(3)
+                            }),
+                            "{root}: {link}"
+                        );
+                    }
+                    for (link, path) in [
+                        ("../outside.png", "C:/outside.png"),
+                        ("C:/project-other/file.md", "C:/project-other/file.md"),
+                        ("D:/outside.png", "D:/outside.png"),
+                    ] {
+                        assert_eq!(
+                            resolve(link, root),
+                            Some(Target::External(path.into())),
+                            "{root}: {link}"
+                        );
+                    }
+                }
+            }),
+        ),
+        (
+            "resolves_unc_execution_paths",
+            (|_scenario: &str| {
+                for root in [r"\\server\share\project", r"\\?\UNC\server\share\project"] {
+                    for link in [
+                        "build%20notes.md#L3",
+                        r"\\server\share\project\build notes.md#L3",
+                        r"\\?\UNC\server\share\project\build notes.md#L3",
+                    ] {
+                        assert_eq!(
+                            resolve(link, root),
+                            Some(Target::Workspace {
+                                path: "build notes.md".into(),
+                                line: Some(3)
+                            }),
+                            "{root}: {link}"
+                        );
+                    }
+                    assert_eq!(resolve("file://server/share/project/file.md", root), None);
+                }
+            }),
+        ),
+        (
+            "normalizes_decoded_parent_paths",
+            (|_scenario: &str| {
+                for root in ["/project", "/project/./", "/project/../project"] {
+                    for link in [
+                        "%2e%2e%2foutside.png",
+                        "%2e%2e%5coutside.png",
+                        "nested%2f..%2f..%2foutside.png",
+                    ] {
+                        assert_eq!(
+                            resolve(link, root),
+                            Some(Target::External("/outside.png".into())),
+                            "{root}: {link}"
+                        );
+                    }
+                    assert_eq!(
+                        resolve("nested%2f..%2ffile.md", root),
+                        Some(Target::Workspace {
+                            path: "file.md".into(),
+                            line: None
+                        }),
+                        "{root}"
+                    );
+                }
+                assert_eq!(
+                    resolve("file.md", "/project%2fnotes"),
+                    Some(Target::Workspace {
+                        path: "file.md".into(),
+                        line: None
+                    })
+                );
+            }),
+        ),
+        (
             "resolves_urls",
             (|_scenario: &str| {
                 for link in [

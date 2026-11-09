@@ -5,7 +5,7 @@ use sailry_protocol::NodeId;
 async fn uses_current_state_indexes() {
     let directory = tempfile::tempdir().unwrap();
     let database = Database::open(
-        &directory.path().canonicalize().unwrap().join("node.turso"),
+        &crate::store::tests::profile(&directory).join("node.turso"),
         NodeId([79; 32]),
         None,
     )
@@ -62,9 +62,13 @@ async fn uses_current_state_indexes() {
 async fn includes_live_records_during_updates() {
     for table in ["agent_runs", "agent_questions"] {
         let directory = tempfile::tempdir().unwrap();
-        let database = Database::open(&directory.path().join("node.turso"), NodeId([80; 32]), None)
-            .await
-            .unwrap();
+        let database = Database::open(
+            &crate::store::tests::profile(&directory).join("node.turso"),
+            NodeId([80; 32]),
+            None,
+        )
+        .await
+        .unwrap();
         database
             .connection
             .pragma_update("foreign_keys", "OFF")

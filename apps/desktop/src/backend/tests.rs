@@ -18,8 +18,14 @@ mod unwind {
     fn nested(depth: usize, drops: &AtomicUsize) {
         let _guard = Guard(drops);
         if depth == 0 {
-            let trace = std::backtrace::Backtrace::force_capture().to_string();
-            assert!(trace.contains("unwind::nested"), "{trace}");
+            let trace = std::backtrace::Backtrace::force_capture();
+            assert_eq!(
+                trace.status(),
+                std::backtrace::BacktraceStatus::Captured,
+                "{trace}"
+            );
+            #[cfg(not(windows))]
+            assert!(trace.to_string().contains("unwind::nested"), "{trace}");
             panic!("unwind test");
         }
         nested(depth - 1, drops);
@@ -37,14 +43,10 @@ mod unwind {
 }
 
 fn profile() -> tempfile::TempDir {
-    let mut builder = tempfile::Builder::new();
-    builder.prefix("sailry-profile-");
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        builder.permissions(std::fs::Permissions::from_mode(0o700));
-    }
-    builder.tempdir().unwrap()
+    tempfile::Builder::new()
+        .prefix("sailry-profile-")
+        .tempdir()
+        .unwrap()
 }
 
 #[test]
@@ -54,7 +56,7 @@ fn profile_lifecycle() {
             "reopens_owned_profile",
             (|_scenario: &str| {
                 let directory = profile();
-                let path = directory.path().to_path_buf();
+                let path = directory.path().join("node");
                 let owner = Owner::start(Options {
                     data_dir: path.clone(),
                     relays: vec![],
@@ -101,7 +103,7 @@ fn profile_lifecycle() {
             "restores_relays_and_respects_explicit_startup_options",
             (|_scenario: &str| {
                 let directory = profile();
-                let profile = directory.path().to_path_buf();
+                let profile = directory.path().join("node");
                 let initial = Owner::start(Options {
                     data_dir: profile.clone(),
                     relays: vec![],
@@ -152,7 +154,7 @@ fn profile_lifecycle() {
             "handoff_drains_only_local_owner",
             (|_scenario: &str| {
                 let directory = profile();
-                let path = directory.path().to_path_buf();
+                let path = directory.path().join("node");
                 let local = Owner::start(Options {
                     data_dir: path.clone(),
                     relays: vec![],
@@ -160,7 +162,7 @@ fn profile_lifecycle() {
                 .unwrap();
                 let remote_directory = profile();
                 let remote = Owner::start(Options {
-                    data_dir: remote_directory.path().to_path_buf(),
+                    data_dir: remote_directory.path().join("node"),
                     relays: vec![],
                 })
                 .unwrap();

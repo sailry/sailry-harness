@@ -253,6 +253,10 @@ impl Environment {
         directory: &Path,
         inputs: Option<&Path>,
     ) -> tokio::process::Command {
+        #[cfg(windows)]
+        let native = super::pty_directory(directory);
+        #[cfg(windows)]
+        let directory = native.as_path();
         let mut command = tokio::process::Command::new(self.shell());
         #[cfg(unix)]
         command.args(["-c", &launch.command]);

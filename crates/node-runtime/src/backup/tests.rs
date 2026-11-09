@@ -27,6 +27,7 @@ pub(super) fn snapshot() -> (tempfile::TempDir, archive::Snapshot) {
 #[test]
 fn preserves_verified_private_files() {
     let (_parent, mut snapshot) = snapshot();
+    crate::profile::private_directory(&snapshot.directory.path().join("storage")).unwrap();
     let profile = snapshot.manifest.original_profile.clone();
     let workspace = format!("worktrees/{}", sailry_protocol::WorktreeId::new());
     std::fs::create_dir_all(profile.join(&workspace)).unwrap();
@@ -43,6 +44,7 @@ fn preserves_verified_private_files() {
         &CancellationToken::new(),
     )
     .unwrap();
+    crate::profile::private_directory(&target_path.join("storage")).unwrap();
     assert_eq!(manifest.files.len(), 4);
     assert_eq!(
         std::fs::read_to_string(target_path.join(&workspace).join("source.txt")).unwrap(),

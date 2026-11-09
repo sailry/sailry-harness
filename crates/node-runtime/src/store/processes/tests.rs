@@ -6,9 +6,10 @@ async fn resolves_the_admitted_worktree() {
     let root = directory.path().join("project");
     let other = directory.path().join("other");
     let profile = directory.path().join("node");
-    for path in [&root, &other, &profile] {
+    for path in [&root, &other] {
         std::fs::create_dir(path).unwrap();
     }
+    crate::profile::private_directory(&profile).unwrap();
     let profile = profile.canonicalize().unwrap();
     let mut database = Database::open(&profile.join("node.turso"), NodeId([8; 32]), None)
         .await

@@ -46,7 +46,7 @@ impl Fixture {
     ) -> sailry_link::Pending<'a, Self> {
         Box::pin(async move {
             let directory = tempfile::tempdir().unwrap();
-            let path = directory.path().canonicalize().unwrap().join("node.turso");
+            let path = crate::store::tests::profile(&directory).join("node.turso");
             let mut database = Database::open(&path, NodeId([31; 32]), None).await.unwrap();
             super::super::tests::fixture::files(&database, directory.path()).await;
             match package {

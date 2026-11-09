@@ -4,7 +4,9 @@ use crate::store::database::{connect, engine};
 #[tokio::test]
 async fn visits_each_owned_session_once() {
     let directory = tempfile::tempdir().unwrap();
-    let database = engine(&directory.path().join("graph.turso")).await.unwrap();
+    let database = engine(&crate::store::tests::profile(&directory).join("graph.turso"))
+        .await
+        .unwrap();
     let connection = connect(&database).await.unwrap();
     connection
         .execute_batch(
@@ -56,7 +58,9 @@ async fn visits_each_owned_session_once() {
 #[tokio::test]
 async fn uses_the_callers_transaction_snapshot() {
     let directory = tempfile::tempdir().unwrap();
-    let database = engine(&directory.path().join("graph.turso")).await.unwrap();
+    let database = engine(&crate::store::tests::profile(&directory).join("graph.turso"))
+        .await
+        .unwrap();
     let writer = connect(&database).await.unwrap();
     let reader = connect(&database).await.unwrap();
     writer

@@ -202,30 +202,149 @@ fn path_target(link: &str, root: Option<&str>) -> Option<String> {
     if root.is_none() && (link.starts_with('/') || link.contains([':', '\\'])) {
         return None;
     }
-    let root = root.unwrap_or("/").replace('\\', "/");
+    let root_path = node_path(root.unwrap_or("/"));
     let mut base = url::Url::parse("file:///").ok()?;
-    base.set_path(&format!("{}/", root.trim_end_matches('/')));
-    let root = base.to_file_path().ok()?;
+    base.set_path(&format!(
+        "{}/",
+        root_path.trim_end_matches('/').replace('%', "%25")
+    ));
+    let link = node_path(link);
     let link = link.split(['#', '?']).next()?;
     let link = link
         .rsplit_once(':')
         .filter(|(_, line)| !line.is_empty() && line.bytes().all(|b| b.is_ascii_digit()))
         .map_or(link, |(path, _)| path);
-    let link = link.replace('\\', "/");
-    let resolved = if link.as_bytes().get(1) == Some(&b':') {
+    if root.is_none() {
+        let decoded = percent_encoding::percent_decode_str(link)
+            .decode_utf8()
+            .ok()?;
+        crate::files::path::components_with(
+            decoded.trim_start_matches("./"),
+            false,
+            crate::files::Access::Manual,
+        )
+        .ok()?;
+    }
+    let mut resolved = if link.as_bytes().get(1) == Some(&b':') || link.starts_with("//") {
         let mut url = url::Url::parse("file:///").ok()?;
-        url.set_path(&link);
+        url.set_path(link);
         url
     } else {
-        base.join(&link).ok()?
+        base.join(link).ok()?
     };
-    if resolved.scheme() != "file" {
-        return None;
+    for url in [&mut base, &mut resolved] {
+        let path = url.path();
+        if path.as_bytes().get(1).is_some_and(u8::is_ascii_lowercase)
+            && path.as_bytes().get(2) == Some(&b':')
+            && (path.len() == 3 || path.as_bytes().get(3) == Some(&b'/'))
+        {
+            let mut path = path.to_owned();
+            path[1..2].make_ascii_uppercase();
+            url.set_path(&path);
+        }
     }
-    let path = resolved.to_file_path().ok()?;
-    let path = path.strip_prefix(root).ok()?.to_str()?.replace('\\', "/");
-    if path.is_empty() || path.chars().any(char::is_control) {
-        return None;
-    }
+    let relative = base.make_relative(&resolved)?;
+    let path = percent_encoding::percent_decode_str(&relative)
+        .decode_utf8()
+        .ok()?
+        .replace('\\', "/");
+    crate::files::path::components_with(&path, false, crate::files::Access::Manual).ok()?;
     Some(path)
+}
+
+fn node_path(path: &str) -> String {
+    let path = path.replace('\\', "/");
+    if let Some(path) = path.strip_prefix("//?/UNC/") {
+        format!("//{path}")
+    } else {
+        path.strip_prefix("//?/").unwrap_or(&path).to_owned()
+    }
+}
+
+#[cfg(test)]
+mod paths {
+    use super::path_target;
+
+    #[test]
+    fn resolves_captured_roots_on_every_platform() {
+        for root in [
+            None,
+            Some("/remote/project"),
+            Some(r"C:\remote\project"),
+            Some(r"\\?\C:\remote\project"),
+            Some(r"\\?\UNC\server\share\project"),
+        ] {
+            for (link, expected) in [
+                ("report.md", "report.md"),
+                ("./report.md", "report.md"),
+                ("output/report%20one.pdf", "output/report one.pdf"),
+                ("output/%E8%B5%84%E6%96%99.pdf", "output/资料.pdf"),
+                ("output/a%2Bb.pdf", "output/a+b.pdf"),
+            ] {
+                assert_eq!(
+                    path_target(link, root).as_deref(),
+                    Some(expected),
+                    "{root:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn confines_absolute_targets() {
+        for (root, link) in [
+            ("/remote/project", "/remote/project/report.md"),
+            ("/remote/project", "file:///remote/project/report.md"),
+            (r"\\?\C:\remote\project", r"C:\remote\project\report.md"),
+            (r"\\?\C:\remote\project", r"c:\remote\project\report.md"),
+            (
+                r"\\?\C:\remote\project",
+                "file:///c:/remote/project/report.md",
+            ),
+            (r"c:\remote\project", "file:///C:/remote/project/report.md"),
+            (r"\\?\C:\remote\project", r"\\?\C:\remote\project\report.md"),
+            (
+                r"\\?\UNC\server\share\project",
+                r"\\server\share\project\report.md",
+            ),
+        ] {
+            assert_eq!(path_target(link, Some(root)).as_deref(), Some("report.md"));
+        }
+        for (root, link) in [
+            ("/remote/project", "/remote/other/report.md"),
+            ("/remote/project", "file://other/remote/project/report.md"),
+            (r"\\?\C:\remote\project", r"D:\remote\project\report.md"),
+            (
+                r"\\?\UNC\server\share\project",
+                r"\\other\share\project\report.md",
+            ),
+        ] {
+            assert_eq!(path_target(link, Some(root)), None);
+        }
+    }
+
+    #[test]
+    fn rejects_escapes_and_invalid_targets() {
+        for root in [
+            None,
+            Some("/remote/project"),
+            Some(r"\\?\C:\remote\project"),
+        ] {
+            for link in [
+                "",
+                "#section",
+                "../secret",
+                "%2e%2e/secret",
+                "%2e%2e%2fsecret",
+                "report%00.md",
+                "report%0A.md",
+                "https://example.test/report.md",
+            ] {
+                assert_eq!(path_target(link, root), None, "{root:?}: {link}");
+            }
+        }
+        for link in ["/report.md", r"C:\report.md", "file:///report.md"] {
+            assert_eq!(path_target(link, None), None);
+        }
+    }
 }

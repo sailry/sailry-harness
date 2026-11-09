@@ -9,9 +9,9 @@ mod performance;
 
 async fn open() -> (tempfile::TempDir, Index) {
     let directory = tempfile::tempdir_in(std::env::temp_dir().canonicalize().unwrap()).unwrap();
-    let index = Index::open(&directory.path().join("knowledge.turso"))
-        .await
-        .unwrap();
+    let storage = directory.path().join("storage");
+    crate::profile::private_directory(&storage).unwrap();
+    let index = Index::open(&storage.join("knowledge.turso")).await.unwrap();
     (directory, index)
 }
 
@@ -385,7 +385,7 @@ async fn preserves_imported_keys_vectors_and_source_scope() {
         )
     };
     drop(index);
-    let index = Index::open(&directory.path().join("knowledge.turso"))
+    let index = Index::open(&directory.path().join("storage/knowledge.turso"))
         .await
         .unwrap();
     index
@@ -708,7 +708,7 @@ async fn removes_unregistered_collections_after_reopening() {
     assert!(original.iter().all(|rows| rows.len() == 1));
     drop(index);
 
-    let index = Index::open(&directory.path().join("knowledge.turso"))
+    let index = Index::open(&directory.path().join("storage/knowledge.turso"))
         .await
         .unwrap();
     index.retain(&[kept.id]).await.unwrap();

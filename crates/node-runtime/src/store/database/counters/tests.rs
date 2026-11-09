@@ -15,7 +15,8 @@ async fn setup(connection: &Connection) {
 #[tokio::test]
 async fn requires_the_business_transaction() {
     let directory = tempfile::tempdir().unwrap();
-    let (_database, connection) = open(&directory.path().join("node.turso")).await;
+    let (_database, connection) =
+        open(&crate::store::tests::profile(&directory).join("node.turso")).await;
     setup(&connection).await;
     assert!(next(&connection, Namespace::Events).await.is_err());
     assert_eq!(
@@ -35,7 +36,8 @@ async fn requires_the_business_transaction() {
 #[tokio::test]
 async fn rolls_back_with_the_business_row() {
     let directory = tempfile::tempdir().unwrap();
-    let (_database, connection) = open(&directory.path().join("node.turso")).await;
+    let (_database, connection) =
+        open(&crate::store::tests::profile(&directory).join("node.turso")).await;
     setup(&connection).await;
     connection.execute("BEGIN CONCURRENT", ()).await.unwrap();
     let sequence = next(&connection, Namespace::Events).await.unwrap();
@@ -67,7 +69,7 @@ async fn rolls_back_with_the_business_row() {
 #[tokio::test]
 async fn retains_deleted_watermarks_after_restore() {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("node.turso");
+    let path = crate::store::tests::profile(&directory).join("node.turso");
     {
         let (_database, connection) = open(&path).await;
         setup(&connection).await;
@@ -99,7 +101,8 @@ async fn retains_deleted_watermarks_after_restore() {
 #[tokio::test]
 async fn refuses_overflow_without_changing_the_watermark() {
     let directory = tempfile::tempdir().unwrap();
-    let (_database, connection) = open(&directory.path().join("node.turso")).await;
+    let (_database, connection) =
+        open(&crate::store::tests::profile(&directory).join("node.turso")).await;
     setup(&connection).await;
     connection
         .execute(
@@ -128,7 +131,8 @@ async fn refuses_overflow_without_changing_the_watermark() {
 #[tokio::test]
 async fn conflicting_allocations_do_not_commit_duplicate_rows() {
     let directory = tempfile::tempdir().unwrap();
-    let (database, first) = open(&directory.path().join("node.turso")).await;
+    let (database, first) =
+        open(&crate::store::tests::profile(&directory).join("node.turso")).await;
     setup(&first).await;
     first
         .execute("INSERT INTO counters VALUES('events',1)", ())

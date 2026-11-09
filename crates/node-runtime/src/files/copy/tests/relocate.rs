@@ -263,21 +263,44 @@ fn rechecks_parents_before_trash() {
         let retained = fixture._temp.path().join("retained");
         let result = fixture.run(&|phase| {
             if matches!(phase, Phase::Published) {
-                fs::rename(root, &retained).unwrap();
-                fs::create_dir_all(root.join("folder")).unwrap();
-                fs::write(root.join("folder/sentinel"), "replacement").unwrap();
+                let renamed = fs::rename(root, &retained);
+                #[cfg(windows)]
+                assert_eq!(renamed.unwrap_err().raw_os_error(), Some(32));
+                #[cfg(not(windows))]
+                {
+                    renamed.unwrap();
+                    fs::create_dir_all(root.join("folder")).unwrap();
+                    fs::write(root.join("folder/sentinel"), "replacement").unwrap();
+                }
             }
         });
-        assert_eq!(result.unwrap_err().code, ErrorCode::OutcomeUnknown);
-        assert!(!fixture.recovered.exists());
-        assert_eq!(
-            fs::read_to_string(root.join("folder/sentinel")).unwrap(),
-            "replacement"
-        );
-        assert_eq!(
-            fs::read_to_string(retained.join("folder/sub/文件")).unwrap(),
-            "original"
-        );
+        #[cfg(windows)]
+        {
+            result.unwrap();
+            assert!(!retained.exists());
+            assert!(!fixture.source.join("folder").exists());
+            assert_eq!(
+                fs::read(fixture.recovered.join("sub/文件")).unwrap(),
+                b"original"
+            );
+            assert_eq!(
+                fs::read(fixture.target.join("folder/sub/文件")).unwrap(),
+                b"original"
+            );
+        }
+        #[cfg(not(windows))]
+        {
+            assert_eq!(result.unwrap_err().code, ErrorCode::OutcomeUnknown);
+            assert!(!fixture.recovered.exists());
+            assert_eq!(
+                fs::read_to_string(root.join("folder/sentinel")).unwrap(),
+                "replacement"
+            );
+            assert_eq!(
+                fs::read_to_string(retained.join("folder/sub/文件")).unwrap(),
+                "original"
+            );
+        }
     }
 }
 

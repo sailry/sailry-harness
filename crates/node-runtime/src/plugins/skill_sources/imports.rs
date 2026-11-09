@@ -60,6 +60,7 @@ impl Host {
         if skills.is_empty() {
             return Err(Fault::invalid("skill import contains no SKILL.md"));
         }
+        drop(root);
         temporary.close().map_err(io_error)?;
         Ok(ImportDiscovery {
             stream,

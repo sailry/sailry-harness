@@ -3,9 +3,11 @@ use super::*;
 #[tokio::test]
 async fn fills_missing_drivers_without_changing_settings() {
     let directory = tempfile::tempdir().unwrap();
-    let database = crate::store::database::engine(&directory.path().join("node.turso"))
-        .await
-        .unwrap();
+    let database = crate::store::database::engine(
+        &crate::store::tests::profile(&directory).join("node.turso"),
+    )
+    .await
+    .unwrap();
     let db = crate::store::database::connect(&database).await.unwrap();
     db.execute(
         "CREATE TABLE search_settings(singleton INTEGER PRIMARY KEY,body BLOB NOT NULL)",
@@ -60,9 +62,11 @@ async fn fills_missing_drivers_without_changing_settings() {
 #[tokio::test]
 async fn invalid_defaults_leave_storage_unchanged() {
     let directory = tempfile::tempdir().unwrap();
-    let database = crate::store::database::engine(&directory.path().join("node.turso"))
-        .await
-        .unwrap();
+    let database = crate::store::database::engine(
+        &crate::store::tests::profile(&directory).join("node.turso"),
+    )
+    .await
+    .unwrap();
     let db = crate::store::database::connect(&database).await.unwrap();
     db.execute(
         "CREATE TABLE search_settings(singleton INTEGER PRIMARY KEY,body BLOB NOT NULL)",

@@ -59,8 +59,8 @@ async fn resolves_only_supplied_relative_paths() {
         ("data/sales.db", "data/sales.db"),
     ] {
         assert_eq!(
-            sqlite_path(&db, turn, path.into()).await.unwrap(),
-            root.join(relative).to_str().unwrap()
+            std::path::PathBuf::from(sqlite_path(&db, turn, path.into()).await.unwrap()),
+            root.join(relative)
         );
     }
     let absolute = std::env::temp_dir().join("external-sales.db");

@@ -590,10 +590,12 @@ fn prepare(
                 helper()?
             } else if let Some(relative) = command.strip_prefix("./") {
                 let resolved = package.root.canonicalize(relative).map_err(io_error)?;
-                let parts = crate::files::path::components(
-                    resolved.to_str().ok_or_else(unavailable)?,
-                    false,
-                )?;
+                let relative = resolved
+                    .iter()
+                    .map(|part| part.to_str().ok_or_else(unavailable))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .join("/");
+                let parts = crate::files::path::components(&relative, false)?;
                 let (file, parents) = parts.split_last().ok_or_else(unavailable)?;
                 let parent = crate::files::path::descend(
                     package.root.try_clone().map_err(io_error)?,

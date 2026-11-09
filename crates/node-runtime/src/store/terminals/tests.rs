@@ -11,7 +11,7 @@ mod startup;
 async fn exits_publish_without_notices() {
     let directory = tempfile::tempdir().unwrap();
     let mut database = Database::open(
-        &directory.path().canonicalize().unwrap().join("node.turso"),
+        &crate::store::tests::profile(&directory).join("node.turso"),
         NodeId([8; 32]),
         None,
     )
@@ -133,7 +133,7 @@ async fn ignores_stale_metadata() {
 async fn requires_explicit_relaunch() {
     let directory = tempfile::tempdir().unwrap();
     let database = Database::open(
-        &directory.path().canonicalize().unwrap().join("node.turso"),
+        &crate::store::tests::profile(&directory).join("node.turso"),
         NodeId([7; 32]),
         None,
     )

@@ -94,8 +94,14 @@ impl Git {
             Err(error) => return Err(error),
         };
         let mut roots = vec![
-            repository.path().to_path_buf(),
-            repository.commondir().to_path_buf(),
+            repository
+                .path()
+                .canonicalize()
+                .map_err(crate::files::io_error)?,
+            repository
+                .commondir()
+                .canonicalize()
+                .map_err(crate::files::io_error)?,
         ];
         roots.sort_unstable();
         roots.dedup();

@@ -21,7 +21,12 @@ async fn preserves_cmd_quoting() {
         (r#"echo escaped ^& value"#, "escaped & value"),
     ] {
         let output = run(launch(directory.path(), command)).await;
-        assert_eq!(output.outcome, Outcome::Exited(0), "{command}");
+        assert_eq!(
+            output.outcome,
+            Outcome::Exited(0),
+            "{command}: {:?}",
+            output.stderr
+        );
         assert_eq!(output.stdout.text.trim(), expected, "{command}");
         assert!(
             output.stderr.text.is_empty(),
@@ -79,7 +84,7 @@ async fn captures_localized_system_output() {
         .iter()
         .map(|pair| u16::from_le_bytes(*pair))
         .collect();
-    assert_eq!(output.outcome, Outcome::Exited(0));
+    assert_eq!(output.outcome, Outcome::Exited(0), "{:?}", output.stderr);
     assert_eq!(output.stdout.text, String::from_utf16(&wide).unwrap());
     assert!(!output.stdout.invalid_utf8);
     assert!(output.stderr.text.is_empty() && !output.stderr.invalid_utf8);

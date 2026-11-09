@@ -156,7 +156,7 @@ pub fn remove(root: &Path, id: &str, definition: &Definition) -> Result<(), Faul
         .file_name()
         .ok_or_else(|| Fault::invalid("model directory has no name"))?;
     match directory.open_dir_nofollow(name) {
-        Ok(_) => directory.remove_dir_all(name).map_err(super::failure),
+        Ok(target) => target.remove_open_dir_all().map_err(super::failure),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(super::failure(error)),
     }

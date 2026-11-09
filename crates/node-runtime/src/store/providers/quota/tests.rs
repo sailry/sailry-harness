@@ -12,7 +12,7 @@ struct Fixture {
 impl Fixture {
     async fn new() -> Self {
         let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().canonicalize().unwrap().join("node.turso");
+        let path = crate::store::tests::profile(&directory).join("node.turso");
         let database = Database::open(&path, NodeId([41; 32]), None).await.unwrap();
         let provider_id = ProviderId::new();
         let credential = authentication::put(

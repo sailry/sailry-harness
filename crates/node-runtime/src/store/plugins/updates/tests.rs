@@ -8,7 +8,7 @@ async fn fixture() -> (tempfile::TempDir, Store, Arc<Ingress>) {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let directory = tempfile::tempdir().unwrap();
     let store = Store::start(
-        directory.path().canonicalize().unwrap().join("node.turso"),
+        crate::store::tests::profile(&directory).join("node.turso"),
         NodeId([3; 32]),
         None,
         Default::default(),

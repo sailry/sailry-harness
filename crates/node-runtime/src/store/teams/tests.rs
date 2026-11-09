@@ -18,7 +18,7 @@ fn profile(key: &str, members: Vec<RoleId>) -> team::Profile {
 
 async fn open() -> (tempfile::TempDir, Database) {
     let root = tempfile::tempdir().unwrap();
-    let path = root.path().canonicalize().unwrap().join("node.turso");
+    let path = crate::store::tests::profile(&root).join("node.turso");
     let database = Database::open(&path, NodeId([34; 32]), None).await.unwrap();
     (root, database)
 }
