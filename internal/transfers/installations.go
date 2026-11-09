@@ -73,7 +73,7 @@ func Button(c *ui.Context, q *Queue, open *bool, retry func(e Entry)) {
 	}
 }
 
-// row is a request (rows.rs render_item): 56 high, a 28 DIP tile with the
+// row is a request (rows.rs render_item): padded 8 on every side, a 28 DIP tile with the
 // kind's icon (danger or warning tinted when it failed or is uncertain),
 // the title over its progress bar, a clock while queued; on hover round
 // ghost Remove, and Retry for a failed or uncertain one, fade in at the
@@ -117,7 +117,7 @@ func row(c *ui.Context, e Entry, remove, retry func()) {
 	if e.Actionable && e.Retryable {
 		reserve = 56
 	}
-	r := ui.Row(c.Key(e.Key)).Height(56).PaddingX(8).Gap(8).Radius(p.Radius).Label(detail)
+	r := ui.Row(c.Key(e.Key)).Padding(8).Gap(8).Radius(p.Radius).Label(detail)
 	hovered := r.Hovered()
 	if hovered {
 		r.Background(p.Hover)

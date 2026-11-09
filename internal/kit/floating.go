@@ -26,7 +26,7 @@ func Floating(c *ui.Context, el ui.Element) ui.Element {
 // the popover color matches that tone and disappears.
 func floatingEdge(p *theme.Palette) ui.Color {
 	if p.Dark {
-		return ui.RGBA(255, 255, 255, 0.14)
+		return ui.RGBA(255, 255, 255, 0.07)
 	}
-	return ui.RGBA(0, 0, 0, 0.12)
+	return ui.RGBA(0, 0, 0, 0.06)
 }

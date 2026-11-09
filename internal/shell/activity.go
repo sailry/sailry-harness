@@ -105,7 +105,7 @@ func (a *App) bell(c *ui.Context) {
 	}
 }
 
-// noticeRow is a 40 DIP row: the kind's glyph, the title (medium while
+// noticeRow is a row padded 8 on every side: the kind's glyph, the title (medium while
 // unread), the age and the unread dot. A click reads it and opens what it
 // is about.
 func (a *App) noticeRow(c *ui.Context, n *preview.Notice) {
@@ -113,7 +113,7 @@ func (a *App) noticeRow(c *ui.Context, n *preview.Notice) {
 	glyph, color, kind := noticeLook(p, n.Kind)
 	key, count := NoticeAge(preview.Now.Sub(n.Time))
 	age := i18n.T(c, key, "count", count)
-	row := ui.ButtonBase(c.Key(n.ID)).Height(40).PaddingX(8).Gap(8).Radius(p.Radius).Cursor(ui.CursorPointer).
+	row := ui.ButtonBase(c.Key(n.ID)).Padding(8).Gap(8).Radius(p.Radius).Cursor(ui.CursorPointer).
 		Label(n.Title + " · " + i18n.T(c, n.Host) + " · " + i18n.T(c, kind) + " · " + n.Message)
 	text := p.PopoverForeground
 	if n.Read {
