@@ -179,7 +179,7 @@ func (a *App) moreButton(c *ui.Context) {
 		})
 	})
 	if panel != (ui.Element{}) {
-		panel.AttachTo(b, ui.AnchorRight, ui.AnchorLeft).MarginStart(8).MinWidth(240).MaxHeight(480)
+		panel.AttachTo(b, ui.AnchorRight, ui.AnchorLeft).MarginStart(8).MinWidth(240).MaxHeight(480).Background(p.Floating())
 	}
 }
 

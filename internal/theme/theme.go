@@ -243,6 +243,10 @@ func (p *Palette) SidebarItem(selected, hovered bool) ui.Color {
 	return p.SidebarForeground.Alpha(a)
 }
 
+// Floating is the opaque fill of popovers and dialogs, the package's
+// popover.background at full opacity (DialogStyle::floating_surface).
+func (p *Palette) Floating() ui.Color { return p.Popover.Alpha(1) }
+
 // Description is the receding secondary text of media rows and the sidebar.
 func (p *Palette) Description() ui.Color { return p.MutedForeground.Alpha(0.7) }
 

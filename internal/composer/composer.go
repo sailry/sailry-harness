@@ -175,7 +175,7 @@ func (s *State) modelChip(c *ui.Context, models []Model) {
 		}
 	})
 	if panel != (ui.Element{}) {
-		panel.AttachTo(chip, ui.AnchorTopEnd, ui.AnchorBottomEnd).Margin(0, 0, 6, 0).Width(296).Gap(8)
+		panel.AttachTo(chip, ui.AnchorTopEnd, ui.AnchorBottomEnd).Margin(0, 0, 6, 0).Width(296).Gap(8).Background(p.Floating())
 	}
 }
 

@@ -180,7 +180,7 @@ func (s *State) editorDialog(c *ui.Context) {
 				s.saveProject(hostID)
 			})
 		})
-	}).Width(560).Label(title)
+	}).Width(560).Label(title).Background(p.Floating()).TextColor(p.PopoverForeground)
 }
 
 // saveProject applies the editor's draft to the preview, in memory.

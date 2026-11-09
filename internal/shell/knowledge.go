@@ -86,7 +86,7 @@ func (a *App) knowledge(c *ui.Context) {
 			kit.Secondary(c.Key("next"), i18n.T(c, "knowledge_next")).Disabled(r.page >= len(ct.Pages)-1).OnClick(func() { r.page++ })
 			kit.Secondary(c.Key("close"), i18n.T(c, "knowledge_close")).OnClick(func() { r.open = false })
 		})
-	}).Width(min(800, w-48)).Label(title)
+	}).Width(min(800, w-48)).Label(title).Background(p.Floating()).TextColor(p.PopoverForeground)
 }
 
 // overlays are the window's search and knowledge viewer.

@@ -101,7 +101,7 @@ func (a *App) bell(c *ui.Context) {
 		})
 	})
 	if panel != (ui.Element{}) {
-		panel.AttachTo(b, ui.AnchorRight, ui.AnchorLeft).MarginStart(8).Width(min(320, w-32)).Gap(4)
+		panel.AttachTo(b, ui.AnchorRight, ui.AnchorLeft).MarginStart(8).Width(min(320, w-32)).Gap(4).Background(p.Floating())
 	}
 }
 
@@ -277,7 +277,7 @@ func (a *App) overflow(c *ui.Context, l lane, list []*preview.Conversation, rest
 			})
 		})
 		if panel != (ui.Element{}) {
-			panel.AttachTo(b, ui.AnchorBottomEnd, ui.AnchorTopEnd).Margin(4, 0, 0, 0).Width(300)
+			panel.AttachTo(b, ui.AnchorBottomEnd, ui.AnchorTopEnd).Margin(4, 0, 0, 0).Width(300).Background(p.Floating())
 		}
 	})
 }

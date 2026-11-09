@@ -247,5 +247,6 @@ func (a *App) searchOverlay(c *ui.Context) {
 				}
 			}
 		})
-	}).Width(min(480, w-40)).MaxHeightPercent(60).Label(i18n.T(c, "search")).Clip()
+	}).Width(min(480, w-40)).MaxHeightPercent(60).Padding(0).Gap(0).Background(p.Floating()).TextColor(p.PopoverForeground).
+		Label(i18n.T(c, "search")).Clip()
 }
