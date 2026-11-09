@@ -123,9 +123,15 @@ with the kind's glyph and color (completed, failed, approval, input,
 info), the title (medium while unread), `NoticeAge`, the unread dot. A
 click reads it and opens its conversation, or its knowledge source.
 
-The header's strip shows waiting, running and finished-unread sessions as
-identicons in groups, three a group (two under 480 DIPs) and +N; the
-pointer resting on one shows its title and project in a frosted card.
+The header's strip (shell/activity/strip.rs) shows waiting, running and
+finished-unread sessions, chats included, in groups 12 DIPs apart: 28 DIP
+text buttons 4 apart, each a 20 DIP agent mark (`kit.Agent`, the
+reference's eight SVG designs and colors). A running one turns in its
+color; the others take the lane's color with a 10 DIP badge (warning
+triangle, success check). A group shows three (two under 480 DIPs), or two
+and +N in the lane's color, which opens a 300 DIP popover of the group's
+rows. The pointer resting on one shows its title and project in a frosted
+card below it.
 
 ## Knowledge
 

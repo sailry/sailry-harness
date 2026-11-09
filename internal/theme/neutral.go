@@ -126,12 +126,14 @@ var Tints = [][2]ui.Color{
 // OnTint is the glyph color over Tints.
 var OnTint = white
 
-// Identicon are a subagent mark's running colors: Tailwind's 400 (dark)
-// and 600 (light) shades.
-var Identicon = [][2]ui.Color{
-	{ui.Hex("#60a5fa"), ui.Hex("#2563eb")}, {ui.Hex("#a78bfa"), ui.Hex("#7c3aed")},
-	{ui.Hex("#34d399"), ui.Hex("#059669")}, {ui.Hex("#fbbf24"), ui.Hex("#d97706")},
-	{ui.Hex("#f472b6"), ui.Hex("#db2777")}, {ui.Hex("#22d3ee"), ui.Hex("#0891b2")},
+// Identicon are an agent mark's colors (ui/identicon.rs), in its order:
+// Kit's cyan, blue, pink, amber, teal, violet, orange and indigo at 400
+// (dark) and 600 (light).
+var Identicon = [8][2]ui.Color{
+	{ui.Hex("#22d3ee"), ui.Hex("#0891b2")}, {ui.Hex("#60a5fa"), ui.Hex("#2563eb")},
+	{ui.Hex("#f472b6"), ui.Hex("#db2777")}, {ui.Hex("#fbbf24"), ui.Hex("#d97706")},
+	{ui.Hex("#2dd4bf"), ui.Hex("#0d9488")}, {ui.Hex("#a78bfa"), ui.Hex("#7c3aed")},
+	{ui.Hex("#fb923c"), ui.Hex("#ea580c")}, {ui.Hex("#818cf8"), ui.Hex("#4f46e5")},
 }
 
 // Shade is black at alpha a: drop shadows and the dialog scrim.
