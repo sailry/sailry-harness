@@ -70,6 +70,22 @@ func (a *App) trail(c *ui.Context) {
 		ui.Text(c, settings.Title(c, a.Settings)).FontSize(14).SingleLine().Shrink(1).TextColor(p.Foreground)
 		return
 	}
+	if id := a.feature(); a.Page != ConversationPage && id != "" {
+		f, _ := featureOf(id)
+		label := i18n.T(c, f.Label)
+		pr := a.Data.ProjectOf(a.Sidebar.Selected)
+		if pr == nil || a.Page != FilesPage && a.Page != GitPage {
+			ui.Text(c, label).FontSize(14).SingleLine().Shrink(1).TextColor(p.Foreground)
+			return
+		}
+		// A project page: the project, revealing its rows, and the page.
+		chosen := -1
+		if ui.Breadcrumbs(c.Key("trail"), []string{pr.Name, label}, &chosen).Label(i18n.T(c, "projects")).Shrink(1).MinWidth(0).FontSize(14).Changed() && chosen == 0 {
+			a.NavOpen = true
+			a.Sidebar.Reveal(pr.ID)
+		}
+		return
+	}
 	cv := a.Data.Find(a.Sidebar.Selected)
 	if cv == nil {
 		ui.Text(c, i18n.T(c, "app")).FontSize(14).SingleLine().TextColor(p.Foreground)

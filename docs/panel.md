@@ -13,16 +13,33 @@ its width, motion, toggle and ⌘W (`docs/shell.md`).
 | File | Holds |
 |---|---|
 | `model.go` | `Kind`, `Resource`, `Resources`, `State`, and the rules `Opened`, `Closed`, `Overflow` |
-| `panel.go` | `View`: the strip, the launcher, files, changes and hunks, checkpoints, documents, browser and terminal chrome |
+| `project.go` | `Project`, `FileView`, `GitView`, `Projects`: Files and Git state per project |
+| `panel.go` | `View` and `Page`, the two hosts: the strip, the launcher, files, changes and hunks, checkpoints, documents, browser and terminal chrome |
 
 ## Entry point
 
 ```go
 s := panel.New(data.Workspace)
-panel.View(c, s, shell.KeyText) // KeyText writes the shortcuts the launcher shows
-s.Open(panel.Files)             // the frame's ⌘P, ⌘T, ⌃`, ⌃⇧G and the rail's Files and Git
-s.Close(s.Active)               // ⌘W; false when no tab is left
+ps := panel.NewProjects(data.Workspace)
+pr := ps.Of(project.ID)               // nil: no project, the hosts ask for one
+panel.View(c, s, pr, shell.KeyText)   // the tab host; KeyText writes the launcher's shortcuts
+panel.Page(c, panel.Files, pr)        // the page host, in the main column
+s.Open(panel.Files)                   // the frame's ⌘P, ⌘T, ⌃`, ⌃⇧G
+s.Close(s.Active)                     // ⌘W; false when no tab is left
 ```
+
+## Components and hosts
+
+Files and Git are each one component (`Project.files`, `Project.changes`)
+drawn by two hosts: `Page`, the rail's independent page in the main
+column, and `View`, a tab in the right panel. Their state is a
+`Project` (`FileView`: shown file, open folders, Document/Source, tree
+and text scroll; `GitView`: shown change, accepted hunks, commit draft,
+list and diff scroll), which `Projects.Of` makes once per project ID and
+returns to both hosts: a file chosen on the page is the one the tab
+shows, and another project keeps its own. MyGo binds a `ScrollState` to
+one container per build, so while the page and the closing panel both
+draw a resource (`State.Paged`), the page owns its scrolling.
 
 ## View model
 
@@ -30,6 +47,7 @@ s.Close(s.Active)               // ⌘W; false when no tab is left
 |---|---|
 | `Resource{Kind, Icon, Label, Mods, Key}` | A tab and launcher row; `Key` 0 for none |
 | `State.Tabs`, `Active` | Open tabs in order, the one shown (kept across launches by the shell) |
+| `Project` | One project's Files and Git state, shared by page and tab |
 | `preview.Workspace.Files` | `FileNode` tree: folders have `Children`, files `Text` |
 | `preview.Workspace.Changes` | `FileChange{Path, Status M/A/D, Added, Removed, Hunks}`; `Hunk{Header, Lines}`; `DiffLine{Kind, Old, New, Text}` |
 | `preview.Workspace.Checkpoints` | `Checkpoint{ID, Turn, Time, Files, Added, Removed}`, newest first |
@@ -86,14 +104,16 @@ the same chrome when their plugins land.
 
 | UI state (`State`) | Backend data |
 |---|---|
-| Tabs, active tab, shown file and change, open folders, Document/Source, accepted hunks (until applied), commit draft, address | Files, changes, hunks, checkpoints, documents |
+| Tabs, active tab, address; per project: shown file and change, open folders, Document/Source, scroll, accepted hunks (until applied), commit draft | Files, changes, hunks, checkpoints, documents |
 
 ## Tests
 
 `internal/panel/model_test.go`: tabs open once, closing picks the next.
 `internal/shell/frame_test.go`: ⌘⌥B opens the launcher, ⌘P the files,
 ⌃⇧G the diff, Accept marks a hunk, six tabs show the overflow menu, ⌘W
-closes tabs then the panel.
+closes tabs then the panel. `internal/shell/pages_test.go`: the rail's
+Files and Git open pages, a file chosen on the page shows in the tab and
+a change chosen in the tab on the page, another project keeps its own.
 
 ## Deviations
 
@@ -102,5 +122,7 @@ closes tabs then the panel.
 | Resources are tabs in one panel | The plan asks for tabs; the reference holds one resource and tabs only a resource's documents |
 | Checkpoints and documents are tabs | The reference restores checkpoints from a turn and draws documents in a plugin |
 | Files and Git show one file at a time, without document tabs | The panel's own tabs carry the overflow |
+| The Files and Git pages hold the whole component, tree or list included | The reference puts the tree and the list in the details column; here the panel stays the conversation's |
+| Files and Git keep their state per project | The reference keeps one and resets it when the project changes |
 | Hunks show in the Git tab, not a dialog | One place for the preview's diffs |
 | Browser and terminal are placeholders in their chrome | Rendering is later work (MyGo WebView, libghostty-vt) |

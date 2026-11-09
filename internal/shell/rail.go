@@ -7,7 +7,6 @@ import (
 	"github.com/sailry/sailry-go/internal/i18n"
 	"github.com/sailry/sailry-go/internal/icons"
 	"github.com/sailry/sailry-go/internal/kit"
-	"github.com/sailry/sailry-go/internal/panel"
 	"github.com/sailry/sailry-go/internal/theme"
 )
 
@@ -73,27 +72,17 @@ func (a *App) unpinnedList() []string {
 }
 
 // selectedFeature is the feature the page shows.
-func (a *App) selectedFeature() string {
-	if a.Page == ConversationPage {
-		return "page:conversation"
-	}
-	return ""
-}
+func (a *App) selectedFeature() string { return a.feature() }
 
-// openFeature opens a feature: the conversation, or Files and Git in the
-// right panel (as the reference does with a live host). Activity and
-// Market are later phases' pages.
+// openFeature opens a feature's page in the main column: the
+// conversation, Files and Git over the selected project, Activity and
+// Market (shell/rail/features.rs: every feature is a Page destination).
 func (a *App) openFeature(c *ui.Context, id string) {
-	switch id {
-	case "page:conversation":
-		a.Page = ConversationPage
-	case "page:files":
-		a.openPanel(panel.Files)
-	case "page:git":
-		a.openPanel(panel.Changes)
-	default:
-		c.Toast(i18n.T(c, "preview_notice"))
+	if p, ok := pageFeatures[id]; ok {
+		a.Navigate(p)
+		return
 	}
+	c.Toast(i18n.T(c, "preview_notice"))
 }
 
 // rail is the column of features (shell/rail.rs): 36 DIP ghost buttons,

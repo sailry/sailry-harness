@@ -17,6 +17,7 @@ shortcuts}.rs`, `shortcuts.rs`, `activity/*.rs`).
 | `shell.go` | `App`, `View`, the frame: columns, `Motion`, resize handles, the page and its actions |
 | `header.go` | The header: brand, sidebar toggle, breadcrumbs, activity strip, preview tag, details toggle |
 | `rail.go` | `Features`, `MoveFeature`, the rail, More, the host picker |
+| `pages.go` | The rail features' pages, `Navigate`, `ClosePage`, the selected project's `panel.Project` |
 | `shortcuts.go` | `Shortcuts`, `KeyText`, the window's key handling |
 | `search.go` | `Choice`, `Group`, `Filter`, `Next`, the search overlay |
 | `activity.go` | `NoticeAge`, `SortNotices`, the activity centre and the header's strip |
@@ -63,9 +64,13 @@ Pinned features in their order, then More; the bell, the host picker,
 Search and Settings at the bottom. Conversation is fixed first and Market
 last. More is a frosted popover to the right listing every feature with
 a pin (`feature_pin`/`feature_unpin`); rows drag to reorder
-(`MoveFeature`, a 4 DIP primary line). Files and Git open the right
-panel's tabs; Activity and Market are later phases' pages (preview
-toast). Hosts: a frosted menu with the hosts (check on this one,
+(`MoveFeature`, a 4 DIP primary line). Every feature opens an
+independent page in the main column, as the reference's `Page`
+destinations do: Files and Git over the selected conversation's project
+(the same `panel.Project` the panel's tabs show, `docs/panel.md`),
+Activity and Market as the reference's preview shows them (`unavailable`).
+The panel shows on the conversation page only; selecting a conversation
+over a page goes back to it, and `ClosePage` closes the page shown. Hosts: a frosted menu with the hosts (check on this one,
 `sidebar_host_update`), `host_add`; a dot when one has an update; its
 right-click menu is the system's (`workspace_host`,
 `connection_action_edit`, `project_add`).
@@ -74,7 +79,9 @@ right-click menu is the system's (`workspace_host`,
 
 The sidebar toggle (`PanelLeftClose`/`Open`), then the title: on a
 conversation in a project, breadcrumbs (`ui.Breadcrumbs`) of the project
-and the conversation, the project revealing its rows in the sidebar. On
+and the conversation, the project revealing its rows in the sidebar; on
+Files and Git, the project and the page; on Activity and Market, its
+name. On
 the right the activity strip, the preview tag and the details toggle
 (`PanelRight`, selected while the panel shows). Tooltips show the
 shortcut.
@@ -156,6 +163,9 @@ pins and order belong in the preferences beside the rest of `Prefs`.
 ⌘B and preferences round-tripping; ⌘K search opening a conversation;
 the activity centre opening a conversation and the knowledge viewer
 paging; `ParseSource`, `Filter`, `Next`, `MoveFeature`.
+`internal/shell/pages_test.go`: the rail opens pages, not tabs; the
+Files and Git page and tab share a project's state, another project
+keeps its own.
 `internal/shell/sidebar_test.go` and `shell_test.go`: the sidebar and
 Phase 1–2 screens.
 
@@ -166,7 +176,7 @@ Phase 1–2 screens.
 | Breadcrumbs in the header | The plan asks for them; the reference shows a title |
 | The resize handles are drawn strips | `ui.Split` cannot close a pane to nothing |
 | Preferences are a JSON file beside `window-state.json` | MyGo's `WindowState` has no fields for the app's own state |
-| The notification center page, Activity board and Market | Later phases; their entries toast the preview notice |
+| The notification center page, Activity board and Market | Later phases; Activity and Market show `unavailable`, Market not yet in Settings |
 | ⌘/ opens Settings | No Shortcuts section before phase 5 |
 | The rail's More rows are a popover, not a menu | Rows hold a pin button and drag to reorder |
 | Global ⌃⌥Space is not registered | System shortcuts are phase 6 |
