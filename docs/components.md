@@ -47,7 +47,8 @@ MyGo bases.
 | Component | Origin | Use | Not for | Used in |
 |---|---|---|---|---|
 | `Segmented` | Lobe `pkg/action/segmented.go` (SegmentedBase) | In-page view switches and a few side-by-side choices; the active segment is inverted | Document tab strips, which stay tabs | panel, settings, sidebar |
-| `MenuButton`, `Menu`, `Item`, `OpenMenu` | Lobe `pkg/overlay/dropdown.go` motion (MenuBase) | Every left-click menu, ⋯ row menus, and pickers with a small, known set of choices (the composer's project, worktree, mode, permission) | Right-click menus (`Element.ContextMenu`, the system's); long searchable lists | composer, conversation, panel, settings, shell |
+| `MenuButton`, `Menu`, `Item`, `Submenu`, `OpenMenu` | Lobe `pkg/overlay/dropdown.go` motion (MenuBase) | Every left-click menu, ⋯ row menus, and pickers with a small, known set of choices (the composer's project, worktree, mode, permission); `Submenu` nests one (MenuBase's SubmenuItem), as the Git actions menu | Right-click menus (`Element.ContextMenu`, the system's); long searchable lists | composer, conversation, panel, settings, shell |
+| `SplitButton`, `SplitProps` | Own (ButtonBase, MenuButton) | Kit's DropdownButton: a main action joined to a caret menu of the others (Git's Stage and Commit) | A single action (`Secondary`) | panel |
 | `Select` | Lobe `pkg/field/select.go` chevron (MenuBase) | A form field choosing one string; trigger looks like `ui.TextInput`, dropdown as wide | Toolbars and composer pickers (`MenuButton`) | settings, sidebar |
 | `InputOTP` | Lobe `pkg/field/otp.go` | One-time codes | Other text | settings |
 | `SortableList` | Lobe `pkg/layout/sortablelist.go` | Lists the user reorders, by mouse and keyboard | Static lists | composer |

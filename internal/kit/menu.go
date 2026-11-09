@@ -57,7 +57,7 @@ import (
 type Menu struct {
 	collect bool
 	items   []*Item
-	n       int
+	n       *int // the items counted, shared with the submenus
 	chosen  int
 }
 
@@ -72,6 +72,7 @@ type Item struct {
 	separator                 bool
 	action                    string
 	act                       func()
+	sub                       *Menu
 }
 
 // MenuOptions place a Menu and set its look. At and Self attach the menu's
@@ -106,17 +107,16 @@ func MenuButton(c *ui.Context, id string, look func(b ui.Element), build func(m 
 	}
 	m := &Menu{collect: true}
 	build(m)
-	chosen := 0
-	var act func()
+	var ch choice
 	parts.Popup(func(panel ui.Element) {
-		layer(c, open, func() { chosen, act = m.draw(c, parts, panel, b, o) })
+		layer(c, open, func() { m.draw(c, parts, panel, b, o, &ch) })
 	})
-	if chosen != 0 && act == nil {
-		build(&Menu{chosen: chosen})
+	if ch.chosen != 0 && ch.act == nil {
+		build(&Menu{chosen: ch.chosen})
 	}
-	if act != nil {
+	if ch.act != nil {
 		*open = false
-		act()
+		ch.act()
 	}
 	return b
 }
@@ -145,19 +145,38 @@ var (
 	chevronTurn = ui.Animation{Duration: 150 * time.Millisecond, Ease: EaseOut}
 )
 
+// next counts an item of the menu or of one of its submenus.
+func (m *Menu) next() int {
+	if m.n == nil {
+		m.n = new(int)
+	}
+	*m.n++
+	return *m.n
+}
+
 // Item adds an item labeled label.
 func (m *Menu) Item(label string) *Item {
-	m.n++
-	it := &Item{m: m, index: m.n, label: label}
+	it := &Item{m: m, index: m.next(), label: label}
 	if m.collect {
 		m.items = append(m.items, it)
 	}
 	return it
 }
 
+// Submenu adds an item labeled label opening a submenu that build fills,
+// as Kit's PopupMenu submenus: it opens as the pointer moves onto it or
+// clicks it, and for Right; its items are chosen as the menu's.
+func (m *Menu) Submenu(label string, build func(m *Menu)) *Item {
+	it := m.Item(label)
+	sub := &Menu{collect: m.collect, n: m.n, chosen: m.chosen}
+	build(sub)
+	it.sub = sub
+	return it
+}
+
 // Separator adds a line between groups of items.
 func (m *Menu) Separator() {
-	m.n++
+	m.next()
 	if m.collect {
 		m.items = append(m.items, &Item{separator: true})
 	}
@@ -198,10 +217,17 @@ func (it *Item) Action(label string, fn func()) *Item {
 // Chosen reports whether the item was chosen; it closes the menu.
 func (it *Item) Chosen() bool { return !it.m.collect && it.index == it.m.chosen }
 
-// draw fills panel with the items collected, returning the index of the
-// item clicked and the action pressed, if any.
-func (m *Menu) draw(c *ui.Context, parts ui.MenuParts, panel, trigger ui.Element, o MenuOptions) (chosen int, act func()) {
-	p := theme.Of(c)
+// choice is what a pass of a menu chose: the item clicked, by its index,
+// or the action pressed. Submenus are built after their menu, as MyGo
+// builds them once the menu's items are, so they fill it in place.
+type choice struct {
+	chosen int
+	act    func()
+}
+
+// draw fills panel with the items collected, noting in ch what was
+// chosen.
+func (m *Menu) draw(c *ui.Context, parts ui.MenuParts, panel, trigger ui.Element, o MenuOptions, ch *choice) {
 	_, h := c.Size()
 	at, self := o.At, o.Self
 	if at == 0 && self == 0 {
@@ -217,6 +243,14 @@ func (m *Menu) draw(c *ui.Context, parts ui.MenuParts, panel, trigger ui.Element
 	if w := trigger.LayoutBounds().W; o.Match && w > 0 {
 		panel.MinWidth(w).MaxWidth(w)
 	}
+	m.rows(c, parts, o, ch)
+}
+
+// rows draws the menu's items in the panel being built, and its
+// submenus' in theirs, noting in ch the item clicked or the action
+// pressed.
+func (m *Menu) rows(c *ui.Context, parts ui.MenuParts, o MenuOptions, ch *choice) {
+	p := theme.Of(c)
 	slot := false
 	for _, it := range m.items {
 		slot = slot || it.icon != nil || (it.checked && !o.CheckRight)
@@ -229,9 +263,12 @@ func (m *Menu) draw(c *ui.Context, parts ui.MenuParts, panel, trigger ui.Element
 			continue
 		}
 		var row ui.Element
-		if it.checked {
+		switch {
+		case it.sub != nil:
+			row = parts.SubmenuItem()
+		case it.checked:
 			row = parts.CheckItem(true)
-		} else {
+		default:
 			row = parts.Item()
 		}
 		row.Label(it.label).Disabled(it.disabled).PaddingX(8).Gap(4).Radius(min(p.Radius, 8)).
@@ -286,7 +323,7 @@ func (m *Menu) draw(c *ui.Context, parts ui.MenuParts, panel, trigger ui.Element
 				if it.action != "" {
 					fn := it.act
 					GhostLook(c, ui.ButtonBase(c).Label(it.action), false).Height(20).PaddingX(6).Shrink(0).
-						Children(func() { ui.Text(c, it.action).FontSize(12) }).OnClick(func() { act = fn })
+						Children(func() { ui.Text(c, it.action).FontSize(12) }).OnClick(func() { ch.act = fn })
 				}
 				if it.checked && o.CheckRight {
 					ui.Icon(c, icons.Check).FontSize(12).Shrink(0)
@@ -294,13 +331,23 @@ func (m *Menu) draw(c *ui.Context, parts ui.MenuParts, panel, trigger ui.Element
 				if it.shortcut != "" {
 					ui.Text(c, it.shortcut).FontSize(12).SingleLine().Shrink(0).TextColor(muted)
 				}
+				if it.sub != nil {
+					ui.Icon(c, icons.ChevronRight).FontSize(12).Shrink(0).TextColor(muted)
+				}
 			})
 		})
+		if it.sub != nil {
+			sub := it.sub
+			parts.Submenu(row, func(panel ui.Element) {
+				Floating(c, panel.Padding(4).Gap(2).MinWidth(128).MaxWidth(500))
+				sub.rows(c, parts, o, ch)
+			})
+			continue
+		}
 		if row.Clicked() {
-			chosen = it.index
+			ch.chosen = it.index
 		}
 	}
-	return chosen, act
 }
 
 // menuGap keeps a menu gap apart from its trigger on the side it shows,

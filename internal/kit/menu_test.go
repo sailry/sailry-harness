@@ -186,3 +186,46 @@ func TestTooltipShowsAndDescribes(t *testing.T) {
 		t.Errorf("tip %v below %v, shows %v", r, b.Bounds, ok)
 	}
 }
+
+// A submenu opens from its item and its items are chosen as the menu's.
+func TestMenuSubmenu(t *testing.T) {
+	got := ""
+	tt := ui.NewTester(func(c *ui.Context) {
+		theme.Apply(c, "", theme.Light)
+		ui.Column(c).Fill().Padding(20).Children(func() {
+			MenuButton(c, "test", func(b ui.Element) {
+				GhostLook(c, b.Label("Open"), false).Children(func() { ui.Text(c, "Open") })
+			}, func(m *Menu) {
+				if m.Item("Alpha").Chosen() {
+					got = "Alpha"
+				}
+				m.Submenu("More", func(m *Menu) {
+					for _, o := range []string{"Beta", "Gamma"} {
+						if m.Item(o).Chosen() {
+							got = o
+						}
+					}
+				})
+			})
+		})
+	}, 400, 300)
+	tt.Frame()
+	if err := tt.Click("Open"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Advance(200 * time.Millisecond)
+	r, ok := tt.Find("More")
+	if !ok {
+		t.Fatal("no submenu item")
+	}
+	tt.Move(r.X+r.W/2, r.Y+r.H/2)
+	tt.Frame()
+	tt.Advance(200 * time.Millisecond)
+	if err := tt.Click("Gamma"); err != nil {
+		t.Fatalf("the submenu does not open: %v %q", err, tt.Texts())
+	}
+	tt.Advance(200 * time.Millisecond)
+	if got != "Gamma" || tt.HasText("Alpha") {
+		t.Errorf("chose %q, menu open %v", got, tt.HasText("Alpha"))
+	}
+}
