@@ -39,13 +39,19 @@ func rowColor(p *theme.Palette, call Call) ui.Color {
 	switch {
 	case call.Failed:
 		return p.Danger
-	case call.Pending || call.Warning:
+	case call.Pending || flagged(call):
 		return p.Warning
 	case call.Running:
 		return p.MutedForeground.Mix(p.Foreground, 0.35)
 	}
 	return p.MutedForeground
 }
+
+// flagged is whether a row takes the warning color: a denied,
+// interrupted or unexecuted call. Only a failed call (Failed: the call
+// itself did not run) is red; an error the tool returned from a call that
+// ran (Warning without a state) reads as a plain row with its error line.
+func flagged(call Call) bool { return call.Warning && call.State != StateNone }
 
 // stateText is the state a row names after its detail; pending and failed
 // rows say it by color instead.
@@ -67,7 +73,7 @@ func stateText(c *ui.Context, st RowState) string {
 func summary(c *ui.Context, call Call, hovered, caret, open bool, sw *kit.Sweep) {
 	p := theme.Of(c)
 	color := rowColor(p, call)
-	quiet := !call.Failed && !call.Pending && !call.Warning
+	quiet := !call.Failed && !call.Pending && !flagged(call)
 	if hovered && quiet {
 		color = p.Foreground
 	}

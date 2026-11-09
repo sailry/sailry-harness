@@ -275,8 +275,11 @@ type Call struct {
 	Code   bool
 	Error  string
 	State  RowState
-	// Failed is a runtime failure (danger), Warning a tool's own failure
-	// or a denied, interrupted or unexecuted call (warning).
+	// Failed is a failed call, the only red row: the tool could not run
+	// (unknown, invalid arguments, execution or transport error). Warning
+	// is an error the tool returned from a call that ran, shown plain with
+	// its error line, or, with a State, a denied, interrupted or unexecuted
+	// call (warning color).
 	Failed, Warning, Pending, Running bool
 	// Standalone calls never group; Terminal ones (ask_user, plan review)
 	// are interactions rather than work.
