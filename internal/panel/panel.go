@@ -388,6 +388,9 @@ func (pr *Project) changes(c *ui.Context, own bool) {
 
 // diff is a changed file's hunks: a card each, its @@ line and Reject,
 // Stage and Accept over the lines with both numbers.
+// diffRow is a diff line: Kit's mono size (13) at 1.6 (content diff view).
+const diffRow = 13 * 1.6
+
 func (pr *Project) diff(c *ui.Context, own bool) {
 	p := theme.Of(c)
 	v := &pr.Git
@@ -447,12 +450,12 @@ func (pr *Project) diff(c *ui.Context, own bool) {
 							if n > 0 {
 								t = fmt.Sprint(n)
 							}
-							ui.Text(c, t).FontSize(12).Font("monospace").Width(36).PaddingEnd(6).TextAlign(ui.End).Shrink(0).
+							ui.Text(c, t).FontSize(13).Font("monospace").FixedLineHeight(diffRow).Width(36).PaddingEnd(6).TextAlign(ui.End).Shrink(0).
 								TextColor(p.MutedForeground.Alpha(0.6))
 						}
 						num(l.Old)
 						num(l.New)
-						ui.Text(c, mark+" "+l.Text).FontSize(12).Font("monospace").PreserveSpaces().Grow(1)
+						ui.Text(c, mark+" "+l.Text).FontSize(13).Font("monospace").FixedLineHeight(diffRow).PreserveSpaces().Grow(1)
 					})
 				}
 			})
