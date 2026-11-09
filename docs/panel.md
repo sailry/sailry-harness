@@ -1,14 +1,14 @@
 # Right panel
 
 The column right of the conversation: one flat strip of tabs, each an
-open item, over the active one, or the launcher when none is open (sailry-public
+open item, over the active one, or the launcher when none is open (the reference implementation
 `resources/*.rs`, `navigation_tabs.rs`, `resources/launcher.rs`,
 `preview_files.rs`, `preview_git.rs`, `hunks/render.rs`). The frame owns
 its width, motion, toggle and ⌘W (`docs/shell.md`).
 
 ## Package and files
 
-`internal/panel`
+`internal/desktop/panel`
 
 | File | Holds |
 |---|---|
@@ -175,23 +175,23 @@ the same chrome when their plugins land.
 
 ## Tests
 
-`internal/panel/model_test.go`: tabs open once, closing picks the next,
+`internal/desktop/panel/model_test.go`: tabs open once, closing picks the next,
 items are flat tabs (new browser pages, retired kinds dropped), each file
 and diff its own tab shared with the project (closing on either side,
 another project swapping them), a browser tab's history (going drops the
 forward part).
-`internal/panel/git_test.go`: the grouped sections and the ⋯ menu's View
+`internal/desktop/panel/git_test.go`: the grouped sections and the ⋯ menu's View
 options regrouping them, a folder's right-click menu and its
 confirmation, Commit's menu and amending, the history, All changes; the
 file tree's click, ⌘-click, ⇧-click, ⇧↓, ⌘A, right-click selection and
 Copy path, and its arrows, → and Enter.
-`internal/shell/frame_test.go`: ⌘⌥B opens the launcher, ⌘P a file tab
+`internal/desktop/shell/frame_test.go`: ⌘⌥B opens the launcher, ⌘P a file tab
 beside the tree, a file chosen in the tree its own tab, ⌃⇧G and a change
 a diff tab (read through the diff viewer's accessible text), choosing a
 tab shows its item beside its list, eight tabs show the overflow menu,
 the terminal has no Reset and ⌘F in it opens its find bar, ⌘W closes tabs
 then the panel; collapsed, the header clears the traffic lights.
-`internal/shell/pages_test.go`: the rail's Files and Git open pages, the
+`internal/desktop/shell/pages_test.go`: the rail's Files and Git open pages, the
 page's open files are the panel's file tabs, a change chosen in a tab
 shows on the page, a diff closed on the page drops its tab, another
 project keeps its own; the first frame of a page lays the side list out

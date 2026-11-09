@@ -1,12 +1,12 @@
 # Transfers
 
 The installation requests the rail shows and the Save as dialog
-(sailry-public `installations.rs`, `installations/{popover,rows}.rs`,
+(the reference implementation `installations.rs`, `installations/{popover,rows}.rs`,
 `downloads.rs`, `downloads/transfer.rs`).
 
 ## Package and files
 
-`internal/transfers`
+`internal/desktop/transfers`
 
 | File | Holds |
 |---|---|
@@ -17,7 +17,7 @@ The installation requests the rail shows and the Save as dialog
 Preview data: `preview.Installations()` (a plugin downloading with its
 speed, a language package counting files on this app, a queued model, a
 failed and an uncertain request) and `preview.PlayDownload`, which moves a
-transfer along the frame clock (`internal/preview/installs.go`).
+transfer along the frame clock (`internal/desktop/preview/installs.go`).
 
 ## Entry point
 
@@ -73,9 +73,9 @@ and on finishing toast files_download_done or the error key.
 
 ## Tests
 
-`internal/transfers/transfers_test.go`: labels, measures, the overall
+`internal/desktop/transfers/transfers_test.go`: labels, measures, the overall
 progress, Remove and Retry, the download's status line.
-`internal/shell/transfers_test.go`: the rail's popover lists the requests
+`internal/desktop/shell/transfers_test.go`: the rail's popover lists the requests
 and Remove drops one; Save as plays to its end and Close shuts it.
 
 ## Deviations

@@ -1,0 +1,3 @@
+notebook_cell: "单元格 %{number}"
+notebook_more: "更多单元格"
+notebook_empty: "没有单元格"

@@ -1,0 +1,8 @@
+settings_execution: "Execution"
+settings_command_sandbox: "Command sandbox"
+settings_command_sandbox_description: "Applies to subsequent commands in all sessions"
+sandbox_settings_reload: "Reload"
+sandbox_settings_saved: "Saved"
+sandbox_settings_conflict: "Command sandbox settings changed; reload to continue"
+sandbox_settings_failed: "Could not load or save command sandbox settings"
+sandbox_settings_unknown: "Saving command sandbox settings could not be confirmed; reload to check"

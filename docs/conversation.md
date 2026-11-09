@@ -2,13 +2,13 @@
 
 The transcript of the selected conversation: a virtualized list of turns,
 each a user message and the assistant's reply, with the jump button over
-it. It matches sailry-public `conversation/live/messages.rs`,
+it. It matches the reference implementation `conversation/live/messages.rs`,
 `live/tools.rs`, `conversation/disclosure.rs`, `conversation/surface/*` and
 Kit's `MessageScroller`.
 
 ## Package and files
 
-`internal/conversation`
+`internal/desktop/conversation`
 
 | File | Holds |
 |---|---|
@@ -26,16 +26,16 @@ Kit's `MessageScroller`.
 | `group_test.go`, `jump_test.go`, `live_test.go`, `bench_test.go` | Tests and benchmarks |
 
 Shared motion (`kit.Shimmer`, `kit.Sweep`, `kit.Identicon`, `kit.EaseOutCubic`, `kit.Fast`)
-is in `internal/kit/motion.go`; the thinking indicator (`kit.Indicator`:
-Orbits, Globe, Ribbon, Ring) in `internal/kit/thinking.go`. Code blocks in messages and tool diffs
-are MyGo's editor (`kit.CodeBlock`, `kit.Diff` in `internal/kit/code.go`).
-Answers are `kit.Markdown` (`internal/kit/markdown.go`, the `Chat`
+is in `internal/desktop/kit/motion.go`; the thinking indicator (`kit.Indicator`:
+Orbits, Globe, Ribbon, Ring) in `internal/desktop/kit/thinking.go`. Code blocks in messages and tool diffs
+are MyGo's editor (`kit.CodeBlock`, `kit.Diff` in `internal/desktop/kit/code.go`).
+Answers are `kit.Markdown` (`internal/desktop/kit/markdown.go`, the `Chat`
 variant: 14 DIP text on 24 DIP lines, emphasis in `primary`, code on a
 3.5% foreground tint) with the transcript's shared selection; a running
 reply's last text block streams (`markdown.Stream`: half-written syntax
 shows as it will end, text as it arrives, no paced reveal past the
 60 fps cap). File previews
-open as `panel.Artifact` tabs (`internal/panel/artifact.go`), subagent
+open as `panel.Artifact` tabs (`internal/desktop/panel/artifact.go`), subagent
 sessions as `panel.Subagent` tabs that the shell fills with this `View`.
 
 ## Entry point
@@ -317,7 +317,7 @@ and mark flags as above. Do not group: the view does.
 
 ## Preview
 
-`internal/preview/turns.go` has a scene for each case: sequence with a path
+`internal/desktop/preview/turns.go` has a scene for each case: sequence with a path
 list (explore), diff and long command output (edit), runtime and tool
 failures with a turn error (failed), denied, interrupted and not executed
 (refused), built-in tools with a table, notices and partial (sessions),
@@ -348,7 +348,7 @@ a running read, its output, then the answer growing a character at a time.
   light/dark (snapshots to `$SAILRY_SNAPSHOTS`); a card's Open; the search
   bar's count, Enter and Escape; the start asking for older turns.
 - `bench_test.go`: 1000 turns scroll; `BenchmarkScroll`, `Steady`, `Jump`.
-- `internal/shell/shell_test.go`: send, stop, the reply playing to
+- `internal/desktop/shell/shell_test.go`: send, stop, the reply playing to
   Completed, approvals and the question.
 
 ## Deviations

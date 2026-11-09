@@ -1,0 +1,30 @@
+plugins_market: 市场
+plugins_market_description: 发现插件
+plugins_public: 公共
+plugins_actions: 插件操作
+plugins_information: 信息
+plugins_identifier: 标识
+plugins_version: 版本
+plugins_tools: 工具
+plugins_manage: 管理
+plugins_download: 下载插件
+plugins_check_updates: 检查更新
+plugins_already_installed: 已安装
+plugins_update_all: 全部更新
+plugins_update_available: 可更新
+plugins_update_version: "更新至 %{version}"
+plugins_updates_found: "%{count} 个插件可更新"
+plugins_up_to_date: 插件已是最新
+plugins_check_failed: 无法检查插件更新
+plugins_check_partial: "%{count} 个可更新，%{failed} 个检查失败"
+plugins_check_manual: "%{count} 个可更新，%{manual} 个需选择来源"
+plugins_updates_applied: "已更新 %{count} 个插件"
+plugins_update_partial: "已更新 %{count} 个，%{failed} 个失败"
+plugins_update_error: "%{name}：%{error}"
+plugins_search: 搜索插件
+plugins_market_failed: 无法加载插件目录
+plugins_sailry_catalog: Sailry
+plugins_previous: 上一页
+plugins_next: 下一页
+plugins_path: 插件目录
+plugins_path_hint: 默认仓库根目录

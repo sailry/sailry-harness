@@ -3,14 +3,14 @@
 The navigation column beside the rail: the new-conversation button, then
 the pinned conversations, the chats without a project, the projects with
 their conversations as a tree, and the recent conversations
-(sailry-public `sidebar.rs`, `sidebar/*.rs`, `workspace/menus.rs`,
+(the reference implementation `sidebar.rs`, `sidebar/*.rs`, `workspace/menus.rs`,
 `workspace/project_editor*.rs`, `workspace/project_removal.rs`,
 `ui/session_preview.rs`). The column's width, collapse and motion belong
 to the frame (`docs/shell.md`).
 
 ## Package and files
 
-`internal/sidebar`
+`internal/desktop/sidebar`
 
 | File | Holds |
 |---|---|
@@ -117,13 +117,13 @@ toasts only; the editor's save sends Create/UpdateProject.
 
 ## Tests
 
-`internal/sidebar/order_test.go`: legacy pins first, appended pin order,
+`internal/desktop/sidebar/order_test.go`: legacy pins first, appended pin order,
 `MovePin`, `Window`, `RecentOrder`, `Adjacent` wrapping, `ValidTitle`.
-`internal/sidebar/editor_test.go`: name suggestion, duplicate paths per
-host, clone names and destinations. `internal/shell/sidebar_test.go`:
+`internal/desktop/sidebar/editor_test.go`: name suggestion, duplicate paths per
+host, clone names and destinations. `internal/desktop/shell/sidebar_test.go`:
 the native menu pins and renames, an empty rename stays out and Escape
 gives up, pins reorder, the editor validates and adds, removal names the
-project and removes it. `internal/shell/shell_test.go`: Show more.
+project and removes it. `internal/desktop/shell/shell_test.go`: Show more.
 
 ## Deviations
 

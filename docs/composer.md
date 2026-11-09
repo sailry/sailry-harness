@@ -5,14 +5,14 @@ what the run waits on, the queue strip, the draft with its file cards and
 inline reference chips, the `@` and `/` pickers, the toolbar (attach, mode,
 permission, model controls, dictation, send/stop) and the context bar
 (host, project, worktree, metrics), plus the file picker and location
-dialogs (sailry-public `conversation/live/composer.rs`, `live/queue*`,
+dialogs (the reference implementation `conversation/live/composer.rs`, `live/queue*`,
 `live/attachments.rs`, `live/references*`, `live/commands`, `live/mode.rs`,
 `live/permission.rs`, `live/location.rs`, `model_controls/*`,
 `file_picker*`, `dictation*`, `live/approvals*.rs`, `live/questions`).
 
 ## Package and files
 
-`internal/composer`
+`internal/desktop/composer`
 
 | File | Holds |
 |---|---|
@@ -173,7 +173,7 @@ type Actions interface {
 
 ## Preview
 
-`internal/preview/composer.go` builds the `Context` (families, made-up
+`internal/desktop/preview/composer.go` builds the `Context` (families, made-up
 scores and features, two teams, the `@`/`/` catalogs, the file picker's
 folder from the files panel tree), the queue operations (guidance
 stays pending until withdrawn or the reply ends: the preview's run takes
@@ -207,11 +207,11 @@ composer.View(c, comp, context(snapshot), &live{client, c, session.ID})
 
 ## Tests
 
-`internal/shell/shell_test.go`: send, Enter and stop; the model picker
+`internal/desktop/shell/shell_test.go`: send, Enter and stop; the model picker
 (effort track, family rail, efforts submenu, non-reasoning model); the
 worktree menu; Tab queueing, the `@` picker into an agent page and chip,
 and the Escape order (picker before stop); approvals and the question.
-`internal/conversation/bench_test.go` Scroll builds from scenes without
+`internal/desktop/conversation/bench_test.go` Scroll builds from scenes without
 pictures (`preview.PlainTurns`).
 
 ## Deviations

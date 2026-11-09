@@ -1,0 +1,3 @@
+notebook_cell: "Cell %{number}"
+notebook_more: "More cells"
+notebook_empty: "No cells"

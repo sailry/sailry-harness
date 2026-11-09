@@ -1,11 +1,11 @@
 # Onboarding
 
-The welcome guide of the first launch (sailry-public `onboarding.rs`,
+The welcome guide of the first launch (the reference implementation `onboarding.rs`,
 `preferences.rs` `welcome_seen`).
 
 ## Package and files
 
-`internal/onboarding`
+`internal/desktop/onboarding`
 
 | File | Holds |
 |---|---|
@@ -56,7 +56,7 @@ Load the picker's entries from `ListChannelPresets` as the reference does
 
 ## Tests
 
-`internal/shell/welcome_test.go`: a first launch asks for the guide and an
+`internal/desktop/shell/welcome_test.go`: a first launch asks for the guide and an
 older file does not; a provider continues in Providers with the editor;
 Back reopens the guide; Seen is saved. `TestSelection` covers the system
 shortcuts' dialog.

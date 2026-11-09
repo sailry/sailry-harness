@@ -2,14 +2,14 @@
 
 Which component to use where. The component library is MyGo's own
 (`github.com/egoist/mygo/ui`, `ui/editor`, `ui/markdown`, `ui/shader`) plus
-ours in `internal/kit`. Theme tokens and surfaces are in
+ours in `internal/desktop/kit`. Theme tokens and surfaces are in
 [theme.md](theme.md).
 
 ## Choosing
 
 1. A MyGo component, when it fits as it is.
 2. A Lobe MyGo component (mygo.lobehub.com), copied as source into
-   `internal/kit` with its MIT header and the upstream path and revision
+   `internal/desktop/kit` with its MIT header and the upstream path and revision
    (`github.com/lobehub/lobe-mygo` at `5b3ecde`). Never add Lobe MyGo as a
    module dependency.
 3. Our own, built on MyGo's headless bases (`ButtonBase`, `PopoverBase`,
@@ -123,8 +123,8 @@ MyGo bases.
 | `ui.Scroll`, `ScrollHorizontal`, `ScrollBoth` | Scrolling regions | — | everywhere |
 | `ui.Table`, `ui.List`, `ui.Divider`, `ui.Link` | Tabular file lists, the transcript's virtual list, separators, links | — | composer, conversation |
 | `ui.CollapsibleBase` | Collapsing sections | — | sidebar, settings |
-| `ui.Icon` | Monochrome glyphs from `internal/icons`, in the text color | Not for brand marks | everywhere |
-| `ui.Image` | Brand marks in their own colors (provider marks from Lobe Icons, `internal/icons/svg/PROVIDERS-SOURCE.md`) | — | settings |
+| `ui.Icon` | Monochrome glyphs from `internal/desktop/icons`, in the text color | Not for brand marks | everywhere |
+| `ui.Image` | Brand marks in their own colors (provider marks from Lobe Icons, `internal/desktop/icons/svg/PROVIDERS-SOURCE.md`) | — | settings |
 | `ui.Themed` | A subtree with a changed MyGo theme | — | composer |
 
 ## Conventions

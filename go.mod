@@ -1,4 +1,4 @@
-module github.com/sailry/sailry-go
+module github.com/sailry/sailry-harness
 
 go 1.27.3
 
@@ -6,7 +6,7 @@ require (
 	github.com/egoist/mygo v0.8.4-0.20261109104234-eadf1fce6af3
 	github.com/firede/limu v0.5.0
 	github.com/firede/limu/limumygo v0.5.0
-	gopkg.in/yaml.v3 v3.0.1
+	go.yaml.in/yaml/v3 v3.0.6
 )
 
 require (

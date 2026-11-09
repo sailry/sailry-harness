@@ -1,0 +1,7 @@
+browser_annotation: "Element"
+browser_annotation_note: "Annotation (optional)"
+browser_annotation_add: "Add to conversation"
+browser_annotation_stale: "The page or conversation changed"
+browser_annotation_invalid: "Could not read the selected element"
+browser_annotation_unavailable: "Could not capture the selected element"
+browser_annotation_truncated: "Text is truncated"

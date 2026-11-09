@@ -4,13 +4,13 @@ The main window's frame: the header band, the feature rail, the sidebar
 column and the right panel beside the page, their motion and resizing,
 the window's shortcuts and native app menu, the search, the activity
 centre, the knowledge viewer and the UI preferences kept across launches
-(sailry-public `shell.rs`, `shell/{frame,frame/*,rail,rail/*,header,
+(the reference implementation `shell.rs`, `shell/{frame,frame/*,rail,rail/*,header,
 splits,limits,search,search/*,activity,activity/*,knowledge,knowledge/*,
 shortcuts}.rs`, `shortcuts.rs`, `app_menu.rs`, `activity/*.rs`).
 
 ## Package and files
 
-`internal/shell`
+`internal/desktop/shell`
 
 | File | Holds |
 |---|---|
@@ -34,11 +34,11 @@ shortcuts}.rs`, `shortcuts.rs`, `app_menu.rs`, `activity/*.rs`).
 ```go
 app := shell.New(preview.Load())
 app.SetPrefs(shell.LoadPrefs(userData)) // at start
-shell.SavePrefs(userData, app.Prefs())  // on blur, close and quit (cmd/sailry)
+shell.SavePrefs(userData, app.Prefs())  // on blur, close and quit (cmd/sailry-desktop)
 mygo.NewWindow(mygo.WindowOptions{StateKey: "main", Content: ui.View(app.View), ...})
 ```
 
-`cmd/sailry` also imports `github.com/egoist/mygo/locales/zh-Hans`, so
+`cmd/sailry-desktop` also imports `github.com/egoist/mygo/locales/zh-Hans`, so
 MyGo's own strings follow the app into Chinese.
 
 ## Frame
@@ -133,7 +133,7 @@ and a key one scope takes never reaches the next:
 | ⌃⌥Space | system | Bring the window forward with the search (`system.activate`) |
 | (none by default) | system | Selected text (`system.selection`) |
 
-The system's shortcuts are `App.SystemShortcuts`, which `cmd/sailry`
+The system's shortcuts are `App.SystemShortcuts`, which `cmd/sailry-desktop`
 registers with MyGo's `GlobalShortcut` at launch (system_shortcuts.rs
 install); each brings the window forward and runs its command through
 `Do`. The selection shortcut's dialog (system_shortcuts.rs show) shows
@@ -157,7 +157,7 @@ Sidebar, Toggle Details, Full Screen, then the rail's features), Window
 (Minimize, Zoom, Bring All to Front) and Help (Website, Feedback, Logs,
 then the preview's Welcome to Sailry and Selected text).
 The system's items are MyGo roles. The app's items send their command's
-ID, which `cmd/sailry` passes to `App.Do`.
+ID, which `cmd/sailry-desktop` passes to `App.Do`.
 
 The menu takes its items' keys before the window on every platform, so a
 command from the menu runs in the next frame scoped as its key would be:
@@ -228,18 +228,18 @@ pins and order belong in the preferences beside the rest of `Prefs`.
 
 ## Tests
 
-`internal/shell/shortcuts_test.go`: ⌘W in a focused panel tab, a focused
+`internal/desktop/shell/shortcuts_test.go`: ⌘W in a focused panel tab, a focused
 Files or Git page and with nothing closable focused; Escape closing only
 the popover; a text input keeping ⌘A and ⌘Z; the menu's items, keys and
 translations; menu commands scoped as their keys.
-`internal/shell/frame_test.go`: ⌘⌥B, ⌘P, ⌃⇧G and ⌘W on the panel;
+`internal/desktop/shell/frame_test.go`: ⌘⌥B, ⌘P, ⌃⇧G and ⌘W on the panel;
 ⌘B and preferences round-tripping; ⌘K search opening a conversation;
 the activity centre opening a conversation and the knowledge viewer
 paging; `ParseSource`, `Filter`, `Next`, `MoveFeature`.
-`internal/shell/pages_test.go`: the rail opens pages, not tabs; the
+`internal/desktop/shell/pages_test.go`: the rail opens pages, not tabs; the
 Files and Git page and tab share a project's state, another project
 keeps its own.
-`internal/shell/sidebar_test.go` and `shell_test.go`: the sidebar and
+`internal/desktop/shell/sidebar_test.go` and `shell_test.go`: the sidebar and
 Phase 1–2 screens.
 
 ## Deviations

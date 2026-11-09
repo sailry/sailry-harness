@@ -1,5 +1,7 @@
 .preview/
+.runtime/
 /sailry
+/sailry-desktop
 *.test
 *.prof
 .DS_Store

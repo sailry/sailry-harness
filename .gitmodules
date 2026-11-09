@@ -1,0 +1,6 @@
+[submodule "themes"]
+	path = themes
+	url = https://github.com/sailry/sailry-themes.git
+[submodule "plugins"]
+	path = plugins
+	url = https://github.com/sailry/sailry-plugins.git

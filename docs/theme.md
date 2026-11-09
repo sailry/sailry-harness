@@ -3,13 +3,13 @@
 Sailry's one application theme: the built-in default's semantic tokens
 overlaid by the selected theme package, the MyGo widget theme derived from
 them, and the package's surfaces: artwork, mode cards, messages, the
-wordmark and animated effects (sailry-public `apps/desktop/src/theme.rs`,
+wordmark and animated effects (the reference implementation `apps/desktop/src/theme.rs`,
 `theme/*.rs`, `settings/appearance*.rs`, `conversation/welcome*`,
 `themes/`).
 
 ## Package and files
 
-`internal/theme`, with the drawing in `internal/kit` and the pages that use
+`internal/desktop/theme`, with the drawing in `internal/desktop/kit` and the pages that use
 them.
 
 | File | Holds |
@@ -18,7 +18,7 @@ them.
 | `theme/package.go` | **The contract**: `Package` and `Variant` read from theme.json v1, `Parse`, `Packages`, `Find`, `Builtin` |
 | `theme/neutral.go` | The built-in theme's colors by theme.json key, Kit's fallbacks, status and base colors, emblem tints |
 | `theme/color.go` | `Color`, an optional package color |
-| `theme/builtin/` | The official packages, embedded: `great-sage`, `ink-dragon`, `holographic-rhythm` (`theme.json`, `assets/`, `ARTWORK.md`, `README.md`), `LICENSE`, `NOTICE` |
+| `themes/`, `bundled.go` | The pinned official theme submodule, embedded as `sailry.Themes`: `great-sage`, `ink-dragon`, `holographic-rhythm` (`theme.json`, `assets/`, `ARTWORK.md`, `README.md`), `LICENSE`, `NOTICE` |
 | `kit/art.go` | `Picture`, `Corners`, `Backdrop`, `Banner`, `ArtIcon`, `NewSessionArt` |
 | `kit/effects.go` | The particle layers and `SetEffects` |
 | `conversation/welcome.go` | The new session's welcome page and wordmark |
@@ -103,8 +103,8 @@ holds frames of an occluded one).
 
 Which component draws each floating layer, and every other component
 choice, is in [components.md](components.md). Their one surface is
-`kit.Floating` (`internal/kit/floating.go`): the frost shader of
-`internal/kit/frost.go` over the opaque `Popover` color, toned by it again,
+`kit.Floating` (`internal/desktop/kit/floating.go`): the frost shader of
+`internal/desktop/kit/frost.go` over the opaque `Popover` color, toned by it again,
 with a 1 DIP edge and no shadow. Menus paint it rather than MyGo's menu
 look, which uses `Background` and `Accent` and has no theme slot.
 
@@ -136,12 +136,12 @@ package and its palettes there (not in this prototype).
 
 ## Tests
 
-`internal/theme/package_test.go`: every embedded package parses with both
+`internal/desktop/theme/package_test.go`: every embedded package parses with both
 variants and every asset decodes; malformed JSON, a missing variant and a
 named color fail; the palette overlays neutral, falls back for links and the
-switch thumb, and fades popovers. `internal/kit/effects_test.go`: effects
+switch thumb, and fades popovers. `internal/desktop/kit/effects_test.go`: effects
 ask for frames, and stop with Reduce Motion, the switch and a hidden window.
-`internal/shell/shell_test.go`: every package paints in both modes, each
+`internal/desktop/shell/shell_test.go`: every package paints in both modes, each
 differently, with the welcome page; a mode card fills the draft; Appearance
 applies a package, shows its details and turns effects off.
 

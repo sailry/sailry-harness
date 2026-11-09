@@ -2,14 +2,14 @@
 
 A host's page: its overview in the main column and its metrics in the
 right column, with the update dialog and the port forwards
-(sailry-public `workspace/host.rs`, `workspace/host/{
+(the reference implementation `workspace/host.rs`, `workspace/host/{
 activity,metrics,metrics/data,runtime,update}.rs`,
 `workspace/model/{runtime,updates}.rs`, the header of
 `live/host.rs` and `ports/{menu,picker,view}.rs`).
 
 ## Package and files
 
-`internal/host`
+`internal/desktop/host`
 
 | File | Holds |
 |---|---|
@@ -19,7 +19,7 @@ activity,metrics,metrics/data,runtime,update}.rs`,
 | `metrics.go` | `MetricsPanel`, the right column |
 | `ports.go` | The header's forwards, the port picker and the new forward dialog |
 
-Preview data: `preview.HostPages(d)` (`internal/preview/hosts.go`), one
+Preview data: `preview.HostPages(d)` (`internal/desktop/preview/hosts.go`), one
 `Host` per `Data.Hosts` entry: projects, counts and running sessions from
 the dataset, this host's runtime, the paired host's unknown runtime and
 update, the metrics sample of
@@ -93,8 +93,8 @@ monitor's samples, `Ports` from `sailry_client::ports::Forwarder`s.
 
 ## Tests
 
-`internal/host/host_test.go`: formats, the update's phases and stale
-clicks, new forwards. `internal/shell/hosts_test.go`: the host page with
+`internal/desktop/host/host_test.go`: formats, the update's phases and stale
+clicks, new forwards. `internal/desktop/shell/hosts_test.go`: the host page with
 its metrics, the update dialog's Check, toggling the metrics, closing the
 page.
 

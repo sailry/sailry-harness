@@ -1,6 +1,6 @@
 # Settings
 
-The settings navigation and its pages, in the groups of sailry-public
+The settings navigation and its pages, in the groups of the reference implementation
 `settings/mod.rs` `Section::GROUPS`: App (General, Appearance,
 Conversation, Shortcuts, Dictation), AI (Providers, Connectors, Teams,
 Plugins, Skills, Knowledge, Decision), Tools (Terminal, Connections, Hooks,
@@ -10,7 +10,7 @@ model library and the extension details page.
 
 ## Package and files
 
-`internal/settings`
+`internal/desktop/settings`
 
 | File | Holds |
 |---|---|
@@ -40,14 +40,14 @@ model library and the extension details page.
 | `lists.go` | Dialog pieces: `modalList`/`listRow` (ui/modal_list.rs), `authorization` (ui/authorization.rs), `iconButton`, `confirm` |
 | `ai.go` | `enabledOpacity` |
 
-Shared rows live in `internal/kit/settings.go`: `Page`, `Group`, `Card`,
+Shared rows live in `internal/desktop/kit/settings.go`: `Page`, `Group`, `Card`,
 `Row`, `WideRow` (Row::wide), `Entry`
 (settings/entry.rs), `Record`, `Action` and `TextAction` (an entry's small
 ghost buttons), plus the switch, select, segmented, text, slider and
 button rows. A group without rows (Group::empty) is `kit.Result` with
-`Card`, the empty state and load failure in `internal/kit/result.go`. `kit.KeyText`/`kit.KeyName` write shortcuts for menus,
-tooltips and the Shortcuts page. Preview data is `internal/preview/
-settings.go` (`preview.SettingsData`) and `internal/preview/ai.go`
+`Card`, the empty state and load failure in `internal/desktop/kit/result.go`. `kit.KeyText`/`kit.KeyName` write shortcuts for menus,
+tooltips and the Shortcuts page. Preview data is `internal/desktop/preview/
+settings.go` (`preview.SettingsData`) and `internal/desktop/preview/ai.go`
 (`ProvidersData`, `ConnectorsData`, `TeamsData`, `ExtensionsData`).
 
 ## Entry point
@@ -189,14 +189,14 @@ the app preferences.
 
 ## Tests
 
-- `internal/settings/settings_test.go`: shortcut capture (invalid,
+- `internal/desktop/settings/settings_test.go`: shortcut capture (invalid,
   conflict with another shortcut and with a fixed key, clear, reset,
   idle), environment variable validation, hook and backup checks,
   `Stored.Commit`; `TestProviderEditor` (steps, back, checks, save,
   statuses), `TestConnectors` (statuses, menus, MCP check), `TestTeams`,
   `TestExtensions` (classification, configuration checks, market actions,
   skill sources, a section closing the details).
-- `internal/shell/settings_test.go`: every section opens with its title in
+- `internal/desktop/shell/settings_test.go`: every section opens with its title in
   en and zh-CN, light and dark (snapshots with `SAILRY_SNAPSHOTS`); ⌘/
   opens Shortcuts, recording holds the window's keys, a conflicting key
   toasts, the new key works and the old one does not, Escape cancels;
