@@ -20,12 +20,13 @@ func Floating(c *ui.Context, el ui.Element) ui.Element {
 		Border(1, floatingEdge(p))
 }
 
-// floatingEdge is a step off the popover color: lighter in dark mode,
-// darker in light, at partial alpha, so the edge reads soft.
+// floatingEdge is a step off the surface the glass shows: lighter in dark
+// mode, darker in light. It is translucent over the glass, because the
+// glass tones its backdrop (lighter in dark mode) and an edge derived from
+// the popover color matches that tone and disappears.
 func floatingEdge(p *theme.Palette) ui.Color {
-	toward := ui.RGB(0, 0, 0)
 	if p.Dark {
-		toward = ui.RGB(255, 255, 255)
+		return ui.RGBA(255, 255, 255, 0.14)
 	}
-	return p.Floating().Mix(toward, 0.07).Alpha(0.8)
+	return ui.RGBA(0, 0, 0, 0.12)
 }
