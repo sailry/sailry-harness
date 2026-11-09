@@ -35,11 +35,31 @@ func dictation(c *ui.Context, m *Model) {
 			})
 		})
 	})
-	kit.Group(c, "models", i18n.T(c, "dictation_local_model"), "", func() {
-		kit.Secondary(c.Key("library"), i18n.T(c, "model_library_manage")).OnClick(func() { m.library.open = true })
-	}, func() {
+	// The speech models in the page's Installed and Available tabs, as
+	// the Decision and Knowledge pages show theirs, not in the library
+	// dialog.
+	kit.Group(c, "models", i18n.T(c, "dictation_local_model"), "", nil, func() {
+		ui.Row(c).Gap(12).Wrap().Children(func() {
+			ui.Segmented(c.Key("tabs"), &m.SpeechTab, i18n.T(c, "knowledge_installed"), i18n.T(c, "local_models_available")).
+				Label(i18n.T(c, "dictation_local_model"))
+			if m.SpeechTab == 1 {
+				ui.SearchField(c.Key("search"), &m.SpeechQuery).Placeholder(i18n.T(c, "search")).Width(220)
+			}
+		})
+		q := strings.ToLower(strings.TrimSpace(m.SpeechQuery))
+		var shown []int
+		for i, x := range m.Speech {
+			installed := x.Status == preview.ModelInstalled
+			if m.SpeechTab == 0 && installed || m.SpeechTab == 1 && !installed && (q == "" || strings.Contains(strings.ToLower(x.Name+" "+x.Repo), q)) {
+				shown = append(shown, i)
+			}
+		}
+		if len(shown) == 0 {
+			kit.EmptyGroup(c, icons.Cpu, i18n.T(c, "local_models_empty"))
+			return
+		}
 		kit.Card(c, func() {
-			for i := range m.Speech {
+			for _, i := range shown {
 				x := &m.Speech[i]
 				name := x.Name
 				if x.ID == "" {

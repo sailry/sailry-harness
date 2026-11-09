@@ -147,6 +147,8 @@ type Model struct {
 	Microphones       []string
 	SpeechLanguage    int // 0 auto, 1 Chinese, 2 English
 	SpeechModel       int // of Speech
+	SpeechTab         int // 0 installed, 1 available
+	SpeechQuery       string
 	Speech            []preview.LocalModel
 	info              *modelInfo // the model whose details show
 

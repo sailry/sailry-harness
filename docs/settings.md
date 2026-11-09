@@ -122,7 +122,7 @@ placeholder in an empty masked input.
 | Appearance | Details, Homepage (card menu) | the details dialog; the system's browser |
 | Conversation | sandbox | `Commit`, sandbox_settings_* toast |
 | Shortcuts | click a key, then press one; reset; clear; Escape | live: the window uses the new key |
-| Dictation | request access, manage library, install, cancel download | preview_notice |
+| Dictation | request access, install, cancel download | preview_notice |
 | Dictation, OCR | choose model, details | in memory; details dialog |
 | Terminal | add/edit (draft dialog), delete, shell | `Commit`, terminal_settings_* toasts on failure |
 | Connections | add host (pairing code or SSH), connect/install, share code, revoke, edit network | dialogs open; the network steps are preview_notice; revoke confirms first |
@@ -239,6 +239,8 @@ the app preferences.
 - Skills, Market: no paging (market "Load more"); the market's plugin
   source and skill catalogs are filtered locally. Theme Apply is
   preview_notice rather than switching the window's theme.
-- The model library is a dialog opened by "Manage models" on Dictation
-  and the local-model pages; the Available tab still lists the kind's
-  catalog inline.
+- The model library is a dialog opened by "Manage models" on the
+  local-model pages; the Available tab still lists the kind's catalog
+  inline. Dictation has no Manage models: its speech models are in the
+  page's Installed and Available tabs, as the local-model pages show
+  theirs.
