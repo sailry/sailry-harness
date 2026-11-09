@@ -136,4 +136,10 @@ func TestSplitFirstFrame(t *testing.T) {
 	if got := 1280 - row.Bounds.X + 8; got < 219 || got > 221 || row.Bounds.W < 203 || row.Bounds.W > 205 {
 		t.Errorf("the first frame's side list is %v wide, row %v", got, row.Bounds)
 	}
+	// Both columns fill the page's height from under the tab strip: the
+	// list's first row and the editor's toolbar sit at its top.
+	save, _ := tt.AccessByRole(ui.RoleButton, i18n.In("en", "files_save"))
+	if row.Bounds.Y > 140 || save.Bounds.Y > 140 {
+		t.Errorf("the split's columns do not start at the top: tree row %v, Save %v", row.Bounds, save.Bounds)
+	}
 }

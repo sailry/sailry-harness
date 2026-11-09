@@ -195,7 +195,7 @@ const (
 // the rest and the motion of the panel only moves the main area. Only a
 // drag reads the layout, to keep the main area sideMin wide.
 func split(c *ui.Context, key string, side *float32, main, list func()) {
-	box := ui.Row(c.Key(key)).Grow(1).MinHeight(0).MinWidth(0).Clip()
+	box := ui.Row(c.Key(key)).Grow(1).MinHeight(0).MinWidth(0).AlignItems(ui.Stretch).Clip()
 	w := box.LayoutBounds().W
 	box.Children(func() {
 		ui.Column(c.Key("main")).Grow(1).Shrink(1).MinWidth(0).MinHeight(0).Children(main)
