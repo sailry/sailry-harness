@@ -56,19 +56,19 @@ var (
 	toastFade  = ui.Animation{Duration: 200 * time.Millisecond, Ease: EaseOut}
 	toastSize  = ui.Animation{Duration: 150 * time.Millisecond, Ease: cssEase}
 	toastEnter = ui.ElementTransition{Duration: 400 * time.Millisecond, Ease: toastEase, Colors: true,
-		Enter: &ui.Motion{YPercent: 150}, Exit: &ui.Motion{YPercent: 150}}
+		Enter: &ui.Motion{YPercent: -150}, Exit: &ui.Motion{YPercent: -150}}
 	toastHover = ui.ElementTransition{Duration: 160 * time.Millisecond, Ease: softEase, Colors: true}
 )
 
-// ToastHost draws the window's toasts in place of MyGo's look, in the
-// bottom right corner: the newest in front with the older ones peeking
-// behind it, spread out while the pointer rests on them. A toast has its
+// ToastHost draws the window's toasts in place of MyGo's look, at the
+// top center (under the header): the newest in front, sliding down from
+// the top, with the older ones peeking below it, spread out while the pointer rests on them. A toast has its
 // type's icon and color (info, success, warning, error), the title over
 // the description, a close button and its action; one with a negative
 // Timeout stays until closed. Call it once in the window's view.
 func ToastHost(c *ui.Context) ui.Element {
 	return ui.ToastViewportBase(c, func(viewport ui.Element, toasts []ui.Toast) {
-		viewport.Padding(16).AlignItems(ui.End).Justify(ui.End)
+		viewport.Padding(56, 16, 16, 16).AlignItems(ui.Center).Justify(ui.Start)
 		stack := ui.Box(c).Width(toastWidth).MaxWidthPercent(100)
 		heights := *ui.Local(stack, "heights", func() map[string]float32 { return map[string]float32{} })
 		expanded := stack.Hovered()
@@ -116,7 +116,7 @@ type toastLayout struct {
 func toast(c *ui.Context, t ui.Toast, heights map[string]float32, l toastLayout) {
 	p := theme.Of(c)
 	parts := ui.ToastBase(c, t)
-	root := Floating(c, parts.Root.Absolute().Left(0).Right(0).Bottom(0).TransformOrigin(0.5, 1).Clip()).FontSize(14)
+	root := Floating(c, parts.Root.Absolute().Left(0).Right(0).Top(0).TransformOrigin(0.5, 0).Clip()).FontSize(14)
 	root.Transition(toastEnter)
 	height := heights[t.ID]
 	if l.collapsed && l.front > 0 {
@@ -125,7 +125,7 @@ func toast(c *ui.Context, t ui.Toast, heights map[string]float32, l toastLayout)
 	if height > 0 {
 		root.Height(root.AnimateTo("height", height, toastSize))
 	}
-	root.Translate(0, root.AnimateTo("y", -l.y, toastStack))
+	root.Translate(0, root.AnimateTo("y", l.y, toastStack))
 	scale := root.AnimateTo("scale", l.scale, toastStack)
 	root.Scale(scale, scale)
 	shown := float32(1)
