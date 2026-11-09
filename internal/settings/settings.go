@@ -151,8 +151,14 @@ func Page(c *ui.Context, s *State, d *preview.Data, look Look) {
 			runtimePage(c, s.Model)
 		case OCR:
 			localModels(c, s.Model, &s.OCR, "runtime_ocr", "runtime_ocr_model", "runtime_ocr_enable")
+		case Permissions:
+			permissions(c, s.Model)
+		case Backup:
+			backup(c, s.Model)
+		case About:
+			about(c, s.Model)
 		default:
-			// The pages still to come.
+			// The AI pages still to come (phase 5b).
 			kit.EmptyGroup(c, icons.Inbox, i18n.T(c, "settings_empty"))
 		}
 	})

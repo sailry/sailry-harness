@@ -71,6 +71,27 @@ func TestDraftChecks(t *testing.T) {
 	if e.Check() != "" || e.script.TimeoutMS != 500 {
 		t.Errorf("good hook refused: %+v", e.script)
 	}
+	b := BackupTarget{Endpoint: "https://dav"}
+	for _, c := range []struct {
+		pass, confirm string
+		set           bool
+		want          string
+	}{
+		{"", "", false, "backup_passphrase_required"},
+		{"short", "short", false, "backup_passphrase_invalid"},
+		{"long enough", "other one", false, "backup_passphrase_mismatch"},
+		{"long enough", "long enough", false, ""},
+		{"", "", true, ""},
+	} {
+		b.Passphrase, b.Confirm, b.PassphraseSet = c.pass, c.confirm, c.set
+		if got := b.Check(); got != c.want {
+			t.Errorf("%+v: %q", c, got)
+		}
+	}
+	b.Tab, b.Bucket = 1, ""
+	if b.Check() != "backup_invalid" {
+		t.Error("S3 without a bucket accepted")
+	}
 }
 
 func TestStoredCommit(t *testing.T) {

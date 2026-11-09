@@ -1,6 +1,8 @@
 package settings
 
 import (
+	"time"
+
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-go/internal/i18n"
 	"github.com/sailry/sailry-go/internal/kit"
@@ -104,6 +106,22 @@ func (m *LocalModels) Installed() []preview.LocalModel {
 	return out
 }
 
+// BackupTarget is where backups go (backup/editor.rs): WebDAV, S3 or a
+// local folder (Tab), its fields, and the schedule. Secrets are never
+// loaded: Identity, Secret, Token and the passphrases are what the user
+// types to replace them, the saved ones shown as masked placeholders.
+type BackupTarget struct {
+	Tab                              int // 0 WebDAV, 1 S3, 2 local
+	Endpoint, Prefix, Bucket, Region string
+	Identity, Secret, Token          string
+	Passphrase, Confirm              string
+	Directory                        string
+	Schedule                         bool
+	Time                             time.Time // the daily time
+	Timezone                         string
+	PassphraseSet, CredentialsSet    bool
+}
+
 // Model is the settings pages' view model.
 type Model struct {
 	// General (preferences.rs, power.rs, telemetry.rs).
@@ -155,6 +173,19 @@ type Model struct {
 	Indexes       []string
 	Python        Stored[Python]
 	OCR           LocalModels
+
+	// Permissions (permissions.rs).
+	Permissions []preview.Permission
+
+	// Backup (backup/*).
+	Backup   Stored[BackupTarget]
+	Archived []preview.Archived
+	Sessions int
+	backups  backupDialogs
+
+	// About (catalog.rs, updater/panel.rs).
+	Version string
+	Channel int // 0 stable, 1 experience
 }
 
 // Languages are the language choices (locale.rs Language::ALL).
@@ -182,7 +213,12 @@ func NewModel(d *preview.Settings) *Model {
 		Devices: d.Devices, Relays: d.Relays,
 		Hooks:         stored(HookSettings{Enabled: d.HooksOn, Scripts: d.Hooks}),
 		PythonVersion: d.Python, Indexes: d.Indexes, Python: stored(Python{}),
-		OCR: LocalModels{Enabled: stored(true), Models: d.OCR, Catalog: d.OCRCatalog},
+		OCR:         LocalModels{Enabled: stored(true), Models: d.OCR, Catalog: d.OCRCatalog},
+		Permissions: d.Permissions,
+		Backup: stored(BackupTarget{Endpoint: "https://dav.example.com/remote.php/dav", Prefix: "sailry",
+			Schedule: true, Time: time.Date(2026, 1, 1, 3, 0, 0, 0, time.Local), Timezone: "Asia/Shanghai", PassphraseSet: true, CredentialsSet: true}),
+		Archived: d.Archived, Sessions: d.Sessions,
+		Version: d.Version,
 	}
 	return m
 }
