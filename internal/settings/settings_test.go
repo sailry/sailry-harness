@@ -196,3 +196,41 @@ func TestTeams(t *testing.T) {
 		t.Errorf("duplicate key: %q", got)
 	}
 }
+
+// Plugin classification, configuration checks, market actions and skill
+// sources (classification.rs, configuration.rs, card.rs, install.rs).
+func TestExtensions(t *testing.T) {
+	m := NewModel(preview.SettingsData())
+	if got := len(Classified(m.Packages, preview.KindPlugin)); got != 5 {
+		t.Errorf("plugins %d", got)
+	}
+	if len(Classified(m.Packages, preview.KindSkill)) != 1 || len(Classified(m.Packages, preview.KindMCP)) != 1 {
+		t.Error("skill and MCP packages")
+	}
+	m.openConfig(m.pkg("figma"))
+	if got := m.config.Check(); got != "plugins_settings_required" {
+		t.Errorf("required: %q", got)
+	}
+	m.config.fields[0].Value, m.config.fields[1].Value = "T1", "many"
+	if got := m.config.Check(); got != "plugins_settings_number" {
+		t.Errorf("number: %q", got)
+	}
+	m.openConfig(m.pkg("git"))
+	m.config.secrets["token"] = 1
+	if got := m.config.Check(); got != "plugins_settings_secret_required" {
+		t.Errorf("secret: %q", got)
+	}
+	if MarketAction(false, false) != "market_install" || MarketAction(true, true) != "market_update" || MarketAction(true, false) != "market_installed" {
+		t.Error("market actions")
+	}
+	e := skillInstall{source: 1, link: "https://example.com/x"}
+	if e.Check() != "skill_source_link_invalid" {
+		t.Error("skills.sh link passed")
+	}
+	s := &State{Model: m}
+	s.ShowDetails(DetailPlugin, "git")
+	s.Open(Skills)
+	if s.Details != nil {
+		t.Error("opening a section kept the details")
+	}
+}

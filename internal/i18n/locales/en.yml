@@ -1060,3 +1060,140 @@ teams_model: Model
 role_instructions: Instructions
 role_save: Save
 teams_role_saved: Role saved
+market_plugin_details: Plugin details
+market_skill_details: Skill details
+market_theme_details: Theme details
+market_details_source: Source
+market_theme_light: Light
+market_theme_dark: Dark
+market_local: This device
+market_details_formats: Other formats
+market_install: Install
+market_update: Update
+plugins_update_sailry: Update Sailry
+market_details_overview: Overview
+market_details_contents: Contents
+market_details_permissions: Permissions
+market_details_versions: Versions
+market_details_latest: Latest
+market_details_version: Version
+market_details_host: Host
+market_details_skills: Skills
+market_details_mcp: MCP servers
+market_details_includes: Includes
+connector_tools_empty: No tools
+plugins_no_skills: No skills
+plugins_no_mcp: No MCP servers
+market_details_permission_none: No extra permissions needed
+market_installed: Installed
+model_library_huggingface: Hugging Face
+model_library_modelscope: ModelScope
+model_library_query: Search models
+model_library_search: Search
+model_library_empty: Search for models
+knowledge_delete: Delete
+knowledge_model_size: Size
+knowledge_delete_model_effect: Delete %{name}; collections using it fall back to keyword search
+knowledge_deleted: Deleted
+market_category_development: Development
+market_category_automation: Automation
+market_category_data: Data
+market_category_entertainment: Fun
+market_plugins: Plugins
+market_skills: Skills
+market_themes: Themes
+market_kind: Market type
+market_search_plugins: Search plugins
+market_search_skills: Search skills
+market_search_themes: Search themes
+market_source_official: Official
+market_source_community: Community
+market_all: All
+market_installed_only: Installed only
+market_theme_current: In use
+market_details_source_official: Official catalog
+market_details_source_community: Community
+skills_no_matches: No matching skills
+market_theme_apply: Apply
+market_no_themes: No matching themes
+market_theme_builtin: Built-in
+plugins_settings_title: Plugin configuration
+plugins_failed: Plugin operation failed
+plugins_settings_conflict: Configuration changed; reload
+plugins_unknown: Result unconfirmed; retry to check the original request
+plugins_requires_sailry: Requires Sailry %{version}
+plugins_up_to_date: Plugins are up to date
+plugins_updates_found: '%{count} plugin updates available'
+plugins_update_all: Update all
+plugins_review_updates: Review updates
+plugins_download: Download plugin
+plugins_empty: No plugins
+plugins_remove_effect: Uninstall “%{name}”? Plugin data will be kept
+plugins_uninstalled: Plugin uninstalled
+plugins_update_available: Update
+plugins_settings_secret_required: Enter a replacement key
+plugins_settings_number: Enter a valid number
+plugins_settings_required: Select required fields
+plugins_settings_description: Manage this plugin's options
+plugins_settings_none: Plugin has no valid configuration fields
+plugins_settings_keep: Keep
+plugins_settings_replace: Replace
+plugins_settings_clear: Clear
+plugins_settings_input_hint: Enter %{field}
+plugins_settings_configured: Set
+plugins_settings_clear_effect: Clearing also prevents pending tasks from using this key
+plugins_package: Package path
+form_package_hint: Plugin package name or path
+plugins_directory: Preview plugin directory
+form_directory_hint: Working directory (optional)
+plugins_package_required: Enter a preview package path
+skills_repository: Git repository
+skills_repository_hint: Repository URL
+skills_revision: Branch or tag
+skills_revision_hint: Default branch
+plugins_path: Plugin directory
+plugins_path_hint: Repository root by default
+plugins_preparing_package: Preparing package
+plugins_installing: Installing
+skills_invalid: Enter an HTTPS repository URL, valid Git ref, namespace and name
+plugins_updates_title: Plugin updates
+plugins_update_version: Update to %{version}
+plugins_updates_later: Later
+plugins_updates_selected: Update (%{count})
+skill_source_git: Git
+skill_source_skills: skills.sh
+skill_source_hub: skillhub.cn
+skill_source_directory: Directory
+skill_source_archive: Archive
+skill_source_link_invalid: Enter a skill details URL
+skills_package_source: From plugin %{name}
+skills_search: Search skills
+skills_install: Install skill
+skills_remove_effect: Uninstall %{name}; running tasks are unaffected
+settings_update: Update
+skills_manage_package: Manage plugin
+skill_source_reimport: Import again
+skill_source_origin: Source
+skill_source_git_help: Enter a Git repository, with an optional ref and skill directory
+skills_subdirectory: Subdirectory (optional)
+skills_path_hint: Optional
+skill_source_skills_help: Enter a skills.sh details URL to discover its source skill
+skill_source_link: Skill URL
+skill_source_skills_hint: https://skills.sh/owner/repository/skill
+skill_source_hub_help: Enter a skillhub.cn details URL to install its verified package
+skill_source_hub_hint: https://skillhub.cn/skills/author/skill
+skill_source_choose_directory: Choose folder
+skill_source_choose_archive: Choose archive
+git_diff: Diff
+market_permission_git_read: Read Git changes
+market_permission_git_write: Change Git
+market_permission_files_read: Read files
+market_permission_terminals_control: Control terminals
+market_permission_browser_control: Control the built-in browser
+market_permission_http_request: Send network requests
+market_details_source_local: Local import
+market_permission_databases_control: Run database queries
+model_library_embedding: Embedding models
+model_library_ocr: OCR models
+model_library_speech: Speech models
+model_library_decision: Decision

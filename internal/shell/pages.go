@@ -29,6 +29,9 @@ func (a *App) project() *panel.Project {
 
 // Navigate shows a page in the main column.
 func (a *App) Navigate(p Page) {
+	if p != a.Page {
+		a.Settings.CloseDetails()
+	}
 	a.Page, a.shown = p, a.Sidebar.Selected
 }
 
@@ -59,6 +62,13 @@ func (a *App) followSelection() {
 	if a.Sidebar.Selected != a.shown {
 		a.Page = ConversationPage
 	}
+}
+
+// extensionDetails reports whether the right column shows an extension's
+// details: over the settings or the market (navigation.rs
+// settings_details).
+func (a *App) extensionDetails() bool {
+	return a.Settings.Details != nil && (a.Page == SettingsPage || a.Page == MarketPage)
 }
 
 // featurePage is a rail feature's page: Files and Git as the project's

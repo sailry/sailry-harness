@@ -217,7 +217,7 @@ func (a *App) frame(c *ui.Context, root ui.Element) frame {
 	nav := f.navWidth * navTarget
 	f.panelW = ClampPanel(a.PanelWidth, w, nav)
 	f.fitted = PanelFits(w, nav, f.panelW)
-	f.showsPanel = a.Page == ConversationPage && a.PanelOpen && f.fitted
+	f.showsPanel = a.Page == ConversationPage && a.PanelOpen && f.fitted || a.extensionDetails() && f.fitted
 	target := float32(0)
 	if f.showsPanel {
 		target = 1
@@ -265,8 +265,18 @@ func (a *App) details(c *ui.Context, f frame, fill ui.Color) {
 	}
 	ui.Row(c.Key("details")).Width(f.panelW * f.details).Shrink(0).ClipX().Justify(ui.End).AlignItems(ui.Stretch).Children(func() {
 		col := ui.Column(c.Key("content")).Width(f.panelW).Shrink(0).Background(fill).BorderWidth(0, 0, 0, 1).BorderColor(p.Border)
-		a.pane(c, col, &a.panelPane, true, func() { a.closeTab(c) })
+		a.pane(c, col, &a.panelPane, true, func() {
+			if a.extensionDetails() {
+				a.Settings.CloseDetails()
+				return
+			}
+			a.closeTab(c)
+		})
 		col.Children(func() {
+			if a.extensionDetails() {
+				settings.DetailsPanel(c, a.Settings)
+				return
+			}
 			a.Panel.Paged = a.paged()
 			panel.View(c, a.Panel, a.project(), kit.KeyText)
 		})
@@ -341,7 +351,10 @@ func (a *App) page(c *ui.Context) {
 	case SettingsPage:
 		settings.Page(c, a.Settings, a.Data, settings.Look{Theme: &a.Theme, Mode: &a.Mode, Effects: &a.Effects, Surfaces: &a.Surfaces})
 		return
-	case FilesPage, GitPage, ActivityPage, MarketPage:
+	case MarketPage:
+		settings.MarketPage(c, a.Settings)
+		return
+	case FilesPage, GitPage, ActivityPage:
 		a.featurePage(c)
 		return
 	}

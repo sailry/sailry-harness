@@ -189,6 +189,32 @@ type Model struct {
 	teamRemoving string
 	roleRemoving string
 
+	// Plugins, Skills, Market and the model library (plugins*, skills,
+	// market*, model_library*): the installed packages, the market's
+	// plugins, skills and themes, the installed skills and the library's
+	// models, with the pages' searches and filters.
+	Packages        []preview.Package
+	MarketPlugins   []preview.Package
+	SkillList       []preview.Skill
+	MarketSkills    []preview.Skill
+	Themes          []preview.MarketTheme
+	Library         []preview.LibraryModel
+	SkillQuery      string
+	MarketKind      int // 0 plugins, 1 skills, 2 themes
+	MarketQuery     string
+	MarketSource    int // 0 official, 1 community
+	MarketCategory  int // of marketCategories
+	MarketMode      int // 0 all, 1 dark, 2 light
+	MarketInstalled bool
+	config          pluginConfig
+	install         pluginInstall
+	download        pluginDownload
+	updates         pluginUpdates
+	uninstalling    string
+	skillAdd        skillInstall
+	skillRemoving   string
+	library         library
+
 	// Terminal (terminal.rs, terminal/host.rs).
 	Host            Stored[TerminalHost]
 	Shells          []preview.Shell
@@ -245,10 +271,12 @@ func NewModel(d *preview.Settings) *Model {
 	pr := preview.ProvidersData()
 	cn := preview.ConnectorsData()
 	td := preview.TeamsData()
+	ex := preview.ExtensionsData()
 	m := &Model{
 		Channels: pr.Channels, Brands: pr.Brands, Catalog: pr.Catalog, Compaction: stored(pr.Compaction),
 		Services: cn.Services, ConnTypes: cn.Types, ConnAccounts: cn.Accounts,
 		Teams: td.Teams, Roles: td.Roles, Concurrency: stored(td.Concurrency),
+		Packages: ex.Packages, MarketPlugins: ex.Catalog, SkillList: ex.Skills, MarketSkills: ex.Market, Themes: ex.Themes, Library: ex.Library,
 		Notify: [4]bool{true, true, true, true}, Toast: 1,
 		Power:     stored(d.PreventSleep),
 		Telemetry: stored(Telemetry{Errors: d.Errors, Metrics: d.Metrics}),

@@ -310,12 +310,12 @@ func TestSettingsNavigation(t *testing.T) {
 		t.Errorf("search did not filter: %q", tt.Texts())
 	}
 	click(t, tt, i18n.In("en", "settings_plugins"))
-	if a.Settings.Section != settings.Plugins || !tt.HasText("Terminal") || !tt.HasText(i18n.In("en", "plugins_official")) {
+	if a.Settings.Section != settings.Plugins || !tt.HasText("Terminal") || !tt.HasText(i18n.In("en", "plugins_installed")) {
 		t.Fatalf("Plugins not shown: %q", tt.Texts())
 	}
 	snapshot(t, tt, "plugins-light")
 	// A plugin's switch turns it off.
-	plugin := &a.Data.Plugins[0]
+	plugin := &a.Settings.Packages[0]
 	sw, ok := tt.AccessByRole(ui.RoleSwitch, i18n.In("en", "plugins_enabled")+" "+plugin.Name)
 	if !ok || !sw.Checked {
 		t.Fatalf("switch %+v", sw)
@@ -323,6 +323,19 @@ func TestSettingsNavigation(t *testing.T) {
 	click(t, tt, i18n.In("en", "plugins_enabled")+" "+plugin.Name)
 	if plugin.Enabled {
 		t.Error("the switch did not turn the plugin off")
+	}
+	// A card opens the plugin's details in the right column; Close shuts it.
+	click(t, tt, plugin.Description)
+	tt.Advance(time.Second)
+	if a.Settings.Details == nil || !tt.HasText(i18n.In("en", "market_plugin_details")) {
+		t.Fatalf("details not shown: %+v", a.Settings.Details)
+	}
+	tt.Frame()
+	snapshot(t, tt, "plugin-details-light")
+	click(t, tt, i18n.In("en", "close"))
+	tt.Advance(time.Second)
+	if a.Settings.Details != nil {
+		t.Error("Close kept the details")
 	}
 	// Back to the conversation, the rail's Chats.
 	clickButton(t, tt, i18n.In("en", "shell_sessions"))

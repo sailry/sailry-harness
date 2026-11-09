@@ -36,7 +36,7 @@ func dictation(c *ui.Context, m *Model) {
 		})
 	})
 	kit.Group(c, "models", i18n.T(c, "dictation_local_model"), "", func() {
-		kit.Secondary(c.Key("library"), i18n.T(c, "model_library_manage")).OnClick(func() { notice(c) })
+		kit.Secondary(c.Key("library"), i18n.T(c, "model_library_manage")).OnClick(func() { m.library.open = true })
 	}, func() {
 		kit.Card(c, func() {
 			for i := range m.Speech {
@@ -83,6 +83,8 @@ func localModels(c *ui.Context, m *Model, lm *LocalModels, title, label, enable,
 			if lm.Tab == 1 {
 				ui.SearchField(c.Key("search"), &lm.Query).Placeholder(i18n.T(c, "search")).Width(220)
 			}
+			ui.Spacer(c)
+			kit.Secondary(c.Key("library"), i18n.T(c, "model_library_manage")).OnClick(func() { m.library.open = true })
 		})
 		list := installed
 		if lm.Tab == 1 {

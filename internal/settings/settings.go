@@ -74,6 +74,9 @@ var Groups = []struct {
 type State struct {
 	Section Section
 	Query   string // the providers' search
+	// Details is the extension details page shown in the right column,
+	// nil for none (navigation.rs settings_details).
+	Details *Detail
 	*Model
 }
 
@@ -110,7 +113,7 @@ func Nav(c *ui.Context, s *State) {
 // a shortcut being recorded is canceled.
 func (s *State) Open(sec Section) {
 	s.Keys.Cancel()
-	s.Section = sec
+	s.Section, s.Details = sec, nil
 }
 
 // Title is the header's title for the section.
@@ -144,7 +147,9 @@ func Page(c *ui.Context, s *State, d *preview.Data, look Look) {
 		case Teams:
 			teams(c, s.Model)
 		case Plugins:
-			plugins(c, d)
+			plugins(c, s)
+		case Skills:
+			skills(c, s)
 		case Terminal:
 			terminal(c, s.Model)
 		case Connections:
@@ -169,5 +174,6 @@ func Page(c *ui.Context, s *State, d *preview.Data, look Look) {
 			// The AI pages still to come (phase 5b).
 			kit.EmptyGroup(c, icons.Inbox, i18n.T(c, "settings_empty"))
 		}
+		libraryDialog(c, s.Model)
 	})
 }

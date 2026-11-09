@@ -1060,3 +1060,140 @@ teams_model: 模型
 role_instructions: 提示词
 role_save: 保存
 teams_role_saved: 角色已保存
+market_plugin_details: 插件详情
+market_skill_details: 技能详情
+market_theme_details: 主题详情
+market_details_source: 来源
+market_theme_light: 浅色
+market_theme_dark: 深色
+market_local: 本机
+market_details_formats: 其他格式
+market_install: 安装
+market_update: 更新
+plugins_update_sailry: 更新 Sailry
+market_details_overview: 概览
+market_details_contents: 功能
+market_details_permissions: 权限
+market_details_versions: 版本
+market_details_latest: 最新
+market_details_version: 版本
+market_details_host: 主机
+market_details_skills: 技能
+market_details_mcp: MCP 服务
+market_details_includes: 包含
+connector_tools_empty: 无工具
+plugins_no_skills: 暂无技能
+plugins_no_mcp: 暂无 MCP 服务
+market_details_permission_none: 不需要额外权限
+market_installed: 已安装
+model_library_huggingface: Hugging Face
+model_library_modelscope: 魔搭
+model_library_query: 搜索模型
+model_library_search: 搜索
+model_library_empty: 搜索模型
+knowledge_delete: 删除
+knowledge_model_size: 大小
+knowledge_delete_model_effect: 删除 %{name}；使用此模型的集合将改用关键词搜索
+knowledge_deleted: 已删除
+market_category_development: 开发
+market_category_automation: 自动化
+market_category_data: 数据
+market_category_entertainment: 娱乐
+market_plugins: 插件
+market_skills: 技能
+market_themes: 主题
+market_kind: 市场类型
+market_search_plugins: 搜索插件
+market_search_skills: 搜索技能
+market_search_themes: 搜索主题
+market_source_official: 官方
+market_source_community: 社区
+market_all: 全部
+market_installed_only: 只看已安装
+market_theme_current: 使用中
+market_details_source_official: 官方目录
+market_details_source_community: 社区
+skills_no_matches: 没有匹配的技能
+market_theme_apply: 应用
+market_no_themes: 暂无匹配主题
+market_theme_builtin: 内置
+plugins_settings_title: 插件配置
+plugins_failed: 插件操作失败
+plugins_settings_conflict: 配置已变化，请重新读取
+plugins_unknown: 结果未确认，请重试查询原请求
+plugins_requires_sailry: 需要 Sailry %{version}
+plugins_up_to_date: 插件已是最新
+plugins_updates_found: '%{count} 个插件可更新'
+plugins_update_all: 全部更新
+plugins_review_updates: 查看更新
+plugins_download: 下载插件
+plugins_empty: 暂无插件
+plugins_remove_effect: 卸载“%{name}”？插件数据会保留
+plugins_uninstalled: 插件已卸载
+plugins_update_available: 可更新
+plugins_settings_secret_required: 请输入替换密钥
+plugins_settings_number: 请输入有效数字
+plugins_settings_required: 请选择必填项
+plugins_settings_description: 管理插件选项
+plugins_settings_none: 插件未提供有效配置项
+plugins_settings_keep: 保留
+plugins_settings_replace: 替换
+plugins_settings_clear: 清除
+plugins_settings_input_hint: 请输入%{field}
+plugins_settings_configured: 已设置
+plugins_settings_clear_effect: 清除后，尚未执行的任务也无法使用此密钥
+plugins_package: 软件包路径
+form_package_hint: 插件包名称或路径
+plugins_directory: 示例插件工作目录
+form_directory_hint: 工作目录路径（可选）
+plugins_package_required: 请填写示例软件包路径
+skills_repository: Git 仓库
+skills_repository_hint: 仓库地址
+skills_revision: 分支或标签
+skills_revision_hint: 默认分支
+plugins_path: 插件目录
+plugins_path_hint: 默认仓库根目录
+plugins_preparing_package: 正在准备安装包
+plugins_installing: 安装中
+skills_invalid: 请填写 HTTPS 仓库地址、合法 Git 引用、命名空间和名称
+plugins_updates_title: 插件更新
+plugins_update_version: 更新至 %{version}
+plugins_updates_later: 稍后
+plugins_updates_selected: 更新（%{count}）
+skill_source_git: Git
+skill_source_skills: skills.sh
+skill_source_hub: skillhub.cn
+skill_source_directory: 目录
+skill_source_archive: 压缩包
+skill_source_link_invalid: 请输入技能详情页链接
+skills_package_source: 来自插件 %{name}
+skills_search: 搜索技能
+skills_install: 安装技能
+skills_remove_effect: 卸载 %{name}，已开始的任务不受影响
+settings_update: 更新
+skills_manage_package: 管理插件
+skill_source_reimport: 重新导入
+skill_source_origin: 来源
+skill_source_git_help: 输入 Git 仓库，可指定引用和技能目录
+skills_subdirectory: 子目录（可选）
+skills_path_hint: 可选
+skill_source_skills_help: 输入 skills.sh 详情链接，查找对应源码技能
+skill_source_link: 技能链接
+skill_source_skills_hint: https://skills.sh/owner/repository/skill
+skill_source_hub_help: 输入 skillhub.cn 详情链接，安装经过校验的技能包
+skill_source_hub_hint: https://skillhub.cn/skills/author/skill
+skill_source_choose_directory: 选择文件夹
+skill_source_choose_archive: 选择压缩包
+git_diff: 差异
+market_permission_git_read: 读取 Git 改动
+market_permission_git_write: 修改 Git
+market_permission_files_read: 读取文件
+market_permission_terminals_control: 操作终端
+market_permission_browser_control: 操作内置浏览器
+market_permission_http_request: 发送网络请求
+market_details_source_local: 本地导入
+market_permission_databases_control: 执行数据库查询
+model_library_embedding: 嵌入模型
+model_library_ocr: OCR 模型
+model_library_speech: 语音模型
+model_library_decision: 决策

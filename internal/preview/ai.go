@@ -298,3 +298,149 @@ func TeamsData() *TeamSet {
 		},
 	}
 }
+
+// PackageKind classifies a package by what it provides
+// (plugins/classification.rs Kind): plugins show in Plugins, skill
+// packages in Skills, MCP packages in Connectors.
+type PackageKind int
+
+const (
+	KindPlugin PackageKind = iota
+	KindSkill
+	KindMCP
+)
+
+// Setting is a plugin configuration field (plugins/configuration.rs):
+// Kind is "text", "secret", "bool", "choice" or "number". A secret's
+// value is never loaded; Set says one is saved.
+type Setting struct {
+	Name, Title, Kind string
+	Options           []string
+	Value             string
+	Set, Required     bool
+}
+
+// Package is an installed or catalog plugin (plugin::Summary and Info).
+type Package struct {
+	ID, Name, Description string
+	Version, Latest       string // Latest > Version is an update
+	Requires              string // the newer Sailry an update needs; "" compatible
+	Kind                  PackageKind
+	Category              string // market_category_*
+	Source                string // market_details_source_*
+	Official, Enabled     bool
+	Installed             bool
+	Tools, Skills, MCP    []string
+	Permissions           []string // market_permission_* keys
+	Notes                 string   // the latest version's release notes
+	Settings              []Setting
+	Versions              []string
+}
+
+// Skill is an installed skill.
+type Skill struct {
+	ID, Name, Description string
+	Package               string // the plugin it came with; "" imported
+	Origin                string // the source it was imported from
+	Enabled, Update       bool
+}
+
+// MarketTheme is a theme in the market.
+type MarketTheme struct {
+	ID, Name, Description       string
+	Dark, Light                 bool
+	Installed, Builtin, Current bool
+	Update                      bool
+}
+
+// LibraryModel is a model the model library finds (model_library rows).
+type LibraryModel struct {
+	ID, Name, Repo, Kind  string // Kind: model_library_embedding, _ocr, _speech, model_library_decision
+	Source, Size, License string
+	Status                ModelStatus
+	Percent               float64
+}
+
+// Extensions is the plugins, skills, market and model library dataset.
+type Extensions struct {
+	Packages []Package // installed
+	Catalog  []Package // the market's plugins
+	Skills   []Skill
+	Market   []Skill // the market's skills
+	Themes   []MarketTheme
+	Library  []LibraryModel
+}
+
+// ExtensionsData builds the extensions' dataset, fresh each call.
+func ExtensionsData() *Extensions {
+	notes := "- Branch picker in the composer\n- Faster diffs for large files\n- Fixes a crash on empty repositories"
+	git := Package{ID: "git", Name: "Git", Description: "Branches, diffs and commits in conversations", Version: "0.3.2", Latest: "0.3.3",
+		Category: "market_category_development", Source: "market_details_source_official", Official: true, Enabled: true, Installed: true,
+		Tools: []string{"git_status", "git_diff", "git_commit"}, Skills: []string{"commit-message"},
+		Permissions: []string{"market_permission_git_read", "market_permission_git_write", "market_permission_files_read"}, Notes: notes,
+		Settings: []Setting{
+			{Name: "author", Title: "Commit author", Kind: "text", Value: "Dev <dev@example.com>"},
+			{Name: "sign", Title: "Sign commits", Kind: "bool", Value: "true"},
+			{Name: "model", Title: "Message model", Kind: "choice", Options: []string{"Follow model", "Claude Haiku 5.5", "GPT-5.2 mini"}, Value: "Follow model"},
+			{Name: "token", Title: "GitHub token", Kind: "secret", Set: true},
+		},
+		Versions: []string{"0.3.3", "0.3.2", "0.3.1", "0.2.0"}}
+	return &Extensions{
+		Packages: []Package{
+			git,
+			{ID: "terminal", Name: "Terminal", Description: "Ghostty terminals beside the conversation", Version: "0.2.0", Latest: "0.2.0",
+				Category: "market_category_development", Source: "market_details_source_official", Official: true, Enabled: true, Installed: true,
+				Tools: []string{"terminal_run", "terminal_read"}, Permissions: []string{"market_permission_terminals_control"}, Versions: []string{"0.2.0"}},
+			{ID: "browser", Name: "Browser", Description: "Pages the agent reads and annotates", Version: "0.1.4", Latest: "0.2.0", Requires: "0.2.0",
+				Category: "market_category_automation", Source: "market_details_source_official", Official: true, Installed: true,
+				Tools: []string{"browser_open", "browser_read"}, Permissions: []string{"market_permission_browser_control", "market_permission_http_request"},
+				Notes: "- Needs the new web view host", Versions: []string{"0.2.0", "0.1.4"}},
+			{ID: "figma", Name: "Figma", Description: "Frames and comments from design files", Version: "0.1.0", Latest: "0.1.0",
+				Category: "market_category_documents", Source: "market_details_source_community", Installed: true,
+				MCP: []string{"figma"}, Permissions: []string{"market_permission_http_request"}, Versions: []string{"0.1.0"},
+				Settings: []Setting{{Name: "team", Title: "Team ID", Kind: "text", Required: true}, {Name: "limit", Title: "Frame limit", Kind: "number", Value: "50"}}},
+			{ID: "linear", Name: "Linear", Description: "Issues linked to conversations", Version: "0.2.3", Latest: "0.2.3",
+				Category: "market_category_automation", Source: "market_details_source_local", Enabled: true, Installed: true,
+				Tools: []string{"linear_issue"}, Versions: []string{"0.2.3"}},
+			{ID: "review-skills", Name: "Review skills", Description: "Skills for code review", Version: "1.0.0", Latest: "1.0.0", Kind: KindSkill,
+				Source: "market_details_source_official", Official: true, Enabled: true, Installed: true, Skills: []string{"review", "security-review"}},
+			{ID: "mcp-github", Name: "GitHub MCP", Description: "GitHub's MCP server", Version: "0.4.0", Latest: "0.4.0", Kind: KindMCP,
+				Source: "market_details_source_official", Official: true, Enabled: true, Installed: true, MCP: []string{"github"}},
+		},
+		Catalog: []Package{
+			git,
+			{ID: "jira", Name: "Jira", Description: "Issues and sprints from Jira Cloud", Version: "0.2.1", Latest: "0.2.1", Category: "market_category_automation",
+				Source: "market_details_source_official", Official: true, Tools: []string{"jira_issue"}, Permissions: []string{"market_permission_http_request"}, Versions: []string{"0.2.1"}},
+			{ID: "postgres", Name: "Postgres", Description: "Query databases from the conversation", Version: "0.3.0", Latest: "0.3.0", Category: "market_category_data",
+				Source: "market_details_source_official", Official: true, Tools: []string{"sql_query"}, Permissions: []string{"market_permission_databases_control"}, Versions: []string{"0.3.0"}},
+			{ID: "chess", Name: "Chess", Description: "Play a game while the agent works", Version: "0.1.2", Latest: "0.1.2", Category: "market_category_entertainment",
+				Source: "market_details_source_community", Versions: []string{"0.1.2"}},
+			{ID: "pdf", Name: "PDF tools", Description: "Split, merge and read PDF files", Version: "0.1.0", Latest: "0.1.0", Category: "market_category_documents",
+				Source: "market_details_source_community", Tools: []string{"pdf_read"}, Permissions: []string{"market_permission_files_read"}, Versions: []string{"0.1.0"}},
+		},
+		Skills: []Skill{
+			{ID: "review", Name: "review", Description: "Review a diff for bugs", Package: "Review skills", Enabled: true},
+			{ID: "security-review", Name: "security-review", Description: "Review changes for security issues", Package: "Review skills", Enabled: true},
+			{ID: "release-notes", Name: "release-notes", Description: "Write release notes from commits", Origin: "github.com/sailry/skills", Enabled: true, Update: true},
+			{ID: "sql-style", Name: "sql-style", Description: "House style for SQL", Origin: "skills.sh/acme/sql-style"},
+		},
+		Market: []Skill{
+			{ID: "release-notes", Name: "release-notes", Description: "Write release notes from commits", Origin: "github.com/sailry/skills", Update: true},
+			{ID: "pr-describe", Name: "pr-describe", Description: "Describe a pull request", Origin: "github.com/sailry/skills"},
+			{ID: "changelog", Name: "changelog", Description: "Keep a changelog", Origin: "skills.sh/keep/changelog"},
+		},
+		Themes: []MarketTheme{
+			{ID: "neutral", Name: "Neutral", Description: "Sailry's default", Dark: true, Light: true, Installed: true, Builtin: true, Current: true},
+			{ID: "paper", Name: "Paper", Description: "Warm light theme", Light: true, Installed: true, Update: true},
+			{ID: "midnight", Name: "Midnight", Description: "Deep blue dark theme", Dark: true},
+			{ID: "forest", Name: "Forest", Description: "Greens for day and night", Dark: true, Light: true},
+		},
+		Library: []LibraryModel{
+			{ID: "bge-m3", Name: "BGE-M3", Repo: "BAAI/bge-m3", Kind: "model_library_embedding", Source: "model_library_huggingface", Size: "2.3 GB", License: "MIT", Status: ModelInstalled},
+			{ID: "qwen3-embed", Name: "Qwen3 Embedding 0.6B", Repo: "Qwen/Qwen3-Embedding-0.6B", Kind: "model_library_embedding", Source: "model_library_modelscope", Size: "1.2 GB", License: "Apache-2.0", Status: ModelDownloading, Percent: 27},
+			{ID: "ppocr", Name: "PP-OCRv5", Repo: "PaddlePaddle/PP-OCRv5_mobile", Kind: "model_library_ocr", Source: "model_library_huggingface", Size: "16 MB", License: "Apache-2.0", Status: ModelInstalled},
+			{ID: "whisper-small", Name: "Whisper Small", Repo: "openai/whisper-small", Kind: "model_library_speech", Source: "model_library_huggingface", Size: "967 MB", License: "Apache-2.0"},
+			{ID: "qwen3-0.6b", Name: "Qwen3 0.6B", Repo: "Qwen/Qwen3-0.6B", Kind: "model_library_decision", Source: "model_library_huggingface", Size: "1.5 GB", License: "Apache-2.0"},
+		},
+	}
+}
