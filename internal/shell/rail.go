@@ -146,27 +146,27 @@ func (a *App) moreButton(c *ui.Context) {
 				if hovered {
 					row.Background(p.Hover)
 				}
+				dragging := false
 				if !f.Fixed && !f.Last {
 					row.Drag(featureDrag{f.ID})
+					dragging = row.Dragging()
 				}
-				if v, over := ui.DragOver[featureDrag](row); over && v.id != f.ID {
-					_, y, _ := row.PointerPosition()
-					// The drop line: 4 DIPs of primary with a dot at its start.
-					line := ui.Box(c.Key("drop")).Absolute().Left(4).Right(4).Height(4).Radius(2).Background(p.Primary).PassThrough()
-					if y >= row.Bounds().H/2 && !f.Last {
-						line.Bottom(-2)
-					} else {
-						line.Top(-2)
-					}
+				if dragging {
+					// The copy following the pointer is this row: shown as
+					// the reference's selected-item preview, dimmed in place.
+					row.Background(p.Hover).Opacity(0.5)
 				}
-				if v, ok := ui.Drop[featureDrag](row); ok {
-					_, y, _ := row.PointerPosition()
-					a.features = MoveFeature(a.features, v.id, f.ID, y >= row.Bounds().H/2)
+				edge, over := featureEdge(row, f)
+				if v, ok := ui.Drop[featureDrag](row); ok && over {
+					a.features = MoveFeature(a.features, v.id, f.ID, edge)
 				}
 				row.Children(func() {
+					if v, ok := ui.DragOver[featureDrag](row); ok && over && v.id != f.ID {
+						featureDropLine(c, p, edge)
+					}
 					ui.Icon(c, f.Icon).FontSize(16)
 					ui.Text(c, name).FontSize(14).SingleLine().Grow(1).Shrink(1)
-					if f.Fixed {
+					if f.Fixed || dragging {
 						return
 					}
 					pinned := !a.unpinned[f.ID]
@@ -189,6 +189,33 @@ func (a *App) moreButton(c *ui.Context) {
 				})
 			}
 		})
+	})
+}
+
+// featureEdge is where a row takes a dragged feature: after it when the
+// pointer is in its lower half, never after Market and never before the
+// fixed Conversation (shell/rail/more.rs). over is false where nothing
+// would go.
+func featureEdge(row ui.Element, f Feature) (after, over bool) {
+	_, y, in := row.PointerPosition()
+	if !in {
+		return false, false
+	}
+	after = !f.Last && y >= row.Bounds().H/2
+	return after, after || !f.Fixed
+}
+
+// featureDropLine is the insertion line on a row's edge: 4 DIPs of solid
+// primary with a dot at its start, centered on the gap between rows.
+func featureDropLine(c *ui.Context, p *theme.Palette, after bool) {
+	line := ui.Box(c.Key("drop")).Absolute().Left(0).Right(0).Height(4).Radius(2).Background(p.Primary).PassThrough()
+	if after {
+		line.Bottom(-2.5)
+	} else {
+		line.Top(-2.5)
+	}
+	line.Children(func() {
+		ui.Box(c.Key("dot")).Absolute().Left(0).Top(-2).Size(8, 8).Radius(4).Background(p.Primary).PassThrough()
 	})
 }
 

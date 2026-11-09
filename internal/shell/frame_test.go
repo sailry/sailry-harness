@@ -1,6 +1,7 @@
 package shell
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -175,5 +176,63 @@ func TestMoveFeature(t *testing.T) {
 	}
 	if got := MoveFeature(order, "page:conversation", "page:git", true); got[0] != "page:conversation" {
 		t.Errorf("Conversation moved: %v", got)
+	}
+}
+
+// TestMoreDragShowsInsertionLine drags Activity over the lower half of
+// Files in More: the line shows in the gap between Files and Git, not at
+// the list's ends, and the drop puts Activity there.
+func TestMoreDragShowsInsertionLine(t *testing.T) {
+	a, tt := newTester(t)
+	// Off the rail, so their names are the popover's rows alone.
+	for _, id := range []string{"page:activity", "page:files", "page:git"} {
+		a.unpinned[id] = true
+	}
+	a.more = true
+	tt.Frame()
+	tt.Frame()
+	row := func(key string) ui.Rect {
+		r, ok := tt.Find(i18n.In("en", key))
+		if !ok {
+			t.Fatalf("no %s row: %q", key, tt.Texts())
+		}
+		return r
+	}
+	activity, files, git, market := row("activity"), row("files"), row("git"), row("market_title")
+	center := func(r ui.Rect) float32 { return r.Y + r.H/2 }
+	gap := func(upper, lower ui.Rect) float32 { return (upper.Y + upper.H + lower.Y) / 2 }
+	x := files.X + 10 // over the row's start, left of the dragged copy
+	dark := func(y float32) bool {
+		img := tt.Image()
+		s := float32(img.Bounds().Dx()) / 1280
+		c := img.RGBAAt(int(x*s), int(y*s))
+		return int(c.R)+int(c.G)+int(c.B) < 3*200
+	}
+	if dark(gap(files, git)) {
+		t.Fatal("a line shows before any drag")
+	}
+	px, py := activity.X+12, center(activity)
+	tt.Press(px, py)
+	tt.Frame()
+	// Down to the lower half of Files, then right, so the copy following
+	// the pointer leaves the row's start uncovered.
+	for _, step := range [][2]float32{{px, py + 8}, {px, center(files) + 10}, {px + 160, center(files) + 10}} {
+		tt.Move(step[0], step[1])
+		tt.Frame()
+	}
+	tt.Frame()
+	snapshot(t, tt, "more-drag")
+	if !dark(gap(files, git)) {
+		t.Error("no line between Files and Git")
+	}
+	if dark(gap(activity, files)) || dark(gap(git, market)) {
+		t.Error("a line shows away from the pointer")
+	}
+	tt.Release(px+160, center(files)+10)
+	tt.Frame()
+	tt.Frame()
+	want := []string{"page:conversation", "page:files", "page:activity", "page:git", "page:settings_plugins"}
+	if !slices.Equal(a.features, want) {
+		t.Errorf("order %v, want %v", a.features, want)
 	}
 }
