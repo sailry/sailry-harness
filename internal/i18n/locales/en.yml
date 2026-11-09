@@ -397,6 +397,7 @@ chat_image_previous: Previous image
 chat_image_rotate: Rotate
 chat_image_zoom_in: Zoom in
 chat_image_zoom_out: Zoom out
+chat_image_loading: Loading image
 chat_model_connection_retried: Connection retried
 chat_model_rate_limited: Model rate limit reached
 chat_model_reconnecting: Retrying request %{attempt}/%{limit}

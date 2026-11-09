@@ -147,6 +147,9 @@ func status(c *ui.Context, a *Attachment) string {
 // attachments is render.rs attachment_drafts: Kit's AttachmentGroup, a row
 // of cards scrolling sideways, its ends fading into the surface.
 func (s *State) attachments(c *ui.Context, actions Actions) {
+	kit.ImageViewer(c, &s.view, func(a *Attachment) kit.ViewerItem {
+		return kit.ViewerItem{Source: a.Image, Name: a.Name}
+	}, func(kit.ImageAction, *Attachment) { c.Toast(i18n.T(c, "preview_notice")) })
 	if len(s.Attachments) == 0 {
 		return
 	}
@@ -188,7 +191,7 @@ func (s *State) card(c *ui.Context, a *Attachment, actions Actions) {
 	media := func(w, h float32) {
 		ui.Box(c.Key("media")).Size(w, h).Shrink(0).Radius(p.RadiusLg).Background(p.Muted).Clip().Center().Children(func() {
 			if a.Image != nil {
-				ui.Image(c, a.Image).Fill().Fit(ui.Cover)
+				kit.Image(c, a.Image, kit.ImageProps{Fill: true, Variant: kit.ImageBorderless, Alt: a.Name, OnOpen: func() { s.showImage(a) }})
 			} else {
 				ui.Icon(c, fileIcon(a.Mime)).FontSize(20).TextColor(p.MutedForeground)
 			}
@@ -240,6 +243,22 @@ func (s *State) card(c *ui.Context, a *Attachment, actions Actions) {
 			}
 		})
 	})
+}
+
+// showImage opens the image viewer on a, stepping through the draft's
+// pictures.
+func (s *State) showImage(a *Attachment) {
+	var list []*Attachment
+	at := 0
+	for _, x := range s.Attachments {
+		if x == a {
+			at = len(list)
+		}
+		if x.Image != nil {
+			list = append(list, x)
+		}
+	}
+	s.view.Show(list, at)
 }
 
 // round is a card's 20 DIP round action over its corner.

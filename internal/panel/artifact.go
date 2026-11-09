@@ -66,6 +66,9 @@ func (s *State) artifact(c *ui.Context, id string) {
 		state("artifact_preview_changed")
 		return
 	}
+	kit.ImageViewer(c, &s.view, func(im conversation.Image) kit.ViewerItem {
+		return kit.ViewerItem{Source: im.Source, Name: im.Name}
+	}, func(kit.ImageAction, conversation.Image) { notice(c) })
 	ui.Scroll(c.Key("artifact-" + id)).Grow(1).MinHeight(0).Children(func() {
 		switch f.Kind {
 		case conversation.TextFile:
@@ -77,11 +80,13 @@ func (s *State) artifact(c *ui.Context, id string) {
 		case conversation.ImageFile:
 			ui.Box(c).FillWidth().Padding(16).Center().Children(func() {
 				if f.Image == nil || f.Image.Source == nil {
-					kit.Loader(c, 20)
+					kit.Image(c, nil, kit.ImageProps{Height: 240, Alt: i18n.T(c, "chat_image_loading")})
 					return
 				}
-				w, h := float32(f.Image.Width), float32(f.Image.Height)
-				img := ui.Image(c, f.Image.Source).FillWidth().Fit(ui.Contain)
+				im := *f.Image
+				w, h := float32(im.Width), float32(im.Height)
+				img := kit.Image(c, im.Source, kit.ImageProps{Fill: true, Contain: true, Variant: kit.ImageBorderless, Alt: f.Path,
+					OnOpen: func() { s.view.Show([]conversation.Image{im}, 0) }}).FillWidth()
 				if w > 0 && h > 0 {
 					img.AspectRatio(w / h).MaxWidth(w)
 				}

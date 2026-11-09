@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-go/internal/kit"
 )
 
 // This file is the transcript's contract: the view models a backend fills
@@ -426,6 +427,8 @@ type Actions interface {
 	// FileAction is a file card's menu: open it in another app, save it,
 	// or ask the model to edit it.
 	FileAction(f File, action FileAction)
+	// ImageAction is the image viewer's Copy, Save or Open of a picture.
+	ImageAction(a kit.ImageAction, im Image)
 	// Undo reverts a turn's changes to path, or all of them for "", and
 	// Review opens their review (changes.rs).
 	Undo(turn, path string)

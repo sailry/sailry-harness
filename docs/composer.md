@@ -22,7 +22,7 @@ dialogs (sailry-public `conversation/live/composer.rs`, `live/queue*`,
 | `models.go` | Model chip and its popover: team row, features, effort, model picker, score tooltip |
 | `track.go` | The effort track (custom drawing on `SliderBase`) |
 | `queue.go` | Queue strip: rows in `kit.SortableList` (from Lobe MyGo; drag by the handle or Space and the arrows, a drop calls `MoveQueued` before the message now after it), edit, send now, remove |
-| `attachments.go` | File cards, drop, paste, limit |
+| `attachments.go` | File cards (a picture is `kit.Image`, opening `kit.ImageViewer` over the draft's pictures), drop, paste, limit |
 | `references.go` | `@`/`/` trigger, pickers, chips |
 | `files.go` | File picker dialog |
 | `dictation.go` | Dictation button and level meter |

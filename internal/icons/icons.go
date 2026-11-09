@@ -127,6 +127,9 @@ var (
 	Quote          = load("text-quote")
 	FileCode       = load("file-code")
 	FileImage      = load("file-image")
+	// The viewer's flips, the reference app's own (assets/icons).
+	FlipHorizontal = load("flip-horizontal")
+	FlipVertical   = load("flip-vertical")
 
 	// The composer's (queue, modes, model controls, file picker).
 	Replace    = load("replace")

@@ -77,12 +77,12 @@ func fileCard(c *ui.Context, key string, f File, actions Actions) {
 	card.Children(func() {
 		if f.Image != nil && f.Image.Source != nil && f.Kind != ImageFile {
 			w, h := float32(f.Image.Width), float32(f.Image.Height)
-			t := ui.ButtonBase(c.Key("thumb")).Label(i18n.T(c, "artifact_open")).FillWidth().Cursor(ui.CursorPointer).
-				BorderWidth(0, 0, 1, 0).BorderColor(p.Border).Clip()
+			t := kit.Image(c.Key("thumb"), f.Image.Source, kit.ImageProps{Fill: true, Variant: kit.ImageBorderless,
+				Alt: i18n.T(c, "artifact_open"), OnOpen: func() { actions.OpenFile(f) }}).
+				FillWidth().Radius(0).BorderWidth(0, 0, 1, 0).BorderColor(p.Border)
 			if w > 0 && h > 0 {
 				t.AspectRatio(w / h)
 			}
-			t.Children(func() { ui.Image(c, f.Image.Source).Fill().Fit(ui.Cover) }).OnClick(func() { actions.OpenFile(f) })
 		}
 		ui.Row(c).FillWidth().MinWidth(0).Padding(8).Gap(8).AlignItems(ui.Center).Children(func() {
 			ui.Row(c).Height(56).Grow(1).MinWidth(0).Gap(12).PaddingX(8).AlignItems(ui.Center).Children(func() {
@@ -128,31 +128,21 @@ func files(c *ui.Context, key string, list []File, actions Actions) {
 	})
 }
 
-// thumbnails are a message's pictures: rounded, up to 240 DIPs, wrapping;
-// one opens the image viewer on the gallery of them all.
+// thumbnails are a message's pictures: Kit's Images, rounded, up to 240
+// DIPs, wrapping, a Skeleton while one loads; one opens the image viewer
+// on the gallery of them all.
 func (s *State) thumbnails(c *ui.Context, key string, list []Image, end bool) {
-	p := theme.Of(c)
 	row := ui.Row(c.Key(key)).Wrap().Gap(8)
 	if end {
 		row.Justify(ui.End)
 	}
-	row.Children(func() {
-		for i, im := range list {
-			w, h := float32(im.Width), float32(im.Height)
-			if w <= 0 || h <= 0 {
-				w, h = thumbMax, thumbMax
-			}
-			k := min(1, thumbMax/max(w, h))
-			b := ui.ButtonBase(c.Key(im.ID)).Label(im.Name).Size(w*k, h*k).Radius(p.RadiusLg).Clip().
-				Border(1, p.Border).Background(p.Muted).Cursor(ui.CursorPointer)
-			b.Children(func() {
-				if im.Source == nil {
-					ui.Box(c).Fill().Center().Children(func() { kit.Loader(c, 16) })
-					return
-				}
-				ui.Image(c, im.Source).Fill().Fit(ui.Cover)
-			}).OnClick(func() { s.view.show(list, i) })
+	kit.ImageGroup(c, row, &s.view, list, func(_ int, im Image) (ui.ImageSource, kit.ImageProps) {
+		w, h := float32(im.Width), float32(im.Height)
+		if w <= 0 || h <= 0 {
+			w, h = thumbMax, thumbMax
 		}
+		k := min(1, thumbMax/max(w, h))
+		return im.Source, kit.ImageProps{Width: w * k, Height: h * k, Alt: im.Name}
 	})
 }
 

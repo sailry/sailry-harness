@@ -581,6 +581,10 @@ func (x *actions) Undo(string, string)                      { x.notice() }
 func (x *actions) Review(string, string)                    { x.notice() }
 func (x *actions) Reconnect()                               { x.notice() }
 
+// ImageAction is the image viewer's Copy, Save or Open, which would write
+// the clipboard, a file or leave the window: the preview only says so.
+func (x *actions) ImageAction(kit.ImageAction, conversation.Image) { x.notice() }
+
 // Quote adds the quoted selection to the end of the draft.
 func (x *actions) Quote(text string) {
 	comp := x.a.Composer(x.cv.ID)

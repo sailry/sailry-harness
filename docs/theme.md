@@ -139,7 +139,14 @@ arrives: MyGo's paced reveal asks for display-rate frames, past
 `kit.SkeletonText` and `kit.SkeletonAvatar` (`internal/kit/skeleton.go`)
 are adapted from Lobe MyGo's `display.Skeleton*`: Kit's skeleton color
 (`Active`, half of it for `Secondary`), a pulse or sweep painted at
-`kit.FPS`, still with Reduce Motion. `kit.Segmented`
+`kit.FPS`, still with Reduce Motion. `kit.Image`, `kit.ImageGroup` and
+`kit.ImageViewer` (`internal/kit/image.go`, `imageviewer.go`,
+`imagechrome.go`) are adapted from Lobe MyGo's `display.Image`,
+`ImageGroup` and image viewer: every picture (thumbnails, attachments,
+document pictures, the panel's preview, the composer's cards) is an
+Image, a Skeleton while it loads; the viewer drives the caller's
+`kit.Viewer` with the reference app's zoom limits, fit, pan bounds and
+keys, its chrome Floating pills of IconButtons. `kit.Segmented`
 (`internal/kit/segmented.go`) is adapted from Lobe MyGo's
 `action.Segmented` on MyGo's SegmentedBase: every segmented choice and
 in-page view switch (Installed | Available, details tabs, market kinds,

@@ -414,6 +414,7 @@ chat_image_previous
 chat_image_rotate
 chat_image_zoom_in
 chat_image_zoom_out
+chat_image_loading
 chat_model_connection_retried
 chat_model_rate_limited
 chat_model_reconnecting

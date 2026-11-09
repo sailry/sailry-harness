@@ -63,7 +63,8 @@ type State struct {
 	References              []Reference // chipped into the draft
 	Dictation               Dictation
 
-	picker   bool // the model controls are open
+	view     kit.Viewer[*Attachment] // the image viewer over the draft's pictures
+	picker   bool                    // the model controls are open
 	layer    layer
 	member   string // the team member whose model the controls set
 	family   string // the picker's rail choice, "" for all

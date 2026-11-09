@@ -108,6 +108,9 @@ terminal, subagent and file-preview tabs are single-pane.
 - History: a card per checkpoint: the turn, its age, the files, `+N −M`
   and `turn_changes_undo_all`.
 - Documents: a tab per document, rendered.
+- Artifact: a file's preview; a picture is `kit.Image` (a Skeleton while it
+  loads) that opens `kit.ImageViewer`, whose Copy, Save as and Open toast
+  `preview_notice`.
 - Browser (`browser/view.rs`, `browser/shortcuts.rs`), per tab: Back and
   Forward through the tab's history (disabled at its ends), Reload
   (disabled before a first address), the address (`browser_address`; Enter

@@ -6,6 +6,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-go/internal/conversation"
+	"github.com/sailry/sailry-go/internal/kit"
 	"github.com/sailry/sailry-go/internal/preview"
 )
 
@@ -22,6 +23,7 @@ func (noActions) Read(string, string)                                   {}
 func (noActions) Edit(string)                                           {}
 func (noActions) OpenFile(conversation.File)                            {}
 func (noActions) FileAction(conversation.File, conversation.FileAction) {}
+func (noActions) ImageAction(kit.ImageAction, conversation.Image)       {}
 func (noActions) Undo(string, string)                                   {}
 func (noActions) Review(string, string)                                 {}
 func (noActions) LoadOlder()                                            {}

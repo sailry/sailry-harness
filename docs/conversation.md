@@ -17,8 +17,8 @@ Kit's `MessageScroller`.
 | `conversation.go` | `State`, `View`, turns, the reply's header, work region, phase row and footer |
 | `tools.go` | Tool rows, groups, sequences, outputs, diffs, tables, progress, question history, subagents |
 | `jump.go` | The jump-to-latest button |
-| `content.go` | File cards, thumbnails, visuals, notices, grounding, retries, compaction turns, the changes card, `Cite`, `Kind`, `FileIcon` |
-| `viewer.go` | The image viewer (`Viewer`: zoom, pan, turn, flip, gallery) |
+| `content.go` | File cards, thumbnails (Kit's `ImageGroup`), visuals, notices, grounding, retries, compaction turns, the changes card, `Cite`, `Kind`, `FileIcon` |
+| `viewer.go` | The image viewer: `Viewer` is `kit.Viewer[Image]` (zoom 0.25–8 by 1.25, pan, turn, flip, gallery and its counter) drawn by `kit.ImageViewer` |
 | `actions.go` | The reply and user footers, fork and export menus, rewind confirmation, `AnswerText`, `Resendable` |
 | `search.go` | ⌘F search (MyGo's `FindBar`), `Find`, `Mark`, match highlights and reveal |
 | `session.go` | Loading, older pages, connection banner, diagnostic, selection pill, `Quote` |
@@ -215,7 +215,7 @@ Kit `MessageScroller`, in `jump.go`:
 | `Reply.Citations` (`URI`, `Title`, `End` in runes) | Numbered links placed in the answer's last text block (`Cite`) |
 | `Reply.Changes` (`Files`, `Undone`) | Changes card: count, totals, Undo/Review, 3 files then Show N more; per-file Review blocks and Undo on hover |
 | `Reply.Notice` | A notice-only run: no reply frame |
-| `ImagesBlock` / `Block.Images` | Thumbnails up to 240 DIPs, wrapping |
+| `ImagesBlock` / `Block.Images` | Thumbnails (`kit.Image`) up to 240 DIPs, wrapping; a Skeleton while `Source` is nil |
 | `FilesBlock` / `Block.Files` (`File`) | File cards; a document with `Image` shows it on top |
 | `SearchBlock` / `Block.Sources` | Globe "Search results" disclosure listing the sources |
 | `RetryBlock` / `Block.Retry` (`Attempt`, `Limit`, `Reason` key, `Detail`, `Exhausted`) | Network row, shimmer while active, the provider's message when opened |
@@ -263,7 +263,8 @@ type Actions interface {
 | `Read` | Read aloud / Stop reading | Start or stop the reader |
 | `Edit` | User footer Edit | Edit the message in place |
 | `OpenFile` | Card Open, More → Preview, document picture | Preview tab in the right panel; an `OtherFile` (PDF, office) opens in the system's app instead |
-| `FileAction` | More → Open, Save as, Request edit; viewer Save | As named; the shell's one `openSystem` opens files in the system's app |
+| `FileAction` | More → Open, Save as, Request edit | As named; the shell's one `openSystem` opens files in the system's app |
+| `ImageAction` | Image viewer Copy, Save as, Open | Copy the picture, save it, open it in the system's app (the preview toasts `preview_notice`) |
 | `Undo`, `Review` | Changes card | Revert / review the turn's changes |
 | `LoadOlder` | The start comes into view, or Retry after a failure | Load the page before; set `LoadingOlder` while it loads |
 | `Reconnect` | Banner Retry | Reconnect |
@@ -282,7 +283,7 @@ work on preview data.
 | ⌘F | window, while the conversation shows and the panel has no focus | Open or focus the search bar |
 | Enter / ⌘G, ⇧Enter / ⇧⌘G | search field | Next / previous match, revealed |
 | Esc | search bar | Close it |
-| ← → + − 0, Esc | image viewer | Previous, next, zoom in, out, fit; close |
+| ← → + (= or ⇧=) − 0, Esc | image viewer (preview.rs `key`) | Previous, next, zoom in, out, fit; close. The wheel and a pinch zoom, dragging pans |
 
 ## Wiring a backend
 

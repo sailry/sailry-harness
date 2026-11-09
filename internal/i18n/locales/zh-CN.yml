@@ -397,6 +397,7 @@ chat_image_previous: 上一张
 chat_image_rotate: 旋转
 chat_image_zoom_in: 放大
 chat_image_zoom_out: 缩小
+chat_image_loading: 正在加载图片
 chat_model_connection_retried: 已尝试重新连接
 chat_model_rate_limited: 模型请求已达速率上限
 chat_model_reconnecting: 重试请求 %{attempt}/%{limit}
