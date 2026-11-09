@@ -11,7 +11,7 @@ async fn handle(path: &Path) -> Result<Handle, Error> {
 #[tokio::test]
 async fn configures_each_connection() -> Result<(), Error> {
     let directory = tempfile::tempdir()?;
-    let handle = handle(&directory.path().join("node.turso")).await?;
+    let handle = handle(&crate::store::tests::profile(&directory).join("node.turso")).await?;
     {
         let writer = handle.lease(false).await?;
         assert_eq!(integer(&writer, "PRAGMA synchronous").await?, 2);
@@ -40,7 +40,7 @@ async fn configures_each_connection() -> Result<(), Error> {
 #[tokio::test]
 async fn preserves_read_snapshots() -> Result<(), Error> {
     let directory = tempfile::tempdir()?;
-    let handle = handle(&directory.path().join("node.turso")).await?;
+    let handle = handle(&crate::store::tests::profile(&directory).join("node.turso")).await?;
     {
         let writer = handle.lease(false).await?;
         writer.execute_batch("CREATE TABLE items(id INTEGER PRIMARY KEY,value INTEGER NOT NULL); INSERT INTO items VALUES(1,10)").await?;
@@ -65,7 +65,7 @@ async fn preserves_read_snapshots() -> Result<(), Error> {
 #[tokio::test]
 async fn maintenance_drains_before_reopening() -> Result<(), Error> {
     let directory = tempfile::tempdir()?;
-    let handle = handle(&directory.path().join("node.turso")).await?;
+    let handle = handle(&crate::store::tests::profile(&directory).join("node.turso")).await?;
     let connection = handle.lease(false).await?;
     connection
         .execute("CREATE TABLE items(value INTEGER)", ())
@@ -102,7 +102,7 @@ async fn maintenance_drains_before_reopening() -> Result<(), Error> {
 #[tokio::test]
 async fn cancelled_maintenance_preserves_the_handle() -> Result<(), Error> {
     let directory = tempfile::tempdir()?;
-    let handle = handle(&directory.path().join("node.turso")).await?;
+    let handle = handle(&crate::store::tests::profile(&directory).join("node.turso")).await?;
     let connection = handle.lease(false).await?;
     connection
         .execute("CREATE TABLE items(value INTEGER)", ())

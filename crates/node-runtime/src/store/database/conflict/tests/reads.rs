@@ -9,7 +9,7 @@ use std::sync::{
 #[tokio::test(start_paused = true)]
 async fn retries_busy_begin() -> Result<(), crate::Error> {
     let directory = tempfile::tempdir()?;
-    let database = engine(&directory.path().join("node.turso")).await?;
+    let database = engine(&crate::store::tests::profile(&directory).join("node.turso")).await?;
     let connection = connect(&database).await?;
     connection.pragma_update("query_only", 1).await?;
     let mut attempts = 0;
@@ -34,7 +34,7 @@ async fn retries_busy_begin() -> Result<(), crate::Error> {
 #[tokio::test(start_paused = true)]
 async fn retries_busy_snapshot_admission() -> Result<(), crate::Error> {
     let directory = tempfile::tempdir()?;
-    let database = engine(&directory.path().join("node.turso")).await?;
+    let database = engine(&crate::store::tests::profile(&directory).join("node.turso")).await?;
     let connection = connect(&database).await?;
     let mut attempts = 0;
     let transaction = read_with(&connection, |connection| {
@@ -59,7 +59,7 @@ async fn retries_busy_snapshot_admission() -> Result<(), crate::Error> {
 #[tokio::test]
 async fn pins_snapshot_before_callback() -> Result<(), crate::Error> {
     let directory = tempfile::tempdir()?;
-    let database = engine(&directory.path().join("node.turso")).await?;
+    let database = engine(&crate::store::tests::profile(&directory).join("node.turso")).await?;
     let reader = connect(&database).await?;
     let writer = connect(&database).await?;
     writer
@@ -80,7 +80,7 @@ async fn pins_snapshot_before_callback() -> Result<(), crate::Error> {
 #[tokio::test(start_paused = true)]
 async fn bounds_busy_attempts() -> Result<(), crate::Error> {
     let directory = tempfile::tempdir()?;
-    let database = engine(&directory.path().join("node.turso")).await?;
+    let database = engine(&crate::store::tests::profile(&directory).join("node.turso")).await?;
     let connection = connect(&database).await?;
     let mut attempts = 0;
     let result = read_with(&connection, |_| {
@@ -99,7 +99,7 @@ async fn bounds_busy_attempts() -> Result<(), crate::Error> {
 #[tokio::test(start_paused = true)]
 async fn preserves_nonconflict_errors() -> Result<(), crate::Error> {
     let directory = tempfile::tempdir()?;
-    let database = engine(&directory.path().join("node.turso")).await?;
+    let database = engine(&crate::store::tests::profile(&directory).join("node.turso")).await?;
     let connection = connect(&database).await?;
     for error in [
         Fault::new(ErrorCode::Busy, "read capacity exhausted"),
@@ -123,7 +123,7 @@ async fn preserves_nonconflict_errors() -> Result<(), crate::Error> {
 #[tokio::test(start_paused = true)]
 async fn stops_after_unconfirmed_rollback() -> Result<(), crate::Error> {
     let directory = tempfile::tempdir()?;
-    let database = engine(&directory.path().join("node.turso")).await?;
+    let database = engine(&crate::store::tests::profile(&directory).join("node.turso")).await?;
     let connection = connect(&database).await?;
     connection
         .execute("CREATE TABLE items(value INTEGER NOT NULL)", ())
@@ -154,7 +154,7 @@ async fn stops_after_unconfirmed_rollback() -> Result<(), crate::Error> {
 #[tokio::test]
 async fn rolls_back_failed_reads() -> Result<(), crate::Error> {
     let directory = tempfile::tempdir()?;
-    let database = engine(&directory.path().join("node.turso")).await?;
+    let database = engine(&crate::store::tests::profile(&directory).join("node.turso")).await?;
     let connection = connect(&database).await?;
     let transaction = begin_read(&connection).await?;
     let error = storage_error(Error::BusySnapshot("read snapshot".into()));
@@ -172,8 +172,12 @@ async fn rolls_back_failed_reads() -> Result<(), crate::Error> {
 #[tokio::test]
 async fn keeps_callbacks_single_use() -> Result<(), crate::Error> {
     let directory = tempfile::tempdir()?;
-    let database =
-        Database::open(&directory.path().join("node.turso"), NodeId([5; 32]), None).await?;
+    let database = Database::open(
+        &crate::store::tests::profile(&directory).join("node.turso"),
+        NodeId([5; 32]),
+        None,
+    )
+    .await?;
     let storage = database.into_storage();
     let calls = Arc::new(AtomicUsize::new(0));
     for error in [

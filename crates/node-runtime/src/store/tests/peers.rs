@@ -5,9 +5,13 @@ use sailry_protocol::{ErrorCode, Fault, NodeId};
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn retries_concurrent_pairing_writes() -> Result<(), crate::Error> {
     let directory = tempfile::tempdir()?;
-    let storage = Database::open(&directory.path().join("node.turso"), NodeId([5; 32]), None)
-        .await?
-        .into_storage();
+    let storage = Database::open(
+        &super::profile(&directory).join("node.turso"),
+        NodeId([5; 32]),
+        None,
+    )
+    .await?
+    .into_storage();
     let address = EndpointAddr::new(iroh::SecretKey::from_bytes(&[7; 32]).public())
         .with_ip_addr("127.0.0.1:1234".parse().unwrap());
     let peer = NodeId(*address.id.as_bytes());
@@ -48,9 +52,13 @@ async fn retries_concurrent_pairing_writes() -> Result<(), crate::Error> {
 #[tokio::test]
 async fn writes_bypass_unrelated_transaction() -> Result<(), crate::Error> {
     let directory = tempfile::tempdir()?;
-    let storage = Database::open(&directory.path().join("node.turso"), NodeId([5; 32]), None)
-        .await?
-        .into_storage();
+    let storage = Database::open(
+        &super::profile(&directory).join("node.turso"),
+        NodeId([5; 32]),
+        None,
+    )
+    .await?
+    .into_storage();
     let mut database = storage.context(false).await?;
     let observer = storage.context(true).await?;
     let writer = storage.handle.writer().await?;
@@ -98,8 +106,12 @@ async fn writes_bypass_unrelated_transaction() -> Result<(), crate::Error> {
 #[tokio::test]
 async fn capacity_rejection_releases_transaction() -> Result<(), crate::Error> {
     let directory = tempfile::tempdir()?;
-    let mut database =
-        Database::open(&directory.path().join("node.turso"), NodeId([5; 32]), None).await?;
+    let mut database = Database::open(
+        &super::profile(&directory).join("node.turso"),
+        NodeId([5; 32]),
+        None,
+    )
+    .await?;
     let expected = (0..128)
         .map(|value| NodeId([value; 32]))
         .collect::<Vec<_>>();
@@ -137,8 +149,12 @@ async fn capacity_rejection_releases_transaction() -> Result<(), crate::Error> {
 #[tokio::test]
 async fn closed_budget_preserves_records() -> Result<(), crate::Error> {
     let directory = tempfile::tempdir()?;
-    let mut database =
-        Database::open(&directory.path().join("node.turso"), NodeId([5; 32]), None).await?;
+    let mut database = Database::open(
+        &super::profile(&directory).join("node.turso"),
+        NodeId([5; 32]),
+        None,
+    )
+    .await?;
     let address = EndpointAddr::new(iroh::SecretKey::from_bytes(&[7; 32]).public())
         .with_ip_addr("127.0.0.1:1234".parse().unwrap());
     let peer = NodeId(*address.id.as_bytes());
@@ -168,8 +184,12 @@ async fn closed_budget_preserves_records() -> Result<(), crate::Error> {
 #[tokio::test]
 async fn rejected_address_releases_transaction() -> Result<(), crate::Error> {
     let directory = tempfile::tempdir()?;
-    let mut database =
-        Database::open(&directory.path().join("node.turso"), NodeId([5; 32]), None).await?;
+    let mut database = Database::open(
+        &super::profile(&directory).join("node.turso"),
+        NodeId([5; 32]),
+        None,
+    )
+    .await?;
     let address = EndpointAddr::new(iroh::SecretKey::from_bytes(&[7; 32]).public())
         .with_ip_addr("127.0.0.1:1234".parse().unwrap());
     let error = database.remember(address.clone()).await.unwrap_err();

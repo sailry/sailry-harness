@@ -70,7 +70,7 @@ fn preserves_storage_contracts() {
 #[tokio::test]
 async fn ends_active_transactions() -> Result<(), crate::Error> {
     let directory = tempfile::tempdir()?;
-    let database = engine(&directory.path().join("node.turso")).await?;
+    let database = engine(&crate::store::tests::profile(&directory).join("node.turso")).await?;
     let connection = connect(&database).await?;
     connection
         .execute("CREATE TABLE items(value INTEGER NOT NULL)", ())
@@ -112,7 +112,7 @@ async fn ends_active_transactions() -> Result<(), crate::Error> {
 #[tokio::test]
 async fn rejects_unfinished_writes() -> Result<(), crate::Error> {
     let directory = tempfile::tempdir()?;
-    let database = engine(&directory.path().join("node.turso")).await?;
+    let database = engine(&crate::store::tests::profile(&directory).join("node.turso")).await?;
     let connection = connect(&database).await?;
     connection
         .execute("CREATE TABLE items(value INTEGER NOT NULL)", ())
@@ -139,7 +139,7 @@ async fn rejects_unfinished_writes() -> Result<(), crate::Error> {
 #[tokio::test]
 async fn clears_conflicted_transactions() -> Result<(), crate::Error> {
     let directory = tempfile::tempdir()?;
-    let database = engine(&directory.path().join("node.turso")).await?;
+    let database = engine(&crate::store::tests::profile(&directory).join("node.turso")).await?;
     let first = connect(&database).await?;
     let second = connect(&database).await?;
     first

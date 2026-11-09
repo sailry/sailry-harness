@@ -166,6 +166,7 @@ async fn restores_independent_linked_checkouts() {
         &CancellationToken::new(),
     )
     .unwrap();
+    drop(packed);
     let restored = target.join(&fixture.relative);
     assert!(restored.join(".git").is_dir());
     assert!(!restored.join(".git/commondir").exists());

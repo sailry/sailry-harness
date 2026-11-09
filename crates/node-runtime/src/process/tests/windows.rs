@@ -1,9 +1,22 @@
 use super::*;
 
+fn environment() -> Environment {
+    let system = PathBuf::from(std::env::var_os("SystemRoot").expect("Windows system root"));
+    let bin = system.join("System32");
+    let shell = bin.join("cmd.exe");
+    assert!(shell.is_file(), "Windows command interpreter missing");
+    Environment::filtered([
+        ("SystemRoot".into(), system.into_os_string()),
+        ("COMSPEC".into(), shell.into_os_string()),
+        ("PATH".into(), bin.into_os_string()),
+        ("PATHEXT".into(), ".EXE;.CMD".into()),
+    ])
+}
+
 async fn run(launch: Launch) -> Completion {
     execute(
         launch,
-        &Environment::ambient(),
+        &environment(),
         &CancellationToken::new(),
         &CancellationToken::new(),
     )
@@ -71,7 +84,7 @@ async fn captures_unicode_and_exit_status() {
 async fn captures_localized_system_output() {
     let directory = tempfile::tempdir().unwrap();
     let output = run(launch(directory.path(), "cmd.exe /d /c ver")).await;
-    let reference = std::process::Command::new(Environment::ambient().shell())
+    let reference = std::process::Command::new(environment().shell())
         .args(["/d", "/u", "/c", "ver"])
         .output()
         .unwrap();

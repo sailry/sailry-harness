@@ -351,6 +351,7 @@ mapped }).await.unwrap();
     assert_eq!(snapshots, backups.into_iter().collect());
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn binds_socket_passwords_to_the_socket_path() {
     let (directory, database) = database().await;
@@ -384,6 +385,40 @@ async fn binds_socket_passwords_to_the_socket_path() {
     check(&database.connection, saved.id, &saved.connection)
         .await
         .unwrap();
+}
+
+#[cfg(windows)]
+#[tokio::test]
+async fn rejects_socket_profiles_without_writing() {
+    let (directory, database) = database().await;
+    for engine in [Engine::Postgres, Engine::Mysql] {
+        let mut draft = profile();
+        draft.connection = Target::Socket {
+            engine,
+            path: directory
+                .path()
+                .join("database.sock")
+                .to_str()
+                .unwrap()
+                .into(),
+            port: 5432,
+            database: "project".into(),
+            username: "reader".into(),
+        };
+        assert_eq!(
+            save(&database.connection, draft, Some("socket-password")).await,
+            Err(Fault::new(
+                ErrorCode::Unavailable,
+                "Database sockets are unavailable on this execution Node",
+            )),
+        );
+        assert!(
+            super::super::list(&database.connection)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
 }
 
 fn family(path: &std::path::Path) -> std::collections::BTreeMap<String, Vec<u8>> {
