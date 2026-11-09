@@ -586,6 +586,9 @@ func scoreTip(c *ui.Context, anchor ui.Element, sc *Score) {
 	p := theme.Of(c)
 	axes := []string{"model_score_axis_backend", "model_score_axis_frontend", "model_score_axis_knowledge",
 		"model_score_axis_aesthetic", "model_score_axis_maintainability"}
+	if kit.TipsHidden(c) {
+		return
+	}
 	ui.TooltipBase(c, anchor, func(tip ui.Element) {
 		kit.Anchored(tip, anchor, kit.TipLayer)
 		kit.Attach(kit.Floating(c, tip), anchor, kit.Top, 6).Padding(8, 10).Gap(4).Radius(p.Radius).Width(200)

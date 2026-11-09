@@ -22,6 +22,9 @@ type Session struct {
 // TipMotion.
 func SessionCard(c *ui.Context, anchor ui.Element, s Session, detailed bool, side Placement, place func(card ui.Element)) {
 	p := theme.Of(c)
+	if TipsHidden(c) {
+		return
+	}
 	w, _ := c.Size()
 	ui.TooltipBase(c, anchor, func(card ui.Element) {
 		Anchored(card, anchor, CardLayer)

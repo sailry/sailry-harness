@@ -112,6 +112,9 @@ func Tooltip(c *ui.Context, anchor ui.Element, text string, props ...TooltipProp
 		o = props[0]
 	}
 	anchor.Description(text)
+	if TipsHidden(c) {
+		return ui.Element{}
+	}
 	p, t := theme.Of(c), c.Theme()
 	return ui.TooltipBase(c, anchor, func(tip ui.Element) {
 		Anchored(tip, anchor, TipLayer)

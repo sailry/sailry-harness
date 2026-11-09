@@ -69,6 +69,9 @@ func UsageBar(c *ui.Context, u *Usage, compact bool, open *bool) {
 				ui.Icon(c, m.Icon).FontSize(14)
 				ui.Text(c, m.Value).FontSize(14).SingleLine()
 			})
+			if kit.TipsHidden(c) {
+				continue
+			}
 			ui.TooltipBase(c, item, func(card ui.Element) {
 				kit.Anchored(card, item, kit.CardLayer)
 				kit.Floating(c, card).AttachTo(item, ui.AnchorTopEnd, ui.AnchorBottomEnd).Margin(0, 0, 6, 0).Padding(12, 14).Gap(4).
@@ -108,7 +111,7 @@ func usageButton(c *ui.Context, u *Usage, open *bool) {
 			})
 		}
 	}
-	if !*open {
+	if !*open && !kit.TipsHidden(c) {
 		ui.TooltipBase(c, b, func(card ui.Element) {
 			kit.Anchored(card, b, kit.CardLayer)
 			kit.Floating(c, card).AttachTo(b, ui.AnchorTopEnd, ui.AnchorBottomEnd).Margin(0, 0, 6, 0).Padding(12, 14).Gap(6).

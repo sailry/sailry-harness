@@ -109,7 +109,7 @@ func MenuButton(c *ui.Context, id string, look func(b ui.Element), build func(m 
 	chosen := 0
 	var act func()
 	parts.Popup(func(panel ui.Element) {
-		chosen, act = m.draw(c, parts, panel, b, o)
+		layer(c, open, func() { chosen, act = m.draw(c, parts, panel, b, o) })
 	})
 	if chosen != 0 && act == nil {
 		build(&Menu{chosen: chosen})

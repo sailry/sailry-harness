@@ -36,9 +36,9 @@ func panels(tt *ui.Tester, role ui.Role) []ui.Rect {
 }
 
 // hoverStill rests the pointer on the tooltip anchor at x, y and moves it
-// by a DIP, frame by frame, while the open panel of role stays: its
-// pixels outside the tooltip never change, so its entrance never replays,
-// and it stays one panel. The tooltip shows above it.
+// by a DIP, frame by frame, while the open panel of role stays: no
+// tooltip shows (it would draw beneath the panel), the panel's pixels
+// never change, so its entrance never replays, and it stays one panel.
 func hoverStill(t *testing.T, tt *ui.Tester, role ui.Role, x, y float32) {
 	t.Helper()
 	ps := panels(tt, role)
@@ -47,29 +47,33 @@ func hoverStill(t *testing.T, tt *ui.Tester, role ui.Role, x, y float32) {
 	}
 	panel := ps[0]
 	base := tt.Image()
-	shown := false
 	for i := range 40 {
 		tt.Move(x+float32(i%2), y)
 		tt.Advance(50 * time.Millisecond)
 		tt.Frame()
-		// The tooltip may cover part of the panel; compare the rest.
-		cmp := panel
-		for _, r := range panels(tt, ui.RoleTooltip) {
-			shown = true
-			if r.Y < panel.Y+panel.H && r.Y+r.H > panel.Y {
-				cmp.H = max(0, r.Y-panel.Y-2)
-			}
+		if tips := panels(tt, ui.RoleTooltip); len(tips) > 0 {
+			t.Fatalf("frame %d: a tooltip shows at %v while a %v is open", i, tips[0], role)
 		}
-		if n := changed(base, tt.Image(), cmp); n > 0 {
+		if n := changed(base, tt.Image(), panel); n > 0 {
 			t.Fatalf("frame %d: %d pixels of the open panel changed as the tooltip showed", i, n)
 		}
 		if got := len(panels(tt, role)); got != 1 {
 			t.Fatalf("frame %d: %d panels, want 1", i, got)
 		}
 	}
-	if !shown {
-		t.Fatal("the tooltip never showed")
+}
+
+// restTip rests the pointer at x, y and reports whether a tooltip shows.
+func restTip(tt *ui.Tester, x, y float32) bool {
+	tt.Move(x, y)
+	for range 30 {
+		tt.Advance(50 * time.Millisecond)
+		tt.Frame()
+		if len(panels(tt, ui.RoleTooltip)) > 0 {
+			return true
+		}
 	}
+	return false
 }
 
 // A tooltip showing beside an open popover leaves it be. Overlay panels
@@ -90,6 +94,32 @@ func TestTooltipKeepsPopover(t *testing.T) {
 	r := ring(t, a, tt)
 	hoverStill(t, tt, ui.RolePopup, r.X+10, r.Y+10)
 	snapshot(t, tt, "popover-tooltip")
+	// Closed, the ring's tooltip shows again.
+	tt.Key(0, ui.KeyEscape)
+	tt.Advance(time.Second)
+	tt.Frame()
+	if len(panels(tt, ui.RolePopup)) != 0 {
+		t.Fatal("Escape left the popover open")
+	}
+	if !restTip(tt, r.X+10, r.Y+10) {
+		t.Error("the ring's tooltip does not show once the popover closed")
+	}
+}
+
+// With nothing open, tooltips show as before.
+func TestTooltipShowsWhenNothingOpen(t *testing.T) {
+	a, tt := newTester(t)
+	r := ring(t, a, tt)
+	if !restTip(tt, r.X+10, r.Y+10) {
+		t.Fatal("the ring's tooltip does not show")
+	}
+	attach, ok := tt.Access(i18n.In("en", "composer_attachment"))
+	if !ok {
+		t.Fatal("no attach button")
+	}
+	if b := attach.Bounds; !restTip(tt, b.X+b.W/2, b.Y+b.H/2) {
+		t.Error("the attach button's tooltip does not show")
+	}
 }
 
 // The same with a menu open and the attach button's tooltip, built before
