@@ -40,5 +40,5 @@ const (
 	FloatingTint = 0.4
 	// FloatingLift is how far dark mode's surface moves from the popover
 	// color toward the foreground, so the panels read lighter than the page.
-	FloatingLift = 0.06
+	FloatingLift = 0.1
 )
