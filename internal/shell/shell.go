@@ -205,6 +205,7 @@ func (a *App) View(c *ui.Context) {
 		panel = p.Background.Alpha(a.Surfaces.Main)
 	}
 	root := kit.Draws(ui.Column(c.Key("frame")).Fill(), window)
+	kit.ToastHost(c)
 	f := a.frame(c, root)
 	root.Children(func() {
 		a.header(c, f)

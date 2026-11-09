@@ -130,7 +130,12 @@ in-page view switch (Installed | Available, details tabs, market kinds,
 Document | Source) uses it; the track on `Muted`, the chosen segment
 inverted (`Foreground` behind `Background`-colored text) with a sliding
 indicator, as high as a text input. Document tab strips (the panel's
-and the pages') stay tabs.
+and the pages') stay tabs. `kit.ToastHost` (`internal/kit/toast.go`, from
+Lobe MyGo's feedback.ToastHost) draws MyGo's toast queue once at the
+window's root: stacked bottom right, spread on hover, the type's icon
+and color, close and action. Floating panels paint through
+`kit.Floating` (`internal/kit/floating.go`), the one place their surface
+is set.
 
 ## Wiring a backend
 

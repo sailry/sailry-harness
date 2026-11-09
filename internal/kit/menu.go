@@ -171,9 +171,7 @@ func (m *Menu) draw(c *ui.Context, parts ui.MenuParts, panel, trigger ui.Element
 	if o.MaxHeight > 0 {
 		maxH = min(maxH, o.MaxHeight)
 	}
-	panel.Padding(4).Gap(2).MinWidth(128).MaxWidth(500).MaxHeight(maxH).Radius(p.RadiusLg).
-		Background(p.Floating()).TextColor(p.PopoverForeground).Border(1, p.Border).
-		Shadow(0, 6, 20, 0, p.Backdrop().Alpha(0.18))
+	Floating(c, panel.Padding(4).Gap(2).MinWidth(128).MaxWidth(500).MaxHeight(maxH))
 	if w := trigger.LayoutBounds().W; o.Match && w > 0 {
 		panel.MinWidth(w).MaxWidth(w)
 	}
