@@ -103,3 +103,65 @@ turn_thinking: Thinking
 tool_failed: Tool execution failed
 approval_pending: Waiting for approval
 content_copied: Copied
+turn_work: Work
+tool_copy: Copy
+tool_interrupted: Result unconfirmed
+tool_not_executed: Approval interrupted; not executed
+tool_not_found: Target not found
+tool_invalid: Invalid arguments
+tool_denied: Cannot access target
+tool_unavailable: Tool unavailable
+tool_partial: Partial results
+tool_output_earlier: '%{count} earlier lines hidden'
+task_progress: Task progress
+turn_cancelled: Stopped
+turn_queued: Queued
+chat_stopping: Stopping
+turn_continued: Continued
+chat_interrupted: Interrupted
+turn_failed: Failed
+turn_generating: Responding
+turn_awaiting_response: Thinking
+turn_waiting_child: Waiting for 1 subagent
+turn_waiting_children: Waiting for %{count} subagents
+approval_rejected: Denied
+approval_reject: Deny
+approval_allow_once: Allow
+approval_allow_session: Allow for this session
+approval_deny_reason: Deny with reason
+approval_live_count: '%{count} awaiting approval'
+file_changes_approval: Apply patch to %{count} files
+file_changes_approval_one: Apply patch to 1 file
+file_changes_added: Added
+file_changes_modified: Modified
+file_changes_deleted: Deleted
+file_changes_renamed: Renamed
+subagent_count: '%{completed}/%{total} subagents'
+chat_child: Subagent
+question_reply: Waiting for answer
+question_other: Other
+question_decline: Decline
+question_pending: Waiting for answer
+question_accepted: Answer submitted
+interaction_submit: Submit
+interaction_cancel: Cancel
+tool_load_skill: Load skill
+tool_list_sessions: Find sessions
+tool_read_session: Read session
+tool_search_session: Search session
+tool_find_tools: Find tools
+tool_read_output: Read tool output
+question_answered: Answered
+question_unconsumed: Answer saved; task interrupted
+interaction_cancelled: Cancelled
+question_declined: Answer declined
+question_interrupted: Task interrupted
+question_url_accepted: Opening allowed
+chat_response_timeout: Response timed out
+approval_allow_prefix: Allow prefix "%{prefix}"
+approval_reason: Reason
+approval_reason_cancel: Cancel
+approval_preview_result: Preview approval recorded. No files, commands or models were used.
+file_changes_shortened: Diff shortened
+interaction_input: Enter an answer or details
+approval_unrestricted: Full filesystem and network access

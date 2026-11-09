@@ -61,6 +61,10 @@ func Tag(c *ui.Context, text string) ui.Element {
 // rather than built from Element.Loop, which runs at the display's rate.
 const AnimationFPS = 60
 
+// ContentWidth is the transcript's and the composer's maximum width
+// (preview.rs).
+const ContentWidth = 800
+
 // Loader draws the sidebar's running indicator (ui/loading.rs in the
 // reference): a 2x3 dot matrix whose dots light in turn. Custom drawing: MyGo
 // has a Spinner of spokes but no dot matrix, and a Spinner cannot be capped

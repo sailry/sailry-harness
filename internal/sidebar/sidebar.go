@@ -222,7 +222,7 @@ func guide(c *ui.Context, last bool) {
 // status puts the conversation's state in the 12x12 slot on the elbow.
 func status(c *ui.Context, st preview.Status) {
 	p := theme.Of(c)
-	slot := ui.Box(c).Absolute().Left(guideX - 6).Top(rowHeight/2 - 6).Size(12, 12).Center().PassThrough()
+	slot := ui.Box(c).Absolute().Left(guideX-6).Top(rowHeight/2-6).Size(12, 12).Center().PassThrough()
 	switch st {
 	case preview.Running:
 		slot.Label(i18n.T(c, "activity_running")).Children(func() { theme.Loader(c, 12) })

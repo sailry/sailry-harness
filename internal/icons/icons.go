@@ -66,7 +66,16 @@ var (
 	Moon             = load("moon")
 	Monitor          = load("monitor")
 
+	FileText   = load("file-text")
+	Minus      = load("minus")
+	Pause      = load("pause")
+	ArrowRight = load("arrow-right")
+	CircleUser = load("circle-user")
+
 	Chat       = load("reicon-messages-chat-round")
+	Command    = load("reicon-it-terminal-square")
+	Globe      = load("reicon-map-globe")
+	Tasks      = load("reicon-ui-tasks")
 	Grid       = load("reicon-ui-grid")
 	Puzzle     = load("reicon-ui-puzzle-piece")
 	Microphone = load("reicon-microphone")
@@ -80,3 +89,17 @@ var (
 		"deepseek":  load("provider-deepseek"),
 	}
 )
+
+// named are the icons a view model names by string, as tools declare theirs.
+var named map[string]*ui.SVG
+
+func init() {
+	named = map[string]*ui.SVG{
+		"book-open": BookOpen, "search": Search, "file-text": FileText, "bot": Bot, "settings-2": Settings2,
+		"circle-check": CircleCheck, "command": Command, "globe": Globe, "tasks": Tasks, "writing": Writing,
+		"terminal": Terminal, "network": Network, "folder": Folder, "triangle-alert": TriangleAlert, "circle-x": CircleX,
+	}
+}
+
+// ByName returns a named icon, nil when unknown.
+func ByName(name string) *ui.SVG { return named[name] }

@@ -103,3 +103,65 @@ turn_thinking: 正在思考
 tool_failed: 工具执行失败
 approval_pending: 等待审批
 content_copied: 已复制
+turn_work: 处理过程
+tool_copy: 复制
+tool_interrupted: 结果未确认
+tool_not_executed: 审批已中断，未执行
+tool_not_found: 未找到目标
+tool_invalid: 参数无效
+tool_denied: 无法访问目标
+tool_unavailable: 工具暂不可用
+tool_partial: 仅显示部分结果
+tool_output_earlier: 已省略前 %{count} 行
+task_progress: 任务进度
+turn_cancelled: 已停止
+turn_queued: 等待处理
+chat_stopping: 正在停止
+turn_continued: 已接续
+chat_interrupted: 已中断
+turn_failed: 处理失败
+turn_generating: 正在回复
+turn_awaiting_response: 正在思考
+turn_waiting_child: 等待 1 个子代理
+turn_waiting_children: 等待 %{count} 个子代理
+approval_rejected: 已拒绝
+approval_reject: 拒绝
+approval_allow_once: 允许
+approval_allow_session: 本会话允许
+approval_deny_reason: 附理由拒绝
+approval_live_count: 待审批 %{count} 项
+file_changes_approval: 将补丁应用到 %{count} 个文件
+file_changes_approval_one: 将补丁应用到 1 个文件
+file_changes_added: 新增
+file_changes_modified: 修改
+file_changes_deleted: 删除
+file_changes_renamed: 重命名
+subagent_count: '%{completed}/%{total} 子代理'
+chat_child: 子代理
+question_reply: 等待回答
+question_other: 其他
+question_decline: 拒绝回答
+question_pending: 等待回答
+question_accepted: 回答已提交
+interaction_submit: 提交
+interaction_cancel: 取消
+tool_load_skill: 加载技能
+tool_list_sessions: 查找会话
+tool_read_session: 读取会话
+tool_search_session: 搜索会话
+tool_find_tools: 查找工具
+tool_read_output: 读取工具输出
+question_answered: 已回答
+question_unconsumed: 回答已保存，任务已中断
+interaction_cancelled: 已取消
+question_declined: 已拒绝回答
+question_interrupted: 任务已中断
+question_url_accepted: 已同意打开
+chat_response_timeout: 响应超时
+approval_allow_prefix: 允许前缀“%{prefix}”
+approval_reason: 理由
+approval_reason_cancel: 取消
+approval_preview_result: 已记录本回合的示例审批选择。未修改文件、执行命令或调用模型。
+file_changes_shortened: 差异已截断
+interaction_input: 输入回答或补充说明…
+approval_unrestricted: 完整文件系统和网络访问
