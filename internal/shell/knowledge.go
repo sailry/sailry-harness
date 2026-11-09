@@ -94,4 +94,6 @@ func (a *App) overlays(c *ui.Context) {
 	a.searchOverlay(c)
 	a.knowledge(c)
 	a.downloadDialog(c)
+	a.welcome(c)
+	a.selectionDialog(c)
 }

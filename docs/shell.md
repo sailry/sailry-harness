@@ -24,6 +24,10 @@ shortcuts}.rs`, `shortcuts.rs`, `app_menu.rs`, `activity/*.rs`).
 | `activity.go` | `NoticeAge`, `SortNotices`, the activity centre and the header's strip |
 | `knowledge.go` | `Source`, `ParseSource`, the knowledge viewer |
 | `prefs.go` | `Prefs`, `LoadPrefs`, `SavePrefs`, `ClampNav`, `PanelFits`, `ClampPanel` |
+| `hosts.go` | The host page's data and state, `openHost`, `addHost` (docs/host.md) |
+| `transfers.go` | The Save as dialog's playback (docs/transfers.md) |
+| `welcome.go` | The welcome guide over the window (docs/onboarding.md) |
+| `selection.go` | `SystemShortcuts`, the selected text dialog |
 
 ## Entry point
 
@@ -62,7 +66,8 @@ wide and cannot close one to nothing, which the motion needs).
 ## Rail
 
 Pinned features in their order, then More; the bell, the host picker,
-Search and Settings at the bottom. Conversation is fixed first and Market
+Search and Settings at the bottom, the installations button
+(docs/transfers.md) after the bell while there are requests. Conversation is fixed first and Market
 last. More is a popover to the right listing every feature with
 a pin (`feature_pin`/`feature_unpin`); rows drag to reorder
 (`MoveFeature`, a 4 DIP primary line). Every feature opens an
@@ -71,10 +76,13 @@ destinations do: Files and Git over the selected conversation's project
 (the same `panel.Project` the panel's tabs show, `docs/panel.md`),
 Activity and Market as the reference's preview shows them (`unavailable`).
 The panel shows on the conversation page only; selecting a conversation
-over a page goes back to it, and `ClosePage` closes the page shown. Hosts: a menu with the hosts (check on this one,
-`sidebar_host_update`), `host_add`; a dot when one has an update; its
-right-click menu is the system's (`workspace_host`,
-`connection_action_edit`, `project_add`).
+over a page goes back to it, and `ClosePage` closes the page shown. Hosts: a menu with the hosts (check on the chosen one, `App.Host`),
+each opening its page (`HostPage`, docs/host.md), `sidebar_host_update`
+opening it with the update dialog, `host_add` opening Settings ›
+Connections' Add host; a dot when one has an update; its right-click menu
+is the system's (`workspace_host` opens the chosen host's page,
+`connection_action_edit`, `project_add`). The host page has the right
+column too: its metrics, toggled by the details button and ⌥⌘B.
 
 ## Header
 
@@ -122,6 +130,16 @@ and a key one scope takes never reaches the next:
 | ⇧⌘W | app | Close Window |
 | ⌘Q | app | Quit |
 | ⌘H, ⌥⌘H, ⌘M, ⌃⌘F | app | Hide, Hide Others, Minimize, Full Screen |
+| ⌃⌥Space | system | Bring the window forward with the search (`system.activate`) |
+| (none by default) | system | Selected text (`system.selection`) |
+
+The system's shortcuts are `App.SystemShortcuts`, which `cmd/sailry`
+registers with MyGo's `GlobalShortcut` at launch (system_shortcuts.rs
+install); each brings the window forward and runs its command through
+`Do`. The selection shortcut's dialog (system_shortcuts.rs show) shows
+the captured text, selectable, Read aloud (preview_notice) and Quote, which
+adds it to the draft of the conversation shown as it was captured. The
+preview reads no other app: it shows `preview.Selection`.
 
 ⌘ is Ctrl off macOS (`ui.Cmd`); the app menu's Close Window, Hide, Hide
 Others, Minimize and Full Screen are on Command (`ui.Super`) as
@@ -136,7 +154,8 @@ Services, Hide, Hide Others, Show All, Quit), File (New Conversation, New
 Project, Open Folder, Save, Close Tab, Close Window), Edit (Undo, Redo,
 Cut, Copy, Paste, Select All), View (Search, Find in Conversation, Toggle
 Sidebar, Toggle Details, Full Screen, then the rail's features), Window
-(Minimize, Zoom, Bring All to Front) and Help (Website, Feedback, Logs).
+(Minimize, Zoom, Bring All to Front) and Help (Website, Feedback, Logs,
+then the preview's Welcome to Sailry and Selected text).
 The system's items are MyGo roles. The app's items send their command's
 ID, which `cmd/sailry` passes to `App.Do`.
 
@@ -233,8 +252,10 @@ Phase 1–2 screens.
 | The notification center page, Activity board and Market | Later phases; Activity and Market show `unavailable`, Market not yet in Settings |
 | ⌘/ opens Settings | No Shortcuts section before phase 5 |
 | The rail's More rows are a popover, not a menu | Rows hold a pin button and drag to reorder |
-| Global ⌃⌥Space is not registered | System shortcuts are phase 6 |
+| System shortcuts register at launch only | Keys changed in Settings take effect at the next launch |
+| The selected text is the preview's sample | Reading another app's selection needs the platform's accessibility APIs and a Node |
 | About opens Settings, which has no About section | Settings sections beyond Appearance, Providers and Plugins are later phases |
-| Save (⌘S), Find in Conversation (⌘F) and Logs are disabled | The preview has no file editor, find bar or log folder |
+| Save (⌘S) and Logs are disabled | The preview has no file editor or log folder (the reference disables Logs without one) |
+| Help lists Welcome to Sailry and Selected text | The preview's way to the first launch's guide and the system shortcut's dialog |
 | ⌘., ⌘L, ⇧⌘M, ⇧Tab and the conversation's Escape targets are not bound | The live conversation's controls (`conversation/live/shortcuts.rs`) come with the live session |
 | The View menu's features are those at launch | The menu is set once; rail reordering does not rebuild it |

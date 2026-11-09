@@ -118,7 +118,7 @@ func (a *App) Do(id string) {
 // dialog reports whether one of the window's dialogs shows, which holds
 // the window's commands as Element.Modal holds its shortcuts.
 func (a *App) dialog() bool {
-	return a.search.open || a.reading != nil && a.reading.open || a.Sidebar.Editing()
+	return a.search.open || a.reading != nil && a.reading.open || a.Sidebar.Editing() || a.Welcome.Open || a.selected.open
 }
 
 // closeFocused is Close Tab of the menu: ⌘W of the pane the focus is in
@@ -176,5 +176,13 @@ func (a *App) run(c *ui.Context, id string) {
 		c.OpenURL(Website)
 	case "help.feedback":
 		c.OpenURL(Feedback)
+	case "app.welcome":
+		a.Welcome.Open = true
+	case "system.activate":
+		// The system's activate shortcut: the window comes forward
+		// (cmd/sailry) with the search (system_shortcuts.rs dispatch).
+		a.search.open = true
+	case "system.selection":
+		a.captureSelection()
 	}
 }

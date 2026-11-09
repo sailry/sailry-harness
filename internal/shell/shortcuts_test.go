@@ -183,7 +183,7 @@ func TestMenu(t *testing.T) {
 			{"Toggle Full Screen", cmd(ui.Ctrl|ui.Super, ui.KeyF)},
 			{"Chats", ""}, {"Activity board", ""}, {"Files", ""}, {"Git", ""}, {"Market", ""}},
 		"Window": {{"Minimize", cmd(ui.Super, ui.KeyM)}, {"Zoom", ""}, {"Bring All to Front", ""}},
-		"Help":   {{"Website", ""}, {"Feedback", ""}, {"Logs", ""}},
+		"Help":   {{"Website", ""}, {"Feedback", ""}, {"Logs", ""}, {"Welcome to Sailry", ""}, {"Selected text", ""}},
 	}
 	var names []string
 	for _, m := range menu {
@@ -221,6 +221,10 @@ func TestMenu(t *testing.T) {
 	}
 	if logs := menu[5].Submenu[2]; !logs.Disabled {
 		t.Error("Logs is enabled without a log folder")
+	}
+	// Find in Conversation sends its command, as ⌘F.
+	if find := menu[3].Submenu[1]; find.Disabled || find.ID != "conversation.find" {
+		t.Errorf("Find in Conversation %+v", find)
 	}
 }
 

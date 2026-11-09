@@ -18,6 +18,7 @@ import (
 	"github.com/sailry/sailry-go/internal/host"
 	"github.com/sailry/sailry-go/internal/i18n"
 	"github.com/sailry/sailry-go/internal/kit"
+	"github.com/sailry/sailry-go/internal/onboarding"
 	"github.com/sailry/sailry-go/internal/panel"
 	"github.com/sailry/sailry-go/internal/preview"
 	"github.com/sailry/sailry-go/internal/settings"
@@ -127,6 +128,12 @@ type App struct {
 	installsOpen bool
 	download     transfers.Download
 	downloaded   time.Time
+
+	// Welcome is the welcome guide, opened at the first launch
+	// (SetPrefs) and from the Help menu in the preview.
+	Welcome onboarding.Guide
+	// selected is the selected text dialog (system shortcuts).
+	selected selection
 }
 
 // New makes the app over the preview dataset, showing its large conversation.
@@ -142,6 +149,7 @@ func New(d *preview.Data) *App {
 		unpinned: map[string]bool{},
 		Host:     "local",
 		installs: preview.Installations(),
+		Welcome:  onboarding.Guide{Seen: true},
 		Metrics:  true,
 	}
 	for _, f := range Features {

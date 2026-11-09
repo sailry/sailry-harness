@@ -347,6 +347,9 @@ type providerEditor struct {
 	models              []modelDraft
 	def                 int
 	probing             bool
+	// returnTo reopens the welcome guide from the first step's Back, when
+	// the guide opened the editor; nil otherwise.
+	returnTo func()
 }
 
 func draftsOf(ms []preview.ChannelModel) []modelDraft {
@@ -402,6 +405,13 @@ func (e *providerEditor) configure(x preview.Method) {
 func (e *providerEditor) back() {
 	if e.step == stepConfigure && e.brand != nil && len(e.brand.Methods) > 1 {
 		e.step = stepMethod
+		return
+	}
+	if back := e.returnTo; back != nil {
+		// Opened from the welcome guide, whose picker was the first step
+		// (flow.rs Origin::Welcome): back closes the editor and returns.
+		e.open, e.returnTo = false, nil
+		back()
 		return
 	}
 	e.step = stepBrand
@@ -513,7 +523,7 @@ func providerEditorDialog(c *ui.Context, m *Model) {
 		ui.Scroll(c.Key("body")).Grow(1).Shrink(1).Children(func() {
 			switch e.step {
 			case stepBrand:
-				brandPicker(c, m)
+				brandPicker(c, m, nil, nil)
 			case stepMethod:
 				methodList(c, e)
 			default:
@@ -537,12 +547,21 @@ func providerEditorDialog(c *ui.Context, m *Model) {
 }
 
 // brandPicker is brands.rs picker: account logins, then the brands with
-// API keys, as outlined pills.
-func brandPicker(c *ui.Context, m *Model) {
+// API keys, as outlined pills. before runs ahead of a choice and after it,
+// as the welcome guide opens the editor (nil for none).
+func brandPicker(c *ui.Context, m *Model, before, after func()) {
 	p := theme.Of(c)
 	chip := func(key, label string, brand string, pick func()) {
 		b := ui.ButtonBase(c.Key(key)).Label(label).Height(32).Padding(0, 14, 0, 10).Gap(8).Radius(999).
-			Border(1, p.Border).Background(p.ButtonSecondary).Cursor(ui.CursorPointer).OnClick(pick)
+			Border(1, p.Border).Background(p.ButtonSecondary).Cursor(ui.CursorPointer).OnClick(func() {
+			if before != nil {
+				before()
+			}
+			pick()
+			if after != nil {
+				after()
+			}
+		})
 		if b.Hovered() {
 			b.Background(p.ButtonSecondaryHover)
 		}
@@ -781,5 +800,16 @@ func modelForm(c *ui.Context, d *modelDraft) {
 				})
 			})
 		}
+	})
+}
+
+// ProviderPicker is the providers' brand picker for the welcome guide
+// (Workspace::provider_picker): a choice opens the add editor on that
+// brand or login, then runs chosen, which shows Providers. back reopens
+// the guide from the editor's first Back (ReturnTo).
+func ProviderPicker(c *ui.Context, s *State, chosen, back func()) {
+	brandPicker(c, s.Model, func() { s.provider.add(s.Model) }, func() {
+		s.provider.returnTo = back
+		chosen()
 	})
 }

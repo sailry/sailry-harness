@@ -22,8 +22,10 @@ const (
 // before the window does. The system's items are MyGo's roles under the
 // reference's labels and keys: app_menu.rs binds Close Window, Hide, Hide
 // Others, Minimize and Full Screen on cmd (ui.Super), the rest on
-// secondary (ui.Cmd). Save, Find in Conversation and Logs stay disabled
-// while the preview has no file editor, find bar or log folder.
+// secondary (ui.Cmd). Save and Logs stay disabled while the preview has
+// no file editor or log folder (Logs is disabled without one in the
+// reference too). Help's last items open the welcome guide and the
+// selected text dialog, which the preview reaches no other way.
 func (a *App) Menu(lang string, send func(id string)) []*mygo.MenuItem {
 	t := func(key string) string { return i18n.In(lang, key) }
 	item := func(label, id string) *mygo.MenuItem {
@@ -50,7 +52,7 @@ func (a *App) Menu(lang string, send func(id string)) []*mygo.MenuItem {
 	sep := mygo.Separator
 	view := []*mygo.MenuItem{
 		item("menu_search", "app.search"),
-		off("menu_find_conversation", "conversation.find", ui.Cmd, ui.KeyF),
+		item("menu_find_conversation", "conversation.find"),
 		sep(),
 		item("menu_toggle_sidebar", "sidebar.toggle"),
 		item("menu_toggle_details", "panel.toggle"),
@@ -109,6 +111,10 @@ func (a *App) Menu(lang string, send func(id string)) []*mygo.MenuItem {
 			item("menu_website", "help.website"),
 			item("menu_feedback", "help.feedback"),
 			off("menu_logs", "help.logs", 0, 0),
+			// The preview's way to the first launch's guide.
+			sep(),
+			item("onboarding_title", "app.welcome"),
+			item("selection_title", "system.selection"),
 		}},
 	}
 }

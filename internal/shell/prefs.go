@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/sailry/sailry-go/internal/onboarding"
 	"github.com/sailry/sailry-go/internal/panel"
 )
 
@@ -24,6 +25,10 @@ type Prefs struct {
 	Collapsed  []string    `json:"collapsed,omitempty"`
 	Features   []string    `json:"features,omitempty"` // the rail's order
 	Unpinned   []string    `json:"unpinned,omitempty"` // features off the rail
+	// WelcomeSeen is whether the welcome guide was dismissed
+	// (preferences.rs welcome_seen); nil in a file from before it counts
+	// as seen, and no file at all as a first launch.
+	WelcomeSeen *bool `json:"welcomeSeen,omitempty"`
 }
 
 // PrefsFile is the preferences' file name in the app's user data folder,
@@ -40,6 +45,11 @@ func DefaultPrefs() Prefs {
 func LoadPrefs(dir string) Prefs {
 	p := DefaultPrefs()
 	data, err := os.ReadFile(filepath.Join(dir, PrefsFile))
+	if errors.Is(err, fs.ErrNotExist) {
+		seen := false
+		p.WelcomeSeen = &seen
+		return p
+	}
 	if err != nil || json.Unmarshal(data, &p) != nil {
 		return DefaultPrefs()
 	}
@@ -70,7 +80,7 @@ func (a *App) Prefs() Prefs {
 	return Prefs{
 		NavWidth: a.NavWidth, NavOpen: a.NavOpen, PanelWidth: a.PanelWidth, PanelOpen: a.PanelOpen,
 		PanelTabs: a.Panel.Tabs, PanelTab: a.Panel.Active, Collapsed: a.Sidebar.Collapsed(),
-		Features: a.features, Unpinned: a.unpinnedList(),
+		Features: a.features, Unpinned: a.unpinnedList(), WelcomeSeen: &a.Welcome.Seen,
 	}
 }
 
@@ -90,6 +100,9 @@ func (a *App) SetPrefs(p Prefs) {
 	}
 	for _, f := range p.Unpinned {
 		a.unpinned[f] = true
+	}
+	if p.WelcomeSeen != nil && !*p.WelcomeSeen {
+		a.Welcome = onboarding.Guide{Open: true}
 	}
 }
 

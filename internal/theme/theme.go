@@ -305,3 +305,15 @@ func build(p *Palette) *ui.Theme {
 // ContentWidth is the transcript's and the composer's maximum width
 // (preview.rs).
 const ContentWidth = 800
+
+// Welcome is the welcome guide's approved peach-to-coral brand banner and
+// the white over it (onboarding.rs BANNER_FROM, BANNER_TO, BANNER_ANGLE).
+// Themes have no brand banner token; the reference paints these two stops
+// for the design's four, and so does this.
+var Welcome = struct {
+	Banner ui.LinearGradient
+	Text   ui.Color
+}{
+	Banner: ui.LinearGradient{From: ui.RGB(0xff, 0xd9, 0xcc), To: ui.RGB(0xe8, 0x68, 0x7f), Angle: 135},
+	Text:   ui.RGB(0xff, 0xff, 0xff),
+}

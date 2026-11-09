@@ -265,3 +265,7 @@ func workspace() *Workspace {
 	}
 	return w
 }
+
+// Selection is the text the selection shortcut captures in the preview,
+// which reads no other app.
+const Selection = "Preview selection: the frame's columns open and close along one 180 ms curve, and a narrow window hides the right panel without forgetting it."

@@ -58,6 +58,19 @@ func main() {
 			app.Do(id)
 			win.Invalidate()
 		})))
+		// The system-wide shortcuts (system_shortcuts.rs install): the
+		// window comes forward and runs the command. Keys changed in
+		// Settings take effect at the next launch.
+		for acc, id := range app.SystemShortcuts() {
+			if err := mygo.GlobalShortcut.Register(acc, func() {
+				win.Show()
+				win.Focus()
+				app.Do(id)
+				win.Invalidate()
+			}); err != nil {
+				log.Printf("system shortcut %s: %v", acc, err)
+			}
+		}
 		win.OnBlur(save)
 		win.OnClose(func(*mygo.CloseEvent) { save() })
 	})
