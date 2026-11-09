@@ -22,13 +22,21 @@ func TestPanelOpensWithShortcutsAndTabs(t *testing.T) {
 	tt.Key(ui.Cmd, ui.KeyP)
 	tt.Advance(time.Second)
 	tt.Frame()
-	if a.Panel.Active != panel.Files || !tt.HasText("A native desktop Agent workspace.") {
-		t.Fatalf("⌘P did not show the files: %q", tt.Texts())
+	if a.Panel.Active.Kind != panel.Files || !tt.HasText("README.md") {
+		t.Fatalf("⌘P did not show the file tree: %q", tt.Texts())
+	}
+	// A file of the tree opens in its own tab beside the tree's.
+	click(t, tt, "README.md")
+	tt.Frame()
+	if a.Panel.Active != (panel.Tab{Kind: panel.File, ID: "sailry-go/README.md"}) || !tt.HasText("A native desktop Agent workspace.") {
+		t.Fatalf("the file did not open in a tab: %v %q", a.Panel.Tabs, tt.Texts())
 	}
 	snapshot(t, tt, "panel-files")
 	tt.Key(ui.Ctrl|ui.Shift, ui.KeyG)
 	tt.Frame()
-	if !tt.HasText("workspace: three flat panels") {
+	click(t, tt, "docs/example.md")
+	tt.Frame()
+	if a.Panel.Active.Kind != panel.Diff || !tt.HasText("search: command palette") {
 		t.Fatalf("no diff: %q", tt.Texts())
 	}
 	click(t, tt, i18n.In("en", "hunks_accept"))
@@ -39,6 +47,10 @@ func TestPanelOpensWithShortcutsAndTabs(t *testing.T) {
 	snapshot(t, tt, "panel-changes")
 	for _, k := range []panel.Kind{panel.History, panel.Documents, panel.Browser, panel.Terminal} {
 		a.Panel.Open(k)
+	}
+	// Files, README.md, Git, the diff and those four: one flat strip.
+	if len(a.Panel.Tabs) != 8 {
+		t.Fatalf("tabs %v", a.Panel.Tabs)
 	}
 	tt.Frame()
 	if !tt.HasText(i18n.In("en", "resource_terminal_preview")) {
@@ -51,7 +63,7 @@ func TestPanelOpensWithShortcutsAndTabs(t *testing.T) {
 	// ⌘W in the panel closes the active tab, then the others, then the
 	// panel.
 	click(t, tt, i18n.In("en", "resource_terminal_preview"))
-	for range 6 {
+	for range 8 {
 		tt.Key(ui.Cmd, ui.KeyW)
 		tt.Frame()
 	}
@@ -78,7 +90,7 @@ func TestSidebarToggleAndPrefs(t *testing.T) {
 	}
 	b := New(a.Data)
 	b.SetPrefs(LoadPrefs(dir))
-	if b.NavOpen || b.NavWidth != 300 || !b.PanelOpen || b.Panel.Active != panel.Changes {
+	if b.NavOpen || b.NavWidth != 300 || !b.PanelOpen || b.Panel.Active.Kind != panel.Changes {
 		t.Errorf("preferences did not come back: %+v", b.Prefs())
 	}
 	if got := b.Sidebar.Collapsed(); len(got) != 1 || got[0] != "notes" {

@@ -27,13 +27,13 @@ func TestCloseTabInFocusedPanel(t *testing.T) {
 	tt.Key(ui.Cmd, ui.KeyP)
 	tt.Key(ui.Ctrl|ui.Shift, ui.KeyG)
 	settle(tt)
-	if len(a.Panel.Tabs) != 2 || a.Panel.Active != panel.Changes {
+	if len(a.Panel.Tabs) != 2 || a.Panel.Active.Kind != panel.Changes {
 		t.Fatalf("tabs %v, active %q", a.Panel.Tabs, a.Panel.Active)
 	}
 	click(t, tt, "File changes") // inside the panel
 	tt.Key(ui.Cmd, ui.KeyW)
 	tt.Frame()
-	if len(a.Panel.Tabs) != 1 || a.Panel.Active != panel.Files || !a.PanelOpen {
+	if len(a.Panel.Tabs) != 1 || a.Panel.Active.Kind != panel.Files || !a.PanelOpen {
 		t.Fatalf("⌘W closed more than the tab: tabs %v, open %v", a.Panel.Tabs, a.PanelOpen)
 	}
 	tt.Key(ui.Cmd, ui.KeyW)
@@ -118,11 +118,13 @@ func TestEscapeClosesOnlyPopover(t *testing.T) {
 	a, tt = newTester(t)
 	tt.Key(ui.Cmd, ui.KeyP)
 	settle(tt)
+	click(t, tt, "README.md")
+	tt.Frame()
 	click(t, tt, "A native desktop Agent workspace.")
 	clickButton(t, tt, i18n.In("en", "features_all"))
 	tt.Key(0, ui.KeyEscape)
 	tt.Frame()
-	if a.more || !a.PanelOpen || len(a.Panel.Tabs) != 1 {
+	if a.more || !a.PanelOpen || len(a.Panel.Tabs) != 2 {
 		t.Fatalf("Escape left More %v, panel %v, tabs %v", a.more, a.PanelOpen, a.Panel.Tabs)
 	}
 
@@ -233,7 +235,11 @@ func TestMenuCommandsScoped(t *testing.T) {
 	if len(a.Panel.Tabs) != 1 {
 		t.Fatalf("Close Tab without focus closed tabs: %v", a.Panel.Tabs)
 	}
+	click(t, tt, "README.md")
+	tt.Frame()
 	click(t, tt, "A native desktop Agent workspace.")
+	a.Do(CloseFocused.ID)
+	settle(tt)
 	a.Do(CloseFocused.ID)
 	settle(tt)
 	if len(a.Panel.Tabs) != 0 || a.PanelOpen {
@@ -242,7 +248,11 @@ func TestMenuCommandsScoped(t *testing.T) {
 	a.Do("page:files")
 	tt.Frame()
 	tt.Frame()
+	click(t, tt, "README.md")
+	tt.Frame()
 	click(t, tt, "A native desktop Agent workspace.")
+	a.Do(CloseFocused.ID)
+	settle(tt)
 	a.Do(CloseFocused.ID)
 	tt.Frame()
 	if a.Page != ConversationPage {

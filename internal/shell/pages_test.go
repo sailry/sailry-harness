@@ -62,14 +62,20 @@ func TestPageAndTabShareProjectState(t *testing.T) {
 	if first.Files.File() != "sailry-go/go.mod" {
 		t.Fatalf("the page showed %q", first.Files.File())
 	}
-	// The panel's Files tab shows the file the page chose.
+	// The panel's Files tab selects the file the page chose, and opens it
+	// in its own tab.
 	a.Navigate(ConversationPage)
 	a.openPanel(panel.Files)
 	tt.Frame()
 	tt.Advance(time.Second)
 	tt.Frame()
+	if row, ok := tt.Access("go.mod"); !ok || !row.Selected {
+		t.Fatalf("the tree does not select the page's file: %q", tt.Texts())
+	}
+	click(t, tt, "go.mod")
+	tt.Frame()
 	if !tt.HasText("require github.com/egoist/mygo v0.8.3") {
-		t.Fatalf("the tab does not show the page's file: %q", tt.Texts())
+		t.Fatalf("the file tab does not show the page's file: %q", tt.Texts())
 	}
 	snapshot(t, tt, "tab-files-shared")
 	// And the reverse: a change chosen in the Git tab shows on the page.
@@ -77,6 +83,9 @@ func TestPageAndTabShareProjectState(t *testing.T) {
 	tt.Frame()
 	click(t, tt, "docs/example.md")
 	tt.Frame()
+	if a.Panel.Active != (panel.Tab{Kind: panel.Diff, ID: "docs/example.md"}) {
+		t.Fatalf("the change did not open its diff tab: %v", a.Panel.Active)
+	}
 	a.Navigate(GitPage)
 	tt.Frame()
 	if first.Git.Change() != "docs/example.md" || !tt.HasText("search: command palette") {

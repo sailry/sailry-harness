@@ -298,10 +298,11 @@ func (a *App) pane(c *ui.Context, e ui.Element, ref *ui.Handle, closes bool, clo
 }
 
 // closeTab is ⌘W in the right panel (resources/close.rs): its active tab,
-// the panel itself with none left, the focus then going back to the
-// conversation.
+// the focus staying in the panel for the next, or the panel itself with
+// none left, the focus then going back to the conversation.
 func (a *App) closeTab(c *ui.Context) {
-	if a.Panel.Active != "" && a.Panel.Close(a.Panel.Active) {
+	if a.Panel.Active != (panel.Tab{}) && a.Panel.Close(a.Panel.Active) {
+		a.panelPane.Focus(c)
 		return
 	}
 	a.PanelOpen = false

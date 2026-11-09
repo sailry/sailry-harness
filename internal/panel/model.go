@@ -6,6 +6,7 @@
 package panel
 
 import (
+	"fmt"
 	"slices"
 
 	"github.com/egoist/mygo/ui"
@@ -60,58 +61,114 @@ func ResourceOf(k Kind) Resource {
 // all (navigation_tabs.rs: more than 4).
 const Overflow = 4
 
-// Opened adds k to the tabs, at the end, unless it is open already.
-func Opened(tabs []Kind, k Kind) []Kind {
-	if slices.Contains(tabs, k) {
-		return tabs
-	}
-	return append(slices.Clone(tabs), k)
+// Item kinds that only tabs hold: a file of the tree and a change's diff.
+const (
+	File Kind = "file"
+	Diff Kind = "diff"
+)
+
+// Tab is an open item: a kind and which one of it. Files, Changes and
+// History have one tab each (ID ""); a file and a diff are by path, a
+// document by its ID, a browser page and a terminal by a number.
+type Tab struct {
+	Kind Kind   `json:"kind"`
+	ID   string `json:"id,omitempty"`
 }
 
-// Closed takes k out of the tabs and returns the tab chosen after: the
+// Opened adds t to the tabs, at the end, unless it is open already.
+func Opened(tabs []Tab, t Tab) []Tab {
+	if slices.Contains(tabs, t) {
+		return tabs
+	}
+	return append(slices.Clone(tabs), t)
+}
+
+// Closed takes t out of the tabs and returns the tab chosen after: the
 // active one when another closed, else the first left, as the reference
-// moves the choice to the first open tab; "" when none is left.
-func Closed(tabs []Kind, k, active Kind) ([]Kind, Kind) {
-	out := slices.DeleteFunc(slices.Clone(tabs), func(t Kind) bool { return t == k })
+// moves the choice to the first open tab; the zero Tab when none is left.
+func Closed(tabs []Tab, t, active Tab) ([]Tab, Tab) {
+	out := slices.DeleteFunc(slices.Clone(tabs), func(o Tab) bool { return o == t })
 	switch {
 	case len(out) == 0:
-		return out, ""
-	case active != k && slices.Contains(out, active):
+		return out, Tab{}
+	case active != t && slices.Contains(out, active):
 		return out, active
 	}
 	return out, out[0]
 }
 
-// State is the panel's own UI state over the preview workspace: its tabs
-// and the resources no project keeps. Files and Git keep theirs in the
-// shown Project, shared with their pages.
+// State is the panel's own UI state over the preview workspace: one flat
+// row of tabs, each an open item, and the resources no project keeps.
+// Files and Git keep theirs in the shown Project, shared with their pages.
 type State struct {
 	Data   *preview.Workspace
-	Tabs   []Kind
-	Active Kind
+	Tabs   []Tab
+	Active Tab
 	// Paged is the resource a page of the same project shows, "" for
 	// none: that page owns the resource's scrolling (Page).
 	Paged Kind
 
-	doc     string
 	address string
+	pages   int // browser pages and terminals opened, for their IDs
 }
 
 func New(w *preview.Workspace) *State {
-	s := &State{Data: w}
-	if len(w.Documents) > 0 {
-		s.doc = w.Documents[0].ID
-	}
-	return s
+	return &State{Data: w}
 }
 
-// Open shows k, opening its tab if needed.
+// Open shows a resource of the launcher, the "+" menu or a shortcut: its
+// tab when one is open, else a new one. Documents opens the first.
 func (s *State) Open(k Kind) {
-	s.Tabs, s.Active = Opened(s.Tabs, k), k
+	for _, t := range s.Tabs {
+		if t.Kind == k {
+			s.Show(t)
+			return
+		}
+	}
+	switch k {
+	case Documents:
+		if len(s.Data.Documents) == 0 {
+			return
+		}
+		s.Show(Tab{Documents, s.Data.Documents[0].ID})
+	case Browser, Terminal:
+		s.New(k)
+	default:
+		s.Show(Tab{Kind: k})
+	}
 }
 
-// Close closes k's tab. It reports whether a tab is left.
-func (s *State) Close(k Kind) bool {
-	s.Tabs, s.Active = Closed(s.Tabs, k, s.Active)
+// New opens another browser page or terminal.
+func (s *State) New(k Kind) {
+	s.pages++
+	s.Show(Tab{k, fmt.Sprint(s.pages)})
+}
+
+// Show shows t, opening its tab if needed.
+func (s *State) Show(t Tab) {
+	s.Tabs, s.Active = Opened(s.Tabs, t), t
+	if t.Kind == Browser || t.Kind == Terminal {
+		var n int
+		if _, err := fmt.Sscan(t.ID, &n); err == nil {
+			s.pages = max(s.pages, n)
+		}
+	}
+}
+
+// Close closes t's tab. It reports whether a tab is left.
+func (s *State) Close(t Tab) bool {
+	s.Tabs, s.Active = Closed(s.Tabs, t, s.Active)
 	return len(s.Tabs) > 0
+}
+
+// owns reports whether the panel owns the scrolling of t's resource,
+// which a page of the same project showing it takes over.
+func (s *State) owns(t Tab) bool {
+	switch t.Kind {
+	case Files, File:
+		return s.Paged != Files
+	case Changes, Diff:
+		return s.Paged != Changes
+	}
+	return true
 }

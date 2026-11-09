@@ -15,15 +15,15 @@ import (
 // in the sidebar, and the rail's features. They are UI state, not user
 // data; the preview's conversations are never written.
 type Prefs struct {
-	NavWidth   float32      `json:"navWidth"`
-	NavOpen    bool         `json:"navOpen"`
-	PanelWidth float32      `json:"panelWidth"`
-	PanelOpen  bool         `json:"panelOpen"`
-	PanelTabs  []panel.Kind `json:"panelTabs,omitempty"`
-	PanelTab   panel.Kind   `json:"panelTab,omitempty"`
-	Collapsed  []string     `json:"collapsed,omitempty"`
-	Features   []string     `json:"features,omitempty"` // the rail's order
-	Unpinned   []string     `json:"unpinned,omitempty"` // features off the rail
+	NavWidth   float32     `json:"navWidth"`
+	NavOpen    bool        `json:"navOpen"`
+	PanelWidth float32     `json:"panelWidth"`
+	PanelOpen  bool        `json:"panelOpen"`
+	PanelTabs  []panel.Tab `json:"panelTabs,omitempty"`
+	PanelTab   panel.Tab   `json:"panelTab"`
+	Collapsed  []string    `json:"collapsed,omitempty"`
+	Features   []string    `json:"features,omitempty"` // the rail's order
+	Unpinned   []string    `json:"unpinned,omitempty"` // features off the rail
 }
 
 // PrefsFile is the preferences' file name in the app's user data folder,
@@ -78,11 +78,11 @@ func (a *App) Prefs() Prefs {
 func (a *App) SetPrefs(p Prefs) {
 	a.NavWidth, a.NavOpen = ClampNav(p.NavWidth), p.NavOpen
 	a.PanelWidth, a.PanelOpen = max(p.PanelWidth, PanelMin), p.PanelOpen
-	for _, k := range p.PanelTabs {
-		a.Panel.Open(k)
+	for _, t := range p.PanelTabs {
+		a.Panel.Show(t)
 	}
-	if p.PanelTab != "" {
-		a.Panel.Open(p.PanelTab)
+	if p.PanelTab != (panel.Tab{}) {
+		a.Panel.Show(p.PanelTab)
 	}
 	a.Sidebar.SetCollapsed(p.Collapsed)
 	if len(p.Features) > 0 {

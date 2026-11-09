@@ -29,29 +29,90 @@ func notice(c *ui.Context) { c.Toast(i18n.T(c, "preview_notice")) }
 // Shortcut is a shortcut's text as menus and the launcher show it.
 type Shortcut func(mods ui.Modifiers, key ui.Key) string
 
-// View builds the panel, the tab host: the tab strip over the active
-// resource, or the launcher. pr is the shown project's state, nil when the
-// conversation has none; keys writes the launcher's shortcuts.
+// View builds the panel, the tab host: one flat strip of tabs, each an
+// open item, over the active one, or the launcher. pr is the shown
+// project's state, nil when the conversation has none; keys writes the
+// launcher's shortcuts.
 func View(c *ui.Context, s *State, pr *Project, keys Shortcut) {
 	if len(s.Tabs) == 0 {
 		launcher(c, s, keys)
 		return
 	}
-	s.strip(c, keys)
-	ui.Column(c.Key(s.Active)).Grow(1).MinHeight(0).Children(func() {
-		switch s.Active {
-		case Files, Changes:
-			pr.view(c, s.Active, s.Active != s.Paged)
+	s.strip(c, pr, keys)
+	t := s.Active
+	own := s.owns(t)
+	ui.Column(c.Key(t)).Grow(1).MinHeight(0).Children(func() {
+		switch t.Kind {
+		case Files, Changes, File, Diff:
+			if pr == nil {
+				pr.view(c, t.Kind, own)
+				return
+			}
+			switch t.Kind {
+			case Files:
+				pr.tree(c, own, func(path string) { s.showFile(pr, path) })
+			case File:
+				pr.filePreview(c, t.ID, own && t.ID == pr.Files.file)
+			case Changes:
+				pr.changeList(c, own, func(path string) { s.showDiff(pr, path) })
+			case Diff:
+				pr.diff(c, t.ID, own && t.ID == pr.Git.change)
+			}
 		case History:
 			s.history(c)
 		case Documents:
-			s.documents(c)
+			s.document(c, t.ID)
 		case Browser:
 			browser(c, s)
 		case Terminal:
-			terminal(c)
+			terminal(c, s)
 		}
 	})
+}
+
+// showFile opens or focuses a file's tab and makes it the project's
+// shown file, which the Files page shows too.
+func (s *State) showFile(pr *Project, path string) {
+	pr.Files.Show(path)
+	s.Show(Tab{File, path})
+}
+
+// showDiff opens or focuses a change's diff tab and makes it the
+// project's shown change.
+func (s *State) showDiff(pr *Project, path string) {
+	pr.Git.Show(path)
+	s.Show(Tab{Diff, path})
+}
+
+// focus shows a tab of the strip; a file or a diff becomes the project's
+// shown one.
+func (s *State) focus(pr *Project, t Tab) {
+	switch {
+	case pr != nil && t.Kind == File:
+		s.showFile(pr, t.ID)
+	case pr != nil && t.Kind == Diff:
+		s.showDiff(pr, t.ID)
+	default:
+		s.Show(t)
+	}
+}
+
+// look is a tab's icon and title.
+func (s *State) look(c *ui.Context, t Tab) (*ui.SVG, string) {
+	switch t.Kind {
+	case File:
+		return icons.File, t.ID[strings.LastIndex(t.ID, "/")+1:]
+	case Diff:
+		return ResourceOf(Changes).Icon, t.ID[strings.LastIndex(t.ID, "/")+1:]
+	case Documents:
+		for _, d := range s.Data.Documents {
+			if d.ID == t.ID {
+				return icons.FileText, d.Title
+			}
+		}
+	}
+	r := ResourceOf(t.Kind)
+	return r.Icon, i18n.T(c, r.Label)
 }
 
 // Page builds a project resource, Files or Changes, as an independent
@@ -87,21 +148,24 @@ func scroll(s *ui.ScrollState, own bool) *ui.ScrollState {
 	return s
 }
 
-// strip is the tab row (tabs.rs): 28 DIP tabs up to 180 wide, the active
-// one in tab_active, a close button showing on hover; it scrolls sideways,
-// and past four tabs a chevron lists them all. "+" opens another resource.
-func (s *State) strip(c *ui.Context, keys Shortcut) {
+// strip is the tab row (tabs.rs): every open item is a 28 DIP tab up to
+// 180 wide with its icon and title, the active one in tab_active, a close
+// button showing on hover; it scrolls sideways, and past four tabs a
+// chevron lists them all. "+" opens another resource or document.
+func (s *State) strip(c *ui.Context, pr *Project, keys Shortcut) {
 	p := theme.Of(c)
 	ui.Row(c.Key("strip")).Height(barHeight).Shrink(0).PaddingX(8).Gap(4).BorderWidth(0, 0, 1, 0).BorderColor(p.Border).Children(func() {
 		ui.ScrollHorizontal(c.Key("tabs")).Grow(1).Shrink(1).MinWidth(0).Scrollbars(false).Children(func() {
 			ui.Row(c).Gap(4).Height(barHeight).Children(func() {
-				closed := Kind("")
-				for _, k := range s.Tabs {
-					r := ResourceOf(k)
-					active := k == s.Active
-					label := i18n.T(c, r.Label)
-					tab := ui.ButtonBase(c.Key(k)).Label(label).Height(tabHeight).MaxWidth(tabMax).PaddingStart(8).PaddingEnd(4).
+				var closed *Tab
+				for _, t := range s.Tabs {
+					icon, label := s.look(c, t)
+					active := t == s.Active
+					tab := ui.ButtonBase(c.Key(t)).Label(label).Height(tabHeight).MaxWidth(tabMax).PaddingStart(8).PaddingEnd(4).
 						Gap(6).Radius(p.Radius).Cursor(ui.CursorPointer).TextColor(p.MutedForeground)
+					if t.Kind == File || t.Kind == Diff {
+						tab.Tooltip(t.ID)
+					}
 					hovered := tab.Hovered()
 					switch {
 					case active:
@@ -110,32 +174,41 @@ func (s *State) strip(c *ui.Context, keys Shortcut) {
 						tab.TextColor(p.Foreground)
 					}
 					tab.Children(func() {
-						ui.Icon(c, r.Icon).FontSize(14).Shrink(0)
+						ui.Icon(c, icon).FontSize(14).Shrink(0)
 						ui.Text(c, label).FontSize(14).SingleLine().Shrink(1)
-						x := kit.IconButton(c.Key("close"), icons.Close, i18n.T(c, "close"), 20, false).OnClick(func() { closed = k })
+						x := kit.IconButton(c.Key("close"), icons.Close, i18n.T(c, "close"), 20, false).OnClick(func() { closed = &t })
 						if !hovered && !active && !x.FocusVisible() {
 							x.Opacity(0)
 						}
-					}).OnClick(func() { s.Active = k })
+					}).OnClick(func() { s.focus(pr, t) })
 				}
-				if closed != "" {
-					s.Close(closed)
+				if closed != nil {
+					s.Close(*closed)
 				}
 			})
 		})
 		if len(s.Tabs) > Overflow {
 			kit.IconButton(c.Key("all"), icons.ChevronDown, i18n.T(c, "navigation_tabs"), 28, false).PopoverMenuButton(func(m *ui.Menu) {
-				for _, k := range s.Tabs {
-					r := ResourceOf(k)
-					if m.Item(i18n.T(c, r.Label)).Icon(icons.Menu(r.Icon)).Checked(k == s.Active).Chosen() {
-						s.Active = k
+				for _, t := range s.Tabs {
+					icon, label := s.look(c, t)
+					if m.Item(label).Icon(icons.Menu(icon)).Checked(t == s.Active).Chosen() {
+						s.focus(pr, t)
 					}
 				}
 			})
 		}
 		kit.IconButton(c.Key("add"), icons.Plus, i18n.T(c, "details"), 28, false).PopoverMenuButton(func(m *ui.Menu) {
 			for _, r := range Resources {
-				it := m.Item(i18n.T(c, r.Label)).Icon(icons.Menu(r.Icon)).Checked(r.Kind == s.Active)
+				if r.Kind == Documents {
+					for _, d := range s.Data.Documents {
+						t := Tab{Documents, d.ID}
+						if m.Item(d.Title).Icon(icons.Menu(icons.FileText)).Checked(t == s.Active).Chosen() {
+							s.Show(t)
+						}
+					}
+					continue
+				}
+				it := m.Item(i18n.T(c, r.Label)).Icon(icons.Menu(r.Icon)).Checked(r.Kind == s.Active.Kind)
 				if r.Key != 0 {
 					it.Shortcut(r.Mods, r.Key)
 				}
@@ -205,65 +278,73 @@ func status(c *ui.Context, path string, after func()) {
 	})
 }
 
-// files is the project's files: the shown file's preview beside the tree
+// files is the Files page: the shown file's preview beside the tree
 // (preview_files.rs: the preview first, the list after).
 func (pr *Project) files(c *ui.Context, own bool) {
 	v := &pr.Files
 	p := theme.Of(c)
 	ui.Row(c).Grow(1).MinHeight(0).AlignItems(ui.Stretch).Children(func() {
-		ui.Column(c.Key("preview")).Grow(1).MinWidth(0).Children(func() { pr.filePreview(c, own) })
+		ui.Column(c.Key("preview")).Grow(1).MinWidth(0).Children(func() { pr.filePreview(c, v.file, own) })
 		ui.Column(c.Key("tree")).Width(220).Shrink(0).BorderWidth(0, 0, 0, 1).BorderColor(p.Border).Children(func() {
-			// No title: the tree starts at preview_files.rs's p_2.
-			ui.Scroll(c.Key("scroll")).TrackScroll(scroll(&v.tree, own)).Grow(1).Padding(8).Children(func() {
-				tree := ui.TreeBase(c)
-				tree.Root.Children(func() {
-					var node func(n *preview.FileNode)
-					node = func(n *preview.FileNode) {
-						c.Key(n.Path)
-						var open *bool
-						if n.Children != nil {
-							if v.folders[n.Path] == nil {
-								o := true
-								v.folders[n.Path] = &o
-							}
-							open = v.folders[n.Path]
-						}
-						item := tree.Item(open)
-						row := item.Row.Height(rowHeight).PaddingStart(8 + 16*float32(item.Depth())).PaddingEnd(8).Gap(8).
-							Radius(p.Radius).Cursor(ui.CursorPointer).Label(n.Name)
-						selected := n.Path == v.file
-						text := p.MutedForeground
-						switch {
-						case selected:
-							row.Background(p.Hover)
-							text = p.HoverForeground
-						case row.Hovered():
-							text = p.Foreground
-						}
-						if row.Clicked() {
-							if open != nil {
-								*open = !*open
-							} else {
-								v.Show(n.Path)
-							}
-						}
-						row.TextColor(text).Children(func() {
-							icon := icons.File
-							if open != nil {
-								icon = icons.Folder
-							}
-							ui.Icon(c, icon).FontSize(16).TextColor(p.MutedForeground)
-							ui.Text(c, n.Name).FontSize(14).SingleLine().Shrink(1)
-						})
-						item.Group(func() {
-							for _, kid := range n.Children {
-								node(kid)
-							}
-						})
+			pr.tree(c, own, v.Show)
+		})
+	})
+}
+
+// tree is the project's file tree, starting at preview_files.rs's p_2 with
+// no title: 28 DIP rows indented 16 per level from 8. A file's click
+// calls open with its path; the shown file is selected.
+func (pr *Project) tree(c *ui.Context, own bool, open func(path string)) {
+	v := &pr.Files
+	p := theme.Of(c)
+	ui.Scroll(c.Key("scroll")).TrackScroll(scroll(&v.tree, own)).Grow(1).Padding(8).Children(func() {
+		tree := ui.TreeBase(c)
+		tree.Root.Children(func() {
+			var node func(n *preview.FileNode)
+			node = func(n *preview.FileNode) {
+				c.Key(n.Path)
+				var folder *bool
+				if n.Children != nil {
+					if v.folders[n.Path] == nil {
+						o := true
+						v.folders[n.Path] = &o
 					}
-					node(pr.Data.Files)
+					folder = v.folders[n.Path]
+				}
+				item := tree.Item(folder)
+				row := item.Row.Height(rowHeight).PaddingStart(8 + 16*float32(item.Depth())).PaddingEnd(8).Gap(8).
+					Radius(p.Radius).Cursor(ui.CursorPointer).Label(n.Name)
+				selected := n.Path == v.file
+				text := p.MutedForeground
+				switch {
+				case selected:
+					row.Background(p.Hover).AccessSelected(true)
+					text = p.HoverForeground
+				case row.Hovered():
+					text = p.Foreground
+				}
+				if row.Clicked() {
+					if folder != nil {
+						*folder = !*folder
+					} else {
+						open(n.Path)
+					}
+				}
+				row.TextColor(text).Children(func() {
+					icon := icons.File
+					if folder != nil {
+						icon = icons.Folder
+					}
+					ui.Icon(c, icon).FontSize(16).TextColor(p.MutedForeground)
+					ui.Text(c, n.Name).FontSize(14).SingleLine().Shrink(1)
 				})
-			})
+				item.Group(func() {
+					for _, kid := range n.Children {
+						node(kid)
+					}
+				})
+			}
+			node(pr.Data.Files)
 		})
 	})
 }
@@ -283,10 +364,10 @@ func findFile(n *preview.FileNode, path string) *preview.FileNode {
 // filePreview is the shown file, read-only: the toolbar (Save, Undo and
 // Redo disabled, Find, Document | Source for markdown), the text with
 // line numbers, and the status bar.
-func (pr *Project) filePreview(c *ui.Context, own bool) {
+func (pr *Project) filePreview(c *ui.Context, path string, own bool) {
 	p := theme.Of(c)
 	v := &pr.Files
-	f := findFile(pr.Data.Files, v.file)
+	f := findFile(pr.Data.Files, path)
 	if f == nil {
 		kit.Empty(c, icons.File, i18n.T(c, "file_empty"), "", nil)
 		return
@@ -341,62 +422,70 @@ func statusColor(p *theme.Palette, st string) ui.Color {
 	return p.Warning
 }
 
-// changes is the working tree's changes: the shown file's hunks beside the
-// list, and the commit box under it (preview_git.rs, hunks/render.rs).
+// changes is the Git page: the shown file's hunks beside the list and
+// the commit box (preview_git.rs, hunks/render.rs).
 func (pr *Project) changes(c *ui.Context, own bool) {
 	p := theme.Of(c)
 	v := &pr.Git
 	ui.Row(c).Grow(1).MinHeight(0).AlignItems(ui.Stretch).Children(func() {
-		ui.Column(c.Key("diff")).Grow(1).MinWidth(0).Children(func() { pr.diff(c, own) })
+		ui.Column(c.Key("diff")).Grow(1).MinWidth(0).Children(func() { pr.diff(c, v.change, own) })
 		ui.Column(c.Key("list")).Width(240).Shrink(0).BorderWidth(0, 0, 0, 1).BorderColor(p.Border).Children(func() {
-			ui.Row(c).Height(barHeight).PaddingStart(12).PaddingEnd(8).Shrink(0).Children(func() {
-				ui.Text(c, i18n.T(c, "changes")).FontSize(14).FontWeight(500).Grow(1)
-				kit.IconButtonHint(c.Key("stage"), icons.Plus, i18n.T(c, "git_stage_all"), i18n.T(c, "git_actions_preview"), 24, false).
-					Disabled(true)
-			})
-			ui.Scroll(c.Key("files")).TrackScroll(scroll(&v.list, own)).Grow(1).Padding(0, 8, 8, 8).Gap(2).Children(func() {
-				for _, ch := range pr.Data.Changes {
-					name := ch.Path[strings.LastIndex(ch.Path, "/")+1:]
-					b := ui.ButtonBase(c.Key(ch.Path)).Label(ch.Path).Height(rowHeight).PaddingX(8).Gap(8).Radius(p.Radius).
-						Cursor(ui.CursorPointer).TextColor(p.MutedForeground)
-					switch {
-					case ch.Path == v.change:
-						b.Background(p.Hover).TextColor(p.HoverForeground).AccessSelected(true)
-					case b.Hovered():
-						b.TextColor(p.Foreground)
-					}
-					b.Tooltip(ch.Path).Children(func() {
-						ui.Icon(c, icons.File).FontSize(16).TextColor(p.MutedForeground)
-						ui.Text(c, name).FontSize(14).SingleLine().Grow(1).Shrink(1)
-						ui.Text(c, ch.Status).FontSize(12).FontWeight(600).TextColor(statusColor(p, ch.Status))
-					}).OnClick(func() { v.Show(ch.Path) })
-				}
-			})
-			ui.Column(c.Key("commit")).Padding(12).Gap(8).Shrink(0).BorderWidth(1, 0, 0, 0).BorderColor(p.Border).Children(func() {
-				ui.TextArea(c.Key("message"), &v.commit).Placeholder(i18n.T(c, "git_commit_message")).Label(i18n.T(c, "git_commit_message")).
-					FillWidth().Height(64)
-				commit := i18n.T(c, "git_commit")
-				kit.Primary(c.Key("commit"), commit, true).FillWidth().Children(func() {
-					ui.Icon(c, icons.Check).FontSize(14)
-					ui.Text(c, commit).FontSize(14)
-				})
-				ui.Text(c, i18n.T(c, "git_preview_only")).FontSize(12).TextColor(p.MutedForeground)
-			})
+			pr.changeList(c, own, v.Show)
 		})
 	})
 }
 
-// diff is a changed file's hunks: a card each, its @@ line and Reject,
-// Stage and Accept over the lines with both numbers.
+// changeList is the working tree's changes over the commit box. A
+// change's click calls open with its path; the shown change is selected.
+func (pr *Project) changeList(c *ui.Context, own bool, open func(path string)) {
+	p := theme.Of(c)
+	v := &pr.Git
+	ui.Row(c).Height(barHeight).PaddingStart(12).PaddingEnd(8).Shrink(0).Children(func() {
+		ui.Text(c, i18n.T(c, "changes")).FontSize(14).FontWeight(500).Grow(1)
+		kit.IconButtonHint(c.Key("stage"), icons.Plus, i18n.T(c, "git_stage_all"), i18n.T(c, "git_actions_preview"), 24, false).
+			Disabled(true)
+	})
+	ui.Scroll(c.Key("files")).TrackScroll(scroll(&v.list, own)).Grow(1).Padding(0, 8, 8, 8).Gap(2).Children(func() {
+		for _, ch := range pr.Data.Changes {
+			name := ch.Path[strings.LastIndex(ch.Path, "/")+1:]
+			b := ui.ButtonBase(c.Key(ch.Path)).Label(ch.Path).Height(rowHeight).PaddingX(8).Gap(8).Radius(p.Radius).
+				Cursor(ui.CursorPointer).TextColor(p.MutedForeground)
+			switch {
+			case ch.Path == v.change:
+				b.Background(p.Hover).TextColor(p.HoverForeground).AccessSelected(true)
+			case b.Hovered():
+				b.TextColor(p.Foreground)
+			}
+			b.Tooltip(ch.Path).Children(func() {
+				ui.Icon(c, icons.File).FontSize(16).TextColor(p.MutedForeground)
+				ui.Text(c, name).FontSize(14).SingleLine().Grow(1).Shrink(1)
+				ui.Text(c, ch.Status).FontSize(12).FontWeight(600).TextColor(statusColor(p, ch.Status))
+			}).OnClick(func() { open(ch.Path) })
+		}
+	})
+	ui.Column(c.Key("commit")).Padding(12).Gap(8).Shrink(0).BorderWidth(1, 0, 0, 0).BorderColor(p.Border).Children(func() {
+		ui.TextArea(c.Key("message"), &v.commit).Placeholder(i18n.T(c, "git_commit_message")).Label(i18n.T(c, "git_commit_message")).
+			FillWidth().Height(64)
+		commit := i18n.T(c, "git_commit")
+		kit.Primary(c.Key("commit"), commit, true).FillWidth().Children(func() {
+			ui.Icon(c, icons.Check).FontSize(14)
+			ui.Text(c, commit).FontSize(14)
+		})
+		ui.Text(c, i18n.T(c, "git_preview_only")).FontSize(12).TextColor(p.MutedForeground)
+	})
+}
+
 // diffRow is a diff line: Kit's mono size (13) at 1.6 (content diff view).
 const diffRow = 13 * 1.6
 
-func (pr *Project) diff(c *ui.Context, own bool) {
+// diff is a changed file's hunks: a card each, its @@ line and Reject,
+// Stage and Accept over the lines with both numbers.
+func (pr *Project) diff(c *ui.Context, path string, own bool) {
 	p := theme.Of(c)
 	v := &pr.Git
 	var ch *preview.FileChange
 	for i := range pr.Data.Changes {
-		if pr.Data.Changes[i].Path == v.change {
+		if pr.Data.Changes[i].Path == path {
 			ch = &pr.Data.Changes[i]
 		}
 	}
@@ -512,21 +601,11 @@ func ago(c *ui.Context, t interface{ Unix() int64 }) string {
 	return i18n.T(c, "notifications_time_days", "count", d/86400)
 }
 
-// documents is the session's documents: a row each over the one shown,
-// rendered.
-func (s *State) documents(c *ui.Context) {
-	p := theme.Of(c)
-	toolbar(c, "docs", func() {
-		for _, d := range s.Data.Documents {
-			b := kit.Ghost(c.Key(d.ID), d.Title, d.ID == s.doc).Height(28).PaddingX(8).Gap(6)
-			b.Children(func() {
-				ui.Icon(c, icons.FileText).FontSize(14).TextColor(p.MutedForeground)
-				ui.Text(c, d.Title).FontSize(14).SingleLine()
-			}).OnClick(func() { s.doc = d.ID })
-		}
-	})
+// document is a session document's tab: the rendered document over its
+// path.
+func (s *State) document(c *ui.Context, id string) {
 	for _, d := range s.Data.Documents {
-		if d.ID != s.doc {
+		if d.ID != id {
 			continue
 		}
 		ui.Scroll(c.Key(d.ID)).Grow(1).Padding(16).Children(func() { markdown.View(c, d.Text, nil) })
@@ -544,18 +623,18 @@ func browser(c *ui.Context, s *State) {
 		kit.IconButton(c.Key("reload"), icons.Reload, i18n.T(c, "browser_reload"), 28, false).OnClick(func() { notice(c) })
 		ui.TextInput(c.Key("address"), &s.address).Placeholder(i18n.T(c, "browser_address")).Label(i18n.T(c, "browser_address")).
 			Grow(1).Height(28).OnSubmit(func() { notice(c) })
-		kit.IconButton(c.Key("new"), icons.Plus, i18n.T(c, "browser_new_tab"), 28, false).OnClick(func() { notice(c) })
+		kit.IconButton(c.Key("new"), icons.Plus, i18n.T(c, "browser_new_tab"), 28, false).OnClick(func() { s.New(Browser) })
 	})
 	placeholder(c, icons.Web, i18n.T(c, "resource_browser_preview"), p.Background)
 }
 
 // terminal is the terminal's chrome over its placeholder.
-func terminal(c *ui.Context) {
+func terminal(c *ui.Context, s *State) {
 	p := theme.Of(c)
 	toolbar(c, "terminal", func() {
 		ui.Icon(c, icons.Terminal).FontSize(14).TextColor(p.MutedForeground)
 		ui.Text(c, i18n.T(c, "terminal")).FontSize(14).Grow(1)
-		kit.IconButton(c.Key("new"), icons.Plus, i18n.T(c, "workspace_new_terminal"), 28, false).OnClick(func() { notice(c) })
+		kit.IconButton(c.Key("new"), icons.Plus, i18n.T(c, "workspace_new_terminal"), 28, false).OnClick(func() { s.New(Terminal) })
 	})
 	placeholder(c, icons.Terminal, i18n.T(c, "resource_terminal_preview"), p.Muted)
 }
