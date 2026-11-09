@@ -73,7 +73,7 @@ func (a *App) knowledge(c *ui.Context) {
 	w, h := c.Size()
 	ct := r.cite
 	title := i18n.T(c, "knowledge_source")
-	ui.Modal(c.Key("knowledge"), &r.open, func() {
+	kit.Dialog(c.Key("knowledge"), &r.open, func() {
 		ui.Text(c, title).FontSize(16).FontWeight(600)
 		ui.Text(c, ct.Title).FontSize(14).FontWeight(500)
 		lines := i18n.T(c, "knowledge_lines", "start", ct.Start, "end", ct.End)
@@ -86,7 +86,7 @@ func (a *App) knowledge(c *ui.Context) {
 			kit.Secondary(c.Key("next"), i18n.T(c, "knowledge_next")).Disabled(r.page >= len(ct.Pages)-1).OnClick(func() { r.page++ })
 			kit.Secondary(c.Key("close"), i18n.T(c, "knowledge_close")).OnClick(func() { r.open = false })
 		})
-	}).Width(min(800, w-48)).Label(title).Background(p.Floating()).TextColor(p.PopoverForeground)
+	}).Width(min(800, w-48)).Label(title)
 }
 
 // overlays are the window's search and knowledge viewer.

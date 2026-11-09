@@ -372,7 +372,7 @@ func (s *State) conversation(c *ui.Context, cv *preview.Conversation, kind rowKi
 		s.reorder(c, b, cv)
 	}
 	b.ContextMenu(func(m *ui.Menu) { s.sessionMenu(c, m, cv) })
-	b.Tooltip(s.details(c, cv))
+	s.details(c, b, cv)
 	b.TextColor(text).Children(func() {
 		if kind == rowTree {
 			guide(c, last)
@@ -465,22 +465,22 @@ func (s *State) TogglePin(cv *preview.Conversation) {
 	cv.Pinned, cv.PinOrder = true, &n
 }
 
-// details is the hover card of a session row (sidebar/details.rs): its
-// title, then its project, branch and worktree path. MyGo has no styled
-// hover card, so it is the row's styled tooltip.
-func (s *State) details(c *ui.Context, cv *preview.Conversation) string {
-	text := Title(c, cv)
-	pr := s.Data.ProjectOf(cv.ID)
-	if pr == nil {
-		return text
-	}
-	branch, path := pr.Branch, pr.Path
-	for _, w := range pr.Worktrees {
-		if cv.Worktree != "" && w.Branch == cv.Worktree {
-			branch, path = w.Branch, w.Path
+// details shows the hover card of a session row (sidebar/details.rs): its
+// title, then its project, branch and worktree path, right of the row and
+// centered on it (Anchor::LeftCenter).
+func (s *State) details(c *ui.Context, row ui.Element, cv *preview.Conversation) {
+	d := kit.Session{Title: Title(c, cv)}
+	if pr := s.Data.ProjectOf(cv.ID); pr != nil {
+		d.Project, d.Branch, d.Path = pr.Name, pr.Branch, pr.Path
+		for _, w := range pr.Worktrees {
+			if cv.Worktree != "" && w.Branch == cv.Worktree {
+				d.Branch, d.Path = w.Branch, w.Path
+			}
 		}
 	}
-	return text + "\n" + pr.Name + "\n" + branch + "\n" + path
+	kit.SessionCard(c, row, d, true, func(card ui.Element) {
+		card.AttachTo(row, ui.AnchorRight, ui.AnchorLeft).MarginStart(8)
+	})
 }
 
 // guide draws the dashed tree line and its arm to the row (sidebar/tree.rs):

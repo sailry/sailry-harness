@@ -174,7 +174,7 @@ func (a *App) searchOverlay(c *ui.Context) {
 		ch.run()
 	}
 	w, _ := c.Size()
-	ui.Modal(c.Key("search"), &s.open, func() {
+	kit.Dialog(c.Key("search"), &s.open, func() {
 		if s.folder != "" {
 			ui.Row(c.Key("back")).Height(36).PaddingX(4).Shrink(0).BorderWidth(0, 0, 1, 0).BorderColor(p.Border).Children(func() {
 				back := i18n.T(c, "reference_back")
@@ -247,6 +247,6 @@ func (a *App) searchOverlay(c *ui.Context) {
 				}
 			}
 		})
-	}).Width(min(480, w-40)).MaxHeightPercent(60).Padding(0).Gap(0).Background(p.Floating()).TextColor(p.PopoverForeground).
+	}).Width(min(480, w-40)).MaxHeightPercent(60).Padding(0).Gap(0).
 		Label(i18n.T(c, "search")).Clip()
 }

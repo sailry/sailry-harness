@@ -101,12 +101,17 @@ holds frames of an occluded one).
 
 ### Floating layers
 
-Floating layers (left-click menus, popovers, dialogs, tooltips, selects,
-toasts and hover cards) are MyGo's styled components as they are
-(`PopoverMenuButton`, `Popover`, `Modal`, `AlertDialog`,
-`Element.Tooltip`, `Select`, the default toasts), with no look of our own;
-the theme reaches them only through the MyGo theme slots `theme.Apply`
-sets. MyGo has no styled hover card, so hover cards are tooltips.
+Floating layers (left-click menus, popovers, dialogs, tooltips, selects
+and toasts) are MyGo's styled components (`PopoverMenuButton`, `Popover`,
+`AlertDialog`, `Element.Tooltip`, `Select`, the default toasts), adjusted
+through their own element props: popovers take the popover color
+(`Palette.Floating`, popover.background at full opacity) and Kit's
+padding where Rust sets it. Where MyGo has no styled component the app
+builds one on MyGo's bases: dialogs are `kit.Dialog` (DialogBase, Modal's
+look, a tenth of the window down as Kit places them), and session hover
+cards are `kit.SessionCard` (TooltipBase with its 0.6 second delay).
+`PopoverMenuButton` menus paint with MyGo's Background slot, which is also
+the window's, so they keep it.
 Right-click menus stay the system's (`Element.ContextMenu`).
 
 ## Wiring a backend

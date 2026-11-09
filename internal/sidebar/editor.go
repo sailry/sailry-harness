@@ -122,7 +122,7 @@ func (s *State) editorDialog(c *ui.Context) {
 	if e.Project != nil {
 		title = i18n.T(c, "project_edit")
 	}
-	ui.Modal(c.Key("editor"), &e.Open, func() {
+	kit.Dialog(c.Key("editor"), &e.Open, func() {
 		ui.Column(c.Key("head")).Gap(6).Children(func() {
 			ui.Text(c, title).FontSize(16).FontWeight(600)
 			ui.Text(c, i18n.T(c, "project_editor_preview")).FontSize(14).TextColor(p.MutedForeground)
@@ -180,7 +180,7 @@ func (s *State) editorDialog(c *ui.Context) {
 				s.saveProject(hostID)
 			})
 		})
-	}).Width(560).Label(title).Background(p.Floating()).TextColor(p.PopoverForeground)
+	}).Width(560).Label(title)
 }
 
 // saveProject applies the editor's draft to the preview, in memory.

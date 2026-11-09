@@ -296,13 +296,15 @@ func (a *App) overflowRow(c *ui.Context, cv *preview.Conversation, l lane, open 
 	a.preview(c, row, cv)
 }
 
-// preview is a session's hover card (ui/session_preview.rs): MyGo has no
-// styled hover card, so it is the styled tooltip of its title over its
-// project.
+// preview shows a session's hover card (ui/session_preview.rs): its title
+// over its project, right-aligned with anchor 40 DIPs under its top edge
+// (Anchor::TopRight, top_10), clearing the 28 DIP avatar.
 func (a *App) preview(c *ui.Context, anchor ui.Element, cv *preview.Conversation) {
 	project := i18n.T(c, "activity_no_project")
 	if pr := a.Data.ProjectOf(cv.ID); pr != nil {
 		project = pr.Name
 	}
-	anchor.Tooltip(sidebar.Title(c, cv) + "\n" + project)
+	kit.SessionCard(c, anchor, kit.Session{Title: sidebar.Title(c, cv), Project: project}, false, func(card ui.Element) {
+		card.AttachTo(anchor, ui.AnchorBottomEnd, ui.AnchorTopEnd).Margin(12, 0, 0, 0)
+	})
 }
