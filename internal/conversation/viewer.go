@@ -111,8 +111,8 @@ func (s *State) viewer(c *ui.Context, actions Actions) {
 			}
 			ui.Image(c, im.Source).Size(bw, bh).Fit(ui.Contain).Translate(v.X, v.Y).Scale(sx, sy).Rotate(float32(90 * (v.Turns % 4)))
 		})
-		bar := ui.Row(c.Key("bar")).Absolute().Bottom(24).Left((w - 440) / 2).Width(440).Height(40).Padding(4).Gap(2).
-			Radius(p.RadiusLg).Background(p.Floating()).TextColor(p.PopoverForeground).AlignItems(ui.Center).Justify(ui.Center)
+		bar := kit.Floating(c, ui.Row(c.Key("bar"))).Absolute().Bottom(24).Left((w - 440) / 2).Width(440).Height(40).Padding(4).Gap(2).
+			AlignItems(ui.Center).Justify(ui.Center)
 		bar.Children(func() {
 			btn := func(key string, icon *ui.SVG, label string, off bool, do func()) {
 				kit.IconButton(c.Key(key), icon, i18n.T(c, label), 32, false).Disabled(off).OnClick(do)

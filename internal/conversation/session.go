@@ -140,9 +140,7 @@ func selection(c *ui.Context, turn ui.Element, actions Actions) {
 	if strings.TrimSpace(text) == "" {
 		return
 	}
-	p := theme.Of(c)
-	ui.Row(c.Key("selection")).Absolute().Top(-4).Right(padX).Padding(4).Gap(4).Radius(18).Background(p.Floating()).
-		Border(1, p.Border).Shadow(0, 6, 20, 0, p.Backdrop().Alpha(0.18)).Children(func() {
+	kit.Floating(c, ui.Row(c.Key("selection"))).Absolute().Top(-4).Right(padX).Padding(4).Gap(4).Radius(18).Children(func() {
 		pill := func(key, label string, do func()) {
 			kit.Ghost(c.Key(key), label, false).Height(28).PaddingX(10).Radius(14).
 				Children(func() { ui.Text(c, label).FontSize(14) }).OnClick(do)

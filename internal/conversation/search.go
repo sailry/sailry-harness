@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-go/internal/kit"
 	"github.com/sailry/sailry-go/internal/theme"
 )
 
@@ -173,7 +174,6 @@ func (s *State) searchBar(c *ui.Context, id string, turns []Turn) {
 	if !f.open || f.conv != id {
 		return
 	}
-	p := theme.Of(c)
 	if r := []rune(f.query); len(r) > searchLimit {
 		f.query = string(r[:searchLimit])
 	}
@@ -185,9 +185,8 @@ func (s *State) searchBar(c *ui.Context, id string, turns []Turn) {
 		}
 	}
 	w, _ := c.Size()
-	bar := ui.FindBar(c.Key("search-bar"), &f.open, &f.query, len(f.matches), &f.index).
-		Absolute().Top(8).Right(16).Width(min(420, w-32)).Radius(p.RadiusLg).Background(p.Floating()).
-		Border(1, p.Border).Shadow(0, 6, 20, 0, p.Backdrop().Alpha(0.18))
+	bar := kit.Floating(c, ui.FindBar(c.Key("search-bar"), &f.open, &f.query, len(f.matches), &f.index)).
+		Absolute().Top(8).Right(16).Width(min(420, w-32))
 	if bar.Changed() && len(f.matches) > 0 {
 		s.List(id).ScrollTo(f.matches[f.index].Turn, ui.Center)
 	}

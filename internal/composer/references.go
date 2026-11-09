@@ -331,9 +331,8 @@ func (s *State) referencePicker(c *ui.Context, ctx *Context, actions Actions, su
 	}
 	w, _ := c.Size()
 	ui.Overlay(c, func() {
-		ui.Column(c.Key("reference-picker")).AttachTo(surface, ui.AnchorTopStart, ui.AnchorBottomStart).Margin(0, 0, 4, 0).
-			Width(min(340, w-48)).Padding(4).Gap(4).Radius(p.RadiusLg).Background(p.Floating()).TextColor(p.PopoverForeground).
-			Border(1, p.Border).Shadow(0, 6, 20, 0, p.Backdrop().Alpha(0.18)).Role(ui.RoleList).Label(title).Children(func() {
+		kit.Floating(c, ui.Column(c.Key("reference-picker"))).AttachTo(surface, ui.AnchorTopStart, ui.AnchorBottomStart).Margin(0, 0, 4, 0).
+			Width(min(340, w-48)).Padding(4).Gap(4).Role(ui.RoleList).Label(title).Children(func() {
 			ui.Row(c.Key("title")).Gap(4).PaddingX(4).MinWidth(0).AlignItems(ui.Center).Children(func() {
 				if len(st.path) > 0 {
 					kit.IconButton(c.Key("back"), icons.ArrowLeft, i18n.T(c, "reference_back"), 24, false).OnClick(func() {

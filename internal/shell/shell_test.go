@@ -223,6 +223,8 @@ func TestApprovalsAndQuestion(t *testing.T) {
 	}
 	// The question: choose an option and submit.
 	clickButton(t, tt, i18n.In("en", "question_reply"))
+	tt.Advance(time.Second) // the popover's entrance
+	tt.Frame()
 	// The popover sits above its capsule, right-aligned with it, 8 DIPs
 	// apart (Anchor::BottomRight, bottom_2): Submit ends at Kit's popover
 	// padding (12) and MyGo's border (1).
@@ -245,6 +247,8 @@ func TestApprovalsAndQuestion(t *testing.T) {
 func TestModelPickerAndEffort(t *testing.T) {
 	a, tt := newTester(t)
 	click(t, tt, i18n.In("en", "composer_model_settings")+": Claude Opus 5.5")
+	tt.Advance(time.Second) // the popover's entrance
+	tt.Frame()
 	snapshot(t, tt, "model-picker")
 	if !tt.HasText("medium") {
 		t.Fatalf("the picker does not show the effort: %q", tt.Texts())
@@ -263,6 +267,9 @@ func TestModelPickerAndEffort(t *testing.T) {
 	// The model list chooses another model; a reasoning model takes its
 	// effort from a submenu.
 	clickButton(t, tt, "Claude Opus 5.5") // the panel's model, which opens the list
+	// The list opens under the pointer, whose row opens its efforts on
+	// hover; Escape closes that menu and keeps the list.
+	tt.Key(0, ui.KeyEscape)
 	clickButton(t, tt, i18n.In("en", "provider_openai"))
 	clickItem(t, tt, "GPT-5.2")
 	clickItem(t, tt, "high")

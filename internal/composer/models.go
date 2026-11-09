@@ -151,10 +151,9 @@ func (s *State) modelChip(c *ui.Context, ctx *Context, actions Actions) {
 			}
 		}
 	}).OnClick(func() { s.picker, s.layer = !s.picker, layerMain })
-	panel := ui.Popover(c, chip, &s.picker, func() { s.controls(c, ctx, actions) })
+	panel := kit.Popover(c, chip, &s.picker, func() { s.controls(c, ctx, actions) })
 	if panel != (ui.Element{}) {
-		panel.AttachTo(chip, ui.AnchorTopEnd, ui.AnchorBottomEnd).Margin(0, 0, 8, 0).Padding(12).Width(panelWidth + 24).
-			Background(p.Floating())
+		panel.AttachTo(chip, ui.AnchorTopEnd, ui.AnchorBottomEnd).Margin(0, 0, 8, 0).Padding(12).Width(panelWidth + 24)
 	}
 }
 
@@ -584,8 +583,7 @@ func scoreTip(c *ui.Context, anchor ui.Element, sc *Score) {
 	axes := []string{"model_score_axis_backend", "model_score_axis_frontend", "model_score_axis_knowledge",
 		"model_score_axis_aesthetic", "model_score_axis_maintainability"}
 	ui.TooltipBase(c, anchor, func(tip ui.Element) {
-		tip.Padding(8, 10).Gap(4).Radius(p.Radius).Background(p.Floating()).TextColor(p.PopoverForeground).Border(1, p.Border).
-			Width(200)
+		kit.Floating(c, tip).Padding(8, 10).Gap(4).Radius(p.Radius).Width(200)
 		tip.Children(func() {
 			ui.Row(c).FillWidth().Justify(ui.SpaceBetween).Children(func() {
 				ui.Text(c, i18n.T(c, "model_score_overall")).FontSize(12).TextColor(p.MutedForeground)

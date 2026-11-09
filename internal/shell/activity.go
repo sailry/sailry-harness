@@ -70,7 +70,7 @@ func (a *App) bell(c *ui.Context) {
 		})
 	}
 	w, h := c.Size()
-	panel := ui.Popover(c, b, &a.activity, func() {
+	panel := kit.Popover(c, b, &a.activity, func() {
 		ui.Row(c.Key("head")).Height(40).PaddingStart(8).Gap(4).Children(func() {
 			center := i18n.T(c, "notification_center")
 			kit.Ghost(c.Key("center"), center, false).Height(28).PaddingX(4).Gap(4).Children(func() {
@@ -101,7 +101,7 @@ func (a *App) bell(c *ui.Context) {
 		})
 	})
 	if panel != (ui.Element{}) {
-		panel.AttachTo(b, ui.AnchorRight, ui.AnchorLeft).MarginStart(8).Width(min(320, w-32)).Gap(4).Background(p.Floating())
+		panel.AttachTo(b, ui.AnchorRight, ui.AnchorLeft).MarginStart(8).Width(min(320, w-32)).Gap(4)
 	}
 }
 
@@ -267,7 +267,7 @@ func (a *App) overflow(c *ui.Context, l lane, list []*preview.Conversation, rest
 			ui.Textf(c, "+%d", rest).FontSize(12).TextColor(color)
 		})
 		_, h := c.Size()
-		panel := ui.Popover(c, b, open, func() {
+		panel := kit.Popover(c, b, open, func() {
 			ui.Scroll(c.Key("list")).MaxHeight(min(320, h-96)).Gap(4).Children(func() {
 				for _, cv := range list {
 					a.overflowRow(c, cv, l, open)
@@ -275,7 +275,7 @@ func (a *App) overflow(c *ui.Context, l lane, list []*preview.Conversation, rest
 			})
 		})
 		if panel != (ui.Element{}) {
-			panel.AttachTo(b, ui.AnchorBottomEnd, ui.AnchorTopEnd).Margin(4, 0, 0, 0).Width(300).Background(p.Floating())
+			panel.AttachTo(b, ui.AnchorBottomEnd, ui.AnchorTopEnd).Margin(4, 0, 0, 0).Width(300)
 		}
 	})
 }

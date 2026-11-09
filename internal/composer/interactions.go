@@ -167,7 +167,7 @@ func capsule(c *ui.Context, label string, open bool) ui.Element {
 func place(c *ui.Context, panel, anchor ui.Element, gap float32) {
 	if panel != (ui.Element{}) {
 		panel.AttachTo(anchor, ui.AnchorTopEnd, ui.AnchorBottomEnd).Margin(0, 0, 8, 0).
-			Padding(12).Width(320 + 2*12).Gap(gap).Background(theme.Of(c).Floating())
+			Padding(12).Width(320 + 2*12).Gap(gap)
 	}
 }
 
@@ -178,7 +178,7 @@ func (s *State) approvals(c *ui.Context, list []Approval, actions Actions) {
 	label := i18n.T(c, "approval_live_count", "count", len(list))
 	trigger := capsule(c.Key("approvals"), label, s.in.approvals).OnClick(func() { s.in.approvals = !s.in.approvals })
 	s.in.at = min(max(s.in.at, 0), len(list)-1)
-	place(c, ui.Popover(c, trigger, &s.in.approvals, func() {
+	place(c, kit.Popover(c, trigger, &s.in.approvals, func() {
 		if len(list) > 1 {
 			ui.Row(c.Key("pager")).Gap(4).Children(func() {
 				ui.Textf(c, "%d/%d", s.in.at+1, len(list)).FontSize(14).TextColor(p.MutedForeground)
@@ -324,7 +324,7 @@ func (s *State) ask(c *ui.Context, q *Ask, actions Actions) {
 	}
 	label := i18n.T(c, "question_reply")
 	trigger := capsule(c.Key("question"), label, in.question).OnClick(func() { in.question = !in.question })
-	place(c, ui.Popover(c, trigger, &in.question, func() {
+	place(c, kit.Popover(c, trigger, &in.question, func() {
 		ui.Scroll(c).Gap(16).Children(func() {
 			ui.Text(c, q.Prompt).FontSize(14).FontWeight(500)
 			other := len(q.Options) // the index of Other

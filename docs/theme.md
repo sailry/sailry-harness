@@ -101,14 +101,12 @@ holds frames of an occluded one).
 
 ### Floating layers
 
-Floating layers (popovers, dialogs, tooltips and toasts) are MyGo's
-styled components (`Popover`, `AlertDialog`, `Element.Tooltip`, the
-default toasts), adjusted through their own element props: popovers take
-the popover color (`Palette.Floating`, popover.background at full
-opacity) and Kit's padding where Rust sets it. Where MyGo has no styled
-component the app builds one on MyGo's bases: dialogs are `kit.Dialog`
-(DialogBase, Modal's look, a tenth of the window down as Kit places
-them), and session hover cards are `kit.SessionCard` (TooltipBase with
+Floating layers are built on MyGo's bases. Popovers are `kit.Popover`
+(`internal/kit/popover.go`, PopoverBase with MyGo's popup motion, at
+least as wide as the anchor), and dialogs are `kit.Dialog`
+(`internal/kit/dialog.go`, adapted from Lobe MyGo's modal: DialogBase, a
+tenth of the window down as Kit places them, the dimmed backdrop, a
+close button, scale-and-fade motion, Escape and backdrop close). Session hover cards are `kit.SessionCard` (TooltipBase with
 its 0.6 second delay). Left-click menus and selects are `kit.MenuButton`
 and `kit.Select` (`internal/kit/menu.go`, on MenuBase): MyGo's drawn
 menus paint the window's Background and highlight with the theme's
@@ -135,7 +133,9 @@ Lobe MyGo's feedback.ToastHost) draws MyGo's toast queue once at the
 window's root: stacked bottom right, spread on hover, the type's icon
 and color, close and action. Floating panels paint through
 `kit.Floating` (`internal/kit/floating.go`), the one place their surface
-is set.
+is set: menus, selects, popovers, dialogs, toasts, tooltips, hover
+cards, the reference picker, find bars, the selection toolbar and the
+image viewer's bar.
 
 ## Wiring a backend
 

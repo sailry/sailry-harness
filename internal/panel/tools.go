@@ -151,8 +151,8 @@ func (s *State) terminal(c *ui.Context, t Tab) {
 		ui.Column(c.Key("screen")).Grow(1).MinHeight(0).Children(func() {
 			placeholder(c, icons.Terminal, i18n.T(c, "workspace_terminal_preview")+"\n"+i18n.T(c, "workspace_reset_count", "count", x.resets), p.Muted)
 			w, _ := c.Size()
-			bar := ui.FindBar(c.Key("find-bar"), &x.find, &x.query, 0, &x.match).Placeholder(i18n.T(c, "terminal_search_placeholder")).
-				Absolute().Top(4).Right(8).Width(min(420, w-32)).Radius(p.Radius).Background(p.Floating()).Border(1, p.Border)
+			bar := kit.Floating(c, ui.FindBar(c.Key("find-bar"), &x.find, &x.query, 0, &x.match).Placeholder(i18n.T(c, "terminal_search_placeholder"))).
+				Absolute().Top(4).Right(8).Width(min(420, w-32)).Radius(p.Radius)
 			if bar.OverlayShortcut(0, ui.KeyEscape) {
 				x.find = false
 			}

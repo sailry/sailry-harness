@@ -28,8 +28,7 @@ func SessionCard(c *ui.Context, anchor ui.Element, s Session, detailed bool, pla
 		if detailed {
 			width = 320
 		}
-		card.Width(min(width, w-48)+2*12).Padding(12).Gap(8).Radius(p.RadiusLg).Border(1, p.Border).
-			Background(p.Floating()).TextColor(p.PopoverForeground)
+		Floating(c, card).Width(min(width, w-48) + 2*12).Padding(12).Gap(8)
 		card.Children(func() {
 			if !detailed {
 				ui.Text(c, s.Title).FontSize(14).FontWeight(600).LineHeight(20.0 / 14).MaxLines(2)

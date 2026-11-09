@@ -124,7 +124,7 @@ func (a *App) moreButton(c *ui.Context) {
 	label := i18n.T(c, "features_all")
 	b := kit.IconButton(c.Key("more"), icons.Ellipsis, label, 36, a.more).OnClick(func() { a.more = !a.more })
 	b.HasPopup(ui.PopupMenu).Expanded(a.more)
-	panel := ui.Popover(c, b, &a.more, func() {
+	panel := kit.Popover(c, b, &a.more, func() {
 		ui.Scroll(c.Key("features")).Gap(1).Children(func() {
 			for _, id := range a.features {
 				f, ok := featureOf(id)
@@ -183,7 +183,7 @@ func (a *App) moreButton(c *ui.Context) {
 		})
 	})
 	if panel != (ui.Element{}) {
-		panel.AttachTo(b, ui.AnchorRight, ui.AnchorLeft).MarginStart(8).MinWidth(240).MaxHeight(480).Background(p.Floating())
+		panel.AttachTo(b, ui.AnchorRight, ui.AnchorLeft).MarginStart(8).MinWidth(240).MaxHeight(480)
 	}
 }
 

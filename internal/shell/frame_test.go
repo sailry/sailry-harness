@@ -217,6 +217,7 @@ func TestMoreDragShowsInsertionLine(t *testing.T) {
 	}
 	a.more = true
 	tt.Frame()
+	tt.Advance(time.Second) // the popover's entrance
 	tt.Frame()
 	row := func(key string) ui.Rect {
 		r, ok := tt.Find(i18n.In("en", key))

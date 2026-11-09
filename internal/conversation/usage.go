@@ -7,6 +7,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-go/internal/i18n"
 	"github.com/sailry/sailry-go/internal/icons"
+	"github.com/sailry/sailry-go/internal/kit"
 	"github.com/sailry/sailry-go/internal/theme"
 )
 
@@ -64,8 +65,7 @@ func UsageBar(c *ui.Context, u *Usage) {
 				ui.Text(c, m.Value).FontSize(14).SingleLine()
 			})
 			ui.TooltipBase(c, item, func(card ui.Element) {
-				card.AttachTo(item, ui.AnchorTopEnd, ui.AnchorBottomEnd).Margin(0, 0, 6, 0).Padding(12, 14).Gap(4).
-					Radius(p.RadiusLg).Border(1, p.Border).Background(p.Floating()).TextColor(p.PopoverForeground)
+				kit.Floating(c, card).AttachTo(item, ui.AnchorTopEnd, ui.AnchorBottomEnd).Margin(0, 0, 6, 0).Padding(12, 14).Gap(4)
 				card.Children(func() {
 					ui.Text(c, i18n.T(c, m.Label)).FontSize(12).TextColor(p.MutedForeground)
 					ui.Text(c, m.Value).FontSize(14).FontWeight(500)

@@ -48,7 +48,7 @@ func Button(c *ui.Context, q *Queue, open *bool, retry func(e Entry)) {
 		})
 	}
 	w, h := c.Size()
-	panel := ui.Popover(c, b, open, func() {
+	panel := kit.Popover(c, b, open, func() {
 		ui.Row(c.Key("heading")).Height(40).PaddingX(8).Shrink(0).Children(func() {
 			ui.Text(c, label).FontSize(14).FontWeight(600)
 		})
@@ -66,7 +66,7 @@ func Button(c *ui.Context, q *Queue, open *bool, retry func(e Entry)) {
 		})
 	})
 	if panel != (ui.Element{}) {
-		panel.AttachTo(b, ui.AnchorRight, ui.AnchorLeft).MarginStart(8).Width(min(320, w-32)).Padding(8).Background(p.Floating())
+		panel.AttachTo(b, ui.AnchorRight, ui.AnchorLeft).MarginStart(8).Width(min(320, w-32)).Padding(8)
 	}
 }
 

@@ -385,7 +385,7 @@ func (s *State) settingsButton(c *ui.Context, ctx *Context, actions Actions) {
 	b.HasPopup(ui.PopupDialog).Expanded(s.settings).OnClick(func() {
 		s.settings, s.page, s.layer = !s.settings, settingsMain, layerMain
 	})
-	panel := ui.Popover(c, b, &s.settings, func() {
+	panel := kit.Popover(c, b, &s.settings, func() {
 		row := func(key string, icon *ui.SVG, label string, color ui.Color, page settingsPage) {
 			kit.Ghost(c.Key(key), label, false).FillWidth().Height(32).PaddingX(8).Gap(8).Justify(ui.Start).TextColor(color).
 				Children(func() {
@@ -430,7 +430,6 @@ func (s *State) settingsButton(c *ui.Context, ctx *Context, actions Actions) {
 		}
 	})
 	if panel != (ui.Element{}) {
-		panel.AttachTo(b, ui.AnchorTopStart, ui.AnchorBottomStart).Margin(0, 0, 8, 0).Padding(8).Width(312).Gap(4).
-			Background(p.Floating())
+		panel.AttachTo(b, ui.AnchorTopStart, ui.AnchorBottomStart).Margin(0, 0, 8, 0).Padding(8).Width(312).Gap(4)
 	}
 }
