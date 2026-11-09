@@ -57,7 +57,6 @@ func Tag(c *ui.Context, text string) ui.Element {
 		Background(p.Primary.Alpha(0.12)).TextColor(p.Primary)
 }
 
-
 // Loader draws the sidebar's running indicator (ui/loading.rs in the
 // reference): a 2x3 dot matrix whose dots light in turn. Custom drawing: MyGo
 // has a Spinner of spokes but no dot matrix, and a Spinner cannot be capped

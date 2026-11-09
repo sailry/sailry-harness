@@ -9,10 +9,10 @@ import (
 	"github.com/sailry/sailry-go/internal/conversation"
 	"github.com/sailry/sailry-go/internal/i18n"
 	"github.com/sailry/sailry-go/internal/icons"
+	"github.com/sailry/sailry-go/internal/kit"
 	"github.com/sailry/sailry-go/internal/preview"
 	"github.com/sailry/sailry-go/internal/settings"
 	"github.com/sailry/sailry-go/internal/sidebar"
-	"github.com/sailry/sailry-go/internal/kit"
 	"github.com/sailry/sailry-go/internal/theme"
 )
 

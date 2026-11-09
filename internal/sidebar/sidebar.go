@@ -10,8 +10,8 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-go/internal/i18n"
 	"github.com/sailry/sailry-go/internal/icons"
-	"github.com/sailry/sailry-go/internal/preview"
 	"github.com/sailry/sailry-go/internal/kit"
+	"github.com/sailry/sailry-go/internal/preview"
 	"github.com/sailry/sailry-go/internal/theme"
 )
 
