@@ -129,8 +129,10 @@ func (a *App) noticeRow(c *ui.Context, n *preview.Notice) {
 			t.FontWeight(500)
 		}
 		ui.Text(c, age).FontSize(12).SingleLine().TextColor(p.MutedForeground).Shrink(0)
+		// The dot's room stays when read, so the ages line up.
+		dot := ui.Box(c).Size(6, 6).Radius(3).Shrink(0)
 		if !n.Read {
-			ui.Box(c).Size(6, 6).Radius(3).Background(p.Primary).Shrink(0)
+			dot.Background(p.Primary)
 		}
 	}).OnClick(func() {
 		n.Read = true

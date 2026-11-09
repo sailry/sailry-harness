@@ -215,8 +215,8 @@ func featureDropLine(c *ui.Context, p *theme.Palette, after bool) {
 }
 
 // hostPicker is the host picker (shell/rail/hosts.rs): the hosts with a check
-// on this one, Update where one is ready, and Add host; a dot when a host
-// has an update. Its right-click menu is the system's.
+// on this one, and Add host; a dot when a host has an update, which the
+// host's page offers. Its right-click menu is the system's.
 func (a *App) hostPicker(c *ui.Context) {
 	p := theme.Of(c)
 	update := false
@@ -227,13 +227,9 @@ func (a *App) hostPicker(c *ui.Context) {
 		kit.IconLook(c, b, icons.Monitor, i18n.T(c, "hosts"), "", 36, a.Page == HostPage)
 	}, func(m *kit.Menu) {
 		for _, h := range a.Data.Hosts {
-			it := m.Item(i18n.T(c, h.Name)).Checked(h.ID == a.Host)
-			if h.Update {
-				// Update the host: its page with the update dialog
-				// (update_live_host; the preview's dialog plays it).
-				it.Action(i18n.T(c, "sidebar_host_update"), func() { a.openHost(h.ID, true) })
-			}
-			if it.Chosen() {
+			// No trailing Update: the host's page offers it, and the
+			// button's dot tells one is ready.
+			if m.Item(i18n.T(c, h.Name)).Checked(h.ID == a.Host).Chosen() {
 				a.openHost(h.ID, false)
 			}
 		}

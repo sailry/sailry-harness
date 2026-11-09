@@ -77,9 +77,9 @@ destinations do: Files and Git over the selected conversation's project
 Activity and Market as the reference's preview shows them (`unavailable`).
 The panel shows on the conversation page only; selecting a conversation
 over a page goes back to it, and `ClosePage` closes the page shown. Hosts: a menu with the hosts (check on the chosen one, `App.Host`),
-each opening its page (`HostPage`, docs/host.md), `sidebar_host_update`
-opening it with the update dialog, `host_add` opening Settings ›
-Connections' Add host; a dot when one has an update; its right-click menu
+each opening its page (`HostPage`, docs/host.md, whose Update opens the
+update dialog; no trailing Update in the menu), `host_add` opening
+Settings › Connections' Add host; a dot when one has an update; its right-click menu
 is the system's (`workspace_host` opens the chosen host's page,
 `connection_action_edit`, `project_add`). The host page has the right
 column too: its metrics, toggled by the details button and ⌥⌘B.

@@ -72,9 +72,10 @@ func Button(c *ui.Context, q *Queue, open *bool, retry func(e Entry)) {
 
 // row is a request (rows.rs render_item): 56 high, a 28 DIP tile with the
 // kind's icon (danger or warning tinted when it failed or is uncertain),
-// the title over the status and where it runs, a 2 DIP bar while it runs,
-// the measure, a clock while queued, then Remove on hover and Retry. The
-// pointer resting on it shows the whole detail.
+// the title over its progress bar, a clock while queued; on hover Remove,
+// and Retry for a failed or uncertain one, float at the row's right end,
+// taking no room. The status, where it runs and the measure are its
+// accessible name.
 func row(c *ui.Context, e Entry, remove, retry func()) {
 	p := theme.Of(c)
 	phase := i18n.T(c, e.Label())
@@ -85,8 +86,7 @@ func row(c *ui.Context, e Entry, remove, retry func()) {
 	if e.Controller {
 		where = i18n.T(c, "installation_controller")
 	}
-	summary := phase + " · " + where
-	status := summary
+	status := phase + " · " + where
 	if m := e.Measure(); m != "" {
 		status += " · " + m
 		if e.Speed > 0 {
@@ -104,7 +104,7 @@ func row(c *ui.Context, e Entry, remove, retry func()) {
 	case Uncertain:
 		icon, tone, tile = icons.CircleQuestion, p.Warning, p.Warning.Alpha(0.1)
 	}
-	r := ui.Row(c.Key(e.Key)).Height(56).PaddingX(8).Gap(8).Radius(p.Radius).Label(detail).Tooltip(detail)
+	r := ui.Row(c.Key(e.Key)).Height(56).PaddingX(8).Gap(8).Radius(p.Radius).Label(detail)
 	hovered := r.Hovered()
 	if hovered {
 		r.Background(p.ListHover)
@@ -113,20 +113,17 @@ func row(c *ui.Context, e Entry, remove, retry func()) {
 		ui.Row(c.Key("tile")).Size(28, 28).Shrink(0).Radius(p.Radius).Background(tile).Center().Children(func() {
 			ui.Icon(c, icon).FontSize(16).TextColor(tone)
 		})
-		ui.Column(c.Key("text")).Grow(1).Shrink(1).MinWidth(0).Gap(4).Children(func() {
+		ui.Column(c.Key("text")).Grow(1).Shrink(1).MinWidth(0).Gap(8).Children(func() {
 			ui.Text(c, e.Title).FontSize(14).SingleLine()
-			ui.Text(c, summary).FontSize(14).SingleLine().TextColor(p.MutedForeground)
-			if e.Active() {
-				v, measured := e.Measured()
-				if !measured {
+			v, measured := e.Measured()
+			if !measured {
+				v = 0
+				if e.Active() {
 					v = -100
 				}
-				ui.Progress(c.Key("progress"), v/100).FillWidth().Height(2).Label(status)
 			}
+			ui.Progress(c.Key("progress"), v/100).FillWidth().Height(2).Label(status)
 		})
-		if m := e.Measure(); m != "" {
-			ui.Text(c, m).FontSize(14).Shrink(0).TextColor(p.MutedForeground)
-		}
 		if e.Status == Waiting || e.Status == Queued {
 			ui.Row(c.Key("queued")).PaddingX(4).Shrink(0).Children(func() {
 				ui.Icon(c, icons.Clock).FontSize(16).TextColor(p.MutedForeground)
@@ -135,13 +132,18 @@ func row(c *ui.Context, e Entry, remove, retry func()) {
 		if !e.Actionable {
 			return
 		}
-		ui.Row(c.Key("actions")).Gap(4).Shrink(0).Children(func() {
-			x := kit.IconButton(c.Key("remove"), icons.Close, i18n.T(c, "installation_remove"), 24, false).OnClick(remove)
-			if !hovered && !x.FocusVisible() {
-				x.Opacity(0)
-			}
+		slot := ui.Row(c.Key("actions")).Absolute().Right(8).Top(0).Bottom(0).AlignItems(ui.Center).Gap(4)
+		slot.Children(func() {
+			var shown bool
 			if e.Retryable {
-				kit.IconButton(c.Key("retry"), icons.Redo, i18n.T(c, "installation_retry"), 24, false).TextColor(tone).OnClick(retry)
+				y := kit.IconButton(c.Key("retry"), icons.Redo, i18n.T(c, "installation_retry"), 24, false).TextColor(tone).OnClick(retry)
+				shown = shown || y.FocusVisible()
+			}
+			x := kit.IconButton(c.Key("remove"), icons.Close, i18n.T(c, "installation_remove"), 24, false).OnClick(remove)
+			if !hovered && !shown && !x.FocusVisible() {
+				slot.Opacity(0)
+			} else {
+				slot.Background(p.ListHover).Radius(p.Radius)
 			}
 		})
 	})

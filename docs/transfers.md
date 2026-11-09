@@ -36,11 +36,12 @@ one failed or is uncertain. The popover: 320 wide to the right of the
 button, `installation_title` in a 40 DIP heading, the rows up to 55% of the
 window (400 at most), or the empty state. A row: 56 high, a 28 DIP tile
 (muted; danger or warning at 10% for failed and uncertain) with the kind's
-icon (package, processor, code), the title over `phase · where` (`… ·
-Disconnected` while offline), a 2 DIP bar while running, the measure
-(`45%`, `3/10`), a clock while queued, Remove on hover and Retry for a
-retryable one; its tooltip is the title, the status with speed and the
-error.
+icon (package, processor, code), the title over a 2 DIP progress bar (the
+measure; turning while running unmeasured; no status or measure text),
+a clock while queued; on hover Remove, and Retry for a retryable one,
+float at the row's right end, vertically centred, taking no room. No
+tooltip; the status (`phase · where`, `… · Disconnected` while offline),
+the measure with speed and the error are the row's accessible name.
 
 The Save as dialog: 460 wide, the file over its destination, the progress
 bar (unknown while preparing and publishing, none after a failure), the
