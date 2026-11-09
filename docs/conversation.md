@@ -17,18 +17,28 @@ Kit's `MessageScroller`.
 | `conversation.go` | `State`, `View`, turns, the reply's header, work region, phase row and footer |
 | `tools.go` | Tool rows, groups, sequences, outputs, diffs, tables, progress, question history, subagents |
 | `jump.go` | The jump-to-latest button |
-| `group_test.go`, `jump_test.go`, `bench_test.go` | Tests and benchmarks |
+| `content.go` | File cards, thumbnails, visuals, notices, grounding, retries, compaction turns, the changes card, `Cite`, `Kind`, `FileIcon` |
+| `viewer.go` | The image viewer (`Viewer`: zoom, pan, turn, flip, gallery) |
+| `actions.go` | The reply and user footers, fork and export menus, rewind confirmation, `AnswerText`, `Resendable` |
+| `search.go` | ⌘F search bar, `Find`, `Mark`, match highlights and reveal |
+| `session.go` | Loading, older pages, connection banner, diagnostic, selection pill, `Quote` |
+| `usage.go` | The context bar's metrics and context ring (`UsageBar`, `Metrics`, `Count`) |
+| `group_test.go`, `jump_test.go`, `live_test.go`, `bench_test.go` | Tests and benchmarks |
 
 Shared motion (`kit.Shimmer`, `kit.Identicon`, `kit.EaseOutCubic`, `kit.Fast`)
-is in `internal/kit/motion.go`.
+is in `internal/kit/motion.go`; the thinking indicator (`kit.Indicator`:
+Orbits, Globe, Ribbon, Ring) in `internal/kit/thinking.go`. File previews
+open as `panel.Artifact` tabs (`internal/panel/artifact.go`), subagent
+sessions as `panel.Subagent` tabs that the shell fills with this `View`.
 
 ## Entry point
 
 ```go
-func View(c *ui.Context, s *State, id string, turns []Turn, actions Actions)
+func View(c *ui.Context, s *State, id string, turns []Turn, sess *Session, actions Actions)
 ```
 
-`s` is UI state (`conversation.New()`, one per window). `id` names the
+`sess` is the session around the turns (paging, connection, diagnostic,
+usage); nil is a loaded, connected session at its start. `s` is UI state (`conversation.New()`, one per window). `id` names the
 conversation, so each keeps its scroll place. `turns` is backend data in
 order, oldest first. The view never changes `turns`.
 
@@ -187,21 +197,85 @@ Kit `MessageScroller`, in `jump.go`:
   user who scrolled up stays where they are.
 - The list's role is `Log`.
 
+### Live features (phase 4a, provisional fields)
+
+| Type / field | Shows |
+|---|---|
+| `Turn.Sent`, `Reply.Finished` | Hover times in the user and reply footers |
+| `Turn.Images`, `Turn.Files` | Attachments under the bubble: thumbnails (viewer on click) and file cards |
+| `Turn.Notices` (`Notice`: Title, Agent, Outcome) | Background results bubble, outcome tone danger/warning/muted |
+| `Turn.Compaction` (`State`, `Summary`, `Cause`) | A compaction turn: centered status (shimmer while running), summary or failure disclosure |
+| `Reply.Citations` (`URI`, `Title`, `End` in runes) | Numbered links placed in the answer's last text block (`Cite`) |
+| `Reply.Changes` (`Files`, `Undone`) | Changes card: count, totals, Undo/Review, 3 files then Show N more; per-file Review blocks and Undo on hover |
+| `Reply.Notice` | A notice-only run: no reply frame |
+| `ImagesBlock` / `Block.Images` | Thumbnails up to 240 DIPs, wrapping |
+| `FilesBlock` / `Block.Files` (`File`) | File cards; a document with `Image` shows it on top |
+| `SearchBlock` / `Block.Sources` | Globe "Search results" disclosure listing the sources |
+| `RetryBlock` / `Block.Retry` (`Attempt`, `Limit`, `Reason` key, `Detail`, `Exhausted`) | Network row, shimmer while active, the provider's message when opened |
+| `VisualBlock` / `Block.Visual` (`Title`, `Source *ui.SVG`) | The SVG fitted on the group box |
+| `File` (`Path`, `Mime`, `Kind`, `Text`, `Image`, `Pages`, `State`, `Editable`) | Card label/kind, the preview tab's content or state |
+| `Session.Older`, `LoadingOlder`, `OlderFailed` | Row before the first turn: loader (reaching it calls `LoadOlder`), failure with Retry |
+| `Session.Loading` | Loader and "Loading conversation" instead of the list |
+| `Session.Connection` | Banner: Reconnecting (shimmer) or Host disconnected, with Retry |
+| `Session.Diagnostic` (`Title`, `Fields`, `Detail`) | Failure card after the last turn, Copy |
+| `Session.Usage` | Composer context bar: tokens, speed, cost, cache, turns (hover cards) and the context ring |
+
+UI-only state: the image viewer, the search bar (query, matches, index),
+the rewind waiting for confirmation, the turn read aloud, disclosures and
+"Show N more".
+
 ## Actions
 
 ```go
 type Actions interface {
-	OpenChild(id string) // a subagent row was clicked: open its session
-	Retry(turn string)   // the footer's retry: run the turn again
+	OpenChild(id string)
+	Retry(turn string)
+	Fork(turn string)
+	Rewind(turn string) // after the confirmation dialog
+	Worktree(turn string)
+	Export(turn string, format ExportFormat) // "" exports the conversation
+	Read(turn, text string)                  // read aloud / stop
+	Edit(turn string)                        // edit a sent message
+	OpenFile(f File)                         // preview in the right panel
+	FileAction(f File, action FileAction)    // open elsewhere, save, request edit
+	Undo(turn, path string)                  // "" undoes all
+	Review(turn, path string)
+	LoadOlder()
+	Reconnect()
+	Quote(text string) // the selection, quoted, into the draft
 }
 ```
 
 | Method | Fires | Expected outcome |
 |---|---|---|
-| `OpenChild` | Click on a subagent row | Navigate to the child session; failure toasts the error |
-| `Retry` | Footer retry on a Failed, Interrupted or Cancelled run | Submit the turn again; a stale revision toasts the conflict; an unknown outcome toasts that the result is uncertain |
+| `OpenChild` | Click on a subagent row | Open the child session (the preview opens a `panel.Subagent` tab) |
+| `Retry` | Retry on a Failed, Interrupted or Cancelled run | Submit the turn again; conflicts and uncertain outcomes toast |
+| `Fork`, `Worktree` | Fork menu (Network icon) | New session / worktree from the turn |
+| `Rewind` | Fork menu → Rewind, then the dialog's Rewind | Keep the turn, drop later messages; files unchanged |
+| `Export` | More menu: Markdown, HTML, Image | Save the turn |
+| `Read` | Read aloud / Stop reading | Start or stop the reader |
+| `Edit` | User footer Edit | Edit the message in place |
+| `OpenFile` | Card Open, More → Preview, document picture | Preview tab in the right panel |
+| `FileAction` | More → Open, Save as, Request edit; viewer Save | As named |
+| `Undo`, `Review` | Changes card | Revert / review the turn's changes |
+| `LoadOlder` | The start comes into view, or Retry after a failure | Load the page before; set `LoadingOlder` while it loads |
+| `Reconnect` | Banner Retry | Reconnect |
+| `Quote` | Selection pill Quote | Append the quote to the draft (the shell does) |
 
-The preview (`internal/shell`) toasts `preview_notice` for both.
+Copy (answer, user message, selection, diagnostic) and the image viewer,
+search and selection are the view's own. The preview toasts
+`preview_notice` for every action that would run a model or tool, change
+a session or write a file; `OpenFile`, `OpenChild`, `LoadOlder` and `Quote`
+work on preview data.
+
+### Keys
+
+| Key | Scope | Action |
+|---|---|---|
+| ⌘F | window, while the conversation shows and the panel has no focus | Open or focus the search bar |
+| Enter / ↓, ⇧Enter / ↑ | search input | Next / previous match, revealed |
+| Esc | search bar | Close it |
+| ← → + − 0, Esc | image viewer | Previous, next, zoom in, out, fit; close |
 
 ## Wiring a backend
 
@@ -217,7 +291,7 @@ func (l *live) Retry(turn string) {
 
 // In the page:
 turns := project(snapshot) // []conversation.Turn, built from the history
-conversation.View(c, state.Messages, session.ID, turns, &live{client, c})
+conversation.View(c, state.Messages, session.ID, turns, &session.State, &live{client, c})
 ```
 
 `project` maps the backend's history to `Turn`s: localize labels (or set
@@ -229,7 +303,7 @@ and mark flags as above. Do not group: the view does.
 | UI state (`State`) | Backend data |
 |---|---|
 | Scroll place per conversation, follow mode | Turns, blocks, calls, outputs |
-| Disclosures opened | Run status, phase, elapsed |
+| Disclosures opened, image viewer, search, rewind confirmation | Run status, phase, elapsed, files, pictures, changes, citations |
 | Work regions toggled | Questions, children, steps |
 | Markdown themes | |
 
@@ -242,6 +316,15 @@ failures with a turn error (failed), denied, interrupted and not executed
 question states (questions), one and three subagents (delegated), every
 step state (planned), a plain answer (answered), and a live reply with
 running and pending calls, running children and a step in progress (live).
+`content.go` adds attachments (two pictures and a file), artifacts (a file
+of every kind and preview state, generated pictures, a drawn chart),
+grounded (sources and citations), retried (a retry, an exhausted retry
+with the provider's message, the turn error), changed (five files, one
+undone), noticed (three background outcomes) and compacted (summary,
+failure, unneeded) scenes; times and usage for every conversation; and
+three unassigned conversations for the session states: "Long history,
+paged" (8 turns shown, 56 more 8 at a time after 0.6 s), "Connection
+recovering" (banner and diagnostic) and "History loading".
 `stream.go` plays a canned reply after a send on the frame clock: thinking,
 a running read, its output, then the answer growing a character at a time.
 
@@ -252,6 +335,10 @@ a running read, its output, then the answer growing a character at a time.
 - `jump_test.go`: appears on the smallest scroll and hides at the end;
   click scrolls to the end; stays pinned while streaming, stays put once
   scrolled up, and follows again after the click.
+- `live_test.go`: `Cite`, `Mark` outside code, `Find`, the viewer's zoom
+  limits and steps, `Quote`, `Count`; every scene's blocks in en/zh-CN and
+  light/dark (snapshots to `$SAILRY_SNAPSHOTS`); a card's Open; the search
+  bar's count, Enter and Escape; the start asking for older turns.
 - `bench_test.go`: 1000 turns scroll; `BenchmarkScroll`, `Steady`, `Jump`.
 - `internal/shell/shell_test.go`: send, stop, the reply playing to
   Completed, approvals and the question.
@@ -263,7 +350,16 @@ a running read, its output, then the answer growing a character at a time.
 | Reasoning is shown as a disclosure; live mode drops it | Kept for the preview to show the block; drop it in `project` to match |
 | The jump fade runs at the display's rate | MyGo element transitions have no frame-rate parameter; only drawings take `AnimationFrameRate` |
 | The in-progress step's `loader-circle` does not spin | A spinning icon would be an `Element.Loop` at the display's rate; the shimmer on its text marks it instead |
-| Footer has no read-aloud, turn menu, export menu or hover timestamp | They need reader, fork, export and history services this UI-only prototype does not have |
+| PDF previews show the document's facts and Open in another app, not its pages | MyGo v0.8.3 has no PDF view (only `Page.PrintToPDF`); Rust renders PDFs through document plugins |
+| The image viewer zooms with its buttons and + − 0, not the wheel or pinch | MyGo elements report no wheel or pinch deltas; drag pans |
+| Search is a bar over the transcript with counts and next/previous, searching the loaded turns | The plan's design; Rust searches the server's history in a command-picker dialog and loads pages through the match |
+| Search marks the answer's text blocks and the user bubble, all matches alike in the answer | Markdown marks with `<mark>` (one color); the bubble's current match is stronger |
+| The selection pill sits at the turn's top end | MyGo reports the selection's text, not its bounds |
+| Citations are placed in the answer's last text block | Rust offsets them across the text parts of the run |
+| Thinking figures (Orbits, Globe, Ribbon, Ring) approximate Rust's dot drawings | Drawn on the painter at 60 fps from the same states, not ported point for point |
+| ⌘F is a window shortcut, not an entry in the native menu | The shell's menu has no conversation commands yet |
+| Subagent tabs show Bot, not the identicon | `panel.look` returns an icon; the identicon is a drawing |
+| Older pages load when the first turn is built (near the start) | Rust asks on scrolling near the top; the list builds rows just outside the view |
 | Copy confirms with a toast, not Kit `Clipboard`'s check icon | Sailry's rule: outcomes show as toasts |
 | Shimmer and identicon are approximations | Custom drawing (MyGo has no moving text highlight or procedural avatar); same timing and colours, not pixel-identical |
 | Diff rows have no syntax highlighting or line numbers | Not in the view model yet |
