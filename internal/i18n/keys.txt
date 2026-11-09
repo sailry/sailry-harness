@@ -108,3 +108,4 @@ turn_completed
 turn_thinking
 tool_failed
 approval_pending
+content_copied

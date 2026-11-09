@@ -102,3 +102,4 @@ turn_completed: Completed
 turn_thinking: Thinking
 tool_failed: Tool execution failed
 approval_pending: Waiting for approval
+content_copied: Copied

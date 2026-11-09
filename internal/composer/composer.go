@@ -1,0 +1,192 @@
+// Package composer is the message composer under the transcript: the input,
+// the attachment and dictation buttons, the model picker with its reasoning
+// effort, send and stop, and the context bar with the branch menu
+// (sailry-public conversation/live/composer.rs, model_controls, theme/composer.rs).
+package composer
+
+import (
+	"strings"
+
+	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-go/internal/i18n"
+	"github.com/sailry/sailry-go/internal/icons"
+	"github.com/sailry/sailry-go/internal/preview"
+	"github.com/sailry/sailry-go/internal/theme"
+)
+
+// Efforts are the reasoning levels the picker steps through. The reference
+// shows their raw names, untranslated (reasoning.rs).
+var Efforts = []string{"minimal", "low", "medium", "high", "xhigh"}
+
+// Branches are the preview's branches (conversation/context.rs).
+var Branches = []string{"composer_branch_main", "composer_branch_preview"}
+
+// Width is the composer's and the transcript's maximum width (preview.rs).
+const Width = 800
+
+// State is the composer's part of the app state.
+type State struct {
+	Draft   string
+	Model   string  // preview.Model ID
+	Effort  float64 // index into Efforts
+	Branch  int     // index into Branches
+	Running bool    // a reply is running: Stop replaces Send
+
+	picker bool // the model picker is open
+	list   bool // it shows the model list rather than its main panel
+}
+
+func New(model string) *State { return &State{Model: model, Effort: 2} }
+
+// EffortName is the effort shown for the chosen model.
+func (s *State) EffortName(c *ui.Context, m preview.Model) string {
+	if !m.Reasoning {
+		return i18n.T(c, "composer_effort_unavailable")
+	}
+	return Efforts[int(s.Effort)]
+}
+
+// View builds the composer. send gets the trimmed draft; stop ends the
+// running reply.
+func View(c *ui.Context, s *State, models []preview.Model, send func(string), stop func()) {
+	p := theme.Of(c)
+	submit := func() {
+		if text := strings.TrimSpace(s.Draft); text != "" && !s.Running {
+			s.Draft = ""
+			send(text)
+		}
+	}
+	ui.Column(c.Key("composer")).FillWidth().MaxWidth(Width).Margin(0, ui.Auto).Padding(8, 24, 16, 24).Gap(8).Children(func() {
+		// theme/composer.rs surface: padding 12, radius_2xl (2.5 x 6), muted.
+		ui.Column(c).Padding(12).Gap(8).Radius(15).Background(p.Muted).Children(func() {
+			ui.TextAreaBase(c.Key("draft"), &s.Draft).Label(i18n.T(c, "composer")).Placeholder(i18n.T(c, "composer")).
+				PlaceholderColor(p.MutedForeground).Lines(2, 6).FontSize(14).LineHeight(1.5).TextColor(p.Foreground).
+				OnTextKey(func(k ui.TextKey) bool {
+					if k.Key == ui.KeyEnter && k.Mods == 0 {
+						if text := strings.TrimSpace(k.Text()); text != "" && !s.Running {
+							k.SetText("")
+							s.Draft = ""
+							send(text)
+						}
+						return true
+					}
+					return false // Shift+Enter breaks the line
+				})
+			ui.Row(c).MinHeight(32).Gap(4).Children(func() {
+				theme.IconButton(c.Key("attach"), icons.Plus, i18n.T(c, "composer_attachment"), 32, false).Radius(16)
+				ui.Spacer(c)
+				s.modelChip(c, models)
+				theme.IconButton(c.Key("dictation"), icons.Microphone, i18n.T(c, "dictation_start"), 32, false).Radius(16)
+				s.sendButton(c, submit, stop)
+			})
+		})
+		ui.Row(c).MinHeight(32).MarginX(12).Padding(4, 8).Gap(4).TextColor(p.MutedForeground).Children(func() {
+			s.branchMenu(c)
+		})
+	})
+}
+
+func (s *State) sendButton(c *ui.Context, submit, stop func()) {
+	if s.Running {
+		theme.Primary(c.Key("stop"), i18n.T(c, "chat_stop"), false).Size(32, 32).PaddingX(0).Radius(16).
+			Tooltip(i18n.T(c, "chat_stop")).Children(func() { ui.Icon(c, icons.Stop).FontSize(16) }).OnClick(stop)
+		return
+	}
+	empty := strings.TrimSpace(s.Draft) == ""
+	theme.Primary(c.Key("send"), i18n.T(c, "send"), empty).Size(32, 32).PaddingX(0).Radius(16).
+		Tooltip(i18n.T(c, "send")).Children(func() { ui.Icon(c, icons.ArrowUp).FontSize(16) }).OnClick(submit)
+}
+
+// Chosen returns the model chosen, the first one when the ID is unknown.
+func (s *State) Chosen(models []preview.Model) preview.Model {
+	for _, m := range models {
+		if m.ID == s.Model {
+			return m
+		}
+	}
+	return models[0]
+}
+
+// modelChip is the round chip naming the provider, the model and the
+// effort, which opens the picker above it (model_controls/mod.rs).
+func (s *State) modelChip(c *ui.Context, models []preview.Model) {
+	p := theme.Of(c)
+	m := s.Chosen(models)
+	chip := theme.Ghost(c.Key("model"), i18n.T(c, "composer_select_model"), s.picker).Height(32).PaddingX(10).Gap(8).Radius(16).MaxWidth(260)
+	chip.HasPopup(ui.PopupDialog).Expanded(s.picker).Children(func() {
+		theme.Tag(c, m.Provider).Shrink(0)
+		ui.Text(c, m.Name).FontSize(14).SingleLine().Shrink(1)
+		ui.Text(c, s.EffortName(c, m)).FontSize(14).SingleLine().Shrink(0).TextColor(p.MutedForeground)
+	}).OnClick(func() { s.picker, s.list = !s.picker, false })
+	ui.PopoverBase(c, chip, &s.picker, func(panel ui.Element) {
+		// The reference's popover: padding 12, width 296, the floating fill.
+		panel.AttachTo(chip, ui.AnchorTopEnd, ui.AnchorBottomEnd).Margin(0, 0, 6, 0).Width(296).Padding(12).Gap(8).
+			Radius(12).Background(p.Popover).Border(1, p.Border).Shadow(0, 8, 24, 0, ui.RGBA(0, 0, 0, 0.18))
+		if s.list {
+			s.modelList(c, models)
+		} else {
+			s.mainPanel(c, m)
+		}
+	})
+}
+
+// mainPanel shows the effort, the model, and the effort slider.
+func (s *State) mainPanel(c *ui.Context, m preview.Model) {
+	p := theme.Of(c)
+	effort := ui.Text(c, s.EffortName(c, m)).FontSize(16).Height(28).TextAlign(ui.Center).TextColor(p.Primary)
+	if m.Reasoning && int(s.Effort) == len(Efforts)-1 {
+		effort.TextColor(p.Warning)
+	}
+	theme.Ghost(c.Key("models"), m.Name, false).Height(28).PaddingX(8).Gap(4).Justify(ui.SpaceBetween).Children(func() {
+		ui.Text(c, m.Name).FontSize(14).SingleLine()
+		ui.Icon(c, icons.ChevronRight).FontSize(12).TextColor(p.MutedForeground)
+	}).OnClick(func() { s.list = true })
+	ui.StepSlider(c.Key("effort"), &s.Effort, 0, float64(len(Efforts)-1), 1).Label(i18n.T(c, "composer_effort")).
+		FillWidth().Disabled(!m.Reasoning)
+}
+
+// modelList lists the models by provider; choosing one goes back.
+func (s *State) modelList(c *ui.Context, models []preview.Model) {
+	p := theme.Of(c)
+	ui.Scroll(c).MaxHeight(320).Gap(2).Children(func() {
+		last := ""
+		for _, m := range models {
+			if m.Provider != last {
+				last = m.Provider
+				ui.Text(c, m.Provider).FontSize(14).TextColor(p.MutedForeground).Padding(6, 14, 6, 8)
+			}
+			selected := m.ID == s.Model
+			row := theme.Ghost(c.Key(m.ID), m.Name, false).Height(32).Padding(0, 8).Radius(8).Justify(ui.Start).Gap(8)
+			if selected {
+				row.Background(p.Primary.Alpha(0.12)).AccessSelected(true)
+			}
+			row.Children(func() {
+				ui.Text(c, m.Name).FontSize(14).SingleLine().Grow(1)
+				if selected {
+					ui.Icon(c, icons.Check).FontSize(14).TextColor(p.Primary)
+				}
+			}).OnClick(func() { s.Model, s.list = m.ID, false })
+		}
+	})
+}
+
+// branchMenu is the round branch button of the context bar, a menu drawn
+// in the window with a check on the branch (conversation/context.rs).
+func (s *State) branchMenu(c *ui.Context) {
+	icon := icons.Folder
+	if s.Branch != 0 {
+		icon = icons.Network
+	}
+	label := i18n.T(c, Branches[s.Branch])
+	theme.Ghost(c.Key("branch"), label, false).Height(28).PaddingX(10).Gap(6).Radius(14).MaxWidth(224).
+		TextColor(theme.Of(c).MutedForeground).Children(func() {
+		ui.Icon(c, icon).FontSize(14)
+		ui.Text(c, label).FontSize(14).SingleLine()
+	}).PopoverMenuButton(func(m *ui.Menu) {
+		for i, key := range Branches {
+			if m.Item(i18n.T(c, key)).Checked(i == s.Branch).Chosen() {
+				s.Branch = i
+			}
+		}
+	})
+}
