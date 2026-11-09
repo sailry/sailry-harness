@@ -1,15 +1,14 @@
 use super::super::{
     config::{Channel, Config},
-    manifest::{Release, Selection},
-    transfer::Staged,
+    manifest::Release,
 };
+#[cfg(target_os = "macos")]
+use super::super::{manifest::Selection, transfer::Staged};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use ed25519_dalek::Signer as _;
-use std::{
-    fs,
-    io::{Cursor, Write},
-    path::Path,
-};
+use std::io::{Cursor, Write};
+#[cfg(target_os = "macos")]
+use std::{fs, path::Path};
 
 pub(in crate::updater) fn config() -> Config {
     Config {

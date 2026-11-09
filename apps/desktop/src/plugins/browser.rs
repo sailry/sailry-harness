@@ -6,6 +6,7 @@ use super::host::{
 use crate::browser::{Browser, annotation, settings, state};
 use gpui_kit::*;
 use gpui_shell::{HostError, HostModule, HostValue};
+#[cfg(target_os = "macos")]
 use serde_json::Value;
 use std::{cell::RefCell, sync::Arc};
 

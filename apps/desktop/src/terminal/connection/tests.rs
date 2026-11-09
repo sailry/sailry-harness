@@ -1,3 +1,5 @@
+#![cfg(unix)]
+
 use super::*;
 use sailry_link::{Admission, Pending, Subscription, Transport};
 use sailry_node_runtime::Node;

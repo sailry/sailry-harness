@@ -1,3 +1,5 @@
+#![cfg(unix)]
+
 use super::*;
 use serde_json::json;
 #[cfg(unix)]

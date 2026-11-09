@@ -17,6 +17,7 @@ fn preview_isolation(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+#[cfg(target_os = "macos")]
 fn authorization_settings(cx: &mut TestAppContext) {
     cx.update(|cx| {
         gpui_kit::init(cx);
