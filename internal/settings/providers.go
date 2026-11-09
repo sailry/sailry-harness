@@ -753,15 +753,19 @@ func modelForm(c *ui.Context, d *modelDraft) {
 		kit.Field(c, "id", t("provider_model_id"), "", func() {
 			ui.TextInput(c.Key("input"), &d.id).Label(t("provider_model_id")).Placeholder(t("form_model_hint")).FillWidth()
 		})
-		kit.Field(c, "context", t("provider_context"), "", func() {
-			ui.Row(c).Gap(6).Wrap().Children(func() {
+		// The label with the common sizes at its right, the input under
+		// them at full width.
+		ui.Column(c.Key("context")).Gap(6).Children(func() {
+			ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+				ui.Text(c, t("provider_context")).FontSize(14).FontWeight(500).Grow(1).Shrink(1).MinWidth(0).SingleLine().
+					TextColor(p.PopoverForeground)
 				for _, n := range []int{128000, 200000, 400000, 1000000} {
 					s := strconv.Itoa(n)
-					b := kit.Ghost(c.Key(n), tokens(c, n), d.context == s).Height(24).PaddingX(8).Border(1, p.Border)
+					b := kit.Ghost(c.Key(n), tokens(c, n), d.context == s).Height(24).PaddingX(8).Border(1, p.Border).Shrink(0)
 					b.Children(func() { ui.Text(c, tokens(c, n)).FontSize(12) }).OnClick(func() { d.context = s })
 				}
-				ui.TextInput(c.Key("input"), &d.context).Label(t("provider_context")).Placeholder(t("form_tokens_hint")).Width(140)
 			})
+			ui.TextInput(c.Key("input"), &d.context).Label(t("provider_context")).Placeholder(t("form_tokens_hint")).FillWidth()
 		})
 		if d.model.ID == "" || len(d.model.Efforts) > 0 {
 			ui.Column(c.Key("efforts")).Gap(6).Children(func() {

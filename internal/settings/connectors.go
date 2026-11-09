@@ -206,10 +206,8 @@ func serviceRow(c *ui.Context, m *Model, s *preview.Service) {
 		kit.MediaRow(c, s.Name, desc, func() { serviceTile(c, s.Name) }, nil)
 	}, func() {
 		ui.Row(c).Gap(12).Children(func() {
+			// Connect is in the menu (serviceItems), not a button here.
 			statusView(c, st)
-			if !s.Account && len(s.Servers) > 0 && s.Servers[0].State == preview.ServerAuth {
-				kit.Secondary(c.Key("connect"), t("connector_connect")).Height(28).OnClick(func() { m.editService(s) })
-			}
 			switch {
 			case s.Account:
 				ui.Switch(c.Key("account"), &s.AccountOn).Label(t("connector_account_enabled") + " " + s.Name).Disabled(s.State == preview.Connecting)
