@@ -64,7 +64,7 @@ func outputs(id string) []cv.File {
 		{ID: id + "/bench", Path: "internal/conversation/bench_test.go", Mime: "text/x-go", Kind: cv.CodeFile, Text: benchGo, Editable: true},
 		{ID: id + "/log", Path: "bench.txt", Mime: "text/plain", Kind: cv.TextFile, Text: logText},
 		{ID: id + "/shot", Path: "screens/transcript.png", Mime: "image/png", Kind: cv.ImageFile, Image: &pics[2]},
-		{ID: id + "/pdf", Path: "exports/invoice-2026-11.pdf", Mime: "application/pdf", Kind: cv.PDFFile, Pages: 3},
+		{ID: id + "/pdf", Path: "exports/invoice-2026-11.pdf", Mime: "application/pdf", Kind: cv.OtherFile},
 		{ID: id + "/deck", Path: "exports/roadmap.pptx", Mime: "application/vnd.openxmlformats-officedocument.presentationml.presentation", Kind: cv.OtherFile},
 		{ID: id + "/large", Path: "data/trace.json", Mime: "application/json", Kind: cv.TextFile, State: cv.PreviewLarge},
 		{ID: id + "/changed", Path: "internal/kit/menu.go", Mime: "text/x-go", Kind: cv.CodeFile, State: cv.PreviewChanged},

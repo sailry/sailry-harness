@@ -1,8 +1,6 @@
 package panel
 
 import (
-	"fmt"
-
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/editor"
 	"github.com/egoist/mygo/ui/markdown"
@@ -89,14 +87,6 @@ func (s *State) artifact(c *ui.Context, id string) {
 					img.AspectRatio(w / h).MaxWidth(w)
 				}
 			})
-		case conversation.PDFFile:
-			// MyGo v0.8.3 has no PDF view (docs/conversation.md, Deviations):
-			// the document's facts and Open in another app.
-			kit.Empty(c, icons.FileText, f.Name(), fmt.Sprintf("PDF · %d", f.Pages), func() {
-				kit.Secondary(c.Key("system"), i18n.T(c, "files_open_system")).OnClick(func() { notice(c) })
-			})
-		default:
-			state("artifact_preview_unavailable")
 		}
 	})
 }

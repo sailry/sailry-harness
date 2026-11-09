@@ -361,7 +361,7 @@ artifact_preview_changed: 文件已修改
 artifact_preview_failed: 预览加载失败
 artifact_preview_large: 文件过大，无法预览
 artifact_preview_loading: 正在加载预览
-artifact_preview_unavailable: 此文件暂不支持预览
+files_open_failed: 无法打开文件
 artifact_request_edit: 请求修改
 background_notice_title: 后台结果
 background_outcome_cancelled: 已取消

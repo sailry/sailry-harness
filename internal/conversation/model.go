@@ -133,8 +133,7 @@ const (
 	CodeFile                     // highlighted by its extension
 	MarkdownFile                 // rendered Markdown
 	ImageFile                    // Image
-	PDFFile                      // pages; see docs: MyGo v0.8.3 has no PDF view
-	OtherFile                    // no preview: open it in another app
+	OtherFile                    // no native preview (PDF, office...): the system's app opens it
 )
 
 // PreviewState is what the preview of a file has come to.
@@ -159,7 +158,6 @@ type File struct {
 	// Text is a text, code or Markdown file's content; Image a picture's.
 	Text  string
 	Image *Image
-	Pages int // a PDF's
 	State PreviewState
 	// Editable lets Request edit act on the file (card.rs can_edit).
 	Editable bool

@@ -6,6 +6,9 @@
 package shell
 
 import (
+	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -427,17 +430,16 @@ func (x *actions) OpenChild(id string) {
 // write a file or leave the window only say so in the preview.
 func (x *actions) notice() { x.c.Toast(i18n.T(x.c, "preview_notice")) }
 
-func (x *actions) Retry(string)                                          { x.notice() }
-func (x *actions) Fork(string)                                           { x.notice() }
-func (x *actions) Rewind(string)                                         { x.notice() }
-func (x *actions) Worktree(string)                                       { x.notice() }
-func (x *actions) Export(string, conversation.ExportFormat)              { x.notice() }
-func (x *actions) Read(string, string)                                   { x.notice() }
-func (x *actions) Edit(string)                                           { x.notice() }
-func (x *actions) FileAction(conversation.File, conversation.FileAction) { x.notice() }
-func (x *actions) Undo(string, string)                                   { x.notice() }
-func (x *actions) Review(string, string)                                 { x.notice() }
-func (x *actions) Reconnect()                                            { x.notice() }
+func (x *actions) Retry(string)                             { x.notice() }
+func (x *actions) Fork(string)                              { x.notice() }
+func (x *actions) Rewind(string)                            { x.notice() }
+func (x *actions) Worktree(string)                          { x.notice() }
+func (x *actions) Export(string, conversation.ExportFormat) { x.notice() }
+func (x *actions) Read(string, string)                      { x.notice() }
+func (x *actions) Edit(string)                              { x.notice() }
+func (x *actions) Undo(string, string)                      { x.notice() }
+func (x *actions) Review(string, string)                    { x.notice() }
+func (x *actions) Reconnect()                               { x.notice() }
 
 // Quote adds the quoted selection to the end of the draft.
 func (x *actions) Quote(text string) {
@@ -451,8 +453,38 @@ func (x *actions) Quote(text string) {
 // LoadOlder reveals the next page of the preview's older turns.
 func (x *actions) LoadOlder() { preview.LoadOlder(x.cv) }
 
-// OpenFile shows a file's preview as a tab of the right panel.
+// FileAction opens a file in the system's app; saving and asking for
+// edits only say so in the preview.
+func (x *actions) FileAction(f conversation.File, a conversation.FileAction) {
+	if a == conversation.OpenExternal {
+		x.openSystem(f)
+		return
+	}
+	x.notice()
+}
+
+// openSystem hands a file to the system's default app through MyGo's
+// OpenURL, the one place files leave the window. A file that is not
+// there, as the preview's are not, toasts the failure.
+func (x *actions) openSystem(f conversation.File) {
+	path, err := filepath.Abs(f.Path)
+	if err == nil {
+		_, err = os.Stat(path)
+	}
+	if err != nil {
+		kit.Toast(x.c, kit.Failed, i18n.T(x.c, "files_open_failed"))
+		return
+	}
+	x.c.OpenURL((&url.URL{Scheme: "file", Path: path}).String())
+}
+
+// OpenFile shows a file's preview as a tab of the right panel; a file
+// without a native preview opens in the system's app (WebView later).
 func (x *actions) OpenFile(f conversation.File) {
+	if f.Kind == conversation.OtherFile {
+		x.openSystem(f)
+		return
+	}
 	x.a.Page, x.a.PanelOpen = ConversationPage, true
 	x.a.Panel.ShowArtifact(f)
 }

@@ -139,6 +139,7 @@ a change chosen in the tab on the page, another project keeps its own.
 
 | Deviation | Reason |
 |---|---|
+| PDF and other non-native formats: WebView preview, later | MyGo has no native view of them; the card's Open uses the system's app meanwhile |
 | Every open item is a tab in one flat strip | The plan asks for tabs; the reference holds one resource and tabs only a resource's documents |
 | Checkpoints and documents are tabs | The reference restores checkpoints from a turn and draws documents in a plugin |
 | The Files and Git pages hold the whole component, tree or list included | The reference puts the tree and the list in the details column; here the panel stays the conversation's |

@@ -378,7 +378,7 @@ artifact_preview_changed
 artifact_preview_failed
 artifact_preview_large
 artifact_preview_loading
-artifact_preview_unavailable
+files_open_failed
 artifact_request_edit
 background_notice_title
 background_outcome_cancelled

@@ -14,6 +14,7 @@ import (
 	"github.com/sailry/sailry-go/internal/composer"
 	"github.com/sailry/sailry-go/internal/conversation"
 	"github.com/sailry/sailry-go/internal/i18n"
+	"github.com/sailry/sailry-go/internal/panel"
 	"github.com/sailry/sailry-go/internal/preview"
 	"github.com/sailry/sailry-go/internal/settings"
 	"github.com/sailry/sailry-go/internal/theme"
@@ -428,5 +429,31 @@ func TestAppearancePackages(t *testing.T) {
 	tt.ClickAt(info.Bounds.X+info.Bounds.W/2, info.Bounds.Y+info.Bounds.H/2)
 	if a.Effects {
 		t.Error("the effects switch does not turn them off")
+	}
+}
+
+// A file without a native preview opens no tab: Open hands it to the
+// system's app, and a file that is not there toasts the failure.
+func TestOpenUnsupportedFile(t *testing.T) {
+	a := New(preview.Load())
+	var x *actions
+	f := conversation.File{ID: "x/pdf", Path: "exports/missing-invoice.pdf", Kind: conversation.OtherFile}
+	opened := false
+	tt := ui.NewTester(func(c *ui.Context) {
+		a.View(c)
+		if !opened {
+			opened = true
+			x = &actions{a: a, c: c}
+			x.OpenFile(f)
+		}
+	}, 1280, 820)
+	tt.SetLocale("en")
+	tt.Frame()
+	tt.Frame()
+	if a.Panel.Active.Kind == panel.Artifact {
+		t.Errorf("an unsupported file opened a tab: %v", a.Panel.Tabs)
+	}
+	if !tt.HasText(i18n.In("en", "files_open_failed")) {
+		t.Errorf("no failure toast: %q", tt.Texts())
 	}
 }

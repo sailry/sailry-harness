@@ -214,7 +214,7 @@ Kit `MessageScroller`, in `jump.go`:
 | `SearchBlock` / `Block.Sources` | Globe "Search results" disclosure listing the sources |
 | `RetryBlock` / `Block.Retry` (`Attempt`, `Limit`, `Reason` key, `Detail`, `Exhausted`) | Network row, shimmer while active, the provider's message when opened |
 | `VisualBlock` / `Block.Visual` (`Title`, `Source *ui.SVG`) | The SVG fitted on the group box |
-| `File` (`Path`, `Mime`, `Kind`, `Text`, `Image`, `Pages`, `State`, `Editable`) | Card label/kind, the preview tab's content or state |
+| `File` (`Path`, `Mime`, `Kind`, `Text`, `Image`, `State`, `Editable`) | Card label/kind, the preview tab's content or state |
 | `Session.Older`, `LoadingOlder`, `OlderFailed` | Row before the first turn: loader (reaching it calls `LoadOlder`), failure with Retry |
 | `Session.Loading` | Loader and "Loading conversation" instead of the list |
 | `Session.Connection` | Banner: Reconnecting (shimmer) or Host disconnected, with Retry |
@@ -256,8 +256,8 @@ type Actions interface {
 | `Export` | More menu: Markdown, HTML, Image | Save the turn |
 | `Read` | Read aloud / Stop reading | Start or stop the reader |
 | `Edit` | User footer Edit | Edit the message in place |
-| `OpenFile` | Card Open, More → Preview, document picture | Preview tab in the right panel |
-| `FileAction` | More → Open, Save as, Request edit; viewer Save | As named |
+| `OpenFile` | Card Open, More → Preview, document picture | Preview tab in the right panel; an `OtherFile` (PDF, office) opens in the system's app instead |
+| `FileAction` | More → Open, Save as, Request edit; viewer Save | As named; the shell's one `openSystem` opens files in the system's app |
 | `Undo`, `Review` | Changes card | Revert / review the turn's changes |
 | `LoadOlder` | The start comes into view, or Retry after a failure | Load the page before; set `LoadingOlder` while it loads |
 | `Reconnect` | Banner Retry | Reconnect |
@@ -351,7 +351,7 @@ a running read, its output, then the answer growing a character at a time.
 | Reasoning is shown as a disclosure; live mode drops it | Kept for the preview to show the block; drop it in `project` to match |
 | The jump fade runs at the display's rate | MyGo element transitions have no frame-rate parameter; only drawings take `AnimationFrameRate` |
 | The in-progress step's `loader-circle` does not spin | A spinning icon would be an `Element.Loop` at the display's rate; the shimmer on its text marks it instead |
-| PDF previews show the document's facts and Open in another app, not its pages | MyGo v0.8.3 has no PDF view (only `Page.PrintToPDF`); Rust renders PDFs through document plugins |
+| PDF and other files without a native preview open no tab: Open hands them to the system's app (a missing file toasts `files_open_failed`) | MyGo v0.8.3 has no PDF or office view; a WebView preview comes later (docs/panel.md) |
 | The image viewer zooms with its buttons and + − 0, not the wheel or pinch | MyGo elements report no wheel or pinch deltas; drag pans |
 | Search is MyGo's find bar over the transcript ("1 of N", previous, next, Done), searching the loaded turns | The plan's design; Rust searches the server's history in a command-picker dialog and loads pages through the match |
 | Search marks the answer's text blocks and the user bubble, all matches alike in the answer | Markdown marks with `<mark>` (one color); the bubble's current match is stronger |

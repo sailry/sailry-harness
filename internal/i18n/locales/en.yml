@@ -361,7 +361,7 @@ artifact_preview_changed: File has changed
 artifact_preview_failed: Could not load preview
 artifact_preview_large: File too large to preview
 artifact_preview_loading: Loading preview
-artifact_preview_unavailable: Preview unavailable for this file
+files_open_failed: Could not open the file
 artifact_request_edit: Request edit
 background_notice_title: Background results
 background_outcome_cancelled: Cancelled

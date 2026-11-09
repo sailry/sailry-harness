@@ -54,7 +54,7 @@ func FileIcon(f File) *ui.SVG {
 		return icons.FileCode
 	case ImageFile:
 		return icons.FileImage
-	case MarkdownFile, PDFFile, TextFile:
+	case MarkdownFile, TextFile:
 		return icons.FileText
 	}
 	return icons.File
