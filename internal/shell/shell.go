@@ -41,6 +41,7 @@ type App struct {
 	// Theme is the selected theme package's ID; empty is the built-in one.
 	Theme    string
 	Mode     theme.Mode
+	Effects  bool // the theme's animated effects
 	Page     Page
 	NavOpen  bool
 	NavWidth float32
@@ -60,7 +61,7 @@ type App struct {
 // New makes the app over the preview dataset, showing its large conversation.
 func New(d *preview.Data) *App {
 	return &App{
-		Data: d, NavOpen: true, NavWidth: NavWidth,
+		Data: d, NavOpen: true, NavWidth: NavWidth, Effects: true,
 		Sidebar:  sidebar.New(d, preview.Big),
 		Settings: settings.New(),
 		Messages: conversation.New(),
@@ -85,6 +86,7 @@ func (a *App) View(c *ui.Context) {
 	}
 	a.applied = a.Mode
 	theme.Apply(c, a.Theme, a.Mode)
+	kit.SetEffects(a.Effects)
 	p := theme.Of(c)
 	// The title bar and the rail are one outer band in title_bar's color
 	// (theme.rs sidebar_background).
