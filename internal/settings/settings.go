@@ -1,5 +1,5 @@
 // Package settings is the settings navigation and its pages: Appearance
-// (the theme mode), Providers and Plugins (sailry-public settings/mod.rs,
+// (the theme package, mode and effects), Providers and Plugins (sailry-public settings/mod.rs,
 // sidebar/settings.rs, ui/settings_page.rs, settings/providers).
 package settings
 
@@ -88,7 +88,7 @@ func Title(c *ui.Context, s *State) string { return i18n.T(c, string(s.Section))
 
 // Page builds the section's page: a 800 DIP column with its title and
 // description, as SettingsPage lays it out.
-func Page(c *ui.Context, s *State, d *preview.Data, mode *theme.Mode) {
+func Page(c *ui.Context, s *State, d *preview.Data, look Look) {
 	p := theme.Of(c)
 	ui.Scroll(c.Key(string(s.Section))).Fill().Children(func() {
 		ui.Column(c).FillWidth().MaxWidth(800).Margin(0, ui.Auto).Padding(24).Gap(24).Children(func() {
@@ -100,25 +100,12 @@ func Page(c *ui.Context, s *State, d *preview.Data, mode *theme.Mode) {
 			})
 			switch s.Section {
 			case Appearance:
-				appearance(c, mode)
+				appearance(c, look)
 			case Providers:
 				providers(c, s, d)
 			case Plugins:
 				plugins(c, d)
 			}
-		})
-	})
-}
-
-// appearance is the theme mode, System, Light or Dark.
-func appearance(c *ui.Context, mode *theme.Mode) {
-	card(c, func() {
-		ui.Row(c).Padding(12, 0).Gap(16).Children(func() {
-			ui.Text(c, i18n.T(c, "appearance_mode")).FontSize(14).Grow(1)
-			chosen := int(*mode)
-			ui.Segmented(c.Key("mode"), &chosen, i18n.T(c, "appearance_system"), i18n.T(c, "appearance_light"), i18n.T(c, "appearance_dark")).
-				Label(i18n.T(c, "appearance_mode"))
-			*mode = theme.Mode(chosen)
 		})
 	})
 }

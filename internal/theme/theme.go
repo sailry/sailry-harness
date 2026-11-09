@@ -190,6 +190,11 @@ func Of(c *ui.Context) *Palette {
 	return looks[key{BuiltinID, c.Theme().Dark}].palette
 }
 
+// Look returns the palette of a package in a mode, as previews show it.
+func Look(id string, dark bool) *Palette {
+	return looks[key{Find(id).ID, dark}].palette
+}
+
 // Widget returns the MyGo theme of a package in a mode, for ui.Themed.
 func Widget(id string, dark bool) *ui.Theme {
 	return looks[key{Find(id).ID, dark}].widget

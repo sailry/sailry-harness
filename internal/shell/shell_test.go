@@ -371,3 +371,32 @@ func TestThemePackages(t *testing.T) {
 		}
 	}
 }
+
+// Appearance applies a theme package from its card, shows its details and
+// turns the effects off.
+func TestAppearancePackages(t *testing.T) {
+	a, tt := newTester(t)
+	click(t, tt, "Settings")
+	click(t, tt, i18n.In("en", "settings_appearance"))
+	sage := theme.Find("great-sage")
+	clickButton(t, tt, sage.Name)
+	if a.Theme != sage.ID {
+		t.Fatalf("theme %q after choosing %s", a.Theme, sage.Name)
+	}
+	if !tt.HasText(sage.Release) || !tt.HasText(sage.License.Author) {
+		t.Errorf("no details of %s: %q", sage.Name, tt.Texts())
+	}
+	snapshot(t, tt, "appearance-great-sage")
+	clickButton(t, tt, i18n.In("en", "settings_theme_builtin"))
+	if a.Theme != "" {
+		t.Errorf("theme %q after choosing the default", a.Theme)
+	}
+	info, ok := tt.AccessByRole(ui.RoleSwitch, i18n.In("en", "appearance_effects"))
+	if !ok {
+		t.Fatalf("no effects switch: %q", tt.Texts())
+	}
+	tt.ClickAt(info.Bounds.X+info.Bounds.W/2, info.Bounds.Y+info.Bounds.H/2)
+	if a.Effects {
+		t.Error("the effects switch does not turn them off")
+	}
+}

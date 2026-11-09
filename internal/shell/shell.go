@@ -213,7 +213,7 @@ func (a *App) rail(c *ui.Context) {
 // page is the main panel: the conversation, or the settings page.
 func (a *App) page(c *ui.Context) {
 	if a.Page == SettingsPage {
-		settings.Page(c, a.Settings, a.Data, &a.Mode)
+		settings.Page(c, a.Settings, a.Data, settings.Look{Theme: &a.Theme, Mode: &a.Mode, Effects: &a.Effects})
 		return
 	}
 	cv := a.Data.Find(a.Sidebar.Selected)
