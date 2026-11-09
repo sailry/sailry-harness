@@ -122,6 +122,8 @@ has MyGo's TextInput look (its padding, the theme's Surface, the input
 border), so selects and text inputs share a height and fill everywhere,
 and its dropdown is as wide as the trigger (`MenuOptions.Match`).
 Right-click menus stay the system's (`Element.ContextMenu`).
+`kit.Alert` (`internal/kit/alert.go`) is adapted from Lobe MyGo's
+`feedback.Alert` (MIT, notice kept): MyGo has no alert.
 
 ## Wiring a backend
 

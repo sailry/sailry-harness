@@ -25,7 +25,7 @@ model library and the extension details page.
 | `connections.go` | Connections: hosts and mobile devices, add host (pairing or SSH), share code, revoke |
 | `hooks.go` | Hooks: switch, scripts, hook editor, consent dialog |
 | `runtime.go` | Runtime: bundled Python and its package index |
-| `system.go` | Permissions, About (version, build, license) |
+| `system.go` | Permissions (the full disk hint is an info `kit.Alert` holding Show app), About (version, build, license) |
 | `updates.go` | `Updater`, About's Updates group (updater/panel.rs) with its ready and failure toasts (notices.rs), the install confirmation and the failure's details |
 | `backup.go` | Backup: storage, schedule, export/backup/restore, archived sessions, delete all |
 | `draft.go` | `draftDialog` (settings/draft.rs) and the dialog footer |

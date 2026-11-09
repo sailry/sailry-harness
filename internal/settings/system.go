@@ -13,7 +13,6 @@ import (
 // full disk access help while it is not granted. Asking the system and
 // opening its settings are the system's, which the preview does not do.
 func permissions(c *ui.Context, m *Model) {
-	p := theme.Of(c)
 	kit.Group(c, "permissions", i18n.T(c, "permission_title"), "", func() {
 		kit.Action(c.Key("check"), icons.Reload, i18n.T(c, "permission_check"), false).OnClick(func() { notice(c) })
 	}, func() {
@@ -39,9 +38,7 @@ func permissions(c *ui.Context, m *Model) {
 		if x.Resource != "permission_full_disk" || x.Status == "permission_granted" {
 			continue
 		}
-		ui.Row(c.Key("disk-help")).FillWidth().PaddingX(4).Gap(8).TextColor(p.MutedForeground).Children(func() {
-			ui.Icon(c, icons.Info).FontSize(14).Shrink(0)
-			ui.Text(c, i18n.T(c, "permission_disk_help")).FontSize(14).Grow(1).Shrink(1).MinWidth(0)
+		kit.Alert(c, "disk-help", kit.Info, i18n.T(c, "permission_disk_help"), func() {
 			label := i18n.T(c, "permission_show_app")
 			ghostIcon(c, icons.FolderOpen, label).OnClick(func() { notice(c) })
 		})
