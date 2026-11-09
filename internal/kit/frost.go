@@ -51,3 +51,10 @@ func Opaque(c ui.Color) ui.Color {
 	c.A = 255
 	return c
 }
+
+// Frost gives el the floating panels' backdrop blur toned by base instead
+// of a flat background: the composer's surface and its queue tray, so
+// what scrolls under them, and a theme's backdrop, shows through blurred.
+func Frost(el ui.Element, base ui.Color) ui.Element {
+	return el.Material(frost{blur: FloatingBlur, base: Opaque(base), tint: Opaque(base).Alpha(FloatingTint)})
+}
