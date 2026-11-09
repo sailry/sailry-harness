@@ -21,9 +21,12 @@ import (
 
 // queueState is the strip's: the message edited and its draft.
 type queueState struct {
-	editing  string
-	text     string
-	original string
+	generation      uint64
+	revision        uint64
+	loading, saving bool
+	editing         string
+	text            string
+	original        string
 }
 
 // queueMotion is how rows and the strip come and go: Kit's normal
@@ -134,7 +137,8 @@ func (s *State) queueRow(c *ui.Context, ctx *Context, actions Actions, item Queu
 		}
 		if !item.Notice && !item.Compaction {
 			small("edit", icons.Replace, i18n.T(c, "queue_edit"), ctx.Readonly || item.Guided, func() {
-				s.queue = queueState{editing: item.ID, text: item.Text, original: item.Text}
+				s.queue = queueState{editing: item.ID, text: item.Text, original: item.Text, revision: item.Revision, generation: s.queue.generation + 1}
+				s.loadQueued(item)
 			})
 		}
 		if item.Guided {
@@ -144,6 +148,24 @@ func (s *State) queueRow(c *ui.Context, ctx *Context, actions Actions, item Queu
 			small("send", icons.ArrowUp, i18n.T(c, "queue_send_now"), ctx.Readonly || item.Guided, func() { actions.SendQueued(item.ID) })
 		}
 		small("delete", icons.Delete, i18n.T(c, "queue_delete"), ctx.Readonly || item.Guided, func() { actions.RemoveQueued(item.ID) })
+	})
+}
+
+func (s *State) loadQueued(item Queued) {
+	if item.Load == nil {
+		return
+	}
+	q := &s.queue
+	generation := q.generation
+	q.loading = true
+	item.Load(func(text string, ok bool) {
+		if q.editing != item.ID || q.generation != generation {
+			return
+		}
+		q.loading = false
+		if ok {
+			q.text = text
+		}
 	})
 }
 
@@ -171,18 +193,32 @@ func (s *State) queueEditor(c *ui.Context, ctx *Context, actions Actions) {
 			item = x
 		}
 	}
-	changed := item.Text != q.original
+	changed := item.Text != q.original || item.Revision != q.revision
 	empty := strings.TrimSpace(q.text) == "" && len(item.Attachments) == 0
 	save := func() {
-		if changed || empty {
+		if changed || empty || q.loading || q.saving {
 			return
 		}
-		actions.SaveQueued(q.editing, strings.TrimSpace(q.text))
-		*q = queueState{}
+		if item.Save != nil {
+			q.saving = true
+			id, generation, text := q.editing, q.generation, strings.TrimSpace(q.text)
+			item.Save(text, func(ok bool) {
+				if q.editing != id || q.generation != generation {
+					return
+				}
+				q.saving = false
+				if ok && strings.TrimSpace(q.text) == text {
+					*q = queueState{generation: generation}
+				}
+			})
+		} else {
+			actions.SaveQueued(q.editing, strings.TrimSpace(q.text))
+			*q = queueState{generation: q.generation}
+		}
 	}
 	ui.Column(c.Key("queue-editor")).FillWidth().Padding(4).Gap(8).Children(func() {
 		area := ui.TextAreaBase(c.Key("queue-input"), &q.text).Label(i18n.T(c, "queue_edit")).Lines(1, 6).FontSize(14).
-			LineHeight(1.5).TextColor(p.Foreground).Padding(4).AutoFocus()
+			LineHeight(1.5).TextColor(p.Foreground).Padding(4).AutoFocus().Disabled(q.loading || q.saving)
 		composing := area.Composing() // the callback runs after this pass
 		area.OnTextKey(func(k ui.TextKey) bool {
 			if k.Key == ui.KeyEnter && k.Mods == 0 && !composing {
@@ -207,10 +243,12 @@ func (s *State) queueEditor(c *ui.Context, ctx *Context, actions Actions) {
 				kit.Tooltip(c, reload, i18n.T(c, "queue_reload_draft"))
 				reload.OnClick(func() {
 					q.text, q.original = item.Text, item.Text
+					q.revision = item.Revision
+					s.loadQueued(item)
 				})
 			}
-			button("cancel", i18n.T(c, "settings_cancel")).OnClick(func() { *q = queueState{} })
-			kit.Primary(c.Key("save"), i18n.T(c, "queue_save"), changed || empty).Height(28).Radius(14).
+			button("cancel", i18n.T(c, "settings_cancel")).OnClick(func() { *q = queueState{generation: q.generation + 1} })
+			kit.Primary(c.Key("save"), i18n.T(c, "queue_save"), changed || empty || q.loading || q.saving).Height(28).Radius(14).
 				Children(func() { ui.Text(c, i18n.T(c, "queue_save")).FontSize(14) }).OnClick(save)
 		})
 	})

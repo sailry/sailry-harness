@@ -1,0 +1,765 @@
+package live
+
+import (
+	"cmp"
+	"encoding/json"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/sailry/sailry-harness/internal/client"
+	"github.com/sailry/sailry-harness/internal/desktop/composer"
+	"github.com/sailry/sailry-harness/internal/desktop/conversation"
+	"github.com/sailry/sailry-harness/internal/protocol"
+)
+
+// Conversation projects canonical and live data without changing Client state.
+// Thinking is retained for provider replay but intentionally has no UI row.
+func Conversation(state client.ConversationState) ([]conversation.Turn, conversation.Session, composer.Interactions, []composer.Queued) {
+	snapshot := state.Snapshot
+	page := snapshot.Page
+	session := conversation.Session{Loading: state.Loading, LoadingOlder: state.LoadingOlder, OlderFailed: state.OlderErr != nil}
+	if page.NextBefore != nil || len(snapshot.Missing) > 0 {
+		session.Older = 20
+	}
+	if !state.Connected {
+		session.Connection = conversation.Reconnecting
+		if state.Err != nil {
+			session.Connection = conversation.Offline
+		}
+	}
+	if state.Err != nil {
+		session.Diagnostic = &conversation.Diagnostic{Title: "chat_action_failed", Detail: state.Err.Error()}
+	}
+	if statistics := snapshot.Statistics; statistics != nil {
+		u := &conversation.Usage{Turns: int(statistics.Turns)}
+		if statistics.Usage != nil {
+			u.Tokens = int(statistics.Usage.Input + statistics.Usage.Output)
+			u.Cached = int(statistics.Usage.CachedInput)
+		}
+		if statistics.Cost != nil {
+			u.Cost = float64(statistics.Cost.UsdMicros) / 1_000_000
+		}
+		if statistics.Generation != nil && statistics.Generation.ElapsedUs > 0 {
+			u.Speed = float64(statistics.Generation.OutputTokens) * 1_000_000 / float64(statistics.Generation.ElapsedUs)
+		}
+		context, limit := statistics.ContextTokens, statistics.ContextLimit
+		if context == nil {
+			context = statistics.ContextEstimate
+			if statistics.Budget != nil {
+				limit = &statistics.Budget.ContextLimit
+			}
+		}
+		if context != nil && limit != nil && *limit > 0 {
+			u.Context = float64(*context) / float64(*limit)
+		}
+		session.Usage = u
+	}
+	runs := slices.Clone(page.Runs)
+	slices.SortStableFunc(runs, func(a, b protocol.ConversationRun) int {
+		x, y := a.StartedMs, b.StartedMs
+		if x == nil {
+			x = a.FinishedMs
+		}
+		if y == nil {
+			y = b.FinishedMs
+		}
+		if x == nil && y != nil {
+			return 1
+		}
+		if x != nil && y == nil {
+			return -1
+		}
+		if x != nil && y != nil {
+			if n := cmp.Compare(*x, *y); n != 0 {
+				return n
+			}
+		}
+		return cmp.Compare(a.Sequence, b.Sequence)
+	})
+	owners := map[protocol.TurnID]protocol.TurnID{}
+	pending := map[protocol.TurnID]bool{}
+	for _, p := range page.Queue.Items {
+		pending[p.Turn] = true
+	}
+	for _, r := range runs {
+		owners[r.Turn] = r.Turn
+		if r.Joined != nil && slices.ContainsFunc(runs, func(v protocol.ConversationRun) bool { return v.Turn == *r.Joined }) {
+			owners[r.Turn] = *r.Joined
+		}
+	}
+	var turns []conversation.Turn
+	positions := map[protocol.TurnID]int{}
+	for _, r := range runs {
+		if owners[r.Turn] != r.Turn || r.Status == "queued" && pending[r.Turn] {
+			continue
+		}
+		if r.Status == "continued" && r.Continuation != nil && !slices.ContainsFunc(page.Entries, func(e protocol.ConversationEntry) bool { return e.Turn == r.Turn && e.Author != "user" }) {
+			continue
+		}
+		t := conversation.Turn{ID: r.Turn.String(), Reply: conversation.Reply{Status: runStatus(r.Status), Notice: r.Notice}}
+		if r.StartedMs != nil {
+			t.Sent = time.UnixMilli(*r.StartedMs)
+		}
+		if r.FinishedMs != nil {
+			t.Reply.Finished = time.UnixMilli(*r.FinishedMs)
+			if r.StartedMs != nil {
+				t.Reply.Elapsed = time.Duration(*r.FinishedMs-*r.StartedMs) * time.Millisecond
+			}
+		}
+		if t.Reply.Status.Active() {
+			if r.StartedMs != nil {
+				t.Reply.Elapsed = max(0, time.Since(time.UnixMilli(*r.StartedMs)))
+			}
+			t.Reply.Phase = conversation.AwaitingResponse
+			if !state.Connected {
+				t.Reply.Status = conversation.Unsynced
+			}
+		}
+		if r.Input != nil {
+			t.User = r.Input.Message.Text
+		}
+		for _, notice := range r.Notices {
+			t.Notices = append(t.Notices, conversation.Notice{Title: notice.Title, Agent: notice.Kind.Kind == "agent", Outcome: noticeOutcome(notice.Outcome)})
+		}
+		if r.Kind == "compaction" {
+			t.Compaction = &conversation.Compaction{State: conversation.Compacted}
+			switch r.Status {
+			case "queued":
+				t.Compaction.State = conversation.CompactionQueued
+			case "running", "stopping":
+				t.Compaction.State = conversation.CompactionRunning
+			case "failed", "interrupted":
+				t.Compaction.State = conversation.CompactionFailed
+			case "cancelled":
+				t.Compaction.State = conversation.CompactionCancelled
+			}
+			if r.Error != nil {
+				t.Compaction.Cause = r.Error.Message
+			}
+		}
+		positions[r.Turn] = len(turns)
+		turns = append(turns, t)
+	}
+	associations := map[string][]toolAssociation{}
+	// User entries replace the captured pending input once canonical history arrives.
+	canonicalUsers := map[protocol.TurnID]bool{}
+	for _, entry := range page.Entries {
+		owner := owners[entry.Turn]
+		position, ok := positions[owner]
+		if !ok {
+			continue
+		}
+		t := &turns[position]
+		if entry.Author == "user" {
+			if !canonicalUsers[owner] {
+				t.User = ""
+				canonicalUsers[owner] = true
+			}
+			var parts []string
+			for _, part := range entry.Parts {
+				if part.Kind == "text" {
+					if text, ok := detail[string](part.Data); ok {
+						parts = append(parts, text)
+					}
+				}
+				switch part.Kind {
+				case "image":
+					if image, ok := detail[protocol.ConversationImage](part.Data); ok {
+						t.Images = append(t.Images, conversation.Image{ID: image.Attachment.ID.String(), Name: image.Attachment.Spec.Name})
+					}
+				case "attachment":
+					if file, ok := detail[protocol.Attachment](part.Data); ok {
+						t.Files = append(t.Files, conversation.File{ID: file.ID.String(), Path: file.Spec.Name, Mime: file.Spec.MediaType, Size: int64(file.Spec.Size)})
+					}
+				}
+			}
+			if text := strings.Join(parts, ""); text != "" {
+				if t.User != "" {
+					t.User += "\n\n"
+				}
+				t.User += text
+			}
+			if t.Sent.IsZero() {
+				t.Sent = time.UnixMilli(entry.TimestampMs)
+			}
+			continue
+		}
+		projectParts(&t.Reply, entry.Parts, entry.ID, entry.Turn, entry.Branch, associations)
+		if t.Compaction != nil {
+			for _, part := range entry.Parts {
+				if part.Kind == "compaction" {
+					if text, ok := detail[string](part.Data); ok {
+						t.Compaction.Summary += text
+					}
+				}
+			}
+		}
+		for _, citation := range entry.Citations {
+			v := conversation.Citation{URI: citation.Uri}
+			if citation.Title != nil {
+				v.Title = *citation.Title
+			}
+			if citation.End != nil {
+				v.End = int(*citation.End)
+			}
+			t.Reply.Citations = append(t.Reply.Citations, v)
+		}
+	}
+	for _, draft := range snapshot.Drafts {
+		if position, ok := positions[owners[draft.Turn]]; ok {
+			t := &turns[position]
+			projectParts(&t.Reply, draft.Parts, draft.ID, draft.Turn, draft.Branch, associations)
+			if phase := draftPhase(draft.Parts); phase != conversation.PhaseNone {
+				t.Reply.Phase = phase
+			}
+		}
+	}
+	for _, r := range runs {
+		if position, ok := positions[owners[r.Turn]]; ok && r.Error != nil {
+			t := &turns[position]
+			t.Reply.Blocks = append(t.Reply.Blocks, conversation.Block{Kind: conversation.ErrorBlock, Label: "chat_action_failed", Text: r.Error.Message})
+			if position == len(turns)-1 && session.Diagnostic == nil {
+				session.Diagnostic = &conversation.Diagnostic{Title: "chat_action_failed", Fields: [][2]string{{"code", string(r.Error.Code)}}, Detail: r.Error.Message}
+			}
+		}
+	}
+	calls := map[string]*conversation.Call{}
+	for ti := range turns {
+		firstProgress := -1
+		blocks := turns[ti].Reply.Blocks[:0]
+		for _, block := range turns[ti].Reply.Blocks {
+			if block.Kind == conversation.ProgressBlock {
+				if firstProgress >= 0 {
+					blocks[firstProgress].Steps = block.Steps
+					continue
+				}
+				firstProgress = len(blocks)
+			}
+			blocks = append(blocks, block)
+		}
+		turns[ti].Reply.Blocks = blocks
+		for bi := range turns[ti].Reply.Blocks {
+			for ci := range turns[ti].Reply.Blocks[bi].Calls {
+				call := &turns[ti].Reply.Blocks[bi].Calls[ci]
+				if call.ID != "" {
+					calls[call.ID] = call
+				}
+			}
+		}
+	}
+	var interactions composer.Interactions
+	for _, a := range page.Approvals {
+		if projected := calls[toolCallKey(a.Entry, a.Index)]; projected != nil {
+			switch a.State {
+			case "pending":
+				projected.Pending = true
+				projected.State = conversation.Pending
+				projected.Running = false
+			case "denied":
+				projected.Failed = false
+				projected.Warning = true
+				projected.Pending = false
+				projected.Running = false
+				projected.State = conversation.Denied
+			case "interrupted":
+				projected.Warning = true
+				projected.Running = false
+				projected.State = conversation.StateInterrupted
+			}
+		}
+		if a.State != "pending" {
+			continue
+		}
+		v := composer.Approval{ID: a.ID.String(), Remember: a.CanRemember, Unrestricted: a.Access != nil && *a.Access == "unrestricted"}
+		if a.Prefix != nil {
+			v.Prefix = *a.Prefix
+		}
+		if call := callAt(page, a.Entry, a.Index); call != nil {
+			v.Title = call.Name
+			if call.Summary != nil && call.Summary.Resolved != nil {
+				resolved := call.Summary.Resolved
+				if resolved.Label != nil {
+					v.Title = resolved.Label.Label
+				}
+				if resolved.Input.Context != nil {
+					v.Context = resolved.Input.Context.Text
+				}
+				if resolved.Input.Content != nil {
+					v.Description = resolved.Input.Content.Text
+					v.Code = resolved.Input.Content.Code
+				}
+			}
+			if projected := calls[toolCallKey(a.Entry, a.Index)]; projected != nil {
+				projected.Pending = true
+				projected.State = conversation.Pending
+			}
+		}
+		interactions.Approvals = append(interactions.Approvals, v)
+	}
+	for _, q := range page.Questions {
+		call := callAt(page, q.Entry, q.Index)
+		if call == nil || call.Summary == nil || call.Summary.Question == nil || *call.Summary.Question == nil {
+			continue
+		}
+		spec := **call.Summary.Question
+		if position, ok := positions[owners[q.Turn]]; ok {
+			reply := &turns[position].Reply
+			history := projectQuestion(q, spec, calls[toolCallKey(q.Entry, q.Index)], reply.Status)
+			replaced := false
+			for i, block := range reply.Blocks {
+				if len(block.Calls) == 1 && block.Calls[0].ID == history.CallID {
+					reply.Blocks[i] = conversation.Block{Kind: conversation.QuestionBlock, Question: &history}
+					replaced = true
+					break
+				}
+			}
+			if !replaced {
+				reply.Blocks = append(reply.Blocks, conversation.Block{Kind: conversation.QuestionBlock, Question: &history})
+			}
+		}
+		if q.State.Kind != "pending" || interactions.Question != nil {
+			continue
+		}
+		ask := &composer.Ask{ID: q.ID.String(), Prompt: spec.Prompt, Other: spec.Input.Kind == "text", Declinable: spec.Input.Kind == "form" || spec.Input.Kind == "url"}
+		if choice, ok := detail[protocol.ConversationQuestionInputChoicePayload](spec.Input.Data); ok {
+			ask.Options = choice.Options
+			ask.Multi = choice.Multiple
+			ask.Other = choice.AllowOther
+		}
+		interactions.Question = ask
+	}
+	children := map[protocol.TurnID][]conversation.Child{}
+	for _, child := range page.Children {
+		owner := owners[child.Origin.Turn]
+		status := conversation.ChildCompleted
+		switch child.Run.Status {
+		case "queued":
+			status = conversation.ChildQueued
+		case "running", "stopping":
+			status = conversation.ChildRunning
+		case "failed":
+			status = conversation.ChildFailed
+		case "interrupted":
+			status = conversation.ChildInterrupted
+		case "cancelled":
+			status = conversation.ChildCancelled
+		}
+		title := child.Run.Session.String()
+		if child.Name != nil {
+			title = *child.Name
+		}
+		children[owner] = append(children[owner], conversation.Child{ID: child.Run.Session.String(), Title: title, Status: status})
+	}
+	for owner, list := range children {
+		if position, ok := positions[owner]; ok {
+			reply := &turns[position].Reply
+			reply.Blocks = append(reply.Blocks, conversation.Block{Kind: conversation.ChildrenBlock, Children: list})
+			for _, child := range list {
+				if child.Status == conversation.ChildRunning {
+					reply.Waiting++
+				}
+			}
+			if reply.Waiting > 0 {
+				reply.Phase = conversation.WaitingChildren
+			}
+		}
+	}
+	var queue []composer.Queued
+	for _, item := range page.Queue.Items {
+		q := composer.Queued{ID: item.Turn.String(), Text: item.Preview, Revision: item.Revision, Notice: item.Notice, Compaction: item.Kind == "compaction", Guided: item.Guidance != nil}
+		for _, file := range item.Attachments {
+			q.Attachments = append(q.Attachments, &composer.Attachment{ID: file.ID.String(), Name: file.Spec.Name, Mime: file.Spec.MediaType, Size: int64(file.Spec.Size), Status: composer.Ready})
+		}
+		queue = append(queue, q)
+	}
+	return turns, session, interactions, queue
+}
+
+func noticeOutcome(outcome protocol.ConversationBackgroundOutcome) conversation.NoticeOutcome {
+	switch outcome {
+	case "failed":
+		return conversation.OutcomeFailed
+	case "cancelled":
+		return conversation.OutcomeCancelled
+	case "stopped":
+		return conversation.OutcomeStopped
+	case "timed_out":
+		return conversation.OutcomeTimedOut
+	case "interrupted":
+		return conversation.OutcomeInterrupted
+	case "unknown":
+		return conversation.OutcomeUnknown
+	case "stalled":
+		return conversation.OutcomeStalled
+	default:
+		return conversation.OutcomeCompleted
+	}
+}
+
+func runStatus(status protocol.ConversationStatus) conversation.RunStatus {
+	switch status {
+	case "queued":
+		return conversation.Queued
+	case "running":
+		return conversation.Running
+	case "stopping":
+		return conversation.Stopping
+	case "continued":
+		return conversation.Continued
+	case "cancelled":
+		return conversation.Cancelled
+	case "interrupted":
+		return conversation.Interrupted
+	case "failed":
+		return conversation.Failed
+	}
+	return conversation.Completed
+}
+
+func callAt(page protocol.ConversationPage, entry string, index uint64) *protocol.ConversationPartToolCallPayload {
+	for _, e := range page.Entries {
+		if e.ID == entry && index < uint64(len(e.Parts)) && e.Parts[index].Kind == "tool_call" {
+			if v, ok := detail[protocol.ConversationPartToolCallPayload](e.Parts[index].Data); ok {
+				return &v
+			}
+		}
+	}
+	return nil
+}
+
+type toolAssociation struct {
+	ID, Name string
+	Hidden   bool
+	Progress bool
+	Block    int
+}
+
+func toolCallKey(entry string, index uint64) string {
+	return entry + "/" + strconv.FormatUint(index, 10)
+}
+func toolPendingKey(turn protocol.TurnID, branch, id string) string {
+	return turn.String() + "\x00" + branch + "\x00" + id
+}
+func projectedCall(reply *conversation.Reply, id string) *conversation.Call {
+	for bi := range reply.Blocks {
+		for ci := range reply.Blocks[bi].Calls {
+			if reply.Blocks[bi].Calls[ci].ID == id {
+				return &reply.Blocks[bi].Calls[ci]
+			}
+		}
+	}
+	return nil
+}
+
+func projectParts(reply *conversation.Reply, parts []protocol.ConversationPart, entry string, turn protocol.TurnID, branch string, pending map[string][]toolAssociation) {
+	for index, part := range parts {
+		switch part.Kind {
+		case "thinking":
+			continue
+		case "text":
+			if text, ok := detail[string](part.Data); ok && text != "" {
+				if n := len(reply.Blocks); n > 0 && reply.Blocks[n-1].Kind == conversation.TextBlock {
+					reply.Blocks[n-1].Text += text
+				} else {
+					reply.Blocks = append(reply.Blocks, conversation.Block{Kind: conversation.TextBlock, Text: text})
+				}
+			}
+		case "compaction":
+			if text, ok := detail[string](part.Data); ok {
+				reply.Blocks = append(reply.Blocks, conversation.Block{Kind: conversation.CompactionBlock, Label: toolCallKey(entry, uint64(index)), Text: text})
+			}
+		case "image":
+			if image, ok := detail[protocol.ConversationImage](part.Data); ok {
+				reply.Blocks = append(reply.Blocks, conversation.Block{Kind: conversation.ImagesBlock, Images: []conversation.Image{{ID: image.Attachment.ID.String(), Name: image.Attachment.Spec.Name}}})
+			}
+		case "attachment":
+			if a, ok := detail[protocol.Attachment](part.Data); ok {
+				reply.Blocks = append(reply.Blocks, conversation.Block{Kind: conversation.FilesBlock, Files: []conversation.File{{ID: a.ID.String(), Path: a.Spec.Name, Mime: a.Spec.MediaType, Size: int64(a.Spec.Size)}}})
+			}
+		case "tool_call":
+			if source, ok := detail[protocol.ConversationPartToolCallPayload](part.Data); ok {
+				id := toolCallKey(entry, uint64(index))
+				progress := source.Summary != nil && source.Summary.Progress != nil
+				if source.ID != nil {
+					key := toolPendingKey(turn, branch, *source.ID)
+					pending[key] = append(pending[key], toolAssociation{ID: id, Name: source.Name, Hidden: source.Presentation == "hidden", Progress: progress, Block: len(reply.Blocks)})
+				}
+				if source.Presentation == "hidden" {
+					continue
+				}
+				if progress {
+					reply.Blocks = append(reply.Blocks, conversation.Block{Kind: conversation.ProgressBlock, Steps: projectSteps(*source.Summary.Progress)})
+					continue
+				}
+				call := projectCall(source.Name, source.Summary)
+				call.ID = id
+				call.Standalone = source.Grouping == "standalone"
+				call.Terminal = terminalInteraction(source.Name)
+				if !reply.Status.Active() {
+					call.State = conversation.NotExecuted
+					call.Warning = true
+				}
+				reply.Blocks = append(reply.Blocks, conversation.Block{Kind: conversation.ToolsBlock, Calls: []conversation.Call{call}})
+			}
+		case "tool_result":
+			if result, ok := detail[protocol.ConversationPartToolResultPayload](part.Data); ok {
+				var call *conversation.Call
+				if result.ID != nil {
+					key := toolPendingKey(turn, branch, *result.ID)
+					matches := pending[key]
+					delete(pending, key)
+					if len(matches) == 1 && matches[0].Name == result.Name {
+						if matches[0].Hidden {
+							continue
+						}
+						if matches[0].Progress {
+							if result.Summary != nil && result.Summary.Progress != nil {
+								reply.Blocks[matches[0].Block].Steps = projectSteps(*result.Summary.Progress)
+							}
+							continue
+						}
+						call = projectedCall(reply, matches[0].ID)
+					}
+				}
+				if call == nil {
+					if result.Summary != nil && result.Summary.Progress != nil {
+						reply.Blocks = append(reply.Blocks, conversation.Block{Kind: conversation.ProgressBlock, Steps: projectSteps(*result.Summary.Progress)})
+						continue
+					}
+					value := projectCall(result.Name, result.Summary)
+					value.ID = toolCallKey(entry, uint64(index))
+					reply.Blocks = append(reply.Blocks, conversation.Block{Kind: conversation.ToolsBlock, Calls: []conversation.Call{value}})
+					call = &reply.Blocks[len(reply.Blocks)-1].Calls[0]
+				}
+				projected := projectCall(result.Name, result.Summary)
+				projected.ID = call.ID
+				projected.Standalone, projected.Terminal = call.Standalone, terminalInteraction(result.Name)
+				*call = projected
+				call.Running = false
+			}
+		case "resource":
+			if raw, ok := detail[json.RawMessage](part.Data); ok {
+				var started struct{ Type, ID, Name string }
+				if json.Unmarshal(raw, &started) == nil && started.Type == "tool_started" {
+					matches := pending[toolPendingKey(turn, branch, started.ID)]
+					if len(matches) == 1 && matches[0].Name == started.Name {
+						if call := projectedCall(reply, matches[0].ID); call != nil {
+							call.Running = reply.Status.Active()
+							call.State = conversation.StateNone
+							call.Warning = false
+						}
+					}
+					continue
+				}
+			}
+			projectResource(reply, part.Data)
+		}
+	}
+}
+
+func draftPhase(parts []protocol.ConversationPart) conversation.Phase {
+	phase := conversation.PhaseNone
+	for _, part := range parts {
+		switch part.Kind {
+		case "text":
+			if text, ok := detail[string](part.Data); ok && text != "" && phase != conversation.Compacting {
+				phase = conversation.Generating
+			}
+		case "thinking":
+			if text, ok := detail[string](part.Data); ok && text != "" && phase == conversation.PhaseNone {
+				phase = conversation.Thinking
+			}
+		case "resource":
+			if raw, ok := detail[json.RawMessage](part.Data); ok {
+				var value struct{ Type string }
+				if json.Unmarshal(raw, &value) == nil && value.Type == "compacting" {
+					phase = conversation.Compacting
+				}
+			}
+		}
+	}
+	return phase
+}
+
+func terminalInteraction(name string) bool {
+	return name == "ask_user" || name == "mcp_elicitation" || name == "plan_review"
+}
+
+func projectQuestion(q protocol.ConversationQuestion, spec protocol.ConversationQuestionSpec, call *conversation.Call, status conversation.RunStatus) conversation.Question {
+	v := conversation.Question{CallID: toolCallKey(q.Entry, q.Index), Prompt: spec.Prompt, State: conversation.QuestionPending}
+	if choice, ok := detail[protocol.ConversationQuestionInputChoicePayload](spec.Input.Data); spec.Input.Kind == "choice" && ok {
+		v.Options = choice.Options
+		v.Multi = choice.Multiple
+	}
+	switch q.State.Kind {
+	case "answered":
+		v.State = conversation.QuestionAnswered
+		if call != nil && call.State == conversation.NotExecuted {
+			v.State = conversation.QuestionUnconsumed
+		} else if status.Active() {
+			v.State = conversation.QuestionAccepted
+		}
+		if a, ok := detail[protocol.ConversationQuestionAnswer](q.State.Data); ok {
+			switch a.Kind {
+			case "text":
+				if text, ok := detail[string](a.Data); ok {
+					v.Answers = []string{text}
+				}
+			case "choices":
+				if choices, ok := detail[protocol.ConversationQuestionAnswerChoicesPayload](a.Data); ok {
+					for _, i := range choices.Selected {
+						if i < uint64(len(v.Options)) {
+							v.Answers = append(v.Answers, v.Options[i])
+						}
+					}
+					if choices.Other != nil {
+						v.Answers = append(v.Answers, *choices.Other)
+					}
+				}
+			}
+		}
+	case "cancelled":
+		v.State = conversation.QuestionCancelled
+	case "declined":
+		v.State = conversation.QuestionDeclined
+	case "interrupted":
+		v.State = conversation.QuestionInterrupted
+	case "timed_out":
+		v.State = conversation.QuestionTimedOut
+	}
+	return v
+}
+
+func projectCall(name string, summary *protocol.ToolDetailSummary) conversation.Call {
+	call := conversation.Call{Name: name, Label: name}
+	if summary == nil {
+		return call
+	}
+	if summary.Title != nil {
+		call.Label = *summary.Title
+	}
+	if summary.Path != nil {
+		call.Detail = *summary.Path
+	}
+	if summary.Error != nil {
+		call.Error = *summary.Error
+	}
+	if summary.Failure != nil {
+		call.Failed = summary.Failure.Origin == "runtime"
+		call.Warning = summary.Failure.Origin == "tool"
+		if code := summary.Failure.Code; code != nil {
+			switch *code {
+			case protocol.ErrorCodeCancelled:
+				call.Failed = false
+				call.Warning = false
+			case protocol.ErrorCodeOutcomeUnknown:
+				call.Failed = false
+				call.Warning = true
+				call.State = conversation.StateInterrupted
+			case protocol.ErrorCodeNotFound:
+				if summary.Expected != nil {
+					call.Failed = false
+					call.Warning = false
+				}
+			}
+		}
+		if call.Failed {
+			call.State = conversation.StateFailed
+		}
+	}
+	if summary.Icon != nil && summary.Icon.Kind == "Name" {
+		if name, ok := detail[string](summary.Icon.Data); ok {
+			call.Icon = name
+		}
+	}
+	if resolved := summary.Resolved; resolved != nil {
+		if resolved.Label != nil {
+			call.Label = resolved.Label.Label
+		}
+		if resolved.Input.Summary != nil {
+			call.Detail = resolved.Input.Summary.Text
+			call.Code = resolved.Input.Summary.Code
+		}
+		if output := resolved.Output; output != nil {
+			call.Output = &conversation.Output{Text: output.Preview, Paths: slices.Clone(output.Paths)}
+			if output.Body != nil {
+				call.Output.Text = output.Body.Text
+			}
+		}
+	}
+	if call.Error != "" {
+		if call.Output == nil {
+			call.Output = &conversation.Output{}
+		}
+		call.Output.Failure = call.Error
+		call.Output.ToolFailure = call.Warning
+	}
+	return call
+}
+
+func projectResource(reply *conversation.Reply, data any) {
+	var raw json.RawMessage
+	if v, ok := detail[json.RawMessage](data); ok {
+		raw = v
+	} else {
+		return
+	}
+	var resource struct {
+		Kind string          `json:"kind"`
+		Type string          `json:"type"`
+		Data json.RawMessage `json:"data"`
+	}
+	if json.Unmarshal(raw, &resource) != nil {
+		return
+	}
+	kind := resource.Kind
+	if kind == "" {
+		kind = resource.Type
+	}
+	switch kind {
+	case "model_retry":
+		var r protocol.ConversationRecoveryRetry
+		if json.Unmarshal(raw, &r) == nil {
+			v := &conversation.Retry{Attempt: int(r.Attempt)}
+			if r.Limit != nil {
+				v.Limit = int(*r.Limit)
+			}
+			if r.Error != nil {
+				v.Detail = *r.Error
+			}
+			reply.Blocks = append(reply.Blocks, conversation.Block{Kind: conversation.RetryBlock, Retry: v})
+		}
+	case "compacting":
+		reply.Phase = conversation.Compacting
+	case "compaction_failure":
+		var v struct {
+			Failure protocol.ConversationCompactionFailure `json:"failure"`
+		}
+		if json.Unmarshal(raw, &v) == nil {
+			message := ""
+			if v.Failure.Cause != nil {
+				message = *v.Failure.Cause
+			}
+			reply.Blocks = append(reply.Blocks, conversation.Block{Kind: conversation.ErrorBlock, Label: "chat_compact_failed", Text: message})
+		}
+	}
+}
+
+func projectSteps(p protocol.ConversationProgress) []conversation.Step {
+	var out []conversation.Step
+	for _, s := range p.Steps {
+		state := conversation.StepPending
+		switch s.State {
+		case "in_progress":
+			state = conversation.StepInProgress
+		case "completed":
+			state = conversation.StepCompleted
+		case "skipped":
+			state = conversation.StepSkipped
+		}
+		out = append(out, conversation.Step{Text: s.Description, State: state})
+	}
+	return out
+}

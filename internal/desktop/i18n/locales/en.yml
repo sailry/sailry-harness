@@ -1504,3 +1504,17 @@ plugin_initialization_failed: Could not initialize plugin
 git_inspection_failed: Could not inspect Git
 plugin_callback_failed: Plugin callback failed
 chat_execution_unknown: Some execution results are unconfirmed
+reader_failed: Could not read aloud
+conversation_exported: Exported
+conversation_export_failed: Conversation export failed
+approval_closed: Approval closed
+chat_search_failed: Search failed
+compaction_settings_load_failed: Could not load compaction settings
+provider_catalog_failed: Catalog update failed; try again
+provider_catalog_read_failed: Models updated; reference catalog could not be read
+provider_key_failed: Could not read key
+provider_query_failed: Query failed; try again
+provider_revision_changed: Configuration changed; reopen the editor
+provider_save_failed: Save failed; try again
+provider_save_unknown: Result unconfirmed; keep content unchanged and retry
+question_closed: Question closed; draft kept

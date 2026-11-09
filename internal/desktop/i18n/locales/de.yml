@@ -1504,3 +1504,17 @@ plugin_initialization_failed: Plugin konnte nicht initialisiert werden
 git_inspection_failed: Git konnte nicht geprüft werden
 plugin_callback_failed: Plugin-Ausführung fehlgeschlagen
 chat_execution_unknown: Einige Ausführungsergebnisse sind nicht bestätigt
+reader_failed: Vorlesen fehlgeschlagen
+conversation_exported: Exportiert
+conversation_export_failed: Gesprächsexport fehlgeschlagen
+approval_closed: Genehmigung geschlossen
+chat_search_failed: Die Suche ist fehlgeschlagen
+compaction_settings_load_failed: Komprimierungseinstellungen konnten nicht geladen werden
+provider_catalog_failed: Katalogaktualisierung fehlgeschlagen; versuchen Sie es erneut
+provider_catalog_read_failed: Modelle aktualisiert; Referenzkatalog konnte nicht gelesen werden
+provider_key_failed: Schlüssel konnte nicht gelesen werden
+provider_query_failed: Abfrage fehlgeschlagen; versuchen Sie es erneut
+provider_revision_changed: Konfiguration geändert; Editor neu öffnen
+provider_save_failed: Speichern fehlgeschlagen; versuchen Sie es erneut
+provider_save_unknown: Ergebnis nicht bestätigt; Inhalt unverändert lassen und erneut versuchen
+question_closed: Frage geschlossen; Entwurf erhalten

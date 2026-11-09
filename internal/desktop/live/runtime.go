@@ -13,6 +13,8 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
+	"github.com/sailry/sailry-harness/internal/desktop/composer"
+	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
@@ -24,6 +26,11 @@ import (
 )
 
 type Runtime struct {
+	admittedSessions      map[string]protocol.Session
+	composerRevisions     map[string]uint64
+	composerSaving        map[string]bool
+	composerWaiters       map[string][]func(bool)
+	composerBases         map[*composer.State]protocol.SessionConfig
 	App                   *shell.App
 	Preferences           *preferences.Store
 	controller            *client.Client
@@ -50,6 +57,20 @@ type Runtime struct {
 	lastKeys              string
 	powerObservedRevision uint64
 	prefsRevision         uint64
+	conversationWatches   map[protocol.SessionID]func()
+	conversationSeen      map[protocol.SessionID]bool
+	composerInitialized   map[string]bool
+	composerObserved      map[string]string
+	readAloud             func(string, string, string)
+	exportConversation    func(string, string, conversation.ExportFormat)
+	conversationEdits     map[string]conversationEdit
+	conversationCreations map[string]conversationCreation
+	conversationCreating  map[string]bool
+	providerPresets       map[string]protocol.ConversationPresetsEntry
+	providerModels        map[string]map[string]protocol.ConversationModel
+	providerDraftBases    map[string]protocol.ConversationProvider
+	modelScores           map[string][]protocol.ConversationCatalogScoresEffortScore
+	modelScoreKey         string
 }
 
 // New composes a window over an already started Client. Startup code should use
@@ -70,16 +91,29 @@ func NewWithPreferences(ctx context.Context, controller *client.Client, prefs *p
 	r.App = shell.NewLive(d)
 	r.App.SetLocalHost(localHost(snapshot, d))
 	r.applyPreferences()
-	r.App.Hooks = shell.Hooks{BeforeFrame: r.drain, AfterFrame: r.savePreferences, Refresh: r.Refresh, OpenFolder: r.openFolder,
+	r.App.Hooks = shell.Hooks{BeforeFrame: r.drain, AfterFrame: r.afterFrame, Refresh: r.Refresh, OpenFolder: r.openFolder,
 		ReadNotice: r.markNotice, ReadNotices: r.readNotices, DismissRead: r.dismissRead, DismissNotices: r.dismissNotices}
 	r.App.Sidebar.Actions = &sidebar.Actions{Rename: r.rename, Archive: r.archive, Read: r.read, Delete: r.removeSession,
-		Pin: r.pin, MovePin: r.movePin, NewDraft: r.newDraft, RemoveProject: r.removeProject, SaveProject: r.saveProject, Browse: r.browse, OpenWindow: func(id string) {
+		Pin: r.pin, MovePin: r.movePin, NewDraft: r.newDraft, RemoveProject: r.removeProject, SaveProject: r.saveProject, Browse: r.browse, ForkHere: r.forkHere, Export: r.exportSession, OpenWindow: func(id string) {
 			if r.openWindow != nil {
 				r.openWindow(id)
 			}
 		}}
 	r.App.Settings.SavePower = r.savePower
 	r.App.Settings.SaveTelemetry = r.saveTelemetry
+	r.App.Hooks.Conversation = r.conversation
+	r.conversationWatches = map[protocol.SessionID]func(){}
+	r.conversationSeen = map[protocol.SessionID]bool{}
+	r.composerInitialized = map[string]bool{}
+	r.composerObserved = map[string]string{}
+	r.composerRevisions = map[string]uint64{}
+	r.composerSaving = map[string]bool{}
+	r.composerWaiters = map[string][]func(bool){}
+	r.composerBases = map[*composer.State]protocol.SessionConfig{}
+	r.admittedSessions = map[string]protocol.Session{}
+	r.conversationEdits = map[string]conversationEdit{}
+	r.conversationCreations = map[string]conversationCreation{}
+	r.conversationCreating = map[string]bool{}
 	if ids := r.App.Sidebar.Order(); len(ids) > 0 {
 		r.App.Sidebar.Selected = ids[0]
 	} else {
@@ -92,6 +126,9 @@ func NewWithPreferences(ctx context.Context, controller *client.Client, prefs *p
 	}
 	r.prefsRevision = prefs.Revision()
 	r.readSettings()
+	r.projectConversations()
+	r.initProviders()
+	r.initConversationSearch()
 	return r, nil
 }
 
@@ -116,6 +153,9 @@ func (r *Runtime) Close() error {
 	r.mu.Unlock()
 	r.unsubscribe()
 	r.unsubscribePrefs()
+	for _, release := range r.conversationWatches {
+		release()
+	}
 	r.cancel()
 	r.workers.Wait()
 	return nil
@@ -147,12 +187,14 @@ func (r *Runtime) enqueue(f func(*ui.Context)) {
 // drain is called only by App.View on MyGo's UI thread. Background callbacks
 // touch the mutex-protected queue, never presentation fields.
 func (r *Runtime) drain(c *ui.Context) {
+	r.conversationSeen = map[protocol.SessionID]bool{}
 	if revision := r.Preferences.Revision(); revision != r.prefsRevision {
 		r.applyPreferences()
 		r.prefsRevision = revision
 		r.project()
 	}
 	kit.SetPreferences(c, kit.Preferences{ToastSeconds: r.Preferences.Data.ToastSeconds, MessageTextSize: uint8(r.App.Settings.TextSize)})
+	r.App.Messages.CompactDisplay = r.App.Settings.MessageDisplay == 1
 	r.mu.Lock()
 	dirty, queue := r.dirty, r.queue
 	r.dirty = false
@@ -170,11 +212,43 @@ func (r *Runtime) drain(c *ui.Context) {
 	}
 }
 
+func (r *Runtime) afterFrame() {
+	for id, release := range r.conversationWatches {
+		if !r.conversationSeen[id] {
+			release()
+			delete(r.conversationWatches, id)
+		}
+	}
+	if session, err := protocol.ParseSessionID(r.App.Messages.SearchSession()); err == nil && !r.conversationSeen[session] {
+		r.App.Messages.CloseSearch()
+	}
+	r.savePreferences()
+}
+
 func (r *Runtime) project() {
 	snapshot := r.controller.Snapshot()
+	for id, session := range r.admittedSessions {
+		present := false
+		for i, current := range snapshot.Sessions {
+			if current.ID == session.ID {
+				if current.Revision >= session.Revision {
+					delete(r.admittedSessions, id)
+				} else {
+					snapshot.Sessions[i] = session
+				}
+				present = true
+				break
+			}
+		}
+		if !present {
+			snapshot.Sessions = append(snapshot.Sessions, session)
+		}
+	}
 	d := Sidebar(snapshot, r.Preferences.Data)
 	d.Notices = Notices(r.controller.Notices())
 	r.App.ApplyData(d)
+	r.projectConversations()
+	r.projectProviderSnapshot()
 	r.App.SetLocalHost(localHost(snapshot, d))
 	// Removed or archived resources lose their controller pins for this Node.
 	if pins := r.Preferences.Data.Pins; pins != nil {
@@ -230,12 +304,16 @@ func (r *Runtime) Refresh() {
 // execute captures immutable input and retains its request ID after an unknown
 // completion. All outcome delivery and draft changes run on the UI thread.
 func (r *Runtime) execute(command protocol.Command, finished func(*ui.Context, protocol.Output, error)) {
+	r.executeScoped("", command, finished)
+}
+
+func (r *Runtime) executeScoped(scope string, command protocol.Command, finished func(*ui.Context, protocol.Output, error)) {
 	b, err := json.Marshal(command)
 	if err != nil {
 		r.enqueue(func(c *ui.Context) { finished(c, protocol.Output{}, err) })
 		return
 	}
-	key := string(b)
+	key := scope + "\x00" + string(b)
 	if r.busy[key] {
 		return
 	}

@@ -1,69 +1,40 @@
 package preview
 
+import "github.com/sailry/sailry-harness/internal/desktop/viewmodel"
+
 // The AI settings' preview data: providers, connectors, teams, plugins,
 // skills, the market, MCP servers and the model library, as a Node would
 // report them. Credentials are never part of it.
 
 // Auth is how a provider channel signs in.
-type Auth int
+type Auth = viewmodel.Auth
 
 const (
-	AuthKey    Auth = iota // an API key
-	AuthOAuth              // an account login
-	AuthPlugin             // a plugin's own sign-in
-	AuthNone               // a local endpoint
+	AuthKey    = viewmodel.AuthKey
+	AuthOAuth  = viewmodel.AuthOAuth
+	AuthPlugin = viewmodel.AuthPlugin
+	AuthNone   = viewmodel.AuthNone
 )
 
 // ChannelModel is a model a channel offers.
-type ChannelModel struct {
-	ID, Name        string
-	Context, Output int // tokens; 0 unknown
-	Efforts         []string
-}
+type ChannelModel = viewmodel.ChannelModel
 
 // Quota is an account login's remaining share of its windows, in percent;
 // negative for a window it does not report.
-type Quota struct{ FiveHour, SevenDay float64 }
+type Quota = viewmodel.Quota
 
 // Channel is a configured provider.
-type Channel struct {
-	ID, Name, Brand string
-	Method          string // the brand's method ID
-	API, Endpoint   string
-	Auth            Auth
-	Enabled         bool
-	KeySet          bool   // a saved key; never loaded
-	SignedIn        bool   // an account login holds a token
-	Account         string // the signed-in account
-	Models          []ChannelModel
-	Default         int
-	Quota           *Quota
-}
+type Channel = viewmodel.Channel
 
 // Method is a way a brand is reached (directory entry route): its label,
 // how it is accessed, its API and endpoint.
-type Method struct {
-	ID, Name    string
-	Access      string // provider_access_key, _endpoint, _login, _cloud
-	API         string
-	Endpoint    string
-	Custom      bool   // the endpoint is the user's
-	Login       string // for account logins: provider_login_claude, _chat_gpt
-	KeyURL      string // where to get a key
-	OAuthFields bool   // the OAuth advanced fields
-}
+type Method = viewmodel.Method
 
 // Brand is a provider family in the directory.
-type Brand struct {
-	ID, Name string
-	Methods  []Method
-}
+type Brand = viewmodel.Brand
 
 // Catalog is the models.dev catalog's state.
-type Catalog struct {
-	Updated, Scores bool
-	Last            string // "2026-11-08 09:30"; "" never
-}
+type Catalog = viewmodel.Catalog
 
 // Providers is the providers page's dataset.
 type Providers struct {

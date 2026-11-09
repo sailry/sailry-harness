@@ -481,7 +481,7 @@ func (a *App) conversation(c *ui.Context, cv *preview.Conversation, focus ui.Han
 		conversation.UsageBar(c, cv.Session.Usage, compact, open)
 	}
 	comp.Indicator = func(c *ui.Context) { conversation.ContextRing(c, cv.Session.Usage) }
-	act := &actions{a: a, c: c, cv: cv, comp: comp}
+	var act ConversationActions = &actions{a: a, c: c, cv: cv, comp: comp}
 	if a.Preview && a.transfers.Advance(comp.Attachments, c.Now()) {
 		c.After(preview.Tick)
 	}
@@ -495,6 +495,8 @@ func (a *App) conversation(c *ui.Context, cv *preview.Conversation, focus ui.Han
 	ctx := &composer.Context{Models: a.Data.Models, Readonly: true}
 	if a.Preview {
 		ctx = preview.Composer(a.Data, cv, comp.Worktree)
+	} else if a.Hooks.Conversation != nil {
+		ctx, act = a.Hooks.Conversation(c, cv, comp)
 	}
 	// Escape in the conversation after the picker and the search bar: the
 	// queue's editor, then Stop.
@@ -506,7 +508,7 @@ func (a *App) conversation(c *ui.Context, cv *preview.Conversation, focus ui.Han
 			conversation.View(c, a.Messages, id, a.children[id], nil, act)
 		}
 	}
-	if len(cv.Turns) == 0 {
+	if len(cv.Turns) == 0 && !cv.Session.Loading && cv.Session.Connection == conversation.Connected {
 		// A new session welcomes with the theme's hero and the mode
 		// cards, whose prompts go to the composer as drafts.
 		conversation.Welcome(c, a.Messages, func() {

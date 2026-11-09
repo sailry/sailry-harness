@@ -19,9 +19,16 @@ const searchLimit = 200
 // Match is an occurrence of the query: its turn, whether in the user
 // message, and which occurrence of that text it is.
 type Match struct {
-	Turn int
-	User bool
-	N    int
+	Turn                             int
+	User                             bool
+	N                                int
+	Target, Entry                    string
+	Sequence, TurnSequence, Revision uint64
+}
+
+type SearchPage struct {
+	Matches    []Match
+	NextBefore *uint64
 }
 
 // Find returns every occurrence of query in the turns, in order: each
@@ -137,24 +144,61 @@ func spans(text, q string, current int, p *theme.Palette) []ui.Span {
 
 // search is the bar's state for the conversation it searches.
 type search struct {
-	open    bool
-	conv    string
-	query   string
-	shown   string // the query the matches are of
-	matches []Match
-	index   int
+	open           bool
+	conv           string
+	query          string
+	shown          string // the query the matches are of
+	matches        []Match
+	index          int
+	before         *uint64
+	loading        bool
+	cancel, reveal func()
+	generation     uint64
+	selected       int
+	revision       uint64
 }
 
 // OpenSearch opens the search bar on conversation id, or focuses it.
 func (s *State) OpenSearch(id string) {
 	if s.find.conv != id {
-		s.find = search{conv: id}
+		s.find.stop()
+		s.find = search{conv: id, generation: s.find.generation + 1, selected: -1}
+	}
+	if !s.find.open && s.Search != nil {
+		s.find.shown = ""
 	}
 	s.find.open = true
 }
 
+func (f *search) stop() {
+	if f.cancel != nil {
+		f.cancel()
+		f.cancel = nil
+	}
+	if f.reveal != nil {
+		f.reveal()
+		f.reveal = nil
+	}
+}
+
 // SearchOpen reports whether the search bar shows.
 func (s *State) SearchOpen() bool { return s.find.open }
+func (s *State) SyncSearch(id string, revision uint64) {
+	f := &s.find
+	if f.open && f.conv == id && f.revision != revision {
+		f.stop()
+		f.generation++
+		f.revision = revision
+		f.shown = ""
+	}
+}
+func (s *State) SearchSession() string {
+	if s.find.open {
+		return s.find.conv
+	}
+	return ""
+}
+func (s *State) CloseSearch() { s.find.open = false; s.find.stop() }
 
 // current is the match revealed, if any.
 func (f *search) current() (Match, bool) {
@@ -170,28 +214,89 @@ func (f *search) current() (Match, bool) {
 // (Find); a new query reveals the first, and stepping the one chosen.
 func (s *State) searchBar(c *ui.Context, id string, turns []Turn) {
 	f := &s.find
-	if !f.open || f.conv != id {
+	if !f.open {
+		f.stop()
+		return
+	}
+	if f.conv != id {
 		return
 	}
 	if r := []rune(f.query); len(r) > searchLimit {
 		f.query = string(r[:searchLimit])
 	}
 	if f.query != f.shown {
+		f.stop()
+		f.generation++
+		f.before = nil
+		f.loading = false
+		f.selected = -1
 		f.shown, f.index = f.query, 0
-		f.matches = Find(turns, f.query)
+		if s.Search != nil {
+			f.matches = nil
+			s.searchPage(id)
+		} else {
+			f.matches = Find(turns, f.query)
+		}
 		if len(f.matches) > 0 {
-			s.List(id).ScrollTo(f.matches[0].Turn, ui.Center)
+			if s.Search == nil {
+				s.List(id).ScrollTo(f.matches[0].Turn, ui.Center)
+			}
 		}
 	}
 	w, _ := c.Size()
 	bar := kit.Floating(c, ui.FindBar(c.Key("search-bar"), &f.open, &f.query, len(f.matches), &f.index)).
 		Absolute().Top(8).Right(16).Width(min(420, w-32))
 	if bar.Changed() && len(f.matches) > 0 {
-		s.List(id).ScrollTo(f.matches[f.index].Turn, ui.Center)
+		if s.Search == nil {
+			s.List(id).ScrollTo(f.matches[f.index].Turn, ui.Center)
+		}
+	}
+	if s.Search != nil && len(f.matches) > 0 {
+		f.index = min(max(f.index, 0), len(f.matches)-1)
+		if f.selected != f.index {
+			f.selected = f.index
+			if f.reveal != nil {
+				f.reveal()
+			}
+			selected, generation := f.index, f.generation
+			target := f.matches[selected]
+			if s.Reveal != nil {
+				f.reveal = s.Reveal(id, target, func(index int, ok bool) {
+					if !ok || !f.open || f.generation != generation || f.index != selected {
+						return
+					}
+					f.matches[selected].Turn = index
+					s.List(id).ScrollTo(index, ui.Center)
+				})
+			}
+		}
+		if f.index == len(f.matches)-1 && f.before != nil && !f.loading {
+			s.searchPage(id)
+		}
 	}
 	if bar.OverlayShortcut(0, ui.KeyEscape) {
 		f.open = false
 	}
+	if !f.open {
+		f.stop()
+	}
+}
+
+func (s *State) searchPage(id string) {
+	f := &s.find
+	if s.Search == nil || strings.TrimSpace(f.shown) == "" {
+		return
+	}
+	generation := f.generation
+	f.loading = true
+	f.cancel = s.Search(id, f.shown, f.before, func(page SearchPage) {
+		if f.generation != generation || !f.open || f.conv != id {
+			return
+		}
+		f.loading = false
+		f.matches = append(f.matches, page.Matches...)
+		f.before = page.NextBefore
+	})
 }
 
 // highlight returns what turn i shows with the search's marks: its user

@@ -1504,3 +1504,17 @@ plugin_initialization_failed: Не удалось инициализироват
 git_inspection_failed: Не удалось проверить Git
 plugin_callback_failed: Ошибка выполнения плагина
 chat_execution_unknown: Некоторые результаты исполнения не подтверждены
+reader_failed: Не удалось прочитать
+conversation_exported: Экспортировано
+conversation_export_failed: Не удалось экспортировать разговор
+approval_closed: Утверждение прекращено
+chat_search_failed: Поиск не удался
+compaction_settings_load_failed: Не удалось загрузить настройки сжатия
+provider_catalog_failed: Не удалось обновить каталог; повторите попытку
+provider_catalog_read_failed: Модели обновлены; не удалось прочитать справочный каталог
+provider_key_failed: Не удалось прочитать ключ
+provider_query_failed: Запрос не удался; попробуйте еще раз
+provider_revision_changed: Изменена конфигурация; переоткройте редактор
+provider_save_failed: Сохранить не удалось; попробуйте снова
+provider_save_unknown: Результат не подтвержден; сохранить содержание без изменений и повторить попытку
+question_closed: Вопрос закрыт; проект сохранен

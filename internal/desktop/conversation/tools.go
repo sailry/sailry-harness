@@ -255,6 +255,19 @@ func (s *State) group(c *ui.Context, run []Call) {
 
 // row is one call: its body is its output.
 func (s *State) row(c *ui.Context, call Call) {
+	if call.Load != nil {
+		if s.requestedDetails == nil {
+			s.requestedDetails = map[string]bool{}
+		}
+		if *s.opened("tools-" + call.ID) {
+			if !s.requestedDetails[call.ID] {
+				s.requestedDetails[call.ID] = true
+				call.Load()
+			}
+		} else {
+			delete(s.requestedDetails, call.ID)
+		}
+	}
 	if call.Output == nil {
 		plain(c, "tools-"+call.ID, call)
 		return

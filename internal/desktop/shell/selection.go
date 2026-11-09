@@ -51,6 +51,18 @@ func (a *App) captureSelection() {
 	a.selected = selection{open: true, text: preview.Selection, chat: chat}
 }
 
+// ShowSelection presents text captured by the controller's native integration.
+func (a *App) ShowSelection(text string) {
+	if a.dialog() || text == "" {
+		return
+	}
+	chat := ""
+	if a.Page == ConversationPage {
+		chat = a.Sidebar.Selected
+	}
+	a.selected = selection{open: true, text: text, chat: chat}
+}
+
 // selectionDialog is the dialog: the title, the text up to 260 high,
 // selectable, then Read aloud and Quote, which adds it to the captured
 // conversation's draft and closes, disabled without one.
@@ -68,8 +80,17 @@ func (a *App) selectionDialog(c *ui.Context) {
 			ui.Text(c, s.text).FontSize(14).Selectable()
 		})
 		ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
-			// Reading aloud needs the speech engine.
-			kit.IconButton(c.Key("read"), icons.Volume, i18n.T(c, "reader_read"), 32, false).OnClick(func() { kit.Message(c, i18n.T(c, "preview_notice")) })
+			icon, label := icons.Volume, "reader_read"
+			if a.Hooks.ReaderActive != nil && a.Hooks.ReaderActive("selection/"+s.chat) {
+				icon, label = icons.Square, "reader_stop"
+			}
+			kit.IconButton(c.Key("read"), icon, i18n.T(c, label), 32, false).OnClick(func() {
+				if !a.Preview && a.Hooks.ReadSelection != nil {
+					a.Hooks.ReadSelection(s.chat, s.text)
+				} else {
+					a.notice(c)
+				}
+			})
 			quote := kit.Secondary(c.Key("quote"), i18n.T(c, "message_quote"))
 			if s.chat == "" || a.Data.Find(s.chat) == nil {
 				quote.Disabled(true).Opacity(0.5)

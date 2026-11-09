@@ -1504,3 +1504,17 @@ plugin_initialization_failed: No se pudo inicializar el complemento
 git_inspection_failed: No se pudo comprobar Git
 plugin_callback_failed: Falló la ejecución del complemento
 chat_execution_unknown: Algunos resultados de ejecución no están confirmados
+reader_failed: No se pudo leer
+conversation_exported: Exportado
+conversation_export_failed: Error al exportar la conversación
+approval_closed: Aprobación cerrada
+chat_search_failed: La búsqueda falló
+compaction_settings_load_failed: No se pudieron cargar los ajustes de compresión
+provider_catalog_failed: Falló la actualización del catálogo; inténtelo de nuevo
+provider_catalog_read_failed: Modelos actualizados; no se pudo leer el catálogo de referencia
+provider_key_failed: No se pudo leer la clave
+provider_query_failed: La consulta falló; inténtelo de nuevo
+provider_revision_changed: Configuración cambiada; vuelva a abrir el editor
+provider_save_failed: No se pudo guardar; inténtelo de nuevo
+provider_save_unknown: Resultado no confirmado; mantenga el contenido sin cambios y vuelva a intentarlo
+question_closed: Cuestión cerrada; proyecto conservado

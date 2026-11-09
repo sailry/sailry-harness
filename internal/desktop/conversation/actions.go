@@ -1,6 +1,7 @@
 package conversation
 
 import (
+	"runtime"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -59,14 +60,20 @@ func (s *State) footer(c *ui.Context, t *Turn, blocks []Block, actions Actions) 
 				kit.Message(c, i18n.T(c, "content_copied"))
 			})
 			icon, label := icons.Volume, "reader_read"
-			if s.reading == t.ID {
+			reading := s.reading == t.ID
+			if s.ReaderActive != nil {
+				reading = s.ReaderActive(t.ID)
+			}
+			if reading {
 				icon, label = icons.Square, "reader_stop"
 			}
 			kit.IconButton(c.Key("read"), icon, i18n.T(c, label), 28, false).OnClick(func() {
-				if s.reading == t.ID {
-					s.reading = ""
-				} else {
-					s.reading = t.ID
+				if s.ReaderActive == nil {
+					if s.reading == t.ID {
+						s.reading = ""
+					} else {
+						s.reading = t.ID
+					}
 				}
 				actions.Read(t.ID, text)
 			})
@@ -98,12 +105,16 @@ func (s *State) footer(c *ui.Context, t *Turn, blocks []Block, actions Actions) 
 
 // exportMenu is the More menu exporting a turn ("" the conversation) as
 // Markdown, HTML or an image.
+func ExportSupported(format ExportFormat) bool {
+	return format != ExportImage || runtime.GOOS == "darwin" || runtime.GOOS == "windows"
+}
+
 func exportMenu(c *ui.Context, id, turn string, actions Actions) {
 	kit.MenuButton(c.Key("export"), id, func(b ui.Element) {
 		kit.IconLook(c, b, icons.EllipsisVertical, i18n.T(c, "more"), "", 28, false)
 	}, func(m *kit.Menu) {
 		for i, key := range []string{"conversation_export_markdown", "conversation_export_html", "conversation_export_image"} {
-			if m.Item(i18n.T(c, key)).Chosen() {
+			if m.Item(i18n.T(c, key)).Disabled(!ExportSupported(ExportFormat(i))).Chosen() {
 				actions.Export(turn, ExportFormat(i))
 			}
 		}

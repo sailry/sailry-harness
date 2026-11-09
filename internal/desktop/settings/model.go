@@ -125,9 +125,10 @@ type BackupTarget struct {
 // Model is the settings pages' view model.
 type Model struct {
 	// Live keeps later-phase controls unavailable and routes saves to the Client.
-	Live          bool
-	SavePower     func()
-	SaveTelemetry func()
+	Live            bool
+	SavePower       func()
+	SaveTelemetry   func()
+	ProviderActions ProviderActions
 	// General.
 	Language       int // of Languages
 	SidebarMetrics bool

@@ -120,7 +120,7 @@ func TestProviderEditor(t *testing.T) {
 	if got := e.Check(); got != "provider_model_required" {
 		t.Errorf("no model: %q", got)
 	}
-	e.models = []modelDraft{{id: "a"}, {id: "a"}}
+	e.models = []modelDraft{{id: "a", context: "128000"}, {id: "a", context: "128000"}}
 	if got := e.Check(); got != "provider_model_duplicate" {
 		t.Errorf("duplicate: %q", got)
 	}
@@ -144,6 +144,14 @@ func TestProviderEditor(t *testing.T) {
 	if ProviderStatus(&m.Channels[2]) != "provider_status_missing_key" || ProviderStatus(&m.Channels[5]) != "provider_status_signed_out" {
 		t.Error("statuses")
 	}
+	t.Run("context_limits", func(t *testing.T) {
+		for _, value := range []string{"", "0", "-1", "4295095296", "not a limit"} {
+			editor := providerEditor{name: "Provider", keySet: true, models: []modelDraft{{id: "model", context: value}}}
+			if got := editor.Check(); got != "provider_limits_invalid" {
+				t.Fatalf("context %q: %q", value, got)
+			}
+		}
+	})
 }
 
 // Connector statuses, menus and the MCP check.

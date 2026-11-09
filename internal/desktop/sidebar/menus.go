@@ -6,6 +6,7 @@ import (
 	"slices"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
@@ -74,9 +75,13 @@ func (s *State) sessionMenu(c *ui.Context, m *ui.Menu, cv *preview.Conversation)
 		}
 	})
 	m.Submenu(t("conversation_export"), func(m *ui.Menu) {
-		for _, key := range []string{"conversation_export_markdown", "conversation_export_html", "conversation_export_image"} {
-			if m.Item(t(key)).Chosen() {
-				s.notice(c)
+		for format, key := range []string{"conversation_export_markdown", "conversation_export_html", "conversation_export_image"} {
+			if m.Item(t(key)).Disabled(!conversation.ExportSupported(conversation.ExportFormat(format))).Chosen() {
+				if s.Actions != nil && s.Actions.Export != nil {
+					s.Actions.Export(cv, conversation.ExportFormat(format))
+				} else {
+					s.notice(c)
+				}
 			}
 		}
 	})
@@ -84,7 +89,11 @@ func (s *State) sessionMenu(c *ui.Context, m *ui.Menu, cv *preview.Conversation)
 	busy := cv.Status == preview.Running || cv.Status == preview.Waiting
 	m.Submenu(t("session_fork"), func(m *ui.Menu) {
 		if m.Item(t("session_fork_here")).Disabled(busy || pr == nil).Chosen() {
-			s.notice(c)
+			if s.Actions != nil && s.Actions.ForkHere != nil {
+				s.Actions.ForkHere(cv)
+			} else {
+				s.notice(c)
+			}
 		}
 		if m.Item(t("session_fork_worktree")).Disabled(busy || pr == nil).Chosen() {
 			s.notice(c)

@@ -14,6 +14,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/live"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
+	"github.com/sailry/sailry-harness/internal/desktop/reader"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
@@ -51,6 +52,7 @@ func main() {
 
 	var windows []*desktopWindow
 	var active *desktopWindow
+	var speech *reader.Service
 	registered := map[string]bool{}
 	var refreshCommands func()
 	refreshCommands = func() {
@@ -128,6 +130,14 @@ func main() {
 			runtime := entry.live
 			runtime.SetInvalidate(entry.window.Invalidate)
 			runtime.SetUpdate(entry.window.Update)
+			if speech == nil {
+				speech = reader.New(entry.window.Update, func() {
+					for _, candidate := range windows {
+						candidate.window.Invalidate()
+					}
+				})
+			}
+			bindConversation(ctx, entry, backend.Client, speech)
 			runtime.SetOpenWindow(func(id string) {
 				if err := openWindow(id); err != nil {
 					log.Printf("session window: %v", err)
@@ -212,6 +222,11 @@ func main() {
 			active.live.OpenNotice(id)
 		})
 		mygo.App.OnWillQuit(func(*mygo.QuitEvent) {
+			if speech != nil {
+				if err := speech.Close(); err != nil {
+					log.Printf("reader shutdown: %v", err)
+				}
+			}
 			if notifier != nil {
 				notifier.Close()
 			}

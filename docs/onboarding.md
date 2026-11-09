@@ -46,9 +46,17 @@ diagnostics note and Settings, centered.
 
 ## Wiring a backend
 
-Load the picker's entries from `ListChannelPresets` as the reference does
-(`Guide::load`); without a host, a choice toasts `onboarding_host_unavailable`.
-`Seen` belongs in the app preferences beside the rest of `Prefs`.
+The B4 live adapter loads the picker's API-key entries from `ListChannelPresets`.
+Choices open the real Providers editor, which keeps its stable provider ID,
+draft, key input and captured revision until `SaveProvider` succeeds. An
+unavailable Node makes a choice toast `onboarding_host_unavailable`. OAuth
+package workflows retain their B8 ownership.
+
+`internal/desktop/preferences` owns `welcome_seen` in
+`<profile>/desktop/preferences.json`. The shared Store synchronizes it across
+windows. `Guide.Open` remains local; closing, Escape or continuing to Providers
+marks the profile seen, while Back restores the guide. Preview retains its
+isolated brands and UI preference file.
 
 ## UI state vs backend data
 
@@ -66,4 +74,4 @@ shortcuts' dialog.
 | Deviation | Reason |
 |---|---|
 | Help › Welcome to Sailry | The preview's way to the guide; the reference opens it only at a first launch |
-| The picker lists the preview's brands | The channel presets come from the Node |
+| Preview lists its own brands; live offers Node API-key presets | OAuth workflows belong to B8 |

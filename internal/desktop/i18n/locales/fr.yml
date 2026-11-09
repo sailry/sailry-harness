@@ -1504,3 +1504,17 @@ plugin_initialization_failed: Impossible d’initialiser le plugin
 git_inspection_failed: Impossible de vérifier Git
 plugin_callback_failed: Échec de l’exécution du plugin
 chat_execution_unknown: Certains résultats d'exécution ne sont pas confirmés
+reader_failed: Lecture impossible
+conversation_exported: Exporté
+conversation_export_failed: L’exportation de la conversation a échoué
+approval_closed: Approbation close
+chat_search_failed: La recherche a échoué
+compaction_settings_load_failed: Impossible de charger les paramètres de compression
+provider_catalog_failed: La mise à jour du catalogue a échoué
+provider_catalog_read_failed: Modèles mis à jour; le catalogue de référence n'a pas pu être lu
+provider_key_failed: Impossible de lire la clé
+provider_query_failed: La requête a échoué; essayez à nouveau
+provider_revision_changed: Configuration modifiée; rouvrir l'éditeur
+provider_save_failed: Enregistrement échoué; réessayez
+provider_save_unknown: Résultat non confirmé; conserver le contenu inchangé et réessayer
+question_closed: Question close; projet conservé

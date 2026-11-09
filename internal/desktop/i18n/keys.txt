@@ -1516,3 +1516,17 @@ plugin_initialization_failed
 git_inspection_failed
 plugin_callback_failed
 chat_execution_unknown
+reader_failed
+conversation_exported
+conversation_export_failed
+approval_closed
+chat_search_failed
+compaction_settings_load_failed
+provider_catalog_failed
+provider_catalog_read_failed
+provider_key_failed
+provider_query_failed
+provider_revision_changed
+provider_save_failed
+provider_save_unknown
+question_closed

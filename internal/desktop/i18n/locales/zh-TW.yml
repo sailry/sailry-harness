@@ -1504,3 +1504,17 @@ plugin_initialization_failed: 無法初始化外掛
 git_inspection_failed: 無法檢查 Git
 plugin_callback_failed: 外掛執行失敗
 chat_execution_unknown: 部分執行結果未確認
+reader_failed: 無法朗讀
+conversation_exported: 已匯出
+conversation_export_failed: 對話匯出失敗
+approval_closed: 該審批已結束
+chat_search_failed: 搜尋失敗
+compaction_settings_load_failed: 無法讀取壓縮設定
+provider_catalog_failed: 目錄更新失敗，請重試
+provider_catalog_read_failed: 模型已更新，參考目錄讀取失敗
+provider_key_failed: 無法讀取金鑰
+provider_query_failed: 查詢失敗，請重試
+provider_revision_changed: 配置已變化，請重新開啟編輯
+provider_save_failed: 儲存失敗，請重試
+provider_save_unknown: 結果未確認，請保持內容不變後重試
+question_closed: 問題已結束，草稿已保留

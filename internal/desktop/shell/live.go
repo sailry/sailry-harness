@@ -2,11 +2,15 @@ package shell
 
 import (
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/composer"
+	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/host"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/onboarding"
+	"github.com/sailry/sailry-harness/internal/desktop/panes"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
+	"slices"
 )
 
 // Hooks keeps I/O and thread scheduling in the live controller.
@@ -19,6 +23,55 @@ type Hooks struct {
 	ReadNotices    func([]string)
 	DismissRead    func([]string)
 	DismissNotices func([]string)
+	Conversation   func(*ui.Context, *viewmodel.Conversation, *composer.State) (*composer.Context, ConversationActions)
+	ReadSelection  func(string, string)
+	ReaderActive   func(string) bool
+}
+
+type ConversationActions interface {
+	composer.Actions
+	conversation.Actions
+}
+
+// ReplaceConversationID retains local input state when a draft is created on Node.
+func (a *App) ReplaceConversationID(before, after string) {
+	if cv := a.Data.Find(before); cv != nil {
+		cv.ID = after
+	}
+	if state := a.drafts[before]; state != nil {
+		a.drafts[after] = state
+		delete(a.drafts, before)
+	}
+	if a.Sidebar.Selected == before {
+		a.Sidebar.Selected = after
+	}
+	if a.panes.Active == session(before) {
+		a.panes.Active = session(after)
+	}
+	if a.panes.seen == before {
+		a.panes.seen = after
+	}
+	if focus := a.panes.focus[session(before)]; focus != nil {
+		a.panes.focus[session(after)] = focus
+		delete(a.panes.focus, session(before))
+	}
+	var replace func(*panes.Node) *panes.Node
+	replace = func(node *panes.Node) *panes.Node {
+		if node == nil {
+			return nil
+		}
+		copy := &panes.Node{Target: node.Target, Axis: node.Axis, Sizes: slices.Clone(node.Sizes)}
+		if node.Target == session(before) {
+			copy.Target = session(after)
+		}
+		for _, child := range node.Children {
+			copy.Children = append(copy.Children, replace(child))
+		}
+		return copy
+	}
+	for i, group := range a.panes.Groups {
+		a.panes.Groups[i] = replace(group)
+	}
 }
 
 func (a *App) unavailable(c *ui.Context) {

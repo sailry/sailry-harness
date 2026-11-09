@@ -98,7 +98,11 @@ func providers(c *ui.Context, s *State) {
 	if ch := m.channel(m.removing); ch != nil {
 		open := true
 		if confirm(c, "delete", &open, i18n.T(c, "provider_delete_title")+" "+ch.Name, i18n.T(c, "provider_remove_effect"), i18n.T(c, "settings_delete")) {
-			m.Channels = slices.DeleteFunc(m.Channels, func(x preview.Channel) bool { return x.ID == ch.ID })
+			if m.Live && m.ProviderActions.Remove != nil {
+				m.ProviderActions.Remove(ch.ID, ch.Revision)
+			} else {
+				m.Channels = slices.DeleteFunc(m.Channels, func(x preview.Channel) bool { return x.ID == ch.ID })
+			}
 		}
 		if !open {
 			m.removing = ""
@@ -121,7 +125,13 @@ func catalog(c *ui.Context, m *Model) {
 	}
 	kit.Group(c, "catalog", i18n.T(c, "provider_catalog"), "", func() {
 		kit.Primary(c.Key("update"), i18n.T(c, "provider_catalog_update"), false).
-			Children(func() { ui.Text(c, i18n.T(c, "provider_catalog_update")).FontSize(14) }).OnClick(func() { notice(c) })
+			Children(func() { ui.Text(c, i18n.T(c, "provider_catalog_update")).FontSize(14) }).OnClick(func() {
+			if m.Live && m.ProviderActions.RefreshCatalog != nil {
+				m.ProviderActions.RefreshCatalog()
+			} else {
+				notice(c)
+			}
+		})
 	}, func() {
 		kit.Card(c, func() {
 			kit.Row(c, "status", i18n.T(c, "provider_catalog_status"), "", state(m.Catalog.Updated))
@@ -137,7 +147,11 @@ func catalog(c *ui.Context, m *Model) {
 			kit.Row(c, "compaction", t, "", func() {
 				ui.Row(c).Width(240).Gap(12).Children(func() {
 					if ui.StepSlider(c.Key("slider"), &m.Compaction.Draft, 50, 95, 5).Label(t).Disabled(m.Compaction.Pending).Grow(1).Changed() {
-						report(c, m.Compaction.Commit(), compactionMessages)
+						if m.Live && m.ProviderActions.SaveCompaction != nil {
+							m.ProviderActions.SaveCompaction()
+						} else {
+							report(c, m.Compaction.Commit(), compactionMessages)
+						}
 					}
 					ui.Textf(c, "%.0f%%", m.Compaction.Draft).FontSize(14).Width(40).TextAlign(ui.End)
 				})
@@ -170,7 +184,10 @@ func channelRow(c *ui.Context, m *Model, ch *preview.Channel) {
 	p := theme.Of(c)
 	ui.Column(c.Key(ch.ID)).Children(func() {
 		ui.Row(c.Key("row")).Padding(12, 0).Gap(12).Children(func() {
-			desc := i18n.T(c, "preview") + " · " + ch.API + " · " + i18n.T(c, "provider_model_count", "count", len(ch.Models))
+			desc := ch.API + " · " + i18n.T(c, "provider_model_count", "count", len(ch.Models))
+			if !m.Live {
+				desc = i18n.T(c, "preview") + " · " + desc
+			}
 			b := ui.ButtonBase(c.Key("details")).Label(ch.Name).Grow(1).Shrink(1).MinWidth(0).Justify(ui.Start).Cursor(ui.CursorPointer).
 				Opacity(enabledOpacity(ch.Enabled)).OnClick(func() {
 				if m.expanded == ch.ID {
@@ -205,7 +222,9 @@ func channelRow(c *ui.Context, m *Model, ch *preview.Channel) {
 					ui.Text(c, i18n.T(c, st)).FontSize(14).TextColor(p.MutedForeground)
 				})
 			}
-			ui.Switch(c.Key("enabled"), &ch.Enabled).Label(i18n.T(c, "provider_enabled") + " " + ch.Name)
+			if ui.Switch(c.Key("enabled"), &ch.Enabled).Label(i18n.T(c, "provider_enabled")+" "+ch.Name).Changed() && m.Live && m.ProviderActions.Enable != nil {
+				m.ProviderActions.Enable(ch.ID, ch.Revision, ch.Enabled)
+			}
 			channelMenu(c, m, ch)
 		})
 		if m.expanded == ch.ID {
@@ -284,6 +303,9 @@ func (m *Model) channel(id string) *preview.Channel {
 // preview has no provider: ChatGPT shows a device code, Claude its
 // browser page with the pasted callback.
 func (m *Model) signIn(id string) {
+	if m.Live {
+		return
+	}
 	ch := m.channel(id)
 	if ch == nil {
 		return
@@ -307,6 +329,7 @@ const (
 // modelDraft is a model in the editor: its ID, context limit and reasoning
 // efforts as typed, and whether its form shows.
 type modelDraft struct {
+	pending bool
 	model   preview.ChannelModel
 	id      string
 	context string
@@ -319,6 +342,9 @@ type modelDraft struct {
 // providerEditor is the step, the brand and method chosen, the fields and the
 // models. editing is the channel edited, "" for a new one.
 type providerEditor struct {
+	generation          uint64
+	id                  string
+	revision            uint64
 	open                bool
 	step                providerStep
 	editing             string
@@ -343,18 +369,31 @@ func draftsOf(ms []preview.ChannelModel) []modelDraft {
 		if x.Context > 0 {
 			ctx = strconv.Itoa(x.Context)
 		}
-		out[i] = modelDraft{model: x, id: x.ID, context: ctx, efforts: slices.Clone(x.Efforts)}
+		out[i] = modelDraft{model: x, id: x.ID, context: ctx, efforts: slices.Clone(x.Efforts), def: max(0, slices.Index(x.Efforts, x.DefaultEffort))}
 	}
 	return out
 }
 
 func (e *providerEditor) add(m *Model) {
-	*e = providerEditor{open: true, step: stepBrand}
+	*e = providerEditor{open: true, step: stepBrand, generation: e.generation + 1}
+	if m.Live && m.ProviderActions.NewID != nil {
+		e.id = m.ProviderActions.NewID()
+	}
 }
 
 func (e *providerEditor) edit(m *Model, ch *preview.Channel) {
-	*e = providerEditor{open: true, step: stepConfigure, editing: ch.ID, name: ch.Name, endpoint: ch.Endpoint,
+	*e = providerEditor{open: true, step: stepConfigure, editing: ch.ID, id: ch.ID, generation: e.generation + 1, name: ch.Name, endpoint: ch.Endpoint,
 		keySet: ch.KeySet, models: draftsOf(ch.Models), def: ch.Default}
+	e.revision = ch.Revision
+	if m.Live && m.ProviderActions.ReadKey != nil {
+		id := ch.ID
+		generation := e.generation
+		m.ProviderActions.ReadKey(id, func(set bool) {
+			if e.open && e.generation == generation && e.editing == id {
+				e.keySet = set
+			}
+		})
+	}
 	for i := range m.Brands {
 		b := &m.Brands[i]
 		for _, x := range b.Methods {
@@ -430,10 +469,8 @@ func (e *providerEditor) Check() string {
 			return "provider_model_duplicate"
 		}
 		seen[id] = true
-		if d.context != "" {
-			if n, err := strconv.Atoi(d.context); err != nil || n <= 0 || n < d.model.Output {
-				return "provider_limits_invalid"
-			}
+		if n, err := strconv.ParseUint(d.context, 10, 32); err != nil || n == 0 || n < uint64(d.model.Output) {
+			return "provider_limits_invalid"
 		}
 	}
 	return ""
@@ -454,6 +491,11 @@ func (e *providerEditor) save(m *Model) string {
 		}
 		x.Context, _ = strconv.Atoi(d.context)
 		x.Efforts = d.efforts
+		if len(d.efforts) > 0 {
+			x.DefaultEffort = d.efforts[min(max(d.def, 0), len(d.efforts)-1)]
+		} else {
+			x.DefaultEffort = "default"
+		}
 		models[i] = x
 	}
 	auth := preview.AuthKey
@@ -466,6 +508,25 @@ func (e *providerEditor) save(m *Model) string {
 	brand := ""
 	if e.brand != nil {
 		brand = e.brand.ID
+	}
+	if m.Live && m.ProviderActions.Save != nil {
+		if e.probing {
+			return ""
+		}
+		e.probing = true
+		channel := preview.Channel{ID: e.id, Revision: e.revision, Name: strings.TrimSpace(e.name), Brand: brand, Method: e.method.ID, API: e.method.API, Endpoint: e.endpoint, Auth: auth, Enabled: true, KeySet: e.keySet, Models: models, Default: e.def}
+		generation := e.generation
+		m.ProviderActions.Save(ProviderDraft{Channel: channel, Key: e.key, ExpectedRevision: e.revision}, func(ok bool) {
+			if e.generation != generation || !e.open {
+				return
+			}
+			e.probing = false
+			if ok {
+				e.open = false
+				e.key = ""
+			}
+		})
+		return ""
 	}
 	if ch := m.channel(e.editing); ch != nil {
 		ch.Name, ch.Endpoint, ch.Models, ch.Default = strings.TrimSpace(e.name), e.endpoint, models, e.def
@@ -509,7 +570,7 @@ func providerEditorDialog(c *ui.Context, m *Model) {
 			case stepMethod:
 				methodList(c, e)
 			default:
-				providerForm(c, e)
+				providerForm(c, m, e)
 			}
 		})
 		if e.step == stepConfigure {
@@ -522,10 +583,15 @@ func providerEditorDialog(c *ui.Context, m *Model) {
 					kit.Toast(c, kit.Failed, t(problem))
 					return
 				}
-				e.open = false
+				if !m.Live {
+					e.open = false
+				}
 			})
 		}
 	}).Width(min(w, width(c)-48)).Label(t(title))
+	if !e.open {
+		e.key = ""
+	}
 }
 
 // brandPicker is account logins, then the brands with API keys, as outlined
@@ -536,6 +602,10 @@ func brandPicker(c *ui.Context, m *Model, before, after func()) {
 	chip := func(key, label string, brand string, pick func()) {
 		b := ui.ButtonBase(c.Key(key)).Label(label).Height(32).Padding(0, 14, 0, 10).Gap(8).Radius(999).
 			Border(1, p.Border).Background(p.ButtonSecondary).Cursor(ui.CursorPointer).OnClick(func() {
+			if m.Live && m.ProviderActions.Available != nil && !m.ProviderActions.Available() {
+				kit.Toast(c, kit.Failed, i18n.T(c, "onboarding_host_unavailable"))
+				return
+			}
 			if before != nil {
 				before()
 			}
@@ -567,16 +637,18 @@ func brandPicker(c *ui.Context, m *Model, before, after func()) {
 	}
 	e := &m.provider
 	ui.Column(c.Key("picker")).Gap(20).Padding(10, 12, 28, 12).Children(func() {
-		group("provider_access_login", func() {
-			for i := range m.Brands {
-				b := &m.Brands[i]
-				for _, x := range b.Methods {
-					if x.Login != "" {
-						chip("login-"+x.ID, i18n.T(c, x.Login), b.ID, func() { e.brand = b; e.configure(x) })
+		if !m.Live {
+			group("provider_access_login", func() {
+				for i := range m.Brands {
+					b := &m.Brands[i]
+					for _, x := range b.Methods {
+						if x.Login != "" {
+							chip("login-"+x.ID, i18n.T(c, x.Login), b.ID, func() { e.brand = b; e.configure(x) })
+						}
 					}
 				}
-			}
-		})
+			})
+		}
 		group("provider_access_key", func() {
 			for i := range m.Brands {
 				b := &m.Brands[i]
@@ -613,7 +685,7 @@ func methodList(c *ui.Context, e *providerEditor) {
 
 // providerForm is the preview note, the fields the method needs, Get API key,
 // the OAuth fields, and the models.
-func providerForm(c *ui.Context, e *providerEditor) {
+func providerForm(c *ui.Context, m *Model, e *providerEditor) {
 	p := theme.Of(c)
 	t := func(k string) string { return i18n.T(c, k) }
 	input := func(key, label, hint string, value *string, secret bool) {
@@ -643,7 +715,13 @@ func providerForm(c *ui.Context, e *providerEditor) {
 			input("key", t("provider_api_key"), hint, &e.key, true)
 		}
 		if e.method.KeyURL != "" {
-			b := ui.ButtonBase(c.Key("key-link")).Label(t("provider_get_key")).Cursor(ui.CursorPointer).AlignSelf(ui.Start).OnClick(func() { notice(c) })
+			b := ui.ButtonBase(c.Key("key-link")).Label(t("provider_get_key")).Cursor(ui.CursorPointer).AlignSelf(ui.Start).OnClick(func() {
+				if m.Live {
+					c.OpenURL(e.method.KeyURL)
+				} else {
+					notice(c)
+				}
+			})
 			b.Children(func() { ui.Text(c, t("provider_get_key")).FontSize(12).TextColor(p.Link) })
 		}
 		if e.method.OAuthFields {
@@ -661,6 +739,23 @@ func providerForm(c *ui.Context, e *providerEditor) {
 				label = t("provider_querying")
 			}
 			kit.Secondary(c.Key("discover"), label).Disabled(e.probing).OnClick(func() {
+				if m.Live && m.ProviderActions.Discover != nil {
+					e.probing = true
+					draft := ProviderDraft{Channel: preview.Channel{ID: e.id, API: e.method.API, Endpoint: e.endpoint, Method: e.method.ID}, Key: e.key, ExpectedRevision: e.revision}
+					generation := e.generation
+					m.ProviderActions.Discover(draft, func(models []preview.ChannelModel) {
+						if e.generation != generation || !e.open {
+							return
+						}
+						e.probing = false
+						for _, x := range models {
+							if !slices.ContainsFunc(e.models, func(d modelDraft) bool { return d.id == x.ID }) {
+								e.models = append(e.models, draftsOf([]preview.ChannelModel{x})...)
+							}
+						}
+					})
+					return
+				}
 				// The preview's listing: Discovered merged in, manual models
 				// and the default kept.
 				for _, x := range preview.Discovered {
@@ -676,6 +771,7 @@ func providerForm(c *ui.Context, e *providerEditor) {
 		})
 		modalList(c, "models", "", "", t("provider_models_empty"), len(e.models), func() {
 			for i := range e.models {
+				e.models[i].pending = e.probing
 				providerModel(c, e, i)
 			}
 		}, nil)
@@ -706,13 +802,16 @@ func providerModel(c *ui.Context, e *providerEditor, i int) {
 			if selected {
 				tip = t("provider_default")
 			}
-			b := kit.Action(c.Key("default"), icons.Check, tip, selected)
+			b := kit.Action(c.Key("default"), icons.Check, tip, selected).Disabled(e.probing)
 			if selected {
 				b.TextColor(p.Success).Opacity(1)
 			}
 			b.OnClick(func() { e.def = i })
 		},
 		remove: func() {
+			if e.probing {
+				return
+			}
 			e.models = slices.Delete(e.models, i, i+1)
 			switch {
 			case e.def == i:
@@ -732,7 +831,7 @@ func modelForm(c *ui.Context, d *modelDraft) {
 	t := func(k string) string { return i18n.T(c, k) }
 	ui.Column(c.Key("model-form")).Gap(12).Children(func() {
 		kit.Field(c, "id", t("provider_model_id"), "", func() {
-			ui.TextInput(c.Key("input"), &d.id).Label(t("provider_model_id")).Placeholder(t("form_model_hint")).FillWidth()
+			ui.TextInput(c.Key("input"), &d.id).Label(t("provider_model_id")).Placeholder(t("form_model_hint")).FillWidth().Disabled(d.pending)
 		})
 		// The label with the common sizes at its right, the input under
 		// them at full width.
@@ -742,11 +841,11 @@ func modelForm(c *ui.Context, d *modelDraft) {
 					TextColor(p.PopoverForeground)
 				for _, n := range []int{128000, 200000, 400000, 1000000} {
 					s := strconv.Itoa(n)
-					b := kit.Ghost(c.Key(n), tokens(c, n), d.context == s).Height(24).PaddingX(8).Border(1, p.Border).Shrink(0)
+					b := kit.Ghost(c.Key(n), tokens(c, n), d.context == s).Height(24).PaddingX(8).Border(1, p.Border).Shrink(0).Disabled(d.pending)
 					b.Children(func() { ui.Text(c, tokens(c, n)).FontSize(12) }).OnClick(func() { d.context = s })
 				}
 			})
-			ui.TextInput(c.Key("input"), &d.context).Label(t("provider_context")).Placeholder(t("form_tokens_hint")).FillWidth()
+			ui.TextInput(c.Key("input"), &d.context).Label(t("provider_context")).Placeholder(t("form_tokens_hint")).FillWidth().Disabled(d.pending)
 		})
 		if d.model.ID == "" || len(d.model.Efforts) > 0 {
 			ui.Column(c.Key("efforts")).Gap(6).Children(func() {
@@ -758,12 +857,12 @@ func modelForm(c *ui.Context, d *modelDraft) {
 						if j == d.def {
 							tip = t("provider_effort_default")
 						}
-						b := kit.Action(c.Key("default"), icons.Check, tip, j == d.def)
+						b := kit.Action(c.Key("default"), icons.Check, tip, j == d.def).Disabled(d.pending)
 						if j == d.def {
 							b.TextColor(p.Success).Opacity(1)
 						}
 						b.OnClick(func() { d.def = j })
-						kit.Action(c.Key("remove"), icons.Close, t("settings_delete"), false).OnClick(func() {
+						kit.Action(c.Key("remove"), icons.Close, t("settings_delete"), false).Disabled(d.pending).OnClick(func() {
 							d.efforts = slices.Delete(d.efforts, j, j+1)
 							if d.def >= len(d.efforts) {
 								d.def = 0
@@ -772,8 +871,8 @@ func modelForm(c *ui.Context, d *modelDraft) {
 					})
 				}
 				ui.Row(c.Key("add")).Gap(6).Children(func() {
-					ui.TextInput(c.Key("input"), &d.effort).Label(t("provider_effort_placeholder")).Placeholder(t("provider_effort_placeholder")).Grow(1)
-					kit.Secondary(c.Key("add"), t("settings_add")).OnClick(func() {
+					ui.TextInput(c.Key("input"), &d.effort).Label(t("provider_effort_placeholder")).Placeholder(t("provider_effort_placeholder")).Grow(1).Disabled(d.pending)
+					kit.Secondary(c.Key("add"), t("settings_add")).Disabled(d.pending).OnClick(func() {
 						x := strings.TrimSpace(d.effort)
 						if x == "" || slices.Contains(d.efforts, x) {
 							kit.Toast(c, kit.Failed, t("provider_effort_invalid"))

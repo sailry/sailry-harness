@@ -26,8 +26,8 @@ const (
 )
 
 // State is the transcript's UI state: a list state per conversation, so
-// each keeps its place, and the disclosures opened. It holds no
-// conversation data.
+// each keeps its place, the disclosures opened and view-only mention bindings.
+// Canonical conversation data remains in Client.
 type State struct {
 	lists     map[string]*ui.ListState
 	open      map[string]*bool
@@ -46,7 +46,14 @@ type State struct {
 	nav       navigation // the message navigation rail
 	// Split is whether the transcripts show in the panes of a split, which have
 	// no navigation rail.
-	Split bool
+	Split            bool
+	CompactDisplay   bool
+	ReaderActive     func(string) bool
+	Search           func(string, string, *uint64, func(SearchPage)) func()
+	Reveal           func(string, Match, func(int, bool)) func()
+	requestedDetails map[string]bool
+	references       map[string]map[string][]Reference
+	referenceDetail  referenceDetail
 }
 
 func New() *State {
@@ -82,7 +89,7 @@ func View(c *ui.Context, s *State, id string, turns []Turn, sess *Session, actio
 	// The theme's conversation effects lie under the turns.
 	kit.Draws(ui.Box(c.Key(id)).Grow(1), kit.Backdrop(c, "conversation")).Children(func() {
 		ui.List(c, l, n, func(i int) {
-			s.turn(c, i, &turns[i], n, sess, actions)
+			s.turn(c, id, i, &turns[i], n, sess, actions)
 		}).Fill().Role(ui.RoleLog)
 		// A delegated session's transcript, the child panel's (no session), is
 		// read-only and has no navigation.
@@ -98,9 +105,10 @@ func View(c *ui.Context, s *State, id string, turns []Turn, sess *Session, actio
 	}
 	s.viewer(c, actions)
 	s.confirmRewind(c, actions)
+	s.referenceDialog(c, id)
 }
 
-func (s *State) turn(c *ui.Context, i int, t *Turn, n int, sess *Session, actions Actions) {
+func (s *State) turn(c *ui.Context, session string, i int, t *Turn, n int, sess *Session, actions Actions) {
 	first, last := i == 0, i == n-1
 	top, bottom := float32(0), float32(turnBottom)
 	if first {
@@ -127,7 +135,7 @@ func (s *State) turn(c *ui.Context, i int, t *Turn, n int, sess *Session, action
 					if marked {
 						hl = spans(t.User, q, current, theme.Of(c))
 					}
-					userMessage(c, t.User, hl)
+					userMessage(c, t.User, hl, s.references[session][t.ID])
 				}
 				if len(t.Images) > 0 {
 					s.thumbnails(c, "user-images", t.Images, true)
@@ -159,11 +167,13 @@ func (s *State) turn(c *ui.Context, i int, t *Turn, n int, sess *Session, action
 // userMessage is the muted bubble on the right, in the package's user message
 // colors, border and radius, with its corner art; marks, when set, are its
 // text with the search's matches marked.
-func userMessage(c *ui.Context, text string, marks []ui.Span) {
+func userMessage(c *ui.Context, text string, marks []ui.Span, references []Reference) {
 	p := theme.Of(c)
 	ui.Row(c).Justify(ui.End).Children(func() {
 		var b ui.Element
-		if marks != nil {
+		if len(references) > 0 {
+			b = referenceText(c, text, marks, references)
+		} else if marks != nil {
 			b = ui.RichText(c, marks...)
 		} else {
 			b = ui.Text(c, text)
@@ -252,7 +262,7 @@ func (s *State) reply(c *ui.Context, t *Turn, mark string, actions Actions) {
 			key := "work-" + t.ID
 			workOpen, chosen := s.work[key]
 			if !chosen {
-				workOpen = active // open while the run goes on, until the user chooses
+				workOpen = active && !s.CompactDisplay
 			}
 			label := i18n.T(c, statusKey(r.Status))
 			status := func() {
@@ -352,6 +362,8 @@ func (s *State) blocks(c *ui.Context, turn string, blocks []Block, continuing bo
 				s.retry(c, key, b.Retry, continuing && last)
 			case VisualBlock:
 				visual(c, "visual", b.Visual)
+			case CompactionBlock:
+				s.compaction(c, &Turn{ID: turn + "-" + b.Label, Compaction: &Compaction{State: Compacted, Summary: b.Text}})
 			case ErrorBlock:
 				head := Call{Label: b.Label, Icon: "triangle-alert", Failed: true}
 				s.disclosure(c, "error-"+key, func(hovered, open bool, sw *kit.Sweep) { summary(c, head, hovered, true, open, sw) }, 4, 8, func() {

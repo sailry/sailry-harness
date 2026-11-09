@@ -292,24 +292,51 @@ work on preview data.
 
 ## Wiring a backend
 
-```go
-type live struct{ client *sailry.Client; c *ui.Context }
+`internal/client/conversation*.go` owns retained per-session canonical projections,
+subscription generations, cursor recovery, history paging, search and tool detail
+caches. `WatchConversation` shares one subscription across windows and panes;
+its release is idempotent. Cursor gaps reopen observation without replaying a
+business command. Loaded extents survive reconnect. History loads twenty logical
+turns, completing missing large turns in 500-entry continuations first. Older
+reads wait for their source sequence and retain newer live metadata. Only the
+authoritative Node session list confirms removal.
 
-func (l *live) OpenChild(id string) { l.client.Navigate(id) }
-func (l *live) Retry(turn string) {
-	if err := l.client.Resend(turn); err != nil {
-		l.c.Toast(failure(l.c, err)) // the error's localized message
-	}
-}
+`internal/desktop/live` maps this state through `Conversation`, then supplies the
+unchanged transcript `Actions` on each visible main or split pane. Joined guidance
+uses its parent row while canonical ordering remains intact. Reasoning stays in
+canonical history and has no live row. Tool row identity is canonical entry/index;
+ambiguous provider call IDs cannot attach results to another call. Runtime
+failures, returned tool errors, pending/denied/interrupted calls, progress,
+question history, notices, usage and compaction map into the accepted DTOs.
 
-// In the page:
-turns := project(snapshot) // []conversation.Turn, built from the history
-conversation.View(c, state.Messages, session.ID, turns, &session.State, &live{client, c})
-```
+`Call.Load` requests revision-scoped details when a disclosure opens. Client
+validates 64 KiB pages and limits transfers and retained allocations to 64 MiB;
+the cache also holds at most 64 entries. The same cache serves all windows.
+Typed text, tables and diffs fill existing output controls. Closing and reopening
+a failed detail disclosure retries its read.
 
-`project` maps the backend's history to `Turn`s: localize labels (or set
-`LabelKey`), resolve icons and details, keep IDs stable between snapshots,
-and mark flags as above. Do not group: the view does.
+The accepted FindBar delegates live scans to `SearchConversation`; it loads
+twenty results per page and reveals an exact canonical target through Client
+history loading. Preview keeps the local `Find` implementation. Search cancellation,
+query generations and history revisions prevent stale callbacks from moving the
+current selection. `SetReadAloud`, `SetReaderActive` and `SetExport` connect the
+application reader/export services. Speech completion controls the Read/Stop
+button; a missing service reports unavailable.
+
+Automatic handoffs use `CompactionBlock` and the same summary disclosure as manual
+compaction, so the handoff is excluded from answer copying and speech. Current
+draft text, reasoning and compacting resources determine the phase independently
+of older work blocks. The latest failed run supplies the diagnostic card, and
+summary context estimates use their captured budget limit when reported context
+usage is absent.
+
+Sent context/session mentions retain their canonical target bindings in private
+transcript state through `SetReferences`; inline MyGo text opens the bound target.
+Editing restores the same references before `ReplaceTurn`. Session and host
+mentions navigate existing views. Project and worktree mentions use the shared
+read-only details dialog for the turn's captured location; dedicated workspace
+resource navigation remains with B5. No `Turn` field or `Actions` signature changes
+are required for these view-only bindings.
 
 ## UI state vs backend data
 
@@ -365,7 +392,7 @@ a running read, its output, then the answer growing a character at a time.
 | The in-progress step's `loader-circle` does not spin | A spinning icon would be an `Element.Loop` at the display's rate; the shimmer on its text marks it instead |
 | PDF and other files without a native preview open no tab: Open hands them to the system's app (a missing file toasts `files_open_failed`) | MyGo v0.8.3 has no PDF or office view; a WebView preview comes later (docs/panel.md) |
 | The image viewer zooms with its buttons and + − 0, not the wheel or pinch | MyGo elements report no wheel or pinch deltas; drag pans |
-| Search is MyGo's find bar over the transcript ("1 of N", previous, next, Done), searching the loaded turns | The plan's design; Rust searches the server's history in a command-picker dialog and loads pages through the match |
+| Search is MyGo's find bar over the transcript ("1 of N", previous, next, Done) | The accepted layout; live reads Node history and loads pages through an exact match, while preview searches its loaded fixtures |
 | Search marks the answer's text blocks and the user bubble, all matches alike in the answer | Markdown marks with `<mark>` (one color); the bubble's current match is stronger |
 | The selection pill sits at the turn's top end | MyGo reports the selection's text, not its bounds |
 | Citations are placed in the answer's last text block | Rust offsets them across the text parts of the run |
@@ -376,5 +403,5 @@ a running read, its output, then the answer growing a character at a time.
 | Copy confirms with a toast, not Kit `Clipboard`'s check icon | Sailry's rule: outcomes show as toasts |
 | Shimmer and identicon are approximations | Custom drawing (MyGo has no moving text highlight or procedural avatar); same timing and colours, not pixel-identical |
 | Diff rows have no syntax highlighting or line numbers | Not in the view model yet |
-| Plan review, form and URL questions are not modeled | `Ask` covers choices and free text; add fields when a backend needs them |
+| Plan review and MCP form/link controls retain their later-phase ownership | B4 wires free text, choices, cancellation and the existing decline action; `Ask` keeps the accepted form |
 | A jump across the transcript (scroll bar drag) costs ≈4.1 ms a frame, against ≈1.8 ms before tool rows | MyGo's `ListState.AtEnd` builds another frame whenever the rows in view change, not only the end; a jump re-measures rows until they settle. Steady (≈0.19 ms), hover (≈0.19 ms) and scroll (≈1.0 ms) frames are unaffected |

@@ -88,18 +88,19 @@ type Reply struct {
 type BlockKind int
 
 const (
-	TextBlock      BlockKind = iota // Markdown in Text
-	ReasoningBlock                  // the model's thinking in Text
-	ToolsBlock                      // Calls, grouped by the view
-	QuestionBlock                   // Question, its history row
-	ChildrenBlock                   // Children: subagent sessions
-	ProgressBlock                   // Steps: a task's progress
-	ErrorBlock                      // the turn's failure: Label and Text
-	ImagesBlock                     // Images: generated or attached pictures
-	FilesBlock                      // Files: output files as cards
-	SearchBlock                     // grounding: Text is the answer, Sources its pages
-	RetryBlock                      // Retry: the model request retried
-	VisualBlock                     // Visual: a chart or diagram the model drew
+	TextBlock       BlockKind = iota // Markdown in Text
+	ReasoningBlock                   // the model's thinking in Text
+	ToolsBlock                       // Calls, grouped by the view
+	QuestionBlock                    // Question, its history row
+	ChildrenBlock                    // Children: subagent sessions
+	ProgressBlock                    // Steps: a task's progress
+	ErrorBlock                       // the turn's failure: Label and Text
+	ImagesBlock                      // Images: generated or attached pictures
+	FilesBlock                       // Files: output files as cards
+	SearchBlock                      // grounding: Text is the answer, Sources its pages
+	RetryBlock                       // Retry: the model request retried
+	VisualBlock                      // Visual: a chart or diagram the model drew
+	CompactionBlock                  // Text: an automatic handoff's disclosed summary
 )
 
 // Block is one part of a reply.
@@ -286,6 +287,8 @@ type Call struct {
 	Standalone, Terminal bool
 	// Output is what expanding the row shows; nil rows have no caret.
 	Output *Output
+	// Load requests revision-scoped details when this disclosure first opens.
+	Load func()
 
 	note string // view-only: state text in place of State's
 	wrap bool   // view-only: the label wraps rather than truncates

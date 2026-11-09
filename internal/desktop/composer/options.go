@@ -143,7 +143,7 @@ func (s *State) projectButton(c *ui.Context, ctx *Context, actions Actions, icon
 		icon, label = icons.Folder, pr.Name
 	}
 	kit.MenuButton(c.Key("project"), "composer-project", func(b ui.Element) {
-		contextButton(c, b.Disabled(ctx.Readonly), icon, label, false, iconOnly)
+		contextButton(c, b.Disabled(ctx.Readonly || ctx.LocationLocked), icon, label, false, iconOnly)
 	}, func(m *kit.Menu) {
 		choose := func(id string) {
 			if id == s.Project {
@@ -200,7 +200,7 @@ func (s *State) worktreeMenu(c *ui.Context, ctx *Context, actions Actions, iconO
 	}
 	label := branchLabel(c, ctx, s.Worktree)
 	kit.MenuButton(c.Key("worktree"), "composer-worktree", func(b ui.Element) {
-		contextButton(c, b.Disabled(ctx.Readonly), icon, label, false, iconOnly)
+		contextButton(c, b.Disabled(ctx.Readonly || ctx.LocationLocked), icon, label, false, iconOnly)
 	}, func(m *kit.Menu) {
 		for _, w := range pr.Worktrees {
 			name := w.Branch

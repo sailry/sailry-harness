@@ -38,6 +38,8 @@ type Context struct {
 	Last string
 	// Readonly keeps the draft from being sent: a child session's.
 	Readonly bool
+	// LocationLocked keeps an admitted session on its captured project.
+	LocationLocked bool
 }
 
 // Model is a model the picker offers, as the backend lists it.
@@ -45,12 +47,14 @@ type Model struct {
 	ID, Name, Provider string
 	// Reasoning makes it take an effort: Efforts, or the package's
 	// default levels when nil.
-	Reasoning bool
-	Efforts   []string
+	Reasoning     bool
+	Efforts       []string
+	DefaultEffort string
 	// Family is the rail's group the provider belongs to (Family.ID).
 	Family string
 	// Score is the model's measured fit, nil when unmeasured.
-	Score *Score
+	Score  *Score
+	Scores map[string]*Score
 	// Features are its options beyond the effort, as Fast mode.
 	Features []Feature
 }
@@ -101,8 +105,11 @@ type Member struct {
 
 // Queued is a message waiting for the reply to end (live/queue).
 type Queued struct {
-	ID   string
-	Text string
+	ID       string
+	Text     string
+	Revision uint64
+	Load     func(func(string, bool))
+	Save     func(string, func(bool))
 	// Attachments are the files it carries.
 	Attachments []*Attachment
 	// Notice is a background notice, Compaction a compaction request:

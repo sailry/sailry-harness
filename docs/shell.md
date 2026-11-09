@@ -297,3 +297,21 @@ used only by the preview. Closing a live guide persists the profile choice.
 The new notification centre uses existing Kit page/card/segmented controls. Live
 host views hide preview-only notes and render unavailable metrics until B7;
 terminal panes retain the accepted static preview and never start a process.
+
+## B4 conversation wiring
+
+`Hooks.Conversation` supplies live transcript and composer data/actions for each
+visible session, including split panes. Runtime drains Client callbacks only on
+the window UI thread. Observers are shared by Client, retained while visible and
+released after a frame hides their pane. New drafts stay local until first send;
+a confirmed session result migrates the draft and pane identity before admission.
+Models and conversation work now use the B4 adapters; later file, terminal and
+plugin services retain their phase boundaries.
+
+The sidebar's whole-session export and Fork here use the application export
+callback and `ForkConversationAt` respectively, with captured session/worktree
+ownership. Reply menus use the same export callback. The application reader
+injects its global active predicate, so speech completion and another window's
+speech update Read/Stop controls. Native selection capture calls `ShowSelection`;
+its Read action uses a distinct selection/session key on the same reader service.
+Preview keeps its local interactions and never reaches these live hooks.

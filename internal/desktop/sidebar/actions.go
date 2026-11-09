@@ -1,6 +1,9 @@
 package sidebar
 
-import "github.com/sailry/sailry-harness/internal/desktop/viewmodel"
+import (
+	"github.com/sailry/sailry-harness/internal/desktop/conversation"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
+)
 
 // Actions injects controller operations without giving views backend ownership.
 // Completion callbacks run on the UI thread. A failed save keeps its draft.
@@ -16,6 +19,8 @@ type Actions struct {
 	SaveProject   func(Editor, string, func(bool))
 	Browse        func(host string, selected func(string))
 	OpenWindow    func(session string)
+	ForkHere      func(*viewmodel.Conversation)
+	Export        func(*viewmodel.Conversation, conversation.ExportFormat)
 }
 
 func (s *State) removeLabel() string {

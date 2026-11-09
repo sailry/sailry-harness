@@ -12,3 +12,16 @@ func (r *Runtime) ReportWindowFailure() {
 		kit.Toast(c, kit.Failed, i18n.T(c, "session_window_failed"))
 	})
 }
+
+func (r *Runtime) ReportReaderFailure() {
+	r.enqueue(func(c *ui.Context) { kit.Toast(c, kit.Failed, i18n.T(c, "reader_failed")) })
+}
+func (r *Runtime) ReportExport(err error) {
+	r.enqueue(func(c *ui.Context) {
+		if err != nil {
+			kit.Toast(c, kit.Failed, i18n.T(c, "conversation_export_failed"))
+		} else {
+			kit.Toast(c, kit.Done, i18n.T(c, "conversation_exported"))
+		}
+	})
+}

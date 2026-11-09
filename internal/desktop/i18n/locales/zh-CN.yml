@@ -1504,3 +1504,17 @@ plugin_initialization_failed: 无法初始化插件
 git_inspection_failed: 无法检查 Git
 plugin_callback_failed: 插件执行失败
 chat_execution_unknown: 部分执行结果未确认
+reader_failed: 无法朗读
+conversation_exported: 已导出
+conversation_export_failed: 会话导出失败
+approval_closed: 该审批已结束
+chat_search_failed: 搜索失败
+compaction_settings_load_failed: 无法读取压缩设置
+provider_catalog_failed: 目录更新失败，请重试
+provider_catalog_read_failed: 模型已更新，参考目录读取失败
+provider_key_failed: 无法读取密钥
+provider_query_failed: 查询失败，请重试
+provider_revision_changed: 配置已变化，请重新打开编辑
+provider_save_failed: 保存失败，请重试
+provider_save_unknown: 结果未确认，请保持内容不变后重试
+question_closed: 问题已结束，草稿已保留

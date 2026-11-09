@@ -263,6 +263,13 @@ func (s *State) mainPanel(c *ui.Context, ctx *Context) {
 // defaultEffort is the level a model starts at: medium, or the middle.
 func defaultEffort(m Model) int {
 	list := efforts(m)
+	if m.DefaultEffort != "" {
+		for i, e := range list {
+			if e == m.DefaultEffort {
+				return i
+			}
+		}
+	}
 	for i, e := range list {
 		if e == "medium" {
 			return i
@@ -571,8 +578,12 @@ func (s *State) modelRow(c *ui.Context, m Model) {
 		}
 		for i, e := range list {
 			it := menu.Item(e).Checked(i == current)
-			if m.Score != nil && m.Score.Tested == e {
-				it.Trailing(fmt.Sprintf("%.1f", m.Score.Overall))
+			score := m.Score
+			if measured, ok := m.Scores[e]; ok {
+				score = measured
+			}
+			if score != nil && score.Tested == e {
+				it.Trailing(fmt.Sprintf("%.1f", score.Overall))
 			}
 			if it.Chosen() {
 				s.pick(m, i)

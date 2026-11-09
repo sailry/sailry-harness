@@ -1504,3 +1504,17 @@ plugin_initialization_failed: 플러그인을 초기화할 수 없음
 git_inspection_failed: Git을 확인할 수 없음
 plugin_callback_failed: 플러그인 실행 실패
 chat_execution_unknown: 일부 실행 결과가 확인되지 않음
+reader_failed: 읽을 수 없습니다
+conversation_exported: 내보냄
+conversation_export_failed: 대화 내보내기 실패
+approval_closed: 승인 종료됨
+chat_search_failed: 검색 실패
+compaction_settings_load_failed: 압축 설정을 불러올 수 없습니다
+provider_catalog_failed: 카탈로그 업데이트 실패; 다시 시도하십시오
+provider_catalog_read_failed: 모델 업데이트; 참조 카탈로그를 읽을 수 없음
+provider_key_failed: 키를 읽을 수 없음
+provider_query_failed: 쿼리 실패; 다시 시도하십시오
+provider_revision_changed: 설정이 변경되었습니다. 편집기를 다시 엽니다
+provider_save_failed: 저장 실패; 다시 시도하십시오
+provider_save_unknown: 결과 확인되지 않음; 콘텐츠를 변경하지 않고 다시 시도하십시오
+question_closed: 질문 닫기; 초안 유지

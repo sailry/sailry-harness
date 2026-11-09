@@ -84,11 +84,9 @@ rebuilt each frame from backend data.
   right-aligned: `approval_live_count` and `question_reply`.
 - Each opens a popover 320 wide anchored at its bottom right, 8 above:
   the floating fill, shadowed in light, outlined in dark.
-- Approvals: a list up to 256 high, rows separated by a top border. Each row
-  ends with **Deny** (ghost, menu: `approval_deny_reason`) and **Allow**
-  (`approval_allow_once`; primary on the first row; menu with the session
-  and prefix choices when `Remember`). Deny with reason shows a reason field
-  with `approval_reason_cancel` and `approval_reject`.
+- Approvals show one request at a time, with previous/next controls for several.
+  **Deny** resolves without a reason. **Allow** has the session and prefix
+  choices permitted by the captured request. The removed reason form stays absent.
 - Question: the prompt (medium), choices 12 apart, the free answer, then
   Decline (when `Declinable`), `interaction_cancel` and `interaction_submit`
   (disabled until there is an answer). A new question ID starts a new draft.
@@ -137,7 +135,7 @@ type Actions interface {
 	Answer(id string, a Answer)
 	CancelQuestion(id string)
 	DeclineQuestion(id string)
-	OpenChanges()
+	OpenChange(path string)
 	Badge(id, button string)
 	StopCommand(id string)
 	OpenService(port int)
@@ -161,7 +159,7 @@ type Actions interface {
 | `Compact` | `/compact` | Compact the context |
 | `CreateWorktree`, `AddProject`, `ManageTeams` | Their menu rows | Open the respective flow |
 | `Decide`, `Answer`, `CancelQuestion`, `DeclineQuestion` | Interactions (above) | Resolve; conflicts toast |
-| `OpenChanges`, `Badge`, `StopCommand`, `OpenService`, `OpenChild` | The activity strip (above) | Open Git, run the plugin's handler, stop the command, forward and open the port, open the subagent; failures toast |
+| `OpenChange`, `Badge`, `StopCommand`, `OpenService`, `OpenChild` | The activity strip (above) | Open Git, run the plugin's handler, stop the command, forward and open the port, open the subagent; failures toast |
 
 ## Keys and Escape
 
@@ -201,6 +199,32 @@ func (l *live) Decide(id string, d composer.Decision, reason string) {
 
 composer.View(c, comp, context(snapshot), &live{client, c, session.ID})
 ```
+
+The production adapter is `internal/desktop/live/conversation*.go`. First send
+captures the selected Node, project, worktree and provider revision, creates a
+real session, retains its local composer/pane identity, then submits the input.
+Existing sessions submit, guide or queue with their captured configuration
+revision. Configuration saves serialize with admission and retain provider model
+options. Successful command outputs bridge the short interval before the Node
+feed arrives. Failures, conflicts and uncertain outcomes retain input; an explicit
+identical retry retains the uncertain request ID.
+
+Node defaults and controller remembered choices initialize new drafts. Existing
+sessions reconcile effective remote configuration. Enabled Node providers supply
+models, features, declared efforts and the family rail; score reads select the
+nearest measured effort. The `@` catalog exposes real context and same-project
+sessions; `/` exposes available models, reasoning, compaction, modes and prompts.
+Later catalogs contribute neither fixture rows nor empty headings.
+
+Queue rows use optional `Load`/`Save` callbacks to read complete input and keep
+editor drafts until revision-checked saves succeed. Existing `Actions` remain the
+preview fallback. Captured queue revisions protect edits and reordering.
+
+`Context.LocationLocked` freezes admitted session locations during B4. New drafts
+choose from registered projects and worktrees; the existing worktree DTO carries
+the canonical path until Git inspection supplies branch labels in B5. File
+transfers, worktree creation, team execution, dictation and plugin activity keep
+their later-phase ownership and report unavailable when invoked before wiring.
 
 ## UI state vs backend data
 

@@ -250,7 +250,8 @@ the app preferences.
 `settings.NewLive` constructs controller defaults without any fixture constructor
 or simulated loading state. General, Appearance, Conversation and Shortcuts retain
 the accepted layout. Other settings and Market pages show the existing unavailable
-state until their owning phases; live controls never call preview commits.
+state until their owning phases; B4 additionally wires Providers. Live controls
+never call preview commits.
 
 The live adapter loads ReadPowerSettings and ReadTelemetrySettings off the UI
 thread. It sets Pending while reading/saving, captures each draft/revision and
@@ -290,3 +291,28 @@ same window scope: user bubbles inherit its DIP size and the reply's caller-owne
 Markdown theme scales body typography. The default remains 14 DIPs and preserves
 the approved layout. Palette changes still refresh the Markdown theme and MyGo
 invalidates retained text geometry when typography changes.
+
+## B4 provider wiring
+
+`internal/desktop/live/providers.go`, `provider_actions.go` and
+`provider_catalog.go` adapt the Node's presets, public providers, catalog status
+and compaction settings to the existing Providers page. Neutral provider DTOs
+live in `viewmodel`; preview aliases keep their fixture constructors isolated.
+API-key choices come from offered Node presets and their captured route keys.
+OAuth package workflows remain in B8.
+
+Editor identity and its captured provider base are stable across failed or
+uncertain saves. Every save, enable
+and removal captures the provider revision. Keys remain blank in the form; an
+unchanged key preserves the Node secret, and read-key results become presence
+booleans only. Async editor callbacks check their generation so closing and
+reopening cannot overwrite a newer draft. Successful saves close the editor;
+failure, conflict and uncertain outcomes keep the draft and use separate toasts.
+
+Discovery merges actual endpoint models with manual rows and preserves the
+selected default. Source catalog lookups fill missing metadata in batches of
+100 IDs, up to 32 pages under the source ten-second metadata deadline. Explicit
+discovery capabilities take precedence. Provider saves preserve retained model
+capabilities and the selected default effort. Catalog refresh never inserts sample
+models. Compaction reads and saves use the Node revision; a failed save keeps its
+draft and never invents a new revision.

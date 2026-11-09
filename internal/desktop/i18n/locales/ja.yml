@@ -1504,3 +1504,17 @@ plugin_initialization_failed: プラグインを初期化できません
 git_inspection_failed: Git を確認できません
 plugin_callback_failed: プラグインの実行に失敗しました
 chat_execution_unknown: いくつかの実行結果は確認されていません
+reader_failed: 読み上げできません
+conversation_exported: エクスポート済み
+conversation_export_failed: 会話のエクスポートに失敗しました
+approval_closed: 承認終了
+chat_search_failed: 検索に失敗
+compaction_settings_load_failed: 圧縮設定を読み込めませんでした
+provider_catalog_failed: カタログの更新に失敗しました。もう一度試してください
+provider_catalog_read_failed: モデルを更新しました。参照カタログを読めませんでした
+provider_key_failed: 鍵を読み込めませんでした
+provider_query_failed: クエリに失敗しました。もう一度試してください
+provider_revision_changed: 設定が変更されました。エディタを再開します
+provider_save_failed: 保存に失敗しました。もう一度試してください
+provider_save_unknown: 結果が確認されていません。内容を変更せずにやり直します
+question_closed: 質問終了、草稿保持

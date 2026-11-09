@@ -1504,3 +1504,17 @@ plugin_initialization_failed: Não foi possível inicializar o plugin
 git_inspection_failed: Não foi possível verificar o Git
 plugin_callback_failed: Falha na execução do plugin
 chat_execution_unknown: Alguns resultados de execução não estão confirmados
+reader_failed: Não foi possível ler
+conversation_exported: Exportado
+conversation_export_failed: Falha ao exportar a conversa
+approval_closed: Aprovação encerrada
+chat_search_failed: A pesquisa falhou
+compaction_settings_load_failed: Não foi possível carregar as configurações de compactação
+provider_catalog_failed: Atualização do catálogo falhou; tente novamente
+provider_catalog_read_failed: Modelos atualizados; catálogo de referência não pôde ser lido
+provider_key_failed: Não foi possível ler a chave
+provider_query_failed: Consulta falhou; tente novamente
+provider_revision_changed: Configuração alterada; reabrir o editor
+provider_save_failed: Salvar falhou; tente novamente
+provider_save_unknown: Resultado não confirmado; mantenha o conteúdo inalterado e tente novamente
+question_closed: Pergunta encerrada; rascunho mantido
