@@ -26,12 +26,13 @@ func track(c *ui.Context, value *float64, steps int, highest, disabled bool) {
 		surface := p.Floating()
 		frac := float32(*value / hi)
 		base := ui.Rect{X: r.X + 8, Y: r.Y + 7, W: r.W - 16, H: 26}
+		inner := ui.Rect{X: base.X + 16, W: base.W - 32}
+		tx := inner.X + inner.W*frac
 		pt.Fill(base, surface.Mix(p.Slider, 0.16), 13)
 		if frac > 0 {
-			// right(1 − pct) and mr(2·pct − 1 rem): the fill reaches the
-			// thumb's center in the middle, past it toward the end.
-			w := base.W*frac + 16*(2*frac-1)
-			fill := ui.Rect{X: base.X, Y: base.Y, W: min(max(w, 0), base.W), H: base.H}
+			// The fill ends under the thumb's center at every width, so the
+			// opaque thumb always covers its end.
+			fill := ui.Rect{X: base.X, Y: base.Y, W: tx - base.X, H: base.H}
 			if highest {
 				pt.FillGradient(fill, ui.LinearGradient{From: surface.Mix(p.Danger, a), To: surface.Mix(p.Warning, a), Angle: 90}, 13)
 				if !disabled && !pt.Preferences().ReduceMotion {
@@ -52,7 +53,6 @@ func track(c *ui.Context, value *float64, steps int, highest, disabled bool) {
 		if p.Dark {
 			dot = p.MutedForeground
 		}
-		inner := ui.Rect{X: base.X + 16, W: base.W - 32}
 		for i := range steps {
 			x := inner.X + inner.W*float32(i)/float32(max(steps-1, 1))
 			pt.Fill(ui.Rect{X: x - 2, Y: base.Y + 11, W: 4, H: 4}, dot, 2)
@@ -61,10 +61,10 @@ func track(c *ui.Context, value *float64, steps int, highest, disabled bool) {
 		if p.Dark {
 			thumb = p.Foreground
 		}
-		tx := inner.X + inner.W*frac
 		t := ui.Rect{X: tx - 16, Y: base.Y + 13 - 16, W: 32, H: 32}
 		pt.Shadow(t, 16, 0, 1, 2, 0, p.Backdrop().Alpha(0.12))
-		pt.Fill(t, surface.Mix(thumb, a), 16)
+		// Opaque, so the fill and dots under it never show through.
+		pt.Fill(t, surface.Mix(thumb, a).Alpha(1), 16)
 		pt.Stroke(t, p.Border, 16, 1)
 	})
 }
