@@ -124,6 +124,8 @@ dictation_start: 语音输入
 turn_reasoning: 思考过程
 turn_tools_count: '%{count} 个工具调用'
 turn_latest: 回到最新回复
+chat_navigation: 消息导航
+chat_new: 新建会话
 turn_copy: 复制回复
 message_copy: 复制
 chat_fork: 派生会话

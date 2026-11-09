@@ -131,6 +131,8 @@ dictation_start
 turn_reasoning
 turn_tools_count
 turn_latest
+chat_navigation
+chat_new
 turn_copy
 message_copy
 chat_fork
@@ -1371,3 +1373,11 @@ port_failed
 selection_large
 selection_permission
 metrics_rate
+composer_group_prompts
+composer_group_modes
+composer_group_session
+reference_group_context
+reference_group_connections
+reference_group_skills
+reference_group_plugins
+reference_group_attach

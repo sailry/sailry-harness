@@ -139,20 +139,32 @@ func (d *Data) references(c *Conversation) []composer.Reference {
 			catalog = append(catalog, leaf(composer.Plugin, "plugin:"+p.ID, p.Name, p.Description, icons.Puzzle))
 		}
 	}
-	return append([]composer.Reference{
+	group := func(key string, list ...composer.Reference) []composer.Reference {
+		for i := range list {
+			list[i].Group = key
+		}
+		return list
+	}
+	for i := range catalog {
+		catalog[i].Group = "reference_group_plugins"
+	}
+	out := group("reference_group_context",
 		page("files", "reference_files", "reference_files_description", "files", icons.Folder, fileRefs(d.Files)...),
 		page("agents", "reference_agents", "reference_agents_description", "agents", icons.Bot,
 			leaf(composer.Agent, "agent:reviewer", "@reviewer", "Reviews diffs for bugs", icons.Bot),
 			leaf(composer.Agent, "agent:tester", "@tester", "Writes and runs tests", icons.Bot)),
 		page("sessions", "reference_sessions", "reference_sessions_description", "sessions", icons.Chat, sessions...),
-		page("context", "reference_context", "reference_context_description", "context", icons.Globe, context...),
+		page("context", "reference_context", "reference_context_description", "context", icons.Globe, context...))
+	out = append(out, group("reference_group_connections",
 		page("databases", "reference_databases", "", "database", icons.MemoryStick, databases...),
 		page("ssh", "reference_ssh", "", "ssh", icons.Terminal,
-			leaf(composer.Location, "ssh:build", "build-box", "ci@10.0.0.12", icons.Terminal)),
+			leaf(composer.Location, "ssh:build", "build-box", "ci@10.0.0.12", icons.Terminal)))...)
+	out = append(out, group("reference_group_skills",
 		leaf(composer.Skill, "skill:git/commit", "Commit message", "git · Write a commit message from the diff", icons.BookOpen),
-		leaf(composer.Skill, "skill:knowledge/search", "Search knowledge", "knowledge · Search local documents", icons.BookOpen),
-	}, append(catalog, composer.Reference{ID: "attach", Kind: composer.AttachFiles, Label: "composer_attachment", Key: true,
-		Icon: icons.Plus, Alias: "attachment upload"})...)
+		leaf(composer.Skill, "skill:knowledge/search", "Search knowledge", "knowledge · Search local documents", icons.BookOpen))...)
+	out = append(out, catalog...)
+	return append(out, composer.Reference{ID: "attach", Kind: composer.AttachFiles, Label: "composer_attachment", Key: true,
+		Icon: icons.Plus, Alias: "attachment upload", Group: "reference_group_attach"})
 }
 
 // fileRefs are the worktree's files as reference pages (Page::Files): a
@@ -178,11 +190,11 @@ func commands(list []Model) []composer.Reference {
 	for _, name := range []string{"review", "test", "plan", "explain"} {
 		icon := map[string]*ui.SVG{"review": icons.Eye, "test": icons.Terminal, "plan": icons.Dashboard, "explain": icons.Info}[name]
 		out = append(out, composer.Reference{ID: "prompt:" + name, Kind: composer.Prompt, Label: "/" + name, Key: true,
-			Description: "composer_command_" + name, Icon: icon, Insert: "composer_prompt_" + name, Alias: name})
+			Description: "composer_command_" + name, Icon: icon, Insert: "composer_prompt_" + name, Alias: name, Group: "composer_group_prompts"})
 	}
 	for _, m := range []string{"code", "plan", "flagship"} {
 		out = append(out, composer.Reference{ID: "mode:" + m, Kind: composer.ModeCommand, Label: "/" + m,
-			Description: "composer_mode_" + m, Key: true, Icon: icons.Dashboard, Insert: "composer_mode_" + m})
+			Description: "composer_mode_" + m, Key: true, Icon: icons.Dashboard, Insert: "composer_mode_" + m, Group: "composer_group_modes"})
 	}
 	var models []composer.Reference
 	for _, m := range list {
@@ -195,10 +207,10 @@ func commands(list []Model) []composer.Reference {
 	}
 	return append(out,
 		composer.Reference{ID: "models", Kind: composer.Page, Label: "/model", Description: "composer_select_model", Key: true, Icon: icons.Bot,
-			Alias: "model", Children: models},
+			Alias: "model", Children: models, Group: "composer_group_session"},
 		composer.Reference{ID: "reasoning", Kind: composer.Page, Label: "/reasoning", Description: "composer_effort", Key: true, Icon: icons.Bot,
-			Alias: "reasoning", Children: efforts},
-		composer.Reference{ID: "compact", Kind: composer.Compact, Label: "/compact", Description: "chat_compact", Key: true, Icon: icons.Minimize})
+			Alias: "reasoning", Children: efforts, Group: "composer_group_session"},
+		composer.Reference{ID: "compact", Kind: composer.Compact, Label: "/compact", Description: "chat_compact", Key: true, Icon: icons.Minimize, Group: "composer_group_session"})
 }
 
 // entries are the file picker's folder: the panel's tree, with made-up

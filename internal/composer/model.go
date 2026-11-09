@@ -180,6 +180,9 @@ type Reference struct {
 	// Insert is what a command puts in the draft or chooses.
 	Insert   string
 	Children []Reference
+	// Group is the i18n key of the heading the picker shows over the
+	// first row of a run of rows sharing it; "" for none.
+	Group string
 }
 
 // Entry is a file or folder of the file picker (file_picker.rs).

@@ -305,7 +305,8 @@ func (s *State) pickerKey(c *ui.Context, ctx *Context, actions Actions, k ui.Tex
 }
 
 // referencePicker is view.rs composer_references: a panel over the
-// surface, as wide as it: rows 36 high, eight showing. Its rows take no
+// surface, as wide as it: rows 36 high under their group headings,
+// 320 high at most. Its rows take no
 // focus, so typing goes on in the draft.
 func (s *State) referencePicker(c *ui.Context, ctx *Context, actions Actions, surface ui.Element) {
 	st := &s.ref
@@ -338,13 +339,22 @@ func (s *State) referencePicker(c *ui.Context, ctx *Context, actions Actions, su
 	ui.Overlay(c, func() {
 		kit.Floating(c, ui.Column(c.Key("reference-picker"))).AttachTo(surface, ui.AnchorTopStart, ui.AnchorBottomStart).Margin(0, 0, 4, 0).
 			Width(width).Padding(4).Role(ui.RoleList).Label(title).Children(func() {
-			h := float32(min(max(len(rows), 1), 8) * 36)
-			ui.Scroll(c.Key(len(st.path))).Height(h).Children(func() {
+			h := float32(max(len(rows), 1) * 36)
+			for i, r := range rows {
+				if r.Group != "" && (i == 0 || rows[i-1].Group != r.Group) {
+					h += 28
+				}
+			}
+			ui.Scroll(c.Key(len(st.path))).Height(min(h, 320)).Children(func() {
 				if len(rows) == 0 {
 					ui.Text(c, i18n.T(c, "reference_empty")).FontSize(14).Padding(12).TextColor(p.MutedForeground)
 					return
 				}
 				for i, r := range rows {
+					if r.Group != "" && (i == 0 || rows[i-1].Group != r.Group) {
+						ui.Text(c.Key("group-"+r.Group), i18n.T(c, r.Group)).FontSize(12).Height(28).Padding(10, 8, 0, 8).
+							SingleLine().TextColor(p.MutedForeground)
+					}
 					s.referenceRow(c, ctx, actions, r, i)
 				}
 			})

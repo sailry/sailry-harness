@@ -124,6 +124,8 @@ dictation_start: Voice input
 turn_reasoning: Reasoning
 turn_tools_count: '%{count} tool calls'
 turn_latest: Jump to latest response
+chat_navigation: Message navigation
+chat_new: New conversation
 turn_copy: Copy response
 message_copy: Copy
 chat_fork: Fork session
