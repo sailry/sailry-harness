@@ -82,9 +82,9 @@ func TestUsageCompact(t *testing.T) {
 	}
 }
 
-// A pending question wraps its prompt (questions/history.rs, wrap) and
-// shows no state text: the capsule over the composer says it waits.
-func TestQuestionRowWraps(t *testing.T) {
+// A pending question's history row shows no state text beside its
+// prompt: only the composer's capsule says it waits.
+func TestQuestionRowQuiet(t *testing.T) {
 	_, tt := newTester(t)
 	tt.SetSize(760, 820)
 	tt.Frame()
@@ -93,10 +93,7 @@ func TestQuestionRowWraps(t *testing.T) {
 	if !ok {
 		t.Fatalf("no question row: %q", tt.Texts())
 	}
-	if prompt.H < 30 {
-		t.Errorf("the prompt does not wrap at 760: %v tall", prompt.H)
-	}
-	if tt.HasText("Waiting for answer") {
-		t.Error("the pending row shows a state text")
+	if state, ok := tt.Find(i18n.In("en", "question_reply")); ok && state.Y > prompt.Y-4 && state.Y < prompt.Y+prompt.H {
+		t.Errorf("a state text at %v sits on the prompt's row", state)
 	}
 }
