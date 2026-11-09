@@ -101,70 +101,12 @@ holds frames of an occluded one).
 
 ### Floating layers
 
-Floating layers are built on MyGo's bases. Popovers are `kit.Popover`
-(`internal/kit/popover.go`, PopoverBase with MyGo's popup motion, at
-least as wide as the anchor), and dialogs are `kit.Dialog`
-(`internal/kit/dialog.go`, adapted from Lobe MyGo's modal: DialogBase, a
-tenth of the window down as Kit places them, the dimmed backdrop, a
-close button, scale-and-fade motion, Escape and backdrop close). Tooltips
-are `kit.Tooltip` (`internal/kit/tooltip.go`, adapted from Lobe MyGo's
-`overlay/tooltip.go` and `overlay/placement.go`: TooltipBase, a Floating
-tip on a `Placement` side that flips where there is no room, a spring
-scale-in from the anchor, a content fade, an optional shortcut, and the
-text as the anchor's description); every tip goes through it rather than
-`Element.Tooltip`. Hover cards (`kit.SessionCard`, the usage and model
-score cards) use TooltipBase with its 0.6 second delay and the tip's
-`kit.TipMotion`. Left-click menus and selects are `kit.MenuButton`
-and `kit.Select` (`internal/kit/menu.go`, on MenuBase, with the popup
-motion, row color transition and turning chevron of Lobe MyGo's
-`overlay/dropdown.go` and `field/select.go`): MyGo's drawn
-menus paint the window's Background and highlight with the theme's
-Accent (the primary), and its Theme has no menu slot, so the kit menu
-paints the floating surface, and Kit's rows: 26 high, the highlight in accent.background /
-accent.foreground (`Palette.Hover` / `HoverForeground`), the icon or
-check slot, label, muted trailing text or action, right-side check
-(`CheckRight`) and shortcut, Kit's 2 DIP separators. A select's trigger
-has MyGo's TextInput look (its padding, the theme's Surface, the input
-border), so selects and text inputs share a height and fill everywhere,
-and its dropdown is as wide as the trigger (`MenuOptions.Match`).
-Right-click menus stay the system's (`Element.ContextMenu`).
-`kit.Markdown` (`internal/kit/markdown.go`) is adapted from Lobe MyGo's
-`markdown.Markdown`: every Markdown view goes through it with MyGo's
-`markdown.Options` passed whole; it fills only an unset `Theme` (the
-`Document` or `Chat` variant's from the palette), `Reveal` (text as it
-arrives: MyGo's paced reveal asks for display-rate frames, past
-`kit.FPS`) and `CodeBlock` (`kit.CodeBlock`).
-`kit.Alert` (`internal/kit/alert.go`) is adapted from Lobe MyGo's
-`feedback.Alert` (MIT, notice kept): MyGo has no alert. `kit.Skeleton`,
-`kit.SkeletonText` and `kit.SkeletonAvatar` (`internal/kit/skeleton.go`)
-are adapted from Lobe MyGo's `display.Skeleton*`: Kit's skeleton color
-(`Active`, half of it for `Secondary`), a pulse or sweep painted at
-`kit.FPS`, still with Reduce Motion. `kit.Image`, `kit.ImageGroup` and
-`kit.ImageViewer` (`internal/kit/image.go`, `imageviewer.go`,
-`imagechrome.go`) are adapted from Lobe MyGo's `display.Image`,
-`ImageGroup` and image viewer: every picture (thumbnails, attachments,
-document pictures, the panel's preview, the composer's cards) is an
-Image, a Skeleton while it loads; the viewer drives the caller's
-`kit.Viewer` with the reference app's zoom limits, fit, pan bounds and
-keys, its chrome Floating pills of IconButtons. `kit.Segmented`
-(`internal/kit/segmented.go`) is adapted from Lobe MyGo's
-`action.Segmented` on MyGo's SegmentedBase: every segmented choice and
-in-page view switch (Installed | Available, details tabs, market kinds,
-Document | Source) uses it; the track on `Muted`, the chosen segment
-inverted (`Foreground` behind `Background`-colored text) with a sliding
-indicator, as high as a text input. Document tab strips (the panel's
-and the pages') stay tabs. `kit.ToastHost` (`internal/kit/toast.go`, from
-Lobe MyGo's feedback.ToastHost) draws MyGo's toast queue once at the
-window's root: stacked bottom right, spread on hover, the type's icon
-and color, close and action. Floating panels paint through
-`kit.Floating` (`internal/kit/floating.go`): a frost shader
-(`internal/kit/frost.go`, a `ui/shader` backdrop blur composited over the
-opaque popover color, then that color again, with a dither) and a
-1 DIP edge, no shadow. `glass.Blur` keeps the backdrop's alpha, so over the
-translucent window its sharp backdrop shows through. It is the one place
-their surface is set: menus, selects, popovers, dialogs, toasts, tooltips, hover
-cards, the reference picker, find bars, the selection toolbar and the
-image viewer's bar.
+Which component draws each floating layer, and every other component
+choice, is in [components.md](components.md). Their one surface is
+`kit.Floating` (`internal/kit/floating.go`): the frost shader of
+`internal/kit/frost.go` over the opaque `Popover` color, toned by it again,
+with a 1 DIP edge and no shadow. Menus paint it rather than MyGo's menu
+look, which uses `Background` and `Accent` and has no theme slot.
 
 ## Wiring a backend
 
