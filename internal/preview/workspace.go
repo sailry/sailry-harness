@@ -78,12 +78,52 @@ type Hunk struct {
 	Lines  []DiffLine
 }
 
-// FileChange is a changed file of the working tree.
+// FileChange is a changed file of the working tree: what changed, in the
+// index (Staged) and in the work tree only (Unstaged), as M, A or D, ""
+// where it has not; an untracked file has neither.
 type FileChange struct {
-	Path           string
-	Status         string // M, A, D
-	Added, Removed int
-	Hunks          []Hunk
+	Path             string
+	Status           string // M, A, D
+	Staged, Unstaged string
+	Untracked        bool
+	Added, Removed   int
+	Hunks            []Hunk
+}
+
+// Branch is a branch of the repository: a local one, or a remote's as
+// origin/main; Tracking is how it stands to its upstream ("↑1 ↓2"), ""
+// when even or without one.
+type Branch struct {
+	Name     string
+	Remote   bool
+	Current  bool
+	Commit   string
+	Tracking string
+}
+
+// Remote is a remote of the repository.
+type Remote struct {
+	Name, URL string
+}
+
+// Commit is a commit of the history, newest first; Refs are the
+// references at it, as heads/main or tags/v0.1.0.
+type Commit struct {
+	ID      string
+	Message string
+	Author  string
+	Refs    []string
+}
+
+// Repository is the project's Git repository as the Git panel shows it.
+type Repository struct {
+	Branch   string // the branch checked out
+	Upstream string // its upstream, "" for none
+	Branches []Branch
+	Remotes  []Remote
+	Stashes  []string // their messages, newest first
+	Tags     []string
+	Commits  []Commit
 }
 
 // Checkpoint is the files a turn changed, which undo restores.
@@ -120,6 +160,7 @@ type Workspace struct {
 	Notices     []*Notice
 	Files       *FileNode
 	Changes     []FileChange
+	Repo        Repository
 	Checkpoints []Checkpoint
 	Documents   []Document
 	Citations   []Citation
@@ -237,6 +278,32 @@ func workspace() *Workspace {
 			"+package kit", "+", "+// Frosted is the material of floating layers.", "+func Frosted(c *ui.Context) ui.Material {",
 			"+\treturn frosted{}", "+}")),
 		change("internal/shell/legacy.go", "D", hunk(1, 0, "-package shell", "-", "-// legacy is gone.", "-var legacy = true")),
+	}
+	// Where each change stands: the README in the work tree, the example
+	// staged and changed again, the new file untracked, the removal staged.
+	w.Changes[0].Unstaged = "M"
+	w.Changes[1].Staged, w.Changes[1].Unstaged = "M", "M"
+	w.Changes[2].Untracked = true
+	w.Changes[3].Staged = "D"
+	w.Repo = Repository{
+		Branch: "main", Upstream: "origin/main",
+		Branches: []Branch{
+			{Name: "main", Current: true, Commit: "9f2c41ab07d3", Tracking: "↑1"},
+			{Name: "split-view", Commit: "4be81d20c9a7"},
+			{Name: "feature/git-panel", Commit: "c07d5e3318f2", Tracking: "↓2"},
+			{Name: "origin/main", Remote: true, Commit: "1a6e90f4b2c8"},
+			{Name: "origin/split-view", Remote: true, Commit: "4be81d20c9a7"},
+		},
+		Remotes: []Remote{{Name: "origin", URL: "https://github.com/sailry/sailry-go.git"}},
+		Stashes: []string{"WIP on main: 9f2c41a Port the Git panel"},
+		Tags:    []string{"v0.1.0"},
+		Commits: []Commit{
+			{ID: "9f2c41ab07d3e5f6", Message: "Port the Git panel's grouped changes", Author: "Ada Chen", Refs: []string{"heads/main"}},
+			{ID: "1a6e90f4b2c87d10", Message: "Share one theme across the right panel\n\nThe tabs and pages read the same tokens.", Author: "Ada Chen", Refs: []string{"remotes/origin/main"}},
+			{ID: "4be81d20c9a7e3b2", Message: "Split the workspace into panes", Author: "Lin Wei", Refs: []string{"heads/split-view", "remotes/origin/split-view"}},
+			{ID: "c07d5e3318f2a9d4", Message: "Draw the file tree with guides", Author: "Lin Wei", Refs: []string{"heads/feature/git-panel"}},
+			{ID: "77b0f2e6a1d94c35", Message: "Copy the shell's locale keys", Author: "Ada Chen", Refs: []string{"tags/v0.1.0"}},
+		},
 	}
 	w.Checkpoints = []Checkpoint{
 		{ID: "cp-3", Turn: "Make the borders lighter", Time: Now.Add(-4 * time.Minute), Files: []string{"internal/theme/controls.go", "internal/kit/loader.go"}, Added: 65, Removed: 3},
