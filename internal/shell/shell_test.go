@@ -42,6 +42,20 @@ func click(t *testing.T, tt *ui.Tester, label string) {
 	}
 }
 
+// clickItem clicks the control named name among the menu items and menu
+// buttons, past texts of the same name elsewhere in the window.
+func clickItem(t *testing.T, tt *ui.Tester, name string) {
+	t.Helper()
+	for _, role := range []ui.Role{ui.RoleMenuItem, ui.RoleMenuItemCheckBox, ui.RoleMenuItemRadio, ui.RoleMenuButton} {
+		if info, ok := tt.AccessByRole(role, name); ok {
+			b := info.Bounds
+			tt.ClickAt(b.X+b.W/2, b.Y+b.H/2)
+			return
+		}
+	}
+	t.Fatalf("no menu item %q: %q", name, tt.Texts())
+}
+
 // snapshot writes the last frame to $SAILRY_SNAPSHOTS/name.png, when set.
 func snapshot(t *testing.T, tt *ui.Tester, name string) {
 	dir := os.Getenv("SAILRY_SNAPSHOTS")
@@ -218,7 +232,7 @@ func TestApprovalsAndQuestion(t *testing.T) {
 
 func TestModelPickerAndEffort(t *testing.T) {
 	a, tt := newTester(t)
-	click(t, tt, "Select model")
+	click(t, tt, i18n.In("en", "composer_model_settings")+": Claude Opus 5.5")
 	snapshot(t, tt, "model-picker")
 	if !tt.HasText("medium") {
 		t.Fatalf("the picker does not show the effort: %q", tt.Texts())
@@ -234,37 +248,45 @@ func TestModelPickerAndEffort(t *testing.T) {
 	if got := composer.Efforts[int(comp.Effort)]; got != "high" {
 		t.Errorf("effort %q after Right from medium (slider %+v)", got, slider)
 	}
-	// The model list chooses another model, and the chip names it.
+	// The model list chooses another model; a reasoning model takes its
+	// effort from a submenu.
 	clickButton(t, tt, "Claude Opus 5.5") // the panel's model, which opens the list
-	clickButton(t, tt, "GPT-5.2")
+	clickButton(t, tt, i18n.In("en", "provider_openai"))
+	clickItem(t, tt, "GPT-5.2")
+	clickItem(t, tt, "high")
+	tt.Frame()
 	if comp.Model != "gpt-5.2" {
 		t.Fatalf("model %q", comp.Model)
 	}
-	if !tt.HasText("GPT-5.2") || !tt.HasText("high") {
-		t.Errorf("the chip does not show the choice: %q", tt.Texts())
+	if got := composer.Efforts[int(comp.Effort)]; got != "high" {
+		t.Errorf("effort %q after choosing high", got)
 	}
 	// A model without reasoning shows the default effort, its slider off.
 	// The picker stays open on its main panel after a choice.
 	clickButton(t, tt, "GPT-5.2")
+	clickButton(t, tt, i18n.In("en", "provider_anthropic"))
 	clickButton(t, tt, "Claude Haiku 5.5")
+	if comp.Model != "claude-haiku-5-5" {
+		t.Fatalf("model %q", comp.Model)
+	}
 	if !tt.HasText(i18n.In("en", "composer_effort_unavailable")) {
 		t.Errorf("no default effort for a model without reasoning: %q", tt.Texts())
 	}
 }
 
-func TestBranchMenu(t *testing.T) {
+func TestWorktreeMenu(t *testing.T) {
 	a, tt := newTester(t)
 	click(t, tt, "main")
 	// The menu is kit.Menu, drawn in the window.
-	for _, key := range composer.Branches {
-		if !tt.HasText(i18n.In("en", key)) {
-			t.Fatalf("branch menu lacks %q: %q", key, tt.Texts())
+	for _, want := range []string{"sailry-go", "split-view", i18n.In("en", "location_create")} {
+		if !tt.HasText(want) {
+			t.Fatalf("worktree menu lacks %q: %q", want, tt.Texts())
 		}
 	}
-	click(t, tt, "preview/ui")
+	clickItem(t, tt, "split-view")
 	tt.Frame()
-	if a.Composer(preview.Big).Branch != 1 {
-		t.Error("the branch was not chosen")
+	if w := a.Composer(preview.Big).Worktree; w != "split-view" {
+		t.Errorf("worktree %q", w)
 	}
 }
 
@@ -455,5 +477,50 @@ func TestOpenUnsupportedFile(t *testing.T) {
 	}
 	if !tt.HasText(i18n.In("en", "files_open_failed")) {
 		t.Errorf("no failure toast: %q", tt.Texts())
+	}
+}
+
+// Tab queues behind the running reply; @ opens the references, a page
+// opens on Enter and a row becomes a chip; Escape closes the picker
+// before it stops the reply.
+func TestComposerQueueReferencesEscape(t *testing.T) {
+	a, tt := newTester(t)
+	cv := a.Data.Find(preview.Big)
+	comp := a.Composer(preview.Big)
+	if !cv.Running() {
+		t.Fatal("the big conversation does not run")
+	}
+	n := len(cv.Queue)
+	click(t, tt, i18n.In("en", "composer"))
+	tt.Type("Queue me")
+	tt.Key(0, ui.KeyTab)
+	tt.Frame()
+	if len(cv.Queue) != n+1 || cv.Queue[n].Text != "Queue me" || comp.Draft != "" {
+		t.Fatalf("Tab did not queue: %d queued, draft %q", len(cv.Queue), comp.Draft)
+	}
+	tt.Type("@")
+	tt.Frame()
+	if !tt.HasText(i18n.In("en", "reference_title")) {
+		t.Fatalf("@ opens no picker: %q", tt.Texts())
+	}
+	tt.Key(0, ui.KeyDown) // Agents
+	tt.Key(0, ui.KeyEnter)
+	tt.Frame()
+	tt.Key(0, ui.KeyEnter) // @reviewer
+	tt.Frame()
+	if comp.Draft != "@reviewer " || len(comp.References) != 1 {
+		t.Fatalf("no chip: draft %q, references %v", comp.Draft, comp.References)
+	}
+	tt.Type(" @")
+	tt.Frame()
+	tt.Key(0, ui.KeyEscape)
+	tt.Frame()
+	if tt.HasText(i18n.In("en", "reference_title")) || !cv.Running() {
+		t.Fatalf("Escape did not close the picker alone (running %v)", cv.Running())
+	}
+	tt.Key(0, ui.KeyEscape)
+	tt.Frame()
+	if cv.Running() {
+		t.Error("Escape with the picker closed does not stop the reply")
 	}
 }

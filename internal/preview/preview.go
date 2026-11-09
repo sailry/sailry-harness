@@ -37,6 +37,9 @@ type Conversation struct {
 	Turns    []conversation.Turn
 	// Waiting is what the running reply waits on the user for.
 	Waiting composer.Interactions
+	// Queue is the messages sent while the reply runs.
+	Queue  []composer.Queued
+	queued int // the queue's messages made so far
 	// Session is the conversation around its turns: older pages, the
 	// connection, a diagnostic and usage.
 	Session conversation.Session
@@ -141,6 +144,13 @@ func Load() *Data {
 	d.Projects[3].Conversations[1].Pinned = true // a pin from before pins had an order
 	d.Projects[0].Conversations[3].Worktree = "split-view"
 	d.Projects[0].Conversations[6].Archived = true
+	// The running conversation has messages waiting behind its reply.
+	big := d.Projects[0].Conversations[0]
+	big.Queue = []composer.Queued{
+		{ID: Big + "/queued-1", Text: "Then run the benchmarks again with 500 turns"},
+		{ID: Big + "/queued-2", Text: "Add the numbers to the report", Attachments: 1},
+	}
+	big.queued = 2
 	for _, p := range d.Projects {
 		p.Host, p.Trusted = "local", true
 		p.Worktrees = []Worktree{{Branch: p.Branch, Path: p.Path, Main: true}}
@@ -169,14 +179,7 @@ func Load() *Data {
 		{"provider", "anthropic"}, {"status", "400"}, {"type", "invalid_request_error"}, {"request", "req_01J9…"},
 	}, Detail: `{"type":"error","error":{"type":"invalid_request_error","message":"max_tokens: 64000 > 32000"}}`}
 	d.Unassigned[len(d.Unassigned)-1].Session.Loading = true
-	d.Models = []Model{
-		{ID: "claude-opus-5-5", Name: "Claude Opus 5.5", Provider: "Anthropic", Reasoning: true},
-		{ID: "claude-sonnet-5-5", Name: "Claude Sonnet 5.5", Provider: "Anthropic", Reasoning: true},
-		{ID: "claude-haiku-5-5", Name: "Claude Haiku 5.5", Provider: "Anthropic", Reasoning: false},
-		{ID: "gpt-5.2", Name: "GPT-5.2", Provider: "OpenAI", Reasoning: true},
-		{ID: "gemini-3-pro", Name: "Gemini 3 Pro", Provider: "Google", Reasoning: true},
-		{ID: "qwen3-coder", Name: "Qwen3 Coder", Provider: "Ollama", Reasoning: false},
-	}
+	d.Models = models()
 	d.Providers = []Provider{
 		{"anthropic", "Anthropic", "Claude models with OAuth or an API key", "provider_auth_oauth", true},
 		{"openai", "OpenAI", "GPT models through the Responses API", "provider_auth_key", true},

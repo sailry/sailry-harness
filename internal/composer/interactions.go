@@ -91,8 +91,30 @@ type Answer struct {
 // Actions is what the composer asks of the backend. Outcomes show as
 // toasts: a decision or answer the run no longer waits on is a conflict.
 type Actions interface {
-	Send(text string)
+	// Send submits the draft; Queue puts it behind the running reply
+	// (Tab). Failures toast; the page puts the message back in the draft.
+	Send(m Message)
+	Queue(m Message)
 	Stop()
+	// The queue: send one now, save its edited text, remove it, or move
+	// it before another ("" for the end).
+	SendQueued(id string)
+	SaveQueued(id, text string)
+	RemoveQueued(id string)
+	MoveQueued(id, before string)
+	// Upload sends a file of the draft to the host, moving its Status and
+	// Progress on; it retries a failed one. Discard drops it.
+	Upload(a *Attachment)
+	Discard(a *Attachment)
+	// Dictate starts, finishes or cancels voice input, moving d on.
+	Dictate(d *Dictation, cmd DictationCommand)
+	// Compact compacts the conversation (/compact).
+	Compact()
+	// CreateWorktree, AddProject and ManageTeams open the flows that
+	// make a worktree, add a project and edit the teams.
+	CreateWorktree()
+	AddProject()
+	ManageTeams()
 	// Decide answers approval id; reason is the text of Deny with reason.
 	Decide(id string, d Decision, reason string)
 	Answer(id string, a Answer)

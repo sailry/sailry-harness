@@ -87,6 +87,10 @@ type App struct {
 	// pages and the panel's tabs.
 	Projects *panel.Projects
 	drafts   map[string]*composer.State
+	// transfers and voice play the composers' file transfers and voice
+	// input on the frame clock (preview).
+	transfers preview.Transfers
+	voice     preview.Voice
 
 	features []string        // the rail's order
 	unpinned map[string]bool // features off the rail
@@ -127,6 +131,13 @@ func (a *App) Composer(id string) *composer.State {
 		return s
 	}
 	s := composer.New(a.Data.Models[0].ID)
+	s.Host = "local"
+	if pr := a.Data.ProjectOf(id); pr != nil {
+		s.Host, s.Project, s.Worktree = pr.Host, pr.ID, pr.Branch
+		if cv := a.Data.Find(id); cv != nil && cv.Worktree != "" {
+			s.Worktree = cv.Worktree
+		}
+	}
 	a.drafts[id] = s
 	return s
 }
@@ -343,8 +354,23 @@ func (a *App) page(c *ui.Context) {
 	}
 	comp := a.Composer(cv.ID)
 	comp.Running = cv.Running()
+	comp.Searching = a.Messages.SearchOpen()
 	comp.Metrics = func(c *ui.Context) { conversation.UsageBar(c, cv.Session.Usage) }
-	act := &actions{a: a, c: c, cv: cv}
+	act := &actions{a: a, c: c, cv: cv, comp: comp}
+	if a.transfers.Advance(comp.Attachments, c.Now()) {
+		c.After(preview.Tick)
+	}
+	if changing, done := a.voice.Advance(&comp.Dictation, c.Now()); changing {
+		c.After(preview.Tick)
+	} else if done {
+		c.Toast(i18n.T(c, "preview_notice"))
+	}
+	ctx := a.Data.Composer(cv, comp.Worktree)
+	// Escape in the conversation after the picker and the search bar:
+	// the queue's editor, then Stop (live/shortcuts.rs EscapeTarget).
+	if comp.Escapes() && c.FocusWithin(a.mainPane) && c.Shortcut(0, ui.KeyEscape) {
+		comp.Escape(act)
+	}
 	a.Panel.Child = func(c *ui.Context, id string) {
 		conversation.View(c, a.Messages, id, a.children[id], nil, act)
 	}
@@ -352,27 +378,71 @@ func (a *App) page(c *ui.Context) {
 		// A new session welcomes with the theme's hero and the mode
 		// cards, whose prompts go to the composer as drafts.
 		conversation.Welcome(c, a.Messages, func() {
-			composer.View(c, comp, a.Data.Models, cv.Waiting, act)
+			composer.View(c, comp, ctx, act)
 		}, func(prompt string) { comp.Draft = prompt })
 		return
 	}
 	conversation.View(c, a.Messages, cv.ID, cv.Turns, &cv.Session, act)
-	composer.View(c, comp, a.Data.Models, cv.Waiting, act)
+	composer.View(c, comp, ctx, act)
 }
 
 // actions carries out the page's actions on the preview data. Preview
 // data calls no model or tool: decisions and answers change only the
 // preview's rows, and say so in a toast.
 type actions struct {
-	a  *App
-	c  *ui.Context
-	cv *preview.Conversation
+	a    *App
+	c    *ui.Context
+	cv   *preview.Conversation
+	comp *composer.State
 }
 
-func (x *actions) Send(text string) {
+// Send plays the preview's reply; attachments and references go along
+// in name only.
+func (x *actions) Send(m composer.Message) {
+	text := m.Text
+	if text == "" && len(m.Attachments) > 0 {
+		text = i18n.T(x.c, "chat_attachment_count", "count", len(m.Attachments))
+	}
 	preview.Send(x.cv, text, x.c.Now())
 	x.a.Messages.List(x.cv.ID).ScrollToEnd()
 }
+
+func (x *actions) Queue(m composer.Message) {
+	preview.Queue(x.cv, m, x.c.Now())
+	x.a.Messages.List(x.cv.ID).ScrollToEnd()
+}
+
+func (x *actions) SendQueued(id string) {
+	preview.SendQueued(x.cv, id, x.c.Now())
+	x.a.Messages.List(x.cv.ID).ScrollToEnd()
+}
+
+func (x *actions) SaveQueued(id, text string)   { preview.SaveQueued(x.cv, id, text) }
+func (x *actions) RemoveQueued(id string)       { preview.RemoveQueued(x.cv, id) }
+func (x *actions) MoveQueued(id, before string) { preview.MoveQueued(x.cv, id, before) }
+
+// Upload plays a transfer on the clock; the file is not read, which the
+// toast says.
+func (x *actions) Upload(a *composer.Attachment) {
+	x.c.Toast(i18n.T(x.c, "preview_notice"))
+	x.a.transfers.Start(a, x.c.Now())
+	x.c.After(preview.Tick)
+}
+
+func (x *actions) Discard(a *composer.Attachment) { x.a.transfers.Drop(a) }
+
+// Dictate plays voice input on the clock; no microphone opens.
+func (x *actions) Dictate(d *composer.Dictation, cmd composer.DictationCommand) {
+	x.a.voice.Command(d, cmd, x.c.Now())
+	x.c.After(preview.Tick)
+}
+
+// Compact, a new worktree, a new project and the teams' settings would
+// ask a model or write to disk: the preview says so.
+func (x *actions) Compact()        { x.c.Toast(i18n.T(x.c, "preview_notice")) }
+func (x *actions) CreateWorktree() { x.c.Toast(i18n.T(x.c, "preview_notice")) }
+func (x *actions) AddProject()     { x.c.Toast(i18n.T(x.c, "preview_notice")) }
+func (x *actions) ManageTeams()    { x.c.Toast(i18n.T(x.c, "preview_notice")) }
 
 func (x *actions) Stop() { preview.Stop(x.cv) }
 
