@@ -78,7 +78,7 @@ func Frost(c *ui.Context, el ui.Element, base ui.Color, tint float32) ui.Element
 const (
 	// SurfaceTint is the composer's and its queue tray's: they keep their
 	// fill's tone and the page under them only shows faintly.
-	SurfaceTint = 0.85
+	SurfaceTint = 0.6
 	// CardTint is the surface cards' (settings, resource, market and panel
 	// cards, lists): the theme's backdrop shows through them clearly.
 	CardTint = 0.45
