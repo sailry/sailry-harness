@@ -141,3 +141,115 @@ var Discovered = []ChannelModel{
 	{ID: "model-large", Name: "model-large", Context: 200000, Output: 32000},
 	{ID: "model-small", Name: "model-small", Context: 128000, Output: 16000},
 }
+
+// ConnState is a connector account's state (connector::State).
+type ConnState int
+
+const (
+	Unconnected ConnState = iota
+	Connecting
+	Connected
+	Expired
+	NeedsConfirmation
+	ConnFailed
+)
+
+// ServerState is an MCP server's runtime state; ServerAuth is a server
+// waiting for its connector's credentials (Availability::ConnectionRequired).
+type ServerState int
+
+const (
+	ServerUp ServerState = iota
+	ServerStarting
+	ServerDown
+	ServerAuth
+)
+
+// Server is an MCP server of a connector or added by hand.
+type Server struct {
+	Name      string
+	Transport int // 0 stdio, 1 streamable HTTP, 2 SSE
+	Command   string
+	Args      []string
+	URL       string
+	Env       []EnvVar // environment (stdio) or headers (HTTP); values are never loaded
+	Allowed   bool
+	State     ServerState
+	Tools     int
+	Updated   string // "2026-11-09 11:42:10"
+	Error     string
+}
+
+// ConnectorField is a value a connector asks for.
+type ConnectorField struct {
+	Name, Title string
+	Secret      bool
+	Help        bool // the field links to its help page
+}
+
+// ConnectorType is a connector a plugin declares (catalog types): its
+// methods by i18n key (connector_oauth, _token, _application, _cli) and
+// fields.
+type ConnectorType struct {
+	ID, Package, Name, Description string
+	Methods                        []string
+	Fields                         []ConnectorField
+	Enabled                        bool
+}
+
+// Service is a row of the Connectors page (catalog.rs Service): a
+// connector's account, its MCP servers, or an MCP server added by hand
+// (Manual).
+type Service struct {
+	ID, Type, Name, Description string
+	Identity                    string // the account's identity
+	Method                      string // the account's method key; "" none
+	Account                     bool
+	State                       ConnState
+	AccountOn                   bool
+	Manual                      bool
+	Servers                     []Server
+}
+
+// Connectors is the connectors page's dataset.
+type Connectors struct {
+	Types    []ConnectorType
+	Services []Service
+	Accounts []string // local CLI accounts a host reports
+}
+
+// ConnectorsData builds the connectors' dataset, fresh each call.
+func ConnectorsData() *Connectors {
+	return &Connectors{
+		Types: []ConnectorType{
+			{ID: "github", Package: "sailry-github", Name: "GitHub", Description: "Repositories, issues and pull requests",
+				Methods: []string{"connector_oauth", "connector_token", "connector_cli"}, Enabled: true,
+				Fields: []ConnectorField{{Name: "token", Title: "Personal access token", Secret: true, Help: true}}},
+			{ID: "linear", Package: "sailry-linear", Name: "Linear", Description: "Issues and projects", Methods: []string{"connector_oauth"}, Enabled: true},
+			{ID: "slack", Package: "sailry-slack", Name: "Slack", Description: "Channels and messages",
+				Methods: []string{"connector_application"}, Enabled: true,
+				Fields: []ConnectorField{{Name: "client_id", Title: "Client ID"}, {Name: "client_secret", Title: "Client secret", Secret: true}}},
+			{ID: "notion", Package: "sailry-notion", Name: "Notion", Description: "Pages and databases", Methods: []string{"connector_token"}, Enabled: true,
+				Fields: []ConnectorField{{Name: "token", Title: "Integration token", Secret: true}}},
+			{ID: "sentry", Package: "sailry-sentry", Name: "Sentry", Description: "Errors and releases", Methods: []string{"connector_oauth"}},
+		},
+		Services: []Service{
+			{ID: "github", Type: "github", Name: "GitHub", Description: "Repositories, issues and pull requests", Identity: "octo-dev",
+				Method: "connector_oauth", Account: true, State: Connected, AccountOn: true,
+				Servers: []Server{{Name: "github", Transport: 1, URL: "https://api.githubcopilot.com/mcp/", Allowed: true, Tools: 38, Updated: "2026-11-09 11:42:10"}}},
+			{ID: "linear", Type: "linear", Name: "Linear", Description: "Issues and projects", Method: "connector_oauth", Account: true,
+				State: Connecting, AccountOn: true},
+			{ID: "slack", Type: "slack", Name: "Slack", Description: "Channels and messages", Identity: "Acme workspace",
+				Method: "connector_application", Account: true, State: Expired, AccountOn: true},
+			{ID: "notion", Type: "notion", Name: "Notion", Description: "Pages and databases",
+				Servers: []Server{{Name: "notion", Transport: 1, URL: "https://mcp.notion.com/mcp", Allowed: true, State: ServerAuth}}},
+			{ID: "mcp-filesystem", Name: "filesystem", Description: "npx @modelcontextprotocol/server-filesystem", Manual: true,
+				Servers: []Server{{Name: "mcp-filesystem", Command: "npx", Args: []string{"-y", "@modelcontextprotocol/server-filesystem", "~/Projects"},
+					Allowed: true, State: ServerDown, Tools: 11, Updated: "2026-11-09 10:05:33", Error: "spawn npx ENOENT"}}},
+			{ID: "mcp-search", Name: "search", Description: "https://search.example.com/mcp", Manual: true,
+				Servers: []Server{{Name: "mcp-search", Transport: 1, URL: "https://search.example.com/mcp", Allowed: true, State: ServerStarting,
+					Env: []EnvVar{{Key: "Authorization"}}}}},
+		},
+		Accounts: []string{"octo-dev (github.com)", "octo-work (github.example.com)"},
+	}
+}

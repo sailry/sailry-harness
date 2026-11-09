@@ -921,3 +921,74 @@ runtime_decision: Decisions
 runtime_decision_model: Model
 runtime_decision_enable: Enable decisions
 local_models_none: None
+connector_oauth: OAuth
+connector_application: App credentials
+connector_token: Token
+connector_cli: Local CLI
+connector_not_connected: Not connected
+connector_expired: Expired
+connector_confirmation: Needs confirmation
+connector_failed: Connection failed
+connector_server_disabled: Server disabled
+connector_search: Search connectors
+connector_all_methods: All methods
+connector_filter: Authentication method
+mcp_add: Add MCP
+connector_preview: Preview
+connector_empty: No connections
+connector_remove: Delete
+connector_remove_effect: Delete “%{name}”? Configuration and credentials will be removed
+connector_removed: Deleted
+connector_mcp_connecting: Connecting
+connector_mcp_failed: Connection failed
+connector_connected: Connected
+connector_mcp_tools: '%{n} tools'
+connector_connect: Connect
+connector_account_enabled: Enable account
+connector_server_allowed: Enable server
+connector_saved: Saved
+connector_details: Details
+connector_configure: Configure
+connector_confirm: Confirm
+connector_bind: Bind
+connector_reauthorize: Reauthorize
+connector_add_credentials: Add credentials
+connector_probe: Check
+connector_mcp_reconnect: Reconnect
+connector_add: Add connector
+connector_added: Added
+connector_choose_account: Choose an account to bind
+connector_browser: Authorize in your browser
+form_secret_hint: Enter credential
+connector_register: Create app
+connector_authorize: Authorize
+mcp_invalid: Check name, connection and variables
+connector_mcp_server: Server
+market_details_tools: Tools
+connector_mcp_updated_at: Updated
+connector_mcp_error: Error
+mcp_edit: Configure MCP
+mcp_name_hint: Lowercase letters, numbers, dots or hyphens
+mcp_transport: Transport
+plugins_stdio: Standard input/output
+plugins_http: Streamable HTTP
+plugins_sse: SSE
+mcp_command: Commands
+mcp_command_hint: npx, uvx or an executable
+mcp_arguments: Arguments
+mcp_argument: Argument value
+mcp_remove_argument: Remove argument
+mcp_add_argument: Add argument
+mcp_url: Server URL
+mcp_url_hint: https://example.com/mcp
+mcp_environment: Environment variables
+mcp_add_environment: Add environment variable
+mcp_headers: Headers
+mcp_add_header: Add header
+mcp_slot_name: Name
+mcp_keep_secret: Keep credential
+mcp_slot_value: Value
+mcp_remove_slot: Remove item
+mcp_install_stdio_help: Enter the command and arguments for the selected host; add private values in the credential fields
+mcp_install_http_help: Enter the MCP endpoint; use credential fields for private headers or authorize with OAuth
+mcp_configuration_saved: MCP configuration saved

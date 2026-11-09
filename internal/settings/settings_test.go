@@ -144,3 +144,34 @@ func TestProviderEditor(t *testing.T) {
 		t.Error("statuses")
 	}
 }
+
+// Connector statuses, menus and the MCP check (connectors/status.rs,
+// details/menu.rs, mcp/editor.rs).
+func TestConnectors(t *testing.T) {
+	m := NewModel(preview.SettingsData())
+	gh, linear, notion, fs := m.service("github"), m.service("linear"), m.service("notion"), m.service("mcp-filesystem")
+	if st := StatusOf(gh); st.Tools != 38 || st.Problem != "" {
+		t.Errorf("github %+v", st)
+	}
+	if !StatusOf(linear).Connecting || StatusOf(notion).Problem != "connector_not_connected" || !StatusOf(fs).Failed {
+		t.Error("statuses")
+	}
+	if got := serviceItems(notion); got[0] != "connector_connect" {
+		t.Errorf("notion items %v", got)
+	}
+	if got := serviceItems(fs); got[0] != "connector_configure" || got[len(got)-1] != "connector_details" {
+		t.Errorf("manual items %v", got)
+	}
+	e := mcpEditor{name: "Bad Name", command: "npx"}
+	if e.Check() != "mcp_invalid" {
+		t.Error("bad name passed")
+	}
+	e.name = "files"
+	if e.Check() != "" {
+		t.Errorf("good server: %q", e.Check())
+	}
+	e.transport, e.url = 1, "ftp://x"
+	if e.Check() != "mcp_invalid" {
+		t.Error("bad URL passed")
+	}
+}

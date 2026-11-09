@@ -165,6 +165,19 @@ type Model struct {
 	removing      string
 	disconnecting string
 
+	// Connectors and MCP (connectors.rs, connectors/*, mcp*): the
+	// services, the connector types plugins declare, the host's CLI
+	// accounts, the search and the method filter (of connectorMethods).
+	Services     []preview.Service
+	ConnTypes    []preview.ConnectorType
+	ConnAccounts []string
+	ConnQuery    string
+	ConnMethod   int
+	connector    connectorEditor
+	mcp          mcpEditor
+	connDetails  string
+	connRemoving string
+
 	// Terminal (terminal.rs, terminal/host.rs).
 	Host            Stored[TerminalHost]
 	Shells          []preview.Shell
@@ -219,8 +232,10 @@ var ToastSeconds = []int{3, 5, 8, 10}
 // NewModel builds the view model over the settings' dataset.
 func NewModel(d *preview.Settings) *Model {
 	pr := preview.ProvidersData()
+	cn := preview.ConnectorsData()
 	m := &Model{
 		Channels: pr.Channels, Brands: pr.Brands, Catalog: pr.Catalog, Compaction: stored(pr.Compaction),
+		Services: cn.Services, ConnTypes: cn.Types, ConnAccounts: cn.Accounts,
 		Notify: [4]bool{true, true, true, true}, Toast: 1,
 		Power:     stored(d.PreventSleep),
 		Telemetry: stored(Telemetry{Errors: d.Errors, Metrics: d.Metrics}),
