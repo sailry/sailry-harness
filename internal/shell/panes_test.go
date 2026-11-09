@@ -178,3 +178,96 @@ func TestPaneClose(t *testing.T) {
 		t.Fatalf("selected %q", a.Sidebar.Selected)
 	}
 }
+
+// dragTo drags from the centre of the element named from to (x, y) in
+// steps, a frame each, calling during before letting go.
+func dragTo(t *testing.T, tt *ui.Tester, from ui.AccessInfo, x, y float32, during func()) {
+	t.Helper()
+	sx, sy := from.Bounds.X+from.Bounds.W/2, from.Bounds.Y+from.Bounds.H/2
+	tt.Press(sx, sy)
+	for i := 1; i <= 12; i++ {
+		f := float32(i) / 12
+		tt.Move(sx+(x-sx)*f, sy+(y-sy)*f)
+		tt.Frame()
+	}
+	tt.Advance(300 * time.Millisecond)
+	tt.Frame()
+	if during != nil {
+		during()
+	}
+	tt.Release(x, y)
+	tt.Frame()
+	tt.Frame()
+}
+
+func TestDragSessionSplits(t *testing.T) {
+	a, tt := newTester(t)
+	row, ok := tt.AccessByRole(ui.RoleButton, "Port the neutral theme tokens")
+	if !ok {
+		t.Fatal("no row")
+	}
+	// Onto the right of the conversation shown alone.
+	dragTo(t, tt, row, 1150, 400, func() {
+		snapshot(t, tt, "panes-drag-right")
+	})
+	g := a.panes.Displayed()
+	if g == nil || g.Axis != panes.Row || !slices.Equal(g.Targets(), []panes.Target{session(preview.Big), session(themeChat)}) {
+		t.Fatalf("split: %+v", a.panes.Groups)
+	}
+	if a.Sidebar.Selected != themeChat {
+		t.Fatalf("focus %q", a.Sidebar.Selected)
+	}
+	// Then another below the first pane, by its left half's lower part.
+	row, _ = tt.AccessByRole(ui.RoleButton, "Weeknight dinner ideas")
+	dragTo(t, tt, row, 520, 700, nil)
+	if got := len(a.panes.Displayed().Targets()); got != 3 || a.panes.Displayed().Children[0].Axis != panes.Column {
+		t.Fatalf("%d panes: %+v", got, a.panes.Displayed().Children[0])
+	}
+	// A pane's header handle moves it: the dinner pane to the centre of
+	// the theme pane trades their places.
+	var handles []ui.AccessInfo
+	for _, e := range tt.AccessAll() {
+		if e.Role == ui.RoleButton && e.Name == "Drag to split" {
+			handles = append(handles, e)
+		}
+	}
+	if len(handles) != 3 {
+		t.Fatalf("%d handles", len(handles))
+	}
+	dinner := a.panes.Displayed().Targets()[1]
+	var from ui.AccessInfo
+	for _, h := range handles {
+		if h.Bounds.Y > 400 {
+			from = h
+		}
+	}
+	dragTo(t, tt, from, 1000, 450, nil)
+	if got := a.panes.Displayed().Targets(); got[2] != dinner || got[1] != session(themeChat) {
+		t.Fatalf("swap: %v", got)
+	}
+}
+
+func TestDragTerminalTab(t *testing.T) {
+	a, tt := newTester(t)
+	a.PanelOpen = true
+	a.Panel.New(panel.Terminal)
+	tt.Frame()
+	tt.Advance(400 * time.Millisecond)
+	tt.Frame()
+	tab, ok := tt.AccessByRole(ui.RoleButton, "Terminal")
+	if !ok {
+		t.Fatalf("no terminal tab: %q", tt.Texts())
+	}
+	// Onto the bottom of the conversation.
+	dragTo(t, tt, tab, 500, 700, func() {
+		snapshot(t, tt, "panes-drag-terminal")
+	})
+	g := a.panes.Displayed()
+	if g == nil || g.Axis != panes.Column || g.Targets()[1].Kind != panes.Terminal {
+		t.Fatalf("split: %+v", a.panes.Groups)
+	}
+	// The selection stays a session: the band shows the split.
+	if a.Sidebar.Selected != preview.Big || !tt.HasText("Terminal UI preview with project and worktree ownership; no PTY or shell is started") {
+		t.Fatalf("selected %q", a.Sidebar.Selected)
+	}
+}

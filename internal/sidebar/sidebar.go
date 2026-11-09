@@ -13,6 +13,7 @@ import (
 	"github.com/sailry/sailry-go/internal/i18n"
 	"github.com/sailry/sailry-go/internal/icons"
 	"github.com/sailry/sailry-go/internal/kit"
+	"github.com/sailry/sailry-go/internal/panes"
 	"github.com/sailry/sailry-go/internal/preview"
 	"github.com/sailry/sailry-go/internal/theme"
 )
@@ -339,13 +340,11 @@ const (
 	rowRecent                // recent: no status
 )
 
-// pinDrag is the value a pinned row drags.
-type pinDrag struct{ id string }
-
 // conversation is a session row: its status, title and age, and on hover
 // a pin and an archive button. A double click renames it in place. Its
 // right-click menu is the system's; the pointer resting on it shows its
-// details in a card.
+// details in a card. It drags onto the workspace to open in a split
+// (sidebar/sessions.rs on_drag), wearing the drag preview's look.
 func (s *State) conversation(c *ui.Context, cv *preview.Conversation, kind rowKind) {
 	p := theme.Of(c)
 	if s.renaming == cv.ID && !s.drawn {
@@ -368,11 +367,15 @@ func (s *State) conversation(c *ui.Context, cv *preview.Conversation, kind rowKi
 	case hovered || cv.Status == preview.Running && kind != rowRecent:
 		text = p.SidebarForeground
 	}
+	b.Drag(panes.Drag{Target: panes.Target{Kind: panes.Session, ID: cv.ID}, Title: title})
 	if kind == rowPinned {
 		s.reorder(c, b, cv)
 	}
 	b.ContextMenu(func(m *ui.Menu) { s.sessionMenu(c, m, cv) })
 	s.details(c, b, cv)
+	if kit.DragChip(c, b, title) {
+		return
+	}
 	b.TextColor(text).Children(func() {
 		if kind != rowRecent {
 			status(c, cv.Status)
@@ -406,14 +409,14 @@ func (s *State) conversation(c *ui.Context, cv *preview.Conversation, kind rowKi
 	}
 }
 
-// reorder makes a pinned row drag to a new place among the pinned, a 2 DIP
-// line showing where it would go (sidebar/order.rs's indicator).
+// reorder makes a pinned row, which drags its session, take another
+// pinned one to a new place among the pinned, a 2 DIP line showing where
+// it would go (sidebar/order.rs's indicator).
 func (s *State) reorder(c *ui.Context, b ui.Element, cv *preview.Conversation) {
-	b.Drag(pinDrag{cv.ID})
 	if b.Dragging() {
 		b.Opacity(0.5)
 	}
-	if v, over := ui.DragOver[pinDrag](b); over && v.id != cv.ID {
+	if v, over := ui.DragOver[panes.Drag](b); over && v.Target.ID != cv.ID && s.pinnedDrag(v) {
 		_, y, _ := b.PointerPosition()
 		after := y >= b.Bounds().H/2
 		line := ui.Box(c.Key("drop")).Absolute().Left(0).Right(0).Height(2).Radius(1).Background(theme.Of(c).Primary).PassThrough()
@@ -423,10 +426,16 @@ func (s *State) reorder(c *ui.Context, b ui.Element, cv *preview.Conversation) {
 			line.Top(-1)
 		}
 	}
-	if v, ok := ui.Drop[pinDrag](b); ok {
+	if v, ok := ui.Drop[panes.Drag](b); ok && s.pinnedDrag(v) {
 		_, y, _ := b.PointerPosition()
-		s.MovePin(v.id, cv.ID, y >= b.Bounds().H/2)
+		s.MovePin(v.Target.ID, cv.ID, y >= b.Bounds().H/2)
 	}
+}
+
+// pinnedDrag reports whether a drag carries a pinned session.
+func (s *State) pinnedDrag(d panes.Drag) bool {
+	cv := s.Data.Find(d.Target.ID)
+	return d.Target.Kind == panes.Session && cv != nil && cv.Pinned
 }
 
 // MovePin moves a pinned conversation before or after another, giving the

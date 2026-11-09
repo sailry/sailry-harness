@@ -9,6 +9,7 @@ import (
 	"github.com/sailry/sailry-go/internal/i18n"
 	"github.com/sailry/sailry-go/internal/icons"
 	"github.com/sailry/sailry-go/internal/kit"
+	"github.com/sailry/sailry-go/internal/panes"
 	"github.com/sailry/sailry-go/internal/preview"
 	"github.com/sailry/sailry-go/internal/theme"
 )
@@ -139,7 +140,7 @@ func (pr *Project) strip(c *ui.Context, k Kind) {
 				closed := ""
 				for _, path := range pr.items(k) {
 					icon, label := itemLook(k, path)
-					tab(c, path, icon, label, path == pr.shown(k), func() { pr.show(k, path) }, func() { closed = path })
+					tab(c, path, icon, label, path == pr.shown(k), nil, func() { pr.show(k, path) }, func() { closed = path })
 				}
 				if closed != "" {
 					pr.close(k, closed)
@@ -151,8 +152,9 @@ func (pr *Project) strip(c *ui.Context, k Kind) {
 
 // tab is a strip's tab (tabs.rs): 28 DIPs up to 180 wide, the icon and
 // the title, the active one in tab_active, its close button showing on
-// hover or on the active tab.
-func tab(c *ui.Context, key any, icon *ui.SVG, label string, active bool, show, close func()) {
+// hover or on the active tab. A tab with drag drags it, wearing the drag
+// preview's look while it does.
+func tab(c *ui.Context, key any, icon *ui.SVG, label string, active bool, drag *panes.Drag, show, close func()) {
 	p := theme.Of(c)
 	b := ui.ButtonBase(c.Key(key)).Label(label).Height(tabHeight).MaxWidth(tabMax).PaddingStart(8).PaddingEnd(4).
 		Gap(6).Radius(p.Radius).Cursor(ui.CursorPointer).TextColor(p.MutedForeground)
@@ -162,6 +164,12 @@ func tab(c *ui.Context, key any, icon *ui.SVG, label string, active bool, show, 
 		b.Background(p.TabActive).TextColor(p.TabActiveText).AccessSelected(true).ScrollIntoView()
 	case hovered:
 		b.TextColor(p.Foreground)
+	}
+	if drag != nil {
+		b.Drag(*drag)
+		if kit.DragChip(c, b, label) {
+			return
+		}
 	}
 	b.Children(func() {
 		ui.Icon(c, icon).FontSize(14).Shrink(0)
@@ -222,7 +230,13 @@ func (s *State) strip(c *ui.Context, pr *Project, keys Shortcut) {
 				var closed *Tab
 				for _, t := range s.Tabs {
 					icon, label := s.look(c, t)
-					tab(c, t, icon, label, t == s.Active, func() { s.Show(t) }, func() { closed = &t })
+					var drag *panes.Drag
+					if t.Kind == Terminal {
+						// A terminal drags onto the workspace to open in a
+						// split (live/terminal/row.rs on_drag).
+						drag = &panes.Drag{Target: panes.Target{Kind: panes.Terminal, ID: t.ID}, Title: label}
+					}
+					tab(c, t, icon, label, t == s.Active, drag, func() { s.Show(t) }, func() { closed = &t })
 				}
 				if closed != nil {
 					s.Close(*closed)
