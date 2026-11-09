@@ -330,3 +330,31 @@ func TestTerminalSplitKeys(t *testing.T) {
 	}
 	snapshot(t, tt, "panes-terminal-keys")
 }
+
+// A drop applies while the panes build: a pane moved onto an earlier one
+// leaves the tree the build walks unchanged, so the build does not reach
+// the moved pane twice and bind its focus handle again.
+func TestDragOntoEarlierPane(t *testing.T) {
+	a, tt := newTester(t)
+	if !a.panes.Drop(session(preview.Big), session(themeChat), panes.Right) {
+		t.Fatal("drop")
+	}
+	tt.Frame()
+	tt.Frame()
+	var handles []ui.AccessInfo
+	for _, e := range tt.AccessAll() {
+		if e.Role == ui.RoleButton && e.Name == "Drag to split" {
+			handles = append(handles, e)
+		}
+	}
+	if len(handles) != 2 {
+		t.Fatalf("%d handles", len(handles))
+	}
+	// The theme pane's handle to the centre of the big pane, on its left.
+	from, to := handles[1], handles[0].Bounds
+	dragTo(t, tt, from, to.X-200, to.Y+300, nil)
+	if got := a.panes.Displayed().Targets(); !slices.Equal(got, []panes.Target{session(themeChat), session(preview.Big)}) {
+		t.Fatalf("swap: %v", got)
+	}
+	tt.Frame()
+}

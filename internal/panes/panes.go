@@ -14,6 +14,12 @@
 // kept. Kit keeps sizes in pixels with unknown slots; here a split keeps
 // shares of its length that sum to 1, which persist and resize without
 // a measured window.
+//
+// Edits apply while the panes build, from a drop or a key in a pane, so
+// they never change a tree in place: an edited group gets a copy, and a
+// build walking the tree read before goes on over the old shape, each
+// target in it once. Only a split handle changes a split's shares in
+// place.
 package panes
 
 import "slices"
@@ -190,12 +196,15 @@ func (w *Workspace) Drop(dest, t Target, p Placement) bool {
 	if p == Center {
 		switch {
 		case gd >= 0 && gd == gt:
+			w.Groups[gd] = clone(w.Groups[gd])
 			a, _, _ := w.Groups[gd].find(dest)
 			b, _, _ := w.Groups[gd].find(t)
 			a.Target, b.Target = t, dest
 		case gd >= 0:
 			w.remove(t)
-			leaf, _, _ := w.Groups[w.Group(dest)].find(dest)
+			gd = w.Group(dest)
+			w.Groups[gd] = clone(w.Groups[gd])
+			leaf, _, _ := w.Groups[gd].find(dest)
 			leaf.Target = t
 		default:
 			w.remove(t)
@@ -209,7 +218,7 @@ func (w *Workspace) Drop(dest, t Target, p Placement) bool {
 		w.Groups = append(w.Groups, &Node{Target: dest})
 		gd = len(w.Groups) - 1
 	}
-	w.Groups[gd] = insert(w.Groups[gd], dest, t, p)
+	w.Groups[gd] = insert(clone(w.Groups[gd]), dest, t, p)
 	w.Active = t
 	return true
 }
@@ -254,7 +263,7 @@ func (w *Workspace) remove(t Target) {
 	if g < 0 {
 		return
 	}
-	root := w.Groups[g]
+	root := clone(w.Groups[g])
 	if _, parent, ix := root.find(t); parent != nil {
 		parent.Children = slices.Delete(parent.Children, ix, ix+1)
 		parent.Sizes = slices.Delete(parent.Sizes, ix, ix+1)
@@ -266,6 +275,15 @@ func (w *Workspace) remove(t Target) {
 		return
 	}
 	w.Groups[g] = root
+}
+
+// clone copies a tree, for an edit to change.
+func clone(n *Node) *Node {
+	c := &Node{Target: n.Target, Axis: n.Axis, Sizes: slices.Clone(n.Sizes)}
+	for _, ch := range n.Children {
+		c.Children = append(c.Children, clone(ch))
+	}
+	return c
 }
 
 // insert puts t in a new leaf beside dest at p, and returns the tree's

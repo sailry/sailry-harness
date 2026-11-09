@@ -220,3 +220,27 @@ func TestRoundTrip(t *testing.T) {
 		t.Fatalf("restore: %d", len(r.Groups))
 	}
 }
+
+// Edits apply while the panes build, so a tree read before one keeps its
+// shape: the build walking it reaches each target once.
+func TestEditsLeaveAHeldTree(t *testing.T) {
+	edits := []func(*Workspace){
+		func(w *Workspace) { w.Drop(s("a"), s("c"), Center) },
+		func(w *Workspace) { w.Drop(s("a"), s("c"), Left) },
+		func(w *Workspace) { w.Drop(s("b"), s("d"), Bottom) },
+		func(w *Workspace) { w.Drop(s("b"), s("e"), Center) },
+		func(w *Workspace) { w.Detach(s("a")) },
+		func(w *Workspace) { w.Prune(func(t Target) bool { return t != s("b") }) },
+	}
+	for i, edit := range edits {
+		var w Workspace
+		w.Drop(s("a"), s("b"), Right)
+		w.Drop(s("b"), s("c"), Right)
+		held := w.Groups[0]
+		before := shape(held)
+		edit(&w)
+		if got := shape(held); got != before {
+			t.Errorf("edit %d changed the held tree: %s to %s", i, before, got)
+		}
+	}
+}
