@@ -45,7 +45,7 @@ type State struct {
 }
 
 // confirm is the one confirmation the sidebar shows at a time: archive in
-// the preview, or removing a project.
+// the preview, deleting a session, or removing a project.
 type confirm struct {
 	open                   bool
 	title, message, action string

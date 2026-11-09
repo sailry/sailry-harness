@@ -1,6 +1,8 @@
 package sidebar
 
 import (
+	"slices"
+
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-go/internal/i18n"
 	"github.com/sailry/sailry-go/internal/kit"
@@ -44,7 +46,8 @@ func (s *State) sessionMenu(c *ui.Context, m *ui.Menu, cv *preview.Conversation)
 		s.archive(c, cv)
 	}
 	if m.Item(t("session_delete")).Chosen() {
-		notice(c)
+		s.confirm = confirm{open: true, title: t("session_delete"), message: i18n.T(c, "session_delete_named", "name", Title(c, cv)),
+			action: t("session_delete"), run: func() { s.delete(cv) }}
 	}
 	m.Separator()
 	pr := s.Data.ProjectOf(cv.ID)
@@ -146,6 +149,24 @@ func (s *State) archive(c *ui.Context, cv *preview.Conversation) {
 				}
 			}
 		}}
+}
+
+// delete takes a conversation out of the preview's memory
+// (RemoveSession); its split pane leaves with it.
+func (s *State) delete(cv *preview.Conversation) {
+	drop := func(list []*preview.Conversation) []*preview.Conversation {
+		return slices.DeleteFunc(list, func(x *preview.Conversation) bool { return x == cv })
+	}
+	for _, p := range s.Data.Projects {
+		p.Conversations = drop(p.Conversations)
+	}
+	s.Data.Unassigned = drop(s.Data.Unassigned)
+	if s.Selected == cv.ID {
+		s.Selected = ""
+		if ids := s.Order(); len(ids) > 0 {
+			s.Selected = ids[0]
+		}
+	}
 }
 
 // remove takes a project out of the preview's memory.

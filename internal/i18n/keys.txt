@@ -247,6 +247,7 @@ recent_sessions
 workspace_archive
 session_unarchive
 session_delete
+session_delete_named
 workspace_rename
 session_title_required
 session_mark_read

@@ -233,6 +233,7 @@ recent_sessions: Recent
 workspace_archive: Archive session
 session_unarchive: Unarchive
 session_delete: Delete session
+session_delete_named: Delete session “%{name}” and its subagents permanently
 workspace_rename: Rename
 session_title_required: Enter a name
 session_mark_read: Mark as read

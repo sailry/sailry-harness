@@ -127,3 +127,30 @@ func clickField(t *testing.T, tt *ui.Tester, name string) {
 	b := info.Bounds
 	tt.ClickAt(b.X+b.W/2, b.Y+b.H/2)
 }
+
+// Delete asks first, naming the session once; confirming removes it.
+func TestSidebarDeleteConfirms(t *testing.T) {
+	a, tt := newTester(t)
+	title := "Port the neutral theme tokens"
+	if err := tt.RightClick(title); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.ChooseMenuItem(i18n.In("en", "session_delete")); err != nil {
+		t.Fatalf("%v: %q", err, tt.Menu())
+	}
+	tt.Frame()
+	if a.Data.Find("sailry-go/theme") == nil {
+		t.Fatal("Delete removed the session before the confirmation")
+	}
+	if !tt.HasText(i18n.In("en", "session_delete_named", "name", title)) {
+		t.Fatalf("the confirmation does not name the session: %q", tt.Texts())
+	}
+	clickButton(t, tt, i18n.In("en", "session_delete"))
+	tt.Frame()
+	if a.Data.Find("sailry-go/theme") != nil {
+		t.Fatal("the session was not deleted")
+	}
+	if tt.HasText(title) {
+		t.Errorf("the deleted session still shows: %q", tt.Texts())
+	}
+}

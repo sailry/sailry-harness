@@ -233,6 +233,7 @@ recent_sessions: 最近
 workspace_archive: 归档会话
 session_unarchive: 取消归档
 session_delete: 删除会话
+session_delete_named: 确认删除会话“%{name}”及其子代理？无法恢复
 workspace_rename: 重命名
 session_title_required: 请输入名称
 session_mark_read: 标记为已读
