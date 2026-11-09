@@ -140,7 +140,7 @@ func capsule(c *ui.Context, label string, open bool) ui.Element {
 // popover is theme/floating.rs on the frosted surface (kit.Floating):
 // 320 DIPs wide, anchored at its bottom right 8 DIPs over the capsule.
 func popover(c *ui.Context, panel, anchor ui.Element) ui.Element {
-	return kit.Floating(c, panel).AttachTo(anchor, ui.AnchorBottomEnd, ui.AnchorTopEnd).Margin(0, 0, 8, 0).Width(320).Padding(12).
+	return kit.Floating(c, panel).AttachTo(anchor, ui.AnchorTopEnd, ui.AnchorBottomEnd).Margin(0, 0, 8, 0).Width(320).Padding(12).
 		Shadow(0, 4, 12, 0, theme.Shade(0.12))
 }
 

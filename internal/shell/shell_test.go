@@ -183,6 +183,17 @@ func TestApprovalsAndQuestion(t *testing.T) {
 	}
 	// The question: choose an option and submit.
 	clickButton(t, tt, i18n.In("en", "question_reply"))
+	// The popover sits above its capsule, right-aligned with it, 8 DIPs
+	// apart (Anchor::BottomRight, bottom_2): Submit ends at its padding.
+	capsule, _ := tt.AccessByRole(ui.RoleButton, i18n.In("en", "question_reply"))
+	submit, _ := tt.AccessByRole(ui.RoleButton, i18n.In("en", "interaction_submit"))
+	cb, sb := capsule.Bounds, submit.Bounds
+	if d := (cb.X + cb.W) - (sb.X + sb.W); d < 12 || d > 14 {
+		t.Errorf("the question popover is not right-aligned with its capsule: capsule %v, Submit %v", cb, sb)
+	}
+	if d := cb.Y - (sb.Y + sb.H); d < 20 || d > 22 {
+		t.Errorf("the question popover is not 8 DIPs above its capsule: capsule %v, Submit %v", cb, sb)
+	}
 	click(t, tt, "Use the spinner")
 	clickButton(t, tt, i18n.In("en", "interaction_submit"))
 	if cv.Waiting.Question != nil {
