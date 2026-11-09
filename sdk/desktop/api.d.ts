@@ -1,0 +1,284 @@
+export type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
+export type Model = { model: string; kind: "provider"; effort?: Json };
+export type Execution = "model" | "team";
+/** Omit revision to resolve the current team on fresh admission. */
+export type TeamSelection = {id: string; revision?: string | null};
+export type MemberModel = {provider: string; model: string; effort?: Json};
+export type ExecutionSelection = {
+  execution: Execution; team?: TeamSelection | null; models?: Record<string, MemberModel>;
+};
+export type SessionAssociation = {kind: string; id: string; namespace?: string};
+export type Session = {id: string; revision: string; config: Json} & Record<string, Json>;
+export type TeamProfile = {
+  id: string; revision: string; key: string; name: string; description: string;
+  appearance: Json; model: MemberModel | null; instructions: string; members: string[];
+};
+/** Requires teams.read. Catalog revisions remain exact decimal strings. */
+export function listTeams(): Promise<TeamProfile[]>;
+/** Requires conversation.read; namespace is the calling package's name. */
+export function listAssociatedSessions(association: SessionAssociation, before?: string | null, limit?: number): Promise<{sessions: Session[]; next_before: string | null}>;
+/** Requires conversation.control and the captured or package-associated session. */
+export function setSessionExecution(selection: ExecutionSelection, expectedRevision: string, session?: string | null): string;
+export type Entry = { key: string; revision: string; value: Json; present: boolean };
+/** Immutable resource and package binding for this view. */
+export function context(): { package: {name: string; digest: string; settings_revision: string}; worktree: string | null; session: string | null; turn: string | null; invocation: string | null };
+/** Creates a fresh identifier without admitting an operation. */
+export function newId(): string;
+export function errorCode(message: string): string;
+/** Classifies a structured Node fault carried by a native method rejection. */
+export function faultCode(message: string): string;
+export type Settings = { package: {name: string; digest: string; settings_revision: string}; values: Record<string, Json>; configured: string[]; keepable: string[]; ready: boolean };
+export function readSettings(): Promise<Settings>;
+export type ComputerPermissions = {
+  node: string; platform: string; local: boolean;
+  screen_capture: boolean | null; accessibility: boolean | null;
+};
+/** Reads the captured execution Node without requesting OS permission. */
+export function readComputerPermissions(): Promise<ComputerPermissions>;
+/** Explicit permission guidance is allowed only on the execution device's local client. */
+export function requestComputerPermission(permission: "screen_capture" | "accessibility"): Promise<ComputerPermissions | null>;
+/** Execute a declared authenticated request for this package's current provider. Credentials stay on Node. */
+export function prepareProviderHttp(provider:string,revision:string,request:string,input?:Record<string,string>):string;
+export function requestProviderHttp(provider:string,revision:string,request:string,input:Record<string,string>):Promise<{status:number;headers:Record<string,string[]>;body:string}>;
+export function listModels(): Promise<{ models: Json[] }>;
+/** Read-only resolution on the captured execution Node; credentials remain opaque references. */
+export function resolveSessionModel(model:string, effort?:Json|null, config?:Json|null):Promise<Json>;
+export function resolveModel(settings: Json, catalog: Json, field: string): Model;
+export function prepareRequest(command: Json): string;
+/** Up to 64 private KV, dispatch, notification or scoped queue/turn operations, committed atomically. */
+export function prepareTransaction(operations: Json[]): string;
+export type NotificationDraft = {
+  title: string; message: string; kind: "info" | "success" | "warning" | "error";
+  session?: string | null;
+};
+/** Requires notifications.publish; completeRequest submits the durable request. */
+export function prepareNotification(content: NotificationDraft): string;
+export function completeRequest(id: string): Promise<Json>;
+/** Recognizes the private value owner's known atomic key-CAS rejection. */
+export function isValueConflict(outcome: Json): boolean;
+export function forgetRequest(id: string): void;
+/** Trailing-coalesced invalidation with bounded latency and Client recovery.
+ * package observes package dependencies; settled requires a worktree and observes only tool/run
+ * completion and worktree changes; repository adds scoped filesystem and Git metadata changes.
+ * Connection, visibility and entry changes arrive immediately.
+ * Pass the returned opaque cursor to wait; hidden views retain invalidation until shown. */
+export function nextChange(cursor?: string, scope?: "package" | "settled" | "repository"): Promise<{cursor: string; revision: string; connected: boolean; entry: string; visible: boolean; terminal_tools: string; references: string}>;
+export function getValue(key: string): Promise<Entry>;
+export function listKeys(prefix?: string, after?: string | null, limit?: number): Promise<{ keys: string[]; after: string | null }>;
+/** Prepare a durable compare-and-set write; completeRequest returns its receipt. */
+export function setValue(key: string, value: Json, expectedRevision: string): string;
+export type ValueIndex = {
+  fields: [string, string]; tags: string[]; order: number;
+  /** Raw string in this package's Node storage, selected by an RFC 6901 JSON pointer. */
+  source?: { key: string; pointer: string };
+};
+/** Semantic recall requires storage collection index.semantic=true and an explicit raw source. */
+export function indexedValue(key: string, value: Json, index: ValueIndex, expectedRevision: string): string;
+export type SearchMode = "keyword" | "semantic" | "hybrid";
+/** Preserve the original query for semantic recall. Nonempty query defaults to hybrid; terms alone to keyword.
+ * Literal OR terms and filters retain package scope. Returned mode reports what actually ran. */
+export function searchValues(query: { terms?: string[]; query?: string; mode?: SearchMode; weights?: [number, number]; all?: string[]; any?: string[]; offset?: number; limit?: number }): Promise<{ entries: Entry[]; next: number | null; now_ms: number; mode: SearchMode; indexing: boolean }>;
+export function deleteValue(key: string, expectedRevision: string): string;
+export type KnowledgeMode = "keyword" | "semantic" | "hybrid";
+export type KnowledgeDraft = {
+  name: string;
+  source: {kind: "worktree"; path: string} | {kind: "storage"; scope: "node" | "conversation"; prefix: string};
+  model?: string | null; globs?: string[]; tags?: string[];
+};
+export type KnowledgeCollection = {
+  id: string; revision: string; owner: {kind: "controller"} | {kind: "plugin"; name: string};
+  definition: Json; progress: Json;
+};
+export type KnowledgeQuery = {
+  query: string; collections?: string[]; mode?: KnowledgeMode; tags?: string[]; path?: string | null;
+  modified_after_ms?: number | null; modified_before_ms?: number | null; limit?: number; offset?: number;
+};
+export type KnowledgePosition =
+  {kind: "lines"; start: number; end: number} | {kind: "page"; page: number} |
+  {kind: "cells"; sheet: string; start: string; end: string} | {kind: "slide"; slide: number} |
+  {kind: "section"; name: string} | {kind: "value"; key: string; pointer: string};
+export type KnowledgePage = {
+  hits: {title: string; text: string; score: number; stale: boolean;
+    citation: {collection: string; chunk: string; revision: string; path: string; position: KnowledgePosition}}[];
+  next_offset: number | null; mode: KnowledgeMode; indexing: boolean; model: string | null; untrusted: boolean;
+};
+/** Read-only local retrieval. Original query bytes and source citations are preserved; text remains untrusted. */
+export function queryKnowledge(query: KnowledgeQuery): Promise<KnowledgePage>;
+export function listKnowledgeCollections(): Promise<KnowledgeCollection[]>;
+/** Captures the current worktree or this plugin's storage. Does not download a model or grant sharing. */
+export function prepareKnowledgeCollection(draft: KnowledgeDraft): string;
+/** Use the exact revision from listKnowledgeCollections or a completed collection receipt. */
+export function prepareKnowledgeRebuild(id: string, expectedRevision: string): string;
+/** Removes derived indexes and the collection definition; original source data is retained. */
+export function prepareKnowledgeRemoval(id: string, expectedRevision: string): string;
+
+export type LocalizedLabel = { label: string; locales?: Record<string, string> };
+export type ContributionChoice = {
+  id: string; label: LocalizedLabel; description?: LocalizedLabel;
+  icon?: string; group?: LocalizedLabel; enabled?: boolean;
+  /** One nested level shown as a submenu; the parent row itself is not selectable. */
+  children?: ContributionChoice[];
+};
+/** revision is the opaque providerRevision:credentialRevision context token. */
+export type ProviderScope = {provider:string;revision:string;credential:{node:string;id:string}};
+export type ContributionState = {
+  loading?: boolean;
+  id: string; scope?:ProviderScope; enabled?: boolean; visible?: boolean; label?: LocalizedLabel; icon?: string; dropdown?: boolean; value?: string | number | boolean | null;
+  choices?: ContributionChoice[];
+  /** Shared metric rows; progress is an optional finite percentage from 0 through 100. */
+  details?: { label: LocalizedLabel; value: string; progress?: number }[];
+  segments?: {label:LocalizedLabel;tone:"muted"|"success"|"danger"|"warning"|"accent"}[];
+  reply_to?: number;
+};
+export type ContributionEvent = {
+  sequence: number; id: string; handler: string; kind: "invoke" | "change" | "search";
+  value: string | number | boolean | null;
+};
+/** Status state belongs to the execution Node; publishing a Status id is rejected. */
+export function publishContributions(states: ContributionState[]): void;
+/** Close this controller's declared Status popover without changing its Node state. */
+export function closeContribution(id: string): void;
+export function nextContributionEvent(): Promise<ContributionEvent>;
+/** The captured or package-associated session; credentials remain on its execution Node. */
+export function readSession(session?: string | null): Promise<Session>;
+/** page.queue.revision is an exact decimal string for queue_pause transactions. */
+export function readConversation(before?: string | null, limit?: number, session?: string | null): Promise<Json>;
+/** Lifecycle metadata only. Structural and queue revisions are exact decimal strings. */
+export function readConversationRuns(before?: string | null, limit?: number, session?: string | null): Promise<Json>;
+export function readConversationRun(turn: string, revision?: string | null, session?: string | null): Promise<Json>;
+/** Prepare durable commands, then use completeRequest with the returned ID. */
+export function sendMessage(input: Json, expectedRevision: string, session?: string | null): string;
+export function stopTurn(turn: string): string;
+export function setSessionConfig(config: Json, expectedRevision: string, session?: string | null): string;
+/** One pending call per view; runs filters content deltas before another permission read. */
+export function nextConversation(cursor?: string, projection?: 'runs'): Promise<{ cursor: string; view: Json }>;
+export type HttpRequest = {
+  method: "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS";
+  url: string; headers?: Record<string, string>; body?: string;
+  credential?: string; connector?: string; connection?: string; idempotent?: boolean; timeout_ms?: number;
+};
+export type HttpResponse = { status: number; headers: Record<string, string[]>; body: string };
+/** Prepare a Node HTTP request. Complete its original ID; redirects/retries are disabled. */
+export function requestHttp(request: HttpRequest): string;
+export type WebRequest = { url: string; offset?: number };
+export type WebPage = {
+  url: string; status: number; content_type: string; content: string; title: string | null;
+  next_offset: number | null; truncated: boolean; untrusted: boolean;
+};
+/** Public, credential-free reads require web.read. Offsets count Unicode characters in the cached page. */
+export function fetchWeb(input: WebRequest): Promise<WebPage>;
+export type GitChange = "added" | "modified" | "deleted" | "renamed" | "type_changed";
+export type GitEntry = {
+  path: string; staged: GitChange | null; unstaged: GitChange | null;
+  untracked: boolean; conflicted: boolean;
+  diff: { additions: number; deletions: number };
+  staged_diff: { additions: number; deletions: number };
+  unstaged_diff: { additions: number; deletions: number };
+};
+export type GitStatus = {
+  kind: "directory" | "unborn" | "ready";
+  branch: string | null; head: string | null; index_revision: string | null;
+  entries: GitEntry[]; truncated: boolean; omitted_paths: number;
+};
+export type GitIndexDraft = {
+  operation: "stage" | "unstage"; paths: string[];
+  expected_index: string; expected_head: string | null;
+};
+export type GitCommitOptions = {
+  signoff: boolean; skip_hooks: boolean; tracked: boolean; all: boolean;
+  after: "none" | "push" | "sync"; push_remote: string | null;
+};
+export type GitCommitDraft = {
+  message: string; amend?: boolean; options?: GitCommitOptions;
+  expected_index: string; expected_head: string | null; expected_branch: string | null;
+};
+/** Requires git.read; reads only the worktree captured by this instance. */
+export function inspectGit(): Promise<GitStatus>;
+/** Requires git.write. Complete the returned request ID; never silently refresh revisions. */
+export function prepareGitIndex(draft: GitIndexDraft): string;
+/** Requires git.write. Reuse the original ID to recover an uncertain commit result. */
+export function prepareGitCommit(draft: GitCommitDraft): string;
+export type GitLogCursor = {head: string; after: string; offset: number; path?: string | null};
+export type GitDiff = {path: string; scope: "all" | "staged" | "unstaged"; text: string; additions: number; deletions: number; binary: boolean; truncated: boolean};
+/** All repository reads retain this instance's captured worktree. */
+export function listGitBranches(): Promise<Json>;
+export function resolveGitRevision(revision: string): Promise<Json>;
+export function readGitDiff(path: string, scope: "all" | "staged" | "unstaged"): Promise<GitDiff>;
+export function readGitLog(limit: number, cursor?: GitLogCursor | null, options?: {revision?: string | null; path?: string | null}): Promise<Json>;
+export function readGitCommit(commit: string): Promise<Json>;
+export function readGitStash(commit: string): Promise<GitDiff>;
+export function readGitOutput(): Promise<{text: string}>;
+export function listGitRemoteTags(remote: string): Promise<Json[]>;
+/** Closed Git branch/action commands. The Node validates displayed revisions and durable admission. */
+export function prepareGitChange(draft: Json): string;
+/** Registered resources in this captured worktree's project; requires worktrees.read. */
+export function readWorktreeCatalog(): Promise<Json>;
+/** Native Git checkout discovery for this captured repository. */
+export function listWorktrees(): Promise<Json>;
+/** Register, create, managed-create or remove, with the source captured by this instance.
+ * A managed draft may name `base`, a full commit to start from; it then carries no source changes. */
+export function prepareWorktreeChange(draft: Json): string;
+/** Registered projects and worktrees only; requires projects.read and an unscoped context. */
+export function readProjectCatalog(): Promise<Json>;
+/** Atomically creates and queues the first turn. Requires sessions.start; null config uses Node defaults. */
+export function startSession(draft: {
+  project: string | null; worktree: string | null; config: Json; title: string;
+  message: {text: string; attachments: string[]; references?: Json[]};
+  execution?: Execution; team?: TeamSelection | null; models?: Record<string, MemberModel>;
+  association?: SessionAssociation | null;
+}): string;
+
+export type TerminalTool = "codex" | "claude" | "gemini" | "agy" | "grok" | "opencode" | "kimi";
+export type TerminalAccess = "workspace" | "unrestricted";
+export type TerminalInfo = {id: string; revision: number; worktree: string | null; title: string | null; directory: string | null; tool: TerminalTool | null; access: TerminalAccess | null; ssh: string | null; status: {kind: "running" | "closed" | "stopped"} | {kind:"exited"; data:{code:number}} | {kind:"failed"; data:{message:string}}};
+/** Reads only the worktree captured by this view; requires terminals.read. */
+export function listTerminals(): Promise<TerminalInfo[]>;
+export function listTerminalTools(): Promise<{tool: TerminalTool; available: boolean}[]>;
+/** Requires terminals.control. Defaults to workspace access; unrestricted access requires an explicit user choice. Reuse the original request ID on an uncertain outcome. */
+export function prepareTerminal(tool?: TerminalTool | null, access?: TerminalAccess): string;
+export function prepareOpenTerminal(terminal: string): string;
+export function prepareCloseTerminal(terminal: string): string;
+
+export type MediaKind = "vision" | "image" | "video";
+export type MediaBinding = {provider: string; model: string};
+export type MediaSettings = {revision: number; bindings: Partial<Record<MediaKind, MediaBinding>>};
+/** Settings surface only; credentials and provider endpoints remain on the execution Node. */
+export function readMediaSettings(): Promise<MediaSettings>;
+export function listMediaModels(): Promise<{provider: string; provider_name: string; model: string; kinds: MediaKind[]}[]>;
+/** Captures the supplied revision; complete the original request ID to recover an uncertain save. */
+export function prepareMediaSettings(settings: MediaSettings): string;
+
+export type DirectoryCursor = {revision: string; directory: boolean; name: string};
+export function listDirectory(path: string, after?: DirectoryCursor | null): Promise<{path: string; entries: {name: string; kind: "file" | "directory" | "symlink" | "other"; size: number}[]; truncated: boolean; unsupported_names: number; revision: string; next: DirectoryCursor | null}>;
+export function searchFiles(options: {query: string; regex: boolean; case_sensitive: boolean; globs: string[]}): Promise<{matches: {path: string; line_number: number; line: string}[]; scanned_files: number; skipped: number; truncated: boolean}>;
+export function cancelFileSearch(): void;
+export function prepareFileAction(action: {kind: "write"; path: string; text: string; revision: string | null} | {kind: "create_directory" | "trash"; path: string} | {kind: "rename" | "copy"; from: string; to: string}): string;
+/** Node-owned role settings use the original request on uncertain retries. */
+export function listRoles(): Promise<Array<unknown>>;
+export function newRoleId(): string;
+export function prepareRole(role: unknown, expected_revision: number): string;
+export function prepareRemoveRole(id: string, expected_revision: number): string;
+/** Canonical Sailry reports only. Integer counters and cursors are exact decimal strings. Groups cover the selected dimension; day buckets start at local midnight for `utc_offset_minutes`, which defaults to the desktop's current offset. */
+export interface UsageQuery {start_ms:number|string;end_ms:number|string;utc_offset_minutes?:number|string;dimension:'model'|'provider'|'project';projects:string[];worktrees:string[];providers:string[];models:string[];before:null|{node:string;timestamp_ms:string;sequence:string}}
+export function usageSources():{node:string;label:string}[];
+export function readUsageInventory(node?:string):Promise<{node:string;projects:{id:string;name:string}[];providers:{id:string;name:string;/** Provider type logo asset; null for generic providers. */icon:string|null;models:string[]}[]}>;
+export function readUsageChoices(query:UsageQuery,node?:string):Promise<Record<string,unknown>>;
+export function watchUsage(query:UsageQuery,all:boolean,node?:string):void;
+export function nextUsageChange(cursor:string):Promise<{cursor:string;all:boolean;view:Record<string,unknown>|null}>;
+export function refreshUsage():void;
+
+export function nextUsageSources(seen:{node:string;label:string}[]):Promise<{node:string;label:string}[]>;
+/** Zero-based offsets, one-based returned line numbers; requires files.read. */
+export function readFileLines(path:string, offset?:number, limit?:number, expectedRevision?:string|null):Promise<FileLines>;
+export type FileLines = {path:string;lines:{number:number;text:string}[];size:number;revision:string;offset:number;next_offset:number|null};
+/** Zero-based positions and UTF-8 byte columns; end_byte is exclusive. */
+export type CodeRange = {start_byte:number;end_byte:number;start_line:number;start_column:number;end_line:number;end_column:number};
+export type CodeSymbol = {path:string;language:string;name:string;kind:string;range:CodeRange;signature:string|null;file_revision:string;depth:number};
+export type CodeQuery = {query?:string;name?:string|null;path?:string|null;language?:string|null;limit?:number};
+export type CodeStatus = "parsed"|"unsupported"|"too_large"|"invalid"|"failed";
+export type CodeSearch = {symbols:CodeSymbol[];index_revision:number;partial:boolean;truncated:boolean;visited:number;skipped:number;issues:{path:string;status:CodeStatus}[]};
+export type CodeOutline = {path:string;language:string|null;file_revision:string|null;index_revision:number;status:CodeStatus;symbols:CodeSymbol[];capabilities:{structure:boolean;symbols:boolean;data:boolean;embedded:boolean};partial:boolean;truncated:boolean};
+/** Literal symbol search through the current worktree; requires code.index.read. */
+export function searchCode(query?:CodeQuery):Promise<CodeSearch>;
+/** Parses only this file when absent from the index; requires code.index.read. */
+export function outlineCode(path:string):Promise<CodeOutline>;
