@@ -227,11 +227,13 @@ func (s *State) branchMenu(c *ui.Context) {
 		icon = icons.Network
 	}
 	label := i18n.T(c, Branches[s.Branch])
-	kit.GhostLook(c, ui.ButtonBase(c.Key("branch")), false).Label(label).Height(28).PaddingX(10).Gap(6).Radius(14).MaxWidth(224).
-		TextColor(theme.Of(c).MutedForeground).Children(func() {
-		ui.Icon(c, icon).FontSize(14)
-		ui.Text(c, label).FontSize(14).SingleLine()
-	}).PopoverMenuButton(func(m *ui.Menu) {
+	kit.MenuButton(c.Key("branch"), "branch", func(b ui.Element) {
+		kit.GhostLook(c, b, false).Label(label).Height(28).PaddingX(10).Gap(6).Radius(14).MaxWidth(224).
+			TextColor(theme.Of(c).MutedForeground).Children(func() {
+			ui.Icon(c, icon).FontSize(14)
+			ui.Text(c, label).FontSize(14).SingleLine()
+		})
+	}, func(m *kit.Menu) {
 		for i, key := range Branches {
 			if m.Item(i18n.T(c, key)).Checked(i == s.Branch).Chosen() {
 				s.Branch = i

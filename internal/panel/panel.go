@@ -188,35 +188,40 @@ func (s *State) strip(c *ui.Context, pr *Project, keys Shortcut) {
 			})
 		})
 		if len(s.Tabs) > Overflow {
-			kit.IconButton(c.Key("all"), icons.ChevronDown, i18n.T(c, "navigation_tabs"), 28, false).PopoverMenuButton(func(m *ui.Menu) {
+			// Every tab with a check on the one shown (navigation_tabs.rs).
+			kit.MenuButton(c.Key("all"), "panel-tabs", func(b ui.Element) {
+				kit.IconLook(c, b, icons.ChevronDown, i18n.T(c, "navigation_tabs"), "", 28, false)
+			}, func(m *kit.Menu) {
 				for _, t := range s.Tabs {
-					icon, label := s.look(c, t)
-					if m.Item(label).Icon(icons.Menu(icon)).Checked(t == s.Active).Chosen() {
+					_, label := s.look(c, t)
+					if m.Item(label).Checked(t == s.Active).Chosen() {
 						s.focus(pr, t)
 					}
 				}
 			})
 		}
-		kit.IconButton(c.Key("add"), icons.Plus, i18n.T(c, "details"), 28, false).PopoverMenuButton(func(m *ui.Menu) {
+		kit.MenuButton(c.Key("add"), "panel-add", func(b ui.Element) {
+			kit.IconLook(c, b, icons.Plus, i18n.T(c, "details"), "", 28, false)
+		}, func(m *kit.Menu) {
 			for _, r := range Resources {
 				if r.Kind == Documents {
 					for _, d := range s.Data.Documents {
 						t := Tab{Documents, d.ID}
-						if m.Item(d.Title).Icon(icons.Menu(icons.FileText)).Checked(t == s.Active).Chosen() {
+						if m.Item(d.Title).Icon(icons.FileText).Checked(t == s.Active).Chosen() {
 							s.Show(t)
 						}
 					}
 					continue
 				}
-				it := m.Item(i18n.T(c, r.Label)).Icon(icons.Menu(r.Icon)).Checked(r.Kind == s.Active.Kind)
-				if r.Key != 0 {
-					it.Shortcut(r.Mods, r.Key)
+				it := m.Item(i18n.T(c, r.Label)).Icon(r.Icon).Checked(r.Kind == s.Active.Kind)
+				if r.Key != 0 && keys != nil {
+					it.Shortcut(keys(r.Mods, r.Key))
 				}
 				if it.Chosen() {
 					s.Open(r.Kind)
 				}
 			}
-		})
+		}, kit.MenuOptions{CheckRight: true})
 	})
 }
 

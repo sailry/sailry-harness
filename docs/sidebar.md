@@ -91,7 +91,7 @@ order follow `live/menus/session_actions.rs` and `workspace/menus.rs`.
 `kit.Dialog` 560 wide, description `project_editor_preview`. New
 projects: `project_local` | `project_clone`. Fields: `project_name`
 (suggested from the path or repository by `SuggestName` until typed over),
-`project_host` (`ui.Select`; read-only when editing), for a clone
+`project_host` (`kit.Select`; read-only when editing), for a clone
 `project_repository` and `project_branch`, then `project_path` or
 `project_destination` with the resulting `Destination` under it, and the
 folder button (`directory_title`, preview toast). Save preview checks

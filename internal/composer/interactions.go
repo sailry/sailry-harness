@@ -225,7 +225,9 @@ func (s *State) approval(c *ui.Context, a Approval, actions Actions) {
 		kit.Ghost(c.Key("deny"), i18n.T(c, "approval_reject"), false).Height(28).PaddingX(12).MinWidth(48).
 			Children(func() { ui.Text(c, i18n.T(c, "approval_reject")).FontSize(14) }).
 			OnClick(func() { actions.Decide(a.ID, Deny, "") })
-		kit.IconButton(c.Key("deny-options"), icons.ChevronDown, i18n.T(c, "approval_deny_reason"), 28, false).PopoverMenuButton(func(m *ui.Menu) {
+		kit.MenuButton(c.Key("deny-options"), "deny-"+a.ID, func(b ui.Element) {
+			kit.IconLook(c, b, icons.ChevronDown, i18n.T(c, "approval_deny_reason"), "", 28, false)
+		}, func(m *kit.Menu) {
 			if m.Item(i18n.T(c, "approval_deny_reason")).Chosen() {
 				s.in.reasons[a.ID] = new(string)
 			}
@@ -240,7 +242,9 @@ func (s *State) approval(c *ui.Context, a Approval, actions Actions) {
 		}
 		b.MinWidth(48).Children(func() { ui.Text(c, allow).FontSize(14) }).OnClick(func() { actions.Decide(a.ID, Allow, "") })
 		if a.Remember {
-			kit.IconButton(c.Key("allow-options"), icons.ChevronDown, i18n.T(c, "approval_allow_session"), 28, false).PopoverMenuButton(func(m *ui.Menu) {
+			kit.MenuButton(c.Key("allow-options"), "allow-"+a.ID, func(b ui.Element) {
+				kit.IconLook(c, b, icons.ChevronDown, i18n.T(c, "approval_allow_session"), "", 28, false)
+			}, func(m *kit.Menu) {
 				if m.Item(i18n.T(c, "approval_allow_session")).Chosen() {
 					actions.Decide(a.ID, AllowSession, "")
 				}

@@ -219,22 +219,23 @@ func (a *App) hosts(c *ui.Context) {
 	for _, h := range a.Data.Hosts {
 		update = update || h.Update
 	}
-	b := kit.IconButton(c.Key("hosts"), icons.Monitor, i18n.T(c, "hosts"), 36, false)
-	b.PopoverMenuButton(func(m *ui.Menu) {
+	b := kit.MenuButton(c.Key("hosts"), "hosts", func(b ui.Element) {
+		kit.IconLook(c, b, icons.Monitor, i18n.T(c, "hosts"), "", 36, false)
+	}, func(m *kit.Menu) {
 		for _, h := range a.Data.Hosts {
-			hint := ""
+			it := m.Item(i18n.T(c, h.Name)).Checked(h.Local)
 			if h.Update {
-				hint = i18n.T(c, "sidebar_host_update")
+				it.Action(i18n.T(c, "sidebar_host_update"), func() { c.Toast(i18n.T(c, "preview_notice")) })
 			}
-			if m.Item(i18n.T(c, h.Name)).Icon(icons.Menu(icons.Cpu)).Checked(h.Local).Trailing(hint).Chosen() {
+			if it.Chosen() {
 				c.Toast(i18n.T(c, "preview_notice"))
 			}
 		}
 		m.Separator()
-		if m.Item(i18n.T(c, "host_add")).Icon(icons.Menu(icons.Plus)).Chosen() {
+		if m.Item(i18n.T(c, "host_add")).Icon(icons.Plus).Chosen() {
 			c.Toast(i18n.T(c, "preview_notice"))
 		}
-	}, ui.PopoverMenuButtonOptions{At: ui.AnchorRight, Self: ui.AnchorLeft})
+	}, kit.MenuOptions{At: ui.AnchorRight, Self: ui.AnchorLeft, MaxHeight: 480})
 	b.ContextMenu(func(m *ui.Menu) {
 		for _, key := range []string{"workspace_host", "connection_action_edit"} {
 			if m.Item(i18n.T(c, key)).Chosen() {

@@ -6,7 +6,6 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
-	"slices"
 	"testing"
 	"time"
 
@@ -248,13 +247,13 @@ func TestModelPickerAndEffort(t *testing.T) {
 func TestBranchMenu(t *testing.T) {
 	a, tt := newTester(t)
 	click(t, tt, "main")
-	// The menu is MyGo's, drawn in the window.
-	if got := tt.Menu(); !slices.Equal(got, []string{i18n.In("en", composer.Branches[0]), i18n.In("en", composer.Branches[1])}) {
-		t.Fatalf("branch menu %q", got)
+	// The menu is kit.Menu, drawn in the window.
+	for _, key := range composer.Branches {
+		if !tt.HasText(i18n.In("en", key)) {
+			t.Fatalf("branch menu lacks %q: %q", key, tt.Texts())
+		}
 	}
-	if err := tt.ChooseMenuItem("preview/ui"); err != nil {
-		t.Fatal(err)
-	}
+	click(t, tt, "preview/ui")
 	tt.Frame()
 	if a.Composer(preview.Big).Branch != 1 {
 		t.Error("the branch was not chosen")

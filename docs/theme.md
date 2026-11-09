@@ -101,17 +101,23 @@ holds frames of an occluded one).
 
 ### Floating layers
 
-Floating layers (left-click menus, popovers, dialogs, tooltips, selects
-and toasts) are MyGo's styled components (`PopoverMenuButton`, `Popover`,
-`AlertDialog`, `Element.Tooltip`, `Select`, the default toasts), adjusted
-through their own element props: popovers take the popover color
-(`Palette.Floating`, popover.background at full opacity) and Kit's
-padding where Rust sets it. Where MyGo has no styled component the app
-builds one on MyGo's bases: dialogs are `kit.Dialog` (DialogBase, Modal's
-look, a tenth of the window down as Kit places them), and session hover
-cards are `kit.SessionCard` (TooltipBase with its 0.6 second delay).
-`PopoverMenuButton` menus paint with MyGo's Background slot, which is also
-the window's, so they keep it.
+Floating layers (popovers, dialogs, tooltips and toasts) are MyGo's
+styled components (`Popover`, `AlertDialog`, `Element.Tooltip`, the
+default toasts), adjusted through their own element props: popovers take
+the popover color (`Palette.Floating`, popover.background at full
+opacity) and Kit's padding where Rust sets it. Where MyGo has no styled
+component the app builds one on MyGo's bases: dialogs are `kit.Dialog`
+(DialogBase, Modal's look, a tenth of the window down as Kit places
+them), and session hover cards are `kit.SessionCard` (TooltipBase with
+its 0.6 second delay). Left-click menus and selects are `kit.MenuButton`
+and `kit.Select` (`internal/kit/menu.go`, on MenuBase): MyGo's drawn
+menus paint the window's Background and highlight with the theme's
+Accent (the primary), and its Theme has no menu slot, so the kit menu
+paints `Palette.Floating` with MyGo's popover radius, border and shadow,
+and Kit's rows: 26 high, the highlight in accent.background /
+accent.foreground (`Palette.Hover` / `HoverForeground`), the icon or
+check slot, label, muted trailing text or action, right-side check
+(`CheckRight`) and shortcut, Kit's 2 DIP separators.
 Right-click menus stay the system's (`Element.ContextMenu`).
 
 ## Wiring a backend

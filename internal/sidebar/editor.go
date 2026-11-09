@@ -135,10 +135,8 @@ func (s *State) editorDialog(c *ui.Context) {
 				ui.TextInput(c.Key("input"), &e.Name).Placeholder(i18n.T(c, "project_name_placeholder")).Label(i18n.T(c, "project_name")).FillWidth()
 			})
 			kit.Field(c, "host", i18n.T(c, "project_host"), "", func() {
-				sel := ui.Select(c.Key("select"), &e.Host, hosts).Label(i18n.T(c, "project_host"))
-				if e.Project != nil {
-					sel.Disabled(true)
-				}
+				b, _ := kit.Select(c.Key("select"), "project-host", i18n.T(c, "project_host"), &e.Host, hosts, e.Project != nil)
+				b.FillWidth()
 			})
 			if e.Clone == 1 && e.Project == nil {
 				kit.Field(c, "repo", i18n.T(c, "project_repository"), "", func() {

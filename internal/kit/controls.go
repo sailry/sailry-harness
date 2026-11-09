@@ -37,11 +37,17 @@ func IconButton(c *ui.Context, icon *ui.SVG, label string, size float32, selecte
 // IconButtonHint is an IconButton whose tooltip also shows the shortcut
 // that does the same, hint.
 func IconButtonHint(c *ui.Context, icon *ui.SVG, label, hint string, size float32, selected bool) ui.Element {
+	return IconLook(c, ui.ButtonBase(c), icon, label, hint, size, selected)
+}
+
+// IconLook gives a button without a look, as a MenuButton's trigger, the
+// look of an IconButtonHint.
+func IconLook(c *ui.Context, b ui.Element, icon *ui.SVG, label, hint string, size float32, selected bool) ui.Element {
 	tip := label
 	if hint != "" {
 		tip += " " + hint
 	}
-	b := Ghost(c, label, selected).Size(size, size).Tooltip(tip)
+	GhostLook(c, b.Label(label), selected).Size(size, size).Tooltip(tip)
 	glyph := float32(16)
 	if size < 24 {
 		glyph = 14
