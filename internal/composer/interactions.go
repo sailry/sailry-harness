@@ -91,14 +91,19 @@ type Answer struct {
 // Actions is what the composer asks of the backend. Outcomes show as
 // toasts: a decision or answer the run no longer waits on is a conflict.
 type Actions interface {
-	// Send submits the draft; Queue puts it behind the running reply
-	// (Tab). Failures toast; the page puts the message back in the draft.
+	// Send submits the draft; Guide joins it to the running reply
+	// (Enter while a reply runs, GuideTurn); Queue puts it behind the
+	// running reply (Tab). Failures toast; the page puts the message back
+	// in the draft.
 	Send(m Message)
+	Guide(m Message)
 	Queue(m Message)
 	Stop()
-	// The queue: send one now, save its edited text, remove it, or move
-	// it before another ("" for the end).
+	// The queue: send one now (guiding the running reply while one runs),
+	// withdraw its pending guidance, save its edited text, remove it, or
+	// move it before another ("" for the end).
 	SendQueued(id string)
+	WithdrawGuidance(id string)
 	SaveQueued(id, text string)
 	RemoveQueued(id string)
 	MoveQueued(id, before string)

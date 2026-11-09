@@ -75,6 +75,7 @@ func Advance(c *Conversation, now time.Time) {
 		if n == len(answer) {
 			r.Status, r.Phase = cv.Completed, cv.PhaseNone
 			c.stream, c.Status = nil, Idle
+			release(c)
 		}
 	}
 	t.Reply = r
@@ -89,6 +90,14 @@ func Stop(c *Conversation) {
 	r := &c.Turns[n-1].Reply
 	r.Status, r.Phase = cv.Cancelled, cv.PhaseNone
 	c.stream, c.Status, c.Waiting = nil, Idle, composer.Interactions{}
+	release(c)
+}
+
+// release returns the guidance the ended reply did not take to the queue.
+func release(c *Conversation) {
+	for i := range c.Queue {
+		c.Queue[i].Guided = false
+	}
 }
 
 // Decide applies a preview decision to the approval's call: it runs, or is

@@ -499,6 +499,12 @@ func (x *actions) Send(m composer.Message) {
 	x.a.Messages.List(x.cv.ID).ScrollToEnd()
 }
 
+// Guide joins the message to the running reply, pending in the queue.
+func (x *actions) Guide(m composer.Message) {
+	preview.Guide(x.cv, m, x.c.Now())
+	x.a.Messages.List(x.cv.ID).ScrollToEnd()
+}
+
 func (x *actions) Queue(m composer.Message) {
 	preview.Queue(x.cv, m, x.c.Now())
 	x.a.Messages.List(x.cv.ID).ScrollToEnd()
@@ -509,6 +515,7 @@ func (x *actions) SendQueued(id string) {
 	x.a.Messages.List(x.cv.ID).ScrollToEnd()
 }
 
+func (x *actions) WithdrawGuidance(id string)   { preview.WithdrawGuidance(x.cv, id) }
 func (x *actions) SaveQueued(id, text string)   { preview.SaveQueued(x.cv, id, text) }
 func (x *actions) RemoveQueued(id string)       { preview.RemoveQueued(x.cv, id) }
 func (x *actions) MoveQueued(id, before string) { preview.MoveQueued(x.cv, id, before) }

@@ -160,11 +160,17 @@ func (s *State) sendable() bool {
 // queue strip, the input surface with its chips, draft and toolbar, and
 // the context bar. The page builds it under the transcript.
 func View(c *ui.Context, s *State, ctx *Context, actions Actions) {
+	// submit sends the draft, or guides the running reply with it
+	// (Delivery::enter).
 	submit := func() {
-		if s.hasInput() && !s.Running && s.sendable() && !ctx.Readonly {
+		if s.hasInput() && s.sendable() && !ctx.Readonly {
 			msg := s.message(ctx)
 			s.clear()
-			actions.Send(msg)
+			if s.Running {
+				actions.Guide(msg)
+			} else {
+				actions.Send(msg)
+			}
 		}
 	}
 	s.syncReferences()
@@ -216,10 +222,12 @@ func (s *State) surface(c *ui.Context, ctx *Context, actions Actions, submit fun
 	return surface
 }
 
-// input is the draft: Enter sends, Shift+Enter breaks the line, Tab
-// queues it while a reply runs, Up puts the last message back in an empty
-// draft or moves the picker, and the picker takes Down, Tab, Enter and
-// Escape while it shows (live/composer.rs input_field).
+// input is the draft: Enter sends, or guides the running reply, and in an
+// empty draft sends the first queued message (promote_queued);
+// Shift+Enter breaks the line, Tab queues it while a reply runs, Up puts
+// the last message back in an empty draft or moves the picker, and the
+// picker takes Down, Tab, Enter and Escape while it shows
+// (live/composer.rs input_field).
 func (s *State) input(c *ui.Context, ctx *Context, actions Actions, submit func()) {
 	p := theme.Of(c)
 	area := ui.TextAreaBase(c.Key("draft"), &s.Draft).Label(i18n.T(c, "composer")).Placeholder(i18n.T(c, "composer")).
@@ -251,7 +259,12 @@ func (s *State) input(c *ui.Context, ctx *Context, actions Actions, submit func(
 		}
 		switch {
 		case k.Key == ui.KeyEnter && k.Mods == 0:
-			if s.hasInput() && !s.Running && s.sendable() && !ctx.Readonly {
+			switch {
+			case !s.hasInput():
+				if id := promotable(ctx); id != "" {
+					actions.SendQueued(id)
+				}
+			case s.sendable() && !ctx.Readonly:
 				submit()
 				k.SetText("")
 			}

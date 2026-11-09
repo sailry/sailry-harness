@@ -16,7 +16,9 @@ import (
 // conversation/queue/presentation.rs): the messages sent while a reply
 // runs, each with Edit, Send now and Remove, dragged by its handle to
 // another place; Edit opens the message in an editor in the strip with
-// Cancel and Save. Rows come in and go out collapsing, as the strip does.
+// Cancel and Save. A message whose guidance is pending shows the loader
+// in the handle's place and Withdraw, with Edit, Send now and Remove
+// disabled. Rows come in and go out collapsing, as the strip does.
 
 // queueState is the strip's: the message edited and its draft.
 type queueState struct {
@@ -81,6 +83,21 @@ func (s *State) queueTray(c *ui.Context, ctx *Context, actions Actions) {
 	})
 }
 
+// promotable is the first message Enter in an empty draft sends
+// (keyboard.rs next): not a notice or a compaction, and not already
+// guiding; "" for none, or while read-only.
+func promotable(ctx *Context) string {
+	if ctx.Readonly {
+		return ""
+	}
+	for _, q := range ctx.Queue {
+		if !q.Notice && !q.Compaction && !q.Guided {
+			return q.ID
+		}
+	}
+	return ""
+}
+
 func queued(ctx *Context, id string) bool {
 	for _, q := range ctx.Queue {
 		if q.ID == id {
@@ -91,13 +108,13 @@ func queued(ctx *Context, id string) bool {
 }
 
 // queueRow is presentation.rs frame: 32 high, rounded 2xl, the drag handle
-// (SortableList's; none for a notice or while read-only), the label, a
-// file icon when it carries files, then its actions; small round ghost
-// buttons.
+// (SortableList's; none for a notice or while read-only) or, while its
+// guidance is pending, the loader, the label, a file icon when it carries
+// files, then its actions; small round ghost buttons.
 func (s *State) queueRow(c *ui.Context, ctx *Context, actions Actions, item Queued, handle func()) {
 	p := theme.Of(c)
 	label := queueLabel(c, item)
-	draggable := !item.Notice && !ctx.Readonly
+	draggable := !item.Notice && !ctx.Readonly && !item.Guided
 	row := ui.Row(c.Key(item.ID)).FillWidth().MinWidth(0).Height(32).PaddingX(8).Gap(8).Radius(p.Radius2xl()).
 		AlignItems(ui.Center).Shrink(0).Label(label).Transition(queueMotion)
 	if row.Hovered() {
@@ -107,7 +124,10 @@ func (s *State) queueRow(c *ui.Context, ctx *Context, actions Actions, item Queu
 		kit.IconButton(c.Key(key), icon, tip, 24, false).Radius(12).Disabled(disabled).OnClick(fn)
 	}
 	row.Children(func() {
-		if draggable {
+		switch {
+		case item.Guided:
+			ui.Box(c.Key("joining")).Size(24, 24).Center().Shrink(0).Children(func() { kit.Loader(c, 16) })
+		case draggable:
 			handle()
 		}
 		ui.Text(c, label).FontSize(14).SingleLine().Grow(1).Shrink(1).MinWidth(0)
@@ -115,14 +135,17 @@ func (s *State) queueRow(c *ui.Context, ctx *Context, actions Actions, item Queu
 			ui.Icon(c, icons.File).FontSize(16).Shrink(0)
 		}
 		if !item.Notice && !item.Compaction {
-			small("edit", icons.Replace, i18n.T(c, "queue_edit"), ctx.Readonly, func() {
+			small("edit", icons.Replace, i18n.T(c, "queue_edit"), ctx.Readonly || item.Guided, func() {
 				s.queue = queueState{editing: item.ID, text: item.Text, original: item.Text}
 			})
 		}
-		if !item.Notice {
-			small("send", icons.ArrowUp, i18n.T(c, "queue_send_now"), ctx.Readonly, func() { actions.SendQueued(item.ID) })
+		if item.Guided {
+			small("withdraw", icons.Undo, i18n.T(c, "queue_withdraw"), ctx.Readonly, func() { actions.WithdrawGuidance(item.ID) })
 		}
-		small("delete", icons.Delete, i18n.T(c, "queue_delete"), ctx.Readonly, func() { actions.RemoveQueued(item.ID) })
+		if !item.Notice {
+			small("send", icons.ArrowUp, i18n.T(c, "queue_send_now"), ctx.Readonly || item.Guided, func() { actions.SendQueued(item.ID) })
+		}
+		small("delete", icons.Delete, i18n.T(c, "queue_delete"), ctx.Readonly || item.Guided, func() { actions.RemoveQueued(item.ID) })
 	})
 }
 

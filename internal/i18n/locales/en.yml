@@ -594,6 +594,7 @@ queue_drag: Drag to reorder
 queue_edit: Edit
 queue_delete: Remove
 queue_send_now: Send
+queue_withdraw: Withdraw
 queue_save: Save
 queue_reload: Reload
 queue_reload_draft: Replace draft with current content

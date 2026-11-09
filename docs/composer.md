@@ -21,7 +21,7 @@ dialogs (sailry-public `conversation/live/composer.rs`, `live/queue*`,
 | `options.go` | Mode and permission menus, host, project and worktree, location dialog, compact settings popover |
 | `models.go` | Model chip and its popover: team row, features, effort, model picker, score tooltip |
 | `track.go` | The effort track (custom drawing on `SliderBase`) |
-| `queue.go` | Queue strip: rows in `kit.SortableList` (from Lobe MyGo; drag by the handle or Space and the arrows, a drop calls `MoveQueued` before the message now after it), edit, send now, remove |
+| `queue.go` | Queue strip: rows in `kit.SortableList` (from Lobe MyGo; drag by the handle or Space and the arrows, a drop calls `MoveQueued` before the message now after it), edit, send now, remove; a guiding row shows the loader and Withdraw |
 | `attachments.go` | File cards (a picture is `kit.Image`, opening `kit.ImageViewer` over the draft's pictures), drop, paste, limit |
 | `references.go` | `@`/`/` trigger, pickers, chips |
 | `files.go` | File picker dialog |
@@ -47,7 +47,7 @@ rebuilt each frame from backend data.
 | `Model{ID, Name, Provider, Reasoning, Efforts, Family, Score, Features}` | `Reasoning` enables the effort track; `Efforts` replaces the default `composer.Efforts` levels; `Score` feeds the tooltip; `Features` are the feature buttons |
 | `Feature{ID, Name, Icon, Options}` | One option toggles; more open a menu with Off |
 | `Context.Teams`, `Team{ID, Name, Members}`, `Member.Overridden` | Team row and list; an overridden member is marked |
-| `Context.Queue`, `Queued{ID, Text, Attachments, Notice, Compaction}` | The queue strip, oldest first |
+| `Context.Queue`, `Queued{ID, Text, Attachments, Notice, Compaction, Guided}` | The queue strip, oldest first; `Guided` is guidance pending for the running turn |
 | `Context.Hosts`, `Host{ID, Name, Local}` | Host menu (`Name` is an i18n key) |
 | `Context.Projects`, `Project{ID, Name, Worktrees}`, `Worktree{Branch, Main}` | Location dialog and worktree menu |
 | `Context.Repository{Kind, Branch}` | `Inspecting`, `Git`, `Directory`, `Unavailable`: branch label and New worktree |
@@ -113,9 +113,11 @@ commands (one on port 5173) and its live turn's progress and subagent.
 ```go
 type Actions interface {
 	Send(m Message)
+	Guide(m Message)
 	Queue(m Message)
 	Stop()
 	SendQueued(id string)
+	WithdrawGuidance(id string)
 	SaveQueued(id, text string)
 	RemoveQueued(id string)
 	MoveQueued(id, before string)
@@ -141,9 +143,11 @@ type Actions interface {
 | Method | Fires | Expected outcome |
 |---|---|---|
 | `Send` | Send or Enter with input, not running, all files ready | Submit and scroll to the end; failure toasts and puts the text back in `Draft` |
+| `Guide` | Enter with input while running (the button stays Stop), all files ready | `GuideTurn`: join the running turn at its next model boundary; failure toasts and puts the text back in `Draft` |
 | `Queue` | Tab with input | Queue behind the running reply (send at once when idle) |
 | `Stop` | Stop, or Escape while running | Cancel the run; uncertain outcomes toast |
-| `SendQueued` | A queued row's Send | Stop the run and send it now |
+| `SendQueued` | A queued row's Send, or Enter in an empty draft for the first message neither a notice, a compaction nor guiding | While running, `GuideQueuedTurn` (the run goes on; the row's guidance is pending); when idle, `SendQueuedTurn` |
+| `WithdrawGuidance` | A guiding row's Withdraw | Return the message to the queue before the run takes it |
 | `SaveQueued` | Save or Enter in a queued row's editor | Replace its text; a changed original offers Reload |
 | `RemoveQueued`, `MoveQueued` | Remove; drop on a row (`before` = that row, `""` = end) | Update the queue |
 | `Upload` | A file added (picker, drop, paste) or Retry | Move `Status`/`Progress` on the attachment |
@@ -156,7 +160,8 @@ type Actions interface {
 
 ## Keys and Escape
 
-- Draft: Enter sends, Shift+Enter breaks the line, Tab queues, Shift+Tab
+- Draft: Enter sends (guides while running; in an empty draft sends the
+  first queued message), Shift+Enter breaks the line, Tab queues, Shift+Tab
   cycles the mode, Up recalls `Last` in an empty draft, Backspace after a
   chip deletes it whole.
 - Picker open: Up/Down move round, Enter/Tab choose, Backspace on an empty
@@ -170,7 +175,9 @@ type Actions interface {
 
 `internal/preview/composer.go` builds the `Context` (families, made-up
 scores and features, two teams, the `@`/`/` catalogs, the file picker's
-folder from the files panel tree), the queue operations, `Transfers`
+folder from the files panel tree), the queue operations (guidance
+stays pending until withdrawn or the reply ends: the preview's run takes
+none), `Transfers`
 (preparing 200 ms, sending 1.5 s, publishing 300 ms; a name with "fail"
 fails) and `Voice` (no microphone: levels from a sine, transcribing ends
 with the `preview_notice` toast). Uploads, `/compact`, New worktree, Add

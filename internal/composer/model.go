@@ -109,6 +109,9 @@ type Queued struct {
 	// Notice is a background notice, Compaction a compaction request:
 	// neither is edited, sent ahead or dragged.
 	Notice, Compaction bool
+	// Guided is guidance pending (Pending.guidance): the running turn
+	// takes it at its next model boundary unless it is withdrawn.
+	Guided bool
 }
 
 // Host is a computer the conversation can run on.

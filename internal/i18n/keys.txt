@@ -612,6 +612,7 @@ queue_drag
 queue_edit
 queue_delete
 queue_send_now
+queue_withdraw
 queue_save
 queue_reload
 queue_reload_draft

@@ -257,18 +257,45 @@ func Queue(c *Conversation, m composer.Message, now time.Time) {
 		Attachments: slices.Clone(m.Attachments)})
 }
 
-// SendQueued stops the running reply and sends a queued message now.
+// Guide joins a message to the running reply (GuideTurn): it waits in the
+// queue with its guidance pending until withdrawn or the reply ends, as
+// the preview's run takes no guidance. It sends at once when nothing
+// runs.
+func Guide(c *Conversation, m composer.Message, now time.Time) {
+	Queue(c, m, now)
+	if c.Running() {
+		c.Queue[len(c.Queue)-1].Guided = true
+	}
+}
+
+// SendQueued sends a queued message now: while a reply runs, a message
+// guides it (GuideQueuedTurn) and a compaction goes first in the queue
+// (SendQueuedTurn); otherwise it is sent.
 func SendQueued(c *Conversation, id string, now time.Time) {
 	i := slices.IndexFunc(c.Queue, func(q composer.Queued) bool { return q.ID == id })
-	if i < 0 {
+	if i < 0 || c.Queue[i].Guided {
 		return
 	}
 	q := c.Queue[i]
-	c.Queue = slices.Delete(c.Queue, i, i+1)
-	if c.Running() {
-		Stop(c)
+	switch {
+	case c.Running() && q.Compaction:
+		MoveQueued(c, id, c.Queue[0].ID)
+	case c.Running():
+		c.Queue[i].Guided = true
+	default:
+		c.Queue = slices.Delete(c.Queue, i, i+1)
+		Send(c, q.Text, now)
 	}
-	Send(c, q.Text, now)
+}
+
+// WithdrawGuidance returns a guiding message to the queue
+// (WithdrawGuidance).
+func WithdrawGuidance(c *Conversation, id string) {
+	for i := range c.Queue {
+		if c.Queue[i].ID == id {
+			c.Queue[i].Guided = false
+		}
+	}
 }
 
 // SaveQueued replaces a queued message's text.

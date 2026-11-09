@@ -594,6 +594,7 @@ queue_drag: 拖动调整顺序
 queue_edit: 编辑
 queue_delete: 移除
 queue_send_now: 发送
+queue_withdraw: 撤回
 queue_save: 保存
 queue_reload: 重新载入
 queue_reload_draft: 用当前内容替换编辑草稿
