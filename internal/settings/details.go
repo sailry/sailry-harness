@@ -190,7 +190,7 @@ func pluginDetails(c *ui.Context, s *State, pk *preview.Package, d *Detail) {
 		return
 	}
 	tabs := []string{t("market_details_overview"), t("market_details_contents"), t("market_details_permissions"), t("market_details_versions")}
-	kit.Segmented(c, "tabs", &d.Tab, tabs, kit.SegmentedProps{}).Label(t("market_plugin_details"))
+	kit.Segmented(c, "tabs", &d.Tab, tabs, kit.SegmentedProps{Block: true}).Label(t("market_plugin_details"))
 	switch d.Tab {
 	case 0:
 		installed := t("market_details_latest")
