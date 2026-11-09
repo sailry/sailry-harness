@@ -153,21 +153,32 @@ func (s *State) attachments(c *ui.Context, actions Actions) {
 	if len(s.Attachments) == 0 {
 		return
 	}
-	p := theme.Of(c)
-	ui.ScrollHorizontal(c.Key("attachments")).FillWidth().Shrink(0).Gap(8).Padding(8, 2, 2, 2).Children(func() {
-		for _, a := range s.Attachments {
-			s.card(c, a, actions)
+	s.strip(c.Key("attachments"), s.Attachments, actions).Padding(8, 2, 2, 2)
+}
+
+// strip is the row of list's cards. With actions nil the cards only show
+// the files, as a queued message's editor does: no Retry or Remove.
+func (s *State) strip(c *ui.Context, list []*Attachment, actions Actions) ui.Element {
+	// A mask shows as much as its alpha: the stops between the faded ends
+	// are opaque, as a theme's muted fill may be all but transparent.
+	shown := theme.Of(c).Muted
+	shown.A = 255
+	return ui.ScrollHorizontal(c).FillWidth().Shrink(0).Gap(8).Children(func() {
+		for _, a := range list {
+			s.card(c, a, list, actions)
 		}
 	}).MaskLinearGradient(ui.LinearGradient{Angle: 90, Stops: []ui.GradientStop{
-		{Color: p.Muted.Alpha(0), At: 0}, {Color: p.Muted, At: 0.03}, {Color: p.Muted, At: 0.97}, {Color: p.Muted.Alpha(0), At: 1},
+		{Color: shown.Alpha(0), At: 0}, {Color: shown, At: 0.03}, {Color: shown, At: 0.97}, {Color: shown.Alpha(0), At: 1},
 	}})
 }
 
 // card is Kit's Attachment: a picture as its rounded thumbnail; a file as
 // its icon tile beside its name and kind and size. A card shows its
 // transfer's state: a spinner or the progress over the media, a red
-// border with Retry once failed; Remove shows on hover.
-func (s *State) card(c *ui.Context, a *Attachment, actions Actions) {
+// border with Retry once failed; Remove shows on hover. A picture opens
+// the viewer over list's pictures; with actions nil the card has neither
+// Retry nor Remove.
+func (s *State) card(c *ui.Context, a *Attachment, list []*Attachment, actions Actions) {
 	p := theme.Of(c)
 	failed := a.Status == Failed || a.Status == Uncertain
 	busy := a.Status == Preparing || a.Status == Sending || a.Status == Publishing || a.Status == Removing
@@ -191,7 +202,7 @@ func (s *State) card(c *ui.Context, a *Attachment, actions Actions) {
 	media := func(w, h float32) {
 		ui.Box(c.Key("media")).Size(w, h).Shrink(0).Radius(p.RadiusLg).Background(p.Muted).Clip().Center().Children(func() {
 			if a.Image != nil {
-				kit.Image(c, a.Image, kit.ImageProps{Fill: true, Variant: kit.ImageBorderless, Alt: a.Name, OnOpen: func() { s.showImage(a) }})
+				kit.Image(c, a.Image, kit.ImageProps{Fill: true, Variant: kit.ImageBorderless, Alt: a.Name, OnOpen: func() { s.showImage(a, list) }})
 			} else {
 				ui.Icon(c, fileIcon(a.Mime)).FontSize(20).TextColor(p.MutedForeground)
 			}
@@ -233,6 +244,9 @@ func (s *State) card(c *ui.Context, a *Attachment, actions Actions) {
 					ui.Box(c).WidthPercent(a.Progress * 100).FillHeight().Radius(1).Background(p.Primary)
 				})
 		}
+		if actions == nil {
+			return
+		}
 		corner := ui.Row(c.Key("actions")).Absolute().Top(-6).Right(-6).Gap(2)
 		corner.Children(func() {
 			if failed {
@@ -245,20 +259,20 @@ func (s *State) card(c *ui.Context, a *Attachment, actions Actions) {
 	})
 }
 
-// showImage opens the image viewer on a, stepping through the draft's
-// pictures.
-func (s *State) showImage(a *Attachment) {
-	var list []*Attachment
+// showImage opens the image viewer on a, stepping through the pictures
+// of list, the draft's or a queued message's.
+func (s *State) showImage(a *Attachment, list []*Attachment) {
+	var shown []*Attachment
 	at := 0
-	for _, x := range s.Attachments {
+	for _, x := range list {
 		if x == a {
-			at = len(list)
+			at = len(shown)
 		}
 		if x.Image != nil {
-			list = append(list, x)
+			shown = append(shown, x)
 		}
 	}
-	s.view.Show(list, at)
+	s.view.Show(shown, at)
 }
 
 // round is a card's 20 DIP round action over its corner.

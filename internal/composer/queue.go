@@ -42,8 +42,8 @@ func queueLabel(c *ui.Context, q Queued) string {
 		return i18n.T(c, "background_notice_title")
 	case q.Compaction:
 		return i18n.T(c, "chat_compact")
-	case q.Text == "" && q.Attachments > 0:
-		return i18n.T(c, "chat_attachment_count", "count", q.Attachments)
+	case q.Text == "" && len(q.Attachments) > 0:
+		return i18n.T(c, "chat_attachment_count", "count", len(q.Attachments))
 	}
 	return q.Text
 }
@@ -111,7 +111,7 @@ func (s *State) queueRow(c *ui.Context, ctx *Context, actions Actions, item Queu
 			handle()
 		}
 		ui.Text(c, label).FontSize(14).SingleLine().Grow(1).Shrink(1).MinWidth(0)
-		if item.Attachments > 0 {
+		if len(item.Attachments) > 0 {
 			ui.Icon(c, icons.File).FontSize(16).Shrink(0)
 		}
 		if !item.Notice && !item.Compaction {
@@ -137,7 +137,9 @@ func after(list []Queued, id string) string {
 }
 
 // queueEditor is presentation.rs editor: the message in a text area, then
-// Reload when the queued message changed meanwhile, Cancel and Save.
+// Reload when the queued message changed meanwhile, Cancel and Save, then
+// the message's files as the draft's cards, without their actions, at the
+// text's inset (live/queue/render.rs attachments::links).
 // Enter saves, Shift+Enter breaks the line, Escape cancels (the
 // conversation's Escape order, State.Escape).
 func (s *State) queueEditor(c *ui.Context, ctx *Context, actions Actions) {
@@ -150,7 +152,7 @@ func (s *State) queueEditor(c *ui.Context, ctx *Context, actions Actions) {
 		}
 	}
 	changed := item.Text != q.original
-	empty := strings.TrimSpace(q.text) == "" && item.Attachments == 0
+	empty := strings.TrimSpace(q.text) == "" && len(item.Attachments) == 0
 	save := func() {
 		if changed || empty {
 			return
@@ -169,9 +171,6 @@ func (s *State) queueEditor(c *ui.Context, ctx *Context, actions Actions) {
 			}
 			return false
 		})
-		if item.Attachments > 0 {
-			ui.Text(c, i18n.T(c, "chat_attachment_count", "count", item.Attachments)).FontSize(14).TextColor(p.MutedForeground)
-		}
 		ui.Row(c.Key("queue-actions")).FillWidth().Justify(ui.End).Gap(8).Children(func() {
 			button := func(key, label string) ui.Element {
 				return kit.Ghost(c.Key(key), label, false).Height(28).PaddingX(12).Radius(14).Border(1, p.Border).
@@ -188,5 +187,9 @@ func (s *State) queueEditor(c *ui.Context, ctx *Context, actions Actions) {
 			kit.Primary(c.Key("save"), i18n.T(c, "queue_save"), changed || empty).Height(28).Radius(14).
 				Children(func() { ui.Text(c, i18n.T(c, "queue_save")).FontSize(14) }).OnClick(save)
 		})
+		if len(item.Attachments) > 0 {
+			// The text area's own padding is the text's inset.
+			s.strip(c.Key("queue-attachments"), item.Attachments, nil).PaddingX(4)
+		}
 	})
 }

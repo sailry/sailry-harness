@@ -148,7 +148,9 @@ func Load() *Data {
 	big := d.Projects[0].Conversations[0]
 	big.Queue = []composer.Queued{
 		{ID: Big + "/queued-1", Text: "Then run the benchmarks again with 500 turns"},
-		{ID: Big + "/queued-2", Text: "Add the numbers to the report", Attachments: 1},
+		{ID: Big + "/queued-2", Text: "Add the numbers to the report", Attachments: []*composer.Attachment{
+			{ID: Big + "/queued-2/report", Name: "benchmarks.md", Mime: "text/markdown", Size: 2458, Status: composer.Ready, Progress: 1},
+		}},
 	}
 	big.queued = 2
 	for _, p := range d.Projects {

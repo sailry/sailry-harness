@@ -526,6 +526,63 @@ func TestOpenUnsupportedFile(t *testing.T) {
 	}
 }
 
+// Editing a queued message shows its files as the draft's cards, below
+// the actions and at the text's inset, without the draft's Remove.
+func TestQueueEditorShowsAttachments(t *testing.T) {
+	_, tt := newTester(t)
+	edit := i18n.In("en", "queue_edit")
+	var last ui.AccessInfo
+	for _, e := range tt.AccessAll() {
+		if e.Role == ui.RoleButton && e.Name == edit && e.Bounds.Y > last.Bounds.Y {
+			last = e
+		}
+	}
+	if last.Name == "" {
+		t.Fatal("no queued message to edit")
+	}
+	tt.ClickAt(last.Bounds.X+last.Bounds.W/2, last.Bounds.Y+last.Bounds.H/2)
+	tt.Advance(time.Second)
+	tt.Frame()
+	snapshot(t, tt, "queue-editor")
+	var input ui.AccessInfo
+	for _, e := range tt.AccessAll() {
+		if e.Name == edit && e.Multiline {
+			input = e
+		}
+	}
+	if input.Value != "Add the numbers to the report" {
+		t.Fatalf("the editor does not show the message: %+v", input)
+	}
+	card, ok := tt.Access("benchmarks.md")
+	if !ok {
+		t.Fatalf("the editor does not show the message's file: %q", tt.Texts())
+	}
+	save, ok := tt.AccessByRole(ui.RoleButton, i18n.In("en", "queue_save"))
+	if !ok || card.Bounds.Y < save.Bounds.Y+save.Bounds.H {
+		t.Fatalf("the file %v is not below the actions %v", card.Bounds, save.Bounds)
+	}
+	// The text area pads its text by 4: the card starts where the text does.
+	if d := card.Bounds.X - (input.Bounds.X + 4); d < -0.5 || d > 0.5 {
+		t.Errorf("the file at x %v is not at the text's inset %v", card.Bounds.X, input.Bounds.X+4)
+	}
+	// The strip's edge fade leaves the card itself opaque: its name is
+	// drawn in the foreground, not all but masked away.
+	img, darkest := tt.Image(), uint8(255)
+	for y := int(card.Bounds.Y); y < int(card.Bounds.Y+card.Bounds.H); y++ {
+		for x := int(card.Bounds.X); x < int(card.Bounds.X+card.Bounds.W); x++ {
+			darkest = min(darkest, img.RGBAAt(x, y).G)
+		}
+	}
+	if darkest > 96 {
+		t.Errorf("the file card is faded: its darkest pixel is %d", darkest)
+	}
+	tt.Move(card.Bounds.X+card.Bounds.W/2, card.Bounds.Y+card.Bounds.H/2)
+	tt.Frame()
+	if _, ok := tt.AccessByRole(ui.RoleButton, i18n.In("en", "chat_attachment_remove")); ok {
+		t.Error("a queued message's file offers Remove")
+	}
+}
+
 // Tab queues behind the running reply; @ opens the references, a page
 // opens on Enter and a row becomes a chip; Escape closes the picker
 // before it stops the reply.

@@ -102,8 +102,8 @@ type Member struct {
 type Queued struct {
 	ID   string
 	Text string
-	// Attachments is how many files it carries.
-	Attachments int
+	// Attachments are the files it carries.
+	Attachments []*Attachment
 	// Notice is a background notice, Compaction a compaction request:
 	// neither is edited, sent ahead or dragged.
 	Notice, Compaction bool

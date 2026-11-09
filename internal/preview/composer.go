@@ -239,7 +239,7 @@ func Queue(c *Conversation, m composer.Message, now time.Time) {
 	}
 	c.queued++
 	c.Queue = append(c.Queue, composer.Queued{ID: fmt.Sprintf("%s/queued-%d", c.ID, c.queued), Text: m.Text,
-		Attachments: len(m.Attachments)})
+		Attachments: slices.Clone(m.Attachments)})
 }
 
 // SendQueued stops the running reply and sends a queued message now.
