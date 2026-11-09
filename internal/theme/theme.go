@@ -179,11 +179,14 @@ func build(p *Palette) *ui.Theme {
 	t.Border = p.Input
 	t.Text = p.Foreground
 	t.TextMuted = p.MutedForeground
-	t.Accent = p.ButtonPrimary
-	t.AccentHover = p.ButtonPrimaryHi
-	t.AccentPressed = p.ButtonPrimaryHi
-	t.AccentText = p.OnPrimary
-	t.InactiveAccent = p.ButtonPrimary
+	// MyGo fills checked switches, sliders and selected rows with Accent:
+	// Kit's emphasis (primary) colors those. Sailry's neutral filled
+	// buttons are theme.Primary, which does not use it.
+	t.Accent = p.Primary
+	t.AccentHover = p.PrimaryHover
+	t.AccentPressed = p.PrimaryHover
+	t.AccentText = ui.Hex("#ffffff")
+	t.InactiveAccent = p.Primary
 	t.Danger, t.Success, t.Warning = p.Danger, p.Success, p.Warning
 	t.Selection = p.Selection
 	t.Focus = p.MutedForeground

@@ -67,7 +67,7 @@ func Nav(c *ui.Context, s *State) {
 				for _, it := range g.items {
 					selected := it.key == s.Section
 					label := i18n.T(c, string(it.key))
-					b := ui.ButtonBase(c.Key(it.key)).Label(label).Height(28).PaddingX(8).Gap(8).Radius(6).Justify(ui.Start).TextColor(p.Foreground)
+					b := ui.ButtonBase(c.Key(string(it.key))).Label(label).Height(28).PaddingX(8).Gap(8).Radius(6).Justify(ui.Start).TextColor(p.Foreground)
 					b.Background(p.SidebarItem(selected, b.Hovered())).AccessSelected(selected)
 					b.Children(func() {
 						ui.Icon(c, it.icon).FontSize(16)
@@ -86,7 +86,7 @@ func Title(c *ui.Context, s *State) string { return i18n.T(c, string(s.Section))
 // description, as SettingsPage lays it out.
 func Page(c *ui.Context, s *State, d *preview.Data, mode *theme.Mode) {
 	p := theme.Of(c)
-	ui.Scroll(c.Key(s.Section)).Fill().Children(func() {
+	ui.Scroll(c.Key(string(s.Section))).Fill().Children(func() {
 		ui.Column(c).FillWidth().MaxWidth(800).Margin(0, ui.Auto).Padding(24).Gap(24).Children(func() {
 			ui.Column(c).Gap(8).Children(func() {
 				ui.Text(c, i18n.T(c, string(s.Section))).FontSize(18).FontWeight(600)

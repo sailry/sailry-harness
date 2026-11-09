@@ -10,11 +10,17 @@ import (
 	"github.com/sailry/sailry-go/internal/i18n"
 	"github.com/sailry/sailry-go/internal/preview"
 	"github.com/sailry/sailry-go/internal/shell"
+	"github.com/sailry/sailry-go/internal/theme"
 )
 
 func main() {
 	mygo.App.SetLanguages(i18n.Languages...)
 	app := shell.New(preview.Load())
+	app.OnMode = func(m theme.Mode) {
+		mygo.Theme.SetSource(map[theme.Mode]mygo.ThemeSource{
+			theme.System: mygo.ThemeSystem, theme.Light: mygo.ThemeLight, theme.Dark: mygo.ThemeDark,
+		}[m])
+	}
 	mygo.App.WhenReady(func() {
 		mygo.NewWindow(mygo.WindowOptions{
 			Title:                i18n.In(i18n.Match(mygo.App.Locale()), "app"),

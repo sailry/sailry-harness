@@ -42,6 +42,12 @@ type App struct {
 	NavOpen  bool
 	NavWidth float32
 
+	// OnMode, when set, gets the theme mode as it changes, so the window's
+	// native material follows the app's appearance as theme.rs's
+	// set_window_appearance does.
+	OnMode  func(theme.Mode)
+	applied theme.Mode
+
 	Sidebar  *sidebar.State
 	Settings *settings.State
 	Messages *conversation.State
@@ -73,12 +79,18 @@ func (a *App) Composer(id string) *composer.State {
 
 // View builds the window.
 func (a *App) View(c *ui.Context) {
+	if a.Mode != a.applied && a.OnMode != nil {
+		a.OnMode(a.Mode)
+	}
+	a.applied = a.Mode
 	theme.Apply(c, a.Mode)
 	p := theme.Of(c)
 	panel := p.Background
-	if c.Vibrancy() {
+	if c.Vibrancy() && a.Mode == theme.System {
 		// The window material shows through: the outer band at 45% of the
-		// base, the panel at 83.5% (theme.rs surfaces).
+		// base, the panel at 83.5% (theme.rs surfaces). Only while the app
+		// follows the system: a forced mode paints opaque, so the band never
+		// shows a material of the other appearance.
 		c.Root().Background(p.Background.Alpha(theme.SidebarOpacity))
 		panel = p.Background.Alpha(theme.PanelOpacity)
 	}
@@ -145,7 +157,10 @@ func (a *App) header(c *ui.Context) {
 				OnClick(func() { a.NavOpen = !a.NavOpen })
 			ui.Text(c, a.title(c)).FontSize(14).SingleLine().Grow(1).Shrink(1).TextColor(p.Foreground)
 			// Preview data is identified wherever it shows.
-			theme.Tag(c.Key("preview"), i18n.T(c, "preview")).Tooltip(i18n.T(c, "preview_notice"))
+			// An opaque fill keeps it legible over the translucent band.
+			ui.Row(c.Key("preview")).Radius(999).Background(p.Background).Tooltip(i18n.T(c, "preview_notice")).Children(func() {
+				theme.Tag(c, i18n.T(c, "preview"))
+			})
 		})
 	})
 }
