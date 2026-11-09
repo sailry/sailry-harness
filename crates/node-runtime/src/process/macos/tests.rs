@@ -72,7 +72,7 @@ fn classifies_exited_members() {
     let member = fixture.member.as_ref().unwrap().id() as libc::pid_t;
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
-        if information(member).is_some_and(|info| info.pbi_status == libc::SZOMB) {
+        if information(member).is_ok_and(|info| info.pbi_status == libc::SZOMB) {
             break;
         }
         assert!(Instant::now() < deadline, "fixture member did not exit");
@@ -82,6 +82,9 @@ fn classifies_exited_members() {
         !group.settled(),
         "the live leader must prevent classification"
     );
+    for error in [libc::ESRCH, libc::EPERM, libc::EACCES, libc::EINVAL] {
+        assert!(!group.exited(member, Err(io::Error::from_raw_os_error(error))));
+    }
     // SAFETY: signal zero only probes this fixture's saved group.
     assert_eq!(unsafe { libc::killpg(group.id, 0) }, 0);
     fixture.leader.stdin.take();
@@ -94,8 +97,15 @@ fn classifies_exited_members() {
     );
     assert!(group.settled());
     assert!(fixture.member.as_mut().unwrap().wait().unwrap().success());
-    assert!(information(member).is_none());
+    assert_eq!(
+        information(member).err().unwrap().raw_os_error(),
+        Some(libc::ESRCH)
+    );
     assert!(group.settled(), "the fully reaped group must be empty");
+    assert!(group.exited(member, information(member)));
+    for error in [libc::EPERM, libc::EACCES, libc::EINVAL] {
+        assert!(!group.exited(member, Err(io::Error::from_raw_os_error(error))));
+    }
 }
 
 #[test]
@@ -109,17 +119,17 @@ fn rejects_uncertain_members() {
     info.pbi_ruid = 501;
     info.pbi_svuid = 501;
     info.pbi_status = libc::SZOMB;
-    assert!(group.exited(43, &info));
+    assert!(group.exited(43, Ok(info)));
     for status in [0, libc::SRUN, libc::SSLEEP, libc::SSTOP] {
         info.pbi_status = status;
-        assert!(!group.exited(43, &info));
+        assert!(!group.exited(43, Ok(info)));
     }
     info.pbi_status = libc::SZOMB;
     info.pbi_pid = 44;
-    assert!(!group.exited(43, &info));
+    assert!(!group.exited(43, Ok(info)));
     info.pbi_pid = 43;
     info.pbi_pgid = 44;
-    assert!(!group.exited(43, &info));
+    assert!(!group.exited(43, Ok(info)));
     info.pbi_pgid = 42;
     for field in ["effective", "real", "saved"] {
         match field {
@@ -128,12 +138,15 @@ fn rejects_uncertain_members() {
             "saved" => info.pbi_svuid = 0,
             _ => unreachable!(),
         }
-        assert!(!group.exited(43, &info), "{field}");
+        assert!(!group.exited(43, Ok(info)), "{field}");
         info.pbi_uid = 501;
         info.pbi_ruid = 501;
         info.pbi_svuid = 501;
     }
-    assert!(information(0).is_none());
+    assert_eq!(
+        information(0).err().unwrap().kind(),
+        io::ErrorKind::InvalidInput
+    );
     assert!(!Group { id: 0, owner: 501 }.settled());
 }
 

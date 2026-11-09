@@ -269,6 +269,49 @@ mod unix {
     }
 
     #[tokio::test]
+    async fn waits_for_descendant_cleanup() {
+        let directory = tempfile::tempdir().unwrap();
+        let request = launch(
+            directory.path(),
+            "trap 'exit 0' TERM; sh -c 'trap \"sleep 0.1; printf cleaned > cleanup.txt; exit 0\" TERM; printf \"%s\" \"$$\" > child.pid; while :; do sleep 60; done' & wait",
+        );
+        let stop = CancellationToken::new();
+        let cancelled = stop.clone();
+        let running = tokio::spawn(async move {
+            execute(
+                request,
+                &Environment::ambient(),
+                &cancelled,
+                &CancellationToken::new(),
+            )
+            .await
+            .unwrap()
+        });
+        let child = pid(&directory.path().join("child.pid")).await;
+        stop.cancel();
+        let output = tokio::time::timeout(Duration::from_secs(6), running)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(output.outcome, Outcome::Cancelled);
+        assert_eq!(
+            std::fs::read_to_string(directory.path().join("cleanup.txt")).unwrap(),
+            "cleaned"
+        );
+        gone(child).await;
+    }
+
+    #[test]
+    fn rejects_unsafe_group_probes() {
+        for id in [-1, 0, 1] {
+            assert_eq!(
+                group_absent(id).unwrap_err().kind(),
+                std::io::ErrorKind::InvalidInput
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn shutdown_interrupts_graceful_stop() {
         let directory = tempfile::tempdir().unwrap();
         let request = launch(

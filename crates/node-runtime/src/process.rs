@@ -39,6 +39,33 @@ pub(crate) fn command(command: tokio::process::Command) -> CommandWrap {
     command
 }
 
+#[cfg(unix)]
+fn group_id(child: &dyn ChildWrapper) -> Option<libc::pid_t> {
+    use process_wrap::tokio::ProcessGroupChild;
+    use std::any::Any;
+
+    let group = (child as &dyn Any).downcast_ref::<ProcessGroupChild>()?;
+    let id = libc::pid_t::try_from(group.pgid()).ok()?;
+    (id > 1 && child.try_inner_child()?.id()? == group.pgid()).then_some(id)
+}
+
+#[cfg(unix)]
+fn group_absent(id: libc::pid_t) -> std::io::Result<bool> {
+    if id <= 1 {
+        return Err(std::io::ErrorKind::InvalidInput.into());
+    }
+    // SAFETY: signal zero only probes the saved identity of an owned process group.
+    if unsafe { libc::killpg(id, 0) } == 0 {
+        return Ok(false);
+    }
+    let error = std::io::Error::last_os_error();
+    if error.raw_os_error() == Some(libc::ESRCH) {
+        Ok(true)
+    } else {
+        Err(error)
+    }
+}
+
 pub(crate) struct Launch {
     pub root: PathBuf,
     pub profile: Option<PathBuf>,
@@ -264,8 +291,10 @@ async fn execute_configured(
     if let Some(retained) = &retained {
         retained.spawned();
     }
+    #[cfg(unix)]
+    let group_id = group_id(child.inner.as_ref()).expect("command owns a process group");
     #[cfg(target_os = "macos")]
-    let group = macos::Group::capture(child.inner.as_ref());
+    let group = macos::Group::owned(group_id as u32);
     let stdout = child
         .inner
         .stdout()
@@ -333,7 +362,7 @@ async fn execute_configured(
         let settled = async {
             let _ = child.wait_root().await;
             loop {
-                if child.inner.signal(0).is_err() {
+                if group_absent(group_id).is_ok_and(|absent| absent) {
                     break;
                 }
                 #[cfg(target_os = "macos")]
