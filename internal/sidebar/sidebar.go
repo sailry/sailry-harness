@@ -24,7 +24,7 @@ const Limit = Initial
 const (
 	rowHeight = 28
 	indent    = 30 // conversation rows under a project
-	guideX    = 16 // the tree guide, from the row's left edge
+	guideX    = 16 // the status slot's center, from the row's left edge
 )
 
 // State is the sidebar's part of the app state.
@@ -185,8 +185,8 @@ func View(c *ui.Context, s *State) {
 	ui.Scroll(c.Key("sessions")).Grow(1).Padding(8, 12).Gap(4).Children(func() {
 		if pinned := s.pinned(); len(pinned) > 0 {
 			section(c, s, "pinned", i18n.T(c, "sidebar_pinned"), nil, func() {
-				s.limited(c, "pinned", pinned, func(cv *preview.Conversation, last bool) {
-					s.conversation(c, cv, rowPinned, last)
+				s.limited(c, "pinned", pinned, func(cv *preview.Conversation) {
+					s.conversation(c, cv, rowPinned)
 				})
 			})
 		}
@@ -196,8 +196,8 @@ func View(c *ui.Context, s *State) {
 				empty(c, "project_sessions_empty")
 				return
 			}
-			s.limited(c, "unassigned", list, func(cv *preview.Conversation, last bool) {
-				s.conversation(c, cv, rowPlain, last)
+			s.limited(c, "unassigned", list, func(cv *preview.Conversation) {
+				s.conversation(c, cv, rowPlain)
 			})
 		})
 		section(c, s, "projects", i18n.T(c, "projects"), &add{"project_add", func() { s.OpenEditor(nil) }}, func() {
@@ -213,7 +213,7 @@ func View(c *ui.Context, s *State) {
 		})
 		section(c, s, "recent", i18n.T(c, "recent_sessions"), nil, func() {
 			for _, cv := range s.recent() {
-				s.conversation(c.Key("recent"), cv, rowRecent, false)
+				s.conversation(c.Key("recent"), cv, rowRecent)
 			}
 		})
 	})
@@ -274,10 +274,10 @@ func section(c *ui.Context, s *State, key, title string, plus *add, body func())
 
 // limited shows the first Limit conversations of a list and a toggle for
 // the rest (sidebar/limits.rs).
-func (s *State) limited(c *ui.Context, key string, list []*preview.Conversation, row func(cv *preview.Conversation, last bool)) {
+func (s *State) limited(c *ui.Context, key string, list []*preview.Conversation, row func(cv *preview.Conversation)) {
 	n, more := Window(len(list), s.more[key])
 	for i := range n {
-		row(list[i], i == n-1)
+		row(list[i])
 	}
 	if more {
 		p := theme.Of(c)
@@ -321,8 +321,8 @@ func (s *State) project(c *ui.Context, pr *preview.Project) {
 				return
 			}
 			ui.Column(c).Gap(2).Children(func() {
-				s.limited(c, pr.ID, list, func(cv *preview.Conversation, last bool) {
-					s.conversation(c, cv, rowTree, last)
+				s.limited(c, pr.ID, list, func(cv *preview.Conversation) {
+					s.conversation(c, cv, rowTree)
 				})
 			})
 		})
@@ -346,7 +346,7 @@ type pinDrag struct{ id string }
 // a pin and an archive button. A double click renames it in place. Its
 // right-click menu is the system's; the pointer resting on it shows its
 // details in a card.
-func (s *State) conversation(c *ui.Context, cv *preview.Conversation, kind rowKind, last bool) {
+func (s *State) conversation(c *ui.Context, cv *preview.Conversation, kind rowKind) {
 	p := theme.Of(c)
 	if s.renaming == cv.ID && !s.drawn {
 		s.drawn = true
@@ -374,9 +374,6 @@ func (s *State) conversation(c *ui.Context, cv *preview.Conversation, kind rowKi
 	b.ContextMenu(func(m *ui.Menu) { s.sessionMenu(c, m, cv) })
 	s.details(c, b, cv)
 	b.TextColor(text).Children(func() {
-		if kind == rowTree {
-			guide(c, last)
-		}
 		if kind != rowRecent {
 			status(c, cv.Status)
 		}
@@ -481,20 +478,6 @@ func (s *State) details(c *ui.Context, row ui.Element, cv *preview.Conversation)
 	kit.SessionCard(c, row, d, true, kit.Right, func(card ui.Element) {
 		card.AttachTo(row, ui.AnchorRight, ui.AnchorLeft).MarginStart(8)
 	})
-}
-
-// guide draws the dashed tree line and its arm to the row (sidebar/tree.rs):
-// the line runs past the row by 4 DIPs and stops at the arm on the last row.
-func guide(c *ui.Context, last bool) {
-	color := theme.Of(c).SidebarForeground.Alpha(0.2)
-	h := float32(rowHeight + 8)
-	if last {
-		h = rowHeight/2 + 4
-	}
-	ui.Box(c).Absolute().Left(guideX).Top(-4).Width(1).Height(h).
-		BorderWidth(0, 0, 0, 1).BorderStyle(ui.BorderDashed).BorderColor(color).PassThrough()
-	ui.Box(c).Absolute().Left(guideX).Top(rowHeight/2).Width(8).Height(1).
-		BorderWidth(1, 0, 0, 0).BorderStyle(ui.BorderDashed).BorderColor(color).PassThrough()
 }
 
 // status puts the conversation's state in the 12x12 slot on the elbow: the
