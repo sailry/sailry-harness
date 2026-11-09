@@ -5,6 +5,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-go/internal/kit"
+	"github.com/sailry/sailry-go/internal/preview"
 )
 
 func TestKeysCapture(t *testing.T) {
@@ -40,6 +41,35 @@ func TestKeysCapture(t *testing.T) {
 	}
 	if got := k.Capture(Chord{ui.Cmd, ui.KeyJ}); got != "shortcut_unavailable" {
 		t.Errorf("capture while idle: %q", got)
+	}
+}
+
+func TestSetVariable(t *testing.T) {
+	h := TerminalHost{Env: []preview.EnvVar{{Key: "EDITOR", Value: "vi"}}}
+	for _, c := range []struct {
+		index      int
+		key, want  string
+		wantLength int
+	}{
+		{-1, "1X", "terminal_variable_invalid", 1},
+		{-1, "EDITOR", "terminal_variable_duplicate", 1},
+		{0, " EDITOR ", "", 1},
+		{-1, "PATH_2", "", 2},
+	} {
+		if got := h.SetVariable(c.index, c.key, "v"); got != c.want || len(h.Env) != c.wantLength {
+			t.Errorf("%+v: %q %d", c, got, len(h.Env))
+		}
+	}
+}
+
+func TestDraftChecks(t *testing.T) {
+	e := hookEditor{script: preview.Hook{Command: "make"}, timeout: "x"}
+	if e.Check() != "hooks_invalid" {
+		t.Error("bad timeout accepted")
+	}
+	e.timeout = "500"
+	if e.Check() != "" || e.script.TimeoutMS != 500 {
+		t.Errorf("good hook refused: %+v", e.script)
 	}
 }
 

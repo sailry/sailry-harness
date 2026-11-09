@@ -141,6 +141,16 @@ func Page(c *ui.Context, s *State, d *preview.Data, look Look) {
 			providers(c, s, d)
 		case Plugins:
 			plugins(c, d)
+		case Terminal:
+			terminal(c, s.Model)
+		case Connections:
+			connections(c, s.Model)
+		case Hooks:
+			hooks(c, s.Model)
+		case Runtime:
+			runtimePage(c, s.Model)
+		case OCR:
+			localModels(c, s.Model, &s.OCR, "runtime_ocr", "runtime_ocr_model", "runtime_ocr_enable")
 		default:
 			// The pages still to come.
 			kit.EmptyGroup(c, icons.Inbox, i18n.T(c, "settings_empty"))

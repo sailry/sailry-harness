@@ -60,6 +60,27 @@ func notice(c *ui.Context) { c.Toast(i18n.T(c, "preview_notice")) }
 // Telemetry is what diagnostics send (telemetry.rs).
 type Telemetry struct{ Errors, Metrics bool }
 
+// TerminalHost is a host's terminal settings (terminal/host.rs): its
+// environment and the shell, an index of Shells.
+type TerminalHost struct {
+	Env   []preview.EnvVar
+	Shell int
+}
+
+// HookSettings are a project's hooks (hooks/mod.rs): on or off, and their
+// scripts.
+type HookSettings struct {
+	Enabled bool
+	Scripts []preview.Hook
+}
+
+// Python is the host's package index (runtime/index.rs): an index of
+// Indexes, the last being a custom URL.
+type Python struct {
+	Index  int
+	Custom string
+}
+
 // LocalModels is a kind of local model's page (models/view.rs): enabled,
 // the model chosen among the installed ones, the Installed or Available
 // tab, and the models.
@@ -110,6 +131,30 @@ type Model struct {
 	SpeechModel       int // of Speech
 	Speech            []preview.LocalModel
 	info              *modelInfo // the model whose details show
+
+	// Terminal (terminal.rs, terminal/host.rs).
+	Host            Stored[TerminalHost]
+	Shells          []preview.Shell
+	PasteProtection bool
+	FontSize        float64 // 8..32
+	Font            string
+	env             envEditor
+
+	// Connections (connections.rs, connections/*).
+	Devices []preview.Device
+	Relays  []string
+	pairing pairing
+
+	// Hooks (hooks/*).
+	Hooks   Stored[HookSettings]
+	hook    hookEditor
+	consent consent
+
+	// Runtime and OCR (runtime/*, models/*).
+	PythonVersion string
+	Indexes       []string
+	Python        Stored[Python]
+	OCR           LocalModels
 }
 
 // Languages are the language choices (locale.rs Language::ALL).
@@ -132,6 +177,12 @@ func NewModel(d *preview.Settings) *Model {
 		Sandbox:   stored(d.Sandbox), TextSize: 14,
 		Keys:        NewKeys(),
 		Microphones: d.Microphones, Speech: d.Speech,
+		Host:   stored(TerminalHost{Env: d.Env}),
+		Shells: d.Shells, PasteProtection: true, FontSize: 13,
+		Devices: d.Devices, Relays: d.Relays,
+		Hooks:         stored(HookSettings{Enabled: d.HooksOn, Scripts: d.Hooks}),
+		PythonVersion: d.Python, Indexes: d.Indexes, Python: stored(Python{}),
+		OCR: LocalModels{Enabled: stored(true), Models: d.OCR, Catalog: d.OCRCatalog},
 	}
 	return m
 }

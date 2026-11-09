@@ -92,3 +92,27 @@ func TestSettingsSaveToasts(t *testing.T) {
 		t.Errorf("save not reported: %v %q", a.Settings.Power.Saved, tt.Texts())
 	}
 }
+
+// The terminal's variable dialog refuses an invalid name with a toast
+// and keeps its draft.
+func TestTerminalVariableDialog(t *testing.T) {
+	a, tt := newTester(t)
+	click(t, tt, i18n.In("en", "settings"))
+	a.Settings.Open(settings.Terminal)
+	tt.Frame()
+	click(t, tt, i18n.In("en", "settings_add"))
+	click(t, tt, i18n.In("en", "terminal_variable"))
+	tt.Type("1BAD")
+	click(t, tt, i18n.In("en", "settings_save"))
+	if !tt.HasText(i18n.In("en", "terminal_variable_invalid")) || !tt.HasText(i18n.In("en", "terminal_environment_add")) {
+		t.Fatalf("invalid name not refused: %q", tt.Texts())
+	}
+	n := len(a.Settings.Host.Saved.Env)
+	click(t, tt, i18n.In("en", "terminal_variable"))
+	tt.Key(ui.Cmd, ui.KeyA)
+	tt.Type("GOOD")
+	click(t, tt, i18n.In("en", "settings_save"))
+	if len(a.Settings.Host.Saved.Env) != n+1 || tt.HasText(i18n.In("en", "terminal_environment_add")) {
+		t.Fatalf("variable not saved: %+v", a.Settings.Host.Saved.Env)
+	}
+}
