@@ -261,13 +261,18 @@ func (s *State) strip(c *ui.Context, pr *Project, keys Shortcut) {
 	})
 }
 
-// launcher lists the resources to open (launcher.rs): full-width 40 DIP
-// rows, the icon, the label and the shortcut, centered up to 440 wide.
+// launcher lists the resources to open (launcher.rs): the "details"
+// title in an unbordered header as tall as the tab strip, then full-width
+// 40 DIP rows, the icon, the label and the shortcut, up to 440 wide and
+// centered across. The rows start under the header instead of the
+// reference's vertical centering.
 func launcher(c *ui.Context, s *State, keys Shortcut) {
 	p := theme.Of(c)
-	ui.Column(c.Key("launcher")).Grow(1).Padding(24).AlignItems(ui.Center).Children(func() {
-		ui.Column(c).FillWidth().MaxWidth(440).Gap(8).Children(func() {
-			ui.Text(c, i18n.T(c, "details")).FontSize(14).FontWeight(500).Padding(0, 4, 4, 4).TextColor(p.MutedForeground)
+	ui.Column(c.Key("launcher")).Grow(1).MinHeight(0).Children(func() {
+		ui.Row(c.Key("launcher-header")).Height(barHeight).Shrink(0).PaddingX(12).Children(func() {
+			ui.Text(c, i18n.T(c, "details")).FontSize(14).SingleLine().Grow(1).Shrink(1)
+		})
+		ui.Column(c.Key("launcher-rows")).FillWidth().MaxWidth(440+2*24).Padding(0, 24, 24, 24).Gap(8).AlignSelf(ui.Center).Children(func() {
 			for _, r := range Resources {
 				label := i18n.T(c, r.Label)
 				b := ui.ButtonBase(c.Key(r.Kind)).Label(label).FillWidth().Height(40).PaddingX(12).Gap(10).Radius(p.Radius).

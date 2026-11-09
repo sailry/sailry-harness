@@ -85,6 +85,50 @@ func TestPanelOpensWithShortcutsAndTabs(t *testing.T) {
 	}
 }
 
+// The launcher is titled "details" and lists the six resources in order
+// from the top of the panel, each row opening its resource.
+func TestPanelLauncherStartsAtTop(t *testing.T) {
+	for _, lang := range []string{"en", "zh-CN"} {
+		_, tt := newTester(t)
+		tt.SetLocale(lang)
+		tt.Key(ui.Cmd|ui.Alt, ui.KeyB)
+		tt.Advance(time.Second)
+		tt.Frame()
+		title, ok := tt.Find(i18n.In(lang, "details"))
+		if !ok {
+			t.Fatalf("%s: no launcher title: %q", lang, tt.Texts())
+		}
+		top := title.Y
+		for i, r := range panel.Resources {
+			row, ok := tt.AccessByRole(ui.RoleButton, i18n.In(lang, r.Label))
+			if !ok {
+				t.Fatalf("%s: no launcher row %q", lang, r.Label)
+			}
+			if row.Bounds.Y <= top {
+				t.Fatalf("%s: row %d %q at %v is not below %v", lang, i, r.Label, row.Bounds.Y, top)
+			}
+			top = row.Bounds.Y
+		}
+		// Six 40 DIP rows 8 apart from under the 40 DIP header: the last
+		// row ends far above a vertically centred list's.
+		if top > HeaderHeight+40+5*48+8 {
+			t.Fatalf("%s: the rows do not start at the top: last row at %v", lang, top)
+		}
+	}
+	for _, r := range panel.Resources {
+		a, tt := newTester(t)
+		tt.Key(ui.Cmd|ui.Alt, ui.KeyB)
+		tt.Advance(time.Second)
+		tt.Frame()
+		row, _ := tt.AccessByRole(ui.RoleButton, i18n.In("en", r.Label))
+		tt.ClickAt(row.Bounds.X+row.Bounds.W/2, row.Bounds.Y+row.Bounds.H/2)
+		tt.Frame()
+		if a.Panel.Active.Kind != r.Kind {
+			t.Errorf("the %q row opened %v", r.Label, a.Panel.Active)
+		}
+	}
+}
+
 func TestSidebarToggleAndPrefs(t *testing.T) {
 	a, tt := newTester(t)
 	tt.Key(ui.Cmd, ui.KeyB)
