@@ -17,7 +17,7 @@ model library and the extension details page.
 | `settings.go` | `Section`, `Groups` (order and icons of `Section::GROUPS`/`Section::icon`), `State`, `Nav`, `Open`, `Page` routing |
 | `model.go` | **The view model**: `Model`, `Stored[T]`, `Messages`, the Node settings' types, `Languages`, `ToastSeconds` |
 | `general.go` | General: language, power, sidebar metrics, notifications, toast duration, diagnostics; the `choose`/`pick` select helpers |
-| `appearance.go` | Appearance: mode, effects, transparency sliders, theme gallery with update check and import, details |
+| `appearance.go` | Appearance: mode, effects, transparency sliders, theme gallery with update check and import; a card's system right-click menu (Apply, Details, Homepage, Export, Uninstall) and the details dialog (previews light and dark, description, author, version, identifier, license) |
 | `conversation.go` | Conversation: command sandbox, session order, message display, text size |
 | `shortcuts.go` | `Chord`, `Shortcut`, `Registry`, `Fixed`, `Keys` (overrides, recording, validation) and the Shortcuts page with its recorder |
 | `models.go` | Dictation, the OCR local-model page, managed model rows and their details dialog |
@@ -118,7 +118,8 @@ placeholder in an empty masked input.
 | General | prevent sleep, telemetry switches | `Stored.Commit`, outcome toast (power_settings_*, telemetry_*) |
 | General | reset identity, send diagnostics | preview_notice |
 | Appearance | mode, effects, theme, transparency | live on the window |
-| Appearance | check updates, import | preview_notice |
+| Appearance | check updates, import, Export, Uninstall | preview_notice |
+| Appearance | Details, Homepage (card menu) | the details dialog; the system's browser |
 | Conversation | sandbox | `Commit`, sandbox_settings_* toast |
 | Shortcuts | click a key, then press one; reset; clear; Escape | live: the window uses the new key |
 | Dictation | request access, manage library, install, cancel download | preview_notice |

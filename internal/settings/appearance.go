@@ -1,6 +1,8 @@
 package settings
 
 import (
+	"fmt"
+
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-go/internal/i18n"
 	"github.com/sailry/sailry-go/internal/icons"
@@ -23,8 +25,9 @@ type Look struct {
 const previewHeight = 96
 
 // appearance is settings/appearance.rs: the interface group (mode and
-// effects), the transparency sliders, the gallery of theme packages with
-// its update check and import, and the selected theme's details.
+// effects), the transparency sliders and the gallery of theme packages
+// with its update check and import. A card's right-click menu opens a
+// theme's details in a dialog.
 func appearance(c *ui.Context, look Look) {
 	kit.Group(c, "interface", i18n.T(c, "settings_interface"), "", nil, func() {
 		kit.Card(c, func() {
@@ -43,14 +46,30 @@ func appearance(c *ui.Context, look Look) {
 		label := i18n.T(c, "appearance_import")
 		kit.Primary(c.Key("import"), label, false).Children(func() { ui.Text(c, label).FontSize(14) }).OnClick(func() { notice(c) })
 	}, func() {
-		ui.Grid(c.Key("gallery")).Columns(3).Gap(12).FillWidth().Children(func() {
+		gallery := ui.Grid(c.Key("gallery")).Columns(3).Gap(12).FillWidth()
+		d := ui.Local(gallery, themeDetails{}, func() themeDetails { return themeDetails{} })
+		gallery.Children(func() {
 			for _, pkg := range theme.Packages {
-				themeCard(c, pkg, look.Theme)
+				themeCard(c, pkg, look.Theme, d)
 			}
 		})
+		details(c, d, look.Theme)
 	})
-	selected := theme.Find(*look.Theme)
-	kit.Group(c, "details", i18n.T(c, "appearance_details"), "", nil, func() { details(c, selected) })
+}
+
+// themeDetails is the theme whose details dialog shows, if any.
+type themeDetails struct {
+	pkg     *theme.Package
+	open    bool
+	license bool // the license text unfolded
+}
+
+// apply makes pkg the theme.
+func apply(pkg *theme.Package, chosen *string) {
+	*chosen = pkg.ID
+	if pkg == theme.Builtin {
+		*chosen = ""
+	}
 }
 
 // name is a package's name; the built-in theme's is translated.
@@ -63,8 +82,11 @@ func name(c *ui.Context, pkg *theme.Package) string {
 
 // themeCard is a gallery card (appearance/gallery.rs): a ghost button with
 // a 1 DIP border holding the theme's preview over a label row naming it,
-// marked when selected. Clicking it applies the theme.
-func themeCard(c *ui.Context, pkg *theme.Package, chosen *string) {
+// marked when selected. Clicking it applies the theme; its right-click
+// menu is the system's (appearance/menu.rs): Apply, Details, Homepage,
+// Export and Uninstall, the last two for installed packages (the
+// built-in theme is not one).
+func themeCard(c *ui.Context, pkg *theme.Package, chosen *string, d *themeDetails) {
 	p := theme.Of(c)
 	selected := theme.Find(*chosen) == pkg
 	title := name(c, pkg)
@@ -85,10 +107,24 @@ func themeCard(c *ui.Context, pkg *theme.Package, chosen *string) {
 				}
 			})
 		})
-	}).OnClick(func() {
-		*chosen = pkg.ID
-		if pkg == theme.Builtin {
-			*chosen = ""
+	}).OnClick(func() { apply(pkg, chosen) })
+	installed := pkg != theme.Builtin
+	b.ContextMenu(func(m *ui.Menu) {
+		if m.Item(i18n.T(c, "appearance_select")).Checked(selected).Chosen() {
+			apply(pkg, chosen)
+		}
+		if m.Item(i18n.T(c, "appearance_details")).Disabled(!installed).Chosen() {
+			*d = themeDetails{pkg: pkg, open: true}
+		}
+		if m.Item(i18n.T(c, "appearance_homepage")).Disabled(pkg.Homepage == "").Chosen() {
+			c.OpenURL(pkg.Homepage)
+		}
+		// Exporting writes a file and uninstalling removes the package.
+		if m.Item(i18n.T(c, "appearance_export")).Disabled(!installed).Chosen() {
+			notice(c)
+		}
+		if m.Item(i18n.T(c, "appearance_uninstall")).Disabled(!installed).Chosen() {
+			notice(c)
 		}
 	})
 }
@@ -125,24 +161,75 @@ func miniature(c *ui.Context, pkg *theme.Package, dark bool) {
 	})
 }
 
-// details lists the selected theme's information: its name and
-// description, version, author and license.
-func details(c *ui.Context, pkg *theme.Package) {
+// details is a theme's details dialog (appearance/import.rs details): up
+// to 640 wide, the name as its title, the theme in miniature light and
+// dark side by side (stacked under 520), the description, the author,
+// version and identifier, and the license folding its text, over Close
+// and Apply.
+func details(c *ui.Context, d *themeDetails, chosen *string) {
+	if !d.open || d.pkg == nil {
+		return
+	}
 	p := theme.Of(c)
-	kit.Card(c, func() {
-		kit.Row(c, "name", name(c, pkg), pkg.Description, nil)
-		info := func(key, label, value string) {
-			if value == "" {
-				return
+	pkg := d.pkg
+	title := name(c, pkg)
+	w := min(width(c)-48, 640)
+	kit.Dialog(c.Key("theme-details"), &d.open, func() {
+		ui.Text(c, title).FontSize(16).FontWeight(600).SingleLine().PaddingEnd(24)
+		ui.Scroll(c.Key("body")).Shrink(1).MinHeight(0).Gap(16).Padding(4).Children(func() {
+			cols := 2
+			if w < 520 {
+				cols = 1
 			}
-			kit.Row(c, key, label, "", func() {
-				ui.Text(c, value).FontSize(14).SingleLine().Selectable().TextColor(p.MutedForeground)
+			ui.Grid(c.Key("previews")).Columns(cols).Gap(12).FillWidth().Children(func() {
+				for _, dark := range []bool{false, true} {
+					label := i18n.T(c, map[bool]string{false: "appearance_light", true: "appearance_dark"}[dark])
+					ui.Column(c.Key(dark)).MinWidth(0).Radius(p.RadiusLg).Border(1, p.Border).Clip().Children(func() {
+						miniature(c, pkg, dark)
+						ui.Text(c, label).FontSize(14).Padding(8, 12).TextColor(p.MutedForeground)
+					})
+				}
 			})
-		}
-		info("version", i18n.T(c, "settings_version"), pkg.Release)
-		info("author", i18n.T(c, "appearance_author"), pkg.License.Author)
-		info("license", i18n.T(c, "settings_license"), pkg.License.Name)
-	})
+			if pkg.Description != "" {
+				ui.Text(c, pkg.Description).FontSize(14).TextColor(p.MutedForeground)
+			}
+			kit.Group(c, "information", i18n.T(c, "appearance_information"), "", nil, func() {
+				kit.Card(c, func() {
+					info := func(key, label, value string) {
+						kit.Row(c, key, label, "", func() {
+							ui.Text(c, value).FontSize(14).Selectable().TextAlign(ui.End).MaxWidth((w-88)*0.55).
+								TextColor(p.MutedForeground)
+						})
+					}
+					info("author", i18n.T(c, "appearance_author"), pkg.License.Author)
+					if pkg.Release != "" {
+						info("version", i18n.T(c, "settings_version"), pkg.Release)
+					} else {
+						info("version", i18n.T(c, "appearance_format_version"), fmt.Sprint(pkg.Version))
+					}
+					info("id", i18n.T(c, "appearance_identifier"), pkg.ID)
+				})
+			})
+			kit.Card(c, func() {
+				parts := ui.CollapsibleBase(c, &d.license)
+				parts.Trigger.FillWidth().MinHeight(48).Gap(12).Cursor(ui.CursorPointer).Children(func() {
+					ui.Text(c, i18n.T(c, "settings_license")).FontSize(14).TextColor(p.SurfaceForeground)
+					ui.Spacer(c)
+					if pkg.License.Name != "" {
+						ui.Text(c, pkg.License.Name).FontSize(14).TextColor(p.MutedForeground)
+					}
+					ui.Icon(c, icons.ChevronDown).FontSize(14).TextColor(p.MutedForeground).Rotate(-90 * (1 - parts.Progress()))
+				})
+				parts.Panel(func() {
+					ui.Text(c, pkg.License.Text).FontSize(12).Selectable().Padding(0, 0, 16, 0).TextColor(p.MutedForeground)
+				})
+			})
+		})
+		ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
+			kit.Secondary(c.Key("close"), i18n.T(c, "close")).OnClick(func() { d.open = false })
+			kit.Secondary(c.Key("apply"), i18n.T(c, "appearance_select")).OnClick(func() { apply(pkg, chosen) })
+		})
+	}).Width(w).Label(title)
 }
 
 // transparency is appearance/opacity.rs: the container's and the window's

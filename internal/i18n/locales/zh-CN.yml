@@ -61,6 +61,14 @@ appearance_dark: 暗色
 appearance_packages: 主题包
 appearance_selected: 已选用
 appearance_details: 详情
+appearance_select: 应用
+appearance_homepage: 主页
+appearance_export: 导出
+appearance_uninstall: 卸载
+appearance_remove: 移除“%{name}”？正在使用时将恢复默认主题
+appearance_identifier: 标识
+appearance_information: 信息
+appearance_format_version: 格式版本
 appearance_author: 作者
 appearance_effects: 主题动画
 settings_interface: 界面主题

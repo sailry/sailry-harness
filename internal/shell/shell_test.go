@@ -451,8 +451,8 @@ func TestThemePackages(t *testing.T) {
 	}
 }
 
-// Appearance applies a theme package from its card, shows its details and
-// turns the effects off.
+// Appearance applies a theme package from its card, shows its details in
+// a dialog from the card's right-click menu and turns the effects off.
 func TestAppearancePackages(t *testing.T) {
 	a, tt := newTester(t)
 	click(t, tt, "Settings")
@@ -462,10 +462,23 @@ func TestAppearancePackages(t *testing.T) {
 	if a.Theme != sage.ID {
 		t.Fatalf("theme %q after choosing %s", a.Theme, sage.Name)
 	}
-	if !tt.HasText(sage.Release) || !tt.HasText(sage.License.Author) {
-		t.Errorf("no details of %s: %q", sage.Name, tt.Texts())
+	if tt.HasText(i18n.In("en", "appearance_details")) || tt.HasText(sage.Release) {
+		t.Errorf("the page still lists the details: %q", tt.Texts())
+	}
+	if err := tt.RightClick(sage.Name); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.ChooseMenuItem(i18n.In("en", "appearance_details")); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if !tt.HasText(sage.Release) || !tt.HasText(sage.License.Author) || !tt.HasText(i18n.In("en", "appearance_information")) {
+		t.Errorf("no details dialog of %s: %q", sage.Name, tt.Texts())
 	}
 	snapshot(t, tt, "appearance-great-sage")
+	clickButton(t, tt, i18n.In("en", "close"))
+	tt.Advance(time.Second)
+	tt.Frame()
 	clickButton(t, tt, i18n.In("en", "settings_theme_builtin"))
 	if a.Theme != "" {
 		t.Errorf("theme %q after choosing the default", a.Theme)

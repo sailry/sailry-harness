@@ -64,6 +64,14 @@ appearance_dark
 appearance_packages
 appearance_selected
 appearance_details
+appearance_select
+appearance_homepage
+appearance_export
+appearance_uninstall
+appearance_remove
+appearance_identifier
+appearance_information
+appearance_format_version
 appearance_author
 appearance_effects
 settings_interface

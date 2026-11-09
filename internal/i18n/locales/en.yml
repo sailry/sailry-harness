@@ -61,6 +61,14 @@ appearance_dark: Dark
 appearance_packages: Theme packages
 appearance_selected: Selected
 appearance_details: Details
+appearance_select: Apply
+appearance_homepage: Homepage
+appearance_export: Export
+appearance_uninstall: Uninstall
+appearance_remove: Remove “%{name}”? The default theme will replace it if in use
+appearance_identifier: Identifier
+appearance_information: Information
+appearance_format_version: Format version
 appearance_author: Author
 appearance_effects: Theme animation
 settings_interface: Interface theme
