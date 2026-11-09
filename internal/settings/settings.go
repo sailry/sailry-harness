@@ -150,7 +150,11 @@ func Page(c *ui.Context, s *State, d *preview.Data, look Look) {
 		case Runtime:
 			runtimePage(c, s.Model)
 		case OCR:
-			localModels(c, s.Model, &s.OCR, "runtime_ocr", "runtime_ocr_model", "runtime_ocr_enable")
+			localModels(c, s.Model, &s.OCR, "runtime_ocr", "runtime_ocr_model", "runtime_ocr_enable", "search_driver_auto")
+		case Knowledge:
+			localModels(c, s.Model, &s.Knowledge, "knowledge_settings", "knowledge_default_model", "", "knowledge_keyword_only")
+		case Decision:
+			localModels(c, s.Model, &s.Decision, "runtime_decision", "runtime_decision_model", "runtime_decision_enable", "local_models_none")
 		case Permissions:
 			permissions(c, s.Model)
 		case Backup:

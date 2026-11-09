@@ -54,17 +54,26 @@ func dictation(c *ui.Context, m *Model) {
 
 // localModels is models/view.rs for a kind of model: whether it is on,
 // the model it uses, and its Installed and Available tabs.
-func localModels(c *ui.Context, m *Model, lm *LocalModels, title, label, enable string) {
+// Knowledge (Embedding) has no switch: enable is "" and its first choice,
+// none, turns it to keywords only.
+func localModels(c *ui.Context, m *Model, lm *LocalModels, title, label, enable, none string) {
 	installed := lm.Installed()
 	kit.Group(c, "controls", i18n.T(c, title), "", nil, func() {
 		kit.Card(c, func() {
-			kit.SwitchRow(c, "enabled", i18n.T(c, enable), "", &lm.Enabled.Draft)
-			var names []string
+			if enable != "" {
+				kit.SwitchRow(c, "enabled", i18n.T(c, enable), "", &lm.Enabled.Draft)
+			}
+			names := []string{i18n.T(c, none)}
 			for _, x := range installed {
 				names = append(names, x.Name)
 			}
 			t := i18n.T(c, label)
-			kit.WideRow(c, "model", t, "", func() { pick(c, "select", t, &lm.Model, names, !lm.Enabled.Draft).Fill() })
+			chosen := lm.Model + 1
+			kit.WideRow(c, "model", t, "", func() {
+				if pick(c, "select", t, &chosen, names, !lm.Enabled.Draft).Fill().Changed() {
+					lm.Model = chosen - 1
+				}
+			})
 		})
 	})
 	ui.Column(c.Key("library")).Gap(16).Children(func() {

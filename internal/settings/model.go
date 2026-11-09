@@ -188,6 +188,8 @@ type Model struct {
 	Indexes       []string
 	Python        Stored[Python]
 	OCR           LocalModels
+	Knowledge     LocalModels // embedding models (knowledge-settings)
+	Decision      LocalModels // decision models
 
 	// Permissions (permissions.rs).
 	Permissions []preview.Permission
@@ -231,6 +233,8 @@ func NewModel(d *preview.Settings) *Model {
 		Hooks:         stored(HookSettings{Enabled: d.HooksOn, Scripts: d.Hooks}),
 		PythonVersion: d.Python, Indexes: d.Indexes, Python: stored(Python{}),
 		OCR:         LocalModels{Enabled: stored(true), Models: d.OCR, Catalog: d.OCRCatalog},
+		Knowledge:   LocalModels{Enabled: stored(true), Models: d.Embedding, Catalog: d.Embedding},
+		Decision:    LocalModels{Enabled: stored(false), Model: -1, Models: d.Decision, Catalog: d.Decision},
 		Permissions: d.Permissions,
 		Backup: stored(BackupTarget{Endpoint: "https://dav.example.com/remote.php/dav", Prefix: "sailry",
 			Schedule: true, Time: time.Date(2026, 1, 1, 3, 0, 0, 0, time.Local), Timezone: "Asia/Shanghai", PassphraseSet: true, CredentialsSet: true}),

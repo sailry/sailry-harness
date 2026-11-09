@@ -913,3 +913,11 @@ provider_effort_placeholder: 强度或 Token budget
 provider_effort_invalid: 推理强度无效，请检查名称、重复项和接口支持
 provider_login_claude: Claude
 provider_login_chat_gpt: ChatGPT
+search_driver_auto: 自动
+knowledge_settings: 默认设置
+knowledge_default_model: 向量模型
+knowledge_keyword_only: 仅关键词
+runtime_decision: 决策
+runtime_decision_model: 模型
+runtime_decision_enable: 启用决策
+local_models_none: 无

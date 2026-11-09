@@ -89,6 +89,8 @@ type Settings struct {
 	OCR          []LocalModel
 	OCRCatalog   []LocalModel // models the catalog offers
 	Speech       []LocalModel
+	Embedding    []LocalModel // knowledge models
+	Decision     []LocalModel
 	Microphones  []string
 	Permissions  []Permission
 	Archived     []Archived
@@ -130,6 +132,15 @@ func SettingsData() *Settings {
 			{ID: "", Name: "", Status: ModelInstalled},
 			{ID: "whisper-small", Name: "Whisper Small", Repo: "openai/whisper-small", Status: ModelMissing},
 			{ID: "sense", Name: "SenseVoice Small", Repo: "FunAudioLLM/SenseVoiceSmall", Status: ModelDownloading, Percent: 63},
+		},
+		Embedding: []LocalModel{
+			{ID: "bge-m3", Name: "BGE-M3", Repo: "BAAI/bge-m3", Status: ModelInstalled},
+			{ID: "qwen3-embed", Name: "Qwen3 Embedding 0.6B", Repo: "Qwen/Qwen3-Embedding-0.6B", Status: ModelDownloading, Percent: 27},
+			{ID: "e5", Name: "multilingual-e5-small", Repo: "intfloat/multilingual-e5-small"},
+		},
+		Decision: []LocalModel{
+			{ID: "qwen3-0.6b", Name: "Qwen3 0.6B", Repo: "Qwen/Qwen3-0.6B", Status: ModelInstalled},
+			{ID: "gemma-3-1b", Name: "Gemma 3 1B", Repo: "google/gemma-3-1b-it"},
 		},
 		Microphones: []string{"MacBook Pro Microphone", "AirPods Pro"},
 		Permissions: []Permission{

@@ -913,3 +913,11 @@ provider_effort_placeholder: Effort or token budget
 provider_effort_invalid: Invalid reasoning effort; check names, duplicates and API support
 provider_login_claude: Claude
 provider_login_chat_gpt: ChatGPT
+search_driver_auto: Auto
+knowledge_settings: Defaults
+knowledge_default_model: Vector model
+knowledge_keyword_only: Keyword only
+runtime_decision: Decisions
+runtime_decision_model: Model
+runtime_decision_enable: Enable decisions
+local_models_none: None
