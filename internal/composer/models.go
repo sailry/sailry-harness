@@ -377,6 +377,9 @@ func (s *State) teamRow(c *ui.Context, ctx *Context) {
 				func() { s.member = m.ID })
 		}
 	})
+	// A divider under the row, inside the panel's padding, so it stops
+	// short of the panel's edges.
+	ui.Box(c.Key("team-divider")).FillWidth().Height(1).Shrink(0).Background(p.Border)
 }
 
 func memberButton(c *ui.Context, key, name string, icon *ui.SVG, fill ui.Color, overridden, selected bool, pick func()) {
