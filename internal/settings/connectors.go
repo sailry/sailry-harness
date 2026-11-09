@@ -85,6 +85,9 @@ type connectorEditor struct {
 	fields  map[string]string
 	account int
 	pending bool
+	// accounts is the host's look at its local CLI accounts: the account
+	// row's skeleton shows while it runs.
+	accounts preview.Fetch
 }
 
 // mcpEditor is mcp/editor.rs: a server's name, transport, command and
@@ -370,6 +373,14 @@ func connectorDialog(c *ui.Context, m *Model) {
 		ui.Column(c.Key("content")).Gap(12).Children(func() {
 			switch {
 			case method == "connector_cli":
+				if !e.accounts.Loaded && !e.accounts.Loading {
+					e.accounts.Start()
+				}
+				if e.accounts.Advance(c.Now()) {
+					c.After(preview.Tick)
+					accountSkeleton(c)
+					break
+				}
 				names := m.ConnAccounts
 				modalList(c, "accounts", t("connector_choose_account"), "", t("connector_not_connected"), len(names), func() {
 					for i, a := range names {
@@ -627,4 +638,23 @@ func (e *mcpEditor) save(m *Model) {
 		return
 	}
 	m.Services = append(m.Services, preview.Service{ID: fmt.Sprintf("mcp-%s-%d", name, len(m.Services)), Name: name, Description: desc, Manual: true, Servers: []preview.Server{x}})
+}
+
+// accountSkeleton holds the account row's place while the Node inspects
+// the local CLI (connectors/editor/account.rs loading): a 24 DIP round
+// avatar beside a name and a secondary line.
+func accountSkeleton(c *ui.Context) {
+	ui.Column(c.Key("account-skeleton")).FillWidth().Busy(true).Children(func() {
+		modalList(c, "accounts", i18n.T(c, "connector_choose_account"), "", "", 1, func() {
+			listRow{leading: func() {
+				ui.Row(c).Gap(12).Children(func() {
+					kit.SkeletonAvatar(c, 24, true, kit.SkeletonFade)
+					ui.Column(c).Gap(4).Children(func() {
+						kit.Skeleton(c, kit.SkeletonProps{Width: 120, Height: 12, Radius: 2})
+						kit.Skeleton(c, kit.SkeletonProps{Width: 80, Height: 10, Radius: 2, Secondary: true})
+					})
+				})
+			}}.row(c, "account-loading", "")
+		}, nil)
+	})
 }

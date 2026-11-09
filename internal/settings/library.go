@@ -40,15 +40,22 @@ func libraryDialog(c *ui.Context, m *Model) {
 	e := &m.library
 	t := func(k string, a ...any) string { return i18n.T(c, k, a...) }
 	if e.open {
-		p := theme.Of(c)
 		title := t("model_library_manage")
+		load := &m.LibraryLoad
+		if !load.Loaded && !load.Loading {
+			load.Start() // the first page, as the dialog opens
+		}
+		if load.Advance(c.Now()) {
+			c.After(preview.Tick)
+		}
+		search := func() { e.searched = e.query; load.Start() }
 		kit.Dialog(c.Key("model-library"), &e.open, func() {
 			ui.Text(c, title).FontSize(16).FontWeight(600)
 			ui.Row(c.Key("controls")).Gap(12).Children(func() {
 				pick(c, "hub", t("model_library_source"), &e.hub, labels(c, libraryHubs), false).Width(192)
 				ui.TextInput(c.Key("query"), &e.query).Label(t("model_library_query")).Placeholder(t("model_library_query")).Grow(1).
-					OnSubmit(func() { e.searched = e.query })
-				kit.Action(c.Key("search"), icons.Search, t("model_library_search"), false).OnClick(func() { e.searched = e.query })
+					OnSubmit(search)
+				kit.Action(c.Key("search"), icons.Search, t("model_library_search"), false).OnClick(search)
 			})
 			q := strings.ToLower(strings.TrimSpace(e.searched))
 			var shown []*preview.LibraryModel
@@ -59,40 +66,82 @@ func libraryDialog(c *ui.Context, m *Model) {
 				}
 			}
 			ui.Scroll(c.Key("results")).MaxHeight(420).Children(func() {
+				if load.Loading && !load.Loaded {
+					librarySkeleton(c)
+					return
+				}
 				if len(shown) == 0 {
 					kit.EmptyGroup(c, icons.Search, t("model_library_empty"))
 					return
 				}
-				kit.Card(c, func() {
-					for _, x := range shown {
-						kit.Entry(c, x.ID, func() {
-							kit.Record(c, x.Name, x.Repo+" · "+t(x.Kind)+" · "+x.Size)
-						}, func() {
-							switch x.Status {
-							case preview.ModelDownloading:
-								ui.Row(c).Gap(8).Children(func() {
-									ui.Progress(c, x.Percent/100).Width(80).Height(4)
-									ui.Text(c, t("knowledge_downloading")).FontSize(12).TextColor(p.MutedForeground)
-								})
-							case preview.ModelInstalled:
-								kit.Badge(c, t("knowledge_installed"), kit.Positive)
-							}
-						}, func() {
-							kit.Action(c.Key("info"), icons.Info, t("knowledge_model_details"), false).OnClick(func() { e.info = x.ID })
-							switch x.Status {
-							case preview.ModelMissing:
-								kit.Action(c.Key("install"), icons.Download, t("knowledge_install"), false).OnClick(func() { notice(c) })
-							case preview.ModelDownloading:
-								kit.Action(c.Key("cancel"), icons.CircleX, t("settings_cancel"), false).OnClick(func() { notice(c) })
-							default:
-								kit.Action(c.Key("delete"), icons.Trash, t("knowledge_delete"), false).OnClick(func() { e.removing = x.ID })
-							}
-						})
+				ui.Column(c.Key("found")).FillWidth().Children(func() {
+					libraryRows(c, m, shown)
+					if load.Loading {
+						// A later search keeps the rows under a spinner.
+						ui.Box(c.Key("library-loading")).Absolute().Fill().Center().Busy(true).Children(func() { kit.Loader(c, 16) })
 					}
 				})
 			})
 		}).Width(min(640, width(c)-48)).Label(title)
 	}
+	libraryDialogs(c, m)
+}
+
+// libraryRows are the models found (model_library/view.rs results).
+func libraryRows(c *ui.Context, m *Model, shown []*preview.LibraryModel) {
+	e := &m.library
+	t := func(k string, a ...any) string { return i18n.T(c, k, a...) }
+	p := theme.Of(c)
+	kit.Card(c, func() {
+		for _, x := range shown {
+			kit.Entry(c, x.ID, func() {
+				kit.Record(c, x.Name, x.Repo+" · "+t(x.Kind)+" · "+x.Size)
+			}, func() {
+				switch x.Status {
+				case preview.ModelDownloading:
+					ui.Row(c).Gap(8).Children(func() {
+						ui.Progress(c, x.Percent/100).Width(80).Height(4)
+						ui.Text(c, t("knowledge_downloading")).FontSize(12).TextColor(p.MutedForeground)
+					})
+				case preview.ModelInstalled:
+					kit.Badge(c, t("knowledge_installed"), kit.Positive)
+				}
+			}, func() {
+				kit.Action(c.Key("info"), icons.Info, t("knowledge_model_details"), false).OnClick(func() { e.info = x.ID })
+				switch x.Status {
+				case preview.ModelMissing:
+					kit.Action(c.Key("install"), icons.Download, t("knowledge_install"), false).OnClick(func() { notice(c) })
+				case preview.ModelDownloading:
+					kit.Action(c.Key("cancel"), icons.CircleX, t("settings_cancel"), false).OnClick(func() { notice(c) })
+				default:
+					kit.Action(c.Key("delete"), icons.Trash, t("knowledge_delete"), false).OnClick(func() { e.removing = x.ID })
+				}
+			})
+		}
+	})
+}
+
+// librarySkeleton holds the results' place before the first page
+// (model_library/view.rs pending): three rows of a name and a repository
+// line over a badge.
+func librarySkeleton(c *ui.Context) {
+	kit.Card(c, func() {
+		for _, w := range []float32{180, 140, 210} {
+			ui.Row(c.Key(w)).FillWidth().PaddingY(12).Gap(12).Children(func() {
+				ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(8).Children(func() {
+					kit.Skeleton(c, kit.SkeletonProps{Width: w, Height: 16, Radius: 2})
+					kit.Skeleton(c, kit.SkeletonProps{Width: w * 1.6, Height: 12, Radius: 2, Secondary: true})
+				})
+				kit.Skeleton(c, kit.SkeletonProps{Width: 48, Height: 24, Secondary: true})
+			})
+		}
+	}).Busy(true)
+}
+
+// libraryDialogs are a model's details and its removal.
+func libraryDialogs(c *ui.Context, m *Model) {
+	e := &m.library
+	t := func(k string, a ...any) string { return i18n.T(c, k, a...) }
 	if x := m.libraryModel(e.info); x != nil {
 		open := true
 		kit.Dialog(c.Key("model-library-details"), &open, func() {

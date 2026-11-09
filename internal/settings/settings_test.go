@@ -2,6 +2,7 @@ package settings
 
 import (
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-go/internal/kit"
@@ -232,5 +233,31 @@ func TestExtensions(t *testing.T) {
 	s.Open(Skills)
 	if s.Details != nil {
 		t.Error("opening a section kept the details")
+	}
+}
+
+// The CLI method's account list shows its skeleton row while the host
+// looks at its accounts, then the accounts.
+func TestAccountSkeleton(t *testing.T) {
+	m := NewModel(preview.SettingsData())
+	m.connector = connectorEditor{open: true, kind: &m.ConnTypes[0], method: 2, fields: map[string]string{}}
+	tt := ui.NewTester(func(c *ui.Context) { connectorDialog(c, m) }, 900, 700)
+	tt.SetLocale("en")
+	tt.Frame()
+	busy := func() bool {
+		for _, x := range tt.AccessAll() {
+			if x.Busy {
+				return true
+			}
+		}
+		return false
+	}
+	if !m.connector.accounts.Loading || !busy() || tt.HasText(m.ConnAccounts[0]) {
+		t.Fatalf("no account skeleton: %q", tt.Texts())
+	}
+	tt.Advance(time.Second)
+	tt.Frame()
+	if busy() || !tt.HasText(m.ConnAccounts[0]) {
+		t.Fatalf("accounts not shown: %q", tt.Texts())
 	}
 }

@@ -208,15 +208,21 @@ type Model struct {
 	MarketCategory  int // of marketCategories
 	MarketMode      int // 0 all, 1 dark, 2 light
 	MarketInstalled bool
-	config          pluginConfig
-	install         pluginInstall
-	download        pluginDownload
-	updates         pluginUpdates
-	checked         bool // the plugins' update check ran: its updates show in the header
-	uninstalling    string
-	skillAdd        skillInstall
-	skillRemoving   string
-	library         library
+	// MarketLoad is the catalog's load: the cards' skeleton shows while
+	// it runs, from the market's first frame.
+	MarketLoad preview.Fetch
+	// LibraryLoad is the model library's search: placeholder rows before
+	// its first page, a spinner over the results after.
+	LibraryLoad   preview.Fetch
+	config        pluginConfig
+	install       pluginInstall
+	download      pluginDownload
+	updates       pluginUpdates
+	checked       bool // the plugins' update check ran: its updates show in the header
+	uninstalling  string
+	skillAdd      skillInstall
+	skillRemoving string
+	library       library
 
 	// Terminal (terminal.rs, terminal/host.rs).
 	Host            Stored[TerminalHost]
@@ -302,5 +308,6 @@ func NewModel(d *preview.Settings) *Model {
 		Archived: d.Archived, Sessions: d.Sessions,
 		Version: d.Version,
 	}
+	m.MarketLoad.Start()
 	return m
 }

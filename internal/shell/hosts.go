@@ -11,7 +11,12 @@ import (
 // dataset as first shown.
 func (a *App) hostPage() (*host.Host, *host.State) {
 	if a.hosts == nil {
-		a.hosts, a.hostUI = preview.HostPages(a.Data), map[string]*host.State{}
+		a.hosts, a.hostUI, a.samples = preview.HostPages(a.Data), map[string]*host.State{}, map[string]*sample{}
+		for id, h := range a.hosts {
+			x := &sample{metrics: h.Metrics}
+			x.fetch.Start()
+			a.samples[id], h.Metrics = x, nil
+		}
 	}
 	st := a.hostUI[a.Host]
 	if st == nil {
@@ -19,6 +24,27 @@ func (a *App) hostPage() (*host.Host, *host.State) {
 		a.hostUI[a.Host] = st
 	}
 	return a.hosts[a.Host], st
+}
+
+// sample is a host's first metrics sample, which the preview delivers
+// after a load (Monitor's first sample): the metrics' loading state and
+// the processes' skeleton show until then.
+type sample struct {
+	fetch   preview.Fetch
+	metrics *host.Metrics
+}
+
+// sample plays the host's first sample while its metrics show.
+func (a *App) sample(c *ui.Context, h *host.Host) {
+	x := a.samples[h.ID]
+	if x == nil || !x.fetch.Loading {
+		return
+	}
+	if x.fetch.Advance(c.Now()) {
+		c.After(preview.Tick)
+		return
+	}
+	h.Metrics = x.metrics
 }
 
 // openHost chooses a host and shows its page (Shell::select_host), with

@@ -84,6 +84,15 @@ AI group fields: `Channels`, `Brands`, `Catalog`, `Compaction`
 `Themes`, `Library`, `SkillQuery`, the `Market*` filters; `Knowledge`
 and `Decision` (`LocalModels`).
 
+Loading states (`preview.Fetch`, played on the frame clock for
+`preview.LoadAfter`; nothing is fetched): `MarketLoad` shows six card
+skeletons from the market's first frame; `Detail.Load`, started by
+`ShowDetails`, shows the details' skeleton under the summary;
+`LibraryLoad` shows three placeholder rows before the library's first
+page and a `kit.Loader` over the rows on a later search; the connector
+editor's Local CLI tab shows a skeleton account row while the host looks
+at its accounts.
+
 Lists the pages show: `Devices`, `Relays`, `Permissions`, `Archived`,
 `Sessions`, `Shells`, `Indexes`, `Microphones`, `Speech`, `OCR.Models`,
 `OCR.Catalog`, `PythonVersion`, `Version`.

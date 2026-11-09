@@ -60,7 +60,8 @@ each tunnel with Open and Close).
 The metrics column: a 40 DIP header with the chart icon, the preview note,
 the host, CPU and memory with its bar, network rates, disks and the
 busiest processes, an empty card where there are none, an indeterminate
-bar until the first sample.
+bar and the processes' skeleton (five table rows, `kit.Skeleton`) until
+the first sample, which the preview delivers after `preview.LoadAfter`.
 
 ## Actions
 

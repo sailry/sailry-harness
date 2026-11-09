@@ -30,10 +30,17 @@ type Detail struct {
 	Kind DetailKind
 	ID   string
 	Tab  int
+	// Load is the details' fetch: the content's skeleton shows under the
+	// summary while it runs.
+	Load preview.Fetch
 }
 
-// ShowDetails opens an item's details, replacing those shown.
-func (s *State) ShowDetails(kind DetailKind, id string) { s.Details = &Detail{Kind: kind, ID: id} }
+// ShowDetails opens an item's details, replacing those shown, and loads
+// them.
+func (s *State) ShowDetails(kind DetailKind, id string) {
+	s.Details = &Detail{Kind: kind, ID: id}
+	s.Details.Load.Start()
+}
 
 // CloseDetails closes the details page (CloseDetails).
 func (s *State) CloseDetails() { s.Details = nil }
@@ -48,6 +55,9 @@ func DetailsPanel(c *ui.Context, s *State) {
 	}
 	p := theme.Of(c)
 	t := func(k string, a ...any) string { return i18n.T(c, k, a...) }
+	if d.Load.Advance(c.Now()) {
+		c.After(preview.Tick)
+	}
 	title := map[DetailKind]string{DetailPlugin: "market_plugin_details", DetailSkill: "market_skill_details", DetailTheme: "market_theme_details"}[d.Kind]
 	ui.Column(c.Key("extension-details")).Fill().MinWidth(0).Children(func() {
 		ui.Row(c.Key("header")).Height(44).PaddingX(12).Gap(8).Shrink(0).Children(func() {
@@ -64,11 +74,19 @@ func DetailsPanel(c *ui.Context, s *State) {
 				case DetailSkill:
 					if sk := s.skill(d.ID); sk != nil {
 						summary(c, sk.Name, sk.Description, func() { kit.Tile(c, sk.Name, icons.Bot) }, nil)
+						if d.Load.Loading {
+							detailsSkeleton(c)
+							return
+						}
 						facts(c, [][2]string{{t("market_details_source"), skillSource(c, sk)}})
 					}
 				case DetailTheme:
 					if th := s.theme(d.ID); th != nil {
 						summary(c, th.Name, th.Description, func() { kit.Tile(c, th.Name, icons.Palette) }, func() { themeAction(c, s.Model, th) })
+						if d.Load.Loading {
+							detailsSkeleton(c)
+							return
+						}
 						modes := []string{}
 						if th.Light {
 							modes = append(modes, t("market_theme_light"))
@@ -82,6 +100,24 @@ func DetailsPanel(c *ui.Context, s *State) {
 			})
 		})
 	}).TextColor(p.Foreground)
+}
+
+// detailsSkeleton holds the details' content while they load
+// (market/details.rs skeleton): a two-thirds title line, four lines, the
+// last three-quarters wide, and a 96 DIP block.
+func detailsSkeleton(c *ui.Context) {
+	ui.Column(c.Key("details-skeleton")).FillWidth().MinWidth(0).Gap(20).Busy(true).Children(func() {
+		kit.Skeleton(c, kit.SkeletonProps{Height: 24}).WidthPercent(200.0 / 3)
+		ui.Column(c).FillWidth().Gap(12).Children(func() {
+			for i := range 4 {
+				line := kit.Skeleton(c.Key(i), kit.SkeletonProps{Height: 16})
+				if i == 3 {
+					line.WidthPercent(75)
+				}
+			}
+		})
+		kit.Skeleton(c, kit.SkeletonProps{Height: 96})
+	})
 }
 
 func join(xs []string) string {
@@ -148,6 +184,10 @@ func pluginDetails(c *ui.Context, s *State, pk *preview.Package, d *Detail) {
 			ui.Text(c, msg).FontSize(14).Grow(1).TextColor(p.MutedForeground)
 			kit.Secondary(c.Key("sailry"), t("plugins_update_sailry")).Height(28).OnClick(func() { notice(c) })
 		})
+	}
+	if d.Load.Loading {
+		detailsSkeleton(c)
+		return
 	}
 	tabs := []string{t("market_details_overview"), t("market_details_contents"), t("market_details_permissions"), t("market_details_versions")}
 	kit.Segmented(c, "tabs", &d.Tab, tabs, kit.SegmentedProps{}).Label(t("market_plugin_details"))

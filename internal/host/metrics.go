@@ -31,6 +31,10 @@ func MetricsPanel(c *ui.Context, s *State, h *Host) {
 		if m == nil {
 			if h.MetricsError == "" {
 				ui.Progress(c.Key("loading"), -1).FillWidth().Height(4).Label(i18n.T(c, "metrics_loading"))
+				ui.Column(c.Key("processes")).Gap(12).Children(func() {
+					ui.Text(c, i18n.T(c, "metrics_processes")).FontSize(14).FontWeight(600)
+					processSkeleton(c)
+				})
 			}
 			return
 		}
@@ -98,6 +102,34 @@ func MetricsPanel(c *ui.Context, s *State, h *Host) {
 		kit.Error(c, i18n.T(c, "metrics_error"), h.MetricsError)
 	}
 	s.metricsFailed = h.MetricsError
+}
+
+// processSkeleton holds the processes table's place until the first
+// sample (live/host/processes.rs render_loading): five 32 DIP rows, the
+// first on the table head, of three blocks and one at the end, half a
+// row high.
+func processSkeleton(c *ui.Context) {
+	p := theme.Of(c)
+	const row = 32
+	block := func(w float32) { kit.Skeleton(c, kit.SkeletonProps{Width: w, Height: row / 2}) }
+	ui.Column(c.Key("process-skeleton")).FillWidth().Busy(true).Children(func() {
+		for i := range 5 {
+			r := ui.Row(c.Key(i)).Height(row).PaddingX(12).Gap(12).ClipX().Justify(ui.SpaceBetween)
+			if i == 0 {
+				r.Background(p.TableHead)
+			} else {
+				r.BorderWidth(1, 0, 0, 0).BorderColor(p.TableRowBorder)
+			}
+			r.Children(func() {
+				ui.Row(c).Grow(1).Shrink(1).MinWidth(0).Gap(12).ClipX().Children(func() {
+					block(96)
+					block(192)
+					block(64)
+				})
+				block(96)
+			})
+		}
+	})
 }
 
 // fact is a metric's row: the label, the value after it.

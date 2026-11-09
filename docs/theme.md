@@ -129,7 +129,11 @@ border), so selects and text inputs share a height and fill everywhere,
 and its dropdown is as wide as the trigger (`MenuOptions.Match`).
 Right-click menus stay the system's (`Element.ContextMenu`).
 `kit.Alert` (`internal/kit/alert.go`) is adapted from Lobe MyGo's
-`feedback.Alert` (MIT, notice kept): MyGo has no alert. `kit.Segmented`
+`feedback.Alert` (MIT, notice kept): MyGo has no alert. `kit.Skeleton`,
+`kit.SkeletonText` and `kit.SkeletonAvatar` (`internal/kit/skeleton.go`)
+are adapted from Lobe MyGo's `display.Skeleton*`: Kit's skeleton color
+(`Active`, half of it for `Secondary`), a pulse or sweep painted at
+`kit.FPS`, still with Reduce Motion. `kit.Segmented`
 (`internal/kit/segmented.go`) is adapted from Lobe MyGo's
 `action.Segmented` on MyGo's SegmentedBase: every segmented choice and
 in-page view switch (Installed | Available, details tabs, market kinds,

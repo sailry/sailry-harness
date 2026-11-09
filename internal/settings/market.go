@@ -55,6 +55,9 @@ func (m *Model) installedPackage(id string) *preview.Package {
 func MarketPage(c *ui.Context, s *State) {
 	m := s.Model
 	t := func(k string, a ...any) string { return i18n.T(c, k, a...) }
+	if m.MarketLoad.Advance(c.Now()) {
+		c.After(preview.Tick)
+	}
 	ui.Scroll(c.Key("market")).Fill().Children(func() {
 		ui.Column(c).FillWidth().MaxWidth(kit.PageWidth).Margin(0, ui.Auto).Padding(24).Gap(20).Children(func() {
 			ui.Row(c.Key("heading")).Gap(12).Children(func() {
@@ -72,10 +75,12 @@ func MarketPage(c *ui.Context, s *State) {
 				}
 			})
 			marketFilters(c, m)
-			switch m.MarketKind {
-			case 0:
+			switch {
+			case m.MarketLoad.Loading:
+				marketSkeleton(c)
+			case m.MarketKind == 0:
 				marketPlugins(c, s)
-			case 1:
+			case m.MarketKind == 1:
 				marketSkills(c, s)
 			default:
 				marketThemes(c, s)
@@ -147,6 +152,24 @@ func marketCard(c *ui.Context, key, title, desc string, tile func(), action stri
 			kit.Secondary(c.Key("action"), label).Height(28).Shrink(0).OnClick(act)
 		}
 	})
+}
+
+// marketSkeleton holds the cards' place while the catalog loads (card.rs
+// skeleton): six bordered 76 DIP cards of a 40 DIP tile, a half-width
+// title and a full-width line.
+func marketSkeleton(c *ui.Context) {
+	p := theme.Of(c)
+	kit.Grid(c, func() {
+		for i := range 6 {
+			ui.Row(c.Key(i)).Height(76).MinWidth(0).PaddingX(16).Gap(12).Radius(p.RadiusLg).Border(1, p.Border).Children(func() {
+				kit.Skeleton(c, kit.SkeletonProps{Width: 40, Height: 40})
+				ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(8).Children(func() {
+					kit.Skeleton(c, kit.SkeletonProps{Height: 16}).WidthPercent(50)
+					kit.Skeleton(c, kit.SkeletonProps{Height: 12})
+				})
+			})
+		}
+	}).Busy(true)
 }
 
 func marketPlugins(c *ui.Context, s *State) {

@@ -119,6 +119,7 @@ type App struct {
 	Host    string
 	hosts   map[string]*host.Host
 	hostUI  map[string]*host.State
+	samples map[string]*sample
 	Metrics bool
 
 	// installs is the installation queue the rail's button shows;
@@ -316,6 +317,7 @@ func (a *App) details(c *ui.Context, f frame, fill ui.Color) {
 			}
 			if a.Page == HostPage {
 				h, st := a.hostPage()
+				a.sample(c, h)
 				host.MetricsPanel(c, st, h)
 				return
 			}
