@@ -29,8 +29,8 @@ type codeThemeKey struct {
 var codeThemes sync.Map // codeThemeKey -> *editor.Theme
 
 // CodeTheme is the editor's theme for the app theme: DefaultTheme with
-// the background, text, gutter, selection and change colors from the
-// palette. tint gives the background of code blocks in messages, the
+// the text, gutter, selection and change colors from the palette, on no
+// background. tint gives the background of code blocks in messages, the
 // foreground at 3.5% over the background.
 func CodeTheme(c *ui.Context, tint bool) *editor.Theme {
 	p := theme.Of(c)
@@ -39,7 +39,11 @@ func CodeTheme(c *ui.Context, tint bool) *editor.Theme {
 		return t.(*editor.Theme)
 	}
 	t := editor.DefaultTheme(c.Theme())
-	t.Background = p.Background
+	// Transparent: file tabs, sources and diffs show the surface they sit
+	// on, with no block ending at the last line, and no current-line band
+	// (read-only, as the reference's views).
+	t.Background = p.Background.Alpha(0)
+	t.ActiveLine = p.Background.Alpha(0)
 	if tint {
 		t.Background = p.Background.Mix(p.Foreground, 0.035)
 	}
