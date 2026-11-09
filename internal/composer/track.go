@@ -30,24 +30,27 @@ func track(c *ui.Context, value *float64, steps int, highest, disabled bool) {
 		tx := inner.X + inner.W*frac
 		pt.Fill(base, surface.Mix(p.Slider, 0.16), 13)
 		if frac > 0 {
-			// The fill ends under the thumb's center at every width, so the
-			// opaque thumb always covers its end.
-			fill := ui.Rect{X: base.X, Y: base.Y, W: tx - base.X, H: base.H}
-			if highest {
-				pt.FillGradient(fill, ui.LinearGradient{From: surface.Mix(p.Danger, a), To: surface.Mix(p.Warning, a), Angle: 90}, 13)
-				if !disabled && !pt.Preferences().ReduceMotion {
-					pt.AnimationFrameRate(kit.FPS)
-					phase := float32(pt.Now().UnixMilli()%1600) / 1600
-					x := fill.X - fill.W*0.4 + fill.W*1.4*phase
-					pt.Clip(fill, 13, func() {
-						pt.FillGradient(ui.Rect{X: x, Y: fill.Y, W: fill.W * 0.4, H: fill.H}, ui.LinearGradient{
-							Angle: 90, Stops: []ui.GradientStop{{Color: ui.RGBA(1, 1, 1, 0)}, {Color: ui.RGBA(1, 1, 1, 0.28), At: 0.5}, {Color: ui.RGBA(1, 1, 1, 0), At: 1}},
-						}, 0)
-					})
+			pt.Clip(base, 13, func() {
+				// The fill ends under the thumb's center at every width, so the
+				// opaque thumb always covers its end; clipped to the base, it is
+				// round on the left and square on the right.
+				fill := ui.Rect{X: base.X, Y: base.Y, W: tx - base.X, H: base.H}
+				if highest {
+					pt.FillGradient(fill, ui.LinearGradient{From: surface.Mix(p.Danger, a), To: surface.Mix(p.Warning, a), Angle: 90}, 0)
+					if !disabled && !pt.Preferences().ReduceMotion {
+						pt.AnimationFrameRate(kit.FPS)
+						phase := float32(pt.Now().UnixMilli()%1600) / 1600
+						x := fill.X - fill.W*0.4 + fill.W*1.4*phase
+						pt.Clip(fill, 0, func() {
+							pt.FillGradient(ui.Rect{X: x, Y: fill.Y, W: fill.W * 0.4, H: fill.H}, ui.LinearGradient{
+								Angle: 90, Stops: []ui.GradientStop{{Color: ui.RGBA(1, 1, 1, 0)}, {Color: ui.RGBA(1, 1, 1, 0.28), At: 0.5}, {Color: ui.RGBA(1, 1, 1, 0), At: 1}},
+							}, 0)
+						})
+					}
+				} else {
+					pt.Fill(fill, surface.Mix(p.Primary, a), 0)
 				}
-			} else {
-				pt.Fill(fill, surface.Mix(p.Primary, a), 13)
-			}
+			})
 		}
 		dot := p.SliderThumb
 		if p.Dark {
