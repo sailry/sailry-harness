@@ -32,6 +32,7 @@ type Item struct {
 	m                         *Menu
 	index                     int
 	label, trailing, shortcut string
+	description               string
 	icon                      *ui.SVG
 	checked, danger, disabled bool
 	separator                 bool
@@ -89,6 +90,17 @@ func MenuButton(c *ui.Context, id string, look func(b ui.Element), build func(m 
 	return b
 }
 
+// OpenMenu opens or closes the MenuButton named id from the app, as a
+// row opening its submenu on hover (model_picker/menu.rs open_efforts).
+func OpenMenu(c *ui.Context, id string, open bool) {
+	states := ui.Local(c.Root(), menuOpen{}, func() map[string]*bool { return map[string]*bool{} })
+	if b := (*states)[id]; b != nil {
+		*b = open
+	} else {
+		(*states)[id] = &open
+	}
+}
+
 // Item adds an item labeled label.
 func (m *Menu) Item(label string) *Item {
 	m.n++
@@ -113,6 +125,11 @@ func (it *Item) Icon(icon *ui.SVG) *Item { it.icon = icon; return it }
 // Checked marks the item with a check: in the left slot where it has no
 // icon, or after the label in a menu with CheckRight.
 func (it *Item) Checked(on bool) *Item { it.checked = on; return it }
+
+// Description shows a muted line under the label, as Kit's choice rows
+// (conversation/choice.rs): the row grows to two lines, its icon 16, and
+// a checked row keeps the selected fill.
+func (it *Item) Description(text string) *Item { it.description = text; return it }
 
 // Trailing shows muted text after the label.
 func (it *Item) Trailing(text string) *Item { it.trailing = text; return it }
@@ -172,8 +189,13 @@ func (m *Menu) draw(c *ui.Context, parts ui.MenuParts, panel, trigger ui.Element
 		} else {
 			row = parts.Item()
 		}
-		row.Label(it.label).Disabled(it.disabled).Height(26).PaddingX(8).Gap(4).Radius(min(p.Radius, 8)).
+		row.Label(it.label).Disabled(it.disabled).PaddingX(8).Gap(4).Radius(min(p.Radius, 8)).
 			AlignItems(ui.Center).Shrink(0)
+		if it.description != "" {
+			row.PaddingY(8).Gap(8).MaxWidth(400)
+		} else {
+			row.Height(26)
+		}
 		color, muted := p.PopoverForeground, p.MutedForeground
 		switch {
 		case it.disabled:
@@ -181,12 +203,27 @@ func (m *Menu) draw(c *ui.Context, parts ui.MenuParts, panel, trigger ui.Element
 		case row.Highlighted():
 			color = p.HoverForeground
 			row.Background(p.Hover)
+		case it.checked && it.description != "":
+			row.Background(p.Active)
 		}
 		if it.danger && !it.disabled {
 			color = p.Danger
 		}
 		row.TextColor(color)
 		row.Children(func() {
+			if it.description != "" {
+				if it.icon != nil {
+					ui.Icon(c, it.icon).FontSize(16).Shrink(0)
+				}
+				ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(2).Children(func() {
+					ui.Text(c, it.label).FontSize(14).LineHeight(1.25)
+					ui.Text(c, it.description).FontSize(12).LineHeight(1.25).TextColor(muted)
+				})
+				if it.checked && o.CheckRight {
+					ui.Icon(c, icons.Check).FontSize(12).Shrink(0)
+				}
+				return
+			}
 			if slot {
 				box := ui.Box(c).Size(12, 12).Shrink(0)
 				switch {

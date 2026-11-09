@@ -427,3 +427,123 @@ turn_changes_undo: Undo
 turn_changes_undone: Undone
 turn_compacting: Compacting
 turn_tools_running: Running
+composer_mode_code: Standard
+composer_mode_plan: Plan
+composer_mode_flagship: Flagship
+composer_mode_code_description: Handle code, files and information for most tasks
+composer_mode_plan_description: Plan projects and solutions without running code or writing files
+composer_mode_flagship_description: Multiple agents work on code and files, suited to refactoring and organization
+composer_permission_ask: Ask every time
+composer_permission_project: Project access
+composer_permission_full: Full access
+composer_permission_ask_description: Ask before editing files or running commands
+composer_permission_project_description: Edit project files automatically; ask before running commands
+composer_permission_full_description: Edit files and run commands automatically, including outside the project
+composer_permission_preview: Preview only; no permissions granted
+composer_host_local: Local device
+composer_host_remote: Remote
+composer_host_hint: '%{name} · Disconnected · UI preview'
+composer_no_project: Chats
+composer_branch_none: No branch
+composer_settings: Session settings
+composer_back: Back
+location_project: Project
+location_search: Select working location
+location_create: New worktree
+git_no_matches: No matches
+composer_model_settings: Model and effort
+composer_model_empty: No matching available models
+composer_effort_reset: Reset to default
+composer_feature_description: May cost more
+composer_feature_off: "Off"
+composer_feature_fast: Fast
+composer_feature_fast_unsupported: Not supported by this model
+composer_execution_model: Model only
+composer_team_lead: Lead
+composer_team_default: Default team
+composer_team_manage: Manage teams
+model_score_overall: Overall
+model_score_tested: 'Tested: %{effort}'
+model_score_preview: Preview scores
+model_score_axis_backend: Backend
+model_score_axis_frontend: Frontend
+model_score_axis_knowledge: Reasoning
+model_score_axis_aesthetic: Visual
+model_score_axis_maintainability: Maintainability
+queue_count: '%{count} pending'
+queue_drag: Drag to reorder
+queue_edit: Edit
+queue_delete: Remove
+queue_send_now: Send
+queue_save: Save
+queue_reload: Reload
+queue_reload_draft: Replace draft with current content
+chat_attachment_count: '%{count} attachments'
+chat_attachment_limit: Up to 8 attachments per message
+chat_attachment_remove: Remove attachment
+chat_attachment_metadata: '%{kind} · %{size}'
+chat_attachment_bytes: '%{value} B'
+chat_attachment_kibibytes: '%{value} KiB'
+chat_attachment_mebibytes: '%{value} MiB'
+chat_attachment_file: File
+chat_attachment_unknown: Result unconfirmed; retry
+chat_attachment_removing: Removing
+files_upload_preparing: Preparing upload
+files_upload_sending: Uploading
+files_upload_publishing: Saving file
+reference_title: Add reference
+reference_files: Files
+reference_agents: Subagents
+reference_sessions: Sessions
+reference_context: Workspace context
+reference_databases: Database
+reference_ssh: SSH connections
+reference_empty: No matching references
+reference_preview: Reference preview · Filter, ↑↓ to select, Enter to confirm
+reference_remove: Remove reference
+reference_host: Host
+reference_project: Project
+reference_worktree: Worktree
+reference_one_agent: Only one subagent per message; remove the selected subagent first
+composer_commands: Instructions
+composer_command_review: Review changes
+composer_command_test: Run tests
+composer_command_plan: Make a plan
+composer_command_explain: Explain code
+composer_prompt_review: Review current changes for issues and omissions
+composer_prompt_test: Run relevant tests, analyze and fix failures
+composer_prompt_plan: Plan the upcoming task
+composer_prompt_explain: Explain how the relevant code works
+chat_compact: Compact context
+dictation_finish: Finish recording
+dictation_preparing: Preparing local speech model
+dictation_transcribing: Transcribing
+directory_back: Back
+directory_forward: Forward
+directory_up: Parent directory
+directory_filter: Filter
+directory_home: Home
+directory_desktop: Desktop
+directory_documents: Documentation
+directory_downloads: Downloads
+directory_locations: Locations
+directory_count_directories: '%{count} folders'
+directory_count_files: '%{count} files'
+directory_name: Name
+directory_size: Size
+directory_kind: Kind
+directory_open: Open
+directory_no_matches: No matches
+directory_preview: Preview files
+directory_folder_kind: Folder
+directory_file_kind: File
+files_directory_empty: Empty directory
+reference_select_current: Select current
+provider_openai: OpenAI
+provider_anthropic: Anthropic
+provider_gemini: Gemini
+provider_other: Other
+reference_files_description: Preview files in the current worktree
+reference_agents_description: Reference configured subagents
+reference_sessions_description: Available sessions
+reference_context_description: Host, project and worktree

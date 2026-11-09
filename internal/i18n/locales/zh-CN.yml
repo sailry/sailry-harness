@@ -427,3 +427,123 @@ turn_changes_undo: 撤销
 turn_changes_undone: 已撤销
 turn_compacting: 正在压缩
 turn_tools_running: 正在执行
+composer_mode_code: 标准
+composer_mode_plan: 计划
+composer_mode_flagship: 旗舰
+composer_mode_code_description: 处理代码、文件和资料，适合大多数任务
+composer_mode_plan_description: 规划项目与方案，不运行代码或写入文件
+composer_mode_flagship_description: 多代理协作处理代码和文件，适合重构与整理
+composer_permission_ask: 每次询问
+composer_permission_project: 项目权限
+composer_permission_full: 完全权限
+composer_permission_ask_description: 修改文件和执行命令前询问
+composer_permission_project_description: 自动修改项目文件，执行命令前询问
+composer_permission_full_description: 自动修改文件和执行命令，可影响项目外文件
+composer_permission_preview: 仅预览，不授予权限
+composer_host_local: 本机
+composer_host_remote: 远程
+composer_host_hint: '%{name} · 未连接 · UI 预览'
+composer_no_project: 对话
+composer_branch_none: 无 worktree
+composer_settings: 会话设置
+composer_back: 返回
+location_project: 选择项目
+location_search: 选择工作位置
+location_create: 新建工作树并继续
+git_no_matches: 无匹配项
+composer_model_settings: 模型与强度
+composer_model_empty: 没有匹配的可用模型
+composer_effort_reset: 恢复默认
+composer_feature_description: 可能额外计费
+composer_feature_off: 关闭
+composer_feature_fast: 快速
+composer_feature_fast_unsupported: 当前模型不支持
+composer_execution_model: 单模型
+composer_team_lead: 组长
+composer_team_default: 默认团队
+composer_team_manage: 管理团队
+model_score_overall: 综合分
+model_score_tested: 实测 %{effort} 档
+model_score_preview: 预览评分
+model_score_axis_backend: 后端
+model_score_axis_frontend: 前端
+model_score_axis_knowledge: 知识推理
+model_score_axis_aesthetic: 视觉
+model_score_axis_maintainability: 可维护性
+queue_count: '%{count} 条待发送'
+queue_drag: 拖动调整顺序
+queue_edit: 编辑
+queue_delete: 移除
+queue_send_now: 发送
+queue_save: 保存
+queue_reload: 重新载入
+queue_reload_draft: 用当前内容替换编辑草稿
+chat_attachment_count: '%{count} 个附件'
+chat_attachment_limit: 每条消息最多 8 个附件
+chat_attachment_remove: 移除附件
+chat_attachment_metadata: '%{kind} · %{size}'
+chat_attachment_bytes: '%{value} B'
+chat_attachment_kibibytes: '%{value} KiB'
+chat_attachment_mebibytes: '%{value} MiB'
+chat_attachment_file: 文件
+chat_attachment_unknown: 结果未确认，请重试
+chat_attachment_removing: 正在移除
+files_upload_preparing: 正在准备上传
+files_upload_sending: 正在上传
+files_upload_publishing: 正在保存文件
+reference_title: 添加引用
+reference_files: 文件
+reference_agents: 子代理
+reference_sessions: 会话
+reference_context: 工作区上下文
+reference_databases: 数据库
+reference_ssh: SSH 连接
+reference_empty: 没有匹配的引用
+reference_preview: 仅引用预览 · 输入筛选，↑↓ 选择，Enter 确认
+reference_remove: 移除引用
+reference_host: 主机
+reference_project: 项目
+reference_worktree: worktree
+reference_one_agent: 一条消息只能引用一个子代理，请先移除已选子代理
+composer_commands: 指令
+composer_command_review: 审查变更
+composer_command_test: 运行测试
+composer_command_plan: 制定计划
+composer_command_explain: 解释代码
+composer_prompt_review: 审查当前变更，找出问题和遗漏
+composer_prompt_test: 运行相关测试，分析并修复失败
+composer_prompt_plan: 为接下来的任务制定计划
+composer_prompt_explain: 解释相关代码的工作方式
+chat_compact: 压缩上下文
+dictation_finish: 结束录音
+dictation_preparing: 正在准备本地语音模型
+dictation_transcribing: 正在识别
+directory_back: 后退
+directory_forward: 前进
+directory_up: 上级目录
+directory_filter: 筛选
+directory_home: 主目录
+directory_desktop: 桌面
+directory_documents: 文档
+directory_downloads: 下载
+directory_locations: 位置
+directory_count_directories: '%{count} 目录'
+directory_count_files: '%{count} 文件'
+directory_name: 名称
+directory_size: 大小
+directory_kind: 种类
+directory_open: 打开
+directory_no_matches: 没有匹配项
+directory_preview: 示例文件
+directory_folder_kind: 文件夹
+directory_file_kind: 文件
+files_directory_empty: 空文件夹
+reference_select_current: 选择当前
+provider_openai: OpenAI
+provider_anthropic: Anthropic
+provider_gemini: Gemini
+provider_other: 其他
+reference_files_description: 当前 worktree 的示例文件
+reference_agents_description: 引用已配置的子代理
+reference_sessions_description: 可用会话
+reference_context_description: 主机、项目和 worktree

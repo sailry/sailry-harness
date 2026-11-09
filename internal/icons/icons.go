@@ -127,6 +127,19 @@ var (
 	FileCode       = load("file-code")
 	FileImage      = load("file-image")
 
+	// The composer's (queue, modes, model controls, file picker).
+	Replace   = load("replace")
+	Map       = load("map")
+	Crown     = load("crown")
+	Zap       = load("zap")
+	House     = load("house")
+	Download  = load("download")
+	HardDrive = load("hard-drive")
+	MenuLines = load("menu")
+	Delete    = load("delete")
+	Shield    = load("reicon-shield")
+	ShieldOff = load("reicon-shield-off")
+
 	Providers = map[string]*ui.SVG{
 		"anthropic": load("provider-anthropic"),
 		"openai":    load("provider-openai"),
