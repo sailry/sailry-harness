@@ -15,7 +15,7 @@ import (
 // one place their surface is set.
 func Floating(c *ui.Context, el ui.Element) ui.Element {
 	p := theme.Of(c)
-	surface := Opaque(p.Floating())
+	surface := p.Floating().Over(Opaque(p.Background))
 	if p.Dark {
 		surface = surface.Mix(Opaque(p.Foreground), FloatingLift)
 	}

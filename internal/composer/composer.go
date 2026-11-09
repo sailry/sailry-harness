@@ -187,7 +187,7 @@ func View(c *ui.Context, s *State, ctx *Context, actions Actions) {
 // it (drop_target).
 func (s *State) surface(c *ui.Context, ctx *Context, actions Actions, submit func()) ui.Element {
 	p := theme.Of(c)
-	surface := kit.Frost(ui.Column(c.Key("surface")).FillWidth().Padding(12).Gap(8).Radius(p.Radius2xl()), p.Muted)
+	surface := kit.Frost(c, ui.Column(c.Key("surface")).FillWidth().Padding(12).Gap(8).Radius(p.Radius2xl()), p.Muted)
 	if v := p.Variant; v != nil {
 		if w := v.Composer.BorderWidth; w > 0 {
 			surface.Border(w, p.Input)

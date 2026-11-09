@@ -3,6 +3,7 @@ package kit
 import (
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/shader"
+	"github.com/sailry/sailry-go/internal/theme"
 )
 
 // frostShader is a backdrop blur that ends opaque: the blurred backdrop
@@ -35,8 +36,17 @@ type frost struct {
 
 // PaintMaterial paints the frost over box, rounded by radii.
 func (f frost) PaintMaterial(p *ui.Painter, box ui.Rect, radii [4]float32) {
-	frostShader.Draw(p, box, shader.Options{Radius: radii[0], BackdropBlur: f.blur,
-		Uniforms: map[string]any{"Base": premul(f.base), "Tint": premul(f.tint)}})
+	draw := func(r ui.Rect) {
+		frostShader.Draw(p, r, shader.Options{Radius: radii[0], BackdropBlur: f.blur,
+			Uniforms: map[string]any{"Base": premul(f.base), "Tint": premul(f.tint)}})
+	}
+	// The shader rounds every corner alike: square bottom corners (a tray
+	// sitting on the composer) draw it taller and clip it to the box.
+	if radii[0] > 0 && radii[2] == 0 && radii[3] == 0 {
+		p.Clip(box, 0, func() { draw(ui.Rect{X: box.X, Y: box.Y, W: box.W, H: box.H + radii[0]}) })
+		return
+	}
+	draw(box)
 }
 
 // premul is c as premultiplied RGBA in 0..1, as the shader takes colors.
@@ -55,6 +65,9 @@ func Opaque(c ui.Color) ui.Color {
 // Frost gives el the floating panels' backdrop blur toned by base instead
 // of a flat background: the composer's surface and its queue tray, so
 // what scrolls under them, and a theme's backdrop, shows through blurred.
-func Frost(el ui.Element, base ui.Color) ui.Element {
-	return el.Material(frost{blur: FloatingBlur, base: Opaque(base), tint: Opaque(base).Alpha(FloatingTint)})
+// A translucent base (a theme's muted fill) is taken as it shows over the
+// window background, so the theme sets only the color.
+func Frost(c *ui.Context, el ui.Element, base ui.Color) ui.Element {
+	solid := base.Over(Opaque(theme.Of(c).Background))
+	return el.Material(frost{blur: FloatingBlur, base: solid, tint: solid.Alpha(FloatingTint)})
 }
