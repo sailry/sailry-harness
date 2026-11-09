@@ -153,8 +153,10 @@ func (a *App) catalog(c *ui.Context, folder string) []Group {
 // searchOverlay is the search (shell/search.rs, command_picker.rs): a
 // dialog 480 wide, the query over the rows of the folder, 36 DIPs each,
 // under 28 DIP headings. Up and Down move, Enter opens a folder or runs
-// the row, Escape clears the query and then closes, Backspace on an empty
-// query goes back to the root.
+// the row. A folder has no back row: Backspace on an empty query goes
+// back to the root, as in search.rs, and Escape clears the query, then
+// goes back to the root, then closes. Like command_picker.rs's dialog it
+// has no close button.
 func (a *App) searchOverlay(c *ui.Context) {
 	s := &a.search
 	if !s.open {
@@ -179,15 +181,6 @@ func (a *App) searchOverlay(c *ui.Context) {
 	}
 	w, _ := c.Size()
 	kit.Dialog(c.Key("search"), &s.open, func() {
-		if s.folder != "" {
-			ui.Row(c.Key("back")).Height(36).PaddingX(4).Shrink(0).BorderWidth(0, 0, 1, 0).BorderColor(p.Border).Children(func() {
-				back := i18n.T(c, "reference_back")
-				kit.Ghost(c.Key("button"), back, false).Height(28).PaddingX(8).Gap(6).Children(func() {
-					ui.Icon(c, icons.ArrowLeft).FontSize(14)
-					ui.Text(c, back).FontSize(14)
-				}).OnClick(func() { s.folder, s.query, s.sel = "", "", 0 })
-			})
-		}
 		ui.Row(c.Key("query")).Height(45).PaddingX(12).Gap(8).Shrink(0).BorderWidth(0, 0, 1, 0).BorderColor(p.Border).Children(func() {
 			ui.Icon(c, icons.Search).FontSize(16).TextColor(p.MutedForeground)
 			in := ui.TextInputBase(c.Key("input"), &s.query).Grow(1).FontSize(14).TextColor(p.PopoverForeground).
@@ -207,15 +200,24 @@ func (a *App) searchOverlay(c *ui.Context) {
 				}
 			})
 			if in.Shortcut(0, ui.KeyEscape) {
-				if s.query != "" {
+				switch {
+				case s.query != "":
 					s.query, s.sel = "", 0
-				} else {
+				case s.folder != "":
+					s.folder, s.sel = "", 0
+				default:
 					s.open = false
 				}
 			}
-			if s.query == "" && s.folder != "" && in.Shortcut(0, ui.KeyBackspace) {
+			// The input takes Backspace even when empty, so a Shortcut
+			// never sees it: its key handler does.
+			in.OnTextKey(func(k ui.TextKey) bool {
+				if k.Key != ui.KeyBackspace || k.Mods != 0 || k.Text() != "" || s.folder == "" {
+					return false
+				}
 				s.folder, s.sel = "", 0
-			}
+				return true
+			})
 		})
 		ui.Scroll(c.Key(s.folder)).MaxHeight(344).Padding(8).Children(func() {
 			if len(rows) == 0 {

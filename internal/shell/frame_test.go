@@ -172,6 +172,58 @@ func TestSearchOpensConversation(t *testing.T) {
 	}
 }
 
+// A folder of the search has no back row: Backspace on an empty query
+// goes back to the root, and Escape clears the query, then goes back,
+// then closes.
+func TestSearchFolderKeys(t *testing.T) {
+	a, tt := newTester(t)
+	tt.Key(ui.Cmd, ui.KeyK)
+	tt.Frame()
+	tt.Frame()
+	tt.Key(0, ui.KeyEnter) // Chats, the first folder
+	tt.Frame()
+	if a.search.folder == "" {
+		t.Fatal("Enter opened no folder")
+	}
+	if tt.HasText(i18n.In("en", "reference_back")) {
+		t.Error("the folder shows a back row")
+	}
+	snapshot(t, tt, "search-folder")
+	// Backspace edits a query and goes back only once it is empty.
+	tt.Type("w")
+	tt.Frame()
+	tt.Key(0, ui.KeyBackspace)
+	tt.Frame()
+	if a.search.query != "" || a.search.folder == "" {
+		t.Fatalf("Backspace on a query left %q in %q", a.search.query, a.search.folder)
+	}
+	tt.Key(0, ui.KeyBackspace)
+	tt.Frame()
+	if a.search.folder != "" || !a.search.open {
+		t.Fatalf("Backspace on an empty query left folder %q, open %v", a.search.folder, a.search.open)
+	}
+	// Escape: the query, then the folder, then the search.
+	tt.Key(0, ui.KeyEnter)
+	tt.Frame()
+	tt.Type("w")
+	tt.Frame()
+	tt.Key(0, ui.KeyEscape)
+	tt.Frame()
+	if a.search.query != "" || a.search.folder == "" || !a.search.open {
+		t.Fatalf("first Escape: query %q, folder %q, open %v", a.search.query, a.search.folder, a.search.open)
+	}
+	tt.Key(0, ui.KeyEscape)
+	tt.Frame()
+	if a.search.folder != "" || !a.search.open {
+		t.Fatalf("second Escape: folder %q, open %v", a.search.folder, a.search.open)
+	}
+	tt.Key(0, ui.KeyEscape)
+	tt.Frame()
+	if a.search.open {
+		t.Error("third Escape left the search open")
+	}
+}
+
 func TestActivityCentreReadsAndOpens(t *testing.T) {
 	a, tt := newTester(t)
 	clickButton(t, tt, i18n.In("en", "notifications"))
