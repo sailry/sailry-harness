@@ -111,7 +111,7 @@ func teams(c *ui.Context, m *Model) {
 			})
 		})
 		ui.Row(c.Key("bar")).Gap(12).Children(func() {
-			ui.Segmented(c.Key("tabs"), &m.TeamTab, t("settings_teams"), t("teams_roles")).Label(t("settings_teams"))
+			kit.Segmented(c, "tabs", &m.TeamTab, []string{t("settings_teams"), t("teams_roles")}, kit.SegmentedProps{}).Label(t("settings_teams"))
 			ui.Spacer(c)
 			label := t("team_new")
 			if m.TeamTab == 1 {

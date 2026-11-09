@@ -59,7 +59,7 @@ func MarketPage(c *ui.Context, s *State) {
 		ui.Column(c).FillWidth().MaxWidth(kit.PageWidth).Margin(0, ui.Auto).Padding(24).Gap(20).Children(func() {
 			ui.Row(c.Key("heading")).Gap(12).Children(func() {
 				ui.Text(c, t("market_title")).FontSize(20).FontWeight(600).Grow(1)
-				ui.Segmented(c.Key("kind"), &m.MarketKind, t("market_plugins"), t("market_skills"), t("market_themes")).Label(t("market_kind"))
+				kit.Segmented(c, "kind", &m.MarketKind, []string{t("market_plugins"), t("market_skills"), t("market_themes")}, kit.SegmentedProps{}).Label(t("market_kind"))
 			})
 			search := []string{"market_search_plugins", "market_search_skills", "market_search_themes"}[m.MarketKind]
 			ui.Row(c.Key("search")).Gap(12).Children(func() {

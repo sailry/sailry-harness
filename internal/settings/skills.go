@@ -153,7 +153,7 @@ func skillInstallDialog(c *ui.Context, m *Model) {
 	}
 	kit.Dialog(c.Key("skill-install"), &e.open, func() {
 		ui.Text(c, title).FontSize(16).FontWeight(600)
-		ui.Segmented(c.Key("source"), &e.source, labels(c, skillSources)...).Label(t("skill_source_origin")).FillWidth()
+		kit.Segmented(c, "source", &e.source, labels(c, skillSources), kit.SegmentedProps{Block: true}).Label(t("skill_source_origin"))
 		switch e.source {
 		case 0:
 			ui.Text(c, t("skill_source_git_help")).FontSize(12).TextColor(theme.Of(c).MutedForeground)

@@ -251,7 +251,7 @@ func pluginConfigDialog(c *ui.Context, m *Model) {
 					case "secret":
 						action := e.secrets[f.Name]
 						if f.Set {
-							ui.Segmented(c.Key("action"), &action, t("plugins_settings_keep"), t("plugins_settings_replace"), t("plugins_settings_clear")).Label(label)
+							kit.Segmented(c, "action", &action, []string{t("plugins_settings_keep"), t("plugins_settings_replace"), t("plugins_settings_clear")}, kit.SegmentedProps{}).Label(label)
 							e.secrets[f.Name] = action
 						}
 						switch {

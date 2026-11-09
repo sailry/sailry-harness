@@ -93,3 +93,21 @@ func TestSelectMatchesInput(t *testing.T) {
 		t.Errorf("dropdown %v, select %v", menu.Bounds, sel.Bounds)
 	}
 }
+
+// A Segmented is as high as a text input.
+func TestSegmentedMatchesInput(t *testing.T) {
+	chosen, text := 0, ""
+	tt := ui.NewTester(func(c *ui.Context) {
+		theme.Apply(c, "", theme.Light)
+		ui.Column(c).Fill().Padding(20).Gap(8).AlignItems(ui.Start).Children(func() {
+			ui.TextInput(c.Key("input"), &text).Label("Name").Width(240)
+			Segmented(c, "seg", &chosen, []string{"One", "Two"}, SegmentedProps{}).Label("Pick")
+		})
+	}, 400, 300)
+	tt.Frame()
+	in, _ := tt.Access("Name")
+	seg, ok := tt.Access("Pick")
+	if d := in.Bounds.H - seg.Bounds.H; !ok || d > 1 || d < -1 {
+		t.Errorf("input %v, segmented %v", in.Bounds, seg.Bounds)
+	}
+}

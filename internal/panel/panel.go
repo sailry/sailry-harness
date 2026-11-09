@@ -410,7 +410,7 @@ func (pr *Project) filePreview(c *ui.Context, path string, own bool) {
 		kit.IconButton(c.Key("find"), icons.Search, i18n.T(c, "files_find"), 28, false).OnClick(func() { notice(c) })
 		ui.Spacer(c)
 		if md {
-			ui.Segmented(c.Key("view"), &v.source, i18n.T(c, "content_document"), i18n.T(c, "content_source"))
+			kit.Segmented(c, "view", &v.source, []string{i18n.T(c, "content_document"), i18n.T(c, "content_source")}, kit.SegmentedProps{})
 		}
 	})
 	ui.Scroll(c.Key("text")).TrackScroll(scroll(&v.text, own)).Grow(1).Padding(12, 0).Children(func() {

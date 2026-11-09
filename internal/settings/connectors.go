@@ -361,7 +361,7 @@ func connectorDialog(c *ui.Context, m *Model) {
 			ui.Text(c, k.Name).FontSize(18).FontWeight(600)
 		})
 		if len(k.Methods) > 1 && e.service == "" {
-			ui.Segmented(c.Key("methods"), &e.method, labels(c, k.Methods)...).Label(t("connector_filter")).FillWidth()
+			kit.Segmented(c, "methods", &e.method, labels(c, k.Methods), kit.SegmentedProps{Block: true}).Label(t("connector_filter"))
 		}
 		if s := m.service(e.service); s != nil && s.Identity != "" {
 			ui.Text(c, s.Identity).FontSize(14).TextColor(p.MutedForeground)
@@ -520,7 +520,7 @@ func mcpDialog(c *ui.Context, m *Model) {
 				ui.TextInput(c.Key("input"), &e.name).Label(t("settings_name")).FillWidth()
 			})
 			kit.Field(c, "transport", t("mcp_transport"), "", func() {
-				ui.Segmented(c.Key("tabs"), &e.transport, t("plugins_stdio"), t("plugins_http"), t("plugins_sse")).Label(t("mcp_transport")).FillWidth()
+				kit.Segmented(c, "tabs", &e.transport, []string{t("plugins_stdio"), t("plugins_http"), t("plugins_sse")}, kit.SegmentedProps{Block: true}).Label(t("mcp_transport"))
 			})
 			if e.transport == 0 {
 				kit.Field(c, "command", t("mcp_command"), "", func() {

@@ -130,7 +130,7 @@ func storageDialog(c *ui.Context, m *Model) {
 	kit.Dialog(c.Key("storage"), &d.editing, func() {
 		ui.Text(c, title).FontSize(16).FontWeight(600)
 		ui.Scroll(c.Key("body")).Grow(1).Shrink(1).Gap(16).Children(func() {
-			ui.Segmented(c.Key("tabs"), &x.Tab, t("backup_webdav"), t("backup_s3"), t("backup_local")).Label(title).FillWidth()
+			kit.Segmented(c, "tabs", &x.Tab, []string{t("backup_webdav"), t("backup_s3"), t("backup_local")}, kit.SegmentedProps{Block: true}).Label(title)
 			input := func(key string, value *string, secret, kept bool) {
 				label := t(key)
 				kit.Field(c, key, label, "", func() {

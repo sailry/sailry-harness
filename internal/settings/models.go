@@ -40,7 +40,7 @@ func dictation(c *ui.Context, m *Model) {
 	// dialog.
 	kit.Group(c, "models", i18n.T(c, "dictation_local_model"), "", nil, func() {
 		ui.Row(c).Gap(12).Wrap().Children(func() {
-			ui.Segmented(c.Key("tabs"), &m.SpeechTab, i18n.T(c, "knowledge_installed"), i18n.T(c, "local_models_available")).
+			kit.Segmented(c, "tabs", &m.SpeechTab, []string{i18n.T(c, "knowledge_installed"), i18n.T(c, "local_models_available")}, kit.SegmentedProps{}).
 				Label(i18n.T(c, "dictation_local_model"))
 			if m.SpeechTab == 1 {
 				ui.SearchField(c.Key("search"), &m.SpeechQuery).Placeholder(i18n.T(c, "search")).Width(220)
@@ -98,7 +98,7 @@ func localModels(c *ui.Context, m *Model, lm *LocalModels, title, label, enable,
 	})
 	ui.Column(c.Key("library")).Gap(16).Children(func() {
 		ui.Row(c).Gap(12).Wrap().Children(func() {
-			ui.Segmented(c.Key("tabs"), &lm.Tab, i18n.T(c, "knowledge_installed"), i18n.T(c, "local_models_available")).
+			kit.Segmented(c, "tabs", &lm.Tab, []string{i18n.T(c, "knowledge_installed"), i18n.T(c, "local_models_available")}, kit.SegmentedProps{}).
 				Label(i18n.T(c, title))
 			if lm.Tab == 1 {
 				ui.SearchField(c.Key("search"), &lm.Query).Placeholder(i18n.T(c, "search")).Width(220)

@@ -123,7 +123,14 @@ border), so selects and text inputs share a height and fill everywhere,
 and its dropdown is as wide as the trigger (`MenuOptions.Match`).
 Right-click menus stay the system's (`Element.ContextMenu`).
 `kit.Alert` (`internal/kit/alert.go`) is adapted from Lobe MyGo's
-`feedback.Alert` (MIT, notice kept): MyGo has no alert.
+`feedback.Alert` (MIT, notice kept): MyGo has no alert. `kit.Segmented`
+(`internal/kit/segmented.go`) is adapted from Lobe MyGo's
+`action.Segmented` on MyGo's SegmentedBase: every segmented choice and
+in-page view switch (Installed | Available, details tabs, market kinds,
+Document | Source) uses it; the track on `Muted`, the chosen segment
+inverted (`Foreground` behind `Background`-colored text) with a sliding
+indicator, as high as a text input. Document tab strips (the panel's
+and the pages') stay tabs.
 
 ## Wiring a backend
 

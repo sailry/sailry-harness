@@ -105,7 +105,7 @@ func SelectRow(c *ui.Context, key any, title, description string, chosen *string
 func SegmentedRow(c *ui.Context, key any, title, description string, chosen *int, labels ...string) bool {
 	changed := false
 	Row(c, key, title, description, func() {
-		changed = ui.Segmented(c.Key("segments"), chosen, labels...).Label(title).Changed()
+		changed = Segmented(c, "segments", chosen, labels, SegmentedProps{}).Label(title).Changed()
 	})
 	return changed
 }
