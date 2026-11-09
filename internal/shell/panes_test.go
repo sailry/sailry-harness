@@ -271,3 +271,62 @@ func TestDragTerminalTab(t *testing.T) {
 		t.Fatalf("selected %q", a.Sidebar.Selected)
 	}
 }
+
+func TestPanesPersist(t *testing.T) {
+	a, tt := newTester(t)
+	term := splitThree(t, a, tt)
+	a.panes.Displayed().Sizes[0], a.panes.Displayed().Sizes[1] = 0.3, 0.7
+	dir := t.TempDir()
+	if err := SavePrefs(dir, a.Prefs()); err != nil {
+		t.Fatal(err)
+	}
+	b := New(preview.Load())
+	b.SetPrefs(LoadPrefs(dir))
+	tb := ui.NewTester(b.View, 1280, 820)
+	tb.SetLocale("en")
+	tb.Frame()
+	// The selected session's group comes back with its shares.
+	g := b.panes.Displayed()
+	if g == nil || !slices.Equal(g.Targets(), []panes.Target{session(preview.Big), session(themeChat), term}) || g.Sizes[0] != 0.3 {
+		t.Fatalf("restored: %+v", b.panes.Groups)
+	}
+	// A terminal whose tab is gone leaves its group.
+	p := LoadPrefs(dir)
+	p.PanelTabs, p.PanelTab = nil, panel.Tab{}
+	c := New(preview.Load())
+	c.SetPrefs(p)
+	if got := c.panes.Members(session(themeChat)); len(got) != 2 {
+		t.Fatalf("pruned: %v", got)
+	}
+}
+
+func TestTerminalSplitKeys(t *testing.T) {
+	a, tt := newTester(t)
+	term := splitThree(t, a, tt)
+	// A click in the terminal pane's body gives it the focus.
+	r, ok := tt.Find("Terminal UI preview with project and worktree ownership; no PTY or shell is started")
+	if !ok {
+		t.Fatal("no terminal pane")
+	}
+	tt.ClickAt(r.X+r.W/2, r.Y-60)
+	tt.Frame()
+	if a.panes.Active != term {
+		t.Fatalf("active %v", a.panes.Active)
+	}
+	tt.Key(ui.Cmd, ui.KeyD)
+	tt.Frame()
+	if n := len(a.panes.Displayed().Targets()); n != 4 || a.panes.Active.Kind != panes.Terminal || a.panes.Active == term {
+		t.Fatalf("⌘D: %d panes, active %v", n, a.panes.Active)
+	}
+	right := a.panes.Active
+	tt.Frame()
+	tt.Key(ui.Cmd|ui.Shift, ui.KeyD)
+	tt.Frame()
+	if n := len(a.panes.Displayed().Targets()); n != 5 {
+		t.Fatalf("⌘⇧D: %d panes", n)
+	}
+	if got := a.panes.Members(right); got[len(got)-1] != a.panes.Active {
+		t.Fatalf("below: %v", got)
+	}
+	snapshot(t, tt, "panes-terminal-keys")
+}

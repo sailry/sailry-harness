@@ -9,6 +9,7 @@ import (
 
 	"github.com/sailry/sailry-go/internal/onboarding"
 	"github.com/sailry/sailry-go/internal/panel"
+	"github.com/sailry/sailry-go/internal/panes"
 )
 
 // Prefs are the window's UI preferences that come back after a relaunch:
@@ -29,6 +30,9 @@ type Prefs struct {
 	// (preferences.rs welcome_seen); nil in a file from before it counts
 	// as seen, and no file at all as a first launch.
 	WelcomeSeen *bool `json:"welcomeSeen,omitempty"`
+	// Panes are the split workspace's groups, each a layout tree
+	// (panes.rs keeps them in the dock's layout state).
+	Panes []*panes.Node `json:"panes,omitempty"`
 }
 
 // PrefsFile is the preferences' file name in the app's user data folder,
@@ -81,6 +85,7 @@ func (a *App) Prefs() Prefs {
 		NavWidth: a.NavWidth, NavOpen: a.NavOpen, PanelWidth: a.PanelWidth, PanelOpen: a.PanelOpen,
 		PanelTabs: a.Panel.Tabs, PanelTab: a.Panel.Active, Collapsed: a.Sidebar.Collapsed(),
 		Features: a.features, Unpinned: a.unpinnedList(), WelcomeSeen: &a.Welcome.Seen,
+		Panes: a.panes.Groups,
 	}
 }
 
@@ -101,6 +106,10 @@ func (a *App) SetPrefs(p Prefs) {
 	for _, f := range p.Unpinned {
 		a.unpinned[f] = true
 	}
+	// After the panel's tabs, which a terminal pane needs: a pane whose
+	// session or terminal is gone leaves its group.
+	a.panes.Restore(p.Panes)
+	a.panes.Prune(a.paneExists)
 	if p.WelcomeSeen != nil && !*p.WelcomeSeen {
 		a.Welcome = onboarding.Guide{Open: true}
 	}
