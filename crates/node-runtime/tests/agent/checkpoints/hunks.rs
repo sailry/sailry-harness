@@ -61,6 +61,7 @@ fn selection(
     }
 }
 
+#[cfg(unix)]
 fn indexed(fixture: &Fixture, path: &str) -> String {
     let repository = git2::Repository::open(&fixture.root).unwrap();
     let index = repository.index().unwrap();

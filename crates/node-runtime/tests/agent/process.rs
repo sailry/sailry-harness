@@ -1,7 +1,6 @@
 use super::*;
-use sailry_protocol::process::Completion;
 #[cfg(unix)]
-use sailry_protocol::process::Outcome;
+use sailry_protocol::process::{Completion, Outcome};
 #[cfg(unix)]
 use serde_json::json;
 #[cfg(unix)]
@@ -130,6 +129,7 @@ pub(super) async fn decide(
     (request, response)
 }
 
+#[cfg(unix)]
 pub(super) async fn results(client: &Client, page: &Page) -> Vec<Completion> {
     super::results(client, page)
         .await

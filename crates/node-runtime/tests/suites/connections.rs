@@ -1,4 +1,8 @@
+#[cfg(unix)]
 #[path = "../support/database.rs"]
+mod database_fixture;
+#[cfg(windows)]
+#[path = "../support/database/error.rs"]
 mod database_fixture;
 #[path = "../support/files.rs"]
 mod file_fixture;

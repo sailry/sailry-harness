@@ -1,8 +1,8 @@
 //! Whole-application installation through the pinned updater, never a binary-only swap.
 use super::{Failure, Result};
-#[cfg(any(target_os = "macos", test))]
+#[cfg(target_os = "macos")]
 use super::{cached, config::Config, manifest, package, transfer::Staged};
-#[cfg(any(target_os = "macos", test))]
+#[cfg(target_os = "macos")]
 use std::sync::Arc;
 use std::{
     fs,
@@ -75,7 +75,7 @@ pub(super) fn separate_data(installed: &Path, profile: &Path, cache: &Path) -> R
     Ok(())
 }
 
-#[cfg(any(target_os = "macos", test))]
+#[cfg(target_os = "macos")]
 pub(super) fn replace(staged: &Staged, config: &Config, installed: &Path) -> Result<PathBuf> {
     manifest::revalidate(&staged.selection, config)?;
     package::verify_archive(&staged.archive, &staged.selection.release, &config.keys)?;
@@ -143,7 +143,7 @@ pub(super) fn replace(staged: &Staged, config: &Config, installed: &Path) -> Res
     Ok(backup)
 }
 
-#[cfg(any(target_os = "macos", test))]
+#[cfg(target_os = "macos")]
 fn copy_tree(source: &Path, destination: &Path) -> Result<()> {
     let metadata = fs::symlink_metadata(source).map_err(Failure::io)?;
     if metadata.file_type().is_symlink() {

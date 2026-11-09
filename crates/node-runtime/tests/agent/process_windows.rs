@@ -205,8 +205,10 @@ mod decoding {
         let wide = wide.strip_prefix(&[0xff, 0xfe]).unwrap_or(&wide);
         assert_eq!(wide.len() % 2, 0);
         let units: Vec<_> = wide
-            .chunks_exact(2)
-            .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|pair| u16::from_le_bytes(*pair))
             .collect();
         let expected = String::from_utf16(&units).unwrap();
         assert!(!expected.is_empty());

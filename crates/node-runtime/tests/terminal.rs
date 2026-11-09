@@ -3,6 +3,7 @@ use sailry_link::{Link, NetworkScope, Subscription, Transport};
 use sailry_node_runtime::Node;
 use sailry_protocol::{terminal::*, *};
 use std::{sync::Arc, time::Duration};
+#[cfg(unix)]
 #[path = "terminal/activity.rs"]
 mod activity;
 #[path = "terminal/appearance.rs"]

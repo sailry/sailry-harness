@@ -129,7 +129,7 @@ mod execution;
 mod forwarding;
 mod input;
 mod management;
-#[cfg(feature = "test-support")]
+#[cfg(all(unix, feature = "test-support"))]
 mod python;
 #[cfg(all(unix, feature = "test-support"))]
 mod standalone;
