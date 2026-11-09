@@ -911,7 +911,6 @@ provider_step_back
 provider_save
 provider_save_login
 provider_access_login
-provider_editor_preview
 provider_name_hint
 provider_api
 provider_endpoint

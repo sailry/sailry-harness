@@ -53,20 +53,6 @@ func modalList(c *ui.Context, key any, heading, count, empty string, n int, rows
 	})
 }
 
-// listAction is modal_list.rs action: a full-width ghost row with a plus
-// and label.
-func listAction(c *ui.Context, key any, label string, disabled bool) ui.Element {
-	b := kit.GhostLook(c, ui.ButtonBase(c.Key(key)).Label(label).Disabled(disabled), false).Radius(0).
-		Height(rowSingle).PaddingX(16).Gap(6).FillWidth()
-	if disabled {
-		b.Opacity(0.5)
-	}
-	return b.Children(func() {
-		ui.Icon(c, icons.Plus).FontSize(16)
-		ui.Text(c, label).FontSize(14).SingleLine()
-	})
-}
-
 // listRow is a modal_list.rs Row's options.
 type listRow struct {
 	subtitle, meta string

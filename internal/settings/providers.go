@@ -568,7 +568,8 @@ func brandPicker(c *ui.Context, m *Model, before, after func()) {
 		b.Children(func() {
 			ui.Row(c).Size(16, 16).Center().Children(func() {
 				if ic := icons.Providers[brand]; ic != nil {
-					ui.Icon(c, ic).FontSize(16)
+					// In the mark's own brand colors (Lobe Icons').
+					ui.Image(c, ic).Size(16, 16)
 				} else {
 					ui.Text(c, string([]rune(label)[:1])).FontSize(12).FontWeight(600)
 				}
@@ -642,7 +643,6 @@ func providerForm(c *ui.Context, e *providerEditor) {
 		})
 	}
 	ui.Column(c.Key("form")).Gap(16).Children(func() {
-		ui.Text(c, t("provider_editor_preview")).FontSize(14).TextColor(p.MutedForeground)
 		input("name", t("settings_name"), t("provider_name_hint"), &e.name, false)
 		if e.method.API != "" {
 			kit.Field(c, "api", t("provider_api"), "", func() {
@@ -672,7 +672,7 @@ func providerForm(c *ui.Context, e *providerEditor) {
 				}
 			}
 		}
-		ui.Row(c.Key("models-heading")).Gap(8).Wrap().Children(func() {
+		ui.Row(c.Key("models-heading")).Gap(8).Wrap().AlignItems(ui.Center).Children(func() {
 			ui.Text(c, t("provider_models")).FontSize(14).FontWeight(500).Grow(1)
 			label := t("provider_discover")
 			if e.probing {
@@ -688,16 +688,15 @@ func providerForm(c *ui.Context, e *providerEditor) {
 				}
 				kit.Toast(c, kit.Done, t("provider_discovered_preview"))
 			})
+			kit.Secondary(c.Key("add-model"), t("provider_add_model")).Disabled(e.probing).OnClick(func() {
+				e.models = append(e.models, modelDraft{open: true})
+			})
 		})
 		modalList(c, "models", "", "", t("provider_models_empty"), len(e.models), func() {
 			for i := range e.models {
 				providerModel(c, e, i)
 			}
-		}, func() {
-			listAction(c, "add-model", t("provider_add_model"), e.probing).OnClick(func() {
-				e.models = append(e.models, modelDraft{open: true})
-			})
-		})
+		}, nil)
 	})
 }
 

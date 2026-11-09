@@ -892,7 +892,6 @@ provider_step_back: 上一步
 provider_save: 保存
 provider_save_login: 保存并登录
 provider_access_login: 账号登录
-provider_editor_preview: 仅编辑当前窗口的示例。密钥不保存，模型发现与验证不发起网络请求。
 provider_name_hint: 输入渠道名称
 provider_api: 接口协议
 provider_endpoint: 接口地址
