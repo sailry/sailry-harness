@@ -36,7 +36,10 @@ var modes = []mode{
 }
 
 // Welcome builds the page in place of an empty transcript. composer builds
-// the composer under the title; prompt gets a card's prompt.
+// the composer under the title; prompt gets a card's prompt. Below
+// pairWidth the page is compact: narrower padding, the cards stacked,
+// and the wordmark shrinks with the width, leaving room for the theme's
+// brand beside it (welcome.rs layout).
 func Welcome(c *ui.Context, s *State, composer func(), prompt func(string)) {
 	scroll := ui.Scroll(c.Key("welcome")).Grow(1)
 	// The wordmark's light follows the pointer across the page and stays
@@ -44,20 +47,46 @@ func Welcome(c *ui.Context, s *State, composer func(), prompt func(string)) {
 	if x, _, over := scroll.PointerPosition(); over {
 		s.light, s.lit = scroll.LayoutBounds().X+x, true
 	}
+	width := min(scroll.LayoutBounds().W, theme.ContentWidth)
+	if width <= 0 {
+		width = theme.ContentWidth
+	}
+	compact := width < pairWidth
+	logo, padding := float32(72), float32(24)
+	switch {
+	case width < 180:
+		logo = 20
+	case width < 240:
+		logo = 24
+	case compact:
+		logo = 32
+	}
+	if compact {
+		padding = 8
+	}
+	available := max(width-2*padding-12, 0)
+	logo = min(logo, float32(math.Floor(float64(available/(markW/markH+1)))))
 	scroll.Children(func() {
 		ui.Column(c).FillWidth().MinHeightPercent(100).MaxWidth(theme.ContentWidth).Margin(0, ui.Auto).
 			Padding(32, 0).Gap(12).Justify(ui.Center).Children(func() {
-			ui.Column(c.Key("hero")).FillWidth().PaddingX(24).Gap(16).AlignItems(ui.Center).Children(func() {
+			ui.Column(c.Key("hero")).FillWidth().PaddingX(padding).Gap(16).AlignItems(ui.Center).Children(func() {
 				kit.Banner(c, "hero.new_session")
-				ui.Row(c).Gap(12).Padding(4, 0).Children(func() { wordmark(c, s, 72) })
+				ui.Row(c).Gap(12).Padding(4, 0).AlignItems(ui.Center).Children(func() {
+					kit.Brand(c, logo)
+					wordmark(c, s, logo)
+				})
 				ui.Text(c, i18n.T(c, "welcome_title")).FontSize(18).TextAlign(ui.Center).FillWidth()
 			})
 			composer()
-			ui.Row(c.Key("modes")).FillWidth().PaddingX(24).Gap(12).Wrap().Children(func() {
+			ui.Row(c.Key("modes")).FillWidth().PaddingX(padding).Gap(12).Wrap().Children(func() {
 				for i := 0; i < len(modes); i += 2 {
-					ui.Row(c).Grow(1).Basis(pairWidth).MinWidth(0).Gap(12).AlignItems(ui.Stretch).Children(func() {
-						card(c, modes[i], prompt)
-						card(c, modes[i+1], prompt)
+					pair := ui.Row(c).Grow(1).Basis(pairWidth).MinWidth(0).Gap(12).AlignItems(ui.Stretch)
+					if compact {
+						pair = ui.Column(c).Grow(1).Basis(pairWidth).MinWidth(0).Gap(12).AlignItems(ui.Stretch)
+					}
+					pair.Children(func() {
+						card(c, modes[i], compact, prompt)
+						card(c, modes[i+1], compact, prompt)
 					})
 				}
 			})
@@ -67,7 +96,7 @@ func Welcome(c *ui.Context, s *State, composer func(), prompt func(string)) {
 
 // card is a mode card (theme/cards.rs): Kit's custom button in the mode's
 // color at 20%, or the package's card colors, texture, border and radius.
-func card(c *ui.Context, m mode, prompt func(string)) {
+func card(c *ui.Context, m mode, stacked bool, prompt func(string)) {
 	p := theme.Of(c)
 	color := m.color(p)
 	style := theme.Card{}
@@ -80,8 +109,11 @@ func card(c *ui.Context, m mode, prompt func(string)) {
 	}
 	icon := style.Icon.Or(color)
 	title := i18n.T(c, m.title)
-	b := ui.ButtonBase(c.Key(m.key)).Label(title).Grow(1).Basis(0).MinWidth(0).Padding(16).Radius(radius).
+	b := ui.ButtonBase(c.Key(m.key)).Label(title).MinWidth(0).Padding(16).Radius(radius).
 		TextColor(style.Foreground.Or(p.Foreground)).Cursor(ui.CursorPointer)
+	if !stacked {
+		b.Grow(1).Basis(0) // a pair shares its row evenly
+	}
 	switch {
 	case b.Pressed():
 		b.Background(style.Active.Or(color.Alpha(0.26)))

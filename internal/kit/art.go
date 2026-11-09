@@ -113,6 +113,18 @@ func Banner(c *ui.Context, slot string) {
 	})
 }
 
+// Brand is the theme's brand mark, a size square (decoration.rs brand).
+// It builds nothing when the theme has none.
+func Brand(c *ui.Context, size float32) {
+	d := theme.Of(c).Variant.Asset("brand")
+	if d == nil || d.Bitmap() == nil {
+		return
+	}
+	ui.Box(c.Key("brand")).Size(size, size).Shrink(0).PassThrough().Draw(func(pt *ui.Painter, r ui.Rect) {
+		Picture(pt, d, r)
+	})
+}
+
 // ArtIcon is the theme's raster icon.{key} at size, or the vector fallback
 // (decoration.rs sized_icon). color tints only the fallback.
 func ArtIcon(c *ui.Context, key string, fallback *ui.SVG, size float32, color ui.Color) ui.Element {
