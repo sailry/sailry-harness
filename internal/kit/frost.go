@@ -69,5 +69,10 @@ func Opaque(c ui.Color) ui.Color {
 // window background, so the theme sets only the color.
 func Frost(c *ui.Context, el ui.Element, base ui.Color) ui.Element {
 	solid := base.Over(Opaque(theme.Of(c).Background))
-	return el.Material(frost{blur: FloatingBlur, base: solid, tint: solid.Alpha(FloatingTint)})
+	return el.Material(frost{blur: FloatingBlur, base: solid, tint: solid.Alpha(SurfaceTint)})
 }
+
+// SurfaceTint is how strongly a frosted surface's color covers the blurred
+// backdrop: higher than the floating panels', so the composer keeps its
+// fill's tone and the page under it only shows faintly.
+const SurfaceTint = 0.85
