@@ -268,7 +268,7 @@ func output(c *ui.Context, o *Output) {
 			notice(c, i18n.T(c, "tool_partial"), p.MutedForeground)
 		}
 		copyText := copyOf(o)
-		b := theme.IconButton(c.Key("copy"), icons.Copy, i18n.T(c, "tool_copy"), 20, false).
+		b := kit.IconButton(c.Key("copy"), icons.Copy, i18n.T(c, "tool_copy"), 20, false).
 			TextColor(p.MutedForeground).Absolute().Top(4).Right(4)
 		if !hovered && !b.FocusVisible() {
 			b.Opacity(0)

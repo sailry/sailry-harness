@@ -12,6 +12,7 @@ import (
 	"github.com/sailry/sailry-go/internal/preview"
 	"github.com/sailry/sailry-go/internal/settings"
 	"github.com/sailry/sailry-go/internal/sidebar"
+	"github.com/sailry/sailry-go/internal/kit"
 	"github.com/sailry/sailry-go/internal/theme"
 )
 
@@ -151,13 +152,13 @@ func (a *App) header(c *ui.Context) {
 			if !a.NavOpen {
 				icon = icons.PanelLeftOpen
 			}
-			theme.IconButton(c.Key("toggle"), icon, i18n.T(c, "sidebar_toggle"), 28, false).
+			kit.IconButton(c.Key("toggle"), icon, i18n.T(c, "sidebar_toggle"), 28, false).
 				OnClick(func() { a.NavOpen = !a.NavOpen })
 			ui.Text(c, a.title(c)).FontSize(14).SingleLine().Grow(1).Shrink(1).TextColor(p.Foreground)
 			// Preview data is identified wherever it shows.
 			// An opaque fill keeps it legible over the translucent band.
 			ui.Row(c.Key("preview")).Radius(999).Background(p.Background).Tooltip(i18n.T(c, "preview_notice")).Children(func() {
-				theme.Tag(c, i18n.T(c, "preview"))
+				kit.Tag(c, i18n.T(c, "preview"))
 			})
 		})
 	})
@@ -178,18 +179,18 @@ func (a *App) title(c *ui.Context) string {
 // Features this prototype does not have are shown disabled.
 func (a *App) rail(c *ui.Context) {
 	ui.Column(c.Key("rail")).Width(RailWidth).Shrink(0).Padding(8, 0).Gap(8).AlignItems(ui.Center).Children(func() {
-		theme.IconButton(c.Key("conversations"), icons.Chat, i18n.T(c, "conversation"), 36, a.Page == ConversationPage).
+		kit.IconButton(c.Key("conversations"), icons.Chat, i18n.T(c, "conversation"), 36, a.Page == ConversationPage).
 			OnClick(func() { a.Page = ConversationPage })
 		for _, f := range []struct {
 			icon *ui.SVG
 			key  string
 		}{{icons.Grid, "activity"}, {icons.Puzzle, "market_title"}, {icons.Folder, "files"}, {icons.Network, "git"}} {
-			theme.IconButton(c.Key(f.key), f.icon, i18n.T(c, f.key), 36, false).Disabled(true)
+			kit.IconButton(c.Key(f.key), f.icon, i18n.T(c, f.key), 36, false).Disabled(true)
 		}
 		ui.Spacer(c)
-		theme.IconButton(c.Key("more"), icons.Ellipsis, i18n.T(c, "more"), 36, false).Disabled(true)
-		theme.IconButton(c.Key("search"), icons.Search, i18n.T(c, "search"), 36, false).Disabled(true)
-		theme.IconButton(c.Key("settings"), icons.Settings, i18n.T(c, "settings"), 36, a.Page == SettingsPage).
+		kit.IconButton(c.Key("more"), icons.Ellipsis, i18n.T(c, "more"), 36, false).Disabled(true)
+		kit.IconButton(c.Key("search"), icons.Search, i18n.T(c, "search"), 36, false).Disabled(true)
+		kit.IconButton(c.Key("settings"), icons.Settings, i18n.T(c, "settings"), 36, a.Page == SettingsPage).
 			OnClick(func() { a.Page = SettingsPage })
 	})
 }

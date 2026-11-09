@@ -1,16 +1,17 @@
-package theme
+package kit
 
 import (
 	"math"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-go/internal/theme"
 )
 
 // Ghost is Kit's ghost button with Sailry's subtle_button states (theme.rs):
 // transparent, accent on hover, secondary_active when pressed or selected.
 // It is a MyGo ButtonBase, which keeps focus, keys and accessibility.
 func Ghost(c *ui.Context, label string, selected bool) ui.Element {
-	p := Of(c)
+	p := theme.Of(c)
 	b := ui.ButtonBase(c).Label(label).Radius(6).Center().TextColor(p.Foreground).Cursor(ui.CursorPointer)
 	switch {
 	case b.Pressed() || selected:
@@ -35,7 +36,7 @@ func IconButton(c *ui.Context, icon *ui.SVG, label string, size float32, selecte
 
 // Primary is Kit's primary button: the neutral foreground fill.
 func Primary(c *ui.Context, label string, disabled bool) ui.Element {
-	p := Of(c)
+	p := theme.Of(c)
 	b := ui.ButtonBase(c).Label(label).Disabled(disabled).DimDisabled(false).Radius(6).Center().Gap(6).
 		PaddingX(12).Height(32).TextColor(p.OnPrimary).Background(p.ButtonPrimary)
 	switch {
@@ -51,29 +52,21 @@ func Primary(c *ui.Context, label string, disabled bool) ui.Element {
 
 // Tag is Kit's small Tag: a rounded label in the emphasis color at 12%.
 func Tag(c *ui.Context, text string) ui.Element {
-	p := Of(c)
+	p := theme.Of(c)
 	return ui.Text(c, text).FontSize(12).SingleLine().Padding(1, 6).Radius(999).
 		Background(p.Primary.Alpha(0.12)).TextColor(p.Primary)
 }
 
-// AnimationFPS caps the drawings that animate. MyGo's only frame-rate
-// parameter is Painter.AnimationFrameRate, so animated indicators are drawn
-// rather than built from Element.Loop, which runs at the display's rate.
-const AnimationFPS = 60
-
-// ContentWidth is the transcript's and the composer's maximum width
-// (preview.rs).
-const ContentWidth = 800
 
 // Loader draws the sidebar's running indicator (ui/loading.rs in the
 // reference): a 2x3 dot matrix whose dots light in turn. Custom drawing: MyGo
 // has a Spinner of spokes but no dot matrix, and a Spinner cannot be capped
 // at 60fps.
 func Loader(c *ui.Context, size float32) ui.Element {
-	p := Of(c)
+	p := theme.Of(c)
 	colors := [3]ui.Color{ui.Hex("#3b82f6"), p.Warning, p.Danger}
 	return ui.Box(c).Size(size, size).Label("running").Draw(func(pt *ui.Painter, r ui.Rect) {
-		pt.AnimationFrameRate(AnimationFPS)
+		pt.AnimationFrameRate(FPS)
 		t := float64(pt.Now().UnixMilli()%1200) / 1200
 		d := r.W / 4
 		for i := range 6 {
@@ -90,9 +83,9 @@ func Loader(c *ui.Context, size float32) ui.Element {
 // Orb draws the thinking indicator (ui/thinking in the reference): a dot that
 // breathes. Custom drawing for the same reason as Loader.
 func Orb(c *ui.Context, size float32) ui.Element {
-	p := Of(c)
+	p := theme.Of(c)
 	return ui.Box(c).Size(size, size).Draw(func(pt *ui.Painter, r ui.Rect) {
-		pt.AnimationFrameRate(AnimationFPS)
+		pt.AnimationFrameRate(FPS)
 		t := float64(pt.Now().UnixMilli()%1600) / 1600
 		s := float32(0.55 + 0.25*math.Sin(t*2*math.Pi))
 		w := r.W * s

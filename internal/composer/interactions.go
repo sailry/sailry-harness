@@ -6,6 +6,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-go/internal/i18n"
 	"github.com/sailry/sailry-go/internal/icons"
+	"github.com/sailry/sailry-go/internal/kit"
 	"github.com/sailry/sailry-go/internal/theme"
 )
 
@@ -128,7 +129,7 @@ func (s *State) interactions(c *ui.Context, in Interactions, actions Actions) {
 // capsule is theme.rs capsule: a small round outlined button, muted.
 func capsule(c *ui.Context, label string, open bool) ui.Element {
 	p := theme.Of(c)
-	b := theme.Ghost(c, label, open).Height(28).PaddingX(12).Gap(6).Radius(14).Border(1, p.Border).
+	b := kit.Ghost(c, label, open).Height(28).PaddingX(12).Gap(6).Radius(14).Border(1, p.Border).
 		TextColor(p.MutedForeground)
 	return b.HasPopup(ui.PopupDialog).Expanded(open).Children(func() {
 		ui.Icon(c, icons.CircleUser).FontSize(16)
@@ -201,11 +202,11 @@ func (s *State) approval(c *ui.Context, a Approval, first bool, actions Actions)
 		ui.TextAreaBase(c.Key("reason"), reason).Label(i18n.T(c, "approval_reason")).Lines(2, 4).FontSize(14).
 			Padding(8).Radius(6).Border(1, p.Border)
 		row.Children(func() {
-			theme.Ghost(c.Key("reason-cancel"), i18n.T(c, "approval_reason_cancel"), false).Height(28).PaddingX(12).Radius(14).
+			kit.Ghost(c.Key("reason-cancel"), i18n.T(c, "approval_reason_cancel"), false).Height(28).PaddingX(12).Radius(14).
 				Children(func() { ui.Text(c, i18n.T(c, "approval_reason_cancel")).FontSize(14) }).
 				OnClick(func() { delete(s.in.reasons, a.ID) })
 			empty := strings.TrimSpace(*reason) == ""
-			theme.Primary(c.Key("reason-submit"), i18n.T(c, "approval_reject"), empty).Height(28).Radius(14).
+			kit.Primary(c.Key("reason-submit"), i18n.T(c, "approval_reject"), empty).Height(28).Radius(14).
 				Children(func() { ui.Text(c, i18n.T(c, "approval_reject")).FontSize(14) }).
 				OnClick(func() {
 					text := strings.TrimSpace(*reason)
@@ -217,10 +218,10 @@ func (s *State) approval(c *ui.Context, a Approval, first bool, actions Actions)
 	}
 	row.Children(func() {
 		// Deny, with a menu of Deny with reason (Kit DropdownButton).
-		theme.Ghost(c.Key("deny"), i18n.T(c, "approval_reject"), false).Height(28).PaddingX(12).MinWidth(48).
+		kit.Ghost(c.Key("deny"), i18n.T(c, "approval_reject"), false).Height(28).PaddingX(12).MinWidth(48).
 			Children(func() { ui.Text(c, i18n.T(c, "approval_reject")).FontSize(14) }).
 			OnClick(func() { actions.Decide(a.ID, Deny, "") })
-		theme.IconButton(c.Key("deny-options"), icons.ChevronDown, i18n.T(c, "approval_deny_reason"), 28, false).
+		kit.IconButton(c.Key("deny-options"), icons.ChevronDown, i18n.T(c, "approval_deny_reason"), 28, false).
 			PopoverMenuButton(func(m *ui.Menu) {
 				if m.Item(i18n.T(c, "approval_deny_reason")).Chosen() {
 					s.in.reasons[a.ID] = new(string)
@@ -229,9 +230,9 @@ func (s *State) approval(c *ui.Context, a Approval, first bool, actions Actions)
 		allow := i18n.T(c, "approval_allow_once")
 		var b ui.Element
 		if first {
-			b = theme.Primary(c.Key("allow"), allow, false).Height(28)
+			b = kit.Primary(c.Key("allow"), allow, false).Height(28)
 		} else {
-			b = theme.Ghost(c.Key("allow"), allow, false).Height(28).PaddingX(12).Border(1, p.Border)
+			b = kit.Ghost(c.Key("allow"), allow, false).Height(28).PaddingX(12).Border(1, p.Border)
 		}
 		if !a.Remember {
 			b.Radius(14)
@@ -241,7 +242,7 @@ func (s *State) approval(c *ui.Context, a Approval, first bool, actions Actions)
 		}
 		b.MinWidth(48).Children(func() { ui.Text(c, allow).FontSize(14) }).OnClick(func() { actions.Decide(a.ID, Allow, "") })
 		if a.Remember {
-			theme.IconButton(c.Key("allow-options"), icons.ChevronDown, i18n.T(c, "approval_allow_session"), 28, false).
+			kit.IconButton(c.Key("allow-options"), icons.ChevronDown, i18n.T(c, "approval_allow_session"), 28, false).
 				PopoverMenuButton(func(m *ui.Menu) {
 					if m.Item(i18n.T(c, "approval_allow_session")).Chosen() {
 						actions.Decide(a.ID, AllowSession, "")
@@ -340,7 +341,7 @@ func (s *State) ask(c *ui.Context, q *Ask, actions Actions) {
 		answer := s.answer(q)
 		ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
 			button := func(key, label string) ui.Element {
-				return theme.Ghost(c.Key(key), label, false).Height(28).PaddingX(12).Border(1, p.Border).
+				return kit.Ghost(c.Key(key), label, false).Height(28).PaddingX(12).Border(1, p.Border).
 					Children(func() { ui.Text(c, label).FontSize(14) })
 			}
 			if q.Declinable {
@@ -348,7 +349,7 @@ func (s *State) ask(c *ui.Context, q *Ask, actions Actions) {
 			}
 			button("cancel", i18n.T(c, "interaction_cancel")).OnClick(func() { actions.CancelQuestion(q.ID) })
 			submit := i18n.T(c, "interaction_submit")
-			theme.Primary(c.Key("submit"), submit, answer == nil).Height(28).
+			kit.Primary(c.Key("submit"), submit, answer == nil).Height(28).
 				Children(func() { ui.Text(c, submit).FontSize(14) }).
 				OnClick(func() {
 					if a := s.answer(q); a != nil {

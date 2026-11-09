@@ -1,4 +1,4 @@
-package settings
+package kit
 
 import (
 	"hash/fnv"

@@ -199,3 +199,7 @@ func build(p *Palette) *ui.Theme {
 	}
 	return &t
 }
+
+// ContentWidth is the transcript's and the composer's maximum width
+// (preview.rs).
+const ContentWidth = 800

@@ -10,6 +10,7 @@ import (
 	"github.com/sailry/sailry-go/internal/i18n"
 	"github.com/sailry/sailry-go/internal/icons"
 	"github.com/sailry/sailry-go/internal/preview"
+	"github.com/sailry/sailry-go/internal/kit"
 	"github.com/sailry/sailry-go/internal/theme"
 )
 
@@ -153,9 +154,9 @@ func providers(c *ui.Context, s *State, d *preview.Data) {
 				desc := i18n.T(c, "preview") + " · " + i18n.T(c, "provider_model_count", "count", models)
 				row := ui.Row(c.Key(pr.ID)).Padding(12, 0).Gap(12)
 				row.Children(func() {
-					MediaRow(c, pr.Name, desc, func() { Tile(c, pr.Name, icons.Providers[pr.ID]) }, func() {
+					kit.MediaRow(c, pr.Name, desc, func() { kit.Tile(c, pr.Name, icons.Providers[pr.ID]) }, func() {
 						if pr.Badge != "" {
-							theme.Tag(c, i18n.T(c, pr.Badge))
+							kit.Tag(c, i18n.T(c, pr.Badge))
 						}
 					}).Opacity(enabledOpacity(pr.Enabled))
 					ui.Switch(c, &pr.Enabled).Label(i18n.T(c, "provider_enabled") + " " + pr.Name)
@@ -173,12 +174,12 @@ func plugins(c *ui.Context, d *preview.Data) {
 			for i := range d.Plugins {
 				pl := &d.Plugins[i]
 				ui.Row(c.Key(pl.ID)).Padding(12, 0).Gap(12).Children(func() {
-					MediaRow(c, pl.Name, pl.Description, func() { Tile(c, pl.Name, icons.Puzzle) }, func() {
+					kit.MediaRow(c, pl.Name, pl.Description, func() { kit.Tile(c, pl.Name, icons.Puzzle) }, func() {
 						key := "plugins_third_party"
 						if pl.Official {
 							key = "plugins_official"
 						}
-						theme.Tag(c, i18n.T(c, key))
+						kit.Tag(c, i18n.T(c, key))
 					})
 					ui.Text(c, pl.Version).FontSize(14).TextColor(p.MutedForeground).Font("monospace")
 					ui.Switch(c, &pl.Enabled).Label(i18n.T(c, "plugins_enabled") + " " + pl.Name)

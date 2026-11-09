@@ -278,7 +278,7 @@ func phaseRow(c *ui.Context, r *Reply) {
 		label = i18n.T(c, "turn_thinking")
 	}
 	ui.Row(c.Key("phase")).Gap(8).Height(rowHeight).Children(func() {
-		theme.Orb(c, 16)
+		kit.Orb(c, 16)
 		kit.Shimmer(c, label, 14, p.MutedForeground)
 	})
 }
@@ -296,7 +296,7 @@ func footer(c *ui.Context, t *Turn, blocks []Block, actions Actions) {
 	text := strings.Join(parts, "\n\n")
 	ui.Row(c.Key("footer")).Gap(8).Children(func() {
 		if text != "" {
-			theme.IconButton(c.Key("copy"), icons.Copy, i18n.T(c, "turn_copy"), 28, false).TextColor(p.MutedForeground).
+			kit.IconButton(c.Key("copy"), icons.Copy, i18n.T(c, "turn_copy"), 28, false).TextColor(p.MutedForeground).
 				OnClick(func() {
 					c.WriteClipboard(text)
 					c.Toast(i18n.T(c, "content_copied"))
@@ -304,7 +304,7 @@ func footer(c *ui.Context, t *Turn, blocks []Block, actions Actions) {
 		}
 		switch t.Reply.Status {
 		case Failed, Interrupted, Cancelled:
-			theme.IconButton(c.Key("retry"), icons.RotateCw, i18n.T(c, "chat_retry"), 28, false).TextColor(p.MutedForeground).
+			kit.IconButton(c.Key("retry"), icons.RotateCw, i18n.T(c, "chat_retry"), 28, false).TextColor(p.MutedForeground).
 				OnClick(func() { actions.Retry(t.ID) })
 		}
 	})

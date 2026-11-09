@@ -11,6 +11,7 @@ import (
 	"github.com/sailry/sailry-go/internal/i18n"
 	"github.com/sailry/sailry-go/internal/icons"
 	"github.com/sailry/sailry-go/internal/preview"
+	"github.com/sailry/sailry-go/internal/kit"
 	"github.com/sailry/sailry-go/internal/theme"
 )
 
@@ -51,7 +52,7 @@ func (s *State) opened(key string) *bool {
 // View builds the navigation column's content.
 func View(c *ui.Context, s *State) {
 	ui.Column(c).Padding(16, 12, 8, 12).Children(func() {
-		theme.Primary(c.Key("new"), i18n.T(c, "conversation"), false).FillWidth().Children(func() {
+		kit.Primary(c.Key("new"), i18n.T(c, "conversation"), false).FillWidth().Children(func() {
 			ui.Icon(c, icons.Plus).FontSize(16)
 			ui.Text(c, i18n.T(c, "conversation")).FontSize(14).SingleLine()
 		}).OnClick(s.newChat)
@@ -122,7 +123,7 @@ func (s *State) limited(c *ui.Context, key string, list []*preview.Conversation,
 		if s.more[key] {
 			label = i18n.T(c, "sidebar_sessions_less")
 		}
-		theme.Ghost(c.Key(key+"/more"), label, false).FillWidth().Height(28).PaddingStart(indent).Justify(ui.Start).
+		kit.Ghost(c.Key(key+"/more"), label, false).FillWidth().Height(28).PaddingStart(indent).Justify(ui.Start).
 			TextColor(p.MutedForeground.Alpha(0.7)).Children(func() {
 			ui.Text(c, label).FontSize(14).SingleLine()
 		}).OnClick(func() { s.more[key] = !s.more[key] })
@@ -192,7 +193,7 @@ func (s *State) conversation(c *ui.Context, cv *preview.Conversation, pinned, tr
 			if cv.Pinned {
 				label = i18n.T(c, "workspace_unpin")
 			}
-			theme.IconButton(c.Key("pin"), icon, label, 20, false).TextColor(p.MutedForeground).
+			kit.IconButton(c.Key("pin"), icon, label, 20, false).TextColor(p.MutedForeground).
 				OnClick(func() { cv.Pinned = !cv.Pinned })
 			return
 		}
@@ -225,7 +226,7 @@ func status(c *ui.Context, st preview.Status) {
 	slot := ui.Box(c).Absolute().Left(guideX-6).Top(rowHeight/2-6).Size(12, 12).Center().PassThrough()
 	switch st {
 	case preview.Running:
-		slot.Label(i18n.T(c, "activity_running")).Children(func() { theme.Loader(c, 12) })
+		slot.Label(i18n.T(c, "activity_running")).Children(func() { kit.Loader(c, 12) })
 	case preview.Waiting:
 		slot.Label(i18n.T(c, "activity_waiting")).Children(func() {
 			ui.Icon(c, icons.Info).FontSize(12).TextColor(p.Warning)

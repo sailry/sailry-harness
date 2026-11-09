@@ -15,7 +15,7 @@ import (
 // FPS caps drawings that animate. MyGo's only frame-rate parameter is
 // Painter.AnimationFrameRate, so looping indicators are drawn with it rather
 // than built from Element.Loop, which runs at the display's rate.
-const FPS = theme.AnimationFPS
+const FPS = 60
 
 // Fast is Kit's motion duration for small transitions (the jump button's
 // fade, popovers): 200 ms.

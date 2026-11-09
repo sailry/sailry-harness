@@ -10,6 +10,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-go/internal/i18n"
 	"github.com/sailry/sailry-go/internal/icons"
+	"github.com/sailry/sailry-go/internal/kit"
 	"github.com/sailry/sailry-go/internal/theme"
 )
 
@@ -83,10 +84,10 @@ func View(c *ui.Context, s *State, models []Model, in Interactions, actions Acti
 					return false // Shift+Enter breaks the line
 				})
 			ui.Row(c).MinHeight(32).Gap(4).Children(func() {
-				theme.IconButton(c.Key("attach"), icons.Plus, i18n.T(c, "composer_attachment"), 32, false).Radius(16)
+				kit.IconButton(c.Key("attach"), icons.Plus, i18n.T(c, "composer_attachment"), 32, false).Radius(16)
 				ui.Spacer(c)
 				s.modelChip(c, models)
-				theme.IconButton(c.Key("dictation"), icons.Microphone, i18n.T(c, "dictation_start"), 32, false).Radius(16)
+				kit.IconButton(c.Key("dictation"), icons.Microphone, i18n.T(c, "dictation_start"), 32, false).Radius(16)
 				s.sendButton(c, submit, stop)
 			})
 		})
@@ -98,12 +99,12 @@ func View(c *ui.Context, s *State, models []Model, in Interactions, actions Acti
 
 func (s *State) sendButton(c *ui.Context, submit, stop func()) {
 	if s.Running {
-		theme.Primary(c.Key("stop"), i18n.T(c, "chat_stop"), false).Size(32, 32).PaddingX(0).Radius(16).
+		kit.Primary(c.Key("stop"), i18n.T(c, "chat_stop"), false).Size(32, 32).PaddingX(0).Radius(16).
 			Tooltip(i18n.T(c, "chat_stop")).Children(func() { ui.Icon(c, icons.Stop).FontSize(16) }).OnClick(stop)
 		return
 	}
 	empty := strings.TrimSpace(s.Draft) == ""
-	theme.Primary(c.Key("send"), i18n.T(c, "send"), empty).Size(32, 32).PaddingX(0).Radius(16).
+	kit.Primary(c.Key("send"), i18n.T(c, "send"), empty).Size(32, 32).PaddingX(0).Radius(16).
 		Tooltip(i18n.T(c, "send")).Children(func() { ui.Icon(c, icons.ArrowUp).FontSize(16) }).OnClick(submit)
 }
 
@@ -122,9 +123,9 @@ func (s *State) Chosen(models []Model) Model {
 func (s *State) modelChip(c *ui.Context, models []Model) {
 	p := theme.Of(c)
 	m := s.Chosen(models)
-	chip := theme.Ghost(c.Key("model"), i18n.T(c, "composer_select_model"), s.picker).Height(32).PaddingX(10).Gap(8).Radius(16).MaxWidth(260)
+	chip := kit.Ghost(c.Key("model"), i18n.T(c, "composer_select_model"), s.picker).Height(32).PaddingX(10).Gap(8).Radius(16).MaxWidth(260)
 	chip.HasPopup(ui.PopupDialog).Expanded(s.picker).Children(func() {
-		theme.Tag(c, m.Provider).Shrink(0)
+		kit.Tag(c, m.Provider).Shrink(0)
 		ui.Text(c, m.Name).FontSize(14).SingleLine().Shrink(1)
 		ui.Text(c, s.EffortName(c, m)).FontSize(14).SingleLine().Shrink(0).TextColor(p.MutedForeground)
 	}).OnClick(func() { s.picker, s.list = !s.picker, false })
@@ -147,7 +148,7 @@ func (s *State) mainPanel(c *ui.Context, m Model) {
 	if m.Reasoning && int(s.Effort) == len(Efforts)-1 {
 		effort.TextColor(p.Warning)
 	}
-	theme.Ghost(c.Key("models"), m.Name, false).Height(28).PaddingX(8).Gap(4).Justify(ui.SpaceBetween).Children(func() {
+	kit.Ghost(c.Key("models"), m.Name, false).Height(28).PaddingX(8).Gap(4).Justify(ui.SpaceBetween).Children(func() {
 		ui.Text(c, m.Name).FontSize(14).SingleLine()
 		ui.Icon(c, icons.ChevronRight).FontSize(12).TextColor(p.MutedForeground)
 	}).OnClick(func() { s.list = true })
@@ -166,7 +167,7 @@ func (s *State) modelList(c *ui.Context, models []Model) {
 				ui.Text(c, m.Provider).FontSize(14).TextColor(p.MutedForeground).Padding(6, 14, 6, 8)
 			}
 			selected := m.ID == s.Model
-			row := theme.Ghost(c.Key(m.ID), m.Name, false).Height(32).Padding(0, 8).Radius(8).Justify(ui.Start).Gap(8)
+			row := kit.Ghost(c.Key(m.ID), m.Name, false).Height(32).Padding(0, 8).Radius(8).Justify(ui.Start).Gap(8)
 			if selected {
 				row.Background(p.Primary.Alpha(0.12)).AccessSelected(true)
 			}
@@ -188,7 +189,7 @@ func (s *State) branchMenu(c *ui.Context) {
 		icon = icons.Network
 	}
 	label := i18n.T(c, Branches[s.Branch])
-	theme.Ghost(c.Key("branch"), label, false).Height(28).PaddingX(10).Gap(6).Radius(14).MaxWidth(224).
+	kit.Ghost(c.Key("branch"), label, false).Height(28).PaddingX(10).Gap(6).Radius(14).MaxWidth(224).
 		TextColor(theme.Of(c).MutedForeground).Children(func() {
 		ui.Icon(c, icon).FontSize(14)
 		ui.Text(c, label).FontSize(14).SingleLine()
