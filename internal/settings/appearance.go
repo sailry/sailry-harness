@@ -197,7 +197,7 @@ func details(c *ui.Context, d *themeDetails, chosen *string) {
 				kit.Card(c, func() {
 					info := func(key, label, value string) {
 						kit.Row(c, key, label, "", func() {
-							ui.Text(c, value).FontSize(14).Selectable().TextAlign(ui.End).MaxWidth((w-88)*0.55).
+							ui.Text(c, value).FontSize(14).Selectable().TextAlign(ui.End).MaxWidth((w - 88) * 0.55).
 								TextColor(p.MutedForeground)
 						})
 					}
