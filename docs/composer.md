@@ -55,7 +55,7 @@ rebuilt each frame from backend data.
 | `Context.Last` | Up in an empty draft recalls it |
 | `Context.Readonly` | Disables input and controls |
 | `Context.Interactions` | Approvals and the question (below) |
-| `State.Running`, `Searching`, `Metrics` | Set by the page each frame |
+| `State.Running`, `Searching`, `Metrics`, `Indicator` | Set by the page each frame |
 | `State.Draft`, `Model`, `Effort`, `Mode`, `Permission`, `Features`, `Team`, `Host`, `Project`, `Worktree`, `References` | Choices, read through `Message` on send |
 | `State.Attachments`, `Attachment{ID, Name, Mime, Size, Image, Path, Data, Status, Progress, Error}` | Draft files; the backend moves `Status` (`Preparing`, `Sending`, `Publishing`, `Ready`, `Failed`, `Uncertain`, `Removing`) and `Progress`; send waits for all `Ready`; at most `MaxAttachments` (8) |
 | `State.Dictation{Phase, Levels}` | `Idle`, `PreparingSpeech`, `Recording` (levels 0…1), `Transcribing` |

@@ -52,6 +52,9 @@ type State struct {
 	// Metrics builds the context bar's usage at its end (conversation
 	// UsageBar), nil for none.
 	Metrics func(c *ui.Context)
+	// Indicator builds the context ring left of the model chip
+	// (conversation ContextRing), nil for none.
+	Indicator func(c *ui.Context)
 
 	Mode       Mode
 	Permission Permission
@@ -283,8 +286,8 @@ func (s *State) input(c *ui.Context, ctx *Context, actions Actions, submit func(
 }
 
 // toolbar is live/composer.rs's: attach, then the settings popover when
-// compact, mode and permission; at the end the model chip, dictation, and
-// send or stop (hidden while dictating, unless a reply runs).
+// compact, mode and permission; at the end the context indicator, the
+// model chip, dictation, and send or stop (hidden while dictating, unless a reply runs).
 func (s *State) toolbar(c *ui.Context, ctx *Context, actions Actions, submit func()) {
 	compact := s.width > 0 && s.width < compactWidth
 	ui.Row(c.Key("toolbar")).FillWidth().MinWidth(0).MinHeight(32).Gap(4).Wrap().AlignItems(ui.Center).Children(func() {
@@ -300,6 +303,9 @@ func (s *State) toolbar(c *ui.Context, ctx *Context, actions Actions, submit fun
 		})
 		ui.Spacer(c)
 		ui.Row(c.Key("end")).Gap(4).AlignItems(ui.Center).MinWidth(0).Shrink(1).Children(func() {
+			if s.Indicator != nil {
+				s.Indicator(c)
+			}
 			if !compact {
 				s.modelChip(c, ctx, actions)
 			}

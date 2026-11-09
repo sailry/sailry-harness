@@ -22,7 +22,7 @@ Kit's `MessageScroller`.
 | `actions.go` | The reply and user footers, fork and export menus, rewind confirmation, `AnswerText`, `Resendable` |
 | `search.go` | ⌘F search (MyGo's `FindBar`), `Find`, `Mark`, match highlights and reveal |
 | `session.go` | Loading, older pages, connection banner, diagnostic, selection pill, `Quote` |
-| `usage.go` | The context bar's metrics and context ring (`UsageBar`, `Metrics`, `Count`) |
+| `usage.go` | The context bar's metrics and the composer's context ring (`UsageBar`, `ContextRing`, `Metrics`, `Count`) |
 | `group_test.go`, `jump_test.go`, `live_test.go`, `bench_test.go` | Tests and benchmarks |
 
 Shared motion (`kit.Shimmer`, `kit.Sweep`, `kit.Identicon`, `kit.EaseOutCubic`, `kit.Fast`)

@@ -426,6 +426,7 @@ func (a *App) page(c *ui.Context) {
 	comp.Running = cv.Running()
 	comp.Searching = a.Messages.SearchOpen()
 	comp.Metrics = func(c *ui.Context) { conversation.UsageBar(c, cv.Session.Usage) }
+	comp.Indicator = func(c *ui.Context) { conversation.ContextRing(c, cv.Session.Usage) }
 	act := &actions{a: a, c: c, cv: cv, comp: comp}
 	if a.transfers.Advance(comp.Attachments, c.Now()) {
 		c.After(preview.Tick)

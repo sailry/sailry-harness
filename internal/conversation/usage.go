@@ -50,8 +50,7 @@ func trim(s string) string {
 }
 
 // UsageBar is the context bar's metrics (usage.rs render_groups): each a
-// 14 DIP icon and its value in muted 14, its label in a hover card, and
-// the context ring after them (usage/preview.rs context_progress).
+// 14 DIP icon and its value in muted 14, its label in a hover card.
 func UsageBar(c *ui.Context, u *Usage) {
 	if u == nil {
 		return
@@ -73,16 +72,22 @@ func UsageBar(c *ui.Context, u *Usage) {
 				})
 			})
 		}
-		ring(c, u.Context)
 	})
 }
 
-// ring is Kit's ProgressCircle at 20 DIPs: the track and the part used,
-// muted, with the compaction hint as its tooltip.
-func ring(c *ui.Context, v float64) {
+// ContextRing is the composer's context indicator, left of the model chip
+// (usage/preview.rs context_progress, placed as live/composer.rs's
+// Composer-end controls): Kit's ProgressCircle at 20 DIPs with 4 on each
+// side, the track and the part used, muted, with the compaction hint as
+// its tooltip. Preview data has no indicator panel to open, so it takes
+// no clicks.
+func ContextRing(c *ui.Context, u *Usage) {
+	if u == nil {
+		return
+	}
 	p := theme.Of(c)
-	v = math.Max(0, math.Min(1, v))
-	box := ui.Box(c.Key("context")).Size(20, 20).Margin(0, 4)
+	v := math.Max(0, math.Min(1, u.Context))
+	box := ui.Box(c.Key("context")).Size(20, 20).Margin(0, 4).Shrink(0)
 	kit.Tooltip(c, box, i18n.T(c, "composer_compression_hint"))
 	box.Label(fmt.Sprintf("%s %d%%", i18n.T(c, "composer_compression_hint"), int(v*100+0.5))).
 		Draw(func(pt *ui.Painter, r ui.Rect) {
