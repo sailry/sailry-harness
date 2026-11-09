@@ -181,8 +181,8 @@ func WideRow(c *ui.Context, key any, title, description string, control func()) 
 func EmptyGroup(c *ui.Context, icon *ui.SVG, label string) ui.Element {
 	p := theme.Of(c)
 	return ui.Column(c.Key("empty-group")).Border(1, p.Border).BorderStyle(ui.BorderDashed).Radius(p.RadiusLg).
-		Padding(24, 16).Gap(8).AlignItems(ui.Center).Background(p.Surface).Children(func() {
-		ui.Icon(c, icon).FontSize(24).TextColor(p.MutedForeground)
+		Padding(40, 16).Gap(12).AlignItems(ui.Center).Background(p.Surface).Children(func() {
+		EmptyMedia(c, icon)
 		ui.Text(c, label).FontSize(14).TextAlign(ui.Center).TextColor(p.MutedForeground)
 	})
 }

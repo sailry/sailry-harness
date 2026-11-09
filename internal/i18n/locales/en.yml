@@ -1197,3 +1197,163 @@ model_library_embedding: Embedding models
 model_library_ocr: OCR models
 model_library_speech: Speech models
 model_library_decision: Decision
+onboarding_title: Welcome to Sailry
+onboarding_description: Connect a model to get started
+onboarding_host_unavailable: Host unavailable
+telemetry_welcome: Anonymous diagnostics are on by default. You can change this in Settings
+workspace_host_status: Disconnected · UI preview
+local_host_detail: macOS · aarch64 · Preview
+remote_host_detail: Linux · x86_64 · Preview
+host_update: Update host
+workspace_host_type: Host type
+workspace_worktrees: Worktrees
+workspace_sessions: Sessions
+host_active_preview: Active sessions (preview)
+project_empty: No projects on this host; add one to create sessions or terminals
+workspace_runtime: Runtime
+host_runtime_loading: Reading runtime (preview)
+host_version: Host version
+host_system_version: System version
+host_timezone: Time zone
+host_uptime: Uptime
+host_protocol: Protocol version
+host_unknown: Unknown
+host_uptime_days: '%{count} days'
+host_uptime_hours: '%{count} hours'
+host_uptime_minutes: '%{count} minutes'
+host_runtime_preview: UI snapshot only; existing values remain while loading or on failure. Live runtime data requires the shared Node.
+workspace_runtime_preview: Live OS, runtime versions and host metrics require the shared Node
+workspace_running: Running Agents
+host_activity_hint: Session activity preview only; no real Agent or CLI process is started
+workspace_no_running: No Agent tasks started in preview
+tunnels_title: Port tunnels
+tunnels_preview: Preview mappings only; no ports or hosts are connected
+tunnel_ports_empty: No allowed ports
+tunnel_ports_value: 'Allowed ports: %{ports}'
+tunnel_edit: Edit allowed ports
+tunnel_readonly: Remote port policy is read-only; edit it on the target host
+tunnels_empty: No tunnel mappings
+tunnel_route: Local %{local} → Host %{remote}
+tunnel_open: Open address (preview)
+tunnel_close: Close preview tunnel
+tunnel_open_hint: Mapping address only; no browser or network request is started
+tunnel_policy_hint: Changes this host's preview only. Separate ports with commas or spaces; leave empty to allow none.
+tunnel_ports_label: Allowed ports
+tunnel_ports_placeholder: 3000, 5173, 8080
+tunnel_invalid_ports: Enter ports from 1 to 65535, separated by commas or spaces
+tunnel_policy_changed: Configuration or access changed; reopen the editor
+host_runtime_error: 'Could not read runtime (preview): %{error}'
+update_idle: Not checked (preview)
+update_checking: Checking (preview)
+update_current: Up to date (preview)
+update_available: Update available (preview)
+update_downloading: Downloading (preview)
+update_verifying: Verifying (preview)
+update_staged: Package ready (preview)
+update_applying: Applying (preview)
+update_restart: Waiting for host restart (preview)
+update_failed: Update failed (preview)
+update_loading: Reading update status (preview)
+update_check: Preview check
+update_download: Preview download
+update_apply: Preview apply
+update_retry: Retry preview
+update_unavailable: Update unavailable (preview)
+update_unavailable_note: This preview host does not support automatic updates
+update_versions: '%{current} → %{target}'
+update_version: 'Current version: %{current}'
+update_preview: UI preview only; no network check, download, installation or host restart
+update_target_changed: Host unavailable; reopen the editor
+update_error_preview: Preview request failed; no real update was performed
+metrics_title: Host metrics
+metrics_preview: UI preview; no real host metrics or processes are collected
+metrics_cpu: CPU
+metrics_memory: Memory
+metrics_network: Network
+metrics_download: Download
+metrics_upload: Upload
+metrics_disks: Disk
+metrics_no_disks: No disk data
+metrics_read: Total read
+metrics_written: Total written
+metrics_processes: Processes
+metrics_no_processes: No process data
+metrics_worker: Preview worker
+metrics_indexer: Preview indexer
+metrics_loading: Waiting for metrics (preview)
+metrics_error: Metrics unavailable (preview)
+port_title: Port forwarding
+port_add: New forward
+port_create: Create
+port_remote: Host port
+port_local: Local port (0 for automatic)
+port_search: Search ports
+port_address: Open address
+port_copy: Copy address
+port_close: Close forwarding
+port_closed: Forwarding closed
+live_connected: Connected
+port_invalid: Enter a valid port
+installation_title: Installations
+installation_installing: Installing
+installation_empty: No installations
+installation_waiting: Waiting
+installation_starting: Starting
+installation_queued: Queued
+installation_failed: Failed
+installation_uncertain: Result unconfirmed
+installation_downloading: Downloading
+installation_inspecting: Checking
+installation_preparing: Preparing dependencies
+installation_validating: Validating
+installation_speed: '%{value} MiB/s'
+installation_offline: '%{phase} · Disconnected'
+installation_node: Node
+installation_controller: This device
+installation_remove: Remove
+installation_retry: Retry
+installation_remove_failed: Couldn’t remove task
+files_download_picker: Could not open the save dialog
+files_download_done: Download complete
+files_download_cancelled: Download cancelled
+files_download_preparing: Preparing download
+files_download_receiving: Downloading saved content
+files_download_publishing: Saving download
+files_download_close: Close
+updates: Updates
+updates_checking: Checking
+updates_installing: Installing
+updates_restarting: Restarting
+updates_restart_needed: Restart required
+updates_verifying: Verifying
+updates_install: Install and restart
+updates_restart: Restart
+updates_details: Details
+updates_download: Download
+updates_ready: '%{version} is ready to install'
+updates_restart_description: Drafts will be restored after restart; local tasks and terminals will stop
+updates_current: Sailry is up to date
+selection_title: Selected text
+selection_unavailable: Could not read selected text
+selection_empty: No text selected
+terminal_search_placeholder: Search terminal
+terminal_match_previous: Previous match
+terminal_match_next: Next match
+workspace_no_terminal: No terminals in this worktree
+workspace_reset_terminal: Reset terminal
+workspace_close_terminal: Close terminal
+workspace_terminal_preview: Terminal UI preview with project and worktree ownership; no PTY or shell is started
+workspace_reset_count: 'Preview resets: %{count}'
+terminal_connecting: Connecting
+terminal_exited: Terminal exited
+terminal_take_control: Take control
+terminal_other_controller: Controlled by another device
+terminal_unavailable: Terminal unavailable; check host connection
+cli_preview: 'UI preview: creates a terminal preview only; no program detection or commands'
+updates_network_failed: Could not download the update; retry
+updates_preview_unavailable: Updates are unavailable in preview
+updates_completed: Sailry was updated
+port_exists: Port already added
+port_failed: Could not forward; check the port and connection
+selection_large: Selected text is too large
+selection_permission: Allow Accessibility access in system settings

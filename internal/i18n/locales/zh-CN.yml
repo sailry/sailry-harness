@@ -1197,3 +1197,163 @@ model_library_embedding: 嵌入模型
 model_library_ocr: OCR 模型
 model_library_speech: 语音模型
 model_library_decision: 决策
+onboarding_title: 欢迎使用 Sailry
+onboarding_description: 连接一个模型就可以开始
+onboarding_host_unavailable: 主机暂不可用
+telemetry_welcome: 匿名诊断默认开启，可在设置中更改
+workspace_host_status: 未连接 · UI 预览
+local_host_detail: macOS · aarch64 · 示例
+remote_host_detail: Linux · x86_64 · 示例
+host_update: 更新主机
+workspace_host_type: 主机类型
+workspace_worktrees: worktree
+workspace_sessions: 会话
+host_active_preview: 活动会话（示例）
+project_empty: 此主机还没有项目。添加项目后即可创建会话或终端。
+workspace_runtime: 运行环境
+host_runtime_loading: 正在读取运行环境（示例）
+host_version: 主机版本
+host_system_version: 系统版本
+host_timezone: 时区
+host_uptime: 运行时长
+host_protocol: 协议版本
+host_unknown: 未获取
+host_uptime_days: '%{count} 天'
+host_uptime_hours: '%{count} 小时'
+host_uptime_minutes: '%{count} 分钟'
+host_runtime_preview: 此处仅展示 UI 示例快照；读取中或失败时保留已有值。真实环境将在公共节点接入后读取。
+workspace_runtime_preview: 真实操作系统、运行时版本与主机指标将在公共节点接入后读取
+workspace_running: 运行中的 Agent
+host_activity_hint: 仅展示此主机的活动会话预览，不表示真实 Agent 或 CLI 进程已启动
+workspace_no_running: 预览未启动 Agent 任务
+tunnels_title: 端口隧道
+tunnels_preview: UI 示例映射，未监听端口或连接主机
+tunnel_ports_empty: 未设置允许端口
+tunnel_ports_value: 允许端口：%{ports}
+tunnel_edit: 编辑允许端口
+tunnel_readonly: 远端端口策略只读，需要在目标主机本地修改
+tunnels_empty: 暂无隧道映射
+tunnel_route: 本地 %{local} → 主机 %{remote}
+tunnel_open: 打开地址（预览）
+tunnel_close: 关闭示例隧道
+tunnel_open_hint: 此处仅展示映射地址，未启动浏览器或发起网络请求
+tunnel_policy_hint: 仅修改当前主机的内存示例。用逗号或空格分隔端口，留空表示不允许任何端口。
+tunnel_ports_label: 允许端口
+tunnel_ports_placeholder: 3000, 5173, 8080
+tunnel_invalid_ports: 请输入 1 到 65535 的整数端口，用逗号或空格分隔
+tunnel_policy_changed: 目标配置或编辑权限已改变，请关闭后重新打开
+host_runtime_error: 运行环境读取失败（示例）：%{error}
+update_idle: 尚未检查（示例）
+update_checking: 正在检查（示例）
+update_current: 已是最新版本（示例）
+update_available: 有可用更新（示例）
+update_downloading: 正在下载（示例）
+update_verifying: 正在校验（示例）
+update_staged: 安装包准备就绪（示例）
+update_applying: 正在应用（示例）
+update_restart: 等待主机重启（示例）
+update_failed: 更新失败（示例）
+update_loading: 正在读取更新状态（示例）
+update_check: 预览检查
+update_download: 预览下载
+update_apply: 预览应用
+update_retry: 重试预览
+update_unavailable: 当前不可更新（示例）
+update_unavailable_note: 此示例主机暂不支持自动更新
+update_versions: '%{current} → %{target}'
+update_version: 当前版本：%{current}
+update_preview: UI 状态预览，按钮仅切换示例快照；不会检查网络、下载、安装或重启主机
+update_target_changed: 目标主机已不可用，请关闭后重新打开
+update_error_preview: 示例请求失败，没有执行真实更新
+metrics_title: 主机指标
+metrics_preview: UI 示例数据，未采集真实主机指标或进程
+metrics_cpu: CPU
+metrics_memory: 内存
+metrics_network: 网络
+metrics_download: 下载
+metrics_upload: 上传
+metrics_disks: 磁盘
+metrics_no_disks: 暂无磁盘数据
+metrics_read: 累计读取
+metrics_written: 累计写入
+metrics_processes: 进程
+metrics_no_processes: 暂无进程数据
+metrics_worker: 示例工作进程
+metrics_indexer: 示例索引进程
+metrics_loading: 等待指标（示例）
+metrics_error: 指标暂不可用（示例）
+port_title: 端口转发
+port_add: 新建转发
+port_create: 创建
+port_remote: 主机端口
+port_local: 本地端口（0 为自动分配）
+port_search: 搜索端口
+port_address: 打开地址
+port_copy: 复制地址
+port_close: 关闭转发
+port_closed: 转发已关闭
+live_connected: 已连接
+port_invalid: 请输入有效端口
+installation_title: 安装任务
+installation_installing: 安装中
+installation_empty: 暂无安装任务
+installation_waiting: 等待
+installation_starting: 启动中
+installation_queued: 排队中
+installation_failed: 失败
+installation_uncertain: 结果未确认
+installation_downloading: 下载中
+installation_inspecting: 检查中
+installation_preparing: 准备依赖
+installation_validating: 验证中
+installation_speed: '%{value} MiB/s'
+installation_offline: '%{phase} · 已断开'
+installation_node: 节点
+installation_controller: 此设备
+installation_remove: 移除
+installation_retry: 重试
+installation_remove_failed: 无法移除任务
+files_download_picker: 无法打开保存窗口
+files_download_done: 下载完成
+files_download_cancelled: 下载已取消
+files_download_preparing: 正在准备下载
+files_download_receiving: 正在下载已保存的内容
+files_download_publishing: 正在保存下载
+files_download_close: 关闭
+updates: 更新
+updates_checking: 正在检查
+updates_installing: 正在安装
+updates_restarting: 正在重启
+updates_restart_needed: 需要重启
+updates_verifying: 正在验证
+updates_install: 安装并重启
+updates_restart: 重启
+updates_details: 详情
+updates_download: 下载
+updates_ready: '%{version} 已下载，可以安装'
+updates_restart_description: 重启后将恢复草稿；本机任务和终端将停止
+updates_current: Sailry 已是最新版本
+selection_title: 选中文字
+selection_unavailable: 无法读取选中文字
+selection_empty: 未选中文字
+terminal_search_placeholder: 搜索终端
+terminal_match_previous: 上一个匹配
+terminal_match_next: 下一个匹配
+workspace_no_terminal: 当前 worktree 没有终端
+workspace_reset_terminal: 重置终端
+workspace_close_terminal: 关闭终端
+workspace_terminal_preview: 终端 UI 预览。已保留项目和 worktree 归属，未启动 PTY 或 shell；真实终端绘制与输入在终端阶段接入。
+workspace_reset_count: 示例重置次数 %{count}
+terminal_connecting: 连接中
+terminal_exited: 终端已退出
+terminal_take_control: 接管
+terminal_other_controller: 由另一设备控制
+terminal_unavailable: 终端不可用，请检查主机连接
+cli_preview: UI 示例：仅创建终端预览，不检测程序、不执行命令
+updates_network_failed: 更新下载失败，请重试
+updates_preview_unavailable: 预览模式不可更新
+updates_completed: Sailry 已更新
+port_exists: 此端口已添加
+port_failed: 无法转发，请检查端口和连接
+selection_large: 选中文字过长
+selection_permission: 请在系统设置中允许辅助功能访问
