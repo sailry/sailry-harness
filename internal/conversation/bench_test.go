@@ -2,6 +2,7 @@ package conversation_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-go/internal/conversation"
@@ -29,6 +30,11 @@ func bigTester(tb testing.TB) (*conversation.State, *preview.Conversation, *ui.T
 	tt.Frame()
 	return s, cv, tt
 }
+
+// settle lets the transitions started by a change run out, as the
+// window's clock does: the tester's stands still between Advances, so a
+// transition started under it would ask for frames for ever.
+func settle(tt *ui.Tester) { tt.Advance(time.Second) }
 
 // The list builds only the turns in view, wherever it is scrolled.
 func TestBigConversationScrolls(t *testing.T) {
@@ -60,6 +66,8 @@ func TestBigConversationScrolls(t *testing.T) {
 func BenchmarkScroll(b *testing.B) {
 	s, cv, tt := bigTester(b)
 	l := s.List(cv.ID)
+	tt.Scroll(500, 300, 0, -120) // the jump button shows from here on
+	settle(tt)
 	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
@@ -67,6 +75,8 @@ func BenchmarkScroll(b *testing.B) {
 			b.StopTimer()
 			l.ScrollToEnd()
 			tt.Frame()
+			tt.Scroll(500, 300, 0, -120)
+			settle(tt)
 			b.StartTimer()
 		}
 		tt.Scroll(500, 300, 0, -120)
@@ -78,6 +88,7 @@ func BenchmarkSteady(b *testing.B) {
 	s, cv, tt := bigTester(b)
 	s.List(cv.ID).ScrollTo(500, ui.Center)
 	tt.Frame()
+	settle(tt)
 	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
@@ -91,6 +102,9 @@ func BenchmarkSteady(b *testing.B) {
 func BenchmarkJump(b *testing.B) {
 	s, cv, tt := bigTester(b)
 	l := s.List(cv.ID)
+	l.ScrollTo(0, ui.Center)
+	tt.Frame()
+	settle(tt)
 	turn := 0
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -98,5 +112,22 @@ func BenchmarkJump(b *testing.B) {
 		turn = (turn + 37) % len(cv.Turns)
 		l.ScrollTo(turn, ui.Center)
 		tt.Frame()
+	}
+}
+
+// BenchmarkHover is the pointer sweeping down the transcript a row at a
+// time, across work headers, copy buttons and links: each frame where the
+// element under it looks at its hover builds the rows in view again.
+func BenchmarkHover(b *testing.B) {
+	s, cv, tt := bigTester(b)
+	s.List(cv.ID).ScrollTo(500, ui.Center)
+	tt.Frame()
+	settle(tt)
+	b.ReportAllocs()
+	b.ResetTimer()
+	i := 0
+	for b.Loop() {
+		i++
+		tt.Move(320, float32(40+(i%28)*24))
 	}
 }

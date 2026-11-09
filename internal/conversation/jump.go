@@ -17,10 +17,13 @@ import (
 // The fade is Element.AnimateWith, which runs at the display's rate: MyGo
 // has no frame-rate parameter for element transitions (only
 // Painter.AnimationFrameRate for drawings). Reduce Motion makes it instant.
-func jump(c *ui.Context, l *ui.ListState, n int) {
+//
+// It reads only AtEnd: Visible would build another frame each time the rows
+// in view change, doubling the cost of a scroll. A list not laid out yet
+// reads as off its end, so its first build shows no button.
+func jump(c *ui.Context, l *ui.ListState, n int, first bool) {
 	p := theme.Of(c)
-	first, last := l.Visible()
-	visible := n > 0 && last >= first && !l.AtEnd() // laid out, and off its end
+	visible := n > 0 && !l.AtEnd() && !first
 	target := float32(0)
 	if visible {
 		target = 1

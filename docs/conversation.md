@@ -268,4 +268,4 @@ a running read, its output, then the answer growing a character at a time.
 | Shimmer and identicon are approximations | Custom drawing (MyGo has no moving text highlight or procedural avatar); same timing and colours, not pixel-identical |
 | Diff rows have no syntax highlighting or line numbers | Not in the view model yet |
 | Plan review, form and URL questions are not modeled | `Ask` covers choices and free text; add fields when a backend needs them |
-| Benchmarks are slower than the first transcript (Steady ≈3.6 ms, Scroll ≈4.1 ms per frame with the tester's CPU rendering) | Hover-dependent rows rebuild on pointer moves; well under a 16.7 ms frame |
+| A jump across the transcript (scroll bar drag) costs ≈4.1 ms a frame, against ≈1.8 ms before tool rows | MyGo's `ListState.AtEnd` builds another frame whenever the rows in view change, not only the end; a jump re-measures rows until they settle. Steady (≈0.19 ms), hover (≈0.19 ms) and scroll (≈1.0 ms) frames are unaffected |

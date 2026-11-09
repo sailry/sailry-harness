@@ -34,12 +34,13 @@ type State struct {
 	lists  map[string]*ui.ListState
 	open   map[string]*bool
 	work   map[string]bool // work regions the user opened or closed
+	built  map[string]bool // lists built once, so laid out
 	md     markdown.Options
 	themes map[bool]*markdown.Theme
 }
 
 func New() *State {
-	return &State{lists: map[string]*ui.ListState{}, open: map[string]*bool{}, work: map[string]bool{}, themes: map[bool]*markdown.Theme{}}
+	return &State{lists: map[string]*ui.ListState{}, open: map[string]*bool{}, work: map[string]bool{}, built: map[string]bool{}, themes: map[bool]*markdown.Theme{}}
 }
 
 // List returns the list state of a conversation.
@@ -63,7 +64,8 @@ func View(c *ui.Context, s *State, id string, turns []Turn, actions Actions) {
 		ui.List(c, l, n, func(i int) {
 			s.turn(c, &turns[i], i == 0, i == n-1, actions)
 		}).Fill().Role(ui.RoleLog)
-		jump(c, l, n)
+		jump(c, l, n, !s.built[id])
+		s.built[id] = true
 	})
 }
 
