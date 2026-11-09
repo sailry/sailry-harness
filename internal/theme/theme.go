@@ -127,7 +127,7 @@ type Surfaces struct{ Main, Sidebar, Blur float32 }
 const PaneBlurMax = 36
 
 // DefaultSurfaces are Surfaces::default.
-var DefaultSurfaces = Surfaces{Main: PanelOpacity, Sidebar: SidebarOpacity, Blur: 0.5}
+var DefaultSurfaces = Surfaces{Main: PanelOpacity, Sidebar: SidebarOpacity, Blur: 0.1}
 
 // Radius2xl is Kit's radius_2xl: the composer's and the mode cards'.
 func (p *Palette) Radius2xl() float32 { return p.Radius * 2.5 }
