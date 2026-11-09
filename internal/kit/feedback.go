@@ -2,7 +2,6 @@ package kit
 
 import (
 	"github.com/egoist/mygo/ui"
-	"github.com/egoist/mygo/ui/markdown"
 	"github.com/sailry/sailry-go/internal/i18n"
 	"github.com/sailry/sailry-go/internal/theme"
 )
@@ -45,7 +44,7 @@ func Details(c *ui.Context, open *bool, title, subtitle, detail string) {
 			if subtitle != "" {
 				ui.Text(c, subtitle).FontSize(14).TextColor(p.MutedForeground)
 			}
-			markdown.View(c, detail, nil)
+			Markdown(c, detail, MarkdownProps{})
 		})
 	}).Width(min(560, max(w-48, 0))).MaxHeight(h * 0.8).Label(title)
 }

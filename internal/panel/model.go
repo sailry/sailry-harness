@@ -10,10 +10,8 @@ import (
 	"slices"
 
 	"github.com/egoist/mygo/ui"
-	"github.com/egoist/mygo/ui/markdown"
 	"github.com/sailry/sailry-go/internal/conversation"
 	"github.com/sailry/sailry-go/internal/icons"
-	"github.com/sailry/sailry-go/internal/kit"
 	"github.com/sailry/sailry-go/internal/preview"
 )
 
@@ -281,6 +279,3 @@ func (s *State) owns(t Tab) bool {
 	}
 	return true
 }
-
-// docs are the panel's Markdown options: code in MyGo's editor.
-var docs = &markdown.Options{CodeBlock: kit.CodeBlock}

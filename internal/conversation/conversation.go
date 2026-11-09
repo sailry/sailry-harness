@@ -32,21 +32,20 @@ const (
 type State struct {
 	lists     map[string]*ui.ListState
 	open      map[string]*bool
-	work      map[string]bool // work regions the user opened or closed
-	built     map[string]bool // lists built once, so laid out
-	md        markdown.Options
-	themes    map[*theme.Palette]*markdown.Theme // by theme package and mode
-	light     float32                            // the welcome wordmark's beam, in window DIPs
-	lit       bool                               // the pointer has moved over the welcome page
-	view      Viewer                             // the image viewer
-	rewind    string                             // the turn whose rewind waits to be confirmed
-	reading   string                             // the turn read aloud
-	find      search                             // the search bar
-	wantOlder bool                               // the start came into view this frame
+	work      map[string]bool  // work regions the user opened or closed
+	built     map[string]bool  // lists built once, so laid out
+	md        markdown.Options // the replies' (kit.Markdown fills the rest)
+	light     float32          // the welcome wordmark's beam, in window DIPs
+	lit       bool             // the pointer has moved over the welcome page
+	view      Viewer           // the image viewer
+	rewind    string           // the turn whose rewind waits to be confirmed
+	reading   string           // the turn read aloud
+	find      search           // the search bar
+	wantOlder bool             // the start came into view this frame
 }
 
 func New() *State {
-	return &State{lists: map[string]*ui.ListState{}, open: map[string]*bool{}, work: map[string]bool{}, built: map[string]bool{}, themes: map[*theme.Palette]*markdown.Theme{}}
+	return &State{lists: map[string]*ui.ListState{}, open: map[string]*bool{}, work: map[string]bool{}, built: map[string]bool{}}
 }
 
 // List returns the list state of a conversation.
@@ -64,9 +63,7 @@ func (s *State) List(id string) *ui.ListState {
 // the jump button over it, and the image viewer and rewind confirmation
 // over the window. sess may be nil.
 func View(c *ui.Context, s *State, id string, turns []Turn, sess *Session, actions Actions) {
-	s.md.Theme = s.markdownTheme(theme.Of(c))
 	s.md.ShareSelection = true
-	s.md.CodeBlock = kit.CodeBlock
 	if sess != nil && sess.Loading {
 		loading(c)
 		return
@@ -304,7 +301,7 @@ func (s *State) blocks(c *ui.Context, turn string, blocks []Block, continuing bo
 		ui.Column(c.Key(key)).Children(func() {
 			switch b.Kind {
 			case TextBlock:
-				markdown.View(c, b.Text, &s.md)
+				kit.Markdown(c, b.Text, kit.MarkdownProps{Variant: kit.Chat, Animated: continuing && last, Options: &s.md})
 			case ReasoningBlock:
 				head := Call{Label: i18n.T(c, "turn_reasoning"), Icon: "bot", Running: continuing && last}
 				s.disclosure(c, "reasoning-"+key, func(hovered, open bool, sw *kit.Sweep) { summary(c, head, hovered, true, open, sw) }, 4, 8, func() {
@@ -392,46 +389,6 @@ func phaseRow(c *ui.Context, r *Reply) {
 			ui.Span{Text: label, Size: 14, Color: p.MutedForeground})
 	})
 	sw.Frame(row)
-}
-
-// assistant is the reply's text color: the package's assistant message
-// foreground, else the theme's.
-func assistant(p *theme.Palette) ui.Color {
-	if p.Variant != nil {
-		return p.Variant.Messages["assistant"].Foreground.Or(p.Foreground)
-	}
-	return p.Foreground
-}
-
-// markdownTheme is the reply's look (crates/content markdown/style.rs): 14
-// DIP text on 24 DIP lines, code blocks on a 3.5% foreground tint.
-func (s *State) markdownTheme(p *theme.Palette) *markdown.Theme {
-	if th, ok := s.themes[p]; ok {
-		return th
-	}
-	th := &markdown.Theme{
-		FontSize:            14,
-		LineHeight:          24.0 / 14,
-		CodeSize:            13.0 / 14, // ems: Kit's 13 DIP mono size
-		CodeLineHeight:      18 / 12.5,
-		Text:                assistant(p),
-		Muted:               p.MutedForeground,
-		Link:                p.Link,
-		Strong:              p.Primary, // answers emphasize in primary
-		Code:                p.Foreground,
-		CodeBackground:      p.Muted,
-		CodeBlockBackground: p.Foreground.Alpha(0.035),
-		CodeBlockBorder:     p.Border,
-		CodeBlockRadius:     p.Radius,
-		Mark:                p.Warning.Alpha(0.35),
-		CodeBlockPadding:    12.0 / 14, // ems; the reference pads 12 x 10
-		Rule:                p.Border,
-		TableBorder:         p.Border,
-		QuoteBar:            p.Border,
-		QuoteText:           p.MutedForeground,
-	}
-	s.themes[p] = th
-	return th
 }
 
 // Indicator is the thinking indicator's figure for a phase (ui/thinking

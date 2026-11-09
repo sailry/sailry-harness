@@ -28,7 +28,13 @@ Kit's `MessageScroller`.
 Shared motion (`kit.Shimmer`, `kit.Sweep`, `kit.Identicon`, `kit.EaseOutCubic`, `kit.Fast`)
 is in `internal/kit/motion.go`; the thinking indicator (`kit.Indicator`:
 Orbits, Globe, Ribbon, Ring) in `internal/kit/thinking.go`. Code blocks in messages and tool diffs
-are MyGo's editor (`kit.CodeBlock`, `kit.Diff` in `internal/kit/code.go`). File previews
+are MyGo's editor (`kit.CodeBlock`, `kit.Diff` in `internal/kit/code.go`).
+Answers are `kit.Markdown` (`internal/kit/markdown.go`, the `Chat`
+variant: 14 DIP text on 24 DIP lines, emphasis in `primary`, code on a
+3.5% foreground tint) with the transcript's shared selection; a running
+reply's last text block streams (`markdown.Stream`: half-written syntax
+shows as it will end, text as it arrives, no paced reveal past the
+60 fps cap). File previews
 open as `panel.Artifact` tabs (`internal/panel/artifact.go`), subagent
 sessions as `panel.Subagent` tabs that the shell fills with this `View`.
 
@@ -306,7 +312,7 @@ and mark flags as above. Do not group: the view does.
 | Scroll place per conversation, follow mode | Turns, blocks, calls, outputs |
 | Disclosures opened, image viewer, search, rewind confirmation | Run status, phase, elapsed, files, pictures, changes, citations |
 | Work regions toggled | Questions, children, steps |
-| Markdown themes | |
+| Markdown options | |
 
 ## Preview
 

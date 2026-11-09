@@ -5,7 +5,6 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/editor"
-	"github.com/egoist/mygo/ui/markdown"
 	"github.com/sailry/sailry-go/internal/conversation"
 	"github.com/sailry/sailry-go/internal/i18n"
 	"github.com/sailry/sailry-go/internal/icons"
@@ -415,7 +414,7 @@ func (pr *Project) filePreview(c *ui.Context, path string, own bool) {
 	})
 	ui.Scroll(c.Key("text")).TrackScroll(scroll(&v.text, own)).Grow(1).Padding(12, 0).Children(func() {
 		if md && v.source == 0 {
-			ui.Column(c).PaddingX(16).Children(func() { markdown.View(c, f.Text, docs) })
+			ui.Column(c).PaddingX(16).Children(func() { kit.Markdown(c, f.Text, kit.MarkdownProps{}) })
 			return
 		}
 		kit.Code(c, ui.Column(c.Key(f.Path)), f.Text, kit.CodeOptions{Language: editor.LanguageFor(f.Path), Numbers: true})
@@ -573,7 +572,7 @@ func (s *State) document(c *ui.Context, id string) {
 		if d.ID != id {
 			continue
 		}
-		ui.Scroll(c.Key(d.ID)).Grow(1).Padding(16).Children(func() { markdown.View(c, d.Text, docs) })
+		ui.Scroll(c.Key(d.ID)).Grow(1).Padding(16).Children(func() { kit.Markdown(c, d.Text, kit.MarkdownProps{}) })
 		status(c, d.Path, nil)
 	}
 }

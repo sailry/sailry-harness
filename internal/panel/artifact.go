@@ -3,7 +3,6 @@ package panel
 import (
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/editor"
-	"github.com/egoist/mygo/ui/markdown"
 	"github.com/sailry/sailry-go/internal/conversation"
 	"github.com/sailry/sailry-go/internal/i18n"
 	"github.com/sailry/sailry-go/internal/icons"
@@ -74,7 +73,7 @@ func (s *State) artifact(c *ui.Context, id string) {
 		case conversation.CodeFile:
 			kit.Code(c, ui.Column(c.Key(f.ID)).PaddingY(12), f.Text, kit.CodeOptions{Language: editor.LanguageFor(f.Path), Numbers: true})
 		case conversation.MarkdownFile:
-			ui.Column(c).Padding(16, 20).Children(func() { markdown.View(c, f.Text, docs) })
+			ui.Column(c).Padding(16, 20).Children(func() { kit.Markdown(c, f.Text, kit.MarkdownProps{}) })
 		case conversation.ImageFile:
 			ui.Box(c).FillWidth().Padding(16).Center().Children(func() {
 				if f.Image == nil || f.Image.Source == nil {

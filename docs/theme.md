@@ -128,6 +128,12 @@ has MyGo's TextInput look (its padding, the theme's Surface, the input
 border), so selects and text inputs share a height and fill everywhere,
 and its dropdown is as wide as the trigger (`MenuOptions.Match`).
 Right-click menus stay the system's (`Element.ContextMenu`).
+`kit.Markdown` (`internal/kit/markdown.go`) is adapted from Lobe MyGo's
+`markdown.Markdown`: every Markdown view goes through it with MyGo's
+`markdown.Options` passed whole; it fills only an unset `Theme` (the
+`Document` or `Chat` variant's from the palette), `Reveal` (text as it
+arrives: MyGo's paced reveal asks for display-rate frames, past
+`kit.FPS`) and `CodeBlock` (`kit.CodeBlock`).
 `kit.Alert` (`internal/kit/alert.go`) is adapted from Lobe MyGo's
 `feedback.Alert` (MIT, notice kept): MyGo has no alert. `kit.Skeleton`,
 `kit.SkeletonText` and `kit.SkeletonAvatar` (`internal/kit/skeleton.go`)

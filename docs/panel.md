@@ -93,8 +93,8 @@ terminal, subagent and file-preview tabs are single-pane.
   selecting it, in the page and a file tab alike. The tree has no
   title and starts at 8 DIPs (rows 28, 16 per level from 8). File view
   toolbar: Save, Undo, Redo (disabled, read-only), Find, and
-  Document | Source for markdown (rendered with MyGo's markdown, code
-  blocks in MyGo's editor). Text in MyGo's read-only editor (`kit.Code`:
+  Document | Source for markdown (`kit.Markdown`'s `Document` variant:
+  MyGo's markdown in the app theme, code blocks in MyGo's editor). Text in MyGo's read-only editor (`kit.Code`:
   highlighted, line numbers, mono 13 at 1.6, no caret, trailing line breaks left out). Status bar: path (right-click: Copy path),
   `Ln 1, Col 1`, UTF-8, language.
 - Changes: the tab's diff in the main area, the change list in the side
