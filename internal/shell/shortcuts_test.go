@@ -1,12 +1,16 @@
 package shell
 
 import (
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-go/internal/i18n"
 	"github.com/sailry/sailry-go/internal/panel"
+	"github.com/sailry/sailry-go/internal/preview"
 )
 
 // settle lets the columns' motion end.
@@ -152,5 +156,102 @@ func TestInputKeepsEditingKeys(t *testing.T) {
 	tt.Key(ui.Cmd, ui.KeyZ)
 	if comp.Draft != "hello" {
 		t.Errorf("⌘Z did not undo: %q", comp.Draft)
+	}
+}
+
+// The native menu has the reference's menus, items and keys, localized,
+// and its commands run scoped as their keys are.
+func TestMenu(t *testing.T) {
+	a := New(preview.Load())
+	var sent []string
+	menu := a.Menu("en", func(id string) { sent = append(sent, id) })
+	type entry struct{ label, key string }
+	cmd := func(mods ui.Modifiers, key ui.Key) string { return Accelerator(mods, key) }
+	want := map[string][]entry{
+		"Sailry": {{"About Sailry", ""}, {"Settings", cmd(ui.Cmd, ui.KeyComma)}, {"Services", ""},
+			{"Hide Sailry", cmd(ui.Super, ui.KeyH)}, {"Hide Others", cmd(ui.Super|ui.Alt, ui.KeyH)}, {"Show All", ""},
+			{"Quit Sailry", cmd(ui.Cmd, ui.KeyQ)}},
+		"File": {{"New Conversation", cmd(ui.Cmd, ui.KeyN)}, {"New Project", cmd(ui.Cmd|ui.Alt, ui.KeyN)},
+			{"Open Folder", cmd(ui.Cmd, ui.KeyO)}, {"Save", cmd(ui.Cmd, ui.KeyS)},
+			{"Close Tab", cmd(ui.Cmd, ui.KeyW)}, {"Close Window", cmd(ui.Super|ui.Shift, ui.KeyW)}},
+		"Edit": {{"Undo", cmd(ui.Cmd, ui.KeyZ)}, {"Redo", cmd(ui.Cmd|ui.Shift, ui.KeyZ)}, {"Cut", cmd(ui.Cmd, ui.KeyX)},
+			{"Copy", cmd(ui.Cmd, ui.KeyC)}, {"Paste", cmd(ui.Cmd, ui.KeyV)}, {"Select All", cmd(ui.Cmd, ui.KeyA)}},
+		"View": {{"Search", cmd(ui.Cmd, ui.KeyK)}, {"Find in Conversation", cmd(ui.Cmd, ui.KeyF)},
+			{"Toggle Sidebar", cmd(ui.Cmd, ui.KeyB)}, {"Toggle Details", cmd(ui.Cmd|ui.Alt, ui.KeyB)},
+			{"Toggle Full Screen", cmd(ui.Ctrl|ui.Super, ui.KeyF)},
+			{"Chats", ""}, {"Activity board", ""}, {"Files", ""}, {"Git", ""}, {"Market", ""}},
+		"Window": {{"Minimize", cmd(ui.Super, ui.KeyM)}, {"Zoom", ""}, {"Bring All to Front", ""}},
+		"Help":   {{"Website", ""}, {"Feedback", ""}, {"Logs", ""}},
+	}
+	var names []string
+	for _, m := range menu {
+		names = append(names, m.Label)
+		var got []entry
+		for _, it := range m.Submenu {
+			if it.Type != mygo.MenuItemSeparator {
+				got = append(got, entry{it.Label, it.Accelerator})
+			}
+		}
+		if !slices.Equal(got, want[m.Label]) {
+			t.Errorf("%s: %q, want %q", m.Label, got, want[m.Label])
+		}
+	}
+	if !slices.Equal(names, []string{"Sailry", "File", "Edit", "View", "Window", "Help"}) {
+		t.Errorf("menus %q", names)
+	}
+	// Every entry but the features' names (Git) is translated in Chinese.
+	zh := a.Menu("zh-CN", nil)
+	for i, m := range menu {
+		for j, it := range m.Submenu {
+			if it.Label != "" && i > 0 && !strings.HasPrefix(it.ID, "page:") && zh[i].Submenu[j].Label == it.Label {
+				t.Errorf("%q is not translated", it.Label)
+			}
+		}
+	}
+	// The app's items send their command; Logs is disabled.
+	for _, it := range menu[1].Submenu {
+		if it.Click != nil {
+			it.Click(it, nil)
+		}
+	}
+	if !slices.Equal(sent, []string{"conversation.new", "project.new", "folder.open", "close"}) {
+		t.Errorf("File sent %q", sent)
+	}
+	if logs := menu[5].Submenu[2]; !logs.Disabled {
+		t.Error("Logs is enabled without a log folder")
+	}
+}
+
+// Close Tab of the menu closes what ⌘W closes where the focus is, and
+// the window's commands wait while a dialog shows.
+func TestMenuCommandsScoped(t *testing.T) {
+	a, tt := newTester(t)
+	tt.Key(ui.Cmd, ui.KeyP)
+	settle(tt)
+	a.Do(CloseFocused.ID) // the focus is nowhere
+	tt.Frame()
+	if len(a.Panel.Tabs) != 1 {
+		t.Fatalf("Close Tab without focus closed tabs: %v", a.Panel.Tabs)
+	}
+	click(t, tt, "A native desktop Agent workspace.")
+	a.Do(CloseFocused.ID)
+	settle(tt)
+	if len(a.Panel.Tabs) != 0 || a.PanelOpen {
+		t.Fatalf("Close Tab in the panel left %v, open %v", a.Panel.Tabs, a.PanelOpen)
+	}
+	a.Do("page:files")
+	tt.Frame()
+	tt.Frame()
+	click(t, tt, "A native desktop Agent workspace.")
+	a.Do(CloseFocused.ID)
+	tt.Frame()
+	if a.Page != ConversationPage {
+		t.Fatalf("Close Tab in the Files page left page %d", a.Page)
+	}
+	tt.Key(ui.Cmd, ui.KeyK)
+	a.Do("sidebar.toggle")
+	tt.Frame()
+	if !a.NavOpen {
+		t.Error("Toggle Sidebar ran under the search")
 	}
 }

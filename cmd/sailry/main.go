@@ -51,6 +51,13 @@ func main() {
 			Vibrancy:             mygo.VibrancySidebar,
 			Content:              ui.View(app.View),
 		})
+		// The native app menu (app_menu.rs). Its items' commands run in
+		// the window's next frame, scoped as their keys are (shell.App.Do).
+		lang := i18n.Match(mygo.App.Locale())
+		mygo.App.SetMenu(mygo.NewMenu(app.Menu(lang, func(id string) {
+			app.Do(id)
+			win.Invalidate()
+		})))
 		win.OnBlur(save)
 		win.OnClose(func(*mygo.CloseEvent) { save() })
 	})

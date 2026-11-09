@@ -104,14 +104,30 @@ func hint(id string) string {
 // the one on top first (Element.OverlayShortcut: PopoverBase and
 // DialogBase close on Escape), then the window (Context.Shortcut, below),
 // which a modal dialog holds. A key taken by one never reaches the next.
+//
+// The native menu takes its items' keys before the window does (menu.go),
+// so their commands come back through Do and run here in the next frame,
+// scoped as the key would have been: Close Tab by where the focus is
+// (closeFocused), the window's commands not while a dialog of the window
+// shows (dialog). This is the scoping MyGo's menus lack.
 
-// shortcuts runs the window's shortcuts.
+// shortcuts runs the window's shortcuts and the commands the menu sent.
 func (a *App) shortcuts(c *ui.Context) {
 	for _, s := range Shortcuts {
 		if !c.Shortcut(s.Mods, s.Key) || c.ShortcutRepeated() && s.ID != "conversation.previous" && s.ID != "conversation.next" {
 			continue
 		}
 		a.run(c, s.ID)
+	}
+	sent := a.sent
+	a.sent = nil
+	for _, id := range sent {
+		switch {
+		case id == CloseFocused.ID:
+			a.closeFocused(c)
+		case !a.dialog():
+			a.run(c, id)
+		}
 	}
 	if a.Page != ConversationPage {
 		return
@@ -123,8 +139,36 @@ func (a *App) shortcuts(c *ui.Context) {
 	}
 }
 
+// Do sends a command of the native menu, a Shortcut's ID or another of
+// the menu's (menu.go), to run in the next frame. Call it on the main
+// thread, where menu items' Click runs, then redraw the window.
+func (a *App) Do(id string) {
+	a.sent = append(a.sent, id)
+}
+
+// dialog reports whether one of the window's dialogs shows, which holds
+// the window's commands as Element.Modal holds its shortcuts.
+func (a *App) dialog() bool {
+	return a.search.open || a.reading != nil && a.reading.open || a.Sidebar.Editing()
+}
+
+// closeFocused is Close Tab of the menu: ⌘W of the pane the focus is in
+// (App.pane), nothing outside them.
+func (a *App) closeFocused(c *ui.Context) {
+	switch {
+	case a.PanelOpen && c.FocusWithin(a.panelPane):
+		a.closeTab(c)
+	case c.FocusWithin(a.mainPane):
+		a.ClosePage()
+	}
+}
+
 // run carries out a window command.
 func (a *App) run(c *ui.Context, id string) {
+	if p, ok := pageFeatures[id]; ok {
+		a.Navigate(p)
+		return
+	}
 	switch id {
 	case "conversation.new":
 		a.Page = ConversationPage
@@ -145,8 +189,12 @@ func (a *App) run(c *ui.Context, id string) {
 			a.Page = ConversationPage
 			a.Sidebar.Selected = next
 		}
-	case "app.shortcuts", "app.settings":
-		// Settings has no Shortcuts section before phase 5.
+	case "app.shortcuts", "app.settings", "app.about":
+		// Settings has no Shortcuts or About section before phase 5.
 		a.Page = SettingsPage
+	case "help.website":
+		c.OpenURL(Website)
+	case "help.feedback":
+		c.OpenURL(Feedback)
 	}
 }

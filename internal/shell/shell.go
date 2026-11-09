@@ -94,6 +94,7 @@ type App struct {
 	// The panes that take the focus: the main column, where the
 	// conversation or a page shows, and the right panel (pane).
 	mainPane, panelPane ui.Handle
+	sent                []string // the native menu's commands (Do)
 }
 
 // New makes the app over the preview dataset, showing its large conversation.

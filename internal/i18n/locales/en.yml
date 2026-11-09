@@ -323,3 +323,35 @@ content_document: Document
 content_source: Source
 resource_project_empty: Select project
 unavailable: Unavailable
+menu_about: About Sailry
+menu_settings: Settings
+menu_services: Services
+menu_hide: Hide Sailry
+menu_hide_others: Hide Others
+menu_show_all: Show All
+menu_quit: Quit Sailry
+menu_file: File
+menu_save: Save
+menu_close_tab: Close Tab
+menu_close_window: Close Window
+menu_edit: Edit
+menu_undo: Undo
+menu_redo: Redo
+menu_cut: Cut
+menu_copy: Copy
+menu_paste: Paste
+menu_select_all: Select All
+menu_view: View
+menu_search: Search
+menu_find_conversation: Find in Conversation
+menu_toggle_sidebar: Toggle Sidebar
+menu_toggle_details: Toggle Details
+menu_full_screen: Toggle Full Screen
+menu_window: Window
+menu_minimize: Minimize
+menu_zoom: Zoom
+menu_bring_all_to_front: Bring All to Front
+menu_help: Help
+menu_website: Website
+menu_feedback: Feedback
+menu_logs: Logs

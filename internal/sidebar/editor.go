@@ -26,6 +26,9 @@ type Editor struct {
 	suggest string // the name last suggested from the path or repository
 }
 
+// Editing reports whether the project editor shows.
+func (s *State) Editing() bool { return s.editor.Open }
+
 // OpenEditor opens the project editor for pr, or for a new project.
 func (s *State) OpenEditor(pr *preview.Project) {
 	s.editor = Editor{Open: true, Project: pr}
