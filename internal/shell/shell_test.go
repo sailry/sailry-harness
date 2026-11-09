@@ -172,9 +172,15 @@ func TestApprovalsAndQuestion(t *testing.T) {
 	}
 	clickButton(t, tt, i18n.In("en", "approval_live_count", "count", 2))
 	snapshot(t, tt, "approvals")
-	if !tt.HasText("internal/kit/loader.go") || !tt.HasText("go vet ./...") {
-		t.Fatalf("the approvals do not show their requests: %q", tt.Texts())
+	// One request at a time, paged by its position.
+	if !tt.HasText("1/2") || !tt.HasText("internal/kit/loader.go") {
+		t.Fatalf("the approvals do not show the first request: %q", tt.Texts())
 	}
+	clickButton(t, tt, i18n.In("en", "knowledge_next"))
+	if !tt.HasText("2/2") || !tt.HasText("go vet ./...") {
+		t.Fatalf("next does not show the second request: %q", tt.Texts())
+	}
+	clickButton(t, tt, i18n.In("en", "knowledge_previous"))
 	clickButton(t, tt, i18n.In("en", "approval_allow_once"))
 	if len(cv.Waiting.Approvals) != 1 {
 		t.Fatalf("the decision did not resolve the approval: %d left", len(cv.Waiting.Approvals))
@@ -185,15 +191,15 @@ func TestApprovalsAndQuestion(t *testing.T) {
 	// The question: choose an option and submit.
 	clickButton(t, tt, i18n.In("en", "question_reply"))
 	// The popover sits above its capsule, right-aligned with it, 8 DIPs
-	// apart (Anchor::BottomRight, bottom_2): Submit ends at MyGo's popover
-	// padding (4) and border (1).
+	// apart (Anchor::BottomRight, bottom_2): Submit ends at Kit's popover
+	// padding (12) and MyGo's border (1).
 	capsule, _ := tt.AccessByRole(ui.RoleButton, i18n.In("en", "question_reply"))
 	submit, _ := tt.AccessByRole(ui.RoleButton, i18n.In("en", "interaction_submit"))
 	cb, sb := capsule.Bounds, submit.Bounds
-	if d := (cb.X + cb.W) - (sb.X + sb.W); d < 4 || d > 6 {
+	if d := (cb.X + cb.W) - (sb.X + sb.W); d < 12 || d > 14 {
 		t.Errorf("the question popover is not right-aligned with its capsule: capsule %v, Submit %v", cb, sb)
 	}
-	if d := cb.Y - (sb.Y + sb.H); d < 12 || d > 14 {
+	if d := cb.Y - (sb.Y + sb.H); d < 20 || d > 22 {
 		t.Errorf("the question popover is not 8 DIPs above its capsule: capsule %v, Submit %v", cb, sb)
 	}
 	click(t, tt, "Use the spinner")

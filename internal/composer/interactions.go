@@ -103,6 +103,7 @@ type Actions interface {
 // interaction is the State's part for the interactions.
 type interaction struct {
 	approvals, question bool // the popovers are open
+	at                  int  // the approval shown
 	reasons             map[string]*string
 	asked               string // the question the draft is for
 	chosen              int
@@ -137,35 +138,42 @@ func capsule(c *ui.Context, label string, open bool) ui.Element {
 	})
 }
 
-// place puts a capsule's popover (MyGo's, as it is) 320 DIPs wide,
-// anchored at its bottom right 8 DIPs over the capsule (Anchor::BottomRight,
-// bottom_2), its parts gap apart. It does nothing while the popover is
-// closed.
-func place(panel, anchor ui.Element, gap float32) {
+// place puts a capsule's popover (MyGo's, as it is) anchored at its bottom
+// right 8 DIPs over the capsule (Anchor::BottomRight, bottom_2): Kit's
+// popover padding (p_3) around a 320 DIP body (w_80), its parts gap apart,
+// in the popover color. It does nothing while the popover is closed.
+func place(c *ui.Context, panel, anchor ui.Element, gap float32) {
 	if panel != (ui.Element{}) {
-		panel.AttachTo(anchor, ui.AnchorTopEnd, ui.AnchorBottomEnd).Margin(0, 0, 8, 0).Width(320).Gap(gap)
+		panel.AttachTo(anchor, ui.AnchorTopEnd, ui.AnchorBottomEnd).Margin(0, 0, 8, 0).
+			Padding(12).Width(320 + 2*12).Gap(gap).Background(theme.Of(c).Floating())
 	}
 }
 
+// approvals shows one pending request at a time; with several, a "1/2"
+// position and previous and next buttons page through them.
 func (s *State) approvals(c *ui.Context, list []Approval, actions Actions) {
 	p := theme.Of(c)
 	label := i18n.T(c, "approval_live_count", "count", len(list))
 	trigger := capsule(c.Key("approvals"), label, s.in.approvals).OnClick(func() { s.in.approvals = !s.in.approvals })
-	place(ui.Popover(c, trigger, &s.in.approvals, func() {
-		ui.Scroll(c).MaxHeight(256).Gap(12).Children(func() {
-			for i, a := range list {
-				row := ui.Column(c.Key(a.ID)).Gap(8).Label(a.Title)
-				if i > 0 {
-					row.Padding(12, 0, 0, 0).BorderWidth(1, 0, 0, 0).BorderColor(p.Border)
-				}
-				row.Children(func() { s.approval(c, a, i == 0, actions) })
-			}
-		})
-	}), trigger, 0)
+	s.in.at = min(max(s.in.at, 0), len(list)-1)
+	place(c, ui.Popover(c, trigger, &s.in.approvals, func() {
+		if len(list) > 1 {
+			ui.Row(c.Key("pager")).Gap(4).Children(func() {
+				ui.Textf(c, "%d/%d", s.in.at+1, len(list)).FontSize(14).TextColor(p.MutedForeground)
+				ui.Spacer(c)
+				kit.IconButton(c.Key("previous"), icons.ChevronLeft, i18n.T(c, "knowledge_previous"), 24, false).
+					Disabled(s.in.at == 0).OnClick(func() { s.in.at-- })
+				kit.IconButton(c.Key("next"), icons.ChevronRight, i18n.T(c, "knowledge_next"), 24, false).
+					Disabled(s.in.at == len(list)-1).OnClick(func() { s.in.at++ })
+			})
+		}
+		a := list[s.in.at]
+		ui.Column(c.Key(a.ID)).Gap(8).Label(a.Title).Children(func() { s.approval(c, a, actions) })
+	}), trigger, 12)
 }
 
 // approval is one request: who asks, the tool, where, what, the decision.
-func (s *State) approval(c *ui.Context, a Approval, first bool, actions Actions) {
+func (s *State) approval(c *ui.Context, a Approval, actions Actions) {
 	p := theme.Of(c)
 	if a.Child != "" {
 		ui.Text(c, a.Child).FontSize(14).SingleLine()
@@ -185,7 +193,7 @@ func (s *State) approval(c *ui.Context, a Approval, first bool, actions Actions)
 			if p.Dark {
 				bg = p.Background
 			}
-			ui.Scroll(c).MaxHeight(128).Radius(p.Radius).Background(bg).Padding(12).Children(func() {
+			ui.Scroll(c).MaxHeight(128).Shrink(0).Radius(p.Radius).Background(bg).Padding(12).Children(func() {
 				ui.Text(c, a.Description).Font("monospace").FontSize(14).Selectable()
 			})
 		} else {
@@ -223,12 +231,7 @@ func (s *State) approval(c *ui.Context, a Approval, first bool, actions Actions)
 			}
 		})
 		allow := i18n.T(c, "approval_allow_once")
-		var b ui.Element
-		if first {
-			b = kit.Primary(c.Key("allow"), allow, false).Height(28)
-		} else {
-			b = kit.Ghost(c.Key("allow"), allow, false).Height(28).PaddingX(12).Border(1, p.Border)
-		}
+		b := kit.Primary(c.Key("allow"), allow, false).Height(28)
 		if !a.Remember {
 			b.Radius(14)
 		}
@@ -295,7 +298,7 @@ func (s *State) ask(c *ui.Context, q *Ask, actions Actions) {
 	}
 	label := i18n.T(c, "question_reply")
 	trigger := capsule(c.Key("question"), label, in.question).OnClick(func() { in.question = !in.question })
-	place(ui.Popover(c, trigger, &in.question, func() {
+	place(c, ui.Popover(c, trigger, &in.question, func() {
 		ui.Scroll(c).Gap(16).Children(func() {
 			ui.Text(c, q.Prompt).FontSize(14).FontWeight(500)
 			other := len(q.Options) // the index of Other
