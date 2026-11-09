@@ -35,6 +35,7 @@ func (noActions) Quote(string)                                          {}
 func bigTester(tb testing.TB) (*conversation.State, *preview.Conversation, *ui.Tester) {
 	d := preview.Load()
 	cv := d.Find(preview.Big)
+	preview.LoadAll(cv)
 	if len(cv.Turns) != 1000 {
 		tb.Fatalf("%d turns", len(cv.Turns))
 	}

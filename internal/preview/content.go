@@ -174,8 +174,26 @@ func usage(turns int) *cv.Usage {
 		Context: math.Min(0.92, 0.04*float64(turns))}
 }
 
-// pageSize is how many older turns a LoadOlder reveals.
-const pageSize = 8
+// pageSize is how many turns a page of history holds: the live view
+// reads its history 20 turns at a time (client conversation/observer.rs
+// read_page), so its message navigation ticks the turns of the pages
+// loaded, not the whole session's.
+const pageSize = 20
+
+// paged shows c's last page of turns and keeps the rest as older pages.
+func paged(c *Conversation) {
+	if n := len(c.Turns) - pageSize; n > 0 {
+		c.older, c.Turns = c.Turns[:n], c.Turns[n:]
+		c.Session.Older = len(c.older)
+	}
+}
+
+// LoadAll loads every older page at once, for a benchmark of the whole
+// history.
+func LoadAll(c *Conversation) {
+	c.Turns = append(c.older, c.Turns...)
+	c.older, c.Session.Older, c.Session.LoadingOlder = nil, 0, false
+}
 
 // pageAfter is how long the preview takes to load a page.
 const pageAfter = 600 * time.Millisecond

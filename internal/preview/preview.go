@@ -171,10 +171,10 @@ func Load() *Data {
 		conv("chat/offline", "Connection recovering", Idle, 14*24*time.Hour, 6),
 		conv("chat/loading", "History loading", Idle, 15*24*time.Hour, 4),
 	}
-	// Older pages: the last 8 turns show, the rest load 8 at a time.
-	pg := d.Unassigned[len(d.Unassigned)-3]
-	pg.older, pg.Turns = pg.Turns[:len(pg.Turns)-8], pg.Turns[len(pg.Turns)-8:]
-	pg.Session.Older = len(pg.older)
+	// Long histories load as the live view's do: the last page shows, the
+	// older ones load a page at a time.
+	paged(d.Find(Big))
+	paged(d.Unassigned[len(d.Unassigned)-3])
 	off := d.Unassigned[len(d.Unassigned)-2]
 	off.Session.Connection = conversation.Reconnecting
 	off.Session.Diagnostic = &conversation.Diagnostic{Title: "Model request rejected", Fields: [][2]string{
