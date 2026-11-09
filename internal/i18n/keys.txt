@@ -1382,3 +1382,4 @@ reference_group_connections
 reference_group_skills
 reference_group_plugins
 reference_group_attach
+appearance_blur

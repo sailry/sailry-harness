@@ -119,11 +119,15 @@ const (
 
 // Surfaces are the window materials' opacities, 0 to 1, that the
 // Appearance page's transparency sliders set (preferences.rs Surfaces):
-// the main panel's and the outer sidebar band's.
-type Surfaces struct{ Main, Sidebar float32 }
+// the main panel's and the outer sidebar band's; and Blur, 0 to 1, how
+// much the columns blur a theme's window art (0 none, 1 PaneBlurMax DIP).
+type Surfaces struct{ Main, Sidebar, Blur float32 }
+
+// PaneBlurMax is the columns' blur radius at Surfaces.Blur 1, in DIP.
+const PaneBlurMax = 36
 
 // DefaultSurfaces are Surfaces::default.
-var DefaultSurfaces = Surfaces{Main: PanelOpacity, Sidebar: SidebarOpacity}
+var DefaultSurfaces = Surfaces{Main: PanelOpacity, Sidebar: SidebarOpacity, Blur: 0.5}
 
 // Radius2xl is Kit's radius_2xl: the composer's and the mode cards'.
 func (p *Palette) Radius2xl() float32 { return p.Radius * 2.5 }

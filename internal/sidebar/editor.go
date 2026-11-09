@@ -129,7 +129,7 @@ func (s *State) editorDialog(c *ui.Context) {
 		})
 		ui.Scroll(c.Key("body")).Grow(1).Shrink(1).Gap(12).Children(func() {
 			if e.Project == nil {
-				kit.Segmented(c, "source", &e.Clone, []string{i18n.T(c, "project_local"), i18n.T(c, "project_clone")}, kit.SegmentedProps{})
+				kit.Segmented(c, "source", &e.Clone, []string{i18n.T(c, "project_local"), i18n.T(c, "project_clone")}, kit.SegmentedProps{Block: true})
 			}
 			kit.Field(c, "name", i18n.T(c, "project_name"), "", func() {
 				ui.TextInput(c.Key("input"), &e.Name).Placeholder(i18n.T(c, "project_name_placeholder")).Label(i18n.T(c, "project_name")).FillWidth()

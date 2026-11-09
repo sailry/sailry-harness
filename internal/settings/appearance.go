@@ -254,6 +254,17 @@ func transparency(c *ui.Context, s *theme.Surfaces) {
 					})
 				})
 			}
+			// How much the columns blur a theme's window art, 0 to 100.
+			title := i18n.T(c, "appearance_blur")
+			kit.Row(c, "appearance_blur", title, "", func() {
+				v := float64(s.Blur) * 100
+				ui.Row(c).Width(240).Gap(12).Children(func() {
+					if ui.Slider(c.Key("slider"), &v, 0, 100).Label(title).Grow(1).Changed() {
+						s.Blur = float32(v / 100)
+					}
+					ui.Textf(c, "%d%%", int(v+0.5)).FontSize(14).Width(40).TextAlign(ui.End).TextColor(p.SurfaceForeground)
+				})
+			})
 		})
 	})
 }

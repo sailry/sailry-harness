@@ -1362,3 +1362,12 @@ port_failed: Could not forward; check the port and connection
 selection_large: Selected text is too large
 selection_permission: Allow Accessibility access in system settings
 metrics_rate: '%{value}/s'
+appearance_blur: Blur
+composer_group_prompts: Prompts
+composer_group_modes: Modes
+composer_group_session: Session
+reference_group_context: Context
+reference_group_connections: Connections
+reference_group_skills: Skills
+reference_group_plugins: Plugins
+reference_group_attach: Attachments

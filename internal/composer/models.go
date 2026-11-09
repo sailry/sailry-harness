@@ -187,11 +187,19 @@ func (s *State) chosenFeatures(c *ui.Context, m Model) (fast, other []featureBad
 }
 
 // controls is the popover's body (model_controls/mod.rs render): its
-// height moves between the main page and the picker's and team list's.
+// height animates between the pages: the main page's, the team list's
+// own (up to the picker's), and the picker's.
 func (s *State) controls(c *ui.Context, ctx *Context, actions Actions) {
-	h := float32(108 + teamRow)
-	if s.layer != layerMain {
+	// The main page has the team row's divider (1, and a gap of 8); the
+	// team list is as tall as its rows, the model picker the full height.
+	h := float32(108 + teamRow + 9)
+	switch s.layer {
+	case layerModels:
 		h = panelHeight
+	case layerTeams:
+		// Back 28, the rows 32 each, the divider 1 + 8, Manage 32, 4 apart.
+		rows := 1 + len(ctx.Teams)
+		h = min(float32(28+32*rows+9+32+4*(rows+2)), panelHeight)
 	}
 	body := ui.Column(c.Key("model-controls")).Width(panelWidth).Height(h).Clip().AlignItems(ui.Center).Gap(8).
 		Transition(ui.ElementTransition{Height: true, Duration: 200e6})

@@ -38,7 +38,7 @@ func dictation(c *ui.Context, m *Model) {
 	// The speech models in the page's Installed and Available tabs, as
 	// the Decision and Knowledge pages show theirs, not in the library
 	// dialog.
-	kit.Group(c, "models", i18n.T(c, "dictation_local_model"), "", nil, func() {
+	kit.Group(c, "models", "", "", nil, func() {
 		ui.Row(c).Gap(12).Wrap().Children(func() {
 			kit.Segmented(c, "tabs", &m.SpeechTab, []string{i18n.T(c, "knowledge_installed"), i18n.T(c, "local_models_available")}, kit.SegmentedProps{}).
 				Label(i18n.T(c, "dictation_local_model"))

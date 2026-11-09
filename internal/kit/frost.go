@@ -97,9 +97,12 @@ func Veil(c *ui.Context, base ui.Color) ui.Color {
 // through blurred, at fill's alpha (the Appearance page's container
 // opacity); otherwise fill is a plain background, so the window material
 // of a translucent window still shows through.
-func Pane(c *ui.Context, el ui.Element, fill ui.Color, frosted bool) ui.Element {
-	if !frosted {
+// blur is the radius in DIP (Appearance's blur slider); 0 leaves the art
+// sharp under the translucent fill.
+func Pane(c *ui.Context, el ui.Element, fill ui.Color, frosted bool, blur float32) ui.Element {
+	if !frosted || blur <= 0 {
 		return el.Background(fill)
 	}
-	return Frost(c, el, Opaque(fill), float32(fill.A)/255)
+	solid := Opaque(fill).Over(Opaque(theme.Of(c).Background))
+	return el.Material(frost{blur: blur, base: solid, tint: solid.Alpha(float32(fill.A) / 255)})
 }

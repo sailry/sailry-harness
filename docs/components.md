@@ -132,6 +132,9 @@ MyGo bases.
 
 - In-page view switches are `kit.Segmented` with the active segment
   inverted. Document tab strips (the panel's and the pages') stay tabs.
+- A `kit.Segmented` inside a dialog, and the plugin details tabs, fill
+  their width (`SegmentedProps{Block: true}`, the segments sharing it
+  evenly); elsewhere it is as wide as its labels.
 - Pickers with a small, known set of choices (the composer's project,
   worktree, mode and permission) are a `kit.MenuButton` dropdown, not a
   searchable command dialog.

@@ -1362,3 +1362,12 @@ port_failed: 无法转发，请检查端口和连接
 selection_large: 选中文字过长
 selection_permission: 请在系统设置中允许辅助功能访问
 metrics_rate: '%{value}/s'
+appearance_blur: 模糊
+composer_group_prompts: 提示词
+composer_group_modes: 模式
+composer_group_session: 会话
+reference_group_context: 上下文
+reference_group_connections: 连接
+reference_group_skills: 技能
+reference_group_plugins: 插件
+reference_group_attach: 附件
