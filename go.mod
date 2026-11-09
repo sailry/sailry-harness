@@ -6,6 +6,8 @@ require (
 	github.com/egoist/mygo v0.8.4-0.20261109104234-eadf1fce6af3
 	github.com/firede/limu v0.5.0
 	github.com/firede/limu/limumygo v0.5.0
+	github.com/google/uuid v1.6.0
+	github.com/klauspost/compress v1.20.4
 	go.yaml.in/yaml/v3 v3.0.6
 )
 

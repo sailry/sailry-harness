@@ -1,0 +1,1 @@
+{"kind":"network_presets","data":{"presets":[{"id":"example","label":{"label":"Example","locales":{}},"selection":{"kind":"custom","relays":["https://relay.example"]}}],"unavailable":false}}

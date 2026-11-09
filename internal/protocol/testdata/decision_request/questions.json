@@ -1,0 +1,1 @@
+{"state":"Page text","questions":{"visible":{"type":"noul","instructions":"Is Save visible?"},"action":{"type":"choice","instructions":"Choose an action","criteria":{"save":null,"cancel":"Discard"}},"urgency":{"type":"score","instructions":"How urgent?","criteria":["Later","Now"]}}}

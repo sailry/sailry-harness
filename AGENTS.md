@@ -6,8 +6,9 @@ release procedures are in [CONTRIBUTING.md](CONTRIBUTING.md); package rules are 
 
 ## Scope
 
-- Finish the authorized phase against its acceptance criteria, then stop for user
-  acceptance. Do unlisted work only as a demonstrated prerequisite or blocking
+- Finish all authorized backend phases in order against their acceptance criteria.
+  The user has authorized continuous implementation through B14 without pausing
+  for phase confirmation. Do unlisted work only as a prerequisite or blocking
   defect; optional improvements and later-phase work are not completion gates.
 - The Go module and repository are `github.com/sailry/sailry-harness`.
 - Development is self-contained. Locale sources and SDK declarations live here;

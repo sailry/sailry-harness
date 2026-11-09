@@ -1,0 +1,1 @@
+{"code":"busy","message":"fixture project has pending tasks","details":{"kind":"project_removal","tasks_active":true,"terminals_may_be_closed":true}}
