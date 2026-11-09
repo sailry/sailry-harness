@@ -1358,6 +1358,7 @@ workspace_no_terminal
 workspace_reset_terminal
 workspace_close_terminal
 workspace_terminal_preview
+pane_drag
 workspace_reset_count
 terminal_connecting
 terminal_exited

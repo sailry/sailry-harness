@@ -98,6 +98,12 @@ func (a *App) trail(c *ui.Context) {
 		}
 		return
 	}
+	if a.panes.Displayed() != nil {
+		// A split's panes have their own titles: the band names the page
+		// (shell/header.rs module_header).
+		ui.Text(c, i18n.T(c, "shell_sessions")).FontSize(14).SingleLine().Shrink(1).TextColor(p.Foreground)
+		return
+	}
 	cv := a.Data.Find(a.Sidebar.Selected)
 	if cv == nil {
 		ui.Text(c, i18n.T(c, "app")).FontSize(14).SingleLine().TextColor(p.Foreground)

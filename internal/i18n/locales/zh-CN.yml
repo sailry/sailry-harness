@@ -1346,6 +1346,7 @@ workspace_no_terminal: 当前 worktree 没有终端
 workspace_reset_terminal: 重置终端
 workspace_close_terminal: 关闭终端
 workspace_terminal_preview: 终端 UI 预览。已保留项目和 worktree 归属，未启动 PTY 或 shell；真实终端绘制与输入在终端阶段接入。
+pane_drag: 拖动分屏
 workspace_reset_count: 示例重置次数 %{count}
 terminal_connecting: 连接中
 terminal_exited: 终端已退出

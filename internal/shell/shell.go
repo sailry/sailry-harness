@@ -138,6 +138,8 @@ type App struct {
 	Welcome onboarding.Guide
 	// selected is the selected text dialog (system shortcuts).
 	selected selection
+	// panes is the split workspace (panes.go).
+	panes workspace
 }
 
 // New makes the app over the preview dataset, showing its large conversation.
@@ -189,6 +191,7 @@ func (a *App) View(c *ui.Context) {
 	kit.SetEffects(a.Effects)
 	a.shortcuts(c)
 	a.followSelection()
+	a.followPanes()
 	p := theme.Of(c)
 	// The title bar and the rail are one outer band in title_bar's color
 	// (theme.rs sidebar_background).
@@ -221,9 +224,9 @@ func (a *App) View(c *ui.Context) {
 			ui.Row(c.Key("panel")).Grow(1).MinWidth(0).AlignItems(ui.Stretch).BorderWidth(1, 0, 0, 1).BorderColor(p.SidebarBorder).
 				Radius(p.RadiusLg, 0, 0, 0).Clip().Children(func() {
 				a.nav(c, f, panel)
-				main := kit.Draws(kit.Pane(c, ui.Column(c.Key("main")).Grow(1).MinWidth(0), panel, a.frosted), kit.Backdrop(c, "background.content"))
+				main := kit.Draws(kit.Pane(c, ui.Column(c.Key("main")).Grow(1).MinWidth(0), panel, a.frosted, a.Surfaces.Blur*theme.PaneBlurMax), kit.Backdrop(c, "background.content"))
 				a.pane(c, main, &a.mainPane, a.closable(), func() { a.ClosePage() })
-				main.Children(func() { a.page(c) })
+				a.mainColumn(c, main)
 				a.details(c, f, panel)
 			})
 		})
@@ -272,7 +275,7 @@ func (a *App) nav(c *ui.Context, f frame, panel ui.Color) {
 	}
 	p := theme.Of(c)
 	ui.Row(c.Key("nav")).Width(f.navWidth * f.nav).Shrink(0).ClipX().AlignItems(ui.Stretch).Children(func() {
-		col := kit.Pane(c, ui.Column(c.Key("content")).Width(f.navWidth).Shrink(0), p.Sidebar.Alpha(float32(panel.A)/255), a.frosted).
+		col := kit.Pane(c, ui.Column(c.Key("content")).Width(f.navWidth).Shrink(0), p.Sidebar.Alpha(float32(panel.A)/255), a.frosted, a.Surfaces.Blur*theme.PaneBlurMax).
 			BorderWidth(0, 1, 0, 0).BorderColor(p.SidebarBorder)
 		kit.Draws(col, kit.Backdrop(c, "background.sidebar")).Children(func() {
 			if a.Page == SettingsPage {
@@ -301,7 +304,7 @@ func (a *App) details(c *ui.Context, f frame, fill ui.Color) {
 		})
 	}
 	ui.Row(c.Key("details")).Width(f.panelW * f.details).Shrink(0).ClipX().Justify(ui.End).AlignItems(ui.Stretch).Children(func() {
-		col := kit.Pane(c, ui.Column(c.Key("content")).Width(f.panelW).Shrink(0), fill, a.frosted).BorderWidth(0, 0, 0, 1).BorderColor(p.Border)
+		col := kit.Pane(c, ui.Column(c.Key("content")).Width(f.panelW).Shrink(0), fill, a.frosted, a.Surfaces.Blur*theme.PaneBlurMax).BorderWidth(0, 0, 0, 1).BorderColor(p.Border)
 		a.pane(c, col, &a.panelPane, true, func() {
 			if a.extensionDetails() {
 				a.Settings.CloseDetails()
@@ -418,10 +421,19 @@ func (a *App) page(c *ui.Context) {
 		a.hostView(c)
 		return
 	}
-	cv := a.Data.Find(a.Sidebar.Selected)
-	if cv == nil {
+	if a.split(c) {
 		return
 	}
+	if cv := a.Data.Find(a.Sidebar.Selected); cv != nil {
+		a.conversation(c, cv, a.mainPane)
+	}
+}
+
+// conversation is a session's transcript and composer, alone in the main
+// column or in a pane of a split, focus being where it takes its keys.
+// Each session keeps its own list, composer and search: the transcript's
+// state is kept by session, and a session shows in one pane at most.
+func (a *App) conversation(c *ui.Context, cv *preview.Conversation, focus ui.Handle) {
 	// The preview plays a sent reply on the frame clock, a step per Tick.
 	preview.Advance(cv, c.Now())
 	if cv.Playing() {
@@ -429,7 +441,7 @@ func (a *App) page(c *ui.Context) {
 	}
 	comp := a.Composer(cv.ID)
 	comp.Running = cv.Running()
-	comp.Searching = a.Messages.SearchOpen()
+	comp.Searching = a.Messages.SearchOpen() && cv.ID == a.Sidebar.Selected
 	comp.Metrics = func(c *ui.Context, compact bool, open *bool) {
 		conversation.UsageBar(c, cv.Session.Usage, compact, open)
 	}
@@ -446,11 +458,13 @@ func (a *App) page(c *ui.Context) {
 	ctx := a.Data.Composer(cv, comp.Worktree)
 	// Escape in the conversation after the picker and the search bar:
 	// the queue's editor, then Stop (live/shortcuts.rs EscapeTarget).
-	if comp.Escapes() && c.FocusWithin(a.mainPane) && c.Shortcut(0, ui.KeyEscape) {
+	if comp.Escapes() && c.FocusWithin(focus) && c.Shortcut(0, ui.KeyEscape) {
 		comp.Escape(act)
 	}
-	a.Panel.Child = func(c *ui.Context, id string) {
-		conversation.View(c, a.Messages, id, a.children[id], nil, act)
+	if cv.ID == a.Sidebar.Selected {
+		a.Panel.Child = func(c *ui.Context, id string) {
+			conversation.View(c, a.Messages, id, a.children[id], nil, act)
+		}
 	}
 	if len(cv.Turns) == 0 {
 		// A new session welcomes with the theme's hero and the mode

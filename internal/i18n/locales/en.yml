@@ -1346,6 +1346,7 @@ workspace_no_terminal: No terminals in this worktree
 workspace_reset_terminal: Reset terminal
 workspace_close_terminal: Close terminal
 workspace_terminal_preview: Terminal UI preview with project and worktree ownership; no PTY or shell is started
+pane_drag: Drag to split
 workspace_reset_count: 'Preview resets: %{count}'
 terminal_connecting: Connecting
 terminal_exited: Terminal exited

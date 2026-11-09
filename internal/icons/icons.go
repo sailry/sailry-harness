@@ -108,6 +108,7 @@ var (
 	Microphone = load("reicon-microphone")
 	Writing    = load("reicon-writing")
 	Help       = load("reicon-help-circle")
+	Move       = load("reicon-move") // assets.rs DRAG_ICON
 
 	// Activity lanes (activity/icons.rs).
 	ProgressWaiting   = load("remix-progress-4")

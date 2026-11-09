@@ -43,6 +43,9 @@ type State struct {
 	find      search           // the search bar
 	wantOlder bool             // the start came into view this frame
 	nav       navigation       // the message navigation rail
+	// Split is whether the transcripts show in the panes of a split,
+	// which have no navigation rail (live/navigation.rs set_split).
+	Split bool
 }
 
 func New() *State {
@@ -81,7 +84,7 @@ func View(c *ui.Context, s *State, id string, turns []Turn, sess *Session, actio
 		}).Fill().Role(ui.RoleLog)
 		// A delegated session's transcript, the child panel's (no
 		// session), is read-only and has no navigation, as in live.rs.
-		if sess != nil && n > 0 {
+		if sess != nil && n > 0 && !s.Split {
 			s.nav.view(c, l, turns)
 		}
 		jump(c, l, n, !s.built[id])

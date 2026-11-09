@@ -94,6 +94,12 @@ func (s *State) look(c *ui.Context, t Tab) (*ui.SVG, string) {
 	return r.Icon, i18n.T(c, r.Label)
 }
 
+// Title is a tab's title, as its tab shows it.
+func (s *State) Title(c *ui.Context, t Tab) string {
+	_, label := s.look(c, t)
+	return label
+}
+
 // itemLook is a file or diff tab's icon and title: the file's name.
 func itemLook(k Kind, path string) (*ui.SVG, string) {
 	icon := icons.File
