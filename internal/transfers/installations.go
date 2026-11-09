@@ -73,11 +73,13 @@ func Button(c *ui.Context, q *Queue, open *bool, retry func(e Entry)) {
 	}
 }
 
-// row is a request (rows.rs render_item): padded 8 on every side, a 28 DIP tile with the
+// row is a request (rows.rs render_item): padded 8 on every side, a 28
+// DIP tile with the
 // kind's icon (danger or warning tinted when it failed or is uncertain),
 // the title over its progress bar, a clock while queued; on hover round
 // ghost Remove, and Retry for a failed or uncertain one, fade in at the
-// row's right end in place of the clock, in room the column always keeps. The status, where it runs and the measure are its
+// title line's end in place of the clock (trailing). The status, where
+// it runs and the measure are its
 // accessible name.
 func row(c *ui.Context, e Entry, remove, retry func()) {
 	p := theme.Of(c)
@@ -108,14 +110,16 @@ func row(c *ui.Context, e Entry, remove, retry func()) {
 		icon, tone, tile = icons.CircleQuestion, p.Warning, p.Warning.Alpha(0.1)
 	}
 	queued := e.Status == Waiting || e.Status == Queued
-	// The column keeps room for what floats at the row's end (the clock,
-	// Remove and Retry), so its bar is as wide hovered as not.
-	reserve := float32(0)
+	// The title line ends in what belongs to the row (the clock while
+	// queued; on hover Retry and Remove) in room it always keeps, so the
+	// title truncates the same hovered or not and every bar spans the
+	// column.
+	slots := 0
 	if queued || e.Actionable {
-		reserve = 28
+		slots = 1
 	}
 	if e.Actionable && e.Retryable {
-		reserve = 56
+		slots = 2
 	}
 	r := ui.Row(c.Key(e.Key)).Padding(8).Gap(8).Radius(p.Radius).Label(detail)
 	hovered := r.Hovered()
@@ -126,8 +130,13 @@ func row(c *ui.Context, e Entry, remove, retry func()) {
 		ui.Row(c.Key("tile")).Size(28, 28).Shrink(0).Radius(p.Radius).Background(tile).Center().Children(func() {
 			ui.Icon(c, icon).FontSize(16).TextColor(tone)
 		})
-		ui.Column(c.Key("text")).Grow(1).Shrink(1).MinWidth(0).Gap(8).PaddingEnd(reserve).Children(func() {
-			ui.Text(c, e.Title).FontSize(14).SingleLine()
+		ui.Column(c.Key("text")).Grow(1).Shrink(1).MinWidth(0).Gap(8).Children(func() {
+			ui.Row(c.Key("line")).Height(20).Gap(4).AlignItems(ui.Center).Children(func() {
+				ui.Text(c, e.Title).FontSize(14).SingleLine().Grow(1).Shrink(1).MinWidth(0)
+				if slots > 0 {
+					trailing(c, e, tone, hovered, slots, queued, remove, retry)
+				}
+			})
 			v, measured := e.Measured()
 			if !measured {
 				v = 0
@@ -137,16 +146,26 @@ func row(c *ui.Context, e Entry, remove, retry func()) {
 			}
 			ui.Progress(c.Key("progress"), v/100).FillWidth().Height(2).Label(status)
 		})
+	})
+}
+
+// trailing is the end of a row's title line, slots of 20 DIPs wide: the
+// clock while queued, and on hover (or keyboard focus) round ghost Retry
+// and Remove fading in over it.
+func trailing(c *ui.Context, e Entry, tone ui.Color, hovered bool, slots int, queued bool, remove, retry func()) {
+	p := theme.Of(c)
+	box := ui.Box(c.Key("trailing")).Size(float32(slots*20+(slots-1)*4), 20).Shrink(0)
+	box.Children(func() {
 		var shown bool
 		if e.Actionable {
-			slot := ui.Row(c.Key("actions")).Absolute().Right(8).Top(0).Bottom(0).AlignItems(ui.Center).Gap(4)
+			slot := ui.Row(c.Key("actions")).Absolute().Right(0).Top(0).Bottom(0).AlignItems(ui.Center).Gap(4)
 			slot.Children(func() {
 				if e.Retryable {
-					y := kit.IconButton(c.Key("retry"), icons.Redo, i18n.T(c, "installation_retry"), 24, false).Radius(12).
+					y := kit.IconButton(c.Key("retry"), icons.Redo, i18n.T(c, "installation_retry"), 20, false).Radius(10).
 						TextColor(tone).OnClick(retry)
 					shown = shown || y.FocusVisible()
 				}
-				x := kit.IconButton(c.Key("remove"), icons.Close, i18n.T(c, "installation_remove"), 24, false).Radius(12).
+				x := kit.IconButton(c.Key("remove"), icons.Close, i18n.T(c, "installation_remove"), 20, false).Radius(10).
 					OnClick(remove)
 				shown = shown || hovered || x.FocusVisible()
 			})
@@ -157,7 +176,7 @@ func row(c *ui.Context, e Entry, remove, retry func()) {
 			slot.Opacity(slot.AnimateTo("shown", target, ui.Animation{Duration: 120 * time.Millisecond}))
 		}
 		if queued && !shown {
-			ui.Row(c.Key("queued")).Absolute().Right(12).Top(0).Bottom(0).AlignItems(ui.Center).PassThrough().Children(func() {
+			ui.Row(c.Key("queued")).Absolute().Right(2).Top(0).Bottom(0).AlignItems(ui.Center).PassThrough().Children(func() {
 				ui.Icon(c, icons.Clock).FontSize(16).TextColor(p.MutedForeground)
 			})
 		}

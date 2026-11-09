@@ -122,7 +122,6 @@ func (a *App) noticeRow(c *ui.Context, n *preview.Notice) {
 	if row.Hovered() {
 		row.Background(p.Hover)
 	}
-	kit.Tooltip(c, row, n.Title)
 	row.TextColor(text).Children(func() {
 		ui.Icon(c, glyph).FontSize(16).TextColor(color).Shrink(0)
 		t := ui.Text(c, n.Title).FontSize(14).SingleLine().Grow(1).Shrink(1)
