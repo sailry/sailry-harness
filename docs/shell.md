@@ -63,7 +63,7 @@ wide and cannot close one to nothing, which the motion needs).
 
 Pinned features in their order, then More; the bell, the host picker,
 Search and Settings at the bottom. Conversation is fixed first and Market
-last. More is a frosted popover to the right listing every feature with
+last. More is a popover to the right listing every feature with
 a pin (`feature_pin`/`feature_unpin`); rows drag to reorder
 (`MoveFeature`, a 4 DIP primary line). Every feature opens an
 independent page in the main column, as the reference's `Page`
@@ -71,7 +71,7 @@ destinations do: Files and Git over the selected conversation's project
 (the same `panel.Project` the panel's tabs show, `docs/panel.md`),
 Activity and Market as the reference's preview shows them (`unavailable`).
 The panel shows on the conversation page only; selecting a conversation
-over a page goes back to it, and `ClosePage` closes the page shown. Hosts: a frosted menu with the hosts (check on this one,
+over a page goes back to it, and `ClosePage` closes the page shown. Hosts: a menu with the hosts (check on this one,
 `sidebar_host_update`), `host_add`; a dot when one has an update; its
 right-click menu is the system's (`workspace_host`,
 `connection_action_edit`, `project_add`).
@@ -150,7 +150,7 @@ added over MyGo's own.
 
 ## Search
 
-⌘K or the rail: a frosted dialog 480 wide near the top. Root rows: Chats,
+⌘K or the rail: a dialog 480 wide. Root rows: Chats,
 Projects, Hosts, Settings (folders) and the features. A folder lists its
 items with a check on the current one. `Filter` keeps rows whose label or
 keyword holds the query, case folded, in order, dropping empty groups;
@@ -160,7 +160,7 @@ too. Empty: `connection_search_empty`.
 
 ## Activity centre
 
-The bell, a red dot while notices are unread, opens a frosted popover to
+The bell, a red dot while notices are unread, opens a popover to
 the right: `notification_center` (preview toast), Mark all as read,
 Delete read, then the notices newest first (`SortNotices`): a 40 DIP row
 with the kind's glyph and color (completed, failed, approval, input,
@@ -174,13 +174,13 @@ reference's eight SVG designs and colors). A running one turns in its
 color; the others take the lane's color with a 10 DIP badge (warning
 triangle, success check). A group shows three (two under 480 DIPs), or two
 and +N in the lane's color, which opens a 300 DIP popover of the group's
-rows. The pointer resting on one shows its title and project in a frosted
-card below it.
+rows. The pointer resting on one shows its title and project in a
+tooltip.
 
 ## Knowledge
 
 `ParseSource` accepts `sailry-knowledge://<collection>/<chunk>?revision=<r>`
-only, as the reference. The viewer is a frosted dialog up to 800 wide:
+only, as the reference. The viewer is a dialog up to 800 wide:
 `knowledge_source`, the title, `host · path · Lines a–b`, the page in mono,
 Previous, Next and Close. The preview pages its citation in memory; the
 activity centre's knowledge notice opens it.

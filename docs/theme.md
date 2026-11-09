@@ -101,22 +101,13 @@ holds frames of an occluded one).
 
 ### Floating layers
 
-Every floating layer is frosted (`internal/kit/floating.go`): menus drawn
-in the window, popovers, dialogs, tooltips, hover cards, select popups,
-the session search and toasts. `kit.Frosted` is a material of a backdrop
-blur (`glass.Blur`, 24 DIPs) under the popover color at
-`theme.FloatingAlpha` (92%); `kit.Floating` adds the radius, border,
-shadow and text color. With Reduce Transparency the tint is the opaque
-popover color and nothing blurs. The blur samples the in-frame backdrop,
-whose own translucency over the window material (the 83.5% panel) lets
-some sharp text through it; the 92% tint keeps the surface clean.
-The kit wrappers are built on MyGo's
-headless bases (`MenuBase`, `PopoverBase`, `DialogBase`, `TooltipBase`,
-`SelectBase`, `ToastViewportBase`), so the keys, focus, placement and
-motion stay MyGo's: `kit.Menu`/`MenuButton`/`IconMenu`, `kit.Tip`,
-`kit.HoverCard`, `kit.Select`, `kit.Dialog`, `kit.Toasts`. Right-click
-menus stay the system's (`Element.ContextMenu`). Switching to Liquid
-Glass is one line in `Frosted` (`glass.Glass{}`).
+Floating layers (left-click menus, popovers, dialogs, tooltips, selects,
+toasts and hover cards) are MyGo's styled components as they are
+(`PopoverMenuButton`, `Popover`, `Modal`, `AlertDialog`,
+`Element.Tooltip`, `Select`, the default toasts), with no look of our own;
+the theme reaches them only through the MyGo theme slots `theme.Apply`
+sets. MyGo has no styled hover card, so hover cards are tooltips.
+Right-click menus stay the system's (`Element.ContextMenu`).
 
 ## Wiring a backend
 
@@ -169,4 +160,3 @@ applies a package, shows its details and turns effects off.
 | The window's opacity controls are not on the page | Not in this phase |
 | `message.assistant.*`, `banner.*`, `brand`, `button.send/stop` art and `icon.*` of the rail are read but not drawn | No shipped package uses them |
 | Pinned conversations use `icon.group.recent` | The reference declares the group icons but draws none |
-| Floating layers are frosted (backdrop blur under a 92% popover tint) | A deliberate upgrade: the reference's are the popover color at 95% because GPUI has no backdrop blur |

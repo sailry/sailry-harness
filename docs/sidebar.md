@@ -62,8 +62,8 @@ motion; at once with Reduce Motion). The chevron and "+" show on hover.
 status slot (loader, waiting, unread dot) on its elbow. Hover shows Pin or
 Unpin (`PinOff`) and Archive (`Inbox`); otherwise the age, and in pinned
 rows the project's name. Running rows show no age. The pointer resting on
-a row for 600 ms shows the hover card (`kit.HoverCard`, frosted, 320
-wide): title (3 lines), project, branch and worktree path.
+a row shows its hover card, MyGo's styled tooltip: title, project, branch
+and worktree path.
 
 ## Actions
 
@@ -87,10 +87,10 @@ order follow `live/menus/session_actions.rs` and `workspace/menus.rs`.
 
 ### Project editor
 
-`kit.Dialog` 560 wide, description `project_editor_preview`. New
+`ui.Modal` 560 wide, description `project_editor_preview`. New
 projects: `project_local` | `project_clone`. Fields: `project_name`
 (suggested from the path or repository by `SuggestName` until typed over),
-`project_host` (`kit.Select`; read-only when editing), for a clone
+`project_host` (`ui.Select`; read-only when editing), for a clone
 `project_repository` and `project_branch`, then `project_path` or
 `project_destination` with the resulting `Destination` under it, and the
 folder button (`directory_title`, preview toast). Save preview checks

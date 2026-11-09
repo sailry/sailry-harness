@@ -59,7 +59,7 @@ draw a resource (`State.Paged`), the page owns its scrolling.
   active tab in `tab_active`; the close button shows on hover or on the
   active tab. It scrolls sideways; past `Overflow` (4) tabs a chevron
   (`navigation_tabs`) lists all with a check; "+" lists every resource
-  with its shortcut. Menus are frosted (`kit.IconMenu`).
+  with its shortcut. Menus are MyGo's (`PopoverMenuButton`).
 - Launcher: `details`, then 40 DIP secondary rows up to 440 wide: icon,
   label, Kbd shortcut. Order: Browser ⌘T, Terminal ⌃`, Files ⌘P, Git ⌃⇧G,
   History, Docs.
