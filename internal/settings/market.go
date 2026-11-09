@@ -129,7 +129,7 @@ func marketMatch(q, text string) bool {
 // summary and its action.
 func marketCard(c *ui.Context, key, title, desc string, tile func(), action string, open, act func()) {
 	p := theme.Of(c)
-	card := kit.Frost(c, ui.Row(c.Key(key)).Height(76).MinWidth(0).PaddingX(16).Gap(12).Radius(p.RadiusLg).Border(1, p.Border), p.Surface)
+	card := kit.Frost(c, ui.Row(c.Key(key)).Height(76).MinWidth(0).PaddingX(16).Gap(12).Radius(p.RadiusLg).Border(1, p.Border), p.Surface, kit.CardTint)
 	if card.Hovered() {
 		card.Background(p.Hover)
 	}

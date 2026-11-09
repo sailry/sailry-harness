@@ -68,12 +68,18 @@ func Opaque(c ui.Color) ui.Color {
 // so what is under them, and a theme's backdrop, shows through blurred.
 // A translucent base (a theme's muted fill) is taken as it shows over the
 // window background, so the theme sets only the color.
-func Frost(c *ui.Context, el ui.Element, base ui.Color) ui.Element {
+// tint is how strongly the color covers the blurred backdrop (SurfaceTint,
+// CardTint): the app sets it, never a theme.
+func Frost(c *ui.Context, el ui.Element, base ui.Color, tint float32) ui.Element {
 	solid := base.Over(Opaque(theme.Of(c).Background))
-	return el.Material(frost{blur: FloatingBlur, base: solid, tint: solid.Alpha(SurfaceTint)})
+	return el.Material(frost{blur: FloatingBlur, base: solid, tint: solid.Alpha(tint)})
 }
 
-// SurfaceTint is how strongly a frosted surface's color covers the blurred
-// backdrop: higher than the floating panels', so the composer keeps its
-// fill's tone and the page under it only shows faintly.
-const SurfaceTint = 0.85
+const (
+	// SurfaceTint is the composer's and its queue tray's: they keep their
+	// fill's tone and the page under them only shows faintly.
+	SurfaceTint = 0.85
+	// CardTint is the surface cards' (settings, resource, market and panel
+	// cards, lists): the theme's backdrop shows through them clearly.
+	CardTint = 0.45
+)

@@ -531,7 +531,7 @@ func (s *State) history(c *ui.Context) {
 	p := theme.Of(c)
 	ui.Scroll(c.Key("checkpoints")).Grow(1).Padding(12).Gap(8).Children(func() {
 		for _, cp := range s.Data.Checkpoints {
-			kit.Frost(c, ui.Column(c.Key(cp.ID)).Padding(12).Gap(8).Radius(p.RadiusLg).Border(1, p.Border), p.Surface).Children(func() {
+			kit.Frost(c, ui.Column(c.Key(cp.ID)).Padding(12).Gap(8).Radius(p.RadiusLg).Border(1, p.Border), p.Surface, kit.CardTint).Children(func() {
 				ui.Row(c).Gap(8).Children(func() {
 					ui.Text(c, cp.Turn).FontSize(14).FontWeight(500).SingleLine().Grow(1).Shrink(1)
 					ui.Text(c, ago(c, cp.Time)).FontSize(12).TextColor(p.MutedForeground)

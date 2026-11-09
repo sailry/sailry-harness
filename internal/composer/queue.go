@@ -62,7 +62,7 @@ func (s *State) queueTray(c *ui.Context, ctx *Context, actions Actions) {
 		}
 		p := theme.Of(c)
 		r := p.Radius2xl()
-		kit.Frost(c, ui.Column(c.Key("queue")).MarginX(12).Padding(4).Gap(4).Radius(r, r, 0, 0), p.Secondary).
+		kit.Frost(c, ui.Column(c.Key("queue")).MarginX(12).Padding(4).Gap(4).Radius(r, r, 0, 0), p.Secondary, kit.SurfaceTint).
 			Label(i18n.T(c, "queue_count", "count", len(ctx.Queue))).Transition(queueMotion).Children(func() {
 			if q.editing != "" {
 				s.queueEditor(c, ctx, actions)

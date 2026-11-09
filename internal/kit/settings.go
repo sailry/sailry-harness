@@ -59,7 +59,7 @@ func Group(c *ui.Context, key any, title, description string, actions, body func
 // DIP border, the large radius, 16 across, rows apart by separators.
 func Card(c *ui.Context, rows func()) ui.Element {
 	p := theme.Of(c)
-	return Frost(c, ui.Column(c).Border(1, p.Border).Radius(p.RadiusLg).PaddingX(16).Dividers(1, p.Border), p.Surface).
+	return Frost(c, ui.Column(c).Border(1, p.Border).Radius(p.RadiusLg).PaddingX(16).Dividers(1, p.Border), p.Surface, CardTint).
 		TextColor(p.SurfaceForeground).Children(rows)
 }
 
