@@ -9,13 +9,13 @@ import (
 // toasts, tooltips and hover cards) in the one look they share: frost, a
 // backdrop blur of FloatingBlur DIP (it samples the elements painted under
 // the panel in the same frame: overlays paint above the content in one
-// scene) over the opaque window background, toned by the popover color at
+// scene) over the opaque popover color, toned by that color again at
 // FloatingTint, at the large radius, in the popover's text color, with a
 // 1 DIP edge a step off that surface. No background or shadow. It is the
 // one place their surface is set.
 func Floating(c *ui.Context, el ui.Element) ui.Element {
 	p := theme.Of(c)
-	m := frost{blur: FloatingBlur, base: p.Background.Alpha(1), tint: p.Floating().Alpha(FloatingTint)}
+	m := frost{blur: FloatingBlur, base: p.Floating().Alpha(1), tint: p.Floating().Alpha(FloatingTint)}
 	return el.Radius(p.RadiusLg).Material(m).TextColor(p.PopoverForeground).Border(1, floatingEdge(p))
 }
 

@@ -159,7 +159,7 @@ window's root: stacked bottom right, spread on hover, the type's icon
 and color, close and action. Floating panels paint through
 `kit.Floating` (`internal/kit/floating.go`): a frost shader
 (`internal/kit/frost.go`, a `ui/shader` backdrop blur composited over the
-opaque window background, then the popover color, with a dither) and a
+opaque popover color, then that color again, with a dither) and a
 1 DIP edge, no shadow. `glass.Blur` keeps the backdrop's alpha, so over the
 translucent window its sharp backdrop shows through. It is the one place
 their surface is set: menus, selects, popovers, dialogs, toasts, tooltips, hover
