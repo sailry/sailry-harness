@@ -339,7 +339,8 @@ func resize(c *ui.Context, key, label string, dir float32, width *float32, reset
 	p := theme.Of(c)
 	h := ui.Box(c.Key(key)).Width(handle).Margin(0, -handle/2).ZIndex(1).Cursor(ui.CursorResizeEW).Label(label).Shrink(0)
 	if h.Hovered() || h.Pressed() {
-		h.Background(p.Ring.Alpha(0.5))
+		// A 2 DIP line in the middle of the wider hit area.
+		h.Justify(ui.Center).Children(func() { ui.Box(c).Width(2).FillHeight().Background(p.Ring.Alpha(0.5)) })
 	}
 	if dx, _, ok := h.Dragged(); ok {
 		*width = clamp(*width + dir*dx)

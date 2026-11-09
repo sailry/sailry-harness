@@ -30,6 +30,10 @@ func (a *App) header(c *ui.Context, f frame) {
 		ui.Row(c.Key("brand")).Width(left).Height(HeaderHeight).PaddingStart(max(lights, 12)).PaddingEnd(12).ClipX().Children(func() {
 			if f.nav > 0.001 {
 				ui.Text(c, i18n.T(c, "app")).FontSize(14).SingleLine().TextColor(p.SidebarForeground).Opacity(f.nav)
+				// A short divider over the sidebar's edge, apart from the
+				// edge's own line below the band.
+				ui.Box(c.Key("divider")).Absolute().Right(0).Top((HeaderHeight-16)/2).Size(1, 16).
+					Background(p.Border).Opacity(f.nav)
 			}
 		})
 		pad := max(lights-left, 0) + 12
