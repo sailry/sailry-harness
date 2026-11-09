@@ -10,8 +10,8 @@ import (
 	"github.com/sailry/sailry-go/internal/theme"
 )
 
-// Code and diffs are MyGo's editor: read-only editor.View for code and
-// text, editor.DiffView for changes. Their look comes only from the
+// Code and diffs are MyGo's editor: editor.View for code and text
+// (read-only but in file tabs), editor.DiffView for changes. Their look comes only from the
 // editor's Theme, editor.DefaultTheme with the app theme's slots.
 
 // codeFont is Kit's mono text: 13 DIPs.
@@ -23,39 +23,66 @@ const codeLine = 1.6
 
 type codeThemeKey struct {
 	p    *theme.Palette
-	tint bool
+	look codeLook
 }
 
 var codeThemes sync.Map // codeThemeKey -> *editor.Theme
+
+// codeLook is which view a code theme is for.
+type codeLook int
+
+const (
+	lookPlain    codeLook = iota // read-only code on the surface
+	lookTint                     // read-only code in messages
+	lookEditable                 // editable code: the caret shows
+	lookDiff                     // diffs: an opaque surface to tint over
+)
 
 // CodeTheme is the editor's theme for the app theme: DefaultTheme with
 // the text, gutter, selection and change colors from the palette, on no
 // background. tint gives the background of code blocks in messages, the
 // foreground at 3.5% over the background.
 func CodeTheme(c *ui.Context, tint bool) *editor.Theme {
+	if tint {
+		return codeTheme(c, lookTint)
+	}
+	return codeTheme(c, lookPlain)
+}
+
+func codeTheme(c *ui.Context, look codeLook) *editor.Theme {
 	p := theme.Of(c)
-	key := codeThemeKey{p, tint}
+	key := codeThemeKey{p, look}
 	if t, ok := codeThemes.Load(key); ok {
 		return t.(*editor.Theme)
 	}
 	t := editor.DefaultTheme(c.Theme())
-	// Transparent: file tabs, sources and diffs show the surface they sit
-	// on, with no block ending at the last line, and no current-line band
-	// (read-only, as the reference's views).
+	// Transparent: file tabs and sources show the surface they sit on,
+	// with no block ending at the last line, and no current-line band
+	// (as the reference's views).
 	t.Background = p.Background.Alpha(0)
 	t.ActiveLine = p.Background.Alpha(0)
-	if tint {
+	switch look {
+	case lookTint:
 		t.Background = p.Background.Mix(p.Foreground, 0.035)
+	case lookDiff:
+		// MyGo mixes a diff's change tints into its background, and into
+		// white when that is transparent: the opaque surface the diff
+		// sits on keeps them dark-tinted in dark mode and still reads as
+		// no background.
+		t.Background = p.Background.Alpha(1)
 	}
 	t.Text = p.Foreground
 	t.LineNumber = p.MutedForeground.Alpha(0.6)
 	t.ActiveLineNumber = p.MutedForeground
 	t.Selection = p.Selection
 	t.InactiveSelection = p.Selection.Alpha(0.55)
-	// Every view of this theme is read-only: the caret is hidden, as
-	// MyGo's editor has no option to draw none (it keeps the keyboard's
-	// selection and Copy). The color is the only switch.
+	// Read-only views hide the caret, as MyGo's editor has no option to
+	// draw none (it keeps the keyboard's selection and Copy): the color
+	// is the only switch. Editable views show it.
 	t.Cursor = p.Caret.Alpha(0)
+	if look == lookEditable {
+		t.Cursor = p.Caret
+	}
 	t.Added, t.Deleted = p.Success, p.Danger
 	codeThemes.Store(key, t)
 	return t
@@ -75,15 +102,19 @@ type CodeOptions struct {
 	Numbers bool
 	// Tint is the background of code in messages.
 	Tint bool
+	// Editable lets the text be edited, with the caret showing, as file
+	// tabs; the edits stay in the view.
+	Editable bool
 }
 
-// Code is a read-only editor of text, as high as its lines, inside box:
+// Code is an editor of text, read-only unless Editable, as high as its
+// lines, inside box:
 // it highlights by Language and keeps its editor while box stays.
 // Trailing line breaks are left out, so no empty last line shows.
 func Code(c *ui.Context, box ui.Element, text string, o CodeOptions) {
 	text = strings.TrimRight(text, "\r\n")
 	v := ui.Local(box, codeView{}, func() codeView {
-		st := &editor.State{Buffer: editor.NewBuffer(text), ReadOnly: true, FitContent: true, NoScrollbars: true,
+		st := &editor.State{Buffer: editor.NewBuffer(text), ReadOnly: !o.Editable, FitContent: true, NoScrollbars: true,
 			NoActiveLine: true, NoFolding: true, NoIndentGuides: true, Font: codeFont, LineHeight: codeLine}
 		st.Buffer.SetLanguage(o.Language)
 		if !o.Numbers {
@@ -95,7 +126,14 @@ func Code(c *ui.Context, box ui.Element, text string, o CodeOptions) {
 		v.text = text
 		v.st.Buffer.Set(text)
 	}
-	v.st.Theme = CodeTheme(c, o.Tint)
+	look := lookPlain
+	switch {
+	case o.Editable:
+		look = lookEditable
+	case o.Tint:
+		look = lookTint
+	}
+	v.st.Theme = codeTheme(c, look)
 	box.Children(func() { editor.View(c, v.st).FillWidth() })
 }
 
@@ -156,7 +194,7 @@ func Diff(c *ui.Context, box ui.Element, old, new string, o DiffOptions) {
 		v.d.Old.Set(old)
 		v.d.New.Set(new)
 	}
-	v.d.Theme = CodeTheme(c, false)
+	v.d.Theme = codeTheme(c, lookDiff)
 	v.d.HunkActions = o.Actions != nil
 	v.d.RenderHunkActions = nil
 	if o.Actions != nil {

@@ -31,3 +31,21 @@ func TestCodeTrimsAndHidesCaret(t *testing.T) {
 		t.Errorf("backgrounds: code %+v, message block %+v", bg, block)
 	}
 }
+
+// Editable code shows the caret; a diff's background is the opaque
+// surface, so MyGo tints its changed lines over it rather than white.
+func TestCodeLooks(t *testing.T) {
+	var caret, diff, surface ui.Color
+	tt := ui.NewTester(func(c *ui.Context) {
+		theme.Apply(c, "", theme.Dark)
+		caret, diff = codeTheme(c, lookEditable).Cursor, codeTheme(c, lookDiff).Background
+		surface = theme.Of(c).Background.Alpha(1)
+	}, 400, 300)
+	tt.Frame()
+	if caret.A == 0 {
+		t.Error("an editable view hides the caret")
+	}
+	if diff != surface {
+		t.Errorf("diff background %+v, surface %+v", diff, surface)
+	}
+}

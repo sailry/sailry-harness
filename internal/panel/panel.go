@@ -417,7 +417,7 @@ func (pr *Project) filePreview(c *ui.Context, path string, own bool) {
 			ui.Column(c).PaddingX(16).Children(func() { kit.Markdown(c, f.Text, kit.MarkdownProps{}) })
 			return
 		}
-		kit.Code(c, ui.Column(c.Key(f.Path)), f.Text, kit.CodeOptions{Language: editor.LanguageFor(f.Path), Numbers: true})
+		kit.Code(c, ui.Column(c.Key(f.Path)), f.Text, kit.CodeOptions{Language: editor.LanguageFor(f.Path), Numbers: true, Editable: true})
 	})
 	lang := "Go"
 	switch {
