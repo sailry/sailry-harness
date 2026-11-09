@@ -16,7 +16,7 @@ import (
 // their surface is set.
 func Floating(c *ui.Context, el ui.Element) ui.Element {
 	p := theme.Of(c)
-	return el.Radius(p.RadiusLg).Material(glass.Glass{Style: glass.Regular}).TextColor(p.PopoverForeground).
+	return el.Radius(p.RadiusLg).Material(glass.Glass{Style: glass.Regular, Tint: floatingTint(p)}).TextColor(p.PopoverForeground).
 		Border(1, floatingEdge(p))
 }
 
@@ -30,3 +30,17 @@ func floatingEdge(p *theme.Palette) ui.Color {
 	}
 	return ui.RGBA(0, 0, 0, 0.06)
 }
+
+// floatingTint darkens the glass in dark mode, whose own toning lifts
+// what shows through too much there: the popover color at FloatingTint.
+// Light mode keeps the glass's own tone.
+func floatingTint(p *theme.Palette) ui.Color {
+	if !p.Dark {
+		return ui.Color{}
+	}
+	return p.Floating().Alpha(FloatingTint)
+}
+
+// FloatingTint is how strongly dark mode's glass takes the popover color,
+// from 0 (the glass's own tone) to 1 (nearly opaque).
+const FloatingTint = 0.55
