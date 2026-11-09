@@ -334,3 +334,5 @@ browser_forward
 browser_reload
 browser_address
 browser_new_tab
+content_document
+content_source

@@ -319,3 +319,5 @@ browser_forward: 前进
 browser_reload: 刷新
 browser_address: 搜索或输入网址
 browser_new_tab: 新标签页
+content_document: 文档
+content_source: 源码

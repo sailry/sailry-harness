@@ -319,3 +319,5 @@ browser_forward: Forward
 browser_reload: Reload
 browser_address: Search or enter an address
 browser_new_tab: New tab
+content_document: Document
+content_source: Source
