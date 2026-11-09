@@ -186,6 +186,26 @@ class Publication(unittest.TestCase):
         sleep.assert_called_once_with(60)
         self.assertEqual(len(self.dispatches(client)), 4)
 
+    def test_reused_compilation_starts_builds_before_checks(self):
+        client = FakeGitHub(self.commit)
+        client.runs[0].update(head_branch="main", status="in_progress", conclusion=None)
+        next(job for job in client.jobs if job["name"] == "Test build")["conclusion"] = "skipped"
+        for job in client.jobs:
+            if job["name"] in {"Rust strict lint", "Desktop Windows"}:
+                job.update(status="in_progress", conclusion=None)
+        def finish(*_, **__):
+            self.assertEqual([name for name, _ in self.dispatches(client)], ["release.yml", "release-host.yml"])
+            self.assertIsNone(client.release)
+            self.assertEqual(client.runs[0]["status"], "in_progress")
+            client.runs[0].update(status="completed", conclusion="success")
+            return 42
+        with patch.object(starter.publication.ci_reuse, "verified_jobs", return_value={"Test build"}) as reuse, \
+                patch.object(starter.publication, "wait_ready", side_effect=finish) as wait:
+            self.start(client)
+        reuse.assert_called_once_with(client, REPOSITORY, self.commit, 42)
+        wait.assert_called_once_with(client, REPOSITORY, self.commit, "checks", tag=TAG, ignored_runs=set())
+        self.assertEqual(len(self.dispatches(client)), 4)
+
     def test_failed_test_build_starts_no_builds(self):
         for conclusion in ("failure", "cancelled"):
             client = FakeGitHub(self.commit)
@@ -337,6 +357,51 @@ class FullChecks(unittest.TestCase):
 
     def writes(self):
         return [call for call in self.client.calls if call[0] != "GET"]
+
+    def test_compiled_reuse_requires_matching_verified_proof(self):
+        self.client.runs[0].update(head_branch="main", status="in_progress", conclusion=None)
+        next(job for job in self.client.jobs if job["name"] == "Test build")["conclusion"] = "skipped"
+        for names in (set(), {"Host"}):
+            with self.subTest(names=names), \
+                    patch.object(starter.publication.ci_reuse, "verified_jobs", return_value=names) as reuse, \
+                    patch.object(starter.publication.time, "monotonic", side_effect=[0, 18000]), \
+                    self.assertRaisesRegex(TimeoutError, "Test build"):
+                starter.publication.wait_job(self.client, REPOSITORY, self.commit, "Test build", tag=TAG)
+            reuse.assert_called_once_with(self.client, REPOSITORY, self.commit, 42)
+        with patch.object(starter.publication.ci_reuse, "verified_jobs", side_effect=ValueError("Invalid reuse evidence")), \
+                self.assertRaisesRegex(ValueError, "Invalid reuse evidence"):
+            starter.publication.wait_job(self.client, REPOSITORY, self.commit, "Test build", tag=TAG)
+        self.assertFalse(self.writes())
+
+    def test_compiled_reuse_requires_successful_current_source(self):
+        self.client.runs[0].update(head_branch="main", status="in_progress", conclusion=None)
+        next(job for job in self.client.jobs if job["name"] == "Test build")["conclusion"] = "skipped"
+        source = next(job for job in self.client.jobs if job["name"] == "Source")
+        for status, conclusion in (("queued", None), ("in_progress", None), ("completed", "failure"),
+                                   ("completed", "cancelled"), ("completed", "skipped")):
+            source.update(status=status, conclusion=conclusion)
+            with self.subTest(status=status, conclusion=conclusion), \
+                    patch.object(starter.publication.ci_reuse, "verified_jobs", return_value={"Test build"}) as reuse, \
+                    patch.object(starter.publication.time, "monotonic", side_effect=[0, 18000]), \
+                    self.assertRaisesRegex(TimeoutError, "Test build"):
+                starter.publication.wait_job(self.client, REPOSITORY, self.commit, "Test build", tag=TAG)
+            reuse.assert_not_called()
+        self.assertFalse(self.writes())
+
+    def test_compiled_reuse_never_overrides_fresh_job_states(self):
+        self.client.runs[0].update(head_branch="main", status="in_progress", conclusion=None)
+        compiled = next(job for job in self.client.jobs if job["name"] == "Test build")
+        for status, conclusion in (("queued", None), ("in_progress", None), ("completed", "failure"),
+                                   ("completed", "cancelled")):
+            compiled.update(status=status, conclusion=conclusion)
+            error = ValueError if status == "completed" else TimeoutError
+            with self.subTest(status=status, conclusion=conclusion), \
+                    patch.object(starter.publication.ci_reuse, "verified_jobs", return_value={"Test build"}) as reuse, \
+                    patch.object(starter.publication.time, "monotonic", side_effect=[0, 18000]), \
+                    self.assertRaisesRegex(error, "Test build"):
+                starter.publication.wait_job(self.client, REPOSITORY, self.commit, "Test build", tag=TAG)
+            reuse.assert_not_called()
+        self.assertFalse(self.writes())
 
     def test_reuses_only_exact_successful_main_or_tag(self):
         for branch in ("main", TAG):

@@ -38,6 +38,7 @@ REPAIR_FILES = NEW_FILES | {
     "CHANGELOG.md",
     "scripts/tests/test_ui_tasks.py", "scripts/tests/test_ci_resources.py",
     "scripts/package/publication.py", "scripts/tests/test_publish_packages.py", "scripts/tests/test_release_notes.py",
+    "scripts/tests/test_start_release.py",
     "scripts/ci.py", WORKFLOW, RELEASE_WORKFLOW,
 }
 WINDOWS_REPAIRS = {

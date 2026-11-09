@@ -352,7 +352,7 @@ def wait_ready(client, repository, commit, component, tag=None, ignored_runs=())
 
 
 def wait_job(client, repository, commit, name, tag=None, ignored_runs=()):
-    """Wait for one exact-source Checks job to pass, or for its run to pass when reuse skipped it."""
+    """Wait for one exact-source Checks job to pass directly or through verified reuse."""
     deadline = time.monotonic() + 5 * 60 * 60
     while True:
         payload = ci_reuse.pages(client, f"repos/{repository}/actions/workflows/ci.yml/runs?head_sha={commit}", "workflow_runs")
@@ -367,6 +367,10 @@ def wait_job(client, repository, commit, name, tag=None, ignored_runs=()):
                     return run["id"]
                 if job.get("conclusion") != "skipped":
                     raise ValueError(f"The exact-source Checks failed {name}")
+                source = next((job for job in jobs if job.get("name") == "Source"), {})
+                if (source.get("status") == "completed" and source.get("conclusion") == "success"
+                        and name in ci_reuse.verified_jobs(client, repository, commit, run["id"])):
+                    return run["id"]
         if runs and all(run.get("status") == "completed" for run in runs):
             raise ValueError(f"The exact-source Checks ended without a successful {name}")
         remaining = deadline - time.monotonic()
