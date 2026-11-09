@@ -41,7 +41,7 @@ pub(crate) enum Stage {
     Failed,
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Progress {
     pub package: String,
@@ -72,7 +72,7 @@ pub(crate) struct Manager {
     index: Mutex<Option<String>>,
     environments: Mutex<BTreeMap<String, Arc<Prepared>>>,
     checked: OnceCell<()>,
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     progress: watch::Sender<Option<Progress>>,
     preparations: Arc<watch::Sender<Vec<sailry_protocol::python::Preparation>>>,
     active: Mutex<BTreeMap<String, Active>>,
@@ -132,7 +132,7 @@ impl Manager {
             index: Mutex::new(None),
             environments: Mutex::default(),
             checked: OnceCell::new(),
-            #[cfg(test)]
+            #[cfg(all(test, unix))]
             progress: watch::channel(None).0,
             preparations,
             active: Mutex::default(),
@@ -154,7 +154,7 @@ impl Manager {
         &self.runtime.python
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(crate) fn subscribe(&self) -> watch::Receiver<Option<Progress>> {
         self.progress.subscribe()
     }
@@ -293,7 +293,7 @@ impl Manager {
     }
 
     fn report(&self, requirements: &Requirements, stage: Stage) {
-        #[cfg(test)]
+        #[cfg(all(test, unix))]
         self.progress.send_replace(Some(Progress {
             package: requirements.package.name.clone(),
             stage: stage.clone(),

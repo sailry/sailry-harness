@@ -114,27 +114,27 @@ impl Child {
             .expect("MCP owns a native process")
             .wait()
             .await?;
+        #[cfg(unix)]
         if let Err(error) = killed {
-            #[cfg(unix)]
+            if error.raw_os_error() == Some(libc::ESRCH) {
+                return Ok(());
+            }
+            // The root can exit between try_wait and killpg. After reaping it,
+            // accept EPERM only when a non-signalling probe proves the exact
+            // retained group is absent; a live/unowned group remains an error.
+            if error.raw_os_error() == Some(libc::EPERM)
+                && group.is_some_and(|group| {
+                    // SAFETY: signal 0 sends no signal and takes only scalar PID/signal arguments.
+                    (unsafe { libc::kill(-(group as i32), 0) }) == -1
+                        && io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
+                })
             {
-                if error.raw_os_error() == Some(libc::ESRCH) {
-                    return Ok(());
-                }
-                // The root can exit between try_wait and killpg. After reaping it,
-                // accept EPERM only when a non-signalling probe proves the exact
-                // retained group is absent; a live/unowned group remains an error.
-                if error.raw_os_error() == Some(libc::EPERM)
-                    && group.is_some_and(|group| {
-                        // SAFETY: signal 0 sends no signal and takes only scalar PID/signal arguments.
-                        (unsafe { libc::kill(-(group as i32), 0) }) == -1
-                            && io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
-                    })
-                {
-                    return Ok(());
-                }
+                return Ok(());
             }
             return Err(error);
         }
+        #[cfg(not(unix))]
+        killed?;
         Ok(())
     }
 }

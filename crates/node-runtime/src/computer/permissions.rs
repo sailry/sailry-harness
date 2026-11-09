@@ -137,7 +137,7 @@ pub(crate) fn unconfigured() -> Fault {
     )
 }
 
-#[cfg(any(test, target_os = "macos"))]
+#[cfg(any(target_os = "macos", all(test, unix)))]
 async fn run(
     launch: &Launch,
     environment: &Environment,

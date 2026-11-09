@@ -90,8 +90,40 @@ async fn save_settings(
     state.package
 }
 
+async fn warmed(fixture: &process::Fixture, expected: plugin::mcp::RuntimeState) {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let Output::Plugin(info) = execute(
+                &fixture.client,
+                Command::ReadPlugin {
+                    name: "example".into(),
+                },
+            )
+            .await
+            else {
+                panic!("plugin expected");
+            };
+            if !info.mcp.is_empty()
+                && info.mcp.iter().all(|server| {
+                    server
+                        .runtime
+                        .as_ref()
+                        .is_some_and(|runtime| runtime.state == expected)
+                })
+            {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("MCP warm-up deadline");
+}
+
 #[tokio::test]
 async fn confines_headers_and_isolates_redirect_failures() {
+    use plugin::mcp::RuntimeState;
+
     let mut shared = None;
     let mut peers = Vec::new();
     for case_name in ["private-direct", "private-redirect", "isolated-failures"] {
@@ -110,6 +142,9 @@ async fn confines_headers_and_isolates_redirect_failures() {
                 "version",
             );
             install_current(fixture).await;
+            warmed(fixture, RuntimeState::Failed).await;
+            assert_eq!(origin.count("initialize"), 1, "{case_name}: warm-up");
+            assert!(target.requests.lock().unwrap().is_empty(), "{case_name}");
 
             let (_, turn) = submit(fixture, false).await;
             let page = finished(&fixture.client, fixture.session.id, turn.id).await;
@@ -127,7 +162,7 @@ async fn confines_headers_and_isolates_redirect_failures() {
                 "{case_name}"
             );
             assert!(target.requests.lock().unwrap().is_empty(), "{case_name}");
-            assert_eq!(origin.count("initialize"), 1, "{case_name}");
+            assert_eq!(origin.count("initialize"), 2, "{case_name}");
             reaped(&fixture.node.profile().join("plugins/data/example"));
             let instructions = model.requests.lock().unwrap()[0]["messages"].to_string();
             assert!(
@@ -194,6 +229,17 @@ async fn confines_headers_and_isolates_redirect_failures() {
                 !serde_json::to_string(&settings).unwrap().contains(secret),
                 "{case_name}"
             );
+            warmed(
+                fixture,
+                if redirect {
+                    RuntimeState::Failed
+                } else {
+                    RuntimeState::Connected
+                },
+            )
+            .await;
+            assert_eq!(origin.count("initialize"), 1, "{case_name}: warm-up");
+            assert!(target.requests.lock().unwrap().is_empty(), "{case_name}");
 
             let (_, turn) = submit(fixture, false).await;
             let page = finished(&fixture.client, fixture.session.id, turn.id).await;
@@ -207,7 +253,11 @@ async fn confines_headers_and_isolates_redirect_failures() {
                 "{case_name}"
             );
             assert!(target.requests.lock().unwrap().is_empty(), "{case_name}");
-            assert_eq!(origin.count("initialize"), 1, "{case_name}");
+            assert_eq!(
+                origin.count("initialize"),
+                1 + usize::from(redirect),
+                "{case_name}"
+            );
             assert_eq!(
                 origin.count("tools/call"),
                 usize::from(!redirect),

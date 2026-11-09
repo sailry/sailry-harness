@@ -74,8 +74,10 @@ async fn captures_localized_system_output() {
     assert_eq!(reference.stdout.len() % 2, 0);
     let wide: Vec<_> = reference
         .stdout
-        .chunks_exact(2)
-        .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|pair| u16::from_le_bytes(*pair))
         .collect();
     assert_eq!(output.outcome, Outcome::Exited(0));
     assert_eq!(output.stdout.text, String::from_utf16(&wide).unwrap());

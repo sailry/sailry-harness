@@ -41,7 +41,9 @@ impl CodePage {
 
     fn lead(self, byte: u8) -> bool {
         self.leads
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .take_while(|range| range[0] != 0)
             .any(|range| (range[0]..=range[1]).contains(&byte))
     }
@@ -206,11 +208,13 @@ impl Decoder {
                         }
                     }
                 }
-                Mode::Utf8 { bom: false } if !self.utf8 && self.code_page.is_some() => {
-                    if !byte.is_ascii() || !self.probe.is_empty() {
-                        self.probe.push(byte);
-                        self.check_utf8();
-                    }
+                Mode::Utf8 { bom: false }
+                    if !self.utf8
+                        && self.code_page.is_some()
+                        && (!byte.is_ascii() || !self.probe.is_empty()) =>
+                {
+                    self.probe.push(byte);
+                    self.check_utf8();
                 }
                 _ => {}
             }
@@ -378,12 +382,14 @@ impl Decoder {
                     bytes
                 };
                 let wide: Vec<_> = bytes
-                    .chunks_exact(2)
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
                     .map(|pair| {
                         if big_endian {
-                            u16::from_be_bytes([pair[0], pair[1]])
+                            u16::from_be_bytes(*pair)
                         } else {
-                            u16::from_le_bytes([pair[0], pair[1]])
+                            u16::from_le_bytes(*pair)
                         }
                     })
                     .collect();

@@ -28,7 +28,7 @@ pub(crate) struct Terminals {
 }
 
 impl Terminals {
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(crate) fn on_start(&self, before: Arc<dyn Fn() + Send + Sync>) {
         *self.before_start.lock().unwrap() = Some(before);
     }

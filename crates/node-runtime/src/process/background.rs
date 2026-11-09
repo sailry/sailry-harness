@@ -607,6 +607,7 @@ fn missing() -> Fault {
 mod tests {
     use super::*;
     use sailry_protocol::process::{Access, Outcome};
+    #[cfg(unix)]
     use std::time::{Duration, Instant};
 
     fn launch(profile: &std::path::Path) -> Launch {
@@ -833,6 +834,7 @@ mod tests {
         assert!(commands.read(session, second).is_ok());
     }
 
+    #[cfg(unix)]
     async fn finished(commands: &Commands, session: SessionId, id: RequestId) -> Snapshot {
         let deadline = Instant::now() + Duration::from_secs(10);
         loop {
