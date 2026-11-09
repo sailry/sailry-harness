@@ -19,8 +19,19 @@ type scene func(id string) cv.Turn
 var scenes = []scene{explore, edit, failed, refused, sessions, questions, delegated, planned, answered,
 	attachments, artifacts, grounded, retried, changed, noticed, compacted}
 
+// plain are the scenes without pictures: no thumbnails, image blocks or
+// picture cards, so building them measures the transcript, not the CPU
+// rasterization of images (BenchmarkScroll).
+var plain = []scene{explore, edit, failed, refused, sessions, questions, delegated, planned, answered,
+	grounded, retried, changed, noticed, compacted}
+
 // Turns makes n finished turns; seed varies them between conversations.
-func Turns(conv string, n, seed int) []cv.Turn {
+func Turns(conv string, n, seed int) []cv.Turn { return build(scenes, conv, n, seed) }
+
+// PlainTurns makes n finished turns from the scenes without pictures.
+func PlainTurns(conv string, n, seed int) []cv.Turn { return build(plain, conv, n, seed) }
+
+func build(scenes []scene, conv string, n, seed int) []cv.Turn {
 	out := make([]cv.Turn, n)
 	for i := range out {
 		id := fmt.Sprintf("%s/%d", conv, i)

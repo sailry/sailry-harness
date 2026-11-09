@@ -36,6 +36,18 @@ func bigTester(tb testing.TB) (*conversation.State, *preview.Conversation, *ui.T
 	if len(cv.Turns) != 1000 {
 		tb.Fatalf("%d turns", len(cv.Turns))
 	}
+	return show(cv)
+}
+
+// plainTester shows a 1000-turn conversation of the scenes without
+// pictures, so a frame costs the transcript's build, not the CPU
+// rasterization of thumbnails the tester's renderer does.
+func plainTester(tb testing.TB) (*conversation.State, *preview.Conversation, *ui.Tester) {
+	cv := &preview.Conversation{ID: "plain", Turns: preview.PlainTurns("plain", 1000, 0)}
+	return show(cv)
+}
+
+func show(cv *preview.Conversation) (*conversation.State, *preview.Conversation, *ui.Tester) {
 	s := conversation.New()
 	tt := ui.NewTester(func(c *ui.Context) {
 		ui.Column(c).Fill().Children(func() { conversation.View(c, s, cv.ID, cv.Turns, nil, noActions{}) })
@@ -75,9 +87,11 @@ func TestBigConversationScrolls(t *testing.T) {
 
 // BenchmarkScroll is the cost of a frame scrolled 120 DIPs up through the
 // transcript, as a touchpad scrolls: layout, newly built rows (Markdown
-// parsed and laid out) and the CPU rendering of the tester.
+// parsed and laid out) and the CPU rendering of the tester. Its
+// conversation has no pictures, whose CPU rasterization would swamp the
+// transcript's cost; the GPU draws them in the app.
 func BenchmarkScroll(b *testing.B) {
-	s, cv, tt := bigTester(b)
+	s, cv, tt := plainTester(b)
 	l := s.List(cv.ID)
 	tt.Scroll(500, 300, 0, -120) // the jump button shows from here on
 	settle(tt)
