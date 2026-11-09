@@ -169,7 +169,6 @@ chat_child: Subagent
 question_reply: Waiting for answer
 question_other: Other
 question_decline: Decline
-question_accepted: Answer submitted
 interaction_submit: Submit
 interaction_cancel: Cancel
 tool_load_skill: Load skill
@@ -179,12 +178,8 @@ tool_search_session: Search session
 tool_find_tools: Find tools
 tool_read_output: Read tool output
 question_answered: Answered
-question_unconsumed: Answer saved; task interrupted
 interaction_cancelled: Cancelled
-question_declined: Answer declined
-question_interrupted: Task interrupted
 question_url_accepted: Opening allowed
-chat_response_timeout: Response timed out
 approval_allow_prefix: Allow prefix "%{prefix}"
 approval_preview_result: Preview approval recorded. No files, commands or models were used.
 file_changes_shortened: Diff shortened

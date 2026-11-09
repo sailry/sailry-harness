@@ -177,7 +177,6 @@ chat_child
 question_reply
 question_other
 question_decline
-question_accepted
 interaction_submit
 interaction_cancel
 tool_load_skill
@@ -187,12 +186,8 @@ tool_search_session
 tool_find_tools
 tool_read_output
 question_answered
-question_unconsumed
 interaction_cancelled
-question_declined
-question_interrupted
 question_url_accepted
-chat_response_timeout
 approval_allow_prefix
 approval_preview_result
 file_changes_shortened

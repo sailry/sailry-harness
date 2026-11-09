@@ -441,26 +441,15 @@ func (s *State) steps(c *ui.Context, key string, steps []Step, active bool) {
 // (questions/history.rs): its prompt, the state, and the answers below.
 func (s *State) question(c *ui.Context, q *Question) {
 	p := theme.Of(c)
+	// The state shows as the icon alone, without a text.
 	head := Call{Label: q.Prompt, Icon: "circle-check", Pending: q.State == QuestionPending, wrap: true}
-	key := ""
 	switch q.State {
 	case QuestionPending:
-		head.Icon = "bot" // the pending row shows no state text
-	case QuestionAccepted:
-		key = "question_accepted"
-	case QuestionUnconsumed:
-		key = "question_unconsumed"
-	case QuestionCancelled:
-		head.Icon = "circle-x" // interaction_cancelled is not shown
-	case QuestionDeclined:
-		key = "question_declined"
-	case QuestionInterrupted:
-		head.Icon, key = "triangle-alert", "question_interrupted"
-	case QuestionTimedOut:
-		head.Icon, key = "triangle-alert", "chat_response_timeout"
-	}
-	if key != "" {
-		head.note = i18n.T(c, key)
+		head.Icon = "bot"
+	case QuestionCancelled, QuestionDeclined:
+		head.Icon = "circle-x"
+	case QuestionInterrupted, QuestionTimedOut:
+		head.Icon = "triangle-alert"
 	}
 	if len(q.Answers) == 0 {
 		plain(c, "question-"+q.CallID, head)

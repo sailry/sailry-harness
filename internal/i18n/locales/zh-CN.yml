@@ -169,7 +169,6 @@ chat_child: 子代理
 question_reply: 等待回答
 question_other: 其他
 question_decline: 拒绝回答
-question_accepted: 回答已提交
 interaction_submit: 提交
 interaction_cancel: 取消
 tool_load_skill: 加载技能
@@ -179,12 +178,8 @@ tool_search_session: 搜索会话
 tool_find_tools: 查找工具
 tool_read_output: 读取工具输出
 question_answered: 已回答
-question_unconsumed: 回答已保存，任务已中断
 interaction_cancelled: 已取消
-question_declined: 已拒绝回答
-question_interrupted: 任务已中断
 question_url_accepted: 已同意打开
-chat_response_timeout: 响应超时
 approval_allow_prefix: 允许前缀“%{prefix}”
 approval_preview_result: 已记录本回合的示例审批选择。未修改文件、执行命令或调用模型。
 file_changes_shortened: 差异已截断
