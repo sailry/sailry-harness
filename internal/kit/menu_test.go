@@ -2,6 +2,7 @@ package kit
 
 import (
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-go/internal/theme"
@@ -131,5 +132,34 @@ func TestInputOTP(t *testing.T) {
 	}
 	if code != "123456" || done != "123456" {
 		t.Errorf("code %q, completed %q", code, done)
+	}
+}
+
+// A SortableList moves a row from the keyboard and reports the move.
+func TestSortableListKeyboard(t *testing.T) {
+	items := []string{"a", "b", "c"}
+	var moved [2]int
+	tt := ui.NewTester(func(c *ui.Context) {
+		theme.Apply(c, "", theme.Light)
+		ui.Column(c).Fill().Padding(20).Children(func() {
+			SortableList(c, &items, func(s string) string { return s }, SortableListProps{Handle: "Drag",
+				OnMove: func(from, to int) { moved = [2]int{from, to} }}, func(s string, handle func()) {
+				handle()
+				ui.Text(c, s)
+			})
+		})
+	}, 300, 300)
+	tt.Frame()
+	if err := tt.Click("Drag"); err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []ui.Key{ui.KeySpace, ui.KeyDown, ui.KeySpace} {
+		tt.Key(0, k)
+		tt.Frame()
+	}
+	tt.Advance(time.Second)
+	tt.Frame()
+	if items[0] != "b" || items[1] != "a" || moved != [2]int{0, 1} {
+		t.Errorf("items %v, moved %v", items, moved)
 	}
 }

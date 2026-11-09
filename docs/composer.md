@@ -21,7 +21,7 @@ dialogs (sailry-public `conversation/live/composer.rs`, `live/queue*`,
 | `options.go` | Mode and permission menus, host, project and worktree, location dialog, compact settings popover |
 | `models.go` | Model chip and its popover: team row, features, effort, model picker, score tooltip |
 | `track.go` | The effort track (custom drawing on `SliderBase`) |
-| `queue.go` | Queue strip: rows, drag reorder, edit, send now, remove |
+| `queue.go` | Queue strip: rows in `kit.SortableList` (from Lobe MyGo; drag by the handle or Space and the arrows, a drop calls `MoveQueued` before the message now after it), edit, send now, remove |
 | `attachments.go` | File cards, drop, paste, limit |
 | `references.go` | `@`/`/` trigger, pickers, chips |
 | `files.go` | File picker dialog |

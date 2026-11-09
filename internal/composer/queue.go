@@ -1,6 +1,7 @@
 package composer
 
 import (
+	"slices"
 	"strings"
 	"time"
 
@@ -32,9 +33,6 @@ var queueMotion = ui.ElementTransition{
 	Enter:    &ui.Motion{Collapse: true, Opacity: 0},
 	Exit:     &ui.Motion{Collapse: true, Opacity: 0},
 }
-
-// queueDrag is a queued message dragged by its handle.
-type queueDrag struct{ id string }
 
 // queueLabel is a row's text (render.rs label): a notice's title, the
 // compaction's, the preview, or the names of its files.
@@ -71,9 +69,13 @@ func (s *State) queueTray(c *ui.Context, ctx *Context, actions Actions) {
 				return
 			}
 			ui.Scroll(c.Key("queue-list")).FillWidth().MaxHeight(132).Children(func() {
-				for _, item := range ctx.Queue {
-					s.queueRow(c, ctx, actions, item)
-				}
+				// Dragged by the handle into another place: the move goes
+				// to the conversation, before the message now after it.
+				list := slices.Clone(ctx.Queue)
+				kit.SortableList(c, &list, func(q Queued) string { return q.ID }, kit.SortableListProps{
+					Gap: 4, Handle: i18n.T(c, "queue_drag"),
+					OnMove: func(_, to int) { actions.MoveQueued(list[to].ID, after(list, list[to].ID)) },
+				}, func(item Queued, handle func()) { s.queueRow(c, ctx, actions, item, handle) })
 			})
 		})
 	})
@@ -88,10 +90,11 @@ func queued(ctx *Context, id string) bool {
 	return false
 }
 
-// queueRow is presentation.rs frame: 32 high, rounded 2xl, the drag handle,
-// the label, a file icon when it carries files, then its actions; small
-// round ghost buttons.
-func (s *State) queueRow(c *ui.Context, ctx *Context, actions Actions, item Queued) {
+// queueRow is presentation.rs frame: 32 high, rounded 2xl, the drag handle
+// (SortableList's; none for a notice or while read-only), the label, a
+// file icon when it carries files, then its actions; small round ghost
+// buttons.
+func (s *State) queueRow(c *ui.Context, ctx *Context, actions Actions, item Queued, handle func()) {
 	p := theme.Of(c)
 	label := queueLabel(c, item)
 	draggable := !item.Notice && !ctx.Readonly
@@ -100,36 +103,12 @@ func (s *State) queueRow(c *ui.Context, ctx *Context, actions Actions, item Queu
 	if row.Hovered() {
 		row.Background(p.Hover)
 	}
-	if draggable {
-		row.Drag(queueDrag{item.ID})
-		if row.Dragging() {
-			row.Opacity(0.5)
-		}
-		if v, over := ui.DragOver[queueDrag](row); over && v.id != item.ID {
-			_, y, _ := row.PointerPosition()
-			line := ui.Box(c.Key("drop")).Absolute().Left(8).Right(8).Height(2).Radius(1).Background(p.Primary).PassThrough()
-			if y >= row.Bounds().H/2 {
-				line.Bottom(-1)
-			} else {
-				line.Top(-1)
-			}
-		}
-		if v, ok := ui.Drop[queueDrag](row); ok && v.id != item.ID {
-			_, y, _ := row.PointerPosition()
-			before := item.ID
-			if y >= row.Bounds().H/2 {
-				before = after(ctx.Queue, item.ID)
-			}
-			actions.MoveQueued(v.id, before)
-		}
-	}
 	small := func(key string, icon *ui.SVG, tip string, disabled bool, fn func()) {
 		kit.IconButton(c.Key(key), icon, tip, 24, false).Radius(12).Disabled(disabled).OnClick(fn)
 	}
 	row.Children(func() {
 		if draggable {
-			ui.Box(c.Key("handle")).Size(24, 24).Shrink(0).Center().Cursor(ui.CursorGrab).Label(i18n.T(c, "queue_drag")).
-				Children(func() { ui.Icon(c, icons.EllipsisVertical).FontSize(16) })
+			handle()
 		}
 		ui.Text(c, label).FontSize(14).SingleLine().Grow(1).Shrink(1).MinWidth(0)
 		if item.Attachments > 0 {
