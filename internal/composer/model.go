@@ -19,6 +19,8 @@ type Context struct {
 	Teams    []Team
 	// Interactions are the approvals and question the run waits on.
 	Interactions Interactions
+	// Activity is what runs around the conversation: the activity strip.
+	Activity Activity
 	// Queue is the messages waiting for the reply to end, oldest first.
 	Queue []Queued
 	// Hosts, Projects and Repository locate the conversation: where it

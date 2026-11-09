@@ -80,6 +80,7 @@ type State struct {
 	width    float32 // the toolbar's width last frame
 
 	in    interaction
+	act   activity
 	queue queueState
 	ref   refState
 	files fileState
@@ -168,7 +169,7 @@ func View(c *ui.Context, s *State, ctx *Context, actions Actions) {
 	}
 	s.syncReferences()
 	ui.Column(c.Key("composer")).FillWidth().MaxWidth(Width).Margin(0, ui.Auto).Padding(8, 24, 16, 24).Gap(8).Children(func() {
-		s.interactions(c, ctx.Interactions, actions)
+		s.activity(c, ctx, actions)
 		// layout.rs composer: the queue tray and the reference picker
 		// over the surface, the context bar under it.
 		ui.Column(c.Key("stack")).FillWidth().Shrink(0).Children(func() {

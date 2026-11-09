@@ -40,6 +40,10 @@ type Conversation struct {
 	// Queue is the messages sent while the reply runs.
 	Queue  []composer.Queued
 	queued int // the queue's messages made so far
+	// Commands are its background commands; Badges the plugins' Status
+	// badges over its composer (the goals plugin's goal).
+	Commands []composer.Command
+	Badges   []composer.StatusBadge
 	// Session is the conversation around its turns: older pages, the
 	// connection, a diagnostic and usage.
 	Session conversation.Session
@@ -153,6 +157,7 @@ func Load() *Data {
 		}},
 	}
 	big.queued = 2
+	big.Commands, big.Badges = background(), []composer.StatusBadge{goal()}
 	for _, p := range d.Projects {
 		p.Host, p.Trusted = "local", true
 		p.Worktrees = []Worktree{{Branch: p.Branch, Path: p.Path, Main: true}}

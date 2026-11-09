@@ -120,6 +120,15 @@ type Actions interface {
 	Answer(id string, a Answer)
 	CancelQuestion(id string)
 	DeclineQuestion(id string)
+	// The activity strip: OpenChanges shows the worktree's Git changes,
+	// Badge presses a plugin badge (button "") or a button of its panel,
+	// StopCommand stops a background command, OpenService forwards a
+	// command's port and opens it, OpenChild opens a subagent's session.
+	OpenChanges()
+	Badge(id, button string)
+	StopCommand(id string)
+	OpenService(port int)
+	OpenChild(id string)
 }
 
 // interaction is the State's part for the interactions.
@@ -133,30 +142,21 @@ type interaction struct {
 	text                string
 }
 
-// interactions builds the capsules, right-aligned over the composer.
-func (s *State) interactions(c *ui.Context, in Interactions, actions Actions) {
-	if len(in.Approvals) == 0 && in.Question == nil {
-		return
-	}
-	ui.Row(c.Key("interactions")).Justify(ui.End).Gap(8).Children(func() {
-		if len(in.Approvals) > 0 {
-			s.approvals(c, in.Approvals, actions)
-		}
-		if in.Question != nil {
-			s.ask(c, in.Question, actions)
-		}
-	})
-}
-
-// capsule is theme.rs capsule: a small round outlined button, muted.
+// capsule is an interaction's capsule: the person icon and its label.
 func capsule(c *ui.Context, label string, open bool) ui.Element {
-	p := theme.Of(c)
-	b := kit.Ghost(c, label, open).Height(28).PaddingX(12).Gap(6).Radius(14).Border(1, p.Border).
-		TextColor(p.MutedForeground)
-	return b.HasPopup(ui.PopupDialog).Expanded(open).Children(func() {
+	return chip(c, label, open, func() {
 		ui.Icon(c, icons.CircleUser).FontSize(16)
 		ui.Text(c, label).FontSize(14).SingleLine()
-	})
+	}).HasPopup(ui.PopupDialog)
+}
+
+// chip is theme.rs capsule: a small round outlined button, muted, named
+// label, holding children; the strip's capsules are all chips.
+func chip(c *ui.Context, label string, open bool, children func()) ui.Element {
+	p := theme.Of(c)
+	b := kit.Ghost(c, label, open).Height(28).PaddingX(12).Gap(6).Radius(14).Border(1, p.Border).
+		TextColor(p.MutedForeground).Shrink(0)
+	return b.Expanded(open).Children(children)
 }
 
 // place puts a capsule's popover (MyGo's, as it is) anchored at its bottom

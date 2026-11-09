@@ -1383,3 +1383,10 @@ reference_group_skills
 reference_group_plugins
 reference_group_attach
 appearance_blur
+composer_todo_count
+composer_subagent_one
+composer_subagent_count
+background_one
+background_count
+background_end
+port_open_service

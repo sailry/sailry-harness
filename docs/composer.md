@@ -27,6 +27,7 @@ dialogs (sailry-public `conversation/live/composer.rs`, `live/queue*`,
 | `files.go` | File picker dialog |
 | `dictation.go` | Dictation button and level meter |
 | `interactions.go` | Interactions contract, `Actions`, approval and question capsules |
+| `activity.go` | The activity strip: Git changes, plugin Status badges, task progress, background commands and ports, running subagents |
 
 ## Entry point
 
@@ -87,6 +88,26 @@ rebuilt each frame from backend data.
   Decline (when `Declinable`), `interaction_cancel` and `interaction_submit`
   (disabled until there is an answer). A new question ID starts a new draft.
 
+## Activity strip
+
+One row over the composer (live/activity.rs `composer_activity`): min 28
+high, 16 in, 8 apart, wrapping when it is full. Left to right:
+
+| Capsule | From `Context.Activity` | Click |
+|---|---|---|
+| Git `+N −M` (native: Git is core), details as tooltip | `Changes{Added, Removed, Files}`, nil outside a repository | `OpenChanges` |
+| Plugin Status badges: icon, toned `Segment`s or the label, `Details` tooltip | `Badges []StatusBadge` (`Panel` nil for a button) | a button: `Badge(id, "")`; a panel: popover 320 with its body and buttons (`Badge(id, button)`) |
+| `reicon:ui/tasks` `composer_todo_count`, while steps remain | `Progress []conversation.Step` | popover 320 of `conversation.Steps` |
+| `background_one`/`background_count`, a spinner while `Connected` | `Commands []Command` (running and stopping) | popover 400: rows with the command (opens its `Output`), elapsed, Stop (`StopCommand`) |
+| A Globe capsule per service port | `Command.Ports` | `OpenService(port)` |
+| `composer_subagent_one`/`_count`, a spinner while `Connected`; hidden when `Readonly` | `Children []conversation.Child` (running) | popover 360, a row each: `OpenChild` |
+
+Then a spacer and the approvals and question. An empty strip keeps its
+row, so the composer does not move. Preview: Git totals are the Git
+page's changes; the stress conversation has the goals plugin's badge, two
+commands (one on port 5173) and its live turn's progress and subagent.
+`Badge`, `StopCommand` and `OpenService` toast `preview_notice`.
+
 ## Actions
 
 ```go
@@ -109,6 +130,11 @@ type Actions interface {
 	Answer(id string, a Answer)
 	CancelQuestion(id string)
 	DeclineQuestion(id string)
+	OpenChanges()
+	Badge(id, button string)
+	StopCommand(id string)
+	OpenService(port int)
+	OpenChild(id string)
 }
 ```
 
@@ -126,6 +152,7 @@ type Actions interface {
 | `Compact` | `/compact` | Compact the context |
 | `CreateWorktree`, `AddProject`, `ManageTeams` | Their menu rows | Open the respective flow |
 | `Decide`, `Answer`, `CancelQuestion`, `DeclineQuestion` | Interactions (above) | Resolve; conflicts toast |
+| `OpenChanges`, `Badge`, `StopCommand`, `OpenService`, `OpenChild` | The activity strip (above) | Open Git, run the plugin's handler, stop the command, forward and open the port, open the subagent; failures toast |
 
 ## Keys and Escape
 
@@ -191,5 +218,8 @@ pictures (`preview.PlainTurns`).
 | File picker: list view only, no grid, context menu or go-to address | Kept to the attach flow |
 | Drop target tint is `Muted` mixed 12% with `Primary` | No Kit drop-zone slot in the theme |
 | Plugin-contributed toolbar controls are not shown | No plugin runtime in the prototype |
+| The Git changes badge is native, with the Git icon (Rust: the git plugin's Status button, Settings2 fallback icon) | Git is core here |
+| The activity strip wraps when it is full | Rust keeps one row and lets capsules overflow |
+| Subagent rows show no elapsed time | `conversation.Child` has none |
 | Modes are Code, Plan, Flagship (Rust `WorkMode`); explore/build/review/plan are only the welcome cards | Follows Rust |
 | Approval details' loading and retry, SSH trust prompts and child identicons are not shown | Not in the view model of this UI-only prototype |

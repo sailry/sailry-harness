@@ -103,6 +103,7 @@ var (
 	Command    = load("reicon-it-terminal-square")
 	Globe      = load("reicon-map-globe")
 	Tasks      = load("reicon-ui-tasks")
+	Target     = load("reicon-ui-target")
 	Grid       = load("reicon-ui-grid")
 	Puzzle     = load("reicon-ui-puzzle-piece")
 	Microphone = load("reicon-microphone")

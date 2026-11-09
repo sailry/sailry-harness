@@ -1371,3 +1371,10 @@ reference_group_connections: 连接
 reference_group_skills: 技能
 reference_group_plugins: 插件
 reference_group_attach: 附件
+composer_todo_count: "%{completed}/%{total} 项任务"
+composer_subagent_one: "1 个子代理"
+composer_subagent_count: "%{count} 个子代理"
+background_one: "1 个终端"
+background_count: "%{count} 个终端"
+background_end: 结束
+port_open_service: 打开服务

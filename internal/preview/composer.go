@@ -9,7 +9,9 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-go/internal/composer"
+	"github.com/sailry/sailry-go/internal/conversation"
 	"github.com/sailry/sailry-go/internal/icons"
+	"github.com/sailry/sailry-go/internal/kit"
 )
 
 // The composer's preview data: the model picker's families, scores and
@@ -88,6 +90,7 @@ func (d *Data) Composer(c *Conversation, worktree string) *composer.Context {
 		}
 	}
 	ctx.References, ctx.Commands = d.references(c), commands(d.Models)
+	ctx.Activity = d.activity(c, ctx.Repository)
 	return ctx
 }
 
@@ -393,4 +396,64 @@ func (v *Voice) Advance(d *composer.Dictation, now time.Time) (changing, done bo
 		return true, false
 	}
 	return false, false
+}
+
+// activity is the strip over c's composer: the worktree's Git changes
+// (the Git page's), the plugins' badges, the running turn's progress and
+// subagents, and the background commands.
+func (d *Data) activity(c *Conversation, repo composer.Repository) composer.Activity {
+	a := composer.Activity{Badges: c.Badges, Commands: c.Commands, Connected: c.Session.Connection == conversation.Connected}
+	if repo.Kind == composer.Git && d.ProjectOf(c.ID) != nil {
+		ch := &composer.Changes{Files: len(d.Workspace.Changes)}
+		for _, f := range d.Workspace.Changes {
+			ch.Added += f.Added
+			ch.Removed += f.Removed
+		}
+		a.Changes = ch
+	}
+	if !c.Running() {
+		return a
+	}
+	for _, b := range c.Turns[len(c.Turns)-1].Reply.Blocks {
+		switch b.Kind {
+		case conversation.ProgressBlock:
+			a.Progress = b.Steps
+		case conversation.ChildrenBlock:
+			for _, k := range b.Children {
+				if k.Status == conversation.ChildRunning {
+					a.Children = append(a.Children, k)
+				}
+			}
+		}
+	}
+	return a
+}
+
+// background is the stress conversation's background commands: a
+// benchmark, and a preview server exposing a port.
+func background() []composer.Command {
+	start := time.Now()
+	return []composer.Command{
+		{ID: "cmd-bench", Command: "go test ./internal/conversation -run '^$' -bench .", Started: start.Add(-95 * time.Second),
+			Output: "goos: darwin\ngoarch: arm64\nBenchmarkScroll-14    1785    670849 ns/op"},
+		{ID: "cmd-serve", Command: "npx vite --port 5173", Started: start.Add(-12 * time.Minute), Ports: []int{5173},
+			Output: "VITE v6.0.0  ready in 312 ms\n\n➜  Local:   http://localhost:5173/"},
+	}
+}
+
+// goal is the goals plugin's Status badge (plugins/goals host badge and
+// desktop view): Goal · Running, the description as tooltip and panel,
+// Stop and Clear.
+func goal() composer.StatusBadge {
+	t := func(en, zh string) composer.Text {
+		return composer.Text{Label: en, Locales: map[string]string{"zh-CN": zh}}
+	}
+	desc := "Port the composer's activity strip and keep the benchmarks within budget"
+	return composer.StatusBadge{ID: "goals/status", Label: t("Goal", "目标"), Icon: icons.Target,
+		Segment: []composer.Segment{{Text: t("Goal", "目标"), Tone: kit.Neutral}, {Text: t("Running", "执行中"), Tone: kit.Neutral}},
+		Details: []composer.Detail{{Label: t("Goal", "目标"), Value: desc}},
+		Panel: &composer.Panel{Body: composer.Text{Label: desc}, Empty: t("No goal", "暂无目标"), Buttons: []composer.PanelButton{
+			{ID: "goal-stop", Label: t("Stop", "停止")},
+			{ID: "goal-clear", Label: t("Clear", "清理"), Ghost: true},
+		}}}
 }

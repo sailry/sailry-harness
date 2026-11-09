@@ -401,7 +401,6 @@ func table(c *ui.Context, t *Table) {
 
 // steps is a task's progress (tools/progress.rs, ui/status_list.rs).
 func (s *State) steps(c *ui.Context, key string, steps []Step, active bool) {
-	p := theme.Of(c)
 	done := 0
 	for _, st := range steps {
 		if st.State == StepCompleted || st.State == StepSkipped {
@@ -410,37 +409,44 @@ func (s *State) steps(c *ui.Context, key string, steps []Step, active bool) {
 	}
 	head := Call{Label: i18n.T(c, "task_progress"), Icon: "circle-check", Detail: fmt.Sprintf("%d/%d", done, len(steps)), Running: active}
 	s.disclosure(c, "progress-"+key, func(hovered, open bool, sw *kit.Sweep) { summary(c, head, hovered, true, open, sw) }, 4, 8, func() {
-		ui.Scroll(c).MaxHeight(320).PaddingEnd(12).Children(func() {
-			for i, st := range steps {
-				icon, color := icons.CircleCheck, p.MutedForeground
-				switch st.State {
-				case StepInProgress:
-					icon = icons.Loader
-				case StepCompleted:
-					color = p.Success
-				case StepSkipped:
-					icon = icons.Minus
-				case StepPaused:
-					icon, color = icons.Pause, p.Warning
-				case StepBlocked:
-					icon, color = icons.TriangleAlert, p.Warning
-				case StepFailed:
-					icon, color = icons.CircleX, p.Danger
-				}
-				ui.Row(c.Key(i)).Height(32).Padding(4, 8, 4, 0).Gap(8).Children(func() {
-					ui.Icon(c, icon).FontSize(16).Shrink(0).TextColor(color)
-					switch {
-					case st.State == StepInProgress && active:
-						kit.Shimmer(c, st.Text, 14, p.Foreground)
-					case st.State == StepCompleted || st.State == StepSkipped:
-						ui.Text(c, st.Text).FontSize(14).SingleLine().Strikethrough().TextColor(p.MutedForeground)
-					default:
-						ui.Text(c, st.Text).FontSize(14).SingleLine().TextColor(p.Foreground)
-					}
-				})
+		ui.Scroll(c).MaxHeight(320).PaddingEnd(12).Children(func() { Steps(c, steps, active) })
+	})
+}
+
+// Steps are a task's progress rows (tools/progress.rs list): its state's
+// icon and the step, settled ones struck through, the step in progress
+// shimmering while active. The transcript and the composer's task
+// capsule show them.
+func Steps(c *ui.Context, steps []Step, active bool) {
+	p := theme.Of(c)
+	for i, st := range steps {
+		icon, color := icons.CircleCheck, p.MutedForeground
+		switch st.State {
+		case StepInProgress:
+			icon = icons.Loader
+		case StepCompleted:
+			color = p.Success
+		case StepSkipped:
+			icon = icons.Minus
+		case StepPaused:
+			icon, color = icons.Pause, p.Warning
+		case StepBlocked:
+			icon, color = icons.TriangleAlert, p.Warning
+		case StepFailed:
+			icon, color = icons.CircleX, p.Danger
+		}
+		ui.Row(c.Key(i)).Height(32).Padding(4, 8, 4, 0).Gap(8).Children(func() {
+			ui.Icon(c, icon).FontSize(16).Shrink(0).TextColor(color)
+			switch {
+			case st.State == StepInProgress && active:
+				kit.Shimmer(c, st.Text, 14, p.Foreground)
+			case st.State == StepCompleted || st.State == StepSkipped:
+				ui.Text(c, st.Text).FontSize(14).SingleLine().Strikethrough().TextColor(p.MutedForeground)
+			default:
+				ui.Text(c, st.Text).FontSize(14).SingleLine().TextColor(p.Foreground)
 			}
 		})
-	})
+	}
 }
 
 // question is the history row of a question the model asked
