@@ -2,3 +2,4 @@
 /sailry
 *.test
 *.prof
+.DS_Store

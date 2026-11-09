@@ -27,14 +27,11 @@ type frosted struct {
 	tint ui.Color
 }
 
-// PaintMaterial blurs the backdrop twice, then tints it. A blur draws its
-// blurred backdrop over the frame (source over), so where the frame is
-// translucent, as under the window material (the panel at 83.5%, the band
-// at 45%), the sharp pixels show through it by what it lacks of opacity.
-// The second pass blurs those too, which leaves less than 1% of them.
+// PaintMaterial blurs the backdrop, then tints it. The blur draws over the
+// frame, which is translucent under the window material (the panel at
+// 83.5%), so some of the sharp backdrop stays under it: the tint hides it.
 func (f frosted) PaintMaterial(p *ui.Painter, box ui.Rect, radii [4]float32) {
 	if f.blur != nil {
-		f.blur.PaintMaterial(p, box, radii)
 		f.blur.PaintMaterial(p, box, radii)
 	}
 	p.Fill(box, f.tint, radii[0])

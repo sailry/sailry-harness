@@ -105,13 +105,12 @@ Every floating layer is frosted (`internal/kit/floating.go`): menus drawn
 in the window, popovers, dialogs, tooltips, hover cards, select popups,
 the session search and toasts. `kit.Frosted` is a material of a backdrop
 blur (`glass.Blur`, 24 DIPs) under the popover color at
-`theme.FloatingAlpha` (90%); `kit.Floating` adds the radius, border,
+`theme.FloatingAlpha` (92%); `kit.Floating` adds the radius, border,
 shadow and text color. With Reduce Transparency the tint is the opaque
-popover color and nothing blurs. The blur runs twice: a backdrop blur
-draws over the frame, so under the window material, where the frame is
-translucent, the sharp pixels show through one pass by what the frame
-lacks of opacity; headless tests run without the material and never saw
-it. The kit wrappers are built on MyGo's
+popover color and nothing blurs. The blur samples the in-frame backdrop,
+whose own translucency over the window material (the 83.5% panel) lets
+some sharp text through it; the 92% tint keeps the surface clean.
+The kit wrappers are built on MyGo's
 headless bases (`MenuBase`, `PopoverBase`, `DialogBase`, `TooltipBase`,
 `SelectBase`, `ToastViewportBase`), so the keys, focus, placement and
 motion stay MyGo's: `kit.Menu`/`MenuButton`/`IconMenu`, `kit.Tip`,
@@ -170,4 +169,4 @@ applies a package, shows its details and turns effects off.
 | The window's opacity controls are not on the page | Not in this phase |
 | `message.assistant.*`, `banner.*`, `brand`, `button.send/stop` art and `icon.*` of the rail are read but not drawn | No shipped package uses them |
 | Pinned conversations use `icon.group.recent` | The reference declares the group icons but draws none |
-| Floating layers are frosted (backdrop blur under a 90% popover tint) | A deliberate upgrade: the reference's are the popover color at 95% because GPUI has no backdrop blur |
+| Floating layers are frosted (backdrop blur under a 92% popover tint) | A deliberate upgrade: the reference's are the popover color at 95% because GPUI has no backdrop blur |
