@@ -41,10 +41,11 @@ model library and the extension details page.
 | `ai.go` | `enabledOpacity` |
 
 Shared rows live in `internal/kit/settings.go`: `Page`, `Group`, `Card`,
-`Row`, `WideRow` (Row::wide), `EmptyGroup` (Group::empty), `Entry`
+`Row`, `WideRow` (Row::wide), `Entry`
 (settings/entry.rs), `Record`, `Action` and `TextAction` (an entry's small
 ghost buttons), plus the switch, select, segmented, text, slider and
-button rows. `kit.KeyText`/`kit.KeyName` write shortcuts for menus,
+button rows. A group without rows (Group::empty) is `kit.Result` with
+`Card`, the empty state and load failure in `internal/kit/result.go`. `kit.KeyText`/`kit.KeyName` write shortcuts for menus,
 tooltips and the Shortcuts page. Preview data is `internal/preview/
 settings.go` (`preview.SettingsData`) and `internal/preview/ai.go`
 (`ProvidersData`, `ConnectorsData`, `TeamsData`, `ExtensionsData`).

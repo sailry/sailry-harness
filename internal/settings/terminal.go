@@ -61,7 +61,7 @@ func terminal(c *ui.Context, m *Model) {
 		})
 	}, func() {
 		if len(h.Draft.Env) == 0 {
-			kit.EmptyGroup(c, icons.Inbox, i18n.T(c, "settings_empty"))
+			kit.Result(c, kit.ResultProps{Icon: icons.Inbox, Title: i18n.T(c, "settings_empty"), Card: true})
 			return
 		}
 		kit.Card(c, func() {

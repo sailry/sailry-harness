@@ -172,7 +172,7 @@ func Page(c *ui.Context, s *State, d *preview.Data, look Look) {
 			about(c, s.Model)
 		default:
 			// The AI pages still to come (phase 5b).
-			kit.EmptyGroup(c, icons.Inbox, i18n.T(c, "settings_empty"))
+			kit.Result(c, kit.ResultProps{Icon: icons.Inbox, Title: i18n.T(c, "settings_empty"), Card: true})
 		}
 		libraryDialog(c, s.Model)
 	})

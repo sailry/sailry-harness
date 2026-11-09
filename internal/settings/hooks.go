@@ -78,7 +78,7 @@ func hooks(c *ui.Context, m *Model) {
 		})
 	}, func() {
 		if len(h.Draft.Scripts) == 0 {
-			kit.EmptyGroup(c, icons.Settings2, i18n.T(c, "hooks_empty"))
+			kit.Result(c, kit.ResultProps{Icon: icons.Settings2, Title: i18n.T(c, "hooks_empty"), Card: true})
 			return
 		}
 		kit.Card(c, func() {

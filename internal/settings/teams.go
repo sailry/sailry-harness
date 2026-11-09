@@ -219,7 +219,7 @@ func teamRows(c *ui.Context, m *Model) {
 // and delete actions.
 func roleRows(c *ui.Context, m *Model) {
 	if len(m.Roles) == 0 {
-		kit.EmptyGroup(c, icons.Bot, i18n.T(c, "teams_roles_empty"))
+		kit.Result(c, kit.ResultProps{Icon: icons.Bot, Title: i18n.T(c, "teams_roles_empty"), Card: true})
 		return
 	}
 	kit.Card(c, func() {

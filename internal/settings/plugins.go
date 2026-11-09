@@ -129,7 +129,7 @@ func plugins(c *ui.Context, s *State) {
 			OnClick(func() { m.install = pluginInstall{open: true} })
 	}, func() {
 		if len(shown) == 0 {
-			kit.EmptyGroup(c, icons.Puzzle, t("plugins_empty"))
+			kit.Result(c, kit.ResultProps{Icon: icons.Puzzle, Title: t("plugins_empty"), Card: true})
 			return
 		}
 		kit.Grid(c, func() {

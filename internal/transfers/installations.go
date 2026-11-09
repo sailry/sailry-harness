@@ -56,7 +56,7 @@ func Button(c *ui.Context, q *Queue, open *bool, retry func(e Entry)) {
 			ui.Text(c, label).FontSize(14).FontWeight(600)
 		})
 		if len(q.Entries) == 0 {
-			kit.Empty(c, icons.Download, i18n.T(c, "installation_empty"), "", nil)
+			kit.Result(c, kit.ResultProps{Icon: icons.Download, Title: i18n.T(c, "installation_empty")})
 			return
 		}
 		ui.Scroll(c.Key("list")).MaxHeight(min(h*0.55, 400)).Children(func() {

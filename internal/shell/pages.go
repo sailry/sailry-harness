@@ -80,7 +80,7 @@ func (a *App) featurePage(c *ui.Context) {
 		return
 	}
 	f, _ := featureOf(a.feature())
-	kit.Empty(c, f.Icon, i18n.T(c, f.Label), i18n.T(c, "unavailable"), nil).Grow(1).Justify(ui.Center)
+	kit.Result(c, kit.ResultProps{Icon: f.Icon, Title: i18n.T(c, f.Label), SubTitle: i18n.T(c, "unavailable")}).Grow(1).Justify(ui.Center)
 }
 
 // paged is the project resource the page shows, "" for none.

@@ -70,7 +70,7 @@ func MetricsPanel(c *ui.Context, s *State, h *Host) {
 		ui.Column(c.Key("disks")).Gap(12).Children(func() {
 			ui.Text(c, i18n.T(c, "metrics_disks")).FontSize(14).FontWeight(600)
 			if len(m.Disks) == 0 {
-				kit.EmptyGroup(c, icons.HardDrive, i18n.T(c, "metrics_no_disks"))
+				kit.Result(c, kit.ResultProps{Icon: icons.HardDrive, Title: i18n.T(c, "metrics_no_disks"), Card: true})
 			}
 			for i, d := range m.Disks {
 				ui.Column(c.Key(i)).Gap(4).Children(func() {
@@ -85,7 +85,7 @@ func MetricsPanel(c *ui.Context, s *State, h *Host) {
 		ui.Column(c.Key("processes")).Gap(12).Children(func() {
 			ui.Text(c, i18n.T(c, "metrics_processes")).FontSize(14).FontWeight(600)
 			if len(m.Processes) == 0 {
-				kit.EmptyGroup(c, icons.Cpu, i18n.T(c, "metrics_no_processes"))
+				kit.Result(c, kit.ResultProps{Icon: icons.Cpu, Title: i18n.T(c, "metrics_no_processes"), Card: true})
 			}
 			for i, x := range m.Processes {
 				ui.Column(c.Key("process-" + strconv.Itoa(i))).Gap(4).Children(func() {

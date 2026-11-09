@@ -92,7 +92,7 @@ func (a *App) bell(c *ui.Context) {
 		})
 		ui.Scroll(c.Key("list")).MaxHeight(min(h-160, 360)).Gap(2).Children(func() {
 			if len(a.Data.Notices) == 0 {
-				kit.Empty(c, icons.Bell, i18n.T(c, "notifications_empty"), "", nil)
+				kit.Result(c, kit.ResultProps{Icon: icons.Bell, Title: i18n.T(c, "notifications_empty")})
 				return
 			}
 			for _, n := range SortNotices(a.Data.Notices) {

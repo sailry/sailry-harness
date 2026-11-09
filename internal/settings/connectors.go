@@ -135,7 +135,7 @@ func connectors(c *ui.Context, m *Model) {
 			shown = append(shown, i)
 		}
 		if len(shown) == 0 {
-			kit.EmptyGroup(c, icons.Network, t("connector_empty"))
+			kit.Result(c, kit.ResultProps{Icon: icons.Network, Title: t("connector_empty"), Card: true})
 			return
 		}
 		kit.Card(c, func() {

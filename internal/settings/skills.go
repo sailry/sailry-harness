@@ -79,7 +79,7 @@ func skills(c *ui.Context, s *State) {
 			}
 		}
 		if len(shown) == 0 {
-			kit.EmptyGroup(c, icons.Bot, t("skills_no_matches"))
+			kit.Result(c, kit.ResultProps{Icon: icons.Bot, Title: t("skills_no_matches"), Card: true})
 			return
 		}
 		kit.Grid(c, func() {

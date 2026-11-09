@@ -176,17 +176,6 @@ func WideRow(c *ui.Context, key any, title, description string, control func()) 
 	})
 }
 
-// EmptyGroup is a group without rows (settings/group.rs Group::empty): a
-// dashed card holding the empty state's muted icon and label.
-func EmptyGroup(c *ui.Context, icon *ui.SVG, label string) ui.Element {
-	p := theme.Of(c)
-	return ui.Column(c.Key("empty-group")).Border(1, p.Border).BorderStyle(ui.BorderDashed).Radius(p.RadiusLg).
-		Padding(40, 16).Gap(12).AlignItems(ui.Center).Background(p.Surface).Children(func() {
-		EmptyMedia(c, icon)
-		ui.Text(c, label).FontSize(14).TextAlign(ui.Center).TextColor(p.MutedForeground)
-	})
-}
-
 // Entry is a record in a group's card (settings/entry.rs): its content,
 // then an optional control and small ghost actions, 12 above and below.
 // control and actions may be nil.

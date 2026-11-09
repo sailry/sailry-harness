@@ -204,7 +204,7 @@ func archivesDialog(c *ui.Context, m *Model) {
 	kit.Dialog(c.Key("archives"), &d.archives, func() {
 		ui.Text(c, title).FontSize(16).FontWeight(600)
 		if len(m.Archived) == 0 {
-			kit.EmptyGroup(c, icons.Archive, t("backup_no_archived"))
+			kit.Result(c, kit.ResultProps{Icon: icons.Archive, Title: t("backup_no_archived"), Card: true})
 		} else {
 			ui.Scroll(c.Key("list")).Grow(1).Shrink(1).Dividers(1, p.Border).Children(func() {
 				for _, a := range m.Archived {

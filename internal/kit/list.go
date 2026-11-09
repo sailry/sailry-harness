@@ -7,35 +7,6 @@ import (
 	"github.com/sailry/sailry-go/internal/theme"
 )
 
-// Empty is a list's or a panel's empty state (empty_state.rs message):
-// the icon in a 48 DIP round muted tile, the title in the muted color at
-// normal weight, centered, an optional description and action (nil for
-// none).
-func Empty(c *ui.Context, icon *ui.SVG, title, description string, action func()) ui.Element {
-	p := theme.Of(c)
-	return ui.Column(c.Key("empty")).Padding(40, 16).Gap(12).AlignItems(ui.Center).Children(func() {
-		if icon != nil {
-			EmptyMedia(c, icon)
-		}
-		ui.Text(c, title).FontSize(14).TextAlign(ui.Center).TextColor(p.MutedForeground)
-		if description != "" {
-			ui.Text(c, description).FontSize(14).TextAlign(ui.Center).TextColor(p.Description())
-		}
-		if action != nil {
-			ui.Row(c).Padding(4, 0, 0, 0).Children(action)
-		}
-	})
-}
-
-// EmptyMedia is an empty state's icon (Kit's EmptyMedia, Icon variant): 24
-// DIP in a 48 DIP round tile of the muted fill.
-func EmptyMedia(c *ui.Context, icon *ui.SVG) {
-	p := theme.Of(c)
-	ui.Row(c.Key("empty-media")).Size(48, 48).Radius(24).Background(p.Muted).Center().Shrink(0).Children(func() {
-		ui.Icon(c, icon).FontSize(24).TextColor(p.MutedForeground)
-	})
-}
-
 // List is a card of n rows, or its empty state when n is 0.
 func List(c *ui.Context, n int, row func(i int), empty func()) {
 	if n == 0 {

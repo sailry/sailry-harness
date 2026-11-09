@@ -142,15 +142,13 @@ func projects(c *ui.Context, h *Host, act Actions) {
 	p := theme.Of(c)
 	section(c, "projects", i18n.T(c, "projects"), "", func() {
 		if len(h.Projects) == 0 {
-			ui.Column(c.Key("empty")).Border(1, p.Border).BorderStyle(ui.BorderDashed).Radius(p.RadiusLg).Background(p.Surface).Children(func() {
-				kit.Empty(c, icons.Folder, i18n.T(c, "project_empty"), "", func() {
-					label := i18n.T(c, "project_add")
-					kit.Primary(c.Key("add"), label, false).Children(func() {
-						ui.Icon(c, icons.Plus).FontSize(16)
-						ui.Text(c, label).FontSize(14)
-					}).OnClick(act.AddProject)
-				})
-			})
+			kit.Result(c, kit.ResultProps{Icon: icons.Folder, Title: i18n.T(c, "project_empty"), Card: true, Extra: func() {
+				label := i18n.T(c, "project_add")
+				kit.Primary(c.Key("add"), label, false).Children(func() {
+					ui.Icon(c, icons.Plus).FontSize(16)
+					ui.Text(c, label).FontSize(14)
+				}).OnClick(act.AddProject)
+			}})
 			return
 		}
 		for _, pr := range h.Projects {
@@ -206,7 +204,7 @@ func activity(c *ui.Context, rows []Activity, act Actions) {
 	section(c, "activity", i18n.T(c, "workspace_running"), strconv.Itoa(len(rows)), func() {
 		muted(c, i18n.T(c, "host_activity_hint"))
 		if len(rows) == 0 {
-			kit.EmptyGroup(c, icons.Dashboard, i18n.T(c, "workspace_no_running"))
+			kit.Result(c, kit.ResultProps{Icon: icons.Dashboard, Title: i18n.T(c, "workspace_no_running"), Card: true})
 			return
 		}
 		for _, r := range rows {

@@ -26,25 +26,25 @@ func loading(c *ui.Context) {
 }
 
 // older is the row before the first turn while there is history before
-// it: a loader while the page loads, its failure with Retry, or nothing,
-// as reaching it asks for the page (paging.rs).
+// it: a loader while the page loads, its failure as a Result with Retry,
+// or nothing, as reaching it asks for the page (paging.rs).
 func (s *State) older(c *ui.Context, sess *Session, actions Actions) {
 	if sess == nil || sess.Older == 0 {
 		return
 	}
-	p := theme.Of(c)
-	ui.Row(c.Key("older")).Height(32).Gap(8).Justify(ui.Center).AlignItems(ui.Center).TextColor(p.MutedForeground).Children(func() {
-		switch {
-		case sess.OlderFailed:
-			ui.Text(c, i18n.T(c, "chat_history_failed")).FontSize(14).TextColor(p.Danger)
+	if sess.OlderFailed {
+		kit.Result(c.Key("older"), kit.ResultProps{Status: kit.ResultError, Title: i18n.T(c, "chat_history_failed"), Extra: func() {
 			kit.Ghost(c.Key("retry"), i18n.T(c, "chat_retry"), false).Height(28).PaddingX(8).
 				Children(func() { ui.Text(c, i18n.T(c, "chat_retry")).FontSize(14) }).OnClick(actions.LoadOlder)
-		default:
-			kit.Loader(c, 14)
-			if !sess.LoadingOlder {
-				// The start came into view: ask once this frame is built.
-				s.wantOlder = true
-			}
+		}})
+		return
+	}
+	p := theme.Of(c)
+	ui.Row(c.Key("older")).Height(32).Gap(8).Justify(ui.Center).AlignItems(ui.Center).TextColor(p.MutedForeground).Children(func() {
+		kit.Loader(c, 14)
+		if !sess.LoadingOlder {
+			// The start came into view: ask once this frame is built.
+			s.wantOlder = true
 		}
 	})
 }

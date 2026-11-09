@@ -74,7 +74,7 @@ func providers(c *ui.Context, s *State) {
 				iconButton(c, "add", icons.Plus, i18n.T(c, "settings_add"), true, false).OnClick(func() { m.provider.add(m) })
 			})
 			if len(shown) == 0 {
-				kit.EmptyGroup(c, icons.Cpu, i18n.T(c, "provider_empty_live"))
+				kit.Result(c, kit.ResultProps{Icon: icons.Cpu, Title: i18n.T(c, "provider_empty_live"), Card: true})
 				return
 			}
 			kit.Card(c, func() {

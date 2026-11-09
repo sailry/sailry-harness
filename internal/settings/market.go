@@ -186,7 +186,7 @@ func marketPlugins(c *ui.Context, s *State) {
 		shown = append(shown, x)
 	}
 	if len(shown) == 0 {
-		kit.EmptyGroup(c, icons.Puzzle, i18n.T(c, "plugins_none"))
+		kit.Result(c, kit.ResultProps{Icon: icons.Puzzle, Title: i18n.T(c, "plugins_none"), Card: true})
 		return
 	}
 	kit.Grid(c, func() {
@@ -209,7 +209,7 @@ func marketSkills(c *ui.Context, s *State) {
 		}
 	}
 	if len(shown) == 0 {
-		kit.EmptyGroup(c, icons.Bot, i18n.T(c, "skills_no_matches"))
+		kit.Result(c, kit.ResultProps{Icon: icons.Bot, Title: i18n.T(c, "skills_no_matches"), Card: true})
 		return
 	}
 	kit.Grid(c, func() {
@@ -254,7 +254,7 @@ func marketThemes(c *ui.Context, s *State) {
 		shown = append(shown, x)
 	}
 	if len(shown) == 0 {
-		kit.EmptyGroup(c, icons.Palette, i18n.T(c, "market_no_themes"))
+		kit.Result(c, kit.ResultProps{Icon: icons.Palette, Title: i18n.T(c, "market_no_themes"), Card: true})
 		return
 	}
 	kit.Grid(c, func() {

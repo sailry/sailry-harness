@@ -71,7 +71,7 @@ func libraryDialog(c *ui.Context, m *Model) {
 					return
 				}
 				if len(shown) == 0 {
-					kit.EmptyGroup(c, icons.Search, t("model_library_empty"))
+					kit.Result(c, kit.ResultProps{Icon: icons.Search, Title: t("model_library_empty"), Card: true})
 					return
 				}
 				ui.Column(c.Key("found")).FillWidth().Children(func() {

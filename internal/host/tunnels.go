@@ -55,7 +55,7 @@ func tunnels(c *ui.Context, s *State, h *Host) {
 			ui.Spinner(c.Key("loading")).Size(16, 16)
 		}
 		if t.Loaded && len(t.Entries) == 0 {
-			kit.EmptyGroup(c, icons.Network, i18n.T(c, "tunnels_empty"))
+			kit.Result(c, kit.ResultProps{Icon: icons.Network, Title: i18n.T(c, "tunnels_empty"), Card: true})
 		}
 		for _, x := range t.Entries {
 			ui.Row(c.Key(x.ID)).Gap(12).Padding(4, 0).Children(func() {

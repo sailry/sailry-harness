@@ -83,7 +83,7 @@ func devices(c *ui.Context, m *Model, execution bool) {
 		}
 	}
 	if len(list) == 0 {
-		kit.EmptyGroup(c, icons.Inbox, i18n.T(c, "settings_empty"))
+		kit.Result(c, kit.ResultProps{Icon: icons.Inbox, Title: i18n.T(c, "settings_empty"), Card: true})
 		return
 	}
 	kit.Card(c, func() {

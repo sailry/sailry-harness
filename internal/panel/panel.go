@@ -175,7 +175,7 @@ func tab(c *ui.Context, key any, icon *ui.SVG, label string, active bool, show, 
 // binds a ScrollState to one container per build.
 func (pr *Project) view(c *ui.Context, k Kind, path string, own bool, head func(), open func(path string)) {
 	if pr == nil {
-		kit.Empty(c, ResourceOf(k).Icon, i18n.T(c, "resource_project_empty"), "", nil).Grow(1).Justify(ui.Center)
+		kit.Result(c, kit.ResultProps{Icon: ResourceOf(k).Icon, Title: i18n.T(c, "resource_project_empty")}).Grow(1).Justify(ui.Center)
 		return
 	}
 	main := func() {
@@ -395,7 +395,7 @@ func findFile(n *preview.FileNode, path string) *preview.FileNode {
 func (pr *Project) filePreview(c *ui.Context, path string, own bool) {
 	f := findFile(pr.Data.Files, path)
 	if f == nil {
-		kit.Empty(c, icons.File, i18n.T(c, "file_empty"), "", nil)
+		kit.Result(c, kit.ResultProps{Icon: icons.File, Title: i18n.T(c, "file_empty")})
 		return
 	}
 	v := pr.Files.item(path)
@@ -498,7 +498,7 @@ func (pr *Project) diff(c *ui.Context, path string) {
 		}
 	}
 	if ch == nil {
-		kit.Empty(c, icons.Network, i18n.T(c, "git_diff_empty"), "", nil)
+		kit.Result(c, kit.ResultProps{Icon: icons.Network, Title: i18n.T(c, "git_diff_empty")})
 		return
 	}
 	old, new := ch.Texts()

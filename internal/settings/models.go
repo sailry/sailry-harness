@@ -55,7 +55,7 @@ func dictation(c *ui.Context, m *Model) {
 			}
 		}
 		if len(shown) == 0 {
-			kit.EmptyGroup(c, icons.Cpu, i18n.T(c, "local_models_empty"))
+			kit.Result(c, kit.ResultProps{Icon: icons.Cpu, Title: i18n.T(c, "local_models_empty"), Card: true})
 			return
 		}
 		kit.Card(c, func() {
@@ -117,7 +117,7 @@ func localModels(c *ui.Context, m *Model, lm *LocalModels, title, label, enable,
 			}
 		}
 		if len(list) == 0 {
-			kit.EmptyGroup(c, icons.Cpu, i18n.T(c, "local_models_empty"))
+			kit.Result(c, kit.ResultProps{Icon: icons.Cpu, Title: i18n.T(c, "local_models_empty"), Card: true})
 			return
 		}
 		kit.Card(c, func() {
