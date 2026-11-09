@@ -25,7 +25,8 @@ model library and the extension details page.
 | `connections.go` | Connections: hosts and mobile devices, add host (pairing or SSH), share code, revoke |
 | `hooks.go` | Hooks: switch, scripts, hook editor, consent dialog |
 | `runtime.go` | Runtime: bundled Python and its package index |
-| `system.go` | Permissions, About (version, build, license, updates) |
+| `system.go` | Permissions, About (version, build, license) |
+| `updates.go` | `Updater`, About's Updates group (updater/panel.rs) with its ready and failure toasts (notices.rs), the install confirmation and the failure's details |
 | `backup.go` | Backup: storage, schedule, export/backup/restore, archived sessions, delete all |
 | `draft.go` | `draftDialog` (settings/draft.rs) and the dialog footer |
 | `providers.go` | Providers: catalog and compaction, families, channels with quota and status, the editor (brand, method, configure, models) and sign-in |
@@ -70,7 +71,7 @@ the reference:
   they change: `Language`, `SidebarMetrics`, `Notify`, `Toast`,
   `SessionOrder`, `MessageDisplay`, `TextSize`, `Keys`, `Microphone`,
   `SpeechLanguage`, `SpeechModel`, `PasteProtection`, `FontSize`, `Font`,
-  `Channel`, and `theme.Surfaces` on the App.
+  `Channel`, and `theme.Surfaces` on the App. `Updater` is the app updater's state (updater/service.rs State, Failure).
 - **Node settings**: `Stored[T]` with `Saved`, `Draft`, `Revision` and
   `Pending` (locks the page's controls): `Power`, `Telemetry`, `Sandbox`,
   `Host` (`TerminalHost`: environment, shell), `Hooks` (`HookSettings`),
@@ -129,7 +130,7 @@ placeholder in an empty masked input.
 | Permissions | check, settings, request | preview_notice |
 | Backup | configure (storage dialog), schedule | `Commit`, backup_* toast |
 | Backup | export, back up, restore, archive/unarchive/delete sessions | preview_notice; delete all confirms first |
-| About | check updates | preview_notice |
+| About | Check, Cancel, Download, Install (confirms first), Details | `Updater` plays the states on the frame clock: the stable channel finds 0.2.0-preview, the experience one fails to reach the feed; ready and failure toast with Install and Details; Restart is preview_notice |
 | Providers | catalog Update, Get API key, open/reopen authorization | preview_notice |
 | Providers | compaction threshold | `Commit`, compaction_settings_* toast |
 | Providers | add/edit (brand, method, configure), discover models, delete, disconnect | in memory; problems toast, the editor keeps its draft; delete and disconnect confirm |
@@ -161,6 +162,9 @@ placeholder in an empty masked input.
   and register the system shortcuts (`System`) with the OS.
 - Replace the preview_notice actions with the real requests; the
   dialogs already collect what they need.
+- Drive `Updater` from updater/service.rs: replace `advance` with the
+  service's state, the buttons with check, cancel, download, install and
+  restart.
 
 ## UI state vs backend data
 

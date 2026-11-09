@@ -253,6 +253,8 @@ type Model struct {
 	// About (catalog.rs, updater/panel.rs).
 	Version string
 	Channel int // 0 stable, 1 experience
+	// Updater is the app's updater (About).
+	Updater Updater
 }
 
 // Languages are the language choices (locale.rs Language::ALL).

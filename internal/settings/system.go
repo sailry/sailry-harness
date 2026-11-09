@@ -70,13 +70,5 @@ func about(c *ui.Context, m *Model) {
 			kit.Row(c, "license", i18n.T(c, "settings_license"), "", text("Apache-2.0"))
 		})
 	})
-	kit.Group(c, "updates", i18n.T(c, "updates"), "", func() {
-		kit.Secondary(c.Key("check"), i18n.T(c, "updates_check")).OnClick(func() { notice(c) })
-	}, func() {
-		kit.Card(c, func() {
-			choose(c, "channel", i18n.T(c, "updates_channel"), "", &m.Channel,
-				labels(c, []string{"updates_channel_stable", "updates_channel_experience"}), 192)
-			kit.Row(c, "version", i18n.T(c, "updates_version"), "", text(m.Version))
-		})
-	})
+	updates(c, m)
 }
