@@ -1217,7 +1217,6 @@ model_library_decision: 决策
 onboarding_title: 欢迎使用 Sailry
 onboarding_description: 连接一个模型就可以开始
 onboarding_host_unavailable: 主机暂不可用
-telemetry_welcome: 匿名诊断默认开启，可在设置中更改
 workspace_host_status: 未连接 · UI 预览
 local_host_detail: macOS · aarch64 · 示例
 remote_host_detail: Linux · x86_64 · 示例

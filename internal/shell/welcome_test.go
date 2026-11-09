@@ -31,7 +31,7 @@ func TestWelcomeGuide(t *testing.T) {
 	tt.Frame()
 	tt.Advance(time.Second)
 	tt.Frame()
-	if !tt.HasText(i18n.In("en", "onboarding_title")) || !tt.HasText(i18n.In("en", "telemetry_welcome")) {
+	if !tt.HasText(i18n.In("en", "onboarding_title")) {
 		t.Fatalf("no guide: %q", tt.Texts())
 	}
 	for range 3 {

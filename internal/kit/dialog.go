@@ -62,6 +62,16 @@ func Field(c *ui.Context, key any, label, hint string, control func()) {
 // the backdrop in the palette's Backdrop, no title or footer of its own
 // (the callers build theirs), the eases inlined.
 func Dialog(c *ui.Context, open *bool, fn func()) ui.Element {
+	return dialog(c, open, true, fn)
+}
+
+// BareDialog is Dialog without its close button, for content that draws
+// its own (the welcome guide's banner).
+func BareDialog(c *ui.Context, open *bool, fn func()) ui.Element {
+	return dialog(c, open, false, fn)
+}
+
+func dialog(c *ui.Context, open *bool, closer bool, fn func()) ui.Element {
 	p := theme.Of(c)
 	w, h := c.Size()
 	st := ui.Local(ui.Box(c).Absolute().Size(0, 0), "dialog", func() dialogState { return dialogState{} })
@@ -98,6 +108,9 @@ func Dialog(c *ui.Context, open *bool, fn func()) ui.Element {
 		back.Justify(ui.Start).Padding(h/10, 0, 0, 0).Background(p.Backdrop().Alpha(0.4 * dim))
 		Floating(c, panel.Padding(20).Gap(12).MaxWidth(w-40).MaxHeight(h*0.9-20)).Scale(scale, scale).Opacity(shown)
 		fn()
+		if !closer {
+			return
+		}
 		b := ui.ButtonBase(c.Key("dialog-close")).Label(i18n.T(c, "close")).Size(28, 28).Radius(p.Radius).Absolute().Top(12).Right(12).
 			Center().Cursor(ui.CursorPointer).Transition(toastHover)
 		if b.Hovered() {

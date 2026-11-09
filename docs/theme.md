@@ -157,9 +157,12 @@ and the pages') stay tabs. `kit.ToastHost` (`internal/kit/toast.go`, from
 Lobe MyGo's feedback.ToastHost) draws MyGo's toast queue once at the
 window's root: stacked bottom right, spread on hover, the type's icon
 and color, close and action. Floating panels paint through
-`kit.Floating` (`internal/kit/floating.go`), MyGo's Regular glass
-(`plugins/glass`, the shader path sampling the elements painted under the
-panel; no extra border or shadow), the one place their surface is set: menus, selects, popovers, dialogs, toasts, tooltips, hover
+`kit.Floating` (`internal/kit/floating.go`): a frost shader
+(`internal/kit/frost.go`, a `ui/shader` backdrop blur composited over the
+opaque window background, then the popover color, with a dither) and a
+1 DIP edge, no shadow. `glass.Blur` keeps the backdrop's alpha, so over the
+translucent window its sharp backdrop shows through. It is the one place
+their surface is set: menus, selects, popovers, dialogs, toasts, tooltips, hover
 cards, the reference picker, find bars, the selection toolbar and the
 image viewer's bar.
 

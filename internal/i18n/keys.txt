@@ -1229,7 +1229,6 @@ model_library_decision
 onboarding_title
 onboarding_description
 onboarding_host_unavailable
-telemetry_welcome
 workspace_host_status
 local_host_detail
 remote_host_detail

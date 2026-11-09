@@ -1217,7 +1217,6 @@ model_library_decision: Decision
 onboarding_title: Welcome to Sailry
 onboarding_description: Connect a model to get started
 onboarding_host_unavailable: Host unavailable
-telemetry_welcome: Anonymous diagnostics are on by default. You can change this in Settings
 workspace_host_status: Disconnected · UI preview
 local_host_detail: macOS · aarch64 · Preview
 remote_host_detail: Linux · x86_64 · Preview
