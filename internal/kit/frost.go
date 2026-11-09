@@ -63,8 +63,9 @@ func Opaque(c ui.Color) ui.Color {
 }
 
 // Frost gives el the floating panels' backdrop blur toned by base instead
-// of a flat background: the composer's surface and its queue tray, so
-// what scrolls under them, and a theme's backdrop, shows through blurred.
+// of a flat background: the composer's surface and its queue tray and
+// the surface cards (settings cards, resource and market cards, lists),
+// so what is under them, and a theme's backdrop, shows through blurred.
 // A translucent base (a theme's muted fill) is taken as it shows over the
 // window background, so the theme sets only the color.
 func Frost(c *ui.Context, el ui.Element, base ui.Color) ui.Element {

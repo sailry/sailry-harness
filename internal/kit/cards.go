@@ -20,7 +20,7 @@ func Grid(c *ui.Context, cards func()) ui.Element {
 // actions shown only then; open and actions may be nil.
 func ResourceCard(c *ui.Context, key any, title, description string, tile func(), open func(), actions func(hovered bool)) {
 	p := theme.Of(c)
-	card := ui.Row(c.Key(key)).MinWidth(0).Gap(12).Padding(12, 16).Radius(p.RadiusLg).Border(1, p.Border).Background(p.Surface)
+	card := Frost(c, ui.Row(c.Key(key)).MinWidth(0).Gap(12).Padding(12, 16).Radius(p.RadiusLg).Border(1, p.Border), p.Surface)
 	hovered := card.Hovered() || card.FocusWithin()
 	card.Children(func() {
 		b := ui.ButtonBase(c.Key("summary")).Label(title).Grow(1).Shrink(1).MinWidth(0).Gap(12).Justify(ui.Start)

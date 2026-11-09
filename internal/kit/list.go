@@ -11,7 +11,7 @@ import (
 func List(c *ui.Context, n int, row func(i int), empty func()) {
 	if n == 0 {
 		p := theme.Of(c)
-		ui.Column(c).Border(1, p.Border).Radius(p.RadiusLg).Background(p.Surface).Children(empty)
+		Frost(c, ui.Column(c).Border(1, p.Border).Radius(p.RadiusLg), p.Surface).Children(empty)
 		return
 	}
 	Card(c, func() {
