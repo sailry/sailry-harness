@@ -82,31 +82,26 @@ func Closed(tabs []Kind, k, active Kind) ([]Kind, Kind) {
 	return out, out[0]
 }
 
-// State is the panel's UI state over the preview workspace.
+// State is the panel's own UI state over the preview workspace: its tabs
+// and the resources no project keeps. Files and Git keep theirs in the
+// shown Project, shared with their pages.
 type State struct {
 	Data   *preview.Workspace
 	Tabs   []Kind
 	Active Kind
+	// Paged is the resource a page of the same project shows, "" for
+	// none: that page owns the resource's scrolling (Page).
+	Paged Kind
 
-	file     string // the file shown, by path
-	folders  map[string]*bool
-	source   int    // 0 the document, 1 its source, for markdown
-	change   string // the changed file shown, by path
-	accepted map[string]bool
-	commit   string
-	doc      string
-	address  string
+	doc     string
+	address string
 }
 
 func New(w *preview.Workspace) *State {
-	s := &State{Data: w, folders: map[string]*bool{}, accepted: map[string]bool{}}
-	if len(w.Changes) > 0 {
-		s.change = w.Changes[0].Path
-	}
+	s := &State{Data: w}
 	if len(w.Documents) > 0 {
 		s.doc = w.Documents[0].ID
 	}
-	s.file = "sailry-go/README.md"
 	return s
 }
 

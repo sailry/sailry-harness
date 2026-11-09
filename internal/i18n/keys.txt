@@ -336,3 +336,5 @@ browser_address
 browser_new_tab
 content_document
 content_source
+resource_project_empty
+unavailable

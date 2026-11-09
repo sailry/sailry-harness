@@ -41,12 +41,17 @@ const (
 // Motion.
 var Motion = ui.Animation{Duration: 180 * time.Millisecond, Ease: ui.CubicBezier(0.2, 0, 0, 1)}
 
-// Page is what the main panel shows.
+// Page is what the main panel shows: the conversation, settings, or a
+// rail feature's independent page (pages.go).
 type Page int
 
 const (
 	ConversationPage Page = iota
 	SettingsPage
+	FilesPage
+	GitPage
+	ActivityPage
+	MarketPage
 )
 
 // App is the window's state.
@@ -74,6 +79,9 @@ type App struct {
 	Settings *settings.State
 	Messages *conversation.State
 	Panel    *panel.State
+	// Projects keeps each project's Files and Git state, shared by their
+	// pages and the panel's tabs.
+	Projects *panel.Projects
 	drafts   map[string]*composer.State
 
 	features []string        // the rail's order
@@ -82,6 +90,7 @@ type App struct {
 	search   search
 	activity bool // the activity centre's popover
 	reading  *reading
+	shown    string // the conversation selected when a project page opened
 }
 
 // New makes the app over the preview dataset, showing its large conversation.
@@ -92,6 +101,7 @@ func New(d *preview.Data) *App {
 		Settings: settings.New(),
 		Messages: conversation.New(),
 		Panel:    panel.New(d.Workspace),
+		Projects: panel.NewProjects(d.Workspace),
 		drafts:   map[string]*composer.State{},
 		unpinned: map[string]bool{},
 	}
@@ -120,6 +130,7 @@ func (a *App) View(c *ui.Context) {
 	theme.Apply(c, a.Theme, a.Mode)
 	kit.SetEffects(a.Effects)
 	a.shortcuts(c)
+	a.followSelection()
 	p := theme.Of(c)
 	// The title bar and the rail are one outer band in title_bar's color
 	// (theme.rs sidebar_background).
@@ -231,7 +242,10 @@ func (a *App) details(c *ui.Context, f frame, fill ui.Color) {
 	}
 	ui.Row(c.Key("details")).Width(f.panelW * f.details).Shrink(0).ClipX().Justify(ui.End).AlignItems(ui.Stretch).Children(func() {
 		ui.Column(c.Key("content")).Width(f.panelW).Shrink(0).Background(fill).BorderWidth(0, 0, 0, 1).BorderColor(p.Border).
-			Children(func() { panel.View(c, a.Panel, KeyText) })
+			Children(func() {
+				a.Panel.Paged = a.paged()
+				panel.View(c, a.Panel, a.project(), KeyText)
+			})
 	})
 }
 
@@ -282,10 +296,15 @@ func adjacent(a *App, forward bool) string {
 	return sidebar.Adjacent(a.Sidebar.Order(), a.Sidebar.Selected, forward)
 }
 
-// page is the main panel: the conversation, or the settings page.
+// page is the main panel: the conversation, the settings page, or a
+// feature's page.
 func (a *App) page(c *ui.Context) {
-	if a.Page == SettingsPage {
+	switch a.Page {
+	case SettingsPage:
 		settings.Page(c, a.Settings, a.Data, settings.Look{Theme: &a.Theme, Mode: &a.Mode, Effects: &a.Effects})
+		return
+	case FilesPage, GitPage, ActivityPage, MarketPage:
+		a.featurePage(c)
 		return
 	}
 	cv := a.Data.Find(a.Sidebar.Selected)
