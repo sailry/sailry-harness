@@ -264,3 +264,23 @@ func TestMoreDragShowsInsertionLine(t *testing.T) {
 	}
 }
 
+// Collapsed, the page's header starts past the traffic lights, and goes
+// back to the edge in full screen, where MyGo reports none.
+func TestHeaderClearsTrafficLights(t *testing.T) {
+	a, tt := newTester(t)
+	tt.SetTitleBar(ui.TitleBar{Height: 28, Left: 70})
+	a.NavOpen = false
+	for range 3 {
+		tt.Advance(time.Second)
+		tt.Frame()
+	}
+	b, ok := tt.Access(i18n.In("en", "sidebar_toggle"))
+	if !ok || b.Bounds.X < trafficLights {
+		t.Fatalf("the sidebar toggle starts at %v under the lights", b.Bounds)
+	}
+	tt.SetTitleBar(ui.TitleBar{})
+	tt.Frame()
+	if b, _ := tt.Access(i18n.In("en", "sidebar_toggle")); b.Bounds.X >= trafficLights {
+		t.Errorf("in full screen the toggle still starts at %v", b.Bounds.X)
+	}
+}

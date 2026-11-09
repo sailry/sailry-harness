@@ -19,19 +19,20 @@ func (a *App) header(c *ui.Context, f frame) {
 	bar := c.TitleBar()
 	left := RailWidth + f.navWidth*f.nav
 	ui.Row(c.Key("header")).Height(HeaderHeight).Shrink(0).DragWindow().Children(func() {
-		pad := float32(12)
+		// The traffic lights' room (frame.rs: 80 on macOS), from MyGo's
+		// title bar: none in full screen or without lights. The brand
+		// column keeps the rail's width while the sidebar is collapsed, so
+		// the page's header starts past the lights through the motion.
+		lights := float32(0)
 		if bar.Left > 0 {
-			pad = trafficLights
+			lights = max(bar.Left, trafficLights)
 		}
-		if f.nav > 0.001 {
-			ui.Row(c.Key("brand")).Width(left).Height(HeaderHeight).PaddingStart(pad).PaddingEnd(12).ClipX().Children(func() {
+		ui.Row(c.Key("brand")).Width(left).Height(HeaderHeight).PaddingStart(max(lights, 12)).PaddingEnd(12).ClipX().Children(func() {
+			if f.nav > 0.001 {
 				ui.Text(c, i18n.T(c, "app")).FontSize(14).SingleLine().TextColor(p.SidebarForeground).Opacity(f.nav)
-			})
-			pad = 12
-		} else {
-			// Collapsed, the page's header clears the traffic lights.
-			pad = max(pad, left) - left + 12
-		}
+			}
+		})
+		pad := max(lights-left, 0) + 12
 		ui.Row(c.Key("module")).Grow(1).MinWidth(0).Height(HeaderHeight).PaddingStart(pad).PaddingEnd(12 + bar.Right).Gap(8).Children(func() {
 			icon := icons.PanelLeftClose
 			if !a.NavOpen {
