@@ -86,7 +86,7 @@ func (s *State) permissionMenu(c *ui.Context, ctx *Context) {
 	m := Permissions[s.Permission]
 	label := i18n.T(c, m.label)
 	kit.MenuButton(c.Key("permission"), "composer-permission", func(b ui.Element) {
-		subtle(c, b.Disabled(ctx.Readonly), m.icon, label, permissionColor(theme.Of(c), s.Permission)).Tooltip(label)
+		kit.Tooltip(c, subtle(c, b.Disabled(ctx.Readonly), m.icon, label, permissionColor(theme.Of(c), s.Permission)), label)
 	}, func(menu *kit.Menu) {
 		for i, m := range Permissions {
 			if menu.Item(i18n.T(c, m.label)).Description(i18n.T(c, m.description)).Icon(m.icon).
@@ -138,7 +138,7 @@ func contextButton(c *ui.Context, b ui.Element, icon *ui.SVG, label string, chev
 	kit.GhostLook(c, b, false).Label(label).Height(28).PaddingX(10).Gap(6).Radius(14).MaxWidth(224).
 		TextColor(p.MutedForeground)
 	if iconOnly {
-		b.Width(28).PaddingX(0).Tooltip(label)
+		kit.Tooltip(c, b.Width(28).PaddingX(0), label)
 	}
 	return b.Children(func() {
 		ui.Icon(c, icon).FontSize(14)
@@ -163,7 +163,7 @@ func (s *State) hostMenu(c *ui.Context, ctx *Context, iconOnly bool) {
 		icon, label = icons.Globe, i18n.T(c, "composer_host_remote")
 	}
 	kit.MenuButton(c.Key("host"), "composer-host", func(b ui.Element) {
-		contextButton(c, b, icon, label, true, iconOnly).Tooltip(i18n.T(c, "composer_host_hint", "name", i18n.T(c, h.Name)))
+		kit.Tooltip(c, contextButton(c, b, icon, label, true, iconOnly), i18n.T(c, "composer_host_hint", "name", i18n.T(c, h.Name)))
 	}, func(m *kit.Menu) {
 		for _, x := range ctx.Hosts {
 			if m.Item(i18n.T(c, x.Name)).Checked(x.ID == h.ID).Chosen() {

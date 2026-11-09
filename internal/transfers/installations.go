@@ -28,8 +28,9 @@ func Button(c *ui.Context, q *Queue, open *bool, retry func(e Entry)) {
 		active = active || e.Active()
 		attention = attention || e.Terminal()
 	}
-	b := kit.GhostLook(c, ui.ButtonBase(c.Key("installations")).Label(label), *open).Size(36, 36).Tooltip(label).
-		OnClick(func() { *open = !*open })
+	b := kit.GhostLook(c, ui.ButtonBase(c.Key("installations")).Label(label), *open).Size(36, 36)
+	kit.Tooltip(c, b, label)
+	b.OnClick(func() { *open = !*open })
 	b.HasPopup(ui.PopupDialog).Expanded(*open)
 	b.Children(func() {
 		ui.Row(c.Key("mark")).Size(20, 20).Center().Children(func() {

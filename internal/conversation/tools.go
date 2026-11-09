@@ -327,7 +327,7 @@ func diff(c *ui.Context, d *Diff) {
 	ui.Column(c).Border(1, p.Border).Radius(p.Radius2xl()).Background(p.Background).Clip().Children(func() {
 		ui.Row(c).Height(32).PaddingX(12).Gap(8).BorderWidth(0, 0, 1, 0).BorderColor(p.Border).
 			TextColor(p.MutedForeground).Children(func() {
-			ui.Text(c, name).FontSize(14).SingleLine().Grow(1).Shrink(1).Tooltip(d.Path)
+			kit.Tooltip(c, ui.Text(c, name).FontSize(14).SingleLine().Grow(1).Shrink(1), d.Path)
 			ui.Row(c).Gap(6).Shrink(0).Children(func() {
 				if d.Added > 0 || d.Removed == 0 {
 					ui.Textf(c, "+%d", d.Added).Font("monospace").FontSize(12).TextColor(p.Success)
@@ -353,7 +353,8 @@ func table(c *ui.Context, t *Table) {
 		cells := func(values []string, head bool) {
 			ui.Row(c).Height(28).BorderWidth(0, 0, 1, 0).BorderColor(p.Border).Children(func() {
 				for _, v := range values {
-					cell := ui.Text(c, v).FontSize(14).SingleLine().Width(180).PaddingX(8).Tooltip(v)
+					cell := ui.Text(c, v).FontSize(14).SingleLine().Width(180).PaddingX(8)
+					kit.Tooltip(c, cell, v)
 					if head {
 						cell.FontWeight(500).TextColor(p.MutedForeground)
 					}

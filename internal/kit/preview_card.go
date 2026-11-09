@@ -18,12 +18,14 @@ type Session struct {
 // 320 wide, the title over the project and branch with their icons and
 // the mono path. Otherwise it is the activity strip's preview
 // (ui/session_preview.rs): 280 wide, the semibold title over the project.
-// place puts the card by anchor.
-func SessionCard(c *ui.Context, anchor ui.Element, s Session, detailed bool, place func(card ui.Element)) {
+// place puts the card by anchor, on side, from which it moves in with
+// TipMotion.
+func SessionCard(c *ui.Context, anchor ui.Element, s Session, detailed bool, side Placement, place func(card ui.Element)) {
 	p := theme.Of(c)
 	w, _ := c.Size()
 	ui.TooltipBase(c, anchor, func(card ui.Element) {
 		place(card)
+		card.AttachedOrigin().Transition(TipMotion(side))
 		width := float32(280)
 		if detailed {
 			width = 320

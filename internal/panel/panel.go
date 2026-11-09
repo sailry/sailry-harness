@@ -466,7 +466,8 @@ func (pr *Project) changeList(c *ui.Context, shown string, own bool, open func(p
 			case b.Hovered():
 				b.TextColor(p.Foreground)
 			}
-			b.Tooltip(ch.Path).Children(func() {
+			kit.Tooltip(c, b, ch.Path)
+			b.Children(func() {
 				ui.Icon(c, icons.File).FontSize(16).TextColor(p.MutedForeground)
 				ui.Text(c, name).FontSize(14).SingleLine().Grow(1).Shrink(1)
 				ui.Text(c, ch.Status).FontSize(12).FontWeight(600).TextColor(statusColor(p, ch.Status))

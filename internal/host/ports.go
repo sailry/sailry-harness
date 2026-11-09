@@ -30,7 +30,8 @@ func portsHeader(c *ui.Context, s *State, h *Host) {
 		if i == 3 {
 			break
 		}
-		b := small(c, "port-"+strconv.Itoa(i), icons.Globe, strconv.Itoa(x.Remote), !x.Listening, false).Tooltip(x.Route())
+		b := small(c, "port-"+strconv.Itoa(i), icons.Globe, strconv.Itoa(x.Remote), !x.Listening, false)
+		kit.Tooltip(c, b, x.Route())
 		b.OnClick(func() { openPort(c, x) })
 	}
 	small(c, "ports", icons.Network, i18n.T(c, "port_title"), false, false).OnClick(func() {

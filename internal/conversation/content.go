@@ -407,7 +407,8 @@ func (s *State) changes(c *ui.Context, turn string, ch *Changes, actions Actions
 			shown = min(n, previewFiles)
 		}
 		for i, f := range ch.Files[:shown] {
-			row := ui.ButtonBase(c.Key(f.Path)).Label(f.Path).FillWidth().MinWidth(0).Height(40).PaddingX(12).Cursor(ui.CursorPointer).Tooltip(f.Path)
+			row := ui.ButtonBase(c.Key(f.Path)).Label(f.Path).FillWidth().MinWidth(0).Height(40).PaddingX(12).Cursor(ui.CursorPointer)
+			kit.Tooltip(c, row, f.Path)
 			if i > 0 {
 				row.BorderWidth(1, 0, 0, 0).BorderColor(p.Border)
 			}

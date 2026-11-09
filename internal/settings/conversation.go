@@ -38,7 +38,7 @@ func conversation(c *ui.Context, m *Model) {
 				// names the size, as the reference's does.
 				size := int(m.TextSize)
 				tip := i18n.T(c, textSizes[min(max((size-12)/2, 0), 3)]) + " · " + i18n.T(c, "message_text_size_value", "size", size)
-				ui.StepSlider(c.Key("slider"), &m.TextSize, 12, 18, 2).Label(title).FillWidth().Tooltip(tip)
+				kit.Tooltip(c, ui.StepSlider(c.Key("slider"), &m.TextSize, 12, 18, 2).Label(title).FillWidth(), tip)
 			})
 		})
 	})

@@ -122,7 +122,8 @@ func (a *App) noticeRow(c *ui.Context, n *preview.Notice) {
 	if row.Hovered() {
 		row.Background(p.Hover)
 	}
-	row.Tooltip(n.Title).TextColor(text).Children(func() {
+	kit.Tooltip(c, row, n.Title)
+	row.TextColor(text).Children(func() {
 		ui.Icon(c, glyph).FontSize(16).TextColor(color).Shrink(0)
 		t := ui.Text(c, n.Title).FontSize(14).SingleLine().Grow(1).Shrink(1)
 		if !n.Read {
@@ -263,7 +264,8 @@ func (a *App) overflow(c *ui.Context, l lane, list []*preview.Conversation, rest
 		b := ui.ButtonBase(c.Key("button")).Label(fmt.Sprintf("%s · +%d", name, rest)).Size(28, 28).
 			Radius(p.Radius).Center().Cursor(ui.CursorPointer).OnClick(func() { *open = !*open })
 		b.HasPopup(ui.PopupDialog).Expanded(*open)
-		b.Tooltip(name).Children(func() {
+		kit.Tooltip(c, b, name)
+		b.Children(func() {
 			ui.Textf(c, "+%d", rest).FontSize(12).TextColor(color)
 		})
 		_, h := c.Size()
@@ -306,7 +308,7 @@ func (a *App) preview(c *ui.Context, anchor ui.Element, cv *preview.Conversation
 	if pr := a.Data.ProjectOf(cv.ID); pr != nil {
 		project = pr.Name
 	}
-	kit.SessionCard(c, anchor, kit.Session{Title: sidebar.Title(c, cv), Project: project}, false, func(card ui.Element) {
+	kit.SessionCard(c, anchor, kit.Session{Title: sidebar.Title(c, cv), Project: project}, false, kit.Bottom, func(card ui.Element) {
 		card.AttachTo(anchor, ui.AnchorBottomEnd, ui.AnchorTopEnd).Margin(12, 0, 0, 0)
 	})
 }

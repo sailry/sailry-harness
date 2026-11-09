@@ -65,7 +65,8 @@ func UsageBar(c *ui.Context, u *Usage) {
 				ui.Text(c, m.Value).FontSize(14).SingleLine()
 			})
 			ui.TooltipBase(c, item, func(card ui.Element) {
-				kit.Floating(c, card).AttachTo(item, ui.AnchorTopEnd, ui.AnchorBottomEnd).Margin(0, 0, 6, 0).Padding(12, 14).Gap(4)
+				kit.Floating(c, card).AttachTo(item, ui.AnchorTopEnd, ui.AnchorBottomEnd).Margin(0, 0, 6, 0).Padding(12, 14).Gap(4).
+					AttachedOrigin().Transition(kit.TipMotion(kit.Top))
 				card.Children(func() {
 					ui.Text(c, i18n.T(c, m.Label)).FontSize(12).TextColor(p.MutedForeground)
 					ui.Text(c, m.Value).FontSize(14).FontWeight(500)
@@ -81,8 +82,9 @@ func UsageBar(c *ui.Context, u *Usage) {
 func ring(c *ui.Context, v float64) {
 	p := theme.Of(c)
 	v = math.Max(0, math.Min(1, v))
-	ui.Box(c.Key("context")).Size(20, 20).Margin(0, 4).Tooltip(i18n.T(c, "composer_compression_hint")).
-		Label(fmt.Sprintf("%s %d%%", i18n.T(c, "composer_compression_hint"), int(v*100+0.5))).
+	box := ui.Box(c.Key("context")).Size(20, 20).Margin(0, 4)
+	kit.Tooltip(c, box, i18n.T(c, "composer_compression_hint"))
+	box.Label(fmt.Sprintf("%s %d%%", i18n.T(c, "composer_compression_hint"), int(v*100+0.5))).
 		Draw(func(pt *ui.Painter, r ui.Rect) {
 			cx, cy, rad := r.X+r.W/2, r.Y+r.H/2, r.W/2-2
 			var track ui.Path

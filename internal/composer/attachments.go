@@ -173,7 +173,9 @@ func (s *State) card(c *ui.Context, a *Attachment, actions Actions) {
 		tip = a.Name
 	}
 	box := ui.Row(c.Key(a.ID)).Shrink(0).Radius(p.Radius2xl()).Border(1, p.Border).Background(p.Background).
-		AlignItems(ui.Center).Label(a.Name).Tooltip(tip).Transition(ui.ElementTransition{
+		AlignItems(ui.Center).Label(a.Name)
+	kit.Tooltip(c, box, tip)
+	box.Transition(ui.ElementTransition{
 		Enter: &ui.Motion{Opacity: 0, Scale: 0.9}, Exit: &ui.Motion{Opacity: 0, Scale: 0.9}})
 	if failed {
 		box.Border(1, p.Danger)
@@ -243,8 +245,9 @@ func (s *State) card(c *ui.Context, a *Attachment, actions Actions) {
 // round is a card's 20 DIP round action over its corner.
 func round(c *ui.Context, key string, icon *ui.SVG, label string, fn func()) {
 	p := theme.Of(c)
-	b := ui.ButtonBase(c.Key(key)).Label(label).Tooltip(label).Size(20, 20).Radius(10).Center().Cursor(ui.CursorPointer).
-		Background(p.Foreground).TextColor(p.Background)
+	b := ui.ButtonBase(c.Key(key)).Label(label)
+	kit.Tooltip(c, b, label)
+	b.Size(20, 20).Radius(10).Center().Cursor(ui.CursorPointer).Background(p.Foreground).TextColor(p.Background)
 	if b.Hovered() {
 		b.Background(p.Foreground.Alpha(0.85))
 	}

@@ -116,18 +116,18 @@ func (s *State) modelChip(c *ui.Context, ctx *Context, actions Actions) {
 	chip := kit.GhostLook(c, ui.ButtonBase(c.Key("model")), s.picker).Label(label).Height(32).PaddingX(12).Gap(8).Radius(16).
 		MaxWidth(width).MinWidth(0).Shrink(1).Disabled(ctx.Readonly)
 	if team != nil {
-		chip.Tooltip(lead)
+		kit.Tooltip(c, chip, lead)
 	}
 	badge := func(f featureBadge) {
 		if f.icon != nil {
-			ui.Icon(c, f.icon).FontSize(16).Shrink(0).TextColor(p.Foreground).Tooltip(f.label)
+			kit.Tooltip(c, ui.Icon(c, f.icon).FontSize(16).Shrink(0).TextColor(p.Foreground), f.label)
 		} else {
-			ui.Text(c, f.label).FontSize(14).SingleLine().Shrink(0).TextColor(p.Primary).Tooltip(f.label)
+			kit.Tooltip(c, ui.Text(c, f.label).FontSize(14).SingleLine().Shrink(0).TextColor(p.Primary), f.label)
 		}
 	}
 	chip.HasPopup(ui.PopupDialog).Expanded(s.picker).Children(func() {
 		if team == nil && !narrow {
-			kit.Tag(c, Badge(m.Provider)).Shrink(0).Tooltip(m.Provider)
+			kit.Tooltip(c, kit.Tag(c, Badge(m.Provider)).Shrink(0), m.Provider)
 		}
 		for _, f := range fast {
 			badge(f)
@@ -139,7 +139,7 @@ func (s *State) modelChip(c *ui.Context, ctx *Context, actions Actions) {
 			ui.Text(c, m.Name).FontSize(14).SingleLine().Shrink(1).MinWidth(0)
 			if effort != "" {
 				if narrow {
-					ui.Icon(c, icons.Brain).FontSize(16).Shrink(0).TextColor(p.MutedForeground).Tooltip(effort)
+					kit.Tooltip(c, ui.Icon(c, icons.Brain).FontSize(16).Shrink(0).TextColor(p.MutedForeground), effort)
 				} else {
 					ui.Text(c, effort).FontSize(14).SingleLine().Shrink(0).TextColor(p.MutedForeground)
 				}
@@ -269,8 +269,8 @@ func (s *State) features(c *ui.Context, m Model) {
 		speed = speed || f.ID == "speed"
 	}
 	if !speed {
-		kit.IconButton(c.Key("fast-unsupported"), icons.Zap, i18n.T(c, "composer_feature_fast"), 28, false).Radius(14).
-			Disabled(true).Tooltip(i18n.T(c, "composer_feature_fast_unsupported"))
+		kit.Tooltip(c, kit.IconButton(c.Key("fast-unsupported"), icons.Zap, i18n.T(c, "composer_feature_fast"), 28, false).Radius(14).
+			Disabled(true), i18n.T(c, "composer_feature_fast_unsupported"))
 	}
 	for _, f := range m.Features {
 		current, set := s.Features[f.ID]
@@ -313,7 +313,9 @@ func (s *State) features(c *ui.Context, m Model) {
 			tip = i18n.T(c, "composer_feature_off") + " · " + label
 		}
 		if cycles {
-			kit.IconButton(c.Key(f.ID), icon, label, 28, set).Radius(14).Tooltip(tip).AccessSelected(set).OnClick(func() {
+			b := kit.IconButton(c.Key(f.ID), icon, label, 28, set).Radius(14)
+			kit.Tooltip(c, b, tip)
+			b.AccessSelected(set).OnClick(func() {
 				// features.rs next: off, then each option in turn.
 				i := 0
 				if set {
@@ -333,7 +335,7 @@ func (s *State) features(c *ui.Context, m Model) {
 			continue
 		}
 		kit.MenuButton(c.Key(f.ID), "feature-"+f.ID, func(b ui.Element) {
-			kit.IconLook(c, b, icon, label, "", 28, set).Radius(14).Tooltip(tip)
+			kit.Tooltip(c, kit.IconLook(c, b, icon, label, "", 28, set).Radius(14), tip)
 		}, func(menu *kit.Menu) {
 			if menu.Item(i18n.T(c, "composer_feature_off")).Checked(!set).Chosen() {
 				delete(s.Features, f.ID)
@@ -358,8 +360,9 @@ func (s *State) teamRow(c *ui.Context, ctx *Context) {
 		name, icon, fill = team.Name, icons.Users, kit.AgentColor(c, team.ID)
 	}
 	ui.Row(c.Key("team-row")).FillWidth().MinWidth(0).Height(32).Shrink(0).Gap(8).AlignItems(ui.Center).Children(func() {
-		kit.GhostLook(c, ui.ButtonBase(c.Key("team")), false).Label(name).Tooltip(name).Height(member).PaddingStart(0).
-			PaddingEnd(4).Gap(2).Radius(member / 2).Children(func() {
+		b := kit.GhostLook(c, ui.ButtonBase(c.Key("team")), false).Label(name)
+		kit.Tooltip(c, b, name)
+		b.Height(member).PaddingStart(0).PaddingEnd(4).Gap(2).Radius(member / 2).Children(func() {
 			avatar(c, icon, fill, member, true, false)
 			ui.Icon(c, icons.ChevronRight).FontSize(12)
 		}).OnClick(func() { s.layer = layerTeams })
@@ -377,8 +380,9 @@ func (s *State) teamRow(c *ui.Context, ctx *Context) {
 }
 
 func memberButton(c *ui.Context, key, name string, icon *ui.SVG, fill ui.Color, overridden, selected bool, pick func()) {
-	b := ui.ButtonBase(c.Key("member-"+key)).Label(name).Tooltip(name).Size(member, member).Radius(member / 2).
-		Cursor(ui.CursorPointer).AccessSelected(selected)
+	b := ui.ButtonBase(c.Key("member-" + key)).Label(name)
+	kit.Tooltip(c, b, name)
+	b.Size(member, member).Radius(member / 2).Cursor(ui.CursorPointer).AccessSelected(selected)
 	b.Children(func() { avatar(c, icon, fill, member, selected, overridden) }).OnClick(pick)
 }
 
@@ -583,7 +587,7 @@ func scoreTip(c *ui.Context, anchor ui.Element, sc *Score) {
 	axes := []string{"model_score_axis_backend", "model_score_axis_frontend", "model_score_axis_knowledge",
 		"model_score_axis_aesthetic", "model_score_axis_maintainability"}
 	ui.TooltipBase(c, anchor, func(tip ui.Element) {
-		kit.Floating(c, tip).Padding(8, 10).Gap(4).Radius(p.Radius).Width(200)
+		kit.Attach(kit.Floating(c, tip), anchor, kit.Top, 6).Padding(8, 10).Gap(4).Radius(p.Radius).Width(200)
 		tip.Children(func() {
 			ui.Row(c).FillWidth().Justify(ui.SpaceBetween).Children(func() {
 				ui.Text(c, i18n.T(c, "model_score_overall")).FontSize(12).TextColor(p.MutedForeground)

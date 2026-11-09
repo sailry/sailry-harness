@@ -317,7 +317,8 @@ func (s *State) sendButton(c *ui.Context, ctx *Context, submit, stop func()) {
 		if v != nil {
 			action(b, v.Composer.Stop, false)
 		}
-		b.Tooltip(i18n.T(c, "chat_stop")).Children(func() { ui.Icon(c, icons.Stop).FontSize(16) }).OnClick(stop)
+		kit.Tooltip(c, b, i18n.T(c, "chat_stop"))
+		b.Children(func() { ui.Icon(c, icons.Stop).FontSize(16) }).OnClick(stop)
 		return
 	}
 	blocked := !s.hasInput() || !s.sendable() || ctx.Readonly
@@ -325,7 +326,8 @@ func (s *State) sendButton(c *ui.Context, ctx *Context, submit, stop func()) {
 	if v != nil {
 		action(b, v.Composer.Send, blocked)
 	}
-	b.Tooltip(i18n.T(c, "send")).Children(func() { ui.Icon(c, icons.ArrowUp).FontSize(16) }).OnClick(submit)
+	kit.Tooltip(c, b, i18n.T(c, "send"))
+	b.Children(func() { ui.Icon(c, icons.ArrowUp).FontSize(16) }).OnClick(submit)
 }
 
 // action paints send or stop in the package's colors (theme/composer.rs);

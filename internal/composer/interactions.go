@@ -260,7 +260,7 @@ func (s *State) approval(c *ui.Context, a Approval, actions Actions) {
 			b.Radius(14)
 		}
 		if a.Unrestricted {
-			b.Tooltip(i18n.T(c, "approval_unrestricted"))
+			kit.Tooltip(c, b, i18n.T(c, "approval_unrestricted"))
 		}
 		b.MinWidth(48).Children(func() { ui.Text(c, allow).FontSize(14) }).OnClick(func() { actions.Decide(a.ID, Allow, "") })
 		if a.Remember {

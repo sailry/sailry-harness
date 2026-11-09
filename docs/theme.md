@@ -106,9 +106,18 @@ Floating layers are built on MyGo's bases. Popovers are `kit.Popover`
 least as wide as the anchor), and dialogs are `kit.Dialog`
 (`internal/kit/dialog.go`, adapted from Lobe MyGo's modal: DialogBase, a
 tenth of the window down as Kit places them, the dimmed backdrop, a
-close button, scale-and-fade motion, Escape and backdrop close). Session hover cards are `kit.SessionCard` (TooltipBase with
-its 0.6 second delay). Left-click menus and selects are `kit.MenuButton`
-and `kit.Select` (`internal/kit/menu.go`, on MenuBase): MyGo's drawn
+close button, scale-and-fade motion, Escape and backdrop close). Tooltips
+are `kit.Tooltip` (`internal/kit/tooltip.go`, adapted from Lobe MyGo's
+`overlay/tooltip.go` and `overlay/placement.go`: TooltipBase, a Floating
+tip on a `Placement` side that flips where there is no room, a spring
+scale-in from the anchor, a content fade, an optional shortcut, and the
+text as the anchor's description); every tip goes through it rather than
+`Element.Tooltip`. Hover cards (`kit.SessionCard`, the usage and model
+score cards) use TooltipBase with its 0.6 second delay and the tip's
+`kit.TipMotion`. Left-click menus and selects are `kit.MenuButton`
+and `kit.Select` (`internal/kit/menu.go`, on MenuBase, with the popup
+motion, row color transition and turning chevron of Lobe MyGo's
+`overlay/dropdown.go` and `field/select.go`): MyGo's drawn
 menus paint the window's Background and highlight with the theme's
 Accent (the primary), and its Theme has no menu slot, so the kit menu
 paints the floating surface, and Kit's rows: 26 high, the highlight in accent.background /

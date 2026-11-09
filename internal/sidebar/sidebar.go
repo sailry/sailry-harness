@@ -478,7 +478,7 @@ func (s *State) details(c *ui.Context, row ui.Element, cv *preview.Conversation)
 			}
 		}
 	}
-	kit.SessionCard(c, row, d, true, func(card ui.Element) {
+	kit.SessionCard(c, row, d, true, kit.Right, func(card ui.Element) {
 		card.AttachTo(row, ui.AnchorRight, ui.AnchorLeft).MarginStart(8)
 	})
 }

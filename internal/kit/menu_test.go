@@ -32,7 +32,7 @@ func TestMenuLooksAndChooses(t *testing.T) {
 	if err := tt.Click("Open"); err != nil {
 		t.Fatal(err)
 	}
-	tt.Frame()
+	tt.Advance(200 * time.Millisecond) // the panel's popup motion
 	r, ok := tt.Find("Beta")
 	if !ok {
 		t.Fatal("menu does not show")
@@ -46,7 +46,7 @@ func TestMenuLooksAndChooses(t *testing.T) {
 		return d(a.R, b.R) && d(a.G, b.G) && d(a.B, b.B)
 	}
 	tt.Move(r.X+r.W/2, r.Y+r.H/2)
-	tt.Frame()
+	tt.Advance(200 * time.Millisecond) // the row's color transition
 	// The panel over the window, the highlight over the panel.
 	blend := func(over, under ui.Color) ui.Color {
 		a := float32(over.A) / 255
@@ -63,7 +63,7 @@ func TestMenuLooksAndChooses(t *testing.T) {
 	if err := tt.Click("Beta"); err != nil {
 		t.Fatal(err)
 	}
-	tt.Frame()
+	tt.Advance(200 * time.Millisecond) // the panel's exit
 	if got != "Beta" || tt.HasText("Alpha") {
 		t.Errorf("chose %q, menu open %v", got, tt.HasText("Alpha"))
 	}
@@ -88,7 +88,7 @@ func TestSelectMatchesInput(t *testing.T) {
 	}
 	tt.ClickAt(sel.Bounds.X+10, sel.Bounds.Y+5)
 	tt.Frame()
-	tt.Frame()
+	tt.Advance(200 * time.Millisecond) // the panel's popup motion
 	menu, ok := tt.AccessByRole(ui.RoleMenu, "")
 	if !ok || menu.Bounds.W != sel.Bounds.W {
 		t.Errorf("dropdown %v, select %v", menu.Bounds, sel.Bounds)
@@ -161,5 +161,28 @@ func TestSortableListKeyboard(t *testing.T) {
 	tt.Frame()
 	if items[0] != "b" || items[1] != "a" || moved != [2]int{0, 1} {
 		t.Errorf("items %v, moved %v", items, moved)
+	}
+}
+
+// A Tooltip describes its anchor and shows, on its side, once the pointer
+// rests on it.
+func TestTooltipShowsAndDescribes(t *testing.T) {
+	tt := ui.NewTester(func(c *ui.Context) {
+		theme.Apply(c, "", theme.Light)
+		ui.Column(c).Fill().Padding(80).Children(func() {
+			b := ui.ButtonBase(c.Key("b")).Label("Share").Size(40, 24)
+			Tooltip(c, b, "Share the session", TooltipProps{Placement: Bottom, Hotkey: "⌘S"})
+		})
+	}, 400, 300)
+	tt.Frame()
+	b, ok := tt.Access("Share")
+	if !ok || b.Description != "Share the session" {
+		t.Fatalf("anchor %+v", b)
+	}
+	tt.Move(b.Bounds.X+10, b.Bounds.Y+10)
+	tt.Advance(time.Second)
+	r, ok := tt.Find("Share the session")
+	if !ok || r.Y < b.Bounds.Y+b.Bounds.H || !tt.HasText("⌘S") {
+		t.Errorf("tip %v below %v, shows %v", r, b.Bounds, ok)
 	}
 }

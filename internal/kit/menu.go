@@ -1,6 +1,40 @@
+// Menu's motion and Select's chevron are adapted from Lobe MyGo's
+// overlay.DropdownMenu and field.Select (github.com/lobehub/lobe-mygo
+// pkg/overlay/dropdown.go and pkg/field/select.go at 5b3ecde):
+//
+// MIT License
+//
+// Copyright (c) 2026 LobeHub
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the
+// "Software"), to deal in the Software without restriction, including
+// without limitation the rights to use, copy, modify, merge, publish,
+// distribute, sublicense, and/or sell copies of the Software, and to
+// permit persons to whom the Software is furnished to do so, subject to
+// the following conditions:
+//
+// The above copyright notice and this permission notice shall be included
+// in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+// OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+// IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+// CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+// TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+// SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+//
+// Changes: Kit's rows, panel and trigger as below, kept from before the
+// port; from the source, the panel's popup motion from its attached
+// origin, the rows' color transition and the chevron turning while the
+// select is open, with the ease inlined.
+
 package kit
 
 import (
+	"time"
+
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-go/internal/icons"
 	"github.com/sailry/sailry-go/internal/theme"
@@ -63,12 +97,7 @@ func MenuButton(c *ui.Context, id string, look func(b ui.Element), build func(m 
 	if len(options) > 0 {
 		o = options[0]
 	}
-	states := ui.Local(c.Root(), menuOpen{}, func() map[string]*bool { return map[string]*bool{} })
-	open := (*states)[id]
-	if open == nil {
-		open = new(bool)
-		(*states)[id] = open
-	}
+	open := menuState(c, id)
 	parts := ui.MenuBase(c, open)
 	b := parts.Trigger
 	look(b)
@@ -95,13 +124,26 @@ func MenuButton(c *ui.Context, id string, look func(b ui.Element), build func(m 
 // OpenMenu opens or closes the MenuButton named id from the app, as a
 // row opening its submenu on hover (model_picker/menu.rs open_efforts).
 func OpenMenu(c *ui.Context, id string, open bool) {
-	states := ui.Local(c.Root(), menuOpen{}, func() map[string]*bool { return map[string]*bool{} })
-	if b := (*states)[id]; b != nil {
-		*b = open
-	} else {
-		(*states)[id] = &open
-	}
+	*menuState(c, id) = open
 }
+
+// menuState is whether the menu named id shows.
+func menuState(c *ui.Context, id string) *bool {
+	states := ui.Local(c.Root(), menuOpen{}, func() map[string]*bool { return map[string]*bool{} })
+	open := (*states)[id]
+	if open == nil {
+		open = new(bool)
+		(*states)[id] = open
+	}
+	return open
+}
+
+var (
+	// menuRow eases a row's highlight in and out (Lobe's menuItemTransition).
+	menuRow = ui.ElementTransition{Duration: 150 * time.Millisecond, Ease: EaseOut, Colors: true}
+	// chevronTurn turns a select's chevron as it opens and closes.
+	chevronTurn = ui.Animation{Duration: 150 * time.Millisecond, Ease: EaseOut}
+)
 
 // Item adds an item labeled label.
 func (m *Menu) Item(label string) *Item {
@@ -166,7 +208,7 @@ func (m *Menu) draw(c *ui.Context, parts ui.MenuParts, panel, trigger ui.Element
 		at, self = ui.AnchorBottomStart, ui.AnchorTopStart
 	}
 	panel.AttachTo(trigger, at, self)
-	menuGap(panel, at, self, 4)
+	panel.AttachedOrigin().Transition(toward(popup, menuGap(panel, at, self, 4)))
 	maxH := h - 16
 	if o.MaxHeight > 0 {
 		maxH = min(maxH, o.MaxHeight)
@@ -193,7 +235,7 @@ func (m *Menu) draw(c *ui.Context, parts ui.MenuParts, panel, trigger ui.Element
 			row = parts.Item()
 		}
 		row.Label(it.label).Disabled(it.disabled).PaddingX(8).Gap(4).Radius(min(p.Radius, 8)).
-			AlignItems(ui.Center).Shrink(0)
+			AlignItems(ui.Center).Shrink(0).Transition(menuRow)
 		if it.description != "" {
 			row.PaddingY(8).Gap(8).MaxWidth(400)
 		} else {
@@ -261,17 +303,22 @@ func (m *Menu) draw(c *ui.Context, parts ui.MenuParts, panel, trigger ui.Element
 	return chosen, act
 }
 
-// menuGap keeps a menu gap apart from its trigger on the side it shows.
-func menuGap(panel ui.Element, at, self ui.Anchor, gap float32) {
+// menuGap keeps a menu gap apart from its trigger on the side it shows,
+// which it returns.
+func menuGap(panel ui.Element, at, self ui.Anchor, gap float32) Placement {
 	switch {
 	case top(self) && bottom(at):
 		panel.Margin(gap, 0, 0, 0)
+		return Bottom
 	case bottom(self) && top(at):
 		panel.Margin(0, 0, gap, 0)
+		return Top
 	case end(at) && !end(self):
 		panel.MarginStart(gap)
+		return Right
 	default:
 		panel.MarginEnd(gap)
+		return Left
 	}
 }
 
@@ -287,9 +334,9 @@ func end(a ui.Anchor) bool {
 	return a == ui.AnchorRight || a == ui.AnchorEnd || a == ui.AnchorTopEnd || a == ui.AnchorBottomEnd || a == ui.AnchorTopRight || a == ui.AnchorBottomRight
 }
 
-// Select is Kit's Select: a trigger showing *chosen with a chevron, the
-// height and fill of a text input (MyGo's TextInput: the input border on
-// the surface, its padding), opening a Menu of options as wide as it, in
+// Select is Kit's Select: a trigger showing *chosen with a chevron that
+// turns while it is open, the height and fill of a text input (MyGo's
+// TextInput: the input border on the surface, its padding), opening a Menu of options as wide as it, in
 // the popover color, with a check on the chosen one. It reports whether
 // the user chose another option. id names it as MenuButton's; label
 // names the trigger for assistive technology.
@@ -304,7 +351,12 @@ func Select(c *ui.Context, id, label string, chosen *string, options []string, d
 		}
 		b.Children(func() {
 			ui.Text(c, *chosen).FontSize(14).SingleLine().Shrink(1).MinWidth(0)
-			ui.Icon(c, icons.ChevronDown).FontSize(14).TextColor(p.MutedForeground).Shrink(0)
+			turn := float32(0)
+			if *menuState(c, id) {
+				turn = 180
+			}
+			arrow := ui.Icon(c, icons.ChevronDown).FontSize(14).TextColor(p.MutedForeground).Shrink(0)
+			arrow.Rotate(arrow.AnimateTo("turn", turn, chevronTurn))
 		})
 	}, func(m *Menu) {
 		for _, o := range options {

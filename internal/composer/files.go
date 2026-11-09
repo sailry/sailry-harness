@@ -208,7 +208,7 @@ func (s *State) filePicker(c *ui.Context, ctx *Context, actions Actions) {
 		}
 		ui.Row(c.Key("footer")).FillWidth().Gap(12).AlignItems(ui.Center).Children(func() {
 			text := strings.Join(paths, ", ")
-			ui.Text(c, text).FontSize(13).SingleLine().Grow(1).Shrink(1).MinWidth(0).TextColor(p.MutedForeground).Tooltip(text)
+			kit.Tooltip(c, ui.Text(c, text).FontSize(13).SingleLine().Grow(1).Shrink(1).MinWidth(0).TextColor(p.MutedForeground), text)
 			kit.Secondary(c.Key("cancel"), i18n.T(c, "settings_cancel")).OnClick(func() { f.open = false })
 			kit.Primary(c.Key("open"), i18n.T(c, "directory_open"), len(paths) == 0).
 				Children(func() { ui.Text(c, i18n.T(c, "directory_open")).FontSize(14) }).OnClick(open)

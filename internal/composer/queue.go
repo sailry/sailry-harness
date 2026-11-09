@@ -178,7 +178,9 @@ func (s *State) queueEditor(c *ui.Context, ctx *Context, actions Actions) {
 					Children(func() { ui.Text(c, label).FontSize(14) })
 			}
 			if changed {
-				button("reload", i18n.T(c, "queue_reload")).Tooltip(i18n.T(c, "queue_reload_draft")).OnClick(func() {
+				reload := button("reload", i18n.T(c, "queue_reload"))
+				kit.Tooltip(c, reload, i18n.T(c, "queue_reload_draft"))
+				reload.OnClick(func() {
 					q.text, q.original = item.Text, item.Text
 				})
 			}
