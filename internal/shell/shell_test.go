@@ -6,6 +6,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -25,6 +26,12 @@ func newTester(t *testing.T) (*App, *ui.Tester) {
 	tt.SetLocale("en")
 	tt.Frame()
 	return a, tt
+}
+
+// codeHas reports whether the editor or diff side labelled label shows s.
+func codeHas(tt *ui.Tester, label, s string) bool {
+	e, ok := tt.Access(label)
+	return ok && strings.Contains(e.Value, s)
 }
 
 func click(t *testing.T, tt *ui.Tester, label string) {

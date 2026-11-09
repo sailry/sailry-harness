@@ -23,7 +23,7 @@ func TestRailOpensPages(t *testing.T) {
 	snapshot(t, tt, "page-files")
 	clickButton(t, tt, i18n.In("en", "git"))
 	tt.Frame()
-	if a.Page != GitPage || len(a.Panel.Tabs) != 0 || !tt.HasText("workspace: three flat panels") {
+	if a.Page != GitPage || len(a.Panel.Tabs) != 0 || !codeHas(tt, "New text", "workspace: three flat panels") {
 		t.Fatalf("Git opened page %d, tabs %v: %q", a.Page, a.Panel.Tabs, tt.Texts())
 	}
 	snapshot(t, tt, "page-git")
@@ -74,7 +74,7 @@ func TestPageAndTabShareProjectState(t *testing.T) {
 	}
 	click(t, tt, "go.mod")
 	tt.Frame()
-	if !tt.HasText("require github.com/egoist/mygo v0.8.3") {
+	if !codeHas(tt, "Code editor", "require github.com/egoist/mygo v0.8.3") {
 		t.Fatalf("the file tab does not show the page's file: %q", tt.Texts())
 	}
 	snapshot(t, tt, "tab-files-shared")
@@ -88,7 +88,7 @@ func TestPageAndTabShareProjectState(t *testing.T) {
 	}
 	a.Navigate(GitPage)
 	tt.Frame()
-	if first.Git.Change() != "docs/example.md" || !tt.HasText("search: command palette") {
+	if first.Git.Change() != "docs/example.md" || !codeHas(tt, "New text", "search: command palette") {
 		t.Fatalf("the page does not show the tab's change %q: %q", first.Git.Change(), tt.Texts())
 	}
 	// Another project starts from its own state and leaves this one's.

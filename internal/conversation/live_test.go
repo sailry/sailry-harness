@@ -173,12 +173,12 @@ func TestSearchBar(t *testing.T) {
 	if n == 0 {
 		t.Fatal("the scenes say no theme")
 	}
-	if !tt.HasText("1/" + strconv.Itoa(n)) {
+	if !tt.HasText("1 of " + strconv.Itoa(n)) {
 		t.Fatalf("count not shown: %q", tt.Texts())
 	}
 	tt.Key(0, ui.KeyEnter)
 	tt.Frame()
-	if !tt.HasText("2/" + strconv.Itoa(n)) {
+	if !tt.HasText("2 of " + strconv.Itoa(n)) {
 		t.Errorf("Enter did not step: %q", tt.Texts())
 	}
 	tt.Key(0, ui.KeyEscape)

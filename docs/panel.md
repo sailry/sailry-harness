@@ -77,16 +77,18 @@ draw a resource (`State.Paged`), the page owns its scrolling.
   the tree in the Files tab and each file in its own tab. The tree has no
   title and starts at 8 DIPs (rows 28, 16 per level from 8). File view
   toolbar: Save, Undo, Redo (disabled, read-only), Find, and
-  Document | Source for markdown (rendered with MyGo's markdown). Text with
-  line numbers in mono 12. Status bar: path (right-click: Copy path),
+  Document | Source for markdown (rendered with MyGo's markdown, code
+  blocks in MyGo's editor). Text in MyGo's read-only editor (`kit.Code`:
+  highlighted, line numbers, mono 13 at 1.6). Status bar: path (right-click: Copy path),
   `Ln 1, Col 1`, UTF-8, language.
 - Changes: the page shows the hunks beside the 240 DIP list; the panel
   shows the list in the Git tab and each change's hunks in its own tab
   (list (`changes`, Stage all disabled
   with `git_actions_preview`; rows: file icon, name, status letter in
-  warning/success/danger)). A card per hunk: the `@@` line with Reject,
-  Stage and Accept; lines with old and new numbers, added and removed in
-  success and danger at 12%. Commit box: message, Commit (disabled),
+  warning/success/danger)). The diff is MyGo's diff viewer
+  (`kit.Diff`), unified as Rust's content diff view: highlighted, old and
+  new numbers, word changes, and on the change under the pointer Revert
+  and Keep (`editor.DefaultHunkActions`) and Stage. Commit box: message, Commit (disabled),
   `git_preview_only`. Status bar: path, `+N −M`.
 - History: a card per checkpoint: the turn, its age, the files, `+N −M`
   and `turn_changes_undo_all`.
@@ -104,8 +106,7 @@ draw a resource (`State.Paged`), the page owns its scrolling.
 | Open, choose and close tabs | `State` |
 | Choose a file or a change | Shown; in the panel, its tab opens or focuses |
 | New tab, New terminal | Another browser or terminal tab |
-| Accept a hunk | Marked accepted, toast `hunks_accepted` (local only, as the reference) |
-| Reject, Stage, Undo changes, Find, Reload, address | `preview_notice` toast: they write files, git, load pages or start a shell |
+| Revert, Keep, Stage a change, Undo changes, Find, Reload, address | `preview_notice` toast: they write files, git, load pages or start a shell |
 | Copy path | Clipboard |
 
 ## Wiring a backend
@@ -128,8 +129,8 @@ the same chrome when their plugins land.
 `internal/panel/model_test.go`: tabs open once, closing picks the next,
 items are flat tabs (files and diffs by path, new browser pages).
 `internal/shell/frame_test.go`: ⌘⌥B opens the launcher, ⌘P the tree, a
-file its tab, ⌃⇧G the change list, a change its diff tab, Accept marks a
-hunk, eight tabs show the overflow menu, ⌘W closes tabs then the panel.
+file its tab, ⌃⇧G the change list, a change its diff tab (read through the
+diff viewer's accessible text), eight tabs show the overflow menu, ⌘W closes tabs then the panel.
 `internal/shell/pages_test.go`: the rail's
 Files and Git open pages, a file chosen on the page shows in the tab and
 a change chosen in the tab on the page, another project keeps its own.

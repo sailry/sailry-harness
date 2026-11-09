@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/editor"
 	"github.com/sailry/sailry-go/internal/i18n"
 	"github.com/sailry/sailry-go/internal/icons"
 	"github.com/sailry/sailry-go/internal/kit"
@@ -322,19 +323,11 @@ func diff(c *ui.Context, d *Diff) {
 				}
 			})
 		})
+		// MyGo's diff viewer, unified, at most five rows in view.
 		rows := min(max(len(d.Lines), 1), 5)
-		ui.ScrollBoth(c).MaxHeight(float32(rows) * diffRow).Children(func() {
-			for _, l := range d.Lines {
-				line := ui.Text(c, string(d.Op(l))+" "+l.Text).Font("monospace").FontSize(13).
-					FixedLineHeight(diffRow).NoWrap().PaddingX(12).TextColor(p.Foreground)
-				switch l.Op {
-				case '+':
-					line.Background(p.Success.Alpha(0.12))
-				case '-':
-					line.Background(p.Danger.Alpha(0.12))
-				}
-			}
-		})
+		old, new := d.Texts()
+		box := ui.Scroll(c.Key("diff")).MaxHeight(float32(rows) * diffRow)
+		kit.Diff(c, box, old, new, kit.DiffOptions{Language: editor.LanguageFor(d.Path), Fit: true, NoNumbers: true})
 	})
 }
 

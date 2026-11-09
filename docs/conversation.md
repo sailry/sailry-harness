@@ -20,14 +20,15 @@ Kit's `MessageScroller`.
 | `content.go` | File cards, thumbnails, visuals, notices, grounding, retries, compaction turns, the changes card, `Cite`, `Kind`, `FileIcon` |
 | `viewer.go` | The image viewer (`Viewer`: zoom, pan, turn, flip, gallery) |
 | `actions.go` | The reply and user footers, fork and export menus, rewind confirmation, `AnswerText`, `Resendable` |
-| `search.go` | ⌘F search bar, `Find`, `Mark`, match highlights and reveal |
+| `search.go` | ⌘F search (MyGo's `FindBar`), `Find`, `Mark`, match highlights and reveal |
 | `session.go` | Loading, older pages, connection banner, diagnostic, selection pill, `Quote` |
 | `usage.go` | The context bar's metrics and context ring (`UsageBar`, `Metrics`, `Count`) |
 | `group_test.go`, `jump_test.go`, `live_test.go`, `bench_test.go` | Tests and benchmarks |
 
 Shared motion (`kit.Shimmer`, `kit.Identicon`, `kit.EaseOutCubic`, `kit.Fast`)
 is in `internal/kit/motion.go`; the thinking indicator (`kit.Indicator`:
-Orbits, Globe, Ribbon, Ring) in `internal/kit/thinking.go`. File previews
+Orbits, Globe, Ribbon, Ring) in `internal/kit/thinking.go`. Code blocks in messages and tool diffs
+are MyGo's editor (`kit.CodeBlock`, `kit.Diff` in `internal/kit/code.go`). File previews
 open as `panel.Artifact` tabs (`internal/panel/artifact.go`), subagent
 sessions as `panel.Subagent` tabs that the shell fills with this `View`.
 
@@ -273,7 +274,7 @@ work on preview data.
 | Key | Scope | Action |
 |---|---|---|
 | ⌘F | window, while the conversation shows and the panel has no focus | Open or focus the search bar |
-| Enter / ↓, ⇧Enter / ↑ | search input | Next / previous match, revealed |
+| Enter / ⌘G, ⇧Enter / ⇧⌘G | search field | Next / previous match, revealed |
 | Esc | search bar | Close it |
 | ← → + − 0, Esc | image viewer | Previous, next, zoom in, out, fit; close |
 
@@ -352,7 +353,7 @@ a running read, its output, then the answer growing a character at a time.
 | The in-progress step's `loader-circle` does not spin | A spinning icon would be an `Element.Loop` at the display's rate; the shimmer on its text marks it instead |
 | PDF previews show the document's facts and Open in another app, not its pages | MyGo v0.8.3 has no PDF view (only `Page.PrintToPDF`); Rust renders PDFs through document plugins |
 | The image viewer zooms with its buttons and + − 0, not the wheel or pinch | MyGo elements report no wheel or pinch deltas; drag pans |
-| Search is a bar over the transcript with counts and next/previous, searching the loaded turns | The plan's design; Rust searches the server's history in a command-picker dialog and loads pages through the match |
+| Search is MyGo's find bar over the transcript ("1 of N", previous, next, Done), searching the loaded turns | The plan's design; Rust searches the server's history in a command-picker dialog and loads pages through the match |
 | Search marks the answer's text blocks and the user bubble, all matches alike in the answer | Markdown marks with `<mark>` (one color); the bubble's current match is stronger |
 | The selection pill sits at the turn's top end | MyGo reports the selection's text, not its bounds |
 | Citations are placed in the answer's last text block | Rust offsets them across the text parts of the run |

@@ -36,13 +36,8 @@ func TestPanelOpensWithShortcutsAndTabs(t *testing.T) {
 	tt.Frame()
 	click(t, tt, "docs/example.md")
 	tt.Frame()
-	if a.Panel.Active.Kind != panel.Diff || !tt.HasText("search: command palette") {
+	if a.Panel.Active.Kind != panel.Diff || !codeHas(tt, "New text", "search: command palette") {
 		t.Fatalf("no diff: %q", tt.Texts())
-	}
-	click(t, tt, i18n.In("en", "hunks_accept"))
-	tt.Frame()
-	if !tt.HasText(i18n.In("en", "hunks_state_accepted")) {
-		t.Errorf("the hunk was not accepted: %q", tt.Texts())
 	}
 	snapshot(t, tt, "panel-changes")
 	for _, k := range []panel.Kind{panel.History, panel.Documents, panel.Browser, panel.Terminal} {

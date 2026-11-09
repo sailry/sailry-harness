@@ -66,6 +66,7 @@ func (s *State) List(id string) *ui.ListState {
 func View(c *ui.Context, s *State, id string, turns []Turn, sess *Session, actions Actions) {
 	s.md.Theme = s.markdownTheme(theme.Of(c))
 	s.md.ShareSelection = true
+	s.md.CodeBlock = kit.CodeBlock
 	if sess != nil && sess.Loading {
 		loading(c)
 		return

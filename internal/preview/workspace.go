@@ -177,6 +177,30 @@ func hunk(old, new int, lines ...string) Hunk {
 	return h
 }
 
+// Texts returns the file before and after the change, for a diff
+// viewer: the hunks' lines at their numbers, the lines between them,
+// which the preview has not, blank.
+func (f FileChange) Texts() (old, new string) {
+	var o, n []string
+	for _, h := range f.Hunks {
+		for _, l := range h.Lines {
+			for l.Kind != Added && len(o) < l.Old-1 {
+				o = append(o, "")
+			}
+			for l.Kind != Removed && len(n) < l.New-1 {
+				n = append(n, "")
+			}
+			if l.Kind != Added {
+				o = append(o, l.Text)
+			}
+			if l.Kind != Removed {
+				n = append(n, l.Text)
+			}
+		}
+	}
+	return strings.Join(o, "\n") + "\n", strings.Join(n, "\n") + "\n"
+}
+
 func change(path, status string, hunks ...Hunk) FileChange {
 	c := FileChange{Path: path, Status: status, Hunks: hunks}
 	for _, h := range hunks {

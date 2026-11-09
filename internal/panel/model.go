@@ -13,6 +13,7 @@ import (
 	"github.com/egoist/mygo/ui/markdown"
 	"github.com/sailry/sailry-go/internal/conversation"
 	"github.com/sailry/sailry-go/internal/icons"
+	"github.com/sailry/sailry-go/internal/kit"
 	"github.com/sailry/sailry-go/internal/preview"
 )
 
@@ -113,7 +114,6 @@ type State struct {
 	address   string
 	pages     int                          // browser pages and terminals opened, for their IDs
 	artifacts map[string]conversation.File // the conversation files previewed, by ID
-	md        markdown.Options             // their Markdown and code
 	children  map[string]string            // the subagent sessions open, their titles by ID
 	// Child builds a subagent's session in its tab, the transcript the
 	// shell owns (subagents/panel/view.rs).
@@ -180,3 +180,6 @@ func (s *State) owns(t Tab) bool {
 	}
 	return true
 }
+
+// docs are the panel's Markdown options: code in MyGo's editor.
+var docs = &markdown.Options{CodeBlock: kit.CodeBlock}

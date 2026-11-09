@@ -2,9 +2,9 @@ package panel
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/editor"
 	"github.com/egoist/mygo/ui/markdown"
 	"github.com/sailry/sailry-go/internal/conversation"
 	"github.com/sailry/sailry-go/internal/i18n"
@@ -72,14 +72,11 @@ func (s *State) artifact(c *ui.Context, id string) {
 	ui.Scroll(c.Key("artifact-" + id)).Grow(1).MinHeight(0).Children(func() {
 		switch f.Kind {
 		case conversation.TextFile:
-			ui.Text(c, f.Text).Selectable().Font("monospace").FontSize(13).LineHeight(20.0 / 13).Padding(16)
+			kit.Code(c, ui.Column(c.Key(f.ID)).PaddingY(12), f.Text, kit.CodeOptions{Numbers: true})
 		case conversation.CodeFile:
-			ext := f.Path[strings.LastIndexByte(f.Path, '.')+1:]
-			ui.Column(c).Padding(12).Children(func() {
-				markdown.View(c, fmt.Sprintf("```%s\n%s\n```", ext, strings.TrimRight(f.Text, "\n")), &s.md)
-			})
+			kit.Code(c, ui.Column(c.Key(f.ID)).PaddingY(12), f.Text, kit.CodeOptions{Language: editor.LanguageFor(f.Path), Numbers: true})
 		case conversation.MarkdownFile:
-			ui.Column(c).Padding(16, 20).Children(func() { markdown.View(c, f.Text, &s.md) })
+			ui.Column(c).Padding(16, 20).Children(func() { markdown.View(c, f.Text, docs) })
 		case conversation.ImageFile:
 			ui.Box(c).FillWidth().Padding(16).Center().Children(func() {
 				if f.Image == nil || f.Image.Source == nil {

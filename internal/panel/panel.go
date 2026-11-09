@@ -1,10 +1,10 @@
 package panel
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/editor"
 	"github.com/egoist/mygo/ui/markdown"
 	"github.com/sailry/sailry-go/internal/conversation"
 	"github.com/sailry/sailry-go/internal/i18n"
@@ -57,7 +57,7 @@ func View(c *ui.Context, s *State, pr *Project, keys Shortcut) {
 			case Changes:
 				pr.changeList(c, own, func(path string) { s.showDiff(pr, path) })
 			case Diff:
-				pr.diff(c, t.ID, own && t.ID == pr.Git.change)
+				pr.diff(c, t.ID)
 			}
 		case History:
 			s.history(c)
@@ -387,7 +387,6 @@ func findFile(n *preview.FileNode, path string) *preview.FileNode {
 // Redo disabled, Find, Document | Source for markdown), the text with
 // line numbers, and the status bar.
 func (pr *Project) filePreview(c *ui.Context, path string, own bool) {
-	p := theme.Of(c)
 	v := &pr.Files
 	f := findFile(pr.Data.Files, path)
 	if f == nil {
@@ -409,15 +408,10 @@ func (pr *Project) filePreview(c *ui.Context, path string, own bool) {
 	})
 	ui.Scroll(c.Key("text")).TrackScroll(scroll(&v.text, own)).Grow(1).Padding(12, 0).Children(func() {
 		if md && v.source == 0 {
-			ui.Column(c).PaddingX(16).Children(func() { markdown.View(c, f.Text, nil) })
+			ui.Column(c).PaddingX(16).Children(func() { markdown.View(c, f.Text, docs) })
 			return
 		}
-		for i, line := range strings.Split(f.Text, "\n") {
-			ui.Row(c.Key(i)).Gap(12).PaddingX(12).Children(func() {
-				ui.Textf(c, "%d", i+1).FontSize(12).Font("monospace").Width(28).TextAlign(ui.End).Shrink(0).TextColor(p.MutedForeground.Alpha(0.6))
-				ui.Text(c, line).FontSize(12).Font("monospace").PreserveSpaces().Grow(1)
-			})
-		}
+		kit.Code(c, ui.Column(c.Key(f.Path)), f.Text, kit.CodeOptions{Language: editor.LanguageFor(f.Path), Numbers: true})
 	})
 	lang := "Go"
 	switch {
@@ -450,7 +444,7 @@ func (pr *Project) changes(c *ui.Context, own bool) {
 	p := theme.Of(c)
 	v := &pr.Git
 	ui.Row(c).Grow(1).MinHeight(0).AlignItems(ui.Stretch).Children(func() {
-		ui.Column(c.Key("diff")).Grow(1).MinWidth(0).Children(func() { pr.diff(c, v.change, own) })
+		ui.Column(c.Key("diff")).Grow(1).MinWidth(0).Children(func() { pr.diff(c, v.change) })
 		ui.Column(c.Key("list")).Width(240).Shrink(0).BorderWidth(0, 0, 0, 1).BorderColor(p.Border).Children(func() {
 			pr.changeList(c, own, v.Show)
 		})
@@ -497,14 +491,12 @@ func (pr *Project) changeList(c *ui.Context, own bool, open func(path string)) {
 	})
 }
 
-// diffRow is a diff line: Kit's mono size (13) at 1.6 (content diff view).
-const diffRow = 13 * 1.6
-
-// diff is a changed file's hunks: a card each, its @@ line and Reject,
-// Stage and Accept over the lines with both numbers.
-func (pr *Project) diff(c *ui.Context, path string, own bool) {
+// diff is a changed file in MyGo's diff viewer, unified as Rust's
+// content diff view, with the change under the pointer's Revert and Keep
+// (editor.DefaultHunkActions) and Stage: in the preview each toasts, as
+// they would write the file and the index.
+func (pr *Project) diff(c *ui.Context, path string) {
 	p := theme.Of(c)
-	v := &pr.Git
 	var ch *preview.FileChange
 	for i := range pr.Data.Changes {
 		if pr.Data.Changes[i].Path == path {
@@ -515,63 +507,19 @@ func (pr *Project) diff(c *ui.Context, path string, own bool) {
 		kit.Empty(c, icons.Network, i18n.T(c, "git_diff_empty"), "", nil)
 		return
 	}
-	ui.Scroll(c.Key(ch.Path)).TrackScroll(scroll(&v.diff, own)).Grow(1).Padding(12).Gap(12).Children(func() {
-		for i, h := range ch.Hunks {
-			id := fmt.Sprintf("%s#%d", ch.Path, i)
-			ui.Column(c.Key(i)).Radius(p.RadiusLg).Border(1, p.Border).Clip().Children(func() {
-				ui.Row(c).Padding(6, 8, 6, 12).Gap(4).Background(p.Muted).Children(func() {
-					ui.Text(c, h.Header).FontSize(12).Font("monospace").SingleLine().Grow(1).Shrink(1).TextColor(p.MutedForeground)
-					if v.accepted[id] {
-						kit.Badge(c, i18n.T(c, "hunks_state_accepted"), kit.Positive)
-						return
-					}
-					// Reject and Stage write the file and the index.
-					reject := i18n.T(c, "hunks_reject")
-					kit.Ghost(c.Key("reject"), reject, false).Height(24).PaddingX(8).Gap(4).Children(func() {
-						ui.Icon(c, icons.Undo).FontSize(14)
-						ui.Text(c, reject).FontSize(12)
-					}).OnClick(func() { notice(c) })
-					stage := i18n.T(c, "hunks_stage")
-					kit.Ghost(c.Key("stage"), stage, false).Height(24).PaddingX(8).Children(func() {
-						ui.Text(c, stage).FontSize(12)
-					}).OnClick(func() { notice(c) })
-					accept := i18n.T(c, "hunks_accept")
-					kit.Primary(c.Key("accept"), accept, false).Height(24).PaddingX(8).Gap(4).Children(func() {
-						ui.Icon(c, icons.Check).FontSize(14)
-						ui.Text(c, accept).FontSize(12)
-					}).OnClick(func() {
-						v.accepted[id] = true
-						kit.Toast(c, kit.Done, i18n.T(c, "hunks_accepted"))
-					})
-				})
-				for j, l := range h.Lines {
-					row := ui.Row(c.Key(j)).PaddingEnd(8)
-					mark := " "
-					switch l.Kind {
-					case preview.Added:
-						row.Background(p.Success.Alpha(0.12))
-						mark = "+"
-					case preview.Removed:
-						row.Background(p.Danger.Alpha(0.12))
-						mark = "-"
-					}
-					row.Children(func() {
-						num := func(n int) {
-							t := ""
-							if n > 0 {
-								t = fmt.Sprint(n)
-							}
-							ui.Text(c, t).FontSize(13).Font("monospace").FixedLineHeight(diffRow).Width(36).PaddingEnd(6).TextAlign(ui.End).Shrink(0).
-								TextColor(p.MutedForeground.Alpha(0.6))
-						}
-						num(l.Old)
-						num(l.New)
-						ui.Text(c, mark+" "+l.Text).FontSize(13).Font("monospace").FixedLineHeight(diffRow).PreserveSpaces().Grow(1)
-					})
-				}
+	old, new := ch.Texts()
+	box := ui.Column(c.Key(ch.Path)).Grow(1).MinHeight(0)
+	kit.Diff(c, box, old, new, kit.DiffOptions{Language: editor.LanguageFor(ch.Path), Changed: func() { notice(c) },
+		Actions: func(c *ui.Context, bar ui.Element, a *editor.DiffHunkActions) {
+			bar.Row().Gap(4)
+			bar.Children(func() {
+				editor.DefaultHunkActions(c, ui.Row(c.Key("hunk")), a)
+				stage := i18n.T(c, "hunks_stage")
+				kit.Ghost(c.Key("stage"), stage, false).Height(20).PaddingX(8).Children(func() {
+					ui.Text(c, stage).FontSize(12)
+				}).OnClick(func() { notice(c) })
 			})
-		}
-	})
+		}})
 	status(c, ch.Path, func() {
 		ui.Textf(c, "+%d", ch.Added).FontSize(12).TextColor(p.Success)
 		ui.Textf(c, "−%d", ch.Removed).FontSize(12).TextColor(p.Danger)
@@ -630,7 +578,7 @@ func (s *State) document(c *ui.Context, id string) {
 		if d.ID != id {
 			continue
 		}
-		ui.Scroll(c.Key(d.ID)).Grow(1).Padding(16).Children(func() { markdown.View(c, d.Text, nil) })
+		ui.Scroll(c.Key(d.ID)).Grow(1).Padding(16).Children(func() { markdown.View(c, d.Text, docs) })
 		status(c, d.Path, nil)
 	}
 }

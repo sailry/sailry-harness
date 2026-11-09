@@ -26,10 +26,9 @@ type FileView struct {
 
 // GitView is the Git component's state.
 type GitView struct {
-	change     string // the changed file shown, by path
-	accepted   map[string]bool
-	commit     string
-	list, diff ui.ScrollState
+	change string // the changed file shown, by path
+	commit string
+	list   ui.ScrollState
 }
 
 // File is the path of the file shown.
@@ -45,12 +44,9 @@ func (v *FileView) Show(path string) {
 // Change is the path of the changed file shown.
 func (v *GitView) Change() string { return v.change }
 
-// Show shows a changed file's hunks, from the top.
-func (v *GitView) Show(path string) {
-	if path != v.change {
-		v.change, v.diff.X, v.diff.Y = path, 0, 0
-	}
-}
+// Show shows a changed file's diff, from the top: each file's viewer is
+// its own.
+func (v *GitView) Show(path string) { v.change = path }
 
 // Projects keeps each project's state, made on first use and kept while
 // the app runs, so leaving a project and coming back finds it as it was.
@@ -68,8 +64,7 @@ func (ps *Projects) Of(id string) *Project {
 	if p, ok := ps.of[id]; ok {
 		return p
 	}
-	p := &Project{ID: id, Data: ps.data, Files: FileView{file: "sailry-go/README.md", folders: map[string]*bool{}},
-		Git: GitView{accepted: map[string]bool{}}}
+	p := &Project{ID: id, Data: ps.data, Files: FileView{file: "sailry-go/README.md", folders: map[string]*bool{}}}
 	if len(ps.data.Changes) > 0 {
 		p.Git.change = ps.data.Changes[0].Path
 	}

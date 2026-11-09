@@ -312,6 +312,21 @@ type Diff struct {
 	Lines          []DiffLine
 }
 
+// Texts returns the lines before and after the change, for a diff
+// viewer.
+func (d *Diff) Texts() (old, new string) {
+	var o, n strings.Builder
+	for _, l := range d.Lines {
+		if l.Op != '+' {
+			o.WriteString(l.Text + "\n")
+		}
+		if l.Op != '-' {
+			n.WriteString(l.Text + "\n")
+		}
+	}
+	return o.String(), n.String()
+}
+
 // DiffLine is a line of a diff: Op is ' ', '+' or '-'.
 type DiffLine struct {
 	Op   byte
