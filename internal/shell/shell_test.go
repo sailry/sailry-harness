@@ -267,9 +267,8 @@ func TestModelPickerAndEffort(t *testing.T) {
 	// The model list chooses another model; a reasoning model takes its
 	// effort from a submenu.
 	clickButton(t, tt, "Claude Opus 5.5") // the panel's model, which opens the list
-	// The list opens under the pointer, whose row opens its efforts on
-	// hover; Escape closes that menu and keeps the list.
-	tt.Key(0, ui.KeyEscape)
+	// The list opens under the pointer; choosing a provider does not
+	// depend on which row the pointer happens to rest on.
 	clickButton(t, tt, i18n.In("en", "provider_openai"))
 	clickItem(t, tt, "GPT-5.2")
 	clickItem(t, tt, "high")
