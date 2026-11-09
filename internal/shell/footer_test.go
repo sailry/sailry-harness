@@ -81,3 +81,29 @@ func TestUsageCompact(t *testing.T) {
 		t.Errorf("the popover lacks the turns figure")
 	}
 }
+
+// A pending question wraps its prompt (questions/history.rs, wrap) with
+// its state on the first line at the row's end, not centred beside it.
+func TestQuestionRowWraps(t *testing.T) {
+	_, tt := newTester(t)
+	tt.SetSize(760, 820)
+	tt.Frame()
+	tt.Frame()
+	prompt, ok := tt.Find("Keep the 2x3 loader or use Kit's spinner?")
+	if !ok {
+		t.Fatalf("no question row: %q", tt.Texts())
+	}
+	state, ok := tt.Find(i18n.In("en", "question_pending"))
+	if !ok {
+		t.Fatal("no question state")
+	}
+	if prompt.H < 30 {
+		t.Errorf("the prompt does not wrap at 760: %v tall", prompt.H)
+	}
+	if d := state.Y - prompt.Y; d < -2 || d > 2 {
+		t.Errorf("the state is %v below the prompt's first line", d)
+	}
+	if state.X < prompt.X+prompt.W {
+		t.Errorf("the state at %v overlaps the prompt ending at %v", state.X, prompt.X+prompt.W)
+	}
+}

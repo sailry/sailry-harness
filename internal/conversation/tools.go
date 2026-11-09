@@ -77,7 +77,10 @@ func summary(c *ui.Context, call Call, hovered, caret, open bool, sw *kit.Sweep)
 	} else if icon == nil {
 		icon = icons.Settings2
 	}
-	ui.Icon(c, icon).FontSize(rowIcon).Shrink(0).TextColor(color)
+	ic := ui.Icon(c, icon).FontSize(rowIcon).Shrink(0).TextColor(color)
+	if call.wrap {
+		ic.Margin(wrapInset, 0, 0, 0)
+	}
 	label := call.Label
 	if label == "" && call.LabelKey != "" {
 		label = i18n.T(c, call.LabelKey)
@@ -87,7 +90,7 @@ func summary(c *ui.Context, call Call, hovered, caret, open bool, sw *kit.Sweep)
 	case shimmer && label != "":
 		sw.Text(c, ui.Text(c, label).FontSize(14).SingleLine().Shrink(0).TextColor(color), ui.Span{Text: label, Size: 14, Color: color})
 	case call.wrap:
-		ui.Text(c, label).FontSize(14).Shrink(1).MinWidth(0).TextColor(color)
+		ui.Text(c, label).FontSize(14).Grow(1).Shrink(1).MinWidth(0).TextColor(color)
 	case label != "":
 		ui.Text(c, label).FontSize(14).SingleLine().Shrink(0).TextColor(color)
 	}
@@ -123,15 +126,32 @@ func summary(c *ui.Context, call Call, hovered, caret, open bool, sw *kit.Sweep)
 			chevron = icons.ChevronDown
 		}
 		ch := ui.Icon(c, chevron).FontSize(caretSize).Shrink(0).TextColor(color)
+		if call.wrap {
+			ch.Margin(wrapInset, 0, 0, 0)
+		}
 		if !hovered {
 			ch.Opacity(0)
 		}
 	}
 }
 
+// wrapInset drops a wrapping row's icon and caret to its first line,
+// disclosure.rs's pt_0p5.
+const wrapInset = 2
+
+// rowSize gives a row the summary's height: 24 DIPs, or, for a label that
+// wraps (disclosure.rs Detail.wrap), the full width, at least 24 tall,
+// with the icon, state and caret on the first line.
+func rowSize(e ui.Element, wrap bool) ui.Element {
+	if wrap {
+		return e.FillWidth().MinHeight(rowHeight).AlignItems(ui.Start)
+	}
+	return e.Height(rowHeight)
+}
+
 // plain is a row without details: 24 DIPs, no caret.
 func plain(c *ui.Context, key any, call Call) {
-	row := ui.Row(c.Key(key)).Height(rowHeight).Gap(8).MaxWidthPercent(100)
+	row := rowSize(ui.Row(c.Key(key)), call.wrap).Gap(8).MaxWidthPercent(100)
 	hovered := row.Hovered()
 	sw := &kit.Sweep{}
 	row.Children(func() { summary(c, call, hovered, false, false, sw) })
@@ -144,9 +164,14 @@ func plain(c *ui.Context, key any, call Call) {
 // head builds the row's content; texts it gives the row's sweep shimmer
 // as one band across the row.
 func (s *State) disclosure(c *ui.Context, key string, head func(hovered, open bool, sw *kit.Sweep), top, bottom float32, body func()) {
+	s.wrapping(c, key, false, head, top, bottom, body)
+}
+
+// wrapping is a disclosure whose row may wrap its label (rowSize).
+func (s *State) wrapping(c *ui.Context, key string, wrap bool, head func(hovered, open bool, sw *kit.Sweep), top, bottom float32, body func()) {
 	open := s.opened(key)
 	ui.Column(c.Key(key)).Children(func() {
-		t := ui.ButtonBase(c).Height(rowHeight).Gap(8).AlignSelf(ui.Start).MaxWidthPercent(100).
+		t := rowSize(ui.ButtonBase(c), wrap).Gap(8).AlignSelf(ui.Start).MaxWidthPercent(100).
 			Justify(ui.Start).Expanded(*open).Cursor(ui.CursorPointer)
 		hovered := t.Hovered() || t.FocusVisible()
 		sw := &kit.Sweep{}
@@ -441,7 +466,7 @@ func (s *State) question(c *ui.Context, q *Question) {
 		plain(c, "question-"+q.CallID, head)
 		return
 	}
-	s.disclosure(c, "question-"+q.CallID, func(hovered, open bool, sw *kit.Sweep) { summary(c, head, hovered, true, open, sw) }, 4, 8, func() {
+	s.wrapping(c, "question-"+q.CallID, true, func(hovered, open bool, sw *kit.Sweep) { summary(c, head, hovered, true, open, sw) }, 4, 8, func() {
 		ui.Scroll(c).MaxHeight(outputMax).Gap(4).Children(func() {
 			for _, a := range q.Answers {
 				ui.Text(c, a).FontSize(14).Selectable().TextColor(p.Foreground)
