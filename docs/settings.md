@@ -4,9 +4,9 @@ The settings navigation and its pages, in the groups of sailry-public
 `settings/mod.rs` `Section::GROUPS`: App (General, Appearance,
 Conversation, Shortcuts, Dictation), AI (Providers, Connectors, Teams,
 Plugins, Skills, Knowledge, Decision), Tools (Terminal, Connections, Hooks,
-Runtime, OCR) and System (Permissions, Backup, About). Phase 5a builds the
-App, Tools and System pages; the AI group keeps phase 1's Providers and
-Plugins pages and shows an empty group for the rest until phase 5b.
+Runtime, OCR) and System (Permissions, Backup, About). Phase 5a built the
+App, Tools and System pages; phase 5b the AI group, the Market, MCP, the
+model library and the extension details page.
 
 ## Package and files
 
@@ -28,7 +28,16 @@ Plugins pages and shows an empty group for the rest until phase 5b.
 | `system.go` | Permissions, About (version, build, license, updates) |
 | `backup.go` | Backup: storage, schedule, export/backup/restore, archived sessions, delete all |
 | `draft.go` | `draftDialog` (settings/draft.rs) and the dialog footer |
-| `ai.go` | Providers and Plugins (phase 1) |
+| `providers.go` | Providers: catalog and compaction, families, channels with quota and status, the editor (brand, method, configure, models) and sign-in |
+| `connectors.go` | Connectors: toolbar and filter, service rows with status, switch and menu; the add dialog, details dialog and MCP server editor |
+| `teams.go` | Teams: concurrency, Teams and Roles tabs, the Default team, team editor (lead model and effort, prompt, members), role editor |
+| `plugins.go` | Plugins: inventory controls, cards, configuration, install, download from Git with progress, updates review with release notes, uninstall |
+| `skills.go` | Skills: cards, install dialog by source, uninstall |
+| `market.go` | Market (`MarketPage`): plugins, skills and themes with search, source, filters and install/update states |
+| `library.go` | The model library dialog: hub, search, rows with download progress, details, delete |
+| `details.go` | The extension details page (`Detail`, `ShowDetails`, `CloseDetails`, `DetailsPanel`) |
+| `lists.go` | Dialog pieces: `modalList`/`listRow` (ui/modal_list.rs), `authorization` (ui/authorization.rs), `iconButton`, `confirm` |
+| `ai.go` | `enabledOpacity` |
 
 Shared rows live in `internal/kit/settings.go`: `Page`, `Group`, `Card`,
 `Row`, `WideRow` (Row::wide), `EmptyGroup` (Group::empty), `Entry`
@@ -36,7 +45,8 @@ Shared rows live in `internal/kit/settings.go`: `Page`, `Group`, `Card`,
 ghost buttons), plus the switch, select, segmented, text, slider and
 button rows. `kit.KeyText`/`kit.KeyName` write shortcuts for menus,
 tooltips and the Shortcuts page. Preview data is `internal/preview/
-settings.go` (`preview.SettingsData`).
+settings.go` (`preview.SettingsData`) and `internal/preview/ai.go`
+(`ProvidersData`, `ConnectorsData`, `TeamsData`, `ExtensionsData`).
 
 ## Entry point
 
@@ -46,7 +56,10 @@ the sidebar and `settings.Page` in the main column, and passes `Look`
 changes the section and cancels a shortcut being recorded, as
 Workspace's park does. Settings opens on General, as Workspace does.
 ⌘/ (`app.shortcuts`) opens Shortcuts, About in the app menu opens About,
-⌘, opens the last section.
+⌘, opens the last section. The rail's Market opens `MarketPage` in the
+main column. `State.Details` shows `DetailsPanel` in the right column
+over the settings or the market; its Close, the pane's close, opening a
+section or navigating to another page clear it (navigation.rs).
 
 ## View model
 
@@ -63,6 +76,13 @@ the reference:
   `Host` (`TerminalHost`: environment, shell), `Hooks` (`HookSettings`),
   `Python`, `OCR.Enabled`, `Backup` (`BackupTarget`).
 
+AI group fields: `Channels`, `Brands`, `Catalog`, `Compaction`
+(Stored), `Family`; `Services`, `ConnTypes`, `ConnAccounts`,
+`ConnQuery`, `ConnMethod`; `Teams`, `Roles`, `Concurrency` (Stored),
+`TeamTab`; `Packages`, `MarketPlugins`, `SkillList`, `MarketSkills`,
+`Themes`, `Library`, `SkillQuery`, the `Market*` filters; `Knowledge`
+and `Decision` (`LocalModels`).
+
 Lists the pages show: `Devices`, `Relays`, `Permissions`, `Archived`,
 `Sessions`, `Shells`, `Indexes`, `Microphones`, `Speech`, `OCR.Models`,
 `OCR.Catalog`, `PythonVersion`, `Version`.
@@ -71,7 +91,16 @@ Validation is pure and returns the i18n key of the problem or "":
 `Keys.Capture` (shortcut_invalid, shortcut_conflict,
 shortcut_unavailable), `TerminalHost.SetVariable`
 (terminal_variable_invalid, terminal_variable_duplicate),
-`hookEditor.Check` (hooks_invalid), `BackupTarget.Check` (backup_invalid,
+`hookEditor.Check` (hooks_invalid), `providerEditor.Check`
+(provider_name_required, _endpoint_required, _key_required,
+_model_required, _model_duplicate, _limits_invalid), `mcpEditor.Check`
+(mcp_invalid), `Model.saveTeam` (team_invalid, team_name_taken),
+`Model.saveRole` (teams_role_invalid, role_duplicate),
+`pluginConfig.Check` (plugins_settings_required, _number,
+_secret_required), `skillInstall.Check` (skills_invalid,
+skill_source_link_invalid). Pure helpers: `ProviderStatus`,
+`StatusOf` (connector status), `serviceItems` (connector menu),
+`Classified`, `Update`, `MarketAction`. `BackupTarget.Check` (backup_invalid,
 backup_passphrase_required, backup_passphrase_invalid,
 backup_passphrase_mismatch).
 
@@ -101,6 +130,21 @@ placeholder in an empty masked input.
 | Backup | configure (storage dialog), schedule | `Commit`, backup_* toast |
 | Backup | export, back up, restore, archive/unarchive/delete sessions | preview_notice; delete all confirms first |
 | About | check updates | preview_notice |
+| Providers | catalog Update, Get API key, open/reopen authorization | preview_notice |
+| Providers | compaction threshold | `Commit`, compaction_settings_* toast |
+| Providers | add/edit (brand, method, configure), discover models, delete, disconnect | in memory; problems toast, the editor keeps its draft; delete and disconnect confirm |
+| Providers | sign in | authorization dialog: device code (ChatGPT) or browser with pasted callback (Claude) |
+| Connectors | add (choose, method, fields), configure, enable account or server, details | in memory, connector_saved toast; OAuth authorize, probe and reconnect are preview_notice; delete confirms |
+| Connectors | Add MCP, configure a manual server | MCP editor; secrets never kept; mcp_configuration_saved |
+| Teams | concurrency | `Commit`, teams_settings_* toast |
+| Teams | new/edit/duplicate/delete teams and roles | in memory; team_saved, teams_role_saved; deletes confirm |
+| Plugins | enable, configure, check updates | in memory / toasts |
+| Plugins | install, download, update all, update, review updates' Update, Update Sailry | preview_notice (download shows its progress first) |
+| Plugins, Skills | uninstall | confirm, then in memory |
+| Skills | install, re-import, update | preview_notice |
+| Market | install, update, apply theme | preview_notice |
+| Model library | search, details | in memory |
+| Model library | install, cancel | preview_notice; delete confirms |
 
 ## Wiring a backend
 
@@ -120,7 +164,10 @@ placeholder in an empty masked input.
 
 ## UI state vs backend data
 
-UI state: `State.Section`, `Query`, `Keys.Active`, dialog flags and
+UI state: `State.Section`, `State.Details`, `Query`, the pages'
+searches, filters and tabs, the editors (`provider`, `login`,
+`connector`, `mcp`, `teamEdit`, `roleEdit`, `config`, `install`,
+`download`, `updates`, `skillAdd`, `library`), `Keys.Active`, dialog flags and
 drafts (`env`, `pairing`, `hook`, `consent`, `backups`, `info`),
 `OCR.Tab`, `OCR.Query`. Backend data: every `Stored`, the lists above and
 the app preferences.
@@ -130,13 +177,17 @@ the app preferences.
 - `internal/settings/settings_test.go`: shortcut capture (invalid,
   conflict with another shortcut and with a fixed key, clear, reset,
   idle), environment variable validation, hook and backup checks,
-  `Stored.Commit`.
+  `Stored.Commit`; `TestProviderEditor` (steps, back, checks, save,
+  statuses), `TestConnectors` (statuses, menus, MCP check), `TestTeams`,
+  `TestExtensions` (classification, configuration checks, market actions,
+  skill sources, a section closing the details).
 - `internal/shell/settings_test.go`: every section opens with its title in
   en and zh-CN, light and dark (snapshots with `SAILRY_SNAPSHOTS`); ⌘/
   opens Shortcuts, recording holds the window's keys, a conflicting key
   toasts, the new key works and the old one does not, Escape cancels;
   a Node save toasts its outcome; the variable dialog refuses a bad name
-  and keeps its draft.
+  and keeps its draft; a plugin card opens its details in the right
+  column and Close shuts it.
 
 ## Deviations
 
@@ -161,3 +212,28 @@ the app preferences.
   reads "UI preview".
 - Kit's row description is 12 DIP; `kit.Row` keeps the 14 DIP accepted in
   phase 2.
+- Providers: brand tiles use the four bundled provider icons, others the
+  name's initial; the API protocol is shown as text (the reference's
+  protocol segments and region/product route fields, cloud credentials
+  form, partner suggestions and provider-contributed plugins are not
+  built). Usage shows the 5h/7d quota bars, not the metrics popover.
+  Default effort per model is a check per effort.
+- The authorization dialog's countdown is static text, and Open/Reopen
+  are preview_notice; the code is shown in cells without a live clock.
+- Connectors: the right-click context menu is not built (the row's
+  ellipsis menu has the same items); consent review for changed targets
+  (connectors/consent.rs) and the plugin-declared MCP configuration form
+  are not built.
+- Teams: role and team appearance (icon and color picker) is not
+  built; roles show the agent mark in their ID's color. The team list's
+  right-click menu is folded into the editor's Duplicate and Delete.
+- Plugins: the inventory is a resource-card grid; per-plugin action
+  retries, Python package preparation and issue lists are not built.
+  The details page has Overview, Contents, Permissions and Versions;
+  Versions shows the latest notes, not the per-version history dialog.
+- Skills, Market: no paging (market "Load more"); the market's plugin
+  source and skill catalogs are filtered locally. Theme Apply is
+  preview_notice rather than switching the window's theme.
+- The model library is a dialog opened by "Manage models" on Dictation
+  and the local-model pages; the Available tab still lists the kind's
+  catalog inline.
