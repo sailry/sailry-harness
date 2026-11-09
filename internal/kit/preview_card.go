@@ -48,13 +48,13 @@ func SessionCard(c *ui.Context, anchor ui.Element, s Session, detailed bool, sid
 					}
 					ui.Row(c).Gap(6).MinWidth(0).Children(func() {
 						ui.Icon(c, icon).FontSize(14).Shrink(0)
-						ui.Text(c, text).FontSize(12).SingleLine().Grow(1).Shrink(1).MinWidth(0)
+						ui.Text(c, text).FontSize(13).SingleLine().Grow(1).Shrink(1).MinWidth(0)
 					})
 				}
 				line(icons.Folder, s.Project)
 				line(icons.GitBranch, s.Branch)
 				if s.Path != "" {
-					ui.Text(c, s.Path).Font("monospace").FontSize(12)
+					ui.Text(c, s.Path).Font("monospace").FontSize(13)
 				}
 			})
 		})
