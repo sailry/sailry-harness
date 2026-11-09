@@ -217,7 +217,7 @@ func diagramTheme(p *theme.Palette) *style.Theme {
 func notices(c *ui.Context, list []Notice) {
 	p := theme.Of(c)
 	ui.Row(c.Key("notices")).Justify(ui.End).Children(func() {
-		ui.Column(c).Gap(6).Padding(9, 14).Radius(p.Radius).Background(p.Muted).MaxWidth(bubbleMax).
+		ui.Column(c).Gap(6).Padding(9, 14).Radius(p.Radius).Background(kit.Veil(c, p.Muted)).MaxWidth(bubbleMax).
 			Label(i18n.T(c, "background_notice_title")).Children(func() {
 			for i, n := range list {
 				ui.Row(c.Key(i)).Gap(8).MinWidth(0).AlignItems(ui.Center).Children(func() {

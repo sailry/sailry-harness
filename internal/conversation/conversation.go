@@ -163,13 +163,13 @@ func userMessage(c *ui.Context, text string, marks []ui.Span) {
 		} else {
 			b = ui.Text(c, text)
 		}
-		b.FontSize(14).LineHeight(1.6).Padding(9, 14).Radius(p.Radius).Background(p.Muted).TextColor(p.Foreground).MaxWidth(bubbleMax)
+		b.FontSize(14).LineHeight(1.6).Padding(9, 14).Radius(p.Radius).Background(kit.Veil(c, p.Muted)).TextColor(p.Foreground).MaxWidth(bubbleMax)
 		v := p.Variant
 		if v == nil {
 			return
 		}
 		if m, ok := v.Messages["user"]; ok {
-			b.Background(m.Background.Or(p.Muted)).TextColor(m.Foreground.Or(p.Foreground))
+			b.Background(kit.Veil(c, m.Background.Or(p.Muted))).TextColor(m.Foreground.Or(p.Foreground))
 			if m.Radius != nil {
 				b.Radius(*m.Radius)
 			}

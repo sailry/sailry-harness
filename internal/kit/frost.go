@@ -83,3 +83,11 @@ const (
 	// cards, lists): the theme's backdrop shows through them clearly.
 	CardTint = 0.45
 )
+
+// Veil is a translucent fill of base at SurfaceTint, without the frost's
+// blur: for the transcript's bubbles, many and scrolling, where a backdrop
+// blur each would cost a frame. base is taken as it shows over the window
+// background, so a theme sets only the color.
+func Veil(c *ui.Context, base ui.Color) ui.Color {
+	return base.Over(Opaque(theme.Of(c).Background)).Alpha(SurfaceTint)
+}
