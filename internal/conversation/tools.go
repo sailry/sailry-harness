@@ -445,7 +445,7 @@ func (s *State) question(c *ui.Context, q *Question) {
 	key := ""
 	switch q.State {
 	case QuestionPending:
-		head.Icon, key = "bot", "question_pending"
+		head.Icon = "bot" // the pending row shows no state text
 	case QuestionAccepted:
 		key = "question_accepted"
 	case QuestionUnconsumed:

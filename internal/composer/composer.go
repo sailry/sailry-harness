@@ -90,8 +90,7 @@ type State struct {
 }
 
 func New(model string) *State {
-	return &State{Model: model, Effort: 2, caret: -1, Features: map[string]string{},
-		in: interaction{reasons: map[string]*string{}}}
+	return &State{Model: model, Effort: 2, caret: -1, Features: map[string]string{}}
 }
 
 // Chosen returns the model chosen, the first one when the ID is unknown.

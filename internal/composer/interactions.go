@@ -124,9 +124,8 @@ type Actions interface {
 
 // interaction is the State's part for the interactions.
 type interaction struct {
-	approvals, question bool // the popovers are open
-	at                  int  // the approval shown
-	reasons             map[string]*string
+	approvals, question bool   // the popovers are open
+	at                  int    // the approval shown
 	asked               string // the question the draft is for
 	chosen              int
 	choices             map[int]*bool
@@ -194,66 +193,42 @@ func (s *State) approvals(c *ui.Context, list []Approval, actions Actions) {
 	}), trigger, 12)
 }
 
-// approval is one request: who asks, the tool, where, what, the decision.
+// approval is one request: its title (who asks, the tool, where, on one
+// line), the request in a card (the command, the text or the change set),
+// the notices, and Deny and Allow, Allow with a menu of the wider grants.
 func (s *State) approval(c *ui.Context, a Approval, actions Actions) {
 	p := theme.Of(c)
-	if a.Child != "" {
-		ui.Text(c, a.Child).FontSize(14).SingleLine()
-	}
-	ui.Text(c, a.Title).FontSize(14).FontWeight(500)
-	if a.Context != "" {
-		ui.Text(c, a.Context).FontSize(14).TextColor(p.MutedForeground)
+	ui.Row(c.Key("title")).Gap(8).AlignItems(ui.Center).Children(func() {
+		title := a.Title
+		if a.Child != "" {
+			title = a.Child + " · " + title
+		}
+		ui.Text(c, title).FontSize(14).FontWeight(500).SingleLine().Shrink(0)
+		if a.Context != "" {
+			ui.Text(c, a.Context).FontSize(13).SingleLine().Shrink(1).MinWidth(0).TextColor(p.MutedForeground)
+		}
+	})
+	if len(a.Changes) > 0 || a.Description != "" {
+		ui.Scroll(c.Key("card")).MaxHeight(160).Shrink(0).Radius(p.Radius).Background(p.Foreground.Alpha(0.05)).Padding(12).
+			Children(func() {
+				switch {
+				case len(a.Changes) > 0:
+					changes(c, a.Changes)
+				case a.Code:
+					ui.Text(c, a.Description).Font("monospace").FontSize(13).Selectable()
+				default:
+					ui.Text(c, a.Description).FontSize(14).Selectable()
+				}
+			})
 	}
 	for _, n := range a.Notices {
-		ui.Text(c, n).FontSize(14).MaxLines(3)
+		ui.Text(c, n).FontSize(13).MaxLines(3).TextColor(p.MutedForeground)
 	}
-	if len(a.Changes) > 0 {
-		changes(c, a.Changes)
-	} else if a.Description != "" {
-		if a.Code {
-			bg := p.Background.MixOklab(p.Muted, 0.5)
-			if p.Dark {
-				bg = p.Background
-			}
-			ui.Scroll(c).MaxHeight(128).Shrink(0).Radius(p.Radius).Background(bg).Padding(12).Children(func() {
-				ui.Text(c, a.Description).Font("monospace").FontSize(14).Selectable()
-			})
-		} else {
-			ui.Text(c, a.Description).FontSize(14).MaxLines(2)
-		}
-	}
-	reason, editing := s.in.reasons[a.ID]
-	row := ui.Row(c.Key("decision")).Gap(8).Padding(8, 0, 0, 0).Justify(ui.End)
-	if editing {
-		ui.TextAreaBase(c.Key("reason"), reason).Label(i18n.T(c, "approval_reason")).Lines(2, 4).FontSize(14).
-			Padding(8).Radius(p.Radius).Border(1, p.Border)
-		row.Children(func() {
-			kit.Ghost(c.Key("reason-cancel"), i18n.T(c, "approval_reason_cancel"), false).Height(28).PaddingX(12).Radius(14).
-				Children(func() { ui.Text(c, i18n.T(c, "approval_reason_cancel")).FontSize(14) }).
-				OnClick(func() { delete(s.in.reasons, a.ID) })
-			empty := strings.TrimSpace(*reason) == ""
-			kit.Primary(c.Key("reason-submit"), i18n.T(c, "approval_reject"), empty).Height(28).Radius(14).
-				Children(func() { ui.Text(c, i18n.T(c, "approval_reject")).FontSize(14) }).
-				OnClick(func() {
-					text := strings.TrimSpace(*reason)
-					delete(s.in.reasons, a.ID)
-					actions.Decide(a.ID, Deny, text)
-				})
-		})
-		return
-	}
-	row.Children(func() {
-		// Deny, with a menu of Deny with reason (Kit DropdownButton).
-		kit.Ghost(c.Key("deny"), i18n.T(c, "approval_reject"), false).Height(28).PaddingX(12).MinWidth(48).
-			Children(func() { ui.Text(c, i18n.T(c, "approval_reject")).FontSize(14) }).
+	ui.Row(c.Key("decision")).Gap(8).Padding(4, 0, 0, 0).Justify(ui.End).Children(func() {
+		deny := i18n.T(c, "approval_reject")
+		kit.Ghost(c.Key("deny"), deny, false).Height(28).PaddingX(12).MinWidth(48).Radius(14).
+			Children(func() { ui.Text(c, deny).FontSize(14) }).
 			OnClick(func() { actions.Decide(a.ID, Deny, "") })
-		kit.MenuButton(c.Key("deny-options"), "deny-"+a.ID, func(b ui.Element) {
-			kit.IconLook(c, b, icons.ChevronDown, i18n.T(c, "approval_deny_reason"), "", 28, false)
-		}, func(m *kit.Menu) {
-			if m.Item(i18n.T(c, "approval_deny_reason")).Chosen() {
-				s.in.reasons[a.ID] = new(string)
-			}
-		})
 		allow := i18n.T(c, "approval_allow_once")
 		b := kit.Primary(c.Key("allow"), allow, false).Height(28)
 		if !a.Remember {
@@ -281,12 +256,7 @@ func (s *State) approval(c *ui.Context, a Approval, actions Actions) {
 // changes is a change set's files: what each does, its path, +N −M.
 func changes(c *ui.Context, list []Change) {
 	p := theme.Of(c)
-	title := i18n.T(c, "file_changes_approval_one")
-	if len(list) != 1 {
-		title = i18n.T(c, "file_changes_approval", "count", len(list))
-	}
 	ui.Column(c).Gap(8).Children(func() {
-		ui.Text(c, title).FontSize(14)
 		for i, f := range list {
 			kind := [...]string{"file_changes_added", "file_changes_modified", "file_changes_renamed", "file_changes_deleted"}[f.Kind]
 			path := f.Path
@@ -328,31 +298,38 @@ func (s *State) ask(c *ui.Context, q *Ask, actions Actions) {
 		ui.Scroll(c).Gap(16).Children(func() {
 			ui.Text(c, q.Prompt).FontSize(14).FontWeight(500)
 			other := len(q.Options) // the index of Other
-			if q.Multi {
-				ui.Column(c).Gap(12).Children(func() {
-					for i, o := range q.Options {
-						b, ok := in.choices[i]
-						if !ok {
-							b = new(bool)
-							in.choices[i] = b
+			// MyGo fills an unchecked box or radio with the theme's
+			// Background, the window's darkest color; on the panel they
+			// take the panel's surface instead.
+			t := *c.Theme()
+			t.Background = ui.Transparent
+			ui.Themed(c, &t).Background(ui.Transparent).Children(func() {
+				if q.Multi {
+					ui.Column(c).Gap(12).Children(func() {
+						for i, o := range q.Options {
+							b, ok := in.choices[i]
+							if !ok {
+								b = new(bool)
+								in.choices[i] = b
+							}
+							ui.Checkbox(c.Key(i), b, o)
 						}
-						ui.Checkbox(c.Key(i), b, o)
-					}
-					if q.Other {
-						ui.Checkbox(c.Key("other"), &in.other, i18n.T(c, "question_other"))
-					}
-				})
-			} else if len(q.Options) > 0 {
-				ui.RadioGroup(c, func() {
-					for i, o := range q.Options {
-						ui.Radio(c.Key(i), &in.chosen, i, o)
-					}
-					if q.Other {
-						ui.Radio(c.Key("other"), &in.chosen, other, i18n.T(c, "question_other"))
-					}
-				}).Gap(12).Label(q.Prompt)
-				in.other = in.chosen == other
-			}
+						if q.Other {
+							ui.Checkbox(c.Key("other"), &in.other, i18n.T(c, "question_other"))
+						}
+					})
+				} else if len(q.Options) > 0 {
+					ui.RadioGroup(c, func() {
+						for i, o := range q.Options {
+							ui.Radio(c.Key(i), &in.chosen, i, o)
+						}
+						if q.Other {
+							ui.Radio(c.Key("other"), &in.chosen, other, i18n.T(c, "question_other"))
+						}
+					}).Gap(12).Label(q.Prompt)
+					in.other = in.chosen == other
+				}
+			})
 			if q.Other || len(q.Options) == 0 {
 				ui.TextAreaBase(c.Key("answer"), &in.text).Label(i18n.T(c, "interaction_input")).
 					Placeholder(i18n.T(c, "interaction_input")).PlaceholderColor(p.MutedForeground).

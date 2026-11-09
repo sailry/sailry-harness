@@ -159,10 +159,7 @@ approval_rejected: 已拒绝
 approval_reject: 拒绝
 approval_allow_once: 允许
 approval_allow_session: 本会话允许
-approval_deny_reason: 附理由拒绝
 approval_live_count: 待审批 %{count} 项
-file_changes_approval: 将补丁应用到 %{count} 个文件
-file_changes_approval_one: 将补丁应用到 1 个文件
 file_changes_added: 新增
 file_changes_modified: 修改
 file_changes_deleted: 删除
@@ -172,7 +169,6 @@ chat_child: 子代理
 question_reply: 等待回答
 question_other: 其他
 question_decline: 拒绝回答
-question_pending: 等待回答
 question_accepted: 回答已提交
 interaction_submit: 提交
 interaction_cancel: 取消
@@ -190,8 +186,6 @@ question_interrupted: 任务已中断
 question_url_accepted: 已同意打开
 chat_response_timeout: 响应超时
 approval_allow_prefix: 允许前缀“%{prefix}”
-approval_reason: 理由
-approval_reason_cancel: 取消
 approval_preview_result: 已记录本回合的示例审批选择。未修改文件、执行命令或调用模型。
 file_changes_shortened: 差异已截断
 interaction_input: 输入回答或补充说明…

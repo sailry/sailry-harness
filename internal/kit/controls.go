@@ -48,7 +48,7 @@ func IconLook(c *ui.Context, b ui.Element, icon *ui.SVG, label, hint string, siz
 		tip += " " + hint
 	}
 	Tooltip(c, GhostLook(c, b.Label(label), selected).Size(size, size), tip)
-	glyph := float32(16)
+	glyph := float32(15)
 	if size < 24 {
 		glyph = 14
 	}

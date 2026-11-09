@@ -167,10 +167,7 @@ approval_rejected
 approval_reject
 approval_allow_once
 approval_allow_session
-approval_deny_reason
 approval_live_count
-file_changes_approval
-file_changes_approval_one
 file_changes_added
 file_changes_modified
 file_changes_deleted
@@ -180,7 +177,6 @@ chat_child
 question_reply
 question_other
 question_decline
-question_pending
 question_accepted
 interaction_submit
 interaction_cancel
@@ -198,8 +194,6 @@ question_interrupted
 question_url_accepted
 chat_response_timeout
 approval_allow_prefix
-approval_reason
-approval_reason_cancel
 approval_preview_result
 file_changes_shortened
 interaction_input

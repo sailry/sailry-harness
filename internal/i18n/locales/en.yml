@@ -159,10 +159,7 @@ approval_rejected: Denied
 approval_reject: Deny
 approval_allow_once: Allow
 approval_allow_session: Allow for this session
-approval_deny_reason: Deny with reason
 approval_live_count: '%{count} awaiting approval'
-file_changes_approval: Apply patch to %{count} files
-file_changes_approval_one: Apply patch to 1 file
 file_changes_added: Added
 file_changes_modified: Modified
 file_changes_deleted: Deleted
@@ -172,7 +169,6 @@ chat_child: Subagent
 question_reply: Waiting for answer
 question_other: Other
 question_decline: Decline
-question_pending: Waiting for answer
 question_accepted: Answer submitted
 interaction_submit: Submit
 interaction_cancel: Cancel
@@ -190,8 +186,6 @@ question_interrupted: Task interrupted
 question_url_accepted: Opening allowed
 chat_response_timeout: Response timed out
 approval_allow_prefix: Allow prefix "%{prefix}"
-approval_reason: Reason
-approval_reason_cancel: Cancel
 approval_preview_result: Preview approval recorded. No files, commands or models were used.
 file_changes_shortened: Diff shortened
 interaction_input: Enter an answer or details
