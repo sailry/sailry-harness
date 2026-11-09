@@ -116,3 +116,21 @@ func TestTerminalVariableDialog(t *testing.T) {
 		t.Fatalf("variable not saved: %+v", a.Settings.Host.Saved.Env)
 	}
 }
+
+// The plugins header shows Check updates, Download and Install; Update all
+// and Review updates follow a check that found updates (cards.rs).
+func TestPluginsHeaderActions(t *testing.T) {
+	a, tt := newTester(t)
+	a.Settings.Open(settings.Plugins)
+	a.Page = SettingsPage
+	tt.Frame()
+	all, review := i18n.In("en", "plugins_update_all"), i18n.In("en", "plugins_review_updates")
+	if !tt.HasText(i18n.In("en", "plugins_download")) || tt.HasText(all) || tt.HasText(review) {
+		t.Fatalf("header before a check: %q", tt.Texts())
+	}
+	clickButton(t, tt, i18n.In("en", "plugins_check_updates"))
+	tt.Frame()
+	if !tt.HasText(all) {
+		t.Errorf("no Update all after the check: %q", tt.Texts())
+	}
+}

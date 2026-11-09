@@ -103,8 +103,12 @@ func plugins(c *ui.Context, s *State) {
 			}
 		}
 	}
+	// The header (cards.rs inventory_controls): Check updates, Download
+	// and Install; after a check found updates, Update all, and Review
+	// updates for the ones a newer Sailry blocks.
 	kit.Group(c, "installed", t("plugins_installed"), "", func() {
-		kit.Secondary(c.Key("check"), t("plugins_check_updates")).OnClick(func() {
+		kit.Secondary(c.Key("check"), t("plugins_check_updates")).Disabled(len(shown) == 0).OnClick(func() {
+			m.checked = true
 			switch {
 			case updates == 0:
 				kit.Toast(c, kit.Done, t("plugins_up_to_date"))
@@ -112,10 +116,10 @@ func plugins(c *ui.Context, s *State) {
 				kit.Toast(c, kit.Done, t("plugins_updates_found", "count", updates))
 			}
 		})
-		if updates > blocked {
+		if m.checked && updates > blocked {
 			kit.Secondary(c.Key("update-all"), t("plugins_update_all")).OnClick(func() { notice(c) })
 		}
-		if blocked > 0 {
+		if m.checked && blocked > 0 {
 			kit.Secondary(c.Key("review"), t("plugins_review_updates")).OnClick(func() {
 				m.updates = pluginUpdates{open: true, chosen: map[string]bool{}}
 			})

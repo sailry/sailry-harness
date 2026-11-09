@@ -32,7 +32,7 @@ model library and the extension details page.
 | `providers.go` | Providers: catalog and compaction, families, channels with quota and status, the editor (brand, method, configure, models) and sign-in |
 | `connectors.go` | Connectors: toolbar and filter, service rows with status, switch and menu; the add dialog, details dialog and MCP server editor |
 | `teams.go` | Teams: concurrency, Teams and Roles tabs, the Default team, team editor (lead model and effort, prompt, members), role editor |
-| `plugins.go` | Plugins: inventory controls, cards, configuration, install, download from Git with progress, updates review with release notes, uninstall |
+| `plugins.go` | Plugins: inventory controls (Check updates, Download, Install; Update all and Review updates only after a check found them), cards, configuration, install, download from Git with progress, updates review with release notes, uninstall |
 | `skills.go` | Skills: cards, install dialog by source, uninstall |
 | `market.go` | Market (`MarketPage`): plugins, skills and themes with search, source, filters and install/update states |
 | `library.go` | The model library dialog: hub, search, rows with download progress, details, delete |

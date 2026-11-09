@@ -210,6 +210,7 @@ type Model struct {
 	install         pluginInstall
 	download        pluginDownload
 	updates         pluginUpdates
+	checked         bool // the plugins' update check ran: its updates show in the header
 	uninstalling    string
 	skillAdd        skillInstall
 	skillRemoving   string
