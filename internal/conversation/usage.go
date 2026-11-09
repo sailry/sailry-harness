@@ -51,8 +51,14 @@ func trim(s string) string {
 
 // UsageBar is the context bar's metrics (usage.rs render_groups): each a
 // 14 DIP icon and its value in muted 14, its label in a hover card.
-func UsageBar(c *ui.Context, u *Usage) {
+// compact, below the composer's compact width, makes them one button
+// (usage/summary.rs) whose popover is open while *open is true.
+func UsageBar(c *ui.Context, u *Usage, compact bool, open *bool) {
 	if u == nil {
+		return
+	}
+	if compact {
+		usageButton(c, u, open)
 		return
 	}
 	p := theme.Of(c)
@@ -73,6 +79,43 @@ func UsageBar(c *ui.Context, u *Usage) {
 			})
 		}
 	})
+}
+
+// usageWidth is the figures panel's width, usage.rs POPOVER_WIDTH.
+const usageWidth = 300
+
+// usageButton is usage/summary.rs's compact figures: a small round button
+// in muted text with the chart icon and the first figure, the tokens. A
+// hover shows every figure in a card; a click holds them in a popover.
+func usageButton(c *ui.Context, u *Usage, open *bool) {
+	p := theme.Of(c)
+	ms := Metrics(u)
+	b := kit.GhostLook(c, ui.ButtonBase(c.Key("usage")).Label(i18n.T(c, "composer_statistics")), *open).
+		Height(28).PaddingX(8).Gap(4).Radius(14).Shrink(0).TextColor(p.MutedForeground)
+	b.HasPopup(ui.PopupDialog).Expanded(*open).OnClick(func() { *open = !*open })
+	b.Children(func() {
+		ui.Icon(c, icons.ChartPie).FontSize(14)
+		ui.Text(c, ms[0].Value).FontSize(14).SingleLine()
+	})
+	figures := func() {
+		for _, m := range ms {
+			ui.Row(c.Key(m.Label)).Gap(8).AlignItems(ui.Center).Children(func() {
+				ui.Icon(c, m.Icon).FontSize(14).TextColor(p.MutedForeground)
+				ui.Text(c, i18n.T(c, m.Label)).FontSize(14).TextColor(p.MutedForeground)
+				ui.Spacer(c)
+				ui.Text(c, m.Value).FontSize(14).FontWeight(500).SingleLine()
+			})
+		}
+	}
+	if !*open {
+		ui.TooltipBase(c, b, func(card ui.Element) {
+			kit.Floating(c, card).AttachTo(b, ui.AnchorTopEnd, ui.AnchorBottomEnd).Margin(0, 0, 6, 0).Padding(12, 14).Gap(6).
+				Width(usageWidth).AttachedOrigin().Transition(kit.TipMotion(kit.Top))
+			card.Children(figures)
+		})
+	}
+	kit.Popover(c, b, open, figures).AttachTo(b, ui.AnchorTopEnd, ui.AnchorBottomEnd).Margin(0, 0, 6, 0).
+		Padding(12, 14).Gap(6).Width(usageWidth)
 }
 
 // ContextRing is the composer's context indicator, left of the model chip

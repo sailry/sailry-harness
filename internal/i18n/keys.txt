@@ -435,6 +435,7 @@ composer_cache
 composer_compression_hint
 composer_cost
 composer_speed
+composer_statistics
 composer_tokens
 composer_turns
 files_download

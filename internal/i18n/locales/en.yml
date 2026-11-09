@@ -418,6 +418,7 @@ composer_cache: Cache
 composer_compression_hint: 'Context compaction: no runtime data (UI preview)'
 composer_cost: Cost
 composer_speed: Speed
+composer_statistics: Statistics
 composer_tokens: Tokens
 composer_turns: Turns
 files_download: Save as

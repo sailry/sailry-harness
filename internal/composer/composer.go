@@ -50,8 +50,9 @@ type State struct {
 	// closes the bar before it reaches the composer.
 	Searching bool
 	// Metrics builds the context bar's usage at its end (conversation
-	// UsageBar), nil for none.
-	Metrics func(c *ui.Context)
+	// UsageBar), nil for none: compact below compactWidth, its popover
+	// open while *open is true.
+	Metrics func(c *ui.Context, compact bool, open *bool)
 	// Indicator builds the context ring left of the model chip
 	// (conversation ContextRing), nil for none.
 	Indicator func(c *ui.Context)
@@ -74,6 +75,7 @@ type State struct {
 	open     map[string]bool
 	efforts  string // the model whose efforts submenu shows
 	settings bool   // the compact settings popover
+	stats    bool   // the compact usage popover
 	page     settingsPage
 	width    float32 // the toolbar's width last frame
 
@@ -357,19 +359,29 @@ func action(b ui.Element, a *theme.Action, disabled bool) {
 }
 
 // contextBar is under the surface (live/context.rs, conversation/context.rs):
-// the host, the project and the worktree, then the usage at its end.
+// the host, the project and the worktree, then the usage at its end. Wide,
+// both wrap; compact, they stay on one line and the usage is one button.
 func (s *State) contextBar(c *ui.Context, ctx *Context, actions Actions) {
 	p := theme.Of(c)
+	compact := s.width > 0 && s.width < compactWidth
 	icon := s.width > 0 && s.width < iconWidth
-	ui.Row(c.Key("context")).MinHeight(32).MarginX(12).Padding(4, 8).Gap(4).TextColor(p.MutedForeground).
-		AlignItems(ui.Center).Children(func() {
-		ui.Row(c.Key("location")).Grow(1).MinWidth(0).Gap(4).AlignItems(ui.Center).Children(func() {
+	bar := ui.Row(c.Key("context")).MinHeight(32).MinWidth(0).MarginX(12).Padding(4, 8).Gap(4).TextColor(p.MutedForeground).
+		AlignItems(ui.Center)
+	if !compact {
+		bar.Wrap()
+	}
+	bar.Children(func() {
+		location := ui.Row(c.Key("location")).Grow(1).MinWidth(0).Gap(4).AlignItems(ui.Center)
+		if !compact {
+			location.Wrap()
+		}
+		location.Children(func() {
 			s.hostMenu(c, ctx, icon)
 			s.projectButton(c, ctx, icon)
 			s.worktreeMenu(c, ctx, actions, icon)
 		})
 		if s.Metrics != nil {
-			s.Metrics(c)
+			s.Metrics(c, compact, &s.stats)
 		}
 	})
 }

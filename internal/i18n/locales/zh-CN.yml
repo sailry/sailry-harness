@@ -418,6 +418,7 @@ composer_cache: 缓存率
 composer_compression_hint: 上下文压缩进度：暂无运行数据（UI 预览）
 composer_cost: 估算费用
 composer_speed: 速度
+composer_statistics: 统计
 composer_tokens: Token
 composer_turns: 轮次
 files_download: 另存为
