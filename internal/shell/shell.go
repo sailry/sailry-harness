@@ -65,6 +65,9 @@ const (
 // App is the window's state.
 type App struct {
 	Data *preview.Data
+	// frosted is whether this frame's theme has window art, which the
+	// columns blur (kit.Pane).
+	frosted bool
 	// Theme is the selected theme package's ID; empty is the built-in one.
 	Theme   string
 	Mode    theme.Mode
@@ -205,6 +208,7 @@ func (a *App) View(c *ui.Context) {
 	if window != nil {
 		panel = p.Background.Alpha(a.Surfaces.Main)
 	}
+	a.frosted = window != nil
 	root := kit.Draws(ui.Column(c.Key("frame")).Fill(), window)
 	kit.ToastHost(c)
 	f := a.frame(c, root)
@@ -217,7 +221,7 @@ func (a *App) View(c *ui.Context) {
 			ui.Row(c.Key("panel")).Grow(1).MinWidth(0).AlignItems(ui.Stretch).BorderWidth(1, 0, 0, 1).BorderColor(p.SidebarBorder).
 				Radius(p.RadiusLg, 0, 0, 0).Clip().Children(func() {
 				a.nav(c, f, panel)
-				main := kit.Draws(ui.Column(c.Key("main")).Grow(1).MinWidth(0).Background(panel), kit.Backdrop(c, "background.content"))
+				main := kit.Draws(kit.Pane(c, ui.Column(c.Key("main")).Grow(1).MinWidth(0), panel, a.frosted), kit.Backdrop(c, "background.content"))
 				a.pane(c, main, &a.mainPane, a.closable(), func() { a.ClosePage() })
 				main.Children(func() { a.page(c) })
 				a.details(c, f, panel)
@@ -268,7 +272,7 @@ func (a *App) nav(c *ui.Context, f frame, panel ui.Color) {
 	}
 	p := theme.Of(c)
 	ui.Row(c.Key("nav")).Width(f.navWidth * f.nav).Shrink(0).ClipX().AlignItems(ui.Stretch).Children(func() {
-		col := ui.Column(c.Key("content")).Width(f.navWidth).Shrink(0).Background(p.Sidebar.Alpha(float32(panel.A)/255)).
+		col := kit.Pane(c, ui.Column(c.Key("content")).Width(f.navWidth).Shrink(0), p.Sidebar.Alpha(float32(panel.A)/255), a.frosted).
 			BorderWidth(0, 1, 0, 0).BorderColor(p.SidebarBorder)
 		kit.Draws(col, kit.Backdrop(c, "background.sidebar")).Children(func() {
 			if a.Page == SettingsPage {
@@ -297,7 +301,7 @@ func (a *App) details(c *ui.Context, f frame, fill ui.Color) {
 		})
 	}
 	ui.Row(c.Key("details")).Width(f.panelW * f.details).Shrink(0).ClipX().Justify(ui.End).AlignItems(ui.Stretch).Children(func() {
-		col := ui.Column(c.Key("content")).Width(f.panelW).Shrink(0).Background(fill).BorderWidth(0, 0, 0, 1).BorderColor(p.Border)
+		col := kit.Pane(c, ui.Column(c.Key("content")).Width(f.panelW).Shrink(0), fill, a.frosted).BorderWidth(0, 0, 0, 1).BorderColor(p.Border)
 		a.pane(c, col, &a.panelPane, true, func() {
 			if a.extensionDetails() {
 				a.Settings.CloseDetails()

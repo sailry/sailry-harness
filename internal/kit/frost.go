@@ -91,3 +91,15 @@ const (
 func Veil(c *ui.Context, base ui.Color) ui.Color {
 	return base.Over(Opaque(theme.Of(c).Background)).Alpha(SurfaceTint)
 }
+
+// Pane fills a window column (the sidebar, the main page, the right
+// panel) with fill. Over a theme's window art (frosted) the art shows
+// through blurred, at fill's alpha (the Appearance page's container
+// opacity); otherwise fill is a plain background, so the window material
+// of a translucent window still shows through.
+func Pane(c *ui.Context, el ui.Element, fill ui.Color, frosted bool) ui.Element {
+	if !frosted {
+		return el.Background(fill)
+	}
+	return Frost(c, el, Opaque(fill), float32(fill.A)/255)
+}
