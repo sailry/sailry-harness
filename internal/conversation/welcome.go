@@ -67,7 +67,10 @@ func Welcome(c *ui.Context, s *State, composer func(), prompt func(string)) {
 	available := max(width-2*padding-12, 0)
 	logo = min(logo, float32(math.Floor(float64(available/(markW/markH+1)))))
 	scroll.Children(func() {
-		ui.Column(c).FillWidth().MinHeightPercent(100).MaxWidth(theme.ContentWidth).Margin(0, ui.Auto).
+		// At least the scroll's height (last frame's), so the page centers
+		// vertically; taller content grows from the top instead of being
+		// cut at both ends.
+		ui.Column(c).FillWidth().MinHeight(scroll.LayoutBounds().H).MaxWidth(theme.ContentWidth).Margin(0, ui.Auto).
 			Padding(32, 0).Gap(12).Justify(ui.Center).Children(func() {
 			ui.Column(c.Key("hero")).FillWidth().PaddingX(padding).Gap(16).AlignItems(ui.Center).Children(func() {
 				kit.Banner(c, "hero.new_session")
@@ -189,7 +192,8 @@ func depth(x, y float32) float32 {
 
 // wordmark draws the square-dot lettering: its dim base at 18% of the ink,
 // and the particles under a beam that follows the pointer lit up to 86%
-// (welcome/wordmark.rs), with the package's glow behind the beam.
+// (welcome/wordmark.rs), with a glow behind the beam in the package's
+// glow color, the ink by default.
 // Custom drawing: MyGo's Icon tints a picture in one color; the light
 // varies per particle.
 func wordmark(c *ui.Context, s *State, height float32) {
@@ -208,12 +212,11 @@ func wordmark(c *ui.Context, s *State, height float32) {
 			beam = min(max((light-r.X)/r.W, 0), 1)
 		}
 		center := beam * markW
-		if glow != ink {
-			gx := r.X + center*sx
-			pt.FillRadialGradient(ui.Rect{X: gx - r.H, Y: r.Y - r.H/2, W: 2 * r.H, H: 2 * r.H}, ui.RadialGradient{Radius: r.H,
-				Stops: []ui.GradientStop{{At: 0, Color: glow.Alpha(0.22)}, {At: 1, Color: glow.Alpha(0)}},
-			}, 0)
-		}
+		// The glow is the app's, in every theme; a package only colors it.
+		gx := r.X + center*sx
+		pt.FillRadialGradient(ui.Rect{X: gx - r.H, Y: r.Y - r.H/2, W: 2 * r.H, H: 2 * r.H}, ui.RadialGradient{Radius: r.H,
+			Stops: []ui.GradientStop{{At: 0, Color: glow.Alpha(0.22)}, {At: 1, Color: glow.Alpha(0)}},
+		}, 0)
 		for _, q := range particles {
 			x, y := q[0], q[1]
 			rect := ui.Rect{X: r.X + x*sx, Y: r.Y + y*sy, W: dot * sx, H: dot * sy}
