@@ -18,7 +18,17 @@ func Ghost(c *ui.Context, label string, selected bool) ui.Element {
 // its tooltip and assistive technology. Kit sizes: xsmall 20, small 28,
 // default 32, rail 36; icons are 16 (14 below 24).
 func IconButton(c *ui.Context, icon *ui.SVG, label string, size float32, selected bool) ui.Element {
-	b := Tip(c, Ghost(c, label, selected).Size(size, size), label)
+	return IconButtonHint(c, icon, label, "", size, selected)
+}
+
+// IconButtonHint is an IconButton whose tooltip also shows the shortcut
+// that does the same, hint.
+func IconButtonHint(c *ui.Context, icon *ui.SVG, label, hint string, size float32, selected bool) ui.Element {
+	tip := label
+	if hint != "" {
+		tip += "  " + hint
+	}
+	b := Tip(c, Ghost(c, label, selected).Size(size, size), tip)
 	glyph := float32(16)
 	if size < 24 {
 		glyph = 14

@@ -6,6 +6,8 @@ import (
 	"log"
 
 	"github.com/egoist/mygo"
+	// MyGo's own strings (menus, dialogs, controls) in Chinese.
+	_ "github.com/egoist/mygo/locales/zh-Hans"
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-go/internal/i18n"
 	"github.com/sailry/sailry-go/internal/preview"
@@ -22,7 +24,22 @@ func main() {
 		}[m])
 	}
 	mygo.App.WhenReady(func() {
-		mygo.NewWindow(mygo.WindowOptions{
+		// The UI preferences come back from the user data folder, beside
+		// MyGo's window-state.json, and are written as the window closes
+		// or loses the focus, and as the app quits.
+		dir, err := mygo.App.Path(mygo.PathUserData)
+		if err == nil {
+			app.SetPrefs(shell.LoadPrefs(dir))
+		}
+		save := func() {
+			if dir != "" {
+				if err := shell.SavePrefs(dir, app.Prefs()); err != nil {
+					log.Printf("ui preferences: %v", err)
+				}
+			}
+		}
+		mygo.App.OnWillQuit(func(*mygo.QuitEvent) { save() })
+		win := mygo.NewWindow(mygo.WindowOptions{
 			Title:                i18n.In(i18n.Match(mygo.App.Locale()), "app"),
 			Width:                1280,
 			Height:               820,
@@ -34,6 +51,8 @@ func main() {
 			Vibrancy:             mygo.VibrancySidebar,
 			Content:              ui.View(app.View),
 		})
+		win.OnBlur(save)
+		win.OnClose(func(*mygo.CloseEvent) { save() })
 	})
 	if err := mygo.App.Run(); err != nil {
 		log.Fatal(err)

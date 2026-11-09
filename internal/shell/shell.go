@@ -1,31 +1,45 @@
-// Package shell is the main window: the header band, the feature rail, and
-// the panel holding the navigation beside the page in a resizable split
-// (sailry-public apps/desktop/src/shell.rs, shell/frame.rs, shell/rail.rs).
+// Package shell is the main window's frame: the header band, the feature
+// rail, the sidebar column and the right panel beside the page, each
+// column opening, closing and resizing with the reference's motion, and
+// the window's shortcuts, search, activity centre and knowledge viewer
+// (sailry-public apps/desktop/src/shell.rs, shell/*.rs). See docs/shell.md.
 package shell
 
 import (
+	"time"
+
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-go/internal/composer"
 	"github.com/sailry/sailry-go/internal/conversation"
 	"github.com/sailry/sailry-go/internal/i18n"
-	"github.com/sailry/sailry-go/internal/icons"
 	"github.com/sailry/sailry-go/internal/kit"
+	"github.com/sailry/sailry-go/internal/panel"
 	"github.com/sailry/sailry-go/internal/preview"
 	"github.com/sailry/sailry-go/internal/settings"
 	"github.com/sailry/sailry-go/internal/sidebar"
 	"github.com/sailry/sailry-go/internal/theme"
 )
 
-// Shell metrics of preview.rs and sidebar.rs.
+// Frame metrics of preview.rs, shell/limits.rs and shell/frame.rs.
 const (
 	HeaderHeight = 48
 	RailWidth    = 56
 	NavWidth     = 240
 	NavMin       = 200
 	NavMax       = 320
+	MainMin      = 320 // the conversation's least width
+	PanelWidth   = 560
+	PanelMin     = 360
 	// trafficLights is the room macOS's window controls need at (12, 16).
 	trafficLights = 80
+	// handle is the width of a column's resize handle, over its edge.
+	handle = 6
 )
+
+// Motion is the columns' open and close (shell/frame/motion.rs): Kit's
+// duration_normal along easing_move. MyGo makes it instant with Reduce
+// Motion.
+var Motion = ui.Animation{Duration: 180 * time.Millisecond, Ease: ui.CubicBezier(0.2, 0, 0, 1)}
 
 // Page is what the main panel shows.
 type Page int
@@ -45,6 +59,10 @@ type App struct {
 	Page     Page
 	NavOpen  bool
 	NavWidth float32
+	// PanelOpen is whether the user wants the right panel; a narrow window
+	// hides it without changing this.
+	PanelOpen  bool
+	PanelWidth float32
 
 	// OnMode, when set, gets the theme mode as it changes, so the window's
 	// native material follows the app's appearance as theme.rs's
@@ -55,18 +73,32 @@ type App struct {
 	Sidebar  *sidebar.State
 	Settings *settings.State
 	Messages *conversation.State
+	Panel    *panel.State
 	drafts   map[string]*composer.State
+
+	features []string        // the rail's order
+	unpinned map[string]bool // features off the rail
+	more     bool            // the rail's More popover
+	search   search
+	activity bool // the activity centre's popover
+	reading  *reading
 }
 
 // New makes the app over the preview dataset, showing its large conversation.
 func New(d *preview.Data) *App {
-	return &App{
-		Data: d, NavOpen: true, NavWidth: NavWidth, Effects: true,
+	a := &App{
+		Data: d, NavOpen: true, NavWidth: NavWidth, PanelWidth: PanelWidth, Effects: true,
 		Sidebar:  sidebar.New(d, preview.Big),
 		Settings: settings.New(),
 		Messages: conversation.New(),
+		Panel:    panel.New(d.Workspace),
 		drafts:   map[string]*composer.State{},
+		unpinned: map[string]bool{},
 	}
+	for _, f := range Features {
+		a.features = append(a.features, f.ID)
+	}
+	return a
 }
 
 // Composer returns the composer of a conversation, which keeps its draft.
@@ -87,6 +119,7 @@ func (a *App) View(c *ui.Context) {
 	a.applied = a.Mode
 	theme.Apply(c, a.Theme, a.Mode)
 	kit.SetEffects(a.Effects)
+	a.shortcuts(c)
 	p := theme.Of(c)
 	// The title bar and the rail are one outer band in title_bar's color
 	// (theme.rs sidebar_background).
@@ -106,109 +139,147 @@ func (a *App) View(c *ui.Context) {
 	if window != nil {
 		panel = p.Background.Alpha(theme.PanelOpacity)
 	}
-	kit.Draws(ui.Column(c).Fill(), window).Children(func() {
-		a.header(c)
-		ui.Row(c).Grow(1).AlignItems(ui.Stretch).Children(func() {
+	root := kit.Draws(ui.Column(c.Key("frame")).Fill(), window)
+	f := a.frame(c, root)
+	root.Children(func() {
+		a.header(c, f)
+		ui.Row(c).Grow(1).MinHeight(0).AlignItems(ui.Stretch).Children(func() {
 			a.rail(c)
 			// The panel's outline: a 1 DIP top and left edge, rounded at the
-			// top left (frame.rs).
-			ui.Row(c.Key("panel")).Grow(1).AlignItems(ui.Stretch).BorderWidth(1, 0, 0, 1).BorderColor(p.SidebarBorder).
-				Radius(8, 0, 0, 0).Clip().Children(func() {
-				main := func() {
-					kit.Draws(ui.Column(c.Key("main")).Fill().Background(panel), kit.Backdrop(c, "background.content")).
-						Children(func() { a.page(c) })
-				}
-				if !a.NavOpen {
-					main()
-					return
-				}
-				nav := func() {
-					col := ui.Column(c.Key("nav")).Fill().Background(p.Sidebar.Alpha(float32(panel.A) / 255))
-					kit.Draws(col, kit.Backdrop(c, "background.sidebar")).Children(func() {
-						if a.Page == SettingsPage {
-							settings.Nav(c, a.Settings)
-						} else {
-							sidebar.View(c, a.Sidebar)
-						}
-					})
-				}
-				if ui.Split(c.Key("split"), &a.NavWidth, nav, main).SplitReset(NavWidth).Fill().Changed() {
-					a.NavWidth = min(max(a.NavWidth, NavMin), NavMax)
-				}
+			// top left (frame.rs, frame/corner.rs).
+			ui.Row(c.Key("panel")).Grow(1).MinWidth(0).AlignItems(ui.Stretch).BorderWidth(1, 0, 0, 1).BorderColor(p.SidebarBorder).
+				Radius(p.RadiusLg, 0, 0, 0).Clip().Children(func() {
+				a.nav(c, f, panel)
+				kit.Draws(ui.Column(c.Key("main")).Grow(1).MinWidth(0).Background(panel), kit.Backdrop(c, "background.content")).
+					Children(func() { a.page(c) })
+				a.details(c, f, panel)
 			})
 		})
 	})
+	a.overlays(c)
 	kit.Toasts(c)
 }
 
-// header is the band above the rail and the panel: the app's name over the
-// navigation, clear of the traffic lights, then the page's header.
-func (a *App) header(c *ui.Context) {
-	p := theme.Of(c)
-	bar := c.TitleBar()
-	left := float32(RailWidth)
+// frame is where the columns are in this frame: how open each is, from 0
+// to 1 along Motion, and their widths.
+type frame struct {
+	nav, details       float32 // openness
+	navWidth, panelW   float32 // their full widths
+	showsPanel, fitted bool
+}
+
+// frame animates the columns' openness on root, which stays from frame to
+// frame.
+func (a *App) frame(c *ui.Context, root ui.Element) frame {
+	w, _ := c.Size()
+	f := frame{navWidth: ClampNav(a.NavWidth)}
+	navTarget := float32(0)
 	if a.NavOpen {
-		left += a.NavWidth
+		navTarget = 1
 	}
-	ui.Row(c.Key("header")).Height(HeaderHeight).Shrink(0).DragWindow().Children(func() {
-		pad := float32(12)
-		if bar.Left > 0 {
-			pad = trafficLights
-		}
-		if a.NavOpen {
-			ui.Row(c).Width(left).Height(HeaderHeight).PaddingStart(pad).PaddingEnd(12).Children(func() {
-				ui.Text(c, i18n.T(c, "app")).FontSize(14).SingleLine().TextColor(p.SidebarForeground)
-			})
-			pad = 12
-		} else {
-			pad = max(pad, left) - left + 12
-		}
-		ui.Row(c).Grow(1).Height(HeaderHeight).PaddingStart(pad).PaddingEnd(12 + bar.Right).Gap(8).Children(func() {
-			icon := icons.PanelLeftClose
-			if !a.NavOpen {
-				icon = icons.PanelLeftOpen
+	f.nav = root.AnimateTo("nav", navTarget, Motion)
+	// Whether the panel fits is judged where the sidebar will end, so the
+	// sidebar's motion does not toggle it (frame.rs).
+	nav := f.navWidth * navTarget
+	f.panelW = ClampPanel(a.PanelWidth, w, nav)
+	f.fitted = PanelFits(w, nav, f.panelW)
+	f.showsPanel = a.Page == ConversationPage && a.PanelOpen && f.fitted
+	target := float32(0)
+	if f.showsPanel {
+		target = 1
+	}
+	f.details = root.AnimateTo("details", target, Motion)
+	return f
+}
+
+// nav is the sidebar's column: its full width clipped to how open it is,
+// so its content slides rather than reflows, and the resize handle on its
+// edge while it is fully open (frame.rs, frame/motion.rs).
+func (a *App) nav(c *ui.Context, f frame, panel ui.Color) {
+	if f.nav <= 0.001 {
+		return
+	}
+	p := theme.Of(c)
+	ui.Row(c.Key("nav")).Width(f.navWidth * f.nav).Shrink(0).ClipX().AlignItems(ui.Stretch).Children(func() {
+		col := ui.Column(c.Key("content")).Width(f.navWidth).Shrink(0).Background(p.Sidebar.Alpha(float32(panel.A)/255)).
+			BorderWidth(0, 1, 0, 0).BorderColor(p.SidebarBorder)
+		kit.Draws(col, kit.Backdrop(c, "background.sidebar")).Children(func() {
+			if a.Page == SettingsPage {
+				settings.Nav(c, a.Settings)
+			} else {
+				sidebar.View(c, a.Sidebar)
 			}
-			kit.IconButton(c.Key("toggle"), icon, i18n.T(c, "sidebar_toggle"), 28, false).
-				OnClick(func() { a.NavOpen = !a.NavOpen })
-			ui.Text(c, a.title(c)).FontSize(14).SingleLine().Grow(1).Shrink(1).TextColor(p.Foreground)
-			// Preview data is identified wherever it shows.
-			// An opaque fill keeps it legible over the translucent band.
-			kit.Tip(c, ui.Row(c.Key("preview")).Radius(999).Background(p.Background), i18n.T(c, "preview_notice")).Children(func() {
-				kit.Tag(c, i18n.T(c, "preview"))
-			})
 		})
 	})
+	if f.nav >= 0.999 {
+		resize(c, "nav-handle", i18n.T(c, "sidebar_toggle"), 1, &a.NavWidth, NavWidth, ClampNav)
+	}
 }
 
-func (a *App) title(c *ui.Context) string {
-	if a.Page == SettingsPage {
-		return settings.Title(c, a.Settings)
+// details is the right panel's column, anchored at the window's right
+// edge as it slides open and closed.
+func (a *App) details(c *ui.Context, f frame, fill ui.Color) {
+	if f.details <= 0.001 {
+		return
 	}
-	if cv := a.Data.Find(a.Sidebar.Selected); cv != nil {
-		return sidebar.Title(c, cv)
+	p := theme.Of(c)
+	if f.details >= 0.999 {
+		w, _ := c.Size()
+		resize(c, "panel-handle", i18n.T(c, "details"), -1, &a.PanelWidth, PanelWidth, func(v float32) float32 {
+			return ClampPanel(v, w, f.navWidth*f.nav)
+		})
 	}
-	return i18n.T(c, "app")
-}
-
-// rail is the column of features (shell/rail.rs): 36 DIP ghost buttons, the
-// conversation features at the top and search and settings at the bottom.
-// Features this prototype does not have are shown disabled.
-func (a *App) rail(c *ui.Context) {
-	ui.Column(c.Key("rail")).Width(RailWidth).Shrink(0).Padding(8, 0).Gap(8).AlignItems(ui.Center).Children(func() {
-		kit.IconButton(c.Key("conversations"), icons.Chat, i18n.T(c, "conversation"), 36, a.Page == ConversationPage).
-			OnClick(func() { a.Page = ConversationPage })
-		for _, f := range []struct {
-			icon *ui.SVG
-			key  string
-		}{{icons.Grid, "activity"}, {icons.Puzzle, "market_title"}, {icons.Folder, "files"}, {icons.Network, "git"}} {
-			kit.IconButton(c.Key(f.key), f.icon, i18n.T(c, f.key), 36, false).Disabled(true)
-		}
-		ui.Spacer(c)
-		kit.IconButton(c.Key("more"), icons.Ellipsis, i18n.T(c, "more"), 36, false).Disabled(true)
-		kit.IconButton(c.Key("search"), icons.Search, i18n.T(c, "search"), 36, false).Disabled(true)
-		kit.IconButton(c.Key("settings"), icons.Settings, i18n.T(c, "settings"), 36, a.Page == SettingsPage).
-			OnClick(func() { a.Page = SettingsPage })
+	ui.Row(c.Key("details")).Width(f.panelW * f.details).Shrink(0).ClipX().Justify(ui.End).AlignItems(ui.Stretch).Children(func() {
+		ui.Column(c.Key("content")).Width(f.panelW).Shrink(0).Background(fill).BorderWidth(0, 0, 0, 1).BorderColor(p.Border).
+			Children(func() { panel.View(c, a.Panel, KeyText) })
 	})
+}
+
+// resize is a column's drag handle: a 6 DIP strip over the edge with the
+// resize cursor; dragging moves the edge by dir (1 for an edge on the
+// right of the column, -1 on its left), and a double click puts the
+// column back at reset. Custom: ui.Split keeps both panes 40 DIPs wide and
+// cannot close a pane to nothing, which the columns' motion needs.
+func resize(c *ui.Context, key, label string, dir float32, width *float32, reset float32, clamp func(float32) float32) {
+	p := theme.Of(c)
+	h := ui.Box(c.Key(key)).Width(handle).Margin(0, -handle/2).ZIndex(1).Cursor(ui.CursorResizeEW).Label(label).Shrink(0)
+	if h.Hovered() || h.Pressed() {
+		h.Background(p.Ring.Alpha(0.5))
+	}
+	if dx, _, ok := h.Dragged(); ok {
+		*width = clamp(*width + dir*dx)
+	}
+	if h.DoubleClicked() {
+		*width = clamp(reset)
+	}
+}
+
+// togglePanel opens or closes the right panel (⌘⌥B, the header button);
+// opened without a tab it shows the launcher.
+func (a *App) togglePanel() {
+	a.PanelOpen = !a.PanelOpen
+}
+
+// openPanel shows a resource in the right panel.
+func (a *App) openPanel(k panel.Kind) {
+	a.Page, a.PanelOpen = ConversationPage, true
+	a.Panel.Open(k)
+}
+
+// closeFocused is ⌘W: the panel's active tab, the panel with none left.
+func (a *App) closeFocused() {
+	if !a.PanelOpen || a.Page != ConversationPage {
+		return
+	}
+	if a.Panel.Active == "" || !a.Panel.Close(a.Panel.Active) {
+		a.PanelOpen = false
+	}
+}
+
+// adjacent is the conversation after or before the selected one in the
+// sidebar's order.
+func adjacent(a *App, forward bool) string {
+	return sidebar.Adjacent(a.Sidebar.Order(), a.Sidebar.Selected, forward)
 }
 
 // page is the main panel: the conversation, or the settings page.

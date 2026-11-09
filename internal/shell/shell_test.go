@@ -269,8 +269,8 @@ func TestSettingsNavigation(t *testing.T) {
 	if plugin.Enabled {
 		t.Error("the switch did not turn the plugin off")
 	}
-	// Back to the conversation.
-	click(t, tt, i18n.In("en", "conversation"))
+	// Back to the conversation, the rail's Chats.
+	clickButton(t, tt, i18n.In("en", "shell_sessions"))
 	if a.Page != ConversationPage {
 		t.Error("the rail does not go back to conversations")
 	}

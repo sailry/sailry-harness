@@ -316,8 +316,8 @@ func (s *State) changes(c *ui.Context) {
 		ui.Column(c.Key("list")).Width(240).Shrink(0).BorderWidth(0, 0, 0, 1).BorderColor(p.Border).Children(func() {
 			ui.Row(c).Height(barHeight).PaddingStart(12).PaddingEnd(8).Shrink(0).Children(func() {
 				ui.Text(c, i18n.T(c, "changes")).FontSize(14).FontWeight(500).Grow(1)
-				kit.Tip(c, kit.IconButton(c.Key("stage"), icons.Plus, i18n.T(c, "git_stage_all"), 24, false).Disabled(true),
-					i18n.T(c, "git_actions_preview"))
+				kit.IconButtonHint(c.Key("stage"), icons.Plus, i18n.T(c, "git_stage_all"), i18n.T(c, "git_actions_preview"), 24, false).
+					Disabled(true)
 			})
 			ui.Scroll(c.Key("files")).Grow(1).Padding(0, 8, 8, 8).Gap(2).Children(func() {
 				for _, ch := range s.Data.Changes {

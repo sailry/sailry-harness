@@ -89,6 +89,12 @@ func (s *State) SetCollapsed(ids []string) {
 	}
 }
 
+// Reveal opens the projects group and a project's rows.
+func (s *State) Reveal(id string) {
+	*s.opened("projects") = true
+	*s.opened("project/" + id) = true
+}
+
 // pinned returns the pinned group's conversations in their order.
 func (s *State) pinned() []*preview.Conversation {
 	byID := map[string]*preview.Conversation{}
@@ -235,14 +241,15 @@ var groupIcons = map[string]string{"pinned": "group.recent", "unassigned": "grou
 func section(c *ui.Context, s *State, key, title string, plus *add, body func()) {
 	p := theme.Of(c)
 	ui.Column(c.Key(key)).Children(func() {
-		parts := ui.CollapsibleBase(c, s.opened(key))
-		hovered := parts.Trigger.Hovered()
 		muted := p.MutedForeground.Alpha(0.7)
 		if key == "recent" {
 			muted = p.SidebarForeground.Alpha(0.5)
 		}
-		ui.Row(c).Children(func() {
-			parts.Trigger.Grow(1).Height(32).PaddingX(8).Gap(4).Radius(p.Radius).Cursor(ui.CursorPointer).
+		var parts ui.CollapsibleParts
+		ui.Row(c).Height(32).AlignItems(ui.Center).Children(func() {
+			parts = ui.CollapsibleBase(c, s.opened(key))
+			hovered := parts.Trigger.Hovered()
+			parts.Trigger.Grow(1).Shrink(1).MinWidth(0).Height(32).PaddingX(8).Gap(4).Radius(p.Radius).Cursor(ui.CursorPointer).
 				TextColor(muted).Children(func() {
 				if icon := groupIcons[key]; kit.HasArtIcon(c, icon) {
 					kit.ArtIcon(c, icon, nil, 16, ui.Color{}).Margin(0, 4, 0, 0)
