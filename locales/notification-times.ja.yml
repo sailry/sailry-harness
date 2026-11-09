@@ -1,0 +1,4 @@
+notifications_time_now: "たった今"
+notifications_time_minutes: "%{count}分前"
+notifications_time_hours: "%{count}時間前"
+notifications_time_days: "%{count}日前"

@@ -1,0 +1,5 @@
+composer_execution_model: "Solo modelo"
+composer_team_lead: "Líder"
+composer_team_default: "Equipo predeterminado"
+composer_team_manage: "Administrar equipos"
+composer_team_unknown: "Equipo eliminado"

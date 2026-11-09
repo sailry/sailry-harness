@@ -10,7 +10,18 @@ import (
 // hostPage is the chosen host's page data and UI state, made from the
 // dataset as first shown.
 func (a *App) hostPage() (*host.Host, *host.State) {
-	if a.hosts == nil {
+	if !a.Preview {
+		if a.hostUI == nil {
+			a.hostUI = map[string]*host.State{}
+		}
+		if a.hosts == nil {
+			a.hosts = map[string]*host.Host{}
+		}
+		if a.hosts[a.Host] == nil {
+			a.hosts[a.Host] = &host.Host{ID: a.Host, Name: "local_host_name", Local: true, Runtime: host.Runtime{Uptime: -1}}
+		}
+	}
+	if a.Preview && a.hosts == nil {
 		a.hosts, a.hostUI, a.samples = preview.HostPages(a.Data), map[string]*host.State{}, map[string]*sample{}
 		for id, h := range a.hosts {
 			x := &sample{metrics: h.Metrics}

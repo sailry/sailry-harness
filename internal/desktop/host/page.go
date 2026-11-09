@@ -96,7 +96,11 @@ func facts(c *ui.Context, h *Host) {
 		describe(c, i18n.T(c, "workspace_worktrees"), strconv.Itoa(h.Worktrees))
 		describe(c, i18n.T(c, "workspace_sessions"), strconv.Itoa(h.Sessions))
 		describe(c, i18n.T(c, "terminal"), strconv.Itoa(h.Terminals))
-		describe(c, i18n.T(c, "host_active_preview"), strconv.Itoa(len(h.Activity)))
+		active := "host_active_preview"
+		if h.Live {
+			active = "workspace_running"
+		}
+		describe(c, i18n.T(c, active), strconv.Itoa(len(h.Activity)))
 	})
 }
 
@@ -185,7 +189,9 @@ func runtime(c *ui.Context, r Runtime) {
 		if r.Known {
 			note = "host_runtime_preview"
 		}
-		muted(c, i18n.T(c, note))
+		if !r.Live {
+			muted(c, i18n.T(c, note))
+		}
 	})
 }
 

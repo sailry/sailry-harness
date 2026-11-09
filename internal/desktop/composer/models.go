@@ -95,6 +95,12 @@ func (s *State) modelChip(c *ui.Context, ctx *Context, actions Actions) {
 	if narrow {
 		width = narrowChip
 	}
+	if len(ctx.Models) == 0 {
+		label := i18n.T(c, "composer_model_empty")
+		kit.GhostLook(c, ui.ButtonBase(c.Key("model")), false).Label(label).Height(32).PaddingX(12).Gap(8).Radius(16).
+			MaxWidth(width).MinWidth(0).Shrink(1).Disabled(true).Children(func() { ui.Text(c, label).FontSize(14).SingleLine().Shrink(1).MinWidth(0) })
+		return
+	}
 	team := s.team(ctx)
 	effort := ""
 	if len(efforts(m)) > 0 {

@@ -8,6 +8,7 @@ package i18n
 import (
 	"embed"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -15,7 +16,7 @@ import (
 )
 
 // Languages are the catalogs shipped, the source language first.
-var Languages = []string{"en", "zh-CN"}
+var Languages = []string{"en", "zh-CN", "zh-TW", "ja", "ko", "fr", "de", "es", "pt-BR", "ru"}
 
 //go:embed locales/*.yml
 var files embed.FS
@@ -38,14 +39,39 @@ func load() map[string]map[string]string {
 	return out
 }
 
-// Match returns the catalog for a BCP 47 tag: any Chinese but the
-// traditional scripts reads zh-CN, everything else English.
+// Match returns the supported catalog for a BCP 47 or system locale tag.
 func Match(tag string) string {
-	t := strings.ToLower(tag)
-	if strings.HasPrefix(t, "zh") && !strings.Contains(t, "hant") && !strings.Contains(t, "-tw") && !strings.Contains(t, "-hk") {
-		return "zh-CN"
+	return MatchPreferred(tag)
+}
+
+// MatchPreferred selects the first supported system preference, then English.
+func MatchPreferred(tags ...string) string {
+	for _, tag := range tags {
+		if catalog := preferred(tag); catalog != "" {
+			return catalog
+		}
 	}
 	return "en"
+}
+
+func preferred(tag string) string {
+	normalized := strings.ToLower(strings.ReplaceAll(tag, "_", "-"))
+	normalized, _, _ = strings.Cut(normalized, ".")
+	parts := strings.Split(normalized, "-")
+	switch parts[0] {
+	case "zh":
+		if slices.Contains(parts, "hant") || !slices.Contains(parts, "hans") && slices.ContainsFunc(parts, func(part string) bool { return part == "tw" || part == "hk" || part == "mo" }) {
+			return "zh-TW"
+		}
+		return "zh-CN"
+	case "pt":
+		if slices.Contains(parts, "br") {
+			return "pt-BR"
+		}
+	case "en", "ja", "ko", "fr", "de", "es", "ru":
+		return parts[0]
+	}
+	return ""
 }
 
 // T says key in the frame's language; args are name, value pairs filling
@@ -57,6 +83,7 @@ func T(c *ui.Context, key string, args ...any) string {
 
 // In says key in the catalog lang.
 func In(lang, key string, args ...any) string {
+	lang = Match(lang)
 	s, ok := catalogs[lang][key]
 	if !ok {
 		if s, ok = catalogs["en"][key]; !ok {

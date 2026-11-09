@@ -81,6 +81,12 @@ type State struct {
 // New opens on General, as Workspace does, over the preview's settings.
 func New() *State { return &State{Section: General, Model: NewModel(preview.SettingsData())} }
 
+// NewLive has controller defaults and no preview fixtures or simulated loads.
+func NewLive() *State {
+	return &State{Section: General, Model: &Model{Live: true, Keys: NewKeys(), Toast: 1,
+		Notify: [4]bool{true, true, true, true}, TextSize: 14, FontSize: 14, PasteProtection: true}}
+}
+
 // Nav builds the settings navigation in place of the sessions.
 func Nav(c *ui.Context, s *State) {
 	p := theme.Of(c)
@@ -120,6 +126,7 @@ func Title(c *ui.Context, s *State) string { return i18n.T(c, string(s.Section))
 // Page builds the section's page in the settings frame: its title and
 // description over its groups (SettingsPage).
 func Page(c *ui.Context, s *State, d *preview.Data, look Look) {
+	look.Live = s.Live
 	desc := string(s.Section) + "_description"
 	if i18n.In("en", desc) == desc {
 		desc = ""
@@ -127,6 +134,10 @@ func Page(c *ui.Context, s *State, d *preview.Data, look Look) {
 		desc = i18n.T(c, desc)
 	}
 	kit.Page(c, s.Section, i18n.T(c, string(s.Section)), desc, func() {
+		if s.Live && s.Section != General && s.Section != Appearance && s.Section != Conversation && s.Section != Shortcuts {
+			kit.Result(c, kit.ResultProps{Title: i18n.T(c, "unavailable"), Card: true})
+			return
+		}
 		switch s.Section {
 		case General:
 			general(c, s.Model)

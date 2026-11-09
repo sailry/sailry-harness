@@ -13,6 +13,7 @@ import (
 
 // Host is a host page's view model: one computer running a Node.
 type Host struct {
+	Live  bool
 	ID    string
 	Name  string // an i18n key for the preview's hosts
 	Local bool
@@ -52,6 +53,7 @@ type Activity struct {
 
 // Runtime is what the host's Node tells of itself: empty fields are unknown.
 type Runtime struct {
+	Live                      bool
 	Version, System, Timezone string
 	Uptime                    time.Duration // < 0 unknown
 	ProtocolMin, ProtocolMax  int           // 0 unknown

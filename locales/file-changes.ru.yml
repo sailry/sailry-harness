@@ -1,0 +1,7 @@
+file_changes_approval: "Применить патч к файлам: %{count}"
+file_changes_approval_one: "Применить патч к 1 файлу"
+file_changes_added: "Добавлен"
+file_changes_modified: "Изменён"
+file_changes_renamed: "Переименован"
+file_changes_deleted: "Удалён"
+file_changes_shortened: "Diff сокращён"

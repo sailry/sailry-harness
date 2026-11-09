@@ -5,10 +5,11 @@ code. The Go module and repository are `github.com/sailry/sailry-harness`.
 
 ## Scope and status
 
-The B0 architecture pass preserves the accepted desktop preview. The Node, Client,
-Link, Host, Mobile adapter and plugin runtimes described in ARCHITECTURE.md are
-the backend target; their phases have not landed in B0. Implement authorized
-phases in order, with centralized integration checks and a report per phase.
+The accepted desktop preview remains available through `--preview`. B1 supplies
+the v1 protocol, B2 the isolated profile and SQLite storage, and B3 the local
+Node, Client and live sidebar, notifications and preferences. Agent execution,
+remote Link, Host, Mobile and plugin runtimes arrive in their assigned phases.
+Implement phases in order, with centralized checks and a report per phase.
 The user has authorized continuing through B14 without confirmation pauses.
 
 The checkout is self-contained: locale sources live in `locales/`, plugin SDK
@@ -69,15 +70,13 @@ export GOTOOLCHAIN=go1.27.3 CGO_ENABLED=0
 go run ./cmd/sailry-desktop
 ```
 
-The desktop currently shows preview data. With B2, an explicit `--data-dir`
-opens and initializes its isolated Node profile before showing that preview.
-Without this flag, preview startup does not open a Node profile. MyGo still keeps window bounds and
-`shell.Prefs` in its application-data folder. For implementer UI checks, isolate
-that folder with MyGo's path override in a disposable harness. The
-`--preview` flag and default live startup land in B3.
+The desktop starts one local Node and Client. `--preview` exits backend startup
+before opening any profile, including an explicit `--data-dir`. Additional live
+windows share the process backend and profile preference authority. MyGo keeps
+window bounds and `shell.Prefs` in its application-data folder. For implementer
+UI checks, isolate that folder with MyGo's path override in a disposable harness.
 
-Once B2 adds the profile flag, implementer runs use
-`--data-dir .runtime/profiles/<fixed-name>`. Development defaults to
+Implementer runs use `--data-dir .runtime/profiles/<fixed-name>`. Development defaults to
 `~/.sailry-go` only for user acceptance. Never run against `~/.sailry`; it is the
 installed release profile. Tests use `t.TempDir()`.
 
@@ -85,9 +84,10 @@ installed release profile. Tests use `t.TempDir()`.
 
 | Path | Responsibility |
 |---|---|
-| `cmd/sailry-desktop` | Current preview entry point; future Desktop composition |
+| `cmd/sailry-desktop` | Desktop composition, shared local Node and explicit preview startup |
 | `internal/desktop/{shell,sidebar,conversation,composer,panel,panes,settings,host,transfers,onboarding}` | Accepted UI, state machines, view models and actions |
-| `internal/desktop/{kit,theme,i18n,icons,preview}` | Shared UI components, themes, copy, icons and identified preview data |
+| `internal/desktop/{kit,theme,i18n,icons,viewmodel}` | Shared UI components, themes, copy, icons and neutral presentation contracts |
+| `internal/desktop/{live,preferences,preview}` | Live action adapters, profile controller settings and isolated simulation |
 | `bundled.go` | Root embedded themes and plugin snapshot from pinned submodules |
 | `locales/` | Source catalogs for local i18n generation |
 | `docs/*.md` | Feature contracts, ownership, backend wiring and deviations |
@@ -203,7 +203,7 @@ and signing acceptance remain later-phase work.
 
 Host implementation is B7. The target binary is `cmd/sailry-host`, with
 `--version`, `share`, `submit` and `wait` matching the cited Rust options.
-These commands are not available in B0.
+These commands are not available before B7.
 
 Management talks to the running Node through a profile-private owner-only Unix
 socket with a v1 envelope. It never starts another persistence owner. Submit uses

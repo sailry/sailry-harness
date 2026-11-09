@@ -1,8 +1,6 @@
 package kit
 
 import (
-	"time"
-
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
@@ -55,7 +53,7 @@ const (
 // Toast tells an operation's outcome; failures and conflicts stay until
 // closed, so they are read. Pages show outcomes only as toasts.
 func Toast(c *ui.Context, outcome Outcome, message string) {
-	t := ui.Toast{Title: message}
+	t := ui.Toast{Title: message, Timeout: ToastDuration(c)}
 	switch outcome {
 	case Done:
 		t.Type = "success"
@@ -64,7 +62,7 @@ func Toast(c *ui.Context, outcome Outcome, message string) {
 	case Conflict:
 		t.Type, t.Timeout = "warning", -1
 	case Uncertain:
-		t.Type, t.Timeout = "warning", 8*time.Second
+		t.Type = "warning"
 	}
 	c.AddToast(t)
 }

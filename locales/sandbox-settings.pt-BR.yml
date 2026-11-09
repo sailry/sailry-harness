@@ -1,0 +1,8 @@
+settings_execution: "Execução"
+settings_command_sandbox: "Sandbox de comandos"
+settings_command_sandbox_description: "Aplica-se aos próximos comandos de todas as sessões"
+sandbox_settings_reload: "Recarregar"
+sandbox_settings_saved: "Salvo"
+sandbox_settings_conflict: "As configurações da sandbox mudaram; recarregue para continuar"
+sandbox_settings_failed: "Não foi possível carregar ou salvar as configurações da sandbox"
+sandbox_settings_unknown: "Não foi possível confirmar o salvamento; recarregue para verificar"

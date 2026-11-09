@@ -40,7 +40,7 @@ func portsHeader(c *ui.Context, s *State, h *Host) {
 
 // openPort would open the forward's address in the browser; the preview
 // does not reach the port, which the toast says.
-func openPort(c *ui.Context, _ Port) { c.Toast(i18n.T(c, "preview_notice")) }
+func openPort(c *ui.Context, _ Port) { kit.Message(c, i18n.T(c, "preview_notice")) }
 
 // pick is a row of the picker.
 type pick struct {
@@ -137,7 +137,7 @@ func portDialogs(c *ui.Context, s *State, h *Host) {
 				// The forward is listed; the preview opens no port.
 				h.Ports = append(h.Ports, x)
 				pk.adding = false
-				c.Toast(i18n.T(c, "preview_notice"))
+				kit.Message(c, i18n.T(c, "preview_notice"))
 			})
 		})
 	}).Width(min(420, w-48)).Label(title)

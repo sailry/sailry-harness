@@ -22,9 +22,12 @@ the target as their assigned backend phases land; their presence here does not
 claim implementation or platform acceptance.
 
 B1 supplies the shared v1 protocol and wire codec. B2 adds profile ownership,
-confined files and storage initialization behind an explicit `--data-dir`;
-the desktop still shows preview data. The storage engine is the plan's SQLite
-fallback after the required Turso load failed. Live Client wiring is B3.
+confined files and storage initialization. The storage engine is the plan's
+SQLite fallback after the required Turso load failed. B3 adds the local Node,
+durable command admission, cursor subscriptions, Client projection and live
+desktop sidebar, notification centre and controller preferences. Desktop starts
+live by default; `--preview` selects the isolated fixture UI without opening a
+profile. Execution and remote services arrive in later phases.
 
 ## System context
 

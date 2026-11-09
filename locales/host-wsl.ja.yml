@@ -1,0 +1,7 @@
+host_wsl: "WSL"
+host_wsl_distribution: "ディストリビューション"
+host_wsl_requirement: "WSL2、GNU Linux x64/arm64、systemd が必要です"
+host_wsl_empty: "WSL2 ディストリビューションが未インストールです"
+host_wsl_lifetime: "WSL が停止すると Host も停止します"
+host_wsl_refresh: "更新"
+host_wsl_load_failed: "WSL ディストリビューションを読み込めません"

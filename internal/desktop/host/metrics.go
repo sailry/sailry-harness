@@ -24,9 +24,15 @@ func MetricsPanel(c *ui.Context, s *State, h *Host) {
 		ui.Text(c, i18n.T(c, "metrics_title")).FontSize(14).SingleLine().Grow(1).Shrink(1)
 	})
 	ui.Scroll(c.Key("metrics")).Grow(1).MinHeight(0).Padding(16).Gap(16).Children(func() {
-		ui.Text(c, i18n.T(c, "metrics_preview")).FontSize(14).TextColor(p.MutedForeground)
+		if !h.Live {
+			ui.Text(c, i18n.T(c, "metrics_preview")).FontSize(14).TextColor(p.MutedForeground)
+		}
 		ui.Text(c, i18n.T(c, h.Name)).FontSize(14).SingleLine()
 		m := h.Metrics
+		if h.Live && m == nil {
+			kit.Result(c, kit.ResultProps{Title: i18n.T(c, "unavailable")})
+			return
+		}
 		if m == nil {
 			if h.MetricsError == "" {
 				ui.Progress(c.Key("loading"), -1).FillWidth().Height(4).Label(i18n.T(c, "metrics_loading"))

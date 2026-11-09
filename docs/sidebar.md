@@ -100,14 +100,12 @@ folder button (`directory_title`, preview toast). Save preview checks
 `CheckClone` (`project_clone_required`) and toasts the failure, keeping
 the draft.
 
-## Wiring a backend
+## Backend ownership
 
-Fill `preview.Data`'s projects and conversations from the snapshot (or
-replace the type with the backend's, keeping the fields above). Persist
-pins (`Pinned`, `PinOrder`) in the preferences as `pins.rs` does. The
-actions that show `preview_notice` become requests: rename and archive
-send their commands with the expected revision and report outcomes as
-toasts only; the editor's save sends Create/UpdateProject.
+The B3 live adapter, controller preferences and remaining phase boundaries are
+specified in [B3 live wiring](#b3-live-wiring). The preview remains an explicit,
+separate constructor and does not own backend facts. Later feature phases supply
+their owning Client actions and projections without changing the accepted UI.
 
 ## UI state vs backend data
 
@@ -135,3 +133,34 @@ project and removes it. `internal/desktop/shell/shell_test.go`: Show more.
 | The pinned group does not append the host's running sessions | The preview has one host's pins only |
 | Chats keep the 5-row limit | Phase 1's accepted behavior; the reference scrolls a 7.4 rem box |
 | No terminals in the tree; the sidebar metrics footer is not shown | Terminals come with the terminal work; metrics are off by default |
+
+## B3 live wiring
+
+Sidebar.State consumes neutral `viewmodel.Data`; preview type aliases keep the
+accepted preview behavior. Optional sidebar.Actions routes live mutations to the
+Client. Names, ownership, session/attention revisions and project appearance are
+captured in the presentation records. Inline rename retains the record captured
+when editing started; project edits retain the complete expected Project.
+Pending saves disable controls, keep their drafts on failure/conflict/unknown,
+and ignore a completion after the editor has opened a different draft.
+
+`live.Sidebar` projects visible projects, worktrees and sessions. Default ordering
+preserves the Node's creation/manual authority order. Updated ordering is stable,
+puts never-run sessions first, then uses finished/started time descending. Recent
+keeps creation order. Shared Client activity lanes supply running, waiting and
+finished-unread status. SessionsRemoved replaces presentation data and prunes
+panes; project removal hides its sessions without changing project files/history.
+
+Rename/archive/read/remove dispatch the corresponding v1 commands. Session read
+uses AttentionRevision; rename/archive/remove use Revision. Project creation is
+local only in B3, and UpdateProject/RemoveProject carry the complete captured
+expected Project. Directory selection is supplied by the native window adapter.
+Directory open uses the system opener; new-window navigation shares the Node and
+Client through the application window factory.
+
+Pins are controller preferences keyed by lowercase NodeID/session ID. Unordered
+legacy pins precede ordered ones. Large u64 orders map to presentation ranks
+without integer overflow, while persisted values remain unchanged. Pin reordering
+never dispatches SetSessionOrder. Archived/removed resources lose their current
+Node's pins. Empty drafts remain UI-local and create no persisted session until
+B4's first-send path. Unsupported later actions remain unavailable.

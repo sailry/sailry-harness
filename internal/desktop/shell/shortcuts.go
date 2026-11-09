@@ -154,9 +154,18 @@ func (a *App) run(c *ui.Context, id string) {
 		a.Sidebar.NewChat()
 	case "project.new":
 		a.Sidebar.OpenEditor(nil)
-	case "folder.open", "host.refresh":
-		// Opening a folder reads the disk; a sync asks the Node.
-		c.Toast(i18n.T(c, "preview_notice"))
+	case "folder.open":
+		if a.Hooks.OpenFolder != nil {
+			a.Hooks.OpenFolder()
+		} else {
+			kit.Message(c, i18n.T(c, "preview_notice"))
+		}
+	case "host.refresh":
+		if a.Hooks.Refresh != nil {
+			a.Hooks.Refresh()
+		} else {
+			kit.Message(c, i18n.T(c, "preview_notice"))
+		}
 	case "app.search":
 		a.search.open = !a.search.open
 	case "sidebar.toggle":

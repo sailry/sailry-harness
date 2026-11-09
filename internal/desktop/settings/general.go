@@ -12,6 +12,10 @@ var (
 	telemetryMessages = Messages{"telemetry_saved", "telemetry_failed", "telemetry_conflict", "telemetry_unknown"}
 )
 
+// PowerMessages and TelemetryMessages are shared with the live action adapter.
+var PowerMessages = powerMessages
+var TelemetryMessages = telemetryMessages
+
 // notifications are the notification switches, in Notify's order.
 var notifications = []string{"settings_notify_system", "settings_notify_approval", "settings_notify_completed", "settings_notify_failed"}
 
@@ -23,8 +27,12 @@ func general(c *ui.Context, m *Model) {
 			if choose(c, "language", i18n.T(c, "settings_language"), "", &m.Language, labels(c, Languages), 192) {
 				kit.Toast(c, kit.Done, i18n.T(c, "settings_language_restart"))
 			}
-			if kit.SwitchRow(c, "power", i18n.T(c, "power_prevent_sleep"), i18n.T(c, "power_prevent_sleep_description"), &m.Power.Draft) {
-				report(c, m.Power.Commit(), powerMessages)
+			if settingSwitch(c, "power", i18n.T(c, "power_prevent_sleep"), i18n.T(c, "power_prevent_sleep_description"), &m.Power.Draft, m.Power.Pending) {
+				if m.SavePower != nil {
+					m.SavePower()
+				} else {
+					report(c, m.Power.Commit(), powerMessages)
+				}
 			}
 			kit.SwitchRow(c, "metrics", i18n.T(c, "settings_sidebar_metrics"), "", &m.SidebarMetrics)
 		})
@@ -51,17 +59,25 @@ func telemetry(c *ui.Context, m *Model) {
 	t := &m.Telemetry
 	kit.Group(c, "telemetry", i18n.T(c, "telemetry_title"), "", nil, func() {
 		kit.Card(c, func() {
-			if kit.SwitchRow(c, "errors", i18n.T(c, "telemetry_errors"), i18n.T(c, "telemetry_errors_description"), &t.Draft.Errors) {
-				report(c, t.Commit(), telemetryMessages)
+			if settingSwitch(c, "errors", i18n.T(c, "telemetry_errors"), i18n.T(c, "telemetry_errors_description"), &t.Draft.Errors, t.Pending) {
+				if m.SaveTelemetry != nil {
+					m.SaveTelemetry()
+				} else {
+					report(c, t.Commit(), telemetryMessages)
+				}
 			}
-			if kit.SwitchRow(c, "metrics", i18n.T(c, "telemetry_metrics"), i18n.T(c, "telemetry_metrics_description"), &t.Draft.Metrics) {
-				report(c, t.Commit(), telemetryMessages)
+			if settingSwitch(c, "metrics", i18n.T(c, "telemetry_metrics"), i18n.T(c, "telemetry_metrics_description"), &t.Draft.Metrics, t.Pending) {
+				if m.SaveTelemetry != nil {
+					m.SaveTelemetry()
+				} else {
+					report(c, t.Commit(), telemetryMessages)
+				}
 			}
 			kit.Row(c, "identity", i18n.T(c, "telemetry_identity"), "", func() {
-				small(c, "reset", i18n.T(c, "telemetry_reset_action")).OnClick(func() { notice(c) })
+				small(c, "reset", i18n.T(c, "telemetry_reset_action")).Disabled(m.Live).OnClick(func() { notice(c) })
 			})
 			kit.Row(c, "support", i18n.T(c, "telemetry_support"), "", func() {
-				small(c, "send", i18n.T(c, "telemetry_send_action")).OnClick(func() { notice(c) })
+				small(c, "send", i18n.T(c, "telemetry_send_action")).Disabled(m.Live).OnClick(func() { notice(c) })
 			})
 			ui.Text(c, i18n.T(c, "telemetry_excludes")).FontSize(14).Padding(12, 0).TextColor(p.MutedForeground)
 		})
@@ -71,6 +87,14 @@ func telemetry(c *ui.Context, m *Model) {
 // small is Kit's small outline button.
 func small(c *ui.Context, key any, label string) ui.Element {
 	return kit.Secondary(c.Key(key), label).Height(28).PaddingX(10)
+}
+
+// Kit's switch row has no disabled parameter. Keep its composition while a
+// revisioned save owns the draft, so another toggle cannot race that save.
+func settingSwitch(c *ui.Context, key any, title, description string, on *bool, pending bool) bool {
+	changed := false
+	kit.Row(c, key, title, description, func() { changed = ui.Switch(c.Key("switch"), on).Label(title).Disabled(pending).Changed() })
+	return changed
 }
 
 // labels translates i18n keys.

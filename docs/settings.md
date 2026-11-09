@@ -158,24 +158,12 @@ placeholder in an empty masked input.
 | Model library | search, details | in memory |
 | Model library | install, cancel | preview_notice; delete confirms |
 
-## Wiring a backend
+## Backend ownership
 
-- Load each `Stored` from its Node read (power, telemetry, sandbox,
-  terminal, hooks, python index, local models, backup) and set `Revision`.
-- Replace `Stored.Commit` with the revisioned request: set `Pending`, send
-  `Draft` with `Revision`, and return the outcome. `report` maps it to the
-  section's `Messages`: `kit.Failed` keeps the draft, `kit.Conflict` keeps
-  it until reloaded, `kit.Uncertain` for a request whose result is unknown.
-- Persist the app preferences (preferences.rs) and apply `SessionOrder`
-  (sidebar), `MessageDisplay` and `TextSize` (conversation), `Font`,
-  `FontSize`, `PasteProtection` (terminal), `Notify`, `Toast` (toasts).
-- Rebuild the native menu when `Keys` changes so its accelerators follow,
-  and register the system shortcuts (`System`) with the OS.
-- Replace the preview_notice actions with the real requests; the
-  dialogs already collect what they need.
-- Drive `Updater` from updater/service.rs: replace `advance` with the
-  service's state, the buttons with check, cancel, download, install and
-  restart.
+The B3 live adapter, controller preferences and remaining phase boundaries are
+specified in [B3 live wiring](#b3-live-wiring). The preview remains an explicit,
+separate constructor and does not own backend facts. Later feature phases supply
+their owning Client actions and projections without changing the accepted UI.
 
 ## UI state vs backend data
 
@@ -256,3 +244,49 @@ the app preferences.
   inline. Dictation has no Manage models: its speech models are in the
   page's Installed and Available tabs, as the local-model pages show
   theirs.
+
+## B3 live wiring
+
+`settings.NewLive` constructs controller defaults without any fixture constructor
+or simulated loading state. General, Appearance, Conversation and Shortcuts retain
+the accepted layout. Other settings and Market pages show the existing unavailable
+state until their owning phases; live controls never call preview commits.
+
+The live adapter loads ReadPowerSettings and ReadTelemetrySettings off the UI
+thread. It sets Pending while reading/saving, captures each draft/revision and
+sends SavePowerSettings/SaveTelemetrySettings. Completion runs through the shell's
+UI queue and uses the same power/telemetry outcome messages. Failures, conflicts
+and unknown results retain Draft. External power revisions trigger a fresh read;
+a failed read is not retried on every frame. Telemetry's installation identity
+remains Node-owned and never enters an update. These settings are storage-only
+in B3; wake assertions and telemetry sending belong to B13.
+
+`internal/desktop/preferences` owns `<profile>/desktop/preferences.json` and the
+complete v1 Rust Data format, including later-feature nullable fields, the sessions
+alias for pins and deterministic map serialization. Surface percentages convert
+to theme fractions; null sidebar opacity means 45 percent and absent blur uses
+the existing default. Go blur is omitted until changed. Unknown/unreadable files
+remain untouched and cannot be overwritten. Save failures keep editable values
+and report only a toast.
+
+The shared Store synchronizes controller choices across windows and serializes
+versioned immutable writes. Language, notification categories, toast duration,
+sidebar metrics, appearance/effects/materials, session ordering, message display,
+text size, shortcut overrides and welcome state persist. The application callback
+applies locale, native menu accelerators/global shortcuts and toast duration.
+Shortcut values retain portable secondary/ctrl/alt/shift notation; empty values
+mean disabled. The window UI file keeps its existing layout responsibilities.
+
+`TestPrefsRoundTrip` covers the full serde fixture, the Go blur extension, legacy
+pins, omitted optional defaults, unreadable/failed saves, startup detection and
+stale multiwindow writes. `TestSidebarProjection` and `TestNoticesProjection`
+exercise the live presentation boundary. The coordinator runs executable gates.
+
+Expiring Kit success, info and uncertain toasts read the selected duration from
+the current window root. Explicit persistent error/conflict timeouts remain
+unchanged. The shell installs these preferences before controls render, and live
+refreshes them before draining asynchronous outcomes. Message text size uses the
+same window scope: user bubbles inherit its DIP size and the reply's caller-owned
+Markdown theme scales body typography. The default remains 14 DIPs and preserves
+the approved layout. Palette changes still refresh the Markdown theme and MyGo
+invalidates retained text geometry when typography changes.

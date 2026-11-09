@@ -9,83 +9,23 @@ import (
 
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 )
 
-// Status is a conversation's state in the sidebar.
-type Status int
+type Status = viewmodel.Status
+type Conversation = viewmodel.Conversation
+type Project = viewmodel.Project
+type Data = viewmodel.Data
+type Model = viewmodel.Model
+type Provider = viewmodel.Provider
+type Plugin = viewmodel.Plugin
 
 const (
-	Idle Status = iota
-	Running
-	Unread
-	Waiting
+	Idle    = viewmodel.Idle
+	Running = viewmodel.Running
+	Unread  = viewmodel.Unread
+	Waiting = viewmodel.Waiting
 )
-
-type Conversation struct {
-	ID     string
-	Title  string
-	Status Status
-	Pinned bool
-	// PinOrder is where a pin goes among the pinned: nil for a pin made before
-	// pins had an order.
-	PinOrder *int
-	Archived bool
-	Updated  time.Time
-	// Created is the order the conversation was made in, newest highest.
-	Created  int
-	Worktree string // the branch of its worktree; "" is the project's main one
-	Turns    []conversation.Turn
-	// Waiting is what the running reply waits on the user for.
-	Waiting composer.Interactions
-	// Queue is the messages sent while the reply runs.
-	Queue  []composer.Queued
-	queued int // the queue's messages made so far
-	// Commands are its background commands; Badges the plugins' Status
-	// badges over its composer (the goals plugin's goal).
-	Commands []composer.Command
-	Badges   []composer.StatusBadge
-	// Session is the conversation around its turns: older pages, the
-	// connection, a diagnostic and usage.
-	Session conversation.Session
-
-	stream *stream             // the reply the preview plays after a send
-	older  []conversation.Turn // the turns before the first shown
-	paging time.Time           // when the page asked for started loading
-}
-
-type Project struct {
-	ID            string
-	Name          string
-	Path          string
-	Branch        string
-	Host          string // the Host's ID
-	Worktrees     []Worktree
-	Trusted       bool
-	Conversations []*Conversation
-}
-
-// Data is the whole dataset.
-type Data struct {
-	Projects   []*Project
-	Unassigned []*Conversation // chats without a project
-	Models     []Model
-	Providers  []Provider
-	Plugins    []Plugin
-	*Workspace
-}
-
-type Model = composer.Model
-
-type Provider struct {
-	ID, Name, Description string
-	Badge                 string // i18n key or ""
-	Enabled               bool
-}
-
-type Plugin struct {
-	ID, Name, Description, Version string
-	Official, Enabled              bool
-}
 
 // Now is the fixed clock of the dataset, so ages render the same in tests.
 var Now = time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)
@@ -156,7 +96,7 @@ func Load() *Data {
 			{ID: Big + "/queued-2/report", Name: "benchmarks.md", Mime: "text/markdown", Size: 2458, Status: composer.Ready, Progress: 1},
 		}},
 	}
-	big.queued = 2
+	simulation(big).queued = 2
 	big.Commands, big.Badges = background(), []composer.StatusBadge{goal()}
 	for _, p := range d.Projects {
 		p.Host, p.Trusted = "local", true
@@ -188,51 +128,22 @@ func Load() *Data {
 	d.Unassigned[len(d.Unassigned)-1].Session.Loading = true
 	d.Models = models()
 	d.Providers = []Provider{
-		{"anthropic", "Anthropic", "Claude models with OAuth or an API key", "provider_auth_oauth", true},
-		{"openai", "OpenAI", "GPT models through the Responses API", "provider_auth_key", true},
-		{"google", "Google", "Gemini models through AI Studio", "provider_status_missing_key", false},
-		{"openrouter", "OpenRouter", "Hundreds of models behind one key", "provider_auth_key", false},
-		{"ollama", "Ollama", "Local models on this computer", "provider_auth_plugin", true},
-		{"deepseek", "DeepSeek", "DeepSeek chat and reasoning models", "provider_status_signed_out", false},
+		{ID: "anthropic", Name: "Anthropic", Description: "Claude models with OAuth or an API key", Badge: "provider_auth_oauth", Enabled: true},
+		{ID: "openai", Name: "OpenAI", Description: "GPT models through the Responses API", Badge: "provider_auth_key", Enabled: true},
+		{ID: "google", Name: "Google", Description: "Gemini models through AI Studio", Badge: "provider_status_missing_key", Enabled: false},
+		{ID: "openrouter", Name: "OpenRouter", Description: "Hundreds of models behind one key", Badge: "provider_auth_key", Enabled: false},
+		{ID: "ollama", Name: "Ollama", Description: "Local models on this computer", Badge: "provider_auth_plugin", Enabled: true},
+		{ID: "deepseek", Name: "DeepSeek", Description: "DeepSeek chat and reasoning models", Badge: "provider_status_signed_out", Enabled: false},
 	}
 	d.Plugins = []Plugin{
-		{"git", "Git", "Branches, diffs and commits in conversations", "0.3.2", true, true},
-		{"terminal", "Terminal", "Ghostty terminals beside the conversation", "0.2.0", true, true},
-		{"browser", "Browser", "Pages the agent reads and annotates", "0.1.4", true, false},
-		{"knowledge", "Knowledge", "Local documents searched by meaning", "0.1.1", true, true},
-		{"figma", "Figma", "Frames and comments from design files", "0.1.0", false, false},
-		{"linear", "Linear", "Issues linked to conversations", "0.2.3", false, true},
+		{ID: "git", Name: "Git", Description: "Branches, diffs and commits in conversations", Version: "0.3.2", Official: true, Enabled: true},
+		{ID: "terminal", Name: "Terminal", Description: "Ghostty terminals beside the conversation", Version: "0.2.0", Official: true, Enabled: true},
+		{ID: "browser", Name: "Browser", Description: "Pages the agent reads and annotates", Version: "0.1.4", Official: true, Enabled: false},
+		{ID: "knowledge", Name: "Knowledge", Description: "Local documents searched by meaning", Version: "0.1.1", Official: true, Enabled: true},
+		{ID: "figma", Name: "Figma", Description: "Frames and comments from design files", Version: "0.1.0", Official: false, Enabled: false},
+		{ID: "linear", Name: "Linear", Description: "Issues linked to conversations", Version: "0.2.3", Official: false, Enabled: true},
 	}
 	return d
-}
-
-// Find returns the conversation with id.
-func (d *Data) Find(id string) *Conversation {
-	for _, p := range d.Projects {
-		for _, c := range p.Conversations {
-			if c.ID == id {
-				return c
-			}
-		}
-	}
-	for _, c := range d.Unassigned {
-		if c.ID == id {
-			return c
-		}
-	}
-	return nil
-}
-
-// ProjectOf returns the project holding the conversation, nil when none.
-func (d *Data) ProjectOf(id string) *Project {
-	for _, p := range d.Projects {
-		for _, c := range p.Conversations {
-			if c.ID == id {
-				return p
-			}
-		}
-	}
-	return nil
 }
 
 // waiting is what a live reply waits on: two approvals, one a change set,

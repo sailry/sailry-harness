@@ -1,5 +1,10 @@
 # Conversation transcript
 
+B3 installs the controller's message text size in window-scoped Kit preferences.
+User bubbles and reply Markdown use 12, 14, 16 or 18 DIPs; the default stays 14.
+The transcript retains a caller-owned Markdown theme for its palette/size pair,
+so shared Kit themes remain immutable and dynamic theme changes still apply.
+
 The transcript of the selected conversation: a virtualized list of turns,
 each a user message and the assistant's reply, with the jump button over
 it. It matches the reference implementation `conversation/live/messages.rs`,

@@ -16,6 +16,7 @@ import (
 // existing one's name and path.
 type Editor struct {
 	Open    bool
+	Pending bool
 	Project *preview.Project // nil for a new project
 	Clone   int              // 0 local, 1 clone (new projects only)
 	Name    string
@@ -31,6 +32,7 @@ func (s *State) Editing() bool { return s.editor.Open }
 
 // OpenEditor opens the project editor for pr, or for a new project.
 func (s *State) OpenEditor(pr *preview.Project) {
+	s.editorGeneration++
 	s.editor = Editor{Open: true, Project: pr}
 	if pr != nil {
 		s.editor.Name, s.editor.Path = pr.Name, pr.Path
@@ -125,17 +127,19 @@ func (s *State) editorDialog(c *ui.Context) {
 	kit.Dialog(c.Key("editor"), &e.Open, func() {
 		ui.Column(c.Key("head")).Gap(6).Children(func() {
 			ui.Text(c, title).FontSize(16).FontWeight(600)
-			ui.Text(c, i18n.T(c, "project_editor_preview")).FontSize(14).TextColor(p.MutedForeground)
+			if s.Actions == nil {
+				ui.Text(c, i18n.T(c, "project_editor_preview")).FontSize(14).TextColor(p.MutedForeground)
+			}
 		})
 		ui.Scroll(c.Key("body")).Grow(1).Shrink(1).Gap(12).Children(func() {
-			if e.Project == nil {
+			if e.Project == nil && s.Actions == nil {
 				kit.Segmented(c, "source", &e.Clone, []string{i18n.T(c, "project_local"), i18n.T(c, "project_clone")}, kit.SegmentedProps{Block: true})
 			}
 			kit.Field(c, "name", i18n.T(c, "project_name"), "", func() {
-				ui.TextInput(c.Key("input"), &e.Name).Placeholder(i18n.T(c, "project_name_placeholder")).Label(i18n.T(c, "project_name")).FillWidth()
+				ui.TextInput(c.Key("input"), &e.Name).Placeholder(i18n.T(c, "project_name_placeholder")).Label(i18n.T(c, "project_name")).FillWidth().Disabled(e.Pending)
 			})
 			kit.Field(c, "host", i18n.T(c, "project_host"), "", func() {
-				b, _ := kit.Select(c.Key("select"), "project-host", i18n.T(c, "project_host"), &e.Host, hosts, e.Project != nil)
+				b, _ := kit.Select(c.Key("select"), "project-host", i18n.T(c, "project_host"), &e.Host, hosts, e.Project != nil || e.Pending)
 				b.FillWidth()
 			})
 			if e.Clone == 1 && e.Project == nil {
@@ -156,17 +160,27 @@ func (s *State) editorDialog(c *ui.Context) {
 			}
 			kit.Field(c, "path", label, hint, func() {
 				ui.Row(c).Gap(6).Children(func() {
-					ui.TextInput(c.Key("input"), &e.Path).Placeholder(i18n.T(c, "project_path_placeholder")).Label(label).Grow(1)
+					ui.TextInput(c.Key("input"), &e.Path).Placeholder(i18n.T(c, "project_path_placeholder")).Label(label).Grow(1).Disabled(e.Pending)
 					// The folder picker would read the disk.
 					kit.IconButton(c.Key("browse"), icons.FolderOpen, i18n.T(c, "directory_title"), 32, false).
-						Border(1, p.Input).OnClick(func() { notice(c) })
+						Border(1, p.Input).Disabled(e.Pending).OnClick(func() {
+						if s.Actions != nil && s.Actions.Browse != nil {
+							s.Actions.Browse(hostID, func(path string) { e.Path = path })
+						} else {
+							s.notice(c)
+						}
+					})
 				})
 			})
 		})
 		ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
 			kit.Secondary(c.Key("cancel"), i18n.T(c, "settings_cancel")).OnClick(func() { e.Open = false })
-			save := i18n.T(c, "settings_save_preview")
-			kit.Primary(c.Key("save"), save, false).Children(func() { ui.Text(c, save).FontSize(14) }).OnClick(func() {
+			saveKey := "settings_save_preview"
+			if s.Actions != nil {
+				saveKey = "settings_save"
+			}
+			save := i18n.T(c, saveKey)
+			kit.Primary(c.Key("save"), save, false).Disabled(e.Pending).Children(func() { ui.Text(c, save).FontSize(14) }).OnClick(func() {
 				problem := CheckProject(e.Name, e.Path, hostID, s.Data.Projects, e.Project)
 				if e.Clone == 1 && e.Project == nil {
 					problem = CheckClone(e.Name, e.Repo, e.Path)
@@ -184,6 +198,21 @@ func (s *State) editorDialog(c *ui.Context) {
 // saveProject applies the editor's draft to the preview, in memory.
 func (s *State) saveProject(host string) {
 	e := &s.editor
+	if s.Actions != nil && s.Actions.SaveProject != nil {
+		e.Pending = true
+		draft := *e
+		generation := s.editorGeneration
+		s.Actions.SaveProject(draft, host, func(ok bool) {
+			if generation != s.editorGeneration {
+				return
+			}
+			e.Pending = false
+			if ok {
+				e.Open = false
+			}
+		})
+		return
+	}
 	name, path := strings.TrimSpace(e.Name), strings.TrimSpace(e.Path)
 	if e.Clone == 1 && e.Project == nil {
 		path = Destination(path, name)

@@ -1,0 +1,7 @@
+browser_annotation: "要素"
+browser_annotation_note: "注釈（任意）"
+browser_annotation_add: "会話に追加"
+browser_annotation_stale: "ページまたは会話が変更されました"
+browser_annotation_invalid: "選択した要素を読み取れませんでした"
+browser_annotation_unavailable: "選択した要素を撮影できませんでした"
+browser_annotation_truncated: "テキストは省略されています"

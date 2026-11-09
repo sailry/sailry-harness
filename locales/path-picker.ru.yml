@@ -1,0 +1,8 @@
+path_picker_choose: "Выбрать"
+path_picker_replace: "Изменить"
+path_picker_remove: "Убрать"
+path_picker_empty: "Ничего не выбрано"
+path_picker_drop_hint: "или перетащите сюда"
+path_picker_release: "Отпустите, чтобы добавить"
+path_picker_unsupported: "Этот тип не поддерживается"
+path_picker_target: "Загрузить на %{name}"

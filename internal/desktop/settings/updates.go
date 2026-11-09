@@ -196,7 +196,7 @@ func updates(c *ui.Context, m *Model) {
 func (u *Updater) notify(c *ui.Context) {
 	if u.State == UpdateReady && u.shown != UpdateReady {
 		version := u.Version
-		c.AddToast(ui.Toast{Type: "success", Title: i18n.T(c, "updates_ready", "version", version), Action: i18n.T(c, "updates_install"),
+		c.AddToast(ui.Toast{Type: "success", Title: i18n.T(c, "updates_ready", "version", version), Timeout: kit.ToastDuration(c), Action: i18n.T(c, "updates_install"),
 			OnAction: func() {
 				if u.State == UpdateReady && u.Version == version {
 					u.confirm = true

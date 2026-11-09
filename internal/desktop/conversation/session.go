@@ -82,7 +82,7 @@ func diagnostic(c *ui.Context, d *Diagnostic) {
 			ui.Text(c, d.Title).FontSize(14).FontWeight(500).Grow(1).TextColor(p.Danger)
 			kit.IconButton(c.Key("copy"), icons.Copy, i18n.T(c, "content_copy"), 28, false).OnClick(func() {
 				c.WriteClipboard(DiagnosticText(d))
-				c.Toast(i18n.T(c, "content_copied"))
+				kit.Message(c, i18n.T(c, "content_copied"))
 			})
 		})
 		for i, f := range d.Fields {
@@ -147,7 +147,7 @@ func selection(c *ui.Context, turn ui.Element, actions Actions) {
 		pill("quote", i18n.T(c, "message_quote"), func() { actions.Quote(Quote(text)) })
 		pill("copy", i18n.T(c, "message_copy"), func() {
 			c.WriteClipboard(text)
-			c.Toast(i18n.T(c, "content_copied"))
+			kit.Message(c, i18n.T(c, "content_copied"))
 		})
 	})
 }

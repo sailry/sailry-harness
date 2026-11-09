@@ -1,0 +1,3 @@
+notebook_cell: "セル %{number}"
+notebook_more: "セルをもっと表示"
+notebook_empty: "セルがありません"

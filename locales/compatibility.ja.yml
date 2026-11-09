@@ -1,0 +1,7 @@
+host_version_older: "Host が古いため、Host を更新してください"
+host_version_newer: "Host が新しいため、デスクトップを更新してください"
+host_version_unknown: "Host のバージョンを確認できません。Host を更新してください"
+controller_version_unknown: "デスクトップのバージョンを確認できません。更新してください"
+compatibility_update_unavailable: "このバージョンはまだ自動更新できません"
+host_updated: "Host を更新しました"
+host_update_restart: "この Host は再起動し、実行中のタスクは停止します"

@@ -1,0 +1,7 @@
+browser_annotation: "Elemento"
+browser_annotation_note: "Anotação (opcional)"
+browser_annotation_add: "Adicionar à conversa"
+browser_annotation_stale: "A página ou conversa mudou"
+browser_annotation_invalid: "Não foi possível ler o elemento selecionado"
+browser_annotation_unavailable: "Não foi possível capturar o elemento selecionado"
+browser_annotation_truncated: "Texto truncado"

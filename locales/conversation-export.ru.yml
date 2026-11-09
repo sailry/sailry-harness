@@ -1,0 +1,6 @@
+conversation_export: "Экспорт"
+conversation_export_markdown: "Markdown"
+conversation_export_html: "HTML"
+conversation_exported: "Экспортировано"
+conversation_export_failed: "Не удалось экспортировать разговор"
+conversation_export_image: "Изображение"

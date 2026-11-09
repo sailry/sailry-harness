@@ -1,6 +1,8 @@
 package sidebar
 
 import (
+	"net/url"
+	"os"
 	"slices"
 
 	"github.com/egoist/mygo/ui"
@@ -12,7 +14,15 @@ import (
 
 // notice tells that an action would leave the preview: it would write
 // files, run git, a terminal or a model.
-func notice(c *ui.Context) { c.Toast(i18n.T(c, "preview_notice")) }
+func notice(c *ui.Context) { kit.Message(c, i18n.T(c, "preview_notice")) }
+
+func (s *State) notice(c *ui.Context) {
+	if s.Actions != nil {
+		kit.Notify(c, "", i18n.T(c, "unavailable"))
+	} else {
+		notice(c)
+	}
+}
 
 // sessionMenu is a session row's right-click menu, the system's, with the
 // reference's items in its order. Actions on the preview's rows change them
@@ -34,7 +44,9 @@ func (s *State) sessionMenu(c *ui.Context, m *ui.Menu, cv *preview.Conversation)
 		read = t("session_mark_read")
 	}
 	if m.Item(read).Disabled(cv.Status == preview.Running || cv.Status == preview.Waiting).Chosen() {
-		if cv.Status == preview.Unread {
+		if s.Actions != nil && s.Actions.Read != nil {
+			s.Actions.Read(cv, cv.Status == preview.Unread)
+		} else if cv.Status == preview.Unread {
 			cv.Status = preview.Idle
 		} else {
 			cv.Status = preview.Unread
@@ -58,13 +70,13 @@ func (s *State) sessionMenu(c *ui.Context, m *ui.Menu, cv *preview.Conversation)
 			c.WriteClipboard(cv.ID)
 		}
 		if m.Item(t("workspace_copy_path")).Disabled(pr == nil).Chosen() {
-			c.WriteClipboard(pr.Path)
+			c.WriteClipboard(sessionPath(pr, cv))
 		}
 	})
 	m.Submenu(t("conversation_export"), func(m *ui.Menu) {
 		for _, key := range []string{"conversation_export_markdown", "conversation_export_html", "conversation_export_image"} {
 			if m.Item(t(key)).Chosen() {
-				notice(c)
+				s.notice(c)
 			}
 		}
 	})
@@ -72,18 +84,31 @@ func (s *State) sessionMenu(c *ui.Context, m *ui.Menu, cv *preview.Conversation)
 	busy := cv.Status == preview.Running || cv.Status == preview.Waiting
 	m.Submenu(t("session_fork"), func(m *ui.Menu) {
 		if m.Item(t("session_fork_here")).Disabled(busy || pr == nil).Chosen() {
-			notice(c)
+			s.notice(c)
 		}
 		if m.Item(t("session_fork_worktree")).Disabled(busy || pr == nil).Chosen() {
-			notice(c)
+			s.notice(c)
 		}
 	})
 	m.Separator()
 	if m.Item(t("files_open")).Disabled(pr == nil).Chosen() {
-		notice(c)
+		if s.Actions != nil {
+			path := sessionPath(pr, cv)
+			if _, err := os.Stat(path); err != nil {
+				kit.Toast(c, kit.Failed, t("files_open_failed"))
+			} else {
+				c.OpenURL((&url.URL{Scheme: "file", Path: path}).String())
+			}
+		} else {
+			s.notice(c)
+		}
 	}
 	if m.Item(t("session_new_window")).Chosen() {
-		notice(c)
+		if s.Actions != nil && s.Actions.OpenWindow != nil {
+			s.Actions.OpenWindow(cv.ID)
+		} else {
+			s.notice(c)
+		}
 	}
 }
 
@@ -91,7 +116,7 @@ func (s *State) sessionMenu(c *ui.Context, m *ui.Menu, cv *preview.Conversation)
 func (s *State) projectMenu(c *ui.Context, m *ui.Menu, pr *preview.Project) {
 	t := func(key string) string { return i18n.T(c, key) }
 	if m.Item(t("workspace_project")).Chosen() {
-		notice(c)
+		s.notice(c)
 	}
 	m.Separator()
 	if m.Item(t("workspace_new_session")).Chosen() {
@@ -99,7 +124,7 @@ func (s *State) projectMenu(c *ui.Context, m *ui.Menu, pr *preview.Project) {
 	}
 	for _, key := range []string{"workspace_new_terminal", "workspace_records"} {
 		if m.Item(t(key)).Chosen() {
-			notice(c)
+			s.notice(c)
 		}
 	}
 	if m.Item(t("project_edit")).Chosen() {
@@ -110,34 +135,38 @@ func (s *State) projectMenu(c *ui.Context, m *ui.Menu, pr *preview.Project) {
 	}
 	m.Submenu(t("worktree_manage"), func(m *ui.Menu) {
 		if m.Item(t("worktree_create")).Chosen() {
-			notice(c)
+			s.notice(c)
 		}
 		m.Separator()
 		for _, w := range pr.Worktrees {
 			if m.Item(w.Branch).Checked(w.Main).Chosen() {
-				notice(c)
+				s.notice(c)
 			}
 		}
 		if len(pr.Worktrees) > 1 {
 			m.Separator()
 			if m.Item(t("worktree_remove")).Chosen() {
-				notice(c)
+				s.notice(c)
 			}
 		}
 	})
 	m.Separator()
 	if m.Item(t("project_remove")).Chosen() {
 		s.confirm = confirm{open: true, title: t("project_remove"), message: i18n.T(c, "project_remove_named", "name", pr.Path),
-			action: t("project_remove_preview"), run: func() { s.remove(pr) }}
+			action: t(s.removeLabel()), run: func() { s.remove(pr) }}
 	}
 	if m.Item(t("cli_launch")).Chosen() {
-		notice(c)
+		s.notice(c)
 	}
 }
 
 // archive asks before archiving, which in the preview only hides the row
 // (workspace_memory_only).
 func (s *State) archive(c *ui.Context, cv *preview.Conversation) {
+	if s.Actions != nil && s.Actions.Archive != nil {
+		s.confirm = confirm{open: true, title: i18n.T(c, "workspace_archive"), message: i18n.T(c, "session_archive_named", "name", Title(c, cv)), action: i18n.T(c, "workspace_archive"), run: func() { s.Actions.Archive(cv) }}
+		return
+	}
 	s.confirm = confirm{open: true, title: i18n.T(c, "workspace_archive"), message: i18n.T(c, "workspace_memory_only"),
 		action: i18n.T(c, "workspace_confirm"), run: func() {
 			cv.Archived = true
@@ -152,6 +181,10 @@ func (s *State) archive(c *ui.Context, cv *preview.Conversation) {
 // delete takes a conversation out of the preview's memory
 // (RemoveSession); its split pane leaves with it.
 func (s *State) delete(cv *preview.Conversation) {
+	if s.Actions != nil && s.Actions.Delete != nil {
+		s.Actions.Delete(cv)
+		return
+	}
 	drop := func(list []*preview.Conversation) []*preview.Conversation {
 		return slices.DeleteFunc(list, func(x *preview.Conversation) bool { return x == cv })
 	}
@@ -169,6 +202,10 @@ func (s *State) delete(cv *preview.Conversation) {
 
 // remove takes a project out of the preview's memory.
 func (s *State) remove(pr *preview.Project) {
+	if s.Actions != nil && s.Actions.RemoveProject != nil {
+		s.Actions.RemoveProject(pr)
+		return
+	}
 	for i, p := range s.Data.Projects {
 		if p == pr {
 			s.Data.Projects = append(s.Data.Projects[:i:i], s.Data.Projects[i+1:]...)
@@ -184,6 +221,9 @@ func (s *State) remove(pr *preview.Project) {
 // StartRename edits a conversation's title in place.
 func (s *State) StartRename(cv *preview.Conversation) {
 	s.renaming, s.draft = cv.ID, cv.Title
+	s.renameTarget = cv
+	s.renamePending = false
+	s.renameGeneration++
 }
 
 // renameRow is the row of the conversation renamed: an input with its
@@ -192,7 +232,7 @@ func (s *State) StartRename(cv *preview.Conversation) {
 func (s *State) renameRow(c *ui.Context, cv *preview.Conversation) {
 	p := theme.Of(c)
 	commit := func() {
-		if s.renaming != cv.ID {
+		if s.renaming != cv.ID || s.renamePending {
 			return
 		}
 		title, ok := ValidTitle(s.draft)
@@ -200,19 +240,37 @@ func (s *State) renameRow(c *ui.Context, cv *preview.Conversation) {
 			kit.Toast(c, kit.Failed, i18n.T(c, "session_title_required"))
 			return
 		}
+		if s.Actions != nil && s.Actions.Rename != nil {
+			s.renamePending = true
+			generation := s.renameGeneration
+			s.Actions.Rename(s.renameTarget, title, func(ok bool) {
+				if generation != s.renameGeneration {
+					return
+				}
+				s.renamePending = false
+				if ok && s.renaming == cv.ID {
+					s.renaming = ""
+				}
+			})
+			return
+		}
 		cv.Title, s.renaming = title, ""
 	}
 	ui.Row(c.Key(cv.ID)).Height(rowHeight).PaddingStart(indent - 6).PaddingEnd(4).Children(func() {
 		in := ui.TextInputBase(c.Key("rename"), &s.draft).Grow(1).Height(24).PaddingX(6).Radius(p.Radius).
 			Border(1, p.Ring).Background(p.Background).TextColor(p.Foreground).FontSize(14).
-			Label(i18n.T(c, "workspace_rename")).AutoFocus()
+			Label(i18n.T(c, "workspace_rename")).AutoFocus().Disabled(s.renamePending)
 		in.OnSubmit(commit)
 		if in.Shortcut(0, ui.KeyEscape) {
 			s.renaming = ""
 		}
-		if in.FocusLeft() && s.renaming == cv.ID {
+		if in.FocusLeft() && s.renaming == cv.ID && !s.renamePending {
 			// Leaving the input keeps a valid title and gives up an empty one.
 			if title, ok := ValidTitle(s.draft); ok {
+				if s.Actions != nil && s.Actions.Rename != nil {
+					commit()
+					return
+				}
 				cv.Title = title
 			}
 			s.renaming = ""

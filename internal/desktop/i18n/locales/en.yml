@@ -251,6 +251,7 @@ session_fork_here: Fork conversation
 session_fork_worktree: Fork in new worktree
 files_open: Open file
 session_new_window: Open in new window
+session_window_failed: Could not open window
 workspace_open_session: Open session
 project_edit: Edit project
 project_remove: Remove project
@@ -1478,3 +1479,28 @@ background_one: 1 terminal
 background_count: '%{count} terminals'
 background_end: Stop
 port_open_service: Open service
+notification_all: All
+notification_copy_report: Copy report
+notification_report_copied: Report copied
+notification_duration: Duration
+notification_exit_code: Exit code
+notification_open_conversation: Open conversation
+notification_result: Result
+notification_seconds: '%{count} seconds'
+notification_source: Source
+notification_time: Time
+preferences_read_failed: Could not read local settings; check configuration and restart
+preferences_save_failed: Settings not saved; try again
+session_changed: Session changed; try again
+project_changed: Project changed; reopen the editor
+chat_action_failed: Operation failed; try again
+chat_action_unknown: Result unconfirmed; retry the original request
+notification_update_failed: Notifications could not be updated; retry
+session_archive_named: Archive “%{name}” and hide it from active conversations
+power_request_failed: Could not prevent sleep
+plugin_response_timeout: Plugin response timed out
+plugin_metadata_failed: Could not load plugin metadata
+plugin_initialization_failed: Could not initialize plugin
+git_inspection_failed: Could not inspect Git
+plugin_callback_failed: Plugin callback failed
+chat_execution_unknown: Some execution results are unconfirmed

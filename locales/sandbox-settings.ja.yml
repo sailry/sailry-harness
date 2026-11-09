@@ -1,0 +1,8 @@
+settings_execution: "実行"
+settings_command_sandbox: "コマンドサンドボックス"
+settings_command_sandbox_description: "すべてのセッションの次のコマンドに適用"
+sandbox_settings_reload: "再読み込み"
+sandbox_settings_saved: "保存済み"
+sandbox_settings_conflict: "コマンドサンドボックスの設定が変更されました。再読み込みしてください"
+sandbox_settings_failed: "コマンドサンドボックスの設定を読み込みまたは保存できませんでした"
+sandbox_settings_unknown: "コマンドサンドボックスの設定の保存を確認できませんでした。再読み込みしてください"

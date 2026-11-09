@@ -1,0 +1,8 @@
+settings_execution: "Exécution"
+settings_command_sandbox: "Bac à sable des commandes"
+settings_command_sandbox_description: "S’applique aux prochaines commandes de toutes les sessions"
+sandbox_settings_reload: "Recharger"
+sandbox_settings_saved: "Enregistré"
+sandbox_settings_conflict: "Les réglages du bac à sable ont changé ; rechargez-les"
+sandbox_settings_failed: "Impossible de charger ou d’enregistrer les réglages du bac à sable"
+sandbox_settings_unknown: "L’enregistrement n’a pas pu être confirmé ; rechargez pour vérifier"

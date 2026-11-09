@@ -21,6 +21,9 @@ func (a *App) startDownload(name string) {
 // downloadDialog plays the transfer and shows its dialog; as it finishes, a
 // toast tells the outcome: canceled, or that the preview saved nothing.
 func (a *App) downloadDialog(c *ui.Context) {
+	if !a.Preview {
+		return
+	}
 	d := &a.download
 	if d.Name == "" || !d.Open && d.Status == transfers.Finished {
 		return
@@ -36,7 +39,7 @@ func (a *App) downloadDialog(c *ui.Context) {
 		if d.Error == "files_download_cancelled" {
 			kit.Notify(c, "", i18n.T(c, d.Error))
 		} else {
-			c.Toast(i18n.T(c, "preview_notice"))
+			kit.Message(c, i18n.T(c, "preview_notice"))
 		}
 	}
 	transfers.DownloadDialog(c, d, func() {})

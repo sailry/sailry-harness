@@ -1,0 +1,8 @@
+settings_execution: "Ausführung"
+settings_command_sandbox: "Befehlssandbox"
+settings_command_sandbox_description: "Gilt für nachfolgende Befehle in allen Sitzungen"
+sandbox_settings_reload: "Neu laden"
+sandbox_settings_saved: "Gespeichert"
+sandbox_settings_conflict: "Die Einstellungen der Befehlssandbox wurden geändert; bitte neu laden"
+sandbox_settings_failed: "Die Einstellungen der Befehlssandbox konnten nicht geladen oder gespeichert werden"
+sandbox_settings_unknown: "Das Speichern der Einstellungen konnte nicht bestätigt werden; zur Prüfung neu laden"

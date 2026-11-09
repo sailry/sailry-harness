@@ -36,23 +36,15 @@ type stream struct {
 func Send(c *Conversation, text string, now time.Time) {
 	id := fmt.Sprintf("%s/sent-%d", c.ID, len(c.Turns))
 	c.Turns = append(c.Turns, cv.Turn{ID: id, User: text, Reply: cv.Reply{Status: cv.Queued}})
-	c.stream = &stream{start: now, turn: len(c.Turns) - 1}
+	c.Animating = true
+	simulation(c).stream = &stream{start: now, turn: len(c.Turns) - 1}
 	c.Status, c.Updated = Running, Now
-}
-
-// Playing reports a reply the preview is still playing.
-func (c *Conversation) Playing() bool { return c.stream != nil || c.Session.LoadingOlder }
-
-// Running reports a reply that is still going, played or static.
-func (c *Conversation) Running() bool {
-	n := len(c.Turns)
-	return n > 0 && c.Turns[n-1].Reply.Status.Active()
 }
 
 // Advance moves the playing reply to where it is at now.
 func Advance(c *Conversation, now time.Time) {
 	page(c, now)
-	s := c.stream
+	s := simulation(c).stream
 	if s == nil {
 		return
 	}
@@ -74,7 +66,7 @@ func Advance(c *Conversation, now time.Time) {
 		r.Blocks = append(r.Blocks, cv.Block{Kind: cv.TextBlock, Text: answer[:n]})
 		if n == len(answer) {
 			r.Status, r.Phase = cv.Completed, cv.PhaseNone
-			c.stream, c.Status = nil, Idle
+			simulation(c).stream, c.Status, c.Animating = nil, Idle, false
 			release(c)
 		}
 	}
@@ -89,7 +81,7 @@ func Stop(c *Conversation) {
 	}
 	r := &c.Turns[n-1].Reply
 	r.Status, r.Phase = cv.Cancelled, cv.PhaseNone
-	c.stream, c.Status, c.Waiting = nil, Idle, composer.Interactions{}
+	simulation(c).stream, c.Status, c.Waiting, c.Animating = nil, Idle, composer.Interactions{}, false
 	release(c)
 }
 

@@ -25,7 +25,7 @@ const (
 
 // notice tells that an action would leave the preview: write files, run
 // git, a terminal or load a page.
-func notice(c *ui.Context) { c.Toast(i18n.T(c, "preview_notice")) }
+func notice(c *ui.Context) { kit.Message(c, i18n.T(c, "preview_notice")) }
 
 // Shortcut is a shortcut's text as menus and the launcher show it.
 type Shortcut func(mods ui.Modifiers, key ui.Key) string
@@ -44,11 +44,21 @@ func View(c *ui.Context, s *State, pr *Project, keys Shortcut) {
 	t := s.Active
 	own := s.owns(t)
 	ui.Column(c.Key(t)).Grow(1).MinHeight(0).Children(func() {
+		if s.Live && t.Kind != Terminal {
+			key := "unavailable"
+			if (t.Kind == Files || t.Kind == Changes) && !s.HasProject {
+				key = "resource_project_empty"
+			}
+			kit.Result(c, kit.ResultProps{Icon: ResourceOf(t.Kind).Icon, Title: i18n.T(c, key)}).Grow(1).Justify(ui.Center)
+			return
+		}
 		switch t.Kind {
 		case Files, Changes:
 			// The whole component for this tab's item: the side list
 			// opens or focuses another item's tab.
-			pr.reveal = func(path string) { s.Show(Tab{Files, path}) }
+			if pr != nil {
+				pr.reveal = func(path string) { s.Show(Tab{Files, path}) }
+			}
 			pr.view(c, t.Kind, t.ID, own, nil, func(path string) { s.Show(Tab{t.Kind, path}) })
 		case History:
 			s.history(c)

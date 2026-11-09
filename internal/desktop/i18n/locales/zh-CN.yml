@@ -251,6 +251,7 @@ session_fork_here: 创建聊天分支
 session_fork_worktree: 在新工作树中创建聊天分支
 files_open: 打开文件
 session_new_window: 在新窗口中打开
+session_window_failed: 无法打开新窗口
 workspace_open_session: 打开会话
 project_edit: 编辑项目
 project_remove: 移除项目
@@ -1478,3 +1479,28 @@ background_one: 1 个终端
 background_count: '%{count} 个终端'
 background_end: 结束
 port_open_service: 打开服务
+notification_all: 全部
+notification_copy_report: 复制报告
+notification_report_copied: 报告已复制
+notification_duration: 用时
+notification_exit_code: 退出码
+notification_open_conversation: 打开会话
+notification_result: 结果
+notification_seconds: '%{count} 秒'
+notification_source: 来源
+notification_time: 时间
+preferences_read_failed: 无法读取本地设置，请检查配置后重启
+preferences_save_failed: 设置未保存，请重试
+session_changed: 会话已变化，请重新操作
+project_changed: 项目已变化，请重新打开编辑
+chat_action_failed: 操作失败，请重试
+chat_action_unknown: 结果未确认，可重试原请求
+notification_update_failed: 通知更新失败，请重试
+session_archive_named: 归档“%{name}”并从活动会话中隐藏
+power_request_failed: 无法阻止设备休眠
+plugin_response_timeout: 插件响应超时
+plugin_metadata_failed: 无法加载插件信息
+plugin_initialization_failed: 无法初始化插件
+git_inspection_failed: 无法检查 Git
+plugin_callback_failed: 插件执行失败
+chat_execution_unknown: 部分执行结果未确认

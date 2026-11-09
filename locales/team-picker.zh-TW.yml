@@ -1,0 +1,5 @@
+composer_execution_model: "單一模型"
+composer_team_lead: "組長"
+composer_team_default: "預設團隊"
+composer_team_manage: "管理團隊"
+composer_team_unknown: "已刪除的團隊"

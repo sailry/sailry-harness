@@ -147,7 +147,7 @@ func status(c *ui.Context, a *Attachment) string {
 func (s *State) attachments(c *ui.Context, actions Actions) {
 	kit.ImageViewer(c, &s.view, func(a *Attachment) kit.ViewerItem {
 		return kit.ViewerItem{Source: a.Image, Name: a.Name}
-	}, func(kit.ImageAction, *Attachment) { c.Toast(i18n.T(c, "preview_notice")) })
+	}, func(kit.ImageAction, *Attachment) { kit.Message(c, i18n.T(c, "preview_notice")) })
 	if len(s.Attachments) == 0 {
 		return
 	}

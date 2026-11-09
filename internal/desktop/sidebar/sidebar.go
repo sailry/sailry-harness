@@ -14,6 +14,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/panes"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 )
 
 // Limit is how many conversations a group shows before "Show more".
@@ -28,18 +29,23 @@ const (
 
 // State is the sidebar's part of the app state.
 type State struct {
-	Data     *preview.Data
+	Data     *viewmodel.Data
+	Actions  *Actions
 	Selected string // conversation ID
 	open     map[string]*bool
 	more     map[string]bool
 	created  int
 
-	renaming string // the conversation renamed in place
-	draft    string // its title as typed
-	drawn    bool   // its input is built, in its first row, this frame
+	renaming         string // the conversation renamed in place
+	draft            string // its title as typed
+	drawn            bool   // its input is built, in its first row, this frame
+	renameTarget     *viewmodel.Conversation
+	renamePending    bool
+	renameGeneration uint64
 
-	editor  Editor
-	confirm confirm
+	editor           Editor
+	editorGeneration uint64
+	confirm          confirm
 }
 
 // confirm is the one confirmation the sidebar shows at a time: archive in
@@ -50,7 +56,7 @@ type confirm struct {
 	run                    func()
 }
 
-func New(d *preview.Data, selected string) *State {
+func New(d *viewmodel.Data, selected string) *State {
 	s := &State{Data: d, Selected: selected, open: map[string]*bool{}, more: map[string]bool{}}
 	// The recent group starts closed.
 	closed := false
@@ -399,7 +405,11 @@ func (s *State) conversation(c *ui.Context, cv *preview.Conversation, kind rowKi
 			}
 		}
 		if cv.Status != preview.Running {
-			ui.Text(c, Age(c, cv.Updated)).FontSize(12).SingleLine().TextColor(p.MutedForeground.Alpha(0.6))
+			now := preview.Now
+			if s.Actions != nil {
+				now = c.Now()
+			}
+			ui.Text(c, ageAt(c, cv.Updated, now)).FontSize(12).SingleLine().TextColor(p.MutedForeground.Alpha(0.6))
 		}
 	}).OnClick(func() { s.Selected = cv.ID })
 	if b.DoubleClicked() {
@@ -439,6 +449,10 @@ func (s *State) pinnedDrag(d panes.Drag) bool {
 // MovePin moves a pinned conversation before or after another, giving the
 // pins their new order.
 func (s *State) MovePin(source, target string, after bool) {
+	if s.Actions != nil && s.Actions.MovePin != nil {
+		s.Actions.MovePin(source, target, after)
+		return
+	}
 	var ids []string
 	for _, cv := range s.pinned() {
 		ids = append(ids, cv.ID)
@@ -457,6 +471,10 @@ func (s *State) MovePin(source, target string, after bool) {
 
 // TogglePin pins a conversation at the end of the pinned, or unpins it.
 func (s *State) TogglePin(cv *preview.Conversation) {
+	if s.Actions != nil && s.Actions.Pin != nil {
+		s.Actions.Pin(cv)
+		return
+	}
 	if cv.Pinned {
 		cv.Pinned, cv.PinOrder = false, nil
 		return
@@ -481,6 +499,9 @@ func (s *State) details(c *ui.Context, row ui.Element, cv *preview.Conversation)
 				d.Branch, d.Path = w.Branch, w.Path
 			}
 		}
+		if cv.WorktreePath != "" {
+			d.Path = cv.WorktreePath
+		}
 	}
 	kit.SessionCard(c, row, d, true, kit.Right, func(card ui.Element) {
 		card.AttachTo(row, ui.AnchorRight, ui.AnchorLeft).MarginStart(8)
@@ -503,7 +524,14 @@ func status(c *ui.Context, st preview.Status) {
 
 // Age is the short age of sidebar rows: 45s, 12m, 3h, 2d.
 func Age(c *ui.Context, t time.Time) string {
-	d := max(preview.Now.Sub(t), 0)
+	return ageAt(c, t, preview.Now)
+}
+
+func ageAt(c *ui.Context, t, now time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	d := max(now.Sub(t), 0)
 	switch {
 	case d < time.Minute:
 		return i18n.T(c, "sidebar_age_seconds", "count", int(d.Seconds()))
@@ -517,6 +545,10 @@ func Age(c *ui.Context, t time.Time) string {
 
 // NewChat starts an empty chat without a project, in memory only.
 func (s *State) NewChat() {
+	if s.Actions != nil && s.Actions.NewDraft != nil {
+		s.Actions.NewDraft(nil)
+		return
+	}
 	s.created++
 	cv := &preview.Conversation{ID: fmt.Sprintf("chat/new-%d", s.created), Updated: preview.Now, Created: 10000 + s.created}
 	s.Data.Unassigned = append([]*preview.Conversation{cv}, s.Data.Unassigned...)
@@ -525,6 +557,10 @@ func (s *State) NewChat() {
 
 // newIn starts an empty conversation in a project, in memory only.
 func (s *State) newIn(pr *preview.Project) {
+	if s.Actions != nil && s.Actions.NewDraft != nil {
+		s.Actions.NewDraft(pr)
+		return
+	}
 	s.created++
 	cv := &preview.Conversation{ID: fmt.Sprintf("%s/new-%d", pr.ID, s.created), Updated: preview.Now, Created: 10000 + s.created}
 	pr.Conversations = append([]*preview.Conversation{cv}, pr.Conversations...)

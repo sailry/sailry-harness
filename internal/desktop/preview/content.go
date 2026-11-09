@@ -182,16 +182,16 @@ const pageSize = 20
 // paged shows c's last page of turns and keeps the rest as older pages.
 func paged(c *Conversation) {
 	if n := len(c.Turns) - pageSize; n > 0 {
-		c.older, c.Turns = c.Turns[:n], c.Turns[n:]
-		c.Session.Older = len(c.older)
+		simulation(c).older, c.Turns = c.Turns[:n], c.Turns[n:]
+		c.Session.Older = len(simulation(c).older)
 	}
 }
 
 // LoadAll loads every older page at once, for a benchmark of the whole
 // history.
 func LoadAll(c *Conversation) {
-	c.Turns = append(c.older, c.Turns...)
-	c.older, c.Session.Older, c.Session.LoadingOlder = nil, 0, false
+	c.Turns = append(simulation(c).older, c.Turns...)
+	simulation(c).older, c.Session.Older, c.Session.LoadingOlder = nil, 0, false
 }
 
 // pageAfter is how long the preview takes to load a page.
@@ -204,7 +204,7 @@ func LoadOlder(c *Conversation) {
 		return
 	}
 	c.Session.LoadingOlder, c.Session.OlderFailed = true, false
-	c.paging = time.Time{}
+	simulation(c).paging = time.Time{}
 }
 
 // page runs a requested page on the frame clock, reporting whether one
@@ -213,16 +213,16 @@ func page(c *Conversation, now time.Time) bool {
 	if !c.Session.LoadingOlder {
 		return false
 	}
-	if c.paging.IsZero() {
-		c.paging = now
+	if simulation(c).paging.IsZero() {
+		simulation(c).paging = now
 	}
-	if now.Sub(c.paging) < pageAfter {
+	if now.Sub(simulation(c).paging) < pageAfter {
 		return true
 	}
-	n := min(pageSize, len(c.older))
-	c.Turns = append(append([]cv.Turn(nil), c.older[len(c.older)-n:]...), c.Turns...)
-	c.older = c.older[:len(c.older)-n]
-	c.Session.Older, c.Session.LoadingOlder = len(c.older), false
+	n := min(pageSize, len(simulation(c).older))
+	c.Turns = append(append([]cv.Turn(nil), simulation(c).older[len(simulation(c).older)-n:]...), c.Turns...)
+	simulation(c).older = simulation(c).older[:len(simulation(c).older)-n]
+	c.Session.Older, c.Session.LoadingOlder = len(simulation(c).older), false
 	return false
 }
 

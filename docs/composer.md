@@ -1,5 +1,10 @@
 # Composer
 
+B3 live construction permits an empty model catalog. `Chosen` returns an empty
+model and the existing model chip displays `composer_model_empty` while disabled.
+Live composers remain read-only until the owning conversation phase supplies
+models and submission actions; this never seeds a fixture model or starts work.
+
 The input under the transcript and on the welcome page: the capsules of
 what the run waits on, the queue strip, the draft with its file cards and
 inline reference chips, the `@` and `/` pickers, the toolbar (attach, mode,

@@ -3,12 +3,10 @@ package theme
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io/fs"
 	"path"
 	"sort"
-	"sync"
 
 	"github.com/egoist/mygo/ui"
 	sailry "github.com/sailry/sailry-harness"
@@ -51,11 +49,18 @@ type Variant struct {
 
 // Config is the Kit theme: its colors by key and its radii.
 type Config struct {
-	Name     string           `json:"name"`
-	Mode     string           `json:"mode"`
-	Colors   map[string]Color `json:"colors"`
-	Radius   *float32         `json:"radius"`
-	RadiusLg *float32         `json:"radius.lg"`
+	Name           string           `json:"name"`
+	IsDefault      bool             `json:"is_default"`
+	FontSize       *float32         `json:"font.size"`
+	FontFamily     *string          `json:"font.family"`
+	MonoFontSize   *float32         `json:"mono_font.size"`
+	MonoFontFamily *string          `json:"mono_font.family"`
+	Shadow         *bool            `json:"shadow"`
+	Highlight      json.RawMessage  `json:"highlight"`
+	Mode           string           `json:"mode"`
+	Colors         map[string]Color `json:"colors"`
+	Radius         *float32         `json:"radius"`
+	RadiusLg       *float32         `json:"radius.lg"`
 }
 
 // Composer styles the composer surface and its send and stop buttons.
@@ -129,40 +134,36 @@ type Decoration struct {
 	pic *picture
 }
 
-// picture decodes a decoration's file once, the first time it is drawn.
+// picture retains one decoded resource from the verified package snapshot.
 type picture struct {
-	once   sync.Once
 	bitmap *ui.Bitmap
-	files  fs.FS
-	path   string
 }
 
 // UnmarshalJSON applies the defaults to the omitted fields.
 func (d *Decoration) UnmarshalJSON(b []byte) error {
-	type raw Decoration
-	r := raw{Fit: Cover, Alignment: [2]float32{0.5, 0.5}, Opacity: 1, Height: 64, TileSize: 256}
-	if err := json.Unmarshal(b, &r); err != nil {
+	var decoded struct {
+		Path      string     `json:"path"`
+		Fit       Fit        `json:"fit"`
+		Alignment [2]float32 `json:"alignment"`
+		Opacity   float32    `json:"opacity"`
+		Height    uint16     `json:"height"`
+		TileSize  uint16     `json:"tile_size"`
+		License   *License   `json:"license"`
+	}
+	decoded.Fit, decoded.Alignment, decoded.Opacity, decoded.Height, decoded.TileSize = Cover, [2]float32{0.5, 0.5}, 1, 64, 256
+	if err := decodeThemeObject(b, &decoded, "path"); err != nil {
 		return err
 	}
-	*d = Decoration(r)
+	*d = Decoration{Path: decoded.Path, Fit: decoded.Fit, Alignment: decoded.Alignment, Opacity: decoded.Opacity, Height: float32(decoded.Height), TileSize: float32(decoded.TileSize), License: decoded.License}
 	return nil
 }
 
-// Bitmap decodes the picture the first time it is drawn; nil when it cannot
-// be read, so the slot shows the default appearance.
+// Bitmap returns the resource decoded during strict package loading.
 func (d *Decoration) Bitmap() *ui.Bitmap {
 	if d == nil || d.pic == nil {
 		return nil
 	}
-	p := d.pic
-	p.once.Do(func() {
-		data, err := fs.ReadFile(p.files, p.path)
-		if err != nil {
-			return
-		}
-		p.bitmap, _ = ui.DecodeBitmap(data)
-	})
-	return p.bitmap
+	return d.pic.bitmap
 }
 
 // Kind is an effect's motion.
@@ -206,22 +207,20 @@ func (v *Variant) Layers(surface string) []Effect {
 	return v.Effects[surface]
 }
 
-// Parse reads a theme.json whose asset paths are relative to files. It
-// checks only what loading needs: well-formed JSON and both variants.
-// Strict validation of slots, ranges and budgets is not implemented yet.
+// Parse validates a current v1 manifest and a bounded snapshot of its images.
 func Parse(data []byte, files fs.FS) (*Package, error) {
+	if len(data) > themeManifestLimit {
+		return nil, fmt.Errorf("theme manifest exceeds file limit")
+	}
 	var p Package
 	if err := json.Unmarshal(data, &p); err != nil {
 		return nil, fmt.Errorf("theme.json: %w", err)
 	}
-	if p.Light == nil || p.Dark == nil {
-		return nil, errors.New("theme.json: light and dark are both required")
+	if err := p.validate(); err != nil {
+		return nil, err
 	}
-	for _, v := range []*Variant{p.Light, p.Dark} {
-		for _, d := range v.Assets {
-			d.Path = path.Clean(d.Path)
-			d.pic = &picture{files: files, path: d.Path}
-		}
+	if err := p.loadPictures(data, files); err != nil {
+		return nil, err
 	}
 	return &p, nil
 }

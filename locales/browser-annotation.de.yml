@@ -1,0 +1,7 @@
+browser_annotation: "Element"
+browser_annotation_note: "Anmerkung (optional)"
+browser_annotation_add: "Zur Unterhaltung hinzufügen"
+browser_annotation_stale: "Die Seite oder Unterhaltung wurde geändert"
+browser_annotation_invalid: "Das ausgewählte Element konnte nicht gelesen werden"
+browser_annotation_unavailable: "Das ausgewählte Element konnte nicht erfasst werden"
+browser_annotation_truncated: "Text ist gekürzt"

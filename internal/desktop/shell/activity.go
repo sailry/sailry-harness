@@ -76,10 +76,21 @@ func (a *App) bell(c *ui.Context) {
 			kit.Ghost(c.Key("center"), center, false).Height(28).PaddingX(4).Gap(4).Children(func() {
 				ui.Text(c, center).FontSize(14).FontWeight(500)
 				ui.Icon(c, icons.ChevronRight).FontSize(14).TextColor(p.MutedForeground)
-			}).OnClick(func() { c.Toast(i18n.T(c, "preview_notice")) })
+			}).OnClick(func() {
+				if a.Preview {
+					kit.Message(c, i18n.T(c, "preview_notice"))
+				} else {
+					a.activity = false
+					a.Navigate(NotificationsPage)
+				}
+			})
 			ui.Spacer(c)
 			kit.IconButton(c.Key("read"), icons.CheckCheck, i18n.T(c, "notifications_read_all"), 28, false).
 				Disabled(unread == 0).OnClick(func() {
+				if a.Hooks.ReadNotices != nil {
+					a.Hooks.ReadNotices(a.noticeIDs(false))
+					return
+				}
 				for _, n := range a.Data.Notices {
 					n.Read = true
 				}
@@ -87,6 +98,10 @@ func (a *App) bell(c *ui.Context) {
 			read := len(a.Data.Notices) - unread
 			kit.IconButton(c.Key("delete"), icons.Trash, i18n.T(c, "notification_delete_read"), 28, false).
 				Disabled(read == 0).OnClick(func() {
+				if a.Hooks.DismissRead != nil {
+					a.Hooks.DismissRead(a.noticeIDs(true))
+					return
+				}
 				a.Data.Notices = slices.DeleteFunc(a.Data.Notices, func(n *preview.Notice) bool { return n.Read })
 			})
 		})
@@ -110,11 +125,16 @@ func (a *App) bell(c *ui.Context) {
 // is about.
 func (a *App) noticeRow(c *ui.Context, n *preview.Notice) {
 	p := theme.Of(c)
+	title := noticeTitle(c, n)
 	glyph, color, kind := noticeLook(p, n.Kind)
-	key, count := NoticeAge(preview.Now.Sub(n.Time))
+	now := c.Now()
+	if a.Preview {
+		now = preview.Now
+	}
+	key, count := NoticeAge(now.Sub(n.Time))
 	age := i18n.T(c, key, "count", count)
 	row := ui.ButtonBase(c.Key(n.ID)).Padding(8).Gap(8).Radius(p.Radius).Cursor(ui.CursorPointer).
-		Label(n.Title + " · " + i18n.T(c, n.Host) + " · " + i18n.T(c, kind) + " · " + n.Message)
+		Label(title + " · " + i18n.T(c, n.Host) + " · " + i18n.T(c, kind) + " · " + n.Message)
 	text := p.PopoverForeground
 	if n.Read {
 		text = p.MutedForeground
@@ -124,7 +144,7 @@ func (a *App) noticeRow(c *ui.Context, n *preview.Notice) {
 	}
 	row.TextColor(text).Children(func() {
 		ui.Icon(c, glyph).FontSize(16).TextColor(color).Shrink(0)
-		t := ui.Text(c, n.Title).FontSize(14).SingleLine().Grow(1).Shrink(1)
+		t := ui.Text(c, title).FontSize(14).SingleLine().Grow(1).Shrink(1)
 		if !n.Read {
 			t.FontWeight(500)
 		}
@@ -135,7 +155,11 @@ func (a *App) noticeRow(c *ui.Context, n *preview.Notice) {
 			dot.Background(p.Primary)
 		}
 	}).OnClick(func() {
-		n.Read = true
+		if a.Hooks.ReadNotice != nil {
+			a.Hooks.ReadNotice(n.ID)
+		} else {
+			n.Read = true
+		}
 		a.activity = false
 		switch {
 		case n.Link != "":

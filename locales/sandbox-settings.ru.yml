@@ -1,0 +1,8 @@
+settings_execution: "Выполнение"
+settings_command_sandbox: "Песочница команд"
+settings_command_sandbox_description: "Применяется к следующим командам во всех сеансах"
+sandbox_settings_reload: "Перезагрузить"
+sandbox_settings_saved: "Сохранено"
+sandbox_settings_conflict: "Настройки песочницы изменились; перезагрузите их"
+sandbox_settings_failed: "Не удалось загрузить или сохранить настройки песочницы"
+sandbox_settings_unknown: "Не удалось подтвердить сохранение; перезагрузите для проверки"

@@ -115,7 +115,11 @@ func (a *App) catalog(c *ui.Context, folder string) []Group {
 		var list []Choice
 		for _, h := range a.Data.Hosts {
 			list = append(list, Choice{ID: h.ID, Label: t(h.Name), Icon: icons.Cpu, Selected: h.Local, run: func() {
-				c.Toast(t("preview_notice"))
+				if a.Preview {
+					kit.Message(c, t("preview_notice"))
+				} else {
+					a.openHost(h.ID, false)
+				}
 			}})
 		}
 		return []Group{{Choices: list}}

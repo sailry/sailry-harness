@@ -79,12 +79,16 @@ func SavePrefs(dir string, p Prefs) error {
 
 // Prefs returns the app's preferences as they are now.
 func (a *App) Prefs() Prefs {
-	return Prefs{
+	p := Prefs{
 		NavWidth: a.NavWidth, NavOpen: a.NavOpen, PanelWidth: a.PanelWidth, PanelOpen: a.PanelOpen,
 		PanelTabs: a.Panel.Tabs, PanelTab: a.Panel.Active, Collapsed: a.Sidebar.Collapsed(),
-		Features: a.features, Unpinned: a.unpinnedList(), WelcomeSeen: &a.Welcome.Seen,
+		Features: a.features, Unpinned: a.unpinnedList(),
 		Panes: a.panes.Groups,
 	}
+	if a.Preview {
+		p.WelcomeSeen = &a.Welcome.Seen
+	}
+	return p
 }
 
 // SetPrefs applies preferences, as at start-up.
@@ -108,7 +112,7 @@ func (a *App) SetPrefs(p Prefs) {
 	// session or terminal is gone leaves its group.
 	a.panes.Restore(p.Panes)
 	a.panes.Prune(a.paneExists)
-	if p.WelcomeSeen != nil && !*p.WelcomeSeen {
+	if a.Preview && p.WelcomeSeen != nil && !*p.WelcomeSeen {
 		a.Welcome = onboarding.Guide{Open: true}
 	}
 }

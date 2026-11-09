@@ -34,14 +34,16 @@ type State struct {
 	work      map[string]bool  // work regions the user opened or closed
 	built     map[string]bool  // lists built once, so laid out
 	md        markdown.Options // the replies' (kit.Markdown fills the rest)
-	light     float32          // the welcome wordmark's beam, in window DIPs
-	lit       bool             // the pointer has moved over the welcome page
-	view      Viewer           // the image viewer
-	rewind    string           // the turn whose rewind waits to be confirmed
-	reading   string           // the turn read aloud
-	find      search           // the search bar
-	wantOlder bool             // the start came into view this frame
-	nav       navigation       // the message navigation rail
+	mdBase    *markdown.Theme
+	mdSize    float32
+	light     float32    // the welcome wordmark's beam, in window DIPs
+	lit       bool       // the pointer has moved over the welcome page
+	view      Viewer     // the image viewer
+	rewind    string     // the turn whose rewind waits to be confirmed
+	reading   string     // the turn read aloud
+	find      search     // the search bar
+	wantOlder bool       // the start came into view this frame
+	nav       navigation // the message navigation rail
 	// Split is whether the transcripts show in the panes of a split, which have
 	// no navigation rail.
 	Split bool
@@ -66,6 +68,7 @@ func (s *State) List(id string) *ui.ListState {
 // the jump button over it, and the image viewer and rewind confirmation
 // over the window. sess may be nil.
 func View(c *ui.Context, s *State, id string, turns []Turn, sess *Session, actions Actions) {
+	s.messageTheme(c)
 	s.md.ShareSelection = true
 	if sess != nil && sess.Loading {
 		loading(c)
@@ -165,7 +168,7 @@ func userMessage(c *ui.Context, text string, marks []ui.Span) {
 		} else {
 			b = ui.Text(c, text)
 		}
-		b.FontSize(14).LineHeight(1.6).Padding(9, 14).Radius(p.Radius).Background(kit.Veil(c, p.Muted)).TextColor(p.Foreground).MaxWidth(bubbleMax)
+		b.FontSize(kit.MessageTextSize(c)).LineHeight(1.6).Padding(9, 14).Radius(p.Radius).Background(kit.Veil(c, p.Muted)).TextColor(p.Foreground).MaxWidth(bubbleMax)
 		v := p.Variant
 		if v == nil {
 			return
@@ -183,6 +186,20 @@ func userMessage(c *ui.Context, text string, marks []ui.Span) {
 			b.Draw(func(pt *ui.Painter, r ui.Rect) { kit.Corners(pt, r, v, "message.user") })
 		}
 	})
+}
+
+// messageTheme scales the caller-owned Markdown theme without changing Kit's
+// shared theme. MyGo invalidates retained text geometry when this value changes.
+func (s *State) messageTheme(c *ui.Context) {
+	base, size := kit.MarkdownTheme(c, kit.Chat), kit.MessageTextSize(c)
+	if s.mdBase == base && s.mdSize == size {
+		return
+	}
+	copy := *base
+	copy.FontSize = size
+	s.md.Theme = &copy
+	s.mdBase = base
+	s.mdSize = size
 }
 
 // statusKey is the run's status label (frame::status).

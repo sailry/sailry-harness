@@ -1,0 +1,8 @@
+settings_execution: "Ejecución"
+settings_command_sandbox: "Entorno aislado de comandos"
+settings_command_sandbox_description: "Se aplica a los siguientes comandos de todas las sesiones"
+sandbox_settings_reload: "Volver a cargar"
+sandbox_settings_saved: "Guardado"
+sandbox_settings_conflict: "La configuración del entorno aislado cambió; vuelve a cargarla"
+sandbox_settings_failed: "No se pudo cargar o guardar la configuración del entorno aislado"
+sandbox_settings_unknown: "No se pudo confirmar el guardado; vuelve a cargar para comprobarlo"

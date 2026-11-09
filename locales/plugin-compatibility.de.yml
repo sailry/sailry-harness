@@ -1,0 +1,7 @@
+plugins_requires_sailry: "Erfordert Sailry %{version}"
+plugins_requires_node: "Erfordert Sailry %{version} auf %{node}"
+plugins_update_sailry: "Sailry aktualisieren"
+plugins_updates_require_sailry: "%{count} Updates erfordern neueres Sailry"
+plugins_review_updates: "Updates ansehen"
+plugins_version_history: "Versionsverlauf"
+plugins_version_compatible: "Kompatibel"

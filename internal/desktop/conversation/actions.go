@@ -56,7 +56,7 @@ func (s *State) footer(c *ui.Context, t *Turn, blocks []Block, actions Actions) 
 		if text != "" {
 			kit.IconButton(c.Key("copy"), icons.Copy, i18n.T(c, "turn_copy"), 28, false).OnClick(func() {
 				c.WriteClipboard(text)
-				c.Toast(i18n.T(c, "content_copied"))
+				kit.Message(c, i18n.T(c, "content_copied"))
 			})
 			icon, label := icons.Volume, "reader_read"
 			if s.reading == t.ID {
@@ -123,7 +123,7 @@ func userFooter(c *ui.Context, t *Turn, actions Actions) {
 		if t.User != "" {
 			kit.IconButton(c.Key("copy"), icons.Copy, i18n.T(c, "message_copy"), 28, false).OnClick(func() {
 				c.WriteClipboard(t.User)
-				c.Toast(i18n.T(c, "content_copied"))
+				kit.Message(c, i18n.T(c, "content_copied"))
 			})
 		}
 		kit.IconButton(c.Key("edit"), icons.Writing, i18n.T(c, "message_edit"), 28, false).OnClick(func() { actions.Edit(t.ID) })

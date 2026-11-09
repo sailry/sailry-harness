@@ -1,0 +1,7 @@
+file_changes_approval: "파일 %{count}개에 패치 적용"
+file_changes_approval_one: "파일 1개에 패치 적용"
+file_changes_added: "추가"
+file_changes_modified: "수정"
+file_changes_renamed: "이름 변경"
+file_changes_deleted: "삭제"
+file_changes_shortened: "차이 일부 생략됨"

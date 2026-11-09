@@ -24,6 +24,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/sidebar"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/desktop/transfers"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 )
 
 // Layout metrics.
@@ -58,11 +59,16 @@ const (
 	ActivityPage
 	MarketPage
 	HostPage
+	NotificationsPage
 )
 
 // App is the window's state.
 type App struct {
-	Data *preview.Data
+	Data         *viewmodel.Data
+	Preview      bool
+	Hooks        Hooks
+	noticeTab    int
+	noticeDetail *viewmodel.Notice
 	// frosted is whether this frame's theme has window art, which the
 	// columns blur (kit.Pane).
 	frosted bool
@@ -141,19 +147,29 @@ type App struct {
 
 // New makes the app over the preview dataset, showing its large conversation.
 func New(d *preview.Data) *App {
+	a := newApp(d, preview.Big, settings.New())
+	a.Preview = true
+	a.installs = preview.Installations()
+	return a
+}
+
+// NewLive creates an unseeded live presentation. It performs no backend I/O.
+func NewLive(d *viewmodel.Data) *App {
+	a := newApp(d, "", settings.NewLive())
+	a.Panel.Live = true
+	if len(d.Hosts) > 0 {
+		a.Host = d.Hosts[0].ID
+	}
+	return a
+}
+
+func newApp(d *viewmodel.Data, selected string, st *settings.State) *App {
 	a := &App{
 		Data: d, NavOpen: true, NavWidth: NavWidth, PanelWidth: PanelWidth, Effects: true, Surfaces: theme.DefaultSurfaces,
-		Sidebar:  sidebar.New(d, preview.Big),
-		Settings: settings.New(),
-		Messages: conversation.New(),
-		Panel:    panel.New(d.Workspace),
-		Projects: panel.NewProjects(d.Workspace),
-		drafts:   map[string]*composer.State{},
-		unpinned: map[string]bool{},
-		Host:     "local",
-		installs: preview.Installations(),
-		Welcome:  onboarding.Guide{Seen: true},
-		Metrics:  true,
+		Sidebar: sidebar.New(d, selected), Settings: st, Messages: conversation.New(),
+		Panel: panel.New(d.Workspace), Projects: panel.NewProjects(d.Workspace),
+		drafts: map[string]*composer.State{}, unpinned: map[string]bool{}, Host: "local",
+		Welcome: onboarding.Guide{Seen: true}, Metrics: true,
 	}
 	for _, f := range Features {
 		a.features = append(a.features, f.ID)
@@ -166,8 +182,12 @@ func (a *App) Composer(id string) *composer.State {
 	if s, ok := a.drafts[id]; ok {
 		return s
 	}
-	s := composer.New(a.Data.Models[0].ID)
-	s.Host = "local"
+	model := ""
+	if len(a.Data.Models) > 0 {
+		model = a.Data.Models[0].ID
+	}
+	s := composer.New(model)
+	s.Host = a.Host
 	if pr := a.Data.ProjectOf(id); pr != nil {
 		s.Host, s.Project, s.Worktree = pr.Host, pr.ID, pr.Branch
 		if cv := a.Data.Find(id); cv != nil && cv.Worktree != "" {
@@ -180,6 +200,13 @@ func (a *App) Composer(id string) *composer.State {
 
 // View builds the window.
 func (a *App) View(c *ui.Context) {
+	kit.SetPreferences(c, kit.Preferences{ToastSeconds: uint64(settings.ToastSeconds[min(max(a.Settings.Toast, 0), len(settings.ToastSeconds)-1)]), MessageTextSize: uint8(a.Settings.TextSize)})
+	if a.Hooks.BeforeFrame != nil {
+		a.Hooks.BeforeFrame(c)
+	}
+	if a.Hooks.AfterFrame != nil {
+		defer a.Hooks.AfterFrame()
+	}
 	if a.Mode != a.applied && a.OnMode != nil {
 		a.OnMode(a.Mode)
 	}
@@ -323,8 +350,13 @@ func (a *App) details(c *ui.Context, f frame, fill ui.Color) {
 				return
 			}
 			a.Panel.Paged = a.paged()
+			a.Panel.HasProject = a.Data.ProjectOf(a.Sidebar.Selected) != nil
+			a.Panel.Cwd = ""
 			if pr := a.Data.ProjectOf(a.Sidebar.Selected); pr != nil {
 				a.Panel.Cwd = pr.Path
+			}
+			if cv := a.Data.Find(a.Sidebar.Selected); cv != nil && cv.WorktreePath != "" {
+				a.Panel.Cwd = cv.WorktreePath
 			}
 			panel.View(c, a.Panel, a.project(), kit.KeyText)
 		})
@@ -402,10 +434,17 @@ func adjacent(a *App, forward bool) string {
 // feature's page.
 func (a *App) page(c *ui.Context) {
 	switch a.Page {
+	case NotificationsPage:
+		a.notificationCenter(c)
+		return
 	case SettingsPage:
 		settings.Page(c, a.Settings, a.Data, settings.Look{Theme: &a.Theme, Mode: &a.Mode, Effects: &a.Effects, Surfaces: &a.Surfaces})
 		return
 	case MarketPage:
+		if !a.Preview {
+			a.unavailable(c)
+			return
+		}
 		settings.MarketPage(c, a.Settings)
 		return
 	case FilesPage, GitPage, ActivityPage:
@@ -428,9 +467,11 @@ func (a *App) page(c *ui.Context) {
 // Each session keeps its own list, composer and search: the transcript's
 // state is kept by session, and a session shows in one pane at most.
 func (a *App) conversation(c *ui.Context, cv *preview.Conversation, focus ui.Handle) {
-	// The preview plays a sent reply on the frame clock, a step per Tick.
-	preview.Advance(cv, c.Now())
-	if cv.Playing() {
+	// Only the explicit preview advances simulated replies.
+	if a.Preview {
+		preview.Advance(cv, c.Now())
+	}
+	if a.Preview && cv.Playing() {
 		c.After(preview.Tick)
 	}
 	comp := a.Composer(cv.ID)
@@ -441,15 +482,20 @@ func (a *App) conversation(c *ui.Context, cv *preview.Conversation, focus ui.Han
 	}
 	comp.Indicator = func(c *ui.Context) { conversation.ContextRing(c, cv.Session.Usage) }
 	act := &actions{a: a, c: c, cv: cv, comp: comp}
-	if a.transfers.Advance(comp.Attachments, c.Now()) {
+	if a.Preview && a.transfers.Advance(comp.Attachments, c.Now()) {
 		c.After(preview.Tick)
 	}
-	if changing, done := a.voice.Advance(&comp.Dictation, c.Now()); changing {
-		c.After(preview.Tick)
-	} else if done {
-		c.Toast(i18n.T(c, "preview_notice"))
+	if a.Preview {
+		if changing, done := a.voice.Advance(&comp.Dictation, c.Now()); changing {
+			c.After(preview.Tick)
+		} else if done {
+			kit.Message(c, i18n.T(c, "preview_notice"))
+		}
 	}
-	ctx := a.Data.Composer(cv, comp.Worktree)
+	ctx := &composer.Context{Models: a.Data.Models, Readonly: true}
+	if a.Preview {
+		ctx = preview.Composer(a.Data, cv, comp.Worktree)
+	}
 	// Escape in the conversation after the picker and the search bar: the
 	// queue's editor, then Stop.
 	if comp.Escapes() && c.FocusWithin(focus) && c.Shortcut(0, ui.KeyEscape) {
@@ -485,6 +531,9 @@ type actions struct {
 // Send plays the preview's reply; attachments and references go along
 // in name only.
 func (x *actions) Send(m composer.Message) {
+	if x.blocked() {
+		return
+	}
 	text := m.Text
 	if text == "" && len(m.Attachments) > 0 {
 		text = i18n.T(x.c, "chat_attachment_count", "count", len(m.Attachments))
@@ -495,49 +544,94 @@ func (x *actions) Send(m composer.Message) {
 
 // Guide joins the message to the running reply, pending in the queue.
 func (x *actions) Guide(m composer.Message) {
+	if x.blocked() {
+		return
+	}
 	preview.Guide(x.cv, m, x.c.Now())
 	x.a.Messages.List(x.cv.ID).ScrollToEnd()
 }
 
 func (x *actions) Queue(m composer.Message) {
+	if x.blocked() {
+		return
+	}
 	preview.Queue(x.cv, m, x.c.Now())
 	x.a.Messages.List(x.cv.ID).ScrollToEnd()
 }
 
 func (x *actions) SendQueued(id string) {
+	if x.blocked() {
+		return
+	}
 	preview.SendQueued(x.cv, id, x.c.Now())
 	x.a.Messages.List(x.cv.ID).ScrollToEnd()
 }
 
-func (x *actions) WithdrawGuidance(id string)   { preview.WithdrawGuidance(x.cv, id) }
-func (x *actions) SaveQueued(id, text string)   { preview.SaveQueued(x.cv, id, text) }
-func (x *actions) RemoveQueued(id string)       { preview.RemoveQueued(x.cv, id) }
-func (x *actions) MoveQueued(id, before string) { preview.MoveQueued(x.cv, id, before) }
+func (x *actions) WithdrawGuidance(id string) {
+	if x.blocked() {
+		return
+	}
+	preview.WithdrawGuidance(x.cv, id)
+}
+func (x *actions) SaveQueued(id, text string) {
+	if x.blocked() {
+		return
+	}
+	preview.SaveQueued(x.cv, id, text)
+}
+func (x *actions) RemoveQueued(id string) {
+	if x.blocked() {
+		return
+	}
+	preview.RemoveQueued(x.cv, id)
+}
+func (x *actions) MoveQueued(id, before string) {
+	if x.blocked() {
+		return
+	}
+	preview.MoveQueued(x.cv, id, before)
+}
 
 // Upload plays a transfer on the clock; the file is not read, which the
 // toast says.
 func (x *actions) Upload(a *composer.Attachment) {
-	x.c.Toast(i18n.T(x.c, "preview_notice"))
+	if x.blocked() {
+		return
+	}
+	x.notice()
 	x.a.transfers.Start(a, x.c.Now())
 	x.c.After(preview.Tick)
 }
 
-func (x *actions) Discard(a *composer.Attachment) { x.a.transfers.Drop(a) }
+func (x *actions) Discard(a *composer.Attachment) {
+	if x.blocked() {
+		return
+	}
+	x.a.transfers.Drop(a)
+}
 
 // Dictate plays voice input on the clock; no microphone opens.
 func (x *actions) Dictate(d *composer.Dictation, cmd composer.DictationCommand) {
+	if x.blocked() {
+		return
+	}
 	x.a.voice.Command(d, cmd, x.c.Now())
 	x.c.After(preview.Tick)
 }
 
 // Compact, a new worktree, a new project and the teams' settings would
 // ask a model or write to disk: the preview says so.
-func (x *actions) Compact()        { x.c.Toast(i18n.T(x.c, "preview_notice")) }
-func (x *actions) CreateWorktree() { x.c.Toast(i18n.T(x.c, "preview_notice")) }
-func (x *actions) AddProject()     { x.c.Toast(i18n.T(x.c, "preview_notice")) }
-func (x *actions) ManageTeams()    { x.c.Toast(i18n.T(x.c, "preview_notice")) }
+func (x *actions) Compact()        { x.notice() }
+func (x *actions) CreateWorktree() { x.notice() }
+func (x *actions) AddProject()     { x.notice() }
+func (x *actions) ManageTeams()    { x.notice() }
 
-func (x *actions) Stop() { preview.Stop(x.cv) }
+func (x *actions) Stop() {
+	if x.blocked() {
+		return
+	}
+	preview.Stop(x.cv)
+}
 
 // The activity strip: a file of the Git badge opens its diff; a plugin's
 // action, stopping a command and opening a port would reach the host, so
@@ -551,11 +645,17 @@ func (x *actions) StopCommand(string) { x.notice() }
 func (x *actions) OpenService(int)    { x.notice() }
 
 func (x *actions) Decide(id string, d composer.Decision, reason string) {
+	if x.blocked() {
+		return
+	}
 	preview.Decide(x.cv, id, d)
-	x.c.Toast(i18n.T(x.c, "approval_preview_result"))
+	kit.Message(x.c, i18n.T(x.c, "approval_preview_result"))
 }
 
 func (x *actions) Answer(id string, ans composer.Answer) {
+	if x.blocked() {
+		return
+	}
 	var answers []string
 	if q := x.cv.Waiting.Question; q != nil {
 		for _, i := range ans.Choices {
@@ -566,20 +666,29 @@ func (x *actions) Answer(id string, ans composer.Answer) {
 		answers = append(answers, ans.Text)
 	}
 	preview.Resolve(x.cv, id, conversation.QuestionAccepted, answers)
-	x.c.Toast(i18n.T(x.c, "preview_notice"))
+	x.notice()
 }
 
 func (x *actions) CancelQuestion(id string) {
+	if x.blocked() {
+		return
+	}
 	preview.Resolve(x.cv, id, conversation.QuestionCancelled, nil)
 }
 
 func (x *actions) DeclineQuestion(id string) {
+	if x.blocked() {
+		return
+	}
 	preview.Resolve(x.cv, id, conversation.QuestionDeclined, nil)
 }
 
 // OpenChild shows a subagent's session in a tab of the right panel: the
 // preview's made-up run for it.
 func (x *actions) OpenChild(id string) {
+	if x.blocked() {
+		return
+	}
 	title := ""
 	for _, t := range x.cv.Turns {
 		for _, b := range t.Reply.Blocks {
@@ -602,7 +711,21 @@ func (x *actions) OpenChild(id string) {
 
 // The transcript's actions that would run a model, change the session,
 // write a file or leave the window only say so in the preview.
-func (x *actions) notice() { x.c.Toast(i18n.T(x.c, "preview_notice")) }
+func (x *actions) notice() {
+	if x.a.Preview {
+		kit.Message(x.c, i18n.T(x.c, "preview_notice"))
+		return
+	}
+	kit.Notify(x.c, "", i18n.T(x.c, "unavailable"))
+}
+
+func (x *actions) blocked() bool {
+	if !x.a.Preview {
+		x.notice()
+		return true
+	}
+	return false
+}
 
 func (x *actions) Retry(string)                             { x.notice() }
 func (x *actions) Fork(string)                              { x.notice() }
@@ -629,7 +752,12 @@ func (x *actions) Quote(text string) {
 }
 
 // LoadOlder reveals the next page of the preview's older turns.
-func (x *actions) LoadOlder() { preview.LoadOlder(x.cv) }
+func (x *actions) LoadOlder() {
+	if x.blocked() {
+		return
+	}
+	preview.LoadOlder(x.cv)
+}
 
 // FileAction opens a file in the system's app; saving and asking for
 // edits only say so in the preview.

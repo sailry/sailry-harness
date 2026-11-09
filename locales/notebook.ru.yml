@@ -1,0 +1,3 @@
+notebook_cell: "Ячейка %{number}"
+notebook_more: "Ещё ячейки"
+notebook_empty: "Нет ячеек"

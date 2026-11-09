@@ -212,19 +212,12 @@ the rail's order and unpinned features, in `ui-state.json` in MyGo's user
 data folder (beside `window-state.json`, which `StateKey` keeps the
 bounds in). `LoadPrefs` falls back to the defaults and clamps widths.
 
-## Wiring a backend
+## Backend ownership
 
-The desktop entry point opens the locked Node profile only when `--data-dir`
-is supplied during B2. Profile storage uses the selected SQLite fallback and
-keeps the Link identity across restarts. Startup failures are reported before
-creating the window. The shell still uses preview data until the B3 Client
-projection and live action adapters land.
-
-Notices come from the activity stream (`activity::Notice`); reading one
-sends `MarkNotificationRead`. The search's sessions come from the
-client's recent sessions; its hosts from the live hosts. Knowledge pages
-come from `ReadKnowledgeCitation` with the checks of `viewer.rs`. Rail
-pins and order belong in the preferences beside the rest of `Prefs`.
+The B3 live adapter, controller preferences and remaining phase boundaries are
+specified in [B3 live wiring](#b3-live-wiring). The preview remains an explicit,
+separate constructor and does not own backend facts. Later feature phases supply
+their owning Client actions and projections without changing the accepted UI.
 
 ## UI state vs backend data
 
@@ -265,3 +258,42 @@ Phase 1–2 screens.
 | Help lists Welcome to Sailry and Selected text | The preview's way to the first launch's guide and the system shortcut's dialog |
 | ⌘., ⌘L, ⇧⌘M, ⇧Tab and the conversation's Escape targets are not bound | The live conversation's controls (`conversation/live/shortcuts.rs`) come with the live session |
 | The View menu's features are those at launch | The menu is set once; rail reordering does not rebuild it |
+
+## B3 live wiring
+
+`live.NewWithPreferences` composes the accepted shell over the already started
+shared Client. `viewmodel.Data` and Workspace DTOs are neutral presentation types;
+preview aliases retain the explicit preview constructor and its interactions.
+`App.Hooks` injects refresh, folder selection and notice operations. Background
+callbacks only enqueue work. `App.View` drains it on the UI thread; `SetUpdate`
+binds MyGo Window.Update to schedule the frame. The live path never constructs
+fixtures, advances preview streams or simulates transfers, dictation or host
+metrics. Models, tools, file/Git data and later-phase settings stay unavailable.
+
+Search, breadcrumbs, the local host overview, activity lanes and pane existence
+follow Client snapshots. Sync calls Client.Refresh, replacing the Node topic
+subscription rather than replaying a command. Open directory uses MyGo's system
+file URL opener. The window factory receives the selected session and shares the
+existing Node/Client. New Conversation creates only a local empty draft; B4 owns
+first-send session persistence and model transport.
+
+The bell reads Client's durable and attention inbox. Its centre opens a separate
+notification page with All/Unread filters, expandable typed details and a copyable
+technical report that excludes authored title/body and raw provider errors.
+Copying the report emits `notification_report_copied` after the clipboard write.
+Read/dismiss use captured identifiers and ordinary Node commands; transient
+attention read/dismiss remains Client-owned. One application-lifetime Notifier
+observes Client independently of frames, suppresses categories from controller
+preferences and delivers each new notice once. Its UI scheduler remains alive
+when all windows are closed; it closes before Client shutdown.
+
+Profile preferences are one shared Store across windows. Each window synchronizes
+its revision before rendering; disk writes are serialized immutable snapshots,
+and a stale captured version cannot overwrite a newer edit. Welcome state is in
+`desktop/preferences.json`. `ui-state.json` still restores column widths,
+collapsed projects, rail state, tabs and pane layout; its legacy welcome field is
+used only by the preview. Closing a live guide persists the profile choice.
+
+The new notification centre uses existing Kit page/card/segmented controls. Live
+host views hide preview-only notes and render unavailable metrics until B7;
+terminal panes retain the accepted static preview and never start a process.

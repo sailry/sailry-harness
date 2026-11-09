@@ -1,0 +1,4 @@
+notifications_time_now: "À l’instant"
+notifications_time_minutes: "il y a %{count} min"
+notifications_time_hours: "il y a %{count} h"
+notifications_time_days: "il y a %{count} j"

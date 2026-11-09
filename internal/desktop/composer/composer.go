@@ -98,6 +98,9 @@ func (s *State) Chosen(models []Model) Model {
 			return m
 		}
 	}
+	if len(models) == 0 {
+		return Model{}
+	}
 	return models[0]
 }
 

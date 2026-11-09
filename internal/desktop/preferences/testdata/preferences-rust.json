@@ -1,0 +1,139 @@
+{
+  "version": 1,
+  "notifications": [
+    false,
+    true,
+    false,
+    true
+  ],
+  "toast_seconds": 8,
+  "pairing": "https://pair.example/",
+  "iroh_relays": [
+    "https://relay.example/"
+  ],
+  "devices": {
+    "controller": {
+      "name": "Desk",
+      "execution": true,
+      "platform": null
+    }
+  },
+  "terminal": {
+    "font_size": 16,
+    "font_family": "Fixture Mono",
+    "paste_protection": false
+  },
+  "appearance": {
+    "package": "builtin",
+    "mode": "dark"
+  },
+  "theme_effects": false,
+  "composer": {
+    "model": {
+      "source": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "provider": "11111111-1111-1111-1111-111111111111",
+      "model": "declared-model",
+      "effort": "high",
+      "features": {
+        "speed": "fast"
+      }
+    },
+    "mode": "code",
+    "permission": "ask"
+  },
+  "feature_pins": {
+    "page:activity": false
+  },
+  "feature_order": [
+    "page:conversation",
+    "page:activity"
+  ],
+  "browser_persistent": true,
+  "surfaces": {
+    "main": 83.5,
+    "sidebar": null
+  },
+  "shortcuts": {
+    "conversation.new": "secondary-shift-n",
+    "host.refresh": ""
+  },
+  "dictation": {
+    "microphone": null,
+    "language": "auto",
+    "model": "33333333-3333-3333-3333-333333333333"
+  },
+  "pins": {
+    "0101010101010101010101010101010101010101010101010101010101010101/11111111-1111-1111-1111-111111111111": {
+      "pinned": true,
+      "order": null
+    },
+    "0101010101010101010101010101010101010101010101010101010101010101/22222222-2222-2222-2222-222222222222": {
+      "pinned": true,
+      "order": 18446744073709551615
+    }
+  },
+  "artifact_drafts": {
+    "0101010101010101010101010101010101010101010101010101010101010101/44444444-4444-4444-4444-444444444444/1/review": {
+      "form": "review",
+      "fields": [
+        {
+          "name": "choice",
+          "values": [
+            "yes"
+          ]
+        }
+      ]
+    }
+  },
+  "plugin_directories": {
+    "0101010101010101010101010101010101010101010101010101010101010101/fixture": {
+      "digest": "fixture-digest",
+      "install_revision": 7,
+      "path": "/fixture/plugins/widget"
+    }
+  },
+  "message_display": "compact",
+  "session_order": "updated",
+  "message_text_size": 16,
+  "file_picker": {
+    "grid": true,
+    "hidden": false
+  },
+  "language": "chinese",
+  "update_channel": "experience",
+  "welcome_seen": false,
+  "sidebar_metrics": true
+}

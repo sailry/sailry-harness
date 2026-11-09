@@ -1,0 +1,8 @@
+settings_execution: "執行"
+settings_command_sandbox: "命令沙箱"
+settings_command_sandbox_description: "套用至所有工作階段的後續命令"
+sandbox_settings_reload: "重新載入"
+sandbox_settings_saved: "已儲存"
+sandbox_settings_conflict: "命令沙箱設定已變更，請重新載入"
+sandbox_settings_failed: "無法讀取或儲存命令沙箱設定"
+sandbox_settings_unknown: "無法確認是否已儲存命令沙箱設定，請重新載入查看"

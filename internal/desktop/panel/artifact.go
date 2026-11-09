@@ -39,7 +39,7 @@ func (s *State) artifact(c *ui.Context, id string) {
 		if f.Kind == conversation.CodeFile || f.Kind == conversation.TextFile || f.Kind == conversation.MarkdownFile {
 			kit.IconButton(c.Key("copy"), icons.Copy, i18n.T(c, "content_copy"), 28, false).OnClick(func() {
 				c.WriteClipboard(f.Text)
-				c.Toast(i18n.T(c, "content_copied"))
+				kit.Message(c, i18n.T(c, "content_copied"))
 			})
 		}
 		kit.IconButton(c.Key("open"), icons.ExternalLink, i18n.T(c, "files_open_system"), 28, false).OnClick(func() { notice(c) })

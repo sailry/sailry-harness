@@ -82,7 +82,7 @@ func (a *App) openFeature(c *ui.Context, id string) {
 		a.Navigate(p)
 		return
 	}
-	c.Toast(i18n.T(c, "preview_notice"))
+	a.notice(c)
 }
 
 // rail is the column of features: 36 DIP ghost buttons, the pinned features
@@ -102,7 +102,7 @@ func (a *App) rail(c *ui.Context) {
 		ui.Spacer(c)
 		a.bell(c)
 		if transfers.Visible(a.installs) {
-			transfers.Button(c, a.installs, &a.installsOpen, func(transfers.Entry) { c.Toast(i18n.T(c, "preview_notice")) })
+			transfers.Button(c, a.installs, &a.installsOpen, func(transfers.Entry) { a.notice(c) })
 		}
 		a.hostPicker(c)
 		kit.IconButtonHint(c.Key("search"), icons.Search, i18n.T(c, "search"), a.hint("app.search"), 36, a.search.open).
@@ -241,7 +241,7 @@ func (a *App) hostPicker(c *ui.Context) {
 			a.openHost(a.Host, false)
 		}
 		if m.Item(i18n.T(c, "connection_action_edit")).Chosen() {
-			c.Toast(i18n.T(c, "preview_notice"))
+			a.notice(c)
 		}
 		m.Separator()
 		if m.Item(i18n.T(c, "project_add")).Chosen() {

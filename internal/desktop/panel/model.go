@@ -97,9 +97,11 @@ func Closed(tabs []Tab, t, active Tab) ([]Tab, Tab) {
 // row of tabs, each an open item, and the resources no project keeps.
 // Files and Git keep theirs in the shown Project, shared with their pages.
 type State struct {
-	Data   *preview.Workspace
-	Tabs   []Tab
-	Active Tab
+	Live       bool
+	HasProject bool
+	Data       *preview.Workspace
+	Tabs       []Tab
+	Active     Tab
 	// Paged is the resource a page of the same project shows, "" for
 	// none: that page owns the resource's scrolling (Page).
 	Paged Kind

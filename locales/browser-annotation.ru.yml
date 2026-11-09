@@ -1,0 +1,7 @@
+browser_annotation: "Элемент"
+browser_annotation_note: "Примечание (необязательно)"
+browser_annotation_add: "Добавить в разговор"
+browser_annotation_stale: "Страница или разговор изменились"
+browser_annotation_invalid: "Не удалось прочитать выбранный элемент"
+browser_annotation_unavailable: "Не удалось снять выбранный элемент"
+browser_annotation_truncated: "Текст сокращён"

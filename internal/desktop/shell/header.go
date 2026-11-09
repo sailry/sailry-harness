@@ -51,11 +51,13 @@ func (a *App) header(c *ui.Context, f frame) {
 			}
 			// Preview data is identified wherever it shows.
 			// An opaque fill keeps it legible over the translucent band.
-			preview := ui.Row(c.Key("preview")).Radius(999).Background(p.Background)
-			kit.Tooltip(c, preview, i18n.T(c, "preview_notice"))
-			preview.Children(func() {
-				kit.Tag(c, i18n.T(c, "preview"))
-			})
+			if a.Preview {
+				preview := ui.Row(c.Key("preview")).Radius(999).Background(p.Background)
+				kit.Tooltip(c, preview, i18n.T(c, "preview_notice"))
+				preview.Children(func() {
+					kit.Tag(c, i18n.T(c, "preview"))
+				})
+			}
 			if a.Page == ConversationPage || a.Page == HostPage {
 				label := i18n.T(c, "details")
 				b := kit.IconButtonHint(c.Key("details"), icons.PanelRight, label, a.hint("panel.toggle"), 28, f.showsPanel).OnClick(a.togglePanel)
@@ -73,6 +75,10 @@ func (a *App) header(c *ui.Context, f frame) {
 // the sidebar.
 func (a *App) trail(c *ui.Context) {
 	p := theme.Of(c)
+	if a.Page == NotificationsPage {
+		ui.Text(c, i18n.T(c, "notification_center")).FontSize(14).SingleLine().TextColor(p.Foreground)
+		return
+	}
 	if a.Page == SettingsPage {
 		ui.Text(c, settings.Title(c, a.Settings)).FontSize(14).SingleLine().Shrink(1).TextColor(p.Foreground)
 		return

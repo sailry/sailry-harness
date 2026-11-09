@@ -20,6 +20,9 @@ var pageFeatures = map[string]Page{
 // project returns the state of the selected conversation's project, nil
 // when it has none.
 func (a *App) project() *panel.Project {
+	if !a.Preview {
+		return nil
+	}
 	pr := a.Data.ProjectOf(a.Sidebar.Selected)
 	if pr == nil {
 		return nil
@@ -74,6 +77,10 @@ func (a *App) extensionDetails() bool {
 // resource, over the state the panel's tabs share; Activity and Market as
 // the reference's preview shows them, unavailable.
 func (a *App) featurePage(c *ui.Context) {
+	if !a.Preview && a.Data.ProjectOf(a.Sidebar.Selected) != nil {
+		a.unavailable(c)
+		return
+	}
 	if k := a.paged(); k != "" {
 		panel.Page(c, k, a.project(), func() { a.Navigate(FilesPage) })
 		return

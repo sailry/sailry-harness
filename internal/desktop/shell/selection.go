@@ -38,6 +38,9 @@ func (a *App) SystemShortcuts() map[string]string {
 // captureSelection is the selection shortcut (dispatch "system.selection"):
 // the preview reads no other app, so it shows the preview's sample text.
 func (a *App) captureSelection() {
+	if !a.Preview {
+		return
+	}
 	if a.dialog() {
 		return
 	}
@@ -66,7 +69,7 @@ func (a *App) selectionDialog(c *ui.Context) {
 		})
 		ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
 			// Reading aloud needs the speech engine.
-			kit.IconButton(c.Key("read"), icons.Volume, i18n.T(c, "reader_read"), 32, false).OnClick(func() { c.Toast(i18n.T(c, "preview_notice")) })
+			kit.IconButton(c.Key("read"), icons.Volume, i18n.T(c, "reader_read"), 32, false).OnClick(func() { kit.Message(c, i18n.T(c, "preview_notice")) })
 			quote := kit.Secondary(c.Key("quote"), i18n.T(c, "message_quote"))
 			if s.chat == "" || a.Data.Find(s.chat) == nil {
 				quote.Disabled(true).Opacity(0.5)

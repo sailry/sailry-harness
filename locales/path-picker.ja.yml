@@ -1,0 +1,8 @@
+path_picker_choose: "選択"
+path_picker_replace: "変更"
+path_picker_remove: "削除"
+path_picker_empty: "未選択"
+path_picker_drop_hint: "またはここにドロップ"
+path_picker_release: "ドロップして追加"
+path_picker_unsupported: "この種類には対応していません"
+path_picker_target: "%{name} にアップロード"

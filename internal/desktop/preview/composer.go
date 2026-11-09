@@ -62,10 +62,10 @@ func models() []Model {
 // Composer is what the composer of conversation c is offered: the data's
 // models and teams, the hosts and projects, its worktree's inspection,
 // the catalogs and the file picker's folder.
-func (d *Data) Composer(c *Conversation, worktree string) *composer.Context {
+func Composer(d *Data, c *Conversation, worktree string) *composer.Context {
 	ctx := &composer.Context{
 		Models: d.Models, Families: Families, Teams: Teams, Interactions: c.Waiting, Queue: c.Queue,
-		Files: d.entries(), Readonly: false,
+		Files: entries(d), Readonly: false,
 	}
 	for _, h := range d.Hosts {
 		ctx.Hosts = append(ctx.Hosts, composer.Host{ID: h.ID, Name: h.Name, Local: h.Local})
@@ -89,14 +89,14 @@ func (d *Data) Composer(c *Conversation, worktree string) *composer.Context {
 			break
 		}
 	}
-	ctx.References, ctx.Commands = d.references(c), commands(d.Models)
-	ctx.Activity = d.activity(c, ctx.Repository)
+	ctx.References, ctx.Commands = references(d, c), commands(d.Models)
+	ctx.Activity = activity(d, c, ctx.Repository)
 	return ctx
 }
 
 // references is the @ catalog: files, subagents, sessions, the workspace
 // context, databases, SSH, the skills and plugins, then attaching files.
-func (d *Data) references(c *Conversation) []composer.Reference {
+func references(d *Data, c *Conversation) []composer.Reference {
 	page := func(id, label, desc, alias string, icon *ui.SVG, kids ...composer.Reference) composer.Reference {
 		return composer.Reference{ID: id, Kind: composer.Page, Label: label, Description: desc, Key: true, Alias: alias,
 			Icon: icon, Children: kids}
@@ -217,7 +217,7 @@ func commands(list []Model) []composer.Reference {
 
 // entries are the file picker's folder: the panel's tree, with made-up
 // sizes and times.
-func (d *Data) entries() *composer.Entry {
+func entries(d *Data) *composer.Entry {
 	var walk func(n *FileNode, depth int) *composer.Entry
 	walk = func(n *FileNode, depth int) *composer.Entry {
 		e := &composer.Entry{Name: n.Name, Path: "~/Web/" + n.Path, Modified: Now.Add(-time.Duration(depth*7+len(n.Name)) * time.Hour)}
@@ -251,8 +251,8 @@ func Queue(c *Conversation, m composer.Message, now time.Time) {
 		Send(c, m.Text, now)
 		return
 	}
-	c.queued++
-	c.Queue = append(c.Queue, composer.Queued{ID: fmt.Sprintf("%s/queued-%d", c.ID, c.queued), Text: m.Text,
+	simulation(c).queued++
+	c.Queue = append(c.Queue, composer.Queued{ID: fmt.Sprintf("%s/queued-%d", c.ID, simulation(c).queued), Text: m.Text,
 		Attachments: slices.Clone(m.Attachments)})
 }
 
@@ -427,7 +427,7 @@ func (v *Voice) Advance(d *composer.Dictation, now time.Time) (changing, done bo
 // activity is the strip over c's composer: the worktree's Git changes
 // (the Git page's), the plugins' badges, the running turn's progress and
 // subagents, and the background commands.
-func (d *Data) activity(c *Conversation, repo composer.Repository) composer.Activity {
+func activity(d *Data, c *Conversation, repo composer.Repository) composer.Activity {
 	a := composer.Activity{Badges: c.Badges, Commands: c.Commands, Connected: c.Session.Connection == conversation.Connected}
 	if repo.Kind == composer.Git && d.ProjectOf(c.ID) != nil {
 		ch := &composer.Changes{Files: len(d.Workspace.Changes)}

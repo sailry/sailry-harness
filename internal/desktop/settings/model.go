@@ -54,9 +54,12 @@ func report(c *ui.Context, o kit.Outcome, m Messages) {
 	}
 }
 
+// Report delivers an asynchronous settings save result through the same toasts.
+func Report(c *ui.Context, o kit.Outcome, m Messages) { report(c, o, m) }
+
 // notice is the toast of an action the preview does not carry out: one
 // that would read the disk, use the network, pair or run a model.
-func notice(c *ui.Context) { c.Toast(i18n.T(c, "preview_notice")) }
+func notice(c *ui.Context) { kit.Message(c, i18n.T(c, "preview_notice")) }
 
 // Telemetry is what diagnostics send.
 type Telemetry struct{ Errors, Metrics bool }
@@ -121,6 +124,10 @@ type BackupTarget struct {
 
 // Model is the settings pages' view model.
 type Model struct {
+	// Live keeps later-phase controls unavailable and routes saves to the Client.
+	Live          bool
+	SavePower     func()
+	SaveTelemetry func()
 	// General.
 	Language       int // of Languages
 	SidebarMetrics bool

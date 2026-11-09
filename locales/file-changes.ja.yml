@@ -1,0 +1,7 @@
+file_changes_approval: "%{count} 個のファイルにパッチを適用"
+file_changes_approval_one: "1 個のファイルにパッチを適用"
+file_changes_added: "追加"
+file_changes_modified: "変更"
+file_changes_renamed: "名前変更"
+file_changes_deleted: "削除"
+file_changes_shortened: "差分は一部省略されています"

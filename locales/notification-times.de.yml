@@ -1,0 +1,4 @@
+notifications_time_now: "Gerade eben"
+notifications_time_minutes: "vor %{count} Min."
+notifications_time_hours: "vor %{count} Std."
+notifications_time_days: "vor %{count} T."

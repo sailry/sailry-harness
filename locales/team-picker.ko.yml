@@ -1,0 +1,5 @@
+composer_execution_model: "단일 모델"
+composer_team_lead: "리더"
+composer_team_default: "기본 팀"
+composer_team_manage: "팀 관리"
+composer_team_unknown: "삭제된 팀"

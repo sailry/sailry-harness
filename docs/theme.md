@@ -110,8 +110,14 @@ look, which uses `Background` and `Accent` and has no theme slot.
 
 ## Wiring a backend
 
-Theme packages are files; a backend adds installed ones beside the
-embedded ones and persists the choice.
+B3 validates current v1 manifests, nested fields, known Kit token names, slots,
+resource paths, dimensions and effect budgets against the reference contract.
+Parse retains a bounded decoded image snapshot, so drawing never reopens a
+changed source resource. The two variants share each unique image.
+
+The live controller persists theme, mode, effects and Main/Sidebar/Blur in
+`desktop/preferences.json`; UI fractions are converted to stored percentages.
+Installed theme packages join the embedded set through the B8 market service.
 
 ```go
 pkg, err := theme.Parse(data, os.DirFS(dir)) // theme.json and its assets
@@ -131,15 +137,18 @@ package and its palettes there (not in this prototype).
 
 | UI state (`App`) | Backend data |
 |---|---|
-| `Theme`, `Mode`, `Effects` | Installed packages, the saved preferences |
+| `Theme`, `Mode`, `Effects`, `Surfaces` | Embedded/installed packages and controller profile preferences |
 | The welcome wordmark's light | — |
 
 ## Tests
 
 `internal/desktop/theme/package_test.go`: every embedded package parses with both
 variants and every asset decodes; malformed JSON, a missing variant and a
-named color fail; the palette overlays neutral, falls back for links and the
-switch thumb, and fades popovers. `internal/desktop/kit/effects_test.go`: effects
+invalid color fail; the palette overlays neutral, falls back for links and the
+switch thumb, and fades popovers. `TestThemeInvalidFixtures` covers the source invalid metadata, styles, resources
+and effects with their rejection reasons. `TestEffectSimulation` checks seed
+variation, bounds, loop continuity and hidden travel endpoints.
+`internal/desktop/kit/effects_test.go`: effects
 ask for frames, and stop with Reduce Motion, the switch and a hidden window.
 `internal/desktop/shell/shell_test.go`: every package paints in both modes, each
 differently, with the welcome page; a mode card fills the draft; Appearance
@@ -150,12 +159,10 @@ applies a package, shows its details and turns effects off.
 | Deviation | Reason |
 |---|---|
 | Effects animate at 60 fps; the reference caps them at 20 and only while the window is active | The prototype's frame cap is 60 through MyGo's only frame-rate parameter; a hidden window stops them |
-| Validation is parse errors and missing variants only; slots, ranges and effect budgets are not checked | The strict check (`check.rs`) is the logic half |
 | Pictures paint with `ImageRegion` and a white tint; tile repeats regions | MyGo's Image has no tile fit, and `Element.Opacity` renders a layer |
 | The pulse halo is a radial gradient | GPUI paints a blurred drop shadow; MyGo's `Shadow` paints only outside the box |
 | The wordmark's base dots are painted, and a radial glow in `wordmark.glow` follows the beam | The reference reads `glow` but paints only the ink; MyGo's Icon would not light single dots |
 | Petals are quadratic curves | Close to the reference's cubic petals at their few-DIP size |
-| Details are a group under the gallery; there is no context menu, import, export, uninstall, homepage or updates | Only embedded packages; no market or files in this prototype |
-| The window's opacity controls are not on the page | Not in this phase |
+| Import, export, uninstall and update actions are unavailable in live mode until B8 | Package installation belongs to the market service; gallery Apply and the native menu/details dialog already work |
 | `message.assistant.*`, `banner.*`, `brand`, `button.send/stop` art and `icon.*` of the rail are read but not drawn | No shipped package uses them |
 | Pinned conversations use `icon.group.recent` | The reference declares the group icons but draws none |

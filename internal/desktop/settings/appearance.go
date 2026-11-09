@@ -13,6 +13,7 @@ import (
 // Look is the appearance the Appearance page edits: UI state of the app,
 // which a backend would persist as the reference's preferences.
 type Look struct {
+	Live    bool
 	Theme   *string // the theme package's ID; empty is the built-in theme
 	Mode    *theme.Mode
 	Effects *bool // the theme's animated effects
@@ -41,12 +42,13 @@ func appearance(c *ui.Context, look Look) {
 	transparency(c, look.Surfaces)
 	kit.Group(c, "packages", i18n.T(c, "appearance_packages"), "", func() {
 		// Checking for updates asks the network; importing reads a file.
-		kit.Secondary(c.Key("updates"), i18n.T(c, "plugins_check_updates")).OnClick(func() { notice(c) })
+		kit.Secondary(c.Key("updates"), i18n.T(c, "plugins_check_updates")).OnClick(func() { appearanceNotice(c, look.Live) })
 		label := i18n.T(c, "appearance_import")
-		kit.Primary(c.Key("import"), label, false).Children(func() { ui.Text(c, label).FontSize(14) }).OnClick(func() { notice(c) })
+		kit.Primary(c.Key("import"), label, false).Children(func() { ui.Text(c, label).FontSize(14) }).OnClick(func() { appearanceNotice(c, look.Live) })
 	}, func() {
 		gallery := ui.Grid(c.Key("gallery")).Columns(3).Gap(12).FillWidth()
 		d := ui.Local(gallery, themeDetails{}, func() themeDetails { return themeDetails{} })
+		d.live = look.Live
 		gallery.Children(func() {
 			for _, pkg := range theme.Packages {
 				themeCard(c, pkg, look.Theme, d)
@@ -58,9 +60,18 @@ func appearance(c *ui.Context, look Look) {
 
 // themeDetails is the theme whose details dialog shows, if any.
 type themeDetails struct {
+	live    bool
 	pkg     *theme.Package
 	open    bool
 	license bool // the license text unfolded
+}
+
+func appearanceNotice(c *ui.Context, live bool) {
+	if live {
+		kit.Notify(c, "", i18n.T(c, "unavailable"))
+	} else {
+		notice(c)
+	}
 }
 
 // apply makes pkg the theme.
@@ -119,10 +130,10 @@ func themeCard(c *ui.Context, pkg *theme.Package, chosen *string, d *themeDetail
 		}
 		// Exporting writes a file and uninstalling removes the package.
 		if m.Item(i18n.T(c, "appearance_export")).Disabled(!installed).Chosen() {
-			notice(c)
+			appearanceNotice(c, d.live)
 		}
 		if m.Item(i18n.T(c, "appearance_uninstall")).Disabled(!installed).Chosen() {
-			notice(c)
+			appearanceNotice(c, d.live)
 		}
 	})
 }

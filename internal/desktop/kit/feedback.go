@@ -6,6 +6,12 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
+// Message preserves the context toast's message identity and default look while
+// applying this window's selected duration.
+func Message(c *ui.Context, message string) {
+	c.AddToast(ui.Toast{ID: message, Title: message, Timeout: ToastDuration(c)})
+}
+
 // Error is an error toast with an optional title over the problem's detail,
 // which stays until closed so it is read. Views keep their content and
 // drafts; the toast is the only place a failure shows.
@@ -18,7 +24,7 @@ func Notify(c *ui.Context, title, detail string) {
 	if title == "" {
 		title, detail = detail, ""
 	}
-	c.AddToast(ui.Toast{Type: "info", Title: title, Description: detail})
+	c.AddToast(ui.Toast{Type: "info", Title: title, Description: detail, Timeout: ToastDuration(c)})
 }
 
 // Retry is an error toast whose action retries what failed: the action closes
