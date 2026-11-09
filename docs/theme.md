@@ -111,8 +111,7 @@ its 0.6 second delay). Left-click menus and selects are `kit.MenuButton`
 and `kit.Select` (`internal/kit/menu.go`, on MenuBase): MyGo's drawn
 menus paint the window's Background and highlight with the theme's
 Accent (the primary), and its Theme has no menu slot, so the kit menu
-paints `Palette.Floating` with MyGo's popover radius, border and shadow,
-and Kit's rows: 26 high, the highlight in accent.background /
+paints the floating surface, and Kit's rows: 26 high, the highlight in accent.background /
 accent.foreground (`Palette.Hover` / `HoverForeground`), the icon or
 check slot, label, muted trailing text or action, right-side check
 (`CheckRight`) and shortcut, Kit's 2 DIP separators. A select's trigger
@@ -132,8 +131,9 @@ and the pages') stay tabs. `kit.ToastHost` (`internal/kit/toast.go`, from
 Lobe MyGo's feedback.ToastHost) draws MyGo's toast queue once at the
 window's root: stacked bottom right, spread on hover, the type's icon
 and color, close and action. Floating panels paint through
-`kit.Floating` (`internal/kit/floating.go`), the one place their surface
-is set: menus, selects, popovers, dialogs, toasts, tooltips, hover
+`kit.Floating` (`internal/kit/floating.go`), MyGo's Regular glass
+(`plugins/glass`, the shader path sampling the elements painted under the
+panel; no extra border or shadow), the one place their surface is set: menus, selects, popovers, dialogs, toasts, tooltips, hover
 cards, the reference picker, find bars, the selection toolbar and the
 image viewer's bar.
 
