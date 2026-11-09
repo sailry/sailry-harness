@@ -44,3 +44,10 @@ func premul(c ui.Color) [4]float32 {
 	a := float32(c.A) / 255
 	return [4]float32{float32(c.R) / 255 * a, float32(c.G) / 255 * a, float32(c.B) / 255 * a, a}
 }
+
+// Opaque is c at full alpha. ui.Color.Alpha multiplies the alpha, so
+// Alpha(1) keeps a translucent color translucent.
+func Opaque(c ui.Color) ui.Color {
+	c.A = 255
+	return c
+}

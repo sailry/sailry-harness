@@ -15,7 +15,7 @@ import (
 // one place their surface is set.
 func Floating(c *ui.Context, el ui.Element) ui.Element {
 	p := theme.Of(c)
-	m := frost{blur: FloatingBlur, base: p.Floating().Alpha(1), tint: p.Floating().Alpha(FloatingTint)}
+	m := frost{blur: FloatingBlur, base: Opaque(p.Floating()), tint: p.Floating().Alpha(FloatingTint)}
 	return el.Radius(p.RadiusLg).Material(m).TextColor(p.PopoverForeground).Border(1, floatingEdge(p))
 }
 

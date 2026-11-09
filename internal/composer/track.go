@@ -67,7 +67,7 @@ func track(c *ui.Context, value *float64, steps int, highest, disabled bool) {
 		t := ui.Rect{X: tx - 16, Y: base.Y + 13 - 16, W: 32, H: 32}
 		pt.Shadow(t, 16, 0, 1, 2, 0, p.Backdrop().Alpha(0.12))
 		// Opaque, so the fill and dots under it never show through.
-		pt.Fill(t, surface.Mix(thumb, a).Alpha(1), 16)
+		pt.Fill(t, kit.Opaque(surface.Mix(thumb, a)), 16)
 		pt.Stroke(t, p.Border, 16, 1)
 	})
 }
