@@ -1357,3 +1357,4 @@ port_exists: 此端口已添加
 port_failed: 无法转发，请检查端口和连接
 selection_large: 选中文字过长
 selection_permission: 请在系统设置中允许辅助功能访问
+metrics_rate: '%{value}/s'

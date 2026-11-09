@@ -101,7 +101,7 @@ func (a *App) rail(c *ui.Context) {
 		a.moreButton(c)
 		ui.Spacer(c)
 		a.bell(c)
-		a.hosts(c)
+		a.hostPicker(c)
 		kit.IconButtonHint(c.Key("search"), icons.Search, i18n.T(c, "search"), a.hint("app.search"), 36, a.search.open).
 			OnClick(func() { a.openSearch() })
 		kit.IconButtonHint(c.Key("settings"), icons.Settings, i18n.T(c, "settings"), a.hint("app.settings"), 36, a.Page == SettingsPage).
@@ -210,37 +210,40 @@ func featureDropLine(c *ui.Context, p *theme.Palette, after bool) {
 	})
 }
 
-// hosts is the host picker (shell/rail/hosts.rs): the hosts with a check
+// hostPicker is the host picker (shell/rail/hosts.rs): the hosts with a check
 // on this one, Update where one is ready, and Add host; a dot when a host
 // has an update. Its right-click menu is the system's.
-func (a *App) hosts(c *ui.Context) {
+func (a *App) hostPicker(c *ui.Context) {
 	p := theme.Of(c)
 	update := false
 	for _, h := range a.Data.Hosts {
 		update = update || h.Update
 	}
 	b := kit.MenuButton(c.Key("hosts"), "hosts", func(b ui.Element) {
-		kit.IconLook(c, b, icons.Monitor, i18n.T(c, "hosts"), "", 36, false)
+		kit.IconLook(c, b, icons.Monitor, i18n.T(c, "hosts"), "", 36, a.Page == HostPage)
 	}, func(m *kit.Menu) {
 		for _, h := range a.Data.Hosts {
-			it := m.Item(i18n.T(c, h.Name)).Checked(h.Local)
+			it := m.Item(i18n.T(c, h.Name)).Checked(h.ID == a.Host)
 			if h.Update {
-				it.Action(i18n.T(c, "sidebar_host_update"), func() { c.Toast(i18n.T(c, "preview_notice")) })
+				// Update the host: its page with the update dialog
+				// (update_live_host; the preview's dialog plays it).
+				it.Action(i18n.T(c, "sidebar_host_update"), func() { a.openHost(h.ID, true) })
 			}
 			if it.Chosen() {
-				c.Toast(i18n.T(c, "preview_notice"))
+				a.openHost(h.ID, false)
 			}
 		}
 		m.Separator()
 		if m.Item(i18n.T(c, "host_add")).Icon(icons.Plus).Chosen() {
-			c.Toast(i18n.T(c, "preview_notice"))
+			a.addHost()
 		}
 	}, kit.MenuOptions{At: ui.AnchorRight, Self: ui.AnchorLeft, MaxHeight: 480})
 	b.ContextMenu(func(m *ui.Menu) {
-		for _, key := range []string{"workspace_host", "connection_action_edit"} {
-			if m.Item(i18n.T(c, key)).Chosen() {
-				c.Toast(i18n.T(c, "preview_notice"))
-			}
+		if m.Item(i18n.T(c, "workspace_host")).Chosen() {
+			a.openHost(a.Host, false)
+		}
+		if m.Item(i18n.T(c, "connection_action_edit")).Chosen() {
+			c.Toast(i18n.T(c, "preview_notice"))
 		}
 		m.Separator()
 		if m.Item(i18n.T(c, "project_add")).Chosen() {

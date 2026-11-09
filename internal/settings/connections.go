@@ -269,3 +269,7 @@ func shareCode(c *ui.Context, m *Model) {
 		})
 	}).Width(min(400, width(c)-48)).Label(title)
 }
+
+// AddHost opens the Add host dialog (Shell::add_host), as the rail's Add
+// host does over the Connections page.
+func (s *State) AddHost() { s.pairing = pairing{adding: true, port: "22"} }

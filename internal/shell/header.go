@@ -49,7 +49,7 @@ func (a *App) header(c *ui.Context, f frame) {
 			ui.Row(c.Key("preview")).Radius(999).Background(p.Background).Tooltip(i18n.T(c, "preview_notice")).Children(func() {
 				kit.Tag(c, i18n.T(c, "preview"))
 			})
-			if a.Page == ConversationPage {
+			if a.Page == ConversationPage || a.Page == HostPage {
 				label := i18n.T(c, "details")
 				b := kit.IconButtonHint(c.Key("details"), icons.PanelRight, label, a.hint("panel.toggle"), 28, f.showsPanel).OnClick(a.togglePanel)
 				if !f.fitted {
@@ -68,6 +68,11 @@ func (a *App) trail(c *ui.Context) {
 	p := theme.Of(c)
 	if a.Page == SettingsPage {
 		ui.Text(c, settings.Title(c, a.Settings)).FontSize(14).SingleLine().Shrink(1).TextColor(p.Foreground)
+		return
+	}
+	if a.Page == HostPage {
+		h, _ := a.hostPage()
+		ui.Text(c, i18n.T(c, h.Name)).FontSize(14).SingleLine().Shrink(1).TextColor(p.Foreground)
 		return
 	}
 	if id := a.feature(); a.Page != ConversationPage && id != "" {

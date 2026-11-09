@@ -1357,3 +1357,4 @@ port_exists: Port already added
 port_failed: Could not forward; check the port and connection
 selection_large: Selected text is too large
 selection_permission: Allow Accessibility access in system settings
+metrics_rate: '%{value}/s'

@@ -15,6 +15,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-go/internal/composer"
 	"github.com/sailry/sailry-go/internal/conversation"
+	"github.com/sailry/sailry-go/internal/host"
 	"github.com/sailry/sailry-go/internal/i18n"
 	"github.com/sailry/sailry-go/internal/kit"
 	"github.com/sailry/sailry-go/internal/panel"
@@ -56,6 +57,7 @@ const (
 	GitPage
 	ActivityPage
 	MarketPage
+	HostPage
 )
 
 // App is the window's state.
@@ -107,6 +109,15 @@ type App struct {
 	sent                []string // the native menu's commands (Do)
 	// children are the subagent sessions opened in the panel, by ID.
 	children map[string][]conversation.Turn
+
+	// Host is the host chosen in the rail, whose page HostPage shows;
+	// hosts are the host pages' data, made from the dataset as first
+	// shown, and their UI state. Metrics is whether the host page's right
+	// column shows the metrics (layout.panel_open of Page::Host).
+	Host    string
+	hosts   map[string]*host.Host
+	hostUI  map[string]*host.State
+	Metrics bool
 }
 
 // New makes the app over the preview dataset, showing its large conversation.
@@ -120,6 +131,8 @@ func New(d *preview.Data) *App {
 		Projects: panel.NewProjects(d.Workspace),
 		drafts:   map[string]*composer.State{},
 		unpinned: map[string]bool{},
+		Host:     "local",
+		Metrics:  true,
 	}
 	for _, f := range Features {
 		a.features = append(a.features, f.ID)
@@ -217,7 +230,7 @@ func (a *App) frame(c *ui.Context, root ui.Element) frame {
 	nav := f.navWidth * navTarget
 	f.panelW = ClampPanel(a.PanelWidth, w, nav)
 	f.fitted = PanelFits(w, nav, f.panelW)
-	f.showsPanel = a.Page == ConversationPage && a.PanelOpen && f.fitted || a.extensionDetails() && f.fitted
+	f.showsPanel = (a.Page == ConversationPage && a.PanelOpen || a.Page == HostPage && a.Metrics || a.extensionDetails()) && f.fitted
 	target := float32(0)
 	if f.showsPanel {
 		target = 1
@@ -270,11 +283,21 @@ func (a *App) details(c *ui.Context, f frame, fill ui.Color) {
 				a.Settings.CloseDetails()
 				return
 			}
+			if a.Page == HostPage {
+				a.Metrics = false
+				a.mainPane.Focus(c)
+				return
+			}
 			a.closeTab(c)
 		})
 		col.Children(func() {
 			if a.extensionDetails() {
 				settings.DetailsPanel(c, a.Settings)
+				return
+			}
+			if a.Page == HostPage {
+				h, st := a.hostPage()
+				host.MetricsPanel(c, st, h)
 				return
 			}
 			a.Panel.Paged = a.paged()
@@ -305,6 +328,10 @@ func resize(c *ui.Context, key, label string, dir float32, width *float32, reset
 // togglePanel opens or closes the right panel (⌘⌥B, the header button);
 // opened without a tab it shows the launcher.
 func (a *App) togglePanel() {
+	if a.Page == HostPage {
+		a.Metrics = !a.Metrics
+		return
+	}
 	a.PanelOpen = !a.PanelOpen
 }
 
@@ -356,6 +383,9 @@ func (a *App) page(c *ui.Context) {
 		return
 	case FilesPage, GitPage, ActivityPage:
 		a.featurePage(c)
+		return
+	case HostPage:
+		a.hostView(c)
 		return
 	}
 	cv := a.Data.Find(a.Sidebar.Selected)

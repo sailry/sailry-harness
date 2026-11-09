@@ -147,6 +147,14 @@ var (
 	Linux      = load("os-linux")
 	Windows    = load("os-windows11")
 
+	// Phase 6: installations, the host page and the welcome guide's mark
+	// (assets/branding/sailry-mark-white.svg).
+	Clock          = load("clock")
+	Package        = load("package")
+	CircleAlert    = load("circle-alert")
+	CircleQuestion = load("circle-question-mark")
+	SailryMark     = load("sailry-mark")
+
 	Providers = map[string]*ui.SVG{
 		"anthropic": load("provider-anthropic"),
 		"openai":    load("provider-openai"),
