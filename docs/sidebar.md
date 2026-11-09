@@ -79,7 +79,7 @@ mono worktree path.
 | Delete, Export, Fork, Open file, New window | menu | `preview_notice` toast |
 | Copy title, ID, path | menu › `content_copy` | Clipboard |
 | New session | project menu | An empty conversation in the project, in memory |
-| New terminal, Records, Overview, Trust, Worktrees, AI CLI | project menu | `preview_notice` toast |
+| New terminal, Records, Overview, Worktrees, AI CLI | project menu | `preview_notice` toast |
 | Edit project | project menu | The editor with its name and path |
 | Remove project | project menu | Confirm naming the path once (`project_remove_named`, `project_remove_preview`), then removed from memory |
 

@@ -15,13 +15,10 @@ func TestHostPage(t *testing.T) {
 	tt.Frame()
 	tt.Advance(time.Second)
 	tt.Frame()
-	for _, s := range []string{"workspace_host_status", "workspace_runtime", "workspace_running", "tunnels_title", "metrics_title", "port_title"} {
+	for _, s := range []string{"workspace_host_status", "workspace_runtime", "workspace_running", "metrics_title", "port_title"} {
 		if !tt.HasText(i18n.In("en", s)) {
 			t.Errorf("no %s: %q", s, tt.Texts())
 		}
-	}
-	if !tt.HasText(i18n.In("en", "tunnel_readonly")) {
-		t.Error("the paired host's policy is editable")
 	}
 	snapshot(t, tt, "host-remote")
 	clickButton(t, tt, i18n.In("en", "host_update"))
@@ -44,15 +41,5 @@ func TestHostPage(t *testing.T) {
 	tt.Frame()
 	if a.Page != ConversationPage {
 		t.Errorf("page %d", a.Page)
-	}
-	a.openHost("local", false)
-	tt.SetSize(1280, 1400)
-	tt.Frame()
-	click(t, tt, i18n.In("en", "tunnel_edit"))
-	tt.Frame()
-	tt.Advance(time.Second)
-	tt.Frame()
-	if !tt.HasText(i18n.In("en", "tunnel_policy_hint")) {
-		t.Fatalf("no editor: %q", tt.Texts())
 	}
 }

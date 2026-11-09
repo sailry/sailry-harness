@@ -1,6 +1,6 @@
 // Package host is a host's page (sailry-public workspace/host.rs,
 // workspace/host/*, live/host.rs's header and ports/*): the host's
-// overview with its projects, runtime, running sessions and tunnels, the
+// overview with its projects, runtime and running sessions, the
 // update dialog, the port forwards, and the metrics in the right column.
 // See docs/host.md.
 package host
@@ -8,7 +8,6 @@ package host
 import (
 	"fmt"
 	"math"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -31,8 +30,6 @@ type Host struct {
 	// (workspace/host/activity.rs).
 	Activity []Activity
 	Runtime  Runtime
-	// Tunnels is nil for a host without a tunnel policy.
-	Tunnels *Tunnels
 	// Update is nil for a host that does not update from here (this one).
 	Update *Update
 	// Metrics is nil while the first sample loads; MetricsError says why
@@ -115,62 +112,6 @@ func Protocol(lo, hi int) string {
 		return "v" + strconv.Itoa(lo)
 	}
 	return fmt.Sprintf("v%d-v%d", lo, hi)
-}
-
-// Tunnels are the host's tunnel policy and its open tunnels
-// (model/tunnels.rs State).
-type Tunnels struct {
-	Ports    []int // the ports the policy allows
-	Editable bool  // this host's own policy, which it edits
-	Loaded   bool
-	Error    string // the i18n key of what failed loading, "" for none
-	Entries  []Tunnel
-}
-
-// Tunnel is an open tunnel from a local port to the host's.
-type Tunnel struct {
-	ID            int
-	Local, Remote int
-}
-
-// PortsLabel writes ports as the editor shows them: 3000, 5173.
-func PortsLabel(ports []int) string {
-	s := make([]string, len(ports))
-	for i, p := range ports {
-		s[i] = strconv.Itoa(p)
-	}
-	return strings.Join(s, ", ")
-}
-
-// SavePorts replaces the policy with value (model/tunnels.rs save_ports):
-// ports split by commas or spaces, each 1..65535, sorted and without
-// repeats. original is the policy the editor opened on; another one, or a
-// policy that cannot be edited now, is tunnel_policy_changed. It returns
-// the problem's i18n key, or "" when saved; nothing changes on a problem.
-func (t *Tunnels) SavePorts(original []int, value string) string {
-	if !t.Editable || !t.Loaded || t.Error != "" || !slices.Equal(t.Ports, original) {
-		return "tunnel_policy_changed"
-	}
-	var ports []int
-	for _, f := range strings.FieldsFunc(value, func(r rune) bool { return r == ',' || r == ' ' || r == '\t' || r == '\n' }) {
-		n, err := strconv.Atoi(f)
-		if err != nil || n < 1 || n > 65535 {
-			return "tunnel_invalid_ports"
-		}
-		ports = append(ports, n)
-	}
-	slices.Sort(ports)
-	t.Ports = slices.Compact(ports)
-	return ""
-}
-
-// Close closes a tunnel (model/tunnels.rs close): only one still as it
-// was shown, while the list is loaded.
-func (t *Tunnels) Close(want Tunnel) {
-	if !t.Loaded || t.Error != "" {
-		return
-	}
-	t.Entries = slices.DeleteFunc(t.Entries, func(x Tunnel) bool { return x == want })
 }
 
 // Phase is an update's step (model/updates.rs Phase), named by its

@@ -8,7 +8,7 @@ import (
 
 // HostPages are the host pages' data over the dataset (workspace/model.rs
 // State::default): each host's projects and counts, its running sessions,
-// this host's runtime and tunnel policy, the paired host's update, the
+// this host's runtime, the paired host's update, the
 // metrics (metrics/data.rs Snapshot::sample) and a port forward. The
 // paired host's runtime is unknown, as the reference's preview leaves it.
 func HostPages(d *Data) map[string]*host.Host {
@@ -57,13 +57,6 @@ func HostPages(d *Data) map[string]*host.Host {
 			x.Runtime = host.Runtime{Uptime: -1}
 			x.Update = &host.Update{Phase: host.Idle, Current: "0.1.0-preview", Progress: -1}
 		}
-		offset := 0
-		if !h.Local {
-			offset = 10000
-		}
-		x.Tunnels = &host.Tunnels{Ports: []int{3000, 5173}, Editable: h.Local, Loaded: true, Entries: []host.Tunnel{
-			{ID: 0, Local: 3000 + offset, Remote: 3000}, {ID: 1, Local: 5173 + offset, Remote: 5173},
-		}}
 		x.Metrics = &host.Metrics{
 			CPU: cpu, MemoryUsed: used, Memory: total, Received: 512 << 10, Transmitted: 128 << 10, Interval: 2 * time.Second,
 			Disks: []host.Disk{{Mount: mount, FileSystem: fs, Total: 256 * gib, Available: 160 * gib, ReadBytes: 8 << 20, Written: 2 << 20}},

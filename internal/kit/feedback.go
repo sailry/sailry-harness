@@ -15,7 +15,7 @@ func Error(c *ui.Context, title, detail string) {
 }
 
 // Notify is feedback.rs info: a neutral toast with an optional title over
-// its detail, as the tunnel's address after Open.
+// its detail.
 func Notify(c *ui.Context, title, detail string) {
 	if title == "" {
 		title, detail = detail, ""

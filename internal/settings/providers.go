@@ -105,16 +105,6 @@ func providers(c *ui.Context, s *State) {
 			m.removing = ""
 		}
 	}
-	if ch := m.channel(m.disconnecting); ch != nil {
-		open := true
-		if confirm(c, "disconnect", &open, i18n.T(c, "provider_disconnect")+" "+ch.Name, i18n.T(c, "provider_logout_effect"), i18n.T(c, "provider_disconnect")) {
-			ch.SignedIn, ch.Account, ch.Quota = false, "", nil
-			kit.Toast(c, kit.Done, i18n.T(c, "provider_logout_done"))
-		}
-		if !open {
-			m.disconnecting = ""
-		}
-	}
 }
 
 // catalog is catalog.rs model_catalog: the models.dev catalog's and the
@@ -253,8 +243,7 @@ func channelModels(c *ui.Context, ch *preview.Channel) {
 	})
 }
 
-// channelMenu is list/menu.rs: edit, the account's sign-in or disconnect,
-// and delete.
+// channelMenu is list/menu.rs: edit, the account's sign-in, and delete.
 func channelMenu(c *ui.Context, m *Model, ch *preview.Channel) {
 	kit.MenuButton(c.Key("menu"), "provider-menu-"+ch.ID, func(b ui.Element) {
 		kit.IconLook(c, b, icons.Ellipsis, i18n.T(c, "more"), "", 28, false)
@@ -269,9 +258,6 @@ func channelMenu(c *ui.Context, m *Model, ch *preview.Channel) {
 			}
 			if menu.Item(i18n.T(c, key)).Icon(icons.CircleUser).Chosen() {
 				m.signIn(ch.ID)
-			}
-			if ch.SignedIn && menu.Item(i18n.T(c, "provider_disconnect")).Icon(icons.Close).Chosen() {
-				m.disconnecting = ch.ID
 			}
 		}
 		menu.Separator()

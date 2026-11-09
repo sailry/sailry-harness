@@ -255,7 +255,6 @@ project_edit: Edit project
 project_remove: Remove project
 workspace_new_terminal: Create terminal
 workspace_records: Session records
-project_trust: Manage project trust
 worktree_manage: Manage worktrees
 worktree_create: New worktree
 worktree_remove: Remove worktree
@@ -971,9 +970,6 @@ provider_empty_live: No providers
 provider_login_callback_required: Enter the authorization code or browser redirect URL
 provider_delete_title: Delete provider
 provider_remove_effect: Sessions will need to select another provider
-provider_disconnect: Disconnect account
-provider_logout_effect: Sessions using this account will need to sign in again
-provider_logout_done: Disconnected
 provider_catalog_never: Not updated
 provider_catalog_updated: Updated
 provider_catalog: Model data
@@ -1349,22 +1345,6 @@ workspace_runtime_preview: Live OS, runtime versions and host metrics require th
 workspace_running: Running Agents
 host_activity_hint: Session activity preview only; no real Agent or CLI process is started
 workspace_no_running: No Agent tasks started in preview
-tunnels_title: Port tunnels
-tunnels_preview: Preview mappings only; no ports or hosts are connected
-tunnel_ports_empty: No allowed ports
-tunnel_ports_value: 'Allowed ports: %{ports}'
-tunnel_edit: Edit allowed ports
-tunnel_readonly: Remote port policy is read-only; edit it on the target host
-tunnels_empty: No tunnel mappings
-tunnel_route: Local %{local} → Host %{remote}
-tunnel_open: Open address (preview)
-tunnel_close: Close preview tunnel
-tunnel_open_hint: Mapping address only; no browser or network request is started
-tunnel_policy_hint: Changes this host's preview only. Separate ports with commas or spaces; leave empty to allow none.
-tunnel_ports_label: Allowed ports
-tunnel_ports_placeholder: 3000, 5173, 8080
-tunnel_invalid_ports: Enter ports from 1 to 65535, separated by commas or spaces
-tunnel_policy_changed: Configuration or access changed; reopen the editor
 host_runtime_error: 'Could not read runtime (preview): %{error}'
 update_idle: Not checked (preview)
 update_checking: Checking (preview)
@@ -1463,11 +1443,9 @@ terminal_search_placeholder: Search terminal
 terminal_match_previous: Previous match
 terminal_match_next: Next match
 workspace_no_terminal: No terminals in this worktree
-workspace_reset_terminal: Reset terminal
 workspace_close_terminal: Close terminal
 workspace_terminal_preview: Terminal UI preview with project and worktree ownership; no PTY or shell is started
 pane_drag: Drag to split
-workspace_reset_count: 'Preview resets: %{count}'
 terminal_connecting: Connecting
 terminal_exited: Terminal exited
 terminal_take_control: Take control

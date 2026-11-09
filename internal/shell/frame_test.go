@@ -60,19 +60,19 @@ func TestPanelOpensWithShortcutsAndTabs(t *testing.T) {
 		t.Fatalf("tabs %v", a.Panel.Tabs)
 	}
 	tt.Frame()
-	if !tt.HasText(i18n.In("en", "workspace_terminal_preview") + "\n" + i18n.In("en", "workspace_reset_count", "count", 0)) {
+	if !tt.HasText(i18n.In("en", "workspace_terminal_preview")) {
 		t.Errorf("no terminal placeholder: %q", tt.Texts())
 	}
 	if _, ok := tt.Access(i18n.In("en", "navigation_tabs")); !ok {
 		t.Error("eight tabs show no overflow menu")
 	}
 	// ⌘F in the terminal opens its find bar, not the conversation's.
-	click(t, tt, i18n.In("en", "workspace_reset_terminal"))
+	click(t, tt, i18n.In("en", "workspace_terminal_preview"))
 	tt.Frame()
 	tt.Key(ui.Cmd, ui.KeyF)
 	tt.Frame()
-	if !tt.HasText(i18n.In("en", "terminal_search_placeholder")) || !tt.HasText(i18n.In("en", "workspace_reset_count", "count", 1)) {
-		t.Errorf("no terminal find bar or reset: %q", tt.Texts())
+	if !tt.HasText(i18n.In("en", "terminal_search_placeholder")) {
+		t.Errorf("no terminal find bar: %q", tt.Texts())
 	}
 	snapshot(t, tt, "panel-terminal")
 	// ⌘W in the panel closes the active tab, then the others, then the

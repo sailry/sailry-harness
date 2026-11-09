@@ -17,7 +17,7 @@ its width, motion, toggle and ⌘W (`docs/shell.md`).
 | `panel.go` | `View` and `Page`, the two hosts: the strip, the launcher, the file view, hunks, checkpoints, documents |
 | `files.go`, `selection.go` | The file tree, its selection (the files plugin's `explorer.js`), keys, drag and right-click menu |
 | `git.go`, `gitmenu.go`, `changes.go` | The Git component's side column (the git plugin's `view.js`), its menus and picker (`menus.js`), the change list's rows (`changes.js`), All changes |
-| `tools.go` | The browser and terminal tabs' chrome, per tab: the browser's history and address, the terminal's folder, resets and find bar; `State.Find` |
+| `tools.go` | The browser and terminal tabs' chrome, per tab: the browser's history and address, the terminal's folder and find bar; `State.Find` |
 
 ## Entry point
 
@@ -135,9 +135,9 @@ terminal, subagent and file-preview tabs are single-pane.
   ⌘T hint, over `resource_browser_preview` under the address shown. ⌘T
   (another tab) and ⌘R (reload) work while the focus is in the tab.
 - Terminal (`workspace/terminal.rs`, `terminal/search.rs`), per tab: the
-  folder it starts in (the selected project's path, muted), Find, Reset
-  (`workspace_reset_terminal`), Close (`workspace_close_terminal`) and New
-  terminal, over `workspace_terminal_preview` and `workspace_reset_count`.
+  folder it starts in (the selected project's path, muted), Find, Close
+  (`workspace_close_terminal`) and New terminal, over
+  `workspace_terminal_preview`. The live terminal has no Reset.
   ⌘F with the focus in the tab opens MyGo's `FindBar` at the screen's top
   right (`terminal_search_placeholder`, 420 wide at most, 0 matches);
   Escape or Done closes it. The window routes the native menu's ⌘F
@@ -153,7 +153,7 @@ terminal, subagent and file-preview tabs are single-pane.
 | Back, Forward | The tab's history |
 | Close (terminal) | Closes the tab |
 | Find (terminal) | The find bar, nothing to match |
-| Revert, Keep, Stage a change, Undo changes, Find, Reload, address, Reset | `preview_notice` toast: they write files, git, load pages or start a shell; Reset also counts |
+| Revert, Keep, Stage a change, Undo changes, Find, Reload, address | `preview_notice` toast: they write files, git, load pages or start a shell |
 | Git: pull, push, fetch, commit, stage, discard (after its confirmation), branch, stash, tag and remote actions, Refresh; Files: open, copy, cut, rename, trash, new, move | `preview_notice` toast |
 | Git: view options, commit options and amend, pickers, history selection; Files: selection, folders | Work in the view |
 | Copy path | Clipboard |
@@ -171,7 +171,7 @@ the same chrome when their plugins land.
 
 | UI state (`State`) | Backend data |
 |---|---|
-| Tabs, active tab; per browser tab the address and history, per terminal tab the folder, resets and find query; per project: shown file and change, open folders, Document/Source, scroll, accepted hunks (until applied), commit draft | Files, changes, hunks, checkpoints, documents |
+| Tabs, active tab; per browser tab the address and history, per terminal tab the folder and find query; per project: shown file and change, open folders, Document/Source, scroll, accepted hunks (until applied), commit draft | Files, changes, hunks, checkpoints, documents |
 
 ## Tests
 
@@ -189,7 +189,7 @@ Copy path, and its arrows, → and Enter.
 beside the tree, a file chosen in the tree its own tab, ⌃⇧G and a change
 a diff tab (read through the diff viewer's accessible text), choosing a
 tab shows its item beside its list, eight tabs show the overflow menu,
-Reset counts and ⌘F in the terminal opens its find bar, ⌘W closes tabs
+the terminal has no Reset and ⌘F in it opens its find bar, ⌘W closes tabs
 then the panel; collapsed, the header clears the traffic lights.
 `internal/shell/pages_test.go`: the rail's Files and Git open pages, the
 page's open files are the panel's file tabs, a change chosen in a tab

@@ -91,14 +91,12 @@ func (s *State) browser(c *ui.Context, t Tab) {
 	})
 }
 
-// term is a terminal tab's chrome state: how often it was reset and its
-// find bar.
+// term is a terminal tab's chrome state: its folder and find bar.
 type term struct {
-	resets int
-	find   bool
-	query  string
-	match  int
-	cwd    string
+	find  bool
+	query string
+	match int
+	cwd   string
 }
 
 func (s *State) termOf(id string) *term {
@@ -125,10 +123,10 @@ func (s *State) Find() bool {
 }
 
 // terminal is a terminal tab (workspace/terminal.rs, terminal/search.rs):
-// the folder it runs in, Reset, Close and New terminal over the screen's
-// placeholder with the reset count, and MyGo's find bar at its top right,
-// ⌘F opening it while the focus is in the tab. The preview starts no
-// shell: there is nothing to match, and Reset only counts.
+// the folder it runs in, Close and New terminal over the screen's
+// placeholder, and MyGo's find bar at its top right, ⌘F opening it while
+// the focus is in the tab. The preview starts no shell: there is nothing
+// to match.
 func (s *State) terminal(c *ui.Context, t Tab) {
 	p := theme.Of(c)
 	x := s.termOf(t.ID)
@@ -141,15 +139,11 @@ func (s *State) terminal(c *ui.Context, t Tab) {
 			ui.Icon(c, icons.Terminal).FontSize(14).TextColor(p.MutedForeground)
 			ui.Text(c, x.cwd).FontSize(14).SingleLine().Grow(1).Shrink(1).TextColor(p.MutedForeground)
 			kit.Action(c.Key("find"), icons.Search, i18n.T(c, "terminal_search_placeholder"), false).OnClick(func() { x.find = true })
-			kit.Action(c.Key("reset"), icons.RotateCw, i18n.T(c, "workspace_reset_terminal"), false).OnClick(func() {
-				x.resets++
-				notice(c)
-			})
 			kit.Action(c.Key("close"), icons.Close, i18n.T(c, "workspace_close_terminal"), false).OnClick(func() { s.Close(t) })
 			kit.IconButtonHint(c.Key("new"), icons.Plus, i18n.T(c, "workspace_new_terminal"), "", 28, false).OnClick(func() { s.New(Terminal) })
 		})
 		ui.Column(c.Key("screen")).Grow(1).MinHeight(0).Children(func() {
-			placeholder(c, icons.Terminal, i18n.T(c, "workspace_terminal_preview")+"\n"+i18n.T(c, "workspace_reset_count", "count", x.resets), p.Muted)
+			placeholder(c, icons.Terminal, i18n.T(c, "workspace_terminal_preview"), p.Muted)
 			w, _ := c.Size()
 			bar := kit.Floating(c, ui.FindBar(c.Key("find-bar"), &x.find, &x.query, 0, &x.match).Placeholder(i18n.T(c, "terminal_search_placeholder"))).
 				Absolute().Top(4).Right(8).Width(min(420, w-32)).Radius(p.Radius)

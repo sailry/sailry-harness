@@ -1,7 +1,6 @@
 package host
 
 import (
-	"slices"
 	"testing"
 	"time"
 )
@@ -33,33 +32,6 @@ func TestFormats(t *testing.T) {
 	}
 	if v, _ := Usage(20, 10); v != 100 {
 		t.Error("usage clamps")
-	}
-}
-
-// The policy's validation is atomic, and a stale editor changes nothing
-// (model/tunnels.rs validation_and_replacement).
-func TestTunnelPolicy(t *testing.T) {
-	tn := &Tunnels{Ports: []int{3000, 5173}, Editable: true, Loaded: true, Entries: []Tunnel{{0, 3000, 3000}, {1, 5173, 5173}}}
-	orig := slices.Clone(tn.Ports)
-	for _, bad := range []string{"0", "65536", "-1", "3000,no", "1.5", "3000;5173"} {
-		if tn.SavePorts(orig, bad) != "tunnel_invalid_ports" || !slices.Equal(tn.Ports, orig) {
-			t.Errorf("%q was taken", bad)
-		}
-	}
-	if tn.SavePorts(orig, "8080, 3000 3000") != "" || !slices.Equal(tn.Ports, []int{3000, 8080}) {
-		t.Errorf("ports %v", tn.Ports)
-	}
-	if tn.SavePorts(orig, "1") != "tunnel_policy_changed" {
-		t.Error("a stale editor saved")
-	}
-	tn.Close(Tunnel{0, 3000, 9999})
-	tn.Close(Tunnel{1, 5173, 5173})
-	if len(tn.Entries) != 1 {
-		t.Errorf("entries %v", tn.Entries)
-	}
-	ro := &Tunnels{Ports: []int{1}, Loaded: true}
-	if ro.SavePorts([]int{1}, "2") != "tunnel_policy_changed" {
-		t.Error("a read-only policy saved")
 	}
 }
 

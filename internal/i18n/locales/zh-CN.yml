@@ -255,7 +255,6 @@ project_edit: 编辑项目
 project_remove: 移除项目
 workspace_new_terminal: 创建终端
 workspace_records: 会话记录
-project_trust: 管理项目信任
 worktree_manage: 管理 worktree
 worktree_create: 创建 worktree
 worktree_remove: 删除 worktree
@@ -971,9 +970,6 @@ provider_empty_live: 暂无渠道
 provider_login_callback_required: 输入浏览器返回的授权码或回调地址
 provider_delete_title: 删除渠道
 provider_remove_effect: 移除后，会话需重新选择供应商
-provider_disconnect: 断开账号
-provider_logout_effect: 使用此账号的会话将需要重新登录
-provider_logout_done: 已断开
 provider_catalog_never: 未更新
 provider_catalog_updated: 已更新
 provider_catalog: 模型数据
@@ -1349,22 +1345,6 @@ workspace_runtime_preview: 真实操作系统、运行时版本与主机指标�
 workspace_running: 运行中的 Agent
 host_activity_hint: 仅展示此主机的活动会话预览，不表示真实 Agent 或 CLI 进程已启动
 workspace_no_running: 预览未启动 Agent 任务
-tunnels_title: 端口隧道
-tunnels_preview: UI 示例映射，未监听端口或连接主机
-tunnel_ports_empty: 未设置允许端口
-tunnel_ports_value: 允许端口：%{ports}
-tunnel_edit: 编辑允许端口
-tunnel_readonly: 远端端口策略只读，需要在目标主机本地修改
-tunnels_empty: 暂无隧道映射
-tunnel_route: 本地 %{local} → 主机 %{remote}
-tunnel_open: 打开地址（预览）
-tunnel_close: 关闭示例隧道
-tunnel_open_hint: 此处仅展示映射地址，未启动浏览器或发起网络请求
-tunnel_policy_hint: 仅修改当前主机的内存示例。用逗号或空格分隔端口，留空表示不允许任何端口。
-tunnel_ports_label: 允许端口
-tunnel_ports_placeholder: 3000, 5173, 8080
-tunnel_invalid_ports: 请输入 1 到 65535 的整数端口，用逗号或空格分隔
-tunnel_policy_changed: 目标配置或编辑权限已改变，请关闭后重新打开
 host_runtime_error: 运行环境读取失败（示例）：%{error}
 update_idle: 尚未检查（示例）
 update_checking: 正在检查（示例）
@@ -1463,11 +1443,9 @@ terminal_search_placeholder: 搜索终端
 terminal_match_previous: 上一个匹配
 terminal_match_next: 下一个匹配
 workspace_no_terminal: 当前 worktree 没有终端
-workspace_reset_terminal: 重置终端
 workspace_close_terminal: 关闭终端
 workspace_terminal_preview: 终端 UI 预览。已保留项目和 worktree 归属，未启动 PTY 或 shell；真实终端绘制与输入在终端阶段接入。
 pane_drag: 拖动分屏
-workspace_reset_count: 示例重置次数 %{count}
 terminal_connecting: 连接中
 terminal_exited: 终端已退出
 terminal_take_control: 接管

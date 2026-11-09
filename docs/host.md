@@ -1,10 +1,10 @@
 # Host
 
 A host's page: its overview in the main column and its metrics in the
-right column, with the update dialog, the tunnel policy editor and the
-port forwards (sailry-public `workspace/host.rs`, `workspace/host/{
-activity,metrics,metrics/data,runtime,tunnels,tunnels/editor,update}.rs`,
-`workspace/model/{runtime,tunnels,updates}.rs`, the header of
+right column, with the update dialog and the port forwards
+(sailry-public `workspace/host.rs`, `workspace/host/{
+activity,metrics,metrics/data,runtime,update}.rs`,
+`workspace/model/{runtime,updates}.rs`, the header of
 `live/host.rs` and `ports/{menu,picker,view}.rs`).
 
 ## Package and files
@@ -13,17 +13,16 @@ activity,metrics,metrics/data,runtime,tunnels,tunnels/editor,update}.rs`,
 
 | File | Holds |
 |---|---|
-| `model.go` | **The view model**: `Host`, `Project`, `Activity`, `Runtime` (`Facts`, `UptimeParts`, `Protocol`), `Tunnels` (`SavePorts`, `Close`, `PortsLabel`), `Update` (`Phase`, `Primary`, `Advance`, `Headline`), `Metrics` (`Bytes`, `Percent`, `Rate`, `Usage`), `Port` (`AddPort`) |
+| `model.go` | **The view model**: `Host`, `Project`, `Activity`, `Runtime` (`Facts`, `UptimeParts`, `Protocol`), `Update` (`Phase`, `Primary`, `Advance`, `Headline`), `Metrics` (`Bytes`, `Percent`, `Rate`, `Usage`), `Port` (`AddPort`) |
 | `page.go` | `State`, `Actions`, `Page`: header, facts, projects, runtime, activity; `Platform`; failure toasts |
-| `tunnels.go` | The tunnels section and the policy editor |
 | `update.go` | The update dialog, `OpenUpdate` |
 | `metrics.go` | `MetricsPanel`, the right column |
 | `ports.go` | The header's forwards, the port picker and the new forward dialog |
 
 Preview data: `preview.HostPages(d)` (`internal/preview/hosts.go`), one
 `Host` per `Data.Hosts` entry: projects, counts and running sessions from
-the dataset, this host's runtime and editable tunnel policy, the paired
-host's unknown runtime, read-only policy and update, the metrics sample of
+the dataset, this host's runtime, the paired host's unknown runtime and
+update, the metrics sample of
 `Snapshot::sample` and two forwards.
 
 ## Entry point
@@ -53,9 +52,8 @@ Update host on a host updated from here. A one-column description list
 projects (rows opening the project's first conversation, or the dashed
 empty card with Add project), the runtime's five facts with
 `host_unknown` for unknown ones, the running sessions (agent or waiting
-user, title, project / branch, model, status; a click opens the session)
-and the tunnels (policy with Edit on this host, read-only note on another,
-each tunnel with Open and Close).
+user, title, project / branch, model, status; a click opens the session).
+The preview's tunnels section is not ported: the live host has none.
 
 The metrics column: a 40 DIP header with the chart icon, the preview note,
 the host, CPU and memory with its bar, network rates, disks and the
@@ -70,23 +68,19 @@ the first sample, which the preview delivers after `preview.LoadAfter`.
 | Open a project or a session | the conversation, revealed in the sidebar |
 | Add project | the project editor |
 | Update host: Check, Download, Apply, Retry | `Update.Advance` moves between the reference's example states; a stale click does nothing |
-| Tunnel Edit, Save | `Tunnels.SavePorts`: tunnel_invalid_ports or tunnel_policy_changed toast, the draft stays |
-| Tunnel Open | info toast with the local address (tunnel_preview) |
-| Tunnel Close | removed from the list |
 | Forward: open address | preview_notice |
 | Forward: copy address | the clipboard |
 | Forward: close | removed |
 | New forward, Create | `AddPort` (port_invalid, port_exists), listed, preview_notice |
 
 Failures show only as toasts, once each (`State.report`): the runtime's
-detail, the tunnels' with Retry (which reloads them), the update's and the
-metrics' detail.
+detail, the update's and the metrics' detail.
 
 ## Wiring a backend
 
 Fill `Host` from the live host (`live/host.rs` info and snapshot) and the
-workspace: `Runtime` from the Node's runtime snapshot, `Tunnels` from the
-tunnel policy and list, `Update` from the host updater (replace
+workspace: `Runtime` from the Node's runtime snapshot, `Update` from the
+host updater (replace
 `Advance` with the request for `Primary`'s action), `Metrics` from the
 monitor's samples, `Ports` from `sailry_client::ports::Forwarder`s.
 `Actions` stay; Open address becomes `OpenURL(Port.Address())`.
@@ -99,11 +93,10 @@ monitor's samples, `Ports` from `sailry_client::ports::Forwarder`s.
 
 ## Tests
 
-`internal/host/host_test.go`: formats, the tunnel policy's validation and
-stale saves, the update's phases and stale clicks, new forwards.
-`internal/shell/hosts_test.go`: the host page with its metrics, the
-update dialog's Check, toggling the metrics, closing the page, the policy
-editor.
+`internal/host/host_test.go`: formats, the update's phases and stale
+clicks, new forwards. `internal/shell/hosts_test.go`: the host page with
+its metrics, the update dialog's Check, toggling the metrics, closing the
+page.
 
 ## Deviations
 

@@ -155,17 +155,16 @@ type Model struct {
 	// Providers (settings/providers): the channels, the directory's
 	// brands, the catalog, the compaction threshold and the family
 	// filter ("" for all).
-	Channels      []preview.Channel
-	Brands        []preview.Brand
-	Catalog       preview.Catalog
-	Compaction    Stored[float64]
-	Family        string
-	expanded      string // the channel whose models show
-	provider      providerEditor
-	login         Authorization
-	loginFor      string
-	removing      string
-	disconnecting string
+	Channels   []preview.Channel
+	Brands     []preview.Brand
+	Catalog    preview.Catalog
+	Compaction Stored[float64]
+	Family     string
+	expanded   string // the channel whose models show
+	provider   providerEditor
+	login      Authorization
+	loginFor   string
+	removing   string
 
 	// Connectors and MCP (connectors.rs, connectors/*, mcp*): the
 	// services, the connector types plugins declare, the host's CLI

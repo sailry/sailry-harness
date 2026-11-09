@@ -23,17 +23,16 @@ type Actions struct {
 type State struct {
 	updating bool       // the update dialog
 	expected Update     // the update the dialog's button acts on
-	tunnel   tunnelEdit // the tunnel policy editor
 	ports    portPicker // the port picker and the new forward dialog
 	// The failures toasted already, so a redraw does not repeat them
 	// (feedback.rs observe).
-	failed, metricsFailed, runtimeFailed, tunnelsFailed string
+	failed, metricsFailed, runtimeFailed string
 }
 
 // Page is the host's overview (workspace/host.rs host_overview): the
 // header with the platform, the status and Update, the facts, the
-// projects, the runtime, the running sessions and the tunnels, 800 wide
-// at most and centered.
+// projects, the runtime and the running sessions, 800 wide at most and
+// centered.
 func Page(c *ui.Context, s *State, h *Host, act Actions) {
 	if h == nil {
 		return
@@ -45,12 +44,10 @@ func Page(c *ui.Context, s *State, h *Host, act Actions) {
 			projects(c, h, act)
 			runtime(c, h.Runtime)
 			activity(c, h.Activity, act)
-			tunnels(c, s, h)
 		})
 	})
 	s.report(c, h)
 	updateDialog(c, s, h)
-	tunnelDialog(c, s, h)
 	portDialogs(c, s, h)
 }
 
@@ -257,19 +254,10 @@ func small(c *ui.Context, key any, icon *ui.SVG, label string, disabled, outline
 }
 
 // report toasts the host's failures once each (Shell::observe_host_errors):
-// the runtime's with its detail, the tunnels' with Retry, which reloads
-// them.
+// the runtime's with its detail.
 func (s *State) report(c *ui.Context, h *Host) {
 	if e := h.Runtime.Error; e != "" && e != s.runtimeFailed {
 		kit.Error(c, i18n.T(c, "host_runtime_error"), e)
 	}
 	s.runtimeFailed = h.Runtime.Error
-	t := h.Tunnels
-	if t == nil {
-		return
-	}
-	if t.Error != "" && t.Error != s.tunnelsFailed {
-		kit.Retry(c, i18n.T(c, t.Error), func() { t.Error, t.Loaded = "", true })
-	}
-	s.tunnelsFailed = t.Error
 }

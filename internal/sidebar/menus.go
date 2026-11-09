@@ -104,9 +104,6 @@ func (s *State) projectMenu(c *ui.Context, m *ui.Menu, pr *preview.Project) {
 	if m.Item(t("project_edit")).Chosen() {
 		s.OpenEditor(pr)
 	}
-	if m.Item(t("project_trust")).Chosen() {
-		notice(c)
-	}
 	if m.Item(t("workspace_copy_path")).Chosen() {
 		c.WriteClipboard(pr.Path)
 	}

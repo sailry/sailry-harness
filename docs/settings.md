@@ -144,7 +144,7 @@ placeholder in an empty masked input.
 | About | Check, Cancel, Download, Install (confirms first), Details | `Updater` plays the states on the frame clock: the stable channel finds 0.2.0-preview, the experience one fails to reach the feed; ready and failure toast with Install and Details; Restart is preview_notice |
 | Providers | catalog Update, Get API key, open/reopen authorization | preview_notice |
 | Providers | compaction threshold | `Commit`, compaction_settings_* toast |
-| Providers | add/edit (brand, method, configure), discover models, delete, disconnect | in memory; problems toast, the editor keeps its draft; delete and disconnect confirm |
+| Providers | add/edit (brand, method, configure), discover models, delete | in memory; problems toast, the editor keeps its draft; delete confirms |
 | Providers | sign in | authorization dialog: device code (ChatGPT) or browser with pasted callback (Claude) |
 | Connectors | add (choose, method, fields), configure, enable account or server, details | in memory, connector_saved toast; OAuth authorize, probe and reconnect are preview_notice; delete confirms |
 | Connectors | Add MCP, configure a manual server | MCP editor; secrets never kept; mcp_configuration_saved |
