@@ -1,6 +1,8 @@
 package transfers
 
 import (
+	"time"
+
 	"strconv"
 
 	"github.com/egoist/mygo/ui"
@@ -73,9 +75,9 @@ func Button(c *ui.Context, q *Queue, open *bool, retry func(e Entry)) {
 
 // row is a request (rows.rs render_item): 56 high, a 28 DIP tile with the
 // kind's icon (danger or warning tinted when it failed or is uncertain),
-// the title over its progress bar, a clock while queued; on hover Remove,
-// and Retry for a failed or uncertain one, float at the row's right end,
-// taking no room. The status, where it runs and the measure are its
+// the title over its progress bar, a clock while queued; on hover round
+// ghost Remove, and Retry for a failed or uncertain one, fade in at the
+// row's right end in place of the clock, in room the column always keeps. The status, where it runs and the measure are its
 // accessible name.
 func row(c *ui.Context, e Entry, remove, retry func()) {
 	p := theme.Of(c)
@@ -105,16 +107,26 @@ func row(c *ui.Context, e Entry, remove, retry func()) {
 	case Uncertain:
 		icon, tone, tile = icons.CircleQuestion, p.Warning, p.Warning.Alpha(0.1)
 	}
+	queued := e.Status == Waiting || e.Status == Queued
+	// The column keeps room for what floats at the row's end (the clock,
+	// Remove and Retry), so its bar is as wide hovered as not.
+	reserve := float32(0)
+	if queued || e.Actionable {
+		reserve = 28
+	}
+	if e.Actionable && e.Retryable {
+		reserve = 56
+	}
 	r := ui.Row(c.Key(e.Key)).Height(56).PaddingX(8).Gap(8).Radius(p.Radius).Label(detail)
 	hovered := r.Hovered()
 	if hovered {
-		r.Background(p.ListHover)
+		r.Background(p.Hover)
 	}
 	r.Children(func() {
 		ui.Row(c.Key("tile")).Size(28, 28).Shrink(0).Radius(p.Radius).Background(tile).Center().Children(func() {
 			ui.Icon(c, icon).FontSize(16).TextColor(tone)
 		})
-		ui.Column(c.Key("text")).Grow(1).Shrink(1).MinWidth(0).Gap(8).Children(func() {
+		ui.Column(c.Key("text")).Grow(1).Shrink(1).MinWidth(0).Gap(8).PaddingEnd(reserve).Children(func() {
 			ui.Text(c, e.Title).FontSize(14).SingleLine()
 			v, measured := e.Measured()
 			if !measured {
@@ -125,28 +137,30 @@ func row(c *ui.Context, e Entry, remove, retry func()) {
 			}
 			ui.Progress(c.Key("progress"), v/100).FillWidth().Height(2).Label(status)
 		})
-		if e.Status == Waiting || e.Status == Queued {
-			ui.Row(c.Key("queued")).PaddingX(4).Shrink(0).Children(func() {
+		var shown bool
+		if e.Actionable {
+			slot := ui.Row(c.Key("actions")).Absolute().Right(8).Top(0).Bottom(0).AlignItems(ui.Center).Gap(4)
+			slot.Children(func() {
+				if e.Retryable {
+					y := kit.IconButton(c.Key("retry"), icons.Redo, i18n.T(c, "installation_retry"), 24, false).Radius(12).
+						TextColor(tone).OnClick(retry)
+					shown = shown || y.FocusVisible()
+				}
+				x := kit.IconButton(c.Key("remove"), icons.Close, i18n.T(c, "installation_remove"), 24, false).Radius(12).
+					OnClick(remove)
+				shown = shown || hovered || x.FocusVisible()
+			})
+			target := float32(0)
+			if shown {
+				target = 1
+			}
+			slot.Opacity(slot.AnimateTo("shown", target, ui.Animation{Duration: 120 * time.Millisecond}))
+		}
+		if queued && !shown {
+			ui.Row(c.Key("queued")).Absolute().Right(12).Top(0).Bottom(0).AlignItems(ui.Center).PassThrough().Children(func() {
 				ui.Icon(c, icons.Clock).FontSize(16).TextColor(p.MutedForeground)
 			})
 		}
-		if !e.Actionable {
-			return
-		}
-		slot := ui.Row(c.Key("actions")).Absolute().Right(8).Top(0).Bottom(0).AlignItems(ui.Center).Gap(4)
-		slot.Children(func() {
-			var shown bool
-			if e.Retryable {
-				y := kit.IconButton(c.Key("retry"), icons.Redo, i18n.T(c, "installation_retry"), 24, false).TextColor(tone).OnClick(retry)
-				shown = shown || y.FocusVisible()
-			}
-			x := kit.IconButton(c.Key("remove"), icons.Close, i18n.T(c, "installation_remove"), 24, false).OnClick(remove)
-			if !hovered && !shown && !x.FocusVisible() {
-				slot.Opacity(0)
-			} else {
-				slot.Background(p.ListHover).Radius(p.Radius)
-			}
-		})
 	})
 }
 
