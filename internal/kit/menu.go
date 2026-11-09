@@ -239,7 +239,7 @@ func (m *Menu) draw(c *ui.Context, parts ui.MenuParts, panel, trigger ui.Element
 		if it.description != "" {
 			row.PaddingY(8).Gap(8).MaxWidth(400)
 		} else {
-			row.Height(26)
+			row.Height(30)
 		}
 		color, muted := p.PopoverForeground, p.MutedForeground
 		switch {
