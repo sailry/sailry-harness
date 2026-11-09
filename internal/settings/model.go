@@ -150,6 +150,21 @@ type Model struct {
 	Speech            []preview.LocalModel
 	info              *modelInfo // the model whose details show
 
+	// Providers (settings/providers): the channels, the directory's
+	// brands, the catalog, the compaction threshold and the family
+	// filter ("" for all).
+	Channels      []preview.Channel
+	Brands        []preview.Brand
+	Catalog       preview.Catalog
+	Compaction    Stored[float64]
+	Family        string
+	expanded      string // the channel whose models show
+	provider      providerEditor
+	login         Authorization
+	loginFor      string
+	removing      string
+	disconnecting string
+
 	// Terminal (terminal.rs, terminal/host.rs).
 	Host            Stored[TerminalHost]
 	Shells          []preview.Shell
@@ -201,7 +216,9 @@ var ToastSeconds = []int{3, 5, 8, 10}
 
 // NewModel builds the view model over the settings' dataset.
 func NewModel(d *preview.Settings) *Model {
+	pr := preview.ProvidersData()
 	m := &Model{
+		Channels: pr.Channels, Brands: pr.Brands, Catalog: pr.Catalog, Compaction: stored(pr.Compaction),
 		Notify: [4]bool{true, true, true, true}, Toast: 1,
 		Power:     stored(d.PreventSleep),
 		Telemetry: stored(Telemetry{Errors: d.Errors, Metrics: d.Metrics}),

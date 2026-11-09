@@ -138,7 +138,7 @@ func Page(c *ui.Context, s *State, d *preview.Data, look Look) {
 		case Dictation:
 			dictation(c, s.Model)
 		case Providers:
-			providers(c, s, d)
+			providers(c, s)
 		case Plugins:
 			plugins(c, d)
 		case Terminal:

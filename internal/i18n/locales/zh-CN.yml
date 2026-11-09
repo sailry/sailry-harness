@@ -821,3 +821,95 @@ settings_notify_system_description: 接收应用的系统通知
 settings_notify_approval_description: 任务需要确认或授权时提醒你
 settings_notify_completed_description: 会话任务完成后发送提醒
 settings_notify_failed_description: 任务失败或意外中断时发送提醒
+authorization_enter_code: 在 %{host} 输入代码
+authorization_browser: 已在浏览器中打开授权页面
+authorization_copy_code: 复制代码
+authorization_starting: 正在连接
+authorization_waiting: 等待授权
+authorization_waiting_time: 等待授权 · %{time}
+authorization_link_expired: 链接已过期
+authorization_code_expired: 代码已过期
+provider_login_callback: 浏览器返回的授权码或回调地址
+provider_login_continue: 继续
+authorization_open: 打开
+authorization_copy_link: 复制链接
+authorization_reopen: 重新打开
+authorization_refresh: 刷新
+authorization_retry: 重试
+authorization_cancel: 取消
+compaction_settings_failed: 无法保存压缩设置
+compaction_settings_conflict: 压缩设置已更改，请重试
+compaction_settings_unknown: 保存结果未确认，请重试
+provider_tokens_m: '%{count}M'
+provider_tokens_k: '%{count}K'
+provider_empty_live: 暂无渠道
+provider_login_callback_required: 输入浏览器返回的授权码或回调地址
+provider_delete_title: 删除渠道
+provider_remove_effect: 移除后，会话需重新选择供应商
+provider_disconnect: 断开账号
+provider_logout_effect: 使用此账号的会话将需要重新登录
+provider_logout_done: 已断开
+provider_catalog_never: 未更新
+provider_catalog_updated: 已更新
+provider_catalog: 模型数据
+provider_catalog_update: 更新
+provider_catalog_status: 模型元数据
+provider_scores: 模型评分
+provider_catalog_last_update: 上次更新
+provider_compaction_threshold: 压缩阈值
+provider_all: 全部类型
+provider_type: 渠道类型
+provider_window_5h: 5h
+provider_window_7d: 7d
+provider_models_empty: 尚未配置模型
+provider_connect: 连接账号
+provider_reconnect: 登录
+provider_access_key: API 密钥
+provider_access_cloud: 云服务凭据
+provider_name_required: 请填写渠道名称
+provider_endpoint_required: 请输入有效的接口地址
+provider_key_required: 请填写密钥
+provider_model_required: 请添加模型并填写模型 ID
+provider_model_duplicate: 模型 ID 不能重复
+provider_limits_invalid: 上下文容量需为正整数，且不小于模型输出上限
+provider_access_endpoint: 自定义接口地址
+provider_add_title: 添加渠道
+provider_choose_method: 选择接入方式
+provider_configure: 配置渠道
+provider_edit_title: 编辑渠道
+provider_step_back: 上一步
+provider_save: 保存
+provider_save_login: 保存并登录
+provider_access_login: 账号登录
+provider_editor_preview: 仅编辑当前窗口的示例。密钥不保存，模型发现与验证不发起网络请求。
+provider_name_hint: 输入渠道名称
+provider_api: 接口协议
+provider_endpoint: 接口地址
+provider_endpoint_hint: https://api.example.com/v1
+provider_key_hint: 输入 API Key
+provider_api_key: API 密钥
+provider_get_key: 获取密钥
+provider_oauth_advanced: 高级设置
+provider_oauth_catalog_version: 模型目录兼容版本
+provider_oauth_user_agent: User-Agent
+provider_oauth_editor_version: 编辑器版本
+provider_oauth_editor_plugin_version: 编辑器插件版本
+provider_models: 模型
+provider_discover: 更新模型
+provider_querying: 查询中
+provider_discovered_preview: 已合并示例模型，保留手动添加的模型和默认选择
+provider_add_model: 添加模型
+provider_new_model: 新模型
+provider_model_default: 默认
+provider_set_default: 设为默认
+provider_default: 默认模型
+provider_model_id: 模型 ID
+form_model_hint: 模型 ID
+provider_context: 上下文容量（Tokens）
+form_tokens_hint: Token 数量
+provider_efforts: 推理强度
+provider_effort_default: 默认强度
+provider_effort_placeholder: 强度或 Token budget
+provider_effort_invalid: 推理强度无效，请检查名称、重复项和接口支持
+provider_login_claude: Claude
+provider_login_chat_gpt: ChatGPT

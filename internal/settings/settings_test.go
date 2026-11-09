@@ -101,3 +101,46 @@ func TestStoredCommit(t *testing.T) {
 		t.Fatalf("%v %+v", o, s)
 	}
 }
+
+// The provider editor's steps and checks (editor/flow.rs, editor.rs).
+func TestProviderEditor(t *testing.T) {
+	m := NewModel(preview.SettingsData())
+	e := &m.provider
+	e.add(m)
+	e.choose(&m.Brands[0]) // Anthropic: several methods
+	if e.step != stepMethod {
+		t.Fatalf("several methods went to step %d", e.step)
+	}
+	e.configure(m.Brands[0].Methods[1]) // API key
+	if got := e.Check(); got != "provider_key_required" {
+		t.Errorf("no key: %q", got)
+	}
+	e.key = "sk-preview"
+	if got := e.Check(); got != "provider_model_required" {
+		t.Errorf("no model: %q", got)
+	}
+	e.models = []modelDraft{{id: "a"}, {id: "a"}}
+	if got := e.Check(); got != "provider_model_duplicate" {
+		t.Errorf("duplicate: %q", got)
+	}
+	e.models[1].id = "b"
+	n := len(m.Channels)
+	if got := e.save(m); got != "" || len(m.Channels) != n+1 {
+		t.Fatalf("save: %q, %d channels", got, len(m.Channels))
+	}
+	e.back()
+	if e.step != stepMethod {
+		t.Errorf("back went to %d", e.step)
+	}
+	e.choose(&m.Brands[2]) // Google: one method
+	if e.step != stepConfigure {
+		t.Errorf("one method went to %d", e.step)
+	}
+	e.back()
+	if e.step != stepBrand {
+		t.Errorf("back from a single method went to %d", e.step)
+	}
+	if ProviderStatus(&m.Channels[2]) != "provider_status_missing_key" || ProviderStatus(&m.Channels[5]) != "provider_status_signed_out" {
+		t.Error("statuses")
+	}
+}

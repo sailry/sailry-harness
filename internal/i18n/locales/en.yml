@@ -821,3 +821,95 @@ settings_notify_system_description: Receive system notifications from the app
 settings_notify_approval_description: Notify when tasks need confirmation or authorization
 settings_notify_completed_description: Notify when a session task completes
 settings_notify_failed_description: Notify when tasks fail or are interrupted
+authorization_enter_code: Enter the code at %{host}
+authorization_browser: Authorization page opened in your browser
+authorization_copy_code: Copy code
+authorization_starting: Connecting
+authorization_waiting: Waiting for authorization
+authorization_waiting_time: Waiting for authorization · %{time}
+authorization_link_expired: Link expired
+authorization_code_expired: Code expired
+provider_login_callback: Authorization code or browser redirect URL
+provider_login_continue: Continue
+authorization_open: Open
+authorization_copy_link: Copy link
+authorization_reopen: Reopen
+authorization_refresh: Refresh
+authorization_retry: Retry
+authorization_cancel: Cancel
+compaction_settings_failed: Could not save compaction settings
+compaction_settings_conflict: Compaction settings changed. Retry
+compaction_settings_unknown: Save result unconfirmed. Retry
+provider_tokens_m: '%{count}M'
+provider_tokens_k: '%{count}K'
+provider_empty_live: No providers
+provider_login_callback_required: Enter the authorization code or browser redirect URL
+provider_delete_title: Delete provider
+provider_remove_effect: Sessions will need to select another provider
+provider_disconnect: Disconnect account
+provider_logout_effect: Sessions using this account will need to sign in again
+provider_logout_done: Disconnected
+provider_catalog_never: Not updated
+provider_catalog_updated: Updated
+provider_catalog: Model data
+provider_catalog_update: Update
+provider_catalog_status: Model metadata
+provider_scores: Model scores
+provider_catalog_last_update: Last updated
+provider_compaction_threshold: Compaction threshold
+provider_all: All types
+provider_type: Provider type
+provider_window_5h: 5h
+provider_window_7d: 7d
+provider_models_empty: No models configured
+provider_connect: Connect account
+provider_reconnect: Sign in
+provider_access_key: API key
+provider_access_cloud: Cloud credentials
+provider_name_required: Enter a provider name
+provider_endpoint_required: Enter a valid API endpoint
+provider_key_required: Enter a key
+provider_model_required: Add a model and enter its ID
+provider_model_duplicate: Model IDs must be unique
+provider_limits_invalid: Context limit must be a positive integer at least as large as the output limit
+provider_access_endpoint: Custom endpoint
+provider_add_title: Add provider
+provider_choose_method: Choose connection method
+provider_configure: Configure provider
+provider_edit_title: Edit provider
+provider_step_back: Back
+provider_save: Save
+provider_save_login: Save and sign in
+provider_access_login: Account sign-in
+provider_editor_preview: Edits this window's preview only. Keys are not saved; model discovery and validation make no network requests.
+provider_name_hint: Enter provider name
+provider_api: API protocol
+provider_endpoint: API endpoint
+provider_endpoint_hint: https://api.example.com/v1
+provider_key_hint: Enter API Key
+provider_api_key: API Key
+provider_get_key: Get API key
+provider_oauth_advanced: Advanced settings
+provider_oauth_catalog_version: Catalog version
+provider_oauth_user_agent: User-Agent
+provider_oauth_editor_version: Editor version
+provider_oauth_editor_plugin_version: Editor plugin version
+provider_models: Models
+provider_discover: Update models
+provider_querying: Querying
+provider_discovered_preview: Preview models merged; manual models and default selection kept
+provider_add_model: Add model
+provider_new_model: New model
+provider_model_default: Default
+provider_set_default: Set as default
+provider_default: Default model
+provider_model_id: Model ID
+form_model_hint: Model ID
+provider_context: Context limit (tokens)
+form_tokens_hint: Token count
+provider_efforts: Reasoning effort
+provider_effort_default: Default effort
+provider_effort_placeholder: Effort or token budget
+provider_effort_invalid: Invalid reasoning effort; check names, duplicates and API support
+provider_login_claude: Claude
+provider_login_chat_gpt: ChatGPT
