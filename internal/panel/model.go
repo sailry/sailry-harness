@@ -64,15 +64,10 @@ func ResourceOf(k Kind) Resource {
 // all (navigation_tabs.rs: more than 4).
 const Overflow = 4
 
-// Item kinds that only tabs hold: a file of the tree and a change's diff.
-const (
-	File Kind = "file"
-	Diff Kind = "diff"
-)
-
 // Tab is an open item: a kind and which one of it. Files, Changes and
-// History have one tab each (ID ""); a file and a diff are by path, a
-// document by its ID, a browser page and a terminal by a number.
+// History have one tab each (ID ""), which shows the file or diff chosen
+// in its own list; a document is by its ID, a browser page and a
+// terminal by a number.
 type Tab struct {
 	Kind Kind   `json:"kind"`
 	ID   string `json:"id,omitempty"`
@@ -154,6 +149,9 @@ func (s *State) New(k Kind) {
 
 // Show shows t, opening its tab if needed.
 func (s *State) Show(t Tab) {
+	if !t.valid() {
+		return
+	}
 	s.Tabs, s.Active = Opened(s.Tabs, t), t
 	if t.Kind == Browser || t.Kind == Terminal {
 		var n int
@@ -161,6 +159,21 @@ func (s *State) Show(t Tab) {
 			s.pages = max(s.pages, n)
 		}
 	}
+}
+
+// valid reports whether the panel shows t's kind: a tab saved by an
+// older build may name one it no longer opens.
+func (t Tab) valid() bool {
+	switch t.Kind {
+	case Artifact, Subagent:
+		return true
+	}
+	for _, r := range Resources {
+		if r.Kind == t.Kind {
+			return true
+		}
+	}
+	return false
 }
 
 // Close closes t's tab. It reports whether a tab is left.
@@ -173,9 +186,9 @@ func (s *State) Close(t Tab) bool {
 // which a page of the same project showing it takes over.
 func (s *State) owns(t Tab) bool {
 	switch t.Kind {
-	case Files, File:
+	case Files:
 		return s.Paged != Files
-	case Changes, Diff:
+	case Changes:
 		return s.Paged != Changes
 	}
 	return true

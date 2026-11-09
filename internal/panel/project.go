@@ -22,6 +22,7 @@ type FileView struct {
 	folders    map[string]*bool
 	source     int // 0 the document, 1 its source, for markdown
 	tree, text ui.ScrollState
+	side       float32 // the tree's width
 }
 
 // GitView is the Git component's state.
@@ -29,6 +30,7 @@ type GitView struct {
 	change string // the changed file shown, by path
 	commit string
 	list   ui.ScrollState
+	side   float32 // the list's width
 }
 
 // File is the path of the file shown.
@@ -64,10 +66,44 @@ func (ps *Projects) Of(id string) *Project {
 	if p, ok := ps.of[id]; ok {
 		return p
 	}
-	p := &Project{ID: id, Data: ps.data, Files: FileView{file: "sailry-go/README.md", folders: map[string]*bool{}}}
+	p := &Project{ID: id, Data: ps.data, Files: FileView{file: "sailry-go/README.md", folders: map[string]*bool{}, side: sideWidth},
+		Git: GitView{side: sideWidth}}
 	if len(ps.data.Changes) > 0 {
 		p.Git.change = ps.data.Changes[0].Path
 	}
 	ps.of[id] = p
 	return p
+}
+
+// The side list's width (resources/split.rs): 220 at first, dragged
+// between sideMin and sideMax, the main area keeping sideMin.
+const (
+	sideWidth = 220
+	sideMin   = 180
+	sideMax   = 480
+)
+
+// split is resources/split.rs Split: the main area, then the side list at
+// its own width past MyGo's divider. MyGo's Split sizes its first pane,
+// so the list's width is turned into the main area's from the width the
+// last frame laid out, and back after a drag, so the list keeps its
+// width as the panel resizes.
+func split(c *ui.Context, key string, side *float32, main, list func()) {
+	box := ui.Column(c.Key(key)).Grow(1).MinHeight(0).MinWidth(0)
+	w := box.LayoutBounds().W
+	clamp := func(v float32) float32 { return min(max(v, sideMin), max(w-sideMin, sideMin), sideMax) }
+	box.Children(func() {
+		size := w - clamp(*side)
+		if w <= 0 {
+			size = sideMin // the first frame: laid out again at once
+		}
+		sp := ui.Split(c, &size, func() {
+			ui.Column(c.Key("main")).Grow(1).MinWidth(0).MinHeight(0).Children(main)
+		}, func() {
+			ui.Column(c.Key("side")).Grow(1).MinWidth(0).MinHeight(0).Children(list)
+		}).Grow(1).MinHeight(0)
+		if sp.Changed() && w > 0 {
+			*side = clamp(w - size)
+		}
+	})
 }

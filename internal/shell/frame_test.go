@@ -25,26 +25,30 @@ func TestPanelOpensWithShortcutsAndTabs(t *testing.T) {
 	if a.Panel.Active.Kind != panel.Files || !tt.HasText("README.md") {
 		t.Fatalf("⌘P did not show the file tree: %q", tt.Texts())
 	}
-	// A file of the tree opens in its own tab beside the tree's.
-	click(t, tt, "README.md")
+	// The tab shows the chosen file beside the tree; choosing another
+	// shows it there, opening no tab.
+	if !tt.HasText("A native desktop Agent workspace.") {
+		t.Fatalf("the Files tab does not show the file: %q", tt.Texts())
+	}
+	click(t, tt, "go.mod")
 	tt.Frame()
-	if a.Panel.Active != (panel.Tab{Kind: panel.File, ID: "sailry-go/README.md"}) || !tt.HasText("A native desktop Agent workspace.") {
-		t.Fatalf("the file did not open in a tab: %v %q", a.Panel.Tabs, tt.Texts())
+	if len(a.Panel.Tabs) != 1 || a.Panel.Active.Kind != panel.Files || !codeHas(tt, "Code editor", "require github.com/egoist/mygo v0.8.3") {
+		t.Fatalf("the file did not show in the Files tab: %v %q", a.Panel.Tabs, tt.Texts())
 	}
 	snapshot(t, tt, "panel-files")
 	tt.Key(ui.Ctrl|ui.Shift, ui.KeyG)
 	tt.Frame()
 	click(t, tt, "docs/example.md")
 	tt.Frame()
-	if a.Panel.Active.Kind != panel.Diff || !codeHas(tt, "New text", "search: command palette") {
+	if len(a.Panel.Tabs) != 2 || a.Panel.Active.Kind != panel.Changes || !codeHas(tt, "New text", "search: command palette") {
 		t.Fatalf("no diff: %q", tt.Texts())
 	}
 	snapshot(t, tt, "panel-changes")
 	for _, k := range []panel.Kind{panel.History, panel.Documents, panel.Browser, panel.Terminal} {
 		a.Panel.Open(k)
 	}
-	// Files, README.md, Git, the diff and those four: one flat strip.
-	if len(a.Panel.Tabs) != 8 {
+	// Files, Git and those four: one flat strip.
+	if len(a.Panel.Tabs) != 6 {
 		t.Fatalf("tabs %v", a.Panel.Tabs)
 	}
 	tt.Frame()

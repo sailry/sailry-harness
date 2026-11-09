@@ -29,22 +29,20 @@ func TestClosedChoosesNext(t *testing.T) {
 	}
 }
 
-// Each open item is its own tab: files and diffs by path, browser pages
-// and terminals each new, Files and Git once.
+// Each open item is its own tab: Files and Git once, browser pages and
+// terminals each new; a kind the panel no longer opens is not shown.
 func TestFlatTabs(t *testing.T) {
 	s := New(preview.Load().Workspace)
 	s.Open(Files)
-	s.Show(Tab{File, "a.go"})
-	s.Show(Tab{File, "b.go"})
-	s.Show(Tab{Diff, "a.go"})
+	s.Open(Changes)
+	s.Show(Tab{"file", "a.go"})
 	s.Open(Browser)
 	s.New(Browser)
 	s.Open(Files)
-	s.Show(Tab{File, "a.go"})
-	if len(s.Tabs) != 6 || s.Active != (Tab{File, "a.go"}) {
+	if len(s.Tabs) != 4 || s.Active != (Tab{Kind: Files}) {
 		t.Fatalf("tabs %v, active %v", s.Tabs, s.Active)
 	}
-	if s.Tabs[4] == s.Tabs[5] || s.Tabs[5].Kind != Browser {
+	if s.Tabs[2] == s.Tabs[3] || s.Tabs[3].Kind != Browser {
 		t.Errorf("a new browser page reused a tab: %v", s.Tabs)
 	}
 }

@@ -44,21 +44,10 @@ func View(c *ui.Context, s *State, pr *Project, keys Shortcut) {
 	own := s.owns(t)
 	ui.Column(c.Key(t)).Grow(1).MinHeight(0).Children(func() {
 		switch t.Kind {
-		case Files, Changes, File, Diff:
-			if pr == nil {
-				pr.view(c, t.Kind, own)
-				return
-			}
-			switch t.Kind {
-			case Files:
-				pr.tree(c, own, func(path string) { s.showFile(pr, path) })
-			case File:
-				pr.filePreview(c, t.ID, own && t.ID == pr.Files.file)
-			case Changes:
-				pr.changeList(c, own, func(path string) { s.showDiff(pr, path) })
-			case Diff:
-				pr.diff(c, t.ID)
-			}
+		case Files, Changes:
+			// The whole component: the list chooses what the main area
+			// shows, in this tab.
+			pr.view(c, t.Kind, own)
 		case History:
 			s.history(c)
 		case Documents:
@@ -77,40 +66,9 @@ func View(c *ui.Context, s *State, pr *Project, keys Shortcut) {
 	})
 }
 
-// showFile opens or focuses a file's tab and makes it the project's
-// shown file, which the Files page shows too.
-func (s *State) showFile(pr *Project, path string) {
-	pr.Files.Show(path)
-	s.Show(Tab{File, path})
-}
-
-// showDiff opens or focuses a change's diff tab and makes it the
-// project's shown change.
-func (s *State) showDiff(pr *Project, path string) {
-	pr.Git.Show(path)
-	s.Show(Tab{Diff, path})
-}
-
-// focus shows a tab of the strip; a file or a diff becomes the project's
-// shown one.
-func (s *State) focus(pr *Project, t Tab) {
-	switch {
-	case pr != nil && t.Kind == File:
-		s.showFile(pr, t.ID)
-	case pr != nil && t.Kind == Diff:
-		s.showDiff(pr, t.ID)
-	default:
-		s.Show(t)
-	}
-}
-
 // look is a tab's icon and title.
 func (s *State) look(c *ui.Context, t Tab) (*ui.SVG, string) {
 	switch t.Kind {
-	case File:
-		return icons.File, t.ID[strings.LastIndex(t.ID, "/")+1:]
-	case Diff:
-		return ResourceOf(Changes).Icon, t.ID[strings.LastIndex(t.ID, "/")+1:]
 	case Artifact:
 		if f, ok := s.artifacts[t.ID]; ok {
 			return conversation.FileIcon(f), f.Name()
@@ -180,9 +138,6 @@ func (s *State) strip(c *ui.Context, pr *Project, keys Shortcut) {
 					active := t == s.Active
 					tab := ui.ButtonBase(c.Key(t)).Label(label).Height(tabHeight).MaxWidth(tabMax).PaddingStart(8).PaddingEnd(4).
 						Gap(6).Radius(p.Radius).Cursor(ui.CursorPointer).TextColor(p.MutedForeground)
-					if t.Kind == File || t.Kind == Diff {
-						tab.Tooltip(t.ID)
-					}
 					hovered := tab.Hovered()
 					switch {
 					case active:
@@ -197,7 +152,7 @@ func (s *State) strip(c *ui.Context, pr *Project, keys Shortcut) {
 						if !hovered && !active && !x.FocusVisible() {
 							x.Opacity(0)
 						}
-					}).OnClick(func() { s.focus(pr, t) })
+					}).OnClick(func() { s.Show(t) })
 				}
 				if closed != nil {
 					s.Close(*closed)
@@ -212,7 +167,7 @@ func (s *State) strip(c *ui.Context, pr *Project, keys Shortcut) {
 				for _, t := range s.Tabs {
 					_, label := s.look(c, t)
 					if m.Item(label).Checked(t == s.Active).Chosen() {
-						s.focus(pr, t)
+						s.Show(t)
 					}
 				}
 			})
@@ -304,13 +259,7 @@ func status(c *ui.Context, path string, after func()) {
 // (preview_files.rs: the preview first, the list after).
 func (pr *Project) files(c *ui.Context, own bool) {
 	v := &pr.Files
-	p := theme.Of(c)
-	ui.Row(c).Grow(1).MinHeight(0).AlignItems(ui.Stretch).Children(func() {
-		ui.Column(c.Key("preview")).Grow(1).MinWidth(0).Children(func() { pr.filePreview(c, v.file, own) })
-		ui.Column(c.Key("tree")).Width(220).Shrink(0).BorderWidth(0, 0, 0, 1).BorderColor(p.Border).Children(func() {
-			pr.tree(c, own, v.Show)
-		})
-	})
+	split(c, "files", &v.side, func() { pr.filePreview(c, v.file, own) }, func() { pr.tree(c, own, v.Show) })
 }
 
 // tree is the project's file tree, starting at preview_files.rs's p_2 with
@@ -441,14 +390,8 @@ func statusColor(p *theme.Palette, st string) ui.Color {
 // changes is the Git page: the shown file's hunks beside the list and
 // the commit box (preview_git.rs, hunks/render.rs).
 func (pr *Project) changes(c *ui.Context, own bool) {
-	p := theme.Of(c)
 	v := &pr.Git
-	ui.Row(c).Grow(1).MinHeight(0).AlignItems(ui.Stretch).Children(func() {
-		ui.Column(c.Key("diff")).Grow(1).MinWidth(0).Children(func() { pr.diff(c, v.change) })
-		ui.Column(c.Key("list")).Width(240).Shrink(0).BorderWidth(0, 0, 0, 1).BorderColor(p.Border).Children(func() {
-			pr.changeList(c, own, v.Show)
-		})
-	})
+	split(c, "changes", &v.side, func() { pr.diff(c, v.change) }, func() { pr.changeList(c, own, v.Show) })
 }
 
 // changeList is the working tree's changes over the commit box. A

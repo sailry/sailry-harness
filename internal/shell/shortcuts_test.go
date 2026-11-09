@@ -124,7 +124,7 @@ func TestEscapeClosesOnlyPopover(t *testing.T) {
 	clickButton(t, tt, i18n.In("en", "features_all"))
 	tt.Key(0, ui.KeyEscape)
 	tt.Frame()
-	if a.more || !a.PanelOpen || len(a.Panel.Tabs) != 2 {
+	if a.more || !a.PanelOpen || len(a.Panel.Tabs) != 1 {
 		t.Fatalf("Escape left More %v, panel %v, tabs %v", a.more, a.PanelOpen, a.Panel.Tabs)
 	}
 
