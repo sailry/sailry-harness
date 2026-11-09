@@ -459,12 +459,10 @@ composer_permission_full_description
 composer_permission_preview
 composer_host_local
 composer_host_remote
-composer_host_hint
 composer_no_project
 composer_branch_none
 composer_settings
 composer_back
-location_project
 location_search
 location_create
 git_no_matches

@@ -441,12 +441,10 @@ composer_permission_full_description: 自动修改文件和执行命令，可影
 composer_permission_preview: 仅预览，不授予权限
 composer_host_local: 本机
 composer_host_remote: 远程
-composer_host_hint: '%{name} · 未连接 · UI 预览'
 composer_no_project: 对话
 composer_branch_none: 无 worktree
 composer_settings: 会话设置
 composer_back: 返回
-location_project: 选择项目
 location_search: 选择工作位置
 location_create: 新建工作树并继续
 git_no_matches: 无匹配项

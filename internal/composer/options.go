@@ -1,8 +1,6 @@
 package composer
 
 import (
-	"strings"
-
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-go/internal/i18n"
 	"github.com/sailry/sailry-go/internal/icons"
@@ -107,19 +105,6 @@ func permissionColor(p *theme.Palette, m Permission) ui.Color {
 	return p.Foreground
 }
 
-// host is the draft's host, the first when unknown.
-func (s *State) host(ctx *Context) (Host, bool) {
-	for _, h := range ctx.Hosts {
-		if h.ID == s.Host {
-			return h, true
-		}
-	}
-	if len(ctx.Hosts) > 0 {
-		return ctx.Hosts[0], true
-	}
-	return Host{}, false
-}
-
 // project is the draft's project, nil for a chat without one.
 func (s *State) project(ctx *Context) *Project {
 	for i := range ctx.Projects {
@@ -151,39 +136,39 @@ func contextButton(c *ui.Context, b ui.Element, icon *ui.SVG, label string, chev
 	})
 }
 
-// hostMenu is context.rs's host button: Local device or Remote, its hint
-// naming the host, and a menu of the hosts.
-func (s *State) hostMenu(c *ui.Context, ctx *Context, iconOnly bool) {
-	h, ok := s.host(ctx)
-	if !ok {
-		return
-	}
-	icon, label := icons.Cpu, i18n.T(c, "composer_host_local")
-	if !h.Local {
-		icon, label = icons.Globe, i18n.T(c, "composer_host_remote")
-	}
-	kit.MenuButton(c.Key("host"), "composer-host", func(b ui.Element) {
-		kit.Tooltip(c, contextButton(c, b, icon, label, true, iconOnly), i18n.T(c, "composer_host_hint", "name", i18n.T(c, h.Name)))
-	}, func(m *kit.Menu) {
-		for _, x := range ctx.Hosts {
-			if m.Item(i18n.T(c, x.Name)).Checked(x.ID == h.ID).Chosen() {
-				s.Host = x.ID
-			}
-		}
-	}, kit.MenuOptions{At: ui.AnchorTopStart, Self: ui.AnchorBottomStart})
-}
-
 // projectButton is the location: the project's name, or Chats for none,
-// opening the location picker (location.rs choose_location).
-func (s *State) projectButton(c *ui.Context, ctx *Context, iconOnly bool) {
+// and a menu of Chats, the host's projects with a check on the current one,
+// then Add project.
+func (s *State) projectButton(c *ui.Context, ctx *Context, actions Actions, iconOnly bool) {
 	icon, label := icons.Inbox, i18n.T(c, "composer_no_project")
 	if pr := s.project(ctx); pr != nil {
 		icon, label = icons.Folder, pr.Name
 	}
-	b := ui.ButtonBase(c.Key("project")).Disabled(ctx.Readonly)
-	contextButton(c, b, icon, label, false, iconOnly).OnClick(func() {
-		s.place = placeState{open: true}
-	})
+	kit.MenuButton(c.Key("project"), "composer-project", func(b ui.Element) {
+		contextButton(c, b.Disabled(ctx.Readonly), icon, label, false, iconOnly)
+	}, func(m *kit.Menu) {
+		choose := func(id string) {
+			if id == s.Project {
+				return
+			}
+			s.Project, s.Worktree = id, ""
+			if pr := s.project(ctx); pr != nil && len(pr.Worktrees) > 0 {
+				s.Worktree = pr.Worktrees[0].Branch
+			}
+		}
+		if m.Item(i18n.T(c, "composer_no_project")).Icon(icons.Inbox).Checked(s.Project == "").Chosen() {
+			choose("")
+		}
+		for _, pr := range ctx.Projects {
+			if m.Item(pr.Name).Icon(icons.Folder).Checked(pr.ID == s.Project).Chosen() {
+				choose(pr.ID)
+			}
+		}
+		m.Separator()
+		if m.Item(i18n.T(c, "project_add")).Icon(icons.Plus).Chosen() {
+			actions.AddProject()
+		}
+	}, kit.MenuOptions{At: ui.AnchorTopStart, Self: ui.AnchorBottomStart})
 }
 
 // branchLabel is the worktree's branch as the inspection reads it
@@ -235,118 +220,6 @@ func (s *State) worktreeMenu(c *ui.Context, ctx *Context, actions Actions, iconO
 			}
 		}
 	}, kit.MenuOptions{At: ui.AnchorTopStart, Self: ui.AnchorBottomStart})
-}
-
-// placeState is the location picker's: open, its query and selected row.
-type placeState struct {
-	open  bool
-	query string
-	sel   int
-}
-
-// locationDialog is location.rs's picker (command_picker.rs dialog): a
-// searchable list 480 wide of Chats, the host's projects and Add project,
-// rows 36 high with a check on the current one.
-func (s *State) locationDialog(c *ui.Context, ctx *Context, actions Actions) {
-	st := &s.place
-	if !st.open {
-		return
-	}
-	type row struct {
-		id, label string
-		icon      *ui.SVG
-		checked   bool
-	}
-	all := []row{{"", i18n.T(c, "composer_no_project"), icons.Inbox, s.Project == ""}}
-	for _, pr := range ctx.Projects {
-		all = append(all, row{pr.ID, pr.Name, icons.Folder, pr.ID == s.Project})
-	}
-	all = append(all, row{"+", i18n.T(c, "project_add"), icons.Plus, false})
-	var rows []row
-	q := strings.ToLower(st.query)
-	for _, r := range all {
-		if strings.Contains(strings.ToLower(r.label), q) {
-			rows = append(rows, r)
-		}
-	}
-	choose := func(r row) {
-		st.open = false
-		switch r.id {
-		case "+":
-			actions.AddProject()
-		case s.Project:
-		default:
-			s.Project, s.Worktree = r.id, ""
-			if pr := s.project(ctx); pr != nil && len(pr.Worktrees) > 0 {
-				s.Worktree = pr.Worktrees[0].Branch
-			}
-		}
-	}
-	list(c.Key("location-picker"), &st.open, &st.query, &st.sel, len(rows), i18n.T(c, "location_project"),
-		func(i int) { choose(rows[i]) }, func(i int, selected bool) {
-			r := rows[i]
-			ui.Icon(c, r.icon).FontSize(14)
-			ui.Text(c, r.label).FontSize(14).SingleLine().Grow(1).Shrink(1).MinWidth(0)
-			if r.checked {
-				ui.Icon(c, icons.Check).FontSize(14)
-			}
-		})
-}
-
-// list is command_picker.rs's searchable list dialog: 480 wide, the query
-// over rows 36 high, Up and Down moving round, Enter choosing, Escape
-// clearing the query and then closing.
-func list(c *ui.Context, open *bool, query *string, sel *int, n int, placeholder string, choose func(int), row func(i int, selected bool)) {
-	p := theme.Of(c)
-	if *sel >= n {
-		*sel = 0
-	}
-	w, _ := c.Size()
-	kit.Dialog(c, open, func() {
-		ui.Row(c.Key("query")).Height(45).PaddingX(12).Gap(8).Shrink(0).BorderWidth(0, 0, 1, 0).BorderColor(p.Border).Children(func() {
-			ui.Icon(c, icons.Search).FontSize(16).TextColor(p.MutedForeground)
-			in := ui.TextInputBase(c.Key("input"), query).Grow(1).FontSize(14).TextColor(p.PopoverForeground).
-				Placeholder(placeholder).Label(placeholder).AutoFocus()
-			if in.Changed() {
-				*sel = 0
-			}
-			if in.Shortcut(0, ui.KeyDown) {
-				*sel = next(n, *sel, false)
-			}
-			if in.Shortcut(0, ui.KeyUp) {
-				*sel = next(n, *sel, true)
-			}
-			in.OnSubmit(func() {
-				if *sel >= 0 && *sel < n {
-					choose(*sel)
-				}
-			})
-			if in.Shortcut(0, ui.KeyEscape) {
-				if *query != "" {
-					*query, *sel = "", 0
-				} else {
-					*open = false
-				}
-			}
-		})
-		ui.Scroll(c.Key("rows")).MaxHeight(344).Padding(8).Children(func() {
-			if n == 0 {
-				ui.Text(c, i18n.T(c, "git_no_matches")).FontSize(14).Padding(12).TextColor(p.MutedForeground)
-				return
-			}
-			for i := range n {
-				b := ui.ButtonBase(c.Key(i)).Height(36).PaddingX(8).Gap(8).Radius(p.Radius).Shrink(0).
-					TextColor(p.PopoverForeground).AlignItems(ui.Center)
-				if b.Hovered() {
-					*sel = i
-				}
-				if i == *sel {
-					b.Background(p.Hover).TextColor(p.HoverForeground).ScrollIntoView()
-				}
-				b.Children(func() { row(i, i == *sel) }).OnClick(func() { choose(i) })
-			}
-		})
-	}).Width(min(480, w-40)).MaxHeightPercent(60).Padding(0).Gap(0).Label(placeholder).Clip()
 }
 
 // next moves a selection among n rows, round at either end

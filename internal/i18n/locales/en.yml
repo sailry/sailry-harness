@@ -441,12 +441,10 @@ composer_permission_full_description: Edit files and run commands automatically,
 composer_permission_preview: Preview only; no permissions granted
 composer_host_local: Local device
 composer_host_remote: Remote
-composer_host_hint: '%{name} · Disconnected · UI preview'
 composer_no_project: Chats
 composer_branch_none: No branch
 composer_settings: Session settings
 composer_back: Back
-location_project: Project
 location_search: Select working location
 location_create: New worktree
 git_no_matches: No matches

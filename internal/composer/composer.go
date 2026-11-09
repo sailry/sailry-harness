@@ -83,7 +83,6 @@ type State struct {
 	queue queueState
 	ref   refState
 	files fileState
-	place placeState
 	caret int // a caret to put in the draft next frame, -1 for none
 	focus bool
 	area  ui.Element
@@ -180,7 +179,6 @@ func View(c *ui.Context, s *State, ctx *Context, actions Actions) {
 		})
 	})
 	s.filePicker(c, ctx, actions)
-	s.locationDialog(c, ctx, actions)
 }
 
 // surface is theme/composer.rs's input surface: padding 12, radius_2xl,
@@ -375,8 +373,7 @@ func (s *State) contextBar(c *ui.Context, ctx *Context, actions Actions) {
 			location.Wrap()
 		}
 		location.Children(func() {
-			s.hostMenu(c, ctx, icon)
-			s.projectButton(c, ctx, icon)
+			s.projectButton(c, ctx, actions, icon)
 			s.worktreeMenu(c, ctx, actions, icon)
 		})
 		if s.Metrics != nil {
