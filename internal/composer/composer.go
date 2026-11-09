@@ -10,7 +10,6 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-go/internal/i18n"
 	"github.com/sailry/sailry-go/internal/icons"
-	"github.com/sailry/sailry-go/internal/preview"
 	"github.com/sailry/sailry-go/internal/theme"
 )
 
@@ -21,34 +20,44 @@ var Efforts = []string{"minimal", "low", "medium", "high", "xhigh"}
 // Branches are the preview's branches (conversation/context.rs).
 var Branches = []string{"composer_branch_main", "composer_branch_preview"}
 
-// Width is the composer's and the transcript's maximum width (preview.rs).
-const Width = 800
+// Width is the composer's maximum width, the transcript's too.
+const Width = theme.ContentWidth
+
+// Model is a model the picker offers, as the backend lists it.
+type Model struct {
+	ID, Name, Provider string
+	Reasoning          bool // it takes a reasoning effort
+}
 
 // State is the composer's part of the app state.
 type State struct {
 	Draft   string
-	Model   string  // preview.Model ID
+	Model   string  // the chosen Model's ID
 	Effort  float64 // index into Efforts
 	Branch  int     // index into Branches
 	Running bool    // a reply is running: Stop replaces Send
 
 	picker bool // the model picker is open
 	list   bool // it shows the model list rather than its main panel
+	in     interaction
 }
 
-func New(model string) *State { return &State{Model: model, Effort: 2} }
+func New(model string) *State {
+	return &State{Model: model, Effort: 2, in: interaction{reasons: map[string]*string{}}}
+}
 
 // EffortName is the effort shown for the chosen model.
-func (s *State) EffortName(c *ui.Context, m preview.Model) string {
+func (s *State) EffortName(c *ui.Context, m Model) string {
 	if !m.Reasoning {
 		return i18n.T(c, "composer_effort_unavailable")
 	}
 	return Efforts[int(s.Effort)]
 }
 
-// View builds the composer. send gets the trimmed draft; stop ends the
-// running reply.
-func View(c *ui.Context, s *State, models []preview.Model, send func(string), stop func()) {
+// View builds the composer: the capsules of what the run waits on, the
+// input and its controls, and the context bar. Send gets the trimmed draft.
+func View(c *ui.Context, s *State, models []Model, in Interactions, actions Actions) {
+	send, stop := actions.Send, actions.Stop
 	p := theme.Of(c)
 	submit := func() {
 		if text := strings.TrimSpace(s.Draft); text != "" && !s.Running {
@@ -57,6 +66,7 @@ func View(c *ui.Context, s *State, models []preview.Model, send func(string), st
 		}
 	}
 	ui.Column(c.Key("composer")).FillWidth().MaxWidth(Width).Margin(0, ui.Auto).Padding(8, 24, 16, 24).Gap(8).Children(func() {
+		s.interactions(c, in, actions)
 		// theme/composer.rs surface: padding 12, radius_2xl (2.5 x 6), muted.
 		ui.Column(c).Padding(12).Gap(8).Radius(15).Background(p.Muted).Children(func() {
 			ui.TextAreaBase(c.Key("draft"), &s.Draft).Label(i18n.T(c, "composer")).Placeholder(i18n.T(c, "composer")).
@@ -98,7 +108,7 @@ func (s *State) sendButton(c *ui.Context, submit, stop func()) {
 }
 
 // Chosen returns the model chosen, the first one when the ID is unknown.
-func (s *State) Chosen(models []preview.Model) preview.Model {
+func (s *State) Chosen(models []Model) Model {
 	for _, m := range models {
 		if m.ID == s.Model {
 			return m
@@ -109,7 +119,7 @@ func (s *State) Chosen(models []preview.Model) preview.Model {
 
 // modelChip is the round chip naming the provider, the model and the
 // effort, which opens the picker above it (model_controls/mod.rs).
-func (s *State) modelChip(c *ui.Context, models []preview.Model) {
+func (s *State) modelChip(c *ui.Context, models []Model) {
 	p := theme.Of(c)
 	m := s.Chosen(models)
 	chip := theme.Ghost(c.Key("model"), i18n.T(c, "composer_select_model"), s.picker).Height(32).PaddingX(10).Gap(8).Radius(16).MaxWidth(260)
@@ -131,7 +141,7 @@ func (s *State) modelChip(c *ui.Context, models []preview.Model) {
 }
 
 // mainPanel shows the effort, the model, and the effort slider.
-func (s *State) mainPanel(c *ui.Context, m preview.Model) {
+func (s *State) mainPanel(c *ui.Context, m Model) {
 	p := theme.Of(c)
 	effort := ui.Text(c, s.EffortName(c, m)).FontSize(16).Height(28).TextAlign(ui.Center).TextColor(p.Primary)
 	if m.Reasoning && int(s.Effort) == len(Efforts)-1 {
@@ -146,7 +156,7 @@ func (s *State) mainPanel(c *ui.Context, m preview.Model) {
 }
 
 // modelList lists the models by provider; choosing one goes back.
-func (s *State) modelList(c *ui.Context, models []preview.Model) {
+func (s *State) modelList(c *ui.Context, models []Model) {
 	p := theme.Of(c)
 	ui.Scroll(c).MaxHeight(320).Gap(2).Children(func() {
 		last := ""

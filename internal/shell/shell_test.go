@@ -10,6 +10,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-go/internal/composer"
+	"github.com/sailry/sailry-go/internal/conversation"
 	"github.com/sailry/sailry-go/internal/i18n"
 	"github.com/sailry/sailry-go/internal/preview"
 	"github.com/sailry/sailry-go/internal/settings"
@@ -58,9 +59,9 @@ func TestSidebarOpensConversation(t *testing.T) {
 	if a.Sidebar.Selected != "sailry-go/theme" {
 		t.Fatalf("selected %q", a.Sidebar.Selected)
 	}
-	// The header names it and the transcript shows its first message.
+	// The header names it and the transcript shows its last message.
 	cv := a.Data.Find("sailry-go/theme")
-	if !tt.HasText(cv.Messages[len(cv.Messages)-2].Text) {
+	if !tt.HasText(cv.Turns[len(cv.Turns)-1].User) {
 		t.Errorf("the transcript of %q is not shown: %q", cv.Title, tt.Texts())
 	}
 	// A selected button reads as pressed.
@@ -106,10 +107,10 @@ func TestComposerSend(t *testing.T) {
 		t.Fatal("Send is disabled with a draft")
 	}
 	cv := a.Data.Find("sailry-go/theme")
-	n := len(cv.Messages)
+	n := len(cv.Turns)
 	click(t, tt, "Send")
-	if len(cv.Messages) != n+1 || cv.Messages[n].Text != "Make the borders lighter" {
-		t.Fatalf("not sent: %d messages, last %q", len(cv.Messages), cv.Messages[len(cv.Messages)-1].Text)
+	if len(cv.Turns) != n+1 || cv.Turns[n].User != "Make the borders lighter" {
+		t.Fatalf("not sent: %d turns", len(cv.Turns))
 	}
 	if a.Composer(cv.ID).Draft != "" {
 		t.Error("the draft stays after sending")
@@ -124,12 +125,67 @@ func TestComposerSend(t *testing.T) {
 	if _, ok := tt.AccessByRole(ui.RoleButton, "Send"); !ok {
 		t.Error("Send does not come back after Stop")
 	}
-	// Enter sends too; a turn stopped before its reply stays paired.
+	if st := cv.Turns[n].Reply.Status; st != conversation.Cancelled {
+		t.Errorf("stopped reply has status %d", st)
+	}
+	// Enter sends too.
 	click(t, tt, i18n.In("en", "composer"))
 	tt.Type("Again")
 	tt.Key(0, ui.KeyEnter)
-	if last := cv.Messages[len(cv.Messages)-1]; last.Text != "Again" || len(cv.Messages)%2 != 1 {
-		t.Errorf("Enter did not send: %d messages, last %q", len(cv.Messages), last.Text)
+	if last := cv.Turns[len(cv.Turns)-1]; last.User != "Again" {
+		t.Errorf("Enter did not send: %d turns, last %q", len(cv.Turns), last.User)
+	}
+}
+
+// The sent reply plays to its end: the run completes and its answer shows.
+func TestReplyPlays(t *testing.T) {
+	a, tt := newTester(t)
+	click(t, tt, "Port the neutral theme tokens")
+	click(t, tt, i18n.In("en", "composer"))
+	tt.Type("Hello")
+	tt.Key(0, ui.KeyEnter)
+	cv := a.Data.Find("sailry-go/theme")
+	for range 200 {
+		if !cv.Playing() {
+			break
+		}
+		tt.Advance(preview.Tick)
+	}
+	r := cv.Turns[len(cv.Turns)-1].Reply
+	if r.Status != conversation.Completed || cv.Status != preview.Idle {
+		t.Fatalf("the reply did not complete: status %d", r.Status)
+	}
+	if !tt.HasText(i18n.In("en", "turn_completed")) {
+		t.Errorf("no completed status: %q", tt.Texts())
+	}
+}
+
+// The live reply's approvals and question wait in the composer's capsules;
+// a decision there changes the preview's row and says so in a toast.
+func TestApprovalsAndQuestion(t *testing.T) {
+	a, tt := newTester(t)
+	cv := a.Data.Find(preview.Big)
+	if len(cv.Waiting.Approvals) != 2 {
+		t.Fatalf("%d approvals", len(cv.Waiting.Approvals))
+	}
+	clickButton(t, tt, i18n.In("en", "approval_live_count", "count", 2))
+	snapshot(t, tt, "approvals")
+	if !tt.HasText("internal/kit/loader.go") || !tt.HasText("go vet ./...") {
+		t.Fatalf("the approvals do not show their requests: %q", tt.Texts())
+	}
+	clickButton(t, tt, i18n.In("en", "approval_allow_once"))
+	if len(cv.Waiting.Approvals) != 1 {
+		t.Fatalf("the decision did not resolve the approval: %d left", len(cv.Waiting.Approvals))
+	}
+	if !tt.HasText(i18n.In("en", "approval_preview_result")) {
+		t.Errorf("no preview toast: %q", tt.Texts())
+	}
+	// The question: choose an option and submit.
+	clickButton(t, tt, i18n.In("en", "question_reply"))
+	click(t, tt, "Use the spinner")
+	clickButton(t, tt, i18n.In("en", "interaction_submit"))
+	if cv.Waiting.Question != nil {
+		t.Fatal("the answer did not close the question")
 	}
 }
 
@@ -262,4 +318,3 @@ func TestChinese(t *testing.T) {
 	}
 	snapshot(t, tt, "conversation-zh")
 }
-

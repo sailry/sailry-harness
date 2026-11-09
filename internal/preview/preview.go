@@ -5,9 +5,10 @@
 package preview
 
 import (
-	"fmt"
-	"strings"
 	"time"
+
+	"github.com/sailry/sailry-go/internal/composer"
+	"github.com/sailry/sailry-go/internal/conversation"
 )
 
 // Status is a conversation's state in the sidebar.
@@ -20,47 +21,17 @@ const (
 	Waiting
 )
 
-// Role says who wrote a message.
-type Role int
-
-const (
-	User Role = iota
-	Assistant
-)
-
-// ToolStatus is the state of a tool call.
-type ToolStatus int
-
-const (
-	ToolRunning ToolStatus = iota
-	ToolDone
-	ToolFailed
-)
-
-type Tool struct {
-	Name    string // e.g. "Read", "Bash"
-	Summary string // its arguments, one line
-	Status  ToolStatus
-}
-
-type Message struct {
-	ID   int
-	Role Role
-	Text string // Markdown for the assistant
-	// Reasoning is the assistant's thinking, shown collapsed; Seconds how
-	// long it took.
-	Reasoning string
-	Seconds   int
-	Tools     []Tool
-}
-
 type Conversation struct {
-	ID       string
-	Title    string
-	Status   Status
-	Pinned   bool
-	Updated  time.Time
-	Messages []Message
+	ID      string
+	Title   string
+	Status  Status
+	Pinned  bool
+	Updated time.Time
+	Turns   []conversation.Turn
+	// Waiting is what the running reply waits on the user for.
+	Waiting composer.Interactions
+
+	stream *stream // the reply the preview plays after a send
 }
 
 type Project struct {
@@ -80,10 +51,7 @@ type Data struct {
 	Plugins    []Plugin
 }
 
-type Model struct {
-	ID, Name, Provider string
-	Reasoning          bool
-}
+type Model = composer.Model
 
 type Provider struct {
 	ID, Name, Description string
@@ -99,7 +67,7 @@ type Plugin struct {
 // Now is the fixed clock of the dataset, so ages render the same in tests.
 var Now = time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)
 
-// Big is the ID of the conversation with 2000 messages.
+// Big is the ID of the conversation with 1000 turns.
 const Big = "sailry-go/virtual-list"
 
 // Load builds the dataset.
@@ -109,7 +77,11 @@ func Load() *Data {
 	conv := func(id, title string, st Status, ago time.Duration, msgs int) *Conversation {
 		n++
 		c := &Conversation{ID: id, Title: title, Status: st, Updated: Now.Add(-ago)}
-		c.Messages = Messages(msgs, n)
+		c.Turns = Turns(id, msgs/2, n)
+		if st == Running {
+			c.Turns[len(c.Turns)-1] = live(c.Turns[len(c.Turns)-1].ID)
+			c.Waiting = waiting(c.Turns[len(c.Turns)-1].ID)
+		}
 		return c
 	}
 	d.Projects = []*Project{
@@ -156,12 +128,12 @@ func Load() *Data {
 		conv("chat/shell", "zsh completion errors", Idle, 11*24*time.Hour, 4),
 	}
 	d.Models = []Model{
-		{"claude-opus-5-5", "Claude Opus 5.5", "Anthropic", true},
-		{"claude-sonnet-5-5", "Claude Sonnet 5.5", "Anthropic", true},
-		{"claude-haiku-5-5", "Claude Haiku 5.5", "Anthropic", false},
-		{"gpt-5.2", "GPT-5.2", "OpenAI", true},
-		{"gemini-3-pro", "Gemini 3 Pro", "Google", true},
-		{"qwen3-coder", "Qwen3 Coder", "Ollama", false},
+		{ID: "claude-opus-5-5", Name: "Claude Opus 5.5", Provider: "Anthropic", Reasoning: true},
+		{ID: "claude-sonnet-5-5", Name: "Claude Sonnet 5.5", Provider: "Anthropic", Reasoning: true},
+		{ID: "claude-haiku-5-5", Name: "Claude Haiku 5.5", Provider: "Anthropic", Reasoning: false},
+		{ID: "gpt-5.2", Name: "GPT-5.2", Provider: "OpenAI", Reasoning: true},
+		{ID: "gemini-3-pro", Name: "Gemini 3 Pro", Provider: "Google", Reasoning: true},
+		{ID: "qwen3-coder", Name: "Qwen3 Coder", Provider: "Ollama", Reasoning: false},
 	}
 	d.Providers = []Provider{
 		{"anthropic", "Anthropic", "Claude models with OAuth or an API key", "provider_auth_oauth", true},
@@ -211,60 +183,19 @@ func (d *Data) ProjectOf(id string) *Project {
 	return nil
 }
 
-var asks = []string{
-	"Can you read `internal/conversation/list.go` and explain how rows are measured?",
-	"Add a test that scrolls to the middle of the transcript.",
-	"Why does the composer lose focus after sending?",
-	"Rename `rowHeight` to `estimate` everywhere.",
-	"Run the benchmarks again with GOMAXPROCS=1.",
-}
-
-var replies = []string{
-	"The list measures each row the first time it shows and **estimates** the rest from the average, so the scroll bar settles as you move.\n\n- Rows keep their place by key, not by offset.\n- Heights are cached per width.\n\nThe relevant part:\n\n```go\nfunc (l *list) estimate(i int) float32 {\n\tif h, ok := l.measured[i]; ok {\n\t\treturn h\n\t}\n\treturn l.average\n}\n```",
-	"Done. The new test scrolls by `ScrollTo(1000, ui.Center)` and checks that message **#1000** is on screen.\n\n| Step | Result |\n|---|---|\n| Build | ok |\n| `go test ./...` | ok |",
-	"Focus moves to the send button because it is clicked with the pointer. Keeping the focus in the input is one line:\n\n```go\napp.input.Focus()\n```\n\nI applied it after `send()`.",
-	"Renamed in 4 files. No public API changed.",
-	"Results on this machine:\n\n```text\nBenchmarkScroll-1   2000   412 µs/op   0 B/op\n```\n\nThat is well under a 16.7 ms frame.",
-}
-
-var tools = [][]Tool{
-	{{"Read", "internal/conversation/list.go", ToolDone}, {"Grep", "\"estimate\" in internal/", ToolDone}},
-	{{"Edit", "internal/conversation/view_test.go", ToolDone}, {"Bash", "go test ./internal/conversation", ToolDone}},
-	{{"Read", "internal/composer/composer.go", ToolDone}},
-	{{"Bash", "gofmt -l .", ToolFailed}, {"Edit", "internal/conversation/list.go", ToolDone}},
-	{{"Bash", "go test -bench . -run ^$", ToolRunning}},
-}
-
-// Messages makes n messages alternating between the user and the
-// assistant; seed varies them between conversations.
-func Messages(n, seed int) []Message {
-	out := make([]Message, n)
-	for i := range out {
-		k := (i/2 + seed) % len(asks)
-		m := Message{ID: i + 1}
-		if i%2 == 0 {
-			m.Role, m.Text = User, asks[k]
-		} else {
-			m.Role, m.Text = Assistant, replies[k]
-			if i%4 == 1 {
-				m.Reasoning = reasoning(k)
-				m.Seconds = 3 + (i*7)%40
-			}
-			if i%3 != 0 {
-				m.Tools = tools[k]
-				if i < n-1 && m.Tools[len(m.Tools)-1].Status == ToolRunning {
-					// Only the newest reply still runs a tool.
-					m.Tools = append([]Tool(nil), m.Tools...)
-					m.Tools[len(m.Tools)-1].Status = ToolDone
-				}
-			}
-		}
-		out[i] = m
+// waiting is what a live reply waits on: two approvals, one a change set,
+// and a question.
+func waiting(id string) composer.Interactions {
+	return composer.Interactions{
+		Approvals: []composer.Approval{
+			{ID: call(id, "write", "", "", "internal/theme/controls.go").ID, Title: "Write file", Context: "~/Web/sailry-go", Changes: []composer.Change{
+				{Path: "internal/theme/controls.go", Kind: composer.Modified, Added: 24, Removed: 3},
+				{Path: "internal/kit/loader.go", Kind: composer.Added, Added: 41},
+			}, Remember: true},
+			{ID: call(id, "command", "", "", "go vet ./...").ID, Title: "Command", Context: "~/Web/sailry-go", Description: "go vet ./...",
+				Code: true, Remember: true, Prefix: "go vet"},
+		},
+		Question: &composer.Ask{ID: id + "/ask", Prompt: "Keep the 2x3 loader or use Kit's spinner?",
+			Options: []string{"Keep the loader", "Use the spinner"}, Other: true},
 	}
-	return out
-}
-
-func reasoning(k int) string {
-	return strings.TrimSpace(fmt.Sprintf(`The user asks about step %d. I should check the file first, then answer briefly with the relevant code.
-The list builds only the rows in view, so the cost depends on what shows, not on how many messages there are.`, k+1))
 }

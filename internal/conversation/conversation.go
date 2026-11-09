@@ -1,16 +1,20 @@
 // Package conversation is the transcript of a conversation: a virtualized
 // list of turns, each a user message and the assistant's reply with its
-// reasoning, tool calls and Markdown (sailry-public conversation/live.rs,
-// live/messages.rs, disclosure.rs, theme/messages.rs).
+// work region, tool calls and Markdown answer (sailry-public
+// conversation/live.rs, live/messages.rs, live/tools.rs, disclosure.rs,
+// surface/*). The view models and actions are in model.go.
 package conversation
 
 import (
+	"fmt"
+	"strings"
+	"time"
+
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
-	"github.com/sailry/sailry-go/internal/composer"
 	"github.com/sailry/sailry-go/internal/i18n"
 	"github.com/sailry/sailry-go/internal/icons"
-	"github.com/sailry/sailry-go/internal/preview"
+	"github.com/sailry/sailry-go/internal/kit"
 	"github.com/sailry/sailry-go/internal/theme"
 )
 
@@ -20,19 +24,22 @@ const (
 	turnGap    = 10 // user message to reply
 	turnBottom = 28 // between turns
 	bubbleMax  = 440
+	workGap    = 16 // between the blocks of the work region
 )
 
-// State is the transcript's part of the app state: a list state per
-// conversation, so each keeps its place, and the reasoning blocks opened.
+// State is the transcript's UI state: a list state per conversation, so
+// each keeps its place, and the disclosures opened. It holds no
+// conversation data.
 type State struct {
-	lists     map[string]*ui.ListState
-	reasoning map[[2]any]*bool
-	md        markdown.Options
-	themes    map[bool]*markdown.Theme
+	lists  map[string]*ui.ListState
+	open   map[string]*bool
+	work   map[string]bool // work regions the user opened or closed
+	md     markdown.Options
+	themes map[bool]*markdown.Theme
 }
 
 func New() *State {
-	return &State{lists: map[string]*ui.ListState{}, reasoning: map[[2]any]*bool{}, themes: map[bool]*markdown.Theme{}}
+	return &State{lists: map[string]*ui.ListState{}, open: map[string]*bool{}, work: map[string]bool{}, themes: map[bool]*markdown.Theme{}}
 }
 
 // List returns the list state of a conversation.
@@ -45,33 +52,22 @@ func (s *State) List(id string) *ui.ListState {
 	return l
 }
 
-// Turns is the number of turns of a conversation: a user message and the
-// reply after it.
-func Turns(cv *preview.Conversation) int { return (len(cv.Messages) + 1) / 2 }
-
-// View builds the transcript. running says the last reply is still coming.
-func View(c *ui.Context, s *State, cv *preview.Conversation, running bool) {
-	p := theme.Of(c)
-	s.md.Theme = s.markdownTheme(p)
-	l := s.List(cv.ID)
-	l.Key = func(i int) any { return i }
-	n := Turns(cv)
-	ui.Box(c.Key(cv.ID)).Grow(1).Children(func() {
+// View builds the transcript of conversation id: its turns in a list that
+// follows its end, and the jump button over it.
+func View(c *ui.Context, s *State, id string, turns []Turn, actions Actions) {
+	s.md.Theme = s.markdownTheme(theme.Of(c))
+	l := s.List(id)
+	l.Key = func(i int) any { return turns[i].ID }
+	n := len(turns)
+	ui.Box(c.Key(id)).Grow(1).Children(func() {
 		ui.List(c, l, n, func(i int) {
-			s.turn(c, cv, i, i == 0, i == n-1, running && i == n-1)
-		}).Fill()
-		if n > 0 && !l.AtEnd() {
-			theme.Ghost(c.Key("latest"), i18n.T(c, "turn_latest"), false).Attach(ui.AnchorBottom, ui.AnchorBottom).
-				Bottom(12).Height(28).PaddingX(12).Gap(6).Radius(14).Background(p.Popover).Border(1, p.Border).
-				Shadow(0, 4, 12, 0, ui.RGBA(0, 0, 0, 0.12)).Children(func() {
-				ui.Icon(c, icons.ArrowDown).FontSize(14)
-				ui.Text(c, i18n.T(c, "turn_latest")).FontSize(14).SingleLine()
-			}).OnClick(l.ScrollToEnd)
-		}
+			s.turn(c, &turns[i], i == 0, i == n-1, actions)
+		}).Fill().Role(ui.RoleLog)
+		jump(c, l, n)
 	})
 }
 
-func (s *State) turn(c *ui.Context, cv *preview.Conversation, i int, first, last, running bool) {
+func (s *State) turn(c *ui.Context, t *Turn, first, last bool, actions Actions) {
 	top, bottom := float32(0), float32(turnBottom)
 	if first {
 		top = 24
@@ -79,141 +75,236 @@ func (s *State) turn(c *ui.Context, cv *preview.Conversation, i int, first, last
 	if last {
 		bottom = 24
 	}
-	ui.Column(c).FillWidth().MaxWidth(composer.Width).Margin(0, ui.Auto).Padding(top, padX, bottom, padX).Gap(turnGap).Children(func() {
-		user := cv.Messages[2*i]
-		userMessage(c, user)
-		if 2*i+1 < len(cv.Messages) {
-			s.reply(c, cv.ID, &cv.Messages[2*i+1], running)
-		} else if running {
-			phase(c)
+	ui.Column(c).FillWidth().MaxWidth(theme.ContentWidth).Margin(0, ui.Auto).Padding(top, padX, bottom, padX).Gap(turnGap).Children(func() {
+		if t.User != "" {
+			userMessage(c, t.User)
 		}
+		s.reply(c, t, actions)
 	})
 }
 
 // userMessage is the muted bubble on the right (theme/messages.rs).
-func userMessage(c *ui.Context, m preview.Message) {
+func userMessage(c *ui.Context, text string) {
 	p := theme.Of(c)
 	ui.Row(c).Justify(ui.End).Children(func() {
-		ui.Text(c, m.Text).Selectable().FontSize(14).LineHeight(1.6).Padding(9, 14).Radius(6).
+		ui.Text(c, text).Selectable().FontSize(14).LineHeight(1.6).Padding(9, 14).Radius(6).
 			Background(p.Muted).TextColor(p.Foreground).MaxWidth(bubbleMax)
 	})
 }
 
-// reply is the assistant's message: no bubble, its work above the answer.
-func (s *State) reply(c *ui.Context, conv string, m *preview.Message, running bool) {
-	p := theme.Of(c)
-	if m.Text == "" && m.Reasoning == "" && len(m.Tools) == 0 && !running {
-		return // a reply stopped before it began
+// statusKey is the run's status label (frame::status).
+func statusKey(st RunStatus) string {
+	switch st {
+	case Queued:
+		return "turn_queued"
+	case Running:
+		return "chat_running"
+	case Stopping:
+		return "chat_stopping"
+	case Continued:
+		return "turn_continued"
+	case Cancelled:
+		return "turn_cancelled"
+	case Interrupted:
+		return "chat_interrupted"
+	case Failed:
+		return "turn_failed"
+	case Unsynced:
+		return "chat_status_unsynced"
 	}
-	ui.Column(c).Gap(12).Children(func() {
-		if m.Seconds > 0 {
-			ui.Row(c).Gap(6).Children(func() {
-				ui.Text(c, i18n.T(c, "turn_completed")).FontSize(14).TextColor(p.MutedForeground)
-				ui.Textf(c, "%ds", m.Seconds).FontSize(14).TextColor(p.MutedForeground)
-			})
-			ui.Divider(c).Background(p.Border)
-		}
-		if m.Reasoning != "" {
-			s.reasoningBlock(c, conv, m)
-		}
-		if len(m.Tools) > 0 {
-			ui.Column(c).Gap(8).Children(func() {
-				for j, t := range m.Tools {
-					ui.Row(c.Key(j)).Children(func() { toolRow(c, t) })
-				}
-			})
-		}
-		if running && m.Text == "" {
-			phase(c)
-			return
-		}
-		markdown.View(c, m.Text, &s.md)
-		ui.Row(c).Gap(8).Children(func() {
-			theme.IconButton(c.Key("copy"), icons.Copy, i18n.T(c, "turn_copy"), 28, false).TextColor(p.MutedForeground).
-				OnClick(func() {
-					c.WriteClipboard(m.Text)
-					c.Toast(i18n.T(c, "content_copied"))
-				})
-		})
-	})
+	return "turn_completed"
 }
 
-// reasoningBlock is the collapsed "Reasoning" disclosure; open, its text
-// hangs from a rail on the left, at most 160 DIPs high (disclosure.rs).
-func (s *State) reasoningBlock(c *ui.Context, conv string, m *preview.Message) {
-	p := theme.Of(c)
-	key := [2]any{conv, m.ID}
-	open, ok := s.reasoning[key]
-	if !ok {
-		open = new(bool)
-		s.reasoning[key] = open
+// Elapsed formats a run's time as the reference does: 9s, 1m05s, 1h02m05s.
+func Elapsed(d time.Duration) string {
+	s := int(d / time.Second)
+	switch {
+	case s < 60:
+		return fmt.Sprintf("%ds", s)
+	case s < 3600:
+		return fmt.Sprintf("%dm%02ds", s/60, s%60)
 	}
-	ui.Column(c.Key("reasoning")).Gap(4).Children(func() {
-		parts := ui.CollapsibleBase(c, open)
-		hovered := parts.Trigger.Hovered()
-		color := p.MutedForeground
-		if hovered {
-			color = p.Foreground
-		}
-		parts.Trigger.Gap(6).Height(24).Cursor(ui.CursorPointer).TextColor(color).Children(func() {
-			ui.Icon(c, icons.Bot).FontSize(16)
-			ui.Text(c, i18n.T(c, "turn_reasoning")).FontSize(14)
-			chevron := ui.Icon(c, icons.ChevronRight).FontSize(12).Rotate(90 * parts.Progress())
-			if !hovered {
-				chevron.Opacity(0)
+	return fmt.Sprintf("%dh%02dm%02ds", s/3600, s/60%60, s%60)
+}
+
+// reply is the assistant's message: a header with the run's status over a
+// separator, the work region folded under it, the answer, and the footer
+// once the run ends (messages.rs render_turn).
+func (s *State) reply(c *ui.Context, t *Turn, actions Actions) {
+	p := theme.Of(c)
+	r := &t.Reply
+	blocks := Compact(r.Blocks)
+	from := AnswerFrom(blocks)
+	active := r.Status.Active()
+	ui.Column(c.Key("reply")).Gap(8).Children(func() {
+		// The header: the status, its time, and the work region's trigger.
+		ui.Column(c).Gap(8).Children(func() {
+			key := "work-" + t.ID
+			workOpen, chosen := s.work[key]
+			if !chosen {
+				workOpen = active // open while the run goes on, until the user chooses
+			}
+			label := i18n.T(c, statusKey(r.Status))
+			status := func() {
+				row := ui.Row(c).Gap(8).Grow(1).MinWidth(0)
+				if r.Status == Failed || r.Status == Interrupted {
+					row.TextColor(p.Danger)
+				}
+				row.Children(func() {
+					ui.Text(c, label).FontSize(14).SingleLine()
+					if r.Elapsed > 0 {
+						ui.Text(c, Elapsed(r.Elapsed)).FontSize(14).SingleLine()
+					}
+				})
+			}
+			if from == 0 {
+				ui.Row(c).Height(rowHeight).TextColor(p.MutedForeground).Children(status)
+			} else {
+				b := ui.ButtonBase(c.Key("work")).Label(label).Height(rowHeight).FillWidth().Gap(8).
+					Justify(ui.Start).Expanded(workOpen).Cursor(ui.CursorPointer).TextColor(p.MutedForeground)
+				hovered := b.Hovered() || b.FocusVisible()
+				b.Children(func() {
+					status()
+					chevron := icons.ChevronRight
+					if workOpen {
+						chevron = icons.ChevronDown
+					}
+					ch := ui.Icon(c, chevron).FontSize(16).Shrink(0)
+					if !hovered {
+						ch.Opacity(0)
+					}
+				}).OnClick(func() { s.work[key] = !workOpen })
+			}
+			ui.Divider(c).Background(p.Border)
+			if from > 0 && workOpen {
+				ui.Column(c.Key("work-body")).Gap(workGap).Children(func() {
+					s.blocks(c, t.ID, blocks[:from], active && from == len(blocks), actions)
+				})
 			}
 		})
-		parts.Panel(func() {
-			ui.Scroll(c).MaxHeight(160).Margin(0, 0, 0, 7.5).Padding(0, 0, 0, 15.5).BorderWidth(0, 0, 0, 1).
-				BorderColor(p.Border).Children(func() {
-				ui.Text(c, m.Reasoning).Selectable().FontSize(14).LineHeight(22.0 / 14).TextColor(p.MutedForeground)
+		if from < len(blocks) {
+			ui.Column(c.Key("answer")).Gap(workGap).Children(func() {
+				s.blocks(c, t.ID, blocks[from:], active, actions)
 			})
-		})
-	})
-}
-
-var toolIcons = map[string]*ui.SVG{
-	"Read": icons.BookOpen, "Grep": icons.Search, "Edit": icons.Writing, "Bash": icons.Terminal,
-}
-
-// toolRow is a tool call: icon, name, its arguments in mono, and its state
-// (live/tools.rs, disclosure.rs colors).
-func toolRow(c *ui.Context, t preview.Tool) {
-	p := theme.Of(c)
-	color := p.MutedForeground
-	switch t.Status {
-	case preview.ToolFailed:
-		color = p.Danger
-	case preview.ToolRunning:
-		color = p.MutedForeground.Mix(p.Foreground, 0.35)
-	}
-	icon := toolIcons[t.Name]
-	if icon == nil {
-		icon = icons.Settings2
-	}
-	ui.Row(c).Height(24).Gap(8).TextColor(color).Children(func() {
-		ui.Icon(c, icon).FontSize(16)
-		ui.Text(c, t.Name).FontSize(14).SingleLine()
-		ui.Text(c, t.Summary).Font("monospace").FontSize(13).SingleLine().MaxWidth(480).Shrink(1).
-			TextColor(p.MutedForeground.Alpha(0.65))
-		switch t.Status {
-		case preview.ToolDone:
-			ui.Icon(c, icons.Check).FontSize(12).TextColor(p.Success)
-		case preview.ToolFailed:
-			ui.Icon(c, icons.TriangleAlert).FontSize(12)
-			ui.Text(c, i18n.T(c, "tool_failed")).FontSize(14).SingleLine()
-		case preview.ToolRunning:
-			theme.Loader(c, 12)
+		}
+		if active && showPhase(r, blocks) {
+			phaseRow(c, r)
+		}
+		if !active {
+			footer(c, t, blocks, actions)
 		}
 	})
 }
 
-// phase is the running reply's row: the orb and what it is doing.
-func phase(c *ui.Context) {
+// blocks builds blocks in order. continuing marks the latest tool row
+// running while the turn goes on.
+func (s *State) blocks(c *ui.Context, turn string, blocks []Block, continuing bool, actions Actions) {
 	p := theme.Of(c)
-	ui.Row(c).Gap(8).Height(24).Children(func() {
+	for i, b := range blocks {
+		key := fmt.Sprintf("%s-%d", turn, i)
+		last := i == len(blocks)-1
+		ui.Column(c.Key(key)).Children(func() {
+			switch b.Kind {
+			case TextBlock:
+				markdown.View(c, b.Text, &s.md)
+			case ReasoningBlock:
+				head := Call{Label: i18n.T(c, "turn_reasoning"), Icon: "bot", Running: continuing && last}
+				s.disclosure(c, "reasoning-"+key, func(hovered, open bool) { summary(c, head, hovered, true, open) }, 4, 8, func() {
+					ui.Scroll(c).MaxHeight(160).Children(func() {
+						ui.Text(c, b.Text).Selectable().FontSize(14).LineHeight(22.0 / 14).TextColor(p.MutedForeground)
+					})
+				})
+			case ToolsBlock:
+				s.tools(c, b.Calls, continuing && last)
+			case QuestionBlock:
+				s.question(c, b.Question)
+			case ChildrenBlock:
+				s.children(c, b.Children, actions)
+			case ProgressBlock:
+				s.steps(c, key, b.Steps, continuing)
+			case ErrorBlock:
+				head := Call{Label: b.Label, Icon: "triangle-alert", Failed: true}
+				s.disclosure(c, "error-"+key, func(hovered, open bool) { summary(c, head, hovered, true, open) }, 4, 8, func() {
+					ui.Scroll(c).MaxHeight(160).Children(func() {
+						ui.Text(c, b.Text).Selectable().FontSize(14).TextColor(p.Danger)
+					})
+				})
+			}
+		})
+	}
+}
+
+// showPhase hides the phase row while the run waits on the user or a
+// call or child runs: their rows already say what goes on.
+func showPhase(r *Reply, blocks []Block) bool {
+	for _, b := range blocks {
+		for _, call := range b.Calls {
+			if call.Pending || call.Running {
+				return false
+			}
+		}
+		for _, k := range b.Children {
+			if k.Status == ChildRunning {
+				return false
+			}
+		}
+		if b.Question != nil && b.Question.State == QuestionPending {
+			return false
+		}
+	}
+	return true
+}
+
+// phaseRow is the active run's last row: the orb and what it does.
+func phaseRow(c *ui.Context, r *Reply) {
+	p := theme.Of(c)
+	var label string
+	switch r.Phase {
+	case Generating:
+		label = i18n.T(c, "turn_generating")
+	case AwaitingResponse:
+		label = i18n.T(c, "turn_awaiting_response")
+	case Compacting:
+		label = i18n.T(c, "turn_compacting")
+	case WaitingChildren:
+		if r.Waiting == 1 {
+			label = i18n.T(c, "turn_waiting_child")
+		} else {
+			label = i18n.T(c, "turn_waiting_children", "count", r.Waiting)
+		}
+	default:
+		label = i18n.T(c, "turn_thinking")
+	}
+	ui.Row(c.Key("phase")).Gap(8).Height(rowHeight).Children(func() {
 		theme.Orb(c, 16)
-		ui.Text(c, i18n.T(c, "turn_thinking")).FontSize(14).TextColor(p.MutedForeground)
+		kit.Shimmer(c, label, 14, p.MutedForeground)
+	})
+}
+
+// footer is the ended run's actions: copy the answer, and retry a run
+// that failed, stopped or broke off.
+func footer(c *ui.Context, t *Turn, blocks []Block, actions Actions) {
+	p := theme.Of(c)
+	var parts []string
+	for _, b := range blocks[AnswerFrom(blocks):] {
+		if b.Kind == TextBlock {
+			parts = append(parts, b.Text)
+		}
+	}
+	text := strings.Join(parts, "\n\n")
+	ui.Row(c.Key("footer")).Gap(8).Children(func() {
+		if text != "" {
+			theme.IconButton(c.Key("copy"), icons.Copy, i18n.T(c, "turn_copy"), 28, false).TextColor(p.MutedForeground).
+				OnClick(func() {
+					c.WriteClipboard(text)
+					c.Toast(i18n.T(c, "content_copied"))
+				})
+		}
+		switch t.Reply.Status {
+		case Failed, Interrupted, Cancelled:
+			theme.IconButton(c.Key("retry"), icons.RotateCw, i18n.T(c, "chat_retry"), 28, false).TextColor(p.MutedForeground).
+				OnClick(func() { actions.Retry(t.ID) })
+		}
 	})
 }
 

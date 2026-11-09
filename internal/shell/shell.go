@@ -52,7 +52,6 @@ type App struct {
 	Settings *settings.State
 	Messages *conversation.State
 	drafts   map[string]*composer.State
-	running  map[string]bool
 }
 
 // New makes the app over the preview dataset, showing its large conversation.
@@ -63,7 +62,6 @@ func New(d *preview.Data) *App {
 		Settings: settings.New(),
 		Messages: conversation.New(),
 		drafts:   map[string]*composer.State{},
-		running:  map[string]bool{},
 	}
 }
 
@@ -110,7 +108,7 @@ func (a *App) View(c *ui.Context) {
 					return
 				}
 				nav := func() {
-					ui.Column(c.Key("nav")).Fill().Background(p.Sidebar.Alpha(float32(panel.A)/255)).Children(func() {
+					ui.Column(c.Key("nav")).Fill().Background(p.Sidebar.Alpha(float32(panel.A) / 255)).Children(func() {
 						if a.Page == SettingsPage {
 							settings.Nav(c, a.Settings)
 						} else {
@@ -206,28 +204,63 @@ func (a *App) page(c *ui.Context) {
 	if cv == nil {
 		return
 	}
-	id := cv.ID
-	comp := a.Composer(id)
-	comp.Running = a.running[id]
-	conversation.View(c, a.Messages, cv, comp.Running)
-	composer.View(c, comp, a.Data.Models, func(text string) { a.send(cv, text) }, func() { a.stop(cv) })
-}
-
-// send adds the message to the preview conversation and shows a reply
-// running. Preview data calls no model: the reply only runs until Stop.
-func (a *App) send(cv *preview.Conversation, text string) {
-	n := len(cv.Messages)
-	if n%2 == 1 { // a reply was stopped before it began: keep turns paired
-		cv.Messages = append(cv.Messages, preview.Message{ID: n + 1, Role: preview.Assistant})
-		n++
+	// The preview plays a sent reply on the frame clock, a step per Tick.
+	preview.Advance(cv, c.Now())
+	if cv.Playing() {
+		c.After(preview.Tick)
 	}
-	cv.Messages = append(cv.Messages, preview.Message{ID: n + 1, Role: preview.User, Text: text})
-	cv.Updated, cv.Status = preview.Now, preview.Running
-	a.running[cv.ID] = true
-	a.Messages.List(cv.ID).ScrollToEnd()
+	comp := a.Composer(cv.ID)
+	comp.Running = cv.Running()
+	act := &actions{a: a, c: c, cv: cv}
+	conversation.View(c, a.Messages, cv.ID, cv.Turns, act)
+	composer.View(c, comp, a.Data.Models, cv.Waiting, act)
 }
 
-func (a *App) stop(cv *preview.Conversation) {
-	a.running[cv.ID] = false
-	cv.Status = preview.Idle
+// actions carries out the page's actions on the preview data. Preview
+// data calls no model or tool: decisions and answers change only the
+// preview's rows, and say so in a toast.
+type actions struct {
+	a  *App
+	c  *ui.Context
+	cv *preview.Conversation
 }
+
+func (x *actions) Send(text string) {
+	preview.Send(x.cv, text, x.c.Now())
+	x.a.Messages.List(x.cv.ID).ScrollToEnd()
+}
+
+func (x *actions) Stop() { preview.Stop(x.cv) }
+
+func (x *actions) Decide(id string, d composer.Decision, reason string) {
+	preview.Decide(x.cv, id, d)
+	x.c.Toast(i18n.T(x.c, "approval_preview_result"))
+}
+
+func (x *actions) Answer(id string, ans composer.Answer) {
+	var answers []string
+	if q := x.cv.Waiting.Question; q != nil {
+		for _, i := range ans.Choices {
+			answers = append(answers, q.Options[i])
+		}
+	}
+	if ans.Text != "" {
+		answers = append(answers, ans.Text)
+	}
+	preview.Resolve(x.cv, id, conversation.QuestionAccepted, answers)
+	x.c.Toast(i18n.T(x.c, "preview_notice"))
+}
+
+func (x *actions) CancelQuestion(id string) {
+	preview.Resolve(x.cv, id, conversation.QuestionCancelled, nil)
+}
+
+func (x *actions) DeclineQuestion(id string) {
+	preview.Resolve(x.cv, id, conversation.QuestionDeclined, nil)
+}
+
+// OpenChild has no child session to open in the preview.
+func (x *actions) OpenChild(string) { x.c.Toast(i18n.T(x.c, "preview_notice")) }
+
+// Retry does not run a turn again in the preview.
+func (x *actions) Retry(string) { x.c.Toast(i18n.T(x.c, "preview_notice")) }

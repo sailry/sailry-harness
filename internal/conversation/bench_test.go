@@ -1,23 +1,30 @@
-package conversation
+package conversation_test
 
 import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-go/internal/conversation"
 	"github.com/sailry/sailry-go/internal/preview"
 )
 
-// bigTester shows the 2000-message conversation (1000 turns) at the
-// window's default size, scrolled to its end as it opens.
-func bigTester(tb testing.TB) (*State, *preview.Conversation, *ui.Tester) {
+// noActions ignores the transcript's actions.
+type noActions struct{}
+
+func (noActions) OpenChild(string) {}
+func (noActions) Retry(string)     {}
+
+// bigTester shows the 1000-turn conversation at the window's default
+// size, scrolled to its end as it opens.
+func bigTester(tb testing.TB) (*conversation.State, *preview.Conversation, *ui.Tester) {
 	d := preview.Load()
 	cv := d.Find(preview.Big)
-	if len(cv.Messages) != 2000 {
-		tb.Fatalf("%d messages", len(cv.Messages))
+	if len(cv.Turns) != 1000 {
+		tb.Fatalf("%d turns", len(cv.Turns))
 	}
-	s := New()
+	s := conversation.New()
 	tt := ui.NewTester(func(c *ui.Context) {
-		ui.Column(c).Fill().Children(func() { View(c, s, cv, false) })
+		ui.Column(c).Fill().Children(func() { conversation.View(c, s, cv.ID, cv.Turns, noActions{}) })
 	}, 1024, 760)
 	tt.Frame()
 	return s, cv, tt
@@ -28,15 +35,15 @@ func TestBigConversationScrolls(t *testing.T) {
 	s, cv, tt := bigTester(t)
 	l := s.List(cv.ID)
 	first, last := l.Visible()
-	if last != Turns(cv)-1 || last-first > 10 {
-		t.Fatalf("opened at turns %d..%d of %d", first, last, Turns(cv))
+	if last != len(cv.Turns)-1 || last-first > 10 {
+		t.Fatalf("opened at turns %d..%d of %d", first, last, len(cv.Turns))
 	}
 	l.ScrollTo(500, ui.Center)
 	tt.Frame()
 	if first, last = l.Visible(); first > 500 || last < 500 {
 		t.Fatalf("ScrollTo(500) shows turns %d..%d", first, last)
 	}
-	if !tt.HasText(cv.Messages[1000].Text) {
+	if !tt.HasText(cv.Turns[500].User) {
 		t.Errorf("turn 500 is not shown")
 	}
 	for range 50 {
@@ -88,7 +95,7 @@ func BenchmarkJump(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
-		turn = (turn + 37) % Turns(cv)
+		turn = (turn + 37) % len(cv.Turns)
 		l.ScrollTo(turn, ui.Center)
 		tt.Frame()
 	}
