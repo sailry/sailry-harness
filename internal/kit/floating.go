@@ -15,7 +15,11 @@ import (
 // one place their surface is set.
 func Floating(c *ui.Context, el ui.Element) ui.Element {
 	p := theme.Of(c)
-	m := frost{blur: FloatingBlur, base: Opaque(p.Floating()), tint: p.Floating().Alpha(FloatingTint)}
+	surface := Opaque(p.Floating())
+	if p.Dark {
+		surface = surface.Mix(Opaque(p.Foreground), FloatingLift)
+	}
+	m := frost{blur: FloatingBlur, base: surface, tint: surface.Alpha(FloatingTint)}
 	return el.Radius(p.RadiusLg).Material(m).TextColor(p.PopoverForeground).Border(1, floatingEdge(p))
 }
 
@@ -34,4 +38,7 @@ const (
 	// FloatingTint is how strongly the popover color covers the blurred
 	// backdrop, from 0 (the backdrop alone) to 1 (opaque).
 	FloatingTint = 0.4
+	// FloatingLift is how far dark mode's surface moves from the popover
+	// color toward the foreground, so the panels read lighter than the page.
+	FloatingLift = 0.06
 )
