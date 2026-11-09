@@ -106,10 +106,14 @@ type State struct {
 	// none: that page owns the resource's scrolling (Page).
 	Paged Kind
 
-	address   string
+	// Cwd is the folder a new terminal starts in, the shown project's
+	// (the shell sets it).
+	Cwd       string
 	pages     int                          // browser pages and terminals opened, for their IDs
 	artifacts map[string]conversation.File // the conversation files previewed, by ID
 	children  map[string]string            // the subagent sessions open, their titles by ID
+	pagesOf   map[string]*page             // the browser tabs' addresses and history, by ID
+	terms     map[string]*term             // the terminal tabs' state, by ID
 	// Child builds a subagent's session in its tab, the transcript the
 	// shell owns (subagents/panel/view.rs).
 	Child func(c *ui.Context, id string)

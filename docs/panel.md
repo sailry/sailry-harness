@@ -14,7 +14,8 @@ its width, motion, toggle and ⌘W (`docs/shell.md`).
 |---|---|
 | `model.go` | `Kind`, `Resource`, `Resources`, `Tab`, `State`, and the rules `Opened`, `Closed`, `Overflow` |
 | `project.go` | `Project`, `FileView`, `GitView`, `Projects`: Files and Git state per project |
-| `panel.go` | `View` and `Page`, the two hosts: the strip, the launcher, the file tree and file view, the change list and hunks, checkpoints, documents, browser and terminal chrome |
+| `panel.go` | `View` and `Page`, the two hosts: the strip, the launcher, the file tree and file view, the change list and hunks, checkpoints, documents |
+| `tools.go` | The browser and terminal tabs' chrome, per tab: the browser's history and address, the terminal's folder, resets and find bar; `State.Find` |
 
 ## Entry point
 
@@ -95,11 +96,20 @@ browser, terminal, subagent and file-preview tabs are single-pane.
 - History: a card per checkpoint: the turn, its age, the files, `+N −M`
   and `turn_changes_undo_all`.
 - Documents: a tab per document, rendered.
-- Browser: Back, Forward (disabled), Reload, the address
-  (`browser_address`) and New tab (another browser tab) over
-  `resource_browser_preview`.
-- Terminal: its title and New terminal (another terminal tab) over
-  `resource_terminal_preview`.
+- Browser (`browser/view.rs`, `browser/shortcuts.rs`), per tab: Back and
+  Forward through the tab's history (disabled at its ends), Reload
+  (disabled before a first address), the address (`browser_address`; Enter
+  goes, `https://` is added when no scheme is given) and New tab with its
+  ⌘T hint, over `resource_browser_preview` under the address shown. ⌘T
+  (another tab) and ⌘R (reload) work while the focus is in the tab.
+- Terminal (`workspace/terminal.rs`, `terminal/search.rs`), per tab: the
+  folder it starts in (the selected project's path, muted), Find, Reset
+  (`workspace_reset_terminal`), Close (`workspace_close_terminal`) and New
+  terminal, over `workspace_terminal_preview` and `workspace_reset_count`.
+  ⌘F with the focus in the tab opens MyGo's `FindBar` at the screen's top
+  right (`terminal_search_placeholder`, 420 wide at most, 0 matches);
+  Escape or Done closes it. The window routes the native menu's ⌘F
+  (`conversation.find`) to `State.Find` while the panel holds the focus.
 
 ## Actions
 
@@ -108,7 +118,10 @@ browser, terminal, subagent and file-preview tabs are single-pane.
 | Open, choose and close tabs | `State` |
 | Choose a file or a change | Shown in the same tab's or page's main area |
 | New tab, New terminal | Another browser or terminal tab |
-| Revert, Keep, Stage a change, Undo changes, Find, Reload, address | `preview_notice` toast: they write files, git, load pages or start a shell |
+| Back, Forward | The tab's history |
+| Close (terminal) | Closes the tab |
+| Find (terminal) | The find bar, nothing to match |
+| Revert, Keep, Stage a change, Undo changes, Find, Reload, address, Reset | `preview_notice` toast: they write files, git, load pages or start a shell; Reset also counts |
 | Copy path | Clipboard |
 
 ## Wiring a backend
@@ -124,17 +137,18 @@ the same chrome when their plugins land.
 
 | UI state (`State`) | Backend data |
 |---|---|
-| Tabs, active tab, address; per project: shown file and change, open folders, Document/Source, scroll, accepted hunks (until applied), commit draft | Files, changes, hunks, checkpoints, documents |
+| Tabs, active tab; per browser tab the address and history, per terminal tab the folder, resets and find query; per project: shown file and change, open folders, Document/Source, scroll, accepted hunks (until applied), commit draft | Files, changes, hunks, checkpoints, documents |
 
 ## Tests
 
 `internal/panel/model_test.go`: tabs open once, closing picks the next,
 items are flat tabs (Files and Git once, new browser pages, retired kinds
-dropped).
+dropped), a browser tab's history (going drops the forward part).
 `internal/shell/frame_test.go`: ⌘⌥B opens the launcher, ⌘P the Files tab
 showing the file beside the tree, another file in the same tab, ⌃⇧G the
 Git tab, a change's diff in it (read through the diff viewer's accessible
-text), six tabs show the overflow menu, ⌘W closes tabs then the panel.
+text), six tabs show the overflow menu, Reset counts and ⌘F in the terminal
+opens its find bar, ⌘W closes tabs then the panel.
 `internal/shell/pages_test.go`: the rail's
 Files and Git open pages, a file chosen on the page shows in the Files tab
 and a change chosen in the Git tab on the page, no tab opening, another project keeps its own.
@@ -149,3 +163,4 @@ and a change chosen in the Git tab on the page, no tab opening, another project 
 | Files and Git keep their state per project | The reference keeps one and resets it when the project changes |
 | Hunks show in the Git tab's main area, not a dialog | One place for the preview's diffs |
 | Browser and terminal are placeholders in their chrome | Rendering is later work (MyGo WebView, libghostty-vt) |
+| The browser's chrome is core | In the reference the browser plugin draws it; the preview has no plugin UI host |

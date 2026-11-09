@@ -46,3 +46,21 @@ func TestFlatTabs(t *testing.T) {
 		t.Errorf("a new browser page reused a tab: %v", s.Tabs)
 	}
 }
+
+func TestBrowserHistory(t *testing.T) {
+	b := &page{at: -1}
+	if b.Go("  ") || b.at != -1 {
+		t.Fatal("an empty address went")
+	}
+	b.Go("sailry.dev")
+	b.Go("https://example.com/a")
+	b.Step(-1)
+	if b.address != "https://sailry.dev" {
+		t.Fatalf("back to %q", b.address)
+	}
+	b.Go("example.org")
+	b.Step(1)
+	if len(b.history) != 2 || b.address != "https://example.org" {
+		t.Fatalf("history %v at %q", b.history, b.address)
+	}
+}

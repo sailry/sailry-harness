@@ -140,6 +140,11 @@ func (a *App) run(c *ui.Context, id string) {
 	}
 	switch id {
 	case "conversation.find":
+		// The native menu takes ⌘F first: in a terminal tab it finds in
+		// the terminal (terminal/search.rs).
+		if a.PanelOpen && c.FocusWithin(a.panelPane) && a.Panel.Find() {
+			return
+		}
 		// Find in the conversation (live/shortcuts.rs): from the
 		// conversation, its input or the search bar, not from the panel.
 		if a.Page == ConversationPage && !(a.PanelOpen && c.FocusWithin(a.panelPane)) {

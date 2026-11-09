@@ -59,9 +59,9 @@ func View(c *ui.Context, s *State, pr *Project, keys Shortcut) {
 				s.Child(c, t.ID)
 			}
 		case Browser:
-			browser(c, s)
+			s.browser(c, t)
 		case Terminal:
-			terminal(c, s)
+			s.terminal(c, t)
 		}
 	})
 }
@@ -524,32 +524,6 @@ func (s *State) document(c *ui.Context, id string) {
 		ui.Scroll(c.Key(d.ID)).Grow(1).Padding(16).Children(func() { markdown.View(c, d.Text, docs) })
 		status(c, d.Path, nil)
 	}
-}
-
-// browser is the browser's chrome over its placeholder: back, forward,
-// reload and the address, which would load pages.
-func browser(c *ui.Context, s *State) {
-	p := theme.Of(c)
-	toolbar(c, "browser", func() {
-		kit.IconButton(c.Key("back"), icons.ArrowLeft, i18n.T(c, "browser_back"), 28, false).Disabled(true)
-		kit.IconButton(c.Key("forward"), icons.ArrowRight, i18n.T(c, "browser_forward"), 28, false).Disabled(true)
-		kit.IconButton(c.Key("reload"), icons.Reload, i18n.T(c, "browser_reload"), 28, false).OnClick(func() { notice(c) })
-		ui.TextInput(c.Key("address"), &s.address).Placeholder(i18n.T(c, "browser_address")).Label(i18n.T(c, "browser_address")).
-			Grow(1).Height(28).OnSubmit(func() { notice(c) })
-		kit.IconButton(c.Key("new"), icons.Plus, i18n.T(c, "browser_new_tab"), 28, false).OnClick(func() { s.New(Browser) })
-	})
-	placeholder(c, icons.Web, i18n.T(c, "resource_browser_preview"), p.Background)
-}
-
-// terminal is the terminal's chrome over its placeholder.
-func terminal(c *ui.Context, s *State) {
-	p := theme.Of(c)
-	toolbar(c, "terminal", func() {
-		ui.Icon(c, icons.Terminal).FontSize(14).TextColor(p.MutedForeground)
-		ui.Text(c, i18n.T(c, "terminal")).FontSize(14).Grow(1)
-		kit.IconButton(c.Key("new"), icons.Plus, i18n.T(c, "workspace_new_terminal"), 28, false).OnClick(func() { s.New(Terminal) })
-	})
-	placeholder(c, icons.Terminal, i18n.T(c, "resource_terminal_preview"), p.Muted)
 }
 
 // placeholder fills a resource that does not render in the preview: its

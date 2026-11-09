@@ -319,6 +319,9 @@ func (a *App) details(c *ui.Context, f frame, fill ui.Color) {
 				return
 			}
 			a.Panel.Paged = a.paged()
+			if pr := a.Data.ProjectOf(a.Sidebar.Selected); pr != nil {
+				a.Panel.Cwd = pr.Path
+			}
 			panel.View(c, a.Panel, a.project(), kit.KeyText)
 		})
 	})
