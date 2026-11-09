@@ -91,3 +91,64 @@ func Orb(c *ui.Context, size float32) ui.Element {
 		pt.Fill(ui.Rect{X: r.X + (r.W-w)/2, Y: r.Y + (r.H-w)/2, W: w, H: w}, p.Primary.Alpha(0.85), w/2)
 	})
 }
+
+// Secondary is Kit's outline button: a 1 DIP border over the background,
+// 32 high, its label 14.
+func Secondary(c *ui.Context, label string) ui.Element {
+	p := theme.Of(c)
+	b := ui.ButtonBase(c).Label(label).Radius(6).Center().Gap(6).PaddingX(12).Height(32).
+		Border(1, p.Border).Background(p.Background).TextColor(p.Foreground).Cursor(ui.CursorPointer)
+	if b.Hovered() || b.Pressed() {
+		b.Background(p.Hover)
+	}
+	return b.Children(func() { ui.Text(c, label).FontSize(14).SingleLine() })
+}
+
+// Danger is Kit's danger button, for what removes something.
+func Danger(c *ui.Context, label string) ui.Element {
+	p := theme.Of(c)
+	b := ui.ButtonBase(c).Label(label).Radius(6).Center().Gap(6).PaddingX(12).Height(32).
+		Background(p.Danger).TextColor(ui.Hex("#ffffff")).Cursor(ui.CursorPointer)
+	if b.Hovered() || b.Pressed() {
+		b.Background(p.Danger.Mix(p.Foreground, 0.12))
+	}
+	return b.Children(func() { ui.Text(c, label).FontSize(14).SingleLine() })
+}
+
+// Tone colors a badge or a status dot.
+type Tone int
+
+const (
+	Neutral Tone = iota
+	Info
+	Positive
+	Caution
+	Negative
+)
+
+func (t Tone) color(p *theme.Palette) ui.Color {
+	switch t {
+	case Info:
+		return p.Primary
+	case Positive:
+		return p.Success
+	case Caution:
+		return p.Warning
+	case Negative:
+		return p.Danger
+	}
+	return p.MutedForeground
+}
+
+// Badge is a Tag in a tone: the tone's color on 12% of it.
+func Badge(c *ui.Context, text string, tone Tone) ui.Element {
+	col := tone.color(theme.Of(c))
+	return ui.Text(c, text).FontSize(12).SingleLine().Padding(1, 6).Radius(999).
+		Background(col.Alpha(0.12)).TextColor(col)
+}
+
+// StatusDot is an 8 DIP dot in a tone, named by label for assistive
+// technology.
+func StatusDot(c *ui.Context, tone Tone, label string) ui.Element {
+	return ui.Box(c).Size(8, 8).Shrink(0).Radius(4).Background(tone.color(theme.Of(c))).Label(label)
+}
