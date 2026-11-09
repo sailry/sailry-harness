@@ -1,4 +1,4 @@
-"""Published signed catalogs belong to exactly one immutable version and its canonical assets."""
+"""Published signed catalogs belong to exactly one verified version and its canonical assets."""
 
 import importlib.util
 import hashlib
@@ -71,6 +71,15 @@ class Client:
 
 
 class ChildEnvironment(unittest.TestCase):
+    def test_upload_replaces_existing_catalog_without_signing_key(self):
+        completed = publisher.subprocess.CompletedProcess([], 0)
+        with patch.dict(publisher.os.environ, {publisher.SIGNING_KEY:"inherited-fixture"}), \
+                patch.object(publisher.subprocess,"run",return_value=completed) as run:
+            publisher.GitHub().upload("sailry/sailry-harness","v1.0.0",Path("update-v1.json"))
+        self.assertEqual(run.call_args.args[0], [
+            "gh","release","upload","v1.0.0","update-v1.json","--repo","sailry/sailry-harness","--clobber"])
+        self.assertNotIn(publisher.SIGNING_KEY,run.call_args.kwargs["env"])
+
     def test_scopes_signing_key_to_producer(self):
         completed = publisher.subprocess.CompletedProcess([], 0, stdout="{}")
         with patch.dict(publisher.os.environ, {publisher.SIGNING_KEY:"inherited-fixture"}), \
@@ -179,7 +188,7 @@ class SignedDownloads(unittest.TestCase):
 
 
 class CatalogPublication(unittest.TestCase):
-    def publish(self, preview=False, existing=None, immutable=False, incomplete=False):
+    def publish(self, preview=False, existing=None, immutable=False, incomplete=False, upload_expected=True):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             assets = root / "assets"
@@ -196,8 +205,9 @@ class CatalogPublication(unittest.TestCase):
                 "browser_download_url":f"https://github.com/sailry/sailry-harness/releases/download/{tag}/{name}"}
                 for name in publisher.FORMAL_ASSETS]}
             if incomplete: metadata["assets"].pop()
-            if existing: metadata["assets"].append({**existing,"name":"update-v1.json",
-                "browser_download_url":f"https://github.com/sailry/sailry-harness/releases/download/{tag}/update-v1.json"})
+            if existing: metadata["assets"].append({
+                "browser_download_url":f"https://github.com/sailry/sailry-harness/releases/download/{tag}/update-v1.json",
+                **existing,"name":"update-v1.json"})
             client = publisher.GitHub()
             calls = []
             def merge(binary,keys,assets,repository,release,channel,output,signing_key):
@@ -210,8 +220,8 @@ class CatalogPublication(unittest.TestCase):
                 publisher.publish(arguments,"signing fixture",client)
                 release.assert_called_once_with(client,arguments.repository,tag,"exact product",published=True)
                 self.assertEqual(source.call_count,2)
-                if existing: upload.assert_not_called()
-                else: upload.assert_called_once_with(arguments.repository,tag,root/"stage/update-v1.json")
+                if upload_expected: upload.assert_called_once_with(arguments.repository,tag,root/"stage/update-v1.json")
+                else: upload.assert_not_called()
             return calls
 
     def test_publishes_each_channel_to_its_exact_release(self):
@@ -221,11 +231,32 @@ class CatalogPublication(unittest.TestCase):
     def test_preserves_already_published_identical_catalog(self):
         data = b"authenticated exact version catalog"
         self.publish(existing={"state":"uploaded","size":len(data),
-            "digest":"sha256:"+hashlib.sha256(data).hexdigest()})
+            "digest":"sha256:"+hashlib.sha256(data).hexdigest()},upload_expected=False)
 
-    def test_rejects_replacement_and_incomplete_formal_release(self):
-        for options in ({"existing":{"state":"uploaded","size":1,"digest":"sha256:"+"a"*64}},
-                        {"immutable":True},{"incomplete":True}):
+    def test_replaces_changed_catalog(self):
+        data = b"authenticated exact version catalog"
+        existing = {"state":"uploaded","size":len(data),
+            "digest":"sha256:"+hashlib.sha256(data).hexdigest()}
+        for field, value in (("size",1),("digest","sha256:"+"a"*64),("state","starter")):
+            with self.subTest(field=field):
+                self.publish(existing={**existing,field:value})
+
+    def test_missing_digest_compares_existing_bytes(self):
+        data = b"authenticated exact version catalog"
+        for matches in (False,True):
+            digest = "sha256:"+hashlib.sha256(data if matches else b"old catalog").hexdigest()
+            with self.subTest(matches=matches), \
+                    patch.object(publisher.GitHub,"digest",return_value=digest) as existing_digest:
+                self.publish(existing={"state":"uploaded","size":len(data)},upload_expected=not matches)
+                existing_digest.assert_called_once()
+
+    def test_rejects_noncanonical_existing_catalog_url(self):
+        with self.assertRaisesRegex(ValueError,"exact published tag"):
+            self.publish(existing={"state":"uploaded","size":1,"digest":"sha256:"+"a"*64,
+                "browser_download_url":"https://github.com/sailry/sailry-harness/releases/latest/download/update-v1.json"})
+
+    def test_rejects_immutable_and_incomplete_formal_release(self):
+        for options in ({"immutable":True},{"incomplete":True}):
             with self.subTest(options=options),self.assertRaises(ValueError):
                 self.publish(**options)
 

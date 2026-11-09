@@ -104,7 +104,7 @@ class GitHub:
         return json.loads(result.stdout) if result.stdout.strip() else None
 
     def upload(self, tag, assets):
-        result = subprocess.run(["gh", "release", "upload", tag, *(str(asset) for asset in assets)],
+        result = subprocess.run(["gh", "release", "upload", tag, *(str(asset) for asset in assets), "--clobber"],
                                 capture_output=True, text=True)
         if result.returncode:
             raise RuntimeError("Release asset upload failed; retry with the same workflow artifacts")
@@ -174,19 +174,17 @@ def append(client, repository, tag, metadata, assets):
     if metadata.get("immutable"):
         raise ValueError("Release assets cannot be appended to an immutable release")
     existing = {asset["name"]: asset for asset in metadata.get("assets", [])}
-    missing = []
+    pending = []
     for path in assets:
         asset = existing.get(path.name)
-        if asset is None:
-            missing.append(path)
+        if asset is None or asset.get("state") != "uploaded" or asset.get("size") != path.stat().st_size:
+            pending.append(path)
             continue
-        if asset.get("state") != "uploaded" or asset.get("size") != path.stat().st_size:
-            raise ValueError(f"Release asset collision: {path.name}; existing assets cannot be replaced")
         actual = asset.get("digest") or client.digest(repository, asset)
         if actual != digest(path):
-            raise ValueError(f"Release asset collision: {path.name}; existing assets cannot be replaced")
-    if missing:
-        client.upload(tag, missing)
+            pending.append(path)
+    if pending:
+        client.upload(tag, pending)
 
 
 def gate_name(component):

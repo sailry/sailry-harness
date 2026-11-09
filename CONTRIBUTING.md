@@ -181,8 +181,6 @@ just test-ui        # Desktop logic and service-contract tests
   checksum-pinned [sysroot](scripts/package/linux-sysroot.lock.json).
 - Mobile: signed Android ARM64 APK and iOS IPA, with optional TestFlight upload.
   App Store Connect steps (export compliance, tester groups) remain manual.
-- Publishers never replace public tags or existing asset bytes. Recover a failed
-  product through its own workflow.
 - Release notes come from the version's `CHANGELOG.md` section, or from tag
   commits when it is missing. Preview SemVer versions go to the experience channel
   and do not replace Latest.

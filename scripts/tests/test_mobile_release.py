@@ -129,7 +129,10 @@ class Checks:
         raise AssertionError(f"Unexpected Checks API request: {method} {endpoint}")
 
     def upload(self, tag, assets):
-        self.uploads.append((tag, {path.name for path in assets}))
+        names = {path.name for path in assets}
+        self.uploads.append((tag, names))
+        self.published["assets"] = [existing for existing in self.published["assets"]
+                                    if existing["name"] not in names]
         self.published["assets"].extend({"name": path.name, "state": "uploaded", "size": path.stat().st_size,
                                          "digest": "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()}
                                         for path in assets)
@@ -503,15 +506,25 @@ class Publishing(unittest.TestCase):
         self.assertNotIn("release.json", android_names | ios_names)
         self.assertNotIn("SHA256SUMS", android_names | ios_names)
 
-    def test_preserves_existing_asset_bytes_on_retries(self):
-        self.stage("android")
-        self.append("android")
-        self.append("android")
-        self.assertEqual(len(self.client.uploads), 1)
-        self.client.published["assets"][0]["digest"] = "sha256:" + "0" * 64
-        with self.assertRaisesRegex(ValueError, "collision"):
-            self.append("android")
-        self.assertEqual(len(self.client.uploads), 1)
+    def test_replaces_changed_assets_and_skips_identical_retries(self):
+        for platform in ("android", "ios"):
+            with self.subTest(platform=platform):
+                archive = self.stage(platform)
+                self.client = Checks(self.fixture.revision)
+                self.append(platform)
+                self.append(platform)
+                self.assertEqual(len(self.client.uploads), 1)
+                existing = next(asset for asset in self.client.published["assets"] if asset["name"] == archive.name)
+                expected_digest = existing["digest"]
+                existing["digest"] = "sha256:" + "0" * 64
+                self.append(platform)
+                self.assertEqual(self.client.uploads[-1], (f"v{VERSION}", {archive.name}))
+                self.assertEqual(len(self.client.uploads), 2)
+                self.assertEqual(len(self.client.published["assets"]), 3)
+                replaced = next(asset for asset in self.client.published["assets"] if asset["name"] == archive.name)
+                self.assertEqual(replaced["digest"], expected_digest)
+                self.append(platform)
+                self.assertEqual(len(self.client.uploads), 2)
 
     def test_rejects_provenance_from_another_build(self):
         archive = self.stage("android")

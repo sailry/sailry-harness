@@ -1,4 +1,4 @@
-"""Independent publishers preserve released tags and existing assets without network writes."""
+"""Independent publishers verify release sources and replace changed assets without network writes."""
 
 import copy
 import subprocess
@@ -53,8 +53,11 @@ class FakeGitHub:
         raise AssertionError("Unexpected fixture API call")
 
     def upload(self, tag, assets):
-        self.uploads.extend(path.name for path in assets)
-        self.release["assets"].extend(asset(path) for path in assets)
+        for path in assets:
+            self.uploads.append(path.name)
+            self.release["assets"] = [existing for existing in self.release["assets"]
+                                      if existing["name"] != path.name]
+            self.release["assets"].append(asset(path))
 
     def digest(self, repository, existing):
         return existing["fixture_digest"]
@@ -183,23 +186,40 @@ class PackagePublication(unittest.TestCase):
                     self.assertFalse(client.uploads)
                     self.assertTrue(all(call[0] == "GET" for call in client.calls))
 
-    def test_collision_fails_before_any_upload(self):
+    def test_replaces_changed_assets_and_uploads_missing_assets(self):
         for field, value in (("size", 0), ("digest", "sha256:" + "0" * 64), ("state", "open")):
             with self.subTest(field=field):
                 release = self.public_desktop()
+                original = copy.deepcopy(release["assets"])
                 existing = asset(self.host[-1])
                 existing[field] = value
                 release["assets"].append(existing)
                 client = FakeGitHub(release)
-                with self.assertRaisesRegex(ValueError, "collision"):
-                    self.publish("host", client)
-                self.assertFalse(client.uploads)
+                self.publish("host", client)
+                self.assertEqual(set(client.uploads), {path.name for path in self.host})
+                self.assertEqual(client.release["assets"][:len(original)], original)
+                self.assertEqual(len(client.release["assets"]), len(original) + len(self.host))
+                published = {existing["name"]: existing for existing in client.release["assets"]}
+                self.assertEqual(published[self.host[-1].name], asset(self.host[-1]))
                 self.assertTrue(all(call[0] == "GET" for call in client.calls))
+                self.publish("host", client)
+                self.assertEqual(len(client.uploads), len(self.host))
 
     def test_missing_digest_verifies_existing_bytes(self):
         release = self.public_desktop()
         release["assets"][0]["fixture_digest"] = release["assets"][0].pop("digest")
-        self.publish("desktop", FakeGitHub(release))
+        client = FakeGitHub(release)
+        self.publish("desktop", client)
+        self.assertFalse(client.uploads)
+
+    def test_missing_digest_replaces_changed_bytes(self):
+        release = self.public_desktop()
+        release["assets"][0].pop("digest")
+        release["assets"][0]["fixture_digest"] = "sha256:" + "0" * 64
+        client = FakeGitHub(release)
+        self.publish("desktop", client)
+        self.assertEqual(client.uploads, [self.desktop[0].name])
+        self.assertEqual(len(client.release["assets"]), len(self.desktop))
 
     def test_products_require_mutable_release(self):
         for component, assets in (("desktop", self.desktop), ("host", self.host)):
@@ -265,6 +285,16 @@ class PackagePublication(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "tag or channel"):
             self.publish("host", client)
         self.assertFalse(client.uploads)
+
+
+class AssetUpload(unittest.TestCase):
+    def test_replaces_existing_asset_names(self):
+        result = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+        with patch.object(publication.subprocess, "run", return_value=result) as run:
+            publication.GitHub().upload(TAG, [Path("package.zip")])
+        run.assert_called_once_with(
+            ["gh", "release", "upload", TAG, "package.zip", "--clobber"],
+            capture_output=True, text=True)
 
 
 class ReleaseLookup(unittest.TestCase):

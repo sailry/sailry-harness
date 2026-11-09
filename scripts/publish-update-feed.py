@@ -67,7 +67,7 @@ class GitHub(release_api.GitHub):
         return json.loads(result.stdout) if result.stdout.strip() else None
 
     def upload(self, repository, tag, path):
-        result = subprocess.run(["gh", "release", "upload", tag, str(path), "--repo", repository],
+        result = subprocess.run(["gh", "release", "upload", tag, str(path), "--repo", repository, "--clobber"],
                                 capture_output=True, text=True, env=child_environment())
         if result.returncode:
             raise RuntimeError("The signed update catalog could not be uploaded")
@@ -188,12 +188,12 @@ def publish(arguments, signing_key, client=None):
         with output.open("rb") as stream:
             digest = "sha256:" + hashlib.file_digest(stream, "sha256").hexdigest()
         expected_url = f"https://github.com/{arguments.repository}/releases/download/{release.tag}/{output.name}"
-        if (existing.get("browser_download_url") != expected_url
-                or existing.get("state") != "uploaded" or existing.get("size") != output.stat().st_size
-                or (existing.get("digest") or client.digest(arguments.repository, existing)) != digest):
-            raise ValueError("The published signed catalog is immutable and cannot be replaced")
-        print("The exact-version signed catalog is already published")
-        return
+        if existing.get("browser_download_url") != expected_url:
+            raise ValueError("The published signed catalog does not belong to the exact published tag")
+        if (existing.get("state") == "uploaded" and existing.get("size") == output.stat().st_size
+                and (existing.get("digest") or client.digest(arguments.repository, existing)) == digest):
+            print("The exact-version signed catalog is already published")
+            return
     client.upload(arguments.repository, release.tag, output)
     print("The exact-version signed catalog is published")
 
