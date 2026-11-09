@@ -117,7 +117,10 @@ paints `Palette.Floating` with MyGo's popover radius, border and shadow,
 and Kit's rows: 26 high, the highlight in accent.background /
 accent.foreground (`Palette.Hover` / `HoverForeground`), the icon or
 check slot, label, muted trailing text or action, right-side check
-(`CheckRight`) and shortcut, Kit's 2 DIP separators.
+(`CheckRight`) and shortcut, Kit's 2 DIP separators. A select's trigger
+has MyGo's TextInput look (its padding, the theme's Surface, the input
+border), so selects and text inputs share a height and fill everywhere,
+and its dropdown is as wide as the trigger (`MenuOptions.Match`).
 Right-click menus stay the system's (`Element.ContextMenu`).
 
 ## Wiring a backend

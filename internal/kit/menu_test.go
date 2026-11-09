@@ -67,3 +67,29 @@ func TestMenuLooksAndChooses(t *testing.T) {
 		t.Errorf("chose %q, menu open %v", got, tt.HasText("Alpha"))
 	}
 }
+
+// A select has a text input's height, and its dropdown is as wide as it.
+func TestSelectMatchesInput(t *testing.T) {
+	chosen, text := "Alpha", ""
+	tt := ui.NewTester(func(c *ui.Context) {
+		theme.Apply(c, "", theme.Dark)
+		ui.Column(c).Fill().Padding(20).Gap(8).Children(func() {
+			ui.TextInput(c.Key("input"), &text).Label("Name").Width(240)
+			b, _ := Select(c.Key("select"), "test-select", "Pick", &chosen, []string{"Alpha", "Beta"}, false)
+			b.Width(240)
+		})
+	}, 400, 400)
+	tt.Frame()
+	in, _ := tt.Access("Name")
+	sel, ok := tt.Access("Pick")
+	if !ok || in.Bounds.H != sel.Bounds.H {
+		t.Fatalf("input %v, select %v", in.Bounds, sel.Bounds)
+	}
+	tt.ClickAt(sel.Bounds.X+10, sel.Bounds.Y+5)
+	tt.Frame()
+	tt.Frame()
+	menu, ok := tt.AccessByRole(ui.RoleMenu, "")
+	if !ok || menu.Bounds.W != sel.Bounds.W {
+		t.Errorf("dropdown %v, select %v", menu.Bounds, sel.Bounds)
+	}
+}

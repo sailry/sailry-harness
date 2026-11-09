@@ -43,11 +43,13 @@ type Item struct {
 // MenuOptions place a Menu and set its look. At and Self attach the menu's
 // point Self to the trigger's point At (below, lined up with its start,
 // when both are zero), 4 apart; MaxHeight scrolls longer menus; CheckRight
-// puts checks after the label (Kit's check_side(Side::Right)).
+// puts checks after the label (Kit's check_side(Side::Right)); Match
+// makes the menu as wide as its trigger, as a select's dropdown.
 type MenuOptions struct {
 	At, Self   ui.Anchor
 	MaxHeight  float32
 	CheckRight bool
+	Match      bool
 }
 
 // menuOpen keys the open state of the menus, by their id, on the root.
@@ -172,6 +174,9 @@ func (m *Menu) draw(c *ui.Context, parts ui.MenuParts, panel, trigger ui.Element
 	panel.Padding(4).Gap(2).MinWidth(128).MaxWidth(500).MaxHeight(maxH).Radius(p.RadiusLg).
 		Background(p.Floating()).TextColor(p.PopoverForeground).Border(1, p.Border).
 		Shadow(0, 6, 20, 0, p.Backdrop().Alpha(0.18))
+	if w := trigger.LayoutBounds().W; o.Match && w > 0 {
+		panel.MinWidth(w).MaxWidth(w)
+	}
 	slot := false
 	for _, it := range m.items {
 		slot = slot || it.icon != nil || (it.checked && !o.CheckRight)
@@ -284,16 +289,18 @@ func end(a ui.Anchor) bool {
 	return a == ui.AnchorRight || a == ui.AnchorEnd || a == ui.AnchorTopEnd || a == ui.AnchorBottomEnd || a == ui.AnchorTopRight || a == ui.AnchorBottomRight
 }
 
-// Select is Kit's Select: an outlined trigger showing *chosen with a
-// chevron, opening a Menu of options with a check on the chosen one. It
-// reports whether the user chose another option. id names it as
-// MenuButton's; label names the trigger for assistive technology.
+// Select is Kit's Select: a trigger showing *chosen with a chevron, the
+// height and fill of a text input (MyGo's TextInput: the input border on
+// the surface, its padding), opening a Menu of options as wide as it, in
+// the popover color, with a check on the chosen one. It reports whether
+// the user chose another option. id names it as MenuButton's; label
+// names the trigger for assistive technology.
 func Select(c *ui.Context, id, label string, chosen *string, options []string, disabled bool) (ui.Element, bool) {
-	p := theme.Of(c)
+	p, t := theme.Of(c), c.Theme()
 	changed := false
 	b := MenuButton(c, id, func(b ui.Element) {
-		b.Label(label).Disabled(disabled).Height(32).PaddingX(12).Gap(8).MinWidth(140).Radius(p.Radius).
-			Border(1, p.Input).Background(p.Background).AlignItems(ui.Center).Justify(ui.SpaceBetween).Cursor(ui.CursorPointer)
+		b.Label(label).Disabled(disabled).Padding(t.Space(1.5), t.Space(2.5)).Gap(8).MinWidth(140).Radius(p.Radius).
+			Border(1, p.Input).Background(t.Surface).AlignItems(ui.Center).Justify(ui.SpaceBetween).Cursor(ui.CursorPointer)
 		if disabled {
 			b.Opacity(0.5)
 		}
@@ -307,6 +314,6 @@ func Select(c *ui.Context, id, label string, chosen *string, options []string, d
 				*chosen, changed = o, true
 			}
 		}
-	}, MenuOptions{CheckRight: true, MaxHeight: 320})
+	}, MenuOptions{CheckRight: true, MaxHeight: 320, Match: true})
 	return b, changed
 }
