@@ -63,50 +63,6 @@ def restored_workflow():
     )
 
 
-def windows_repairs():
-    body = "\nfn fixture() { assert!(true); }\n"
-    browser = "use gpui_shell::{HostError, HostModule, HostValue};\nuse serde_json::Value;\n" + body
-    dictation = "#[gpui::test]\nfn authorization_settings(cx: &mut TestAppContext) {\n    assert!(true);\n}\n"
-    updater = (
-        "use super::super::{\n"
-        "    config::{Channel, Config},\n"
-        "    manifest::{Release, Selection},\n"
-        "    transfer::Staged,\n"
-        "};\n"
-        "use base64::{Engine as _, engine::general_purpose::STANDARD};\n"
-        "use ed25519_dalek::Signer as _;\n"
-        "use std::{\n"
-        "    fs,\n"
-        "    io::{Cursor, Write},\n"
-        "    path::Path,\n"
-        "};\n"
-    ) + body
-    return {
-        "apps/desktop/src/plugins/browser.rs": (
-            browser, browser.replace("use serde_json::Value;", '#[cfg(target_os = "macos")]\nuse serde_json::Value;'),
-        ),
-        "apps/desktop/src/settings/dictation/tests.rs": (
-            dictation, dictation.replace("#[gpui::test]", '#[gpui::test]\n#[cfg(target_os = "macos")]'),
-        ),
-        "apps/desktop/src/terminal/connection/tests.rs": (
-            "use super::*;\n" + body, "#![cfg(unix)]\n\nuse super::*;\n" + body,
-        ),
-        "apps/desktop/src/updater/tests/fixture.rs": (
-            updater, updater.replace(
-                "    manifest::{Release, Selection},\n    transfer::Staged,\n};",
-                '    manifest::Release,\n};\n#[cfg(target_os = "macos")]\n'
-                "use super::super::{manifest::Selection, transfer::Staged};",
-            ).replace(
-                "use std::{\n    fs,\n    io::{Cursor, Write},\n    path::Path,\n};",
-                'use std::io::{Cursor, Write};\n#[cfg(target_os = "macos")]\nuse std::{fs, path::Path};',
-            ),
-        ),
-        "crates/node-runtime/tests/attachments/conversation/inputs.rs": (
-            "use super::*;\n" + body, "#![cfg(unix)]\n\nuse super::*;\n" + body,
-        ),
-    }
-
-
 def run(run_id, commit, completed=True):
     return {
         "id": run_id, "repository": {"full_name": REPOSITORY},
@@ -208,7 +164,7 @@ class Evidence(unittest.TestCase):
         self.assertNotIn("Source", names)
         self.assertEqual(proof["archive"]["id"], self.archive["id"])
         self.assertEqual(proof["source_sha"], SOURCE)
-        self.inputs.assert_called_once_with(reuse.ROOT, SOURCE, TARGET, reviewed_windows_fixes=True)
+        self.inputs.assert_called_once_with(reuse.ROOT, SOURCE, TARGET)
         output = reuse.reuse_outputs(proof)
         self.assertEqual(output["build"], "true")
         self.assertEqual(output["desktop"], "false")
@@ -234,30 +190,6 @@ class Evidence(unittest.TestCase):
                 names = {entry["name"] for entry in proof["jobs"]}
                 self.assertEqual(names, reuse.NAMES - {reuse.SHARDS[2]} - invalidated)
                 self.assertEqual(reuse.reuse_outputs(proof)["desktop"], str(not invalidated).lower())
-
-    def test_requires_fresh_windows_and_lint(self):
-        invalidated = {"Desktop Windows", "Rust strict lint"}
-        self.inputs.return_value = invalidated
-        proof = self.proof()
-        names = {entry["name"] for entry in proof["jobs"]}
-        self.assertEqual(names, reuse.NAMES - {"Desktop", reuse.SHARDS[2]} - invalidated)
-        output = reuse.reuse_outputs(proof)
-        self.assertEqual((output["windows"], output["lint"], output["build"]), ("false", "false", "true"))
-        self.assertEqual(proof["archive"]["id"], self.archive["id"])
-        self.assertEqual(output["archive_run"], str(DONOR))
-        self.inputs.reset_mock()
-        self.assertEqual(reuse.validate_proof(self.client, REPOSITORY, TARGET, CURRENT, proof), names)
-        self.inputs.assert_called_once_with(reuse.ROOT, SOURCE, TARGET, reviewed_windows_fixes=True)
-        for name, lane in (("Desktop Windows", "windows"), ("Rust strict lint", "lint")):
-            with self.subTest(name=name):
-                forged = copy.deepcopy(proof)
-                forged["jobs"].append({"id": self.job(name)["id"], "name": name})
-                with self.assertRaisesRegex(ValueError, "differs from"):
-                    reuse.validate_proof(self.client, REPOSITORY, TARGET, CURRENT, forged)
-                results = self.results()
-                results[lane]["result"] = "skipped"
-                with self.assertRaises(ValueError):
-                    self.report(results, proof)
 
     def test_accepts_completed_push_donor(self):
         self.donor["event"] = "push"
@@ -535,35 +467,12 @@ class InputEquivalence(unittest.TestCase):
     def test_parses_committed_workflow_layout(self):
         self.assertIn("shared", reuse.workflow_inputs((ROOT / reuse.WORKFLOW).read_text())[1])
 
-    def compare(self, path, old_mode="100644", new_mode="100644", status="M", before="", after="", **options):
+    def compare(self, path, old_mode="100644", new_mode="100644", status="M", before="", after=""):
         raw = f":{old_mode} {new_mode} a b {status}\0{path}\0".encode()
         with patch.object(reuse, "git", side_effect=[b"", raw, before.encode(), after.encode()]) as read:
-            invalidated = reuse.equivalent_inputs(ROOT, SOURCE, TARGET, **options)
+            invalidated = reuse.equivalent_inputs(ROOT, SOURCE, TARGET)
         self.assertEqual(read.call_args_list[0].args, (ROOT, "merge-base", "--is-ancestor", SOURCE, TARGET))
         return invalidated
-
-    def test_requires_opt_in_for_windows_repairs(self):
-        for path, (before, after) in windows_repairs().items():
-            with self.subTest(path=path):
-                with self.assertRaisesRegex(ValueError, "Product inputs changed"):
-                    self.compare(path, before=before, after=after)
-                self.assertEqual(
-                    self.compare(path, before=before, after=after, reviewed_windows_fixes=True),
-                    {"Desktop Windows", "Rust strict lint"},
-                )
-
-    def test_rejects_changes_outside_reviewed_windows_transformations(self):
-        for path, (before, after) in windows_repairs().items():
-            predicate = after.replace('target_os = "macos"', 'target_os = "windows"').replace("cfg(unix)", "cfg(windows)")
-            for changed in (after.replace("assert!(true)", "assert!(false)"), predicate, after + "\n"):
-                with self.subTest(path=path, changed=changed), self.assertRaisesRegex(ValueError, "inputs changed"):
-                    self.compare(path, before=before, after=changed, reviewed_windows_fixes=True)
-            with self.subTest(path=path, reverse=True), self.assertRaises(ValueError):
-                self.compare(path, before=after, after=before, reviewed_windows_fixes=True)
-            for modes in (("000000", "100644", "A"), ("100644", "000000", "D"),
-                          ("100644", "120000", "T"), ("100644", "100755", "M")):
-                with self.subTest(path=path, modes=modes), self.assertRaises(ValueError):
-                    self.compare(path, *modes, before=before, after=after, reviewed_windows_fixes=True)
 
     def test_invalidates_dependency_source_changes(self):
         for before, after, expected in (
@@ -646,13 +555,11 @@ class InputEquivalence(unittest.TestCase):
                 self.compare(reuse.RELEASE_WORKFLOW, before=before, after=after.replace(old, new, 1))
 
     def test_rejects_changed_product_paths(self):
-        for path in ("apps/desktop/src/main.rs", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "plugins", "themes",
+        for path in ("apps/desktop/src/main.rs", "Cargo.toml", "Cargo.lock", "plugins", "themes",
                      "scripts/ci-run.py", ".github/actions/native-cache/action.yml",
                      ".github/workflows/release-host.yml", ".github/workflows/release-desktop-formal.yml"):
-            for reviewed_windows_fixes in (False, True):
-                with self.subTest(path=path, opt_in=reviewed_windows_fixes), \
-                        self.assertRaisesRegex(ValueError, "Product inputs changed"):
-                    self.compare(path, reviewed_windows_fixes=reviewed_windows_fixes)
+            with self.subTest(path=path), self.assertRaisesRegex(ValueError, "Product inputs changed"):
+                self.compare(path)
 
     def test_rejects_added_deleted_or_retyped_repairs(self):
         for path in ("scripts/tests/test_ui_tasks.py", reuse.RELEASE_WORKFLOW):

@@ -41,45 +41,6 @@ REPAIR_FILES = NEW_FILES | {
     "scripts/tests/test_start_release.py",
     "scripts/ci.py", WORKFLOW, RELEASE_WORKFLOW,
 }
-WINDOWS_REPAIRS = {
-    "apps/desktop/src/plugins/browser.rs": (
-        b"use gpui_shell::{HostError, HostModule, HostValue};\nuse serde_json::Value;\n",
-        b'use gpui_shell::{HostError, HostModule, HostValue};\n#[cfg(target_os = "macos")]\nuse serde_json::Value;\n',
-    ),
-    "apps/desktop/src/settings/dictation/tests.rs": (
-        b"#[gpui::test]\nfn authorization_settings(cx: &mut TestAppContext) {\n",
-        b'#[gpui::test]\n#[cfg(target_os = "macos")]\nfn authorization_settings(cx: &mut TestAppContext) {\n',
-    ),
-    "apps/desktop/src/terminal/connection/tests.rs": (b"", b"#![cfg(unix)]\n\n"),
-    "apps/desktop/src/updater/tests/fixture.rs": (
-        b"""use super::super::{
-    config::{Channel, Config},
-    manifest::{Release, Selection},
-    transfer::Staged,
-};
-use base64::{Engine as _, engine::general_purpose::STANDARD};
-use ed25519_dalek::Signer as _;
-use std::{
-    fs,
-    io::{Cursor, Write},
-    path::Path,
-};
-""",
-        b"""use super::super::{
-    config::{Channel, Config},
-    manifest::Release,
-};
-#[cfg(target_os = "macos")]
-use super::super::{manifest::Selection, transfer::Staged};
-use base64::{Engine as _, engine::general_purpose::STANDARD};
-use ed25519_dalek::Signer as _;
-use std::io::{Cursor, Write};
-#[cfg(target_os = "macos")]
-use std::{fs, path::Path};
-""",
-    ),
-    "crates/node-runtime/tests/attachments/conversation/inputs.rs": (b"", b"#![cfg(unix)]\n\n"),
-}
 PROOF_LIMIT = 64 * 1024
 LOG_LIMIT = 4 * 1024 * 1024
 
@@ -440,7 +401,7 @@ def release_inputs(source):
     return top, declared, properties
 
 
-def equivalent_inputs(root, source, target, *, reviewed_windows_fixes=False):
+def equivalent_inputs(root, source, target):
     source, target = sha(source), sha(target)
     invalidated = set()
     git(root, "merge-base", "--is-ancestor", source, target)
@@ -452,8 +413,7 @@ def equivalent_inputs(root, source, target, *, reviewed_windows_fixes=False):
     for index in range(0, len(raw) - 1, 2):
         metadata = raw[index].split()
         path = raw[index + 1].decode("utf-8")
-        windows_repair = reviewed_windows_fixes and path in WINDOWS_REPAIRS
-        if len(metadata) != 5 or (path not in REPAIR_FILES and not windows_repair):
+        if len(metadata) != 5 or path not in REPAIR_FILES:
             raise ValueError(f"Product inputs changed: {path}")
         old_mode, new_mode = metadata[0].removeprefix(b":"), metadata[1]
         if path not in NEW_FILES:
@@ -461,17 +421,7 @@ def equivalent_inputs(root, source, target, *, reviewed_windows_fixes=False):
                 raise ValueError(f"Recovery requires a regular modification: {path}")
         elif old_mode not in {b"000000", b"100644", b"100755"} or new_mode not in {b"000000", b"100644", b"100755"}:
             raise ValueError(f"Invalid recovery file type: {path}")
-        if windows_repair:
-            previous = git(root, "show", f"{source}:{path}")
-            current = git(root, "show", f"{target}:{path}")
-            before, after = WINDOWS_REPAIRS[path]
-            if before and previous.count(before) != 1:
-                raise ValueError(f"Unverified Windows repair: {path}")
-            expected = previous.replace(before, after, 1) if before else after + previous
-            if current != expected:
-                raise ValueError(f"Executable check inputs changed: {path}")
-            invalidated.update((JOB_NAMES["windows"], JOB_NAMES["lint"]))
-        elif path in normalizers:
+        if path in normalizers:
             previous = git(root, "show", f"{source}:{path}").decode("utf-8")
             current = git(root, "show", f"{target}:{path}").decode("utf-8")
             normalize = normalizers[path]
@@ -489,7 +439,7 @@ def make_proof(client, repository, commit, run_id, donor_id, root=None):
         raise ValueError("A Checks run cannot reuse itself")
     current = run_metadata(client, repository, run_id, commit)
     donor = run_metadata(client, repository, donor_id, donor=True)
-    invalidated = equivalent_inputs(root or ROOT, donor["head_sha"], commit, reviewed_windows_fixes=True)
+    invalidated = equivalent_inputs(root or ROOT, donor["head_sha"], commit)
     jobs = jobs_for(client, repository, donor)
     build = jobs.get(JOB_NAMES["build"], {})
     if not succeeded(build):
