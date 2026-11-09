@@ -538,10 +538,13 @@ func (x *actions) ManageTeams()    { x.c.Toast(i18n.T(x.c, "preview_notice")) }
 
 func (x *actions) Stop() { preview.Stop(x.cv) }
 
-// The activity strip: the Git badge opens the Git panel; a plugin's
+// The activity strip: a file of the Git badge opens its diff; a plugin's
 // action, stopping a command and opening a port would reach the host, so
 // the preview says so.
-func (x *actions) OpenChanges()       { x.a.openPanel(panel.Changes) }
+func (x *actions) OpenChange(path string) {
+	x.a.openPanel(panel.Changes)
+	x.a.Panel.Show(panel.Tab{Kind: panel.Changes, ID: path})
+}
 func (x *actions) Badge(_, _ string)  { x.notice() }
 func (x *actions) StopCommand(string) { x.notice() }
 func (x *actions) OpenService(int)    { x.notice() }

@@ -408,6 +408,10 @@ func (d *Data) activity(c *Conversation, repo composer.Repository) composer.Acti
 		for _, f := range d.Workspace.Changes {
 			ch.Added += f.Added
 			ch.Removed += f.Removed
+			// The preview's changes are in the order they were made last.
+			if len(ch.Recent) < composer.RecentChanges {
+				ch.Recent = append(ch.Recent, composer.ChangedFile{Path: f.Path, Status: f.Status, Added: f.Added, Removed: f.Removed})
+			}
 		}
 		a.Changes = ch
 	}

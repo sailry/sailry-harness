@@ -76,9 +76,23 @@ func TestActivityStrip(t *testing.T) {
 		t.Fatalf("the idle conversation's strip: %q", tt.Texts())
 	}
 	badge, _ := tt.Find(git[0]) // the rail has a Git button too
+	// The badge opens its totals and the files changed last, not the
+	// panel; a file opens its diff.
 	tt.ClickAt(badge.X+badge.W/2, badge.Y+badge.H/2)
-	if !a.PanelOpen || a.Panel.Active.Kind != "git" {
-		t.Errorf("the Git badge does not open the Git panel")
+	tt.Advance(time.Second)
+	tt.Frame()
+	if a.PanelOpen && a.Panel.Active.Kind == "git" {
+		t.Errorf("the Git badge opens the Git panel")
+	}
+	files := i18n.In("en", "directory_count_files", "count", len(a.Data.Workspace.Changes))
+	if !tt.HasText(files) {
+		t.Fatalf("the Git badge's popover does not show %q: %q", files, tt.Texts())
+	}
+	first := a.Data.Workspace.Changes[0].Path
+	snapshot(t, tt, "composer-activity-git")
+	clickButton(t, tt, first)
+	if !a.PanelOpen || a.Panel.Active.Kind != "git" || a.Panel.Active.ID != first {
+		t.Errorf("a changed file opens %+v, not its diff", a.Panel.Active)
 	}
 	draft, _ := tt.AccessByRole(ui.RoleTextField, i18n.In("en", "composer"))
 	// A chat outside a project has no capsule, but the row stays.

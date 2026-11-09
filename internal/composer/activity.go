@@ -1,6 +1,7 @@
 package composer
 
 import (
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -38,10 +39,22 @@ type Activity struct {
 	Connected bool
 }
 
-// Changes are the totals of the worktree's Git status.
+// Changes are the totals of the worktree's Git status and its files
+// changed last.
 type Changes struct {
 	Added, Removed, Files int
-	Partial               bool // the status was cut short
+	Partial               bool          // the status was cut short
+	Recent                []ChangedFile // the files changed last, newest first, at most RecentChanges
+}
+
+// RecentChanges is how many changed files the Git badge lists.
+const RecentChanges = 10
+
+// ChangedFile is a file of the worktree's Git status.
+type ChangedFile struct {
+	Path           string
+	Status         string // M, A, D
+	Added, Removed int
 }
 
 // Text is a plugin's label: its English and its translations by locale.
@@ -116,9 +129,9 @@ type Command struct {
 
 // activity is the State's part for the strip: which popovers are open.
 type activity struct {
-	progress, commands, children bool
-	badges                       map[string]*bool
-	command                      string // the command row open
+	changes, progress, commands, children bool
+	badges                                map[string]*bool
+	command                               string // the command row open
 }
 
 // activity builds the strip (live/activity.rs): min_h_7, px_4, gap_2.
@@ -126,7 +139,7 @@ func (s *State) activity(c *ui.Context, ctx *Context, actions Actions) {
 	a := ctx.Activity
 	ui.Row(c.Key("activity")).FillWidth().MinHeight(28).PaddingX(16).Gap(8).Wrap().AlignItems(ui.Center).Children(func() {
 		if a.Changes != nil {
-			gitChanges(c, *a.Changes, actions)
+			s.gitChanges(c, *a.Changes, actions)
 		}
 		for _, b := range a.Badges {
 			s.badge(c, b, actions)
@@ -147,22 +160,40 @@ func (s *State) activity(c *ui.Context, ctx *Context, actions Actions) {
 	})
 }
 
-// gitChanges is the worktree's +added −removed, its details as the
-// tooltip (the git plugin's badge, here native); a click opens Git.
-func gitChanges(c *ui.Context, ch Changes, actions Actions) {
+// gitChanges is the worktree's +added −removed; it opens the totals and
+// the files changed last, each opening its diff in the panel.
+func (s *State) gitChanges(c *ui.Context, ch Changes, actions Actions) {
 	p := theme.Of(c)
-	tip := i18n.T(c, "file_changes_added") + ": " + strconv.Itoa(ch.Added) + "\n" +
-		i18n.T(c, "file_changes_deleted") + ": " + strconv.Itoa(ch.Removed) + "\n" +
-		i18n.T(c, "files") + ": " + strconv.Itoa(ch.Files)
 	name := "Git +" + strconv.Itoa(ch.Added) + " -" + strconv.Itoa(ch.Removed)
-	b := chip(c.Key("git-changes"), name, false, func() {
-		ui.Icon(c, icons.Network).FontSize(16)
+	b := chip(c.Key("git-changes"), name, s.act.changes, func() {
+		ui.Icon(c, icons.Network).FontSize(14)
 		ui.Row(c).Gap(8).Children(func() {
 			ui.Textf(c, "+%d", ch.Added).FontSize(14).SingleLine().TextColor(p.Success)
 			ui.Textf(c, "-%d", ch.Removed).FontSize(14).SingleLine().TextColor(p.Danger)
 		})
-	}).OnClick(actions.OpenChanges)
-	kit.Tooltip(c, b, tip)
+	}).HasPopup(ui.PopupDialog).OnClick(func() { s.act.changes = !s.act.changes })
+	placeStart(kit.Popover(c, b, &s.act.changes, func() {
+		ui.Row(c.Key("totals")).Gap(8).Padding(0, 4, 4, 4).AlignItems(ui.Center).Children(func() {
+			ui.Textf(c, "+%d", ch.Added).FontSize(14).FontWeight(600).TextColor(p.Success)
+			ui.Textf(c, "-%d", ch.Removed).FontSize(14).FontWeight(600).TextColor(p.Danger)
+			ui.Text(c, i18n.T(c, "directory_count_files", "count", ch.Files)).FontSize(14).TextColor(p.MutedForeground)
+		})
+		for _, f := range ch.Recent {
+			dir, base := path.Split(f.Path)
+			kit.Ghost(c.Key(f.Path), f.Path, false).FillWidth().Height(32).PaddingX(4).Gap(8).Children(func() {
+				ui.Icon(c, icons.File).FontSize(14).TextColor(p.MutedForeground)
+				ui.Row(c).Grow(1).MinWidth(0).Gap(6).AlignItems(ui.Center).Children(func() {
+					ui.Text(c, base).FontSize(14).SingleLine().Shrink(0).MaxWidth(200).TextColor(p.Foreground)
+					ui.Text(c, strings.TrimSuffix(dir, "/")).FontSize(12).SingleLine().Shrink(1).MinWidth(0).TextColor(p.MutedForeground)
+				})
+				ui.Textf(c, "+%d", f.Added).FontSize(12).SingleLine().TextColor(p.Success)
+				ui.Textf(c, "-%d", f.Removed).FontSize(12).SingleLine().TextColor(p.Danger)
+			}).OnClick(func() {
+				s.act.changes = false
+				actions.OpenChange(f.Path)
+			})
+		}
+	}), b, 320, 8, 0)
 }
 
 // tone is a segment's color (controls.rs segments).
@@ -198,7 +229,7 @@ func (s *State) badge(c *ui.Context, b StatusBadge, actions Actions) {
 	}
 	label := b.Label.in(c)
 	trigger := chip(c.Key("badge-"+b.ID), label, *open, func() {
-		ui.Icon(c, icon).FontSize(16)
+		ui.Icon(c, icon).FontSize(14)
 		ui.Row(c).Gap(8).Children(func() {
 			for _, sg := range b.Segment {
 				ui.Text(c, sg.Text.in(c)).FontSize(14).SingleLine().TextColor(tone(p, sg.Tone))
@@ -260,7 +291,7 @@ func (s *State) progress(c *ui.Context, steps []conversation.Step, animated bool
 	}
 	label := i18n.T(c, "composer_todo_count", "completed", done, "total", len(steps))
 	trigger := chip(c.Key("todo"), i18n.T(c, "task_progress"), s.act.progress, func() {
-		ui.Icon(c, icons.Tasks).FontSize(16)
+		ui.Icon(c, icons.Tasks).FontSize(14)
 		ui.Text(c, label).FontSize(14).SingleLine()
 	}).HasPopup(ui.PopupDialog).OnClick(func() { s.act.progress = !s.act.progress })
 	placeStart(kit.Popover(c, trigger, &s.act.progress, func() {
@@ -277,9 +308,9 @@ func working(c *ui.Context, icon *ui.SVG, label string, running, open bool) ui.E
 	}
 	return chip(c, name, open, func() {
 		if running {
-			ui.Spinner(c).FontSize(16)
+			ui.Spinner(c).FontSize(13)
 		} else {
-			ui.Icon(c, icon).FontSize(16)
+			ui.Icon(c, icon).FontSize(14)
 		}
 		ui.Text(c, label).FontSize(14).SingleLine()
 	}).HasPopup(ui.PopupDialog)
@@ -325,7 +356,7 @@ func (s *State) commandActivity(c *ui.Context, a Activity, actions Actions) {
 			}
 			seen[port] = true
 			b := chip(c.Key("service-"+strconv.Itoa(port)), strconv.Itoa(port), false, func() {
-				ui.Icon(c, icons.Globe).FontSize(16)
+				ui.Icon(c, icons.Globe).FontSize(14)
 				ui.Text(c, strconv.Itoa(port)).FontSize(14).SingleLine()
 			}).Disabled(!a.Connected).OnClick(func() { actions.OpenService(port) })
 			kit.Tooltip(c, b, i18n.T(c, "port_open_service"))

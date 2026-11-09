@@ -120,11 +120,11 @@ type Actions interface {
 	Answer(id string, a Answer)
 	CancelQuestion(id string)
 	DeclineQuestion(id string)
-	// The activity strip: OpenChanges shows the worktree's Git changes,
+	// The activity strip: OpenChange shows a changed file's diff,
 	// Badge presses a plugin badge (button "") or a button of its panel,
 	// StopCommand stops a background command, OpenService forwards a
 	// command's port and opens it, OpenChild opens a subagent's session.
-	OpenChanges()
+	OpenChange(path string)
 	Badge(id, button string)
 	StopCommand(id string)
 	OpenService(port int)
@@ -145,7 +145,7 @@ type interaction struct {
 // capsule is an interaction's capsule: the person icon and its label.
 func capsule(c *ui.Context, label string, open bool) ui.Element {
 	return chip(c, label, open, func() {
-		ui.Icon(c, icons.CircleUser).FontSize(16)
+		ui.Icon(c, icons.CircleUser).FontSize(14)
 		ui.Text(c, label).FontSize(14).SingleLine()
 	}).HasPopup(ui.PopupDialog)
 }
