@@ -1,6 +1,7 @@
 package kit
 
 import (
+	"strings"
 	"sync"
 
 	"github.com/egoist/mygo/ui"
@@ -47,7 +48,10 @@ func CodeTheme(c *ui.Context, tint bool) *editor.Theme {
 	t.ActiveLineNumber = p.MutedForeground
 	t.Selection = p.Selection
 	t.InactiveSelection = p.Selection.Alpha(0.55)
-	t.Cursor = p.Caret
+	// Every view of this theme is read-only: the caret is hidden, as
+	// MyGo's editor has no option to draw none (it keeps the keyboard's
+	// selection and Copy). The color is the only switch.
+	t.Cursor = p.Caret.Alpha(0)
 	t.Added, t.Deleted = p.Success, p.Danger
 	codeThemes.Store(key, t)
 	return t
@@ -71,7 +75,9 @@ type CodeOptions struct {
 
 // Code is a read-only editor of text, as high as its lines, inside box:
 // it highlights by Language and keeps its editor while box stays.
+// Trailing line breaks are left out, so no empty last line shows.
 func Code(c *ui.Context, box ui.Element, text string, o CodeOptions) {
+	text = strings.TrimRight(text, "\r\n")
 	v := ui.Local(box, codeView{}, func() codeView {
 		st := &editor.State{Buffer: editor.NewBuffer(text), ReadOnly: true, FitContent: true, NoScrollbars: true,
 			NoActiveLine: true, NoFolding: true, NoIndentGuides: true, Font: codeFont, LineHeight: codeLine}
