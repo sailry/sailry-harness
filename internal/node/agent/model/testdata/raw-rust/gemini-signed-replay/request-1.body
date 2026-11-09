@@ -1,0 +1,1 @@
+{"contents":[{"parts":[{"text":"Read the file"}],"role":"user"}],"generationConfig":{"maxOutputTokens":512},"tools":{"functionDeclarations":[{"name":"read","description":"Read a file","parametersJsonSchema":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}}]},"systemInstruction":{"parts":[{"text":"Captured instructions"}]}}

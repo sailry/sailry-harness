@@ -23,6 +23,16 @@ type events struct {
 }
 
 func (node *Node) Subscribe(ctx context.Context, caller protocol.NodeID, topic protocol.Topic) (link.Subscription, error) {
+	if topic.Kind == "conversation" {
+		switch session := topic.Data.(type) {
+		case protocol.SessionID:
+			return node.subscribeConversation(ctx, session)
+		case *protocol.SessionID:
+			return node.subscribeConversation(ctx, *session)
+		}
+		return nil, &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "conversation session is required"}
+	}
+
 	if topic.Kind != "node" {
 		return nil, &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "subscription is unavailable"}
 	}

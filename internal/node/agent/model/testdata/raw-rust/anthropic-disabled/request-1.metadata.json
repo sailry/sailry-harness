@@ -1,0 +1,13 @@
+{
+  "path": "/v1/messages",
+  "headers": {
+    "accept": "text/event-stream",
+    "accept-encoding": "zstd,gzip,deflate,br",
+    "anthropic-version": "2023-06-01",
+    "content-length": "515",
+    "content-type": "application/json",
+    "host": "127.0.0.1:54714",
+    "user-agent": "Sailry/0.1.0",
+    "x-api-key": "fixed-access"
+  }
+}

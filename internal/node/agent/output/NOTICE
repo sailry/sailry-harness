@@ -1,0 +1,8 @@
+Outgoing projection follows Sailry fb70fdc1 agent/output and the reviewed source
+revision eaad1b7f18e448c8c4e9e9286e19560c8a351ae1. The 2,000-line / 50-KiB tool
+preview policy and numbered file/search previews retain the source provenance
+from OpenCode 3ba597f and Pi 90b42bc. Pi's MIT notice is in LICENSE.pi. Audience and
+model history adaptation follows Goose 14741e9a (LICENSE.goose).
+
+This package projects already captured data only. It never executes file,
+command, process, plugin or terminal operations.

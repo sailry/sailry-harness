@@ -1,0 +1,4 @@
+data: {"response":{"created_at":1,"id":"response","model":"fixture","object":"response","output":[],"status":"in_progress"},"sequence_number":0,"type":"response.created"}
+
+data: {"response":{"created_at":1,"id":"response","model":"fixture","object":"response","output":[{"encrypted_content":"encrypted-reasoning","id":"rs_fixture","summary":[],"type":"reasoning"},{"arguments":"{}","call_id":"stable-call","id":"fc_fixture","name":"read","status":"completed","type":"function_call"}],"status":"completed","usage":{"input_tokens":12,"output_tokens":3,"total_tokens":15}},"sequence_number":1,"type":"response.completed"}
+

@@ -82,6 +82,7 @@ func (client *Client) Close() error {
 		client.stop()
 	}
 	err := client.stopObservation()
+	client.closeConversations()
 	client.mu.Lock()
 	client.connected = false
 	client.mu.Unlock()
@@ -166,6 +167,7 @@ func (client *Client) apply(ctx context.Context, generation uint64, update proto
 		}
 		client.connected, client.err = true, nil
 		client.mu.Unlock()
+		client.reconcileConversations()
 	}
 	return applied, nil
 }

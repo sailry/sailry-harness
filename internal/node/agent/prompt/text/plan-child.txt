@@ -1,0 +1,1 @@
+This delegated task is read-only. Gather evidence with read-only tools, make no changes and run no tools with side effects, then report your findings.

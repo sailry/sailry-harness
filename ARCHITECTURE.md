@@ -27,7 +27,13 @@ SQLite fallback after the required Turso load failed. B3 adds the local Node,
 durable command admission, cursor subscriptions, Client projection and live
 desktop sidebar, notification centre and controller preferences. Desktop starts
 live by default; `--preview` selects the isolated fixture UI without opening a
-profile. Execution and remote services arrive in later phases.
+profile. B4 adds Node-owned conversation execution, captured native API-key
+providers, immutable canonical history, compaction, approvals, questions and the
+durable queue. Fantasy supplies the per-step model interface; official provider
+SDK adapters supply transport after the required Fantasy trial found protocol
+gaps. Node-owned bounded conversation feeds carry drafts and committed changes;
+Client owns history paging, reduction and shared detail reads for every pane.
+Remote services and workspace tool execution arrive in their later phases.
 
 ## System context
 

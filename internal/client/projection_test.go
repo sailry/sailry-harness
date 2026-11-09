@@ -33,6 +33,7 @@ func mustApply(t *testing.T, projection *Projection, generation uint64, update p
 
 func TestProjectionOrder(t *testing.T) {
 	t.Parallel()
+	t.Run("conversation", testConversationProjectionOrder)
 	t.Run("sessions_keep_authority_order", func(t *testing.T) {
 		first, second, created := projectionSession(1, 1), projectionSession(2, 2), projectionSession(3, 3)
 		snapshot := projectionSnapshot(0)

@@ -1,0 +1,4 @@
+data: {"response":{"created_at":1,"id":"response","model":"fixture","object":"response","output":[],"status":"in_progress"},"sequence_number":0,"type":"response.created"}
+
+data: {"response":{"created_at":1,"id":"response","model":"fixture","object":"response","output":[{"content":[{"annotations":[],"text":"Read complete","type":"output_text"}],"id":"message","role":"assistant","status":"completed","type":"message"}],"status":"completed","usage":{"input_tokens":12,"input_tokens_details":{"cached_tokens":8},"output_tokens":3,"output_tokens_details":{"reasoning_tokens":2},"total_tokens":15}},"sequence_number":1,"type":"response.completed"}
+

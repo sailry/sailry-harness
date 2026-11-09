@@ -1,0 +1,9 @@
+{
+  "authorization": "Bearer fixed-access",
+  "user-agent": "CapturedAgent/1",
+  "originator": "codex_cli_rs",
+  "version": "0.161.0",
+  "chatgpt-account-id": "fixed-account",
+  "session-id": "11111111-1111-4111-8111-111111111111",
+  "x-codex-routing-hint": "model=fixture-model"
+}

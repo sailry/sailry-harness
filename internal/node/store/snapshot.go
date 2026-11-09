@@ -61,6 +61,9 @@ func Snapshot(ctx context.Context, db *sql.Conn, node protocol.NodeID) (protocol
 			}
 		}
 	}
+	if value.ModelCatalog, err = ReadProviderCatalogStatus(ctx, db); err != nil {
+		return value, err
+	}
 	power, err := ReadPower(ctx, db)
 	if err != nil {
 		return value, err

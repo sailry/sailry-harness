@@ -1,0 +1,6 @@
+data: {"message":{"content":[],"id":"partial","model":"claude-opus-4-8","role":"assistant","type":"message","usage":{"cache_creation_input_tokens":4,"cache_read_input_tokens":8,"input_tokens":12,"output_tokens":3}},"type":"message_start"}
+
+data: {"content_block":{"id":"unfinished","input":{},"name":"read","type":"tool_use"},"index":0,"type":"content_block_start"}
+
+data: {"delta":{"partial_json":"{\"path\":","type":"input_json_delta"},"index":0,"type":"content_block_delta"}
+

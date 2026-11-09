@@ -1,0 +1,12 @@
+{
+  "path": "/responses",
+  "headers": {
+    "accept": "text/event-stream",
+    "accept-encoding": "zstd,gzip,deflate,br",
+    "authorization": "Bearer fixed-access",
+    "content-length": "805",
+    "content-type": "application/json",
+    "host": "127.0.0.1:54700",
+    "user-agent": "Sailry/0.1.0"
+  }
+}

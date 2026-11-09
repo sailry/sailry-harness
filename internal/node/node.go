@@ -6,27 +6,34 @@ import (
 	"encoding/json"
 	"errors"
 	"sync"
+	"time"
 
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node/admission"
+	"github.com/sailry/sailry-harness/internal/node/agent/engine"
+	"github.com/sailry/sailry-harness/internal/node/agent/feed"
+	"github.com/sailry/sailry-harness/internal/node/providers"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 // Node owns one profile, admitted operations and their committed event feed.
 type Node struct {
-	profile       *Profile
-	ctx           context.Context
-	mu            sync.Mutex
-	stopped       bool
-	jobs          chan commandJob
-	work          sync.WaitGroup
-	workerDone    chan struct{}
-	closed        chan struct{}
-	stopDone      chan struct{}
-	stopErr       error
-	subscribersMu sync.Mutex
-	subscribers   map[*events]struct{}
+	profile           *Profile
+	ctx               context.Context
+	mu                sync.Mutex
+	stopped           bool
+	jobs              chan commandJob
+	work              sync.WaitGroup
+	workerDone        chan struct{}
+	closed            chan struct{}
+	stopDone          chan struct{}
+	stopErr           error
+	agent             *engine.Runtime
+	feed              *feed.Hub
+	providerDirectory providers.Directory
+	subscribersMu     sync.Mutex
+	subscribers       map[*events]struct{}
 }
 
 type commandJob struct {
@@ -35,6 +42,7 @@ type commandJob struct {
 	body       []byte
 	admitted   bool
 	completion chan link.Response
+	provider   *providers.Prepared
 }
 
 var _ link.Handler = (*Node)(nil)
@@ -49,6 +57,13 @@ func Start(ctx context.Context, path string) (*Node, error) {
 		return nil, err
 	}
 	value := &Node{profile: profile, ctx: context.WithoutCancel(ctx), jobs: make(chan commandJob), workerDone: make(chan struct{}), closed: make(chan struct{}), stopDone: make(chan struct{}), subscribers: make(map[*events]struct{})}
+	value.feed = feed.New(value.ID())
+	value.agent = engine.New(profile.Store.Node, value.ID(), profile.Ownership.Path, value.feed, value.publish, engine.Options{})
+	if err := value.agent.Recover(ctx); err != nil {
+		_ = profile.Close()
+		return nil, err
+	}
+	value.agent.Start()
 	go value.run()
 	return value, nil
 }
@@ -64,6 +79,7 @@ func (node *Node) Stop(ctx context.Context) error {
 		go func() {
 			<-node.workerDone
 			node.work.Wait()
+			node.agent.Stop()
 			err := node.profile.Close()
 			node.mu.Lock()
 			node.stopErr = err
@@ -147,6 +163,7 @@ func (node *Node) Dispatch(ctx context.Context, caller protocol.NodeID, request 
 			return link.Admission{}, nodeFault(err)
 		}
 		node.publish()
+		node.agent.Committed()
 		completion <- result
 		close(completion)
 		return accepted, nil
@@ -171,6 +188,9 @@ func (node *Node) Dispatch(ctx context.Context, caller protocol.NodeID, request 
 }
 
 func externalCommand(command protocol.Command) bool {
+	if store.SupportsProviderCommand(command.Kind) {
+		return true
+	}
 	switch command.Kind {
 	case "create_project", "update_project", "remove_project", "register_worktree":
 		return true
@@ -183,6 +203,9 @@ func externalCommand(command protocol.Command) bool {
 }
 
 func supportedCommand(kind string) bool {
+	if store.SupportsAgentCommand(kind) || store.SupportsProviderCommand(kind) {
+		return true
+	}
 	switch kind {
 	case "snapshot", "inspect_request", "read_session", "read_power_settings", "read_telemetry_settings":
 		return true
@@ -194,7 +217,21 @@ func supportedCommand(kind string) bool {
 }
 
 func (node *Node) read(ctx context.Context, caller protocol.NodeID, request protocol.Request) link.Response {
+	if store.SupportsProviderCommand(request.Command.Kind) {
+		return node.readProvider(ctx, caller, request)
+	}
 	var output protocol.Output
+	var sequence uint64
+	switch input := request.Command.Data.(type) {
+	case *protocol.CommandReadConversationPayload:
+		unlock := node.agent.LockPublication()
+		defer unlock()
+		sequence = node.feed.Sequence(input.Session)
+	case *protocol.CommandReadTurnPayload:
+		unlock := node.agent.LockPublication()
+		defer unlock()
+		sequence = node.feed.Sequence(input.Session)
+	}
 	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 		if request.Plugin != nil {
 			return &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "plugin invocation authority is unavailable"}
@@ -222,9 +259,22 @@ func (node *Node) read(ctx context.Context, caller protocol.NodeID, request prot
 			output = protocol.Output{Kind: "telemetry_settings", Data: value}
 			return err
 		default:
+			if store.SupportsAgentCommand(request.Command.Kind) {
+				var err error
+				output, err = store.ReadAgentCommandForCaller(ctx, db, node.ID(), caller, request.Command)
+				return err
+			}
 			return &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "command is unavailable"}
 		}
 	})
+	switch history := output.Data.(type) {
+	case protocol.ConversationHistory:
+		history.Sequence = sequence
+		output.Data = history
+	case protocol.ConversationTurnHistory:
+		history.Sequence = sequence
+		output.Data = history
+	}
 	return response(output, err)
 }
 
@@ -232,11 +282,15 @@ func (node *Node) run() {
 	defer close(node.workerDone)
 	for job := range node.jobs {
 		prepared, prepareErr := node.prepare(job.request.Command)
+		if prepareErr == nil && store.SupportsProviderCommand(job.request.Command.Kind) {
+			job.provider, prepareErr = node.prepareProvider(node.ctx, job.caller, job.request)
+		}
 		result, err := node.execute(job, prepared, prepareErr)
 		if err != nil {
 			result = response(protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "operation result could not be recorded; inspect the target before retrying"})
 		} else {
 			node.publish()
+			node.agent.Committed()
 		}
 		job.completion <- result
 		close(job.completion)
@@ -244,8 +298,14 @@ func (node *Node) run() {
 }
 
 func (node *Node) execute(job commandJob, prepared store.PreparedPaths, prepareErr error) (link.Response, error) {
+	unlock := node.agent.LockDecision(job.request.Command)
+	defer unlock()
+	publication := node.agent.LockPublication()
+	defer publication()
 	var output protocol.Output
 	var operationErr error
+	var changes []protocol.Event
+	var reviewChanges []store.AgentReviewChange
 	var previous *link.Response
 	err := node.profile.Store.Node.Write(node.ctx, func(db *sql.Conn) error {
 		if !job.admitted {
@@ -258,12 +318,27 @@ func (node *Node) execute(job commandJob, prepared store.PreparedPaths, prepareE
 		if _, err := db.ExecContext(node.ctx, "SAVEPOINT sailry_command"); err != nil {
 			return err
 		}
-		var changes []protocol.Event
 		operationErr = prepareErr
+		if operationErr == nil && job.request.Plugin != nil {
+			operationErr = &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "plugin invocation authority is unavailable"}
+		}
 		if operationErr == nil {
-			output, changes, operationErr = store.ExecuteCommand(node.ctx, db, node.ID(), node.profile.Ownership.Path, job.request, prepared)
+			switch {
+			case store.SupportsAgentCommand(job.request.Command.Kind):
+				output, changes, operationErr = store.ExecuteAgentCommand(node.ctx, db, node.ID(), node.profile.Ownership.Path, job.caller, job.request, time.Now())
+			case store.SupportsProviderCommand(job.request.Command.Kind):
+				output, changes, operationErr = store.ExecuteProviderCommand(node.ctx, db, node.ID(), job.caller, job.request, job.provider)
+			default:
+				output, changes, operationErr = store.ExecuteCommand(node.ctx, db, node.ID(), node.profile.Ownership.Path, job.request, prepared)
+			}
+		}
+		if operationErr == nil {
+			var reviewEvents []protocol.Event
+			reviewChanges, reviewEvents, operationErr = store.ApplyReviewCommand(node.ctx, db, job.request, output, time.Now())
+			changes = append(changes, reviewEvents...)
 		}
 		if operationErr != nil {
+			reviewChanges = nil
 			if _, err := db.ExecContext(node.ctx, "ROLLBACK TO sailry_command"); err != nil {
 				return err
 			}
@@ -279,6 +354,12 @@ func (node *Node) execute(job commandJob, prepared store.PreparedPaths, prepareE
 	})
 	if previous != nil {
 		return *previous, err
+	}
+	if err == nil {
+		for _, review := range reviewChanges {
+			node.feed.Publish(review.Session, review.Change)
+		}
+		node.conversationEvents(changes)
 	}
 	return response(output, operationErr), err
 }

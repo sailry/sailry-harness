@@ -1,0 +1,11 @@
+Rust serde outputs generated with serde 1.0.229, serde_json 1.0.151, chrono 0.4.45 and uuid 1.26.0.
+Source revision: eaad1b7f18e448c8c4e9e9286e19560c8a351ae1.
+The fixture runner copied the complete protocol and canonical declarations unchanged
+into an isolated Cargo workspace. Each input was deserialized into the actual
+source type, then serialized by serde_json::to_string. No Go output supplied any
+expected bytes. Tests read only the generated local fixture.
+
+mod.rs: sha256 1e7ffde37cd9fbd9f2feace8996a8a4671258732c769cc45b2d2691197eed880
+content.rs: sha256 b5cbc14ac06223ec31a016bab18808629a93bf2d16a909205ca671bd6c0416fc
+metadata.rs: sha256 ff88c9445f78c16cf683d4429202c921de225e10c94b7596866dd1bbfb8fd9c6
+validation.rs: sha256 b464512bc580ad4b07053b150625135692c7eab79e1c002c6efba3973fb45a55

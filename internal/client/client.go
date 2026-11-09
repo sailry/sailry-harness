@@ -14,20 +14,27 @@ import (
 )
 
 type Client struct {
-	transport link.Transport
-	mu        sync.RWMutex
-	project   *Projection
-	feed      activityFeed
-	connected bool
-	err       error
-	callbacks map[uint64]func()
-	callback  uint64
+	conversationDetails     map[string]conversationDetail
+	conversationDetailReads map[string]*conversationDetailRead
+	conversationDetailOrder []string
+	conversationDetailBytes uint64
+	transport               link.Transport
+	mu                      sync.RWMutex
+	project                 *Projection
+	feed                    activityFeed
+	connected               bool
+	err                     error
+	callbacks               map[uint64]func()
+	callback                uint64
 
-	lifecycle sync.Mutex
-	context   context.Context
-	stop      context.CancelFunc
-	watch     *observation
-	closed    bool
+	lifecycle          sync.Mutex
+	context            context.Context
+	stop               context.CancelFunc
+	watch              *observation
+	closed             bool
+	conversationMu     sync.Mutex
+	conversations      map[protocol.SessionID]*conversationWatch
+	conversationOwners sync.WaitGroup
 }
 
 func New(transport link.Transport) *Client {

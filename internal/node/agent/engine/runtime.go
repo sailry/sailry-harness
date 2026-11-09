@@ -1,0 +1,231 @@
+// Package engine owns ordered turn execution and its committed effects.
+package engine
+
+import (
+	"context"
+	"database/sql"
+	"sync"
+
+	"charm.land/fantasy"
+	"github.com/sailry/sailry-harness/internal/node/agent/clock"
+	"github.com/sailry/sailry-harness/internal/node/agent/feed"
+	"github.com/sailry/sailry-harness/internal/node/agent/model"
+	"github.com/sailry/sailry-harness/internal/node/agent/output"
+	"github.com/sailry/sailry-harness/internal/node/store"
+	"github.com/sailry/sailry-harness/internal/protocol"
+)
+
+// Options exposes the actual model and clock boundaries to deterministic tests.
+type Options struct {
+	Clock clock.Clock
+	Model func(context.Context, model.Binding) (fantasy.LanguageModel, error)
+	Tools []Tool
+}
+
+type Runtime struct {
+	db                *store.Handle
+	node              protocol.NodeID
+	profile           string
+	feed              *feed.Hub
+	publish           func()
+	clock             clock.Clock
+	model             func(context.Context, model.Binding) (fantasy.LanguageModel, error)
+	tools             []Tool
+	ctx               context.Context
+	cancel            context.CancelFunc
+	done              chan struct{}
+	wake              chan struct{}
+	mu                sync.Mutex
+	active            map[protocol.TurnID]*execution
+	workers           sync.WaitGroup
+	decisions         sync.Mutex
+	publication       sync.Mutex
+	statisticsMu      sync.Mutex
+	statistics        map[protocol.SessionID]bool
+	statisticsOwners  sync.WaitGroup
+	statisticsStopped bool
+}
+
+type execution struct {
+	inv    *store.AgentInvocation
+	ctx    context.Context
+	cancel context.CancelFunc
+	wake   chan struct{}
+	tools  []Tool
+	output output.Cache
+}
+
+func New(db *store.Handle, node protocol.NodeID, profile string, frames *feed.Hub, publish func(), options Options) *Runtime {
+	if options.Clock == nil {
+		options.Clock = clock.System{}
+	}
+	if options.Model == nil {
+		options.Model = model.New
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	return &Runtime{db: db, node: node, profile: profile, feed: frames, publish: publish, clock: options.Clock, model: options.Model, tools: options.Tools, ctx: ctx, cancel: cancel, done: make(chan struct{}), wake: make(chan struct{}, 1), active: map[protocol.TurnID]*execution{}, statistics: map[protocol.SessionID]bool{}}
+}
+
+// Recover closes interrupted owners and holds every surviving queue. It never
+// replays a model request or an external tool operation.
+func (r *Runtime) Recover(ctx context.Context) error {
+	unlock := r.LockPublication()
+	defer unlock()
+	err := r.db.Write(ctx, func(db *sql.Conn) error {
+		changes, err := store.RecoverRuns(ctx, db, r.clock.Now())
+		if err != nil {
+			return err
+		}
+		_, err = store.RecordEvents(ctx, db, r.node, changes)
+		return err
+	})
+	if err == nil {
+		r.publish()
+	}
+	return err
+}
+
+func (r *Runtime) Start() { go r.run() }
+func (r *Runtime) Stop()  { r.cancel(); <-r.done }
+func (r *Runtime) Wake() {
+	select {
+	case r.wake <- struct{}{}:
+	default:
+	}
+}
+
+// LockPublication orders commits, their frames and pinned controller snapshots.
+// Acquire decision ownership first; acquire storage leases only after this lock.
+func (r *Runtime) LockPublication() func() {
+	r.publication.Lock()
+	return r.publication.Unlock
+}
+
+func (r *Runtime) run() {
+	defer close(r.done)
+	defer func() {
+		r.workers.Wait()
+		r.statisticsMu.Lock()
+		r.statisticsStopped = true
+		r.statisticsMu.Unlock()
+		r.statisticsOwners.Wait()
+	}()
+	for {
+		select {
+		case <-r.ctx.Done():
+			return
+		case <-r.wake:
+		}
+		for r.ctx.Err() == nil {
+			unlock := r.LockPublication()
+			var inv *store.AgentInvocation
+			err := r.db.Write(r.ctx, func(db *sql.Conn) error {
+				var changes []protocol.Event
+				var err error
+				inv, changes, err = store.ClaimNext(r.ctx, db, r.clock.Now())
+				if err != nil {
+					return err
+				}
+				_, err = store.RecordEvents(r.ctx, db, r.node, changes)
+				return err
+			})
+			if err != nil || inv == nil {
+				unlock()
+				break
+			}
+			r.publish()
+			ctx, cancel := context.WithCancel(r.ctx)
+			x := &execution{inv: inv, ctx: ctx, cancel: cancel, wake: make(chan struct{}, 1)}
+			r.mu.Lock()
+			r.active[inv.Run.Turn] = x
+			r.mu.Unlock()
+			// A stop may commit between claiming the durable turn and registering
+			// its cancellation owner. Recheck after registration closes that gap.
+			var current protocol.ConversationRun
+			err = r.db.Read(r.ctx, func(db *sql.Conn) error {
+				var err error
+				current, err = store.ReadAgentRun(r.ctx, db, inv.Run.Turn)
+				return err
+			})
+			if err != nil || current.Status != protocol.ConversationStatusRunning {
+				cancel()
+			}
+			if err == nil {
+				r.feed.Publish(inv.Session.ID, protocol.ConversationChange{Kind: "run", Data: current})
+				r.RefreshStatisticsCommitted(inv.Session.ID)
+			}
+			unlock()
+			r.workers.Add(1)
+			go func() {
+				defer r.workers.Done()
+				defer cancel()
+				r.execute(x)
+				r.mu.Lock()
+				delete(r.active, inv.Run.Turn)
+				r.mu.Unlock()
+				r.Wake()
+			}()
+		}
+	}
+}
+
+// Committed wakes owners only after a controller transaction has committed.
+// The durable queue remains the sole source of admitted work.
+func (r *Runtime) Committed() {
+	r.mu.Lock()
+	owners := make([]*execution, 0, len(r.active))
+	for _, x := range r.active {
+		owners = append(owners, x)
+	}
+	r.mu.Unlock()
+	for _, x := range owners {
+		unlock := r.LockPublication()
+		var run protocol.ConversationRun
+		err := r.db.Read(r.ctx, func(db *sql.Conn) error {
+			var err error
+			run, err = store.ReadAgentRun(r.ctx, db, x.inv.Run.Turn)
+			return err
+		})
+		if err == nil && run.Status == protocol.ConversationStatusStopping {
+			r.feed.Seal(run.Session, run.Turn)
+			r.feed.Publish(run.Session, protocol.ConversationChange{Kind: "run", Data: run})
+			x.cancel()
+		}
+		unlock()
+		select {
+		case x.wake <- struct{}{}:
+		default:
+		}
+	}
+	r.Wake()
+}
+
+func (r *Runtime) Refresh(session protocol.SessionID) {
+	unlock := r.LockPublication()
+	defer unlock()
+	r.RefreshCommitted(session)
+}
+
+// RefreshCommitted publishes a pinned metadata read while its caller owns
+// publication, so no newer interaction or queue can overtake the read.
+func (r *Runtime) RefreshCommitted(session protocol.SessionID) {
+	var history protocol.ConversationHistory
+	if err := r.db.Read(r.ctx, func(db *sql.Conn) error {
+		var err error
+		history, err = store.ReadConversation(r.ctx, db, session, nil, 20)
+		return err
+	}); err != nil {
+		return
+	}
+	for _, run := range history.Page.Runs {
+		r.feed.Publish(session, protocol.ConversationChange{Kind: "run", Data: run})
+	}
+	r.feed.Publish(session, protocol.ConversationChange{Kind: "queue", Data: history.Page.Queue})
+	for _, v := range history.Page.Approvals {
+		r.feed.Publish(session, protocol.ConversationChange{Kind: "approval", Data: v})
+	}
+	for _, v := range history.Page.Questions {
+		r.feed.Publish(session, protocol.ConversationChange{Kind: "question", Data: v})
+	}
+	r.RefreshStatisticsCommitted(session)
+}

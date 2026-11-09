@@ -1,0 +1,276 @@
+package engine
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"slices"
+	"strings"
+	"sync"
+
+	"charm.land/fantasy"
+	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
+	"github.com/sailry/sailry-harness/internal/node/store"
+	"github.com/sailry/sailry-harness/internal/protocol"
+	"github.com/santhosh-tekuri/jsonschema/v6"
+	"lukechampine.com/blake3"
+)
+
+// Tool is one captured declaration and executor. Concurrency and authority are
+// properties of the captured registration, never arguments supplied by a model.
+type Tool struct {
+	Definition fantasy.FunctionTool
+	SchemaJSON json.RawMessage
+	ReadOnly   bool
+	Concurrent bool
+	Deferred   bool
+	Approval   bool
+	Binding    *store.ApprovalBinding
+	Execute    func(context.Context, canonical.ToolRequest) ToolResult
+	schema     *jsonschema.Schema
+}
+type ToolResult struct {
+	Value   any
+	Error   bool
+	Failure *protocol.Fault
+	Context *canonical.Context
+}
+
+func (r *Runtime) captureTools(x *execution) error {
+	x.tools = append(r.builtins(x), r.tools...)
+	for i := range x.tools {
+		tool := &x.tools[i]
+		compiler := jsonschema.NewCompiler()
+		location := "urn:sailry:tool:" + tool.Definition.Name
+		if err := compiler.AddResource(location, tool.Definition.InputSchema); err != nil {
+			return err
+		}
+		schema, err := compiler.Compile(location)
+		if err != nil {
+			return err
+		}
+		tool.schema = schema
+	}
+	return nil
+}
+func (r *Runtime) declarations(x *execution, state store.AgentState) []modelTool {
+	var values []modelTool
+	if !toolCapableFromInvocation(x) {
+		return values
+	}
+	for _, tool := range x.tools {
+		if !tool.Deferred || slices.Contains(state.LoadedTools, tool.Definition.Name) {
+			values = append(values, tool.Definition)
+		}
+	}
+	return values
+}
+
+type modelTool = fantasy.FunctionTool
+
+func toolCapableFromInvocation(x *execution) bool {
+	if x.inv.Provider != nil {
+		for _, m := range x.inv.Provider.Models {
+			if m.ID == x.inv.Turn.Config.Model {
+				return m.Tools
+			}
+		}
+	}
+	return false
+}
+func findTool(tools []Tool, name string) *Tool {
+	for i := range tools {
+		if tools[i].Definition.Name == name {
+			return &tools[i]
+		}
+	}
+	return nil
+}
+
+func (r *Runtime) runTools(x *execution, state store.AgentState, calls []canonical.ToolRequest) error {
+	results := make([]ToolResult, len(calls))
+	executable := make([]bool, len(calls))
+	var marks []canonical.Record
+	// Mark every allowed call before requesting the first approval.
+	for i, call := range calls {
+		tool := findTool(x.tools, call.Name)
+		if call.Error != nil {
+			results[i] = ToolResult{Failure: &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: call.Error.Message}}
+			continue
+		}
+		if tool == nil || tool.Deferred && !slices.Contains(state.LoadedTools, call.Name) {
+			results[i] = ToolResult{Error: true, Value: map[string]any{"content": []any{map[string]any{"type": "text", "text": "This tool call was not handled."}}, "isError": true}}
+			continue
+		}
+		if x.inv.Turn.Config.Mode == protocol.WorkModePlan && !tool.ReadOnly && call.Name != "ask_user" {
+			results[i] = ToolResult{Failure: &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "planning mode permits read-only tools"}}
+			continue
+		}
+		var arguments any
+		if err := json.Unmarshal(call.Arguments, &arguments); err != nil {
+			results[i] = invalidTool("invalid tool arguments")
+			continue
+		}
+		if err := tool.schema.Validate(arguments); err != nil {
+			results[i] = invalidTool(fmt.Sprintf("invalid tool arguments: %s", err))
+			continue
+		}
+		if !tool.Approval {
+			executable[i] = true
+			marks = append(marks, r.executableRecord(x, call, true))
+		}
+	}
+	if err := r.save(x.ctx, x.inv.Session.ID, marks...); err != nil {
+		return err
+	}
+	for i, call := range calls {
+		tool := findTool(x.tools, call.Name)
+		if tool == nil || !tool.Approval || results[i].Value != nil || results[i].Failure != nil {
+			continue
+		}
+		approved, err := r.approval(x, call, tool.Binding)
+		if err != nil {
+			return err
+		}
+		executable[i] = approved
+		if !approved {
+			results[i] = ToolResult{Failure: &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "Tool call was denied"}}
+		}
+		if err = r.save(x.ctx, x.inv.Session.ID, r.executableRecord(x, call, approved)); err != nil {
+			return err
+		}
+	}
+	concurrent := func(i int) bool {
+		tool := findTool(x.tools, calls[i].Name)
+		return !executable[i] || tool != nil && tool.ReadOnly && tool.Concurrent
+	}
+	for start := 0; start < len(calls); {
+		if x.ctx.Err() != nil {
+			break
+		}
+		end := start + 1
+		if concurrent(start) {
+			for end < len(calls) && concurrent(end) {
+				end++
+			}
+		}
+		for batch := start; batch < end; batch += 8 {
+			var workers sync.WaitGroup
+			for i := batch; i < min(batch+8, end); i++ {
+				if !executable[i] {
+					continue
+				}
+				workers.Add(1)
+				go func(i int) {
+					defer workers.Done()
+					results[i] = findTool(x.tools, calls[i].Name).Execute(x.ctx, calls[i])
+				}(i)
+			}
+			workers.Wait()
+			if x.ctx.Err() != nil {
+				break
+			}
+		}
+		start = end
+	}
+	blocks := make([]canonical.Block, 0, len(calls))
+	var contextDelta canonical.Context
+	for i, call := range calls {
+		if executable[i] && results[i].Value == nil && results[i].Failure == nil {
+			results[i] = ToolResult{Failure: &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "Tool call was interrupted before completing"}}
+		}
+		blocks = append(blocks, responseBlock(uint64(i), call, results[i]))
+		if delta := results[i].Context; delta != nil {
+			if delta.Title != nil {
+				contextDelta.Title = delta.Title
+			}
+			if delta.Policy != nil {
+				contextDelta.Policy = delta.Policy
+			}
+			if delta.LoadedTools != nil {
+				if contextDelta.LoadedTools == nil {
+					names := []string{}
+					contextDelta.LoadedTools = &names
+				}
+				*contextDelta.LoadedTools = append(*contextDelta.LoadedTools, *delta.LoadedTools...)
+			}
+		}
+	}
+	record := canonical.NewRecord(x.inv.Run.Turn, "message", canonical.NewMessage(canonical.User, blocks...), r.clock.Now())
+	record.Provenance.Author = "tool"
+	if contextDelta.Title != nil || contextDelta.LoadedTools != nil || contextDelta.Policy != nil {
+		record.Metadata.Context = &contextDelta
+	}
+	return r.save(context.WithoutCancel(x.ctx), x.inv.Session.ID, record)
+}
+func (r *Runtime) executableRecord(x *execution, call canonical.ToolRequest, allowed bool) canonical.Record {
+	patch, _ := json.Marshal(map[string]bool{canonical.ExecutableKey: allowed})
+	record := canonical.NewRecord(x.inv.Run.Turn, "operation", canonical.Operation{Kind: "tool_meta", Data: &canonical.ToolMeta{Call: call.ID, Patch: patch}}, r.clock.Now())
+	record.Provenance.Author = "assistant"
+	return record
+}
+func responseBlock(index uint64, call canonical.ToolRequest, result ToolResult) canonical.Block {
+	value := result.Value
+	status := canonical.ToolSuccess
+	format := canonical.JSON
+	if result.Error {
+		status = canonical.ToolErrorStatus
+		format = canonical.MCP
+	}
+	if result.Failure != nil {
+		status = canonical.ToolErrorStatus
+		format = canonical.MCPError
+		value = map[string]any{"code": -32000, "message": result.Failure.Message, "data": result.Failure}
+	}
+	if value == nil {
+		value = map[string]any{}
+	}
+	raw, _ := json.Marshal(value)
+	sum := blake3.Sum256(raw)
+	return canonical.Block{Index: index, Kind: "tool_response", Data: &canonical.ToolResponse{ID: call.ID, Name: call.Name, Status: status, Format: format, Result: canonical.Payload{Value: raw}, Revision: fmt.Sprintf("%x", sum), Provider: call.Provider}}
+}
+func invalidTool(message string) ToolResult {
+	return ToolResult{Failure: &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: message}}
+}
+func jsonTool(name, description, schema string, readOnly, concurrent bool, execute func(context.Context, canonical.ToolRequest) ToolResult) Tool {
+	var input map[string]any
+	if err := json.Unmarshal([]byte(schema), &input); err != nil {
+		panic(err)
+	}
+	return Tool{Definition: fantasy.FunctionTool{Name: name, Description: description, InputSchema: input}, SchemaJSON: json.RawMessage(schema), ReadOnly: readOnly, Concurrent: concurrent, Execute: execute}
+}
+func searchTools(tools []Tool, query string, limit int) []fantasy.FunctionTool {
+	var selected []fantasy.FunctionTool
+	if names, ok := strings.CutPrefix(strings.TrimSpace(query), "select:"); ok {
+		for _, name := range strings.Split(names, ",") {
+			if tool := findTool(tools, strings.TrimSpace(name)); tool != nil && tool.Deferred && !slices.ContainsFunc(selected, func(v fantasy.FunctionTool) bool { return v.Name == tool.Definition.Name }) {
+				selected = append(selected, tool.Definition)
+				if len(selected) == limit {
+					break
+				}
+			}
+		}
+		return selected
+	}
+	terms := strings.FieldsFunc(strings.ToLower(query), func(r rune) bool { return !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r > 127) })
+	for _, tool := range tools {
+		if !tool.Deferred {
+			continue
+		}
+		haystack := strings.ToLower(tool.Definition.Name + " " + tool.Definition.Description)
+		matched := false
+		for _, term := range terms {
+			if len([]rune(term)) >= 3 && strings.Contains(haystack, term) {
+				matched = true
+				break
+			}
+		}
+		if matched {
+			selected = append(selected, tool.Definition)
+			if len(selected) == limit {
+				break
+			}
+		}
+	}
+	return selected
+}

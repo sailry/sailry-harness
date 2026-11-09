@@ -1,0 +1,4 @@
+data: {"response":{"created_at":1,"id":"pending","model":"fixture","object":"response","output":[],"status":"in_progress"},"sequence_number":0,"type":"response.created"}
+
+data: {"content_index":0,"delta":"Partial","item_id":"message","logprobs":[],"output_index":0,"sequence_number":1,"type":"response.output_text.delta"}
+

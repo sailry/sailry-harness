@@ -1,0 +1,58 @@
+{
+  "name": "read",
+  "description": "Read a file",
+  "strict": false,
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": [
+          "read",
+          "write"
+        ]
+      },
+      "path": {
+        "type": "string",
+        "default": null
+      },
+      "options": {
+        "$ref": "#/$defs/Options"
+      }
+    },
+    "required": [
+      "action"
+    ],
+    "anyOf": [
+      {
+        "properties": {
+          "action": {
+            "const": "read"
+          }
+        }
+      },
+      {
+        "properties": {
+          "action": {
+            "const": "write"
+          }
+        },
+        "required": [
+          "path"
+        ]
+      }
+    ],
+    "$defs": {
+      "Options": {
+        "type": "object",
+        "properties": {
+          "timeout": {
+            "type": "integer",
+            "format": "uint64"
+          }
+        },
+        "required": []
+      }
+    }
+  }
+}

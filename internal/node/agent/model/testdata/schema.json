@@ -1,0 +1,62 @@
+{
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "read",
+        "write"
+      ]
+    },
+    "path": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "default": null
+    },
+    "options": {
+      "$ref": "#/$defs/Options"
+    }
+  },
+  "required": [
+    "action"
+  ],
+  "oneOf": [
+    {
+      "properties": {
+        "action": {
+          "const": "read"
+        }
+      }
+    },
+    {
+      "properties": {
+        "action": {
+          "const": "write"
+        }
+      },
+      "required": [
+        "path"
+      ]
+    }
+  ],
+  "$defs": {
+    "Options": {
+      "type": "object",
+      "properties": {
+        "timeout": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "format": "uint64"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

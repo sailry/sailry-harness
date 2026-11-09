@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"os"
 	"testing"
 
+	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -101,10 +103,33 @@ func TestBlobOncePerDigest(t *testing.T) {
 
 func TestStoredJSONFixtures(t *testing.T) {
 	t.Parallel()
+	providerStoreFixtures(t)
+	data, err := os.ReadFile("testdata/agent_serde.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var generated []struct {
+		Name string `json:"name"`
+		Body string `json:"body"`
+	}
+	if err = json.Unmarshal(data, &generated); err != nil {
+		t.Fatal(err)
+	}
+	rustBody := map[string]string{}
+	for _, fixture := range generated {
+		rustBody[fixture.Name] = fixture.Body
+	}
 	for _, fixture := range []struct {
 		name, body string
 		factory    func() any
 	}{
+		{"canonical message", rustBody["canonical message"], func() any { return new(canonical.Record) }},
+		{"canonical signed call", rustBody["canonical signed call"], func() any { return new(canonical.Block) }},
+		{"canonical response", rustBody["canonical response"], func() any { return new(canonical.Block) }},
+		{"canonical runtime", rustBody["canonical runtime"], func() any { return new(canonical.Runtime) }},
+		{"canonical compaction", rustBody["canonical compaction"], func() any { return new(canonical.Compaction) }},
+		{"canonical input identity", rustBody["canonical input identity"], func() any { return new(canonical.Input) }},
+		{"question pending", rustBody["question pending"], func() any { return new(protocol.ConversationQuestion) }},
 		{"network", `{"revision":7,"selection":{"kind":"iroh"}}`, func() any { return new(networkStored) }},
 		{"custom network", `{"revision":3,"selection":{"kind":"custom","relays":["https://relay.example/"]}}`, func() any { return new(networkStored) }},
 		{"retained background", `{"revision":3,"resume":false,"child_concurrency":8}`, func() any { return new(backgroundStored) }},

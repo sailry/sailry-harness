@@ -1,0 +1,30 @@
+[
+  {
+    "name": "canonical message",
+    "body": "{\"id\":\"record\",\"created\":\"2026-11-10T00:00:00Z\",\"turn\":\"01000000-0000-0000-0000-000000000000\",\"provenance\":{\"author\":\"user\",\"branch\":\"\"},\"metadata\":{},\"kind\":\"message\",\"role\":\"user\",\"part_count\":1,\"content\":[{\"index\":0,\"type\":\"text\",\"text\":\"Recorded input\"}],\"sources\":{}}"
+  },
+  {
+    "name": "canonical signed call",
+    "body": "{\"index\":2,\"type\":\"tool_request\",\"id\":\"recorded-call\",\"name\":\"read_file\",\"arguments\":{\"path\":\"recorded.txt\"},\"provider\":{\"thoughtSignature\":\"recorded-signature\"}}"
+  },
+  {
+    "name": "canonical response",
+    "body": "{\"index\":0,\"type\":\"tool_response\",\"id\":\"recorded-call\",\"name\":\"read_file\",\"status\":\"success\",\"result\":{\"value\":{\"content\":\"Recorded tool result\"}},\"revision\":\"0000000000000000000000000000000000000000000000000000000000000000\"}"
+  },
+  {
+    "name": "canonical runtime",
+    "body": "{\"created\":42,\"user_visible\":false,\"agent_visible\":true,\"output_limit_reached\":false,\"steer\":false,\"turn_context\":true,\"notes\":{\"context\":{\"state\":\"fixture\",\"retained\":[\"owner\"]}}}"
+  },
+  {
+    "name": "canonical compaction",
+    "body": "{\"boundary\":\"first-record\",\"summary\":{\"role\":\"assistant\",\"part_count\":1,\"content\":[{\"index\":0,\"type\":\"text\",\"text\":\"Retained summary\"}],\"sources\":{}},\"start\":\"2026-11-10T00:00:00Z\",\"end\":\"2026-11-10T01:00:00Z\"}"
+  },
+  {
+    "name": "canonical input identity",
+    "body": "{\"turn\":\"01000000-0000-0000-0000-000000000000\",\"source\":\"user\",\"text_part\":2}"
+  },
+  {
+    "name": "question pending",
+    "body": "{\"id\":\"01000000-0000-0000-0000-000000000000\",\"session\":\"01000000-0000-0000-0000-000000000000\",\"turn\":\"01000000-0000-0000-0000-000000000000\",\"entry\":\"record\",\"index\":0,\"state\":{\"kind\":\"pending\"}}"
+  }
+]

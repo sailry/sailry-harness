@@ -1,0 +1,20 @@
+{
+  "path": "/captured/responses",
+  "headers": {
+    "accept": "text/event-stream",
+    "accept-encoding": "zstd,gzip,deflate,br",
+    "authorization": "Bearer fixed-access",
+    "content-length": "446",
+    "content-type": "application/json",
+    "copilot-integration-id": "vscode-chat",
+    "copilot-vision-request": "true",
+    "editor-plugin-version": "CapturedPlugin/1",
+    "editor-version": "CapturedEditor/1",
+    "host": "127.0.0.1:54728",
+    "openai-intent": "conversation-agent",
+    "user-agent": "CapturedAgent/1",
+    "x-github-api-version": "2025-04-01",
+    "x-initiator": "user",
+    "x-request-id": "22222222-2222-4222-8222-222222222222"
+  }
+}

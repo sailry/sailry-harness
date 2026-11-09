@@ -1,0 +1,6 @@
+data: {"choices":[{"delta":{"reasoning_content":"Consider","role":"assistant"},"finish_reason":null,"index":0}],"created":1,"id":"chat","model":"fixture","object":"chat.completion.chunk"}
+
+data: {"choices":[{"delta":{"content":"Read complete"},"finish_reason":"stop","index":0}],"created":1,"id":"chat","model":"fixture","object":"chat.completion.chunk","usage":{"completion_tokens":3,"completion_tokens_details":{"reasoning_tokens":2},"prompt_tokens":12,"prompt_tokens_details":{"cached_tokens":8},"total_tokens":15}}
+
+data: [DONE]
+

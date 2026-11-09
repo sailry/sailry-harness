@@ -1,0 +1,2 @@
+data: {"candidates":[{"content":{"parts":[{"functionCall":{"args":{"path":"file"},"id":"stable-call","name":"read"},"thoughtSignature":"c2lnbmVkLXRob3VnaHQ="}],"role":"model"},"finishReason":"STOP","index":0}],"modelVersion":"gemini-3-flash-preview","usageMetadata":{"cachedContentTokenCount":8,"candidatesTokenCount":3,"promptTokenCount":12,"thoughtsTokenCount":2,"totalTokenCount":17}}
+

@@ -1,0 +1,2 @@
+Project instructions
+These guides are already loaded; do not reread them with a shell. They apply only within their stated project-relative scope. More specific guides override ancestor guidance within that scope. Explicit user instructions and this turn's mode and permissions remain authoritative. Project guides do not set delegation policy; the work mode and team instructions decide when to use subagents.

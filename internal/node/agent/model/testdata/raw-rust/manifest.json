@@ -1,0 +1,249 @@
+{
+  "source_revision": "eaad1b7f18e448c8c4e9e9286e19560c8a351ae1",
+  "session": "11111111-1111-4111-8111-111111111111",
+  "request": "22222222-2222-4222-8222-222222222222",
+  "provider": "33333333-3333-4333-8333-333333333333",
+  "sources": [
+    "crates/node-runtime/src/providers/request/fixture.rs",
+    "crates/node-runtime/src/agent/model/rig/tests.rs",
+    "crates/node-runtime/src/agent/model/rig/tests/parity.rs",
+    "crates/node-runtime/src/agent/model/rig/tests/requests.rs",
+    "crates/node-runtime/src/agent/model/rig/tests/requests/reasoning.rs",
+    "crates/node-runtime/src/agent/model/rig/tests/streaming.rs",
+    "crates/node-runtime/src/agent/model/rig/parameters/tests.rs",
+    "crates/node-runtime/src/agent/model/rig/tests/fixtures.rs"
+  ],
+  "body_origin": "HTTP socket bytes before JSON parsing",
+  "captures": [
+    {
+      "case": "schema-responses",
+      "api": "responses",
+      "authentication": "api_key",
+      "request": 1,
+      "body": "schema-responses/request-1.body",
+      "metadata": "schema-responses/request-1.metadata.json",
+      "bytes": 805,
+      "sha256": "20e0628aed6d4b5146167f05bc415730e93ea1d8d89523888d37a4cf7d5192e6"
+    },
+    {
+      "case": "schema-chat",
+      "api": "chat_completions",
+      "authentication": "api_key",
+      "request": 1,
+      "body": "schema-chat/request-1.body",
+      "metadata": "schema-chat/request-1.metadata.json",
+      "bytes": 724,
+      "sha256": "47ae109bcdf4a4c830c631173fc60d6d7d39be5e7b8109fdb14bd14a35cfd5ac"
+    },
+    {
+      "case": "schema-anthropic",
+      "api": "anthropic",
+      "authentication": "api_key",
+      "request": 1,
+      "body": "schema-anthropic/request-1.body",
+      "metadata": "schema-anthropic/request-1.metadata.json",
+      "bytes": 874,
+      "sha256": "0325488627e661157a53c8005da8297556be359c24d76fe9e421d9a0d29065a0"
+    },
+    {
+      "case": "schema-gemini",
+      "api": "gemini",
+      "authentication": "api_key",
+      "request": 1,
+      "body": "schema-gemini/request-1.body",
+      "metadata": "schema-gemini/request-1.metadata.json",
+      "bytes": 712,
+      "sha256": "606668f921935961e7c8e669597fd61217b780c3bfdf03dcd27a77496bc69bc4"
+    },
+    {
+      "case": "anthropic-cache",
+      "api": "anthropic",
+      "authentication": "api_key",
+      "request": 1,
+      "body": "anthropic-cache/request-1.body",
+      "metadata": "anthropic-cache/request-1.metadata.json",
+      "bytes": 810,
+      "sha256": "1bb001752a5d4107bc78818e11eeefc9452484ab57a78f630f5b66a1e38c4cf4"
+    },
+    {
+      "case": "anthropic-adaptive",
+      "api": "anthropic",
+      "authentication": "api_key",
+      "request": 1,
+      "body": "anthropic-adaptive/request-1.body",
+      "metadata": "anthropic-adaptive/request-1.metadata.json",
+      "bytes": 575,
+      "sha256": "f76a8f5c1fd46eee8fed2295a0dec5406a79d37fc8eca45da0a65574a4a88a10"
+    },
+    {
+      "case": "anthropic-manual",
+      "api": "anthropic",
+      "authentication": "api_key",
+      "request": 1,
+      "body": "anthropic-manual/request-1.body",
+      "metadata": "anthropic-manual/request-1.metadata.json",
+      "bytes": 528,
+      "sha256": "1417b80f47834dd6c6f3529cf6353202e959fb48d7a5b62c9f3b0e96f2a52d69"
+    },
+    {
+      "case": "anthropic-disabled",
+      "api": "anthropic",
+      "authentication": "api_key",
+      "request": 1,
+      "body": "anthropic-disabled/request-1.body",
+      "metadata": "anthropic-disabled/request-1.metadata.json",
+      "bytes": 515,
+      "sha256": "d1caa303bec05310d005af589a57fc4633fcb932a58538c4e9312ffaef72fe4d"
+    },
+    {
+      "case": "anthropic-oauth",
+      "api": "anthropic",
+      "authentication": "claude_oauth",
+      "request": 1,
+      "body": "anthropic-oauth/request-1.body",
+      "metadata": "anthropic-oauth/request-1.metadata.json",
+      "bytes": 1293,
+      "sha256": "0a3e7b3f7308f099c1839168766e895e4b53aa29571fc774c72a1413f40cc9ab"
+    },
+    {
+      "case": "responses-priority",
+      "api": "responses",
+      "authentication": "api_key",
+      "request": 1,
+      "body": "responses-priority/request-1.body",
+      "metadata": "responses-priority/request-1.metadata.json",
+      "bytes": 629,
+      "sha256": "39ec6d069753b333166801c5e7dbbfdd22a092845a58eab1aedacf2cd2dc8d05"
+    },
+    {
+      "case": "responses-ultrafast",
+      "api": "responses",
+      "authentication": "api_key",
+      "request": 1,
+      "body": "responses-ultrafast/request-1.body",
+      "metadata": "responses-ultrafast/request-1.metadata.json",
+      "bytes": 630,
+      "sha256": "c3c778b4c9829e6f90b9e64ab04529e962292b2d8473ba65193ac5928c7c2e79"
+    },
+    {
+      "case": "responses-foreign-reasoner",
+      "api": "responses",
+      "authentication": "api_key",
+      "request": 1,
+      "body": "responses-foreign-reasoner/request-1.body",
+      "metadata": "responses-foreign-reasoner/request-1.metadata.json",
+      "bytes": 514,
+      "sha256": "16cf50dcc36f3f5f13a8b87e5994a2e9234b7d2d5d5c9139ee4929d7d9167e29"
+    },
+    {
+      "case": "codex-oauth",
+      "api": "responses",
+      "authentication": "chat_gpt_oauth",
+      "request": 1,
+      "body": "codex-oauth/request-1.body",
+      "metadata": "codex-oauth/request-1.metadata.json",
+      "bytes": 464,
+      "sha256": "216f0dce8a82dc93981fd7e141abfb7d2f73860cc6a2d4d84a7aa44e63566cc4"
+    },
+    {
+      "case": "copilot-chat",
+      "api": "chat_completions",
+      "authentication": "copilot",
+      "request": 1,
+      "body": "copilot-chat/request-1.body",
+      "metadata": "copilot-chat/request-1.metadata.json",
+      "bytes": 388,
+      "sha256": "6605399297dcb7f08c443cc25d9bf0abb15ff4e92fceedd215ab279aebf8406c"
+    },
+    {
+      "case": "copilot-responses",
+      "api": "responses",
+      "authentication": "copilot",
+      "request": 1,
+      "body": "copilot-responses/request-1.body",
+      "metadata": "copilot-responses/request-1.metadata.json",
+      "bytes": 446,
+      "sha256": "e59bafc1c791bab9d69df0c343f5198ea40f9d7f858a6c299d635e27bc0b509b"
+    },
+    {
+      "case": "compatible-base",
+      "api": "chat_completions",
+      "authentication": "api_key",
+      "request": 1,
+      "body": "compatible-base/request-1.body",
+      "metadata": "compatible-base/request-1.metadata.json",
+      "bytes": 457,
+      "sha256": "9110a85e06a05ac32df3046a4cf4f0a9e367d84f880418a7c5df7a4935db5f11"
+    },
+    {
+      "case": "compatible-full",
+      "api": "chat_completions",
+      "authentication": "api_key",
+      "request": 1,
+      "body": "compatible-full/request-1.body",
+      "metadata": "compatible-full/request-1.metadata.json",
+      "bytes": 457,
+      "sha256": "9110a85e06a05ac32df3046a4cf4f0a9e367d84f880418a7c5df7a4935db5f11"
+    },
+    {
+      "case": "deepseek-reasoning",
+      "api": "deepseek",
+      "authentication": "api_key",
+      "request": 1,
+      "body": "deepseek-reasoning/request-1.body",
+      "metadata": "deepseek-reasoning/request-1.metadata.json",
+      "bytes": 419,
+      "sha256": "d78833da3096ac6512df0592f17c8861600566db3218a50fb850df4c26b00096"
+    },
+    {
+      "case": "gemini-disabled",
+      "api": "gemini",
+      "authentication": "api_key",
+      "request": 1,
+      "body": "gemini-disabled/request-1.body",
+      "metadata": "gemini-disabled/request-1.metadata.json",
+      "bytes": 832,
+      "sha256": "cfa6287c767a66a62048280c68597d7eddc8c2ae81b7a807e6233d6caf2a0fef"
+    },
+    {
+      "case": "gemini-signed-replay",
+      "api": "gemini",
+      "authentication": "api_key",
+      "request": 1,
+      "body": "gemini-signed-replay/request-1.body",
+      "metadata": "gemini-signed-replay/request-1.metadata.json",
+      "bytes": 353,
+      "sha256": "d42087f9b9df240341215fbfcce15085df31e1f7cacbcd0df51bcfb57a33978d"
+    },
+    {
+      "case": "gemini-signed-replay",
+      "api": "gemini",
+      "authentication": "api_key",
+      "request": 2,
+      "body": "gemini-signed-replay/request-2.body",
+      "metadata": "gemini-signed-replay/request-2.metadata.json",
+      "bytes": 627,
+      "sha256": "37abfb31f2d3e5a440b4cfac03823b45d286cadd7e6d504718dc6d194f67f382"
+    },
+    {
+      "case": "factory-responses-speed-policy",
+      "api": "responses",
+      "authentication": "api_key",
+      "request": 1,
+      "body": "factory-responses-speed-policy/request-1.body",
+      "metadata": "factory-responses-speed-policy/request-1.metadata.json",
+      "bytes": 605,
+      "sha256": "629f80c1b619dfa23521377853bb068110fd29804dc1972e48e38b5c84a9f395"
+    },
+    {
+      "case": "factory-gemini-generation-policy",
+      "api": "gemini",
+      "authentication": "api_key",
+      "request": 1,
+      "body": "factory-gemini-generation-policy/request-1.body",
+      "metadata": "factory-gemini-generation-policy/request-1.metadata.json",
+      "bytes": 396,
+      "sha256": "03227e0d18a3c63a50c24ed02553ac99522b5f4edf69b8f9aa4344db8ed717ee"
+    }
+  ]
+}

@@ -1,0 +1,263 @@
+package engine
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"reflect"
+	"strings"
+	"testing"
+
+	"charm.land/fantasy"
+	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
+	handoff "github.com/sailry/sailry-harness/internal/node/agent/compact"
+	"github.com/sailry/sailry-harness/internal/node/agent/model"
+	"github.com/sailry/sailry-harness/internal/node/agent/tokens"
+	"github.com/sailry/sailry-harness/internal/node/store"
+	"github.com/sailry/sailry-harness/internal/protocol"
+)
+
+func TestCompactionHandoff(t *testing.T) {
+	t.Run("structured candidates", func(t *testing.T) {
+		for _, row := range []struct {
+			name, document, want string
+		}{
+			{"coercion", `{"user_intent":{"goal":"Fix parser"},"pending_tasks":[9007199254740993],"files":["a.go",{}]}`, "goal: Fix parser"},
+			{"control character", "{\"user_intent\":[\"Fix\nparser\"]}", "Fix\nparser"},
+			{"later document", "<analysis>example ```json\n{\"user_intent\":[\"Wrong\"]}\n```</analysis>\n{\"user_intent\":[\"Real goal\"]}", "Real goal"},
+			{"quoted terminator", "<analysis>review</analysis>\n```json\n{\"user_intent\":[\"Fix </analysis> marker\"]}\n```", "Fix </analysis> marker"},
+			{"analysis example only", "<analysis>literal </analysis>\n```json\n{\"user_intent\":[\"Wrong\"]}\n```\n</analysis>\nCould not summarize", ""},
+			{"truncated document", "```json\n{\"user_intent\":[\"Keep\"],\"pending_tasks\":[\"Unfinished", ""},
+			{"empty document", `{"files":[{}],"user_intent":[" "],"current_work":""}`, ""},
+			{"prose example", `A quoted example {"user_intent":["Wrong"]} is not a handoff`, ""},
+		} {
+			t.Run(row.name, func(t *testing.T) {
+				summary, err := handoff.Parse(row.document)
+				if row.want == "" {
+					if err == nil {
+						t.Fatal("unusable document replaced the handoff")
+					}
+					return
+				}
+				if err != nil || len(summary.UserIntent) != 1 || summary.UserIntent[0] != row.want {
+					t.Fatalf("summary=%+v, error=%v", summary, err)
+				}
+				if row.name == "coercion" && (summary.PendingTasks[0] != "9007199254740993" || len(summary.Files) != 1) {
+					t.Fatal("field coercion lost a numeric identifier or retained a blank file")
+				}
+			})
+		}
+	})
+	t.Run("latest transcript and audiences", func(t *testing.T) {
+		turn := protocol.NewTurnID()
+		record := func(role canonical.Role, blocks ...canonical.Block) canonical.Record {
+			return canonical.NewRecord(turn, "message", canonical.NewMessage(role, blocks...), manualNow())
+		}
+		result := func(id, value string) canonical.Block {
+			raw, _ := json.Marshal(value)
+			return canonical.Block{Kind: "tool_response", Data: &canonical.ToolResponse{ID: id, Status: canonical.ToolSuccess, Revision: strings.Repeat("a", 64), Result: canonical.Payload{Value: raw}}}
+		}
+		latest := "Latest start " + strings.Repeat("x", 2200) + " LATEST_MIDDLE " + strings.Repeat("y", 2200) + " Latest end"
+		old := "Old start " + strings.Repeat("文🙂", 700) + " OLD_MIDDLE " + strings.Repeat("字🙂", 700) + " Old end"
+		history := []canonical.Record{
+			record(canonical.User, canonical.Text(0, "Keep the public API")),
+			record(canonical.User, result("old", old)),
+			record(canonical.User, canonical.Text(0, "Current request")),
+			record(canonical.User, result("latest", latest)),
+			record(canonical.Assistant, canonical.Block{Kind: "thinking", Data: &canonical.Thinking{Text: "Private reasoning"}}),
+			record(canonical.User, canonical.Block{Kind: "image", Data: &canonical.AssetContent{Asset: canonical.AssetRef{Mime: "image/png", Annotations: json.RawMessage(`{"audience":["user"]}`)}}}),
+			record(canonical.User, canonical.Block{Kind: "tool_response", Data: &canonical.ToolResponse{ID: "audience", Status: canonical.ToolSuccess, Format: canonical.MCP, Revision: strings.Repeat("b", 64), Result: canonical.Payload{Value: json.RawMessage(`{"content":[{"type":"text","text":"Private UI table","annotations":{"audience":["user"]}},{"type":"text","text":"Model evidence","annotations":{"audience":["assistant"]}}]}`)}}}),
+		}
+		before, _ := json.Marshal(history)
+		prepared, err := handoff.Prepare(history, 64000, 8000)
+		if err != nil || !strings.Contains(prepared, latest) || !strings.Contains(prepared, "Old start") || !strings.Contains(prepared, "Old end") || strings.Contains(prepared, "OLD_MIDDLE") {
+			t.Fatalf("latest transcript was altered or older evidence was not previewed: %v", err)
+		}
+		for _, private := range []string{"Private reasoning", "Private UI table", "[image:"} {
+			if strings.Contains(prepared, private) {
+				t.Fatalf("summary exposed %q", private)
+			}
+		}
+		if !strings.Contains(prepared, "Model evidence") || !strings.Contains(prepared, `"call":"latest"`) {
+			t.Fatal("visible evidence or original output reference was lost")
+		}
+		base, _ := handoff.Prepare(nil, 64000, 8000)
+		tight := uint64(8000+256+100) + tokens.Text(base)
+		if _, err = handoff.Prepare(history, tight, 8000); err == nil || !strings.Contains(err.Error(), "latest turn") {
+			t.Fatal("oversized latest turn was silently degraded")
+		}
+		if _, err = handoff.Prepare(history, 8000, 8000); err == nil {
+			t.Fatal("summary prompt and output reserve were not counted")
+		}
+		older := record(canonical.User, canonical.Text(0, strings.Repeat("Old constraint ", 1000)))
+		newest := record(canonical.User, canonical.Text(0, "Newest exact request"))
+		fitted, err := handoff.Prepare([]canonical.Record{older, newest}, tight, 8000)
+		if err != nil || !strings.Contains(fitted, "Newest exact request") || strings.Contains(fitted, "Old constraint") {
+			t.Fatal("older turns were not omitted as the final fitting fallback")
+		}
+		after, _ := json.Marshal(history)
+		if string(before) != string(after) {
+			t.Fatal("summary projection mutated original history")
+		}
+	})
+	t.Run("binding bound usage and coverage", func(t *testing.T) {
+		work := strings.Repeat("Preserve state and complete the task. ", 1000)
+		document, _ := json.Marshal(map[string]any{"user_intent": []string{"Fix parser"}, "user_messages": []string{"Keep the v1 contract"}, "pending_tasks": []string{"Add regression tests"}, "current_work": work, "next_step": work, "technical_concepts": []string{strings.Repeat("Disposable reference ", 6000)}})
+		input, reportedTotal := int64(123), int64(999)
+		complete := finish()
+		complete.ProviderMetadata = fantasy.ProviderMetadata{model.UsageMetadataKey: &model.UsageMetadata{Reported: true, Input: &input, Total: &reportedTotal}}
+		m := &scriptedModel{scripts: []script{response(text(string(document)), complete)}}
+		f, x, binding, state := compactionFixture(t, m)
+		binding.Config.Effort = protocol.Effort{Kind: "high"}
+		binding.Provider.Models[0].Reasoning = true
+		binding.Provider.Models[0].Efforts = []protocol.Effort{{Kind: "high"}, {Kind: "low"}, {Kind: "none"}}
+		binding.Provider.Models[0].Output = 24000
+		x.inv.Message.Text = "Keep exact task identifiers"
+		var captured model.Binding
+		f.r.model = func(_ context.Context, value model.Binding) (fantasy.LanguageModel, error) {
+			captured = value
+			return m, nil
+		}
+		before, _ := json.Marshal(state.Records)
+		if err := f.r.compact(x, binding, state, true); err != nil {
+			t.Fatal(err)
+		}
+		if captured.Provider.ID != binding.Provider.ID || captured.Provider.Endpoint != binding.Provider.Endpoint || captured.Config.Model != binding.Config.Model || captured.Config.Effort.Kind != "none" || binding.Config.Effort.Kind != "high" {
+			t.Fatal("summary did not retain the captured provider/model with independent lowest effort")
+		}
+		request := m.calls[0]
+		if len(request.Tools) != 0 || request.MaxOutputTokens == nil || *request.MaxOutputTokens != 8000 || len(request.Prompt) != 2 || !strings.Contains(request.Prompt[1].Content[0].(fantasy.TextPart).Text, x.inv.Message.Text) {
+			t.Fatal("summary request lost its no-tools output bound or manual focus")
+		}
+		after := f.state()
+		original, _ := json.Marshal(after.Records[:len(state.Records)])
+		if string(before) != string(original) || len(after.Records) != len(state.Records)+2 {
+			t.Fatal("manual compaction changed original records or carried a duplicate input")
+		}
+		saved := after.Records[len(state.Records)]
+		compacted := saved.Data.(*canonical.Compaction)
+		rendered := compacted.Summary.Content[0].Data.(*canonical.TextContent).Text
+		if tokens.Text(rendered) > 4000 || !strings.Contains(rendered, "Fix parser") || !strings.Contains(rendered, "Keep the v1 contract") || !strings.Contains(rendered, "Add regression tests") || strings.Contains(rendered, "Disposable reference") {
+			t.Fatal("handoff exceeded its source bound or lost essential state")
+		}
+		if compacted.Boundary != state.Records[len(state.Records)-1].ID || !compacted.Start.Equal(state.Records[0].Created) || !compacted.End.Equal(state.Records[len(state.Records)-1].Created) {
+			t.Fatal("summary coverage timestamps describe the model request instead of the replaced history")
+		}
+		usage := compacted.Summary.Usage
+		normalized, _ := handoff.Parse(string(document))
+		if usage.Input == nil || *usage.Input != 123 || usage.Output == nil || *usage.Output != tokens.Text(normalized.Document()) || usage.Total == nil || *usage.Total != 123+*usage.Output || saved.Metadata.Execution.Source.ID != binding.Provider.ID {
+			t.Fatal("summary lost reported optional usage, normalized output estimate or captured scope")
+		}
+	})
+	t.Run("failed summaries retain usage", func(t *testing.T) {
+		for _, row := range []struct{ name, document, stop string }{
+			{"malformed", `{"user_intent":["unfinished`, "stop"},
+			{"empty", `{}`, "stop"},
+			{"truncated", `{"user_intent":["Valid but limited"]}`, "MAX_OUTPUT_TOKENS"},
+		} {
+			t.Run(row.name, func(t *testing.T) {
+				part := finish()
+				part.FinishReason = fantasy.FinishReason(row.stop)
+				count := int64(77)
+				part.ProviderMetadata = fantasy.ProviderMetadata{model.UsageMetadataKey: &model.UsageMetadata{Reported: true, Total: &count}}
+				f, x, binding, before := compactionFixture(t, &scriptedModel{scripts: []script{response(text(row.document), part)}})
+				if err := f.r.compact(x, binding, before, true); err == nil {
+					t.Fatal("invalid summary replaced context")
+				}
+				after := f.state()
+				if len(after.Records) != len(before.Records)+1 {
+					t.Fatal("failed summary usage observation was lost")
+				}
+				observation := after.Records[len(before.Records)]
+				if observation.Kind != "message" || !compactionUsage(observation) || observation.Metadata.Runtime.AgentVisible || observation.Message().Usage.Total == nil || *observation.Message().Usage.Total != 77 {
+					t.Fatal("failed summary usage was not preserved independently")
+				}
+			})
+		}
+	})
+	t.Run("automatic continuation", func(t *testing.T) {
+		for _, merged := range []bool{false, true} {
+			f, x, binding, state := compactionFixture(t, &scriptedModel{scripts: []script{response(text(`{"user_intent":["Continue task"]}`), finish())}})
+			if merged {
+				original := state.Records[0]
+				summary := canonical.NewRecord(x.inv.Run.Turn, "compaction", &canonical.Compaction{Boundary: original.ID, Summary: canonical.NewMessage(canonical.User, canonical.Text(0, "Earlier handoff must merge")), Start: original.Created, End: original.Created}, f.r.clock.Now())
+				summary.Metadata.Runtime = &canonical.Runtime{AgentVisible: true}
+				call := canonical.ToolRequest{ID: "read", Name: "beta", Arguments: json.RawMessage(`{}`)}
+				request := canonical.NewRecord(x.inv.Run.Turn, "message", canonical.NewMessage(canonical.Assistant, canonical.Block{Kind: "tool_request", Data: &call}), f.r.clock.Now())
+				result := canonical.NewRecord(x.inv.Run.Turn, "message", canonical.NewMessage(canonical.User, responseBlock(0, call, ToolResult{Value: "Latest evidence"})), f.r.clock.Now())
+				turnContext := canonical.NewRecord(x.inv.Run.Turn, "message", canonical.NewMessage(canonical.User, canonical.Text(0, "Reinjected turn context")), f.r.clock.Now())
+				turnContext.Metadata.Runtime = &canonical.Runtime{AgentVisible: true, TurnContext: true}
+				if err := f.r.save(f.ctx, f.session.ID, summary, request, result, turnContext); err != nil {
+					t.Fatal(err)
+				}
+				state = f.state()
+			}
+			if err := f.r.compact(x, binding, state, false); err != nil {
+				t.Fatal(err)
+			}
+			added := f.state().Records[len(state.Records):]
+			if merged {
+				if len(added) != 2 || !strings.Contains(added[1].Message().Content[0].Data.(*canonical.TextContent).Text, "Continue calling tools") {
+					t.Fatal("an earlier summary or reinjected context was carried as user input")
+				}
+			} else if len(added) != 3 || added[2].Message().Role != canonical.User || added[2].Message().Content[0].Data.(*canonical.TextContent).Text != "Original task" || !strings.Contains(added[1].Message().Content[0].Data.(*canonical.TextContent).Text, "Just continue") {
+				t.Fatal("latest automatic input or natural continuation was lost")
+			}
+		}
+	})
+	t.Run("latest usage and discovered tools", func(t *testing.T) {
+		turn := protocol.NewTurnID()
+		record := func(role canonical.Role, blocks ...canonical.Block) canonical.Record {
+			return canonical.NewRecord(turn, "message", canonical.NewMessage(role, blocks...), manualNow())
+		}
+		old := record(canonical.User, canonical.Text(0, "Earlier"))
+		stale := uint64(99999)
+		old.Message().Usage = &canonical.Usage{Total: &stale}
+		latest := record(canonical.User, canonical.Text(0, "Current"))
+		currentInput := uint64(3)
+		latest.Message().Usage = &canonical.Usage{Input: &currentInput}
+		if got, want := contextTokens([]canonical.Record{old, latest}), tokens.Chat("", []canonical.Record{old})+tokens.Chat("", []canonical.Record{latest}); got != want {
+			t.Fatalf("partial latest usage reused an older total: %d, want %d", got, want)
+		}
+		request := func(id, name string) canonical.Record {
+			return record(canonical.Assistant, canonical.Block{Kind: "tool_request", Data: &canonical.ToolRequest{ID: id, Name: name, Arguments: json.RawMessage(`{}`)}})
+		}
+		hidden := request("old", "alpha")
+		hidden.Metadata.Runtime = &canonical.Runtime{}
+		search := request("search", "tool_search")
+		result := record(canonical.User, canonical.Block{Kind: "tool_response", Data: &canonical.ToolResponse{ID: "search", Status: canonical.ToolSuccess, Revision: strings.Repeat("c", 64), Result: canonical.Payload{Value: json.RawMessage(`{"tools":[{"name":"gamma"}],"sailry_context":""}`)}}})
+		called := request("call", "beta")
+		invalid := request("bad", "delta")
+		invalid.Message().Content[0].Data.(*canonical.ToolRequest).Error = &canonical.ToolError{Message: "invalid"}
+		state := store.AgentState{Records: []canonical.Record{hidden, search, result, called, invalid}, LoadedTools: []string{"alpha", "beta", "delta", "gamma"}}
+		if got := retainedTools(state); !reflect.DeepEqual(got, []string{"beta", "gamma"}) {
+			t.Fatalf("retained tools=%v", got)
+		}
+	})
+}
+
+func compactionFixture(t *testing.T, m *scriptedModel) (*engineFixture, *execution, model.Binding, store.AgentState) {
+	t.Helper()
+	f := newFixture(t, m)
+	f.submit("Original task")
+	var invocation *store.AgentInvocation
+	if err := f.db.Node.Write(f.ctx, func(db *sql.Conn) error {
+		var err error
+		invocation, _, err = store.ClaimNext(f.ctx, db, f.r.clock.Now())
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if invocation == nil {
+		t.Fatal("fixture turn was not claimed")
+	}
+	x := &execution{inv: invocation, ctx: f.ctx}
+	if err := f.r.save(f.ctx, f.session.ID, inputRecord(invocation.Run.Turn, invocation.Message, f.r)); err != nil {
+		t.Fatal(err)
+	}
+	binding, err := model.Capture(*invocation.Provider, invocation.Turn.Config, invocation.Secret, invocation.Session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return f, x, binding, f.state()
+}

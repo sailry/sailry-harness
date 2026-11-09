@@ -1,0 +1,18 @@
+{
+  "authorization": "Bearer fixed-access",
+  "user-agent": "claude-cli/2.1.280 (external, cli)",
+  "x-claude-code-session-id": "11111111-1111-4111-8111-111111111111",
+  "anthropic-version": "2023-06-01",
+  "anthropic-dangerous-direct-browser-access": "true",
+  "x-app": "cli",
+  "accept": "application/json",
+  "content-type": "application/json",
+  "connection": "keep-alive",
+  "accept-encoding": "gzip, deflate, br, zstd",
+  "x-stainless-lang": "js",
+  "x-stainless-package-version": "0.112.1",
+  "x-stainless-retry-count": "0",
+  "x-stainless-runtime": "node",
+  "x-stainless-runtime-version": "v26.3.0",
+  "x-stainless-timeout": "600"
+}

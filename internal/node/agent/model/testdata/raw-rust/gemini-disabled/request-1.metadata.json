@@ -1,0 +1,12 @@
+{
+  "path": "/proxy/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse",
+  "headers": {
+    "accept": "text/event-stream",
+    "accept-encoding": "zstd,gzip,deflate,br",
+    "content-length": "832",
+    "content-type": "application/json",
+    "host": "127.0.0.1:54736",
+    "user-agent": "Sailry/0.1.0",
+    "x-goog-api-key": "fixed-access"
+  }
+}

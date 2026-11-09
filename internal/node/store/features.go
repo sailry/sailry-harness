@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sailry/sailry-harness/internal/node/providers"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -101,7 +102,15 @@ func validateConfig(ctx context.Context, db *sql.Conn, node protocol.NodeID, con
 	if config.Resource != nil || config.Assistant != nil {
 		return fault(protocol.ErrorCodeNotConfigured, "connection and plugin assistants are unavailable")
 	}
-	if len(config.Features) != 0 {
+	stored, err := readBody[providerConfiguration](ctx, db, "SELECT body FROM providers WHERE id=?1", config.Provider.String())
+	if err != nil {
+		return err
+	}
+	if stored != nil && stored.Provider != nil {
+		if err := providers.ValidateSelection(*stored.Provider, config); err != nil {
+			return err
+		}
+	} else if len(config.Features) != 0 {
 		return invalid("model feature choices require an advertised model")
 	}
 	return nil
@@ -152,8 +161,10 @@ type providerConfiguration struct {
 }
 
 type providerAuthorization struct {
-	Key         *protocol.Secret `json:"key"`
-	ExpiresAtMs *uint64          `json:"expires_at_ms"`
+	Authentication protocol.Authentication `json:"authentication"`
+	Revision       uint64                  `json:"revision"`
+	Key            *protocol.Secret        `json:"key"`
+	ExpiresAtMs    *uint64                 `json:"expires_at_ms"`
 }
 
 func ReadDefaults(ctx context.Context, db *sql.Conn) (protocol.Defaults, error) {

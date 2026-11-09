@@ -91,6 +91,7 @@ func waitForCursor(t *testing.T, controller *Client, changes <-chan struct{}, cu
 
 func TestRecoverAfterReset(t *testing.T) {
 	t.Parallel()
+	t.Run("conversation_watch_history_and_removal", testConversationWatchRecovery)
 	t.Run("watch_reset_gap_refresh_and_copy", func(t *testing.T) {
 		initial := projectionSnapshot(0)
 		session := projectionSession(1, 1)

@@ -1,0 +1,276 @@
+package store
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
+	"github.com/sailry/sailry-harness/internal/protocol"
+)
+
+func agentHistoryFixture(t *testing.T, mode protocol.WorkMode) (*Store, protocol.NodeID, protocol.Session, protocol.TurnID, time.Time) {
+	t.Helper()
+	profile, node, storage := schemaFixture(t)
+	ctx := context.Background()
+	now := time.Date(2026, 11, 10, 0, 0, 0, 0, time.UTC)
+	var session protocol.Session
+	var turn protocol.TurnID
+	err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+		provider := protocol.DefaultConversationProvider()
+		provider.ID = protocol.NewProviderID()
+		provider.Revision = 1
+		provider.Name = "Fixture"
+		provider.Api = protocol.ConversationModelApiChatCompletions
+		provider.Authentication = protocol.AuthenticationApiKey
+		provider.Endpoint = "http://fixture.invalid/v1"
+		provider.Enabled = true
+		provider.DefaultModel = "fixture"
+		model := protocol.DefaultConversationModel()
+		model.ID = "fixture"
+		model.Context = 32000
+		model.Output = 8000
+		model.Tools = true
+		provider.Models = []protocol.ConversationModel{model}
+		saved := providerConfiguration{ID: provider.ID, Provider: &provider, Listed: true, Authorizations: map[protocol.CredentialID]providerAuthorization{}}
+		body, err := encode(saved)
+		if err != nil {
+			return err
+		}
+		if _, err = db.ExecContext(ctx, "INSERT INTO providers(id,body) VALUES(?1,?2)", provider.ID.String(), body); err != nil {
+			return err
+		}
+		config := protocol.DefaultSessionConfig()
+		config.Provider = provider.ID
+		config.Model = "fixture"
+		config.Mode = mode
+		config.Permission = protocol.PermissionAsk
+		output, _, err := createSession(ctx, db, node, profile, protocol.CommandCreateSessionPayload{Config: &config})
+		if err != nil {
+			return err
+		}
+		session = output.Data.(protocol.Session)
+		request := protocol.NewRequest(node, protocol.Command{Kind: "submit_turn", Data: &protocol.CommandSubmitTurnPayload{Session: session.ID, ExpectedRevision: session.Revision, Message: protocol.ConversationInput{Text: "Fixture input"}}})
+		body, err = encode(request)
+		if err != nil {
+			return err
+		}
+		if _, err = db.ExecContext(ctx, "INSERT INTO requests(caller,id,body,status) VALUES(?1,?2,?3,'admitted')", node[:], request.ID.String(), body); err != nil {
+			return err
+		}
+		capture, err := admitAgentTurn(ctx, db, node, node, request, session, protocol.ConversationRunKindTask, true)
+		if err != nil {
+			return err
+		}
+		turn = capture.ID
+		inv, _, err := ClaimNext(ctx, db, now)
+		if err != nil {
+			return err
+		}
+		if inv == nil || inv.Run.Turn != turn {
+			return errors.New("fixture run was not claimed")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return storage, node, session, turn, now
+}
+func TestAgentHistoryAndReview(t *testing.T) {
+	t.Parallel()
+	t.Run("scope revision and explicit truncation", func(t *testing.T) {
+		t.Parallel()
+		storage, node, session, turn, now := agentHistoryFixture(t, protocol.WorkModeCode)
+		ctx := context.Background()
+		source := AgentHistorySource{Caller: node, Session: session.ID, Turn: turn}
+		err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+			record := canonical.NewRecord(turn, "message", ptr(canonical.NewMessage(canonical.User, canonical.Text(0, strings.Repeat("Long fixture ", 2000)))), now)
+			record.Provenance.Author = "user"
+			if _, _, err := AppendCanonical(ctx, db, session.ID, record); err != nil {
+				return err
+			}
+			args, _ := encode(map[string]any{"session": session.ID})
+			body, err := ReadAgentReference(ctx, db, node, source, "read_session", args)
+			if err != nil {
+				return err
+			}
+			if len(body) > 40*1024 || !strings.Contains(string(body), `"truncated":true`) || !strings.Contains(string(body), `"truncated_entries":["`) {
+				return fmt.Errorf("history omissions were not explicit: %s", body)
+			}
+			for _, bad := range []json.RawMessage{json.RawMessage(fmt.Sprintf(`{"session":%q,"turn":%q}`, session.ID.String(), turn.String())), json.RawMessage(fmt.Sprintf(`{"session":%q,"revision":999}`, session.ID.String()))} {
+				if _, err = ReadAgentReference(ctx, db, node, source, "read_session", bad); err == nil {
+					return errors.New("invalid history continuation was accepted")
+				}
+			}
+			wrong := source
+			wrong.Caller[0]++
+			if _, err = ReadAgentReference(ctx, db, node, wrong, "read_session", args); err == nil {
+				return errors.New("other invocation read history")
+			}
+			other, _, err := createSession(ctx, db, node, "", protocol.CommandCreateSessionPayload{Config: &session.Config})
+			if err != nil {
+				return err
+			}
+			target := other.Data.(protocol.Session)
+			project := protocol.NewProjectID()
+			appearance, _ := encode(protocol.DefaultProjectsAppearance())
+			if _, err = db.ExecContext(ctx, "INSERT INTO projects(id,name,path,appearance) VALUES(?1,'Other','/fixture-other',?2)", project.String(), appearance); err != nil {
+				return err
+			}
+			if _, err = db.ExecContext(ctx, "UPDATE sessions SET project=?2 WHERE id=?1", target.ID.String(), project.String()); err != nil {
+				return err
+			}
+			args, _ = encode(map[string]any{"session": target.ID})
+			if _, err = ReadAgentReference(ctx, db, node, source, "read_session", args); err == nil {
+				return errors.New("cross-project history was accepted")
+			}
+			var latest protocol.Session
+			for i := 0; i < 258; i++ {
+				output, _, e := createSession(ctx, db, node, "", protocol.CommandCreateSessionPayload{Config: &session.Config})
+				if e != nil {
+					return e
+				}
+				latest = output.Data.(protocol.Session)
+			}
+			body, err = ReadAgentReference(ctx, db, node, source, "list_sessions", json.RawMessage(`{"text":"never-occurs"}`))
+			if err != nil {
+				return err
+			}
+			var directory agentDirectoryPage
+			if err = json.Unmarshal(body, &directory); err != nil {
+				return err
+			}
+			if len(directory.Sessions) != 0 || directory.NextBefore == nil {
+				return errors.New("empty filtered directory lost its bounded continuation")
+			}
+			if strings.Contains(string(body), `"config"`) || strings.Contains(string(body), `"credential"`) {
+				return errors.New("directory leaked execution configuration")
+			}
+			if _, _, err = renameSession(ctx, db, protocol.CommandRenameSessionPayload{Session: latest.ID, ExpectedRevision: latest.Revision, Title: "Changed title"}); err != nil {
+				return err
+			}
+			args, _ = encode(map[string]any{"revision": directory.Revision})
+			if _, err = ReadAgentReference(ctx, db, node, source, "list_sessions", args); err == nil {
+				return errors.New("changed directory revision was accepted")
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("completed review remains actionable and durable", func(t *testing.T) {
+		t.Parallel()
+		storage, node, session, turn, now := agentHistoryFixture(t, protocol.WorkModePlan)
+		ctx := context.Background()
+		err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+			record := canonical.NewRecord(turn, "message", ptr(canonical.NewMessage(canonical.Assistant, canonical.Text(0, "Completed plan"))), now)
+			record.Provenance.Author = "assistant"
+			if _, _, err := AppendCanonical(ctx, db, session.ID, record); err != nil {
+				return err
+			}
+			if _, _, err := FinishTurn(ctx, db, turn, protocol.ConversationStatusCompleted, nil, now); err != nil {
+				return err
+			}
+			entry, question, _, err := PublishPlanReview(ctx, db, turn, now)
+			if err != nil {
+				return err
+			}
+			if entry == nil || question == nil || len(entry.Parts) != 1 || question.State.Kind != "pending" {
+				return errors.New("successful plan did not publish durable review")
+			}
+			spec, err := questionSpec(ctx, db, *question)
+			if err != nil || spec.Input.Kind != "plan" {
+				return errors.New("review lost its plan input")
+			}
+			if _, _, err = ExpireQuestion(ctx, db, question.ID); err == nil {
+				return errors.New("deferred plan acquired timeout consent")
+			}
+			request := protocol.NewRequest(node, protocol.Command{Kind: "resolve_question", Data: &protocol.CommandResolveQuestionPayload{Session: session.ID, Question: question.ID, Response: protocol.ConversationQuestionResponse{Kind: "answer", Data: &protocol.ConversationQuestionAnswer{Kind: "text", Data: ptr("Refine the plan")}}}})
+			output, _, err := resolveQuestion(ctx, db, node, node, request)
+			if err != nil {
+				return err
+			}
+			changes, _, err := ApplyReviewCommand(ctx, db, request, output, now)
+			if err != nil {
+				return err
+			}
+			if len(changes) != 1 || changes[0].Change.Kind != "entry" {
+				return errors.New("review result was not canonical")
+			}
+			again, _, err := ApplyReviewCommand(ctx, db, request, output, now)
+			if err != nil {
+				return err
+			}
+			if len(again) != 0 {
+				return errors.New("repeated answer duplicated canonical result")
+			}
+			saved, err := ReadQuestion(ctx, db, question.ID)
+			if err != nil {
+				return err
+			}
+			if saved.State.Kind != "answered" {
+				return errors.New("completed review did not settle")
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("new input supersedes completed review", func(t *testing.T) {
+		t.Parallel()
+		storage, node, session, turn, now := agentHistoryFixture(t, protocol.WorkModePlan)
+		ctx := context.Background()
+		err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+			record := canonical.NewRecord(turn, "message", ptr(canonical.NewMessage(canonical.Assistant, canonical.Text(0, "Plan"))), now)
+			record.Provenance.Author = "assistant"
+			if _, _, err := AppendCanonical(ctx, db, session.ID, record); err != nil {
+				return err
+			}
+			if _, _, err := FinishTurn(ctx, db, turn, protocol.ConversationStatusCompleted, nil, now); err != nil {
+				return err
+			}
+			_, question, _, err := PublishPlanReview(ctx, db, turn, now)
+			if err != nil {
+				return err
+			}
+			if question == nil {
+				return errors.New("review was not created")
+			}
+			request := protocol.NewRequest(node, protocol.Command{Kind: "submit_turn", Data: &protocol.CommandSubmitTurnPayload{Session: session.ID, ExpectedRevision: session.Revision, Message: protocol.ConversationInput{Text: "New instructions"}}})
+			body, err := encode(request)
+			if err != nil {
+				return err
+			}
+			if _, err = db.ExecContext(ctx, "INSERT INTO requests(caller,id,body,status) VALUES(?1,?2,?3,'admitted')", node[:], request.ID.String(), body); err != nil {
+				return err
+			}
+			output, _, err := ExecuteAgentCommand(ctx, db, node, "", node, request, now)
+			if err != nil {
+				return err
+			}
+			changes, _, err := ApplyReviewCommand(ctx, db, request, output, now)
+			if err != nil {
+				return err
+			}
+			saved, err := ReadQuestion(ctx, db, question.ID)
+			if err != nil {
+				return err
+			}
+			if saved.State.Kind != "cancelled" || len(changes) != 2 {
+				return errors.New("new input did not supersede review canonically")
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	})
+}
