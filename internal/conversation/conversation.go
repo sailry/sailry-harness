@@ -42,6 +42,7 @@ type State struct {
 	reading   string           // the turn read aloud
 	find      search           // the search bar
 	wantOlder bool             // the start came into view this frame
+	nav       navigation       // the message navigation rail
 }
 
 func New() *State {
@@ -78,6 +79,11 @@ func View(c *ui.Context, s *State, id string, turns []Turn, sess *Session, actio
 		ui.List(c, l, n, func(i int) {
 			s.turn(c, i, &turns[i], n, sess, actions)
 		}).Fill().Role(ui.RoleLog)
+		// A delegated session's transcript, the child panel's (no
+		// session), is read-only and has no navigation, as in live.rs.
+		if sess != nil && n > 0 {
+			s.nav.view(c, l, turns)
+		}
 		jump(c, l, n, !s.built[id])
 		s.built[id] = true
 		s.searchBar(c, id, turns)
