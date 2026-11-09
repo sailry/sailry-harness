@@ -132,7 +132,7 @@ func (s *State) modelChip(c *ui.Context, models []Model) {
 	ui.PopoverBase(c, chip, &s.picker, func(panel ui.Element) {
 		// The reference's popover: padding 12, width 296, the floating fill.
 		panel.AttachTo(chip, ui.AnchorTopEnd, ui.AnchorBottomEnd).Margin(0, 0, 6, 0).Width(296).Padding(12).Gap(8).
-			Radius(12).Background(p.Popover).Border(1, p.Border).Shadow(0, 8, 24, 0, ui.RGBA(0, 0, 0, 0.18))
+			Radius(p.Radius*2).Background(p.Popover).TextColor(p.PopoverForeground).Border(1, p.Border).Shadow(0, 8, 24, 0, theme.Shade(0.18))
 		if s.list {
 			s.modelList(c, models)
 		} else {
@@ -167,7 +167,7 @@ func (s *State) modelList(c *ui.Context, models []Model) {
 				ui.Text(c, m.Provider).FontSize(14).TextColor(p.MutedForeground).Padding(6, 14, 6, 8)
 			}
 			selected := m.ID == s.Model
-			row := kit.Ghost(c.Key(m.ID), m.Name, false).Height(32).Padding(0, 8).Radius(8).Justify(ui.Start).Gap(8)
+			row := kit.Ghost(c.Key(m.ID), m.Name, false).Height(32).Padding(0, 8).Radius(p.RadiusLg).Justify(ui.Start).Gap(8)
 			if selected {
 				row.Background(p.Primary.Alpha(0.12)).AccessSelected(true)
 			}

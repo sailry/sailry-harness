@@ -70,7 +70,11 @@ func Identicon(c *ui.Context, id string, running bool, size float32) ui.Element 
 	h.Write([]byte(id))
 	color := p.MutedForeground
 	if running {
-		color = identiconColors[h.Sum32()%uint32(len(identiconColors))].pick(p.Dark)
+		pair := theme.Identicon[h.Sum32()%uint32(len(theme.Identicon))]
+		color = pair[1]
+		if p.Dark {
+			color = pair[0]
+		}
 	}
 	seed := h.Sum32()
 	return ui.Box(c).Size(size, size).Shrink(0).Draw(func(pt *ui.Painter, r ui.Rect) {
@@ -90,19 +94,4 @@ func Identicon(c *ui.Context, id string, running bool, size float32) ui.Element 
 			pt.Fill(ui.Rect{X: x - d/2, Y: y - d/2, W: d, H: d}, color.Alpha(0.55+0.15*float32(i)), d/2)
 		}
 	})
-}
-
-type pair [2]string
-
-func (q pair) pick(dark bool) ui.Color {
-	if dark {
-		return ui.Hex(q[0])
-	}
-	return ui.Hex(q[1])
-}
-
-// identiconColors are Tailwind's 400 (dark) and 600 (light) shades.
-var identiconColors = []pair{
-	{"#60a5fa", "#2563eb"}, {"#a78bfa", "#7c3aed"}, {"#34d399", "#059669"},
-	{"#fbbf24", "#d97706"}, {"#f472b6", "#db2777"}, {"#22d3ee", "#0891b2"},
 }

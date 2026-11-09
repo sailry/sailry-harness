@@ -86,15 +86,18 @@ func (a *App) View(c *ui.Context) {
 	a.applied = a.Mode
 	theme.Apply(c, a.Theme, a.Mode)
 	p := theme.Of(c)
-	panel := p.Background
+	// The title bar and the rail are one outer band in title_bar's color
+	// (theme.rs sidebar_background).
+	band, panel := p.TitleBar, p.Background
 	if c.Vibrancy() && a.Mode == theme.System {
 		// The window material shows through: the outer band at 45% of the
-		// base, the panel at 83.5% (theme.rs surfaces). Only while the app
-		// follows the system: a forced mode paints opaque, so the band never
-		// shows a material of the other appearance.
-		c.Root().Background(p.Background.Alpha(theme.SidebarOpacity))
-		panel = p.Background.Alpha(theme.PanelOpacity)
+		// title bar, the panel at 83.5% of the background (theme.rs
+		// surfaces). Only while the app follows the system: a forced mode
+		// paints opaque, so the band never shows a material of the other
+		// appearance.
+		band, panel = p.TitleBar.Alpha(theme.SidebarOpacity), p.Background.Alpha(theme.PanelOpacity)
 	}
+	c.Root().Background(band)
 	ui.Column(c).Fill().Children(func() {
 		a.header(c)
 		ui.Row(c).Grow(1).AlignItems(ui.Stretch).Children(func() {
@@ -143,7 +146,7 @@ func (a *App) header(c *ui.Context) {
 		}
 		if a.NavOpen {
 			ui.Row(c).Width(left).Height(HeaderHeight).PaddingStart(pad).PaddingEnd(12).Children(func() {
-				ui.Text(c, i18n.T(c, "app")).FontSize(14).SingleLine().TextColor(p.Foreground)
+				ui.Text(c, i18n.T(c, "app")).FontSize(14).SingleLine().TextColor(p.SidebarForeground)
 			})
 			pad = 12
 		} else {

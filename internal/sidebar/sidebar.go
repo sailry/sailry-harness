@@ -95,7 +95,7 @@ func section(c *ui.Context, s *State, key, title string, body func()) {
 	ui.Column(c.Key(key)).Children(func() {
 		parts := ui.CollapsibleBase(c, s.opened(key))
 		hovered := parts.Trigger.Hovered()
-		parts.Trigger.Height(32).PaddingX(8).Gap(4).Radius(6).Cursor(ui.CursorPointer).
+		parts.Trigger.Height(32).PaddingX(8).Gap(4).Radius(p.Radius).Cursor(ui.CursorPointer).
 			TextColor(p.MutedForeground.Alpha(0.7)).Children(func() {
 			ui.Text(c, title).FontSize(14).SingleLine()
 			chevron := ui.Icon(c, icons.ChevronDown).FontSize(12).Rotate(-90 * (1 - parts.Progress()))
@@ -134,7 +134,7 @@ func (s *State) project(c *ui.Context, pr *preview.Project) {
 	p := theme.Of(c)
 	open := s.opened("project/" + pr.ID)
 	ui.Column(c.Key(pr.ID)).Gap(2).Children(func() {
-		b := ui.ButtonBase(c).Label(pr.Name).Height(rowHeight).PaddingX(8).Gap(8).Radius(6).TextColor(p.Foreground)
+		b := ui.ButtonBase(c).Label(pr.Name).Height(rowHeight).PaddingX(8).Gap(8).Radius(p.Radius).TextColor(p.SidebarForeground)
 		hovered := b.Hovered()
 		b.Children(func() {
 			ui.Icon(c, icons.Folder).FontSize(14).TextColor(p.MutedForeground)
@@ -172,15 +172,18 @@ func (s *State) conversation(c *ui.Context, cv *preview.Conversation, pinned, tr
 	p := theme.Of(c)
 	selected := cv.ID == s.Selected
 	title := Title(c, cv)
-	b := ui.ButtonBase(c.Key(cv.ID)).Label(title).Height(rowHeight).PaddingStart(indent).PaddingEnd(8).Gap(8).Radius(6)
+	b := ui.ButtonBase(c.Key(cv.ID)).Label(title).Height(rowHeight).PaddingStart(indent).PaddingEnd(8).Gap(8).Radius(p.Radius)
 	hovered := b.Hovered()
 	b.Background(p.SidebarItem(selected, hovered))
 	if selected {
 		b.AccessSelected(true)
 	}
 	text := p.MutedForeground
-	if selected || hovered || cv.Status == preview.Running {
-		text = p.Foreground
+	switch {
+	case selected:
+		text = p.SidebarAccentForeground
+	case hovered || cv.Status == preview.Running:
+		text = p.SidebarForeground
 	}
 	b.TextColor(text).Children(func() {
 		if tree {
@@ -209,7 +212,7 @@ func (s *State) conversation(c *ui.Context, cv *preview.Conversation, pinned, tr
 // guide draws the dashed tree line and its arm to the row (sidebar/tree.rs):
 // the line runs past the row by 4 DIPs and stops at the arm on the last row.
 func guide(c *ui.Context, last bool) {
-	color := theme.Of(c).Foreground.Alpha(0.2)
+	color := theme.Of(c).SidebarForeground.Alpha(0.2)
 	h := float32(rowHeight + 8)
 	if last {
 		h = rowHeight/2 + 4

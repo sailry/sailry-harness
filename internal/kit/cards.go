@@ -21,7 +21,7 @@ func Grid(c *ui.Context, cards func()) ui.Element {
 // actions shown only then; open and actions may be nil.
 func ResourceCard(c *ui.Context, key any, title, description string, tile func(), open func(), actions func(hovered bool)) {
 	p := theme.Of(c)
-	card := ui.Row(c.Key(key)).MinWidth(0).Gap(12).Padding(12, 16).Radius(8).Border(1, p.Border).Background(p.Surface)
+	card := ui.Row(c.Key(key)).MinWidth(0).Gap(12).Padding(12, 16).Radius(p.RadiusLg).Border(1, p.Border).Background(p.Surface)
 	hovered := card.Hovered() || card.FocusWithin()
 	card.Children(func() {
 		b := ui.ButtonBase(c.Key("summary")).Label(title).Grow(1).Shrink(1).MinWidth(0).Gap(12).Justify(ui.Start)
@@ -33,7 +33,7 @@ func ResourceCard(c *ui.Context, key any, title, description string, tile func()
 				ui.Row(c).Shrink(0).Children(tile)
 			}
 			ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(4).Children(func() {
-				ui.Text(c, title).FontSize(14).FontWeight(600).SingleLine().TextColor(p.Foreground)
+				ui.Text(c, title).FontSize(14).FontWeight(600).SingleLine().TextColor(p.SurfaceForeground)
 				ui.Text(c, description).FontSize(14).MaxLines(2).TextColor(p.MutedForeground.Alpha(0.75))
 			})
 		})

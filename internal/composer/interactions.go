@@ -143,7 +143,7 @@ func capsule(c *ui.Context, label string, open bool) ui.Element {
 func popover(c *ui.Context, panel, anchor ui.Element) ui.Element {
 	p := theme.Of(c)
 	panel.AttachTo(anchor, ui.AnchorBottomEnd, ui.AnchorTopEnd).Margin(0, 0, 8, 0).Width(320).Padding(12).
-		Radius(8).Background(p.Popover).Shadow(0, 4, 12, 0, ui.RGBA(0, 0, 0, 0.12))
+		Radius(p.RadiusLg).Background(p.Popover).TextColor(p.PopoverForeground).Shadow(0, 4, 12, 0, theme.Shade(0.12))
 	if p.Dark {
 		panel.Border(1, p.Border)
 	}
@@ -189,7 +189,7 @@ func (s *State) approval(c *ui.Context, a Approval, first bool, actions Actions)
 			if p.Dark {
 				bg = p.Background
 			}
-			ui.Scroll(c).MaxHeight(128).Radius(6).Background(bg).Padding(12).Children(func() {
+			ui.Scroll(c).MaxHeight(128).Radius(p.Radius).Background(bg).Padding(12).Children(func() {
 				ui.Text(c, a.Description).Font("monospace").FontSize(14).Selectable()
 			})
 		} else {
@@ -200,7 +200,7 @@ func (s *State) approval(c *ui.Context, a Approval, first bool, actions Actions)
 	row := ui.Row(c.Key("decision")).Gap(8).Padding(8, 0, 0, 0).Justify(ui.End)
 	if editing {
 		ui.TextAreaBase(c.Key("reason"), reason).Label(i18n.T(c, "approval_reason")).Lines(2, 4).FontSize(14).
-			Padding(8).Radius(6).Border(1, p.Border)
+			Padding(8).Radius(p.Radius).Border(1, p.Border)
 		row.Children(func() {
 			kit.Ghost(c.Key("reason-cancel"), i18n.T(c, "approval_reason_cancel"), false).Height(28).PaddingX(12).Radius(14).
 				Children(func() { ui.Text(c, i18n.T(c, "approval_reason_cancel")).FontSize(14) }).
@@ -334,7 +334,7 @@ func (s *State) ask(c *ui.Context, q *Ask, actions Actions) {
 			if q.Other || len(q.Options) == 0 {
 				ui.TextAreaBase(c.Key("answer"), &in.text).Label(i18n.T(c, "interaction_input")).
 					Placeholder(i18n.T(c, "interaction_input")).PlaceholderColor(p.MutedForeground).
-					Lines(1, 4).FontSize(14).Padding(8).Radius(6).Border(1, p.Border).
+					Lines(1, 4).FontSize(14).Padding(8).Radius(p.Radius).Border(1, p.Border).
 					Disabled(len(q.Options) > 0 && !in.other)
 			}
 		})

@@ -12,7 +12,7 @@ import (
 // It is a MyGo ButtonBase, which keeps focus, keys and accessibility.
 func Ghost(c *ui.Context, label string, selected bool) ui.Element {
 	p := theme.Of(c)
-	b := ui.ButtonBase(c).Label(label).Radius(6).Center().TextColor(p.Foreground).Cursor(ui.CursorPointer)
+	b := ui.ButtonBase(c).Label(label).Radius(p.Radius).Center().TextColor(p.Foreground).Cursor(ui.CursorPointer)
 	switch {
 	case b.Pressed() || selected:
 		b.Background(p.Active)
@@ -34,17 +34,20 @@ func IconButton(c *ui.Context, icon *ui.SVG, label string, size float32, selecte
 	return b.Children(func() { ui.Icon(c, icon).FontSize(glyph) })
 }
 
-// Primary is Kit's primary button: the neutral foreground fill.
+// Primary is Kit's primary button in the button.primary colors: the
+// neutral foreground fill of the built-in theme.
 func Primary(c *ui.Context, label string, disabled bool) ui.Element {
 	p := theme.Of(c)
-	b := ui.ButtonBase(c).Label(label).Disabled(disabled).DimDisabled(false).Radius(6).Center().Gap(6).
+	b := ui.ButtonBase(c).Label(label).Disabled(disabled).DimDisabled(false).Radius(p.Radius).Center().Gap(6).
 		PaddingX(12).Height(32).TextColor(p.OnPrimary).Background(p.ButtonPrimary)
 	switch {
 	case disabled && !p.Dark:
 		b.Background(p.Active).TextColor(p.MutedForeground.Alpha(0.5))
 	case disabled:
 		b.Background(p.ButtonPrimary.Alpha(0.15)).TextColor(p.MutedForeground.Alpha(0.5))
-	case b.Hovered() || b.Pressed():
+	case b.Pressed():
+		b.Background(p.ButtonPrimaryActive)
+	case b.Hovered():
 		b.Background(p.ButtonPrimaryHi)
 	}
 	return b
@@ -63,7 +66,7 @@ func Tag(c *ui.Context, text string) ui.Element {
 // at 60fps.
 func Loader(c *ui.Context, size float32) ui.Element {
 	p := theme.Of(c)
-	colors := [3]ui.Color{ui.Hex("#3b82f6"), p.Warning, p.Danger}
+	colors := [3]ui.Color{p.Info, p.Warning, p.Danger}
 	return ui.Box(c).Size(size, size).Label("running").Draw(func(pt *ui.Painter, r ui.Rect) {
 		pt.AnimationFrameRate(FPS)
 		t := float64(pt.Now().UnixMilli()%1200) / 1200
@@ -92,14 +95,17 @@ func Orb(c *ui.Context, size float32) ui.Element {
 	})
 }
 
-// Secondary is Kit's outline button: a 1 DIP border over the background,
-// 32 high, its label 14.
+// Secondary is Kit's outline button: a 1 DIP border over the
+// button.secondary fill, 32 high, its label 14.
 func Secondary(c *ui.Context, label string) ui.Element {
 	p := theme.Of(c)
-	b := ui.ButtonBase(c).Label(label).Radius(6).Center().Gap(6).PaddingX(12).Height(32).
-		Border(1, p.Border).Background(p.Background).TextColor(p.Foreground).Cursor(ui.CursorPointer)
-	if b.Hovered() || b.Pressed() {
-		b.Background(p.Hover)
+	b := ui.ButtonBase(c).Label(label).Radius(p.Radius).Center().Gap(6).PaddingX(12).Height(32).
+		Border(1, p.Border).Background(p.ButtonSecondary).TextColor(p.ButtonSecondaryForeground).Cursor(ui.CursorPointer)
+	switch {
+	case b.Pressed():
+		b.Background(p.ButtonSecondaryActive)
+	case b.Hovered():
+		b.Background(p.ButtonSecondaryHover)
 	}
 	return b.Children(func() { ui.Text(c, label).FontSize(14).SingleLine() })
 }
@@ -107,8 +113,8 @@ func Secondary(c *ui.Context, label string) ui.Element {
 // Danger is Kit's danger button, for what removes something.
 func Danger(c *ui.Context, label string) ui.Element {
 	p := theme.Of(c)
-	b := ui.ButtonBase(c).Label(label).Radius(6).Center().Gap(6).PaddingX(12).Height(32).
-		Background(p.Danger).TextColor(ui.Hex("#ffffff")).Cursor(ui.CursorPointer)
+	b := ui.ButtonBase(c).Label(label).Radius(p.Radius).Center().Gap(6).PaddingX(12).Height(32).
+		Background(p.Danger).TextColor(p.DangerForeground).Cursor(ui.CursorPointer)
 	if b.Hovered() || b.Pressed() {
 		b.Background(p.Danger.Mix(p.Foreground, 0.12))
 	}

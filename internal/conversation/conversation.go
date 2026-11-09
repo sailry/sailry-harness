@@ -36,11 +36,11 @@ type State struct {
 	work   map[string]bool // work regions the user opened or closed
 	built  map[string]bool // lists built once, so laid out
 	md     markdown.Options
-	themes map[bool]*markdown.Theme
+	themes map[*theme.Palette]*markdown.Theme // by theme package and mode
 }
 
 func New() *State {
-	return &State{lists: map[string]*ui.ListState{}, open: map[string]*bool{}, work: map[string]bool{}, built: map[string]bool{}, themes: map[bool]*markdown.Theme{}}
+	return &State{lists: map[string]*ui.ListState{}, open: map[string]*bool{}, work: map[string]bool{}, built: map[string]bool{}, themes: map[*theme.Palette]*markdown.Theme{}}
 }
 
 // List returns the list state of a conversation.
@@ -313,7 +313,7 @@ func footer(c *ui.Context, t *Turn, blocks []Block, actions Actions) {
 // markdownTheme is the reply's look (crates/content markdown/style.rs): 14
 // DIP text on 24 DIP lines, code blocks on a 3.5% foreground tint.
 func (s *State) markdownTheme(p *theme.Palette) *markdown.Theme {
-	if th, ok := s.themes[p.Dark]; ok {
+	if th, ok := s.themes[p]; ok {
 		return th
 	}
 	th := &markdown.Theme{
@@ -323,19 +323,19 @@ func (s *State) markdownTheme(p *theme.Palette) *markdown.Theme {
 		CodeLineHeight:      18 / 12.5,
 		Text:                p.Foreground,
 		Muted:               p.MutedForeground,
-		Link:                p.Primary,
+		Link:                p.Link,
 		Strong:              p.Primary, // answers emphasize in primary
 		Code:                p.Foreground,
 		CodeBackground:      p.Muted,
 		CodeBlockBackground: p.Foreground.Alpha(0.035),
 		CodeBlockBorder:     p.Border,
-		CodeBlockRadius:     6,
+		CodeBlockRadius:     p.Radius,
 		CodeBlockPadding:    12.0 / 14, // ems; the reference pads 12 x 10
 		Rule:                p.Border,
 		TableBorder:         p.Border,
 		QuoteBar:            p.Border,
 		QuoteText:           p.MutedForeground,
 	}
-	s.themes[p.Dark] = th
+	s.themes[p] = th
 	return th
 }

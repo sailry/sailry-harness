@@ -29,7 +29,7 @@ func Empty(c *ui.Context, icon *ui.SVG, title, description string, action func()
 func List(c *ui.Context, n int, row func(i int), empty func()) {
 	if n == 0 {
 		p := theme.Of(c)
-		ui.Column(c).Border(1, p.Border).Radius(8).Children(empty)
+		ui.Column(c).Border(1, p.Border).Radius(p.RadiusLg).Background(p.Surface).Children(empty)
 		return
 	}
 	Card(c, func() {

@@ -40,7 +40,7 @@ func Group(c *ui.Context, key any, title, description string, actions, body func
 			ui.Row(c).MinHeight(32).Gap(8).Children(func() {
 				ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(2).Children(func() {
 					if title != "" {
-						ui.Text(c, title).FontSize(14).FontWeight(600).TextColor(p.Foreground)
+						ui.Text(c, title).FontSize(14).FontWeight(600).TextColor(p.SurfaceTitle)
 					}
 					if description != "" {
 						ui.Text(c, description).FontSize(14).TextColor(p.MutedForeground)
@@ -55,11 +55,12 @@ func Group(c *ui.Context, key any, title, description string, actions, body func
 	})
 }
 
-// Card is a group's box of rows: a 1 DIP border, radius 8, 16 across, rows
-// apart by separators.
+// Card is a group's box of rows (Kit's GroupBox): the group_box fill, a 1
+// DIP border, the large radius, 16 across, rows apart by separators.
 func Card(c *ui.Context, rows func()) ui.Element {
 	p := theme.Of(c)
-	return ui.Column(c).Border(1, p.Border).Radius(8).PaddingX(16).Dividers(1, p.Border).Children(rows)
+	return ui.Column(c).Border(1, p.Border).Radius(p.RadiusLg).PaddingX(16).Dividers(1, p.Border).
+		Background(p.Surface).TextColor(p.SurfaceForeground).Children(rows)
 }
 
 // Row is a setting: a title and a muted description on the left, its
@@ -68,7 +69,7 @@ func Row(c *ui.Context, key any, title, description string, control func()) ui.E
 	p := theme.Of(c)
 	return ui.Row(c.Key(key)).Padding(12, 0).Gap(16).MinHeight(56).Children(func() {
 		ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(2).Children(func() {
-			ui.Text(c, title).FontSize(14).TextColor(p.Foreground)
+			ui.Text(c, title).FontSize(14).TextColor(p.SurfaceForeground)
 			if description != "" {
 				ui.Text(c, description).FontSize(14).TextColor(p.Description())
 			}

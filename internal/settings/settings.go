@@ -68,8 +68,11 @@ func Nav(c *ui.Context, s *State) {
 				for _, it := range g.items {
 					selected := it.key == s.Section
 					label := i18n.T(c, string(it.key))
-					b := ui.ButtonBase(c.Key(string(it.key))).Label(label).Height(28).PaddingX(8).Gap(8).Radius(6).Justify(ui.Start).TextColor(p.Foreground)
+					b := ui.ButtonBase(c.Key(string(it.key))).Label(label).Height(28).PaddingX(8).Gap(8).Radius(p.Radius).Justify(ui.Start).TextColor(p.SidebarForeground)
 					b.Background(p.SidebarItem(selected, b.Hovered())).AccessSelected(selected)
+					if selected {
+						b.TextColor(p.SidebarAccentForeground)
+					}
 					b.Children(func() {
 						ui.Icon(c, it.icon).FontSize(16)
 						ui.Text(c, label).FontSize(14).SingleLine()
@@ -90,7 +93,7 @@ func Page(c *ui.Context, s *State, d *preview.Data, mode *theme.Mode) {
 	ui.Scroll(c.Key(string(s.Section))).Fill().Children(func() {
 		ui.Column(c).FillWidth().MaxWidth(800).Margin(0, ui.Auto).Padding(24).Gap(24).Children(func() {
 			ui.Column(c).Gap(8).Children(func() {
-				ui.Text(c, i18n.T(c, string(s.Section))).FontSize(18).FontWeight(600)
+				ui.Text(c, i18n.T(c, string(s.Section))).FontSize(18).FontWeight(600).TextColor(p.Foreground)
 				if desc := string(s.Section) + "_description"; i18n.In("en", desc) != desc {
 					ui.Text(c, i18n.T(c, desc)).FontSize(14).TextColor(p.MutedForeground)
 				}
@@ -124,7 +127,8 @@ func appearance(c *ui.Context, mode *theme.Mode) {
 // by separators.
 func card(c *ui.Context, rows func()) {
 	p := theme.Of(c)
-	ui.Column(c).Border(1, p.Border).Radius(8).PaddingX(16).Gap(1).Dividers(1, p.Border).Children(rows)
+	ui.Column(c).Border(1, p.Border).Radius(p.RadiusLg).PaddingX(16).Gap(1).Dividers(1, p.Border).
+		Background(p.Surface).TextColor(p.SurfaceForeground).Children(rows)
 }
 
 func providers(c *ui.Context, s *State, d *preview.Data) {

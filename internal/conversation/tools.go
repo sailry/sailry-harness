@@ -309,7 +309,7 @@ func diff(c *ui.Context, d *Diff) {
 	if i := strings.LastIndexByte(name, '/'); i >= 0 {
 		name = name[i+1:]
 	}
-	ui.Column(c).Border(1, p.Border).Radius(15).Background(p.Background).Clip().Children(func() {
+	ui.Column(c).Border(1, p.Border).Radius(p.Radius2xl()).Background(p.Background).Clip().Children(func() {
 		ui.Row(c).Height(32).PaddingX(12).Gap(8).BorderWidth(0, 0, 1, 0).BorderColor(p.Border).
 			TextColor(p.MutedForeground).Children(func() {
 			ui.Text(c, name).FontSize(14).SingleLine().Grow(1).Shrink(1).Tooltip(d.Path)

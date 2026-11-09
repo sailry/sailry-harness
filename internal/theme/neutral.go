@@ -102,7 +102,43 @@ var (
 	warning = ui.Hex("#f59e0b")
 	white   = ui.Hex("#ffffff")
 	tooltip = ui.Hex("#3a3a3a") // the built-in dark theme's tooltips
+	black   = ui.Hex("#000000")
 )
+
+// base are Kit's base colors (default-theme.json): Tailwind 600 in light,
+// 400 in dark, magenta being purple. Orange marks the selected theme
+// (500 dark, 600 light).
+var base = map[bool][5]ui.Color{
+	false: {ui.Hex("#2563eb"), ui.Hex("#16a34a"), ui.Hex("#ca8a04"), ui.Hex("#9333ea"), ui.Hex("#ea580c")},
+	true:  {ui.Hex("#60a5fa"), ui.Hex("#4ade80"), ui.Hex("#facc15"), ui.Hex("#c084fc"), ui.Hex("#f97316")},
+}
+
+// Tints are the emblem gradients of plugins/emblem.rs, top to bottom, under
+// OnTint glyphs.
+var Tints = [][2]ui.Color{
+	{ui.Hex("#3da9fc"), ui.Hex("#2580f4")}, // blue
+	{ui.Hex("#9b7cf8"), ui.Hex("#7250e3")}, // violet
+	{ui.Hex("#35c5a9"), ui.Hex("#199b87")}, // teal
+	{ui.Hex("#f9b74e"), ui.Hex("#e68926")}, // amber
+	{ui.Hex("#9398a3"), ui.Hex("#656a75")}, // gray
+}
+
+// OnTint is the glyph color over Tints.
+var OnTint = white
+
+// Identicon are a subagent mark's running colors: Tailwind's 400 (dark)
+// and 600 (light) shades.
+var Identicon = [][2]ui.Color{
+	{ui.Hex("#60a5fa"), ui.Hex("#2563eb")}, {ui.Hex("#a78bfa"), ui.Hex("#7c3aed")},
+	{ui.Hex("#34d399"), ui.Hex("#059669")}, {ui.Hex("#fbbf24"), ui.Hex("#d97706")},
+	{ui.Hex("#f472b6"), ui.Hex("#db2777")}, {ui.Hex("#22d3ee"), ui.Hex("#0891b2")},
+}
+
+// Shade is black at alpha a: drop shadows and the dialog scrim.
+func Shade(a float32) ui.Color { return black.Alpha(a) }
+
+// Opacity is white at alpha a, the tint that fades a picture.
+func Opacity(a float32) ui.Color { return white.Alpha(a) }
 
 // fields maps every theme.colors key onto its Palette field.
 var fields = map[string]func(*Palette) *ui.Color{

@@ -34,23 +34,14 @@ func MediaRow(c *ui.Context, title, description string, tile, badge func()) ui.E
 	})
 }
 
-// Tile gradients of plugins/emblem.rs, from top to bottom.
-var tints = [][2]string{
-	{"#3da9fc", "#2580f4"}, // blue
-	{"#9b7cf8", "#7250e3"}, // violet
-	{"#35c5a9", "#199b87"}, // teal
-	{"#f9b74e", "#e68926"}, // amber
-	{"#9398a3", "#656a75"}, // gray
-}
-
 // Tile is the emblem of a record: a gradient chosen by the name's FNV hash,
 // radius 11, with a white glyph 5/9 of its size, or the name's initial.
 func Tile(c *ui.Context, name string, glyph *ui.SVG) {
 	h := fnv.New32a()
 	h.Write([]byte(name))
-	tint := tints[h.Sum32()%uint32(len(tints))]
+	tint := theme.Tints[h.Sum32()%uint32(len(theme.Tints))]
 	ui.Row(c).Size(TileSize, TileSize).Radius(11).Center().
-		Gradient(ui.Hex(tint[0]), ui.Hex(tint[1]), 180).TextColor(ui.Hex("#ffffff")).Children(func() {
+		Gradient(tint[0], tint[1], 180).TextColor(theme.OnTint).Children(func() {
 		if glyph != nil {
 			ui.Icon(c, glyph).FontSize(TileSize * 5 / 9)
 			return

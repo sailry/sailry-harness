@@ -105,8 +105,9 @@ type Palette struct {
 	TableActiveBorder   ui.Color
 	TableRowBorder      ui.Color
 
-	// Kit's status colors; packages do not set them.
+	// Kit's status and base colors; packages do not set them.
 	Info, Danger, DangerForeground, Success, Warning ui.Color
+	Blue, Green, Yellow, Magenta, Orange             ui.Color
 }
 
 // Window material opacities: Surfaces::default in preferences.rs keeps the
@@ -148,6 +149,8 @@ func palette(pkg *Package, dark bool) *Palette {
 	}
 	p.Popover = p.Popover.Alpha(0.95)
 	p.Info, p.Danger, p.DangerForeground, p.Success, p.Warning = info, danger, white, success, warning
+	b := base[dark]
+	p.Blue, p.Green, p.Yellow, p.Magenta, p.Orange = b[0], b[1], b[2], b[3], b[4]
 	return p
 }
 

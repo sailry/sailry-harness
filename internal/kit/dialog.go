@@ -14,11 +14,11 @@ func Dialog(c *ui.Context, open *bool, width float32, title, description string,
 		width = 420
 	}
 	return ui.DialogBase(c, open, func(backdrop, panel ui.Element) {
-		backdrop.Background(ui.RGBA(0, 0, 0, 0.4))
-		panel.Width(width).MaxWidthPercent(92).MaxHeightPercent(86).Padding(24).Gap(16).Radius(12).
-			Background(p.Popover).Border(1, p.Border).Shadow(0, 16, 48, 0, ui.RGBA(0, 0, 0, 0.24)).Label(title)
+		backdrop.Background(theme.Shade(0.4))
+		panel.Width(width).MaxWidthPercent(92).MaxHeightPercent(86).Padding(24).Gap(16).Radius(p.Radius*2).
+			Background(p.Popover).TextColor(p.PopoverForeground).Border(1, p.Border).Shadow(0, 16, 48, 0, theme.Shade(0.24)).Label(title)
 		ui.Column(c).Gap(6).Children(func() {
-			ui.Text(c, title).FontSize(16).FontWeight(600).TextColor(p.Foreground)
+			ui.Text(c, title).FontSize(16).FontWeight(600).TextColor(p.PopoverForeground)
 			if description != "" {
 				ui.Text(c, description).FontSize(14).TextColor(p.MutedForeground)
 			}
@@ -50,7 +50,7 @@ func Confirm(c *ui.Context, open *bool, title, message, cancel, action string, c
 func Field(c *ui.Context, key any, label, hint string, control func()) {
 	p := theme.Of(c)
 	ui.Column(c.Key(key)).Gap(6).Children(func() {
-		ui.Text(c, label).FontSize(14).FontWeight(500).TextColor(p.Foreground)
+		ui.Text(c, label).FontSize(14).FontWeight(500).TextColor(p.PopoverForeground)
 		control()
 		if hint != "" {
 			ui.Text(c, hint).FontSize(12).TextColor(p.MutedForeground)
