@@ -29,27 +29,62 @@ func EaseOutCubic(t float32) float32 {
 }
 
 // Shimmer is a label with a highlight sweeping across it every 2 s, as Kit's
-// ShimmerText marks the running activity: 12 clipped layers of a highlight
-// 0.3 of the width wide, peaking at 0.75 (light) or 0.6 (dark) opacity.
-// Custom drawing: MyGo has no text highlight that moves; the layers are drawn
-// over the label at 60 fps and stop with Reduce Motion.
+// ShimmerText marks the running activity. It is a Sweep of its own; the
+// texts of one row share one with Sweep.Text.
 func Shimmer(c *ui.Context, text string, size float32, color ui.Color) ui.Element {
-	p := theme.Of(c)
-	t := ui.Text(c, text).FontSize(size).TextColor(color).SingleLine()
-	if c.Preferences().ReduceMotion {
-		return t
+	var sw Sweep
+	return sw.Text(c, ui.Text(c, text).FontSize(size).TextColor(color).SingleLine(), ui.Span{Text: text, Size: size, Color: color})
+}
+
+// Sweep is one shimmer band across a row (Kit's ShimmerText): 12 clipped
+// layers of a highlight 0.3 of the row wide, peaking at 0.75 (light) or 0.6
+// (dark) opacity, crossing the row every 2 s. Every text given to Text
+// shows the part of the band over it, each in its own font and color, so
+// the band moves across them as one; what is not given (an icon) has
+// none. The band is placed in the row's box, which Frame records as the
+// row paints: paint only, nothing is rebuilt. Custom drawing: MyGo has no
+// text highlight that moves. It draws at FPS and stays still with Reduce
+// Motion.
+type Sweep struct {
+	row  ui.Rect
+	used bool
+}
+
+// Frame makes row the box the band crosses. Call it on the row's element
+// after its children are built; it does nothing when no text took the
+// band.
+func (s *Sweep) Frame(row ui.Element) {
+	if s.used {
+		row.Draw(func(_ *ui.Painter, r ui.Rect) { s.row = r })
 	}
-	peak, hi := float32(0.75), p.Background.MixOklab(color, 0.2)
+}
+
+// Text draws the band over e, a single-line text of span's text, font,
+// size and color. Without a Frame, the band crosses e alone.
+func (s *Sweep) Text(c *ui.Context, e ui.Element, span ui.Span) ui.Element {
+	if c.Preferences().ReduceMotion {
+		return e
+	}
+	s.used = true
+	p := theme.Of(c)
+	peak, hi := float32(0.75), p.Background.MixOklab(span.Color, 0.2)
 	if p.Dark {
-		peak, hi = 0.6, p.Foreground.MixOklab(color, 0.2)
+		peak, hi = 0.6, p.Foreground.MixOklab(span.Color, 0.2)
 	}
 	const layers = 12
-	return t.DrawOver(func(pt *ui.Painter, r ui.Rect) {
+	span.Color = hi.Alpha(peak / layers)
+	return e.DrawOver(func(pt *ui.Painter, r ui.Rect) {
 		pt.AnimationFrameRate(FPS)
+		row := s.row
+		if row.W <= 0 {
+			row = r
+		}
 		phase := float32(pt.Now().UnixMilli()%2000) / 2000
-		spread := 0.3 * r.W
-		center := r.X - spread + phase*(r.W+2*spread)
-		span := ui.Span{Text: text, Size: size, Color: hi.Alpha(peak / layers)}
+		spread := 0.3 * row.W
+		center := row.X - spread + phase*(row.W+2*spread)
+		if center+spread/2 < r.X || center-spread/2 > r.X+r.W {
+			return // the band is elsewhere in the row
+		}
 		pt.Clip(r, 0, func() {
 			for i := range layers {
 				half := spread / 2 * (1 - float32(i)/layers)

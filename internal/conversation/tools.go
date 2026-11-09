@@ -62,7 +62,9 @@ func stateText(c *ui.Context, st RowState) string {
 }
 
 // summary builds a row's content: icon, label, detail, state and caret.
-func summary(c *ui.Context, call Call, hovered, caret, open bool) {
+// A running row shimmers its label and detail with one band across the
+// row, sw's; the icon has none.
+func summary(c *ui.Context, call Call, hovered, caret, open bool, sw *kit.Sweep) {
 	p := theme.Of(c)
 	color := rowColor(p, call)
 	quiet := !call.Failed && !call.Pending && !call.Warning
@@ -80,9 +82,10 @@ func summary(c *ui.Context, call Call, hovered, caret, open bool) {
 	if label == "" && call.LabelKey != "" {
 		label = i18n.T(c, call.LabelKey)
 	}
+	shimmer := call.Running && quiet
 	switch {
-	case call.Running && quiet:
-		kit.Shimmer(c, label, 14, color).Shrink(0)
+	case shimmer && label != "":
+		sw.Text(c, ui.Text(c, label).FontSize(14).SingleLine().Shrink(0).TextColor(color), ui.Span{Text: label, Size: 14, Color: color})
 	case call.wrap:
 		ui.Text(c, label).FontSize(14).Shrink(1).MinWidth(0).TextColor(color)
 	case label != "":
@@ -98,8 +101,13 @@ func summary(c *ui.Context, call Call, hovered, caret, open bool) {
 			dc = color
 		}
 		d := ui.Text(c, detail).FontSize(14).SingleLine().Grow(1).Shrink(1).MinWidth(0).TextColor(dc)
+		span := ui.Span{Text: detail, Size: 14, Color: dc}
 		if code {
 			d.Font("monospace").FontSize(13).MaxWidth(detailMax)
+			span.Font, span.Size = "monospace", 13
+		}
+		if shimmer {
+			sw.Text(c, d, span)
 		}
 	}
 	st := stateText(c, call.State)
@@ -125,19 +133,25 @@ func summary(c *ui.Context, call Call, hovered, caret, open bool) {
 func plain(c *ui.Context, key any, call Call) {
 	row := ui.Row(c.Key(key)).Height(rowHeight).Gap(8).MaxWidthPercent(100)
 	hovered := row.Hovered()
-	row.Children(func() { summary(c, call, hovered, false, false) })
+	sw := &kit.Sweep{}
+	row.Children(func() { summary(c, call, hovered, false, false, sw) })
+	sw.Frame(row)
 }
 
 // disclosure is a row whose body shows below it on a rail while open.
 // Opening is instant, as the reference's (Kit Collapsible without a
 // motion_id).
-func (s *State) disclosure(c *ui.Context, key string, head func(hovered, open bool), top, bottom float32, body func()) {
+// head builds the row's content; texts it gives the row's sweep shimmer
+// as one band across the row.
+func (s *State) disclosure(c *ui.Context, key string, head func(hovered, open bool, sw *kit.Sweep), top, bottom float32, body func()) {
 	open := s.opened(key)
 	ui.Column(c.Key(key)).Children(func() {
 		t := ui.ButtonBase(c).Height(rowHeight).Gap(8).AlignSelf(ui.Start).MaxWidthPercent(100).
 			Justify(ui.Start).Expanded(*open).Cursor(ui.CursorPointer)
 		hovered := t.Hovered() || t.FocusVisible()
-		t.Children(func() { head(hovered, *open) }).OnClick(func() { *open = !*open })
+		sw := &kit.Sweep{}
+		t.Children(func() { head(hovered, *open, sw) }).OnClick(func() { *open = !*open })
+		sw.Frame(t)
 		if *open {
 			Rail(c).Padding(top, 0, bottom, railPad).Children(body)
 		}
@@ -161,8 +175,8 @@ func (s *State) tools(c *ui.Context, calls []Call, continuing bool) {
 	}
 	if Sequence(calls) {
 		head := Summary(calls)
-		s.disclosure(c, "tool-sequence-"+calls[0].ID, func(hovered, open bool) {
-			summary(c, head, hovered, true, open)
+		s.disclosure(c, "tool-sequence-"+calls[0].ID, func(hovered, open bool, sw *kit.Sweep) {
+			summary(c, head, hovered, true, open, sw)
 		}, 8, 8, func() { s.groups(c, calls) })
 		return
 	}
@@ -189,8 +203,8 @@ func (s *State) group(c *ui.Context, run []Call) {
 		plain(c, "tool-group-"+run[0].ID, head)
 		return
 	}
-	s.disclosure(c, "tool-group-"+run[0].ID, func(hovered, open bool) {
-		summary(c, head, hovered, true, open)
+	s.disclosure(c, "tool-group-"+run[0].ID, func(hovered, open bool, sw *kit.Sweep) {
+		summary(c, head, hovered, true, open, sw)
 	}, 8, 8, func() {
 		if paths := uniquePaths(run); len(paths) > 0 && pathList(run[len(run)-1]) {
 			for _, path := range paths {
@@ -215,8 +229,8 @@ func (s *State) row(c *ui.Context, call Call) {
 		plain(c, "tools-"+call.ID, call)
 		return
 	}
-	s.disclosure(c, "tools-"+call.ID, func(hovered, open bool) {
-		summary(c, call, hovered, true, open)
+	s.disclosure(c, "tools-"+call.ID, func(hovered, open bool, sw *kit.Sweep) {
+		summary(c, call, hovered, true, open, sw)
 	}, 4, 8, func() { output(c, call.Output) })
 }
 
@@ -363,7 +377,7 @@ func (s *State) steps(c *ui.Context, key string, steps []Step, active bool) {
 		}
 	}
 	head := Call{Label: i18n.T(c, "task_progress"), Icon: "circle-check", Detail: fmt.Sprintf("%d/%d", done, len(steps)), Running: active}
-	s.disclosure(c, "progress-"+key, func(hovered, open bool) { summary(c, head, hovered, true, open) }, 4, 8, func() {
+	s.disclosure(c, "progress-"+key, func(hovered, open bool, sw *kit.Sweep) { summary(c, head, hovered, true, open, sw) }, 4, 8, func() {
 		ui.Scroll(c).MaxHeight(320).PaddingEnd(12).Children(func() {
 			for i, st := range steps {
 				icon, color := icons.CircleCheck, p.MutedForeground
@@ -426,7 +440,7 @@ func (s *State) question(c *ui.Context, q *Question) {
 		plain(c, "question-"+q.CallID, head)
 		return
 	}
-	s.disclosure(c, "question-"+q.CallID, func(hovered, open bool) { summary(c, head, hovered, true, open) }, 4, 8, func() {
+	s.disclosure(c, "question-"+q.CallID, func(hovered, open bool, sw *kit.Sweep) { summary(c, head, hovered, true, open, sw) }, 4, 8, func() {
 		ui.Scroll(c).MaxHeight(outputMax).Gap(4).Children(func() {
 			for _, a := range q.Answers {
 				ui.Text(c, a).FontSize(14).Selectable().TextColor(p.Foreground)
@@ -451,7 +465,7 @@ func (s *State) children(c *ui.Context, kids []Child, actions Actions) {
 		running = running || k.Status == ChildRunning
 	}
 	label := i18n.T(c, "subagent_count", "completed", done, "total", len(kids))
-	s.disclosure(c, "children-"+kids[0].ID, func(hovered, open bool) {
+	s.disclosure(c, "children-"+kids[0].ID, func(hovered, open bool, sw *kit.Sweep) {
 		color := p.MutedForeground
 		if hovered {
 			color = p.Foreground
@@ -461,10 +475,9 @@ func (s *State) children(c *ui.Context, kids []Child, actions Actions) {
 				kit.Identicon(c.Key(k.ID), k.ID, k.Status == ChildRunning, 16)
 			}
 		})
+		t := ui.Text(c, label).FontSize(14).SingleLine().TextColor(color)
 		if running {
-			kit.Shimmer(c, label, 14, color)
-		} else {
-			ui.Text(c, label).FontSize(14).SingleLine().TextColor(color)
+			sw.Text(c, t, ui.Span{Text: label, Size: 14, Color: color})
 		}
 		ch := ui.Icon(c, map[bool]*ui.SVG{true: icons.ChevronDown, false: icons.ChevronRight}[open]).FontSize(caretSize).TextColor(color)
 		if !hovered {

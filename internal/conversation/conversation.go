@@ -307,7 +307,7 @@ func (s *State) blocks(c *ui.Context, turn string, blocks []Block, continuing bo
 				markdown.View(c, b.Text, &s.md)
 			case ReasoningBlock:
 				head := Call{Label: i18n.T(c, "turn_reasoning"), Icon: "bot", Running: continuing && last}
-				s.disclosure(c, "reasoning-"+key, func(hovered, open bool) { summary(c, head, hovered, true, open) }, 4, 8, func() {
+				s.disclosure(c, "reasoning-"+key, func(hovered, open bool, sw *kit.Sweep) { summary(c, head, hovered, true, open, sw) }, 4, 8, func() {
 					ui.Scroll(c).MaxHeight(160).Children(func() {
 						ui.Text(c, b.Text).FontSize(14).LineHeight(22.0 / 14).TextColor(p.MutedForeground)
 					})
@@ -332,7 +332,7 @@ func (s *State) blocks(c *ui.Context, turn string, blocks []Block, continuing bo
 				visual(c, "visual", b.Visual)
 			case ErrorBlock:
 				head := Call{Label: b.Label, Icon: "triangle-alert", Failed: true}
-				s.disclosure(c, "error-"+key, func(hovered, open bool) { summary(c, head, hovered, true, open) }, 4, 8, func() {
+				s.disclosure(c, "error-"+key, func(hovered, open bool, sw *kit.Sweep) { summary(c, head, hovered, true, open, sw) }, 4, 8, func() {
 					ui.Scroll(c).MaxHeight(160).Children(func() {
 						ui.Text(c, b.Text).FontSize(14).TextColor(p.Danger)
 					})
@@ -383,10 +383,15 @@ func phaseRow(c *ui.Context, r *Reply) {
 	default:
 		label = i18n.T(c, "turn_thinking")
 	}
-	ui.Row(c.Key("phase")).Gap(8).Height(rowHeight).Children(func() {
+	// One band across the row, past the indicator.
+	sw := &kit.Sweep{}
+	row := ui.Row(c.Key("phase")).Gap(8).Height(rowHeight)
+	row.Children(func() {
 		kit.Indicator(c, Indicator(r.Phase), 16)
-		kit.Shimmer(c, label, 14, p.MutedForeground)
+		sw.Text(c, ui.Text(c, label).FontSize(14).SingleLine().TextColor(p.MutedForeground),
+			ui.Span{Text: label, Size: 14, Color: p.MutedForeground})
 	})
+	sw.Frame(row)
 }
 
 // assistant is the reply's text color: the package's assistant message

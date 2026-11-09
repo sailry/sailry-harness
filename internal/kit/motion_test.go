@@ -3,6 +3,9 @@ package kit
 import (
 	"fmt"
 	"testing"
+
+	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-go/internal/theme"
 )
 
 // identity matches ui/identicon.rs, so a session keeps its mark across apps.
@@ -17,5 +20,42 @@ func TestIdentityMatchesReference(t *testing.T) {
 	}
 	if len(seen) <= 32 {
 		t.Fatalf("only %d identities", len(seen))
+	}
+}
+
+// A row's sweep animates the texts given to it, at FPS, and none with
+// Reduce Motion; a row that gives it none asks for no frame.
+func TestSweepSharesRow(t *testing.T) {
+	give := true
+	tt := ui.NewTester(func(c *ui.Context) {
+		theme.Apply(c, "", theme.Light)
+		var sw Sweep
+		row := ui.Row(c).Gap(8)
+		row.Children(func() {
+			ui.Text(c, "Read")
+			if give {
+				sw.Text(c, ui.Text(c, "Read").FontSize(14), ui.Span{Text: "Read", Size: 14})
+				sw.Text(c, ui.Text(c, "main.go").Font("monospace"), ui.Span{Text: "main.go", Font: "monospace", Size: 13})
+			}
+		})
+		sw.Frame(row)
+	}, 400, 100)
+	tt.Frame()
+	tt.Frame()
+	if !tt.FramePending() {
+		t.Fatal("the sweep asks for no frame")
+	}
+	tt.SetPreferences(ui.Preferences{ReduceMotion: true})
+	tt.Frame()
+	tt.Frame()
+	if tt.FramePending() {
+		t.Error("the sweep moves with Reduce Motion")
+	}
+	tt.SetPreferences(ui.Preferences{})
+	give = false
+	tt.Frame()
+	tt.Frame()
+	if tt.FramePending() {
+		t.Error("a row without texts in its sweep animates")
 	}
 }

@@ -25,7 +25,7 @@ Kit's `MessageScroller`.
 | `usage.go` | The context bar's metrics and context ring (`UsageBar`, `Metrics`, `Count`) |
 | `group_test.go`, `jump_test.go`, `live_test.go`, `bench_test.go` | Tests and benchmarks |
 
-Shared motion (`kit.Shimmer`, `kit.Identicon`, `kit.EaseOutCubic`, `kit.Fast`)
+Shared motion (`kit.Shimmer`, `kit.Sweep`, `kit.Identicon`, `kit.EaseOutCubic`, `kit.Fast`)
 is in `internal/kit/motion.go`; the thinking indicator (`kit.Indicator`:
 Orbits, Globe, Ribbon, Ring) in `internal/kit/thinking.go`. Code blocks in messages and tool diffs
 are MyGo's editor (`kit.CodeBlock`, `kit.Diff` in `internal/kit/code.go`). File previews
@@ -95,7 +95,7 @@ Queued, Running, Stopping or Unsynced.
 | `Failed` | Runtime failure: danger |
 | `Warning` | The tool's own failure, or denied, interrupted, not executed: warning |
 | `Pending` | Awaiting approval: warning, `help-circle` icon |
-| `Running` | Running: label shimmers, colour `muted_foreground` mixed 35% toward `foreground` |
+| `Running` | Running: label and detail shimmer under one band across the row (`kit.Sweep`, in row coordinates, the icon excluded, each text in its own font and colour; 60 fps, paint only, still with Reduce Motion), colour `muted_foreground` mixed 35% toward `foreground` |
 | `Standalone` | Never groups with neighbours |
 | `Terminal` | An interaction (`ask_user`, plan review, MCP elicitation): not work, never groups |
 | `Output` | What opening the row shows; `nil` rows have no caret |
@@ -167,7 +167,7 @@ The rules are `group.go`, tested in `group_test.go`.
    motion ID). Everything starts closed.
 8. **Continuing**: while the run is active the last tool row of the last
    block is drawn running, so the shimmer stays on the latest activity.
-9. **Phase row**: while active, the orb and the phase label shimmering;
+9. **Phase row**: while active, the orb and the phase label, the band in the row's coordinates;
    hidden while a call is pending or running, a child runs, or a question
    waits.
 10. **Footer** (ended runs): copy the answer (`turn_copy`, toast

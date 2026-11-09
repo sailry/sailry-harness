@@ -212,7 +212,7 @@ func outcomeTone(p *theme.Palette, o NoticeOutcome) ui.Color {
 func (s *State) grounding(c *ui.Context, key string, b Block) {
 	p := theme.Of(c)
 	head := Call{Label: i18n.T(c, "chat_search_result"), Icon: "globe"}
-	s.disclosure(c, "search-"+key, func(hovered, open bool) { summary(c, head, hovered, true, open) }, 4, 8, func() {
+	s.disclosure(c, "search-"+key, func(hovered, open bool, sw *kit.Sweep) { summary(c, head, hovered, true, open, sw) }, 4, 8, func() {
 		for i, src := range b.Sources {
 			title := src.Title
 			if title == "" {
@@ -251,7 +251,7 @@ func (s *State) retry(c *ui.Context, key string, r *Retry, active bool) {
 		plain(c, "retry-"+key, head)
 		return
 	}
-	s.disclosure(c, "retry-"+key, func(hovered, open bool) { summary(c, head, hovered, true, open) }, 4, 8, func() {
+	s.disclosure(c, "retry-"+key, func(hovered, open bool, sw *kit.Sweep) { summary(c, head, hovered, true, open, sw) }, 4, 8, func() {
 		ui.Scroll(c).MaxHeight(160).Children(func() {
 			ui.Text(c, r.Detail).Selectable().FontSize(14).TextColor(p.MutedForeground)
 		})
@@ -277,12 +277,12 @@ func (s *State) compaction(c *ui.Context, t *Turn) {
 		if strings.TrimSpace(cause) == "" {
 			cause = i18n.T(c, "compact_reason_unknown")
 		}
-		s.disclosure(c, "compaction-"+t.ID, func(hovered, open bool) { summary(c, head, hovered, true, open) }, 4, 8, func() {
+		s.disclosure(c, "compaction-"+t.ID, func(hovered, open bool, sw *kit.Sweep) { summary(c, head, hovered, true, open, sw) }, 4, 8, func() {
 			ui.Text(c, cause).Selectable().FontSize(14).TextColor(p.Danger)
 		})
 	case k.Summary != "":
 		head := Call{Label: label, Icon: "file-text"}
-		s.disclosure(c, "compaction-"+t.ID, func(hovered, open bool) { summary(c, head, hovered, true, open) }, 4, 8, func() {
+		s.disclosure(c, "compaction-"+t.ID, func(hovered, open bool, sw *kit.Sweep) { summary(c, head, hovered, true, open, sw) }, 4, 8, func() {
 			ui.Scroll(c).MaxHeight(240).Children(func() {
 				ui.Text(c, k.Summary).Selectable().FontSize(14).LineHeight(22.0 / 14).TextColor(p.MutedForeground)
 			})
