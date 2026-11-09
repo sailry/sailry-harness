@@ -1,0 +1,9 @@
+Sailry Themes
+Copyright 2026 Sailry contributors
+
+Sailry-owned theme source and original artwork are licensed under Apache-2.0.
+Each theme retains its license metadata in theme.json and artwork provenance in
+ARTWORK.md. Importing these packages does not change any third-party license.
+
+Initial source was extracted from the themes/ directory of sailry/sailry-harness
+at ea76c95e4dc40e5c3b7a279dd082f6eccc151cfd. See SOURCE.md for the source boundary.

@@ -37,7 +37,9 @@ const (
 
 // App is the window's state.
 type App struct {
-	Data     *preview.Data
+	Data *preview.Data
+	// Theme is the selected theme package's ID; empty is the built-in one.
+	Theme    string
 	Mode     theme.Mode
 	Page     Page
 	NavOpen  bool
@@ -82,7 +84,7 @@ func (a *App) View(c *ui.Context) {
 		a.OnMode(a.Mode)
 	}
 	a.applied = a.Mode
-	theme.Apply(c, a.Mode)
+	theme.Apply(c, a.Theme, a.Mode)
 	p := theme.Of(c)
 	panel := p.Background
 	if c.Vibrancy() && a.Mode == theme.System {
