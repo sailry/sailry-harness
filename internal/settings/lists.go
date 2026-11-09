@@ -97,7 +97,7 @@ func (r listRow) row(c *ui.Context, key any, title string) {
 			if r.leading != nil {
 				ui.Row(c).Shrink(0).Children(r.leading)
 			}
-			ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(2).Children(func() {
+			ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(kit.TitleGap).Children(func() {
 				ui.Text(c, title).FontSize(14).FontWeight(500).SingleLine()
 				if r.subtitle != "" {
 					ui.Text(c, r.subtitle).FontSize(12).SingleLine().TextColor(p.MutedForeground)

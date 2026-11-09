@@ -38,7 +38,7 @@ func Group(c *ui.Context, key any, title, description string, actions, body func
 	ui.Column(c.Key(key)).Gap(12).Children(func() {
 		if title != "" || actions != nil {
 			ui.Row(c).MinHeight(32).Gap(8).Children(func() {
-				ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(2).Children(func() {
+				ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(TitleGap).Children(func() {
 					if title != "" {
 						ui.Text(c, title).FontSize(14).FontWeight(600).TextColor(p.SurfaceTitle)
 					}
@@ -68,7 +68,7 @@ func Card(c *ui.Context, rows func()) ui.Element {
 func Row(c *ui.Context, key any, title, description string, control func()) ui.Element {
 	p := theme.Of(c)
 	return ui.Row(c.Key(key)).Padding(12, 0).Gap(16).MinHeight(56).Children(func() {
-		ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(2).Children(func() {
+		ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(TitleGap).Children(func() {
 			ui.Text(c, title).FontSize(14).TextColor(p.SurfaceForeground)
 			if description != "" {
 				ui.Text(c, description).FontSize(14).TextColor(p.Description())
@@ -222,3 +222,7 @@ func TextAction(c *ui.Context, label string, disabled bool) ui.Element {
 	}
 	return b
 }
+
+// TitleGap is the space between a list row's title and its description
+// (settings rows, media rows).
+const TitleGap = 5

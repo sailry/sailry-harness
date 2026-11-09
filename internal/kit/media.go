@@ -20,7 +20,7 @@ func MediaRow(c *ui.Context, title, description string, tile, badge func()) ui.E
 		if tile != nil {
 			ui.Row(c).Size(TileSize, TileSize).Shrink(0).Center().Children(tile)
 		}
-		ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(2).Children(func() {
+		ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(TitleGap).Children(func() {
 			ui.Row(c).MinWidth(0).Gap(8).Children(func() {
 				ui.Text(c, title).FontSize(16).FontWeight(500).LineHeight(1.3).SingleLine().Shrink(1).TextColor(p.Foreground)
 				if badge != nil {

@@ -219,7 +219,7 @@ func activity(c *ui.Context, rows []Activity, act Actions) {
 					icon = icons.CircleUser
 				}
 				ui.Icon(c, icon).FontSize(20).Shrink(0)
-				ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(2).Children(func() {
+				ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(kit.TitleGap).Children(func() {
 					ui.Text(c, r.Title).FontSize(14).SingleLine()
 					ui.Text(c, r.Location).FontSize(12).SingleLine().TextColor(p.MutedForeground)
 				})
