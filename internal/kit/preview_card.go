@@ -24,6 +24,7 @@ func SessionCard(c *ui.Context, anchor ui.Element, s Session, detailed bool, sid
 	p := theme.Of(c)
 	w, _ := c.Size()
 	ui.TooltipBase(c, anchor, func(card ui.Element) {
+		Anchored(card, anchor, CardLayer)
 		place(card)
 		card.AttachedOrigin().Transition(TipMotion(side))
 		width := float32(280)

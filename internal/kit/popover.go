@@ -47,6 +47,7 @@ var popup = ui.ElementTransition{Duration: 150 * time.Millisecond, Ease: EaseOut
 // size.
 func Popover(c *ui.Context, anchor ui.Element, open *bool, content func()) ui.Element {
 	return ui.PopoverBase(c, anchor, open, func(panel ui.Element) {
+		Anchored(panel, anchor, PopoverLayer)
 		Floating(c, panel.Margin(4, 0, 0, 0).Padding(4).MinWidth(anchor.Bounds().W)).Transition(popup)
 		content()
 	})

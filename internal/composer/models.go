@@ -587,6 +587,7 @@ func scoreTip(c *ui.Context, anchor ui.Element, sc *Score) {
 	axes := []string{"model_score_axis_backend", "model_score_axis_frontend", "model_score_axis_knowledge",
 		"model_score_axis_aesthetic", "model_score_axis_maintainability"}
 	ui.TooltipBase(c, anchor, func(tip ui.Element) {
+		kit.Anchored(tip, anchor, kit.TipLayer)
 		kit.Attach(kit.Floating(c, tip), anchor, kit.Top, 6).Padding(8, 10).Gap(4).Radius(p.Radius).Width(200)
 		tip.Children(func() {
 			ui.Row(c).FillWidth().Justify(ui.SpaceBetween).Children(func() {

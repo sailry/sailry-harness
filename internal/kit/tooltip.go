@@ -114,6 +114,7 @@ func Tooltip(c *ui.Context, anchor ui.Element, text string, props ...TooltipProp
 	anchor.Description(text)
 	p, t := theme.Of(c), c.Theme()
 	return ui.TooltipBase(c, anchor, func(tip ui.Element) {
+		Anchored(tip, anchor, TipLayer)
 		Attach(Floating(c, tip), anchor, o.Placement, t.Space(1.5))
 		tip.Radius(p.Radius).MaxWidth(t.Space(80)).Padding(t.Space(1.25), t.Space(2)).FontSize(t.FontSize - 1)
 		tip.Children(func() {
