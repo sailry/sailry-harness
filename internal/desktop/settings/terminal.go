@@ -117,7 +117,9 @@ func terminal(c *ui.Context, m *Model) {
 			title := i18n.T(c, "settings_font_size")
 			kit.WideRow(c, "size", title, "", func() {
 				ui.Row(c).FillWidth().Gap(12).Children(func() {
-					ui.Slider(c.Key("slider"), &m.FontSize, 8, 32).Label(title).Grow(1)
+					// Whole sizes: the arrow keys move by one, not by a
+					// hundredth of the range, which the rounding below undid.
+					ui.Slider(c.Key("slider"), &m.FontSize, 8, 32).Step(1).Label(title).Grow(1)
 					m.FontSize = float64(int(m.FontSize + 0.5))
 					ui.Textf(c, "%d", int(m.FontSize)).FontSize(14).TextColor(p.SurfaceForeground)
 				})

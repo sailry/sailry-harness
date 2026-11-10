@@ -1,7 +1,8 @@
 //go:build integration
 
 // The browser probe exercises the panel browser's and the session documents'
-// WebViews on the current platform, against a page it serves itself.
+// WebViews on the current platform, against pages it serves itself: first
+// the WebViews alone, then a browser tab of the real App over a real Node.
 package main
 
 import (
@@ -11,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/egoist/mygo"
@@ -26,11 +28,40 @@ func main() {
 	if err = os.MkdirAll(directory, 0700); err != nil {
 		panic(err)
 	}
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+	// The profile and the project are this probe's own; a run starts clean.
+	profile, project := filepath.Join(directory, "profile"), filepath.Join(directory, "project")
+	if err = os.RemoveAll(profile); err != nil {
+		panic(err)
+	}
+	if err = os.MkdirAll(project, 0700); err != nil {
+		panic(err)
+	}
+	var mu sync.Mutex
+	fetched := map[string]int{}
+	requests := func(path string) int {
+		mu.Lock()
+		defer mu.Unlock()
+		return fetched[path]
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		mu.Lock()
+		fetched[request.URL.Path]++
+		mu.Unlock()
 		writer.Header().Set("Content-Type", "text/html; charset=utf-8")
+		writer.Header().Set("Cache-Control", "no-store")
+		if request.URL.Path == "/next" {
+			fmt.Fprint(writer, `<!doctype html><html><head><title>Browser probe next</title></head><body><h1>Next page</h1><a href="/">First</a></body></html>`)
+			return
+		}
 		fmt.Fprint(writer, `<!doctype html><html><head><title>Browser probe</title></head><body><h1>Browser probe</h1><a href="/next">Next</a><button>Press</button></body></html>`)
 	}))
 	defer server.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
+	defer cancel()
+	tab, err := live.StartBrowserTabProbe(ctx, profile, project)
+	if err != nil {
+		panic(err)
+	}
 	mygo.App.SetName("Sailry browser probe")
 	mygo.App.SetPath(mygo.PathUserData, filepath.Join(directory, "mygo"))
 	result := make(chan error, 1)
@@ -41,12 +72,22 @@ func main() {
 				ui.WebView(c, shown).Grow(1)
 			}
 		})})
+		app := mygo.NewWindow(mygo.WindowOptions{Title: "Browser tab probe", Width: 1280, Height: 820, Content: ui.View(tab.Runtime.App.View)})
 		go func() {
 			defer mygo.App.Quit()
 			defer window.Close()
-			ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-			defer cancel()
-			result <- live.BrowserProbe(ctx, window, func(view *mygo.WebView) { window.Update(func() { shown = view }) }, server.URL+"/")
+			defer app.Close()
+			defer tab.Close()
+			err := live.BrowserProbe(ctx, window, func(view *mygo.WebView) { window.Update(func() { shown = view }) }, server.URL+"/")
+			if err == nil {
+				fmt.Println("WebView probe passed")
+				if err = tab.Run(ctx, app, server.URL, requests); err != nil {
+					err = fmt.Errorf("browser tab: %w", err)
+				} else {
+					fmt.Printf("Browser tab probe passed: %d fetches of / and %d of /next\n", requests("/"), requests("/next"))
+				}
+			}
+			result <- err
 		}()
 	})
 	if err = mygo.App.Run(); err != nil {

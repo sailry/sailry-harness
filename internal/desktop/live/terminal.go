@@ -235,6 +235,9 @@ func (r *Runtime) closeLiveTerminal(id string) {
 	})
 }
 
+// searchLiveTerminal runs a terminal tab's find bar: it returns the matches
+// and the selected one's index. The bar counts its matches from 0 and steps
+// round their ends; the terminal counts from 1, 0 while none is selected.
 func (r *Runtime) searchLiveTerminal(id, query string, find bool, selected int) (int, int) {
 	state := r.localRuntime().packages.terminals[id]
 	if state == nil || state.terminal == nil {
@@ -246,16 +249,16 @@ func (r *Runtime) searchLiveTerminal(id, query string, find bool, selected int) 
 	if state.query != query || state.find != find {
 		state.terminal.Search(query)
 		state.query, state.find = query, find
-	} else if selected != state.selected {
-		if selected < state.selected {
-			state.terminal.SearchPrevious()
-		} else {
+	} else if total := state.terminal.SearchStatus().Total; total > 0 && selected != state.selected {
+		if selected == (state.selected+1)%total {
 			state.terminal.SearchNext()
+		} else {
+			state.terminal.SearchPrevious()
 		}
 	}
 	status := state.terminal.SearchStatus()
-	state.selected = status.Selected
-	return status.Total, status.Selected
+	state.selected = max(status.Selected-1, 0)
+	return status.Total, state.selected
 }
 
 type terminalConn struct {

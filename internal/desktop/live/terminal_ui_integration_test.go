@@ -30,6 +30,8 @@ type terminalUI struct {
 	controller *client.Client
 	runtime    *Runtime
 	tester     *ui.Tester
+	gate       *terminalGate
+	closed     bool
 }
 
 func (w *terminalUI) frame() {
@@ -253,7 +255,8 @@ func (w *terminalUI) click(label string) {
 // the desktop does, and shows session.
 func openTerminalWindow(t *testing.T, ctx context.Context, owner *node.Node, profile string, session protocol.Session, prefs *shell.Prefs) *terminalUI {
 	t.Helper()
-	controller := client.New(pluginUITransport{Transport: link.NewLocal(owner.ID(), owner.ID(), owner), test: t})
+	gate := &terminalGate{Transport: pluginUITransport{Transport: link.NewLocal(owner.ID(), owner.ID(), owner), test: t}, held: map[string]chan struct{}{}}
+	controller := client.New(gate)
 	if err := controller.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -269,7 +272,7 @@ func openTerminalWindow(t *testing.T, ctx context.Context, owner *node.Node, pro
 	runtime.App.NavOpen = true
 	tester := ui.NewTester(runtime.App.View, 1440, 1000)
 	tester.SetLocale("en")
-	window := &terminalUI{t: t, ctx: ctx, controller: controller, runtime: runtime, tester: tester}
+	window := &terminalUI{t: t, ctx: ctx, controller: controller, runtime: runtime, tester: tester, gate: gate}
 	window.wait("session workspace", func() bool {
 		return runtime.App.Sidebar.Selected == session.ID.String() && runtime.workspace != nil && runtime.workspace.selected == session.Worktree
 	})
@@ -277,6 +280,10 @@ func openTerminalWindow(t *testing.T, ctx context.Context, owner *node.Node, pro
 }
 
 func (w *terminalUI) close() {
+	if w.closed {
+		return
+	}
+	w.closed = true
 	_ = w.runtime.Close()
 	_ = w.controller.Close()
 }
@@ -284,9 +291,11 @@ func (w *terminalUI) close() {
 // TestLiveTerminalIntegration is the B10 terminal acceptance against a real
 // Node and real PTYs: creation by the shortcut, input and output, the folder
 // label, split panes, pane and terminal closing, reattachment by a new
-// window and the Node's terminal settings.
+// window and the Node's terminal settings. terminalFindAndSettings goes on
+// with the find bar, the rest of Settings › Terminal and the terminal
+// preferences of the window.
 func TestLiveTerminalIntegration(t *testing.T) {
-	ctx, cancel := context.WithTimeout(t.Context(), 150*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Second)
 	defer cancel()
 	profile := filepath.Join(t.TempDir(), "profile")
 	owner, err := node.Start(ctx, profile)
@@ -630,4 +639,6 @@ func TestLiveTerminalIntegration(t *testing.T) {
 	}
 	window.corePanes("after exit")
 	t.Log("step 9 passed: exit closed Node terminal " + third + " and removed its tab and pane")
+
+	terminalFindAndSettings(t, ctx, window, owner, profile, session, setup, first)
 }
