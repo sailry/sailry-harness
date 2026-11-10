@@ -209,6 +209,7 @@ workspace_host: 호스트 정보
 connection_action_edit: 편집
 reference_back: 뒤로
 connection_search_empty: 일치하지 않음
+connection_search: 검색
 activity_completed: 완료됨
 activity_failed: 실패
 activity_idle: 대기 중
@@ -1115,6 +1116,8 @@ mcp_remove_slot: 항목 제거
 mcp_install_stdio_help: 선택한 호스트의 명령과 인수를 입력하고 비밀 값은 자격 증명 필드에 입력하세요
 mcp_install_http_help: MCP 엔드포인트를 입력하고 비공개 헤더는 자격 증명 필드 또는 OAuth로 인증하세요
 mcp_configuration_saved: MCP 구성 저장됨
+mcp_oauth_callback_failed: 인증 콜백을 받을 수 없습니다. 다시 시도하십시오
+mcp_oauth_failed: 인증 실패; 다시 시도하십시오
 team_invalid: 팀 이름을 입력하세요
 team_name_taken: 같은 이름의 팀이 있습니다
 teams_role_invalid: 역할 식별자와 이름을 확인하세요
@@ -1283,6 +1286,7 @@ plugins_updates_title: 플러그인 업데이트
 plugins_update_version: '%{version}로 업데이트'
 plugins_updates_later: 나중에
 plugins_updates_selected: 업데이트 (%{count})
+plugins_retry: 다시 시도
 skill_source_git: Git
 skill_source_skills: skills.sh
 skill_source_hub: skillhub.cn
@@ -1782,3 +1786,46 @@ market_permission_storage_read: 플러그인 데이터 읽기
 market_permission_storage_write: 플러그인 데이터 저장
 market_permission_knowledge_read: 지식 읽기
 market_permission_knowledge_write: 지식 변경
+appearance_icon: Icon
+appearance_color: Color
+project_icon_folder: 폴더
+project_icon_code: 코드
+project_icon_terminal: 터미널
+project_icon_globe: 지구
+project_icon_server: 서버
+project_icon_database: 데이터베이스
+project_icon_package: 패키지
+project_icon_game: 게임
+project_icon_book: 책
+project_icon_finance: 금융
+project_icon_device: 장치
+project_icon_education: 교육
+project_icon_writing: 쓰기 중
+project_icon_tags: 태그
+project_icon_music: 음악
+project_icon_media: 미디어
+project_icon_design: 디자인
+project_icon_health: 건강
+project_icon_nature: 자연
+project_icon_business: 사업
+project_icon_analytics: 분석
+project_icon_profile: 프로필
+project_icon_fitness: 피트니스
+project_icon_law: 법률
+project_icon_audio: 오디오
+project_icon_travel: 여행
+project_icon_tools: 도구
+project_icon_science: 과학
+project_icon_ai: AI
+project_icon_favorite: 즐겨찾기
+project_color_none: 색상 없음
+project_color_blue: 파란색
+project_color_indigo: 인디고
+project_color_violet: 보라색
+project_color_magenta: 자홍색
+project_color_red: 빨간색
+project_color_orange: 주황색
+project_color_amber: 호박색
+project_color_green: 녹색
+project_color_teal: 청록색color
+project_color_cyan: 청록

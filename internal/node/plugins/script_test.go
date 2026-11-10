@@ -139,7 +139,15 @@ func TestScriptControls(t *testing.T) {
 	})
 	t.Run("memory is bounded", func(t *testing.T) {
 		_, err := scriptTestRun(t, "export function run(){const values=[];while(true)values.push(new Array(100000).fill('memory'))}", nil)
-		scriptTestFault(t, err, protocol.ErrorCodeInvalidRequest)
+		fault := scriptTestFault(t, err, protocol.ErrorCodeInvalidRequest)
+		if fault.Message != "plugin JavaScript execution failed: out of memory" {
+			t.Fatalf("memory limit = %s", fault.Message)
+		}
+		value, err := scriptTestRun(t, "export function run(){return 'host survived'}", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		scriptTestJSON(t, value, `"host survived"`)
 	})
 	t.Run("deadlines and cancellation", func(t *testing.T) {
 		for _, source := range []string{

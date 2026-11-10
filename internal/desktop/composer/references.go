@@ -211,6 +211,13 @@ func (s *State) replace(with string) {
 // choose carries out a row.
 func (s *State) choose(c *ui.Context, ctx *Context, actions Actions, r Reference) {
 	st := &s.ref
+	if s.pluginCommand != nil {
+		if replacement, handled := s.pluginCommand(r); handled {
+			s.replace(replacement)
+			st.path = nil
+			return
+		}
+	}
 	switch r.Kind {
 	case Page, Folder:
 		if r.Kind == Folder && r.Insert != "" {

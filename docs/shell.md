@@ -10,6 +10,19 @@ through MyGo Mirror/Conn in the panel, with actual input, resize and close.
 General terminal resources, split shell actions and browser surfaces remain
 assigned to B10.
 
+B9 adds metadata-driven plugin rail entries, More items, native menu items and
+search rows. A selected entry mounts its immutable desktop entry on the captured
+Node and surface; worktree entries keep the selected worktree. Removing an
+active entry returns to the conversation. The activity board reads real Node
+catalogs and previews through Client. Optional packages keep their installed and
+enabled choices; this wiring adds no bundled defaults.
+
+Plugin headers use the active navigation or resource mount. Header titles,
+filters, actions and tabs retain that mount's generation. Composer header
+contributions use the exact session or unsent-draft Registry. A disconnected
+mount keeps its last presentation with actions disabled until reconnection
+creates a fresh owner.
+
 The main window's frame: the header band, the feature rail, the sidebar
 column and the right panel beside the page, their motion and resizing,
 the window's shortcuts and native app menu, the search, the activity

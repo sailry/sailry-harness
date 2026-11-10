@@ -28,7 +28,7 @@ func pluginCommand(kind string) bool {
 		"list_plugin_models", "resolve_plugin_model", "generate_plugin_text", "request_provider_http", "execute_provider_http",
 		"read_installations", "dismiss_installation", "read_plugin_mcp", "save_plugin_mcp", "set_plugin_mcp_allowed", "check_plugin_mcp", "install_mcp",
 		"list_connector_types", "list_connections", "start_connector_login", "submit_connector_input", "cancel_connector_login", "update_connection", "set_connection_enabled", "disconnect_connection", "remove_connection", "confirm_connector_consent", "probe_connection", "inspect_connector_cli",
-		"begin_provider_login", "complete_provider_login", "cancel_provider_login", "read_python_settings", "save_python_settings":
+		"begin_provider_login", "complete_provider_login", "cancel_provider_login", "read_python_settings", "save_python_settings", "read_plugin_view", "read_plugin_connection":
 		return true
 	default:
 		return false
@@ -395,6 +395,12 @@ func (node *Node) mutatePluginCommand(ctx context.Context, db *sql.Conn, caller 
 }
 
 func (node *Node) readPluginCommand(ctx context.Context, caller protocol.NodeID, request protocol.Request) (protocol.Output, error) {
+	if input, ok := request.Command.Data.(*protocol.CommandReadPluginViewPayload); ok {
+		return node.readPluginView(ctx, *input)
+	}
+	if request.Command.Kind == "read_plugin_connection" {
+		return node.readPluginConnection(ctx, caller, request)
+	}
 	if request.Command.Kind == "list_plugin_models" || request.Command.Kind == "resolve_plugin_model" {
 		return node.pluginModelCatalog(ctx, request)
 	}

@@ -13,11 +13,12 @@ import (
 
 // Feature is a rail entry.
 type Feature struct {
-	ID    string
-	Icon  *ui.SVG
-	Label string // i18n key
-	Fixed bool   // always on the rail, never moved (Conversation)
-	Last  bool   // always last (Market)
+	ID            string
+	Icon          *ui.SVG
+	Label         string // i18n key
+	Fixed         bool   // always on the rail, never moved (Conversation)
+	Last          bool   // always last (Market)
+	DefaultPinned bool
 }
 
 // Features are the rail's features in their default order: Conversation,
@@ -37,6 +38,44 @@ func featureOf(id string) (Feature, bool) {
 		}
 	}
 	return Feature{}, false
+}
+
+func (a *App) lookupFeature(id string) (Feature, bool) {
+	if feature, exists := a.pluginFeatures[id]; exists {
+		return feature, true
+	}
+	return featureOf(id)
+}
+
+func (a *App) SetPluginFeatures(features []Feature) {
+	if a.Preview {
+		return
+	}
+	previous := a.pluginFeatures
+	a.pluginFeatures = make(map[string]Feature, len(features))
+	for _, feature := range features {
+		a.pluginFeatures[feature.ID] = feature
+		if _, known := a.unpinned[feature.ID]; !known {
+			if _, retained := previous[feature.ID]; !retained {
+				a.unpinned[feature.ID] = !feature.DefaultPinned
+			}
+		}
+	}
+	a.features = slices.DeleteFunc(a.features, func(id string) bool { return id == "page:activity" })
+	position := 1
+	for _, feature := range features {
+		if slices.Contains(a.features, feature.ID) {
+			continue
+		}
+		position = min(position, len(a.features))
+		a.features = slices.Insert(a.features, position, feature.ID)
+		position++
+	}
+	if a.Page == PluginPage {
+		if _, available := a.pluginFeatures[a.pluginPage]; !available {
+			a.Navigate(ConversationPage)
+		}
+	}
 }
 
 // MoveFeature moves source before or after target in the rail's order: the
@@ -75,9 +114,23 @@ func (a *App) unpinnedList() []string {
 // selectedFeature is the feature the page shows.
 func (a *App) selectedFeature() string { return a.feature() }
 
+func (a *App) PluginFeature() string {
+	if a.Page == PluginPage {
+		return a.pluginPage
+	}
+	return ""
+}
+
 // openFeature opens a feature's page in the main column: the conversation,
 // Files and Git over the selected project, Activity and Market.
 func (a *App) openFeature(c *ui.Context, id string) {
+	if _, exists := a.pluginFeatures[id]; exists {
+		if a.Hooks.SelectPlugin != nil && a.Hooks.SelectPlugin(id) {
+			a.Navigate(PluginPage)
+			a.pluginPage = id
+		}
+		return
+	}
 	if p, ok := pageFeatures[id]; ok {
 		a.Navigate(p)
 		return
@@ -91,7 +144,7 @@ func (a *App) openFeature(c *ui.Context, id string) {
 func (a *App) rail(c *ui.Context) {
 	ui.Column(c.Key("rail")).Width(RailWidth).Shrink(0).Padding(8, 0).Gap(8).AlignItems(ui.Center).Children(func() {
 		for _, id := range a.features {
-			f, ok := featureOf(id)
+			f, ok := a.lookupFeature(id)
 			if !ok || a.unpinned[id] {
 				continue
 			}
@@ -126,7 +179,7 @@ func (a *App) moreButton(c *ui.Context) {
 	panel := kit.Popover(c, b, &a.more, func() {
 		ui.Scroll(c.Key("features")).Gap(1).Children(func() {
 			for _, id := range a.features {
-				f, ok := featureOf(id)
+				f, ok := a.lookupFeature(id)
 				if !ok {
 					continue
 				}

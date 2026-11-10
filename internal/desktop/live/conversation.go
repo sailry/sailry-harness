@@ -327,6 +327,7 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 	r.projectCommands(cv.ID, comp, &ctx.Activity)
 	r.projectTeamComposer(cv, comp, ctx, c.Locale())
 	r.projectChildComposer(cv, comp, ctx, c.Locale())
+	r.projectPluginComposer(c, cv, comp, ctx)
 	r.bindSkillReferences(cv, comp)
 	actions := &conversationActions{r: r, c: c, cv: cv, comp: comp}
 	r.bindComposerAttachments(actions)
@@ -562,10 +563,11 @@ func composerReference(ref protocol.ConversationReference) (composer.Reference, 
 }
 
 type conversationActions struct {
-	r    *Runtime
-	c    *ui.Context
-	cv   *viewmodel.Conversation
-	comp *composer.State
+	r       *Runtime
+	c       *ui.Context
+	cv      *viewmodel.Conversation
+	comp    *composer.State
+	created func(protocol.Session)
 }
 
 func (x *conversationActions) owned() bool {
@@ -593,7 +595,7 @@ func (x *conversationActions) deliver(m composer.Message, guide, queue bool) {
 		}
 	}
 	draft := composerFingerprint(x.comp)
-	finish := func(_ protocol.Output, ok bool) {
+	finish := func(output protocol.Output, ok bool) {
 		if ok {
 			x.r.attachmentsCommitted(m.Attachments)
 		}
@@ -603,9 +605,24 @@ func (x *conversationActions) deliver(m composer.Message, guide, queue bool) {
 			x.comp.Attachments = nil
 			x.r.App.Messages.List(x.cv.ID).ScrollToEnd()
 		}
+		if ok {
+			x.r.pluginCommandIntent(composerPluginScope(x.r, x.cv, x.comp), x.cv.ID, output)
+		}
 	}
 	if strings.HasPrefix(x.cv.ID, "draft/") {
 		if x.r.conversationCreating[x.cv.ID] {
+			return
+		}
+		if start := x.r.pendingSessionBase(x.comp); start != nil {
+			x.startSessionBase(start, func(c *ui.Context, err error) {
+				if err != nil {
+					x.r.reportKeys(c, err, "workspace_action_failed", "workspace_changed", "workspace_action_unknown")
+					return
+				}
+				next := *x
+				next.c = c
+				next.deliver(m, guide, queue)
+			})
 			return
 		}
 		if captured, ok := x.r.conversationCreations[x.cv.ID]; ok && captured.key == creationKey(x.comp, m) {
@@ -661,13 +678,7 @@ func (x *conversationActions) deliver(m composer.Message, guide, queue bool) {
 			return
 		}
 	}
-	for _, w := range x.r.controller.Snapshot().Worktrees {
-		if (create.Project == nil && w.Project == nil || create.Project != nil && w.Project != nil && *w.Project == *create.Project) && (w.Path == x.comp.Worktree || x.comp.Worktree == "" && w.Main) {
-			id := w.ID
-			create.Worktree = &id
-			break
-		}
-	}
+	create.Worktree = x.r.draftWorktree(x.comp, create.Project)
 	command := protocol.Command{Kind: "create_session_at", Data: create}
 	x.r.conversationCreations[x.cv.ID] = conversationCreation{key: creationKey(x.comp, m), command: command}
 	x.create(command, m, finish)
@@ -791,7 +802,12 @@ func (x *conversationActions) OpenChange(path string) {
 		x.r.openWorkspaceChange(x, path)
 	}
 }
-func (x *conversationActions) Badge(string, string) { x.unavailable() }
+func (x *conversationActions) Badge(id, button string) {
+	if button == "" && x.r.invokePluginStatus(composerPluginScope(x.r, x.cv, x.comp), id) {
+		return
+	}
+	x.unavailable()
+}
 func (x *conversationActions) StopCommand(id string) {
 	if x.owned() {
 		x.stopWorkspaceCommand(id)

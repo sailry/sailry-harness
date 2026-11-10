@@ -1,0 +1,443 @@
+package plugins
+
+import (
+	"encoding/json"
+
+	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/icons"
+	"github.com/sailry/sailry-harness/internal/desktop/kit"
+	"github.com/sailry/sailry-harness/internal/desktop/theme"
+)
+
+type modalDraft struct {
+	open   bool
+	source bool
+}
+
+func (binding *NativeBinding) renderLayout(view *ui.Context, element NativeElement, children func(), _ func(CallbackRef, json.RawMessage)) (ui.Element, error) {
+	identity, props, err := nativeProps(element)
+	if err != nil {
+		return ui.Element{}, err
+	}
+	palette := theme.Of(view)
+	switch element.Export {
+	case "SettingsPage":
+		result := ui.Scroll(view).Fill().Children(func() {
+			ui.Column(view).FillWidth().MaxWidth(kit.PageWidth).Margin(0, ui.Auto).Padding(24).Gap(24).Children(func() {
+				ui.Column(view).Gap(8).Children(func() {
+					nativeText(view, nativeProp(props, "title", "")).FontSize(18).FontWeight(600)
+					if description := nativeProp(props, "description", ""); description != "" {
+						nativeText(view, description).TextColor(palette.MutedForeground)
+					}
+				})
+				children()
+			})
+		})
+		return result, nil
+	case "SettingsGroup":
+		var renderErr error
+		first := 0
+		headerAction := nativeProp(props, "header_action", false) && len(element.Children) > 0
+		if headerAction {
+			first = 1
+		}
+		result := ui.Column(view).FillWidth().Gap(12).Children(func() {
+			if nativeProp(props, "heading", true) {
+				ui.Row(view).FillWidth().MinHeight(28).Gap(12).Children(func() {
+					nativeText(view, nativeProp(props, "title", "")).Grow(1).TextColor(palette.Foreground)
+					if headerAction {
+						ui.Row(view).Shrink(0).Gap(8).Justify(ui.End).Children(func() {
+							renderErr = renderNativeChildren(view, element, element.Children[:1])
+						})
+					}
+				})
+			}
+			rows := func() {
+				if renderErr == nil {
+					renderErr = renderNativeChildren(view, element, element.Children[first:])
+				}
+			}
+			if nativeProp(props, "variant", "") == "outline" {
+				ui.Column(view).Border(1, palette.Border).Radius(palette.RadiusLg).PaddingX(16).Dividers(1, palette.Border).TextColor(palette.SurfaceForeground).Children(rows)
+			} else {
+				kit.Card(view, rows)
+			}
+		})
+		return result, renderErr
+	case "SettingsRow":
+		return kit.Row(view, identity, nativeProp(props, "label", ""), "", children), nil
+	case "CardList":
+		return ui.Column(view).FillWidth().Gap(12).Children(func() {
+			if len(element.Children) > 0 {
+				children()
+				return
+			}
+			if nativeProp(props, "loading", false) {
+				ui.Spinner(view)
+				return
+			}
+			if nativeProp(props, "loaded", true) {
+				nativeText(view, nativeProp(props, "empty_label", "")).TextColor(palette.MutedForeground)
+			}
+		}), nil
+	case "CardRow":
+		return kit.Frost(view, ui.Row(view).FillWidth().MinWidth(0).Padding(12, 16).Gap(12).Radius(palette.RadiusLg).Border(1, palette.Border), palette.Surface, kit.CardTint).Children(children), nil
+	case "CardColumn":
+		column := ui.Column(view).MinWidth(0).Gap(4)
+		switch nativeProp(props, "variant", "content") {
+		case "leading":
+			column.Width(32).Shrink(0)
+		case "title":
+			column.Grow(1).MinWidth(160)
+		case "metadata":
+			column.Width(120).Shrink(0)
+		case "wide_metadata":
+			column.Width(180).Shrink(0)
+		case "control":
+			column.Width(140).Shrink(0)
+		case "inline", "actions":
+			column = ui.Row(view).Shrink(0).Gap(8)
+		default:
+			column.Grow(1)
+		}
+		return column.Children(children), nil
+	case "CardSummary":
+		return ui.Row(view).MinWidth(0).Grow(1).Gap(8).Children(func() {
+			children()
+			if icon := nativeIcon(nativeProp(props, "icon", "")); icon != nil {
+				ui.Icon(view, icon).Size(20, 20)
+			}
+			ui.Column(view).Grow(1).MinWidth(0).Gap(4).Children(func() {
+				nativeText(view, nativeProp(props, "title", "")).FontWeight(600).SingleLine()
+				nativeText(view, nativeProp(props, "subtitle", "")).TextColor(palette.MutedForeground).MaxLines(2)
+			})
+		}), nil
+	case "PanelHeader":
+		header := ui.Row(view).FillWidth().MinHeight(36).PaddingX(nativeProp(props, "padding", float32(12))).Gap(nativeProp(props, "gap", float32(8))).Children(children)
+		if nativeProp(props, "bordered", false) {
+			header.Border(1, palette.Border)
+		}
+		return header, nil
+	case "EmptyState":
+		result := ui.Column(view).FillWidth().Center().Gap(16).Padding(24)
+		if nativeProp(props, "fill_height", false) || nativeProp(props, "variant", "panel") == "panel" {
+			result.Grow(1)
+		}
+		if nativeProp(props, "vertical_align", "") == "start" {
+			result.Justify(ui.Start)
+		}
+		return result.Children(func() {
+			if icon := nativeIcon(nativeProp(props, "icon", "")); icon != nil {
+				ui.Icon(view, icon).Size(32, 32).TextColor(palette.MutedForeground)
+			}
+			nativeText(view, nativeProp(props, "label", "")).TextColor(palette.MutedForeground)
+			children()
+		}), nil
+	case "Loading":
+		return ui.Box(view).Fill().Center().Children(func() { ui.Spinner(view) }), nil
+	case "InputSurface":
+		return ui.Column(view).FillWidth().Gap(8).Radius(palette.RadiusLg).Background(palette.Muted).Children(children), nil
+	case "StatusList":
+		return binding.renderStatusList(view, props, children), nil
+	case "ScrollRegion":
+		height := nativeProp(props, "max_height", float32(520))
+		if !finiteNumber(float64(height)) || height <= 0 {
+			height = 520
+		}
+		return ui.Scroll(view).FillWidth().MaxHeight(height).MinWidth(0).MinHeight(0).Gap(12).Children(children), nil
+	case "TextLine":
+		return binding.renderTextLine(view, props)
+	case "Tooltip":
+		result := ui.Column(view).Children(children)
+		kit.Tooltip(view, result, nativeProp(props, "text", ""))
+		return result, nil
+	case "Modal":
+		return binding.renderModal(view, element, identity, props)
+	case "Details":
+		return ui.Column(view).Gap(12).Children(func() {
+			if subtitle := nativeProp(props, "subtitle", ""); subtitle != "" {
+				nativeText(view, subtitle).TextColor(palette.MutedForeground)
+			}
+			kit.Markdown(view, nativeProp(props, "content", ""), kit.MarkdownProps{})
+		}), nil
+	case "Collapse", "CollapseSlot":
+		return binding.renderCollapse(view, element, identity, props, children)
+	case "Workspace":
+		return ui.Column(view).Fill().MinWidth(0).MinHeight(0).Children(children), nil
+	case "CardButton", "ComposedButton":
+		return binding.renderActivityButton(view, element, identity, props, children), nil
+	case "ClampedText":
+		lines := nativeProp(props, "lines", 2)
+		if lines < 1 || lines > 8 {
+			lines = 2
+		}
+		color := palette.MutedForeground
+		if nativeProp(props, "danger", false) {
+			color = palette.Danger
+		}
+		return nativeText(view, nativeProp(props, "text", "")).MaxLines(lines).MaxHeight(float32(lines) * 20).TextColor(color).Clip(), nil
+	case "HoverSwap":
+		return binding.renderHoverSwap(view, element, children)
+	case "ThinkingIcon":
+		return kit.Indicator(view, kit.ThinkingOf(nativeProp(props, "phase", "")), 20), nil
+	case "StatusRing":
+		return binding.renderStatusRing(view, props), nil
+	}
+	return ui.Element{}, hostInvalid("unknown native layout")
+}
+
+func (binding *NativeBinding) renderStatusList(view *ui.Context, props map[string]json.RawMessage, children func()) ui.Element {
+	palette := theme.Of(view)
+	rows := nativeProp(props, "items", []map[string]json.RawMessage{})
+	return ui.Column(view).Fill().MinWidth(0).Children(func() {
+		ui.Scroll(view).Grow(1).MinHeight(0).Gap(8).Children(func() {
+			if body := nativeProp(props, "body", ""); body != "" && len(body) <= 32768 {
+				nativeText(view, body)
+			}
+			if len(rows) == 0 {
+				nativeText(view, nativeProp(props, "empty", "")).TextColor(palette.MutedForeground)
+			}
+			for _, row := range rows {
+				text := nativeProp(row, "text", "")
+				if len(text) > 32768 {
+					continue
+				}
+				ui.Row(view.Key(nativeProp(row, "id", ""))).Gap(8).Children(func() {
+					state := nativeProp(row, "state", "")
+					if state == "in_progress" {
+						ui.Spinner(view).Size(14, 14)
+					} else {
+						icon := icons.CircleCheck
+						if state == "completed" {
+							icon = icons.Check
+						}
+						ui.Icon(view, icon).Size(14, 14).TextColor(palette.MutedForeground)
+					}
+					nativeText(view, text)
+				})
+			}
+		})
+		ui.Row(view).Justify(ui.End).Gap(8).Children(children)
+	})
+}
+
+func (binding *NativeBinding) renderTextLine(view *ui.Context, props map[string]json.RawMessage) (ui.Element, error) {
+	runs := nativeProp(props, "runs", []map[string]json.RawMessage{})
+	lineHeight := nativeProp(props, "line_height", float32(1.2))
+	if !finiteNumber(float64(lineHeight)) || lineHeight <= 0 {
+		return ui.Element{}, hostInvalid("invalid text line height")
+	}
+	size := nativeProp(props, "reference_size", float32(0))
+	total := 0
+	for _, run := range runs {
+		text := nativeProp(run, "text", "")
+		font := nativeProp(run, "size", float32(14))
+		weight := nativeProp(run, "weight", float32(400))
+		gap := nativeProp(run, "gap", float32(0))
+		total += len(text)
+		if !finiteNumber(float64(font)) || font <= 0 || !finiteNumber(float64(weight)) || weight < 100 || weight > 900 || !finiteNumber(float64(gap)) || gap < 0 || total > 32768 {
+			return ui.Element{}, hostInvalid("invalid text line run")
+		}
+		size = max(size, font)
+	}
+	return ui.Row(view).AlignItems(ui.End).Height(size * lineHeight).Children(func() {
+		for _, run := range runs {
+			font := nativeProp(run, "size", float32(14))
+			text := nativeText(view, nativeProp(run, "text", "")).FontSize(font).FontWeight(int(nativeProp(run, "weight", float32(400)))).MarginStart(nativeProp(run, "gap", float32(0)))
+			if color, err := nativeColor(nativeProp(run, "color", "")); err == nil {
+				text.TextColor(color)
+			}
+		}
+	}), nil
+}
+
+func (binding *NativeBinding) renderModal(view *ui.Context, element NativeElement, identity string, props map[string]json.RawMessage) (ui.Element, error) {
+	source := nativeProp(props, "open", false)
+	binding.state.mu.Lock()
+	state := binding.state.modals[identity]
+	if state == nil {
+		state = &modalDraft{}
+		binding.state.modals[identity] = state
+	}
+	if state.source != source {
+		state.open, state.source = source, source
+	}
+	binding.state.mu.Unlock()
+	if !state.open {
+		return ui.Box(view).Size(0, 0), nil
+	}
+	dismissable := nativeProp(props, "dismissable", true)
+	form := nativeProp(props, "form", false)
+	close := func() {
+		if state.open && dismissable {
+			state.open = false
+			binding.emit("modal", identity)
+		}
+	}
+	width := nativeProp(props, "width", float32(560))
+	if !finiteNumber(float64(width)) || width <= 0 {
+		width = 560
+	}
+	windowWidth, windowHeight := view.Size()
+	width = min(width, max(0, windowWidth-48))
+	var dialog ui.Element
+	var renderErr error
+	palette := theme.Of(view)
+	ui.Overlay(view, func() {
+		backdrop := ui.Box(view).Absolute().Left(0).Top(0).Right(0).Bottom(0).Background(palette.Backdrop()).Modal().AlignItems(ui.Center)
+		if form {
+			backdrop.Justify(ui.Start).Padding(windowHeight/10, 0, 0, 0)
+		} else {
+			backdrop.Justify(ui.Center)
+		}
+		backdrop.OnClick(func() {
+			if !form {
+				close()
+			}
+		})
+		if backdrop.OverlayShortcut(0, ui.KeyEscape) {
+			close()
+		}
+		backdrop.Children(func() {
+			panel := ui.Column(view).MinWidth(0).MinHeight(0)
+			if form {
+				panel.Width(width).MinHeight(96).MaxHeight(windowHeight*0.8).Gap(24).Padding(24, 0)
+			} else {
+				panel.Padding(40, 20, 20, 20)
+			}
+			dialog = kit.Floating(view, panel).OnClick(func() {})
+			dialog.Children(func() {
+				if form {
+					ui.Column(view).Grow(1).MinHeight(0).Gap(8).Children(func() {
+						nativeText(view, nativeProp(props, "title", "")).FontSize(16).FontWeight(600).Padding(0, 48, 0, 24).Shrink(0)
+						if len(element.Children) > 0 {
+							ui.Scroll(view).Grow(1).MinHeight(0).FillWidth().Padding(8, 24, 4, 24).Gap(16).Children(func() {
+								renderErr = renderNativeChildren(view, element, element.Children[:1])
+							})
+						}
+					})
+					if len(element.Children) > 1 {
+						ui.Row(view).FillWidth().Shrink(0).PaddingX(24).Children(func() {
+							if renderErr == nil {
+								renderErr = renderNativeChildren(view, element, element.Children[1:2])
+							}
+						})
+					}
+				} else {
+					renderErr = renderNativeChildren(view, element, element.Children)
+				}
+				kit.IconButton(view, icons.Close, i18n.T(view, "close"), 24, false).Absolute().Top(14).Right(14).Disabled(!dismissable).OnClick(close)
+			})
+		})
+	})
+	return dialog, renderErr
+}
+
+func (binding *NativeBinding) renderCollapse(view *ui.Context, element NativeElement, identity string, props map[string]json.RawMessage, children func()) (ui.Element, error) {
+	if element.Export == "CollapseSlot" {
+		slot := ui.Column(view).MinWidth(0)
+		if nativeProp(props, "variant", "") != "actions" {
+			slot.FillWidth()
+		}
+		return slot.Children(children), nil
+	}
+	binding.state.mu.Lock()
+	open := binding.state.collapses[identity]
+	if open == nil {
+		value := nativeProp(props, "default_open", false)
+		open = &value
+		binding.state.collapses[identity] = open
+	}
+	binding.state.mu.Unlock()
+	headerCount, contentCount, actionsCount := 0, 0, 0
+	slots := map[string]*NativeElement{}
+	for _, child := range element.Children {
+		if child.Module != "sailry/ui" || child.Export != "CollapseSlot" {
+			return ui.Element{}, hostInvalid("collapse requires named slots")
+		}
+		_, slotProps, err := nativeProps(*child)
+		if err != nil {
+			return ui.Element{}, err
+		}
+		variant := nativeProp(slotProps, "variant", "")
+		slots[variant] = child
+		switch variant {
+		case "header":
+			headerCount++
+		case "content":
+			contentCount++
+		case "actions":
+			actionsCount++
+		default:
+			return ui.Element{}, hostInvalid("invalid collapse slot")
+		}
+	}
+	if headerCount != 1 || contentCount != 1 || actionsCount > 1 {
+		return ui.Element{}, hostInvalid("collapse requires one header and content slot")
+	}
+	var renderErr error
+	draw := func(slot string) {
+		if child := slots[slot]; child != nil && renderErr == nil {
+			renderErr = renderNativeChildren(view, element, []*NativeElement{child})
+		}
+	}
+	plain := nativeProp(props, "variant", "") == "plain"
+	result := ui.Column(view).FillWidth().MinWidth(0).Children(func() {
+		heading := ui.Row(view).FillWidth().MinWidth(0)
+		heading.Children(func() {
+			button := kit.Ghost(view, nativeProp(props, "label", ""), false).Grow(1).MinWidth(0).Justify(ui.Start).Height(36)
+			if plain {
+				button.Height(32).PaddingX(4)
+			}
+			button.Children(func() {
+				icon := icons.ChevronRight
+				if *open {
+					icon = icons.ChevronDown
+				}
+				ui.Icon(view, icon).Size(14, 14)
+				draw("header")
+			}).OnClick(func() {
+				*open = !*open
+				if binding.Invalidate != nil {
+					binding.Invalidate()
+				}
+			})
+			if slots["actions"] != nil {
+				actions := ui.Row(view).Shrink(0).Gap(8)
+				actions.Children(func() { draw("actions") })
+				if !heading.Hovered() && !actions.FocusWithin() {
+					actions.Opacity(0)
+				}
+			}
+		})
+		if *open {
+			draw("content")
+		}
+	})
+	if !plain {
+		result.Background(theme.Of(view).Muted).Border(1, theme.Of(view).Border).Radius(theme.Of(view).Radius).Clip()
+	}
+	return result, renderErr
+}
+
+func (binding *NativeBinding) renderHoverSwap(view *ui.Context, element NativeElement, children func()) (ui.Element, error) {
+	_, props, err := nativeProps(element)
+	if err != nil {
+		return ui.Element{}, err
+	}
+	region := ui.Box(view).Width(112).Height(16).Shrink(0)
+	if len(element.Children) == 0 {
+		return region, nil
+	}
+	index := 0
+	group := nativeProp(props, "group", "")
+	if binding.state.hoverGroups[group] && len(element.Children) > 1 {
+		index = 1
+	}
+	var renderErr error
+	region.Children(func() {
+		renderErr = renderNativeChildren(view, element, element.Children[index:index+1])
+	})
+	return region, renderErr
+}

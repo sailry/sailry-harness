@@ -209,6 +209,7 @@ workspace_host: Informações do host
 connection_action_edit: Editar
 reference_back: Voltar
 connection_search_empty: Não há correspondências
+connection_search: Pesquisar
 activity_completed: Concluído
 activity_failed: Falhou
 activity_idle: Inativo
@@ -1115,6 +1116,8 @@ mcp_remove_slot: Remover o item
 mcp_install_stdio_help: Informe o comando e os argumentos do host selecionado; coloque valores privados nos campos de credenciais
 mcp_install_http_help: Informe o endpoint MCP; use os campos de credenciais para cabeçalhos privados ou autorize com OAuth
 mcp_configuration_saved: MCP configuração salva
+mcp_oauth_callback_failed: Não foi possível receber o retorno de autorização; tente novamente
+mcp_oauth_failed: A autorização falhou; tente novamente
 team_invalid: Digite um nome de equipe
 team_name_taken: Já existe uma equipe com este nome
 teams_role_invalid: Verifique o identificador e o nome da função
@@ -1283,6 +1286,7 @@ plugins_updates_title: Atualizações de plugins
 plugins_update_version: Atualização para %{version}
 plugins_updates_later: Mais tarde
 plugins_updates_selected: Atualizar (%{count})
+plugins_retry: Tentar novamente
 skill_source_git: Git
 skill_source_skills: skills.sh
 skill_source_hub: skillhub.cn
@@ -1782,3 +1786,46 @@ market_permission_storage_read: Ler dados do plugin
 market_permission_storage_write: Salvar dados do plugin
 market_permission_knowledge_read: Ler conhecimento
 market_permission_knowledge_write: Alterar conhecimento
+appearance_icon: Icon
+appearance_color: Color
+project_icon_folder: Pasta
+project_icon_code: Código
+project_icon_terminal: Terminal
+project_icon_globe: Globo
+project_icon_server: Servidor
+project_icon_database: Base de dados
+project_icon_package: Pacote
+project_icon_game: Jogo
+project_icon_book: Livro
+project_icon_finance: Finanças
+project_icon_device: Dispositivo
+project_icon_education: Educação
+project_icon_writing: Gravando
+project_icon_tags: Tags
+project_icon_music: Música
+project_icon_media: Mídia
+project_icon_design: Design
+project_icon_health: Saúde
+project_icon_nature: Natureza
+project_icon_business: Negócios
+project_icon_analytics: Análise
+project_icon_profile: Perfil
+project_icon_fitness: Fitness
+project_icon_law: Direito
+project_icon_audio: Áudio
+project_icon_travel: Viagens
+project_icon_tools: Ferramentas
+project_icon_science: Ciência
+project_icon_ai: AI
+project_icon_favorite: Favorito
+project_color_none: Nenhuma cor
+project_color_blue: Azul
+project_color_indigo: Índigo
+project_color_violet: Violeta
+project_color_magenta: Magenta
+project_color_red: Vermelho
+project_color_orange: Laranja
+project_color_amber: Âmbar
+project_color_green: Verde
+project_color_teal: Teal
+project_color_cyan: Ciano

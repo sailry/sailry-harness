@@ -18,6 +18,7 @@ import (
 
 func TestMCPPackageAndScriptCapture(t *testing.T) {
 	t.Run("conversation selects MCP and preserves scripted native receipt", pluginMCPConversationAcceptance)
+	t.Run("assistant conversation uses its declared workspace, packages, tools and context", pluginAssistantAcceptance)
 	t.Run("startup retains safe unavailable diagnostics and terminal cleanup", func(t *testing.T) {
 		invocation := &store.AgentInvocation{}
 		info := protocol.DefaultPluginInfo()

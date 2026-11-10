@@ -1,0 +1,12 @@
+Desktop host declaration fragments captured at Sailry Rust revision
+eaad1b7f18e448c8c4e9e9286e19560c8a351ae1 and preserved in this repository.
+
+api.d.ts and activity.d.ts extend sailry/sdk.
+controls.d.ts, charts.d.ts, table.d.ts, tree.d.ts, notifications.d.ts,
+layout.d.ts, activity-ui.d.ts, browser.d.ts, panes.d.ts, overlay.d.ts, menu.d.ts
+and picker.d.ts extend sailry/ui.
+forms.d.ts and configuration.d.ts extend sailry/forms.
+sailry.d.ts declares sailry. The other fragments declare the corresponding
+sailry module. Combined inline fragments retain their source declarations and
+comments with indentation normalized.
+These are source declarations; application runtime imports no external checkout.

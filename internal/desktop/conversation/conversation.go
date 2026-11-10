@@ -29,21 +29,23 @@ const (
 // each keeps its place, the disclosures opened and view-only mention bindings.
 // Canonical conversation data remains in Client.
 type State struct {
-	lists     map[string]*ui.ListState
-	open      map[string]*bool
-	work      map[string]bool  // work regions the user opened or closed
-	built     map[string]bool  // lists built once, so laid out
-	md        markdown.Options // the replies' (kit.Markdown fills the rest)
-	mdBase    *markdown.Theme
-	mdSize    float32
-	light     float32    // the welcome wordmark's beam, in window DIPs
-	lit       bool       // the pointer has moved over the welcome page
-	view      Viewer     // the image viewer
-	rewind    string     // the turn whose rewind waits to be confirmed
-	reading   string     // the turn read aloud
-	find      search     // the search bar
-	wantOlder bool       // the start came into view this frame
-	nav       navigation // the message navigation rail
+	toolCards     map[string]map[string]func(*ui.Context)
+	renderSession string
+	lists         map[string]*ui.ListState
+	open          map[string]*bool
+	work          map[string]bool  // work regions the user opened or closed
+	built         map[string]bool  // lists built once, so laid out
+	md            markdown.Options // the replies' (kit.Markdown fills the rest)
+	mdBase        *markdown.Theme
+	mdSize        float32
+	light         float32    // the welcome wordmark's beam, in window DIPs
+	lit           bool       // the pointer has moved over the welcome page
+	view          Viewer     // the image viewer
+	rewind        string     // the turn whose rewind waits to be confirmed
+	reading       string     // the turn read aloud
+	find          search     // the search bar
+	wantOlder     bool       // the start came into view this frame
+	nav           navigation // the message navigation rail
 	// Split is whether the transcripts show in the panes of a split, which have
 	// no navigation rail.
 	Split            bool
@@ -75,6 +77,9 @@ func (s *State) List(id string) *ui.ListState {
 // the jump button over it, and the image viewer and rewind confirmation
 // over the window. sess may be nil.
 func View(c *ui.Context, s *State, id string, turns []Turn, sess *Session, actions Actions) {
+	previousSession := s.renderSession
+	s.renderSession = id
+	defer func() { s.renderSession = previousSession }()
 	s.messageTheme(c)
 	s.md.ShareSelection = true
 	if sess != nil && sess.Loading {

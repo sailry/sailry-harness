@@ -135,6 +135,14 @@ func (a *App) catalog(c *ui.Context, folder string) []Group {
 					}})
 			}
 		}
+		for _, page := range a.Settings.PluginPages() {
+			section := page.Section
+			list = append(list, Choice{ID: string(section), Label: page.Label, Icon: page.Icon,
+				Selected: a.Page == SettingsPage && a.Settings.Section == section, run: func() {
+					a.Page = SettingsPage
+					a.Settings.Open(section)
+				}})
+		}
 		return []Group{{Heading: t("settings"), Choices: list}}
 	}
 	root := []Choice{
@@ -143,7 +151,11 @@ func (a *App) catalog(c *ui.Context, folder string) []Group {
 		{ID: "hosts", Label: t("hosts"), Icon: icons.Cpu, Folder: "hosts"},
 		{ID: "settings", Label: t("settings"), Icon: icons.Settings, Folder: "settings"},
 	}
-	for _, f := range Features {
+	for _, id := range a.features {
+		f, exists := a.lookupFeature(id)
+		if !exists {
+			continue
+		}
 		if f.ID == "page:conversation" || f.ID == "page:activity" {
 			continue
 		}

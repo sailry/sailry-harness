@@ -76,6 +76,9 @@ func (r *Runtime) captureTools(x *execution) error {
 			x.toolCleanup = append(x.toolCleanup, tool.Close)
 		}
 	}
+	if err := r.applyAssistant(x); err != nil {
+		return err
+	}
 	if x.inv.Session.Delegation != nil && *x.inv.Session.Delegation != nil {
 		if x.childRole != nil && x.childRole.Tools != nil {
 			for _, selection := range *x.childRole.Tools {

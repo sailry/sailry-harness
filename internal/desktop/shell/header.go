@@ -46,6 +46,9 @@ func (a *App) header(c *ui.Context, f frame) {
 				OnClick(func() { a.NavOpen = !a.NavOpen })
 			a.trail(c)
 			ui.Spacer(c)
+			if a.Hooks.PluginHeader != nil {
+				a.Hooks.PluginHeader(c)
+			}
 			if a.Page == ConversationPage {
 				a.strip(c)
 			}
@@ -75,6 +78,9 @@ func (a *App) header(c *ui.Context, f frame) {
 // the sidebar.
 func (a *App) trail(c *ui.Context) {
 	p := theme.Of(c)
+	if a.Hooks.PluginTitle != nil && a.Hooks.PluginTitle(c) {
+		return
+	}
 	if a.Page == NotificationsPage {
 		ui.Text(c, i18n.T(c, "notification_center")).FontSize(14).SingleLine().TextColor(p.Foreground)
 		return
@@ -97,7 +103,7 @@ func (a *App) trail(c *ui.Context) {
 		return
 	}
 	if id := a.feature(); a.Page != ConversationPage && id != "" {
-		f, _ := featureOf(id)
+		f, _ := a.lookupFeature(id)
 		label := i18n.T(c, f.Label)
 		pr := a.Data.ProjectOf(a.Sidebar.Selected)
 		if pr == nil || a.Page != FilesPage && a.Page != GitPage {

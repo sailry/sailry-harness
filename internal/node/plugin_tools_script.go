@@ -16,7 +16,6 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
-	"lukechampine.com/blake3"
 )
 
 type pluginScriptTurn struct {
@@ -29,17 +28,6 @@ type pluginScriptTurn struct {
 	state      json.RawMessage
 }
 
-func pluginToolIdentity(turn protocol.TurnID, reference protocol.PluginReference, tool, call string) protocol.RequestID {
-	body, _ := json.Marshal([]any{turn, reference, tool, call})
-	var digest [32]byte
-	blake3.DeriveKey(digest[:], "Sailry plugin tool call v1", body)
-	var identity protocol.RequestID
-	copy(identity[:], digest[:16])
-	identity[6] = identity[6]&0x0f | 0x80
-	identity[8] = identity[8]&0x3f | 0x80
-	return identity
-}
-
 func (owner *pluginScriptTurn) evaluate(ctx context.Context, handler, tool, call string, input any, readOnly bool) (json.RawMessage, error) {
 	owner.mu.Lock()
 	defer owner.mu.Unlock()
@@ -47,7 +35,7 @@ func (owner *pluginScriptTurn) evaluate(ctx context.Context, handler, tool, call
 	if !strings.HasPrefix(tool, "turn.") {
 		identityTool = plugins.ToolAlias(owner.info.Summary.Name, tool)
 	}
-	identity := pluginToolIdentity(owner.invocation.Run.Turn, owner.scope.Package, identityTool, call)
+	identity := plugins.ToolCallIdentity(owner.invocation.Run.Turn, owner.scope.Package, identityTool, call)
 	operation, cancel := context.WithCancel(ctx)
 	defer cancel()
 	scope := owner.scope
@@ -57,6 +45,9 @@ func (owner *pluginScriptTurn) evaluate(ctx context.Context, handler, tool, call
 	}, owner.node.dispatchCallbackResult, execution)
 	if err == nil && execution.StagedTurn != nil {
 		owner.state = slices.Clone(execution.StagedTurn)
+	}
+	if err == nil {
+		result = plugins.StampCards(result, owner.node.ID(), scope, owner.info, identity)
 	}
 	return result, err
 }

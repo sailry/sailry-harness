@@ -14,7 +14,7 @@ import (
 )
 
 func (r *Runtime) draftWorkspaceSession(id string) (protocol.Session, bool) {
-	if !strings.HasPrefix(id, "draft/") || r.App.Data.Find(id) == nil {
+	if !strings.HasPrefix(id, "draft/") || r.pluginComposerView(id) == nil {
 		return protocol.Session{}, false
 	}
 	comp := r.App.Composer(id)

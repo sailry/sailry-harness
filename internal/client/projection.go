@@ -22,6 +22,7 @@ type Projection struct {
 	generation uint64
 	snapshot   *protocol.Snapshot
 	recovery   bool
+	changes    pluginChangeCursors
 }
 
 func NewProjection(node protocol.NodeID, generation uint64) *Projection {
@@ -65,6 +66,9 @@ func (projection *Projection) Apply(generation uint64, update protocol.Update) (
 		}
 		snapshot = copyValue(snapshot)
 		retainQuotas(&snapshot)
+		if err := projection.changes.reset(snapshot); err != nil {
+			return Ignored, err
+		}
 		projection.snapshot, projection.recovery = &snapshot, false
 		return Applied, nil
 	case "event":
@@ -86,6 +90,10 @@ func (projection *Projection) Apply(generation uint64, update protocol.Update) (
 			projection.recovery = true
 			return Recover, nil
 		}
+		settled, removed, err := projection.settledChange(envelope.Event)
+		if err != nil {
+			return Ignored, err
+		}
 		recover, err := projection.reduce(copyValue(envelope.Event))
 		if err != nil {
 			return Ignored, err
@@ -93,6 +101,10 @@ func (projection *Projection) Apply(generation uint64, update protocol.Update) (
 		if recover {
 			projection.recovery = true
 			return Recover, nil
+		}
+		if err := projection.changes.observe(envelope.Event, envelope.Cursor, settled, removed); err != nil {
+			projection.recovery = true
+			return Recover, err
 		}
 		projection.snapshot.Cursor = envelope.Cursor
 		return Applied, nil

@@ -13,6 +13,7 @@ import (
 
 // The rail's features open pages in the main column, never panel tabs.
 func TestRailOpensPages(t *testing.T) {
+	t.Run("live plugin navigation", testLivePluginNavigation)
 	a, tt := newTester(t)
 	clickButton(t, tt, i18n.In("en", "files"))
 	tt.Advance(time.Second)
@@ -127,6 +128,55 @@ func TestRailOpensPages(t *testing.T) {
 			t.Fatalf("missing project discarded its captured owner: %q %q %v", node, project, shown)
 		}
 	})
+}
+
+func testLivePluginNavigation(t *testing.T) {
+	app := NewLive(&viewmodel.Data{Workspace: &viewmodel.Workspace{}})
+	features := []Feature{
+		{ID: "plugin/local/fixture", Label: "Local fixture", DefaultPinned: true},
+		{ID: "plugin/remote/fixture", Label: "Remote fixture"},
+	}
+	app.SetPluginFeatures(features)
+	var selected string
+	var choices []Choice
+	app.Hooks.SelectPlugin = func(id string) bool {
+		selected = id
+		return true
+	}
+	app.Hooks.PluginPage = func(context *ui.Context, id string) {
+		ui.Text(context, "Mounted "+id)
+	}
+	app.Hooks.BeforeFrame = func(context *ui.Context) {
+		choices = nil
+		for _, group := range app.catalog(context, "") {
+			choices = append(choices, group.Choices...)
+		}
+	}
+	tester := ui.NewTester(app.View, 1280, 820)
+	tester.SetLocale("en")
+	tester.Frame()
+	for _, feature := range features {
+		if !slices.ContainsFunc(choices, func(choice Choice) bool { return choice.ID == feature.ID }) {
+			t.Fatalf("plugin %q is missing from search", feature.ID)
+		}
+	}
+	if !app.unpinned[features[1].ID] || app.unpinned[features[0].ID] || slices.Contains(app.features, "page:activity") {
+		t.Fatal("live navigation lost declared pins or retained the preview Activity entry")
+	}
+	clickButton(t, tester, features[0].Label)
+	tester.Frame()
+	if app.Page != PluginPage || selected != features[0].ID || !tester.HasText("Mounted "+features[0].ID) {
+		t.Fatal("the rail did not open its captured generic plugin page")
+	}
+	app.SetPluginFeatures(features)
+	if !app.unpinned[features[1].ID] {
+		t.Fatal("metadata refresh changed the rail pin choice")
+	}
+	app.SetPluginFeatures(features[1:])
+	tester.Frame()
+	if app.Page != ConversationPage || app.PluginFeature() != "" {
+		t.Fatal("a withdrawn plugin retained its active page")
+	}
 }
 
 // The Files and Git page and tab of a project share one state; another

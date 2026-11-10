@@ -115,7 +115,7 @@ type CodeOptions struct {
 // lines, inside box:
 // it highlights by Language and keeps its editor while box stays.
 // Trailing line breaks are left out, so no empty last line shows.
-func Code(c *ui.Context, box ui.Element, text string, o CodeOptions) {
+func Code(c *ui.Context, box ui.Element, text string, o CodeOptions) ui.Element {
 	if o.Changed == nil {
 		text = strings.TrimRight(text, "\r\n")
 	}
@@ -145,14 +145,16 @@ func Code(c *ui.Context, box ui.Element, text string, o CodeOptions) {
 	if o.Bind != nil {
 		o.Bind(v.st)
 	}
+	var native ui.Element
 	box.Children(func() {
 		before := v.st.Buffer.Version()
-		editor.View(c, v.st).FillWidth()
+		native = editor.View(c, v.st).FillWidth()
 		if o.Changed != nil && v.st.Buffer.Version() != before {
 			v.text = v.st.Buffer.String()
 			o.Changed(v.text)
 		}
 	})
+	return native
 }
 
 // CodeBlock is the Markdown hook (Options.CodeBlock) for code in

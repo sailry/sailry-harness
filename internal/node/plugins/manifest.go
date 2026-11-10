@@ -199,9 +199,12 @@ func validateExtension(extension protocol.PluginExtension) error {
 				return packageFault("plugin desktop resources must belong to the platform namespace")
 			}
 		}
-		if desktop.Entry != nil && (!namespacePath(*desktop.Entry) || !slices.Contains(desktop.Resources, *desktop.Entry)) {
-			return packageFault("plugin desktop entry is not declared")
-		}
+	}
+	if err := validateDesktopExtension(extension); err != nil {
+		return err
+	}
+	if err := validateStatusExtension(extension); err != nil {
+		return err
 	}
 	tools := map[string]bool{}
 	for _, tool := range extension.Tools {
@@ -222,6 +225,9 @@ func validateExtension(extension protocol.PluginExtension) error {
 				return packageFault("plugin result handler is not declared")
 			}
 		}
+	}
+	if err := ValidateCards(extension); err != nil {
+		return err
 	}
 	if extension.Storage != nil {
 		return ValidateStorage(*extension.Storage)

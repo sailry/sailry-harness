@@ -1,6 +1,8 @@
 package composer
 
 import (
+	"fmt"
+
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
@@ -113,6 +115,10 @@ func (s *State) project(ctx *Context) *Project {
 	return nil
 }
 
+func (s *State) OpenProjectPicker() {
+	s.projectPicker = true
+}
+
 // contextButton is a context bar button: round, ghost, muted, an icon and
 // a label (the label alone goes in a narrow composer), and a chevron for
 // a menu.
@@ -142,7 +148,16 @@ func (s *State) projectButton(c *ui.Context, ctx *Context, actions Actions, icon
 	if pr := s.project(ctx); pr != nil {
 		icon, label = icons.Folder, pr.Name
 	}
-	kit.MenuButton(c.Key("project"), "composer-project", func(b ui.Element) {
+	if s.projectMenu == "" {
+		s.projectMenu = fmt.Sprintf("composer-project-%p", s)
+	}
+	if s.projectPicker {
+		s.projectPicker = false
+		if !ctx.Readonly && !ctx.LocationLocked {
+			kit.OpenMenu(c, s.projectMenu, true)
+		}
+	}
+	kit.MenuButton(c.Key("project"), s.projectMenu, func(b ui.Element) {
 		contextButton(c, b.Disabled(ctx.Readonly || ctx.LocationLocked), icon, label, false, iconOnly)
 	}, func(m *kit.Menu) {
 		choose := func(id string) {

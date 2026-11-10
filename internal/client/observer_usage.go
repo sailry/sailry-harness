@@ -21,6 +21,7 @@ type usageView struct {
 
 func (client *Client) watchUsageView(ctx context.Context, query protocol.UsageQuery) *Observer {
 	observer := newObserver(ctx)
+	_, scoped := usageScopeFor(ctx, client.Target())
 	requested := make(chan bool, 1)
 	state := usageView{}
 	forcedRefresh := false
@@ -72,6 +73,7 @@ func (client *Client) watchUsageView(ctx context.Context, query protocol.UsageQu
 			observer.mu.Lock()
 			forced = forced || forcedRefresh
 			forcedRefresh = false
+			wasConnected := state.Connected
 			state.Connected = connected
 			if !connected {
 				state.Error = observerFault(client.Err())
@@ -79,7 +81,7 @@ func (client *Client) watchUsageView(ctx context.Context, query protocol.UsageQu
 				observer.notify()
 				continue
 			}
-			if !forced && state.Report != nil && state.Report.Cursor >= snapshot.Cursor {
+			if !forced && wasConnected && state.Report != nil && state.Report.Cursor >= snapshot.Cursor {
 				observer.mu.Unlock()
 				observer.notify()
 				continue
@@ -87,7 +89,7 @@ func (client *Client) watchUsageView(ctx context.Context, query protocol.UsageQu
 			state.Refreshing = true
 			observer.mu.Unlock()
 			observer.notify()
-			report, err := client.readUsage(observer.ctx, query)
+			report, err := client.ReadUsage(observer.ctx, query)
 			observer.mu.Lock()
 			state.Connected = client.Connected()
 			state.Refreshing = false
@@ -98,6 +100,12 @@ func (client *Client) watchUsageView(ctx context.Context, query protocol.UsageQu
 				state.Report = &report
 				state.Error = observerFault(client.Err())
 			} else {
+				if scoped && slices.Contains([]protocol.ErrorCode{
+					protocol.ErrorCodeNotConfigured, protocol.ErrorCodeNotFound,
+					protocol.ErrorCodePermissionDenied, protocol.ErrorCodeRevisionConflict,
+				}, faultCode(err)) {
+					state.Report = nil
+				}
 				state.Error = observerFault(err)
 			}
 			observer.mu.Unlock()
@@ -107,8 +115,31 @@ func (client *Client) watchUsageView(ctx context.Context, query protocol.UsageQu
 	return observer
 }
 
-func (client *Client) readUsage(ctx context.Context, query protocol.UsageQuery) (protocol.UsageReport, error) {
-	output, err := client.Do(ctx, protocol.Command{Kind: "read_usage", Data: query})
+func (client *Client) ReadUsage(ctx context.Context, query protocol.UsageQuery) (protocol.UsageReport, error) {
+	request := client.Prepare(protocol.Command{Kind: "read_usage", Data: query})
+	if selected, scoped := usageScopeFor(ctx, client.Target()); scoped {
+		scope := copyValue(selected.context)
+		if selected.resolve {
+			output, err := client.Do(ctx, protocol.Command{Kind: "list_plugins"})
+			if err != nil {
+				return protocol.UsageReport{}, err
+			}
+			packages, err := payload[[]protocol.PluginSummary](output.Data)
+			if err != nil || output.Kind != "plugins" {
+				return protocol.UsageReport{}, fault(protocol.ErrorCodeInternal, "plugin inventory response expected")
+			}
+			index := slices.IndexFunc(packages, func(summary protocol.PluginSummary) bool {
+				return summary.Name == scope.Package.Name && summary.Digest == scope.Package.Digest
+			})
+			if index < 0 {
+				return protocol.UsageReport{}, fault(protocol.ErrorCodeNotConfigured, "matching usage package is unavailable")
+			}
+			packageInfo := packages[index]
+			scope.Package = protocol.PluginReference{Name: packageInfo.Name, Digest: packageInfo.Digest, SettingsRevision: packageInfo.SettingsRevision}
+		}
+		request.Plugin = &scope
+	}
+	output, err := client.Execute(ctx, request)
 	if err != nil {
 		return protocol.UsageReport{}, err
 	}

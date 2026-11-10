@@ -59,7 +59,7 @@ func (stream *topicSubscription) Next(ctx context.Context) (protocol.Update, err
 		routeCancel := stream.routeCancel
 		stream.mu.Unlock()
 		update, err := current.Next(operation)
-		if err == nil || !transient(err) || operation.Err() != nil {
+		if stream.topic.Kind == "status" || stream.topic.Kind == "connector_login" || err == nil || !transient(err) || operation.Err() != nil {
 			return update, err
 		}
 		_ = current.Close()

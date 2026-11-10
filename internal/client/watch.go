@@ -74,6 +74,7 @@ func (client *Client) Refresh(ctx context.Context) error {
 }
 
 func (client *Client) Close() error {
+	client.closePluginStatusObservers()
 	client.lifecycle.Lock()
 	if client.closed {
 		client.lifecycle.Unlock()

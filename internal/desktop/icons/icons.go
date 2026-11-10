@@ -1,8 +1,8 @@
-// Package icons holds the SVG icons the reference app draws: Lucide icons as
-// Kit bundles them (svg/LICENSE-LUCIDE), Sailry's reicon glyphs, the Remix
-// Icon status glyphs of assets/icons/remix (Apache-2.0), the Simple Icons
-// platform logos of assets/icons/os (CC0, svg/LICENSE-OS) and provider logos
-// (svg/PROVIDERS-SOURCE.md). ui.Icon draws them in the text color.
+// Package icons holds Lucide icons (svg/LICENSE-LUCIDE), Reicon glyphs
+// (svg/LICENSE-REICON), Remix Icon status glyphs (svg/LICENSE-REMIX),
+// Simple Icons platform logos (svg/LICENSE-OS) and provider logos
+// (svg/PROVIDERS-SOURCE.md). Plugin asset provenance and upstream attributions
+// are retained in svg/PLUGINS-SOURCE.md. ui.Icon draws them in the text color.
 package icons
 
 import (

@@ -36,6 +36,7 @@ func PluginModels(ctx context.Context, db *sql.Conn) (protocol.PluginModelsCatal
 
 func ResolvePluginModel(ctx context.Context, db *sql.Conn, selected string, effort *protocol.Effort, base *protocol.SessionConfig) (protocol.ConversationProvider, protocol.SessionConfig, error) {
 	config := protocol.DefaultSessionConfig()
+	config.Mode, config.Permission = protocol.WorkModeCode, protocol.PermissionAsk
 	if base != nil && (base.Assistant != nil || base.Resource != nil) {
 		return protocol.ConversationProvider{}, config, invalid("model selection requires a project or unassigned scope")
 	}

@@ -209,6 +209,7 @@ workspace_host: 主機資訊
 connection_action_edit: 編輯
 reference_back: 返回上一級
 connection_search_empty: 無匹配結果
+connection_search: 搜尋
 activity_completed: 已完成
 activity_failed: 失敗
 activity_idle: 空閒
@@ -1115,6 +1116,8 @@ mcp_remove_slot: 移除此項
 mcp_install_stdio_help: 輸入所選主機執行的命令和參數，私密值填寫於憑證欄位
 mcp_install_http_help: 輸入 MCP 位址，私密標頭填寫於憑證欄位，或使用 OAuth 授權
 mcp_configuration_saved: 已儲存 MCP 配置
+mcp_oauth_callback_failed: 無法接收授權回撥，請重試
+mcp_oauth_failed: 授權失敗，請重試
 team_invalid: 請輸入團隊名稱
 team_name_taken: 已有同名團隊
 teams_role_invalid: 請檢查角色識別碼和名稱
@@ -1283,6 +1286,7 @@ plugins_updates_title: 外掛程式更新
 plugins_update_version: 更新至 %{version}
 plugins_updates_later: 稍後
 plugins_updates_selected: 更新（%{count}）
+plugins_retry: 重試
 skill_source_git: Git
 skill_source_skills: skills.sh
 skill_source_hub: skillhub.cn
@@ -1782,3 +1786,46 @@ market_permission_storage_read: 讀取外掛資料
 market_permission_storage_write: 儲存外掛資料
 market_permission_knowledge_read: 讀取知識庫
 market_permission_knowledge_write: 修改知識庫
+appearance_icon: Icon
+appearance_color: Color
+project_icon_folder: 資料夾
+project_icon_code: 程式碼
+project_icon_terminal: 終端
+project_icon_globe: 網站
+project_icon_server: 伺服器
+project_icon_database: 資料庫
+project_icon_package: 包
+project_icon_game: 遊戲
+project_icon_book: 書籍
+project_icon_finance: 財務
+project_icon_device: 裝置
+project_icon_education: 教育
+project_icon_writing: 寫作
+project_icon_tags: 標籤
+project_icon_music: 音樂
+project_icon_media: 媒體
+project_icon_design: 設計
+project_icon_health: 健康
+project_icon_nature: 自然
+project_icon_business: 商務
+project_icon_analytics: 分析
+project_icon_profile: 個人
+project_icon_fitness: 運動
+project_icon_law: 法律
+project_icon_audio: 音訊
+project_icon_travel: 旅行
+project_icon_tools: 工具
+project_icon_science: 科學
+project_icon_ai: AI
+project_icon_favorite: 收藏
+project_color_none: 無顏色
+project_color_blue: 藍色
+project_color_indigo: 靛藍
+project_color_violet: 紫色
+project_color_magenta: 洋紅
+project_color_red: 紅色
+project_color_orange: 橙色
+project_color_amber: 琥珀
+project_color_green: 綠色
+project_color_teal: 青綠
+project_color_cyan: 青色

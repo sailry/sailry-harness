@@ -180,6 +180,9 @@ func (r *Runtime) turn(x *execution) error {
 			instructions[tool.Instruction] = true
 		}
 	}
+	if x.assistantContext != "" {
+		policy += "\n\n" + x.assistantContext
+	}
 	if x.rolePolicy != "" {
 		policy += "\n\n" + x.rolePolicy
 	}

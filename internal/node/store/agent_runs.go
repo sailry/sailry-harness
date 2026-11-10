@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/sailry/sailry-harness/internal/node/agent/operations"
+	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -119,6 +120,17 @@ func admitAgentTurn(ctx context.Context, db *sql.Conn, node, caller protocol.Nod
 	}
 	if err := validateConfig(ctx, db, node, session.Config); err != nil {
 		return value, err
+	}
+	if session.Config.Assistant != nil {
+		// An assistant turn freezes only its owner and the packages it imports.
+		packages, err := assistantPackages(ctx, db, *session.Config.Assistant)
+		if err != nil {
+			return value, err
+		}
+		value.Plugins = []protocol.PluginReference{}
+		for _, info := range packages {
+			value.Plugins = append(value.Plugins, plugins.PackageReference(info))
+		}
 	}
 	var count uint64
 	if err := db.QueryRowContext(ctx, "SELECT count(*) FROM agent_pending p JOIN turns t ON t.id=p.turn WHERE t.session=?1", session.ID.String()).Scan(&count); err != nil {
@@ -260,6 +272,9 @@ func claimAgentInvocation(ctx context.Context, db *sql.Conn, turn protocol.TurnI
 	session.Worktree = run.Worktree
 	session.Roles = queued.Turn.Roles
 	inv := &AgentInvocation{Session: session, Run: run, Turn: queued.Turn, Message: queued.Message, Instructions: []AgentInstruction{}}
+	if err = captureAssistant(ctx, db, inv); err != nil {
+		return nil, nil, err
+	}
 	catalog, err := operations.Bundled()
 	if err != nil {
 		return nil, nil, err

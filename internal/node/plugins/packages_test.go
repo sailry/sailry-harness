@@ -40,6 +40,7 @@ func packageFixture(t *testing.T, directory, name, text string) {
 
 func TestPackageBoundaries(t *testing.T) {
 	t.Parallel()
+	t.Run("Status declarations", testStatusExtension)
 	for _, name := range []string{"", "-plugin", "plugin-", "Plugin", "a--b", "a..b", "a/b", "a_b", strings.Repeat("a", 65)} {
 		if ValidateName(name) {
 			t.Errorf("accepted invalid package name %q", name)
@@ -170,6 +171,8 @@ func TestBundledPackageContracts(t *testing.T) {
 
 func TestPackageSchemasAndSkills(t *testing.T) {
 	t.Parallel()
+	t.Run("canonical card contracts", testCardContracts)
+	t.Run("desktop declaration scopes", testDesktopDeclarations)
 	t.Run("schemas cannot load host files", func(t *testing.T) {
 		directory := t.TempDir()
 		packageFixture(t, directory, "external-schema.json", `{"type":"object"}`)

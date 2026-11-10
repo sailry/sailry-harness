@@ -225,7 +225,17 @@ and stops at the first failure. Session documents read `ListArtifacts` and
 revision cache avoids repeated reads on each presentation frame. Outcomes appear
 only in distinct failure, conflict, uncertain or success toasts.
 
-Browser and terminal rendering belongs to the later resource phase.
+Plugin-declared project creation contributions and resource renderers use the
+existing panel hooks. The commands contribution creates a Node-owned terminal
+and opens a captured Node/worktree/resource pane. Resource titles, busy close
+behavior and pane events belong to that exact mount. Closing a view detaches
+presentation; explicit terminal actions own process termination. Files and Git
+remain the native core panel owners.
+
+The plugin terminal bridge reuses the existing MyGo Mirror/Conn owner and
+checks workspace read/control authority before creating a view. Disconnection
+retains its native presentation while disabling interaction. General terminal
+settings, split-terminal acceptance and browser execution remain B10.
 
 ## Live file editing
 

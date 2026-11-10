@@ -33,6 +33,11 @@ type Hooks struct {
 	RenderChild      func(*ui.Context, string)
 	ReadSelection    func(string, string)
 	ReaderActive     func(string) bool
+	SelectPlugin     func(string) bool
+	PluginPage       func(*ui.Context, string)
+	PluginHeader     func(*ui.Context)
+	PluginTitle      func(*ui.Context) bool
+	PluginOverlays   func(*ui.Context)
 }
 
 type ConversationActions interface {
@@ -175,7 +180,7 @@ func (a *App) SetFeaturePreferences(order []string, pins map[string]bool) {
 			}
 		}
 		for _, id := range order {
-			f, known := featureOf(id)
+			f, known := a.lookupFeature(id)
 			if !known || !f.Fixed && !f.Last {
 				appendID(id)
 			}

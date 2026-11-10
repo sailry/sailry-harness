@@ -32,6 +32,7 @@ import (
 
 // Node owns one profile, admitted operations and their committed event feed.
 type Node struct {
+	pluginStatus      *pluginStatusService
 	terminals         *terminal.Service
 	auth              *authControls
 	plugins           *pluginControls
@@ -173,6 +174,7 @@ func StartWithOptions(ctx context.Context, path string, options Options) (*Node,
 	value.agent.Start()
 	go value.run()
 	value.initDispatch(options.DispatchClock)
+	value.initPluginStatus()
 	if options.Network != nil {
 		if err := value.bindNetwork(ctx, *options.Network); err != nil {
 			_ = value.Stop(context.Background())
@@ -193,6 +195,7 @@ func (node *Node) Stop(ctx context.Context) error {
 		node.cancel()
 		go func() {
 			<-node.workerDone
+			node.closePluginStatus()
 			node.agent.Stop()
 			node.closeAuth()
 			terminalErr := node.terminals.Close()
@@ -261,9 +264,17 @@ func (node *Node) Dispatch(ctx context.Context, caller protocol.NodeID, request 
 		return link.Admission{}, &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "invalid command"}
 	}
 	if request.Plugin != nil {
+		if request.Command.Durable() {
+			if accepted, handled, err := node.replayPluginAdmission(ctx, caller, request, encoded); handled || err != nil {
+				return accepted, err
+			}
+		}
 		if err := node.validatePluginRequest(ctx, caller, request); err != nil {
 			return link.Admission{}, nodeFault(err)
 		}
+	}
+	if accepted, handled, err := node.dispatchPluginMessageCommand(ctx, caller, request, encoded); handled {
+		return accepted, err
 	}
 	if pluginCommand(request.Command.Kind) {
 		return node.dispatchPlugins(ctx, caller, request, encoded)
@@ -351,7 +362,7 @@ func supportedCommand(kind string) bool {
 		return true
 	}
 	switch kind {
-	case "snapshot", "inspect_request", "read_session", "read_power_settings", "read_telemetry_settings", "read_plugin_version":
+	case "snapshot", "inspect_request", "read_session", "read_power_settings", "read_telemetry_settings", "read_plugin_version", "read_activity_catalog", "read_activity":
 		return true
 	case "deliver_background", "continue_turn":
 		return true
@@ -430,6 +441,15 @@ func (node *Node) read(ctx context.Context, caller protocol.NodeID, request prot
 		case "read_plugin_version":
 			value, err := store.ReadPluginVersion(ctx, db, request.Command.Data.(*protocol.CommandReadPluginVersionPayload).Package)
 			output = protocol.Output{Kind: "plugin", Data: value}
+			return err
+		case "read_activity_catalog":
+			value, err := store.ReadActivityCatalog(ctx, db, node.ID())
+			output = protocol.Output{Kind: "activity_catalog", Data: value}
+			return err
+		case "read_activity":
+			input := request.Command.Data.(*protocol.CommandReadActivityPayload)
+			value, err := store.ReadActivityPreviews(ctx, db, input.Sessions)
+			output = protocol.Output{Kind: "activity", Data: value}
 			return err
 		default:
 			if store.SupportsTeamRead(request.Command.Kind) {

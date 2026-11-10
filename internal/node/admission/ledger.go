@@ -16,10 +16,19 @@ import (
 )
 
 func Admit(ctx context.Context, db *sql.Conn, caller protocol.NodeID, request protocol.Request, body []byte) (*link.Response, error) {
+	previous, err := Existing(ctx, db, caller, request.ID, body)
+	if err != nil || previous != nil {
+		return previous, err
+	}
+	_, err = db.ExecContext(ctx, "INSERT INTO requests(caller,id,body,status) VALUES(?1,?2,?3,'admitted')", caller[:], request.ID.String(), body)
+	return nil, err
+}
+
+func Existing(ctx context.Context, db *sql.Conn, caller protocol.NodeID, id protocol.RequestID, body []byte) (*link.Response, error) {
 	var previous []byte
 	var status string
 	var result sql.NullString
-	err := db.QueryRowContext(ctx, "SELECT body,status,result FROM requests WHERE caller=?1 AND id=?2", caller[:], request.ID.String()).Scan(&previous, &status, &result)
+	err := db.QueryRowContext(ctx, "SELECT body,status,result FROM requests WHERE caller=?1 AND id=?2", caller[:], id.String()).Scan(&previous, &status, &result)
 	if err == nil {
 		if !bytes.Equal(previous, body) {
 			return nil, &protocol.Fault{Code: protocol.ErrorCodeConflict, Message: "request identifier was already used for different content"}
@@ -32,8 +41,7 @@ func Admit(ctx context.Context, db *sql.Conn, caller protocol.NodeID, request pr
 	if !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}
-	_, err = db.ExecContext(ctx, "INSERT INTO requests(caller,id,body,status) VALUES(?1,?2,?3,'admitted')", caller[:], request.ID.String(), body)
-	return nil, err
+	return nil, nil
 }
 
 func Complete(ctx context.Context, db *sql.Conn, caller protocol.NodeID, id protocol.RequestID, response link.Response) error {

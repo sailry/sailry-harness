@@ -80,6 +80,10 @@ func (a *App) extensionDetails() bool {
 // resource, over the state the panel's tabs share; Activity and Market as
 // the reference's preview shows them, unavailable.
 func (a *App) featurePage(c *ui.Context) {
+	if a.Page == PluginPage && a.Hooks.PluginPage != nil {
+		a.Hooks.PluginPage(c, a.pluginPage)
+		return
+	}
 	if !a.Preview && a.Data.ProjectOf(a.Sidebar.Selected) != nil {
 		a.unavailable(c)
 		return
@@ -88,7 +92,7 @@ func (a *App) featurePage(c *ui.Context) {
 		panel.Page(c, k, a.project(), func() { a.Navigate(FilesPage) })
 		return
 	}
-	f, _ := featureOf(a.feature())
+	f, _ := a.lookupFeature(a.feature())
 	kit.Result(c, kit.ResultProps{Icon: f.Icon, Title: i18n.T(c, f.Label), SubTitle: i18n.T(c, "unavailable")}).Grow(1).Justify(ui.Center)
 }
 
@@ -105,6 +109,9 @@ func (a *App) paged() panel.Kind {
 
 // feature is the rail feature of the page shown, "" for none.
 func (a *App) feature() string {
+	if a.Page == PluginPage {
+		return a.pluginPage
+	}
 	for id, p := range pageFeatures {
 		if p == a.Page {
 			return id

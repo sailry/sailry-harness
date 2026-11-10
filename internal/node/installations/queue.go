@@ -3,7 +3,6 @@ package installations
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"reflect"
 	"sort"
 	"sync"
@@ -65,6 +64,13 @@ func lane(resource protocol.InstallationResource) (string, error) {
 }
 
 func (queue *Queue) Submit(caller protocol.NodeID, request protocol.Request, resource protocol.InstallationResource, observe bool, work func(context.Context, Report) link.Response) error {
+	if request.Plugin != nil {
+		var captured protocol.PluginContext
+		if err := decode(request.Plugin, &captured); err != nil {
+			return err
+		}
+		request.Plugin = &captured
+	}
 	name, err := lane(resource)
 	if err != nil {
 		return err
@@ -195,8 +201,8 @@ func visible(current *record, plugin *protocol.PluginContext) bool {
 }
 
 func (queue *Queue) Read(caller protocol.NodeID, requests []protocol.RequestID, plugin *protocol.PluginContext) ([]protocol.InstallationTask, error) {
-	if len(requests) > 64 {
-		return nil, invalid("too many installation requests")
+	if err := validateRequests(requests); err != nil {
+		return nil, err
 	}
 	queue.mu.Lock()
 	defer queue.mu.Unlock()
@@ -206,9 +212,6 @@ func (queue *Queue) Read(caller protocol.NodeID, requests []protocol.RequestID, 
 func (queue *Queue) read(caller protocol.NodeID, requests []protocol.RequestID, plugin *protocol.PluginContext, all bool) ([]protocol.InstallationTask, error) {
 	selected := map[protocol.RequestID]bool{}
 	for _, request := range requests {
-		if selected[request] {
-			return nil, invalid("installation request is repeated")
-		}
 		selected[request] = true
 	}
 	var records []*record
@@ -253,13 +256,15 @@ func (queue *Queue) Subscribe(caller protocol.NodeID) link.Subscription {
 }
 
 type subscription struct {
-	queue   *Queue
-	caller  protocol.NodeID
-	initial bool
-	next    sync.Mutex
-	once    sync.Once
-	closed  chan struct{}
-	wake    <-chan struct{}
+	queue    *Queue
+	caller   protocol.NodeID
+	requests []protocol.RequestID
+	plugin   *protocol.PluginContext
+	initial  bool
+	next     sync.Mutex
+	once     sync.Once
+	closed   chan struct{}
+	wake     <-chan struct{}
 }
 
 func (stream *subscription) Close() error {
@@ -270,14 +275,23 @@ func (stream *subscription) Close() error {
 func (stream *subscription) Next(ctx context.Context) (protocol.Update, error) {
 	stream.next.Lock()
 	defer stream.next.Unlock()
+	select {
+	case <-ctx.Done():
+		return protocol.Update{}, ctx.Err()
+	case <-stream.closed:
+		return protocol.Update{}, &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "Node service is unavailable"}
+	case <-stream.queue.closed:
+		return protocol.Update{}, &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "Node service is unavailable"}
+	default:
+	}
 	if !stream.initial {
 		select {
 		case <-ctx.Done():
 			return protocol.Update{}, ctx.Err()
 		case <-stream.closed:
-			return protocol.Update{}, errors.New("installation subscription is closed")
+			return protocol.Update{}, &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "Node service is unavailable"}
 		case <-stream.queue.closed:
-			return protocol.Update{}, errors.New("installation service is stopped")
+			return protocol.Update{}, &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "Node service is unavailable"}
 		case <-stream.wake:
 		}
 	}
@@ -285,7 +299,16 @@ func (stream *subscription) Next(ctx context.Context) (protocol.Update, error) {
 	defer stream.queue.mu.Unlock()
 	stream.initial = false
 	stream.wake = stream.queue.changed
-	tasks, err := stream.queue.read(stream.caller, nil, nil, true)
+	requests := stream.requests
+	if stream.plugin != nil {
+		requests = make([]protocol.RequestID, 0, len(stream.requests))
+		for _, request := range stream.requests {
+			if current := stream.queue.records[key{caller: stream.caller, request: request}]; current != nil && visible(current, stream.plugin) {
+				requests = append(requests, request)
+			}
+		}
+	}
+	tasks, err := stream.queue.read(stream.caller, requests, stream.plugin, stream.plugin == nil)
 	return protocol.Update{Kind: "installations", Data: protocol.UpdateInstallationsPayload{Node: stream.queue.node, Tasks: tasks}}, err
 }
 

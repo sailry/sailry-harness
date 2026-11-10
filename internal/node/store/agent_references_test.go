@@ -85,6 +85,7 @@ func agentHistoryFixture(t *testing.T, mode protocol.WorkMode) (*Store, protocol
 }
 func TestAgentHistoryAndReview(t *testing.T) {
 	t.Parallel()
+	t.Run("canonical card authority", testPluginCardAuthority)
 	t.Run("native task admission", testTaskAdmission)
 	t.Run("retained command stream keeps invocation and canonical revision", func(t *testing.T) {
 		storage, node, session, turn, now := agentHistoryFixture(t, protocol.WorkModeCode)

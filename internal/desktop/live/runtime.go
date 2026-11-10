@@ -26,6 +26,11 @@ import (
 )
 
 type Runtime struct {
+	pluginViews              *pluginViewState
+	pluginStatus             map[string]*pluginStatusFeed
+	pluginControls           map[string]*pluginControlPresentation
+	pluginCards              *pluginCardState
+	pluginResources          *pluginResourceState
 	authorizations           *authorizationState
 	packages                 *packageState
 	parent                   *Runtime
@@ -52,6 +57,7 @@ type Runtime struct {
 	composerSaving           map[string]bool
 	composerWaiters          map[string][]func(bool)
 	composerBases            map[*composer.State]protocol.SessionConfig
+	sessionBases             map[*composer.State]*sessionBaseStart
 	App                      *shell.App
 	Preferences              *preferences.Store
 	controller               *client.Client
@@ -139,6 +145,7 @@ func NewWithPreferences(ctx context.Context, controller *client.Client, prefs *p
 	r.composerSaving = map[string]bool{}
 	r.composerWaiters = map[string][]func(bool){}
 	r.composerBases = map[*composer.State]protocol.SessionConfig{}
+	r.sessionBases = map[*composer.State]*sessionBaseStart{}
 	r.admittedSessions = map[string]protocol.Session{}
 	r.conversationEdits = map[string]conversationEdit{}
 	r.conversationCreations = map[string]conversationCreation{}
@@ -161,6 +168,11 @@ func NewWithPreferences(ctx context.Context, controller *client.Client, prefs *p
 	r.initConversationSearch()
 	r.initNetworkUI()
 	r.initB8Packages()
+	r.initPluginViews()
+	r.initPluginResources()
+	r.App.Hooks.PluginOverlays = r.renderPluginOverlays
+	r.App.Hooks.PluginHeader = r.renderPluginHeader
+	r.App.Hooks.PluginTitle = r.renderPluginTitle
 	return r, nil
 }
 
@@ -210,6 +222,9 @@ func (r *Runtime) Close() error {
 	for _, release := range r.conversationWatches {
 		release()
 	}
+	r.closePluginViews()
+	r.closePluginStatus()
+	r.closePluginCards()
 	r.closeCommands()
 	r.closeAttachments()
 	r.closeWorkspace()
@@ -295,6 +310,9 @@ func (r *Runtime) drain(c *ui.Context) {
 	r.workspaceSettingsFrame()
 	r.teamsFrame()
 	r.packagesFrame(c)
+	r.pluginViewsFrame(c)
+	r.pluginResourcesFrame(c)
+	r.pluginCardsFrame(c)
 	r.networkFrame(c)
 	snapshot := r.controller.Snapshot()
 	if snapshot.PowerSettingsRevision != r.powerObservedRevision && !r.App.Settings.Power.Pending {
@@ -307,6 +325,7 @@ func (r *Runtime) afterFrame() {
 		bound.finishFrame()
 	}
 	r.finishFrame()
+	r.pluginViewsAfterFrame()
 	if session, err := protocol.ParseSessionID(r.App.Messages.SearchSession()); err == nil && !r.seenConversation(session) {
 		r.App.Messages.CloseSearch()
 	}
@@ -314,6 +333,9 @@ func (r *Runtime) afterFrame() {
 }
 
 func (r *Runtime) finishFrame() {
+	r.pluginStatusAfterFrame()
+	r.pluginControlsAfterFrame()
+	r.pluginCardsAfterFrame()
 	r.pruneAttachmentImages()
 	r.pruneCommands()
 	for id, release := range r.conversationWatches {

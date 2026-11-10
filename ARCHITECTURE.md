@@ -419,7 +419,7 @@ dispatch service and require an online Node.
   configuration form.
 - **Native bridges.** Limited to reusable Kit or platform gaps, such as terminal
   rendering, editor integration and protected credential inputs.
-- **Runtimes.** `modernc.org/quickjs` is the one JavaScript engine for bounded
+- **Runtimes.** `github.com/MoeForge/moejs v0.1.0` is the one JavaScript engine for bounded
   Node callbacks and desktop plugin entries. The desktop compatibility layer maps
   the preserved v1 element and host SDK contracts onto MyGo/Kit (see the
   [SDK contract](sdk/plugins.md)). The SDK grants no raw OS access. Desktop UI code

@@ -11,6 +11,10 @@ import (
 
 func TestAuthorizationProjectionAndCallbacks(t *testing.T) {
 	t.Parallel()
+	t.Run("canonical card contracts", testPluginCardContracts)
+	t.Run("native component authority", testNativeComponentAuthority)
+	t.Run("plugin view ownership", testPluginViewOwnership)
+	t.Run("plugin location ownership", testPluginLocationOwnership)
 	t.Run("quota remains unknown after reset", func(t *testing.T) {
 		reset := uint64(100)
 		window := &protocol.ConversationQuotaWindow{UsedBasisPoints: 4250, ResetAtMs: &reset}

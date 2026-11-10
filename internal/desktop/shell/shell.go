@@ -61,6 +61,7 @@ const (
 	HostPage
 	NotificationsPage
 	ProjectPage
+	PluginPage
 )
 
 // App is the window's state.
@@ -105,14 +106,16 @@ type App struct {
 	transfers preview.Transfers
 	voice     preview.Voice
 
-	features []string        // the rail's order
-	unpinned map[string]bool // features off the rail
-	more     bool            // the rail's More popover
-	search   search
-	activity bool // the activity centre's popover
-	reading  *reading
-	shown    string // the conversation selected when a project page opened
-	overview *projectOverview
+	features       []string // the rail's order
+	pluginFeatures map[string]Feature
+	pluginPage     string
+	unpinned       map[string]bool // features off the rail
+	more           bool            // the rail's More popover
+	search         search
+	activity       bool // the activity centre's popover
+	reading        *reading
+	shown          string // the conversation selected when a project page opened
+	overview       *projectOverview
 	// The panes that take the focus: the main column, where the
 	// conversation or a page shows, and the right panel (pane).
 	mainPane, panelPane ui.Handle
@@ -258,6 +261,9 @@ func (a *App) View(c *ui.Context) {
 		})
 	})
 	a.overlays(c)
+	if a.Hooks.PluginOverlays != nil {
+		a.Hooks.PluginOverlays(c)
+	}
 }
 
 // frame is where the columns are in this frame: how open each is, from 0
@@ -448,7 +454,7 @@ func (a *App) page(c *ui.Context) {
 	case MarketPage:
 		settings.MarketPage(c, a.Settings)
 		return
-	case FilesPage, GitPage, ActivityPage:
+	case FilesPage, GitPage, ActivityPage, PluginPage:
 		a.featurePage(c)
 		return
 	case HostPage:

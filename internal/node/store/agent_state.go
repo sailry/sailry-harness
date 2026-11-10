@@ -30,6 +30,8 @@ type AgentInvocation struct {
 	AuthorizationFailure *protocol.Fault
 	Instructions         []AgentInstruction
 	CompactionPercent    uint8
+	// Assistant is the declaration frozen by the turn's assistant binding.
+	Assistant *protocol.PluginConversationDeclaration
 }
 type AgentState struct {
 	Session     protocol.Session

@@ -99,9 +99,11 @@ release procedures are in [CONTRIBUTING.md](CONTRIBUTING.md); package rules are 
   library already enforces. A failed spike uses only its documented fallback.
 - The user's November 10, 2026 B8 decision replaces gocron with a direct port of
   the Rust dispatch calendar, standard production timers and clockwork tests.
-  This source port is explicitly authorized. QuickJS uses a fixed stack-slot
-  constant as the documented counterpart of Rust STACK_BYTES; byte equivalence
-  is not required, but recursion must fail without crashing the host.
+  This source port is explicitly authorized. The later decision that day
+  replaces QuickJS with pinned moejs v0.1.0 after compatibility and resource
+  checks. Keep the 64 MiB callback allocation budget, 60-second deadline,
+  cancellation and Rust-compatible recursion fault without crashing the host.
+  Use the engine's own recursion bound; do not claim a physical stack-byte limit.
 
 ## Dependencies and versions
 
@@ -110,7 +112,8 @@ release procedures are in [CONTRIBUTING.md](CONTRIBUTING.md); package rules are 
   `cmd/sailry-mobile` contains cgo for the Dart C ABI.
 - No alternative desktop stack, agent loop or JavaScript engine without an
   authorized architecture change. Fantasy supplies per-step model transport;
-  Sailry owns the loop. `modernc.org/quickjs` is the one plugin JavaScript engine.
+  Sailry owns the loop. `github.com/MoeForge/moejs v0.1.0` is the one plugin
+  JavaScript engine for Node callbacks, model translation and Desktop entries.
 - Sailry-owned contracts stay at `v1` and change in place until the first release
   ([details](ARCHITECTURE.md#contract-and-storage-versions)).
 - New Sailry plugin packages start at `0.1.0`. Changed content bumps SemVer,

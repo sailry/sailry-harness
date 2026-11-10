@@ -25,6 +25,18 @@ func (x *conversationActions) ensureAttachmentSession(done func(*ui.Context, pro
 		r.attachmentSessionWaiters[before] = append(waiters, done)
 		return
 	}
+	if start := r.pendingSessionBase(x.comp); start != nil {
+		x.startSessionBase(start, func(c *ui.Context, err error) {
+			if err != nil {
+				done(c, protocol.Session{}, err)
+				return
+			}
+			next := *x
+			next.c = c
+			next.ensureAttachmentSession(done)
+		})
+		return
+	}
 	message := composer.Message{Model: x.comp.Model, Mode: x.comp.Mode, Permission: x.comp.Permission, Features: x.comp.Features}
 	if chosen := x.comp.Chosen(r.models()); chosen.Reasoning {
 		message.Effort = x.comp.EffortName(x.c, chosen)
@@ -43,13 +55,7 @@ func (x *conversationActions) ensureAttachmentSession(done func(*ui.Context, pro
 		}
 		input.Project = &id
 	}
-	for _, tree := range r.controller.Snapshot().Worktrees {
-		if (input.Project == nil && tree.Project == nil || input.Project != nil && tree.Project != nil && *input.Project == *tree.Project) && (tree.Path == x.comp.Worktree || x.comp.Worktree == "" && tree.Main) {
-			id := tree.ID
-			input.Worktree = &id
-			break
-		}
-	}
+	input.Worktree = r.draftWorktree(x.comp, input.Project)
 	r.attachmentSessionWaiters[before] = []attachmentSessionWaiter{done}
 	r.conversationCreating[before] = true
 	r.executeScoped("create/"+before, protocol.Command{Kind: "create_session_at", Data: input}, func(c *ui.Context, out protocol.Output, err error) {
@@ -74,7 +80,11 @@ func (x *conversationActions) ensureAttachmentSession(done func(*ui.Context, pro
 			key, _ := json.Marshal(session.Config)
 			r.composerObserved[x.cv.ID] = string(key)
 			r.project()
-			r.OpenSession(session.ID.String())
+			if x.created != nil {
+				x.created(session)
+			} else {
+				r.OpenSession(session.ID.String())
+			}
 		}
 		for _, waiter := range waiters {
 			waiter(c, session, err)

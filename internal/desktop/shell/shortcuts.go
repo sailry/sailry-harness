@@ -133,6 +133,10 @@ func (a *App) closeFocused(c *ui.Context) {
 
 // run carries out a window command.
 func (a *App) run(c *ui.Context, id string) {
+	if _, exists := a.pluginFeatures[id]; exists {
+		a.openFeature(c, id)
+		return
+	}
 	if p, ok := pageFeatures[id]; ok {
 		a.Navigate(p)
 		return

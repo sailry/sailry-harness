@@ -155,9 +155,7 @@ func (client *Client) Watch(ctx context.Context, kind string, argument json.RawM
 		if json.Unmarshal(argument, &scope) != nil || scope.Worktree == nil && scope.Session == nil {
 			return nil, fault(protocol.ErrorCodeInvalidRequest, "status scope requires a worktree or session")
 		}
-		return unavailableObserver(ctx, map[string]any{
-			"entries": []any{}, "failures": []any{}, "connected": false,
-		}, "plugin status is unavailable"), nil
+		return client.watchStatusView(ctx, scope), nil
 	case "watch_terminal":
 		var terminal protocol.TerminalID
 		if err := json.Unmarshal(argument, &terminal); err != nil {
@@ -272,18 +270,7 @@ func (client *Client) PrepareStatusJSON(scopeData, entryData json.RawMessage) (p
 	if json.Unmarshal(scopeData, &scope) != nil || json.Unmarshal(entryData, &entry) != nil {
 		return protocol.Request{}, fault(protocol.ErrorCodeInvalidRequest, "invalid status action capture")
 	}
-	if scope.Session != nil && scope.Worktree == nil {
-		return protocol.Request{}, fault(protocol.ErrorCodeInvalidRequest, "status action requires the session worktree")
-	}
-	if scope.Session == nil && scope.Worktree == nil || entry.Declaration.Kind != "button" || entry.Declaration.Slot != "status" ||
-		entry.State.ID != entry.Declaration.ID || !entry.State.Visible || !entry.State.Enabled || entry.State.ReplyTo != nil || entry.State.Scope != nil ||
-		string(entry.State.Value) != "null" || entry.State.Choices != nil || entry.Invoke == nil {
-		return protocol.Request{}, fault(protocol.ErrorCodeInvalidRequest, "status action is unavailable")
-	}
-	input, _ := json.Marshal(map[string]string{"id": entry.Declaration.ID})
-	request := client.Prepare(protocol.Command{Kind: "call_plugin", Data: protocol.CommandCallPluginPayload{Handler: *entry.Invoke, Input: input}})
-	request.Plugin = &protocol.PluginContext{Surface: protocol.PluginDesktopSurface{Kind: "composer"}, Package: entry.Package, Worktree: scope.Worktree, Session: scope.Session}
-	return request, nil
+	return client.PrepareStatus(scope, entry)
 }
 
 func childTarget(child protocol.ConversationChild) string {

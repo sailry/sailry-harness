@@ -234,6 +234,9 @@ func (s *State) badge(c *ui.Context, b StatusBadge, actions Actions) {
 		open = new(bool)
 		s.act.badges[b.ID] = open
 	}
+	if s.statusCallbacks != nil && s.statusCallbacks.Open != nil {
+		*open = s.statusCallbacks.Open(b.ID)
+	}
 	icon := b.Icon
 	if icon == nil {
 		icon = icons.Settings2
@@ -250,6 +253,9 @@ func (s *State) badge(c *ui.Context, b StatusBadge, actions Actions) {
 			}
 		})
 	})
+	if s.statusCallbacks != nil && s.statusCallbacks.Enabled != nil {
+		trigger.Disabled(!*open && !s.statusCallbacks.Enabled(b.ID))
+	}
 	var tip []string
 	for _, d := range b.Details {
 		line := d.Label.in(c)
@@ -263,9 +269,18 @@ func (s *State) badge(c *ui.Context, b StatusBadge, actions Actions) {
 		trigger.OnClick(func() { actions.Badge(b.ID, "") })
 		return
 	}
-	trigger.HasPopup(ui.PopupDialog).OnClick(func() { *open = !*open })
+	trigger.HasPopup(ui.PopupDialog).OnClick(func() {
+		next := !*open
+		if s.statusCallbacks == nil || s.statusCallbacks.SetOpen == nil || s.statusCallbacks.SetOpen(b.ID, next) {
+			*open = next
+		}
+	})
 	pn := b.Panel
+	wasOpen := *open
 	placeStart(kit.Popover(c, trigger, open, func() {
+		if s.statusCallbacks != nil && s.statusCallbacks.Render != nil && s.statusCallbacks.Render(c, b.ID) {
+			return
+		}
 		if body := pn.Body.in(c); body != "" {
 			ui.Text(c, body).FontSize(14).Selectable().TextColor(p.Foreground)
 		} else {
@@ -286,6 +301,9 @@ func (s *State) badge(c *ui.Context, b StatusBadge, actions Actions) {
 			})
 		}
 	}), trigger, 320, 12, 0)
+	if wasOpen && !*open && s.statusCallbacks != nil && s.statusCallbacks.SetOpen != nil {
+		s.statusCallbacks.SetOpen(b.ID, false)
+	}
 }
 
 // progress is the running turn's task capsule, while steps remain: its

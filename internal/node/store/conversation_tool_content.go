@@ -5,6 +5,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -103,7 +104,11 @@ func (raw *rawAgentTool) content() *protocol.ToolContent {
 			if !validAgentContentFile(*file) {
 				return nil
 			}
-		case "artifact", "card":
+		case "card":
+			if !plugins.CardSummaryValid(*block.Data.(*protocol.PluginCardSummary)) {
+				return nil
+			}
+		case "artifact":
 			// These are Node-stamped summaries. Their package owners validate resources
 			// before canonical capture; the strict protocol codec checks stored shapes.
 		default:

@@ -72,7 +72,7 @@ func (a *App) Menu(lang string, send func(id string)) []*mygo.MenuItem {
 		view = append(view, sep())
 	}
 	for _, id := range a.features {
-		if f, ok := featureOf(id); ok {
+		if f, ok := a.lookupFeature(id); ok {
 			view = append(view, item(f.Label, f.ID))
 		}
 	}

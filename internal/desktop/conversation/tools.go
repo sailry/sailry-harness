@@ -274,7 +274,12 @@ func (s *State) row(c *ui.Context, call Call) {
 	}
 	s.disclosure(c, "tools-"+call.ID, func(hovered, open bool, sw *kit.Sweep) {
 		summary(c, call, hovered, true, open, sw)
-	}, 4, 8, func() { output(c, call.Output) })
+	}, 4, 8, func() {
+		output(c, call.Output)
+		if render := s.toolCards[s.renderSession][call.ID]; render != nil {
+			render(c)
+		}
+	})
 }
 
 func failureTone(c *ui.Context, o *Output) ui.Color {

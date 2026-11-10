@@ -209,6 +209,7 @@ workspace_host: Información del host
 connection_action_edit: Editar
 reference_back: Atrás
 connection_search_empty: No hay coincidencias
+connection_search: Buscar
 activity_completed: Completado
 activity_failed: Fallido
 activity_idle: Inactivo
@@ -1115,6 +1116,8 @@ mcp_remove_slot: Eliminar el artículo
 mcp_install_stdio_help: Introduce el comando y los argumentos del host seleccionado; añade los valores privados en los campos de credenciales
 mcp_install_http_help: Introduce el endpoint MCP; usa los campos de credenciales para las cabeceras privadas o autoriza con OAuth
 mcp_configuration_saved: MCP configuración guardada
+mcp_oauth_callback_failed: No se pudo recibir la devolución de llamada de autorización; inténtelo de nuevo
+mcp_oauth_failed: La autorización falló; inténtelo de nuevo
 team_invalid: Introduce un nombre de equipo
 team_name_taken: Ya existe un equipo con este nombre
 teams_role_invalid: Revisa el identificador y el nombre del rol
@@ -1283,6 +1286,7 @@ plugins_updates_title: Actualizaciones de plugins
 plugins_update_version: Actualización a %{version}
 plugins_updates_later: Más tarde
 plugins_updates_selected: Actualizar (%{count})
+plugins_retry: Reintentar
 skill_source_git: Git
 skill_source_skills: skills.sh
 skill_source_hub: skillhub.cn
@@ -1782,3 +1786,46 @@ market_permission_storage_read: Leer datos del plugin
 market_permission_storage_write: Guardar datos del plugin
 market_permission_knowledge_read: Leer conocimiento
 market_permission_knowledge_write: Cambiar conocimiento
+appearance_icon: Icon
+appearance_color: Color
+project_icon_folder: Carpeta
+project_icon_code: Código
+project_icon_terminal: Terminal
+project_icon_globe: Globo
+project_icon_server: Servidor
+project_icon_database: Base de datos
+project_icon_package: Paquete
+project_icon_game: Juego
+project_icon_book: Libro
+project_icon_finance: 1. Finanzas
+project_icon_device: Dispositivo
+project_icon_education: 1. Educación
+project_icon_writing: Escribiendo
+project_icon_tags: Etiquetas
+project_icon_music: Música
+project_icon_media: Medios
+project_icon_design: Diseño
+project_icon_health: 2. Salud
+project_icon_nature: Naturaleza
+project_icon_business: Negocios
+project_icon_analytics: Análisis
+project_icon_profile: Perfil
+project_icon_fitness: Fitness
+project_icon_law: Leyes
+project_icon_audio: Audio
+project_icon_travel: Viajes
+project_icon_tools: Herramientas
+project_icon_science: Ciencias
+project_icon_ai: AI
+project_icon_favorite: Favorito
+project_color_none: No hay color
+project_color_blue: Azul
+project_color_indigo: Índigo
+project_color_violet: Violeta
+project_color_magenta: Magenta
+project_color_red: Rojo
+project_color_orange: Naranja
+project_color_amber: Ámbar
+project_color_green: Verde
+project_color_teal: Teal
+project_color_cyan: Cian

@@ -97,14 +97,18 @@ func Closed(tabs []Tab, t, active Tab) ([]Tab, Tab) {
 // row of tabs, each an open item, and the resources no project keeps.
 // Files and Git keep theirs in the shown Project, shared with their pages.
 type State struct {
-	Actions         *Actions
-	TerminalActions *TerminalActions
-	historyConfirm  confirm
-	Live            bool
-	HasProject      bool
-	Data            *preview.Workspace
-	Tabs            []Tab
-	Active          Tab
+	pluginResource       func(*ui.Context, Tab) bool
+	pluginCreateResource func(Kind) bool
+	pluginCloseResource  func(Tab) bool
+	pluginResourceTitle  func(Tab) (string, bool)
+	Actions              *Actions
+	TerminalActions      *TerminalActions
+	historyConfirm       confirm
+	Live                 bool
+	HasProject           bool
+	Data                 *preview.Workspace
+	Tabs                 []Tab
+	Active               Tab
 	// Paged is the resource a page of the same project shows, "" for
 	// none: that page owns the resource's scrolling (Page).
 	Paged Kind
@@ -164,6 +168,9 @@ func (s *State) Open(k Kind) {
 
 // New opens another browser page or terminal.
 func (s *State) New(k Kind) {
+	if s.pluginCreateResource != nil && s.pluginCreateResource(k) {
+		return
+	}
 	s.pages++
 	s.Show(Tab{k, fmt.Sprint(s.pages)})
 }
@@ -202,6 +209,9 @@ func (t Tab) valid() bool {
 
 // Close closes t's tab. It reports whether a tab is left.
 func (s *State) Close(t Tab) bool {
+	if s.pluginCloseResource != nil && s.pluginCloseResource(t) {
+		return len(s.Tabs) > 0
+	}
 	if t.Kind == Files && t.ID != "" && s.pr != nil {
 		if s.pr.requestEditorClose(t.ID, func() { s.pr.close(t.Kind, t.ID); s.Tabs, s.Active = Closed(s.Tabs, t, s.Active) }) {
 			return len(s.Tabs) > 0

@@ -14,6 +14,7 @@ import (
 )
 
 type Client struct {
+	pluginStatusObservers   *pluginStatusObservers
 	topicsMu                sync.Mutex
 	topics                  map[*topicSubscription]struct{}
 	forwardMu               sync.Mutex
@@ -53,7 +54,7 @@ type Client struct {
 }
 
 func New(transport link.Transport) *Client {
-	return &Client{detailSlots: make(chan struct{}, 4), transferClock: systemTransferClock{}, transport: transport, project: NewProjection(transport.Target(), 0), callbacks: make(map[uint64]func())}
+	return &Client{pluginStatusObservers: newPluginStatusObservers(), detailSlots: make(chan struct{}, 4), transferClock: systemTransferClock{}, transport: transport, project: NewProjection(transport.Target(), 0), callbacks: make(map[uint64]func())}
 }
 
 func (client *Client) Target() protocol.NodeID { return client.transport.Target() }

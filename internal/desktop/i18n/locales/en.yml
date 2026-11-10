@@ -209,6 +209,7 @@ workspace_host: Host information
 connection_action_edit: Edit
 reference_back: Back
 connection_search_empty: No matches
+connection_search: Search
 activity_completed: Completed
 activity_failed: Failed
 activity_idle: Idle
@@ -1115,6 +1116,8 @@ mcp_remove_slot: Remove item
 mcp_install_stdio_help: Enter the command and arguments for the selected host; add private values in the credential fields
 mcp_install_http_help: Enter the MCP endpoint; use credential fields for private headers or authorize with OAuth
 mcp_configuration_saved: MCP configuration saved
+mcp_oauth_callback_failed: Could not receive authorization callback; try again
+mcp_oauth_failed: Authorization failed; try again
 team_invalid: Enter a team name
 team_name_taken: A team with this name already exists
 teams_role_invalid: Check the role identifier and name
@@ -1283,6 +1286,7 @@ plugins_updates_title: Plugin updates
 plugins_update_version: Update to %{version}
 plugins_updates_later: Later
 plugins_updates_selected: Update (%{count})
+plugins_retry: Retry
 skill_source_git: Git
 skill_source_skills: skills.sh
 skill_source_hub: skillhub.cn
@@ -1782,3 +1786,46 @@ market_permission_storage_read: Read plugin data
 market_permission_storage_write: Save plugin data
 market_permission_knowledge_read: Read knowledge
 market_permission_knowledge_write: Change knowledge
+appearance_icon: Icon
+appearance_color: Color
+project_icon_folder: Folder
+project_icon_code: Code
+project_icon_terminal: Terminal
+project_icon_globe: Globe
+project_icon_server: Server
+project_icon_database: Database
+project_icon_package: Package
+project_icon_game: Game
+project_icon_book: Book
+project_icon_finance: Finance
+project_icon_device: Device
+project_icon_education: Education
+project_icon_writing: Writing
+project_icon_tags: Tags
+project_icon_music: Music
+project_icon_media: Media
+project_icon_design: Design
+project_icon_health: Health
+project_icon_nature: Nature
+project_icon_business: Business
+project_icon_analytics: Analytics
+project_icon_profile: Profile
+project_icon_fitness: Fitness
+project_icon_law: Law
+project_icon_audio: Audio
+project_icon_travel: Travel
+project_icon_tools: Tools
+project_icon_science: Science
+project_icon_ai: AI
+project_icon_favorite: Favorite
+project_color_none: No color
+project_color_blue: Blue
+project_color_indigo: Indigo
+project_color_violet: Violet
+project_color_magenta: Magenta
+project_color_red: Red
+project_color_orange: Orange
+project_color_amber: Amber
+project_color_green: Green
+project_color_teal: Teal
+project_color_cyan: Cyan

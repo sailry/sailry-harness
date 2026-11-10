@@ -40,6 +40,9 @@ const (
 // choices the user makes for it, kept per conversation, and which of its
 // popovers show.
 type State struct {
+	pluginControls    func(*ui.Context, string)
+	pluginCommand     func(Reference) (string, bool)
+	statusCallbacks   *StatusCallbacks
 	ActivityCallbacks *ActivityCallbacks
 	Draft             string
 	Model             string  // the chosen Model's ID
@@ -85,14 +88,18 @@ type State struct {
 	page     settingsPage
 	width    float32 // the toolbar's width last frame
 
-	in    interaction
-	act   activity
-	queue queueState
-	ref   refState
-	files fileState
-	caret int // a caret to put in the draft next frame, -1 for none
-	focus bool
-	area  ui.Element
+	projectMenu   string
+	projectPicker bool
+
+	in         interaction
+	act        activity
+	queue      queueState
+	ref        refState
+	files      fileState
+	caret      int // a caret to put in the draft next frame, -1 for none
+	focus      bool
+	area       ui.Element
+	pluginEdit pluginEditState
 }
 
 func New(model string) *State {
@@ -193,6 +200,7 @@ func View(c *ui.Context, s *State, ctx *Context, actions Actions) {
 			s.referencePicker(c, ctx, actions, surface)
 			s.contextBar(c, ctx, actions)
 		})
+		s.renderPluginControls(c, "footer")
 	})
 	s.filePicker(c, ctx, actions)
 }
@@ -245,6 +253,10 @@ func (s *State) input(c *ui.Context, ctx *Context, actions Actions, submit func(
 		area.SetTextSelection(s.caret, s.caret)
 		s.caret = -1
 	}
+	if s.pluginEdit.pending != nil {
+		area.SetTextSelection(s.pluginEdit.pending[0], s.pluginEdit.pending[1])
+		s.pluginEdit.pending = nil
+	}
 	if s.focus {
 		area.Focus()
 		s.focus = false
@@ -255,6 +267,8 @@ func (s *State) input(c *ui.Context, ctx *Context, actions Actions, submit func(
 	// what the pass saw.
 	composing := area.Composing()
 	selStart, selEnd := area.TextSelection()
+	s.pluginEdit.composing = composing
+	s.pluginEdit.selection = [2]int{selStart, selEnd}
 	area.OnTextKey(func(k ui.TextKey) bool {
 		if composing {
 			return false
@@ -320,12 +334,14 @@ func (s *State) toolbar(c *ui.Context, ctx *Context, actions Actions, submit fun
 				s.modeMenu(c, ctx)
 				s.permissionMenu(c, ctx)
 			}
+			s.renderPluginControls(c, "composer")
 		})
 		ui.Spacer(c)
 		ui.Row(c.Key("end")).Gap(4).AlignItems(ui.Center).MinWidth(0).Shrink(1).Children(func() {
 			if s.Indicator != nil {
 				s.Indicator(c)
 			}
+			s.renderPluginControls(c, "model")
 			if !compact {
 				s.modelChip(c, ctx, actions)
 			}
@@ -396,7 +412,9 @@ func (s *State) contextBar(c *ui.Context, ctx *Context, actions Actions) {
 		location.Children(func() {
 			s.projectButton(c, ctx, actions, icon)
 			s.worktreeMenu(c, ctx, actions, icon)
+			s.renderPluginControls(c, "context")
 		})
+		s.renderPluginControls(c, "statistics")
 		if s.Metrics != nil {
 			s.Metrics(c, compact, &s.stats)
 		}

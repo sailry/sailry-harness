@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"modernc.org/quickjs"
+	"github.com/MoeForge/moejs"
 )
 
 type Translation struct {
@@ -48,20 +48,20 @@ func (session *Translation) HasExport(handler string) (bool, error) {
 		return false, scriptInvalid("plugin translation failed")
 	}
 	session.runtime.deadline = scriptTranslationDeadline(session.runtime.ctx, session.timeout)
-	if err := session.runtime.arm(); err != nil {
+	stop, err := session.runtime.begin()
+	if err != nil {
 		return false, err
 	}
-	stop := context.AfterFunc(session.runtime.ctx, session.runtime.vm.Interrupt)
 	defer stop()
-	value, err := session.runtime.has.CallValue(quickjs.UndefinedValue, session.runtime.exports, handler)
+	defer session.runtime.vm.ReleaseCallData()
+	value, err := session.runtime.vm.CallFunction(session.runtime.has, moejs.Undefined(), session.runtime.exports, moejs.String(handler))
 	if err != nil {
 		return false, session.runtime.engine(err)
 	}
-	defer value.Free()
 	if err := session.runtime.arm(); err != nil {
 		return false, err
 	}
-	encoded, err := value.MarshalJSON()
+	encoded, err := session.runtime.vm.AppendJSON(nil, value)
 	if err != nil {
 		return false, session.runtime.engine(err)
 	}

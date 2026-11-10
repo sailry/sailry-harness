@@ -70,6 +70,7 @@ type execution struct {
 	resources         *operations.Resources
 	skillContext      string
 	modeContext       string
+	assistantContext  string
 	childRole         *protocol.RoleProfile
 	rolePolicy        string
 	foreground        []*delegatedChild

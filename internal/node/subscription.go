@@ -23,6 +23,9 @@ type events struct {
 }
 
 func (node *Node) Subscribe(ctx context.Context, caller protocol.NodeID, topic protocol.Topic) (link.Subscription, error) {
+	if topic.Kind == "status" {
+		return node.subscribePluginStatus(ctx, caller, topic)
+	}
 	if topic.Kind == "terminal" {
 		return node.subscribeTerminal(topic)
 	}
@@ -31,6 +34,9 @@ func (node *Node) Subscribe(ctx context.Context, caller protocol.NodeID, topic p
 	}
 	if topic.Kind == "installations" {
 		return node.plugins.installations.Subscribe(caller), nil
+	}
+	if topic.Kind == "scoped_installations" {
+		return node.subscribeScopedInstallations(ctx, caller, topic)
 	}
 	if topic.Kind == "python" {
 		return &pythonEvents{node: node, initial: true, closed: make(chan struct{})}, nil

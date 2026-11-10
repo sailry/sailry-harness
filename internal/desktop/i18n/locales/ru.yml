@@ -209,6 +209,7 @@ workspace_host: Информация о хосте
 connection_action_edit: Изменить
 reference_back: Назад
 connection_search_empty: Нет соответствий
+connection_search: Поиск
 activity_completed: Завершено
 activity_failed: Ошибка
 activity_idle: Ожидание
@@ -1115,6 +1116,8 @@ mcp_remove_slot: Удалить пункт
 mcp_install_stdio_help: Укажите команду и аргументы для выбранного хоста; секретные значения вводятся в полях учётных данных
 mcp_install_http_help: Укажите адрес MCP; для приватных заголовков используйте поля учётных данных или авторизацию OAuth
 mcp_configuration_saved: MCP конфигурация сохранена
+mcp_oauth_callback_failed: Не удалось получить обратный вызов авторизации; попробуйте еще раз
+mcp_oauth_failed: Авторизация не удалась; попробуйте снова
 team_invalid: Введите название команды
 team_name_taken: Команда с таким названием уже есть
 teams_role_invalid: Проверьте идентификатор и название роли
@@ -1283,6 +1286,7 @@ plugins_updates_title: Обновления плагинов
 plugins_update_version: Обновление к %{version}
 plugins_updates_later: Позже
 plugins_updates_selected: Обновить (%{count})
+plugins_retry: Повторить
 skill_source_git: Git
 skill_source_skills: skills.sh
 skill_source_hub: skillhub.cn
@@ -1782,3 +1786,46 @@ market_permission_storage_read: Чтение данных плагина
 market_permission_storage_write: Сохранение данных плагина
 market_permission_knowledge_read: Чтение базы знаний
 market_permission_knowledge_write: Изменение базы знаний
+appearance_icon: Icon
+appearance_color: Color
+project_icon_folder: Папка
+project_icon_code: Код
+project_icon_terminal: Терминал
+project_icon_globe: Глобус
+project_icon_server: Сервер
+project_icon_database: База данных
+project_icon_package: Пакет
+project_icon_game: Игра
+project_icon_book: Книга
+project_icon_finance: Финансы
+project_icon_device: Устройство
+project_icon_education: Образование
+project_icon_writing: Запись
+project_icon_tags: Теги
+project_icon_music: Музыка
+project_icon_media: СМИ
+project_icon_design: Дизайн
+project_icon_health: Здравоохранение
+project_icon_nature: Природа
+project_icon_business: Бизнес
+project_icon_analytics: Аналитика
+project_icon_profile: Профиль
+project_icon_fitness: Фитнес
+project_icon_law: Право
+project_icon_audio: Аудио
+project_icon_travel: Путевые расходы
+project_icon_tools: Инструменты
+project_icon_science: Наука
+project_icon_ai: AI
+project_icon_favorite: Избранное
+project_color_none: Без цвета
+project_color_blue: Синий
+project_color_indigo: Индиго
+project_color_violet: Фиолетовый
+project_color_magenta: Пурпурный
+project_color_red: Красный
+project_color_orange: Оранжевый
+project_color_amber: Янтарный
+project_color_green: Зеленый
+project_color_teal: Тиал
+project_color_cyan: Циан

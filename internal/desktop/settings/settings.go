@@ -74,7 +74,8 @@ type State struct {
 	Query   string // the providers' search
 	// Details is the extension details page shown in the right column, nil for
 	// none.
-	Details *Detail
+	Details     *Detail
+	pluginPages []PluginPage
 	*Model
 }
 
@@ -95,18 +96,8 @@ func Nav(c *ui.Context, s *State) {
 			ui.Column(c.Key(g.Title)).Gap(2).Margin(0, 0, 12, 0).Children(func() {
 				ui.Text(c, i18n.T(c, g.Title)).FontSize(14).Height(32).PaddingX(8).AlignSelf(ui.Stretch).
 					TextColor(p.MutedForeground.Alpha(0.7)).SingleLine()
-				for _, it := range g.Items {
-					selected := it.Section == s.Section
-					label := i18n.T(c, string(it.Section))
-					b := ui.ButtonBase(c.Key(string(it.Section))).Label(label).Height(28).PaddingX(8).Gap(8).Radius(p.Radius).Justify(ui.Start).TextColor(p.SidebarForeground)
-					b.Background(p.SidebarItem(selected, b.Hovered())).AccessSelected(selected)
-					if selected {
-						b.TextColor(p.SidebarAccentForeground)
-					}
-					b.Children(func() {
-						ui.Icon(c, it.Icon).FontSize(16)
-						ui.Text(c, label).FontSize(14).SingleLine()
-					}).OnClick(func() { s.Open(it.Section) })
+				for _, entry := range settingsGroupNavigation(c, g.Title, g.Items, s.pluginPages) {
+					settingsNavigation(c, s, entry.Section, entry.Label, entry.Icon)
 				}
 			})
 		}
@@ -121,11 +112,28 @@ func (s *State) Open(sec Section) {
 }
 
 // Title is the header's title for the section.
-func Title(c *ui.Context, s *State) string { return i18n.T(c, string(s.Section)) }
+func Title(c *ui.Context, s *State) string {
+	for _, page := range s.pluginPages {
+		if page.Section == s.Section {
+			return page.Label
+		}
+	}
+	return i18n.T(c, string(s.Section))
+}
 
 // Page builds the section's page in the settings frame: its title and
 // description over its groups (SettingsPage).
 func Page(c *ui.Context, s *State, d *preview.Data, look Look) {
+	for _, page := range s.pluginPages {
+		if page.Section == s.Section {
+			if page.Render != nil {
+				page.Render(c)
+			} else {
+				kit.Result(c, kit.ResultProps{Title: i18n.T(c, "unavailable"), Card: true})
+			}
+			return
+		}
+	}
 	look.Live = s.Live
 	look.Actions = s.AppearanceActions
 	desc := string(s.Section) + "_description"

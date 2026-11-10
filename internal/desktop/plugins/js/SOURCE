@@ -1,0 +1,31 @@
+gpui-shell 0.8.1
+https://github.com/dux-web/gpui-component
+Revision: 4424427e60fcc9a95cd2a7daeacd77cc51b92e85
+License: Apache-2.0, preserved in LICENSE.gpui-shell
+
+gpui-prelude.js is the unchanged UTF-8 content of PRELUDE in
+crates/shell/src/engine/quickjs/mod.rs.
+SHA-256: b4179eee540a0a8acb8eddf5ae36c7f1f5690ea97d259ef24c612a782834dbc2
+
+bridge.js ports the native element arena, scoped view contexts, retained
+callbacks and scheduler contract used by that prelude.
+Core module export and component registration follows
+crates/shell/src/engine/quickjs/mod.rs and
+crates/shell/src/component_registry.rs at the same revision.
+
+The port preserves sandbox.rs watchdog budgets: detached execution 10 seconds,
+events and tasks 5 seconds, render and layout 2 seconds. Compilation uses the
+same enclosing execution deadline. Render promise jobs drain on the next owner
+turn, outside the render pass, as scheduler.rs requires.
+
+On November 10, 2026 the user authorized replacing the JavaScript engine with
+github.com/MoeForge/moejs v0.1.0. The engine's fixed MaxCallDepth=4096 in
+engine/function.go bounds recursion with a RangeError. It is not configurable,
+and no byte equivalence with QuickJS's stack setting is claimed.
+
+As in sandbox.rs, the desktop runtime sets no heap ceiling. Host-retained
+promises and temporary values are registered with AddLiveRoots, and owner turns
+use RebaseAllocation, so a future authorized memory limit also counts retained
+JavaScript. Values follow Go lifetime rather than QuickJS reference counting.
+The pinned prelude does not mutate shared intrinsics, so their default frozen
+state is preserved.

@@ -82,11 +82,15 @@ func (node *Node) workspaceRoot(ctx context.Context, id protocol.WorktreeID, int
 		if err != nil {
 			return err
 		}
-		session, err := protocol.ParseSessionID(filepath.Base(root))
-		if err != nil || root != core.SessionWorkspace(node.profile.Ownership.Path, session) {
-			return nil
+		profile := node.profile.Ownership.Path
+		if session, err := protocol.ParseSessionID(filepath.Base(root)); err == nil && root == core.SessionWorkspace(profile, session) {
+			return db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM sessions WHERE id=?1 AND worktree=?2 AND project IS NULL)", session.String(), id.String()).Scan(&owned)
 		}
-		return db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM sessions WHERE id=?1 AND worktree=?2 AND project IS NULL)", session.String(), id.String()).Scan(&owned)
+		if filepath.Dir(filepath.Dir(root)) == filepath.Join(profile, "assistants") && core.ManagedWorkspace(root, profile) {
+			// Every conversation of one plugin assistant shares this scratch root.
+			return db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM sessions WHERE worktree=?1 AND project IS NULL)", id.String()).Scan(&owned)
+		}
+		return nil
 	})
 	if err != nil || !owned {
 		return root, err

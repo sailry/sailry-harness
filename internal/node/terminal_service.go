@@ -3,6 +3,7 @@ package node
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"log/slog"
 
 	"github.com/sailry/sailry-harness/internal/link"
@@ -13,7 +14,7 @@ import (
 
 func terminalCommand(kind string) bool {
 	switch kind {
-	case "open_tool_terminal", "open_terminal", "list_terminal_tools", "close_terminal", "list_terminals", "inspect_terminal", "claim_terminal", "input_terminal", "resize_terminal", "set_terminal_appearance":
+	case "create_terminal", "open_tool_terminal", "open_terminal", "list_terminal_tools", "close_terminal", "list_terminals", "inspect_terminal", "claim_terminal", "input_terminal", "resize_terminal", "set_terminal_appearance":
 		return true
 	}
 	return false
@@ -47,9 +48,6 @@ func (node *Node) terminalChanged(info protocol.TerminalInfo) {
 }
 
 func (node *Node) terminalIO(ctx context.Context, caller protocol.NodeID, request protocol.Request, effect *workspaceCompletion) (protocol.Output, error) {
-	if request.Plugin != nil {
-		return protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "terminal commands require a controller"}
-	}
 	service := node.terminals
 	if service == nil {
 		return protocol.Output{}, unavailable()
@@ -57,6 +55,19 @@ func (node *Node) terminalIO(ctx context.Context, caller protocol.NodeID, reques
 	var info protocol.TerminalInfo
 	var err error
 	switch input := request.Command.Data.(type) {
+	case *protocol.TerminalLaunch:
+		root, err := node.workspaceRoot(ctx, input.Worktree, false)
+		if err != nil {
+			return protocol.Output{}, err
+		}
+		info, err = service.Start(ctx, terminal.Launch{
+			ID: protocol.TerminalID(request.ID), Caller: caller, Worktree: input.Worktree,
+			Root: root, Access: input.Access, Environment: node.environment.TerminalValues(),
+			Viewport: input.Viewport, Appearance: input.Appearance,
+		})
+		if err != nil {
+			return protocol.Output{}, err
+		}
 	case *protocol.CommandListTerminalToolsPayload:
 		root, err := node.workspaceRoot(ctx, input.Worktree, false)
 		if err != nil {
@@ -87,6 +98,10 @@ func (node *Node) terminalIO(ctx context.Context, caller protocol.NodeID, reques
 		}
 	case *protocol.CommandOpenTerminalPayload:
 		info, err = service.Info(input.Terminal)
+		var missing *protocol.Fault
+		if errors.As(err, &missing) && missing.Code == protocol.ErrorCodeNotFound {
+			info, err = node.openStoredTerminal(ctx, caller, *input)
+		}
 	case *protocol.CommandInspectTerminalPayload:
 		snapshot, err := service.Snapshot(input.Terminal)
 		return protocol.Output{Kind: "terminal_snapshot", Data: snapshot}, err
@@ -125,6 +140,38 @@ func (node *Node) terminalIO(ctx context.Context, caller protocol.NodeID, reques
 		return output, changes, err
 	}
 	return protocol.Output{Kind: "terminal", Data: info}, nil
+}
+
+func (node *Node) openStoredTerminal(ctx context.Context, caller protocol.NodeID, input protocol.CommandOpenTerminalPayload) (protocol.TerminalInfo, error) {
+	var previous protocol.TerminalInfo
+	if err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+		var err error
+		previous, err = store.ReadTerminal(ctx, db, input.Terminal)
+		return err
+	}); err != nil {
+		return protocol.TerminalInfo{}, err
+	}
+	if previous.Status.Kind == "closed" {
+		return protocol.TerminalInfo{}, &protocol.Fault{Code: protocol.ErrorCodeNotFound, Message: "terminal has been closed"}
+	}
+	if previous.Ssh != nil || previous.Tool != nil {
+		return protocol.TerminalInfo{}, &protocol.Fault{Code: protocol.ErrorCodeConflict, Message: "terminal requires an explicit new launch"}
+	}
+	if previous.Worktree == nil {
+		return protocol.TerminalInfo{}, &protocol.Fault{Code: protocol.ErrorCodeWrongTarget, Message: "terminal has no worktree"}
+	}
+	if previous.Access == nil {
+		return protocol.TerminalInfo{}, &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "local terminal has no access policy"}
+	}
+	root, err := node.workspaceRoot(ctx, *previous.Worktree, false)
+	if err != nil {
+		return protocol.TerminalInfo{}, err
+	}
+	return node.terminals.Start(ctx, terminal.Launch{
+		ID: previous.ID, Caller: caller, Worktree: *previous.Worktree, Root: root,
+		Access: *previous.Access, Environment: node.environment.TerminalValues(),
+		Viewport: input.Viewport, Appearance: input.Appearance, Revision: previous.Revision + 1,
+	})
 }
 
 func (node *Node) subscribeTerminal(topic protocol.Topic) (link.Subscription, error) {

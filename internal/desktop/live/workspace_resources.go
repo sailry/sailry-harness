@@ -197,7 +197,7 @@ func (p *workspaceProject) readArtifacts(session protocol.SessionID, after *prot
 	if after != nil {
 		key += "/" + after.String()
 	}
-	p.read(key, protocol.Command{Kind: "list_artifacts", Data: protocol.CommandListArtifactsPayload{Session: session, After: after, Limit: 100}}, func(c *ui.Context, out protocol.Output) {
+	p.read(key, protocol.Command{Kind: "list_artifacts", Data: protocol.CommandListArtifactsPayload{Session: session, After: after, Limit: 64}}, func(c *ui.Context, out protocol.Output) {
 		page, ok := detail[protocol.ArtifactPage](out.Data)
 		if !ok || p.session != session {
 			return

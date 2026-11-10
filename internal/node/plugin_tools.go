@@ -99,24 +99,17 @@ func (node *Node) pluginTools(ctx context.Context, invocation *store.AgentInvoca
 	return append(tools, mcpTools...), err
 }
 
+// selectedMCPServer keeps only the owner's servers an assistant declares.
 func selectedMCPServer(invocation *store.AgentInvocation, info protocol.PluginInfo, server string) bool {
-	assistant := invocation.Turn.Config.Assistant
-	if assistant == nil {
+	binding := invocation.Turn.Config.Assistant
+	if binding == nil {
 		return true
 	}
-	if assistant.Package.Name != info.Summary.Name || info.Extension == nil || info.Extension.Desktop == nil {
-		return false
-	}
-	for _, mode := range info.Extension.Desktop.Conversations {
-		if mode.ID == assistant.ID {
-			for _, selection := range mode.Tools {
-				if value, ok := selection.Data.(*protocol.PluginConversationToolPluginPayload); ok && value.Server != nil && *value.Server == server {
-					return true
-				}
-			}
-		}
-	}
-	return false
+	return binding.Package.Name == info.Summary.Name && invocation.Assistant != nil &&
+		slices.ContainsFunc(invocation.Assistant.Tools, func(selection protocol.PluginConversationTool) bool {
+			value, valid := selection.Data.(*protocol.PluginConversationToolPluginPayload)
+			return valid && value.Server != nil && *value.Server == server
+		})
 }
 
 func selectedMCPTool(invocation *store.AgentInvocation, info protocol.PluginInfo, server, name string) (*protocol.ToolDeclaration, bool) {
@@ -158,38 +151,27 @@ func availablePluginTool(invocation *store.AgentInvocation, tool protocol.ToolDe
 	return slices.Contains(tool.Contexts, resource)
 }
 
+// selectedPluginTool applies the frozen assistant declaration: the owner's
+// declared tools, and package tools the assistant imports explicitly. Imported
+// packages contribute no other tool, skill or MCP server.
 func selectedPluginTool(invocation *store.AgentInvocation, info protocol.PluginInfo, server, name string) bool {
-	assistant := invocation.Turn.Config.Assistant
-	if assistant == nil {
+	binding := invocation.Turn.Config.Assistant
+	if binding == nil {
 		return true
 	}
-	var owner protocol.PluginInfo
-	if assistant.Package.Name == info.Summary.Name {
-		owner = info
-	} else {
+	if invocation.Assistant == nil {
 		return false
 	}
-	if owner.Extension == nil || owner.Extension.Desktop == nil {
+	owner := binding.Package.Name == info.Summary.Name
+	return slices.ContainsFunc(invocation.Assistant.Tools, func(selection protocol.PluginConversationTool) bool {
+		switch value := selection.Data.(type) {
+		case *protocol.PluginConversationToolPluginPayload:
+			return owner && value.Name == name && (value.Server == nil && server == "" || value.Server != nil && *value.Server == server)
+		case *protocol.PluginConversationToolPackagePayload:
+			return server == "" && value.Package == info.Summary.Name && value.Name == name
+		}
 		return false
-	}
-	for _, mode := range owner.Extension.Desktop.Conversations {
-		if mode.ID != assistant.ID {
-			continue
-		}
-		for _, selection := range mode.Tools {
-			switch value := selection.Data.(type) {
-			case *protocol.PluginConversationToolPluginPayload:
-				if value.Name == name && (value.Server == nil && server == "" || value.Server != nil && *value.Server == server) {
-					return true
-				}
-			case *protocol.PluginConversationToolPackagePayload:
-				if value.Package == info.Summary.Name && value.Name == name {
-					return true
-				}
-			}
-		}
-	}
-	return false
+	})
 }
 
 func (node *Node) mcpTool(invocation *store.AgentInvocation, reference protocol.PluginReference, server string, lease *mcp.Lease, descriptor *sdk.Tool, declaration *protocol.ToolDeclaration, options protocol.PluginMcpOptions) (engine.Tool, error) {

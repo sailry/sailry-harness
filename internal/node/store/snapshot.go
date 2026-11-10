@@ -33,7 +33,7 @@ func Snapshot(ctx context.Context, db *sql.Conn, node protocol.NodeID) (protocol
 	if value.Teams, err = readBodies[protocol.TeamProfile](ctx, db, "SELECT body FROM teams ORDER BY key"); err != nil {
 		return value, err
 	}
-	if value.Terminals, err = readBodies[protocol.TerminalInfo](ctx, db, "SELECT body FROM terminals ORDER BY rowid"); err != nil {
+	if value.Terminals, err = readBodies[protocol.TerminalInfo](ctx, db, "SELECT body FROM terminals ORDER BY id"); err != nil {
 		return value, err
 	}
 	if value.Ssh, err = readBodies[protocol.SshProfile](ctx, db, "SELECT body FROM ssh_profiles ORDER BY rowid"); err != nil {

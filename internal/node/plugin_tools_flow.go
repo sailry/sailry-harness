@@ -62,7 +62,7 @@ func (owner *pluginScriptTurn) operation(ctx context.Context, tool string, call 
 	}
 	request := protocol.NewRequest(owner.node.ID(), command)
 	request.Plugin = &owner.scope
-	identity := pluginToolIdentity(owner.invocation.Run.Turn, owner.scope.Package, plugins.ToolAlias(owner.info.Summary.Name, tool), call.ID)
+	identity := plugins.ToolCallIdentity(owner.invocation.Run.Turn, owner.scope.Package, plugins.ToolAlias(owner.info.Summary.Name, tool), call.ID)
 	material := binary.LittleEndian.AppendUint64([]byte(identity.String()), step)
 	var digest [32]byte
 	blake3.DeriveKey(digest[:], "Sailry plugin bound operation v1", material)

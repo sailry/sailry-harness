@@ -25,6 +25,11 @@ func pluginTestInfo(name string, digest byte) protocol.PluginInfo {
 
 func TestPluginInventoryAndSettings(t *testing.T) {
 	t.Parallel()
+	t.Run("controller authority", testPluginControllerAuthority)
+	t.Run("captured Plan actions", testPluginPlanActions)
+	t.Run("scoped Status contracts", testPluginStatusContracts)
+	t.Run("scoped Activity reads", testPluginActivityReads)
+	t.Run("native slash command resolution", testPluginMessageCommandResolution)
 	_, _, storage := schemaFixture(t)
 	ctx := t.Context()
 	err := storage.Node.Write(ctx, func(db *sql.Conn) error {

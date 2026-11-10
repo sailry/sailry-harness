@@ -224,8 +224,8 @@ preview fallback. Captured queue revisions protect edits and reordering.
 `Context.LocationLocked` freezes admitted session locations during B4. New drafts
 choose from registered projects and worktrees; the existing worktree DTO carries
 the canonical path until Git inspection supplies branch labels in B5. File
-transfers and worktree creation use their live workspace owners. Dictation and
-plugin activity keep their later-phase ownership.
+transfers and worktree creation use their live workspace owners. Dictation keeps
+its speech-phase ownership.
 
 Team choices use the Node's catalog and the session's frozen role profiles.
 `State.MemberModels` separates member edits from the lead model controls;
@@ -261,8 +261,36 @@ from the observed running command closes its associated Forwarder.
 Forwarding state belongs to the window and is keyed by Node and remote port.
 Another Node's matching port cannot supply the label or browser address.
 Connection loss changes the existing banner and service controls; it does not
-move the draft to a different Node or stop admitted work. Plugin Status
-contributions remain with their runtime phase.
+move the draft to a different Node or stop admitted work.
+
+### Plugin contributions
+
+`live/plugin_controls.go` projects metadata-declared composer, model, context,
+statistics, footer and header contributions into their existing slots. Registry
+keys retain the Node, worktree, session and each unsent draft's presentation
+identity. Generations fence old callbacks and simultaneous drafts. Shared
+assistant contributions follow the package's `ui_shared` and `ui_overlay`
+declarations.
+
+`live/plugin_status.go` consumes the Node-owned Status topic through Client.
+Badges preserve plugin ordering, toned segments and tooltips; Files and Git
+package entries are excluded. Popovers mount the package's immutable UI entry.
+Actions keep the original request through failure, conflict or uncertain
+completion. A returned command intent can open a hidden status popover.
+
+Message commands use ordinary submit actions. Node resolves a declared leading
+slash command before model admission, captures its callback scope, and records
+the parent request's durable outcome. Repeating that request cannot reroute it
+through a model or repeat the callback after inventory changes. Ordinary text
+continues through the existing agent loop.
+
+A package's location control can give an unsent project draft a session base:
+a display name, branch and commit. `live/session_base.go` keeps it with that
+draft until its project or worktree changes. The first send or first attachment
+creates a managed worktree from the base, moves the draft into it and continues
+with the ordinary session creation. The draft is busy meanwhile. A failure
+leaves the draft and base unchanged; an uncertain result retries its captured
+request rather than creating a second worktree.
 
 ## UI state vs backend data
 
@@ -308,7 +336,8 @@ pictures (`preview.PlainTurns`).
 | Member badges are initials; collision handling is left to the logic half | UI-first scope |
 | File picker: list view only, no grid, context menu or go-to address | Kept to the attach flow |
 | Drop target tint is `Muted` mixed 12% with `Primary` | No Kit drop-zone slot in the theme |
-| Plugin-contributed toolbar controls are not shown | No plugin runtime in the prototype |
+| Plugin indicators draw their progress arc using the shared semantic palette | Pinned MyGo has no matching progress-circle control |
+| Plugin menu groups use disabled Kit rows and the standard menu row height | Kit has no separate menu-heading control; existing menu styling is retained |
 | The Git changes badge is native, with the Git icon (Rust: the git plugin's Status button, Settings2 fallback icon) | Git is core here |
 | The activity strip wraps when it is full | Rust keeps one row and lets capsules overflow |
 | Live service labels use additive activity callbacks | Forwarder state stays with the captured Client while the accepted command DTO and capsule layout remain unchanged |

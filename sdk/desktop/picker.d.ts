@@ -1,0 +1,2 @@
+export const Picker: {new(id:string,props:{open:boolean;title:string;items:{id:string;label:string;detail?:string;icon?:string;group?:string;checked?:boolean;disabled?:boolean;submenu?:boolean;value?:unknown}[];loading?:boolean;empty?:string;mode?:'list'|'command'}):import("gpui-kit").Element};
+export function nextPickerEvent():Promise<{picker:string;kind:'select'|'close';id?:string;value?:unknown}>;

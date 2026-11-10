@@ -190,6 +190,15 @@ placeholder in an empty masked input.
 
 ## Backend ownership
 
+B9 plugin settings pages join the existing groups by declared placement order,
+alongside core sections. Entries retain their execution Node and package.
+An immutable desktop settings entry mounts through `read_plugin_view`; a
+schema-only page uses the existing protected configuration form. Disabled
+packages may expose their settings without mounting their ordinary
+contributions. The native ConfigurationButton opens only its own captured
+package configuration. Revisions, secret keep/replace/clear behavior and failed
+draft retention remain with the existing settings owner.
+
 The B3 live adapter, controller preferences and remaining phase boundaries are
 specified in [B3 live wiring](#b3-live-wiring). The preview remains an explicit,
 separate constructor and does not own backend facts. Later feature phases supply

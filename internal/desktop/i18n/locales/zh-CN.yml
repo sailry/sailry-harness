@@ -209,6 +209,7 @@ workspace_host: 主机信息
 connection_action_edit: 编辑
 reference_back: 返回上一级
 connection_search_empty: 无匹配结果
+connection_search: 搜索
 activity_completed: 已完成
 activity_failed: 失败
 activity_idle: 空闲
@@ -1115,6 +1116,8 @@ mcp_remove_slot: 移除此项
 mcp_install_stdio_help: 输入所选主机执行的命令和参数，私密值填写在凭据字段中
 mcp_install_http_help: 输入 MCP 地址，私密请求头填写在凭据字段中，或使用 OAuth 授权
 mcp_configuration_saved: 已保存 MCP 配置
+mcp_oauth_callback_failed: 无法接收授权回调，请重试
+mcp_oauth_failed: 授权失败，请重试
 team_invalid: 请输入团队名称
 team_name_taken: 已有同名团队
 teams_role_invalid: 请检查角色标识和名称
@@ -1283,6 +1286,7 @@ plugins_updates_title: 插件更新
 plugins_update_version: 更新至 %{version}
 plugins_updates_later: 稍后
 plugins_updates_selected: 更新（%{count}）
+plugins_retry: 重试
 skill_source_git: Git
 skill_source_skills: skills.sh
 skill_source_hub: skillhub.cn
@@ -1782,3 +1786,46 @@ market_permission_storage_read: 读取插件数据
 market_permission_storage_write: 保存插件数据
 market_permission_knowledge_read: 读取知识库
 market_permission_knowledge_write: 修改知识库
+appearance_icon: 图标
+appearance_color: 颜色
+project_icon_folder: 文件夹
+project_icon_code: 代码
+project_icon_terminal: 终端
+project_icon_globe: 网站
+project_icon_server: 服务器
+project_icon_database: 数据库
+project_icon_package: 包
+project_icon_game: 游戏
+project_icon_book: 书籍
+project_icon_finance: 财务
+project_icon_device: 设备
+project_icon_education: 教育
+project_icon_writing: 写作
+project_icon_tags: 标签
+project_icon_music: 音乐
+project_icon_media: 媒体
+project_icon_design: 设计
+project_icon_health: 健康
+project_icon_nature: 自然
+project_icon_business: 商务
+project_icon_analytics: 分析
+project_icon_profile: 个人
+project_icon_fitness: 运动
+project_icon_law: 法律
+project_icon_audio: 音频
+project_icon_travel: 旅行
+project_icon_tools: 工具
+project_icon_science: 科学
+project_icon_ai: AI
+project_icon_favorite: 收藏
+project_color_none: 无颜色
+project_color_blue: 蓝色
+project_color_indigo: 靛蓝
+project_color_violet: 紫色
+project_color_magenta: 洋红
+project_color_red: 红色
+project_color_orange: 橙色
+project_color_amber: 琥珀
+project_color_green: 绿色
+project_color_teal: 青绿
+project_color_cyan: 青色

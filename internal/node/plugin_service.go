@@ -147,6 +147,9 @@ func (node *Node) validatePluginRequestDB(ctx context.Context, db *sql.Conn, cal
 	if request.Plugin == nil {
 		return nil
 	}
+	if request.Plugin.Surface.Kind == "card" {
+		return store.CheckPluginCardRequest(ctx, db, node.ID(), caller, request)
+	}
 	var captured *protocol.PluginInfo
 	if request.Plugin.Invocation != nil {
 		node.plugins.mu.Lock()
@@ -259,6 +262,9 @@ func (node *Node) pluginCallback(ctx context.Context, caller protocol.NodeID, re
 		func(ctx context.Context, command protocol.Request) (protocol.Output, error) {
 			return node.dispatchCallbackResult(ctx, command)
 		})
+	if !readOnly && host.Status != nil && host.Status.Invoke != nil && *host.Status.Invoke == handler {
+		node.invalidatePluginStatus(info.Summary.Name)
+	}
 	return protocol.Output{Kind: "plugin_result", Data: value}, err
 }
 

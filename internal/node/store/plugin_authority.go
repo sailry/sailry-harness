@@ -77,11 +77,46 @@ func CheckPluginRequest(ctx context.Context, db *sql.Conn, request protocol.Requ
 	if !allowed {
 		return fault(protocol.ErrorCodePermissionDenied, "command is not exposed to plugin software actions")
 	}
-	if action != "" && !slices.Contains(info.Extension.Actions, action) {
+	declared := action == "" || slices.Contains(info.Extension.Actions, action)
+	if request.Command.Kind == "list_plugin_models" {
+		declared = declared || slices.Contains(info.Extension.Actions, protocol.PluginActionReadModels)
+	}
+	if !declared {
 		return fault(protocol.ErrorCodePermissionDenied, "plugin does not declare this software action")
 	}
-	if !info.Summary.Enabled {
+	settings := scope.Surface.Kind == "settings"
+	if settings && info.Extension.SettingsPage == nil {
+		return fault(protocol.ErrorCodePermissionDenied, "plugin has no settings contribution")
+	}
+	if !info.Summary.Enabled && !(settings && pluginSettingsAccess(request.Command.Kind)) {
 		return fault(protocol.ErrorCodeNotConfigured, "plugin is disabled")
+	}
+	switch request.Command.Kind {
+	case "read_activity", "read_activity_catalog":
+		if scope.Worktree != nil || scope.Session != nil || scope.Turn != nil || scope.Invocation != nil {
+			return fault(protocol.ErrorCodePermissionDenied, "activity requires a Node-wide plugin scope")
+		}
+	case "read_usage":
+		if scope.Turn != nil || scope.Invocation != nil || scope.Surface.Kind != "workspace" && !settings {
+			return fault(protocol.ErrorCodePermissionDenied, "usage requires a controller plugin scope")
+		}
+	case "read_code_index_settings", "save_code_index_settings", "read_search_settings", "save_search_settings", "test_search_driver":
+		if !scope.ControllerSettings() {
+			return fault(protocol.ErrorCodePermissionDenied, "settings require a Node-wide controller settings scope")
+		}
+	case "read_media_settings", "list_media_models", "save_media_settings", "save_plugin_settings":
+		if !settings {
+			return fault(protocol.ErrorCodePermissionDenied, "command requires a plugin settings surface")
+		}
+	case "read_plugin_connection":
+		if err := CheckPluginConnectionRequest(request, info); err != nil {
+			return err
+		}
+	}
+	if action == protocol.PluginActionReadTerminals || action == protocol.PluginActionControlTerminals {
+		if err := checkPluginTerminalRequest(ctx, db, request); err != nil {
+			return err
+		}
 	}
 	if scope.Turn != nil && (request.Command.Kind == "write_plugin_value" || request.Command.Kind == "write_indexed_plugin_value" || request.Command.Kind == "remove_plugin_value") || request.Command.Kind == "write_plugin_conversation_value" || request.Command.Kind == "remove_plugin_conversation_value" {
 		current, err := ReadPlugin(ctx, db, scope.Package.Name)
@@ -92,14 +127,8 @@ func CheckPluginRequest(ctx context.Context, db *sql.Conn, request protocol.Requ
 			return fault(protocol.ErrorCodeNotConfigured, "plugin is disabled")
 		}
 	}
-	if request.Command.Durable() && scope.Turn != nil {
-		capture, err := readTurnCapture(ctx, db, *scope.Turn)
-		if err != nil {
-			return err
-		}
-		if capture.Config.Mode == protocol.WorkModePlan {
-			return fault(protocol.ErrorCodePermissionDenied, "planning turns cannot dispatch durable commands")
-		}
+	if err := CheckPluginPlanAction(ctx, db, request, action); err != nil {
+		return err
 	}
 	var target struct {
 		Package  *protocol.PluginReference `json:"package"`
@@ -159,6 +188,12 @@ func pluginAction(kind string) (protocol.PluginAction, bool) {
 		return protocol.PluginActionGenerateText, true
 	case "resolve_plugin_model":
 		return protocol.PluginActionReadModels, true
+	case "search_models", "read_model_versions", "resolve_model", "refresh_local_model", "read_local_models":
+		return protocol.PluginActionReadModels, true
+	case "decide":
+		return protocol.PluginActionRunDecisions, true
+	case "register_local_model", "install_local_model", "delete_local_model":
+		return protocol.PluginActionInstallModels, true
 	case "read_installations", "dismiss_installation":
 		return protocol.PluginActionInstallModels, true
 	case "read_activity", "read_activity_catalog":
@@ -203,6 +238,22 @@ func pluginAction(kind string) (protocol.PluginAction, bool) {
 		return protocol.PluginActionReadSearchSettings, true
 	case "save_search_settings", "test_search_driver":
 		return protocol.PluginActionSaveSearchSettings, true
+	case "read_code_index_settings":
+		return protocol.PluginActionReadCodeIndexSettings, true
+	case "save_code_index_settings":
+		return protocol.PluginActionSaveCodeIndexSettings, true
+	case "read_media_settings", "list_media_models":
+		return protocol.PluginActionReadMediaSettings, true
+	case "save_media_settings":
+		return protocol.PluginActionSaveMediaSettings, true
+	case "read_computer_permissions":
+		return protocol.PluginActionReadComputer, true
+	case "request_computer_permission":
+		return protocol.PluginActionControlComputer, true
+	case "list_terminals", "list_terminal_tools", "inspect_terminal":
+		return protocol.PluginActionReadTerminals, true
+	case "create_terminal", "open_tool_terminal", "open_terminal", "close_terminal", "claim_terminal", "input_terminal", "resize_terminal", "set_terminal_appearance":
+		return protocol.PluginActionControlTerminals, true
 	case "read_hooks":
 		return protocol.PluginActionReadCodeSettings, true
 	case "save_hooks":
@@ -214,4 +265,18 @@ func pluginAction(kind string) (protocol.PluginAction, bool) {
 	default:
 		return "", false
 	}
+}
+
+func pluginSettingsAccess(kind string) bool {
+	switch kind {
+	case "list_roles", "list_teams", "list_associated_sessions", "read_project_catalog", "put_role", "remove_role",
+		"list_plugin_models", "search_models", "read_model_versions", "resolve_model", "refresh_local_model", "read_local_models",
+		"decide", "register_local_model", "install_local_model", "read_installations", "dismiss_installation",
+		"read_plugin_settings", "read_plugin_value", "list_plugin_keys", "search_plugin_values", "write_plugin_value",
+		"write_indexed_plugin_value", "remove_plugin_value", "plugin_transaction", "save_plugin_settings",
+		"read_code_index_settings", "save_code_index_settings", "read_search_settings", "save_search_settings", "test_search_driver",
+		"read_media_settings", "list_media_models", "save_media_settings", "read_computer_permissions", "request_computer_permission":
+		return true
+	}
+	return false
 }

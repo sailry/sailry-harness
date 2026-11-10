@@ -9,14 +9,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/MoeForge/moejs"
 	"github.com/sailry/sailry-harness/internal/protocol"
-	"modernc.org/quickjs"
 )
 
 const ScriptMemoryBytes = 64 * 1024 * 1024
-
-// ScriptStackSlots is the Go binding's fixed-slot counterpart of Rust STACK_BYTES.
-const ScriptStackSlots = 512
 
 const ScriptCallTimeout = 60 * time.Second
 const ScriptMaxDataBytes = 2 * 1024 * 1024
@@ -47,19 +44,16 @@ type ScriptExecution struct {
 }
 
 type scriptVM struct {
-	vm       *quickjs.VM
-	ctx      context.Context
-	deadline time.Time
-	exports  quickjs.Value
-	invoke   quickjs.Value
-	inspect  quickjs.Value
-	has      quickjs.Value
-	watch    quickjs.Value
-	done     quickjs.Atom
-	failed   quickjs.Atom
-	value    quickjs.Atom
-	bridge   *scriptBridge
-	pure     bool
+	vm           *moejs.Runtime
+	ctx          context.Context
+	deadline     time.Time
+	exports      moejs.Value
+	invoke       moejs.Value
+	inspect      moejs.Value
+	has          moejs.Value
+	releaseRoots func()
+	bridge       *scriptBridge
+	pure         bool
 }
 
 func RunCallback(ctx context.Context, bundle ScriptBundle, handler string, input any, environment ScriptEnvironment, readOnly bool, dispatch ScriptDispatch) (json.RawMessage, error) {
@@ -111,53 +105,7 @@ func newScriptVM(ctx context.Context, bundle ScriptBundle, deadline time.Time, b
 	if err := scriptCheck(ctx, deadline, pure); err != nil {
 		return nil, err
 	}
-	vm, err := quickjs.NewVM()
-	if err != nil {
-		return nil, scriptEngine(err)
-	}
-	runtime := &scriptVM{vm: vm, ctx: ctx, deadline: deadline, bridge: bridge, pure: pure}
-	defer func() {
-		if result != nil {
-			runtime.close()
-		}
-	}()
-	vm.SetMemoryLimit(ScriptMemoryBytes)
-	vm.SetMaxStackSize(ScriptStackSlots)
-	if err := runtime.arm(); err != nil {
-		return nil, err
-	}
-	intrinsics, err := vm.EvalValue(scriptIntrinsics, quickjs.EvalGlobal)
-	if err != nil {
-		return nil, scriptEngine(err)
-	}
-	defer intrinsics.Free()
-	for name, target := range map[string]*quickjs.Value{
-		"invoke": &runtime.invoke, "inspect": &runtime.inspect, "has": &runtime.has, "watch": &runtime.watch,
-	} {
-		atom, err := vm.NewAtom(name)
-		if err != nil {
-			return nil, scriptEngine(err)
-		}
-		value, err := intrinsics.GetPropertyValue(atom)
-		if err != nil {
-			return nil, scriptEngine(err)
-		}
-		*target = value
-	}
-	for name, target := range map[string]*quickjs.Atom{
-		"done": &runtime.done, "failed": &runtime.failed, "value": &runtime.value,
-	} {
-		atom, err := vm.NewAtom(name)
-		if err != nil {
-			return nil, scriptEngine(err)
-		}
-		*target = atom
-	}
-	if bridge != nil {
-		if err := vm.RegisterFunc("__sailry", bridge.call, false); err != nil {
-			return nil, scriptEngine(err)
-		}
-	}
+	runtime := &scriptVM{ctx: ctx, deadline: deadline, bridge: bridge, pure: pure}
 	builtins := map[string]string{}
 	names := []string{"sdk", "http", "models", "decisions", "connectors", "cards", "installations"}
 	if pure {
@@ -180,104 +128,145 @@ func newScriptVM(ctx context.Context, bundle ScriptBundle, deadline time.Time, b
 			}
 		}
 	}
-	vm.SetModuleLoader(func(_ *quickjs.VM, name string) (string, error) {
-		if err := scriptCheck(ctx, runtime.deadline, pure); err != nil {
-			vm.Interrupt()
-			return "", err
+	modules := map[string]*moejs.Module{}
+	resolve := func(referrer moejs.Referrer, name string) (*moejs.Module, error) {
+		if err := runtime.arm(); err != nil {
+			return nil, err
 		}
-		if source, ok := builtins[name]; ok {
-			return source, nil
+		if strings.HasPrefix(name, ".") && referrer != nil {
+			name = path.Join(path.Dir(referrer.Name()), name)
 		}
-		if source, ok := bundle.Files[name]; ok {
-			return source, nil
+		if compiled := modules[name]; compiled != nil {
+			return compiled, nil
 		}
-		return "", scriptInvalid("plugin module is unavailable")
-	}, func(_ *quickjs.VM, base, name string) (string, error) {
-		if strings.HasPrefix(name, ".") {
-			name = path.Join(path.Dir(base), name)
+		source, exists := builtins[name]
+		if !exists {
+			source, exists = bundle.Files[name]
 		}
-		if _, ok := builtins[name]; ok {
-			return name, nil
+		if !exists {
+			return nil, scriptInvalid("plugin module is unavailable")
 		}
-		if _, ok := bundle.Files[name]; ok {
-			return name, nil
+		bounded, cancel := context.WithDeadline(ctx, runtime.deadline)
+		defer cancel()
+		compiled, err := moejs.CompileWith(name, source, moejs.CompileOptions{Context: bounded})
+		if err != nil {
+			return nil, err
 		}
-		return "", scriptInvalid("plugin module is unavailable")
+		modules[name] = compiled
+		return compiled, nil
+	}
+	vm := moejs.NewRuntime(moejs.Options{
+		MutableIntrinsics: true, MemoryLimit: ScriptMemoryBytes, Importer: &moejs.Importer{Resolve: resolve},
 	})
+	runtime.vm = vm
+	runtime.releaseRoots = vm.AddLiveRoots(func(add func(moejs.Value)) {
+		add(runtime.exports)
+		add(runtime.invoke)
+		add(runtime.inspect)
+		add(runtime.has)
+	})
+	defer func() {
+		if result != nil {
+			runtime.close()
+		}
+	}()
+	stop, err := runtime.begin()
+	if err != nil {
+		return nil, err
+	}
+	defer stop()
+	bounded, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
+	prelude, err := moejs.CompileScriptWith("sailry:intrinsics", scriptIntrinsics, moejs.CompileOptions{Context: bounded})
+	if err != nil {
+		return nil, runtime.engine(err)
+	}
+	intrinsics, err := vm.RunScript(prelude)
+	if err != nil {
+		return nil, runtime.engine(err)
+	}
+	for name, target := range map[string]*moejs.Value{
+		"invoke": &runtime.invoke, "inspect": &runtime.inspect, "has": &runtime.has,
+	} {
+		value, err := vm.Get(intrinsics, name)
+		if err != nil {
+			return nil, runtime.engine(err)
+		}
+		*target = value
+	}
+	if bridge != nil {
+		if err := vm.SetGlobal("__sailry", moejs.NativeFunc(func(_ *moejs.Realm, _ moejs.Value, arguments []moejs.Value) (moejs.Value, error) {
+			operation, body := moejs.Arg(arguments, 0), moejs.Arg(arguments, 1)
+			if !operation.IsString() || !body.IsString() {
+				return moejs.Undefined(), scriptInvalid("invalid host SDK operation")
+			}
+			return moejs.String(bridge.call(operation.String(), body.String())), nil
+		})); err != nil {
+			return nil, runtime.engine(err)
+		}
+	}
 	entry, err := json.Marshal(bundle.Entry)
 	if err != nil {
 		return nil, scriptEngine(err)
 	}
-	stop := context.AfterFunc(ctx, vm.Interrupt)
-	defer stop()
-	if err := runtime.arm(); err != nil {
-		return nil, err
-	}
-	ready, err := vm.EvalValue("import("+string(entry)+")", quickjs.EvalGlobal)
+	bootstrap, err := moejs.CompileWith("sailry:callback", "import * as plugin from "+string(entry)+";export {plugin};", moejs.CompileOptions{Context: bounded})
 	if err != nil {
 		return nil, runtime.engine(err)
 	}
-	defer ready.Free()
-	exports, err := runtime.settle(ready)
+	linked, err := moejs.Link(bootstrap, resolve)
 	if err != nil {
-		return nil, err
+		return nil, runtime.engine(err)
+	}
+	if err := vm.Load(linked); err != nil {
+		return nil, runtime.engine(err)
+	}
+	exports, exists := vm.Export("plugin")
+	if !exists {
+		return nil, scriptInvalid("plugin host entry is missing")
 	}
 	runtime.exports = exports
+	if err := runtime.arm(); err != nil {
+		return nil, err
+	}
 	return runtime, nil
 }
 
 func (runtime *scriptVM) arm() error {
-	if err := scriptCheck(runtime.ctx, runtime.deadline, runtime.pure); err != nil {
-		return err
-	}
-	return runtime.vm.SetEvalTimeout(time.Until(runtime.deadline))
+	return scriptCheck(runtime.ctx, runtime.deadline, runtime.pure)
 }
 
-func (runtime *scriptVM) settle(promise quickjs.Value) (quickjs.Value, error) {
-	if err := runtime.arm(); err != nil {
-		return quickjs.Value{}, err
-	}
-	state, err := runtime.watch.CallValue(quickjs.UndefinedValue, promise)
-	if err != nil {
-		return quickjs.Value{}, runtime.engine(err)
-	}
-	defer state.Free()
-	for {
-		done, err := state.Property(runtime.done)
-		if err != nil {
-			return quickjs.Value{}, runtime.engine(err)
-		}
-		if done == true {
-			break
-		}
-		if err := runtime.arm(); err != nil {
-			return quickjs.Value{}, err
-		}
-		jobs, err := runtime.vm.ExecutePendingJobs()
-		if err != nil {
-			return quickjs.Value{}, runtime.engine(err)
-		}
-		if jobs == 0 {
-			if runtime.pure {
-				return quickjs.Value{}, scriptInvalid("plugin translation failed")
-			}
-			return quickjs.Value{}, scriptInvalid("plugin JavaScript promise did not settle")
-		}
-	}
+func (runtime *scriptVM) begin() (func(), error) {
 	if err := scriptCheck(runtime.ctx, runtime.deadline, runtime.pure); err != nil {
-		return quickjs.Value{}, err
+		return nil, err
 	}
-	failed, err := state.Property(runtime.failed)
-	if err != nil {
-		return quickjs.Value{}, runtime.engine(err)
+	bounded, cancel := context.WithDeadline(runtime.ctx, runtime.deadline)
+	interrupted := make(chan struct{})
+	vm := runtime.vm
+	stop := context.AfterFunc(bounded, func() {
+		vm.Interrupt(context.Cause(bounded))
+		close(interrupted)
+	})
+	return func() {
+		if !stop() {
+			<-interrupted
+		}
+		cancel()
+	}, nil
+}
+
+func (runtime *scriptVM) settle(promise moejs.Value) (moejs.Value, error) {
+	if err := runtime.arm(); err != nil {
+		return moejs.Undefined(), err
 	}
-	value, err := state.GetPropertyValue(runtime.value)
-	if err != nil {
-		return quickjs.Value{}, runtime.engine(err)
+	state, value, valid := moejs.PromiseResult(promise)
+	if !valid || state == moejs.PromisePending {
+		if runtime.pure {
+			return moejs.Undefined(), scriptInvalid("plugin translation failed")
+		}
+		return moejs.Undefined(), scriptInvalid("plugin JavaScript promise did not settle")
 	}
-	if failed == true {
-		defer value.Free()
-		return quickjs.Value{}, runtime.exception(value)
+	if state == moejs.PromiseRejected {
+		return moejs.Undefined(), runtime.exception(value)
 	}
 	return value, nil
 }
@@ -293,25 +282,24 @@ func (runtime *scriptVM) call(handler string, input any, maxBytes int) (json.Raw
 		}
 		return nil, scriptInvalid("plugin callback input exceeds limit")
 	}
-	if err := runtime.arm(); err != nil {
+	stop, err := runtime.begin()
+	if err != nil {
 		return nil, err
 	}
-	stop := context.AfterFunc(runtime.ctx, runtime.vm.Interrupt)
 	defer stop()
-	promise, err := runtime.invoke.CallValue(quickjs.UndefinedValue, runtime.exports, handler, string(encoded))
+	defer runtime.vm.ReleaseCallData()
+	promise, err := runtime.vm.CallFunction(runtime.invoke, moejs.Undefined(), runtime.exports, moejs.String(handler), moejs.String(string(encoded)))
 	if err != nil {
 		return nil, runtime.engine(err)
 	}
-	defer promise.Free()
 	value, err := runtime.settle(promise)
 	if err != nil {
 		return nil, err
 	}
-	defer value.Free()
 	if err := runtime.arm(); err != nil {
 		return nil, err
 	}
-	text, err := value.MarshalJSON()
+	text, err := runtime.vm.AppendJSON(nil, value)
 	if err != nil {
 		return nil, runtime.engine(err)
 	}
@@ -342,15 +330,15 @@ func (runtime *scriptVM) call(handler string, input any, maxBytes int) (json.Raw
 }
 
 func (runtime *scriptVM) close() {
-	for _, value := range []*quickjs.Value{&runtime.exports, &runtime.invoke, &runtime.inspect, &runtime.has, &runtime.watch} {
-		if value.VM() != nil {
-			value.Free()
-		}
+	if runtime.releaseRoots != nil {
+		runtime.releaseRoots()
+		runtime.releaseRoots = nil
 	}
 	if runtime.vm != nil {
-		_ = runtime.vm.Close()
+		runtime.vm.ReleaseCallData()
 		runtime.vm = nil
 	}
+	runtime.exports, runtime.invoke, runtime.inspect, runtime.has = moejs.Undefined(), moejs.Undefined(), moejs.Undefined(), moejs.Undefined()
 }
 
 func scriptCheck(ctx context.Context, deadline time.Time, pure bool) error {
@@ -377,6 +365,13 @@ func (runtime *scriptVM) engine(err error) error {
 	if runtime.pure {
 		return scriptInvalid("plugin translation failed")
 	}
+	if errors.Is(err, moejs.ErrModulePending) {
+		return scriptInvalid("plugin JavaScript promise did not settle")
+	}
+	var exception *moejs.Exception
+	if !errors.Is(err, moejs.ErrMemoryLimit) && errors.As(err, &exception) && runtime.inspect.IsObject() {
+		return runtime.exception(exception.Value)
+	}
 	return scriptEngine(err)
 }
 
@@ -385,9 +380,12 @@ func scriptEngine(err error) error {
 	if errors.As(err, &fault) {
 		return fault
 	}
-	var engine *quickjs.Error
-	if errors.As(err, &engine) && engine.Message != "" && len(engine.Message) <= 1024 {
-		return scriptInvalid("plugin JavaScript execution failed: " + engine.Message)
+	if errors.Is(err, moejs.ErrMemoryLimit) {
+		return scriptInvalid("plugin JavaScript execution failed: out of memory")
+	}
+	var syntax *moejs.SyntaxError
+	if errors.As(err, &syntax) && syntax.Message != "" && len(syntax.Message) <= 1024 {
+		return scriptInvalid("plugin JavaScript execution failed: " + syntax.Message)
 	}
 	return scriptInvalid("plugin JavaScript execution failed")
 }

@@ -67,6 +67,7 @@ func (r *Runtime) enrichDetails(cv *viewmodel.Conversation, state client.Convers
 					continue
 				}
 				if loaded, ok := r.controller.ConversationDetail(source.ref); ok {
+					r.bindPluginCards(cv, call.ID, loaded)
 					summary := *source.summary
 					summary.Resolved = loaded.Resolved
 					projected := projectCall(source.name, &summary)

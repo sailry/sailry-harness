@@ -375,6 +375,15 @@ These routes use additive Node identity without rewriting protocol SessionIDs.
 
 ## UI state vs backend data
 
+Canonical plugin cards append to the existing tool disclosure in their original
+block order. `live/plugin_cards*.go` reads the captured declaration and code by
+canonical receipt, supplies the restricted card Host, and fences interactions by
+receipt and mount generation. `State.SetToolCard` owns only presentation;
+`Call`, `Output`, canonical history and the existing Actions contract are
+unchanged. Node remains the authority for card permissions and current
+same-digest package access. Offscreen or closed cards stop their observers and
+native authorization page.
+
 | UI state (`State`) | Backend data |
 |---|---|
 | Scroll place per conversation, follow mode | Turns, blocks, calls, outputs |
@@ -437,6 +446,7 @@ a running read, its output, then the answer growing a character at a time.
 | Subagent tabs show Bot, not the identicon | `panel.look` returns an icon; the identicon is a drawing |
 | Older pages load when the first turn is built (near the start) | Rust asks on scrolling near the top; the list builds rows just outside the view |
 | Copy confirms with a toast, not Kit `Clipboard`'s check icon | Sailry's rule: outcomes show as toasts |
+| Embedded card authorization opens an isolated MyGo page window on macOS | Pinned MyGo supplies a native page window; the source places it in a resource pane |
 | Shimmer and identicon are approximations | Custom drawing (MyGo has no moving text highlight or procedural avatar); same timing and colours, not pixel-identical |
 | Diff rows have no syntax highlighting or line numbers | Not in the view model yet |
 | MCP forms and authorization links use the existing question controls | The Node binds each request to its exact active parent call and persists its answer without adding a second transcript row |
