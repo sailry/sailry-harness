@@ -220,6 +220,32 @@ Release work is B14. Allowed packaging tools are `mygo build`, `flutter build`,
 the specified `native/*/build.sh` scripts and the ported Host `release.sh`.
 Signing credentials, profiles, binaries and native artifacts never enter Git.
 
+`go run ./native/fetch` stages one target's pinned native artifacts in
+`.runtime/native/<goos>-<goarch>/` after checking each download against the
+lock files (`native/*.lock.json` and
+`internal/localmodels/decision/llama-runtime.lock.json`). The iroh and capture
+libraries come from `native/*/build.sh` on the target, or from the CI native
+job with `-artifacts <dir>`; `-bundle <dir>` copies the shipped set and `-host`
+leaves out the speech and capture libraries.
+
+```sh
+unset GOROOT
+export GOTOOLCHAIN=go1.27.3 CGO_ENABLED=0
+go run ./native/fetch -bundle cmd/sailry-desktop/resources/darwin-arm64
+go build -o .runtime/b14/bin/mygo github.com/egoist/mygo/cmd/mygo
+MYGO_LDFLAGS="-X github.com/sailry/sailry-harness/internal/node/telemetry.BuildRevision=<revision>" \
+    .runtime/b14/bin/mygo build -platform darwin/arm64 -skip-notarize cmd/sailry-desktop
+```
+
+The Desktop package is described by `cmd/sailry-desktop/mygo.json`; its version
+equals `link.ProductVersion`. Shipped files sit beside the executable, or in
+`Contents/Resources` of the macOS bundle, where every loader reads them.
+`-sign <identity>` and the `sailry-notary` notarytool keychain profile are
+supplied by the release machine. `telemetry.BuildDSN`, `telemetry.BuildKey` and
+`core.Default` are set the same way through `MYGO_LDFLAGS`.
+`cmd/sailry-desktop/package_integration_test.go` checks a built package's
+loaders from inside it.
+
 B2 selected the prescribed SQLite fallback after the Turso contention load
 failed. It refuses Turso profiles, performs no import and cancels release option A.
 Source builds keep `~/.sailry-go`. Release packaging must preserve a separate

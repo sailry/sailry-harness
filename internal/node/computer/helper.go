@@ -47,7 +47,8 @@ func Executable() (string, error) {
 }
 
 // locate names the helper beside the Node executable: a macOS bundle keeps it
-// in Contents/Helpers, every other layout in a sibling helpers directory.
+// in Contents/Resources/helpers, where packaging puts shipped files, every
+// other layout in a sibling helpers directory.
 func locate(goos, executable, helpers string) (string, error) {
 	var name string
 	switch goos {
@@ -67,7 +68,7 @@ func locate(goos, executable, helpers string) (string, error) {
 	if helpers == "" {
 		contents := filepath.Dir(parent)
 		if goos == "darwin" && filepath.Base(parent) == "MacOS" && filepath.Base(contents) == "Contents" {
-			helpers = filepath.Join(contents, "Helpers")
+			helpers = filepath.Join(contents, "Resources", "helpers")
 		} else {
 			helpers = filepath.Join(parent, "helpers")
 		}

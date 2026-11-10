@@ -113,7 +113,8 @@ func initialize() (*backend, error) {
 	return loaded, loaded.start()
 }
 
-// prepared searches only the directory of the running executable.
+// prepared searches only the directory of the running executable, or
+// Contents/Resources of a macOS application bundle.
 func prepared() (*backend, error) {
 	return current.get(func() (*backend, error) {
 		executable, err := os.Executable()
@@ -123,7 +124,12 @@ func prepared() (*backend, error) {
 		if executable, err = filepath.EvalSymlinks(executable); err != nil {
 			return nil, failed(err)
 		}
-		return locate(filepath.Dir(executable), &verified)
+		directory := filepath.Dir(executable)
+		if contents := filepath.Dir(directory); runtime.GOOS == "darwin" &&
+			filepath.Base(directory) == "MacOS" && filepath.Base(contents) == "Contents" {
+			directory = filepath.Join(contents, "Resources")
+		}
+		return locate(directory, &verified)
 	})
 }
 

@@ -42,7 +42,13 @@ func BundledDirectory() (string, error) {
 	if err != nil {
 		return "", storage(err)
 	}
-	return filepath.Join(filepath.Dir(executable), "python"), nil
+	directory := filepath.Dir(executable)
+	// A macOS application bundle ships the runtime in Contents/Resources.
+	if contents := filepath.Dir(directory); runtime.GOOS == "darwin" &&
+		filepath.Base(directory) == "MacOS" && filepath.Base(contents) == "Contents" {
+		directory = filepath.Join(contents, "Resources")
+	}
+	return filepath.Join(directory, "python"), nil
 }
 
 func BundledRuntime() (*Runtime, error) {

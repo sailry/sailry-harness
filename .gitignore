@@ -8,3 +8,5 @@
 native/**/target/
 node_modules/
 services/pairing-relay/dist/
+# Native artifacts staged for packaging by `go run ./native/fetch -bundle`.
+/cmd/sailry-desktop/resources/*-*/

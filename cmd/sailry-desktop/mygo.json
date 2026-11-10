@@ -1,0 +1,20 @@
+{
+  "name": "Sailry",
+  "slug": "sailry",
+  "identifier": "ai.sailry.desktop",
+  "version": "0.1.5",
+  "copyright": "Copyright © 2026 Sailry",
+  "icon": "../../assets/branding/sailry.png",
+  "main": ".",
+  "out": "../../.runtime/b14/out",
+  "macos": {
+    "minimumSystemVersion": "13.0",
+    "entitlements": "macos/app.entitlements.plist",
+    "infoPlist": {
+      "NSMicrophoneUsageDescription": "Use the microphone for voice input"
+    },
+    "notarize": {
+      "keychainProfile": "sailry-notary"
+    }
+  }
+}

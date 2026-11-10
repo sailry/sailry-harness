@@ -186,7 +186,7 @@ like any MCP tool. Core supplies only the helper:
 - **Locator.** An stdio server whose command is `${SAILRY_COMPUTER_USE}`
   launches the execution Node's packaged helper (`internal/node/computer`):
   `Sailry Computer Use.app/Contents/MacOS/agent-desktop` under the bundle's
-  `Contents/Helpers` on macOS, `helpers/agent-desktop[.exe]` beside the
+  `Contents/Resources/helpers` on macOS, `helpers/agent-desktop[.exe]` beside the
   executable elsewhere, or under `SAILRY_HELPERS_DIR`. `PATH` is never
   searched. A missing or unsupported helper is an `Unavailable` fault, with no
   fallback. Linux launches inherit the graphical session variables.

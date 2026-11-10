@@ -545,7 +545,7 @@ Deviations from the reference:
 | A refused or restricted microphone is the `dictation_permission` toast | The reference's permission card with its system-settings link is not part of the accepted page |
 | A registered model is validated by constructing the recognizer, not by reading the graph's SenseVoice metadata | The ONNX binding exposes no model metadata; no control registers a model |
 | Speech downloads are not listed among a Node's installation tasks | They are the controller's and the accepted UI has no controller task list |
-| The speech, ONNX Runtime and capture libraries load only from the executable's directory | B11 loader rule; without them dictation and the device list report `dictation_unavailable` and the picker offers the system default alone |
+| The speech, ONNX Runtime and capture libraries load only from the executable's directory, or `Contents/Resources` of the macOS application bundle | B11 loader rule; without them dictation and the device list report `dictation_unavailable` and the picker offers the system default alone |
 
 ## B13 Permissions wiring
 

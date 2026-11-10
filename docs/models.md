@@ -1,6 +1,7 @@
 # Local models
 
-Local inference runs inside the Node on runtimes packaged beside the executable.
+Local inference runs inside the Node on runtimes packaged beside the executable
+(`Contents/Resources` in the macOS application bundle).
 The registry, downloads and scheduler live in `internal/localmodels`; each model
 kind has its own package and registers one `localmodels.Capability` through
 `node.LocalModelCapabilities`. The Settings wiring is in

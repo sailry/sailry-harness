@@ -36,6 +36,8 @@ func LoadDefault() error {
 	candidates := []string{
 		filepath.Join(directory, name),
 		filepath.Join(directory, "native", name),
+		// A macOS application bundle ships it in Contents/Resources.
+		filepath.Join(directory, "..", "Resources", name),
 		filepath.Join(directory, "Frameworks", "SailryIroh.framework", "SailryIroh"),
 		filepath.Join(directory, "..", "Frameworks", "SailryIroh.framework", "SailryIroh"),
 		filepath.Join(".runtime", "native", runtime.GOOS+"-"+runtime.GOARCH, name),

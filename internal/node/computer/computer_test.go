@@ -21,7 +21,7 @@ func TestComputerHelperLocator(t *testing.T) {
 		for _, test := range []struct {
 			goos, executable, helpers, expected string
 		}{
-			{"darwin", "/Applications/Sailry.app/Contents/MacOS/sailry-desktop", "", filepath.Join("/Applications/Sailry.app/Contents/Helpers", bundled)},
+			{"darwin", "/Applications/Sailry.app/Contents/MacOS/sailry-desktop", "", filepath.Join("/Applications/Sailry.app/Contents/Resources/helpers", bundled)},
 			{"darwin", "/opt/sailry/sailry-host", "", filepath.Join("/opt/sailry/helpers", bundled)},
 			{"darwin", "/work/MacOS/sailry-desktop", "", filepath.Join("/work/MacOS/helpers", bundled)},
 			{"darwin", "/Applications/Sailry.app/Contents/MacOS/sailry-desktop", "/staged", filepath.Join("/staged", bundled)},

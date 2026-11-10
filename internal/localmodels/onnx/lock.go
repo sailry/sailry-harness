@@ -54,8 +54,10 @@ func locked() ([]file, error) {
 	return files, nil
 }
 
-// Directory is the directory of the running executable, the only place the
-// runtime is loaded from. No search path or environment variable is consulted.
+// Directory is the only place the runtime is loaded from: the directory of
+// the running executable, or Contents/Resources of a macOS application
+// bundle, where packaging puts shipped files. No search path or environment
+// variable is consulted.
 func Directory() (string, error) {
 	executable, err := os.Executable()
 	if err == nil {
@@ -64,7 +66,12 @@ func Directory() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("ONNX Runtime file is unavailable: %w", err)
 	}
-	return filepath.Dir(executable), nil
+	directory := filepath.Dir(executable)
+	if contents := filepath.Dir(directory); runtime.GOOS == "darwin" &&
+		filepath.Base(directory) == "MacOS" && filepath.Base(contents) == "Contents" {
+		return filepath.Join(contents, "Resources"), nil
+	}
+	return directory, nil
 }
 
 // ordinary reports a file that exists as itself: not a link, directory or device.
