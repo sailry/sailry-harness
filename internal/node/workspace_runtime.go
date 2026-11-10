@@ -54,6 +54,9 @@ func (node *Node) initWorkspace(ctx context.Context, options Options) error {
 	if err == nil {
 		err = node.initWeb(ctx, options)
 	}
+	if err == nil {
+		err = node.initCodeIndex(ctx)
+	}
 	if err != nil {
 		_ = node.closeWorkspace()
 	}
@@ -63,6 +66,7 @@ func (node *Node) closeWorkspace() error {
 	if node.web != nil {
 		node.web.fetch.Close()
 	}
+	node.closeCodeIndex()
 	return errors.Join(node.processes.Close(), node.transfers.Close(), node.watches.close())
 }
 func (node *Node) Open(ctx context.Context, caller protocol.NodeID, id protocol.StreamID) (link.Stream, error) {

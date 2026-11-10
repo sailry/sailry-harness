@@ -230,6 +230,12 @@ knowledge_next: 次へ
 knowledge_close: 閉じる
 knowledge_lines: '%{start}–%{end} 行'
 knowledge_citation_invalid: ソースリンクが無効です
+knowledge_citation_changed: ソースが変更されました。再検索してください
+knowledge_citation_unavailable: ソースを利用できません
+knowledge_denied: ナレッジへのアクセスが拒否されました
+knowledge_page: '%{page} ページ'
+knowledge_cells: '%{sheet} · %{start}:%{end}'
+knowledge_slide: スライド %{slide}
 recent_sessions: 最近
 workspace_archive: アーカイブ
 session_unarchive: アーカイブを削除

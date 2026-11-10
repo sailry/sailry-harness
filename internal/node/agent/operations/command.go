@@ -165,6 +165,15 @@ func Command(operation protocol.ToolOperation, arguments json.RawMessage, worktr
 	case "web.search":
 		kind = "search_web"
 		defaultValue("limit", 5)
+	case "code.search":
+		kind = "search_code"
+		values = map[string]any{"worktree": worktree, "query": values}
+	case "code.outline":
+		kind = "outline_code"
+		set("worktree", worktree)
+	case "code.graph":
+		kind = "graph_code"
+		values = map[string]any{"worktree": worktree, "query": values}
 	case "artifacts.read":
 		kind = "read_artifact"
 		set("session", session)

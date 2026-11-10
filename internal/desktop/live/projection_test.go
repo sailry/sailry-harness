@@ -78,6 +78,7 @@ func TestSidebarProjection(t *testing.T) {
 
 func TestNoticesProjection(t *testing.T) {
 	t.Parallel()
+	t.Run("knowledge viewer", testKnowledgeViewer)
 	node := protocol.NodeID{1}
 	session := protocol.SessionID{1}
 	times := []int64{100, 200}

@@ -127,7 +127,8 @@ func NewWithPreferences(ctx context.Context, controller *client.Client, prefs *p
 	r.App.SetLocalHost(localHost(snapshot, d))
 	r.applyPreferences()
 	r.App.Hooks = shell.Hooks{BeforeFrame: r.drain, AfterFrame: r.afterFrame, Refresh: r.Refresh, OpenFolder: r.openFolder,
-		ReadNotice: r.markNotice, ReadNotices: r.readNotices, DismissRead: r.dismissRead, DismissNotices: r.dismissNotices}
+		ReadNotice: r.markNotice, ReadNotices: r.readNotices, DismissRead: r.dismissRead, DismissNotices: r.dismissNotices, OpenKnowledge: r.openKnowledge}
+	r.App.Messages.OpenLink = r.openChatLink
 	r.App.Sidebar.Actions = &sidebar.Actions{Rename: r.rename, Archive: r.archive, Read: r.read, Delete: r.removeSession,
 		Pin: r.pin, MovePin: r.movePin, NewDraft: r.newDraft, RemoveProject: r.removeProject, Worktrees: r.sidebarWorkspaceAction, Records: r.projectRecords, SaveProject: r.saveProject, Browse: r.browse, ForkHere: r.forkHere, ForkWorktree: r.forkWorkspaceConversation, Export: r.exportSession, OpenWindow: func(id string) {
 			if r.openWindow != nil {

@@ -68,14 +68,16 @@ func (node *Node) initLocalModels(ctx context.Context, options localmodels.Optio
 	}
 	node.localModels = controls
 	previous, changed := controls.registry.Updates()
-	go node.followLocalModels(previous.Models, changed)
+	node.initKnowledge()
+	go node.followLocalModels(previous, changed)
 	return nil
 }
 
 // followLocalModels records every change of the model list until the Node
 // stops. A failed write is retried with the complete list at the next change.
-func (node *Node) followLocalModels(recorded []protocol.ModelsLocalModel, changed <-chan struct{}) {
+func (node *Node) followLocalModels(previous localmodels.Update, changed <-chan struct{}) {
 	defer close(node.localModels.followed)
+	recorded := previous.Models
 	for {
 		select {
 		case <-node.closed:
@@ -84,6 +86,8 @@ func (node *Node) followLocalModels(recorded []protocol.ModelsLocalModel, change
 		}
 		var latest localmodels.Update
 		latest, changed = node.localModels.registry.Updates()
+		node.reactKnowledge(previous, latest)
+		previous = latest
 		if reflect.DeepEqual(latest.Models, recorded) {
 			continue
 		}

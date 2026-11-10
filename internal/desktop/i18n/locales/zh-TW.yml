@@ -230,6 +230,12 @@ knowledge_next: 下一頁
 knowledge_close: 關閉
 knowledge_lines: 第 %{start}–%{end} 行
 knowledge_citation_invalid: 來源連結無效
+knowledge_citation_changed: 來源已變更，請重新搜尋
+knowledge_citation_unavailable: 來源無法使用
+knowledge_denied: 知識庫存取遭拒
+knowledge_page: 第 %{page} 頁
+knowledge_cells: '%{sheet} · %{start}:%{end}'
+knowledge_slide: 第 %{slide} 張
 recent_sessions: 最近
 workspace_archive: 歸檔會話
 session_unarchive: 取消歸檔

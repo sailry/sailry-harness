@@ -108,10 +108,11 @@ func (node *Node) ocrResource() (localmodels.Resource, error) {
 	return registry.Resource(protocol.ModelsKindOcr, selected, &choice)
 }
 
-// recognize reads the text of one image ahead of background inference. The
-// scheduler loads the model on demand and releases it when idle.
-func (node *Node) recognize(ctx context.Context, resource localmodels.Resource, image *ocr.RGB) (string, error) {
-	return localmodels.Execute(ctx, node.localModels.registry, resource, localmodels.Interactive, func(ctx context.Context, engine any) (string, error) {
+// recognize reads the text of one image. Interactive work runs ahead of
+// background inference. The scheduler loads the model on demand and
+// releases it when idle.
+func (node *Node) recognize(ctx context.Context, resource localmodels.Resource, image *ocr.RGB, lane localmodels.Lane) (string, error) {
+	return localmodels.Execute(ctx, node.localModels.registry, resource, lane, func(ctx context.Context, engine any) (string, error) {
 		lines, err := engine.(*ocr.Engine).Recognize(image, func() bool { return ctx.Err() != nil })
 		if errors.Is(err, ocr.ErrCancelled) {
 			return "", ocrCancelled()
@@ -128,7 +129,7 @@ func (node *Node) recognize(ctx context.Context, resource localmodels.Resource, 
 }
 
 // imageParts reads an image file as one page of recognized text.
-func (node *Node) imageParts(ctx context.Context, data []byte) ([]office.Part, error) {
+func (node *Node) imageParts(ctx context.Context, data []byte, lane localmodels.Lane) ([]office.Part, error) {
 	image, err := ocr.Decode(data)
 	if errors.Is(err, ocr.ErrImageSize) {
 		return nil, &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: err.Error()}
@@ -140,7 +141,7 @@ func (node *Node) imageParts(ctx context.Context, data []byte) ([]office.Part, e
 	if err != nil {
 		return nil, err
 	}
-	text, err := node.recognize(ctx, resource, image)
+	text, err := node.recognize(ctx, resource, image, lane)
 	if err != nil {
 		return nil, err
 	}

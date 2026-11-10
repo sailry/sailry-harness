@@ -123,6 +123,11 @@ func SaveLocalModelSettings(ctx context.Context, db *sql.Conn, settings protocol
 	if settings.Revision >= math.MaxInt64 {
 		return protocol.Output{}, nil, invalid("local model settings revision is exhausted")
 	}
+	if localmodels.Selected(&catalog.Settings, protocol.ModelsKindEmbedding) != localmodels.Selected(&settings, protocol.ModelsKindEmbedding) {
+		if err := knowledgeSelectionChanged(ctx, db); err != nil {
+			return protocol.Output{}, nil, err
+		}
+	}
 	settings.Revision++
 	body, err := encode(settings)
 	if err != nil {

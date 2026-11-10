@@ -19,6 +19,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/files"
 	workspacegit "github.com/sailry/sailry-harness/internal/node/git"
 	"github.com/sailry/sailry-harness/internal/node/host"
+	knowledgeservice "github.com/sailry/sailry-harness/internal/node/knowledge/service"
 	"github.com/sailry/sailry-harness/internal/node/mcp"
 	"github.com/sailry/sailry-harness/internal/node/ports"
 	"github.com/sailry/sailry-harness/internal/node/process"
@@ -51,12 +52,14 @@ type Node struct {
 	ports             *ports.Service
 	browsers          browserRegistry
 	localModels       *localModelControls
+	knowledge         *knowledgeservice.Service
 	cancel            context.CancelFunc
 	web               *workspaceWeb
 	transfers         *files.Transfers
 	git               *workspacegit.Service
 	processes         *process.Service
 	watches           *workspaceWatches
+	codeIndex         *codeIndexControls
 	environment       process.Environment
 	processAfter      func(time.Duration) <-chan time.Time
 	effects           sync.Mutex
@@ -222,6 +225,7 @@ func (node *Node) Stop(ctx context.Context) error {
 			}
 			portErr := node.ports.Close()
 			taskErr := node.tasks.Close(context.Background())
+			node.knowledge.Close()
 			node.closeLocalModels()
 			pluginErr := node.closePlugins()
 			node.work.Wait()
@@ -305,6 +309,9 @@ func (node *Node) Dispatch(ctx context.Context, caller protocol.NodeID, request 
 	}
 	if localModelCommand(request.Command.Kind) {
 		return node.dispatchLocalModels(ctx, caller, request, encoded)
+	}
+	if knowledgeCommand(request.Command.Kind) {
+		return node.dispatchKnowledge(ctx, caller, request, encoded)
 	}
 	if hostCommand(request.Command.Kind) {
 		return node.dispatchHost(ctx, caller, request, encoded)
@@ -531,6 +538,9 @@ func (node *Node) run() {
 		} else {
 			node.publish()
 			node.agent.Committed()
+			if job.request.Command.Kind == "remove_project" && result.Fault == nil {
+				node.removeProjectCodeIndexes(job.request.Command)
+			}
 		}
 		if projectEffect {
 			node.effects.Unlock()

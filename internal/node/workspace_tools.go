@@ -41,7 +41,7 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 	}
 	var tools []engine.Tool
 	for _, declaration := range catalog.Tools {
-		if !declaration.Available(inv.Worktree.Project != nil, connectionBound(inv)) || !slices.Contains(inv.Turn.Plugins, declaration.Owner) || operations.ConnectionOperation(declaration.Operation) {
+		if !declaration.Available(inv.Worktree.Project != nil, connectionBound(inv)) || !slices.Contains(inv.Turn.Plugins, declaration.Owner) || operations.ConnectionOperation(declaration.Operation) || knowledgeOperation(declaration.Operation) {
 			continue
 		}
 		// A connection conversation without an assistant offers only tools that name a context.
@@ -219,6 +219,11 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 	if err != nil {
 		return nil, err
 	}
+	indexed, err := node.knowledgeTools(inv, catalog)
+	if err != nil {
+		return nil, err
+	}
+	tools = append(tools, indexed...)
 	browsers, err := node.browserTools(ctx, inv)
 	if err != nil {
 		return nil, err
@@ -272,6 +277,9 @@ func workspaceOutputFailure(output protocol.Output) *protocol.ToolFailure {
 	return failure
 }
 func (node *Node) workspaceToolValue(ctx context.Context, request protocol.Request, output protocol.Output) any {
+	if value, shaped := codeToolValue(output); shaped {
+		return value
+	}
 	if output.Kind != "command_result" && output.Kind != "command_output" && output.Kind != "command_started" {
 		return output
 	}

@@ -228,6 +228,25 @@ only, as the reference. The viewer is a dialog up to 800 wide:
 Previous, Next and Close. The preview pages its citation in memory; the
 activity centre's knowledge notice opens it.
 
+Live wiring (`internal/desktop/live/knowledge.go`, contract in
+[knowledge.md](knowledge.md#desktop)): `Hooks.OpenKnowledge` receives the
+parsed `Source` and the Node of the notice or conversation that named it. A
+link `ParseSource` rejects, or whose collection is not an identifier or whose
+chunk or revision is not a 64-digit hash, toasts `knowledge_citation_invalid`
+and sends nothing. Otherwise the controller reads `read_knowledge_citation`
+(`context: false`, offset 0, limit 16 KiB) on that Node and
+`App.ShowKnowledge` opens the viewer on the answer: its title,
+`host · path · position` (`knowledge_lines`, `knowledge_page`,
+`knowledge_cells`, `knowledge_slide`, a section's name or a value's key and
+pointer) and text. Next reads the page at `next_offset`, Previous the offset
+before it; each is disabled at its end and while a page loads, and a failed
+read keeps the page shown. Faults toast `knowledge_citation_changed`
+(revision conflict, not found), `knowledge_denied`,
+`knowledge_citation_invalid` or `knowledge_citation_unavailable`, the last
+also for an answer that does not match its request. Replies open
+`sailry-knowledge:` links through `conversation.State.OpenLink`; other links
+open as before when `ui.SafeToOpen` allows them.
+
 ## UI preferences
 
 `Prefs` keeps the sidebar's width and openness, the panel's width,
@@ -261,6 +280,13 @@ translations; menu commands scoped as their keys.
 ⌘B and preferences round-tripping; ⌘K search opening a conversation;
 the activity centre opening a conversation and the knowledge viewer
 paging; `ParseSource`, `Filter`, `Next`, `MoveFeature`.
+`internal/desktop/shell/knowledge_live_test.go` (`testLiveKnowledge`, run by
+`TestActivityCentreReadsAndOpens`): an invalid link never reaches the hook, a
+notice hands over its citation, the live page's texts, and Previous and Next
+at the ends and while loading.
+`internal/desktop/live/knowledge_test.go` (`testKnowledgeViewer`, run by
+`TestNoticesProjection`): the request of a link, the answers accepted, the
+toast of each fault and paging by re-reading.
 `internal/desktop/shell/pages_test.go`: the rail opens pages, not tabs; the
 Files and Git page and tab share a project's state, another project
 keeps its own.
@@ -284,6 +310,10 @@ Phase 1–2 screens.
 | Help lists Welcome to Sailry and Selected text | The preview's way to the first launch's guide and the system shortcut's dialog |
 | ⌘., ⌘L, ⇧⌘M, ⇧Tab and the conversation's Escape targets are not bound | The live conversation's controls (`conversation/live/shortcuts.rs`) come with the live session |
 | The View menu's features are those at launch | The menu is set once; rail reordering does not rebuild it |
+| A live citation always opens in the knowledge viewer | The reference opens a worktree citation with a line position in the conversation's file panel; the coverage rows name the viewer |
+| The knowledge viewer shows no spinner while a page loads | The accepted layout has none; Previous and Next are disabled instead |
+| Live notices carry no knowledge link | The protocol's notifications have no link field; the notice path is wired through the same hook and exercised with the preview's notice |
+| With the live `OpenLink` set, `#heading` links in replies no longer scroll | MyGo hands every link to `OnLink` once it is set; knowledge links need it |
 
 ## B3 live wiring
 

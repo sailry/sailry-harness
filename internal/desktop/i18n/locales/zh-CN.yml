@@ -230,6 +230,12 @@ knowledge_next: 下一页
 knowledge_close: 关闭
 knowledge_lines: 第 %{start}–%{end} 行
 knowledge_citation_invalid: 来源链接无效
+knowledge_citation_changed: 来源已变化，请重新搜索
+knowledge_citation_unavailable: 来源不可用
+knowledge_denied: 知识库访问被拒绝
+knowledge_page: 第 %{page} 页
+knowledge_cells: '%{sheet} · %{start}:%{end}'
+knowledge_slide: 第 %{slide} 张
 recent_sessions: 最近
 workspace_archive: 归档会话
 session_unarchive: 取消归档

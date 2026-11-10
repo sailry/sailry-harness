@@ -256,6 +256,7 @@ func TestActivityCentreReadsAndOpens(t *testing.T) {
 	if a.reading.page != 1 {
 		t.Error("Next did not page")
 	}
+	t.Run("live knowledge viewer", testLiveKnowledge)
 }
 
 func TestParseSource(t *testing.T) {

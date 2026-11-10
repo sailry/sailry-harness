@@ -230,6 +230,12 @@ knowledge_next: 다음
 knowledge_close: 닫기
 knowledge_lines: '%{start}–%{end}행'
 knowledge_citation_invalid: 소스 링크가 잘못되었습니다
+knowledge_citation_changed: 소스가 변경되었습니다. 다시 검색하세요
+knowledge_citation_unavailable: 소스를 사용할 수 없습니다
+knowledge_denied: 지식 접근 거부됨
+knowledge_page: '%{page}페이지'
+knowledge_cells: '%{sheet} · %{start}:%{end}'
+knowledge_slide: 슬라이드 %{slide}
 recent_sessions: 최근
 workspace_archive: 세션 보관
 session_unarchive: 압축 해제

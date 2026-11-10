@@ -240,6 +240,10 @@ func pluginAction(kind string) (protocol.PluginAction, bool) {
 		return protocol.PluginActionReadWeb, true
 	case "search_code", "outline_code", "graph_code", "cancel_code_index_query":
 		return protocol.PluginActionReadCodeIndex, true
+	case "query_knowledge", "read_knowledge_citation", "list_knowledge_collections":
+		return protocol.PluginActionReadKnowledge, true
+	case "create_knowledge_collection", "update_knowledge_collection", "delete_knowledge_collection", "rebuild_knowledge_collection", "pause_knowledge_collection":
+		return protocol.PluginActionWriteKnowledge, true
 	case "read_search_settings":
 		return protocol.PluginActionReadSearchSettings, true
 	case "save_search_settings", "test_search_driver":

@@ -230,6 +230,12 @@ knowledge_next: Next
 knowledge_close: Close
 knowledge_lines: Lines %{start}–%{end}
 knowledge_citation_invalid: Invalid source link
+knowledge_citation_changed: This source changed; search again
+knowledge_citation_unavailable: This source is unavailable
+knowledge_denied: Knowledge access denied
+knowledge_page: Page %{page}
+knowledge_cells: '%{sheet} · %{start}:%{end}'
+knowledge_slide: Slide %{slide}
 recent_sessions: Recent
 workspace_archive: Archive session
 session_unarchive: Unarchive

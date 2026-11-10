@@ -56,6 +56,9 @@ type State struct {
 	requestedDetails map[string]bool
 	references       map[string]map[string][]Reference
 	referenceDetail  referenceDetail
+	// OpenLink takes a link of a reply the application opens itself, as a
+	// knowledge source; the rest open as the system opens them.
+	OpenLink func(c *ui.Context, session, link string) bool
 }
 
 func New() *State {
@@ -83,6 +86,13 @@ func View(c *ui.Context, s *State, id string, turns []Turn, sess *Session, actio
 	s.messageTheme(c)
 	s.md.ShareSelection = true
 	s.bindVisuals()
+	if s.OpenLink != nil {
+		s.md.OnLink = func(link string) {
+			if !s.OpenLink(c, id, link) && ui.SafeToOpen(link) {
+				c.OpenURL(link)
+			}
+		}
+	}
 	if sess != nil && sess.Loading {
 		loading(c)
 		return

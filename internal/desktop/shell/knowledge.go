@@ -37,18 +37,53 @@ func ParseSource(link string) (Source, bool) {
 	return Source{Collection: u.Host, Chunk: chunk, Revision: q.Get("revision")}, true
 }
 
-// reading is the knowledge viewer's state: the citation and its page.
+// reading is the knowledge viewer's state: the citation and its page, or the
+// page a live controller read.
 type reading struct {
 	open bool
 	cite preview.Citation
 	page int
+	live *Reading
+}
+
+// Reading is one page of a citation read from its Node. The controller owns
+// it: it replaces the page and the ends as Previous and Next load.
+type Reading struct {
+	Title, Host, Path, Position, Text string
+	First, Last, Pending              bool
+	Turn                              func(forward bool)
+}
+
+// ShowKnowledge opens the viewer on a page read from a Node.
+func (a *App) ShowKnowledge(r *Reading) { a.reading = &reading{open: true, live: r} }
+
+// Reading is the live page the viewer shows, nil once it is closed.
+func (a *App) Reading() *Reading {
+	if a.reading == nil || !a.reading.open {
+		return nil
+	}
+	return a.reading.live
+}
+
+// OpenKnowledge opens a knowledge link of a conversation on its Node.
+func (a *App) OpenKnowledge(c *ui.Context, session, link string) {
+	node := ""
+	if cv := a.Data.Find(session); cv != nil {
+		node = cv.Node
+	}
+	a.openKnowledge(c, node, link)
 }
 
 // openKnowledge opens a knowledge link in the viewer, or tells it is not
 // one.
-func (a *App) openKnowledge(c *ui.Context, link string) {
-	if _, ok := ParseSource(link); !ok {
+func (a *App) openKnowledge(c *ui.Context, node, link string) {
+	source, ok := ParseSource(link)
+	if !ok {
 		kit.Toast(c, kit.Failed, i18n.T(c, "knowledge_citation_invalid"))
+		return
+	}
+	if a.Hooks.OpenKnowledge != nil {
+		a.Hooks.OpenKnowledge(c, node, source)
 		return
 	}
 	for _, ct := range a.Data.Citations {
@@ -71,18 +106,29 @@ func (a *App) knowledge(c *ui.Context) {
 	p := theme.Of(c)
 	w, h := c.Size()
 	ct := r.cite
+	name, path, text := i18n.T(c, ct.Host), ct.Path, ""
+	first, last := r.page == 0, r.page >= len(ct.Pages)-1
+	previous, next := func() { r.page-- }, func() { r.page++ }
+	lines := ""
+	if live := r.live; live != nil {
+		ct.Title, name, path, lines, text = live.Title, live.Host, live.Path, live.Position, live.Text
+		first, last = live.Pending || live.First, live.Pending || live.Last
+		previous, next = func() { live.Turn(false) }, func() { live.Turn(true) }
+	} else {
+		lines = i18n.T(c, "knowledge_lines", "start", ct.Start, "end", ct.End)
+		text = ct.Pages[r.page]
+	}
 	title := i18n.T(c, "knowledge_source")
 	kit.Dialog(c.Key("knowledge"), &r.open, func() {
 		ui.Text(c, title).FontSize(16).FontWeight(600)
 		ui.Text(c, ct.Title).FontSize(14).FontWeight(500)
-		lines := i18n.T(c, "knowledge_lines", "start", ct.Start, "end", ct.End)
-		ui.Text(c, i18n.T(c, ct.Host)+" · "+ct.Path+" · "+lines).FontSize(12).TextColor(p.MutedForeground)
+		ui.Text(c, name+" · "+path+" · "+lines).FontSize(12).TextColor(p.MutedForeground)
 		ui.Scroll(c.Key("text")).MaxHeight(max(160, h-260)).Padding(12).Radius(p.Radius).Background(p.Muted).Children(func() {
-			ui.Text(c, ct.Pages[r.page]).FontSize(12).Font("monospace").PreserveSpaces().Selectable()
+			ui.Text(c, text).FontSize(12).Font("monospace").PreserveSpaces().Selectable()
 		})
 		ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
-			kit.Secondary(c.Key("previous"), i18n.T(c, "knowledge_previous")).Disabled(r.page == 0).OnClick(func() { r.page-- })
-			kit.Secondary(c.Key("next"), i18n.T(c, "knowledge_next")).Disabled(r.page >= len(ct.Pages)-1).OnClick(func() { r.page++ })
+			kit.Secondary(c.Key("previous"), i18n.T(c, "knowledge_previous")).Disabled(first).OnClick(previous)
+			kit.Secondary(c.Key("next"), i18n.T(c, "knowledge_next")).Disabled(last).OnClick(next)
 			kit.Secondary(c.Key("close"), i18n.T(c, "knowledge_close")).OnClick(func() { r.open = false })
 		})
 	}).Width(min(800, w-48)).Label(title)

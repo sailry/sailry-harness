@@ -230,6 +230,12 @@ knowledge_next: Siguiente
 knowledge_close: Cerrar
 knowledge_lines: Líneas %{start}–%{end}
 knowledge_citation_invalid: Enlace de fuente no válido
+knowledge_citation_changed: La fuente ha cambiado; vuelve a buscar
+knowledge_citation_unavailable: Esta fuente no está disponible
+knowledge_denied: Acceso al conocimiento denegado
+knowledge_page: Página %{page}
+knowledge_cells: '%{sheet} · %{start}:%{end}'
+knowledge_slide: Diapositiva %{slide}
 recent_sessions: Reciente
 workspace_archive: Sesión de archivo
 session_unarchive: Desarchivar

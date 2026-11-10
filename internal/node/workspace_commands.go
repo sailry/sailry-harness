@@ -52,7 +52,7 @@ func workspaceCommand(kind string) bool {
 	if terminalCommand(kind) {
 		return true
 	}
-	if networkCommand(kind) {
+	if networkCommand(kind) || codeIndexCommand(kind) {
 		return true
 	}
 	if files.SupportsRead(kind) || files.SupportsMutation(kind) || store.SupportsFilesCommand(kind) || workspaceGitRead(kind) || workspaceGitWrite(kind) {
@@ -249,6 +249,8 @@ func (node *Node) workspaceIO(ctx context.Context, caller protocol.NodeID, reque
 	switch command.Kind {
 	case "fetch_web", "cancel_web_fetch", "search_web", "cancel_web_search", "test_search_driver", "read_search_settings", "save_search_settings":
 		return node.workspaceWebIO(ctx, caller, request, effect)
+	case "search_code", "outline_code", "graph_code", "cancel_code_index_query", "read_code_index_settings", "save_code_index_settings":
+		return node.codeIndexIO(ctx, caller, request, root, effect)
 	case "upload_attachment":
 		value, err := node.transfers.UploadAttachment(ctx, caller, root, *command.Data.(*protocol.AttachmentSpec))
 		if err == nil {

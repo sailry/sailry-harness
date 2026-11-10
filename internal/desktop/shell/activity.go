@@ -163,7 +163,7 @@ func (a *App) noticeRow(c *ui.Context, n *preview.Notice) {
 		a.activity = false
 		switch {
 		case n.Link != "":
-			a.openKnowledge(c, n.Link)
+			a.openKnowledge(c, n.Node, n.Link)
 		case n.Session != "" && a.Data.Find(n.Session) != nil:
 			a.Page, a.Sidebar.Selected = ConversationPage, n.Session
 		}

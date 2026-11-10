@@ -37,6 +37,7 @@ require (
 	github.com/microcosm-cc/bluemonday v1.0.27
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/nikolalohinski/gonja/v2 v2.5.1
+	github.com/odvcencio/gotreesitter v0.57.0
 	github.com/openai/openai-go/v3 v3.98.0
 	github.com/pkg/sftp v1.13.12
 	github.com/pkoukk/tiktoken-go v0.1.8
@@ -131,7 +132,6 @@ require (
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/ncruces/go-strftime v1.1.0 // indirect
-	github.com/odvcencio/gotreesitter v0.57.0 // indirect
 	github.com/pb33f/ordered-map/v2 v2.3.1 // indirect
 	github.com/pjbgf/sha1cd v0.7.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect

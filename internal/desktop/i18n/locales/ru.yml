@@ -230,6 +230,12 @@ knowledge_next: Далее
 knowledge_close: Закрыть
 knowledge_lines: Строки %{start}–%{end}
 knowledge_citation_invalid: Недействительная ссылка на источник
+knowledge_citation_changed: Источник изменился; повторите поиск
+knowledge_citation_unavailable: Этот источник недоступен
+knowledge_denied: Доступ к знаниям запрещён
+knowledge_page: Страница %{page}
+knowledge_cells: '%{sheet} · %{start}:%{end}'
+knowledge_slide: Слайд %{slide}
 recent_sessions: Недавние
 workspace_archive: Архивная сессия
 session_unarchive: Разархивировать

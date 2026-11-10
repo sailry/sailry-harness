@@ -243,6 +243,12 @@ knowledge_next
 knowledge_close
 knowledge_lines
 knowledge_citation_invalid
+knowledge_citation_changed
+knowledge_citation_unavailable
+knowledge_denied
+knowledge_page
+knowledge_cells
+knowledge_slide
 # Sidebar
 recent_sessions
 workspace_archive

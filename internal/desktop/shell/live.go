@@ -29,6 +29,7 @@ type Hooks struct {
 	ReadNotices      func([]string)
 	DismissRead      func([]string)
 	DismissNotices   func([]string)
+	OpenKnowledge    func(c *ui.Context, node string, source Source)
 	Conversation     func(*ui.Context, *viewmodel.Conversation, *composer.State) (*composer.Context, ConversationActions)
 	RenderChild      func(*ui.Context, string)
 	ReadSelection    func(string, string)
