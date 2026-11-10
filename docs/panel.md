@@ -62,7 +62,7 @@ Deviations:
 |---|---|
 | While a terminal's split pane is displayed, its tab's screen is empty | MyGo shows a terminal in one view at a time; the pane owns the screen |
 | Terminal tabs keep the title Terminal | The accepted tab title is unchanged; the Node title shows in the project's Terminal records |
-| An exited, failed or stopped shell keeps its tab until Close terminal | The Node keeps those terminals listed; only `closed` or missing ones are pruned, as the reference does |
+| An exited shell closes its terminal, tab and panes (user decision 2026-11-10) | The reference prunes only `closed` or missing terminals. The desktop closes an exited terminal once; a failed one stays to show its error, and a stopped one stays so it can be reopened |
 | A saved tab of a peer discovered after every known Node answered is dropped | A tab stores no Node; ownership is known only from snapshots |
 
 The column right of the conversation: one flat strip of tabs, each an

@@ -26,6 +26,8 @@ type terminalState struct {
 	// pending tabs wait for their terminal's first snapshot and are not
 	// pruned: a command's output can arrive before the Node's update.
 	pending map[string]bool
+	// exited holds terminals already asked to close after their shell exited.
+	exited map[string]bool
 	// nodes is the Node each tab's terminal was last seen on.
 	nodes map[string]protocol.NodeID
 	// paned terminals showed in a split pane this frame.
@@ -252,6 +254,7 @@ func (r *Runtime) terminalsFrame(c *ui.Context) {
 		}
 		if r.terminalTabCurrent(owners, settled, tab.ID) {
 			tabs[tab.ID] = true
+			r.closeExitedTerminal(owners, tab.ID)
 		} else {
 			r.dropTerminalTab(tab.ID)
 		}
@@ -269,6 +272,11 @@ func (r *Runtime) terminalsFrame(c *ui.Context) {
 	for id := range inventory.pending {
 		if !tabs[id] {
 			delete(inventory.pending, id)
+		}
+	}
+	for id := range inventory.exited {
+		if !tabs[id] {
+			delete(inventory.exited, id)
 		}
 	}
 	if inventory.paste != nil && !tabs[inventory.paste.terminal] {
@@ -365,5 +373,31 @@ func (r *Runtime) terminalPasteDialog(c *ui.Context, id string, state *liveTermi
 	})
 	if !open {
 		inventory.paste = nil
+	}
+}
+
+// closeExitedTerminal closes a terminal whose shell has exited, once: its tab
+// and panes leave when the Node confirms. A failed or stopped terminal stays,
+// so its error shows and a stopped one can be reopened.
+func (r *Runtime) closeExitedTerminal(owners []*Runtime, id string) {
+	inventory := r.terminalInventory()
+	if inventory.exited[id] {
+		return
+	}
+	terminalID, err := protocol.ParseTerminalID(id)
+	if err != nil {
+		return
+	}
+	for _, owner := range owners {
+		for _, info := range owner.controller.Snapshot().Terminals {
+			if info.ID == terminalID && info.Status.Kind == "exited" {
+				if inventory.exited == nil {
+					inventory.exited = map[string]bool{}
+				}
+				inventory.exited[id] = true
+				r.closeLiveTerminal(id)
+				return
+			}
+		}
 	}
 }
