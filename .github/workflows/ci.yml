@@ -1,0 +1,223 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      integration:
+        description: Run the integration-tagged tests
+        type: boolean
+        default: false
+      integration_packages:
+        description: Packages for the integration run
+        type: string
+        default: ./...
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  GOTOOLCHAIN: go1.27.3
+  CGO_ENABLED: '0'
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    outputs:
+      native: ${{ steps.scope.outputs.native }}
+      mobile: ${{ steps.scope.outputs.mobile }}
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          submodules: recursive
+          fetch-depth: 0
+      - name: Changed inputs
+        id: scope
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          # Releases and manual runs build and check everything. A push whose
+          # previous commit is unavailable is treated the same way.
+          native=true
+          mobile=true
+          base=
+          case "$GITHUB_EVENT_NAME" in
+            pull_request) base=HEAD^1 ;;
+            push)
+              case "$GITHUB_REF" in
+                refs/tags/*) ;;
+                *) if git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then base=$BEFORE; fi ;;
+              esac
+              ;;
+          esac
+          if [ -n "$base" ]; then
+            changed=$(git diff --name-only "$base" HEAD)
+            printf '%s\n' "$changed" | grep -Eq '^native/(iroh|capture)/' || native=false
+            printf '%s\n' "$changed" | grep -Eq '^(apps/mobile|internal/mobile)/' || mobile=false
+          fi
+          printf 'native=%s\nmobile=%s\n' "$native" "$mobile" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.0.0
+        with:
+          go-version-file: go.mod
+      - name: Format
+        run: test -z "$(gofmt -l .)"
+      - name: Vet
+        run: |
+          for goos in linux windows darwin; do
+            GOOS=$goos go vet ./...
+          done
+
+  test:
+    needs: lint
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025, macos-15]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          submodules: recursive
+          fetch-depth: 2
+      # setup-go caches exactly GOMODCACHE and GOCACHE.
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.0.0
+        with:
+          go-version-file: go.mod
+      - name: Test
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" != pull_request ]; then
+            go test ./...
+            exit
+          fi
+          # Pull requests test the packages whose own files or dependencies,
+          # including test dependencies, contain a changed file.
+          changed=$(git diff --name-only HEAD^1 HEAD)
+          if printf '%s\n' "$changed" | grep -Eq '^(go\.mod|go\.sum|\.github/workflows/ci\.yml)$'; then
+            go test ./...
+            exit
+          fi
+          module=$(go list -m)
+          go list ./... > "$RUNNER_TEMP/packages.txt"
+          go list -test -f '{{.ImportPath}}{{range .Deps}} {{.}}{{end}}' ./... > "$RUNNER_TEMP/deps.txt"
+          # A changed file belongs to the nearest enclosing package, so test
+          # data and embedded resources count for the package that owns them.
+          # The root package owns its Go files and the embedded submodules.
+          printf '%s\n' "$changed" | while IFS= read -r file; do
+            [ -n "$file" ] || continue
+            directory=$(dirname "$file")
+            while [ "$directory" != . ] && ! grep -Fxq "$module/$directory" "$RUNNER_TEMP/packages.txt"; do
+              directory=$(dirname "$directory")
+            done
+            if [ "$directory" != . ]; then
+              printf '%s\n' "$module/$directory"
+              continue
+            fi
+            case "$file" in
+              plugins|plugins/*|themes|themes/*) printf '%s\n' "$module" ;;
+              */*) ;;
+              *.go) printf '%s\n' "$module" ;;
+            esac
+          done | sort -u > "$RUNNER_TEMP/changed.txt"
+          affected=$(awk '
+            FILENAME == ARGV[1] { changed[$0] = 1; next }
+            $1 ~ /\.test$/ {
+              name = substr($1, 1, length($1) - 5)
+              for (i = 2; i <= NF; i++) {
+                if ($i in changed) { print name; next }
+              }
+            }
+          ' "$RUNNER_TEMP/changed.txt" "$RUNNER_TEMP/deps.txt" | sort -u)
+          if [ -z "$affected" ]; then
+            echo 'No affected Go packages'
+            exit
+          fi
+          go test $affected
+
+  native:
+    needs: lint
+    if: needs.lint.outputs.native == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, target: linux-amd64 }
+          - { os: ubuntu-24.04-arm, target: linux-arm64 }
+          - { os: macos-15, target: darwin-arm64 }
+          - { os: macos-15-intel, target: darwin-amd64 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+      - name: Pinned Rust toolchain
+        working-directory: native/iroh
+        run: rustup toolchain install
+      - name: Build
+        run: |
+          sh native/iroh/build.sh
+          sh native/capture/build.sh
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-${{ matrix.target }}
+          path: |
+            .runtime/native/${{ matrix.target }}/libsailry_iroh.*
+            .runtime/native/${{ matrix.target }}/libsailry-capture.*
+          if-no-files-found: error
+
+  mobile:
+    name: apps/mobile
+    needs: lint
+    if: needs.lint.outputs.mobile == 'true'
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+      - uses: subosito/flutter-action@fd55f4c5af5b953cc57a2be44cb082c8f6635e8e # v2.21.0
+        with:
+          flutter-version: '3.44.7'
+      - run: flutter pub get --enforce-lockfile
+      - run: flutter analyze
+      - run: flutter test
+
+  integration:
+    needs: native
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.integration)
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, target: linux-amd64 }
+          - { os: macos-15, target: darwin-arm64 }
+          - { os: windows-2025, target: windows-amd64 }
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          submodules: recursive
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.0.0
+        with:
+          go-version-file: go.mod
+      # The native build scripts cover macOS and Linux; Windows has no artifact.
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        if: runner.os != 'Windows'
+        with:
+          name: native-${{ matrix.target }}
+          path: .runtime/native/${{ matrix.target }}
+      - name: Integration tests
+        env:
+          PACKAGES: ${{ inputs.integration_packages || './...' }}
+        run: go test -tags integration $PACKAGES

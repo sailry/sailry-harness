@@ -196,19 +196,23 @@ does not prove live or cross-platform acceptance.
 
 ## Continuous integration
 
-B0 adds no workflow. B14 supplies one `.github/workflows/ci.yml`, running only
-after the user pushes:
+`.github/workflows/ci.yml` is the only workflow. It runs only after the user
+pushes:
 
-- `lint`: Go formatting and `go vet ./...`.
+- `lint`: Go formatting and `go vet ./...` for Linux, Windows and macOS.
 - `test`: `go test ./...` with cgo disabled on macOS, Windows and Linux,
   using only Go module/build caches. Pull requests select affected packages;
   main and release runs test everything. Use one macOS job per run.
-- `native`: build changed or repinned C-ABI libraries and upload their artifacts.
-  Test and release jobs consume those artifacts when required.
-- `apps/mobile`: Flutter analysis and tests only for Mobile input changes.
+- `native`: build `native/iroh` and `native/capture` for the macOS and Linux
+  targets of their `build.sh` when either changes, and upload
+  `native-<goos>-<goarch>` artifacts. Release and manual runs always build them.
+- `apps/mobile`: Flutter analysis and tests only for `apps/mobile` or
+  `internal/mobile` changes.
+- `integration`: `go test -tags integration` on a `v*` tag, or manually with the
+  `integration` input; it stages that run's native artifacts.
 
-Integration checks run manually or on release. Do not add extra workflows,
-nightly fuzzing, coverage gates, per-test matrices or retry-on-flake wrappers.
+Do not add extra workflows, nightly fuzzing, coverage gates, per-test matrices
+or retry-on-flake wrappers.
 
 ## Release packages
 

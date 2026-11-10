@@ -53,6 +53,59 @@ iOS builds the Go C ABI as c-archive and stages iroh as an embedded
 documented cgo exceptions; ordinary Host and Desktop builds keep cgo disabled.
 Artifacts, signing inputs and local target configuration never enter Git.
 
+### Build commands
+
+Requirements: Flutter 3.44.7 (`apps/mobile/.flutter-version`), Go 1.27.3, rustup
+with toolchain 1.98.0 and the Rust targets of the table below, the Android NDK
+selected by Flutter (`flutter.ndkVersion`) or Xcode with the iOS SDK.
+
+| Target | Go target | Rust target | Staged output under `.runtime/native/` |
+| --- | --- | --- | --- |
+| Android `arm64-v8a` | `android/arm64` | `aarch64-linux-android` | `android-jni/arm64-v8a/libsailry_{mobile,iroh}.so` |
+| Android `armeabi-v7a` | `android/arm`, `GOARM=7` | `armv7-linux-androideabi` | `android-jni/armeabi-v7a/libsailry_{mobile,iroh}.so` |
+| Android `x86_64` | `android/amd64` | `x86_64-linux-android` | `android-jni/x86_64/libsailry_{mobile,iroh}.so` |
+| iOS device | `ios/arm64` | `aarch64-apple-ios` | `ios-arm64/libsailry_mobile.a`, `SailryIroh.framework` |
+| iOS simulator, Apple silicon | `ios/arm64` | `aarch64-apple-ios-sim` | `ios-simulator-arm64/…` |
+| iOS simulator, Intel | `ios/amd64` | `x86_64-apple-ios` | `ios-simulator-amd64/…` |
+
+The Flutter build runs the adapter build itself; no separate step is required:
+
+```sh
+cd apps/mobile
+flutter pub get --enforce-lockfile
+flutter build apk --release --target-platform android-arm64
+flutter build appbundle --release
+flutter build ios --release
+```
+
+- Android: Gradle's `prepareSailryNative` task runs before `preBuild`. It calls
+  `sh cmd/sailry-mobile/build.sh android <abi>` for each ABI of Flutter's
+  `--target-platform` (all three without it) with the NDK and `minSdk` of the
+  Gradle project, and `jniLibs` reads `.runtime/native/android-jni`. Both
+  libraries are linked with 16 KiB page alignment.
+- iOS: the Runner target's `Build Sailry Native` phase runs
+  `apps/mobile/ios/build_native.sh`, which calls
+  `sh cmd/sailry-mobile/build.sh ios <sdk> <arch>` for each architecture of the
+  Xcode build and embeds `SailryIroh.framework`. `ios/Flutter/Sailry.xcconfig`
+  force-loads `libsailry_mobile.a`, keeps the six exports and links the
+  framework. The static archive is linked per slice, so no XCFramework is built.
+
+The same script builds one slice directly. Android needs `ANDROID_NDK_HOME`;
+`SAILRY_ANDROID_API` (default 24) and `IPHONEOS_DEPLOYMENT_TARGET` (default
+15.0) are optional:
+
+```sh
+ANDROID_NDK_HOME=/path/to/ndk sh cmd/sailry-mobile/build.sh android arm64-v8a
+sh cmd/sailry-mobile/build.sh ios iphoneos arm64
+sh cmd/sailry-mobile/build.sh ios iphonesimulator arm64
+```
+
+Android release signing reads `ANDROID_KEYSTORE_PATH`, `ANDROID_STORE_PASSWORD`,
+`ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD` from the environment; without
+them the release build uses the debug signer, and `SAILRY_ANDROID_RELEASE=1`
+refuses to build. iOS signing uses the local Xcode team and profiles;
+`flutter build ios --release --no-codesign` produces an unsigned application.
+
 ## UI state vs backend data
 
 | Flutter state | Shared backend facts |

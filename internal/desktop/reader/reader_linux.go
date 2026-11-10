@@ -11,7 +11,7 @@ import (
 )
 
 type speechDispatcher struct {
-	open   func(string, string, uintptr, int32) uintptr
+	open   func(string, string, uintptr, int32) *speechCallbacks
 	close  func(uintptr)
 	say    func(uintptr, int32, string) int32
 	cancel func(uintptr) int32
@@ -38,7 +38,8 @@ var loadDispatcher = sync.OnceValues(func() (*speechDispatcher, error) {
 })
 
 // The public ABI begins with six callback pointers; private connection layout
-// is deliberately never read or copied.
+// is deliberately never read or copied. spd_open returns this system-owned
+// connection as a typed pointer, so its address is never rebuilt from an integer.
 type speechCallbacks struct{ begin, end, cancel, pause, resume, index uintptr }
 type nativeSpeech struct {
 	api        *speechDispatcher
@@ -55,10 +56,11 @@ func newNativeSpeech() (*nativeSpeech, error) {
 	if err != nil {
 		return nil, err
 	}
-	connection := api.open("Sailry", "reader", 0, 1)
-	if connection == 0 {
+	callbacks := api.open("Sailry", "reader", 0, 1)
+	if callbacks == nil {
 		return nil, errors.New("system speech connection failed")
 	}
+	connection := uintptr(unsafe.Pointer(callbacks))
 	engine := &nativeSpeech{api: api, connection: connection, finished: map[uintptr]bool{}}
 	engine.callback = purego.NewCallback(func(message, client uintptr, state int32) {
 		engine.mu.Lock()
@@ -69,7 +71,6 @@ func newNativeSpeech() (*nativeSpeech, error) {
 			engine.active = 0
 		}
 	})
-	callbacks := (*speechCallbacks)(unsafe.Pointer(connection))
 	callbacks.end = engine.callback
 	callbacks.cancel = engine.callback
 	if api.notify(connection, 2|8) < 0 {

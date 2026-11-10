@@ -20,8 +20,13 @@ var (
 	speechInterface      = windows.GUID{Data1: 0x6c44df74, Data2: 0x72b9, Data3: 0x4992, Data4: [8]byte{0xa1, 0xec, 0xef, 0x99, 0x6e, 0x04, 0x22, 0xd4}}
 )
 
+// speechVoice is the system-owned ISpVoice object: its first word points to the
+// method table. Slot 32 (GetStatus) is the highest one used; the table is only
+// indexed, never copied.
+type speechVoice struct{ methods *[33]uintptr }
+
 type nativeSpeech struct {
-	voice       uintptr
+	voice       *speechVoice
 	initialized bool
 }
 
@@ -31,7 +36,7 @@ func newNativeSpeech() (*nativeSpeech, error) {
 	if !initialized && uint32(result) != 0x80010106 {
 		return nil, speechHRESULT(result)
 	}
-	var voice uintptr
+	var voice *speechVoice
 	result, _, _ = speechCoCreate.Call(uintptr(unsafe.Pointer(&speechClass)), 0, 1, uintptr(unsafe.Pointer(&speechInterface)), uintptr(unsafe.Pointer(&voice)))
 	if int32(result) < 0 {
 		if initialized {
@@ -45,9 +50,7 @@ func speechHRESULT(result uintptr) error {
 	return fmt.Errorf("system speech operation failed (HRESULT 0x%08x)", uint32(result))
 }
 func (s *nativeSpeech) method(index int, args ...uintptr) uintptr {
-	table := *(*uintptr)(unsafe.Pointer(s.voice))
-	method := *(*uintptr)(unsafe.Add(unsafe.Pointer(table), index*int(unsafe.Sizeof(uintptr(0)))))
-	result, _, _ := syscall.SyscallN(method, append([]uintptr{s.voice}, args...)...)
+	result, _, _ := syscall.SyscallN(s.voice.methods[index], append([]uintptr{uintptr(unsafe.Pointer(s.voice))}, args...)...)
 	return result
 }
 func (s *nativeSpeech) speak(text string) error {
@@ -79,7 +82,7 @@ func (s *nativeSpeech) speaking() (bool, error) {
 func (s *nativeSpeech) close() error {
 	err := s.stop()
 	s.method(2)
-	s.voice = 0
+	s.voice = nil
 	if s.initialized {
 		speechCoUninitialize.Call()
 	}

@@ -63,6 +63,8 @@ for name in sorted(entries):
             encoding="utf-8",
         )
         path.chmod(0o700)
+# Activation files are optional convenience scripts; rewrite only the exact
+# staging prefix rather than transforming installed package code or data.
 for path in scripts.iterdir():
     if path.name.lower().startswith("activate") and path.is_file():
         writable(path)
