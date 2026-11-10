@@ -6,6 +6,7 @@ package conversation
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -88,7 +89,13 @@ func View(c *ui.Context, s *State, id string, turns []Turn, sess *Session, actio
 	s.bindVisuals()
 	if s.OpenLink != nil {
 		s.md.OnLink = func(link string) {
-			if !s.OpenLink(c, id, link) && ui.SafeToOpen(link) {
+			switch {
+			case s.OpenLink(c, id, link):
+			case strings.HasPrefix(link, "#"):
+				// OnLink takes every link, so a heading link scrolls here.
+				s.md.Anchor = strings.TrimPrefix(link, "#")
+				s.md.AnchorVersion++
+			case ui.SafeToOpen(link):
 				c.OpenURL(link)
 			}
 		}
