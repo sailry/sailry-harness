@@ -176,7 +176,7 @@ func (files *Files) CollectFiles(ctx context.Context, scope string, limit uint64
 }
 
 func (files *Files) VisitFiles(ctx context.Context, scope string, globs *FileGlobs, visitor func(*os.Root, string, string, fs.FileInfo) (bool, error)) (FileWalkReport, error) {
-	control := newFileControl(ctx)
+	control := fileControl{context: ctx, deadline: time.Now().Add(20 * time.Second)}
 	if err := control.check(); err != nil {
 		return FileWalkReport{}, err
 	}

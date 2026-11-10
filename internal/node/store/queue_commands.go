@@ -138,6 +138,10 @@ func ReadQueue(ctx context.Context, db *sql.Conn, session protocol.SessionID) (p
 			}
 			pending.Guidance = &id
 		}
+		pending.Attachments, err = ListTurnAttachments(ctx, db, run.Turn)
+		if err != nil {
+			return value, err
+		}
 		value.Items = append(value.Items, pending)
 	}
 	return value, rows.Err()

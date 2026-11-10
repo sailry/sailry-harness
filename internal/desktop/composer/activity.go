@@ -46,6 +46,16 @@ type Changes struct {
 	Recent                []ChangedFile // the files changed last, newest first, at most RecentChanges
 }
 
+// ActivityCallbacks adds labels for host-owned worktree identities.
+type ActivityCallbacks struct {
+	CommandState    func() (bool, bool)
+	CommandError    func(string) bool
+	CommandBusy     func(string) bool
+	WorktreeLabel   func(string) string
+	Worktree        func(string)
+	WorktreeEnabled func() bool
+}
+
 // RecentChanges is how many changed files the Git badge lists.
 const RecentChanges = 10
 
@@ -325,6 +335,10 @@ func count(c *ui.Context, one, many string, n int) string {
 // commandActivity is the running commands' capsule and popover, then a
 // capsule per service port.
 func (s *State) commandActivity(c *ui.Context, a Activity, actions Actions) {
+	connected, unavailable := a.Connected, false
+	if s.ActivityCallbacks != nil && s.ActivityCallbacks.CommandState != nil {
+		connected, unavailable = s.ActivityCallbacks.CommandState()
+	}
 	var running []Command
 	for _, cmd := range a.Commands {
 		if cmd.Status == CommandRunning || cmd.Status == CommandStopping {
@@ -336,13 +350,16 @@ func (s *State) commandActivity(c *ui.Context, a Activity, actions Actions) {
 		return
 	}
 	label := count(c, "background_one", "background_count", len(running))
-	trigger := working(c.Key("background"), icons.Terminal, label, a.Connected, s.act.commands).
+	trigger := working(c.Key("background"), icons.Terminal, label, connected, s.act.commands).
 		OnClick(func() { s.act.commands = !s.act.commands })
 	placeStart(kit.Popover(c, trigger, &s.act.commands, func() {
 		c.After(time.Second) // the elapsed times tick while it shows
+		if unavailable {
+			ui.Text(c, i18n.T(c, "background_unavailable")).FontSize(14).TextColor(theme.Of(c).MutedForeground)
+		}
 		ui.Scroll(c.Key("background-rows")).MaxHeight(320).Gap(4).Children(func() {
 			for _, cmd := range running {
-				s.commandRow(c, cmd, a.Connected, actions)
+				s.commandRow(c, cmd, connected, actions)
 			}
 		})
 	}), trigger, 400, 8, 0)
@@ -396,9 +413,11 @@ func (s *State) commandRow(c *ui.Context, cmd Command, connected bool, actions A
 				icon = icons.ChevronDown
 			}
 			kit.IconButton(c.Key("stop"), icon, i18n.T(c, "background_end"), 24, false).
-				Disabled(!connected || cmd.Status == CommandStopping).OnClick(func() { actions.StopCommand(cmd.ID) })
+				Disabled(!connected || cmd.Status == CommandStopping || s.ActivityCallbacks != nil && s.ActivityCallbacks.CommandBusy != nil && s.ActivityCallbacks.CommandBusy(cmd.ID)).OnClick(func() { actions.StopCommand(cmd.ID) })
 		})
-		if open && cmd.Output != "" {
+		if open && s.ActivityCallbacks != nil && s.ActivityCallbacks.CommandError != nil && s.ActivityCallbacks.CommandError(cmd.ID) {
+			ui.Text(c, i18n.T(c, "background_unavailable")).FontSize(14).TextColor(p.MutedForeground)
+		} else if open && cmd.Output != "" {
 			ui.Scroll(c.Key("output")).MaxHeight(160).Margin(6, 0, 4, 0).Padding(8, 12).Radius(p.Radius).
 				Background(p.Background).Children(func() {
 				ui.Text(c, cmd.Output).Font("monospace").FontSize(12).LineHeight(18.0 / 12).Selectable().

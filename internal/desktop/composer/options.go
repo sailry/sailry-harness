@@ -199,16 +199,26 @@ func (s *State) worktreeMenu(c *ui.Context, ctx *Context, actions Actions, iconO
 		icon = icons.Network
 	}
 	label := branchLabel(c, ctx, s.Worktree)
+	disabled := ctx.Readonly || ctx.LocationLocked
+	if s.ActivityCallbacks != nil && s.ActivityCallbacks.WorktreeEnabled != nil {
+		disabled = ctx.Readonly || !s.ActivityCallbacks.WorktreeEnabled()
+	}
 	kit.MenuButton(c.Key("worktree"), "composer-worktree", func(b ui.Element) {
-		contextButton(c, b.Disabled(ctx.Readonly || ctx.LocationLocked), icon, label, false, iconOnly)
+		contextButton(c, b.Disabled(disabled), icon, label, false, iconOnly)
 	}, func(m *kit.Menu) {
 		for _, w := range pr.Worktrees {
 			name := w.Branch
+			if s.ActivityCallbacks != nil && s.ActivityCallbacks.WorktreeLabel != nil {
+				name = s.ActivityCallbacks.WorktreeLabel(w.Branch)
+			}
 			if w.Main {
 				name = pr.Name
 			}
 			if m.Item(name).Checked(w.Branch == s.Worktree).Chosen() {
 				s.Worktree = w.Branch
+				if s.ActivityCallbacks != nil && s.ActivityCallbacks.Worktree != nil {
+					s.ActivityCallbacks.Worktree(w.Branch)
+				}
 			}
 		}
 		if ctx.Repository.Kind == Git {

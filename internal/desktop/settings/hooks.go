@@ -1,7 +1,6 @@
 package settings
 
 import (
-	"fmt"
 	"slices"
 	"strconv"
 	"strings"
@@ -12,6 +11,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
+	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 var hookMessages = Messages{"hooks_saved", "hooks_failed", "hooks_conflict", "hooks_unknown"}
@@ -37,7 +37,7 @@ type consent struct {
 // Check validates a hook's draft: the i18n key of the problem, or "".
 func (e *hookEditor) Check() string {
 	ms, err := strconv.Atoi(strings.TrimSpace(e.timeout))
-	if strings.TrimSpace(e.script.Command) == "" || err != nil || ms <= 0 {
+	if strings.TrimSpace(e.script.Command) == "" || err != nil || ms <= 0 || ms > 60000 {
 		return "hooks_invalid"
 	}
 	e.script.TimeoutMS = ms
@@ -47,10 +47,20 @@ func (e *hookEditor) Check() string {
 // hooks is hooks on or off, and the scripts, each with its switch, its editor
 // and its removal. Turning scripts on asks for consent.
 func hooks(c *ui.Context, m *Model) {
+	if m.Live && m.HooksContext != nil {
+		if _, ok := m.HooksContext(); !ok {
+			kit.Result(c, kit.ResultProps{Title: i18n.T(c, "hooks_project_required"), Card: true})
+			return
+		}
+	}
 	h := &m.Hooks
 	save := func(s HookSettings) {
 		h.Draft = s
-		report(c, h.Commit(), hookMessages)
+		if m.Live && m.SaveHooks != nil {
+			m.SaveHooks()
+		} else {
+			report(c, h.Commit(), hookMessages)
+		}
 	}
 	enable := func(s HookSettings) {
 		if s.Enabled && slices.ContainsFunc(s.Scripts, func(x preview.Hook) bool { return x.Enabled }) {
@@ -122,6 +132,13 @@ func clone(s HookSettings) HookSettings {
 	return s
 }
 
+func hookScope(m *Model) string {
+	if m.Live && m.HooksSandboxed != nil && !m.HooksSandboxed() {
+		return "hooks_scope_windows"
+	}
+	return "hooks_scope_workspace"
+}
+
 // hookDialog is the hook's name, phase, command and timeout. The reference
 // saves as it is edited and Close ends the edit; here Close saves the draft
 // once it is valid, a problem toasting and keeping the dialog open.
@@ -141,7 +158,7 @@ func hookDialog(c *ui.Context, m *Model, save func(HookSettings)) {
 			label = i18n.T(c, "hooks_phase")
 			kit.Field(c, "phase", label, "", func() {
 				phase := int(e.script.Phase)
-				if pick(c, "select", label, &phase, labels(c, phases), false).Fill().Changed() {
+				if pick(c, "select", label, &phase, labels(c, phases), e.script.ID == "before_tool" || e.script.ID == "after_tool" || e.script.ID == "turn_end").Fill().Changed() {
 					e.script.Phase = preview.HookPhase(phase)
 				}
 			})
@@ -162,7 +179,7 @@ func hookDialog(c *ui.Context, m *Model, save func(HookSettings)) {
 				}
 				s := clone(m.Hooks.Draft)
 				if e.index < 0 {
-					e.script.ID = fmt.Sprintf("hook-%d", len(s.Scripts)+1)
+					e.script.ID = protocol.NewRequestID().String()
 					s.Scripts = append(s.Scripts, e.script)
 				} else {
 					s.Scripts[e.index] = e.script
@@ -187,8 +204,12 @@ func consentDialog(c *ui.Context, m *Model, save func(HookSettings)) {
 		ui.Text(c, title).FontSize(16).FontWeight(600)
 		ui.Scroll(c.Key("details")).Grow(1).Shrink(1).Gap(12).Children(func() {
 			ui.Text(c, i18n.T(c, "hooks_consent")).FontSize(14)
-			ui.Text(c, i18n.T(c, "hooks_scope_workspace")).FontSize(14)
-			ui.Text(c, i18n.T(c, "composer_host_local")+" · ~/Projects/sailry-go · main").FontSize(14).Selectable()
+			ui.Text(c, i18n.T(c, hookScope(m))).FontSize(14)
+			location := i18n.T(c, "composer_host_local") + " · ~/Projects/sailry-go · main"
+			if m.Live && m.HooksContext != nil {
+				location, _ = m.HooksContext()
+			}
+			ui.Text(c, location).FontSize(14).Selectable()
 			for _, x := range k.settings.Scripts {
 				if !x.Enabled {
 					continue

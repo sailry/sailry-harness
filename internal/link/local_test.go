@@ -1,7 +1,9 @@
 package link
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"reflect"
 	"sync"
 	"testing"
@@ -10,10 +12,12 @@ import (
 )
 
 type localHandler struct {
-	caller  protocol.NodeID
-	request protocol.Request
-	topic   protocol.Topic
-	result  chan Response
+	stream   Stream
+	resource protocol.StreamID
+	caller   protocol.NodeID
+	request  protocol.Request
+	topic    protocol.Topic
+	result   chan Response
 }
 
 func (handler *localHandler) Dispatch(_ context.Context, caller protocol.NodeID, request protocol.Request) (Admission, error) {
@@ -51,6 +55,49 @@ func (subscription *localSubscription) Close() error {
 func TestLocalTransportContract(t *testing.T) {
 	t.Parallel()
 	node, caller := protocol.NodeID{1}, protocol.NodeID{2}
+	t.Run("resource_half_close", func(t *testing.T) {
+		client, server := StreamPair()
+		defer client.Close()
+		defer server.Close()
+		resource := protocol.NewStreamID()
+		handler := &localHandler{stream: client}
+		transport := NewLocal(node, caller, handler)
+		opened, err := transport.Open(t.Context(), resource)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if handler.caller != caller || handler.resource != resource {
+			t.Fatal("stream lost bound caller or resource")
+		}
+		done := make(chan error, 1)
+		go func() {
+			_, err := opened.Write([]byte("upload"))
+			if err == nil {
+				err = opened.CloseWrite()
+			}
+			if err == nil {
+				var reply []byte
+				reply, err = io.ReadAll(opened)
+				if err == nil && !bytes.Equal(reply, []byte{1}) {
+					err = io.ErrUnexpectedEOF
+				}
+			}
+			done <- err
+		}()
+		data, err := io.ReadAll(server)
+		if err != nil || string(data) != "upload" {
+			t.Fatalf("upload bytes: %q, %v", data, err)
+		}
+		if _, err = server.Write([]byte{1}); err != nil {
+			t.Fatal(err)
+		}
+		if err = server.CloseWrite(); err != nil {
+			t.Fatal(err)
+		}
+		if err = <-done; err != nil {
+			t.Fatal(err)
+		}
+	})
 	for _, kind := range []string{
 		"snapshot", "inspect_request", "create_project", "update_project", "remove_project", "register_worktree", "set_defaults",
 		"create_session", "rename_session", "set_session_read", "set_session_archived", "archive_sessions", "remove_session", "remove_sessions",
@@ -96,4 +143,9 @@ func TestLocalTransportContract(t *testing.T) {
 			}
 		})
 	}
+}
+
+func (handler *localHandler) Open(_ context.Context, caller protocol.NodeID, id protocol.StreamID) (Stream, error) {
+	handler.caller, handler.resource = caller, id
+	return handler.stream, nil
 }

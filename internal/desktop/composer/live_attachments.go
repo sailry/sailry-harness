@@ -1,0 +1,51 @@
+package composer
+
+import (
+	"slices"
+	"strings"
+
+	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/icons"
+	"github.com/sailry/sailry-harness/internal/desktop/kit"
+)
+
+// AttachmentCallbacks connect controller-owned native effects to the accepted
+// draft cards. A nil callback keeps the preview's existing behavior.
+type AttachmentCallbacks struct {
+	Pick   func()
+	Remove func(*Attachment)
+	Image  func(kit.ImageAction, *Attachment)
+}
+
+func (s *State) SetAttachmentCallbacks(callbacks *AttachmentCallbacks) {
+	s.attachmentCallbacks = callbacks
+}
+
+// SetReferenceChildren keeps an open page tied to its current shared listing.
+func (s *State) SetReferenceChildren(children func(Reference) ([]Reference, bool)) {
+	s.referenceChildren = children
+}
+func (s *State) AttachPaths(c *ui.Context, paths []string, actions Actions) {
+	s.attachPaths(c, paths, actions)
+}
+
+// InsertFiles adds normal file-reference tokens; it never submits the draft.
+func (s *State) InsertFiles(paths []string, prompt string) {
+	if s.Draft != "" {
+		s.Draft += "\n\n"
+	}
+	for _, path := range paths {
+		ref := Reference{ID: path, Kind: File, Label: path, Icon: icons.File}
+		if !slices.ContainsFunc(s.References, func(value Reference) bool { return value.Kind == File && value.ID == path }) {
+			s.References = append(s.References, ref)
+		}
+		s.Draft += token(ref) + " "
+	}
+	if prompt != "" {
+		s.Draft += "\n" + prompt
+	}
+	s.Draft = strings.TrimRight(s.Draft, " ")
+	s.caret = len([]rune(s.Draft))
+	s.focus = true
+	s.ref = refState{}
+}

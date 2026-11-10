@@ -21,6 +21,9 @@ var pageFeatures = map[string]Page{
 // when it has none.
 func (a *App) project() *panel.Project {
 	if !a.Preview {
+		if a.Hooks.WorkspaceProject != nil {
+			return a.Hooks.WorkspaceProject()
+		}
 		return nil
 	}
 	pr := a.Data.ProjectOf(a.Sidebar.Selected)

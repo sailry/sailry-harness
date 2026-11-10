@@ -1,8 +1,11 @@
 package conversation
 
 import (
+	"fmt"
 	"runtime"
+	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
@@ -32,17 +35,74 @@ func Resendable(st RunStatus) bool {
 	return st == Failed || st == Interrupted || st == Cancelled
 }
 
-// cited returns the answer with the citations placed in its last text
-// block, a copy so the turn's own blocks stay as they came.
+// cited places turn-relative rune endpoints across all text blocks without
+// changing canonical text, copy/export output or citation numbering.
 func cited(blocks []Block, cites []Citation) []Block {
+	last := -1
 	for i := len(blocks) - 1; i >= 0; i-- {
 		if blocks[i].Kind == TextBlock {
-			out := append([]Block(nil), blocks...)
-			out[i].Text = Cite(out[i].Text, cites)
-			return out
+			last = i
+			break
 		}
 	}
-	return blocks
+	if last < 0 || len(cites) == 0 {
+		return blocks
+	}
+	out := append([]Block(nil), blocks...)
+	offset := 0
+	for i := range out {
+		if out[i].Kind != TextBlock {
+			continue
+		}
+		text := out[i].Text
+		boundaries := make([]int, 0, utf8.RuneCountInString(text)+1)
+		for position := range text {
+			boundaries = append(boundaries, position)
+		}
+		boundaries = append(boundaries, len(text))
+		length := len(boundaries) - 1
+		marks := map[int][]int{}
+		for number, citation := range cites {
+			position := -1
+			switch {
+			case citation.End < 0:
+				// Negative endpoints encode entry starts as -(offset+1); zero
+				// remains the existing model's unpositioned-source sentinel.
+				start := -(citation.End + 1)
+				if start >= offset && start < offset+length {
+					position = boundaries[start-offset]
+				}
+			case citation.End > offset && citation.End <= offset+length:
+				position = boundaries[citation.End-offset]
+			case i == last && (citation.End == 0 || citation.End > offset+length):
+				position = len(text)
+			}
+			if position >= 0 {
+				marks[position] = append(marks[position], number)
+			}
+		}
+		if len(marks) > 0 {
+			positions := make([]int, 0, len(marks))
+			for position := range marks {
+				positions = append(positions, position)
+			}
+			slices.Sort(positions)
+			var result strings.Builder
+			copied := 0
+			for _, position := range positions {
+				result.WriteString(text[copied:position])
+				for _, number := range marks[position] {
+					uri := strings.NewReplacer("<", "%3C", ">", "%3E", "\\", "%5C", "\n", "%0A", "\r", "%0D").Replace(cites[number].URI)
+					fmt.Fprintf(&result, " [%d](<%s>)", number+1, uri)
+				}
+				copied = position
+			}
+			result.WriteString(text[copied:])
+			out[i].Text = result.String()
+		}
+		offset += length
+	}
+	return out
 }
 
 // footer is the ended run's row: Copy, Read aloud, the fork menu (Fork,

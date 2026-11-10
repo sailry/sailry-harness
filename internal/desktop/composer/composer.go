@@ -40,10 +40,11 @@ const (
 // choices the user makes for it, kept per conversation, and which of its
 // popovers show.
 type State struct {
-	Draft   string
-	Model   string  // the chosen Model's ID
-	Effort  float64 // index into the chosen model's efforts
-	Running bool    // a reply is running: Stop replaces Send
+	ActivityCallbacks *ActivityCallbacks
+	Draft             string
+	Model             string  // the chosen Model's ID
+	Effort            float64 // index into the chosen model's efforts
+	Running           bool    // a reply is running: Stop replaces Send
 	// Searching is set by the page while its search bar shows: Escape
 	// closes the bar before it reaches the composer.
 	Searching bool
@@ -61,6 +62,8 @@ type State struct {
 	Team       string            // "" runs the model alone
 	// Host, Project and Worktree locate the draft (IDs; Worktree a branch).
 	Host, Project, Worktree string
+	attachmentCallbacks     *AttachmentCallbacks
+	referenceChildren       func(Reference) ([]Reference, bool)
 	Attachments             []*Attachment
 	References              []Reference // chipped into the draft
 	Dictation               Dictation
@@ -305,7 +308,7 @@ func (s *State) toolbar(c *ui.Context, ctx *Context, actions Actions, submit fun
 	ui.Row(c.Key("toolbar")).FillWidth().MinWidth(0).MinHeight(32).Gap(4).Wrap().AlignItems(ui.Center).Children(func() {
 		ui.Row(c.Key("start")).Gap(4).Wrap().AlignItems(ui.Center).Children(func() {
 			kit.IconButton(c.Key("attach"), icons.Plus, i18n.T(c, "composer_attachment"), 32, false).Radius(16).
-				Disabled(ctx.Readonly).OnClick(func() { s.openFiles(ctx) })
+				Disabled(!s.canPickFiles(ctx)).OnClick(func() { s.openFiles(ctx) })
 			if compact {
 				s.settingsButton(c, ctx, actions)
 			} else {

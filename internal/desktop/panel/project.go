@@ -4,6 +4,7 @@ import (
 	"slices"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/editor"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
@@ -15,10 +16,13 @@ import (
 // item shown last is the one either host shows first (docs/panel.md,
 // Components and hosts).
 type Project struct {
-	ID    string
-	Data  *preview.Workspace
-	Files FileView
-	Git   GitView
+	ID      string
+	Actions *Actions
+	prompt  prompt
+	closing *editorCloseRequest
+	Data    *preview.Workspace
+	Files   FileView
+	Git     GitView
 	// reveal shows a file of the tree in the host's Files, as the host
 	// showing the project last sets it.
 	reveal func(path string)
@@ -27,20 +31,29 @@ type Project struct {
 // FileView is the Files component's state: the files open, each with its
 // own view, and the tree's: its open folders and its selection.
 type FileView struct {
-	file    string   // the file shown last, by path
-	open    []string // the files open, in order
-	items   map[string]*fileItem
-	folders map[string]*bool
-	sel     selection
-	focus   string // the row to take the keyboard focus, "" for none
-	tree    ui.ScrollState
-	side    float32 // the tree's width
+	file        string   // the file shown last, by path
+	open        []string // the files open, in order
+	items       map[string]*fileItem
+	folders     map[string]*bool
+	sel         selection
+	focus       string // the row to take the keyboard focus, "" for none
+	tree        ui.ScrollState
+	side        float32 // the tree's width
+	search      fileSearch
+	searchOpen  bool
+	directories map[string]DirectoryState
 }
 
 // fileItem is an open file's own view.
 type fileItem struct {
-	source int // 0 the document, 1 its source, for markdown
-	text   ui.ScrollState
+	base, draft, suffix string
+	loaded, dirty       bool
+	writable            bool
+	editor              *editor.State
+	document            *documentEditor
+	pendingLine         int
+	source              int // 0 the document, 1 its source, for markdown
+	text                ui.ScrollState
 }
 
 // GitView is the Git component's state: the diffs open (each viewer
@@ -48,28 +61,36 @@ type fileItem struct {
 // layout, its rows open and its cursor, Changes or History, the commit
 // draft and options) and the picker or confirmation showing.
 type GitView struct {
-	change   string   // the changed file shown last, by path, or allChanges
-	open     []string // the diffs open, in order
-	scope    string   // the scope the diff shown opened in: all, staged, unstaged
-	nav      changeNav
-	expanded map[string]*bool // the list's groups and folders, by row
-	current  string           // the row of the list's cursor
-	view     int              // 0 Changes, 1 History
-	commitID string           // the commit chosen in the history
-	folded   map[string]bool  // All changes' files closed
-	commit   string           // the commit message
-	draft    string           // the message before amending
-	tall     bool             // the message box expanded
-	amend    bool
-	signoff  bool
-	skip     bool   // skip hooks
-	after    string // what the commit does after: none, push, sync
-	chord    bool   // Ctrl+G pressed, its second key to come
-	picker   picker
-	confirm  confirm
-	list     ui.ScrollState
-	history  ui.ScrollState
-	side     float32 // the list's width
+	change        string   // the changed file shown last, by path, or allChanges
+	open          []string // the diffs open, in order
+	scope         string   // the scope the diff shown opened in: all, staged, unstaged
+	nav           changeNav
+	expanded      map[string]*bool // the list's groups and folders, by row
+	current       string           // the row of the list's cursor
+	view          int              // 0 Changes, 1 History
+	commitID      string           // the commit chosen in the history
+	folded        map[string]bool  // All changes' files closed
+	commit        string           // the commit message
+	draft         string           // the message before amending
+	tall          bool             // the message box expanded
+	amend         bool
+	signoff       bool
+	skip          bool   // skip hooks
+	after         string // what the commit does after: none, push, sync
+	chord         bool   // Ctrl+G pressed, its second key to come
+	picker        picker
+	confirm       confirm
+	stashIDs      []string
+	tagIDs        map[string]string
+	operation     bool
+	live          GitState
+	log           GitHistoryState
+	switchPending []PendingOperation
+	documents     map[string]*gitDocument
+	diffStates    map[string]GitDiffState
+	list          ui.ScrollState
+	history       ui.ScrollState
+	side          float32 // the list's width
 }
 
 // File is the path of the file shown.
@@ -108,6 +129,7 @@ func (v *FileView) item(path string) *fileItem {
 
 // Change is the path of the changed file shown.
 func (v *GitView) Change() string { return v.change }
+func (v *GitView) Scope() string  { return v.scope }
 
 // Open are the diffs open, in order.
 func (v *GitView) Open() []string { return v.open }
@@ -127,7 +149,10 @@ func (v *GitView) Show(path string) {
 }
 
 // Close closes a diff, as FileView.Close.
-func (v *GitView) Close(path string) { v.open, v.change = closeItem(v.open, path, v.change) }
+func (v *GitView) Close(path string) {
+	v.open, v.change = closeItem(v.open, path, v.change)
+	delete(v.documents, path)
+}
 
 // closeItem takes path out of open; when it was shown, the one after it
 // is, else the one before, else none.
@@ -171,6 +196,9 @@ func (pr *Project) show(k Kind, path string) {
 
 func (pr *Project) close(k Kind, path string) {
 	if k == Files {
+		if pr.requestEditorClose(path, func() { pr.Files.Close(path) }) {
+			return
+		}
 		pr.Files.Close(path)
 	} else {
 		pr.Git.Close(path)

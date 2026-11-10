@@ -1518,3 +1518,120 @@ provider_revision_changed: 配置已变化，请重新打开编辑
 provider_save_failed: 保存失败，请重试
 provider_save_unknown: 结果未确认，请保持内容不变后重试
 question_closed: 问题已结束，草稿已保留
+files_upload_failed: 上传失败，请检查文件和连接后重试
+files_upload_cancelled: 上传已取消
+files_upload_changed: 来源已变更，请重新选择文件
+files_upload_too_large: 文件超过 64 MiB
+files_upload_name: 文件名无效
+files_upload_source: 无法读取所选文件
+files_download_failed: 下载失败，请检查文件和连接后重试
+files_download_changed: 来源已变更，请重新下载
+files_download_destination: 无法保存下载，请检查目标路径和权限
+files_download_conflict: 目标文件已变更，请重新选择保存位置
+chat_attachment_remove_failed: 移除失败
+workspace_action_failed: 工作区操作失败
+workspace_changed: 工作区已变更，请刷新后重试
+workspace_action_unknown: 结果尚不确定，请检查后再重试
+workspace_saved: 已保存
+workspace_completed: 已完成
+workspace_native_unavailable: 文件操作不可用
+workspace_invalid: 请检查输入内容
+workspace_restore_confirm: 恢复此轮操作前的文件版本
+artifact_edit_prompt: 修改要求：
+hooks_project_required: 选择项目
+workspace_worktree_remove_confirm: 移除此工作树及其中的文件
+background_stop_failed: 停止失败，请重试
+background_stop_unknown: 停止结果未确认，请查看命令状态
+background_unavailable: 暂时无法读取后台终端
+files_cancel_remaining: 取消剩余项目
+files_check_result: 检查结果
+files_move_recycle: 复制完成后，将来源文件移入回收站
+files_paste_cancelled: 已取消粘贴
+files_paste_copying: 正在复制
+files_paste_directory: 目标文件夹
+files_paste_source: 来源 worktree
+files_upload_retry: 重试
+files_worktree_root: worktree 根目录
+content_preview: 预览
+file_search: 搜索文件
+file_search_case: 区分大小写
+file_search_empty: 无匹配结果
+file_search_failed: 搜索失败，请重试
+file_search_filter: 文件范围，如 **/*.rs
+file_search_invalid: 检查搜索表达式或文件范围
+file_search_partial: 部分内容未搜索或显示不完整
+file_search_query: 搜索内容
+file_search_regex: 正则表达式
+file_search_running: 搜索中
+files_block: 文本
+files_block_bullet: 无序列表
+files_block_callout: 提示块
+files_block_code: 代码块
+files_block_heading: 标题 {level}
+files_block_ordered: 有序列表
+files_block_paragraph: 正文
+files_block_quote: 引用
+files_block_task: 任务列表
+files_bold: 粗体
+files_content_partial: 文件较大，仅显示前 128 KiB 的文本内容
+files_create: 新建
+files_directory_changed: 目录已变化，请重新加载
+files_directory_failed: 无法加载目录，请重试
+files_discard: 放弃草稿
+files_discard_description: 丢弃未保存修改？正在保存的内容仍可能写入
+files_discard_title: 放弃未保存的草稿
+files_inline_code: 行内代码
+files_insert: 插入
+files_insert_chart: 图表
+files_insert_code: 代码块
+files_insert_diagrams: 图示
+files_insert_html: HTML 块
+files_insert_image: 图片
+files_insert_math: 公式
+files_insert_mermaid: Mermaid
+files_insert_rule: 分隔线
+files_insert_table: 表格
+files_italic: 斜体
+files_link: 链接
+files_listing_partial: 目录较大或包含不支持的名称，仅显示部分条目
+files_load_more: 加载更多
+files_more: 更多
+files_move: 移动
+files_operation_busy: 文件操作尚未完成
+files_replace: 查找替换
+files_saving: 正在保存…
+files_strike: 删除线
+files_upload: 上传
+files_upload_conflict: 目标已变更，请重新上传
+files_upload_denied: 无法写入目标文件
+files_upload_done: 上传完成
+files_upload_exists: 同名文件已存在，替换会覆盖其内容
+files_upload_replace: 替换
+files_upload_unknown: 上传结果不明，请检查结果
+files_wrap: 自动换行
+location_copy_changes: 带入未提交修改
+location_fork: 在独立工作树中派生会话
+refresh: 刷新
+artifact_next_page: 下一页
+artifact_previous_page: 上一页
+git_commit_scope: 尚未暂存更改
+git_commit_tracked: 提交已跟踪文件
+git_continue: 继续操作
+git_directory_title: 尚未初始化 Git
+git_history_partial: 部分提交内容或引用过长，已截断显示
+git_initialize: 初始化 Git
+git_initialize_nested_confirm: 新仓库会包含以下仓库
+git_publish: 发布分支
+git_repositories: 包含 %{count} 个 Git 仓库
+git_repository: 包含 1 个 Git 仓库
+git_stash_switch: 储藏更改并切换
+git_switch_confirm: 切换到 %{branch}
+git_switch_confirm_action: 切换
+git_switch_confirm_detail: 使用这个工作树的会话、终端和已打开的文件都会切换到这个分支。
+git_tracking_name: 本地分支名称
+git_unborn_title: 仓库尚无提交
+notebook_cell: 单元格 %{number}
+notebook_empty: 没有单元格
+git_diff_binary: 二进制无法显示差异
+git_diff_partial: 差异较大，仅显示部分内容
+hooks_scope_windows: 脚本使用当前 Windows 命令策略

@@ -39,6 +39,9 @@ func (s *State) OpenEditor(pr *preview.Project) {
 	}
 }
 
+// OpenCloneEditor opens the existing new-project form with Clone selected.
+func (s *State) OpenCloneEditor() { s.OpenEditor(nil); s.editor.Clone = 1 }
+
 // SuggestName is the name a path or a repository suggests: its last segment,
 // split on / \ and:, without ".git".
 func SuggestName(path string) string {

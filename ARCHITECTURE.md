@@ -33,7 +33,12 @@ durable queue. Fantasy supplies the per-step model interface; official provider
 SDK adapters supply transport after the required Fantasy trial found protocol
 gaps. Node-owned bounded conversation feeds carry drafts and committed changes;
 Client owns history paging, reduction and shared detail reads for every pane.
-Remote services and workspace tool execution arrive in their later phases.
+B5 connects confined workspace file effects, checkpoints, Git, managed worktrees,
+verified binary transfers, Office extraction, sandboxed processes, Web reads and
+search, and captured hooks. Native Files/Git/History/Documents surfaces and
+conversation assets consume the same Node resources through Client ownership.
+Remote services, delegation and package callback execution arrive in their later
+phases. Platform-specific runtime acceptance is recorded separately.
 
 ## System context
 

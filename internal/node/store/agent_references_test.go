@@ -12,6 +12,7 @@ import (
 
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/protocol"
+	"lukechampine.com/blake3"
 )
 
 func agentHistoryFixture(t *testing.T, mode protocol.WorkMode) (*Store, protocol.NodeID, protocol.Session, protocol.TurnID, time.Time) {
@@ -84,6 +85,81 @@ func agentHistoryFixture(t *testing.T, mode protocol.WorkMode) (*Store, protocol
 }
 func TestAgentHistoryAndReview(t *testing.T) {
 	t.Parallel()
+	t.Run("retained command stream keeps invocation and canonical revision", func(t *testing.T) {
+		storage, node, session, turn, now := agentHistoryFixture(t, protocol.WorkModeCode)
+		ctx := context.Background()
+		command := protocol.NewRequestID()
+		var reference, unrelated protocol.ToolOutputOutputReference
+		err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+			body, err := encode(map[string]any{"kind": "command_result", "data": map[string]any{"stdout": map[string]any{"text": "captured"}}, "sailry_command": map[string]any{"id": command}})
+			if err != nil {
+				return err
+			}
+			reference = protocol.ToolOutputOutputReference{Call: "stream-call", Revision: fmt.Sprintf("%x", blake3.Sum256(body))}
+			response := canonical.ToolResponse{ID: reference.Call, Name: "fixture-command", Format: canonical.JSON, Status: canonical.ToolSuccess, Revision: reference.Revision, Result: canonical.Payload{Value: body}}
+			record := canonical.NewRecord(turn, "message", ptr(canonical.NewMessage(canonical.User, canonical.Block{Index: 0, Kind: "tool_response", Data: &response})), now)
+			record.Provenance.Author = "tool"
+			if _, _, err = AppendCanonical(ctx, db, session.ID, record); err != nil {
+				return err
+			}
+			body, err = encode(map[string]any{"id": command, "business": map[string]any{"info": map[string]any{"id": command}}})
+			if err != nil {
+				return err
+			}
+			unrelated = protocol.ToolOutputOutputReference{Call: "business-call", Revision: fmt.Sprintf("%x", blake3.Sum256(body))}
+			response = canonical.ToolResponse{ID: unrelated.Call, Name: "fixture-business", Format: canonical.JSON, Status: canonical.ToolSuccess, Revision: unrelated.Revision, Result: canonical.Payload{Value: body}}
+			record = canonical.NewRecord(turn, "message", ptr(canonical.NewMessage(canonical.User, canonical.Block{Index: 0, Kind: "tool_response", Data: &response})), now)
+			record.Provenance.Author = "tool"
+			_, _, err = AppendCanonical(ctx, db, session.ID, record)
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = storage.Node.Read(ctx, func(db *sql.Conn) error {
+			input := protocol.CommandReadToolOutputPayload{Turn: turn, Output: reference, Limit: 100}
+			owner, id, err := ResolveToolCommandStream(ctx, db, node, input)
+			if err != nil {
+				return err
+			}
+			if owner != session.ID || id != command {
+				return errors.New("retained command owner changed")
+			}
+			wrong := node
+			wrong[0]++
+			if _, _, err = ResolveToolCommandStream(ctx, db, wrong, input); err == nil {
+				return errors.New("another invocation read retained output")
+			}
+			input.Output.Revision = strings.Repeat("0", 64)
+			if _, _, err = ResolveToolCommandStream(ctx, db, node, input); err == nil {
+				return errors.New("stale canonical output revision was accepted")
+			}
+			input.Output = unrelated
+			if _, _, err = ResolveToolCommandStream(ctx, db, node, input); err == nil {
+				return errors.New("unrelated business identifiers became retained command authority")
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("source citations validate Unicode ranges and preserve grounding", func(t *testing.T) {
+		uri, title := "https://example.com/source", "Public source"
+		start, end, tooFar, negative := int64(0), int64(3), int64(4), int64(-1)
+		message := canonical.NewMessage(canonical.Assistant, canonical.Text(0, "结果🙂"))
+		message.Sources = canonical.Sources{Citations: []canonical.Citation{{URI: &uri, Title: &title, Start: &start, End: &end}, {URI: &uri, Start: &start, End: &tooFar}, {URI: &uri, Start: &negative, End: &end}, {URI: ptr("file:///private/source"), Start: &start, End: &end}}, Grounding: []canonical.Grounding{{URI: "https://grounded.example/source", Title: &title}, {URI: "file:///private/source"}}, SearchSuggestions: ptr("<div>Provider suggestions</div>")}
+		record := canonical.NewRecord(protocol.NewTurnID(), "message", &message, time.Unix(1, 0))
+		record.Provenance.Author = "assistant"
+		entry, err := CanonicalEntry(record, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(entry.Citations) != 4 || entry.Citations[0].End == nil || *entry.Citations[0].End != 3 || entry.Citations[1].End != nil || entry.Citations[2].Start != nil || entry.Citations[3].Uri != "https://grounded.example/source" || entry.SearchSuggestions == nil {
+			t.Fatal(entry)
+		}
+	})
+
 	t.Run("scope revision and explicit truncation", func(t *testing.T) {
 		t.Parallel()
 		storage, node, session, turn, now := agentHistoryFixture(t, protocol.WorkModeCode)

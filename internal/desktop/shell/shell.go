@@ -115,6 +115,8 @@ type App struct {
 	// conversation or a page shows, and the right panel (pane).
 	mainPane, panelPane ui.Handle
 	sent                []string // the native menu's commands (Do)
+	fileSaveEnabled     bool
+	fileSaveMenu        func(bool)
 	// children are the subagent sessions opened in the panel, by ID.
 	children map[string][]conversation.Turn
 
@@ -200,6 +202,7 @@ func (a *App) Composer(id string) *composer.State {
 
 // View builds the window.
 func (a *App) View(c *ui.Context) {
+	defer a.updateFileSaveMenu(c)
 	kit.SetPreferences(c, kit.Preferences{ToastSeconds: uint64(settings.ToastSeconds[min(max(a.Settings.Toast, 0), len(settings.ToastSeconds)-1)]), MessageTextSize: uint8(a.Settings.TextSize)})
 	if a.Hooks.BeforeFrame != nil {
 		a.Hooks.BeforeFrame(c)

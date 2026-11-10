@@ -8,6 +8,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/onboarding"
+	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/panes"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"slices"
@@ -15,17 +16,19 @@ import (
 
 // Hooks keeps I/O and thread scheduling in the live controller.
 type Hooks struct {
-	BeforeFrame    func(*ui.Context)
-	AfterFrame     func()
-	Refresh        func()
-	OpenFolder     func()
-	ReadNotice     func(string)
-	ReadNotices    func([]string)
-	DismissRead    func([]string)
-	DismissNotices func([]string)
-	Conversation   func(*ui.Context, *viewmodel.Conversation, *composer.State) (*composer.Context, ConversationActions)
-	ReadSelection  func(string, string)
-	ReaderActive   func(string) bool
+	WorkspaceProject func() *panel.Project
+	DownloadDialog   func(*ui.Context)
+	BeforeFrame      func(*ui.Context)
+	AfterFrame       func()
+	Refresh          func()
+	OpenFolder       func()
+	ReadNotice       func(string)
+	ReadNotices      func([]string)
+	DismissRead      func([]string)
+	DismissNotices   func([]string)
+	Conversation     func(*ui.Context, *viewmodel.Conversation, *composer.State) (*composer.Context, ConversationActions)
+	ReadSelection    func(string, string)
+	ReaderActive     func(string) bool
 }
 
 type ConversationActions interface {

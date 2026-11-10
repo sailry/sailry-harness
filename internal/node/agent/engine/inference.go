@@ -18,6 +18,7 @@ import (
 )
 
 type streamOutput struct {
+	sources  canonical.Sources
 	record   canonical.Record
 	blocks   []canonical.Block
 	slots    map[string]int
@@ -58,7 +59,12 @@ func (r *Runtime) infer(x *execution, binding model.Binding, languageModel fanta
 		}
 	}
 	projected := x.output.Project(state.Records)
-	assets, err := r.modelAssets(x.ctx, projected)
+	hydrated, attachmentAssets, err := r.hydrateAttachments(x, projected)
+	if err != nil {
+		return err
+	}
+	projected = hydrated
+	assets, err := r.modelAssetsWith(x.ctx, projected, attachmentAssets)
 	if err != nil {
 		return err
 	}
@@ -145,6 +151,7 @@ func (r *Runtime) infer(x *execution, binding model.Binding, languageModel fanta
 				finish = canonical.Failed
 			}
 			message := canonical.NewMessage(canonical.Assistant)
+			message.Sources = out.sources
 			message.PartCount = uint64(len(out.blocks))
 			for _, block := range out.blocks {
 				if block.Data != nil {
@@ -226,6 +233,9 @@ func (out *streamOutput) slot(id, kind string) *canonical.Block {
 }
 
 func (out *streamOutput) receive(part fantasy.StreamPart) error {
+	if sources, ok := model.StreamSources(part); ok {
+		out.sources = sources
+	}
 	if index, ok := model.PartIndex(part); ok {
 		if out.indices == nil {
 			out.indices = map[string]uint64{}

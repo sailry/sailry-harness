@@ -26,51 +26,57 @@ import (
 )
 
 type Runtime struct {
-	admittedSessions      map[string]protocol.Session
-	composerRevisions     map[string]uint64
-	composerSaving        map[string]bool
-	composerWaiters       map[string][]func(bool)
-	composerBases         map[*composer.State]protocol.SessionConfig
-	App                   *shell.App
-	Preferences           *preferences.Store
-	controller            *client.Client
-	ctx                   context.Context
-	cancel                context.CancelFunc
-	unsubscribe           func()
-	unsubscribePrefs      func()
-	mu                    sync.Mutex
-	dirty                 bool
-	closed                bool
-	queue                 []func(*ui.Context)
-	invalidate            func()
-	update                func(func())
-	workers               sync.WaitGroup
-	openWindow            func(string)
-	pickDirectory         func(func(string))
-	preferencesChanged    func()
-	busy                  map[string]bool
-	uncertain             map[string]protocol.Request
-	drafts                uint64
-	lastPreferences       string
-	lastMaterials         [3]float32
-	lastFeatures          string
-	lastKeys              string
-	powerObservedRevision uint64
-	prefsRevision         uint64
-	conversationWatches   map[protocol.SessionID]func()
-	conversationSeen      map[protocol.SessionID]bool
-	composerInitialized   map[string]bool
-	composerObserved      map[string]string
-	readAloud             func(string, string, string)
-	exportConversation    func(string, string, conversation.ExportFormat)
-	conversationEdits     map[string]conversationEdit
-	conversationCreations map[string]conversationCreation
-	conversationCreating  map[string]bool
-	providerPresets       map[string]protocol.ConversationPresetsEntry
-	providerModels        map[string]map[string]protocol.ConversationModel
-	providerDraftBases    map[string]protocol.ConversationProvider
-	modelScores           map[string][]protocol.ConversationCatalogScoresEffortScore
-	modelScoreKey         string
+	commands                 *liveCommands
+	openService              func(string)
+	attachmentSessionWaiters map[string][]attachmentSessionWaiter
+	attachments              *attachmentState
+	workspace                *workspaceState
+	workspaceSettings        workspaceSettingsState
+	admittedSessions         map[string]protocol.Session
+	composerRevisions        map[string]uint64
+	composerSaving           map[string]bool
+	composerWaiters          map[string][]func(bool)
+	composerBases            map[*composer.State]protocol.SessionConfig
+	App                      *shell.App
+	Preferences              *preferences.Store
+	controller               *client.Client
+	ctx                      context.Context
+	cancel                   context.CancelFunc
+	unsubscribe              func()
+	unsubscribePrefs         func()
+	mu                       sync.Mutex
+	dirty                    bool
+	closed                   bool
+	queue                    []func(*ui.Context)
+	invalidate               func()
+	update                   func(func())
+	workers                  sync.WaitGroup
+	openWindow               func(string)
+	pickDirectory            func(func(string))
+	preferencesChanged       func()
+	busy                     map[string]bool
+	uncertain                map[string]protocol.Request
+	drafts                   uint64
+	lastPreferences          string
+	lastMaterials            [3]float32
+	lastFeatures             string
+	lastKeys                 string
+	powerObservedRevision    uint64
+	prefsRevision            uint64
+	conversationWatches      map[protocol.SessionID]func()
+	conversationSeen         map[protocol.SessionID]bool
+	composerInitialized      map[string]bool
+	composerObserved         map[string]string
+	readAloud                func(string, string, string)
+	exportConversation       func(string, string, conversation.ExportFormat)
+	conversationEdits        map[string]conversationEdit
+	conversationCreations    map[string]conversationCreation
+	conversationCreating     map[string]bool
+	providerPresets          map[string]protocol.ConversationPresetsEntry
+	providerModels           map[string]map[string]protocol.ConversationModel
+	providerDraftBases       map[string]protocol.ConversationProvider
+	modelScores              map[string][]protocol.ConversationCatalogScoresEffortScore
+	modelScoreKey            string
 }
 
 // New composes a window over an already started Client. Startup code should use
@@ -94,11 +100,20 @@ func NewWithPreferences(ctx context.Context, controller *client.Client, prefs *p
 	r.App.Hooks = shell.Hooks{BeforeFrame: r.drain, AfterFrame: r.afterFrame, Refresh: r.Refresh, OpenFolder: r.openFolder,
 		ReadNotice: r.markNotice, ReadNotices: r.readNotices, DismissRead: r.dismissRead, DismissNotices: r.dismissNotices}
 	r.App.Sidebar.Actions = &sidebar.Actions{Rename: r.rename, Archive: r.archive, Read: r.read, Delete: r.removeSession,
-		Pin: r.pin, MovePin: r.movePin, NewDraft: r.newDraft, RemoveProject: r.removeProject, SaveProject: r.saveProject, Browse: r.browse, ForkHere: r.forkHere, Export: r.exportSession, OpenWindow: func(id string) {
+		Pin: r.pin, MovePin: r.movePin, NewDraft: r.newDraft, RemoveProject: r.removeProject, Worktrees: r.sidebarWorkspaceAction, Records: r.projectRecords, SaveProject: r.saveProject, Browse: r.browse, ForkHere: r.forkHere, ForkWorktree: r.forkWorkspaceConversation, Export: r.exportSession, OpenWindow: func(id string) {
 			if r.openWindow != nil {
 				r.openWindow(id)
 			}
 		}}
+	r.initCommands()
+	r.initAttachments()
+	r.App.Hooks.DownloadDialog = r.transferDialogs
+	r.initWorkspace()
+	r.App.Hooks.WorkspaceProject = r.workspaceProject
+	r.App.Settings.SaveSandbox = r.saveSandbox
+	r.App.Settings.SaveHooks = r.saveWorkspaceHooks
+	r.App.Settings.HooksContext = r.hookContext
+	r.App.Settings.HooksSandboxed = r.hooksSandboxed
 	r.App.Settings.SavePower = r.savePower
 	r.App.Settings.SaveTelemetry = r.saveTelemetry
 	r.App.Hooks.Conversation = r.conversation
@@ -156,6 +171,9 @@ func (r *Runtime) Close() error {
 	for _, release := range r.conversationWatches {
 		release()
 	}
+	r.closeCommands()
+	r.closeAttachments()
+	r.closeWorkspace()
 	r.cancel()
 	r.workers.Wait()
 	return nil
@@ -206,6 +224,8 @@ func (r *Runtime) drain(c *ui.Context) {
 	for _, f := range queue {
 		f(c)
 	}
+	r.workspaceFrame(c)
+	r.workspaceSettingsFrame()
 	snapshot := r.controller.Snapshot()
 	if snapshot.PowerSettingsRevision != r.powerObservedRevision && !r.App.Settings.Power.Pending {
 		r.readPower()
@@ -213,6 +233,8 @@ func (r *Runtime) drain(c *ui.Context) {
 }
 
 func (r *Runtime) afterFrame() {
+	r.pruneAttachmentImages()
+	r.pruneCommands()
 	for id, release := range r.conversationWatches {
 		if !r.conversationSeen[id] {
 			release()
@@ -352,6 +374,10 @@ func faultCode(err error) protocol.ErrorCode {
 	if errors.As(err, &fault) {
 		return fault.Fault.Code
 	}
+	var pointer *protocol.Fault
+	if errors.As(err, &pointer) {
+		return pointer.Code
+	}
 	var direct protocol.Fault
 	if errors.As(err, &direct) {
 		return direct.Code
@@ -424,11 +450,20 @@ func (r *Runtime) removeProject(p *viewmodel.Project) {
 	r.command(protocol.Command{Kind: "remove_project", Data: protocol.CommandRemoveProjectPayload{Expected: expected}}, "project_changed", nil)
 }
 func (r *Runtime) saveProject(e sidebar.Editor, host string, done func(bool)) {
-	if e.Clone != 0 || len(r.App.Data.Hosts) == 0 || host != r.App.Data.Hosts[0].ID {
+	if len(r.App.Data.Hosts) == 0 || host != r.App.Data.Hosts[0].ID {
 		r.enqueue(func(c *ui.Context) { kit.Toast(c, kit.Failed, i18n.T(c, "unavailable")); done(false) })
 		return
 	}
-	command := protocol.Command{Kind: "create_project", Data: protocol.ProjectsDraft{Name: e.Name, Path: e.Path, Appearance: protocol.DefaultProjectsAppearance(), Source: protocol.ProjectsSource{Kind: "local"}}}
+	source := protocol.ProjectsSource{Kind: "local"}
+	if e.Clone == 1 && e.Project == nil {
+		var branch *string
+		if strings.TrimSpace(e.Branch) != "" {
+			value := strings.TrimSpace(e.Branch)
+			branch = &value
+		}
+		source = protocol.ProjectsSource{Kind: "clone", Data: protocol.ProjectsSourceClonePayload{Url: e.Repo, Branch: branch}}
+	}
+	command := protocol.Command{Kind: "create_project", Data: protocol.ProjectsDraft{Name: e.Name, Path: e.Path, Appearance: protocol.DefaultProjectsAppearance(), Source: source}}
 	if e.Project != nil {
 		expected, err := expectedProject(e.Project)
 		if err != nil {
@@ -555,3 +590,5 @@ func (r *Runtime) OpenNotice(id string) {
 		}
 	}
 }
+
+func (r *Runtime) SetOpenService(open func(string)) { r.openService = open }

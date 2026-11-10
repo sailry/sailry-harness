@@ -50,6 +50,7 @@ type confirm struct {
 	title   string // the action, which its button says
 	message string // its consequence
 	target  string
+	run     func(*ui.Context)
 }
 
 // gitMenus builds the menus of a project's Git component.
@@ -73,13 +74,21 @@ func (g gitMenus) item(key string, run func(c *ui.Context), enabled bool) action
 }
 
 // run is an action on the repository, which the preview does not take.
-func (g gitMenus) run(key string, enabled bool) action { return g.item(key, notice, enabled) }
+func (g gitMenus) run(key string, enabled bool) action {
+	return g.item(key, func(c *ui.Context) { g.pr.gitAction(c, GitAction{Kind: key}) }, enabled)
+}
 
 // confirm asks before a destructive action: title names it, message
 // says what it does, target what it acts on.
 func (g gitMenus) confirm(key, message, target string, enabled bool, label string) action {
 	a := g.item(key, func(*ui.Context) {
-		g.v.confirm = confirm{open: true, title: g.t(key), message: g.t(message), target: target}
+		action := GitAction{Kind: key, Target: target, Paths: strings.Split(target, "\n")}
+		if key == "git_stash_drop_all" {
+			action.Paths = append([]string(nil), g.v.stashIDs...)
+		}
+		g.v.confirm = confirm{open: true, title: g.t(key), message: g.t(message), target: target, run: func(c *ui.Context) {
+			g.pr.gitAction(c, action)
+		}}
 	}, enabled)
 	a.label = g.t(label)
 	return a
@@ -109,7 +118,7 @@ func (g gitMenus) remote(do func(name string) func(c *ui.Context)) []action {
 	return out
 }
 
-func (g gitMenus) head() bool { return len(g.repo().Commits) > 0 }
+func (g gitMenus) head() bool { return g.pr.gitHasHead() }
 
 func (g gitMenus) staged() bool {
 	return slices.ContainsFunc(g.entries(), func(e preview.FileChange) bool { return e.Staged != "" })
@@ -128,7 +137,7 @@ func (g gitMenus) branches(op string) []action {
 		}
 		detail := b.Tracking
 		if detail == "" {
-			detail = b.Commit[:7]
+			detail = b.Commit[:min(7, len(b.Commit))]
 		}
 		out = append(out, action{label: b.Name, checked: b.Current, icon: icons.Network, group: g.t(group), detail: detail,
 			run: g.branch(op, b)})
@@ -146,18 +155,22 @@ func (g gitMenus) branch(op string, b preview.Branch) func(c *ui.Context) {
 			c.WriteClipboard(b.Name)
 		case op == "switch" && b.Current:
 		case op == "delete":
-			g.v.confirm = confirm{open: true, title: g.t("git_delete_branch"), message: g.t("git_delete_confirm"), target: b.Name}
+			g.v.confirm = confirm{open: true, title: g.t("git_delete_branch"), message: g.t("git_delete_confirm"), target: b.Name, run: func(c *ui.Context) {
+				g.pr.gitAction(c, GitAction{Kind: "branch_" + op, Target: b.Name, Secondary: b.Commit})
+			}}
 		case op == "merge":
-			g.v.confirm = confirm{open: true, title: g.t("git_merge_branch"), message: g.t("git_merge_branch_confirm"), target: b.Name}
+			g.v.confirm = confirm{open: true, title: g.t("git_merge_branch"), message: g.t("git_merge_branch_confirm"), target: b.Name, run: func(c *ui.Context) {
+				g.pr.gitAction(c, GitAction{Kind: "branch_" + op, Target: b.Name, Secondary: b.Commit})
+			}}
 		default:
-			notice(c)
+			g.pr.gitAction(c, GitAction{Kind: "branch_" + op, Target: b.Name, Secondary: b.Commit})
 		}
 	}
 }
 
 func (g gitMenus) branchActions() []action {
 	group := g.t("git_branch_actions")
-	out := []action{{label: g.t("git_new_branch"), icon: icons.Plus, group: group, run: notice}}
+	out := []action{{label: g.t("git_new_branch"), icon: icons.Plus, group: group, run: func(c *ui.Context) { g.pr.gitAction(c, GitAction{Kind: "branch_create"}) }}}
 	if len(g.repo().Branches) > 0 {
 		out = append(out,
 			action{label: g.t("git_branch_from_open"), icon: icons.Network, group: group, run: g.choose("git_branch_from", g.branches("create"), "git_branch_from").run},
@@ -187,17 +200,21 @@ func (g gitMenus) management() []action {
 		}
 		if b.Remote {
 			items = append(items, action{label: g.t("git_delete_remote_branch_open"), run: func(*ui.Context) {
-				g.v.confirm = confirm{open: true, title: g.t("git_delete_remote_branch"), message: g.t("git_delete_confirm"), target: b.Name}
+				g.v.confirm = confirm{open: true, title: g.t("git_delete_remote_branch"), message: g.t("git_delete_confirm"), target: b.Name, run: func(c *ui.Context) {
+					g.pr.gitAction(c, GitAction{Kind: "git_delete_remote_branch", Target: b.Name, Secondary: b.Commit})
+				}}
 			}})
 		}
-		items = append(items, action{label: g.t("worktree_create"), run: notice})
+		items = append(items, action{label: g.t("worktree_create"), run: func(c *ui.Context) {
+			g.pr.gitAction(c, GitAction{Kind: "worktree_create", Target: b.Name, Secondary: b.Commit})
+		}})
 		group := "git_local_branches"
 		if b.Remote {
 			group = "git_remote_branches"
 		}
 		detail := b.Tracking
 		if detail == "" {
-			detail = b.Commit[:7]
+			detail = b.Commit[:min(7, len(b.Commit))]
 		}
 		out = append(out, action{label: b.Name, icon: icons.Network, checked: b.Current, group: g.t(group), detail: detail,
 			run: func(*ui.Context) { g.v.picker = picker{open: true, title: b.Name, items: items} }})
@@ -221,10 +238,10 @@ func (g gitMenus) push(force bool) action {
 	return g.choose(key, g.remote(func(name string) func(c *ui.Context) {
 		if force {
 			return func(*ui.Context) {
-				g.v.confirm = confirm{open: true, title: g.t(key), message: g.t("git_force_push_confirm"), target: name}
+				g.v.confirm = confirm{open: true, title: g.t(key), message: g.t("git_force_push_confirm"), target: name, run: func(c *ui.Context) { g.pr.gitAction(c, GitAction{Kind: key, Remote: name, Force: force}) }}
 			}
 		}
-		return notice
+		return func(c *ui.Context) { g.pr.gitAction(c, GitAction{Kind: key, Remote: name, Force: force}) }
 	}), key)
 }
 
@@ -286,11 +303,11 @@ func (g gitMenus) commits() []action {
 			case i == 1:
 				ok = g.staged()
 			}
-			out = append(out, g.item(key, g.commit([3]string{"auto", "staged", "all"}[i], set.amend, set.signoff, "none"), ok))
+			out = append(out, g.item(key, g.commit([3]string{"auto", "staged", "all"}[i], set.amend, set.signoff, "none"), ok && g.pr.gitCanCommit()))
 		}
 		if !set.amend && !set.signoff {
 			out = append(out, g.confirm("git_undo_commit", "git_undo_confirm", g.headSummary(), g.head(), "git_undo_commit"),
-				g.run("git_abort", false))
+				g.run("git_continue", g.v.operation && len(g.v.live.Conflicts) == 0), g.run("git_abort", g.v.operation))
 		}
 	}
 	skip := g.item("git_skip_hooks", func(*ui.Context) { g.v.skip = !g.v.skip }, true)
@@ -300,6 +317,10 @@ func (g gitMenus) commits() []action {
 
 // headSummary is the last commit's first line.
 func (g gitMenus) headSummary() string {
+	if g.pr.Actions != nil {
+		summary, _, _ := strings.Cut(g.v.live.HeadMessage, "\n")
+		return summary
+	}
 	if !g.head() {
 		return ""
 	}
@@ -346,14 +367,16 @@ func (g gitMenus) network() []action {
 		}
 		for _, r := range repo.Remotes {
 			if strings.HasPrefix(b.Name, r.Name+"/") {
-				pulls = append(pulls, action{label: b.Name, run: notice})
+				pulls = append(pulls, action{label: b.Name, run: func(c *ui.Context) { g.pr.gitAction(c, GitAction{Kind: "git_pull_from", Target: b.Name}) }})
 				break
 			}
 		}
 	}
 	out := []action{g.run("git_sync", upstream), g.run("git_sync_rebase", upstream), separatorItem,
 		g.run("git_pull", upstream), g.run("git_pull_rebase", upstream), g.choose("git_pull_from", pulls, "git_pull_from_open"), separatorItem,
-		g.push(false), g.choose("git_push_to", g.remote(func(string) func(*ui.Context) { return notice }), "git_push_to"), g.push(true), separatorItem}
+		g.push(false), g.choose("git_push_to", g.remote(func(name string) func(*ui.Context) {
+			return func(c *ui.Context) { g.pr.gitAction(c, GitAction{Kind: "git_push_to", Remote: name}) }
+		}), "git_push_to"), g.push(true), separatorItem}
 	for _, key := range []string{"git_fetch", "git_fetch_prune", "git_fetch_all"} {
 		out = append(out, g.run(key, remotes))
 	}
@@ -364,17 +387,21 @@ func (g gitMenus) remotes() []action {
 	return []action{g.run("git_add_remote", true),
 		g.choose("git_remove_remote", g.remote(func(name string) func(*ui.Context) {
 			return func(*ui.Context) {
-				g.v.confirm = confirm{open: true, title: g.t("git_remove_remote"), message: g.t("git_remove_remote_confirm"), target: name}
+				g.v.confirm = confirm{open: true, title: g.t("git_remove_remote"), message: g.t("git_remove_remote_confirm"), target: name, run: func(c *ui.Context) { g.pr.gitAction(c, GitAction{Kind: "git_remove_remote", Remote: name}) }}
 			}
 		}), "git_remove_remote_open")}
 }
 
 func (g gitMenus) stashes() []action {
 	stashes := g.repo().Stashes
-	choices := func(run func(msg string) func(*ui.Context)) []action {
+	choices := func(run func(string) func(*ui.Context)) []action {
 		var out []action
-		for _, s := range stashes {
-			out = append(out, action{label: s, run: run(s)})
+		for index, s := range stashes {
+			id := s
+			if index < len(g.v.stashIDs) {
+				id = g.v.stashIDs[index]
+			}
+			out = append(out, action{label: s, run: run(id)})
 		}
 		return out
 	}
@@ -382,30 +409,41 @@ func (g gitMenus) stashes() []action {
 	out := []action{g.run("git_stash_tracked", has), g.run("git_stash_all", has), g.run("git_stash_staged", g.staged())}
 	for _, o := range [][2]string{{"git_stash_apply_latest", "git_stash_apply"}, {"git_stash_pop_latest", "git_stash_pop"}} {
 		out = append(out, separatorItem, g.run(o[0], len(stashes) > 0),
-			g.choose(o[1], choices(func(string) func(*ui.Context) { return notice }), o[1]))
+			g.choose(o[1], choices(func(id string) func(*ui.Context) {
+				return func(c *ui.Context) { g.pr.gitAction(c, GitAction{Kind: o[1], Target: id}) }
+			}), o[1]))
 	}
 	drop := choices(func(msg string) func(*ui.Context) {
 		return func(*ui.Context) {
-			g.v.confirm = confirm{open: true, title: g.t("git_stash_drop"), message: g.t("git_delete_confirm"), target: msg}
+			g.v.confirm = confirm{open: true, title: g.t("git_stash_drop"), message: g.t("git_delete_confirm"), target: msg, run: func(c *ui.Context) { g.pr.gitAction(c, GitAction{Kind: "git_stash_drop", Target: msg}) }}
 		}
 	})
 	return append(out, separatorItem, g.choose("git_stash_drop", drop, "git_stash_drop"),
 		g.confirm("git_stash_drop_all", "git_delete_confirm", strings.Join(stashes, "\n"), len(stashes) > 0, "git_stash_drop_all_open"),
-		separatorItem, g.choose("git_stash_view", choices(func(string) func(*ui.Context) { return notice }), "git_stash_view_open"))
+		separatorItem, g.choose("git_stash_view", choices(func(id string) func(*ui.Context) {
+			return func(c *ui.Context) { g.pr.gitAction(c, GitAction{Kind: "git_stash_view", Target: id}) }
+		}), "git_stash_view_open"))
 }
 
 func (g gitMenus) tags() []action {
 	var del []action
 	for _, t := range g.repo().Tags {
+		commit := g.v.tagIDs[t]
 		del = append(del, action{label: t, run: func(*ui.Context) {
-			g.v.confirm = confirm{open: true, title: g.t("git_tag_delete"), message: g.t("git_delete_confirm"), target: t}
+			g.v.confirm = confirm{open: true, title: g.t("git_tag_delete"), message: g.t("git_delete_confirm"), target: t, run: func(c *ui.Context) {
+				g.pr.gitAction(c, GitAction{Kind: "git_tag_delete", Target: t, Secondary: commit})
+			}}
 		}})
 	}
 	create := g.run("git_tag_create", g.head())
 	create.label = g.t("git_tag_create_open")
 	return []action{create, g.choose("git_tag_delete", del, "git_tag_delete_open"),
-		g.choose("git_tag_delete_remote", g.remote(func(string) func(*ui.Context) { return notice }), "git_tag_delete_remote_open"),
-		separatorItem, g.choose("git_tag_push", g.remote(func(string) func(*ui.Context) { return notice }), "git_tag_push_open")}
+		g.choose("git_tag_delete_remote", g.remote(func(remote string) func(*ui.Context) {
+			return func(c *ui.Context) { g.pr.gitAction(c, GitAction{Kind: "git_tag_delete_remote", Remote: remote}) }
+		}), "git_tag_delete_remote_open"),
+		separatorItem, g.choose("git_tag_push", g.remote(func(remote string) func(*ui.Context) {
+			return func(c *ui.Context) { g.pr.gitAction(c, GitAction{Kind: "git_tag_push", Remote: remote}) }
+		}), "git_tag_push_open")}
 }
 
 // root is the ⋯ menu.
@@ -422,10 +460,14 @@ func (g gitMenus) root() []action {
 
 // files is a change's, a folder's or a group's right-click menu, acting
 // on every change in it.
-func (g gitMenus) files(entries []preview.FileChange, directory bool) []action {
+func (g gitMenus) files(entries []preview.FileChange, directory bool, directoryPath ...string) []action {
 	var paths []string
 	for _, e := range entries {
 		paths = append(paths, e.Path)
+	}
+	ignorePaths, ignoreDirectory := paths, false
+	if directory && len(directoryPath) > 0 && directoryPath[0] != "" {
+		ignorePaths, ignoreDirectory = []string{directoryPath[0]}, true
 	}
 	var out []action
 	if len(entries) == 1 && !directory {
@@ -440,10 +482,21 @@ func (g gitMenus) files(entries []preview.FileChange, directory bool) []action {
 			g.item("git_staged", open("staged"), e.Staged != ""), separatorItem)
 	}
 	return append(out,
-		g.run("git_stage", len(indexPaths(entries, "stage")) > 0),
-		g.run("git_unstage", len(indexPaths(entries, "unstage")) > 0),
+		g.item("git_stage", func(c *ui.Context) {
+			g.pr.gitAction(c, GitAction{Kind: "git_stage", Paths: indexPaths(entries, "stage")})
+		}, len(indexPaths(entries, "stage")) > 0),
+		g.item("git_unstage", func(c *ui.Context) {
+			g.pr.gitAction(c, GitAction{Kind: "git_unstage", Paths: indexPaths(entries, "unstage")})
+		}, len(indexPaths(entries, "unstage")) > 0),
 		g.confirm("git_discard_changes", "git_discard_confirm", strings.Join(paths, "\n"), len(paths) > 0, "git_discard_changes"),
-		g.run("git_ignore", len(paths) > 0), separatorItem,
+		g.item("git_ignore", func(c *ui.Context) {
+			g.pr.gitAction(c, GitAction{Kind: "git_ignore", Paths: ignorePaths, Scope: func() string {
+				if ignoreDirectory {
+					return "directory"
+				}
+				return "file"
+			}()})
+		}, len(paths) > 0), separatorItem,
 		g.item("git_copy_path", func(c *ui.Context) { c.WriteClipboard(strings.Join(paths, "\n")) }, true))
 }
 

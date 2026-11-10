@@ -7,6 +7,9 @@ func NewRequest(target NodeID, command Command) Request {
 
 // Durable follows the v1 admission classification shared by Node and controllers.
 func (command Command) Durable() bool {
+	if command.Kind == "apply_git_hunk" {
+		return true
+	}
 	if command.Kind == "dispatch" {
 		var action DispatchCommand
 		switch payload := command.Data.(type) {

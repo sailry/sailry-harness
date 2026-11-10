@@ -96,6 +96,10 @@ type codeView struct {
 
 // CodeOptions are how Code shows its text.
 type CodeOptions struct {
+	// Changed receives edited display text on the UI thread.
+	Changed func(string)
+	// Bind exposes the existing native editor state to its owning controls.
+	Bind func(*editor.State)
 	// Language highlights the text; nil leaves it plain.
 	Language *editor.Language
 	// Numbers shows line numbers, as file tabs do.
@@ -112,7 +116,9 @@ type CodeOptions struct {
 // it highlights by Language and keeps its editor while box stays.
 // Trailing line breaks are left out, so no empty last line shows.
 func Code(c *ui.Context, box ui.Element, text string, o CodeOptions) {
-	text = strings.TrimRight(text, "\r\n")
+	if o.Changed == nil {
+		text = strings.TrimRight(text, "\r\n")
+	}
 	v := ui.Local(box, codeView{}, func() codeView {
 		st := &editor.State{Buffer: editor.NewBuffer(text), ReadOnly: !o.Editable, FitContent: true, NoScrollbars: true,
 			NoActiveLine: true, NoFolding: true, NoIndentGuides: true, Font: codeFont, LineHeight: codeLine}
@@ -124,7 +130,9 @@ func Code(c *ui.Context, box ui.Element, text string, o CodeOptions) {
 	})
 	if v.text != text {
 		v.text = text
-		v.st.Buffer.Set(text)
+		if v.st.Buffer.String() != text {
+			v.st.Buffer.Set(text)
+		}
 	}
 	look := lookPlain
 	switch {
@@ -134,7 +142,17 @@ func Code(c *ui.Context, box ui.Element, text string, o CodeOptions) {
 		look = lookTint
 	}
 	v.st.Theme = codeTheme(c, look)
-	box.Children(func() { editor.View(c, v.st).FillWidth() })
+	if o.Bind != nil {
+		o.Bind(v.st)
+	}
+	box.Children(func() {
+		before := v.st.Buffer.Version()
+		editor.View(c, v.st).FillWidth()
+		if o.Changed != nil && v.st.Buffer.Version() != before {
+			v.text = v.st.Buffer.String()
+			o.Changed(v.text)
+		}
+	})
 }
 
 // CodeBlock is the Markdown hook (Options.CodeBlock) for code in
@@ -175,6 +193,8 @@ type DiffOptions struct {
 	// Revert or Keep changed a text.
 	Actions func(c *ui.Context, bar ui.Element, a *editor.DiffHunkActions)
 	Changed func()
+	// HunkChanged observes the native controls; Revert waits for authoritative data.
+	HunkChanged func(index int, keep bool)
 }
 
 // Diff is MyGo's diff viewer of old and new inside box, unified as
@@ -199,9 +219,16 @@ func Diff(c *ui.Context, box ui.Element, old, new string, o DiffOptions) {
 	v.d.RenderHunkActions = nil
 	if o.Actions != nil {
 		v.d.RenderHunkActions = func(c *ui.Context, bar ui.Element, a *editor.DiffHunkActions) {
-			before := v.d.Old.Version() + v.d.New.Version()
+			beforeOld, beforeNew := v.d.Old.Version(), v.d.New.Version()
 			o.Actions(c, bar, a)
-			if o.Changed != nil && v.d.Old.Version()+v.d.New.Version() != before {
+			changedOld, changedNew := v.d.Old.Version() != beforeOld, v.d.New.Version() != beforeNew
+			if o.HunkChanged != nil && (changedOld || changedNew) {
+				if changedNew {
+					v.d.New.Set(new)
+				}
+				o.HunkChanged(a.Index, changedOld)
+			}
+			if o.Changed != nil && (changedOld || changedNew) {
 				o.Changed()
 			}
 		}

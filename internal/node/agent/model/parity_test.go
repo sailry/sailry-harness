@@ -224,6 +224,79 @@ func saveCaptures(t *testing.T, name string, captured []capturedRequest) {
 }
 
 func TestRequestParity(t *testing.T) {
+	t.Run("provider source annotations survive official SDK streams", func(t *testing.T) {
+		for _, kind := range []string{"responses", "chat", "anthropic", "google"} {
+			t.Run(kind, func(t *testing.T) {
+				stream := ""
+				switch kind {
+				case "responses":
+					stream = "data: " + `{"type":"response.completed","response":{"id":"response","status":"completed","output":[{"id":"message","type":"message","role":"assistant","content":[{"type":"output_text","text":"结果🙂","annotations":[{"type":"url_citation","url":"https://example.com/source","title":"Public source","start_index":0,"end_index":3}]}]}]}}` + "\n\n"
+				case "chat":
+					stream = "data: " + `{"id":"chat","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"role":"assistant","content":"结果🙂","annotations":[{"type":"url_citation","url_citation":{"url":"https://example.com/source","title":"Public source","start_index":0,"end_index":3}}]},"finish_reason":null}]}` + "\n\ndata: " + `{"id":"chat","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}` + "\n\ndata: [DONE]\n\n"
+				case "anthropic":
+					frames := []string{`{"type":"message_start","message":{"id":"message","type":"message","role":"assistant","content":[],"usage":{"input_tokens":1,"output_tokens":0}}}`, `{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`, `{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"结果🙂"}}`, `{"type":"content_block_delta","index":0,"delta":{"type":"citations_delta","citation":{"type":"web_search_result_location","url":"https://example.com/source","title":"Public source","cited_text":"Original source","encrypted_index":"opaque"}}}`, `{"type":"content_block_stop","index":0}`, `{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":1}}`, `{"type":"message_stop"}`}
+					for _, frame := range frames {
+						var value map[string]any
+						if err := json.Unmarshal([]byte(frame), &value); err != nil {
+							t.Fatal(err)
+						}
+						stream += "event: " + value["type"].(string) + "\ndata: " + frame + "\n\n"
+					}
+				case "google":
+					stream = "data: " + `{"candidates":[{"index":0,"content":{"role":"model","parts":[{"text":"结果🙂"}]},"finishReason":"STOP","groundingMetadata":{"groundingChunks":[{"web":{"uri":"https://example.com/source","title":"Public source"}}],"groundingSupports":[{"segment":{"startIndex":0,"endIndex":10,"text":"结果🙂"},"groundingChunkIndices":[0]}],"searchEntryPoint":{"renderedContent":"<div>Search suggestions</div>"}}}]}` + "\n\n"
+				}
+				server := serverFixture(t, stream)
+				name := "fixture"
+				if kind == "google" {
+					name = "gemini-3.1-pro"
+				}
+				language, err := newSDK(t.Context(), transportConfig{Kind: kind, Model: name, Endpoint: server.URL, Key: "captured-key"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				response, err := language.Stream(t.Context(), requestCall(t, kind))
+				if err != nil {
+					t.Fatal(err)
+				}
+				var terminal fantasy.StreamPart
+				for part := range response {
+					if part.Type == fantasy.StreamPartTypeError {
+						t.Fatal(part.Error)
+					}
+					if part.Type == fantasy.StreamPartTypeFinish {
+						terminal = part
+					}
+				}
+				sources, ok := StreamSources(terminal)
+				if !ok {
+					t.Fatal("SDK lost native source metadata")
+				}
+				if kind == "google" {
+					if len(sources.Grounding) != 1 || sources.Grounding[0].URI != "https://example.com/source" || sources.SearchSuggestions == nil || len(sources.Citations) != 0 {
+						t.Fatal(sources)
+					}
+				} else {
+					if len(sources.Citations) != 1 || sources.Citations[0].URI == nil || *sources.Citations[0].URI != "https://example.com/source" {
+						t.Fatal(sources)
+					}
+					citation := sources.Citations[0]
+					if kind == "anthropic" {
+						if citation.Start != nil || citation.End != nil {
+							t.Fatal("source document positions became answer offsets", citation)
+						}
+					} else if citation.Start == nil || citation.End == nil || *citation.Start != 0 || *citation.End != 3 {
+						t.Fatal("Unicode citation range changed", citation)
+					}
+					*sources.Citations[0].URI = "changed"
+					again, _ := StreamSources(terminal)
+					if *again.Citations[0].URI != "https://example.com/source" {
+						t.Fatal("source snapshot was mutable")
+					}
+				}
+			})
+		}
+	})
+
 	rawRustFixtures(t)
 	capturedPolicyFixtures(t)
 	for _, row := range []struct {

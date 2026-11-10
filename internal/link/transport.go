@@ -27,12 +27,14 @@ type Subscription interface {
 
 // Handler is implemented by the execution Node, which owns the request ledger.
 type Handler interface {
+	Open(context.Context, protocol.NodeID, protocol.StreamID) (Stream, error)
 	Dispatch(context.Context, protocol.NodeID, protocol.Request) (Admission, error)
 	Subscribe(context.Context, protocol.NodeID, protocol.Topic) (Subscription, error)
 }
 
 // Transport binds a controller to one Node without owning business state.
 type Transport interface {
+	Open(context.Context, protocol.StreamID) (Stream, error)
 	Target() protocol.NodeID
 	Dispatch(context.Context, protocol.Request) (Admission, error)
 	Subscribe(context.Context, protocol.Topic) (Subscription, error)

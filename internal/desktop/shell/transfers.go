@@ -22,6 +22,9 @@ func (a *App) startDownload(name string) {
 // toast tells the outcome: canceled, or that the preview saved nothing.
 func (a *App) downloadDialog(c *ui.Context) {
 	if !a.Preview {
+		if a.Hooks.DownloadDialog != nil {
+			a.Hooks.DownloadDialog(c)
+		}
 		return
 	}
 	d := &a.download

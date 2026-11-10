@@ -405,3 +405,12 @@ a running read, its output, then the answer growing a character at a time.
 | Diff rows have no syntax highlighting or line numbers | Not in the view model yet |
 | Plan review and MCP form/link controls retain their later-phase ownership | B4 wires free text, choices, cancellation and the existing decline action; `Ask` keeps the accepted form |
 | A jump across the transcript (scroll bar drag) costs ≈4.1 ms a frame, against ≈1.8 ms before tool rows | MyGo's `ListState.AtEnd` builds another frame whenever the rows in view change, not only the end; a jump re-measures rows until they settle. Steady (≈0.19 ms), hover (≈0.19 ms) and scroll (≈1.0 ms) frames are unaffected |
+
+Workspace tool details replace successful single-file edit fragments with their
+saved checkpoint diff. This projection uses the original turn/call identity and
+never rereads the working tree. Change sets, notebooks and failed calls retain
+source output. Full tool details preserve original output bytes; compact diff
+rows count actual changes, excluding unified headers and hunk metadata.
+File approvals show the Node-validated change preview with rename targets,
+counts and truncation, plus localized captured approval notices. These are
+projected independently of the tool output so consent precedes physical effects.

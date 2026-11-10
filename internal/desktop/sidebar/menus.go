@@ -96,7 +96,11 @@ func (s *State) sessionMenu(c *ui.Context, m *ui.Menu, cv *preview.Conversation)
 			}
 		}
 		if m.Item(t("session_fork_worktree")).Disabled(busy || pr == nil).Chosen() {
-			s.notice(c)
+			if s.Actions != nil && s.Actions.ForkWorktree != nil {
+				s.Actions.ForkWorktree(cv)
+			} else {
+				s.notice(c)
+			}
 		}
 	})
 	m.Separator()
@@ -133,7 +137,11 @@ func (s *State) projectMenu(c *ui.Context, m *ui.Menu, pr *preview.Project) {
 	}
 	for _, key := range []string{"workspace_new_terminal", "workspace_records"} {
 		if m.Item(t(key)).Chosen() {
-			s.notice(c)
+			if key == "workspace_records" && s.Actions != nil && s.Actions.Records != nil {
+				s.Actions.Records(pr)
+			} else {
+				s.notice(c)
+			}
 		}
 	}
 	if m.Item(t("project_edit")).Chosen() {
@@ -144,18 +152,30 @@ func (s *State) projectMenu(c *ui.Context, m *ui.Menu, pr *preview.Project) {
 	}
 	m.Submenu(t("worktree_manage"), func(m *ui.Menu) {
 		if m.Item(t("worktree_create")).Chosen() {
-			s.notice(c)
+			if s.Actions != nil && s.Actions.Worktrees != nil {
+				s.Actions.Worktrees(pr, "create", "")
+			} else {
+				s.notice(c)
+			}
 		}
 		m.Separator()
 		for _, w := range pr.Worktrees {
 			if m.Item(w.Branch).Checked(w.Main).Chosen() {
-				s.notice(c)
+				if s.Actions != nil && s.Actions.Worktrees != nil {
+					s.Actions.Worktrees(pr, "select", w.Path)
+				} else {
+					s.notice(c)
+				}
 			}
 		}
 		if len(pr.Worktrees) > 1 {
 			m.Separator()
 			if m.Item(t("worktree_remove")).Chosen() {
-				s.notice(c)
+				if s.Actions != nil && s.Actions.Worktrees != nil {
+					s.Actions.Worktrees(pr, "remove", "")
+				} else {
+					s.notice(c)
+				}
 			}
 		}
 	})
@@ -290,6 +310,7 @@ func (s *State) renameRow(c *ui.Context, cv *preview.Conversation) {
 // dialogs are the sidebar's project editor and its confirmation.
 func (s *State) dialogs(c *ui.Context) {
 	s.editorDialog(c)
+	s.recordsDialog(c)
 	if s.confirm.open {
 		if ui.AlertDialog(c.Key("confirm"), &s.confirm.open, s.confirm.title, s.confirm.message, i18n.T(c, "settings_cancel"),
 			s.confirm.action) == 1 {

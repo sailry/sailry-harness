@@ -107,6 +107,7 @@ func (model *sdkModel) streamGoogle(ctx context.Context, body map[string]any, ca
 		}
 		for _, value := range wireArray(value["candidates"]) {
 			candidate := wireObject(value)
+			emitter.googleSources(candidate)
 			for _, value := range wireArray(wireObject(candidate["content"])["parts"]) {
 				part := wireObject(value)
 				id := "text"

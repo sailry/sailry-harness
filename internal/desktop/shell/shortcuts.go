@@ -138,6 +138,10 @@ func (a *App) run(c *ui.Context, id string) {
 		return
 	}
 	switch id {
+	case "file.save":
+		if project := a.project(); project != nil {
+			project.SaveFocused(c)
+		}
 	case "conversation.find":
 		// The native menu takes ⌘F first: in a terminal tab it finds in the
 		// terminal.

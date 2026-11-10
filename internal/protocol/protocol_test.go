@@ -99,9 +99,52 @@ func TestCommandKinds(t *testing.T) {
 	if len(want) != 362 {
 		t.Fatalf("Rust command inventory contains %d entries, want 362", len(want))
 	}
-	if got := CommandKinds(); !reflect.DeepEqual(got, want) {
-		t.Fatalf("command kinds differ from Rust declaration order\nwant: %v\n got: %v", want, got)
+	got := CommandKinds()
+	if len(got) != len(want)+1 || !reflect.DeepEqual(got[:len(want)], want) || got[len(want)] != "apply_git_hunk" {
+		t.Fatalf("command kinds differ from the Rust inventory plus the documented native Git extension\nwant: %v + apply_git_hunk\n got: %v", want, got)
 	}
+	t.Run("native Git hunk extension validates captured revisions", func(t *testing.T) {
+		input := CommandApplyGitHunkPayload{Worktree: NewWorktreeID(), Path: "source.go", Scope: GitDiffScopeUnstaged, Operation: GitHunkStage, Hunk: 0, DiffRevision: strings.Repeat("a", 64), ExpectedRevision: strings.Repeat("b", 64), ExpectedIndex: strings.Repeat("c", 64)}
+		command := Command{Kind: "apply_git_hunk", Data: input}
+		body, err := json.Marshal(command)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var decoded Command
+		if err = json.Unmarshal(body, &decoded); err != nil {
+			t.Fatal(err)
+		}
+		if !decoded.Durable() || decoded.Data.(*CommandApplyGitHunkPayload).Hunk != 0 {
+			t.Fatal("native hunk lost durable identity")
+		}
+		for _, operation := range []GitHunkOperation{GitHunkStage, GitHunkReject} {
+			value := GitHunkApplied{Worktree: input.Worktree, Path: input.Path, Operation: operation, Revision: input.ExpectedRevision}
+			if operation == GitHunkStage {
+				value.Index = &GitIndex{Revision: input.ExpectedIndex}
+			}
+			encoded, err := json.Marshal(Output{Kind: "git_hunk_applied", Data: value})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var output Output
+			if err = json.Unmarshal(encoded, &output); err != nil {
+				t.Fatalf("native hunk result roundtrip: %v", err)
+			}
+		}
+		for name, invalid := range map[string]string{
+			"unknown field":         strings.Replace(string(body), `"path":"source.go"`, `"path":"source.go","extra":true`, 1),
+			"missing nullable head": strings.Replace(string(body), `"expected_head":null,`, "", 1),
+			"invalid operation":     strings.Replace(string(body), `"operation":"stage"`, `"operation":"discard_all"`, 1),
+			"staged scope":          strings.Replace(string(body), `"scope":"unstaged"`, `"scope":"staged"`, 1),
+			"negative hunk":         strings.Replace(string(body), `"hunk":0`, `"hunk":-1`, 1),
+		} {
+			t.Run(name, func(t *testing.T) {
+				if json.Unmarshal([]byte(invalid), new(Command)) == nil {
+					t.Fatal("invalid hunk command was accepted")
+				}
+			})
+		}
+	})
 }
 
 func TestDenyUnknownFields(t *testing.T) {

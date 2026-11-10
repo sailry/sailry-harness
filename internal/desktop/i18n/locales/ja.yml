@@ -1518,3 +1518,120 @@ provider_revision_changed: 設定が変更されました。エディタを再�
 provider_save_failed: 保存に失敗しました。もう一度試してください
 provider_save_unknown: 結果が確認されていません。内容を変更せずにやり直します
 question_closed: 質問終了、草稿保持
+files_upload_failed: アップロードに失敗
+files_upload_cancelled: アップロード中止
+files_upload_changed: ソースが変更されました。もう一度選択してください
+files_upload_too_large: ファイルが 64 MiB を超えています
+files_upload_name: 無効なファイル名
+files_upload_source: 選択したファイルを読めませんでした
+files_download_failed: ダウンロードに失敗
+files_download_changed: ソースが変更されました。ダウンロードを再開してください
+files_download_destination: ダウンロードを保存できませんでした
+files_download_conflict: 目的地が変更されました。保存先を再選択してください
+chat_attachment_remove_failed: 削除に失敗
+workspace_action_failed: Workspace action failed
+workspace_changed: Workspace changed; reload before trying again
+workspace_action_unknown: Outcome uncertain; inspect before trying again
+workspace_saved: Saved
+workspace_completed: Completed
+workspace_native_unavailable: File action unavailable
+workspace_invalid: Check the entered values
+workspace_restore_confirm: Restore the previous file versions for this turn
+artifact_edit_prompt: '要求された変更:'
+hooks_project_required: プロジェクトを選択
+workspace_worktree_remove_confirm: Remove this worktree and its files
+background_stop_failed: 停止に失敗しました。やり直します
+background_stop_unknown: 確認なしに停止;コマンドの状態を確認
+background_unavailable: バックグラウンドのターミナルを読み込めませんでした
+files_cancel_remaining: Cancel remaining
+files_check_result: チェック結果
+files_move_recycle: コピー後、ソースをごみ箱に移動
+files_paste_cancelled: 貼り付けキャンセル
+files_paste_copying: コピー
+files_paste_directory: 目的地フォルダ
+files_paste_source: ソースワークトリー
+files_upload_retry: 再試行
+files_worktree_root: ワークトリールート
+content_preview: Preview
+file_search: ファイルを検索
+file_search_case: マッチケース
+file_search_empty: マッチしません
+file_search_failed: 検索に失敗しました。やり直します
+file_search_filter: '**/*.rs のようなファイルパターン'
+file_search_invalid: 表現またはファイルパターンをチェック
+file_search_partial: あるコンテンツが検索または表示されませんでしたName
+file_search_query: 検索コンテンツ
+file_search_regex: 正規表現
+file_search_running: 検索
+files_block: Text
+files_block_bullet: Bulleted list
+files_block_callout: Callout
+files_block_code: Code block
+files_block_heading: Heading {level}
+files_block_ordered: Numbered list
+files_block_paragraph: Paragraph
+files_block_quote: Quote
+files_block_task: Task list
+files_bold: Bold
+files_content_partial: この大きなファイルの最初の 128 KiB のみが表示されます
+files_create: 作成
+files_directory_changed: フォルダが変更されました。再読み込み
+files_directory_failed: フォルダを読み込めませんでした。やり直します
+files_discard: ドラフトを削除
+files_discard_description: 未保存の変更を破棄しますか？保存中のコンテンツはまだ書き込み可能です
+files_discard_title: 未保存の草稿を削除
+files_inline_code: Inline code
+files_insert: Insert
+files_insert_chart: Chart
+files_insert_code: Code block
+files_insert_diagrams: Diagrams
+files_insert_html: HTML block
+files_insert_image: Image
+files_insert_math: Math
+files_insert_mermaid: Mermaid
+files_insert_rule: Divider
+files_insert_table: Table
+files_italic: Italic
+files_link: Link
+files_listing_partial: このフォルダが大きすぎるか、サポートされていない名前を含んでいるため、一部のエントリのみが表示されます
+files_load_more: もっと読み込む
+files_more: More
+files_move: 移動
+files_operation_busy: ファイル操作がまだ実行中ですName
+files_replace: Find and replace
+files_saving: 保存中
+files_strike: Strikethrough
+files_upload: アップロード
+files_upload_conflict: ターゲットが変更されました。アップロードを再開します
+files_upload_denied: 目的地に書き込めませんでした
+files_upload_done: アップロード完了
+files_upload_exists: この名前のファイルは既に存在します。置換するとその内容を上書きします
+files_upload_replace: 置換
+files_upload_unknown: アップロードの結果が不明です。結果を確認してください
+files_wrap: Soft wrap
+location_copy_changes: 変更をコピー
+location_fork: フォークワークトリー
+refresh: Refresh
+artifact_next_page: 次のページ
+artifact_previous_page: 前のページ
+git_commit_scope: コミットの範囲
+git_commit_tracked: トラックされたファイルをコミット
+git_continue: 続ける
+git_directory_title: Git リポジトリがありません
+git_history_partial: 部分的歴史
+git_initialize: リポジトリ Git を初期化
+git_initialize_nested_confirm: The new repository will contain these repositories
+git_publish: パブリッシュブランチ
+git_repositories: Contains %{count} Git repositories
+git_repository: Contains 1 Git repository
+git_stash_switch: スタッシュ・アンド・スイッチ
+git_switch_confirm: Switch to %{branch}
+git_switch_confirm_action: Switch
+git_switch_confirm_detail: Sessions, terminals and open files in this worktree all move to this branch.
+git_tracking_name: 追跡ブランチ
+git_unborn_title: コミットなし
+notebook_cell: セル %{number}
+notebook_empty: セルがありません
+git_diff_binary: バイナリ diff を表示できません
+git_diff_partial: 部分差分
+hooks_scope_windows: スクリプトは現在の Windows コマンドポリシーを使用します

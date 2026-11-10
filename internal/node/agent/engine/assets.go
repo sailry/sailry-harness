@@ -9,7 +9,9 @@ import (
 )
 
 func (r *Runtime) modelAssets(ctx context.Context, records []canonical.Record) (map[string][]byte, error) {
-	assets := map[string][]byte{}
+	return r.modelAssetsWith(ctx, records, map[string][]byte{})
+}
+func (r *Runtime) modelAssetsWith(ctx context.Context, records []canonical.Record, assets map[string][]byte) (map[string][]byte, error) {
 	err := r.db.Read(ctx, func(db *sql.Conn) error {
 		for i := range records {
 			if message := records[i].MutableMessage(); message != nil {

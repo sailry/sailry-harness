@@ -7,6 +7,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/sailry/sailry-harness/internal/node/agent/operations"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -89,6 +90,11 @@ func admitAgentTurn(ctx context.Context, db *sql.Conn, node, caller protocol.Nod
 	value.Config = session.Config
 	value.Roles = session.Roles
 	value.Kind = kind
+	catalog, err := operations.Bundled()
+	if err != nil {
+		return value, err
+	}
+	value.Plugins = append([]protocol.PluginReference(nil), catalog.References...)
 	if session.Delegation != nil {
 		return value, fault(protocol.ErrorCodePermissionDenied, "child conversation is read-only")
 	}
@@ -158,7 +164,11 @@ func admitAgentTurn(ctx context.Context, db *sql.Conn, node, caller protocol.Nod
 	if err != nil {
 		return value, err
 	}
-	hooks, err := encode(protocol.DefaultHooksSettings())
+	frozenHooks, err := ReadHooks(ctx, db, session.Worktree)
+	if err != nil {
+		return value, err
+	}
+	hooks, err := encode(frozenHooks)
 	if err != nil {
 		return value, err
 	}
@@ -208,19 +218,31 @@ func ClaimNext(ctx context.Context, db *sql.Conn, now time.Time) (*AgentInvocati
 	session.Revision = queued.Turn.Revision
 	session.Worktree = run.Worktree
 	inv := &AgentInvocation{Session: session, Run: run, Turn: queued.Turn, Message: queued.Message, Instructions: []AgentInstruction{}}
-	var provider, instructions, caller []byte
+	catalog, err := operations.Bundled()
+	if err != nil {
+		return nil, nil, err
+	}
+	var provider, instructions, caller, hookSettings []byte
 	var path string
 	var project sql.NullString
 	var main bool
-	if err = db.QueryRowContext(ctx, "SELECT a.provider,a.compaction_percent,t.instructions,t.caller,w.path,w.project,w.main FROM agent_runs a JOIN turns t ON t.id=a.turn JOIN worktrees w ON w.id=?2 WHERE a.turn=?1", turn.String(), run.Worktree.String()).Scan(&provider, &inv.CompactionPercent, &instructions, &caller, &path, &project, &main); err != nil {
+	if err = db.QueryRowContext(ctx, "SELECT a.hooks,a.provider,a.compaction_percent,t.instructions,t.caller,w.path,w.project,w.main FROM agent_runs a JOIN turns t ON t.id=a.turn JOIN worktrees w ON w.id=?2 WHERE a.turn=?1", turn.String(), run.Worktree.String()).Scan(&hookSettings, &provider, &inv.CompactionPercent, &instructions, &caller, &path, &project, &main); err != nil {
+		return nil, nil, err
+	}
+	if err = json.Unmarshal(hookSettings, &inv.Hooks); err != nil {
 		return nil, nil, err
 	}
 	if err = json.Unmarshal(provider, &inv.Provider); err != nil {
 		return nil, nil, err
 	}
-	if err = json.Unmarshal(instructions, &inv.Instructions); err != nil {
+	for _, instruction := range catalog.Instructions {
+		inv.Instructions = append(inv.Instructions, AgentInstruction{Text: instruction.Text, AnyTools: instruction.AnyTools})
+	}
+	var userInstructions []AgentInstruction
+	if err = json.Unmarshal(instructions, &userInstructions); err != nil {
 		return nil, nil, err
 	}
+	inv.Instructions = append(inv.Instructions, userInstructions...)
 	if len(caller) != 32 {
 		return nil, nil, invalid("invalid caller identity")
 	}

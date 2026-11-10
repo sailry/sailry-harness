@@ -301,3 +301,8 @@ func registerWorktree(ctx context.Context, db *sql.Conn, input protocol.CommandR
 	}
 	return protocol.Output{Kind: "worktree", Data: value}, []protocol.Event{{Kind: "worktree_registered", Data: value}}, nil
 }
+
+// ValidateProjectDraft checks the request before native clone effects begin.
+func ValidateProjectDraft(value protocol.ProjectsDraft) error {
+	return validateProject(value.Name, value.Path, value.Appearance)
+}

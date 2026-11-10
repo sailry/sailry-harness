@@ -8,17 +8,32 @@ import (
 	"sync"
 	"time"
 
+	"charm.land/fantasy"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node/admission"
 	"github.com/sailry/sailry-harness/internal/node/agent/engine"
 	"github.com/sailry/sailry-harness/internal/node/agent/feed"
+	"github.com/sailry/sailry-harness/internal/node/agent/model"
+	"github.com/sailry/sailry-harness/internal/node/files"
+	workspacegit "github.com/sailry/sailry-harness/internal/node/git"
+	"github.com/sailry/sailry-harness/internal/node/process"
 	"github.com/sailry/sailry-harness/internal/node/providers"
 	"github.com/sailry/sailry-harness/internal/node/store"
+	"github.com/sailry/sailry-harness/internal/node/web"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 // Node owns one profile, admitted operations and their committed event feed.
 type Node struct {
+	cancel            context.CancelFunc
+	web               *workspaceWeb
+	transfers         *files.Transfers
+	git               *workspacegit.Service
+	processes         *process.Service
+	watches           *workspaceWatches
+	environment       process.Environment
+	processAfter      func(time.Duration) <-chan time.Time
+	effects           sync.Mutex
 	profile           *Profile
 	ctx               context.Context
 	mu                sync.Mutex
@@ -47,7 +62,21 @@ type commandJob struct {
 
 var _ link.Handler = (*Node)(nil)
 
+// Options injects native process and clock boundaries for deterministic owners.
+type Options struct {
+	Model       func(context.Context, model.Binding) (fantasy.LanguageModel, error)
+	Fetch       web.FetchOptions
+	Search      web.SearchOptions
+	Environment *process.Environment
+	Git         workspacegit.Options
+	Process     process.Options
+}
+
 func Start(ctx context.Context, path string) (*Node, error) {
+	return StartWithOptions(ctx, path, Options{})
+}
+
+func StartWithOptions(ctx context.Context, path string, options Options) (*Node, error) {
 	profile, err := OpenProfile(ctx, path)
 	if err != nil {
 		return nil, err
@@ -56,10 +85,18 @@ func Start(ctx context.Context, path string) (*Node, error) {
 		_ = profile.Close()
 		return nil, err
 	}
-	value := &Node{profile: profile, ctx: context.WithoutCancel(ctx), jobs: make(chan commandJob), workerDone: make(chan struct{}), closed: make(chan struct{}), stopDone: make(chan struct{}), subscribers: make(map[*events]struct{})}
+	nodeContext, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	value := &Node{cancel: cancel, profile: profile, ctx: nodeContext, jobs: make(chan commandJob), workerDone: make(chan struct{}), closed: make(chan struct{}), stopDone: make(chan struct{}), subscribers: make(map[*events]struct{})}
+	if err := value.initWorkspace(ctx, options); err != nil {
+		cancel()
+		_ = profile.Close()
+		return nil, err
+	}
 	value.feed = feed.New(value.ID())
-	value.agent = engine.New(profile.Store.Node, value.ID(), profile.Ownership.Path, value.feed, value.publish, engine.Options{})
+	value.agent = engine.New(profile.Store.Node, value.ID(), profile.Ownership.Path, value.feed, value.publish, engine.Options{Model: options.Model, Attachment: value.capturedAttachment, AttachmentBytes: value.transfers.AttachmentBytes, ToolsForTurn: value.workspaceTools, HooksForTurn: value.turnHooks})
 	if err := value.agent.Recover(ctx); err != nil {
+		cancel()
+		_ = value.closeWorkspace()
 		_ = profile.Close()
 		return nil, err
 	}
@@ -76,11 +113,13 @@ func (node *Node) Stop(ctx context.Context) error {
 		node.stopped = true
 		close(node.closed)
 		close(node.jobs)
+		node.cancel()
 		go func() {
 			<-node.workerDone
-			node.work.Wait()
 			node.agent.Stop()
-			err := node.profile.Close()
+			node.work.Wait()
+			workspaceErr := node.closeWorkspace()
+			err := errors.Join(workspaceErr, node.profile.Close())
 			node.mu.Lock()
 			node.stopErr = err
 			close(node.stopDone)
@@ -134,6 +173,9 @@ func (node *Node) Dispatch(ctx context.Context, caller protocol.NodeID, request 
 	// Capture controller-owned maps and pointers before returning the receipt.
 	if err := json.Unmarshal(encoded, &request); err != nil {
 		return link.Admission{}, &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "invalid command"}
+	}
+	if workspaceCommand(request.Command.Kind) {
+		return node.dispatchWorkspace(ctx, caller, request, encoded)
 	}
 	supported := supportedCommand(request.Command.Kind)
 	durable := request.Command.Durable()
@@ -217,6 +259,24 @@ func supportedCommand(kind string) bool {
 }
 
 func (node *Node) read(ctx context.Context, caller protocol.NodeID, request protocol.Request) link.Response {
+	if input, ok := request.Command.Data.(*protocol.CommandReadToolOutputPayload); ok && input.Stream != nil {
+		if request.Plugin != nil {
+			return response(protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "plugin invocation authority is unavailable"})
+		}
+		var session protocol.SessionID
+		var id protocol.RequestID
+		err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
+			var err error
+			session, id, err = store.ResolveToolCommandStream(ctx, db, caller, *input)
+			return err
+		})
+		if err != nil {
+			return response(protocol.Output{}, err)
+		}
+		page, err := node.processes.Page(session, id, *input.Stream, input.Offset, input.Limit)
+		return response(protocol.Output{Kind: "command_output_page", Data: page}, err)
+	}
+
 	if store.SupportsProviderCommand(request.Command.Kind) {
 		return node.readProvider(ctx, caller, request)
 	}
@@ -281,6 +341,11 @@ func (node *Node) read(ctx context.Context, caller protocol.NodeID, request prot
 func (node *Node) run() {
 	defer close(node.workerDone)
 	for job := range node.jobs {
+		projectEffect := job.request.Command.Kind == "create_project" || job.request.Command.Kind == "update_project" || job.request.Command.Kind == "register_worktree" || job.request.Command.Kind == "remove_project"
+		if projectEffect {
+			node.effects.Lock()
+		}
+
 		prepared, prepareErr := node.prepare(job.request.Command)
 		if prepareErr == nil && store.SupportsProviderCommand(job.request.Command.Kind) {
 			job.provider, prepareErr = node.prepareProvider(node.ctx, job.caller, job.request)
@@ -291,6 +356,9 @@ func (node *Node) run() {
 		} else {
 			node.publish()
 			node.agent.Committed()
+		}
+		if projectEffect {
+			node.effects.Unlock()
 		}
 		job.completion <- result
 		close(job.completion)

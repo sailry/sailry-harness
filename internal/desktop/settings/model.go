@@ -127,6 +127,10 @@ type Model struct {
 	// Live keeps later-phase controls unavailable and routes saves to the Client.
 	Live            bool
 	SavePower       func()
+	SaveSandbox     func()
+	SaveHooks       func()
+	HooksContext    func() (string, bool)
+	HooksSandboxed  func() bool
 	SaveTelemetry   func()
 	ProviderActions ProviderActions
 	// General.

@@ -138,6 +138,7 @@ func main() {
 				})
 			}
 			bindConversation(ctx, entry, backend.Client, speech)
+			bindFiles(entry, backend.Client.Target())
 			runtime.SetOpenWindow(func(id string) {
 				if err := openWindow(id); err != nil {
 					log.Printf("session window: %v", err)

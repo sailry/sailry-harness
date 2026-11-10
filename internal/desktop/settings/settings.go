@@ -134,7 +134,7 @@ func Page(c *ui.Context, s *State, d *preview.Data, look Look) {
 		desc = i18n.T(c, desc)
 	}
 	kit.Page(c, s.Section, i18n.T(c, string(s.Section)), desc, func() {
-		if s.Live && s.Section != General && s.Section != Appearance && s.Section != Conversation && s.Section != Shortcuts && s.Section != Providers {
+		if s.Live && s.Section != General && s.Section != Appearance && s.Section != Conversation && s.Section != Shortcuts && s.Section != Providers && s.Section != Hooks {
 			kit.Result(c, kit.ResultProps{Title: i18n.T(c, "unavailable"), Card: true})
 			return
 		}

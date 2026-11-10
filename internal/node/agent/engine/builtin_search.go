@@ -75,7 +75,7 @@ func builtinMatches(tools []Tool, query string, limit int) []Tool {
 	return selected
 }
 func (r *Runtime) builtinSearch(x *execution) *Tool {
-	if !slices.ContainsFunc(r.tools, func(tool Tool) bool { return tool.Deferred }) {
+	if !slices.ContainsFunc(x.tools, func(tool Tool) bool { return tool.Deferred }) {
 		return nil
 	}
 	tool := jsonTool("tool_search", "Find additional tools by name or capability, or load exact names with select:name,name. Matching tools become available on the next model request and stay loaded in this conversation. Search before using a capability absent from the current tool list. Discovery does not execute the tools or change their permissions.", `{"type":"object","additionalProperties":false,"required":["query"],"properties":{"query":{"type":"string","minLength":1},"limit":{"type":"integer","minimum":1,"maximum":8}}}`, true, true, func(ctx context.Context, call canonical.ToolRequest) ToolResult {
@@ -97,7 +97,7 @@ func (r *Runtime) builtinSearch(x *execution) *Tool {
 		if err != nil {
 			return toolFault(err)
 		}
-		matched := builtinMatches(r.tools, arguments.Query, limit)
+		matched := builtinMatches(x.tools, arguments.Query, limit)
 		loaded := append([]string{}, state.LoadedTools...)
 		contexts := func(name string) []string {
 			values := []string{}
@@ -109,7 +109,7 @@ func (r *Runtime) builtinSearch(x *execution) *Tool {
 			return values
 		}
 		previous := map[string]bool{}
-		for _, entry := range r.tools {
+		for _, entry := range x.tools {
 			if !entry.Deferred || slices.Contains(loaded, entry.Definition.Name) {
 				for _, text := range contexts(entry.Definition.Name) {
 					previous[text] = true

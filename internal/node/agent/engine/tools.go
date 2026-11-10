@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"slices"
@@ -19,25 +20,38 @@ import (
 // Tool is one captured declaration and executor. Concurrency and authority are
 // properties of the captured registration, never arguments supplied by a model.
 type Tool struct {
-	Definition fantasy.FunctionTool
-	SchemaJSON json.RawMessage
-	ReadOnly   bool
-	Concurrent bool
-	Deferred   bool
-	Approval   bool
-	Binding    *store.ApprovalBinding
-	Execute    func(context.Context, canonical.ToolRequest) ToolResult
-	schema     *jsonschema.Schema
+	Definition        fantasy.FunctionTool
+	SchemaJSON        json.RawMessage
+	ReadOnly          bool
+	Concurrent        bool
+	Deferred          bool
+	Approval          bool
+	Binding           *store.ApprovalBinding
+	Execute           func(context.Context, canonical.ToolRequest) ToolResult
+	Prepare           func(context.Context, canonical.ToolRequest) error
+	ConfigureApproval func(context.Context, *sql.Conn, canonical.ToolRequest, protocol.ConversationApproval) (protocol.ConversationApproval, error)
+	Approved          func(canonical.ToolRequest, protocol.ApprovalID, protocol.RequestID)
+	schema            *jsonschema.Schema
 }
 type ToolResult struct {
-	Value   any
-	Error   bool
-	Failure *protocol.Fault
-	Context *canonical.Context
+	ReturnedFailure *protocol.ToolFailure
+	ReturnedError   bool
+	Value           any
+	Error           bool
+	Failure         *protocol.Fault
+	Context         *canonical.Context
 }
 
 func (r *Runtime) captureTools(x *execution) error {
-	x.tools = append(r.builtins(x), r.tools...)
+	x.tools = append([]Tool(nil), r.tools...)
+	if r.toolsForTurn != nil {
+		scoped, err := r.toolsForTurn(x.ctx, x.inv)
+		if err != nil {
+			return err
+		}
+		x.tools = append(x.tools, scoped...)
+	}
+	x.tools = append(r.builtins(x), x.tools...)
 	for i := range x.tools {
 		tool := &x.tools[i]
 		compiler := jsonschema.NewCompiler()
@@ -115,6 +129,12 @@ func (r *Runtime) runTools(x *execution, state store.AgentState, calls []canonic
 			results[i] = invalidTool(fmt.Sprintf("invalid tool arguments: %s", err))
 			continue
 		}
+		if tool.Prepare != nil {
+			if err := tool.Prepare(x.ctx, call); err != nil {
+				results[i] = toolFault(err)
+				continue
+			}
+		}
 		if !tool.Approval {
 			executable[i] = true
 			marks = append(marks, r.executableRecord(x, call, true))
@@ -128,7 +148,7 @@ func (r *Runtime) runTools(x *execution, state store.AgentState, calls []canonic
 		if tool == nil || !tool.Approval || results[i].Value != nil || results[i].Failure != nil {
 			continue
 		}
-		approved, err := r.approval(x, call, tool.Binding)
+		approved, err := r.approval(x, call, tool)
 		if err != nil {
 			return err
 		}
@@ -142,7 +162,7 @@ func (r *Runtime) runTools(x *execution, state store.AgentState, calls []canonic
 	}
 	concurrent := func(i int) bool {
 		tool := findTool(x.tools, calls[i].Name)
-		return !executable[i] || tool != nil && tool.ReadOnly && tool.Concurrent
+		return !executable[i] || tool != nil && tool.ReadOnly && tool.Concurrent && !x.hooks.WrapsTools()
 	}
 	for start := 0; start < len(calls); {
 		if x.ctx.Err() != nil {
@@ -163,7 +183,12 @@ func (r *Runtime) runTools(x *execution, state store.AgentState, calls []canonic
 				workers.Add(1)
 				go func(i int) {
 					defer workers.Done()
+					if err := x.hooks.Before(x.ctx, calls[i].Name); err != nil {
+						results[i] = toolFault(err)
+						return
+					}
 					results[i] = findTool(x.tools, calls[i].Name).Execute(x.ctx, calls[i])
+					x.hooks.After(x.ctx, calls[i].Name, results[i].Failure == nil && !results[i].Error && !results[i].ReturnedError)
 				}(i)
 			}
 			workers.Wait()
@@ -198,6 +223,14 @@ func (r *Runtime) runTools(x *execution, state store.AgentState, calls []canonic
 	}
 	record := canonical.NewRecord(x.inv.Run.Turn, "message", canonical.NewMessage(canonical.User, blocks...), r.clock.Now())
 	record.Provenance.Author = "tool"
+	for i, result := range results {
+		if result.ReturnedError {
+			if record.Metadata.Presentation == nil {
+				record.Metadata.Presentation = &canonical.Presentation{}
+			}
+			record.Metadata.Presentation.Failures = append(record.Metadata.Presentation.Failures, canonical.ToolFailure{Index: uint64(i), ID: calls[i].ID, Name: calls[i].Name, Failure: returnedToolFailure(result)})
+		}
+	}
 	if contextDelta.Title != nil || contextDelta.LoadedTools != nil || contextDelta.Policy != nil {
 		record.Metadata.Context = &contextDelta
 	}
@@ -213,6 +246,9 @@ func responseBlock(index uint64, call canonical.ToolRequest, result ToolResult) 
 	value := result.Value
 	status := canonical.ToolSuccess
 	format := canonical.JSON
+	if result.ReturnedError {
+		status = canonical.ToolErrorStatus
+	}
 	if result.Error {
 		status = canonical.ToolErrorStatus
 		format = canonical.MCP
@@ -226,6 +262,10 @@ func responseBlock(index uint64, call canonical.ToolRequest, result ToolResult) 
 		value = map[string]any{}
 	}
 	raw, _ := json.Marshal(value)
+	var normalized any
+	if json.Unmarshal(raw, &normalized) == nil {
+		raw, _ = json.Marshal(normalized)
+	}
 	sum := blake3.Sum256(raw)
 	return canonical.Block{Index: index, Kind: "tool_response", Data: &canonical.ToolResponse{ID: call.ID, Name: call.Name, Status: status, Format: format, Result: canonical.Payload{Value: raw}, Revision: fmt.Sprintf("%x", sum), Provider: call.Provider}}
 }
@@ -273,4 +313,11 @@ func searchTools(tools []Tool, query string, limit int) []fantasy.FunctionTool {
 		}
 	}
 	return selected
+}
+
+func returnedToolFailure(result ToolResult) protocol.ToolFailure {
+	if result.ReturnedFailure != nil {
+		return *result.ReturnedFailure
+	}
+	return protocol.ToolFailure{Origin: protocol.ToolFailureOriginTool}
 }

@@ -234,6 +234,22 @@ their later-phase ownership and report unavailable when invoked before wiring.
 | Pickers, popovers, dialogs, queue editor | Queue, `Running`, attachment status and progress, dictation phase |
 | Reason drafts, question draft | Approvals, question |
 
+## Live attachments
+
+`live/attachments_*.go` owns draft transfer state and optional native picker,
+remove and image callbacks through `composer.AttachmentCallbacks`. Existing
+`Actions` and card layout stay unchanged. The first attachment captures a real
+session and worktree without submitting a turn. At most two uploads run at once;
+source size and BLAKE3 are verified before durable publication. Failures keep
+the draft. Uncertain publication or discard keeps the original request for
+explicit outcome inspection and retry. Removal retains the card until cleanup
+finishes; sending drops controller ownership only after successful admission.
+
+Ready images hydrate from verified Node streams with bounded bitmap decoding
+outside the UI thread. Caches belong to each displayed conversation, including
+split panes. File references and Request edit use ordinary draft tokens and
+focus without sending. Native callbacks are composed by `cmd/sailry-desktop`.
+
 ## Tests
 
 `internal/desktop/shell/shell_test.go`: send, Enter and stop; the model picker
@@ -259,3 +275,12 @@ pictures (`preview.PlainTurns`).
 | Subagent rows show no elapsed time | `conversation.Child` has none |
 | Modes are Code, Plan, Flagship (Rust `WorkMode`); explore/build/review/plan are only the welcome cards | Follows Rust |
 | Approval details' loading and retry, SSH trust prompts and child identicons are not shown | Not in the view model of this UI-only prototype |
+
+Live file references resolve the captured worktree through the existing shared
+Files owner. Opening an `@ Files` page loads that directory lazily; the open page
+reads its current shared listing rather than retaining a stale copy. Folder
+selection records a canonical `directory` reference; file selection records a
+`file` reference. Both retain their exact relative paths when an edited or queued
+message is restored. Attachment picks use the operating system's local file
+chooser, matching the reference's `choose_attachments`; selected local bytes are
+uploaded to the execution Node. The fixture browser remains isolated preview UI.

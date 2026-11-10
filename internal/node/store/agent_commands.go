@@ -10,7 +10,7 @@ import (
 
 func SupportsAgentCommand(kind string) bool {
 	switch kind {
-	case "create_session_at", "set_session_config", "submit_turn", "queue_turn", "guide_turn", "stop_turn", "start_queued_turn", "compact_context", "read_conversation", "read_conversation_runs", "read_conversation_run", "read_turn", "read_turn_capture", "read_tool_detail", "read_tool_output", "read_usage", "search_conversation", "fork_conversation", "fork_conversation_at", "rewind_conversation", "replace_turn", "resolve_approval", "resolve_question", "read_queued_turn", "edit_queued_turn", "remove_queued_turn", "send_queued_turn", "guide_queued_turn", "withdraw_guidance", "move_queued_turn", "set_queue_paused", "read_compaction_settings", "save_compaction_settings":
+	case "create_session_at", "set_session_config", "submit_turn", "queue_turn", "guide_turn", "stop_turn", "start_queued_turn", "compact_context", "read_conversation", "read_conversation_runs", "read_conversation_run", "read_turn", "read_turn_capture", "read_tool_detail", "read_tool_output", "list_conversation_assets", "read_usage", "search_conversation", "fork_conversation", "fork_conversation_at", "rewind_conversation", "replace_turn", "resolve_approval", "resolve_question", "read_queued_turn", "edit_queued_turn", "remove_queued_turn", "send_queued_turn", "guide_queued_turn", "withdraw_guidance", "move_queued_turn", "set_queue_paused", "read_compaction_settings", "save_compaction_settings":
 		return true
 	}
 	return false
@@ -343,6 +343,9 @@ func ReadAgentCommand(ctx context.Context, db *sql.Conn, node protocol.NodeID, c
 }
 func ReadAgentCommandForCaller(ctx context.Context, db *sql.Conn, node, caller protocol.NodeID, command protocol.Command) (protocol.Output, error) {
 	switch v := command.Data.(type) {
+	case *protocol.CommandListConversationAssetsPayload:
+		value, err := ListConversationAssets(ctx, db, v.Session, v.Query)
+		return protocol.Output{Kind: "conversation_assets", Data: value}, err
 	case *protocol.CommandReadConversationPayload:
 		value, err := ReadConversation(ctx, db, v.Session, v.Before, v.Limit)
 		return protocol.Output{Kind: "conversation", Data: value}, err

@@ -97,11 +97,13 @@ func Closed(tabs []Tab, t, active Tab) ([]Tab, Tab) {
 // row of tabs, each an open item, and the resources no project keeps.
 // Files and Git keep theirs in the shown Project, shared with their pages.
 type State struct {
-	Live       bool
-	HasProject bool
-	Data       *preview.Workspace
-	Tabs       []Tab
-	Active     Tab
+	Actions        *Actions
+	historyConfirm confirm
+	Live           bool
+	HasProject     bool
+	Data           *preview.Workspace
+	Tabs           []Tab
+	Active         Tab
 	// Paged is the resource a page of the same project shows, "" for
 	// none: that page owns the resource's scrolling (Page).
 	Paged Kind
@@ -113,13 +115,14 @@ type State struct {
 
 	// Cwd is the folder a new terminal starts in, the shown project's
 	// (the shell sets it).
-	Cwd       string
-	pages     int                            // browser pages and terminals opened, for their IDs
-	artifacts map[string]conversation.File   // the conversation files previewed, by ID
-	view      kit.Viewer[conversation.Image] // the image viewer over a previewed picture
-	children  map[string]string              // the subagent sessions open, their titles by ID
-	pagesOf   map[string]*page               // the browser tabs' addresses and history, by ID
-	terms     map[string]*term               // the terminal tabs' state, by ID
+	Cwd               string
+	pages             int                          // browser pages and terminals opened, for their IDs
+	artifacts         map[string]conversation.File // the conversation files previewed, by ID
+	artifactCallbacks ArtifactCallbacks
+	view              kit.Viewer[conversation.Image] // the image viewer over a previewed picture
+	children          map[string]string              // the subagent sessions open, their titles by ID
+	pagesOf           map[string]*page               // the browser tabs' addresses and history, by ID
+	terms             map[string]*term               // the terminal tabs' state, by ID
 	// Child builds a subagent's session in its tab, the transcript the shell
 	// owns.
 	Child func(c *ui.Context, id string)
@@ -198,6 +201,11 @@ func (t Tab) valid() bool {
 
 // Close closes t's tab. It reports whether a tab is left.
 func (s *State) Close(t Tab) bool {
+	if t.Kind == Files && t.ID != "" && s.pr != nil {
+		if s.pr.requestEditorClose(t.ID, func() { s.pr.close(t.Kind, t.ID); s.Tabs, s.Active = Closed(s.Tabs, t, s.Active) }) {
+			return len(s.Tabs) > 0
+		}
+	}
 	if item(t.Kind) && t.ID != "" && s.pr != nil {
 		s.pr.close(t.Kind, t.ID)
 	}

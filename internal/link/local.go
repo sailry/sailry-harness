@@ -26,3 +26,7 @@ func (local *Local) Dispatch(ctx context.Context, request protocol.Request) (Adm
 func (local *Local) Subscribe(ctx context.Context, topic protocol.Topic) (Subscription, error) {
 	return local.handler.Subscribe(ctx, local.caller, topic)
 }
+
+func (local *Local) Open(ctx context.Context, id protocol.StreamID) (Stream, error) {
+	return local.handler.Open(ctx, local.caller, id)
+}

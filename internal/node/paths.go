@@ -18,6 +18,14 @@ import (
 )
 
 func (node *Node) prepare(command protocol.Command) (store.PreparedPaths, error) {
+	if draft, ok := command.Data.(*protocol.ProjectsDraft); ok && command.Kind == "create_project" && draft.Source.Kind == "clone" {
+		if err := store.ValidateProjectDraft(*draft); err != nil {
+			return store.PreparedPaths{}, err
+		}
+		source := draft.Source.Data.(*protocol.ProjectsSourceClonePayload)
+		canonical, err := node.git.Clone(node.ctx, source.Url, draft.Path, source.Branch)
+		return store.PreparedPaths{Path: canonical}, err
+	}
 	prepared, err := store.PreparePaths(command)
 	if err != nil {
 		return prepared, err

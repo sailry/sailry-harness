@@ -7,8 +7,11 @@ code. The Go module and repository are `github.com/sailry/sailry-harness`.
 
 The accepted desktop preview remains available through `--preview`. B1 supplies
 the v1 protocol, B2 the isolated profile and SQLite storage, and B3 the local
-Node, Client and live sidebar, notifications and preferences. Agent execution,
-remote Link, Host, Mobile and plugin runtimes arrive in their assigned phases.
+Node, Client and live sidebar, notifications and preferences. B4 adds captured
+model transport and canonical agent execution; B5 adds workspace tools, Git,
+verified transfers, sandboxed commands, Web resources and hooks with live native
+resource panels. Remote Link, Host, Mobile and plugin runtimes arrive in their
+assigned phases.
 Implement phases in order, with centralized checks and a report per phase.
 The user has authorized continuing through B14 without confirmation pauses.
 

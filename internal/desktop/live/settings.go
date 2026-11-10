@@ -10,7 +10,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-func (r *Runtime) readSettings() { r.readPower(); r.readTelemetry() }
+func (r *Runtime) readSettings() { r.readPower(); r.readTelemetry(); r.readSandbox() }
 
 func (r *Runtime) readPower() {
 	m := &r.App.Settings.Power

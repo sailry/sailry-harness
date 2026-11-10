@@ -23,6 +23,9 @@ type events struct {
 }
 
 func (node *Node) Subscribe(ctx context.Context, caller protocol.NodeID, topic protocol.Topic) (link.Subscription, error) {
+	if topic.Kind == "files" || topic.Kind == "repository" || topic.Kind == "commands" {
+		return node.subscribeWorkspace(ctx, topic)
+	}
 	if topic.Kind == "conversation" {
 		switch session := topic.Data.(type) {
 		case protocol.SessionID:

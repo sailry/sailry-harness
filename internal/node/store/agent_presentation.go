@@ -8,14 +8,71 @@ import (
 	"fmt"
 
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
+	"github.com/sailry/sailry-harness/internal/node/agent/operations"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"lukechampine.com/blake3"
+	"slices"
+	"strings"
 )
 
 func prepareCanonicalRecord(ctx context.Context, db *sql.Conn, record *canonical.Record) error {
-	message := record.Message()
+	message := record.MutableMessage()
 	if message == nil {
 		return nil
+	}
+	for _, block := range message.Content {
+		if file, ok := block.Data.(*canonical.FileContent); ok && strings.HasPrefix(file.File.URI, "sailry-attachment://") {
+			id, err := protocol.ParseAttachmentID(strings.TrimPrefix(file.File.URI, "sailry-attachment://"))
+			if err != nil {
+				return err
+			}
+			attachment, err := GetTurnAttachment(ctx, db, record.Turn, id)
+			if err != nil {
+				return err
+			}
+			file.File.Mime = &attachment.Spec.MediaType
+		}
+	}
+	catalog, err := operations.Bundled()
+	if err != nil {
+		return err
+	}
+	capture, err := readTurnCapture(ctx, db, record.Turn)
+	if err != nil {
+		return err
+	}
+	for _, block := range message.Content {
+		name := ""
+		switch value := block.Data.(type) {
+		case *canonical.ToolRequest:
+			name = value.Name
+		case *canonical.ToolResponse:
+			name = value.Name
+		}
+		for _, tool := range catalog.Tools {
+			if tool.Name != name || !slices.Contains(capture.Plugins, tool.Owner) {
+				continue
+			}
+			if record.Metadata.Presentation == nil {
+				record.Metadata.Presentation = &canonical.Presentation{}
+			}
+			p := record.Metadata.Presentation
+			if p.Tools == nil {
+				p.Tools = map[string]protocol.ToolPresentation{}
+			}
+			if p.Groupings == nil {
+				p.Groupings = map[string]protocol.ToolGrouping{}
+			}
+			p.Tools[name] = tool.Presentation
+			p.Groupings[name] = tool.Grouping
+			if tool.Display != nil {
+				if p.Displays == nil {
+					p.Displays = map[string]protocol.ToolDisplay{}
+				}
+				p.Displays[name] = *tool.Display
+			}
+			break
+		}
 	}
 	denials, err := readBodies[protocol.ConversationApproval](ctx, db, "SELECT body FROM agent_approvals WHERE turn=?1 AND json_extract(body,'$.state')='denied' AND json_type(body,'$.reason')='text' ORDER BY rowid", record.Turn.String())
 	if err != nil {

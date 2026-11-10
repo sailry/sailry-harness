@@ -18,6 +18,17 @@ func named(name string, n int) []Call {
 // Adjacent tool blocks join, text splits them and blank text does not;
 // terminal calls stand alone; adjacent children join.
 func TestCompact(t *testing.T) {
+	t.Run("citations retain Unicode positions across work and answer blocks", func(t *testing.T) {
+		blocks := []Block{{Kind: TextBlock, Text: "结果🙂"}, {Kind: ToolsBlock, Calls: named("read", 1)}, {Kind: TextBlock, Text: "More"}}
+		citations := []Citation{{URI: "https://example.com/start", End: -1}, {URI: "https://example.com/first", End: 3}, {URI: "https://example.com/next-start", End: -4}, {URI: "https://example.com/second", End: 5}, {URI: "https://example.com/final"}}
+		got := cited(blocks, citations)
+		if got[0].Text != " [1](<https://example.com/start>)结果🙂 [2](<https://example.com/first>)" || got[2].Text != " [3](<https://example.com/next-start>)Mo [4](<https://example.com/second>)re [5](<https://example.com/final>)" {
+			t.Fatal(got)
+		}
+		if blocks[0].Text != "结果🙂" || blocks[2].Text != "More" || AnswerText(Compact(blocks)) != "More" || AnswerFrom(Compact(got)) != 2 {
+			t.Fatal("citation rendering changed canonical copy or answer grouping", blocks)
+		}
+	})
 	read, grep := named("read", 2), named("grep", 1)
 	ask := Call{ID: "ask", Name: "ask_user", Terminal: true}
 	got := Compact([]Block{

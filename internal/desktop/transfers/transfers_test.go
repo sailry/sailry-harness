@@ -1,6 +1,11 @@
 package transfers
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/theme"
+)
 
 func TestEntries(t *testing.T) {
 	run := Entry{Status: Running, Phase: "installation_downloading", Percent: 45}
@@ -30,6 +35,26 @@ func TestEntries(t *testing.T) {
 }
 
 func TestDownloadKey(t *testing.T) {
+	t.Run("dismissal cannot cancel admitted publication", func(t *testing.T) {
+		download := &Download{Open: true, Name: "captured.txt", Destination: "/captured.txt", Status: Publishing}
+		cancelled := 0
+		tester := ui.NewTester(func(c *ui.Context) {
+			theme.Apply(c, "", theme.Light)
+			DownloadDialog(c, download, func() { cancelled++ })
+		}, 640, 480)
+		tester.Frame()
+		tester.Key(0, ui.KeyEscape)
+		tester.Frame()
+		if !download.Open || cancelled != 0 || download.Canceled {
+			t.Fatalf("publication dismissed: %#v, cancellations=%d", download, cancelled)
+		}
+		download.Status = Receiving
+		tester.Frame()
+		tester.Key(0, ui.KeyEscape)
+		if cancelled != 1 || !download.Canceled {
+			t.Fatalf("receiving transfer did not cancel: %#v, cancellations=%d", download, cancelled)
+		}
+	})
 	d := &Download{Status: Receiving, Copied: 1, Size: 4}
 	if k, v := d.Key(); k != "files_download_receiving" || v != 0.25 {
 		t.Errorf("%s %v", k, v)

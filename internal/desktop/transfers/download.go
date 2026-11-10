@@ -52,6 +52,11 @@ func DownloadDialog(c *ui.Context, d *Download, cancel func()) {
 		})
 	}).Width(min(460, w-48)).Label(title)
 	if open && !d.Open && !finished {
+		if d.Canceled || d.Status == Publishing {
+			d.Open = true
+			c.Invalidate()
+			return
+		}
 		// Closed with Escape: the transfer stops (on_close).
 		d.Canceled = true
 		cancel()

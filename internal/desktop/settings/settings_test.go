@@ -64,9 +64,27 @@ func TestSetVariable(t *testing.T) {
 }
 
 func TestDraftChecks(t *testing.T) {
+	t.Run("hook consent reports the captured Node sandbox capability", func(t *testing.T) {
+		m := &Model{HooksSandboxed: func() bool { return false }}
+		if got := hookScope(m); got != "hooks_scope_workspace" {
+			t.Fatalf("preview scope = %q", got)
+		}
+		m.Live = true
+		if got := hookScope(m); got != "hooks_scope_windows" {
+			t.Fatalf("Windows scope = %q", got)
+		}
+		m.HooksSandboxed = func() bool { return true }
+		if got := hookScope(m); got != "hooks_scope_workspace" {
+			t.Fatalf("sandbox scope = %q", got)
+		}
+	})
 	e := hookEditor{script: preview.Hook{Command: "make"}, timeout: "x"}
 	if e.Check() != "hooks_invalid" {
 		t.Error("bad timeout accepted")
+	}
+	e.timeout = "60001"
+	if e.Check() != "hooks_invalid" {
+		t.Error("oversized hook timeout accepted")
 	}
 	e.timeout = "500"
 	if e.Check() != "" || e.script.TimeoutMS != 500 {

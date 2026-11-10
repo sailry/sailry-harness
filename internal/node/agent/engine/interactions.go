@@ -33,15 +33,21 @@ func (r *Runtime) deadline(ctx context.Context, duration time.Duration) (<-chan 
 func toolIdentity(call canonical.ToolRequest) canonical.ToolIdentity {
 	return canonical.ToolIdentity{ID: &call.ID, Name: call.Name, Arguments: call.Arguments}
 }
-func (r *Runtime) approval(x *execution, call canonical.ToolRequest, binding *store.ApprovalBinding) (bool, error) {
+func (r *Runtime) approval(x *execution, call canonical.ToolRequest, tool *Tool) (bool, error) {
 	var value protocol.ConversationApproval
 	publication := r.LockPublication()
 	err := r.db.Write(x.ctx, func(db *sql.Conn) error {
 		var changes []protocol.Event
 		var err error
-		value, changes, err = store.BeginApproval(x.ctx, db, x.inv.Run.Turn, toolIdentity(call), binding, r.clock.Now())
+		value, changes, err = store.BeginApproval(x.ctx, db, x.inv.Run.Turn, toolIdentity(call), tool.Binding, r.clock.Now())
 		if err != nil {
 			return err
+		}
+		if tool.ConfigureApproval != nil {
+			value, err = tool.ConfigureApproval(x.ctx, db, call, value)
+			if err != nil {
+				return err
+			}
 		}
 		_, err = store.RecordEvents(x.ctx, db, r.node, changes)
 		return err
@@ -95,10 +101,29 @@ func (r *Runtime) approval(x *execution, call canonical.ToolRequest, binding *st
 	}
 	publication = r.LockPublication()
 	defer publication()
+	var request protocol.RequestID
 	err = r.db.Write(x.ctx, func(db *sql.Conn) error {
-		_, err := db.ExecContext(x.ctx, "UPDATE agent_approvals SET claimed=1 WHERE id=?1 AND claimed=0 AND json_extract(body,'$.state')='approved'", value.ID.String())
+		result, err := db.ExecContext(x.ctx, "UPDATE agent_approvals SET claimed=1 WHERE id=?1 AND claimed=0 AND json_extract(body,'$.state')='approved'", value.ID.String())
+		if err != nil {
+			return err
+		}
+		count, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if count != 1 {
+			return &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "tool approval is unavailable or already used"}
+		}
+		var id string
+		if err = db.QueryRowContext(x.ctx, "SELECT request FROM agent_approvals WHERE id=?1", value.ID.String()).Scan(&id); err != nil {
+			return err
+		}
+		request, err = protocol.ParseRequestID(id)
 		return err
 	})
+	if err == nil && tool.Approved != nil {
+		tool.Approved(call, value.ID, request)
+	}
 	return err == nil, err
 }
 func (r *Runtime) question(x *execution, call canonical.ToolRequest) ToolResult {

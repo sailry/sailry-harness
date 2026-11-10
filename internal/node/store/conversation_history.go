@@ -57,7 +57,11 @@ func hydratePublicRun(ctx context.Context, db *sql.Conn, run protocol.Conversati
 		if err = json.Unmarshal(body, &input); err != nil {
 			return run, err
 		}
-		run.Input = &protocol.ConversationSentInput{Message: input, Attachments: []protocol.Attachment{}}
+		attachments, e := ListTurnAttachments(ctx, db, run.Turn)
+		if e != nil {
+			return run, e
+		}
+		run.Input = &protocol.ConversationSentInput{Message: input, Attachments: attachments}
 	}
 	return run, nil
 }
@@ -149,6 +153,10 @@ func readConversationPage(ctx context.Context, db *sql.Conn, session protocol.Se
 	}
 	for i := range page.Questions {
 		page.Questions[i].Session = session
+	}
+	page.Background, err = ReadBackgroundTasks(ctx, db, session)
+	if err != nil {
+		return page, err
 	}
 	retainConversationMetadata(&page)
 	for i := range page.Runs {

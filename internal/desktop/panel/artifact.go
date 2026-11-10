@@ -14,6 +14,20 @@ import (
 // file's ID.
 const Artifact Kind = "artifact"
 
+type ArtifactCallbacks struct {
+	OpenExternal func(conversation.File)
+	Image        func(kit.ImageAction, conversation.Image)
+	Render       func(*ui.Context, conversation.File) bool
+}
+
+func (s *State) SetArtifactCallbacks(callbacks ArtifactCallbacks) { s.artifactCallbacks = callbacks }
+func (s *State) UpdateArtifact(file conversation.File) {
+	if s.artifacts == nil {
+		s.artifacts = map[string]conversation.File{}
+	}
+	s.artifacts[file.ID] = file
+}
+
 // ShowArtifact opens f's preview as a tab, or focuses it.
 func (s *State) ShowArtifact(f conversation.File) {
 	if s.artifacts == nil {
@@ -33,6 +47,13 @@ func (s *State) artifact(c *ui.Context, id string) {
 	if !ok {
 		return
 	}
+	open := func() {
+		if s.artifactCallbacks.OpenExternal != nil {
+			s.artifactCallbacks.OpenExternal(f)
+		} else {
+			notice(c)
+		}
+	}
 	toolbar(c, "artifact-bar", func() {
 		ui.Icon(c, conversation.FileIcon(f)).FontSize(16).Shrink(0).TextColor(p.MutedForeground)
 		ui.Text(c, f.Path).FontSize(13).SingleLine().Grow(1).Shrink(1).MinWidth(0)
@@ -42,13 +63,13 @@ func (s *State) artifact(c *ui.Context, id string) {
 				kit.Message(c, i18n.T(c, "content_copied"))
 			})
 		}
-		kit.IconButton(c.Key("open"), icons.ExternalLink, i18n.T(c, "files_open_system"), 28, false).OnClick(func() { notice(c) })
+		kit.IconButton(c.Key("open"), icons.ExternalLink, i18n.T(c, "files_open_system"), 28, false).OnClick(open)
 	})
 	state := func(key string) {
 		ui.Column(c.Key("state")).Grow(1).Padding(16).Gap(12).Children(func() {
 			ui.Text(c, i18n.T(c, key)).FontSize(14).TextColor(p.MutedForeground)
 			if key != "artifact_preview_loading" {
-				kit.Secondary(c.Key("system"), i18n.T(c, "files_open_system")).AlignSelf(ui.Start).OnClick(func() { notice(c) })
+				kit.Secondary(c.Key("system"), i18n.T(c, "files_open_system")).AlignSelf(ui.Start).OnClick(open)
 			}
 		})
 	}
@@ -66,9 +87,18 @@ func (s *State) artifact(c *ui.Context, id string) {
 		state("artifact_preview_changed")
 		return
 	}
+	if s.artifactCallbacks.Render != nil && s.artifactCallbacks.Render(c, f) {
+		return
+	}
 	kit.ImageViewer(c, &s.view, func(im conversation.Image) kit.ViewerItem {
 		return kit.ViewerItem{Source: im.Source, Name: im.Name}
-	}, func(kit.ImageAction, conversation.Image) { notice(c) })
+	}, func(action kit.ImageAction, image conversation.Image) {
+		if s.artifactCallbacks.Image != nil {
+			s.artifactCallbacks.Image(action, image)
+		} else {
+			notice(c)
+		}
+	})
 	ui.Scroll(c.Key("artifact-" + id)).Grow(1).MinHeight(0).Children(func() {
 		switch f.Kind {
 		case conversation.TextFile:

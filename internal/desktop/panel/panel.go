@@ -1,6 +1,7 @@
 package panel
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -42,9 +43,12 @@ func View(c *ui.Context, s *State, pr *Project, keys Shortcut) {
 	}
 	s.strip(c, pr, keys)
 	t := s.Active
+	if pr != nil && t.Kind != Files && t.Kind != Changes {
+		pr.promptDialog(c)
+	}
 	own := s.owns(t)
 	ui.Column(c.Key(t)).Grow(1).MinHeight(0).Children(func() {
-		if s.Live && t.Kind != Terminal {
+		if s.Live && t.Kind != Terminal && t.Kind != Files && t.Kind != Changes && t.Kind != History && t.Kind != Documents && t.Kind != Artifact {
 			key := "unavailable"
 			if (t.Kind == Files || t.Kind == Changes) && !s.HasProject {
 				key = "resource_project_empty"
@@ -93,7 +97,14 @@ func (s *State) look(c *ui.Context, t Tab) (*ui.SVG, string) {
 		return icons.Bot, title
 	case Files, Changes:
 		if t.ID != "" {
-			return itemLook(c, t.Kind, t.ID)
+			icon, label := itemLook(c, t.Kind, t.ID)
+			if t.Kind == Files && s.pr != nil {
+				label = s.pr.fileTabLabel(t.ID, label)
+			}
+			if t.Kind == Changes && s.pr != nil {
+				label = s.pr.gitDocumentLabel(t.ID, label)
+			}
+			return icon, label
 		}
 	case Documents:
 		for _, d := range s.Data.Documents {
@@ -159,6 +170,12 @@ func (pr *Project) strip(c *ui.Context, k Kind) {
 				closed := ""
 				for _, path := range pr.items(k) {
 					icon, label := itemLook(c, k, path)
+					if k == Files {
+						label = pr.fileTabLabel(path, label)
+					}
+					if k == Changes {
+						label = pr.gitDocumentLabel(path, label)
+					}
 					tab(c, path, icon, label, path == pr.shown(k), nil, func() { pr.show(k, path) }, func() { closed = path })
 				}
 				if closed != "" {
@@ -211,6 +228,11 @@ func (pr *Project) view(c *ui.Context, k Kind, path string, own bool, head func(
 		kit.Result(c, kit.ResultProps{Icon: ResourceOf(k).Icon, Title: i18n.T(c, "resource_project_empty")}).Grow(1).Justify(ui.Center)
 		return
 	}
+	if k == Files && path != "" {
+		pr.readFile(path)
+	} else if k == Changes && path != "" && path != allChanges && !pr.gitDocumentKnown(path) {
+		pr.readDiff(path, pr.Git.scope)
+	}
 	main := func() {
 		if head != nil {
 			head()
@@ -224,6 +246,7 @@ func (pr *Project) view(c *ui.Context, k Kind, path string, own bool, head func(
 			pr.diff(c, path)
 		}
 	}
+	pr.promptDialog(c)
 	if k == Files {
 		split(c, "files", &pr.Files.side, main, func() { pr.tree(c, own, open) })
 		return
@@ -353,13 +376,16 @@ func separator(c *ui.Context) {
 }
 
 // status is a column's 32 DIP footer: the path, and what goes after it.
-func status(c *ui.Context, path string, after func()) {
+func status(c *ui.Context, path string, after func(), system ...func()) {
 	p := theme.Of(c)
 	ui.Row(c.Key("footer")).Height(footer).Shrink(0).PaddingX(12).Gap(12).BorderWidth(1, 0, 0, 0).BorderColor(p.Border).
 		TextColor(p.MutedForeground).Children(func() {
 		ui.Text(c, path).FontSize(12).SingleLine().Grow(1).Shrink(1).ContextMenu(func(m *ui.Menu) {
 			if m.Item(i18n.T(c, "files_copy_path")).Chosen() {
 				c.WriteClipboard(path)
+			}
+			if len(system) > 0 && system[0] != nil && m.Item(i18n.T(c, "files_open_system")).Chosen() {
+				system[0]()
 			}
 		})
 		if after != nil {
@@ -369,6 +395,9 @@ func status(c *ui.Context, path string, after func()) {
 }
 
 func findFile(n *preview.FileNode, path string) *preview.FileNode {
+	if n == nil {
+		return nil
+	}
 	if n.Path == path {
 		return n
 	}
@@ -384,20 +413,46 @@ func findFile(n *preview.FileNode, path string) *preview.FileNode {
 // (Save, Undo and Redo disabled, Find, Document | Source for markdown),
 // the text with line numbers, and the status bar.
 func (pr *Project) filePreview(c *ui.Context, path string, own bool) {
+	if pr.Actions != nil {
+		pr.liveFileEditor(c, path, own)
+		return
+	}
 	f := findFile(pr.Data.Files, path)
 	if f == nil {
 		kit.Result(c, kit.ResultProps{Icon: icons.File, Title: i18n.T(c, "file_empty")})
 		return
 	}
 	v := pr.Files.item(path)
+	if pr.Actions != nil && !v.loaded {
+		pr.SetFile(path, f.Text)
+	}
 	md := strings.HasSuffix(f.Name, ".md")
 	toolbar(c, "toolbar", func() {
-		kit.IconButton(c.Key("save"), icons.Save, i18n.T(c, "files_save"), 28, false).Disabled(true)
+		kit.IconButton(c.Key("save"), icons.Save, i18n.T(c, "files_save"), 28, false).Disabled(pr.Actions == nil || !v.dirty || !v.writable).OnClick(func() {
+			if pr.Actions != nil && pr.Actions.SaveFile != nil {
+				text, _ := pr.FileDraft(path)
+				pr.Actions.SaveFile(c, path, text)
+			}
+		})
 		separator(c)
-		kit.IconButton(c.Key("undo"), icons.Undo, i18n.T(c, "files_undo"), 28, false).Disabled(true)
-		kit.IconButton(c.Key("redo"), icons.Redo, i18n.T(c, "files_redo"), 28, false).Disabled(true)
+		kit.IconButton(c.Key("undo"), icons.Undo, i18n.T(c, "files_undo"), 28, false).Disabled(v.editor == nil || !v.editor.Buffer.CanUndo()).OnClick(func() {
+			if v.editor != nil && v.editor.Buffer.Undo() {
+				pr.FileChanged(path, v.editor.Buffer.String())
+			}
+		})
+		kit.IconButton(c.Key("redo"), icons.Redo, i18n.T(c, "files_redo"), 28, false).Disabled(v.editor == nil || !v.editor.Buffer.CanRedo()).OnClick(func() {
+			if v.editor != nil && v.editor.Buffer.Redo() {
+				pr.FileChanged(path, v.editor.Buffer.String())
+			}
+		})
 		separator(c)
-		kit.IconButton(c.Key("find"), icons.Search, i18n.T(c, "files_find"), 28, false).OnClick(func() { notice(c) })
+		kit.IconButton(c.Key("find"), icons.Search, i18n.T(c, "files_find"), 28, false).OnClick(func() {
+			if v.editor != nil {
+				v.editor.Find("")
+			} else {
+				notice(c)
+			}
+		})
 		ui.Spacer(c)
 		if md {
 			kit.Segmented(c, "view", &v.source, []string{i18n.T(c, "content_document"), i18n.T(c, "content_source")}, kit.SegmentedProps{})
@@ -405,10 +460,22 @@ func (pr *Project) filePreview(c *ui.Context, path string, own bool) {
 	})
 	ui.Scroll(c.Key("text")).TrackScroll(scroll(&v.text, own)).Grow(1).Padding(12, 0).Children(func() {
 		if md && v.source == 0 {
-			ui.Column(c).PaddingX(16).Children(func() { kit.Markdown(c, f.Text, kit.MarkdownProps{}) })
+			text := f.Text
+			if pr.Actions != nil && v.loaded {
+				text = v.draft + v.suffix
+			}
+			ui.Column(c).PaddingX(16).Children(func() { kit.Markdown(c, text, kit.MarkdownProps{}) })
 			return
 		}
-		kit.Code(c, ui.Column(c.Key(f.Path)), f.Text, kit.CodeOptions{Language: editor.LanguageFor(f.Path), Numbers: true, Editable: true})
+		text := f.Text
+		options := kit.CodeOptions{Language: editor.LanguageFor(f.Path), Numbers: true, Editable: true}
+		if pr.Actions != nil {
+			options.Editable = v.writable
+			text = v.draft
+			options.Changed = func(text string) { pr.FileChanged(path, text) }
+			options.Bind = func(state *editor.State) { pr.bindEditor(path, state) }
+		}
+		kit.Code(c, ui.Column(c.Key(f.Path)), text, options)
 	})
 	lang := "Go"
 	switch {
@@ -429,6 +496,12 @@ func (pr *Project) filePreview(c *ui.Context, path string, own bool) {
 // (editor.DefaultHunkActions) and Stage: in the preview each toasts, as
 // they would write the file and the index.
 func (pr *Project) diff(c *ui.Context, path string) {
+	if pr.gitDocument(c, path) {
+		return
+	}
+	if pr.gitEmpty(c, false) {
+		return
+	}
 	p := theme.Of(c)
 	var ch *preview.FileChange
 	for i := range pr.Data.Changes {
@@ -440,23 +513,74 @@ func (pr *Project) diff(c *ui.Context, path string) {
 		kit.Result(c, kit.ResultProps{Icon: icons.Network, Title: i18n.T(c, "git_diff_empty")})
 		return
 	}
+	metadata := pr.Git.diffStates[pr.Git.scope+"/"+path]
+	if metadata.Binary {
+		ui.Text(c, i18n.T(c, "git_diff_binary")).FontSize(14).Padding(12).TextColor(p.MutedForeground)
+		return
+	}
 	old, new := ch.Texts()
 	box := ui.Column(c.Key(ch.Path)).Grow(1).MinHeight(0)
-	kit.Diff(c, box, old, new, kit.DiffOptions{Language: editor.LanguageFor(ch.Path), Changed: func() { notice(c) },
+	selected := -1
+	options := kit.DiffOptions{Language: editor.LanguageFor(ch.Path),
 		Actions: func(c *ui.Context, bar ui.Element, a *editor.DiffHunkActions) {
+			selected = diffHunkIndex(*ch, a.Hunk)
 			bar.Row().Gap(4)
 			bar.Children(func() {
 				editor.DefaultHunkActions(c, ui.Row(c.Key("hunk")), a)
 				stage := i18n.T(c, "hunks_stage")
 				kit.Ghost(c.Key("stage"), stage, false).Height(20).PaddingX(8).Children(func() {
 					ui.Text(c, stage).FontSize(12)
-				}).OnClick(func() { notice(c) })
+				}).OnClick(func() {
+					if pr.Actions != nil && pr.Actions.Hunk != nil {
+						pr.Actions.Hunk(c, ch.Path, selected, "stage")
+					} else {
+						notice(c)
+					}
+				})
 			})
-		}})
+		}}
+	if pr.Actions != nil && pr.Actions.Hunk != nil {
+		options.HunkChanged = func(_ int, keep bool) {
+			action := "reject"
+			if keep {
+				action = "keep"
+			}
+			pr.Actions.Hunk(c, ch.Path, selected, action)
+		}
+	} else {
+		options.Changed = func() { notice(c) }
+	}
+	kit.Diff(c, box, old, new, options)
+	if metadata.Partial {
+		ui.Text(c, i18n.T(c, "git_diff_partial")).FontSize(12).Padding(8, 12).TextColor(p.MutedForeground)
+	}
 	status(c, ch.Path, func() {
 		ui.Textf(c, "+%d", ch.Added).FontSize(12).TextColor(p.Success)
 		ui.Textf(c, "−%d", ch.Removed).FontSize(12).TextColor(p.Danger)
-	})
+	}, func() { pr.fileAction(c, FileAction{Kind: "files_open_system", Paths: []string{ch.Path}}) })
+}
+
+func diffHunkIndex(change preview.FileChange, native editor.DiffHunk) int {
+	index := -1
+	for i, hunk := range change.Hunks {
+		cursor := 0
+		if fields := strings.Fields(hunk.Header); len(fields) >= 3 {
+			cursor, _ = strconv.Atoi(strings.SplitN(strings.TrimPrefix(fields[2], "+"), ",", 2)[0])
+			cursor = max(0, cursor-1)
+		}
+		for _, line := range hunk.Lines {
+			if line.Kind == preview.Added && line.New > native.NewStart && line.New <= native.NewEnd || line.Kind == preview.Removed && native.NewStart == native.NewEnd && cursor == native.NewStart {
+				if index >= 0 && index != i {
+					return -1
+				}
+				index = i
+			}
+			if line.Kind != preview.Removed {
+				cursor = line.New
+			}
+		}
+	}
+	return index
 }
 
 // history is the turns' checkpoints, newest first: what each turn changed
@@ -483,11 +607,23 @@ func (s *State) history(c *ui.Context) {
 					kit.Ghost(c.Key("undo"), undo, false).Height(28).PaddingX(8).Gap(6).Border(1, p.Border).Children(func() {
 						ui.Icon(c, icons.Restore).FontSize(14)
 						ui.Text(c, undo).FontSize(14)
-					}).OnClick(func() { notice(c) })
+					}).OnClick(func() {
+						if s.Actions != nil && s.Actions.Restore != nil {
+							actions := s.Actions
+							s.historyConfirm = confirm{open: true, title: undo, message: i18n.T(c, "workspace_restore_confirm"), target: cp.Turn, run: func(c *ui.Context) { actions.Restore(c, cp.ID) }}
+						} else {
+							notice(c)
+						}
+					})
 				})
 			})
 		}
 	})
+	if confirmation := &s.historyConfirm; confirmation.open {
+		if ui.AlertDialog(c.Key("checkpoint-confirm"), &confirmation.open, confirmation.title, confirmation.message+"\n"+confirmation.target, i18n.T(c, "settings_cancel"), confirmation.title) == 1 && confirmation.run != nil {
+			confirmation.run(c)
+		}
+	}
 }
 
 // ago is the activity centre's age: just now, minutes, hours, days.
@@ -507,6 +643,9 @@ func ago(c *ui.Context, t interface{ Unix() int64 }) string {
 // document is a session document's tab: the rendered document over its
 // path.
 func (s *State) document(c *ui.Context, id string) {
+	if s.Actions != nil && s.Actions.ReadDocument != nil {
+		s.Actions.ReadDocument(id)
+	}
 	for _, d := range s.Data.Documents {
 		if d.ID != id {
 			continue

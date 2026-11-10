@@ -13,6 +13,7 @@ The installation requests the rail shows and the Save as dialog
 | `model.go` | **The view model**: `Queue` (`Remove`, `Retry`), `Entry` (`Kind`, `Status`, `Label`, `Measured`, `Measure`, `Terminal`, `Active`), `Overall`, `Download` (`DownloadStatus`, `Key`) |
 | `installations.go` | `Visible`, `Button` (the rail's button, its ring and its popover), the request rows |
 | `download.go` | `DownloadDialog` |
+| `entry.go` | `EntryTransfer`, `EntryTransferDialog` for captured copy/move entries |
 
 Preview data: `preview.Installations()` (a plugin downloading with its
 speed, a language package counting files on this app, a queued model, a
@@ -71,6 +72,20 @@ and on finishing toast files_download_done or the error key.
 |---|---|
 | The popover's openness, the dialog's openness | `Queue`, `Download`'s status and sizes |
 
+## Live downloads
+
+`live/downloads*.go` connects the accepted download dialog to Client-verified
+Node streams. Native Save as chooses a destination before transfer. Staging is
+private and adjacent to that destination; publication syncs bytes and checks
+the observed target and parent identity. Cancellation and conflicts preserve
+existing content and never publish partial bytes. Open external downloads into
+a controller-owned temporary directory that is removed on failure or shutdown.
+Remote execution paths never pass to local Reveal.
+
+`live/attachments_local_test.go` groups source evidence/limits, destination
+conflict/cancellation/publication and canonical descriptor coverage. The
+coordinator runs these with the Live category; they require no native window.
+
 ## Tests
 
 `internal/desktop/transfers/transfers_test.go`: labels, measures, the overall
@@ -85,3 +100,29 @@ and Remove drops one; Save as plays to its end and Close shuts it.
 | The ring is drawn | MyGo's Progress is a bar and its Spinner has spokes (`ui/status_ring.rs` draws it too) |
 | No save panel before Save as | The preview writes nothing; it names `~/Downloads` |
 | The popover opens beside the button's top | MyGo's popover attaches by edge; Kit's opens centered on the button |
+
+
+## Native entry transfers
+
+The core Files panel uses `EntryTransferDialog` for copy, cut/paste and drag-move.
+The form retains its source worktree/path, destination draft and remaining source
+paths. A ready entry starts only through Paste or Move. Its immutable command
+captures both source and destination WorktreeIDs. Confirmed completion advances
+the queue; failures keep the current draft. Check result reuses an uncertain
+command's original durable request. A repeated matching operation reopens retained
+state and never reapplies confirmed entries. Cut clears only after every entry
+confirms. Outcomes appear once as toasts.
+
+The form uses the source's 508-wide Kit layout, source and destination groups,
+remaining-path scroll, editable ready destination and existing footer controls.
+It has no fabricated byte counts: `CopyEntryTo` and `MoveEntryTo` expose a durable
+command result, so the active indicator is indeterminate. Cancel remaining stops
+future admissions while the current admitted effect settles. Closing retains its
+uncertain identity. Streaming uploads/downloads retain their own real progress
+and cancellation boundaries. One modal is admitted at a time through the live
+transfer owner; installation entries remain separate.
+
+This additive form fills a verified UI gap: the accepted Save as model describes
+a byte-stream download and cannot represent an editable copy/move destination,
+a remaining entry queue or explicit outcome inspection. The original download
+model, renderer and layout remain unchanged.

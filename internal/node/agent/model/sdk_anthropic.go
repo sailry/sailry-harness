@@ -62,6 +62,7 @@ func (model *sdkModel) streamAnthropic(ctx context.Context, raw []byte, call fan
 			terminal = true
 		case "content_block_start":
 			content := wireObject(value["content_block"])
+			emitter.anthropicSources(content)
 			block = &anthropicBlock{kind: wireString(content["type"]), id: wireString(content["id"]), name: wireString(content["name"]), text: wireString(content["text"]), signature: wireString(content["signature"]), redacted: wireString(content["data"])}
 			if block.kind == "tool_use" && (block.id == "" || block.name == "") {
 				emitter.fail(fmt.Errorf("model tool identity is incomplete"))
@@ -95,6 +96,11 @@ func (model *sdkModel) streamAnthropic(ctx context.Context, raw []byte, call fan
 			}
 			delta := wireObject(value["delta"])
 			switch wireString(delta["type"]) {
+			case "citations_delta":
+				citation := wireObject(delta["citation"])
+				if wireString(citation["type"]) == "web_search_result_location" {
+					emitter.citation(citation, 0)
+				}
 			case "text_delta":
 				if !emitter.emitIndexed(fantasy.StreamPart{Type: fantasy.StreamPartTypeTextDelta, ID: block.id, Delta: wireString(delta["text"])}, index) {
 					return

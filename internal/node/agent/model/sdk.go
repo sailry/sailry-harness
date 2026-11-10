@@ -13,6 +13,7 @@ import (
 	"charm.land/fantasy"
 	"github.com/egoist/mygo/netproxy"
 	"github.com/openai/openai-go/v3/packages/ssestream"
+	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 )
 
 const UsageMetadataKey = "sailry.usage"
@@ -200,13 +201,15 @@ func (*sdkModel) StreamObject(context.Context, fantasy.ObjectCall) (fantasy.Obje
 }
 
 type sdkEmitter struct {
-	ctx       context.Context
-	config    transportConfig
-	facts     *responseFacts
-	usage     UsageMetadata
-	yield     func(fantasy.StreamPart) bool
-	indices   map[string]uint64
-	nextIndex uint64
+	ctx          context.Context
+	config       transportConfig
+	facts        *responseFacts
+	usage        UsageMetadata
+	yield        func(fantasy.StreamPart) bool
+	indices      map[string]uint64
+	nextIndex    uint64
+	sources      canonical.Sources
+	sourcesKnown bool
 }
 
 func (emitter *sdkEmitter) emit(part fantasy.StreamPart) bool {
@@ -256,6 +259,9 @@ func (emitter *sdkEmitter) emit(part fantasy.StreamPart) bool {
 	}
 	snapshot := emitter.usage
 	part.ProviderMetadata[UsageMetadataKey] = &snapshot
+	if emitter.sourcesKnown {
+		part.ProviderMetadata[sourcesMetadataKey] = &sourcesMetadata{Sources: cloneSources(emitter.sources)}
+	}
 	return emitter.yield(part)
 }
 

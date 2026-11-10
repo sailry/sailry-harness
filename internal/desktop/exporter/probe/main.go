@@ -6,6 +6,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"flag"
 	"fmt"
 	"image/png"
 	"os"
@@ -18,7 +19,13 @@ import (
 )
 
 func main() {
-	directory, err := filepath.Abs(".runtime/b4/export")
+	previewOnly := flag.Bool("preview", false, "Capture an opaque authored preview")
+	flag.Parse()
+	destination := ".runtime/b4/export"
+	if *previewOnly {
+		destination = ".runtime/b5/preview"
+	}
+	directory, err := filepath.Abs(destination)
 	if err != nil {
 		panic(err)
 	}
@@ -33,6 +40,28 @@ func main() {
 		go func() {
 			defer mygo.App.Quit()
 			defer parent.Close()
+			if *previewOnly {
+				source := `<!doctype html><html><head><style>body{margin:0;background:#164e63;color:white;font:32px system-ui;padding:40px}#ready{font-size:20px}</style></head><body><h1>Workspace document</h1><p id="ready">Loading</p><script>document.getElementById('ready').textContent='Opaque preview rendered';</script></body></html>`
+				data, e := exporter.PreviewImage(context.Background(), parent, source)
+				if e != nil {
+					result <- e
+					return
+				}
+				config, e := png.DecodeConfig(bytes.NewReader(data))
+				if e != nil || config.Width < 960 || config.Width%960 != 0 || config.Height != 768*(config.Width/960) {
+					result <- fmt.Errorf("invalid preview image dimensions: %+v %v", config, e)
+					return
+				}
+				name := filepath.Join(directory, "document.png")
+				if e = os.WriteFile(name, data, 0600); e != nil {
+					result <- e
+					return
+				}
+				fmt.Printf("Rendered %s (%d bytes)\n", name, len(data))
+				result <- nil
+				return
+			}
+
 			document := client.ExportDocument{Content: `<!doctype html><html><head><meta charset="utf-8"><title>Offline export</title></head><body><section class="message user"><p>Render the complete answer</p></section><section class="message assistant"><h1>Offline export</h1><p>Formula <span class="math inline">\(x^2 + y^2\)</span></p><pre><code class="language-mermaid">flowchart LR
 A[Question] --&gt; B[Answer]</code></pre><pre><code class="language-chart">{"type":"bar","data":[{"label":"A","value":3},{"label":"B","value":7}]}</code></pre><table><thead><tr><th>Name</th><th>Value</th></tr></thead><tbody><tr><td>Complete</td><td>Yes</td></tr></tbody></table></section></body></html>`}
 			for _, format := range []exporter.Format{exporter.HTML, exporter.PNG} {

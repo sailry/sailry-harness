@@ -33,10 +33,24 @@ type fileState struct {
 
 // openFiles opens the picker at the host's root folder.
 func (s *State) openFiles(ctx *Context) {
-	if ctx.Readonly || ctx.Files == nil {
+	if !s.canPickFiles(ctx) {
+		return
+	}
+	if s.attachmentCallbacks != nil {
+		s.attachmentCallbacks.Pick()
 		return
 	}
 	s.files = fileState{open: true, dir: ctx.Files, row: -1}
+}
+
+func (s *State) canPickFiles(ctx *Context) bool {
+	if ctx.Readonly {
+		return false
+	}
+	if s.attachmentCallbacks != nil {
+		return s.attachmentCallbacks.Pick != nil
+	}
+	return ctx.Files != nil
 }
 
 // go_ shows a folder, remembering the one it leaves.

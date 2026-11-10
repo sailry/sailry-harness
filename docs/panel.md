@@ -158,14 +158,90 @@ terminal, subagent and file-preview tabs are single-pane.
 | Git: view options, commit options and amend, pickers, history selection; Files: selection, folders | Work in the view |
 | Copy path | Clipboard |
 
-## Wiring a backend
+## Live backend wiring
 
-Replace `preview.Workspace` with the session's resources: files from the
-worktree, changes and hunks from `InspectGit`/turn hunks, checkpoints from
-`ListFileCheckpoints`. Reject and Stage send `ApplyTurnHunk`, Undo changes
-restores checkpoints newest first; outcomes go to toasts
-(`hunks_conflict`, `checkpoint_*`). Browser and terminal render inside
-the same chrome when their plugins land.
+`internal/desktop/live/workspace_*.go` owns the projection and action adapters.
+One `panel.Project` belongs to each real worktree. Switching sessions replaces
+session-owned checkpoints and document metadata; switching worktrees releases
+its Files and Repository observations. The Client shares topic subscriptions.
+B0 preview projects leave `Actions` nil and retain their isolated behavior.
+
+The tree reads bounded `ListDirectory` pages through Load more, refreshes the
+visible extent with fresh cursors, preserves expanded folders and reads
+an opened file with `ReadFile`. File references can open a nested file before
+its folders have been expanded. Complete text with an observed revision is
+editable. Save sends `WriteFile` with that revision. Refresh and failed saves
+retain dirty drafts; a completed save also retains edits typed while the save
+was in flight. Original hidden trailing line breaks remain exact. Undo, Redo
+and Find use the existing MyGo editor state exposed by Kit callbacks.
+
+The existing file menu sends `CreateDirectory`, `RenameEntry`, `TrashEntry`,
+`CopyEntryTo` and `MoveEntryTo`. Clipboard provenance captures the source
+worktree. Sequential batches stop on the first failure and retain their confirmed
+position for retry. Native open, reveal, download and reference insertion use
+`WorkspaceNative`; execution-host paths never become controller-local paths.
+The window's transfer owner verifies downloaded content and owns native effects.
+
+Git status and branches project into the existing fields. Existing menus send
+revision-aware index, commit, branch, remote, stash, tag and worktree commands;
+forms retain values after failures. Destructive operations name their target
+in the existing confirmation. Pickers preserve full stash and tag identifiers.
+Output, commits and stashes open in the existing document tabs. Diff scope caches
+remain separate and invalidate with Repository updates. A native hunk's line
+range maps to the displayed patch, then to a unique captured turn-hunk identity;
+reordered or unrelated reviews cannot select an arbitrary hunk. Stage and Revert
+send `ApplyTurnHunk` with file/index/HEAD expectations. Failed or uncertain Revert
+keeps the authoritative content. Keep is native local review acceptance, matching
+the protocol's lack of a separate persistence operation for Keep.
+
+History reads final runs, including older conversation pages, and every
+`ListFileCheckpoints` page. Counts come from `ReadTurnDiff`. Undo confirms the
+selected turn, then restores checkpoint files in the source's newest-first order
+and stops at the first failure. Session documents read `ListArtifacts` and
+`ReadArtifact`, converting stored HTML to Markdown outside the UI thread. A
+revision cache avoids repeated reads on each presentation frame. Outcomes appear
+only in distinct failure, conflict, uncertain or success toasts.
+
+Browser and terminal rendering belongs to the later resource phase.
+
+## Live file editing
+
+`panel/editor_*.go` owns native editor state and controls. Text edits retain the
+original file ending and stay local until the existing revision-checked Save
+action succeeds. Tabs mark unsaved drafts; either host's Close offers Save,
+Discard and Cancel. Saving holds the close continuation until the exact draft
+is confirmed. A failed or uncertain save leaves the draft and tab intact. Failed
+file refreshes hide stale clean content and preserve dirty content as read-only.
+
+The accepted toolbar uses native undo/redo, Find and Replace, soft wrap, Markdown
+block and inline formatting, lists, links and insert menus. Controls collapse in
+the source's group order into More. Keyboard formatting uses the same actions.
+The footer reads the native caret, language, encoding and saving/partial state;
+its OS-native path menu also opens the captured workspace file externally.
+
+Markdown documents use pinned MyGo `richtext.Document` where its parser and
+serializer preserve the supported structure. Entering Document mode does not
+rewrite bytes; undoing back to the original native document restores its exact
+original source. Verified codec gaps include tables, language-tagged fences,
+raw HTML, images, footnotes and multiline paragraphs. These documents keep the
+existing Markdown preview and edit their original source. Unsupported block and
+insert operations switch to Source while preserving unrelated content. This
+avoids serializing an incomplete native model over the original file.
+
+The rich/source selection bridge reads MyGo's public parser byte spans and
+converts the native rune selection before a source insertion. Escapes, entities,
+Unicode, nested lists, code spans and fenced code retain their source positions.
+An entity that contains a selection boundary between decoded characters expands
+only at that token, with the same rendered text. A changed draft cannot receive
+an insertion calculated for older bytes.
+
+`live/attachments_editor_notebook.go` reads revision-fenced Notebook pages and
+projects cells, outputs and bounded PNG/JPEG images off the UI thread. Preview
+shows Markdown, read-only code/raw cells and captured outputs without starting
+a kernel. More cells retains the same revision; failures allow explicit Retry.
+Unsaved JSON projects from the local draft, and invalid drafts return to Source
+with their bytes intact. Asynchronous results cannot recreate a closed tab or
+replace a newer draft. Notebook source saves use the ordinary full-file action.
 
 ## UI state vs backend data
 
@@ -174,6 +250,13 @@ the same chrome when their plugins land.
 | Tabs, active tab; per browser tab the address and history, per terminal tab the folder and find query; per project: shown file and change, open folders, Document/Source, scroll, accepted hunks (until applied), commit draft | Files, changes, hunks, checkpoints, documents |
 
 ## Tests
+
+`internal/desktop/live/workspace_projection_test.go` covers status and nested file references, unique hunk identity and commit scopes. `internal/desktop/panel/live_test.go` covers draft preservation across refresh and in-flight saves, exact file endings and native hunk selection.
+
+`internal/desktop/panel/editor_test.go` groups exact source restoration, lossless
+fallback selection, formatting boundaries, overflow ordering and close lifecycle
+checks. Notebook draft validation, output projection and bounded embedded images
+join the attachment projection group in `internal/desktop/live`.
 
 `internal/desktop/panel/model_test.go`: tabs open once, closing picks the next,
 items are flat tabs (new browser pages, retired kinds dropped), each file
@@ -202,12 +285,37 @@ at its width.
 | Deviation | Reason |
 |---|---|
 | PDF and other non-native formats: WebView preview, later | MyGo has no native view of them; the card's Open uses the system's app meanwhile |
+| Unsupported native rich-text structures edit in Source with Markdown preview | The pinned rich-text codec omits their structure; retaining source prevents data loss |
 | Every open item is a tab in one flat strip | The plan asks for tabs; the reference holds one resource and tabs only a resource's documents |
 | Checkpoints and documents are tabs | The reference restores checkpoints from a turn and draws documents in a plugin |
 | Files and Git keep their state per project | The reference keeps one and resets it when the project changes |
 | Each open file and diff is a tab, also on the pages' strips | The plan asks for several files and diffs open at once |
 | The split's list is a fixed column past our own drag handle | MyGo's `Split` sizes its first pane, so a first frame jumped |
 | Hunks show in the Git tab's main area, not a dialog | One place for the preview's diffs |
-| Git forms (new branch, remote, tag), Output, a commit's and a stash's documents show the notice | They need a repository; the preview has none |
+| Preview Git forms, Output, commit and stash documents show the notice | Live adapters require a real repository; B0 remains isolated |
 | Browser and terminal are placeholders in their chrome | Rendering is later work (MyGo WebView, libghostty-vt) |
 | The browser's chrome is core | In the reference the browser plugin draws it; the preview has no plugin UI host |
+
+## Native workspace activity
+
+`workspace_activity.go` fills the existing composer Git capsule from the same
+captured `InspectGit` state as the panel. Totals include every returned entry;
+the recent list uses modification time descending, stable path order for ties,
+and the existing ten-file limit. Its action opens the actual worktree diff.
+Final turn diffs populate conversation changes cards. Review captures that turn's
+patches and hunk identities in the existing Git surface; Undo confirms the target
+and restores matching checkpoints in source order. A partially confirmed restore
+resumes after its successful entries and retains uncertain request identity.
+
+Project-backed unsent drafts resolve existing worktrees without creating a
+session or invoking a model. Composer location fields keep paths as identities;
+additive activity callbacks supply branch labels. Sidebar worktree controls use
+`ListWorktrees`, register native worktrees before selecting them, and reuse the
+existing Git forms for creation and removal. Confirmed worktree responses bridge
+snapshot delivery without treating a display label as a path or identifier.
+
+The native File menu's Save command follows the focused live file editor and
+uses the same revision-checked save action as its toolbar and shortcut. Moving
+focus outside an editable file disables the menu item; a clean editor keeps the
+command available and saving it has no effect. File references in the composer
+reuse this workspace's directory owner and receive its watched changes.

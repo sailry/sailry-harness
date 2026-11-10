@@ -22,6 +22,66 @@ import (
 )
 
 func TestConversationProjection(t *testing.T) {
+	t.Run("approval file changes and localized notices", testApprovalProjection)
+	t.Run("attachment chooser availability", testAttachmentPickerAvailability)
+	t.Run("checkpoint tool body uses only unified change lines", func(t *testing.T) {
+		name := "note.txt"
+		format := protocol.ToolDisplayProjectionFormatUnified
+		loaded := protocol.ToolDetail{Resolved: &protocol.ToolDetailResolved{Output: &protocol.ToolDetailOutput{Body: &protocol.ToolDetailBody{Path: &name, Diff: &format, Text: "diff --git a/note.txt b/note.txt\n--- a/note.txt\n+++ b/note.txt\n@@ -1,2 +1,2 @@\n before\n-old\n+new\n\\ No newline at end of file\n"}}}}
+		call := conversation.Call{Output: &conversation.Output{Text: "replacement fragment"}}
+		projectToolContent(&call, loaded)
+		if call.Output.Text != "" || call.Output.Diff == nil || call.Output.Diff.Path != name || call.Output.Diff.Added != 1 || call.Output.Diff.Removed != 1 || len(call.Output.Diff.Lines) != 3 || call.Output.Diff.Lines[0].Text != "before" {
+			t.Fatalf("checkpoint diff projection = %#v", call.Output)
+		}
+	})
+	t.Run("grounding links and native command tail are live data", func(t *testing.T) {
+		session, turn := protocol.NewSessionID(), protocol.NewTurnID()
+		end := uint32(3)
+		title := "Public source"
+		suggestions := "<div>Provider suggestions</div>"
+		page := protocol.DefaultConversationPage()
+		page.Session = session
+		page.Runs = []protocol.ConversationRun{{Turn: turn, Session: session, Kind: protocol.ConversationRunKindTask, Status: protocol.ConversationStatusCompleted}}
+		page.Entries = []protocol.ConversationEntry{{ID: "grounded", Turn: turn, Author: "assistant", Parts: []protocol.ConversationPart{{Kind: "text", Data: "结果🙂"}}, Citations: []protocol.ConversationCitation{{Uri: "https://example.com/source", Title: &title, End: &end}}, SearchSuggestions: &suggestions}}
+		state := client.ConversationState{Connected: true, Snapshot: protocol.ConversationSnapshot{Page: page}}
+		turns, _, _, _ := Conversation(state)
+		if len(turns) != 1 || len(turns[0].Reply.Citations) != 1 || turns[0].Reply.Citations[0].End != 3 {
+			t.Fatal(turns)
+		}
+		found := false
+		for _, block := range turns[0].Reply.Blocks {
+			if block.Kind == conversation.SearchBlock {
+				found = true
+				if block.Text != "结果🙂" || len(block.Sources) != 1 || block.Sources[0].URI != "https://example.com/source" {
+					t.Fatal(block)
+				}
+			}
+		}
+		if !found {
+			t.Fatal("provider grounding did not reach Globe disclosure")
+		}
+		if from := conversation.AnswerFrom(conversation.Compact(turns[0].Reply.Blocks)); from != 1 || turns[0].Reply.Blocks[from].Kind != conversation.TextBlock {
+			t.Fatal("grounding hid the answer in folded work", turns[0].Reply.Blocks)
+		}
+		secondEnd := uint32(2)
+		zero := uint32(0)
+		page.Entries[0].Citations = append(page.Entries[0].Citations, protocol.ConversationCitation{Uri: "https://example.com/unpositioned"}, protocol.ConversationCitation{Uri: "https://example.com/start", End: &zero})
+		page.Entries = append(page.Entries, protocol.ConversationEntry{ID: "second", Turn: turn, Author: "assistant", Parts: []protocol.ConversationPart{{Kind: "text", Data: "More"}}, Citations: []protocol.ConversationCitation{{Uri: "https://example.com/second", End: &secondEnd}, {Uri: "https://example.com/last"}, {Uri: "https://example.com/next-start", End: &zero}}})
+		state.Snapshot.Page = page
+		projected, _, _, _ := Conversation(state)
+		for index, want := range []int{3, 3, -1, 5, 7, -4} {
+			if got := projected[0].Reply.Citations[index].End; got != want {
+				t.Fatalf("citation %d endpoint=%d, want %d", index, got, want)
+			}
+		}
+		command := conversation.Call{}
+		result := json.RawMessage(`{"kind":"command_result","data":{"stdout":{"text":"first\nlast"}},"sailry_command":{"id":"retained"}}`)
+		projectToolContent(&command, protocol.ToolDetail{Result: &result})
+		if command.Output == nil || !command.Output.Command {
+			t.Fatal("command result did not select last100 line presentation", command)
+		}
+	})
+
 	for _, row := range []struct {
 		name            string
 		parts           []protocol.ConversationPart
@@ -285,6 +345,22 @@ func (t *conversationTestTransport) Dispatch(_ context.Context, request protocol
 }
 
 func TestComposerSendRouting(t *testing.T) {
+	t.Run("file and folder references retain their captured paths", func(t *testing.T) {
+		rows := composerFileReferences("docs", []protocol.FileEntry{{Name: "guide.md", Kind: protocol.EntryKindFile}, {Name: "examples", Kind: protocol.EntryKindDirectory}, {Name: "link", Kind: protocol.EntryKindSymlink}})
+		if len(rows) != 2 || rows[0].ID != "docs/guide.md" || rows[1].Kind != composer.Folder {
+			t.Fatalf("file reference rows = %#v", rows)
+		}
+		input := conversationInput(composer.Message{Text: "inspect", References: rows})
+		if len(input.References) != 2 || input.References[0].Target.Kind != "file" || input.References[1].Target.Kind != "directory" {
+			t.Fatalf("captured references = %#v", input.References)
+		}
+		for index, ref := range input.References {
+			got, ok := composerReference(ref)
+			if !ok || got.ID != rows[index].ID || got.Kind != rows[index].Kind {
+				t.Fatalf("restored reference = %#v, %v", got, ok)
+			}
+		}
+	})
 	for _, row := range []struct {
 		name, session, kind string
 		running             bool
@@ -486,4 +562,8 @@ func TestComposerSendRouting(t *testing.T) {
 			t.Fatalf("projected model default = %#v", comp)
 		}
 	})
+}
+
+func (t *conversationTestTransport) Open(context.Context, protocol.StreamID) (link.Stream, error) {
+	return nil, &protocol.Fault{Code: protocol.ErrorCodeNotFound, Message: "fixture stream is unavailable"}
 }

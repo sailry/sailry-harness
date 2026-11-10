@@ -83,6 +83,8 @@ func (client *Client) Close() error {
 	}
 	err := client.stopObservation()
 	client.closeConversations()
+	client.closeWorkspaces()
+	client.closeCommands()
 	client.mu.Lock()
 	client.connected = false
 	client.mu.Unlock()

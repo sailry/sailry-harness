@@ -253,7 +253,7 @@ func Elapsed(d time.Duration) string {
 func (s *State) reply(c *ui.Context, t *Turn, mark string, actions Actions) {
 	p := theme.Of(c)
 	r := &t.Reply
-	blocks := Compact(r.Blocks)
+	blocks := Compact(cited(r.Blocks, r.Citations))
 	from := AnswerFrom(blocks)
 	active := r.Status.Active()
 	ui.Column(c.Key("reply")).Gap(8).Children(func() {
@@ -304,9 +304,6 @@ func (s *State) reply(c *ui.Context, t *Turn, mark string, actions Actions) {
 		})
 		if from < len(blocks) {
 			answer := blocks[from:]
-			if len(r.Citations) > 0 {
-				answer = cited(answer, r.Citations)
-			}
 			if mark != "" {
 				answer = markBlocks(answer, mark)
 			}
@@ -321,7 +318,7 @@ func (s *State) reply(c *ui.Context, t *Turn, mark string, actions Actions) {
 			phaseRow(c, r)
 		}
 		if !active {
-			s.footer(c, t, blocks, actions)
+			s.footer(c, t, Compact(r.Blocks), actions)
 		}
 	})
 }

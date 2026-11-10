@@ -31,6 +31,7 @@ const (
 type State struct {
 	Data     *viewmodel.Data
 	Actions  *Actions
+	records  recordsState
 	Selected string // conversation ID
 	open     map[string]*bool
 	more     map[string]bool
@@ -385,7 +386,7 @@ func (s *State) conversation(c *ui.Context, cv *preview.Conversation, kind rowKi
 			status(c, cv.Status)
 		}
 		ui.Text(c, title).FontSize(14).SingleLine().Grow(1).Shrink(1)
-		if cv.Worktree != "" {
+		if s.nonMainWorktree(cv) {
 			ui.Icon(c, icons.Network).FontSize(14).TextColor(p.MutedForeground).Label(cv.Worktree)
 		}
 		if hovered {
@@ -415,6 +416,17 @@ func (s *State) conversation(c *ui.Context, cv *preview.Conversation, kind rowKi
 	if b.DoubleClicked() {
 		s.StartRename(cv)
 	}
+}
+
+func (s *State) nonMainWorktree(cv *preview.Conversation) bool {
+	if project := s.Data.ProjectOf(cv.ID); project != nil {
+		for _, tree := range project.Worktrees {
+			if cv.WorktreePath != "" && cv.WorktreePath == tree.Path || cv.WorktreePath == "" && cv.Worktree != "" && cv.Worktree == tree.Branch {
+				return !tree.Main
+			}
+		}
+	}
+	return false
 }
 
 // reorder makes a pinned row, which drags its session, take another pinned

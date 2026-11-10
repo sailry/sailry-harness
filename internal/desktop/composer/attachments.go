@@ -147,7 +147,13 @@ func status(c *ui.Context, a *Attachment) string {
 func (s *State) attachments(c *ui.Context, actions Actions) {
 	kit.ImageViewer(c, &s.view, func(a *Attachment) kit.ViewerItem {
 		return kit.ViewerItem{Source: a.Image, Name: a.Name}
-	}, func(kit.ImageAction, *Attachment) { kit.Message(c, i18n.T(c, "preview_notice")) })
+	}, func(action kit.ImageAction, a *Attachment) {
+		if s.attachmentCallbacks != nil && s.attachmentCallbacks.Image != nil {
+			s.attachmentCallbacks.Image(action, a)
+			return
+		}
+		kit.Message(c, i18n.T(c, "preview_notice"))
+	})
 	if len(s.Attachments) == 0 {
 		return
 	}
@@ -287,6 +293,10 @@ func round(c *ui.Context, key string, icon *ui.SVG, label string, fn func()) {
 
 // remove takes a file out of the draft and tells the backend.
 func (s *State) remove(a *Attachment, actions Actions) {
+	if s.attachmentCallbacks != nil && s.attachmentCallbacks.Remove != nil {
+		s.attachmentCallbacks.Remove(a)
+		return
+	}
 	for i, x := range s.Attachments {
 		if x == a {
 			s.Attachments = append(s.Attachments[:i:i], s.Attachments[i+1:]...)

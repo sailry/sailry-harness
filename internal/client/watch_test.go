@@ -42,6 +42,7 @@ func (subscription *clientSubscription) Close() error {
 }
 
 type clientTransport struct {
+	open          func(context.Context, protocol.StreamID) (link.Stream, error)
 	mu            sync.Mutex
 	requests      []protocol.Request
 	subscriptions []*clientSubscription
@@ -258,4 +259,11 @@ func TestRecoverAfterReset(t *testing.T) {
 			t.Fatal("finished-unread lane was lost")
 		}
 	})
+}
+
+func (transport *clientTransport) Open(ctx context.Context, id protocol.StreamID) (link.Stream, error) {
+	if transport.open != nil {
+		return transport.open(ctx, id)
+	}
+	return nil, &protocol.Fault{Code: protocol.ErrorCodeNotFound, Message: "fixture stream is unavailable"}
 }

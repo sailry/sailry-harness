@@ -16,8 +16,12 @@ var textSizes = []string{"message_text_small", "message_text_standard", "message
 func conversation(c *ui.Context, m *Model) {
 	kit.Group(c, "execution", i18n.T(c, "settings_execution"), "", nil, func() {
 		kit.Card(c, func() {
-			if settingSwitch(c, "sandbox", i18n.T(c, "settings_command_sandbox"), i18n.T(c, "settings_command_sandbox_description"), &m.Sandbox.Draft, m.Live || m.Sandbox.Pending) {
-				report(c, m.Sandbox.Commit(), sandboxMessages)
+			if settingSwitch(c, "sandbox", i18n.T(c, "settings_command_sandbox"), i18n.T(c, "settings_command_sandbox_description"), &m.Sandbox.Draft, m.Live && m.SaveSandbox == nil || m.Sandbox.Pending) {
+				if m.Live {
+					m.SaveSandbox()
+				} else {
+					report(c, m.Sandbox.Commit(), sandboxMessages)
+				}
 			}
 		})
 	})

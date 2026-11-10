@@ -15,7 +15,11 @@ import (
 )
 
 func (r *Runtime) execute(x *execution) {
+	if r.hooksForTurn != nil {
+		x.hooks = r.hooksForTurn(x.ctx, x.inv)
+	}
 	err := r.turn(x)
+	r.drainOperations(x)
 	status := protocol.ConversationStatusCompleted
 	var failure *protocol.Fault
 	if x.ctx.Err() != nil {
@@ -42,6 +46,14 @@ func (r *Runtime) execute(x *execution) {
 				}
 			}
 		}
+	}
+	hookStatus := "succeeded"
+	if status != protocol.ConversationStatusCompleted {
+		hookStatus = "failed"
+	}
+	if hookErr := x.hooks.Complete(ctx, hookStatus); hookErr != nil && status != protocol.ConversationStatusInterrupted {
+		status = protocol.ConversationStatusFailed
+		failure = model.Fault(hookErr)
 	}
 	var run protocol.ConversationRun
 	var reviewEntry *protocol.ConversationEntry
@@ -85,6 +97,10 @@ func inputRecord(turn protocol.TurnID, input protocol.ConversationInput, nowCloc
 	}
 	index := uint64(len(blocks))
 	blocks = append(blocks, canonical.Text(index, input.Text))
+	for _, id := range input.Attachments {
+		mime := ""
+		blocks = append(blocks, canonical.Block{Index: uint64(len(blocks)), Kind: "file", Data: &canonical.FileContent{File: canonical.FileRef{URI: attachmentPrefix + id.String(), Mime: &mime}}})
+	}
 	record := canonical.NewRecord(turn, "message", canonical.NewMessage(canonical.User, blocks...), nowClock.clock.Now())
 	record.Provenance.Author = "user"
 	source := canonical.InputUser

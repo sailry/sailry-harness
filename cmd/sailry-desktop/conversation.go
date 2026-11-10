@@ -69,7 +69,7 @@ func bindConversation(ctx context.Context, entry *desktopWindow, controller *cli
 			return
 		}
 		go func() {
-			assets := strings.TrimSuffix(filepath.Base(destination), filepath.Ext(destination)) + "-assets"
+			assets := "sailry-assets-" + protocol.NewRequestID().String()
 			documentFormat := client.ExportMarkdown
 			if format != exporter.Markdown {
 				documentFormat = client.ExportHTML
@@ -85,15 +85,34 @@ func bindConversation(ctx context.Context, entry *desktopWindow, controller *cli
 					document, err = controller.ExportReply(ctx, session, turn, title, documentFormat, assets)
 				}
 			}
-			if err == nil && len(document.Attachments) > 0 {
-				err = &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "attachment export requires the attachment transfer service"}
+			files := map[string][]byte{}
+			for _, attachment := range document.Attachments {
+				if err != nil {
+					break
+				}
+				var data []byte
+				image := false
+				for _, candidate := range document.Images {
+					if candidate.Attachment.ID == attachment.ID {
+						data, err = controller.ImageBytes(ctx, session, candidate)
+						image = true
+						break
+					}
+				}
+				if !image {
+					data, err = controller.AttachmentBytes(ctx, attachment)
+				}
+				if err == nil {
+					files[client.ExportAttachmentName(attachment)] = data
+				}
 			}
+
 			var data []byte
 			if err == nil {
-				data, err = exporter.Render(ctx, entry.window, document, assets, nil, format)
+				data, err = exporter.Render(ctx, entry.window, document, assets, files, format)
 			}
 			if err == nil {
-				err = saveConversation(destination, data)
+				err = saveConversationAssets(ctx, destination, data, assets, files, format)
 			}
 			runtime.ReportExport(err)
 		}()
@@ -126,4 +145,53 @@ func saveConversation(destination string, data []byte) error {
 		return fmt.Errorf("publish conversation export: %w", err)
 	}
 	return nil
+}
+
+// Markdown publishes immutable assets before its document; native renders are standalone.
+func saveConversationAssets(ctx context.Context, destination string, data []byte, assets string, files map[string][]byte, format exporter.Format) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if format != exporter.Markdown || len(files) == 0 {
+		return saveConversation(destination, data)
+	}
+	staging, err := os.MkdirTemp(filepath.Dir(destination), ".sailry-export-assets-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(staging)
+	for name, body := range files {
+		if filepath.Base(name) != name {
+			return fmt.Errorf("invalid export asset name")
+		}
+		file, err := os.OpenFile(filepath.Join(staging, name), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+		if err != nil {
+			return err
+		}
+		_, err = file.Write(body)
+		if err == nil {
+			err = file.Sync()
+		}
+		closed := file.Close()
+		if err != nil {
+			return err
+		}
+		if closed != nil {
+			return closed
+		}
+	}
+	if err = ctx.Err(); err != nil {
+		return err
+	}
+	published := filepath.Join(filepath.Dir(destination), assets)
+	if _, err = os.Lstat(published); !os.IsNotExist(err) {
+		return fmt.Errorf("export asset destination already exists")
+	}
+	if err = os.Rename(staging, published); err != nil {
+		return err
+	}
+	if err = saveConversation(destination, data); err != nil {
+		_ = os.RemoveAll(published)
+	}
+	return err
 }

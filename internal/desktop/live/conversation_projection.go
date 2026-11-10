@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
@@ -16,7 +17,11 @@ import (
 
 // Conversation projects canonical and live data without changing Client state.
 // Thinking is retained for provider replay but intentionally has no UI row.
-func Conversation(state client.ConversationState) ([]conversation.Turn, conversation.Session, composer.Interactions, []composer.Queued) {
+func Conversation(state client.ConversationState, locales ...string) ([]conversation.Turn, conversation.Session, composer.Interactions, []composer.Queued) {
+	language := ""
+	if len(locales) > 0 {
+		language = locales[0]
+	}
 	snapshot := state.Snapshot
 	page := snapshot.Page
 	session := conversation.Session{Loading: state.Loading, LoadingOlder: state.LoadingOlder, OlderFailed: state.OlderErr != nil}
@@ -186,6 +191,32 @@ func Conversation(state client.ConversationState) ([]conversation.Turn, conversa
 			}
 			continue
 		}
+		textOffset := 0
+		for _, block := range t.Reply.Blocks {
+			if block.Kind == conversation.TextBlock {
+				textOffset += utf8.RuneCountInString(block.Text)
+			}
+		}
+		var entryText strings.Builder
+		for _, part := range entry.Parts {
+			if part.Kind == "text" {
+				if value, ok := detail[string](part.Data); ok {
+					entryText.WriteString(value)
+				}
+			}
+		}
+		if entry.SearchSuggestions != nil {
+			sources := make([]conversation.Citation, 0, len(entry.Citations))
+			for _, citation := range entry.Citations {
+				value := conversation.Citation{URI: citation.Uri}
+				if citation.Title != nil {
+					value.Title = *citation.Title
+				}
+				sources = append(sources, value)
+			}
+			// Search is work in the accepted layout, so it precedes the answer.
+			t.Reply.Blocks = append(t.Reply.Blocks, conversation.Block{Kind: conversation.SearchBlock, Text: entryText.String(), Sources: sources})
+		}
 		projectParts(&t.Reply, entry.Parts, entry.ID, entry.Turn, entry.Branch, associations)
 		if t.Compaction != nil {
 			for _, part := range entry.Parts {
@@ -197,12 +228,15 @@ func Conversation(state client.ConversationState) ([]conversation.Turn, conversa
 			}
 		}
 		for _, citation := range entry.Citations {
-			v := conversation.Citation{URI: citation.Uri}
+			v := conversation.Citation{URI: citation.Uri, End: textOffset + utf8.RuneCountInString(entryText.String())}
 			if citation.Title != nil {
 				v.Title = *citation.Title
 			}
 			if citation.End != nil {
-				v.End = int(*citation.End)
+				v.End = textOffset + int(*citation.End)
+				if *citation.End == 0 {
+					v.End = -(textOffset + 1)
+				}
 			}
 			t.Reply.Citations = append(t.Reply.Citations, v)
 		}
@@ -272,25 +306,9 @@ func Conversation(state client.ConversationState) ([]conversation.Turn, conversa
 		if a.State != "pending" {
 			continue
 		}
-		v := composer.Approval{ID: a.ID.String(), Remember: a.CanRemember, Unrestricted: a.Access != nil && *a.Access == "unrestricted"}
-		if a.Prefix != nil {
-			v.Prefix = *a.Prefix
-		}
-		if call := callAt(page, a.Entry, a.Index); call != nil {
-			v.Title = call.Name
-			if call.Summary != nil && call.Summary.Resolved != nil {
-				resolved := call.Summary.Resolved
-				if resolved.Label != nil {
-					v.Title = resolved.Label.Label
-				}
-				if resolved.Input.Context != nil {
-					v.Context = resolved.Input.Context.Text
-				}
-				if resolved.Input.Content != nil {
-					v.Description = resolved.Input.Content.Text
-					v.Code = resolved.Input.Content.Code
-				}
-			}
+		call := callAt(page, a.Entry, a.Index)
+		v := projectApproval(a, call, language)
+		if call != nil {
 			if projected := calls[toolCallKey(a.Entry, a.Index)]; projected != nil {
 				projected.Pending = true
 				projected.State = conversation.Pending
@@ -683,7 +701,7 @@ func projectCall(name string, summary *protocol.ToolDetailSummary) conversation.
 			call.Code = resolved.Input.Summary.Code
 		}
 		if output := resolved.Output; output != nil {
-			call.Output = &conversation.Output{Text: output.Preview, Paths: slices.Clone(output.Paths)}
+			call.Output = &conversation.Output{Text: output.Preview, Paths: slices.Clone(output.Paths), Command: resolved.Command != nil}
 			if output.Body != nil {
 				call.Output.Text = output.Body.Text
 			}

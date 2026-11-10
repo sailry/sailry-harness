@@ -156,3 +156,7 @@ func testConversationWatchRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func (t *conversationTransport) Open(context.Context, protocol.StreamID) (link.Stream, error) {
+	return nil, &protocol.Fault{Code: protocol.ErrorCodeNotFound, Message: "fixture stream is unavailable"}
+}

@@ -57,7 +57,15 @@ func (c *Client) ReadConversationDetail(ctx context.Context, ref protocol.ToolDe
 	pending := &conversationDetailRead{done: make(chan struct{})}
 	c.conversationDetailReads[key] = pending
 	c.conversationMu.Unlock()
-	value, err := c.readConversationDetail(ctx, ref)
+	var value protocol.ToolDetail
+	var err error
+	select {
+	case c.detailSlots <- struct{}{}:
+		value, err = c.readConversationDetail(ctx, ref)
+		<-c.detailSlots
+	case <-ctx.Done():
+		err = ctx.Err()
+	}
 	c.conversationMu.Lock()
 	pending.value, pending.err = copyValue(value), err
 	delete(c.conversationDetailReads, key)

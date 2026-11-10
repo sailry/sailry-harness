@@ -44,6 +44,9 @@ func (r *Runtime) projectConversations() {
 					cv.Turns, cv.Session, cv.Waiting, cv.Queue = Conversation(state)
 					r.enrichDetails(cv, state)
 					r.enrichQueue(cv, state.Snapshot.Page.Queue)
+					r.projectConversationAssets(cv, state)
+					r.bindAttachmentSources(cv.ID, state.Snapshot.Page)
+					r.projectAttachmentImages(cv)
 					cv.Animating = len(state.Snapshot.Drafts) > 0
 				}
 			}
@@ -161,11 +164,14 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 			}
 		}
 		if state, ok := r.controller.Conversation(id); ok {
-			cv.Turns, cv.Session, cv.Waiting, cv.Queue = Conversation(state)
+			cv.Turns, cv.Session, cv.Waiting, cv.Queue = Conversation(state, c.Locale())
 			r.bindReferences(cv.ID, state.Snapshot.Page)
 			r.App.Messages.SyncSearch(cv.ID, state.Snapshot.Page.Revision)
 			r.enrichDetails(cv, state)
 			r.enrichQueue(cv, state.Snapshot.Page.Queue)
+			r.projectConversationAssets(cv, state)
+			r.bindAttachmentSources(cv.ID, state.Snapshot.Page)
+			r.projectAttachmentImages(cv)
 		}
 	}
 	for ti := range cv.Turns {
@@ -290,7 +296,12 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 			r.composerObserved[cv.ID] = key
 		}
 	}
-	return ctx, &conversationActions{r: r, c: c, cv: cv, comp: comp}
+	r.projectWorkspaceComposer(cv, comp, ctx)
+	r.projectComposerFiles(cv, comp, ctx)
+	r.projectCommands(cv.ID, comp, &ctx.Activity)
+	actions := &conversationActions{r: r, c: c, cv: cv, comp: comp}
+	r.bindComposerAttachments(actions)
+	return ctx, actions
 }
 
 func modeChoice(mode protocol.WorkMode) composer.Mode {
@@ -430,9 +441,18 @@ func (r *Runtime) references(cv *viewmodel.Conversation, comp *composer.State) (
 func conversationInput(m composer.Message) protocol.ConversationInput {
 	input := protocol.DefaultConversationInput()
 	input.Text = m.Text
+	for _, attachment := range m.Attachments {
+		if id, err := protocol.ParseAttachmentID(attachment.ID); err == nil {
+			input.Attachments = append(input.Attachments, id)
+		}
+	}
 	for _, ref := range m.References {
 		target := protocol.ConversationReferenceTarget{}
 		switch ref.Kind {
+		case composer.File:
+			target = protocol.ConversationReferenceTarget{Kind: "file", Data: ref.ID}
+		case composer.Folder:
+			target = protocol.ConversationReferenceTarget{Kind: "directory", Data: ref.ID}
 		case composer.Session:
 			if id, err := protocol.ParseSessionID(ref.ID); err == nil {
 				target = protocol.ConversationReferenceTarget{Kind: "session", Data: id}
@@ -452,6 +472,15 @@ func conversationInput(m composer.Message) protocol.ConversationInput {
 func composerReference(ref protocol.ConversationReference) (composer.Reference, bool) {
 	value := composer.Reference{Label: ref.Label}
 	switch ref.Target.Kind {
+	case "file", "directory":
+		path, ok := detail[string](ref.Target.Data)
+		if !ok {
+			return value, false
+		}
+		value.ID, value.Label, value.Kind, value.Icon = path, ref.Label, composer.File, icons.File
+		if ref.Target.Kind == "directory" {
+			value.Kind, value.Icon = composer.Folder, icons.Folder
+		}
 	case "session":
 		id, ok := detail[protocol.SessionID](ref.Target.Data)
 		if !ok {
@@ -486,12 +515,17 @@ func (x *conversationActions) deliver(m composer.Message, guide, queue bool) {
 	x.comp.Draft = m.Text
 	x.comp.References = slices.Clone(m.References)
 	x.comp.Attachments = slices.Clone(m.Attachments)
-	if len(m.Attachments) > 0 {
-		x.unavailable()
-		return
+	for _, attachment := range m.Attachments {
+		if attachment.Status != composer.Ready || attachment.ID == "" {
+			x.unavailable()
+			return
+		}
 	}
 	draft := composerFingerprint(x.comp)
 	finish := func(_ protocol.Output, ok bool) {
+		if ok {
+			x.r.attachmentsCommitted(m.Attachments)
+		}
 		if ok && composerFingerprint(x.comp) == draft {
 			x.comp.Draft = ""
 			x.comp.References = nil
@@ -616,23 +650,27 @@ func (x *conversationActions) Export(turn string, format conversation.ExportForm
 		x.unavailable()
 	}
 }
-func (x *conversationActions) OpenChild(id string)                                   { x.r.OpenSession(id) }
-func (x *conversationActions) OpenFile(conversation.File)                            { x.unavailable() }
-func (x *conversationActions) FileAction(conversation.File, conversation.FileAction) { x.unavailable() }
-func (x *conversationActions) ImageAction(kit.ImageAction, conversation.Image)       { x.unavailable() }
-func (x *conversationActions) Undo(string, string)                                   { x.unavailable() }
-func (x *conversationActions) Review(string, string)                                 { x.unavailable() }
-func (x *conversationActions) Worktree(string)                                       { x.unavailable() }
-func (x *conversationActions) CreateWorktree()                                       { x.unavailable() }
-func (x *conversationActions) AddProject()                                           { x.r.App.Sidebar.OpenEditor(nil) }
-func (x *conversationActions) ManageTeams()                                          { x.unavailable() }
-func (x *conversationActions) OpenChange(string)                                     { x.unavailable() }
-func (x *conversationActions) Badge(string, string)                                  { x.unavailable() }
-func (x *conversationActions) StopCommand(string)                                    { x.unavailable() }
-func (x *conversationActions) OpenService(int)                                       { x.unavailable() }
-func (x *conversationActions) Upload(*composer.Attachment)                           { x.unavailable() }
+func (x *conversationActions) OpenChild(id string)             { x.r.OpenSession(id) }
+func (x *conversationActions) OpenFile(file conversation.File) { x.r.openAttachmentFile(x, file) }
+func (x *conversationActions) FileAction(file conversation.File, action conversation.FileAction) {
+	x.r.attachmentFileAction(x, file, action)
+}
+func (x *conversationActions) ImageAction(action kit.ImageAction, image conversation.Image) {
+	x.r.attachmentImageAction(x, action, image)
+}
+func (x *conversationActions) Undo(turn, path string)        { x.r.undoWorkspaceTurn(x, turn, path) }
+func (x *conversationActions) Review(turn, path string)      { x.r.reviewWorkspaceTurn(x, turn, path) }
+func (x *conversationActions) Worktree(turn string)          { x.r.forkWorkspaceTurn(x, turn) }
+func (x *conversationActions) CreateWorktree()               { x.r.createComposerWorktree(x) }
+func (x *conversationActions) AddProject()                   { x.r.App.Sidebar.OpenEditor(nil) }
+func (x *conversationActions) ManageTeams()                  { x.unavailable() }
+func (x *conversationActions) OpenChange(path string)        { x.r.openWorkspaceChange(x, path) }
+func (x *conversationActions) Badge(string, string)          { x.unavailable() }
+func (x *conversationActions) StopCommand(id string)         { x.stopWorkspaceCommand(id) }
+func (x *conversationActions) OpenService(port int)          { x.openCommandService(port) }
+func (x *conversationActions) Upload(a *composer.Attachment) { x.r.uploadAttachment(x, a) }
 func (x *conversationActions) Discard(a *composer.Attachment) {
-	x.comp.Attachments = slices.DeleteFunc(x.comp.Attachments, func(v *composer.Attachment) bool { return v == a })
+	x.r.discardAttachment(x, a)
 }
 func (x *conversationActions) Dictate(*composer.Dictation, composer.DictationCommand) {
 	x.unavailable()

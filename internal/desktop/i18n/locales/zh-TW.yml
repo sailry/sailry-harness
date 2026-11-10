@@ -1518,3 +1518,120 @@ provider_revision_changed: 配置已變化，請重新開啟編輯
 provider_save_failed: 儲存失敗，請重試
 provider_save_unknown: 結果未確認，請保持內容不變後重試
 question_closed: 問題已結束，草稿已保留
+files_upload_failed: 上傳失敗，請檢查檔案和連線後重試
+files_upload_cancelled: 上傳已取消
+files_upload_changed: 來源已變更，請重新選擇檔案
+files_upload_too_large: 檔案超過 64 MiB
+files_upload_name: 檔名無效
+files_upload_source: 無法讀取所選檔案
+files_download_failed: 下載失敗，請檢查檔案和連線後重試
+files_download_changed: 來源已變更，請重新下載
+files_download_destination: 無法儲存下載，請檢查目標路徑和許可權
+files_download_conflict: 目標檔案已變更，請重新選擇儲存位置
+chat_attachment_remove_failed: 移除失敗
+workspace_action_failed: Workspace action failed
+workspace_changed: Workspace changed; reload before trying again
+workspace_action_unknown: Outcome uncertain; inspect before trying again
+workspace_saved: Saved
+workspace_completed: Completed
+workspace_native_unavailable: File action unavailable
+workspace_invalid: Check the entered values
+workspace_restore_confirm: Restore the previous file versions for this turn
+artifact_edit_prompt: 修改要求：
+hooks_project_required: 選擇專案
+workspace_worktree_remove_confirm: Remove this worktree and its files
+background_stop_failed: 停止失敗，請重試
+background_stop_unknown: 停止結果未確認，請檢視命令狀態
+background_unavailable: 暫時無法讀取後臺終端
+files_cancel_remaining: Cancel remaining
+files_check_result: 檢查結果
+files_move_recycle: 複製完成後，將來原始檔移入回收站
+files_paste_cancelled: 已取消貼上
+files_paste_copying: 正在複製
+files_paste_directory: 目標資料夾
+files_paste_source: 來源 worktree
+files_upload_retry: 重試
+files_worktree_root: worktree 根目錄
+content_preview: Preview
+file_search: 搜尋檔案
+file_search_case: 區分大小寫
+file_search_empty: 無匹配結果
+file_search_failed: 搜尋失敗，請重試
+file_search_filter: 檔案範圍，如 **/*.rs
+file_search_invalid: 檢查搜尋表示式或檔案範圍
+file_search_partial: 部分內容未搜尋或顯示不完整
+file_search_query: 搜尋內容
+file_search_regex: 正規表示式
+file_search_running: 搜尋中
+files_block: Text
+files_block_bullet: Bulleted list
+files_block_callout: Callout
+files_block_code: Code block
+files_block_heading: Heading {level}
+files_block_ordered: Numbered list
+files_block_paragraph: Paragraph
+files_block_quote: Quote
+files_block_task: Task list
+files_bold: Bold
+files_content_partial: 檔案較大，僅顯示前 128 KiB 的文字內容
+files_create: 新建
+files_directory_changed: 目錄已變化，請重新載入
+files_directory_failed: 無法載入目錄，請重試
+files_discard: 放棄草稿
+files_discard_description: 丟棄未儲存修改？正在儲存的內容仍可能寫入
+files_discard_title: 放棄未儲存的草稿
+files_inline_code: Inline code
+files_insert: Insert
+files_insert_chart: Chart
+files_insert_code: Code block
+files_insert_diagrams: Diagrams
+files_insert_html: HTML block
+files_insert_image: Image
+files_insert_math: Math
+files_insert_mermaid: Mermaid
+files_insert_rule: Divider
+files_insert_table: Table
+files_italic: Italic
+files_link: Link
+files_listing_partial: 目錄較大或包含不支援的名稱，僅顯示部分條目
+files_load_more: 載入更多
+files_more: More
+files_move: 移動
+files_operation_busy: 檔案操作尚未完成
+files_replace: Find and replace
+files_saving: 正在儲存…
+files_strike: Strikethrough
+files_upload: 上傳
+files_upload_conflict: 目標已變更，請重新上傳
+files_upload_denied: 無法寫入目標檔案
+files_upload_done: 上傳完成
+files_upload_exists: 同名檔案已存在，替換會覆蓋其內容
+files_upload_replace: 替換
+files_upload_unknown: 上傳結果不明，請檢查結果
+files_wrap: Soft wrap
+location_copy_changes: 帶入未提交修改
+location_fork: 在獨立工作樹中派生會話
+refresh: Refresh
+artifact_next_page: 下一頁
+artifact_previous_page: 上一頁
+git_commit_scope: 尚未暫存更改
+git_commit_tracked: 提交已跟蹤檔案
+git_continue: 繼續操作
+git_directory_title: 尚未初始化 Git
+git_history_partial: 部分提交內容或引用過長，已截斷顯示
+git_initialize: 初始化 Git
+git_initialize_nested_confirm: The new repository will contain these repositories
+git_publish: 釋出分支
+git_repositories: Contains %{count} Git repositories
+git_repository: Contains 1 Git repository
+git_stash_switch: 儲藏更改並切換
+git_switch_confirm: Switch to %{branch}
+git_switch_confirm_action: Switch
+git_switch_confirm_detail: Sessions, terminals and open files in this worktree all move to this branch.
+git_tracking_name: 本地分支名稱
+git_unborn_title: 倉庫尚無提交
+notebook_cell: 儲存格 %{number}
+notebook_empty: 沒有儲存格
+git_diff_binary: 二進位制無法顯示差異
+git_diff_partial: 差異較大，僅顯示部分內容
+hooks_scope_windows: 指令碼使用目前 Windows 命令原則

@@ -1067,6 +1067,7 @@ func (value *GitChangeKind) UnmarshalText(data []byte) error {
 }
 
 type GitEntry struct {
+	ModifiedMs   *uint64        `json:"modified_ms,omitempty"`
 	Diff         GitLineStats   `json:"diff"`
 	StagedDiff   GitLineStats   `json:"staged_diff"`
 	UnstagedDiff GitLineStats   `json:"unstaged_diff"`

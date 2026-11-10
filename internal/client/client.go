@@ -14,6 +14,15 @@ import (
 )
 
 type Client struct {
+	detailSlots             chan struct{}
+	commandOutputs          map[commandOutputKey]*commandOutputWatch
+	commandsMu              sync.Mutex
+	commands                map[protocol.SessionID]*commandsWatch
+	commandOwners           sync.WaitGroup
+	workspaceMu             sync.Mutex
+	workspaces              map[workspaceKey]*workspaceWatch
+	workspaceOwners         sync.WaitGroup
+	transferClock           transferClock
 	conversationDetails     map[string]conversationDetail
 	conversationDetailReads map[string]*conversationDetailRead
 	conversationDetailOrder []string
@@ -38,7 +47,7 @@ type Client struct {
 }
 
 func New(transport link.Transport) *Client {
-	return &Client{transport: transport, project: NewProjection(transport.Target(), 0), callbacks: make(map[uint64]func())}
+	return &Client{detailSlots: make(chan struct{}, 4), transferClock: systemTransferClock{}, transport: transport, project: NewProjection(transport.Target(), 0), callbacks: make(map[uint64]func())}
 }
 
 func (client *Client) Target() protocol.NodeID { return client.transport.Target() }

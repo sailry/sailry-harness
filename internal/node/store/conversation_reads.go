@@ -166,6 +166,9 @@ func readAgentToolDetail(ctx context.Context, db *sql.Conn, input protocol.Comma
 	detail.Images = raw.Images
 	detail.Resolved = raw.resolved(true)
 	detail.Content = raw.content()
+	if err = toolCheckpointDetail(ctx, db, input.Turn, raw, &detail); err != nil {
+		return value, err
+	}
 	encoded, err := encode(detail)
 	if err != nil {
 		return value, err
@@ -180,18 +183,23 @@ func readAgentToolDetail(ctx context.Context, db *sql.Conn, input protocol.Comma
 	}
 	return value, err
 }
-func readAgentToolOutput(ctx context.Context, db *sql.Conn, input protocol.CommandReadToolOutputPayload) (protocol.ToolOutputOutputPage, error) {
-	value := protocol.DefaultToolOutputOutputPage()
-	value.Output = input.Output
-	value.Offset = input.Offset
-	if input.Stream != nil {
-		return value, fault(protocol.ErrorCodeUnavailable, "process output streams are unavailable")
-	}
+
+type resolvedToolOutput struct {
+	Session protocol.SessionID
+	Turn    protocol.TurnID
+	Value   json.RawMessage
+}
+
+func resolveAgentToolOutput(ctx context.Context, db *sql.Conn, input protocol.CommandReadToolOutputPayload) (resolvedToolOutput, error) {
+	value := resolvedToolOutput{}
 	if input.Output.Call == "" || len(input.Output.Call) > 4096 || len(input.Output.Revision) != 64 || !agentHex(input.Output.Revision) {
 		return value, invalid("tool output reference is invalid")
 	}
 	run, err := activeAgentRun(ctx, db, input.Turn)
 	if err != nil {
+		return value, err
+	}
+	if _, err = visibleAgentRun(ctx, db, run.Session, input.Turn); err != nil {
 		return value, err
 	}
 	records, err := readBodies[canonical.Record](ctx, db, "SELECT e.body FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1 ORDER BY h.sequence DESC", run.Session.String())
@@ -200,22 +208,19 @@ func readAgentToolOutput(ctx context.Context, db *sql.Conn, input protocol.Comma
 	}
 	found := false
 	for _, record := range records {
-		if m := record.Message(); m != nil {
-			for _, block := range m.Content {
+		if message := record.Message(); message != nil {
+			for _, block := range message.Content {
 				response, ok := block.Data.(*canonical.ToolResponse)
 				if !ok || response.ID != input.Output.Call {
 					continue
 				}
 				found = true
 				if response.Revision == input.Output.Revision {
-					hydrated, e := HydrateCanonicalPayload(ctx, db, response.Result)
-					if e != nil {
-						return value, e
+					hydrated, err := HydrateCanonicalPayload(ctx, db, response.Result)
+					if err != nil {
+						return value, err
 					}
-					value.Turn = record.Turn
-					value.TotalBytes = uint64(len(hydrated))
-					value.Text, value.NextOffset, e = utf8TextPage(string(hydrated), input.Offset, min(input.Limit, 32*1024))
-					return value, e
+					return resolvedToolOutput{Session: run.Session, Turn: record.Turn, Value: hydrated}, nil
 				}
 			}
 		}
@@ -225,6 +230,54 @@ func readAgentToolOutput(ctx context.Context, db *sql.Conn, input protocol.Comma
 	}
 	return value, fault(protocol.ErrorCodeNotFound, "canonical tool output is unavailable")
 }
+
+func readAgentToolOutput(ctx context.Context, db *sql.Conn, input protocol.CommandReadToolOutputPayload) (protocol.ToolOutputOutputPage, error) {
+	page := protocol.DefaultToolOutputOutputPage()
+	page.Output, page.Offset = input.Output, input.Offset
+	if input.Stream != nil {
+		return page, fault(protocol.ErrorCodeInternal, "retained command stream requires its process owner")
+	}
+	resolved, err := resolveAgentToolOutput(ctx, db, input)
+	if err != nil {
+		return page, err
+	}
+	page.Turn, page.TotalBytes = resolved.Turn, uint64(len(resolved.Value))
+	page.Text, page.NextOffset, err = utf8TextPage(string(resolved.Value), input.Offset, min(input.Limit, 32*1024))
+	return page, err
+}
+
+// ResolveToolCommandStream verifies the current invocation and exact visible
+// canonical result. The Node pages the existing Process owner after this read.
+func ResolveToolCommandStream(ctx context.Context, db *sql.Conn, caller protocol.NodeID, input protocol.CommandReadToolOutputPayload) (protocol.SessionID, protocol.RequestID, error) {
+	var owner []byte
+	if err := db.QueryRowContext(ctx, "SELECT caller FROM turns WHERE id=?1", input.Turn.String()).Scan(&owner); err != nil {
+		return protocol.SessionID{}, protocol.RequestID{}, err
+	}
+	if string(owner) != string(caller[:]) {
+		return protocol.SessionID{}, protocol.RequestID{}, fault(protocol.ErrorCodePermissionDenied, "tool output read belongs to another invocation")
+	}
+	resolved, err := resolveAgentToolOutput(ctx, db, input)
+	if err != nil {
+		return protocol.SessionID{}, protocol.RequestID{}, err
+	}
+	value := agentJSON(resolved.Value)
+	id := agentString(agentPointer(value, "/sailry_command/id"))
+	if id == nil && (agentObject(value)["kind"] == "command_result" || agentObject(value)["kind"] == "command_output") {
+		id = agentString(agentPointer(value, "/data/info/id"))
+		if id == nil {
+			id = agentString(agentPointer(value, "/info/id"))
+		}
+	}
+	if id == nil {
+		return protocol.SessionID{}, protocol.RequestID{}, invalid("tool result has no retained command stream")
+	}
+	command, err := protocol.ParseRequestID(*id)
+	if err != nil {
+		return protocol.SessionID{}, protocol.RequestID{}, invalid("tool result has no retained command stream")
+	}
+	return resolved.Session, command, nil
+}
+
 func searchAgentConversation(ctx context.Context, db *sql.Conn, session protocol.SessionID, query protocol.ConversationSearchQuery) (protocol.ConversationSearchPage, error) {
 	value := protocol.DefaultConversationSearchPage()
 	value.Session = session

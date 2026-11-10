@@ -21,10 +21,9 @@ const (
 // cmd/sailry-desktop passes to Do: the menu takes their keys before the
 // window does. The system's items are MyGo's roles under the reference's
 // labels and keys: the menu binds Close Window, Hide, Hide Others, Minimize
-// and Full Screen on cmd (ui.Super), the rest on secondary (ui.Cmd). Save and
-// Logs stay disabled while the preview has no file editor or log folder (Logs
-// is disabled without one in the reference too). Help's last items open the
-// welcome guide and the selected text dialog, which the preview reaches no
+// and Full Screen on cmd (ui.Super), the rest on secondary (ui.Cmd). Save follows
+// the focused live editor. Logs stays disabled without a log folder. Help's
+// last items open the welcome guide and the selected text dialog, which the preview reaches no
 // other way.
 func (a *App) Menu(lang string, send func(id string)) []*mygo.MenuItem {
 	t := func(key string) string { return i18n.In(lang, key) }
@@ -50,6 +49,16 @@ func (a *App) Menu(lang string, send func(id string)) []*mygo.MenuItem {
 		return it
 	}
 	sep := mygo.Separator
+	save := off("menu_save", "file.save", ui.Cmd, ui.KeyS)
+	if !a.Preview {
+		save.Disabled = !a.fileSaveEnabled
+		save.Click = func(*mygo.MenuItem, *mygo.Window) {
+			if a.fileSaveEnabled {
+				send("file.save")
+			}
+		}
+		a.fileSaveMenu = save.SetEnabled
+	}
 	view := []*mygo.MenuItem{
 		item("menu_search", "app.search"),
 		item("menu_find_conversation", "conversation.find"),
@@ -86,7 +95,7 @@ func (a *App) Menu(lang string, send func(id string)) []*mygo.MenuItem {
 			item("menu_new_project", "project.new"),
 			item("menu_open_folder", "folder.open"),
 			sep(),
-			off("menu_save", "file.save", ui.Cmd, ui.KeyS),
+			save,
 			sep(),
 			item("menu_close_tab", CloseFocused.ID),
 			role("menu_close_window", mygo.RoleClose, ui.Super|ui.Shift, ui.KeyW),

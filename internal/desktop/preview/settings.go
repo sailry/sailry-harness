@@ -1,6 +1,9 @@
 package preview
 
-import "time"
+import (
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
+	"time"
+)
 
 // The settings pages' preview data: what a Node and the app would report
 // for each section. Credentials are never part of it; pages show them as
@@ -24,22 +27,15 @@ type Device struct {
 	RTT                int    // round trip in ms; 0 for none
 }
 
-// HookPhase is when a hook script runs.
-type HookPhase int
+type HookPhase = viewmodel.HookPhase
 
 const (
-	BeforeTool HookPhase = iota
-	AfterTool
-	TurnEnd
+	BeforeTool = viewmodel.BeforeTool
+	AfterTool  = viewmodel.AfterTool
+	TurnEnd    = viewmodel.TurnEnd
 )
 
-// Hook is a project's hook script.
-type Hook struct {
-	ID, Name, Command string
-	Phase             HookPhase
-	TimeoutMS         int
-	Enabled           bool
-}
+type Hook = viewmodel.Hook
 
 // ModelStatus is a local model's state on its host.
 type ModelStatus int

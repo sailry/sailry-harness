@@ -11,18 +11,27 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/agent/feed"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
 	"github.com/sailry/sailry-harness/internal/node/agent/output"
+	"github.com/sailry/sailry-harness/internal/node/hooks"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 // Options exposes the actual model and clock boundaries to deterministic tests.
 type Options struct {
-	Clock clock.Clock
-	Model func(context.Context, model.Binding) (fantasy.LanguageModel, error)
-	Tools []Tool
+	Attachment      func(context.Context, protocol.TurnID, protocol.AttachmentID) (protocol.Attachment, bool, error)
+	AttachmentBytes func(context.Context, protocol.Attachment) ([]byte, error)
+	Clock           clock.Clock
+	Model           func(context.Context, model.Binding) (fantasy.LanguageModel, error)
+	Tools           []Tool
+	ToolsForTurn    func(context.Context, *store.AgentInvocation) ([]Tool, error)
+	HooksForTurn    func(context.Context, *store.AgentInvocation) *hooks.Binding
 }
 
 type Runtime struct {
+	attachment        func(context.Context, protocol.TurnID, protocol.AttachmentID) (protocol.Attachment, bool, error)
+	attachmentBytes   func(context.Context, protocol.Attachment) ([]byte, error)
+	toolsForTurn      func(context.Context, *store.AgentInvocation) ([]Tool, error)
+	hooksForTurn      func(context.Context, *store.AgentInvocation) *hooks.Binding
 	db                *store.Handle
 	node              protocol.NodeID
 	profile           string
@@ -47,12 +56,18 @@ type Runtime struct {
 }
 
 type execution struct {
-	inv    *store.AgentInvocation
-	ctx    context.Context
-	cancel context.CancelFunc
-	wake   chan struct{}
-	tools  []Tool
-	output output.Cache
+	finishing      bool
+	operations     uint64
+	operationsDone chan struct{}
+	attachments    map[protocol.AttachmentID]*attachmentMaterial
+	hooks          *hooks.Binding
+	inv            *store.AgentInvocation
+	ctx            context.Context
+	cancel         context.CancelFunc
+	wake           chan struct{}
+	guidance       chan struct{}
+	tools          []Tool
+	output         output.Cache
 }
 
 func New(db *store.Handle, node protocol.NodeID, profile string, frames *feed.Hub, publish func(), options Options) *Runtime {
@@ -63,7 +78,7 @@ func New(db *store.Handle, node protocol.NodeID, profile string, frames *feed.Hu
 		options.Model = model.New
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Runtime{db: db, node: node, profile: profile, feed: frames, publish: publish, clock: options.Clock, model: options.Model, tools: options.Tools, ctx: ctx, cancel: cancel, done: make(chan struct{}), wake: make(chan struct{}, 1), active: map[protocol.TurnID]*execution{}, statistics: map[protocol.SessionID]bool{}}
+	return &Runtime{attachment: options.Attachment, attachmentBytes: options.AttachmentBytes, db: db, node: node, profile: profile, feed: frames, publish: publish, clock: options.Clock, model: options.Model, tools: options.Tools, toolsForTurn: options.ToolsForTurn, hooksForTurn: options.HooksForTurn, ctx: ctx, cancel: cancel, done: make(chan struct{}), wake: make(chan struct{}, 1), active: map[protocol.TurnID]*execution{}, statistics: map[protocol.SessionID]bool{}}
 }
 
 // Recover closes interrupted owners and holds every surviving queue. It never
@@ -135,7 +150,7 @@ func (r *Runtime) run() {
 			}
 			r.publish()
 			ctx, cancel := context.WithCancel(r.ctx)
-			x := &execution{inv: inv, ctx: ctx, cancel: cancel, wake: make(chan struct{}, 1)}
+			x := &execution{inv: inv, ctx: ctx, cancel: cancel, wake: make(chan struct{}, 1), guidance: make(chan struct{}, 1)}
 			r.mu.Lock()
 			r.active[inv.Run.Turn] = x
 			r.mu.Unlock()
@@ -196,6 +211,10 @@ func (r *Runtime) Committed() {
 		case x.wake <- struct{}{}:
 		default:
 		}
+		select {
+		case x.guidance <- struct{}{}:
+		default:
+		}
 	}
 	r.Wake()
 }
@@ -224,8 +243,32 @@ func (r *Runtime) RefreshCommitted(session protocol.SessionID) {
 	for _, v := range history.Page.Approvals {
 		r.feed.Publish(session, protocol.ConversationChange{Kind: "approval", Data: v})
 	}
+	for _, task := range history.Page.Background {
+		r.feed.Publish(session, protocol.ConversationChange{Kind: "background", Data: task})
+	}
 	for _, v := range history.Page.Questions {
 		r.feed.Publish(session, protocol.ConversationChange{Kind: "question", Data: v})
 	}
 	r.RefreshStatisticsCommitted(session)
+}
+
+// OperationContext borrows a running turn's cancellation owner. The caller must
+// finish its admitted effect before returning to the loop or closing the Node.
+func (r *Runtime) OperationContext(turn protocol.TurnID) (context.Context, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	owner := r.active[turn]
+	if owner == nil || owner.ctx.Err() != nil {
+		return nil, false
+	}
+	return owner.ctx, true
+}
+
+func (r *Runtime) GuidanceSignal(turn protocol.TurnID) <-chan struct{} {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if x := r.active[turn]; x != nil {
+		return x.guidance
+	}
+	return nil
 }

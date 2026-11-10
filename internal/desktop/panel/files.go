@@ -8,6 +8,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
+	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
@@ -22,13 +23,15 @@ func (pr *Project) visible() []string {
 	var walk func(n *preview.FileNode)
 	walk = func(n *preview.FileNode) {
 		out = append(out, n.Path)
-		if n.Children != nil && (pr.Files.folders[n.Path] == nil || *pr.Files.folders[n.Path]) {
+		if n.Children != nil && (pr.Files.folders[n.Path] != nil && *pr.Files.folders[n.Path] || pr.Files.folders[n.Path] == nil && (pr.Actions == nil || n.Path == "")) {
 			for _, k := range n.Children {
 				walk(k)
 			}
 		}
 	}
-	walk(pr.Data.Files)
+	if pr.Data.Files != nil {
+		walk(pr.Data.Files)
+	}
 	return out
 }
 
@@ -52,6 +55,29 @@ func (pr *Project) directory(path string) string {
 func (pr *Project) tree(c *ui.Context, own bool, open func(path string)) {
 	v := &pr.Files
 	p := theme.Of(c)
+	pr.filesHeader(c)
+	if v.searchOpen {
+		pr.fileSearchView(c)
+		return
+	}
+	openFile := func(relative string) {
+		if pr.Actions != nil && pr.Actions.OpenFile != nil && pr.Actions.OpenFile(relative) {
+			return
+		}
+		open(relative)
+	}
+	if pr.Actions != nil && pr.Data.Files != nil && len(pr.Data.Files.Children) == 0 {
+		state := v.directories[""]
+		if state.Loading {
+			ui.Column(c.Key("files-loading")).Grow(1).Center().Children(func() { ui.Spinner(c) })
+			return
+		}
+		if state.Loaded && !state.Failed {
+			kit.Result(c, kit.ResultProps{Icon: icons.Folder, Title: i18n.T(c, "files_directory_empty")}).Grow(1).Justify(ui.Center)
+			pr.directoryTail(c, "")
+			return
+		}
+	}
 	visible := pr.visible()
 	box := ui.Scroll(c.Key("scroll")).TrackScroll(scroll(&v.tree, own)).Grow(1).Padding(8)
 	box.ContextMenu(func(m *ui.Menu) { pr.fileMenu(c, m, visible, "") })
@@ -65,10 +91,13 @@ func (pr *Project) tree(c *ui.Context, own bool, open func(path string)) {
 				var folder *bool
 				if n.Children != nil {
 					if v.folders[n.Path] == nil {
-						o := true
+						o := pr.Actions == nil || n.Path == ""
 						v.folders[n.Path] = &o
 					}
 					folder = v.folders[n.Path]
+					if *folder && pr.Actions != nil && pr.Actions.ReadDirectory != nil {
+						pr.Actions.ReadDirectory(n.Path)
+					}
 				}
 				item := tree.Item(folder)
 				row := item.Row.Height(rowHeight).PaddingStart(8 + 16*float32(item.Depth())).PaddingEnd(8).Gap(8).
@@ -87,7 +116,7 @@ func (pr *Project) tree(c *ui.Context, own bool, open func(path string)) {
 					case folder != nil:
 						*folder = !*folder
 					default:
-						open(n.Path)
+						openFile(n.Path)
 					}
 				case row.FocusVisible() && v.sel.current != n.Path:
 					v.sel.pick(visible, n.Path, false, false)
@@ -100,7 +129,7 @@ func (pr *Project) tree(c *ui.Context, own bool, open func(path string)) {
 				dir := pr.directory(n.Path)
 				movable := func(d fileDrag) bool { return parentDir(d.path) != dir && !within(dir, d.path) }
 				if d, ok := ui.Drop[fileDrag](row); ok && movable(d) {
-					notice(c)
+					pr.fileAction(c, FileAction{Kind: "files_move", Paths: []string{d.path}, Directory: dir})
 				}
 				text := p.MutedForeground
 				if d, ok := ui.DragOver[fileDrag](row); ok && movable(d) {
@@ -128,9 +157,14 @@ func (pr *Project) tree(c *ui.Context, own bool, open func(path string)) {
 					for _, kid := range n.Children {
 						node(kid)
 					}
+					if folder != nil && *folder {
+						pr.directoryTail(c, n.Path)
+					}
 				})
 			}
-			node(pr.Data.Files)
+			if pr.Data.Files != nil {
+				node(pr.Data.Files)
+			}
 		})
 	})
 }
@@ -154,10 +188,16 @@ func (pr *Project) treeKeys(c *ui.Context, root ui.Element, visible []string) {
 		extend(-1)
 	case root.Shortcut(ui.Cmd, ui.KeyA):
 		v.sel.all(visible)
-	case root.Shortcut(0, ui.KeyF2) && len(targets) == 1,
-		(root.Shortcut(ui.Cmd, ui.KeyC) || root.Shortcut(ui.Cmd, ui.KeyX)) && len(targets) > 0,
-		root.Shortcut(ui.Cmd, ui.KeyV):
-		notice(c)
+	case root.Shortcut(0, ui.KeyF2) && len(targets) == 1:
+		pr.fileAction(c, FileAction{Kind: "files_rename", Paths: targets})
+	case root.Shortcut(ui.Cmd, ui.KeyC) && len(targets) > 0:
+		pr.fileAction(c, FileAction{Kind: "files_copy", Paths: targets})
+	case root.Shortcut(ui.Cmd, ui.KeyX) && len(targets) > 0:
+		pr.fileAction(c, FileAction{Kind: "files_cut", Paths: targets})
+	case root.Shortcut(ui.Cmd, ui.KeyV):
+		pr.fileAction(c, FileAction{Kind: "files_paste", Directory: pr.directory(v.sel.current)})
+	case root.Shortcut(0, ui.KeyDelete) && len(targets) > 0:
+		pr.fileAction(c, FileAction{Kind: "files_trash", Paths: targets})
 	}
 }
 
@@ -169,7 +209,7 @@ func (pr *Project) fileMenu(c *ui.Context, m *ui.Menu, visible []string, path st
 	paths := pr.Files.sel.targets(visible, path)
 	item := func(key string) {
 		if m.Item(t(key)).Chosen() {
-			notice(c)
+			pr.fileAction(c, FileAction{Kind: key, Paths: paths, Directory: pr.directory(path)})
 		}
 	}
 	if len(paths) > 0 {
@@ -179,7 +219,10 @@ func (pr *Project) fileMenu(c *ui.Context, m *ui.Menu, visible []string, path st
 		item("files_cut")
 	}
 	// Nothing was copied in the preview, so nothing pastes.
-	m.Item(t("files_paste")).Disabled(true)
+	paste := pr.Actions != nil && pr.Actions.PasteReady != nil && pr.Actions.PasteReady()
+	if m.Item(t("files_paste")).Disabled(!paste).Chosen() {
+		pr.fileAction(c, FileAction{Kind: "files_paste", Directory: pr.directory(path)})
+	}
 	if len(paths) > 0 {
 		if m.Item(t("files_copy_path")).Chosen() {
 			c.WriteClipboard(strings.Join(paths, "\n"))

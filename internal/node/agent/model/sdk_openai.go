@@ -41,6 +41,7 @@ func (model *sdkModel) streamResponses(ctx context.Context, raw []byte, call fan
 	defer stream.Close()
 	texts, tools, reasoning := map[string]string{}, map[string]bool{}, map[string]bool{}
 	callItems := map[string]map[string]any{}
+	sourceItems := map[int64]map[string]any{}
 	terminal := false
 	toolCount := 0
 	emitTool := func(item map[string]any) bool {
@@ -120,6 +121,19 @@ func (model *sdkModel) streamResponses(ctx context.Context, raw []byte, call fan
 			}
 		case "response.output_item.done":
 			item := wireObject(value["item"])
+			if index := wireInt(value["output_index"]); index != nil && item != nil {
+				sourceItems[*index] = item
+				indexes := make([]int64, 0, len(sourceItems))
+				for index := range sourceItems {
+					indexes = append(indexes, index)
+				}
+				sort.Slice(indexes, func(i, j int) bool { return indexes[i] < indexes[j] })
+				items := make([]any, 0, len(indexes))
+				for _, index := range indexes {
+					items = append(items, sourceItems[index])
+				}
+				emitter.responseSources(items)
+			}
 			switch item["type"] {
 			case "function_call":
 				if !emitTool(item) {
@@ -133,6 +147,9 @@ func (model *sdkModel) streamResponses(ctx context.Context, raw []byte, call fan
 		case "response.failed", "response.incomplete", "error":
 			response := wireObject(value["response"])
 			emitter.updateUsage(wireObject(response["usage"]), "responses")
+			if output := wireArray(response["output"]); len(output) > 0 {
+				emitter.responseSources(output)
+			}
 			emitter.facts.body, _ = json.Marshal(value)
 			emitter.fail(fmt.Errorf("model response ended with %s", wireString(value["type"])))
 			return
@@ -140,6 +157,9 @@ func (model *sdkModel) streamResponses(ctx context.Context, raw []byte, call fan
 			terminal = true
 			response := wireObject(value["response"])
 			emitter.updateUsage(wireObject(response["usage"]), "responses")
+			if output := wireArray(response["output"]); len(output) > 0 {
+				emitter.responseSources(output)
+			}
 			for _, value := range wireArray(response["output"]) {
 				item := wireObject(value)
 				switch item["type"] {
@@ -213,6 +233,10 @@ func (model *sdkModel) streamChat(ctx context.Context, raw []byte, call fantasy.
 		for _, value := range wireArray(value["choices"]) {
 			choice := wireObject(value)
 			delta := wireObject(choice["delta"])
+			emitter.chatSources(delta)
+			if message := wireObject(choice["message"]); message != nil {
+				emitter.chatSources(message)
+			}
 			if text, ok := delta["content"].(string); ok && text != "" {
 				if !emitter.emit(fantasy.StreamPart{Type: fantasy.StreamPartTypeTextDelta, ID: "text", Delta: text}) {
 					return

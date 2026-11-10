@@ -136,6 +136,11 @@ func (s *State) rows(c *ui.Context, ctx *Context) []Reference {
 	switch {
 	case len(st.path) > 0:
 		page := st.path[len(st.path)-1]
+		if s.referenceChildren != nil {
+			if children, ok := s.referenceChildren(page); ok {
+				page.Children = children
+			}
+		}
 		if page.Kind == Folder {
 			list = append(list, Reference{ID: page.ID, Kind: Folder, Label: "reference_select_current", Key: true,
 				Description: label(c, page), Icon: icons.Folder, Insert: page.Label})

@@ -32,7 +32,7 @@ func (pr *Project) gitDetails(c *ui.Context, own bool, open func(path string)) {
 		if branch == "" {
 			branch = i18n.T(c, "git_branches")
 		}
-		b := kit.Ghost(c.Key("branch"), branch, false).Height(28).PaddingX(8).Gap(6).Shrink(1).MinWidth(0).Justify(ui.Start)
+		b := kit.Ghost(c.Key("branch"), branch, false).Height(28).PaddingX(8).Gap(6).Shrink(1).MinWidth(0).Justify(ui.Start).Disabled(!pr.gitWritable())
 		b.Children(func() {
 			ui.Icon(c, icons.Network).FontSize(14).Shrink(0)
 			ui.Text(c, branch).FontSize(14).SingleLine().Shrink(1).MinWidth(0)
@@ -40,10 +40,30 @@ func (pr *Project) gitDetails(c *ui.Context, own bool, open func(path string)) {
 		}).OnClick(func() { g.choose("git_checkout", g.checkout(), "git_checkout").run(c) })
 		ui.Spacer(c)
 		kit.MenuButton(c.Key("actions"), "git-actions-"+pr.ID, func(b ui.Element) {
+			b.Disabled(!pr.gitWritable())
 			kit.IconLook(c, b, icons.Ellipsis, i18n.T(c, "git_actions"), "", 28, false)
 		}, func(m *kit.Menu) { fill(c, m, g.root()) }, kit.MenuOptions{At: ui.AnchorBottomEnd, Self: ui.AnchorTopEnd})
-		kit.IconButton(c.Key("refresh"), icons.RotateCw, i18n.T(c, "git_refresh"), 28, false).OnClick(func() { notice(c) })
+		kit.IconButton(c.Key("refresh"), icons.RotateCw, i18n.T(c, "git_refresh"), 28, false).OnClick(func() { pr.refresh(c) })
 	})
+	if pr.gitEmpty(c, true) {
+		pr.gitDialogs(c)
+		return
+	}
+	pending := append([]PendingOperation(nil), v.switchPending...)
+	if pr.Actions != nil && pr.Actions.PendingGit != nil {
+		pending = append(pending, pr.Actions.PendingGit()...)
+	}
+	if len(pending) > 0 {
+		ui.Row(c.Key("git-switch-pending")).Padding(8).Gap(8).Children(func() {
+			for index, operation := range pending {
+				kit.Secondary(c.Key(index), i18n.T(c, operation.Label)).OnClick(func() {
+					if operation.Run != nil {
+						operation.Run(c)
+					}
+				})
+			}
+		})
+	}
 	ui.Column(c.Key("views")).Padding(8, 8, 4, 8).Shrink(0).Children(func() {
 		kit.Segmented(c, "git-views", &v.view, []string{i18n.T(c, "git_view_changes"), i18n.T(c, "git_view_history")},
 			kit.SegmentedProps{Block: true})
@@ -83,7 +103,13 @@ func (pr *Project) changesToolbar(c *ui.Context, open func(path string)) {
 		g := pr.menus(c)
 		kit.SplitButton(c.Key("stage"), "git-stage-"+pr.ID, i18n.T(c, key), i18n.T(c, "more"),
 			kit.SplitProps{Small: true, Disabled: !staged && !unstaged}, func(m *kit.Menu) { fill(c, m, g.changes()[:2]) }).
-			OnClick(func() { notice(c) })
+			OnClick(func() {
+				kind := "git_unstage_all"
+				if unstaged {
+					kind = "git_stage_all"
+				}
+				pr.gitAction(c, GitAction{Kind: kind})
+			})
 	})
 }
 
@@ -177,7 +203,13 @@ func (pr *Project) changeList(c *ui.Context, own bool, open func(path string)) {
 					pick()
 				}
 				entries := r.descendants()
-				row.ContextMenu(func(m *ui.Menu) { fillNative(c, m, g.files(entries, r.entry == nil)) })
+				row.ContextMenu(func(m *ui.Menu) {
+					directory := ""
+					if parts := strings.SplitN(r.id, "/", 3); len(parts) == 3 && parts[0] == "dir" {
+						directory = parts[2]
+					}
+					fillNative(c, m, g.files(entries, r.entry == nil, directory))
+				})
 				if r.entry != nil {
 					kit.Tooltip(c, row, r.entry.Path)
 				}
@@ -215,9 +247,27 @@ func (pr *Project) changeList(c *ui.Context, own bool, open func(path string)) {
 					case mixed:
 						state = ui.CheckMixed
 					}
-					box := ui.CheckboxState(c.Key("check"), &state, "").Label(i18n.T(c, label)).Shrink(0)
+					eligible := false
+					for _, entry := range entries {
+						if !pr.gitConflicted(entry.Path) {
+							eligible = true
+						}
+					}
+					box := ui.CheckboxState(c.Key("check"), &state, "").Label(i18n.T(c, label)).Shrink(0).Disabled(!pr.gitWritable() || !eligible)
 					if box.Changed() {
-						notice(c)
+						kind := "git_stage"
+						operation := "stage"
+						if checked {
+							kind = "git_unstage"
+							operation = "unstage"
+						}
+						paths := []string{}
+						for _, relative := range indexPaths(entries, operation) {
+							if !pr.gitConflicted(relative) {
+								paths = append(paths, relative)
+							}
+						}
+						pr.gitAction(c, GitAction{Kind: kind, Paths: paths})
 					}
 				})
 				item.Group(func() {
@@ -237,10 +287,18 @@ func (pr *Project) changeList(c *ui.Context, own bool, open func(path string)) {
 func (pr *Project) showChange(path, scope string) {
 	pr.Git.Show(path)
 	pr.Git.scope = scope
+	pr.readDiff(path, scope)
 }
 
 // source opens a changed file in Files, by its path in the project's tree.
 func (pr *Project) source(path string) {
+	if pr.Actions != nil {
+		pr.FileOpen(path)
+		if pr.reveal != nil {
+			pr.reveal(path)
+		}
+		return
+	}
 	if f := findFile(pr.Data.Files, pr.Data.Files.Name+"/"+path); f != nil {
 		pr.Files.Show(f.Path)
 		if pr.reveal != nil {
@@ -282,8 +340,8 @@ func (pr *Project) commitBox(c *ui.Context) {
 			kit.IconButton(c.Key("expand"), icons.Maximize, i18n.T(c, "git_expand_commit"), 20, v.tall).
 				Absolute().Top(0).Right(0).OnClick(func() { v.tall = !v.tall })
 		})
-		head := len(pr.Data.Repo.Commits) > 0
-		can := strings.TrimSpace(v.commit) != "" && (v.amend && head || !v.amend && len(pr.Data.Changes) > 0)
+		head := pr.gitHasHead()
+		can := pr.gitCanCommit() && strings.TrimSpace(v.commit) != "" && (v.amend && head || !v.amend && len(pr.Data.Changes) > 0)
 		kit.SplitButton(c.Key("commit"), "git-commit-"+pr.ID, i18n.T(c, "git_commit"), i18n.T(c, "more"),
 			kit.SplitProps{Icon: icons.Check, Disabled: !can, Fill: true}, func(m *kit.Menu) { fill(c, m, g.commitSplit()) }).
 			OnClick(func() { pr.commit(c, "auto", v.amend, v.signoff, v.after) })
@@ -294,12 +352,17 @@ func (pr *Project) commitBox(c *ui.Context) {
 // draft, or stops, the draft back.
 func (pr *Project) toggleAmend() {
 	v := &pr.Git
-	if len(pr.Data.Repo.Commits) == 0 {
+	if !pr.gitHasHead() {
 		return
 	}
 	v.amend = !v.amend
 	if v.amend {
-		v.draft, v.commit = v.commit, pr.Data.Repo.Commits[0].Message
+		v.draft = v.commit
+		if pr.Actions != nil {
+			v.commit = v.live.HeadMessage
+		} else {
+			v.commit = pr.Data.Repo.Commits[0].Message
+		}
 	} else {
 		v.commit, v.draft = v.draft, ""
 	}
@@ -309,6 +372,9 @@ func (pr *Project) toggleAmend() {
 // fills the message, and without a message there is nothing to commit
 // yet. Committing would write the repository.
 func (pr *Project) commit(c *ui.Context, scope string, amend, signoff bool, after string) {
+	if !pr.gitCanCommit() {
+		return
+	}
 	v := &pr.Git
 	entering := amend && !v.amend
 	if entering {
@@ -318,7 +384,7 @@ func (pr *Project) commit(c *ui.Context, scope string, amend, signoff bool, afte
 	if entering || strings.TrimSpace(v.commit) == "" {
 		return
 	}
-	notice(c)
+	pr.gitAction(c, GitAction{Kind: "git_commit", Message: v.commit, Scope: scope, Amend: amend, Signoff: signoff, SkipHooks: v.skip, After: after})
 }
 
 // gitKeys are the Git component's shortcuts (main.js): Cmd+Enter commits,
@@ -332,10 +398,16 @@ func (pr *Project) gitKeys(c *ui.Context, e ui.Element) {
 	case e.Shortcut(ui.Cmd|ui.Shift, ui.KeyEnter):
 		pr.toggleAmend()
 	case e.Shortcut(ui.Cmd|ui.Shift, ui.KeyK):
-		notice(c)
+		pr.gitAction(c, GitAction{Kind: "git_push"})
 	case v.chord && (e.Shortcut(ui.Ctrl, ui.KeyG) || e.Shortcut(0, ui.KeyDown) || e.Shortcut(ui.Shift, ui.KeyDown)):
 		v.chord = false
-		notice(c)
+		kind := "git_fetch_all_prune"
+		if e.Shortcut(0, ui.KeyDown) {
+			kind = "git_pull"
+		} else if e.Shortcut(ui.Shift, ui.KeyDown) {
+			kind = "git_pull_rebase"
+		}
+		pr.gitAction(c, GitAction{Kind: kind})
 	case e.Shortcut(ui.Ctrl, ui.KeyG):
 		v.chord = true
 	}
@@ -347,6 +419,10 @@ func (pr *Project) history(c *ui.Context, own bool) {
 	p := theme.Of(c)
 	v := &pr.Git
 	repo := &pr.Data.Repo
+	if pr.Actions != nil && v.log.Loading && len(repo.Commits) == 0 {
+		ui.Column(c).Grow(1).Center().Children(func() { ui.Spinner(c) })
+		return
+	}
 	if len(repo.Commits) == 0 {
 		kit.Result(c, kit.ResultProps{Icon: icons.Clock, Title: i18n.T(c, "git_history_empty")}).Grow(1).Justify(ui.Center)
 		return
@@ -376,16 +452,42 @@ func (pr *Project) history(c *ui.Context, own bool) {
 								ui.Text(c, value).FontSize(12).SingleLine().Shrink(1).MinWidth(0)
 							})
 						}
-						field(icons.Hash, cm.ID[:8], 0)
+						field(icons.Hash, cm.ID[:min(8, len(cm.ID))], 0)
 						field(icons.User, cm.Author, 1)
 						if branch := commitBranch(cm, repo.Branch); branch != "" {
 							field(icons.GitBranch, branch, 1)
 						}
 					})
 				})
-			}).OnClick(func() { v.commitID = cm.ID })
+			}).OnClick(func() {
+				v.commitID = cm.ID
+				if pr.Actions != nil && pr.Actions.ReadCommit != nil {
+					pr.Actions.ReadCommit(cm.ID)
+				}
+			})
 		}
 	})
+	if pr.Actions != nil {
+		if v.log.Partial {
+			ui.Text(c, i18n.T(c, "git_history_partial")).FontSize(12).Padding(8).TextColor(p.MutedForeground)
+		}
+		if v.log.Previous || v.log.Next {
+			ui.Row(c.Key("history-pages")).PaddingX(8).Gap(4).Children(func() {
+				ui.Textf(c, "%d–%d", v.log.Offset+1, v.log.Offset+uint64(len(repo.Commits))).FontSize(12).TextColor(p.MutedForeground).Grow(1)
+				kit.IconButton(c.Key("previous"), icons.ChevronLeft, i18n.T(c, "artifact_previous_page"), 28, false).Disabled(!v.log.Previous || v.log.Loading).OnClick(func() {
+					if pr.Actions.GitHistory != nil {
+						pr.Actions.GitHistory(false)
+					}
+				})
+				ui.Textf(c, "%d", v.log.Offset/100+1).FontSize(12)
+				kit.IconButton(c.Key("next"), icons.ChevronRight, i18n.T(c, "artifact_next_page"), 28, false).Disabled(!v.log.Next || v.log.Loading).OnClick(func() {
+					if pr.Actions.GitHistory != nil {
+						pr.Actions.GitHistory(true)
+					}
+				})
+			})
+		}
+	}
 }
 
 // commitBranch is the local branch at a commit, the current one first.
@@ -427,7 +529,11 @@ func (pr *Project) gitDialogs(c *ui.Context) {
 		// Destructive: the target named and the consequence said once.
 		if ui.AlertDialog(c.Key("git-confirm"), &cf.open, cf.title, cf.message+"\n"+cf.target,
 			i18n.T(c, "settings_cancel"), cf.title) == 1 {
-			notice(c)
+			if cf.run != nil {
+				cf.run(c)
+			} else {
+				notice(c)
+			}
 		}
 	}
 }
@@ -444,6 +550,7 @@ func (pr *Project) combined(c *ui.Context) {
 	add, del := 0, 0
 	ui.Scroll(c.Key("git-combined")).Grow(1).Padding(8).Gap(8).Children(func() {
 		for _, ch := range pr.Data.Changes {
+			pr.readDiff(ch.Path, "all")
 			add, del = add+ch.Added, del+ch.Removed
 			open := !v.folded[ch.Path]
 			ui.Column(c.Key(ch.Path)).Shrink(0).Radius(p.Radius).Border(1, p.Border).Clip().Children(func() {
@@ -466,13 +573,21 @@ func (pr *Project) combined(c *ui.Context) {
 					})
 					stats(c, p, ch.Added, ch.Removed)
 					kit.IconButton(c.Key("undo"), icons.Undo, i18n.T(c, "turn_changes_undo"), 24, false).OnClick(func() {
-						v.confirm = confirm{open: true, title: i18n.T(c, "turn_changes_undo"), message: i18n.T(c, "git_discard_all_confirm"), target: ch.Path}
+						v.confirm = confirm{open: true, title: i18n.T(c, "turn_changes_undo"), message: i18n.T(c, "git_discard_all_confirm"), target: ch.Path, run: func(c *ui.Context) { pr.gitAction(c, GitAction{Kind: "git_discard_changes", Paths: []string{ch.Path}}) }}
 					})
 				}).OnClick(func() { v.folded[ch.Path] = open })
 				if open {
 					old, new := ch.Texts()
-					kit.Diff(c, ui.Column(c.Key("diff")).BorderWidth(1, 0, 0, 0).BorderColor(p.Border), old, new,
-						kit.DiffOptions{Language: editor.LanguageFor(ch.Path), Fit: true})
+					metadata := v.diffStates["all/"+ch.Path]
+					if metadata.Binary {
+						ui.Text(c, i18n.T(c, "git_diff_binary")).FontSize(14).Padding(8, 12).TextColor(p.MutedForeground)
+					} else {
+						kit.Diff(c, ui.Column(c.Key("diff")).BorderWidth(1, 0, 0, 0).BorderColor(p.Border), old, new,
+							kit.DiffOptions{Language: editor.LanguageFor(ch.Path), Fit: true})
+						if metadata.Partial {
+							ui.Text(c, i18n.T(c, "git_diff_partial")).FontSize(12).Padding(8, 12).TextColor(p.MutedForeground)
+						}
+					}
 				}
 			})
 		}

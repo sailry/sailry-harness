@@ -15,6 +15,7 @@ import (
 	git "github.com/go-git/go-git/v5"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node/admission"
+	"github.com/sailry/sailry-harness/internal/node/process"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"lukechampine.com/blake3"
@@ -22,7 +23,7 @@ import (
 
 func nodeFixture(t *testing.T) *Node {
 	t.Helper()
-	value, err := Start(context.Background(), filepath.Join(t.TempDir(), "profile"))
+	value, err := startFixtureNode(context.Background(), filepath.Join(t.TempDir(), "profile"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +179,7 @@ func TestAdmissionSameRequestID(t *testing.T) {
 		if err := node.Stop(context.Background()); err != nil {
 			t.Fatal(err)
 		}
-		reopened, err := Start(context.Background(), path)
+		reopened, err := startFixtureNode(context.Background(), path)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -283,7 +284,7 @@ func TestOutcomeUnknownAfterCrash(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "profile")
-	node, err := Start(ctx, path)
+	node, err := startFixtureNode(ctx, path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -299,7 +300,7 @@ func TestOutcomeUnknownAfterCrash(t *testing.T) {
 	if err := node.Stop(ctx); err != nil {
 		t.Fatal(err)
 	}
-	restarted, err := Start(ctx, path)
+	restarted, err := startFixtureNode(ctx, path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -678,4 +679,9 @@ func TestResetRequiredRecovers(t *testing.T) {
 	if err != nil || update.Kind != "event" || update.Data.(protocol.EventEnvelope).Cursor != 131 {
 		t.Fatalf("resumed stream = %#v %v", update, err)
 	}
+}
+
+func startFixtureNode(ctx context.Context, path string) (*Node, error) {
+	environment := process.NewEnvironment([]string{"PATH=/usr/bin:/bin"})
+	return StartWithOptions(ctx, path, Options{Environment: &environment})
 }

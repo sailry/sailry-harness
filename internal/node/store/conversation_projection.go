@@ -165,23 +165,7 @@ func canonicalEntry(record canonical.Record, sequence uint64, resolve func(canon
 			u := message.Usage
 			value.Usage = &protocol.ConversationUsage{Input: optionalUint(u.Input), Output: optionalUint(u.Output), CachedInput: optionalUint(u.CacheRead), Reasoning: optionalUint(u.Reasoning)}
 		}
-		for _, citation := range message.Sources.Citations {
-			if citation.URI == nil {
-				continue
-			}
-			c := protocol.DefaultConversationCitation()
-			c.Uri = *citation.URI
-			c.Title = citation.Title
-			if citation.Start != nil && *citation.Start >= 0 && *citation.Start <= 1<<32-1 {
-				v := uint32(*citation.Start)
-				c.Start = &v
-			}
-			if citation.End != nil && *citation.End >= 0 && *citation.End <= 1<<32-1 {
-				v := uint32(*citation.End)
-				c.End = &v
-			}
-			value.Citations = append(value.Citations, c)
-		}
+		value.Citations = projectSources(message)
 		value.SearchSuggestions = message.Sources.SearchSuggestions
 	}
 	if record.Kind == "compaction" {
@@ -267,7 +251,22 @@ func projectStoredEntry(ctx context.Context, db *sql.Conn, record canonical.Reco
 			continue
 		}
 		for _, block := range message.Content {
-			if block.Index != i || block.Kind != "image" {
+			if block.Index != i {
+				continue
+			}
+			if file, ok := block.Data.(*canonical.FileContent); ok && strings.HasPrefix(file.File.URI, "sailry-attachment://") {
+				id, err := protocol.ParseAttachmentID(strings.TrimPrefix(file.File.URI, "sailry-attachment://"))
+				if err != nil {
+					return entry, err
+				}
+				attachment, err := GetTurnAttachment(ctx, db, record.Turn, id)
+				if err != nil {
+					return entry, err
+				}
+				entry.Parts[position] = protocol.ConversationPart{Kind: "attachment", Data: attachment}
+				continue
+			}
+			if block.Kind != "image" {
 				continue
 			}
 			asset, ok := block.Data.(*canonical.AssetContent)
