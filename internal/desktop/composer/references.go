@@ -315,7 +315,13 @@ func (s *State) referencePicker(c *ui.Context, ctx *Context, actions Actions, su
 		s.trackTrigger(s.area)
 		s.area = ui.Element{} // this pass's alone
 	}
-	if !st.shown || ctx.Readonly {
+	visible := st.shown && !ctx.Readonly
+	opened := visible && !s.referenceVisible
+	s.referenceVisible = visible
+	if opened && s.referencePickerOpen != nil {
+		s.referencePickerOpen()
+	}
+	if !visible {
 		return
 	}
 	p := theme.Of(c)

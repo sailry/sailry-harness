@@ -131,6 +131,7 @@ type Model struct {
 	SaveHooks       func()
 	HooksContext    func() (string, bool)
 	HooksSandboxed  func() bool
+	TeamActions     *TeamActions
 	SaveTelemetry   func()
 	ProviderActions ProviderActions
 	// General.

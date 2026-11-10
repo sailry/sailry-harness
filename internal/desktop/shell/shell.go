@@ -507,8 +507,12 @@ func (a *App) conversation(c *ui.Context, cv *preview.Conversation, focus ui.Han
 		comp.Escape(act)
 	}
 	if cv.ID == a.Sidebar.Selected {
-		a.Panel.Child = func(c *ui.Context, id string) {
-			conversation.View(c, a.Messages, id, a.children[id], nil, act)
+		if !a.Preview && a.Hooks.RenderChild != nil {
+			a.Panel.Child = a.Hooks.RenderChild
+		} else {
+			a.Panel.Child = func(c *ui.Context, id string) {
+				conversation.View(c, a.Messages, id, a.children[id], nil, act)
+			}
 		}
 	}
 	if len(cv.Turns) == 0 && !cv.Session.Loading && cv.Session.Connection == conversation.Connected {

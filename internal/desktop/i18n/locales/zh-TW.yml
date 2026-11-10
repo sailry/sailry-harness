@@ -1635,3 +1635,11 @@ notebook_empty: 沒有儲存格
 git_diff_binary: 二進位制無法顯示差異
 git_diff_partial: 差異較大，僅顯示部分內容
 hooks_scope_windows: 指令碼使用目前 Windows 命令原則
+teams_role_conflict: 角色已變更，請重新開啟
+team_conflict: 團隊已變更，請重新開啟
+role_model_unavailable: 所選模型或供應商不可用
+role_capacity: 子代理數量已達上限
+role_unknown: 結果未確認，請重試原請求
+role_failed: 操作失敗，請重試
+chat_child_unavailable: 子會話尚不可用，請重試
+reference_load_failed: Failed to load references

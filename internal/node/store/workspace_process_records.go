@@ -241,7 +241,7 @@ func ReadBackgroundTasks(ctx context.Context, db *sql.Conn, session protocol.Ses
 }
 
 func RecoverCommands(ctx context.Context, db *sql.Conn, now time.Time) ([]protocol.Event, error) {
-	records, err := readBodies[BackgroundRecord](ctx, db, "SELECT body FROM agent_background WHERE kind='command' AND state IN ('running','pending')")
+	records, err := readBodies[BackgroundRecord](ctx, db, "SELECT body FROM agent_background WHERE state IN ('running','pending')")
 	if err != nil {
 		return nil, err
 	}

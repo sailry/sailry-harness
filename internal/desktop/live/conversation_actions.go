@@ -30,6 +30,9 @@ func (x *conversationActions) queued(id string) (protocol.ConversationPending, b
 	return protocol.ConversationPending{}, false
 }
 func (x *conversationActions) SendQueued(id string) {
+	if x.readonly() {
+		return
+	}
 	item, ok := x.queued(id)
 	if !ok {
 		return
@@ -41,16 +44,25 @@ func (x *conversationActions) SendQueued(id string) {
 	}
 }
 func (x *conversationActions) WithdrawGuidance(id string) {
+	if x.readonly() {
+		return
+	}
 	if p, ok := x.queued(id); ok {
 		x.r.command(protocol.Command{Kind: "withdraw_guidance", Data: protocol.CommandWithdrawGuidancePayload{Turn: p.Turn, ExpectedRevision: p.Revision}}, "session_changed", nil)
 	}
 }
 func (x *conversationActions) RemoveQueued(id string) {
+	if x.readonly() {
+		return
+	}
 	if p, ok := x.queued(id); ok {
 		x.r.command(protocol.Command{Kind: "remove_queued_turn", Data: protocol.CommandRemoveQueuedTurnPayload{Turn: p.Turn, ExpectedRevision: p.Revision}}, "session_changed", nil)
 	}
 }
 func (x *conversationActions) MoveQueued(id, before string) {
+	if x.readonly() {
+		return
+	}
 	s, state, ok := x.state()
 	if !ok {
 		return
@@ -70,6 +82,9 @@ func (x *conversationActions) MoveQueued(id, before string) {
 	x.r.command(protocol.Command{Kind: "move_queued_turn", Data: protocol.CommandMoveQueuedTurnPayload{Session: s.ID, ExpectedRevision: state.Page.Queue.Revision, Turn: item.Turn, Before: target}}, "session_changed", nil)
 }
 func (x *conversationActions) SaveQueued(id, text string) {
+	if x.readonly() {
+		return
+	}
 	item, ok := x.queued(id)
 	if !ok {
 		return
@@ -88,11 +103,20 @@ func (x *conversationActions) SaveQueued(id, text string) {
 	})
 }
 func (x *conversationActions) Compact() {
+	if x.readonly() {
+		return
+	}
 	if s, ok := x.r.session(x.cv.ID); ok {
 		x.r.command(protocol.Command{Kind: "compact_context", Data: protocol.CommandCompactContextPayload{Session: s.ID, ExpectedRevision: s.Revision}}, "session_changed", nil)
 	}
 }
-func (x *conversationActions) Decide(id string, decision composer.Decision, _ string) {
+func (x *conversationActions) Decide(id string, decision composer.Decision, reason string) {
+	if x.readonly() {
+		return
+	}
+	if x.r.resolveChildApproval(x, id, decision, reason) {
+		return
+	}
 	s, ok := x.r.session(x.cv.ID)
 	if !ok {
 		return
@@ -109,9 +133,15 @@ func (x *conversationActions) Decide(id string, decision composer.Decision, _ st
 			}
 		}
 	}
+	if decision == composer.Deny && reason != "" {
+		d.Kind, d.Data = "deny_with_reason", reason
+	}
 	x.r.command(protocol.Command{Kind: "resolve_approval", Data: protocol.CommandResolveApprovalPayload{Session: s.ID, Approval: approval, Decision: d}}, "approval_closed", nil)
 }
 func (x *conversationActions) question(id string, response protocol.ConversationQuestionResponse) {
+	if x.readonly() {
+		return
+	}
 	s, ok := x.r.session(x.cv.ID)
 	if !ok {
 		return
@@ -295,4 +325,9 @@ func composerFingerprint(s *composer.State) string {
 		References []reference
 	}{s.Draft, refs})
 	return string(b)
+}
+
+func (x *conversationActions) readonly() bool {
+	session, ok := x.r.session(x.cv.ID)
+	return !x.r.controller.Connected() || ok && delegated(session)
 }

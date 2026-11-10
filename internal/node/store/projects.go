@@ -66,6 +66,9 @@ func validateProject(name, path string, appearance protocol.ProjectsAppearance) 
 	if strings.TrimSpace(name) == "" || len(name) > 128 || len(path) > 4096 || !filepath.IsAbs(path) {
 		return invalid("an absolute directory and a nonempty project name are required")
 	}
+	return validateAppearance(appearance)
+}
+func validateAppearance(appearance protocol.ProjectsAppearance) error {
 	icons := strings.Fields("folder code terminal globe server database package game book finance device education writing tags music media design health nature business analytics profile fitness law audio travel tools science ai favorite")
 	colors := strings.Fields("none blue indigo violet magenta red orange amber green teal cyan")
 	if !slices.Contains(icons, appearance.Icon) || !slices.Contains(colors, appearance.Color) {

@@ -53,6 +53,8 @@ func (x *conversationActions) create(command protocol.Command, m composer.Messag
 		x.r.composerObserved[x.cv.ID] = string(key)
 		x.r.project()
 		x.r.OpenSession(session.ID.String())
-		x.r.command(protocol.Command{Kind: "submit_turn", Data: protocol.CommandSubmitTurnPayload{Session: session.ID, ExpectedRevision: session.Revision, Message: conversationInput(m)}}, "session_changed", finish)
+		x.r.withComposerTeam(session, x.comp, func(current protocol.Session) {
+			x.r.command(protocol.Command{Kind: "submit_turn", Data: protocol.CommandSubmitTurnPayload{Session: current.ID, ExpectedRevision: current.Revision, Message: conversationInput(m)}}, "session_changed", finish)
+		})
 	})
 }

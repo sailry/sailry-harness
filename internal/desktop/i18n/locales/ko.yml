@@ -1635,3 +1635,11 @@ notebook_empty: 셀 없음
 git_diff_binary: 바이너리 diff를 표시할 수 없음
 git_diff_partial: 부분 차이
 hooks_scope_windows: 스크립트는 현재 Windows 명령 정책을 사용합니다
+teams_role_conflict: 역할이 변경되었습니다. 다시 여세요
+team_conflict: 팀이 변경되었습니다. 다시 여세요
+role_model_unavailable: 선택한 모델 또는 공급자를 사용할 수 없습니다
+role_capacity: 서브에이전트 제한에 도달함
+role_unknown: 결과 확인되지 않음; 원래 요청을 다시 시도하십시오
+role_failed: 작업 실패; 다시 시도하기
+chat_child_unavailable: 하위 세션을 사용할 수 없습니다. 다시 시도하십시오
+reference_load_failed: Failed to load references

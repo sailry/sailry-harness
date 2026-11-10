@@ -14,6 +14,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
+	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
@@ -253,7 +254,7 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 		if s.Project != nil {
 			comp.Project = s.Project.String()
 		}
-		ctx.Readonly = ctx.Readonly || s.Delegation != nil
+		ctx.Readonly = ctx.Readonly || delegated(s)
 		for _, w := range snapshot.Worktrees {
 			if w.ID == s.Worktree {
 				comp.Worktree = w.Path
@@ -283,7 +284,8 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 	if chosen := comp.Chosen(ctx.Models); chosen.Reasoning {
 		selectedEffort = comp.EffortName(nil, chosen)
 	}
-	if config, _, err := r.composerConfig(comp, composer.Message{Model: comp.Model, Mode: comp.Mode, Permission: comp.Permission, Features: comp.Features, Effort: selectedEffort}); err == nil {
+	teamUnsettled := r.teams != nil && r.teams.composers[cv.ID] != nil && (r.teams.composers[cv.ID].saving || r.teams.composers[cv.ID].pending != nil)
+	if config, _, err := r.composerConfig(comp, composer.Message{Model: comp.Model, Mode: comp.Mode, Permission: comp.Permission, Features: comp.Features, Effort: selectedEffort}); err == nil && !ctx.Readonly && !teamUnsettled {
 		encoded, _ := json.Marshal(config)
 		key := string(encoded)
 		if before, seen := r.composerObserved[cv.ID]; seen && before != key && !r.composerSaving[cv.ID] {
@@ -299,6 +301,9 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 	r.projectWorkspaceComposer(cv, comp, ctx)
 	r.projectComposerFiles(cv, comp, ctx)
 	r.projectCommands(cv.ID, comp, &ctx.Activity)
+	r.projectTeamComposer(cv, comp, ctx, c.Locale())
+	r.projectChildComposer(cv, comp, ctx, c.Locale())
+	r.bindSkillReferences(cv, comp)
 	actions := &conversationActions{r: r, c: c, cv: cv, comp: comp}
 	r.bindComposerAttachments(actions)
 	return ctx, actions
@@ -435,6 +440,7 @@ func (r *Runtime) references(cv *viewmodel.Conversation, comp *composer.State) (
 	for _, prompt := range []string{"review", "test", "explain"} {
 		commands = append(commands, composer.Reference{ID: prompt, Kind: composer.Prompt, Label: "/" + prompt, Insert: "composer_prompt_" + prompt, Icon: icons.Writing, Group: "composer_group_prompts"})
 	}
+	refs = append(refs, r.teamReferences(cv, comp)...)
 	return refs, commands
 }
 
@@ -456,6 +462,15 @@ func conversationInput(m composer.Message) protocol.ConversationInput {
 		case composer.Session:
 			if id, err := protocol.ParseSessionID(ref.ID); err == nil {
 				target = protocol.ConversationReferenceTarget{Kind: "session", Data: id}
+			}
+		case composer.Agent:
+			var role protocol.RoleReference
+			if json.Unmarshal([]byte(ref.Insert), &role) == nil && role.ID.String() == ref.ID {
+				target = protocol.ConversationReferenceTarget{Kind: "agent", Data: role}
+			}
+		case composer.Skill:
+			if packageName, name, ok := strings.Cut(ref.ID, ":"); ok && packageName != "" && name != "" {
+				target = protocol.ConversationReferenceTarget{Kind: "skill", Data: protocol.ConversationReferenceTargetSkillPayload{Package: packageName, Name: name}}
 			}
 		case composer.Location:
 			if ref.ID == "host" || ref.ID == "project" || ref.ID == "worktree" {
@@ -487,6 +502,22 @@ func composerReference(ref protocol.ConversationReference) (composer.Reference, 
 			return value, false
 		}
 		value.ID, value.Kind, value.Icon = id.String(), composer.Session, icons.Chat
+	case "agent":
+		role, ok := detail[protocol.RoleReference](ref.Target.Data)
+		if !ok {
+			return value, false
+		}
+		encoded, err := json.Marshal(role)
+		if err != nil {
+			return value, false
+		}
+		value.ID, value.Kind, value.Icon, value.Insert = role.ID.String(), composer.Agent, icons.Bot, string(encoded)
+	case "skill":
+		skill, ok := detail[protocol.ConversationReferenceTargetSkillPayload](ref.Target.Data)
+		if !ok {
+			return value, false
+		}
+		value.ID, value.Kind, value.Icon = skill.Package+":"+skill.Name, composer.Skill, icons.Bot
 	case "host", "project", "worktree":
 		value.ID, value.Kind, value.Icon = ref.Target.Kind, composer.Location, icons.Folder
 		if ref.Target.Kind == "host" {
@@ -515,6 +546,10 @@ func (x *conversationActions) deliver(m composer.Message, guide, queue bool) {
 	x.comp.Draft = m.Text
 	x.comp.References = slices.Clone(m.References)
 	x.comp.Attachments = slices.Clone(m.Attachments)
+	if x.readonly() {
+		x.unavailable()
+		return
+	}
 	for _, attachment := range m.Attachments {
 		if attachment.Status != composer.Ready || attachment.ID == "" {
 			x.unavailable()
@@ -570,7 +605,9 @@ func (x *conversationActions) deliver(m composer.Message, guide, queue bool) {
 			}
 			x.r.command(protocol.Command{Kind: kind, Data: data}, "session_changed", finish)
 		}
-		x.r.withComposerConfig(s, config, submit)
+		x.r.withComposerConfig(s, config, func(session protocol.Session) {
+			x.r.withComposerTeam(session, x.comp, submit)
+		})
 		return
 	}
 	node := x.r.controller.Target()
@@ -616,6 +653,10 @@ func (x *conversationActions) activeRun() (protocol.ConversationRun, bool) {
 	return protocol.ConversationRun{}, false
 }
 func (x *conversationActions) Stop() {
+	if x.readonly() {
+		x.unavailable()
+		return
+	}
 	if run, ok := x.activeRun(); ok {
 		x.r.command(protocol.Command{Kind: "stop_turn", Data: protocol.CommandStopTurnPayload{Turn: run.Turn}}, "session_changed", nil)
 	}
@@ -650,7 +691,7 @@ func (x *conversationActions) Export(turn string, format conversation.ExportForm
 		x.unavailable()
 	}
 }
-func (x *conversationActions) OpenChild(id string)             { x.r.OpenSession(id) }
+func (x *conversationActions) OpenChild(id string)             { x.r.openLiveChild(x.cv, id) }
 func (x *conversationActions) OpenFile(file conversation.File) { x.r.openAttachmentFile(x, file) }
 func (x *conversationActions) FileAction(file conversation.File, action conversation.FileAction) {
 	x.r.attachmentFileAction(x, file, action)
@@ -658,19 +699,46 @@ func (x *conversationActions) FileAction(file conversation.File, action conversa
 func (x *conversationActions) ImageAction(action kit.ImageAction, image conversation.Image) {
 	x.r.attachmentImageAction(x, action, image)
 }
-func (x *conversationActions) Undo(turn, path string)        { x.r.undoWorkspaceTurn(x, turn, path) }
-func (x *conversationActions) Review(turn, path string)      { x.r.reviewWorkspaceTurn(x, turn, path) }
-func (x *conversationActions) Worktree(turn string)          { x.r.forkWorkspaceTurn(x, turn) }
-func (x *conversationActions) CreateWorktree()               { x.r.createComposerWorktree(x) }
-func (x *conversationActions) AddProject()                   { x.r.App.Sidebar.OpenEditor(nil) }
-func (x *conversationActions) ManageTeams()                  { x.unavailable() }
-func (x *conversationActions) OpenChange(path string)        { x.r.openWorkspaceChange(x, path) }
-func (x *conversationActions) Badge(string, string)          { x.unavailable() }
-func (x *conversationActions) StopCommand(id string)         { x.stopWorkspaceCommand(id) }
-func (x *conversationActions) OpenService(port int)          { x.openCommandService(port) }
-func (x *conversationActions) Upload(a *composer.Attachment) { x.r.uploadAttachment(x, a) }
+func (x *conversationActions) Undo(turn, path string) {
+	if !x.readonly() {
+		x.r.undoWorkspaceTurn(x, turn, path)
+	}
+}
+func (x *conversationActions) Review(turn, path string) { x.r.reviewWorkspaceTurn(x, turn, path) }
+func (x *conversationActions) Worktree(turn string) {
+	if !x.readonly() {
+		x.r.forkWorkspaceTurn(x, turn)
+	}
+}
+func (x *conversationActions) CreateWorktree() {
+	if !x.readonly() {
+		x.r.createComposerWorktree(x)
+	}
+}
+func (x *conversationActions) AddProject() {
+	if !x.readonly() {
+		x.r.App.Sidebar.OpenEditor(nil)
+	}
+}
+func (x *conversationActions) ManageTeams() {
+	if !x.readonly() {
+		x.r.App.Settings.Section = settings.Teams
+		x.r.App.Navigate(shell.SettingsPage)
+	}
+}
+func (x *conversationActions) OpenChange(path string) { x.r.openWorkspaceChange(x, path) }
+func (x *conversationActions) Badge(string, string)   { x.unavailable() }
+func (x *conversationActions) StopCommand(id string)  { x.stopWorkspaceCommand(id) }
+func (x *conversationActions) OpenService(port int)   { x.openCommandService(port) }
+func (x *conversationActions) Upload(a *composer.Attachment) {
+	if !x.readonly() {
+		x.r.uploadAttachment(x, a)
+	}
+}
 func (x *conversationActions) Discard(a *composer.Attachment) {
-	x.r.discardAttachment(x, a)
+	if !x.readonly() {
+		x.r.discardAttachment(x, a)
+	}
 }
 func (x *conversationActions) Dictate(*composer.Dictation, composer.DictationCommand) {
 	x.unavailable()

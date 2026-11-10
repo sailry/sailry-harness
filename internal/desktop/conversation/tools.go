@@ -500,7 +500,7 @@ func (s *State) children(c *ui.Context, kids []Child, actions Actions) {
 		if k.Status == ChildCompleted {
 			done++
 		}
-		running = running || k.Status == ChildRunning
+		running = running || k.Status.Active()
 	}
 	label := i18n.T(c, "subagent_count", "completed", done, "total", len(kids))
 	s.disclosure(c, "children-"+kids[0].ID, func(hovered, open bool, sw *kit.Sweep) {
@@ -510,7 +510,7 @@ func (s *State) children(c *ui.Context, kids []Child, actions Actions) {
 		}
 		ui.Row(c).Gap(4).Shrink(0).Children(func() {
 			for _, k := range kids {
-				kit.Identicon(c.Key(k.ID), k.ID, k.Status == ChildRunning, 16)
+				kit.Identicon(c.Key(k.ID), k.ID, k.Status.Active(), 16)
 			}
 		})
 		t := ui.Text(c, label).FontSize(14).SingleLine().TextColor(color)
@@ -547,8 +547,12 @@ func child(c *ui.Context, k Child, actions Actions) {
 		color = p.Foreground
 	}
 	b.Children(func() {
-		kit.Identicon(c, k.ID, k.Status == ChildRunning, 16)
-		if k.Status == ChildRunning {
+		if k.Status == ChildContinued {
+			ui.Icon(c, icons.ArrowRight).FontSize(16).TextColor(color)
+		} else {
+			kit.Identicon(c, k.ID, k.Status.Active(), 16)
+		}
+		if k.Status.Active() {
 			kit.Shimmer(c, title, 14, color)
 		} else {
 			ui.Text(c, title).FontSize(14).SingleLine().TextColor(color)

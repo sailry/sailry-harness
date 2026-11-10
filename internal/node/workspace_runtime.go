@@ -85,18 +85,27 @@ func (node *Node) workspaceChanged(worktree protocol.WorktreeID) {
 }
 func (node *Node) commandFinished(ctx context.Context, finished process.Finished) error {
 	unlock := node.agent.LockPublication()
-	defer unlock()
+	now := time.Now()
 	err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
-		changes, err := store.FinishCommand(ctx, db, finished, time.Now())
+		changes, err := store.FinishCommand(ctx, db, finished, now)
 		if err != nil {
 			return err
 		}
+		_, scheduled, err := store.ScheduleBackground(ctx, db, node.ID(), finished.Snapshot.Info.Session, now)
+		if err != nil {
+			return err
+		}
+		changes = append(changes, scheduled...)
 		_, err = store.RecordEvents(ctx, db, node.ID(), changes)
 		return err
 	})
 	if err == nil {
 		node.publish()
 		node.agent.RefreshCommitted(finished.Snapshot.Info.Session)
+	}
+	unlock()
+	if err == nil {
+		node.agent.Committed()
 	}
 	return err
 }

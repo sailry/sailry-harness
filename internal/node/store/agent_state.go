@@ -207,12 +207,16 @@ func AppendCanonical(ctx context.Context, db *sql.Conn, session protocol.Session
 			return protocol.ConversationEntry{}, nil, err
 		}
 	}
+	delivery, err := ConfirmBackground(ctx, db, session, record.Turn, record)
+	if err != nil {
+		return protocol.ConversationEntry{}, nil, err
+	}
 	entry, err := projectStoredEntry(ctx, db, record, sequence)
 	if err != nil {
 		return entry, nil, err
 	}
 	events, err := activityEvent(ctx, db, session)
-	return entry, events, err
+	return entry, append(events, delivery...), err
 }
 
 func applyCanonicalState(ctx context.Context, db *sql.Conn, session protocol.SessionID, record canonical.Record) error {

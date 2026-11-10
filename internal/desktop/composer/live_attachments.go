@@ -25,6 +25,11 @@ func (s *State) SetAttachmentCallbacks(callbacks *AttachmentCallbacks) {
 func (s *State) SetReferenceChildren(children func(Reference) ([]Reference, bool)) {
 	s.referenceChildren = children
 }
+
+func (s *State) SetReferencePickerOpen(open func()) {
+	s.referencePickerOpen = open
+}
+
 func (s *State) AttachPaths(c *ui.Context, paths []string, actions Actions) {
 	s.attachPaths(c, paths, actions)
 }
@@ -48,4 +53,18 @@ func (s *State) InsertFiles(paths []string, prompt string) {
 	s.caret = len([]rune(s.Draft))
 	s.focus = true
 	s.ref = refState{}
+}
+
+// AddReferenceChildren gives each dynamic page first refusal over its own rows.
+func (s *State) AddReferenceChildren(children func(Reference) ([]Reference, bool)) {
+	previous := s.referenceChildren
+	s.referenceChildren = func(page Reference) ([]Reference, bool) {
+		if rows, ok := children(page); ok {
+			return rows, true
+		}
+		if previous != nil {
+			return previous(page)
+		}
+		return nil, false
+	}
 }

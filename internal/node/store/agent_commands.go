@@ -10,13 +10,15 @@ import (
 
 func SupportsAgentCommand(kind string) bool {
 	switch kind {
-	case "create_session_at", "set_session_config", "submit_turn", "queue_turn", "guide_turn", "stop_turn", "start_queued_turn", "compact_context", "read_conversation", "read_conversation_runs", "read_conversation_run", "read_turn", "read_turn_capture", "read_tool_detail", "read_tool_output", "list_conversation_assets", "read_usage", "search_conversation", "fork_conversation", "fork_conversation_at", "rewind_conversation", "replace_turn", "resolve_approval", "resolve_question", "read_queued_turn", "edit_queued_turn", "remove_queued_turn", "send_queued_turn", "guide_queued_turn", "withdraw_guidance", "move_queued_turn", "set_queue_paused", "read_compaction_settings", "save_compaction_settings":
+	case "set_session_roles", "set_session_team", "set_session_member_model", "create_session_at", "set_session_config", "submit_turn", "queue_turn", "guide_turn", "stop_turn", "start_queued_turn", "compact_context", "read_conversation", "read_conversation_runs", "read_conversation_run", "read_turn", "read_turn_capture", "read_tool_detail", "read_tool_output", "list_conversation_assets", "read_usage", "search_conversation", "fork_conversation", "fork_conversation_at", "rewind_conversation", "replace_turn", "resolve_approval", "resolve_question", "read_queued_turn", "edit_queued_turn", "remove_queued_turn", "send_queued_turn", "guide_queued_turn", "withdraw_guidance", "move_queued_turn", "set_queue_paused", "read_compaction_settings", "save_compaction_settings":
 		return true
 	}
 	return false
 }
 func ExecuteAgentCommand(ctx context.Context, db *sql.Conn, node protocol.NodeID, profile string, caller protocol.NodeID, request protocol.Request, now time.Time) (protocol.Output, []protocol.Event, error) {
 	switch request.Command.Kind {
+	case "set_session_roles", "set_session_team", "set_session_member_model":
+		return sessionTeamCommand(ctx, db, node, request.Command)
 	case "create_session_at":
 		v := request.Command.Data.(*protocol.CommandCreateSessionAtPayload)
 		if v.Target != node {
@@ -99,6 +101,13 @@ func ExecuteAgentCommand(ctx context.Context, db *sql.Conn, node protocol.NodeID
 		target, err := activeAgentRun(ctx, db, v.Recipient)
 		if err != nil {
 			return protocol.Output{}, nil, err
+		}
+		origin, err := readDelegation(ctx, db, target.Turn)
+		if err != nil {
+			return protocol.Output{}, nil, err
+		}
+		if origin != nil {
+			return guideDelegatedTurn(ctx, db, caller, request, target, *v, now)
 		}
 		session, err := checkedSession(ctx, db, target.Session, v.ExpectedRevision)
 		if err != nil {

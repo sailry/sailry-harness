@@ -338,13 +338,27 @@ read-only details dialog for the turn's captured location; dedicated workspace
 resource navigation remains with B5. No `Turn` field or `Actions` signature changes
 are required for these view-only bindings.
 
+Delegated rows retain their canonical parent turn and tool entry. Shared Client
+helpers select the latest relevant child run within that owner, preferring active
+work to queued continuations. The waiting phase appears only after the parent's
+tool batch is committed and while its foreground wave remains unsettled; streamed
+output, consent and pending guidance take precedence. Background children do not
+hold this phase.
+
+Child tabs subscribe to the real registered child session through the same Client
+cache. Their transcript and composer are read-only. The parent's composer presents
+ordinary child approvals and resolves them with the child's session identity.
+Background notices use committed delivery evidence; their canonical untrusted
+input is hidden from the ordinary user text while the notice bubble retains each
+task title and outcome.
+
 ## UI state vs backend data
 
 | UI state (`State`) | Backend data |
 |---|---|
 | Scroll place per conversation, follow mode | Turns, blocks, calls, outputs |
 | Disclosures opened, image viewer, search, rewind confirmation | Run status, phase, elapsed, files, pictures, changes, citations |
-| Work regions toggled | Questions, children, steps |
+| Work regions toggled, open child tabs | Questions, registered children, frozen models, background notices, steps |
 | Markdown options | |
 
 ## Preview
@@ -403,7 +417,7 @@ a running read, its output, then the answer growing a character at a time.
 | Copy confirms with a toast, not Kit `Clipboard`'s check icon | Sailry's rule: outcomes show as toasts |
 | Shimmer and identicon are approximations | Custom drawing (MyGo has no moving text highlight or procedural avatar); same timing and colours, not pixel-identical |
 | Diff rows have no syntax highlighting or line numbers | Not in the view model yet |
-| Plan review and MCP form/link controls retain their later-phase ownership | B4 wires free text, choices, cancellation and the existing decline action; `Ask` keeps the accepted form |
+| MCP form/link controls retain their later-phase ownership | Plan review uses the existing reviewed transition; `Ask` keeps the accepted form |
 | A jump across the transcript (scroll bar drag) costs ≈4.1 ms a frame, against ≈1.8 ms before tool rows | MyGo's `ListState.AtEnd` builds another frame whenever the rows in view change, not only the end; a jump re-measures rows until they settle. Steady (≈0.19 ms), hover (≈0.19 ms) and scroll (≈1.0 ms) frames are unaffected |
 
 Workspace tool details replace successful single-file edit fragments with their

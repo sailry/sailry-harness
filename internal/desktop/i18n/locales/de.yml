@@ -1635,3 +1635,11 @@ notebook_empty: Keine Zellen
 git_diff_binary: Kann binäres diff nicht anzeigen
 git_diff_partial: Partieller Unterschied
 hooks_scope_windows: Skripte verwenden die aktuelle Windows-Befehlsrichtlinie
+teams_role_conflict: Rolle wurde geändert; erneut öffnen
+team_conflict: Team wurde geändert; erneut öffnen
+role_model_unavailable: Ausgewähltes Modell oder Anbieter ist nicht verfügbar
+role_capacity: Subagent-Limit erreicht
+role_unknown: Ergebnis nicht bestätigt; versuchen Sie die ursprüngliche Anfrage erneut
+role_failed: Vorgang fehlgeschlagen; versuchen Sie es erneut
+chat_child_unavailable: Untersitzung nicht verfügbar; versuchen Sie es erneut
+reference_load_failed: Failed to load references

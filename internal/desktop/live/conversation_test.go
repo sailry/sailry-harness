@@ -22,6 +22,113 @@ import (
 )
 
 func TestConversationProjection(t *testing.T) {
+	t.Run("selected role and skill retain canonical identities", func(t *testing.T) {
+		role := protocol.RoleReference{ID: protocol.NewRoleID(), Revision: 7}
+		encoded, err := json.Marshal(role)
+		if err != nil {
+			t.Fatal(err)
+		}
+		message := composer.Message{Text: "Use these selections", References: []composer.Reference{
+			{ID: role.ID.String(), Kind: composer.Agent, Label: "Explore", Insert: string(encoded)},
+			{ID: "web-search:research", Kind: composer.Skill, Label: "Research"},
+		}}
+		input := conversationInput(message)
+		if len(input.References) != 2 {
+			t.Fatal("selected role or skill was dropped", input.References)
+		}
+		for index, reference := range input.References {
+			restored, ok := composerReference(reference)
+			if !ok || restored.ID != message.References[index].ID || restored.Kind != message.References[index].Kind || restored.Insert != message.References[index].Insert {
+				t.Fatalf("selection changed after queue restoration: %#v", restored)
+			}
+		}
+	})
+	t.Run("delegated foreground wave presentation", func(t *testing.T) {
+		parent, childID := protocol.SessionID{1}, protocol.SessionID{2}
+		turn, childTurn := protocol.TurnID{1}, protocol.TurnID{2}
+		callID := "delegation"
+		name := "Research"
+		page := protocol.DefaultConversationPage()
+		page.Session = parent
+		page.Runs = []protocol.ConversationRun{{Session: parent, Turn: turn, Kind: "task", Status: "running"}}
+		page.Entries = []protocol.ConversationEntry{
+			{ID: "spawn", Turn: turn, Author: "assistant", Parts: []protocol.ConversationPart{{Kind: "tool_call", Data: protocol.ConversationPartToolCallPayload{ID: &callID, Name: "spawn_agent", Summary: &protocol.ToolDetailSummary{}}}}},
+			{ID: "result", Turn: turn, Author: "tool", Parts: []protocol.ConversationPart{{Kind: "tool_result", Data: protocol.ConversationPartToolResultPayload{ID: &callID, Name: "spawn_agent"}}}},
+		}
+		child := protocol.ConversationChild{Run: protocol.ConversationRun{Session: childID, Turn: childTurn, Kind: "task", Status: "running", Sequence: 2}, Origin: protocol.Delegation{Session: parent, Turn: turn, Entry: "spawn"}, Name: &name}
+		page.Children = []protocol.ConversationChild{child}
+		for _, row := range []struct {
+			name   string
+			change func(*protocol.ConversationSnapshot)
+			wait   int
+		}{
+			{"running foreground", func(*protocol.ConversationSnapshot) {}, 1},
+			{"queued foreground", func(snapshot *protocol.ConversationSnapshot) { snapshot.Page.Children[0].Run.Status = "queued" }, 1},
+			{"stopping foreground", func(snapshot *protocol.ConversationSnapshot) { snapshot.Page.Children[0].Run.Status = "stopping" }, 1},
+			{"continued child settled", func(snapshot *protocol.ConversationSnapshot) { snapshot.Page.Children[0].Run.Status = "continued" }, 0},
+			{"streaming parent", func(snapshot *protocol.ConversationSnapshot) {
+				snapshot.Drafts = []protocol.ConversationDraft{{Turn: turn, Author: "assistant"}}
+			}, 0},
+			{"parent approval", func(snapshot *protocol.ConversationSnapshot) {
+				snapshot.Page.Approvals = []protocol.ConversationApproval{{Turn: turn, State: "pending"}}
+			}, 0},
+			{"pending guidance", func(snapshot *protocol.ConversationSnapshot) {
+				snapshot.Page.Queue.Items = []protocol.ConversationPending{{Turn: protocol.TurnID{3}, Guidance: &turn}}
+			}, 0},
+			{"tool batch uncommitted", func(snapshot *protocol.ConversationSnapshot) { snapshot.Page.Entries = snapshot.Page.Entries[:1] }, 0},
+			{"background child", func(snapshot *protocol.ConversationSnapshot) {
+				call, _ := detail[protocol.ConversationPartToolCallPayload](snapshot.Page.Entries[0].Parts[0].Data)
+				call.Summary = &protocol.ToolDetailSummary{Delegation: protocol.ToolDetailDelegation{Background: true}}
+				snapshot.Page.Entries[0].Parts[0].Data = call
+			}, 0},
+		} {
+			t.Run(row.name, func(t *testing.T) {
+				snapshot := protocol.ConversationSnapshot{Page: page}
+				snapshot.Page.Runs = slices.Clone(page.Runs)
+				snapshot.Page.Children = slices.Clone(page.Children)
+				snapshot.Page.Entries = slices.Clone(page.Entries)
+				for index := range snapshot.Page.Entries {
+					snapshot.Page.Entries[index].Parts = slices.Clone(page.Entries[index].Parts)
+				}
+				row.change(&snapshot)
+				turns, _, _, _ := Conversation(client.ConversationState{Connected: true, Snapshot: snapshot})
+				if len(turns) != 1 || turns[0].Reply.Waiting != row.wait {
+					t.Fatalf("waiting projection=%#v, want %d", turns, row.wait)
+				}
+				if row.wait > 0 && turns[0].Reply.Phase != conversation.WaitingChildren {
+					t.Fatal("foreground wave did not show waiting children")
+				}
+			})
+		}
+	})
+	t.Run("child ranking and registered ownership", func(t *testing.T) {
+		parent, childID := protocol.SessionID{1}, protocol.SessionID{2}
+		worktree, wrong := protocol.WorktreeID{1}, protocol.WorktreeID{2}
+		origin := protocol.Delegation{Session: parent}
+		child := protocol.ConversationChild{Run: protocol.ConversationRun{Session: childID, Worktree: worktree, Status: "running", Sequence: 1}, Origin: origin}
+		newer := child
+		newer.Run.Status, newer.Run.Sequence = "queued", 2
+		selected := client.LatestConversationChildren([]protocol.ConversationChild{child, newer})
+		if len(selected) != 1 || selected[0].Run.Status != "running" {
+			t.Fatal("queued work replaced the active child", selected)
+		}
+		child.Run.Status = "completed"
+		selected = client.LatestConversationChildren([]protocol.ConversationChild{child, newer})
+		if len(selected) != 1 || selected[0].Run.Status != "completed" {
+			t.Fatal("queued work replaced the last executed child", selected)
+		}
+		snapshot := protocol.DefaultSnapshot()
+		delegation := &origin
+		snapshot.Sessions = []protocol.Session{{ID: parent, Worktree: worktree}, {ID: childID, Worktree: worktree, Delegation: &delegation}}
+		snapshot.Worktrees = []protocol.Worktree{{ID: worktree}}
+		if _, ok := client.ConversationChildSession(snapshot, parent, child); !ok {
+			t.Fatal("registered child could not be opened")
+		}
+		snapshot.Sessions[1].Worktree = wrong
+		if _, ok := client.ConversationChildSession(snapshot, parent, child); ok {
+			t.Fatal("stale child binding opened another worktree")
+		}
+	})
 	t.Run("approval file changes and localized notices", testApprovalProjection)
 	t.Run("attachment chooser availability", testAttachmentPickerAvailability)
 	t.Run("checkpoint tool body uses only unified change lines", func(t *testing.T) {
@@ -285,6 +392,9 @@ type conversationTestTransport struct {
 	requests     []protocol.Request
 	failure      protocol.ErrorCode
 	conversation protocol.ConversationSnapshot
+	sessions     map[protocol.SessionID]protocol.Session
+	teamFailure  protocol.ErrorCode
+	teamOutputs  map[protocol.RequestID]protocol.Output
 }
 
 func (t *conversationTestTransport) Target() protocol.NodeID { return t.snapshot.Node }
@@ -299,16 +409,27 @@ func (t *conversationTestTransport) Subscribe(_ context.Context, topic protocol.
 }
 func (t *conversationTestTransport) Dispatch(_ context.Context, request protocol.Request) (link.Admission, error) {
 	t.mu.Lock()
+	defer t.mu.Unlock()
 	t.requests = append(t.requests, request)
 	failure := t.failure
-	t.mu.Unlock()
+	if t.sessions == nil {
+		t.sessions = map[protocol.SessionID]protocol.Session{}
+		for _, session := range t.snapshot.Sessions {
+			t.sessions[session.ID] = session
+		}
+	}
 	response := link.Response{}
 	switch request.Command.Kind {
 	case "set_session_config":
 		p := request.Command.Data.(protocol.CommandSetSessionConfigPayload)
-		s := t.snapshot.Sessions[0]
+		s := t.sessions[p.Session]
+		if p.ExpectedRevision != s.Revision {
+			response.Fault = &protocol.Fault{Code: protocol.ErrorCodeRevisionConflict, Message: "session changed before configuration save"}
+			break
+		}
 		s.Revision++
 		s.Config = p.Config
+		t.sessions[s.ID] = s
 		response.Output = protocol.Output{Kind: "session", Data: s}
 	case "create_session_at":
 		p := request.Command.Data.(protocol.CommandCreateSessionAtPayload)
@@ -320,7 +441,40 @@ func (t *conversationTestTransport) Dispatch(_ context.Context, request protocol
 		}
 		s.Revision = 1
 		s.Config = *p.Config
+		t.sessions[s.ID] = s
 		response.Output = protocol.Output{Kind: "session", Data: s}
+	case "set_session_team":
+		if saved, exists := t.teamOutputs[request.ID]; exists {
+			response.Output = saved
+			break
+		}
+		input, _ := detail[protocol.CommandSetSessionExecutionPayload](request.Command.Data)
+		session := t.sessions[input.Session]
+		if input.ExpectedRevision != session.Revision {
+			response.Fault = &protocol.Fault{Code: protocol.ErrorCodeRevisionConflict, Message: "session changed before team selection"}
+			break
+		}
+		session.Revision++
+		session.Roles.Execution = input.Execution
+		session.Roles.Models = input.Models
+		session.Roles.Profiles = slices.Clone(t.snapshot.Roles)
+		if input.Team != nil {
+			session.Roles.Team = &protocol.TeamReference{ID: input.Team.ID, Revision: *input.Team.Revision}
+			for _, team := range t.snapshot.Teams {
+				if team.ID == input.Team.ID && team.Model != nil {
+					session.Config.Provider, session.Config.Model = team.Model.Provider, team.Model.Model
+				}
+			}
+		}
+		t.sessions[session.ID] = session
+		response.Output = protocol.Output{Kind: "session", Data: session}
+		if t.teamOutputs == nil {
+			t.teamOutputs = map[protocol.RequestID]protocol.Output{}
+		}
+		t.teamOutputs[request.ID] = response.Output
+		if t.teamFailure != "" {
+			response = link.Response{Fault: &protocol.Fault{Code: t.teamFailure, Message: "team acknowledgement is unavailable"}}
+		}
 	case "submit_turn", "guide_turn", "queue_turn", "replace_turn":
 		if failure != "" {
 			response.Fault = &protocol.Fault{Code: failure, Message: "Captured rejection"}
@@ -338,6 +492,8 @@ func (t *conversationTestTransport) Dispatch(_ context.Context, request protocol
 		response.Output = protocol.Output{Kind: "channel_presets", Data: protocol.DefaultConversationPresetsListing()}
 	case "read_compaction_settings":
 		response.Output = protocol.Output{Kind: "compaction_settings", Data: protocol.ConversationCompactionSettings{Revision: 1, Percent: 80}}
+	case "read_team_settings":
+		response.Output = protocol.Output{Kind: "team_settings", Data: protocol.DefaultTeamSettings()}
 	}
 	completion := make(chan link.Response, 1)
 	completion <- response
@@ -373,6 +529,9 @@ func TestComposerSendRouting(t *testing.T) {
 		{"failure_retains_draft", "existing", "submit_turn", false, protocol.ErrorCodeUnavailable, false},
 		{"unknown_retains_request", "existing", "submit_turn", false, protocol.ErrorCodeOutcomeUnknown, false},
 		{"configuration_before_admission", "existing", "submit_turn", false, "", true},
+		{"team_before_admission", "existing", "submit_turn", false, "", false},
+		{"new_team_before_admission", "draft/1", "submit_turn", false, "", false},
+		{"uncertain_team_before_admission", "existing", "submit_turn", false, "", false},
 		{"replace_references", "existing", "replace_turn", false, "", false},
 	} {
 		t.Run(row.name, func(t *testing.T) {
@@ -389,10 +548,22 @@ func TestComposerSendRouting(t *testing.T) {
 			snapshot.Projects = []protocol.Project{{ID: project, Name: "Workspace", Path: "/fixture/project"}}
 			snapshot.Worktrees = []protocol.Worktree{{ID: worktree, Project: &project, Path: "/fixture/worktree", Main: true}}
 			snapshot.Providers = []protocol.ConversationProvider{{ID: provider, Revision: 7, Enabled: true, Name: "Provider", Api: "responses", Authentication: "api_key", Models: []protocol.ConversationModel{{ID: "fixture", DefaultEffort: protocol.Effort{Kind: "default"}}}}}
+			team := strings.Contains(row.name, "team_before_admission")
+			if team {
+				snapshot.Roles = []protocol.RoleProfile{{ID: protocol.RoleID{8}, Revision: 3, Key: "review", Name: "Review"}}
+				snapshot.Teams = []protocol.TeamProfile{{ID: protocol.TeamID{8}, Revision: 5, Key: "reviewers", Name: "Reviewers", Members: []protocol.RoleID{{8}}}}
+				if row.name == "uncertain_team_before_admission" {
+					snapshot.Teams[0].Model = &protocol.RoleModel{Provider: provider, Model: "team-model"}
+					snapshot.Providers[0].Models = append(snapshot.Providers[0].Models, protocol.ConversationModel{ID: "team-model", DefaultEffort: protocol.Effort{Kind: "default"}})
+				}
+			}
 			if row.session == "existing" {
-				snapshot.Sessions = []protocol.Session{{ID: session, Revision: 6, Worktree: worktree, Project: &project, Config: config}}
+				snapshot.Sessions = []protocol.Session{{ID: session, Revision: 6, Worktree: worktree, Project: &project, Config: config, Roles: protocol.DefaultRoleSnapshot()}}
 			}
 			transport := &conversationTestTransport{snapshot: snapshot, failure: row.failure}
+			if row.name == "uncertain_team_before_admission" {
+				transport.teamFailure = protocol.ErrorCodeUnavailable
+			}
 			transport.conversation = protocol.DefaultConversationSnapshot()
 			transport.conversation.Node = node
 			transport.conversation.Page.Session = session
@@ -424,6 +595,11 @@ func TestComposerSendRouting(t *testing.T) {
 				cv = &viewmodel.Conversation{ID: id}
 			}
 			comp := r.App.Composer(id)
+			comp.Team = defaultTeamID
+			if team {
+				comp.Team = snapshot.Teams[0].ID.String()
+				comp.MemberModels = map[string]*composer.MemberModel{snapshot.Roles[0].ID.String(): {Model: modelKey(provider, "fixture"), Overridden: true}}
+			}
 			comp.Model = modelKey(provider, "fixture")
 			comp.Project = project.String()
 			comp.Worktree = "/fixture/worktree"
@@ -483,6 +659,24 @@ func TestComposerSendRouting(t *testing.T) {
 				r.workers.Wait()
 				tester.Frame()
 			}
+			if row.name == "uncertain_team_before_admission" {
+				transport.mu.Lock()
+				for _, request := range transport.requests {
+					if request.Command.Kind == "submit_turn" || request.Command.Kind == "set_session_config" {
+						t.Error("uncertain team selection admitted a later mutation", request.Command.Kind)
+					}
+				}
+				transport.mu.Unlock()
+				if comp.Draft != message.Text {
+					t.Fatal("uncertain team selection discarded the input")
+				}
+				comp.Mode, message.Mode = composer.Plan, composer.Plan
+				actions.Send(message)
+				for range 4 {
+					r.workers.Wait()
+					tester.Frame()
+				}
+			}
 			transport.mu.Lock()
 			var commands []protocol.Request
 			for _, request := range transport.requests {
@@ -491,6 +685,47 @@ func TestComposerSendRouting(t *testing.T) {
 				}
 			}
 			transport.mu.Unlock()
+			if team {
+				transport.mu.Lock()
+				var selected, sent int
+				var teamRequest protocol.RequestID
+				for index, request := range transport.requests {
+					if request.Command.Kind == "set_session_team" {
+						if row.name == "uncertain_team_before_admission" && selected > 0 && request.ID != teamRequest {
+							t.Error("uncertain team selection changed request identity")
+						}
+						teamRequest = request.ID
+						selected = index + 1
+						input, _ := detail[protocol.CommandSetSessionExecutionPayload](request.Command.Data)
+						if input.Team == nil || input.Team.ID != snapshot.Teams[0].ID || input.Team.Revision == nil || *input.Team.Revision != 5 || len(input.Models) != 1 {
+							t.Errorf("team admission lost captured selection: %#v", input)
+						}
+					}
+					if request.Command.Kind == "submit_turn" {
+						sent = index + 1
+						input, _ := detail[protocol.CommandSubmitTurnPayload](request.Command.Data)
+						expected := uint64(7)
+						if row.session != "existing" {
+							expected = 2
+						} else if row.name == "uncertain_team_before_admission" {
+							expected = 8
+						}
+						if input.ExpectedRevision != expected {
+							t.Errorf("send did not use saved team revision: %#v", input)
+						}
+					}
+					if request.Command.Kind == "set_session_config" && row.name == "uncertain_team_before_admission" {
+						input, _ := detail[protocol.CommandSetSessionConfigPayload](request.Command.Data)
+						if input.Config.Model != "team-model" || input.Config.Mode != protocol.WorkModePlan {
+							t.Errorf("team acknowledgement lost the selected lead or explicit mode: %#v", input.Config)
+						}
+					}
+				}
+				transport.mu.Unlock()
+				if selected == 0 || selected >= sent {
+					t.Fatal("turn admitted before its captured team", selected, sent)
+				}
+			}
 			if row.session != "existing" {
 				if len(commands) != 2 || commands[0].Command.Kind != "create_session_at" {
 					t.Fatalf("new session routing = %#v", commands)

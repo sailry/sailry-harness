@@ -199,27 +199,10 @@ func createSession(ctx context.Context, db *sql.Conn, node protocol.NodeID, prof
 	}
 	value := protocol.DefaultSession()
 	value.ID, value.Project, value.Config, value.Revision = protocol.NewSessionID(), input.Project, *config, 1
-	profiles, err := readBodies[protocol.RoleProfile](ctx, db, "SELECT body FROM roles ORDER BY key")
+	var err error
+	value.Roles, err = CaptureSessionRoles(ctx, db, node, protocol.ConversationExecutionTeam, nil, nil)
 	if err != nil {
 		return protocol.Output{}, nil, err
-	}
-	value.Roles.Profiles = profiles
-	for _, role := range profiles {
-		if role.Model == nil {
-			continue
-		}
-		found := slices.ContainsFunc(value.Roles.Providers, func(provider protocol.ConversationProvider) bool { return provider.ID == role.Model.Provider })
-		if found {
-			continue
-		}
-		stored, err := readBody[providerConfiguration](ctx, db, "SELECT body FROM providers WHERE id=?1", role.Model.Provider.String())
-		if err != nil {
-			return protocol.Output{}, nil, err
-		}
-		if stored == nil || !stored.Listed || stored.Provider == nil {
-			return protocol.Output{}, nil, fault(protocol.ErrorCodeNotConfigured, "role provider is unavailable")
-		}
-		value.Roles.Providers = append(value.Roles.Providers, *stored.Provider)
 	}
 	if input.Project != nil {
 		var selected string

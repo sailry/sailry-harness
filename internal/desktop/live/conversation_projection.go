@@ -348,37 +348,40 @@ func Conversation(state client.ConversationState, locales ...string) ([]conversa
 		}
 		interactions.Question = ask
 	}
-	children := map[protocol.TurnID][]conversation.Child{}
+	ownedChildren := map[protocol.TurnID][]protocol.ConversationChild{}
 	for _, child := range page.Children {
 		owner := owners[child.Origin.Turn]
-		status := conversation.ChildCompleted
-		switch child.Run.Status {
-		case "queued":
-			status = conversation.ChildQueued
-		case "running", "stopping":
-			status = conversation.ChildRunning
-		case "failed":
-			status = conversation.ChildFailed
-		case "interrupted":
-			status = conversation.ChildInterrupted
-		case "cancelled":
-			status = conversation.ChildCancelled
+		ownedChildren[owner] = append(ownedChildren[owner], child)
+	}
+	children := map[protocol.TurnID][]conversation.Child{}
+	for owner, owned := range ownedChildren {
+		for _, child := range client.LatestConversationChildren(owned) {
+			status := conversation.ChildCompleted
+			switch child.Run.Status {
+			case "queued":
+				status = conversation.ChildQueued
+			case "running":
+				status = conversation.ChildRunning
+			case "stopping":
+				status = conversation.ChildStopping
+			case "continued":
+				status = conversation.ChildContinued
+			case "failed":
+				status = conversation.ChildFailed
+			case "interrupted":
+				status = conversation.ChildInterrupted
+			case "cancelled":
+				status = conversation.ChildCancelled
+			}
+			title := childTitle(&page, child, language)
+			children[owner] = append(children[owner], conversation.Child{ID: child.Run.Session.String(), Title: title, Status: status})
 		}
-		title := child.Run.Session.String()
-		if child.Name != nil {
-			title = *child.Name
-		}
-		children[owner] = append(children[owner], conversation.Child{ID: child.Run.Session.String(), Title: title, Status: status})
 	}
 	for owner, list := range children {
 		if position, ok := positions[owner]; ok {
 			reply := &turns[position].Reply
 			reply.Blocks = append(reply.Blocks, conversation.Block{Kind: conversation.ChildrenBlock, Children: list})
-			for _, child := range list {
-				if child.Status == conversation.ChildRunning {
-					reply.Waiting++
-				}
-			}
+			reply.Waiting = waitingConversationChildren(snapshot, owner)
 			if reply.Waiting > 0 {
 				reply.Phase = conversation.WaitingChildren
 			}
@@ -393,6 +396,111 @@ func Conversation(state client.ConversationState, locales ...string) ([]conversa
 		queue = append(queue, q)
 	}
 	return turns, session, interactions, queue
+}
+
+func waitingConversationChildren(snapshot protocol.ConversationSnapshot, turn protocol.TurnID) int {
+	page := snapshot.Page
+	runIndex := slices.IndexFunc(page.Runs, func(run protocol.ConversationRun) bool { return run.Turn == turn })
+	if runIndex < 0 || page.Runs[runIndex].Status != "running" || page.Runs[runIndex].Kind != "task" {
+		return 0
+	}
+	for _, draft := range snapshot.Drafts {
+		if draft.Turn == turn && draft.Author != "user" {
+			return 0
+		}
+	}
+	for _, approval := range page.Approvals {
+		if approval.Turn == turn && approval.State == "pending" {
+			return 0
+		}
+	}
+	for _, question := range page.Questions {
+		if question.Turn == turn && question.State.Kind == "pending" {
+			return 0
+		}
+	}
+	for _, item := range page.Queue.Items {
+		if item.Guidance != nil && *item.Guidance == turn {
+			return 0
+		}
+	}
+	for _, run := range page.Runs {
+		if run.Guidance == nil || *run.Guidance != turn {
+			continue
+		}
+		delivered := run.Joined != nil && *run.Joined == turn && slices.ContainsFunc(page.Entries, func(entry protocol.ConversationEntry) bool {
+			return entry.Turn == run.Turn && entry.Author == "user"
+		})
+		if !delivered && (run.Status == "queued" || run.Joined != nil && *run.Joined == turn) {
+			return 0
+		}
+	}
+	pending := map[string][]toolAssociation{}
+	settled := map[string]bool{}
+	for _, entry := range page.Entries {
+		if entry.Turn != turn || entry.Author == "user" {
+			continue
+		}
+		for index, part := range entry.Parts {
+			switch part.Kind {
+			case "tool_call":
+				if call, ok := detail[protocol.ConversationPartToolCallPayload](part.Data); ok && call.ID != nil {
+					key := toolPendingKey(turn, entry.Branch, *call.ID)
+					pending[key] = append(pending[key], toolAssociation{ID: toolCallKey(entry.ID, uint64(index)), Name: call.Name})
+				}
+			case "tool_result":
+				if result, ok := detail[protocol.ConversationPartToolResultPayload](part.Data); ok && result.ID != nil {
+					key := toolPendingKey(turn, entry.Branch, *result.ID)
+					matches := pending[key]
+					delete(pending, key)
+					if len(matches) == 1 && matches[0].Name == result.Name {
+						settled[matches[0].ID] = true
+					}
+				}
+			}
+		}
+	}
+	modelOutput := false
+scan:
+	for entryIndex := len(page.Entries) - 1; entryIndex >= 0; entryIndex-- {
+		entry := page.Entries[entryIndex]
+		if entry.Turn != turn || entry.Author == "user" {
+			continue
+		}
+		for partIndex := len(entry.Parts) - 1; partIndex >= 0; partIndex-- {
+			switch entry.Parts[partIndex].Kind {
+			case "tool_result":
+				continue
+			case "tool_call":
+				if !settled[toolCallKey(entry.ID, uint64(partIndex))] {
+					return 0
+				}
+				modelOutput = true
+			case "text", "thinking", "image":
+				modelOutput = true
+				break scan
+			default:
+				return 0
+			}
+		}
+	}
+	if !modelOutput {
+		return 0
+	}
+	owned := slices.DeleteFunc(slices.Clone(page.Children), func(child protocol.ConversationChild) bool {
+		return child.Origin.Session != page.Session || child.Origin.Turn != turn
+	})
+	count := 0
+	for _, child := range client.LatestConversationChildren(owned) {
+		if child.Run.Status != "queued" && child.Run.Status != "running" && child.Run.Status != "stopping" {
+			continue
+		}
+		call := callAt(page, child.Origin.Entry, child.Origin.Index)
+		if call != nil && (call.Summary == nil || !call.Summary.Delegation.Background) {
+			count++
+		}
+	}
+	return count
 }
 
 func noticeOutcome(outcome protocol.ConversationBackgroundOutcome) conversation.NoticeOutcome {

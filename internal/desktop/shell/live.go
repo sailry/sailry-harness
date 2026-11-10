@@ -27,6 +27,7 @@ type Hooks struct {
 	DismissRead      func([]string)
 	DismissNotices   func([]string)
 	Conversation     func(*ui.Context, *viewmodel.Conversation, *composer.State) (*composer.Context, ConversationActions)
+	RenderChild      func(*ui.Context, string)
 	ReadSelection    func(string, string)
 	ReaderActive     func(string) bool
 }

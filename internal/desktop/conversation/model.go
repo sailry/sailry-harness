@@ -379,6 +379,8 @@ const (
 	ChildInterrupted
 	ChildCancelled
 	ChildQueued
+	ChildStopping
+	ChildContinued
 )
 
 // Child is a subagent session a call delegated to.
@@ -509,3 +511,6 @@ type Usage struct {
 	Turns   int
 	Context float64
 }
+
+// Active reports a child that is still executing.
+func (s ChildStatus) Active() bool { return s == ChildRunning || s == ChildStopping }

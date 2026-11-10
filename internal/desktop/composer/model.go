@@ -180,6 +180,8 @@ const (
 // Reference is a row of the @ and / pickers (live/references): a page of
 // more rows, or something chosen into the draft as an inline chip.
 type Reference struct {
+	// Source identifies the owning dynamic picker page.
+	Source      string
 	ID          string
 	Kind        ReferenceKind
 	Label       string // shown as is; an i18n key for pages (Key)

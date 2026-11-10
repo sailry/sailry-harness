@@ -46,6 +46,8 @@ type Instruction struct {
 	AnyTools []string
 }
 type Catalog struct {
+	Packages        []Package
+	resourceMu      sync.Mutex
 	ArtifactClasses map[string][]string
 	References      []protocol.PluginReference
 	Tools           []Declaration
@@ -91,7 +93,10 @@ func load() (*Catalog, error) {
 		var manifest struct {
 			Name       string `json:"name"`
 			Extensions map[string]struct {
-				Tools        []manifestTool `json:"tools"`
+				Scope        protocol.PluginScope              `json:"scope"`
+				Modes        []protocol.PluginModesDeclaration `json:"conversation_modes"`
+				Options      json.RawMessage                   `json:"conversation_options"`
+				Tools        []manifestTool                    `json:"tools"`
 				ArtifactView *struct {
 					AllowedClasses []string `json:"allowed_classes"`
 				} `json:"artifact_view"`
@@ -135,9 +140,6 @@ func load() (*Catalog, error) {
 			declarations = append(declarations, Declaration{Spec: spec, Name: Alias(manifest.Name, tool.Name), Exposed: tool.Name, Initial: tool.Initial, Contexts: tool.Contexts, Presentation: presentation, Grouping: grouping, Display: tool.Display})
 			instructionTools = append(instructionTools, Alias(manifest.Name, tool.Name))
 		}
-		if len(declarations) == 0 {
-			continue
-		}
 		tree, err := fs.Sub(sailry.Plugins, path.Dir(name))
 		if err != nil {
 			return nil, err
@@ -147,12 +149,13 @@ func load() (*Catalog, error) {
 			return nil, err
 		}
 		owner := protocol.PluginReference{Name: manifest.Name, Digest: digest}
+		catalog.Packages = append(catalog.Packages, Package{Reference: owner, Skills: discoverSkills(tree), Scope: extension.Scope, Modes: extension.Modes, Options: extension.Options, tree: tree})
 		catalog.References = append(catalog.References, owner)
 		for _, declaration := range declarations {
 			declaration.Owner = owner
 			catalog.Tools = append(catalog.Tools, declaration)
 		}
-		if extension.Instructions != "" {
+		if extension.Instructions != "" && len(declarations) > 0 {
 			catalog.Instructions = append(catalog.Instructions, Instruction{Text: extension.Instructions, AnyTools: instructionTools})
 		}
 	}

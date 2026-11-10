@@ -26,6 +26,7 @@ import (
 )
 
 type Runtime struct {
+	teams                    *teamState
 	commands                 *liveCommands
 	openService              func(string)
 	attachmentSessionWaiters map[string][]attachmentSessionWaiter
@@ -117,6 +118,7 @@ func NewWithPreferences(ctx context.Context, controller *client.Client, prefs *p
 	r.App.Settings.SavePower = r.savePower
 	r.App.Settings.SaveTelemetry = r.saveTelemetry
 	r.App.Hooks.Conversation = r.conversation
+	r.App.Hooks.RenderChild = r.renderLiveChild
 	r.conversationWatches = map[protocol.SessionID]func(){}
 	r.conversationSeen = map[protocol.SessionID]bool{}
 	r.composerInitialized = map[string]bool{}
@@ -143,6 +145,7 @@ func NewWithPreferences(ctx context.Context, controller *client.Client, prefs *p
 	r.readSettings()
 	r.projectConversations()
 	r.initProviders()
+	r.initTeams()
 	r.initConversationSearch()
 	return r, nil
 }
@@ -226,6 +229,7 @@ func (r *Runtime) drain(c *ui.Context) {
 	}
 	r.workspaceFrame(c)
 	r.workspaceSettingsFrame()
+	r.teamsFrame()
 	snapshot := r.controller.Snapshot()
 	if snapshot.PowerSettingsRevision != r.powerObservedRevision && !r.App.Settings.Power.Pending {
 		r.readPower()
@@ -348,7 +352,8 @@ func (r *Runtime) executeScoped(scope string, command protocol.Command, finished
 		output, err := r.controller.Execute(r.ctx, request)
 		r.enqueue(func(c *ui.Context) {
 			delete(r.busy, key)
-			if faultCode(err) == protocol.ErrorCodeOutcomeUnknown {
+			code := faultCode(err)
+			if code == protocol.ErrorCodeOutcomeUnknown || code == protocol.ErrorCodeUnavailable && (strings.HasPrefix(scope, "teams/") || strings.HasPrefix(scope, "session-team/")) {
 				r.uncertain[key] = request
 			} else {
 				delete(r.uncertain, key)

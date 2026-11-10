@@ -56,14 +56,19 @@ type State struct {
 	// (conversation ContextRing), nil for none.
 	Indicator func(c *ui.Context)
 
-	Mode       Mode
-	Permission Permission
-	Features   map[string]string // feature ID → option ID
-	Team       string            // "" runs the model alone
+	Mode         Mode
+	Permission   Permission
+	Features     map[string]string // feature ID → option ID
+	Team         string            // "" runs the model alone
+	MemberModels map[string]*MemberModel
+	SelectTeam   func(string) bool
+	TeamLocked   bool
 	// Host, Project and Worktree locate the draft (IDs; Worktree a branch).
 	Host, Project, Worktree string
 	attachmentCallbacks     *AttachmentCallbacks
 	referenceChildren       func(Reference) ([]Reference, bool)
+	referencePickerOpen     func()
+	referenceVisible        bool
 	Attachments             []*Attachment
 	References              []Reference // chipped into the draft
 	Dictation               Dictation
@@ -335,7 +340,7 @@ func (s *State) toolbar(c *ui.Context, ctx *Context, actions Actions, submit fun
 func (s *State) sendButton(c *ui.Context, ctx *Context, submit, stop func()) {
 	v := theme.Of(c).Variant
 	if s.Running {
-		b := kit.Primary(c.Key("stop"), i18n.T(c, "chat_stop"), false).Size(32, 32).PaddingX(0).Radius(16)
+		b := kit.Primary(c.Key("stop"), i18n.T(c, "chat_stop"), ctx.Readonly).Disabled(ctx.Readonly).Size(32, 32).PaddingX(0).Radius(16)
 		if v != nil {
 			action(b, v.Composer.Stop, false)
 		}

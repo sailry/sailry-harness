@@ -1211,6 +1211,7 @@ turn_latest: 回到最新回复
 turn_preview_failure: 示例错误：回复流中断，已保留部分回复
 composer: 描述你想完成的任务…
 welcome_hi: Hi，
+reference_load_failed: 引用加载失败
 welcome_name: Sailry
 welcome_title: 今天，想一起做点什么
 welcome_explore: 探索项目

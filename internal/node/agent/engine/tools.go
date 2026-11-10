@@ -25,6 +25,7 @@ type Tool struct {
 	ReadOnly          bool
 	Concurrent        bool
 	Deferred          bool
+	Delegation        bool
 	Approval          bool
 	Binding           *store.ApprovalBinding
 	Execute           func(context.Context, canonical.ToolRequest) ToolResult
@@ -34,6 +35,8 @@ type Tool struct {
 	schema            *jsonschema.Schema
 }
 type ToolResult struct {
+	Collect         *collectedChild
+	Meta            *map[string]json.RawMessage
 	ReturnedFailure *protocol.ToolFailure
 	ReturnedError   bool
 	Value           any
@@ -52,6 +55,16 @@ func (r *Runtime) captureTools(x *execution) error {
 		x.tools = append(x.tools, scoped...)
 	}
 	x.tools = append(r.builtins(x), x.tools...)
+	if x.inv.Session.Delegation != nil && *x.inv.Session.Delegation != nil {
+		if x.childRole != nil && x.childRole.Tools != nil {
+			for _, selection := range *x.childRole.Tools {
+				if !slices.ContainsFunc(x.tools, func(tool Tool) bool { return roleToolMatches(selection, tool) }) {
+					return &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "role references an unavailable tool"}
+				}
+			}
+		}
+		x.tools = slices.DeleteFunc(x.tools, func(tool Tool) bool { return !roleAllowsTool(x.childRole, tool) })
+	}
 	for i := range x.tools {
 		tool := &x.tools[i]
 		compiler := jsonschema.NewCompiler()
@@ -112,11 +125,11 @@ func (r *Runtime) runTools(x *execution, state store.AgentState, calls []canonic
 			results[i] = ToolResult{Failure: &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: call.Error.Message}}
 			continue
 		}
-		if tool == nil || tool.Deferred && !slices.Contains(state.LoadedTools, call.Name) {
+		if tool == nil || tool.Deferred && !slices.Contains(state.LoadedTools, call.Name) && call.ID != "sailry-selected-"+x.inv.Run.Turn.String() {
 			results[i] = ToolResult{Error: true, Value: map[string]any{"content": []any{map[string]any{"type": "text", "text": "This tool call was not handled."}}, "isError": true}}
 			continue
 		}
-		if x.inv.Turn.Config.Mode == protocol.WorkModePlan && !tool.ReadOnly && call.Name != "ask_user" {
+		if x.inv.Turn.Config.Mode == protocol.WorkModePlan && !tool.ReadOnly && !tool.Delegation && call.Name != "ask_user" {
 			results[i] = ToolResult{Failure: &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "planning mode permits read-only tools"}}
 			continue
 		}
@@ -234,7 +247,17 @@ func (r *Runtime) runTools(x *execution, state store.AgentState, calls []canonic
 	if contextDelta.Title != nil || contextDelta.LoadedTools != nil || contextDelta.Policy != nil {
 		record.Metadata.Context = &contextDelta
 	}
-	return r.save(context.WithoutCancel(x.ctx), x.inv.Session.ID, record)
+	if err := r.save(context.WithoutCancel(x.ctx), x.inv.Session.ID, record); err != nil {
+		return err
+	}
+	for _, result := range results {
+		if result.Collect != nil {
+			if err := r.consumeChild(x, result.Collect.session, &result.Collect.turn); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 func (r *Runtime) executableRecord(x *execution, call canonical.ToolRequest, allowed bool) canonical.Record {
 	patch, _ := json.Marshal(map[string]bool{canonical.ExecutableKey: allowed})
@@ -267,7 +290,7 @@ func responseBlock(index uint64, call canonical.ToolRequest, result ToolResult) 
 		raw, _ = json.Marshal(normalized)
 	}
 	sum := blake3.Sum256(raw)
-	return canonical.Block{Index: index, Kind: "tool_response", Data: &canonical.ToolResponse{ID: call.ID, Name: call.Name, Status: status, Format: format, Result: canonical.Payload{Value: raw}, Revision: fmt.Sprintf("%x", sum), Provider: call.Provider}}
+	return canonical.Block{Index: index, Kind: "tool_response", Data: &canonical.ToolResponse{ID: call.ID, Name: call.Name, Status: status, Format: format, Result: canonical.Payload{Value: raw}, Revision: fmt.Sprintf("%x", sum), Provider: call.Provider, Meta: result.Meta}}
 }
 func invalidTool(message string) ToolResult {
 	return ToolResult{Failure: &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: message}}

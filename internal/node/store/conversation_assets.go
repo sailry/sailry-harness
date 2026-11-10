@@ -175,12 +175,9 @@ func conversationAssetItems(ctx context.Context, db *sql.Conn, record canonical.
 			if len(input.References) > 0 {
 				skipped++
 			}
-			if input.NoticePart != nil {
-				skipped++
-			}
 		}
 		for part := skipped; part < message.PartCount; part++ {
-			if input := record.Metadata.Input; input != nil && input.CapabilityPart != nil && part == *input.CapabilityPart {
+			if input := record.Metadata.Input; input != nil && ((input.CapabilityPart != nil && part == *input.CapabilityPart) || (input.NoticePart != nil && part == *input.NoticePart)) {
 				continue
 			}
 			for _, block := range message.Content {

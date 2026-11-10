@@ -383,7 +383,7 @@ func showPhase(r *Reply, blocks []Block) bool {
 			}
 		}
 		for _, k := range b.Children {
-			if k.Status == ChildRunning {
+			if k.Status.Active() {
 				return false
 			}
 		}

@@ -1635,3 +1635,11 @@ notebook_empty: 没有单元格
 git_diff_binary: 二进制无法显示差异
 git_diff_partial: 差异较大，仅显示部分内容
 hooks_scope_windows: 脚本使用当前 Windows 命令策略
+teams_role_conflict: 角色已变更，请重新打开
+team_conflict: 团队已变更，请重新打开
+role_model_unavailable: 所选模型或供应商不可用
+role_capacity: 子代理数量已达上限
+role_unknown: 结果未确认，请重试原请求
+role_failed: 操作失败，请重试
+chat_child_unavailable: 子会话尚不可用，请重试
+reference_load_failed: 引用加载失败

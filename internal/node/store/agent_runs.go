@@ -89,6 +89,9 @@ func admitAgentTurn(ctx context.Context, db *sql.Conn, node, caller protocol.Nod
 	value.Revision = session.Revision
 	value.Config = session.Config
 	value.Roles = session.Roles
+	if err := RefreshTurnRoles(ctx, db, &value.Roles); err != nil {
+		return value, err
+	}
 	value.Kind = kind
 	catalog, err := operations.Bundled()
 	if err != nil {
@@ -190,19 +193,41 @@ func admitAgentTurn(ctx context.Context, db *sql.Conn, node, caller protocol.Nod
 	return value, err
 }
 func ClaimNext(ctx context.Context, db *sql.Conn, now time.Time) (*AgentInvocation, []protocol.Event, error) {
-	var id string
-	err := db.QueryRowContext(ctx, "SELECT a.turn FROM agent_runs a JOIN agent_pending p ON p.turn=a.turn JOIN turns t ON t.id=a.turn JOIN agent_queues q ON q.session=t.session WHERE a.ready=1 AND q.paused=0 AND p.recipient IS NULL AND json_extract(a.body,'$.status')='queued' AND NOT EXISTS(SELECT 1 FROM agent_runs active JOIN turns other ON other.id=active.turn WHERE other.session=t.session AND json_extract(active.body,'$.status') IN ('running','stopping')) ORDER BY p.position,t.rowid LIMIT 1").Scan(&id)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil, nil
+	events := []protocol.Event{}
+	for {
+		var id string
+		err := db.QueryRowContext(ctx, "SELECT a.turn FROM agent_runs a JOIN agent_pending p ON p.turn=a.turn JOIN turns t ON t.id=a.turn JOIN agent_queues q ON q.session=t.session WHERE a.ready=1 AND q.paused=0 AND p.recipient IS NULL AND NOT EXISTS(SELECT 1 FROM agent_delegations d WHERE d.turn=a.turn) AND json_extract(a.body,'$.status')='queued' AND NOT EXISTS(SELECT 1 FROM agent_runs active JOIN turns other ON other.id=active.turn WHERE other.session=t.session AND json_extract(active.body,'$.status') IN ('running','stopping')) ORDER BY p.position,t.rowid LIMIT 1").Scan(&id)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, events, nil
+		}
+		if err != nil {
+			return nil, events, err
+		}
+		turn, err := protocol.ParseTurnID(id)
+		if err != nil {
+			return nil, events, err
+		}
+		inv, changed, err := claimAgentInvocation(ctx, db, turn, now)
+		events = append(events, changed...)
+		if err != nil || inv != nil || len(changed) == 0 {
+			return inv, events, err
+		}
 	}
+}
+func claimAgentInvocation(ctx context.Context, db *sql.Conn, turn protocol.TurnID, now time.Time) (*AgentInvocation, []protocol.Event, error) {
+	initial, err := ReadAgentRun(ctx, db, turn)
 	if err != nil {
 		return nil, nil, err
 	}
-	turn, err := protocol.ParseTurnID(id)
+	unavailable, err := checkAutomaticInput(ctx, db, initial)
 	if err != nil {
 		return nil, nil, err
 	}
-	queued, err := readQueuedMessage(ctx, db, turn)
+	if unavailable != nil {
+		events, err := cancelAutomaticInput(ctx, db, initial, unavailable, now)
+		return nil, events, err
+	}
+	queued, err := queuedInvocationInput(ctx, db, turn)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -217,6 +242,7 @@ func ClaimNext(ctx context.Context, db *sql.Conn, now time.Time) (*AgentInvocati
 	session.Config = queued.Turn.Config
 	session.Revision = queued.Turn.Revision
 	session.Worktree = run.Worktree
+	session.Roles = queued.Turn.Roles
 	inv := &AgentInvocation{Session: session, Run: run, Turn: queued.Turn, Message: queued.Message, Instructions: []AgentInstruction{}}
 	catalog, err := operations.Bundled()
 	if err != nil {
@@ -324,7 +350,7 @@ func FinishTurn(ctx context.Context, db *sql.Conn, turn protocol.TurnID, status 
 	if err = closeInteractions(ctx, db, turn, "interrupted"); err != nil {
 		return run, nil, err
 	}
-	if failure != nil || status == protocol.ConversationStatusInterrupted || status == protocol.ConversationStatusCancelled {
+	if failure != nil || status == protocol.ConversationStatusFailed || status == protocol.ConversationStatusInterrupted || status == protocol.ConversationStatusCancelled {
 		if err = setQueuePaused(ctx, db, run.Session, true); err != nil {
 			return run, nil, err
 		}
@@ -333,6 +359,55 @@ func FinishTurn(ctx context.Context, db *sql.Conn, turn protocol.TurnID, status 
 		return run, nil, err
 	}
 	events, err := activityEvent(ctx, db, run.Session)
+	if err != nil {
+		return run, nil, err
+	}
+	origin, err := readDelegation(ctx, db, turn)
+	if err != nil {
+		return run, nil, err
+	}
+	if origin != nil {
+		queue, queueErr := ReadQueue(ctx, db, run.Session)
+		if queueErr != nil {
+			return run, nil, queueErr
+		}
+		if queue.Paused {
+			err = retainChildGuidance(ctx, db, run)
+		}
+		if err != nil {
+			return run, nil, err
+		}
+	}
+	changed, err := FinishChildBackground(ctx, db, run, now)
+	if err != nil {
+		return run, nil, err
+	}
+	events = append(events, changed...)
+	changed, err = ReleaseBackground(ctx, db, turn, run.Notice)
+	if err != nil {
+		return run, nil, err
+	}
+	events = append(events, changed...)
+	owner := run.Session
+	if origin != nil {
+		owner = origin.Session
+		changed, err = activityEvent(ctx, db, owner)
+		if err != nil {
+			return run, nil, err
+		}
+		events = append(events, changed...)
+	}
+	var identity []byte
+	if err = db.QueryRowContext(ctx, "SELECT identity FROM node WHERE singleton=1").Scan(&identity); err != nil {
+		return run, nil, err
+	}
+	if len(identity) != 32 {
+		return run, nil, invalid("invalid Node identity")
+	}
+	var node protocol.NodeID
+	copy(node[:], identity)
+	_, changed, err = ScheduleBackground(ctx, db, node, owner, now)
+	events = append(events, changed...)
 	return run, events, err
 }
 func RecoverRuns(ctx context.Context, db *sql.Conn, now time.Time) ([]protocol.Event, error) {
@@ -344,6 +419,17 @@ func RecoverRuns(ctx context.Context, db *sql.Conn, now time.Time) ([]protocol.E
 	for _, run := range runs {
 		failure := &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "execution was interrupted; model and tool calls were not replayed"}
 		_, changed, e := FinishTurn(ctx, db, run.Turn, protocol.ConversationStatusInterrupted, failure, now)
+		if e != nil {
+			return nil, e
+		}
+		events = append(events, changed...)
+	}
+	automatic, e := readBodies[protocol.ConversationRun](ctx, db, "SELECT a.body FROM agent_runs a WHERE json_extract(a.body,'$.status')='queued' AND (coalesce(json_extract(a.body,'$.notice'),0)=1 OR EXISTS(SELECT 1 FROM agent_continuations c WHERE c.turn=a.turn))")
+	if e != nil {
+		return nil, e
+	}
+	for _, run := range automatic {
+		changed, e := cancelAutomaticInput(ctx, db, run, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "automatic input was interrupted before execution"}, now)
 		if e != nil {
 			return nil, e
 		}

@@ -33,15 +33,19 @@ var rolePresets = [][3]string{
 // teamEditor edits a team: the Default team (default), a new one
 // (team.ID == "") or a saved one.
 type teamEditor struct {
-	open bool
-	def  bool
-	team preview.Team
+	open            bool
+	def             bool
+	team            preview.Team
+	pending, locked bool
+	request         *bool
 }
 
 // roleEditor edits a role, a new one when role.ID == "".
 type roleEditor struct {
-	open bool
-	role preview.Role
+	open            bool
+	role            preview.Role
+	pending, locked bool
+	request         *bool
 }
 
 // modelChoices are the channels' models as "channel/model" with their
@@ -104,8 +108,14 @@ func teams(c *ui.Context, m *Model) {
 	ui.Column(c.Key("teams")).Gap(16).Children(func() {
 		kit.Card(c, func() {
 			kit.WideRow(c, "concurrency", t("teams_concurrency"), t("teams_concurrency_description"), func() {
-				if ui.StepSlider(c.Key("slider"), &m.Concurrency.Draft, 1, 16, 1).Label(t("teams_concurrency")).Grow(1).Changed() {
-					report(c, m.Concurrency.Commit(), concurrencyMessages)
+				shown := min(16, max(1, m.Concurrency.Draft))
+				if ui.StepSlider(c.Key("slider"), &shown, 1, 16, 1).Label(t("teams_concurrency")).Grow(1).Disabled(m.Concurrency.Pending || m.Live && m.TeamActions == nil).Changed() {
+					m.Concurrency.Draft = shown
+					if m.Live && m.TeamActions != nil {
+						m.TeamActions.SaveConcurrency()
+					} else {
+						report(c, m.Concurrency.Commit(), concurrencyMessages)
+					}
 				}
 				ui.Textf(c, "%.0f", m.Concurrency.Draft).FontSize(14).Width(24).TextAlign(ui.End)
 			})
@@ -136,9 +146,18 @@ func teams(c *ui.Context, m *Model) {
 	if tm := m.team(m.teamRemoving); tm != nil {
 		open := true
 		if confirm(c, "delete-team", &open, t("team_delete")+" "+tm.Name, t("team_delete_prompt", "name", tm.Name), t("settings_delete")) {
-			m.Teams = slices.DeleteFunc(m.Teams, func(x preview.Team) bool { return x.ID == tm.ID })
-			m.teamEdit.open = false
-			kit.Toast(c, kit.Done, t("team_deleted"))
+			if m.Live && m.TeamActions != nil {
+				m.TeamActions.RemoveTeam(*tm, func(outcome kit.Outcome) {
+					if outcome == kit.Done {
+						m.teamEdit.open = false
+						m.teamRemoving = ""
+					}
+				})
+			} else {
+				m.Teams = slices.DeleteFunc(m.Teams, func(x preview.Team) bool { return x.ID == tm.ID })
+				m.teamEdit.open = false
+				kit.Toast(c, kit.Done, t("team_deleted"))
+			}
 		}
 		if !open {
 			m.teamRemoving = ""
@@ -147,11 +166,19 @@ func teams(c *ui.Context, m *Model) {
 	if r := m.role(m.roleRemoving); r != nil {
 		open := true
 		if confirm(c, "delete-role", &open, t("settings_delete")+" "+r.Name, t("teams_role_delete_prompt", "name", r.Name), t("settings_delete")) {
-			m.Roles = slices.DeleteFunc(m.Roles, func(x preview.Role) bool { return x.ID == r.ID })
-			for i := range m.Teams {
-				m.Teams[i].Members = slices.DeleteFunc(m.Teams[i].Members, func(id string) bool { return id == r.ID })
+			if m.Live && m.TeamActions != nil {
+				m.TeamActions.RemoveRole(*r, func(outcome kit.Outcome) {
+					if outcome == kit.Done {
+						m.roleRemoving = ""
+					}
+				})
+			} else {
+				m.Roles = slices.DeleteFunc(m.Roles, func(x preview.Role) bool { return x.ID == r.ID })
+				for i := range m.Teams {
+					m.Teams[i].Members = slices.DeleteFunc(m.Teams[i].Members, func(id string) bool { return id == r.ID })
+				}
+				kit.Toast(c, kit.Done, t("teams_role_deleted"))
 			}
-			kit.Toast(c, kit.Done, t("teams_role_deleted"))
 		}
 		if !open {
 			m.roleRemoving = ""
@@ -281,7 +308,7 @@ func teamDialog(c *ui.Context, m *Model) {
 	}
 	kit.Dialog(c.Key("team-editor"), &e.open, func() {
 		ui.Text(c, title).FontSize(16).FontWeight(600)
-		ui.Scroll(c.Key("body")).Grow(1).Shrink(1).Gap(16).Children(func() {
+		ui.Scroll(c.Key("body")).Grow(1).Shrink(1).Gap(16).Disabled(e.pending || e.locked).Children(func() {
 			if e.def {
 				ui.Text(c, t("team_default_description")).FontSize(14).TextColor(theme.Of(c).MutedForeground)
 			} else {
@@ -336,24 +363,40 @@ func teamDialog(c *ui.Context, m *Model) {
 		})
 		ui.Row(c.Key("footer")).Gap(8).Children(func() {
 			if !e.def && e.team.ID != "" {
-				kit.Secondary(c.Key("duplicate"), t("team_duplicate")).OnClick(func() {
+				kit.Secondary(c.Key("duplicate"), t("team_duplicate")).Disabled(e.pending || e.locked).OnClick(func() {
 					x := e.team
-					x.ID, x.Name, x.Members = "", t("team_copy_name", "name", x.Name), slices.Clone(x.Members)
+					x.ID, x.Name, x.Members, x.Revision = "", t("team_copy_name", "name", x.Name), slices.Clone(x.Members), 0
 					e.team = x
 				})
-				kit.Danger(c.Key("delete"), t("team_delete")).OnClick(func() { m.teamRemoving = e.team.ID })
+				kit.Danger(c.Key("delete"), t("team_delete")).Disabled(e.pending || e.locked).OnClick(func() { m.teamRemoving = e.team.ID })
 			}
 			ui.Spacer(c)
 			if e.def {
 				kit.Secondary(c.Key("close"), t("close")).OnClick(func() { e.open = false })
 				return
 			}
-			kit.Secondary(c.Key("cancel"), t("settings_cancel")).OnClick(func() { e.open = false })
+			kit.Secondary(c.Key("cancel"), t("settings_cancel")).Disabled(e.pending || e.locked).OnClick(func() { e.open = false })
 			action := t("settings_save")
 			if e.team.ID == "" {
 				action = t("team_create")
 			}
-			kit.Primary(c.Key("ok"), action, false).Children(func() { ui.Text(c, action).FontSize(14) }).OnClick(func() {
+			kit.Primary(c.Key("ok"), action, e.pending).Disabled(e.pending).Children(func() { ui.Text(c, action).FontSize(14) }).OnClick(func() {
+				if m.Live && m.TeamActions != nil {
+					e.pending = true
+					token := new(bool)
+					e.request = token
+					m.TeamActions.SaveTeam(e.team, func(outcome kit.Outcome) {
+						if e.request != token {
+							return
+						}
+						e.pending = false
+						e.locked = outcome == kit.Uncertain
+						if outcome == kit.Done {
+							e.open = false
+						}
+					})
+					return
+				}
 				if problem := m.saveTeam(e.team); problem != "" {
 					kit.Toast(c, kit.Failed, t(problem))
 					return
@@ -363,6 +406,9 @@ func teamDialog(c *ui.Context, m *Model) {
 			})
 		})
 	}).Width(min(600, width(c)-48)).Label(title)
+	if !e.open && (e.pending || e.locked) {
+		e.open = true
+	}
 }
 
 // saveTeam checks and stores a team: the i18n key of the problem, or "".
@@ -423,7 +469,7 @@ func roleDialog(c *ui.Context, m *Model) {
 	if e.role.ID == "" {
 		title = t("role_new")
 	}
-	locked := e.role.Builtin
+	locked := e.role.Builtin || e.pending || e.locked
 	kit.Dialog(c.Key("role-editor"), &e.open, func() {
 		ui.Text(c, title).FontSize(16).FontWeight(600)
 		ui.Scroll(c.Key("body")).Grow(1).Shrink(1).Gap(16).Children(func() {
@@ -431,7 +477,7 @@ func roleDialog(c *ui.Context, m *Model) {
 				kit.Field(c, "presets", t("role_presets"), "", func() {
 					ui.Row(c).Wrap().Gap(6).Children(func() {
 						for _, pr := range rolePresets {
-							kit.Secondary(c.Key(pr[0]), t(pr[0])).Height(28).OnClick(func() {
+							kit.Secondary(c.Key(pr[0]), t(pr[0])).Height(28).Disabled(e.pending || e.locked).OnClick(func() {
 								e.role.Name, e.role.Description, e.role.Instructions = t(pr[0]), t(pr[1]), t(pr[2])
 								if e.role.Key == "" {
 									e.role.Key = strings.TrimPrefix(pr[0], "role_preset_")
@@ -456,7 +502,7 @@ func roleDialog(c *ui.Context, m *Model) {
 			kit.Field(c, "description", t("teams_description"), "", func() {
 				ui.TextInput(c.Key("input"), &e.role.Description).Label(t("teams_description")).FillWidth().Disabled(locked)
 			})
-			modelField(c, m, "model", t("teams_model"), "role_inherit", &e.role.Model, &e.role.Effort)
+			ui.Column(c.Key("model-wrap")).Disabled(e.pending || e.locked).Children(func() { modelField(c, m, "model", t("teams_model"), "role_inherit", &e.role.Model, &e.role.Effort) })
 			ui.Row(c.Key("read-only")).Gap(8).Children(func() {
 				ui.Text(c, t("teams_read_only")).FontSize(14).Grow(1)
 				ui.Switch(c.Key("switch"), &e.role.ReadOnly).Label(t("teams_read_only")).Disabled(locked)
@@ -465,7 +511,26 @@ func roleDialog(c *ui.Context, m *Model) {
 				ui.TextArea(c.Key("input"), &e.role.Instructions).Label(t("role_instructions")).FillWidth().MinHeight(120).Disabled(locked)
 			})
 		})
-		footer(c, t("role_save"), func() { e.open = false }, func() {
+		teamFooter(c, t("role_save"), e.pending, e.locked, func() { e.open = false }, func() {
+			if e.pending {
+				return
+			}
+			if m.Live && m.TeamActions != nil {
+				e.pending = true
+				token := new(bool)
+				e.request = token
+				m.TeamActions.SaveRole(e.role, func(outcome kit.Outcome) {
+					if e.request != token {
+						return
+					}
+					e.pending = false
+					e.locked = outcome == kit.Uncertain
+					if outcome == kit.Done {
+						e.open = false
+					}
+				})
+				return
+			}
 			if problem := m.saveRole(e.role); problem != "" {
 				kit.Toast(c, kit.Failed, t(problem))
 				return
@@ -474,4 +539,15 @@ func roleDialog(c *ui.Context, m *Model) {
 			e.open = false
 		})
 	}).Width(min(600, width(c)-48)).Label(title)
+	if !e.open && (e.pending || e.locked) {
+		e.open = true
+	}
+}
+
+// teamFooter keeps uncertain drafts available for an explicit retry.
+func teamFooter(c *ui.Context, action string, pending, locked bool, cancel, save func()) {
+	ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
+		kit.Secondary(c.Key("cancel"), i18n.T(c, "settings_cancel")).Disabled(pending || locked).OnClick(cancel)
+		kit.Primary(c.Key("ok"), action, pending).Disabled(pending).Children(func() { ui.Text(c, action).FontSize(14) }).OnClick(save)
+	})
 }

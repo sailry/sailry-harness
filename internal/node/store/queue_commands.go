@@ -21,6 +21,10 @@ func agentInput(command protocol.Command) (protocol.ConversationInput, error) {
 		return v.Message, nil
 	case *protocol.CommandGuideTurnPayload:
 		return v.Message, nil
+	case *protocol.CommandContinueTurnPayload:
+		return v.Message, nil
+	case *protocol.CommandDeliverBackgroundPayload:
+		return protocol.DefaultConversationInput(), nil
 	case *protocol.CommandEditQueuedTurnPayload:
 		return v.Message, nil
 	case *protocol.CommandReplaceTurnPayload:
@@ -95,17 +99,17 @@ func ReadQueue(ctx context.Context, db *sql.Conn, session protocol.SessionID) (p
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return value, err
 	}
-	rows, err := db.QueryContext(ctx, "SELECT a.body,p.revision,a.ready,r.body,p.recipient FROM agent_pending p JOIN turns t ON t.id=p.turn JOIN agent_runs a ON a.turn=p.turn JOIN requests r ON r.id=p.request AND r.caller=p.caller WHERE t.session=?1 AND (json_extract(a.body,'$.status')='queued' OR (json_extract(a.body,'$.status') IN ('failed','cancelled','interrupted') AND NOT EXISTS(SELECT 1 FROM agent_events e WHERE e.turn=p.turn AND json_extract(e.body,'$.provenance.author')='user'))) ORDER BY p.position,t.rowid", session.String())
+	rows, err := db.QueryContext(ctx, "SELECT a.body,p.revision,a.ready,r.body,p.recipient,a.input FROM agent_pending p JOIN turns t ON t.id=p.turn JOIN agent_runs a ON a.turn=p.turn JOIN requests r ON r.id=p.request AND r.caller=p.caller WHERE t.session=?1 AND (json_extract(a.body,'$.status')='queued' OR (json_extract(a.body,'$.status') IN ('failed','cancelled','interrupted') AND NOT EXISTS(SELECT 1 FROM agent_events e WHERE e.turn=p.turn AND json_extract(e.body,'$.provenance.author')='user'))) ORDER BY p.position,t.rowid", session.String())
 	if err != nil {
 		return value, err
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var body, requestBody []byte
+		var body, requestBody, capturedInput []byte
 		var revision uint64
 		var ready bool
 		var recipient sql.NullString
-		if err = rows.Scan(&body, &revision, &ready, &requestBody, &recipient); err != nil {
+		if err = rows.Scan(&body, &revision, &ready, &requestBody, &recipient, &capturedInput); err != nil {
 			return value, err
 		}
 		var run protocol.ConversationRun
@@ -117,6 +121,9 @@ func ReadQueue(ctx context.Context, db *sql.Conn, session protocol.SessionID) (p
 			return value, err
 		}
 		message, e := agentInput(request.Command)
+		if len(capturedInput) > 0 {
+			e = json.Unmarshal(capturedInput, &message)
+		}
 		if e != nil {
 			return value, e
 		}
@@ -194,17 +201,28 @@ func stopAgentTurn(ctx context.Context, db *sql.Conn, turn protocol.TurnID, now 
 	if err != nil {
 		return run, err
 	}
-	switch run.Status {
-	case protocol.ConversationStatusQueued:
-		run.Status = protocol.ConversationStatusCancelled
-		ms := now.UnixMilli()
-		run.FinishedMs = &ms
+	var retained bool
+	if run.Status != protocol.ConversationStatusQueued {
+		if err = db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM agent_pending p JOIN agent_runs a ON a.turn=p.turn WHERE p.turn=?1 AND json_extract(a.body,'$.status') IN ('failed','cancelled','interrupted') AND NOT EXISTS(SELECT 1 FROM agent_events e WHERE e.turn=p.turn AND json_extract(e.body,'$.provenance.author')='user'))", turn.String()).Scan(&retained); err != nil {
+			return run, err
+		}
+	}
+	if run.Status == protocol.ConversationStatusQueued || retained {
+		if _, err = ReleaseBackground(ctx, db, turn, true); err != nil {
+			return run, err
+		}
 		if _, err = db.ExecContext(ctx, "DELETE FROM agent_pending WHERE turn=?1", turn.String()); err != nil {
 			return run, err
 		}
 		if err = bumpQueue(ctx, db, run.Session); err != nil {
 			return run, err
 		}
+	}
+	switch run.Status {
+	case protocol.ConversationStatusQueued:
+		run.Status = protocol.ConversationStatusCancelled
+		ms := now.UnixMilli()
+		run.FinishedMs = &ms
 	case protocol.ConversationStatusRunning:
 		run.Status = protocol.ConversationStatusStopping
 		if err = setQueuePaused(ctx, db, run.Session, true); err != nil {
@@ -317,7 +335,7 @@ func TakeGuidance(ctx context.Context, db *sql.Conn, recipient protocol.TurnID) 
 	}
 	out := []AgentGuidance{}
 	for _, id := range ids {
-		message, e := readQueuedMessage(ctx, db, id)
+		message, e := queuedInvocationInput(ctx, db, id)
 		if e != nil {
 			return nil, nil, e
 		}

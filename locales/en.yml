@@ -1,4 +1,5 @@
 welcome_hi: Hi,
+reference_load_failed: Failed to load references
 live_read_busy: Waiting for the host
 approval_busy: Approval pending
 search: Search

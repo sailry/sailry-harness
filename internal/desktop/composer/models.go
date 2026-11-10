@@ -2,6 +2,8 @@ package composer
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -205,7 +207,7 @@ func (s *State) controls(c *ui.Context, ctx *Context, actions Actions) {
 		h = min(float32(28+32*rows+9+32+4*(rows+2)), panelHeight)
 	}
 	body := ui.Column(c.Key("model-controls")).Width(panelWidth).Height(h).Clip().AlignItems(ui.Center).Gap(8).
-		Transition(ui.ElementTransition{Height: true, Duration: 200e6})
+		Transition(ui.ElementTransition{Height: true, Duration: 200e6}).Disabled(ctx.Readonly || s.TeamLocked)
 	body.Children(func() {
 		switch s.layer {
 		case layerModels:
@@ -223,11 +225,12 @@ func (s *State) controls(c *ui.Context, ctx *Context, actions Actions) {
 // another, and the effort track.
 func (s *State) mainPanel(c *ui.Context, ctx *Context) {
 	p := theme.Of(c)
-	m := s.Chosen(ctx.Models)
+	m := s.controlModel(ctx.Models)
+	effortIndex := s.controlEffort()
 	list := efforts(m)
 	s.teamRow(c, ctx)
-	effort := s.EffortName(c, m)
-	highest := len(list) > 1 && int(s.Effort) == len(list)-1
+	effort := s.controlEffortName(c, m)
+	highest := len(list) > 1 && int(*effortIndex) == len(list)-1
 	ui.Column(c.Key("controls")).FillWidth().Shrink(0).Gap(4).AlignItems(ui.Center).Children(func() {
 		ui.Box(c.Key("effort-row")).FillWidth().Height(28).Children(func() {
 			ui.Row(c.Key("features")).Absolute().Left(0).Top(0).Height(28).Gap(4).AlignItems(ui.Center).Children(func() {
@@ -241,11 +244,12 @@ func (s *State) mainPanel(c *ui.Context, ctx *Context) {
 				scoreTip(c, e, m.Score)
 			}
 			ui.Row(c.Key("reset-row")).Absolute().Right(0).Top(0).Height(28).AlignItems(ui.Center).Children(func() {
-				resettable := int(s.Effort) != defaultEffort(m) || len(s.Features) > 0
+				resettable := int(*effortIndex) != defaultEffort(m) || len(s.controlFeatures()) > 0
 				kit.IconButton(c.Key("reset"), icons.Restore, i18n.T(c, "composer_effort_reset"), 28, false).Radius(14).
 					Disabled(!resettable).OnClick(func() {
-					s.Effort = float64(defaultEffort(m))
-					s.Features = map[string]string{}
+					*effortIndex = float64(defaultEffort(m))
+					s.setControlFeatures(map[string]string{})
+					s.markMemberOverride()
 				})
 			})
 		})
@@ -257,7 +261,11 @@ func (s *State) mainPanel(c *ui.Context, ctx *Context) {
 			s.open = map[string]bool{m.Provider: true}
 		})
 	})
-	track(c, &s.Effort, len(list), highest, len(list) < 2)
+	before := *effortIndex
+	track(c, effortIndex, len(list), highest, len(list) < 2)
+	if before != *effortIndex {
+		s.markMemberOverride()
+	}
 }
 
 // defaultEffort is the level a model starts at: medium, or the middle.
@@ -291,7 +299,8 @@ func (s *State) features(c *ui.Context, m Model) {
 			Disabled(true), i18n.T(c, "composer_feature_fast_unsupported"))
 	}
 	for _, f := range m.Features {
-		current, set := s.Features[f.ID]
+		features := s.controlFeatures()
+		current, set := features[f.ID]
 		var opt *FeatureOption
 		for i := range f.Options {
 			if f.Options[i].ID == current {
@@ -334,6 +343,7 @@ func (s *State) features(c *ui.Context, m Model) {
 			b := kit.IconButton(c.Key(f.ID), icon, label, 28, set).Radius(14)
 			kit.Tooltip(c, b, tip)
 			b.AccessSelected(set).OnClick(func() {
+				s.markMemberFeatureOverride()
 				// off, then each option in turn.
 				i := 0
 				if set {
@@ -345,9 +355,9 @@ func (s *State) features(c *ui.Context, m Model) {
 					}
 				}
 				if i < len(f.Options) {
-					s.Features[f.ID] = f.Options[i].ID
+					features[f.ID] = f.Options[i].ID
 				} else {
-					delete(s.Features, f.ID)
+					delete(features, f.ID)
 				}
 			})
 			continue
@@ -356,11 +366,13 @@ func (s *State) features(c *ui.Context, m Model) {
 			kit.Tooltip(c, kit.IconLook(c, b, icon, label, "", 28, set).Radius(14), tip)
 		}, func(menu *kit.Menu) {
 			if menu.Item(i18n.T(c, "composer_feature_off")).Checked(!set).Chosen() {
-				delete(s.Features, f.ID)
+				delete(features, f.ID)
+				s.markMemberFeatureOverride()
 			}
 			for _, o := range f.Options {
 				if menu.Item(name(o)).Checked(set && o.ID == current).Chosen() {
-					s.Features[f.ID] = o.ID
+					features[f.ID] = o.ID
+					s.markMemberFeatureOverride()
 				}
 			}
 		})
@@ -452,10 +464,21 @@ func (s *State) teamList(c *ui.Context, ctx *Context, actions Actions) {
 				ui.Text(c, i18n.T(c, "composer_back")).FontSize(14)
 			}).OnClick(func() { s.layer = layerMain })
 		row("model-only", i18n.T(c, "composer_execution_model"), icons.Bot, p.Primary, -1, s.Team == "", func() {
+			if s.SelectTeam != nil && !s.SelectTeam("") {
+				return
+			}
 			s.Team, s.member, s.layer = "", "", layerMain
+			s.MemberModels = nil
 		})
 		for _, t := range ctx.Teams {
 			row("team-"+t.ID, t.Name, icons.Users, kit.AgentColor(c, t.ID), len(t.Members), s.Team == t.ID, func() {
+				if s.SelectTeam != nil {
+					if !s.SelectTeam(t.ID) {
+						return
+					}
+				} else if s.Team != t.ID {
+					s.MemberModels = nil
+				}
 				s.Team, s.member, s.layer = t.ID, "", layerMain
 			})
 		}
@@ -544,7 +567,7 @@ func (s *State) modelPicker(c *ui.Context, ctx *Context) {
 // emphasis color at 12%.
 func (s *State) modelRow(c *ui.Context, m Model) {
 	p := theme.Of(c)
-	selected := m.ID == s.Model
+	selected := m.ID == s.controlModelID()
 	look := func(b ui.Element) {
 		b.Label(m.Name).FillWidth().MinWidth(0).Height(32).PaddingX(8).Gap(8).Radius(p.RadiusLg).Justify(ui.Start).
 			Cursor(ui.CursorPointer).AccessSelected(selected).TextColor(p.PopoverForeground)
@@ -574,7 +597,7 @@ func (s *State) modelRow(c *ui.Context, m Model) {
 	b := kit.MenuButton(c.Key(m.ID), id, look, func(menu *kit.Menu) {
 		current := defaultEffort(m)
 		if selected {
-			current = int(s.Effort)
+			current = int(*s.controlEffort())
 		}
 		for i, e := range list {
 			it := menu.Item(e).Checked(i == current)
@@ -601,8 +624,23 @@ func (s *State) modelRow(c *ui.Context, m Model) {
 
 // pick chooses a model at an effort and goes back to the controls.
 func (s *State) pick(m Model, effort int) {
-	s.Model, s.Effort, s.layer, s.efforts = m.ID, float64(effort), layerMain, ""
-	s.Features = map[string]string{}
+	if member := s.memberSelection(); member != nil {
+		features := maps.Clone(member.Features)
+		if member.InheritFeatures {
+			features = maps.Clone(s.Features)
+		}
+		for id, selected := range features {
+			if !slices.ContainsFunc(m.Features, func(feature Feature) bool {
+				return feature.ID == id && slices.ContainsFunc(feature.Options, func(option FeatureOption) bool { return option.ID == selected })
+			}) {
+				delete(features, id)
+			}
+		}
+		member.Model, member.Effort, member.Features, member.Overridden = m.ID, float64(effort), features, true
+	} else {
+		s.Model, s.Effort, s.Features = m.ID, float64(effort), map[string]string{}
+	}
+	s.layer, s.efforts = layerMain, ""
 }
 
 // scoreTip is the overall score, the five axes and the effort they were

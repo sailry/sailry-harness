@@ -1635,3 +1635,11 @@ notebook_empty: Нет ячеек
 git_diff_binary: Не удается отобразить двоичное отличие
 git_diff_partial: Частичное различие
 hooks_scope_windows: Скрипты используют текущую политику команд Windows
+teams_role_conflict: Роль изменилась; откройте её снова
+team_conflict: Команда изменилась; откройте её снова
+role_model_unavailable: Выбранная модель или поставщик недоступен
+role_capacity: Выполнен предел субагента
+role_unknown: Результат не подтвержден; повторите первоначальный запрос
+role_failed: Операция не удалась; повторите попытку
+chat_child_unavailable: Подсессия недоступна; попробуйте еще раз
+reference_load_failed: Failed to load references

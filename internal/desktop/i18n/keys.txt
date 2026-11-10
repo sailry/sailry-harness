@@ -1647,3 +1647,11 @@ notebook_empty
 git_diff_binary
 git_diff_partial
 hooks_scope_windows
+teams_role_conflict
+team_conflict
+role_model_unavailable
+role_capacity
+role_unknown
+role_failed
+chat_child_unavailable
+reference_load_failed

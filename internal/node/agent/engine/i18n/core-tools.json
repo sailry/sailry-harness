@@ -1,0 +1,62 @@
+{
+  "tool_spawn_agent": {
+    "en": "Subagent",
+    "zh-CN": "子代理",
+    "zh-TW": "子代理",
+    "ja": "サブエージェント",
+    "ko": "하위 에이전트",
+    "fr": "Sous-agent",
+    "de": "Unteragent",
+    "es": "Subagente",
+    "pt-BR": "Subagente",
+    "ru": "Субагент"
+  },
+  "tool_guide_agent": {
+    "en": "Guide subagent",
+    "zh-CN": "引导子代理",
+    "zh-TW": "引導子代理",
+    "ja": "サブエージェントを指示",
+    "ko": "하위 에이전트 지시",
+    "fr": "Guider le sous-agent",
+    "de": "Unteragent anleiten",
+    "es": "Guiar subagente",
+    "pt-BR": "Orientar subagente",
+    "ru": "Направить субагента"
+  },
+  "tool_wait_agent": {
+    "en": "Wait for subagent",
+    "zh-CN": "等待子代理",
+    "zh-TW": "等待子代理",
+    "ja": "サブエージェントを待機",
+    "ko": "하위 에이전트 대기",
+    "fr": "Attendre le sous-agent",
+    "de": "Auf Unteragent warten",
+    "es": "Esperar subagente",
+    "pt-BR": "Aguardar subagente",
+    "ru": "Ждать субагента"
+  },
+  "tool_load_skill": {
+    "en": "Load skill",
+    "zh-CN": "加载技能",
+    "zh-TW": "載入技能",
+    "ja": "ロードスキル",
+    "ko": "기술 로드",
+    "fr": "Capacité de chargement",
+    "de": "Load Skill",
+    "es": "Habilidad de carga",
+    "pt-BR": "Habilidade de carga",
+    "ru": "Навыки нагрузки"
+  },
+  "tool_read_skill_resource": {
+    "en": "Read skill resource",
+    "zh-CN": "读取技能资源",
+    "zh-TW": "讀取技能資源",
+    "ja": "スキルリソースを読み込む",
+    "ko": "읽기 기술 자원",
+    "fr": "Lire la ressource de compétence",
+    "de": "Skill-Ressource lesen",
+    "es": "Recurso de habilidad de lectura",
+    "pt-BR": "Ler recurso de habilidade",
+    "ru": "Навыки чтения"
+  }
+}

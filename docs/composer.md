@@ -202,9 +202,10 @@ composer.View(c, comp, context(snapshot), &live{client, c, session.ID})
 
 The production adapter is `internal/desktop/live/conversation*.go`. First send
 captures the selected Node, project, worktree and provider revision, creates a
-real session, retains its local composer/pane identity, then submits the input.
+real session, retains its local composer/pane identity, saves its selected team
+and explicit member overrides, then submits the input.
 Existing sessions submit, guide or queue with their captured configuration
-revision. Configuration saves serialize with admission and retain provider model
+revision. Configuration and team saves serialize with admission and retain provider model
 options. Successful command outputs bridge the short interval before the Node
 feed arrives. Failures, conflicts and uncertain outcomes retain input; an explicit
 identical retry retains the uncertain request ID.
@@ -223,8 +224,22 @@ preview fallback. Captured queue revisions protect edits and reordering.
 `Context.LocationLocked` freezes admitted session locations during B4. New drafts
 choose from registered projects and worktrees; the existing worktree DTO carries
 the canonical path until Git inspection supplies branch labels in B5. File
-transfers, worktree creation, team execution, dictation and plugin activity keep
-their later-phase ownership and report unavailable when invoked before wiring.
+transfers and worktree creation use their live workspace owners. Dictation and
+plugin activity keep their later-phase ownership.
+
+Team choices use the Node's catalog and the session's frozen role profiles.
+`State.MemberModels` separates member edits from the lead model controls;
+inherited choices do not become explicit overrides. Team and member saves retain
+their original revision and uncertain request identity. First input, guidance
+and queued input wait for successful saves; failures preserve the draft.
+Existing sessions retain their captured role references in `@ Agents`; unsent
+drafts use the current catalog. Skills come from enabled installed packages read
+at their exact digest and settings revision, and chips retain `package:skill`.
+
+Child sessions disable input, configuration and work actions. Parent composers
+project active registered children into the existing activity capsule and show
+their ordinary pending approvals with the child's name. Approval decisions target
+the child session; opening a row observes its real transcript.
 
 ## UI state vs backend data
 
@@ -232,7 +247,7 @@ their later-phase ownership and report unavailable when invoked before wiring.
 |---|---|
 | Draft, chips, attachments list, mode, permission, model, effort, features, team, host, project, worktree | Models, families, teams, hosts, projects, repository, catalogs, files |
 | Pickers, popovers, dialogs, queue editor | Queue, `Running`, attachment status and progress, dictation phase |
-| Reason drafts, question draft | Approvals, question |
+| Reason drafts, question draft, explicit member model drafts | Parent and child approvals, question, frozen team roster |
 
 ## Live attachments
 
@@ -272,7 +287,7 @@ pictures (`preview.PlainTurns`).
 | Plugin-contributed toolbar controls are not shown | No plugin runtime in the prototype |
 | The Git changes badge is native, with the Git icon (Rust: the git plugin's Status button, Settings2 fallback icon) | Git is core here |
 | The activity strip wraps when it is full | Rust keeps one row and lets capsules overflow |
-| Subagent rows show no elapsed time | `conversation.Child` has none |
+| Subagent elapsed uses an additive activity callback | Captured run timestamps remain outside the accepted `conversation.Child` fields |
 | Modes are Code, Plan, Flagship (Rust `WorkMode`); explore/build/review/plan are only the welcome cards | Follows Rust |
 | Approval details' loading and retry, SSH trust prompts and child identicons are not shown | Not in the view model of this UI-only prototype |
 

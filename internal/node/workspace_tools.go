@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"charm.land/fantasy"
 	"github.com/sailry/sailry-harness/internal/core"
@@ -181,6 +182,28 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 			}
 			if effectErr != nil {
 				return workspaceToolFault(effectErr)
+			}
+			if declaration.Operation == protocol.ToolOperationReadCommand {
+				if snapshot, ok := output.Data.(protocol.ProcessSnapshot); ok {
+					unlock := node.agent.LockPublication()
+					err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
+						events, err := store.ConsumeCommandBackground(ctx, db, inv.Run.Turn, snapshot, time.Now())
+						if err != nil {
+							return err
+						}
+						_, err = store.RecordEvents(ctx, db, node.ID(), events)
+						return err
+					})
+					if err == nil {
+						node.publish()
+						node.agent.RefreshCommitted(inv.Session.ID)
+					}
+					unlock()
+					if err != nil {
+						return workspaceToolFault(err)
+					}
+					node.agent.Committed()
+				}
 			}
 			value := node.workspaceToolValue(ctx, request, output)
 			return engine.ToolResult{Value: value, ReturnedError: workspaceOutputFailed(output), ReturnedFailure: workspaceOutputFailure(output)}

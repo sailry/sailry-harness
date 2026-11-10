@@ -245,11 +245,13 @@ func externalCommand(command protocol.Command) bool {
 }
 
 func supportedCommand(kind string) bool {
-	if store.SupportsAgentCommand(kind) || store.SupportsProviderCommand(kind) {
+	if store.SupportsAgentCommand(kind) || store.SupportsProviderCommand(kind) || store.SupportsTeamRead(kind) || store.SupportsTeamCommand(kind) {
 		return true
 	}
 	switch kind {
-	case "snapshot", "inspect_request", "read_session", "read_power_settings", "read_telemetry_settings":
+	case "snapshot", "inspect_request", "read_session", "read_power_settings", "read_telemetry_settings", "read_plugin_version":
+		return true
+	case "deliver_background", "continue_turn":
 		return true
 	case "create_project", "update_project", "remove_project", "register_worktree", "set_defaults", "create_session", "rename_session", "set_session_archived", "set_session_read", "archive_sessions", "remove_session", "remove_sessions", "set_session_order", "mark_notification_read", "mark_notifications_read", "dismiss_read_notifications", "dismiss_notifications", "publish_notification", "save_power_settings", "save_telemetry_settings":
 		return true
@@ -318,7 +320,16 @@ func (node *Node) read(ctx context.Context, caller protocol.NodeID, request prot
 			value, err := store.ReadTelemetry(ctx, db)
 			output = protocol.Output{Kind: "telemetry_settings", Data: value}
 			return err
+		case "read_plugin_version":
+			value, err := store.ReadPluginVersion(ctx, db, request.Command.Data.(*protocol.CommandReadPluginVersionPayload).Package)
+			output = protocol.Output{Kind: "plugin", Data: value}
+			return err
 		default:
+			if store.SupportsTeamRead(request.Command.Kind) {
+				var err error
+				output, err = store.ReadTeamCommand(ctx, db, request.Command)
+				return err
+			}
 			if store.SupportsAgentCommand(request.Command.Kind) {
 				var err error
 				output, err = store.ReadAgentCommandForCaller(ctx, db, node.ID(), caller, request.Command)
@@ -387,11 +398,15 @@ func (node *Node) execute(job commandJob, prepared store.PreparedPaths, prepareE
 			return err
 		}
 		operationErr = prepareErr
-		if operationErr == nil && job.request.Plugin != nil {
+		if operationErr == nil && job.request.Plugin != nil && job.request.Command.Kind != "continue_turn" {
 			operationErr = &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "plugin invocation authority is unavailable"}
 		}
 		if operationErr == nil {
 			switch {
+			case store.SupportsTeamCommand(job.request.Command.Kind):
+				output, changes, operationErr = store.ExecuteTeamCommand(node.ctx, db, node.ID(), job.request.Command)
+			case job.request.Command.Kind == "deliver_background" || job.request.Command.Kind == "continue_turn":
+				output, changes, operationErr = store.ExecuteBackgroundCommand(node.ctx, db, node.ID(), job.caller, job.request, time.Now())
 			case store.SupportsAgentCommand(job.request.Command.Kind):
 				output, changes, operationErr = store.ExecuteAgentCommand(node.ctx, db, node.ID(), node.profile.Ownership.Path, job.caller, job.request, time.Now())
 			case store.SupportsProviderCommand(job.request.Command.Kind):

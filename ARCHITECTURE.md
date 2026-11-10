@@ -37,8 +37,10 @@ B5 connects confined workspace file effects, checkpoints, Git, managed worktrees
 verified binary transfers, Office extraction, sandboxed processes, Web reads and
 search, and captured hooks. Native Files/Git/History/Documents surfaces and
 conversation assets consume the same Node resources through Client ownership.
-Remote services, delegation and package callback execution arrive in their later
-phases. Platform-specific runtime acceptance is recorded separately.
+B6 adds frozen team and role selection, delegated child execution through the
+same loop, exact background completion delivery, captured skill resources and
+package mode mapping. Remote services and package callback execution arrive in
+their later phases. Platform-specific runtime acceptance is recorded separately.
 
 ## System context
 
@@ -161,6 +163,19 @@ link         → protocol + transport dependencies
   `id`) links a session to an external object. It grants no resource authority.
 - **Execution.** A turn selects a single model or a team. Team execution freezes
   the team revision, instructions and models with the turn.
+- **Delegation.** Children inherit the admitted worktree, mode and permission;
+  read-only roles use Plan. The existing execution owner claims children under
+  the current founding session's concurrency budget and FIFO order. Foreground
+  children from one response start after its canonical tool batch and settle
+  before the parent's next inference. Durable background ownership survives
+  the parent tool return.
+- **Completion delivery.** Command and child completion evidence is reserved to
+  one turn and consumed only with its exact canonical untrusted input. Optional
+  automatic continuation uses the ordinary queue and cannot discard a committed
+  completion when scheduling fails.
+- **Skill resources.** The turn retains exact package digests and complete
+  confined UTF-8 resources. Loading a skill grants no additional permission.
+  Python preparation and package callbacks retain their later runtime owners.
 
 ### Storage
 

@@ -1635,3 +1635,11 @@ notebook_empty: No cells
 git_diff_binary: Cannot display binary diff
 git_diff_partial: Partial diff
 hooks_scope_windows: Scripts use the current Windows command policy
+teams_role_conflict: Role changed; reopen it
+team_conflict: Team changed; reopen it
+role_model_unavailable: Selected model or provider is unavailable
+role_capacity: Subagent limit reached
+role_unknown: Result unconfirmed; retry the original request
+role_failed: Operation failed; retry
+chat_child_unavailable: Subsession unavailable; try again
+reference_load_failed: Failed to load references

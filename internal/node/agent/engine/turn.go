@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"os"
+	"strings"
 
 	"github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
@@ -20,6 +21,7 @@ func (r *Runtime) execute(x *execution) {
 	}
 	err := r.turn(x)
 	r.drainOperations(x)
+	r.cancelForeground(x)
 	status := protocol.ConversationStatusCompleted
 	var failure *protocol.Fault
 	if x.ctx.Err() != nil {
@@ -56,16 +58,31 @@ func (r *Runtime) execute(x *execution) {
 		failure = model.Fault(hookErr)
 	}
 	var run protocol.ConversationRun
+	var successor *protocol.ConversationRun
 	var reviewEntry *protocol.ConversationEntry
 	var reviewQuestion *protocol.ConversationQuestion
 	unlock := r.LockPublication()
 	defer unlock()
+	r.mu.Lock()
+	child := r.children[x.inv.Run.Turn]
+	r.mu.Unlock()
 	err = r.db.Write(ctx, func(db *sql.Conn) error {
 		var changes []protocol.Event
 		var err error
+		if status == protocol.ConversationStatusCompleted && x.ctx.Err() != nil {
+			status = protocol.ConversationStatusInterrupted
+		}
 		run, changes, err = store.FinishTurn(ctx, db, x.inv.Run.Turn, status, failure, r.clock.Now())
 		if err != nil {
 			return err
+		}
+		if child != nil && run.Status == protocol.ConversationStatusCompleted {
+			var guidanceEvents []protocol.Event
+			successor, guidanceEvents, err = store.NextChildGuidance(ctx, db, run.Turn)
+			if err != nil {
+				return err
+			}
+			changes = append(changes, guidanceEvents...)
 		}
 		var reviewEvents []protocol.Event
 		reviewEntry, reviewQuestion, reviewEvents, err = store.PublishPlanReview(ctx, db, x.inv.Run.Turn, r.clock.Now())
@@ -77,6 +94,14 @@ func (r *Runtime) execute(x *execution) {
 		return err
 	})
 	if err == nil {
+		if successor != nil {
+			next := &delegatedChild{parent: child.parent, session: child.session, turn: successor.Turn, sequence: successor.Sequence, ctx: child.ctx, cancel: child.cancel, released: true}
+			r.mu.Lock()
+			child.successor = next
+			delete(r.children, child.turn)
+			r.children[next.turn] = next
+			r.mu.Unlock()
+		}
 		r.publish()
 		if reviewEntry != nil {
 			r.feed.Publish(run.Session, protocol.ConversationChange{Kind: "entry", Data: *reviewEntry})
@@ -86,6 +111,9 @@ func (r *Runtime) execute(x *execution) {
 		}
 		r.feed.Publish(run.Session, protocol.ConversationChange{Kind: "run", Data: run})
 		r.RefreshCommitted(run.Session)
+		if x.inv.Session.Delegation != nil && *x.inv.Session.Delegation != nil {
+			r.RefreshCommitted((*x.inv.Session.Delegation).Session)
+		}
 	}
 }
 
@@ -110,6 +138,9 @@ func inputRecord(turn protocol.TurnID, input protocol.ConversationInput, nowCloc
 
 func (r *Runtime) turn(x *execution) error {
 	inv := x.inv
+	if err := r.captureResources(x); err != nil {
+		return err
+	}
 	if inv.AuthorizationFailure != nil {
 		return inv.AuthorizationFailure
 	}
@@ -132,6 +163,17 @@ func (r *Runtime) turn(x *execution) error {
 		return err
 	}
 	policy := prompt.Policy(inv.Turn.Config.Mode, inv.Turn.Config.Permission, inv.Session.Delegation != nil)
+	if x.rolePolicy != "" {
+		policy += "\n\n" + x.rolePolicy
+	}
+	if x.modeContext != "" {
+		policy += "\n\n" + x.modeContext
+	}
+	if inv.Session.Delegation == nil {
+		if lead := strings.TrimSpace(inv.Turn.Roles.Instructions); lead != "" {
+			policy += "\n\nTeam instructions\n" + lead
+		}
+	}
 	environment := prompt.Environment(r.clock.Now(), inv.Turn.Config.Model, os.Getenv("SHELL"), inv.Worktree.Project != nil)
 	personal, err := prompt.CapturePersonal(x.ctx, r.profile)
 	if err != nil {
@@ -153,7 +195,15 @@ func (r *Runtime) turn(x *execution) error {
 		initial = append(initial, record)
 	}
 	if inv.Run.Kind != protocol.ConversationRunKindCompaction {
-		initial = append(initial, inputRecord(inv.Run.Turn, inv.Message, r))
+		record := inputRecord(inv.Run.Turn, inv.Message, r)
+		if inv.Session.Delegation != nil {
+			source := canonical.InputParent
+			record.Metadata.Input.Source = &source
+		}
+		if err := r.bindBackground(x, &record); err != nil {
+			return err
+		}
+		initial = append(initial, record)
 	}
 	if err = r.save(x.ctx, inv.Session.ID, initial...); err != nil {
 		return err
@@ -193,6 +243,21 @@ func (r *Runtime) turn(x *execution) error {
 			return err
 		}
 		if joined {
+			x.foregroundSteered = true
+			continue
+		}
+		selected, err := r.selectedAgent(x, state)
+		if err != nil {
+			return err
+		}
+		if selected {
+			continue
+		}
+		delivered, err := r.foregroundStep(x)
+		if err != nil {
+			return err
+		}
+		if delivered {
 			continue
 		}
 		last := lastMessage(state.Records)
@@ -215,9 +280,17 @@ func (r *Runtime) turn(x *execution) error {
 		if last != nil && last.Role == canonical.Assistant {
 			return nil
 		}
+		limited, err := r.childTurnLimit(x, state)
+		if err != nil {
+			return err
+		}
+		if limited {
+			return nil
+		}
 		if err = r.infer(x, binding, languageModel, state); err != nil {
 			return err
 		}
+		x.foregroundSteered = false
 	}
 }
 
@@ -261,6 +334,7 @@ func (r *Runtime) save(ctx context.Context, session protocol.SessionID, records 
 		var changes []protocol.Event
 		input := false
 		for _, record := range records {
+			r.captureCorePresentation(&record)
 			entry, events, err := store.AppendCanonical(ctx, db, session, record)
 			if err != nil {
 				return err

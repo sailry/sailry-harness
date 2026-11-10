@@ -31,6 +31,7 @@ type streamOutput struct {
 
 func (r *Runtime) infer(x *execution, binding model.Binding, languageModel fantasy.LanguageModel, state store.AgentState) error {
 	parts := []string{prompt.Workflow(binding.Config.Mode, x.inv.Session.Delegation != nil)}
+	parts = append(parts, r.delegationContext(x, state), x.skillContext, childBudgetContext(x, state))
 	if state.Context.Environment != nil {
 		parts = append(parts, *state.Context.Environment)
 	}

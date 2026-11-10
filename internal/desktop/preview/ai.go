@@ -225,23 +225,10 @@ func ConnectorsData() *Connectors {
 }
 
 // Role is a subagent role (role::Profile).
-type Role struct {
-	ID, Key, Name, Description string
-	Model                      string // "channel/model"; "" inherits the session's
-	Effort                     string // "" auto
-	ReadOnly                   bool
-	Instructions               string
-	Builtin                    bool
-}
+type Role = viewmodel.Role
 
 // Team is a team of roles led by a model (team::Profile).
-type Team struct {
-	ID, Name, Description string
-	Members               []string // role IDs
-	Lead                  string   // "channel/model"; "" follows the conversation
-	Effort                string
-	Instructions          string
-}
+type Team = viewmodel.Team
 
 // TeamSet is the teams page's dataset.
 type TeamSet struct {

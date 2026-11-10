@@ -58,6 +58,9 @@ func (r *Runtime) approval(x *execution, call canonical.ToolRequest, tool *Tool)
 	}
 	r.publish()
 	r.feed.Publish(value.Session, protocol.ConversationChange{Kind: "approval", Data: value})
+	if x.inv.Session.Delegation != nil && *x.inv.Session.Delegation != nil {
+		r.RefreshCommitted((*x.inv.Session.Delegation).Session)
+	}
 	publication()
 	expired, cancel := r.deadline(x.ctx, 300*time.Second)
 	defer cancel()
@@ -88,6 +91,9 @@ func (r *Runtime) approval(x *execution, call canonical.ToolRequest, tool *Tool)
 			if err == nil {
 				r.publish()
 				r.feed.Publish(value.Session, protocol.ConversationChange{Kind: "approval", Data: value})
+				if x.inv.Session.Delegation != nil && *x.inv.Session.Delegation != nil {
+					r.RefreshCommitted((*x.inv.Session.Delegation).Session)
+				}
 			}
 			publication()
 			r.decisions.Unlock()
@@ -149,6 +155,9 @@ func (r *Runtime) question(x *execution, call canonical.ToolRequest) ToolResult 
 	}
 	r.publish()
 	r.feed.Publish(value.Session, protocol.ConversationChange{Kind: "question", Data: value})
+	if x.inv.Session.Delegation != nil && *x.inv.Session.Delegation != nil {
+		r.RefreshCommitted((*x.inv.Session.Delegation).Session)
+	}
 	publication()
 	var expired <-chan struct{}
 	if spec.Input.Kind != "plan" {
@@ -183,6 +192,9 @@ func (r *Runtime) question(x *execution, call canonical.ToolRequest) ToolResult 
 			if err == nil {
 				r.publish()
 				r.feed.Publish(value.Session, protocol.ConversationChange{Kind: "question", Data: value})
+				if x.inv.Session.Delegation != nil && *x.inv.Session.Delegation != nil {
+					r.RefreshCommitted((*x.inv.Session.Delegation).Session)
+				}
 			}
 			publication()
 			r.decisions.Unlock()

@@ -48,6 +48,7 @@ type Changes struct {
 
 // ActivityCallbacks adds labels for host-owned worktree identities.
 type ActivityCallbacks struct {
+	ChildElapsed    func(string, time.Time) string
 	CommandState    func() (bool, bool)
 	CommandError    func(string) bool
 	CommandBusy     func(string) bool
@@ -435,9 +436,16 @@ func (s *State) subagents(c *ui.Context, a Activity, actions Actions) {
 		return
 	}
 	label := count(c, "composer_subagent_one", "composer_subagent_count", len(a.Children))
-	trigger := working(c.Key("subagents"), icons.Bot, label, a.Connected, s.act.children).
+	running := false
+	for _, child := range a.Children {
+		running = running || child.Status.Active()
+	}
+	trigger := working(c.Key("subagents"), icons.Bot, label, a.Connected && running, s.act.children).
 		OnClick(func() { s.act.children = !s.act.children })
 	placeStart(kit.Popover(c, trigger, &s.act.children, func() {
+		if a.Connected {
+			c.After(time.Second)
+		}
 		ui.Scroll(c.Key("subagent-rows")).MaxHeight(6 * 28).Gap(2).Children(func() {
 			for _, k := range a.Children {
 				name := k.Title
@@ -446,13 +454,24 @@ func (s *State) subagents(c *ui.Context, a Activity, actions Actions) {
 				}
 				row := kit.Ghost(c.Key(k.ID), name, false).FillWidth().Height(26).PaddingX(8).Gap(8).Justify(ui.Start).
 					Children(func() {
-						kit.Identicon(c, k.ID, true, 16)
+						kit.Identicon(c, k.ID, k.Status.Active(), 16)
 						ui.Text(c, name).FontSize(14).SingleLine().Grow(1).Shrink(1).MinWidth(0)
+						if s.ActivityCallbacks != nil && s.ActivityCallbacks.ChildElapsed != nil {
+							if elapsed := s.ActivityCallbacks.ChildElapsed(k.ID, c.Now()); elapsed != "" {
+								ui.Text(c, elapsed).FontSize(12).Shrink(0).TextColor(theme.Of(c).MutedForeground)
+							}
+						}
 					}).OnClick(func() {
 					s.act.children = false
 					actions.OpenChild(k.ID)
 				})
-				kit.Tooltip(c, row, i18n.T(c, "chat_running"))
+				status := "chat_running"
+				if k.Status == conversation.ChildQueued {
+					status = "turn_queued"
+				} else if k.Status == conversation.ChildStopping {
+					status = "chat_stopping"
+				}
+				kit.Tooltip(c, row, i18n.T(c, status))
 			}
 		})
 	}), trigger, 360, 8, 0)

@@ -111,12 +111,9 @@ func canonicalEntry(record canonical.Record, sequence uint64, resolve func(canon
 			if len(input.References) > 0 {
 				skip++
 			}
-			if input.NoticePart != nil {
-				skip++
-			}
 		}
 		for i := skip; i < message.PartCount; i++ {
-			if input := record.Metadata.Input; input != nil && input.CapabilityPart != nil && i == *input.CapabilityPart {
+			if input := record.Metadata.Input; input != nil && ((input.CapabilityPart != nil && i == *input.CapabilityPart) || (input.NoticePart != nil && i == *input.NoticePart)) {
 				continue
 			}
 			var block *canonical.Block
@@ -241,13 +238,10 @@ func projectStoredEntry(ctx context.Context, db *sql.Conn, record canonical.Reco
 		if len(input.References) > 0 {
 			skip++
 		}
-		if input.NoticePart != nil {
-			skip++
-		}
 	}
 	position := 0
 	for i := skip; i < message.PartCount; i++ {
-		if input := record.Metadata.Input; input != nil && input.CapabilityPart != nil && i == *input.CapabilityPart {
+		if input := record.Metadata.Input; input != nil && ((input.CapabilityPart != nil && i == *input.CapabilityPart) || (input.NoticePart != nil && i == *input.NoticePart)) {
 			continue
 		}
 		for _, block := range message.Content {

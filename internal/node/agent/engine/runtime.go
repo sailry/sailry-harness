@@ -10,6 +10,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/agent/clock"
 	"github.com/sailry/sailry-harness/internal/node/agent/feed"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
+	"github.com/sailry/sailry-harness/internal/node/agent/operations"
 	"github.com/sailry/sailry-harness/internal/node/agent/output"
 	"github.com/sailry/sailry-harness/internal/node/hooks"
 	"github.com/sailry/sailry-harness/internal/node/store"
@@ -18,16 +19,18 @@ import (
 
 // Options exposes the actual model and clock boundaries to deterministic tests.
 type Options struct {
-	Attachment      func(context.Context, protocol.TurnID, protocol.AttachmentID) (protocol.Attachment, bool, error)
-	AttachmentBytes func(context.Context, protocol.Attachment) ([]byte, error)
-	Clock           clock.Clock
-	Model           func(context.Context, model.Binding) (fantasy.LanguageModel, error)
-	Tools           []Tool
-	ToolsForTurn    func(context.Context, *store.AgentInvocation) ([]Tool, error)
-	HooksForTurn    func(context.Context, *store.AgentInvocation) *hooks.Binding
+	ValidateWorktree func(context.Context, protocol.WorktreeID) error
+	Attachment       func(context.Context, protocol.TurnID, protocol.AttachmentID) (protocol.Attachment, bool, error)
+	AttachmentBytes  func(context.Context, protocol.Attachment) ([]byte, error)
+	Clock            clock.Clock
+	Model            func(context.Context, model.Binding) (fantasy.LanguageModel, error)
+	Tools            []Tool
+	ToolsForTurn     func(context.Context, *store.AgentInvocation) ([]Tool, error)
+	HooksForTurn     func(context.Context, *store.AgentInvocation) *hooks.Binding
 }
 
 type Runtime struct {
+	validateWorktree  func(context.Context, protocol.WorktreeID) error
 	attachment        func(context.Context, protocol.TurnID, protocol.AttachmentID) (protocol.Attachment, bool, error)
 	attachmentBytes   func(context.Context, protocol.Attachment) ([]byte, error)
 	toolsForTurn      func(context.Context, *store.AgentInvocation) ([]Tool, error)
@@ -46,6 +49,8 @@ type Runtime struct {
 	wake              chan struct{}
 	mu                sync.Mutex
 	active            map[protocol.TurnID]*execution
+	children          map[protocol.TurnID]*delegatedChild
+	activity          chan struct{}
 	workers           sync.WaitGroup
 	decisions         sync.Mutex
 	publication       sync.Mutex
@@ -56,18 +61,26 @@ type Runtime struct {
 }
 
 type execution struct {
-	finishing      bool
-	operations     uint64
-	operationsDone chan struct{}
-	attachments    map[protocol.AttachmentID]*attachmentMaterial
-	hooks          *hooks.Binding
-	inv            *store.AgentInvocation
-	ctx            context.Context
-	cancel         context.CancelFunc
-	wake           chan struct{}
-	guidance       chan struct{}
-	tools          []Tool
-	output         output.Cache
+	resources         *operations.Resources
+	skillContext      string
+	modeContext       string
+	childRole         *protocol.RoleProfile
+	rolePolicy        string
+	foreground        []*delegatedChild
+	foregroundSteered bool
+	childBudget       uint64
+	finishing         bool
+	operations        uint64
+	operationsDone    chan struct{}
+	attachments       map[protocol.AttachmentID]*attachmentMaterial
+	hooks             *hooks.Binding
+	inv               *store.AgentInvocation
+	ctx               context.Context
+	cancel            context.CancelFunc
+	wake              chan struct{}
+	guidance          chan struct{}
+	tools             []Tool
+	output            output.Cache
 }
 
 func New(db *store.Handle, node protocol.NodeID, profile string, frames *feed.Hub, publish func(), options Options) *Runtime {
@@ -78,7 +91,7 @@ func New(db *store.Handle, node protocol.NodeID, profile string, frames *feed.Hu
 		options.Model = model.New
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Runtime{attachment: options.Attachment, attachmentBytes: options.AttachmentBytes, db: db, node: node, profile: profile, feed: frames, publish: publish, clock: options.Clock, model: options.Model, tools: options.Tools, toolsForTurn: options.ToolsForTurn, hooksForTurn: options.HooksForTurn, ctx: ctx, cancel: cancel, done: make(chan struct{}), wake: make(chan struct{}, 1), active: map[protocol.TurnID]*execution{}, statistics: map[protocol.SessionID]bool{}}
+	return &Runtime{validateWorktree: options.ValidateWorktree, attachment: options.Attachment, attachmentBytes: options.AttachmentBytes, db: db, node: node, profile: profile, feed: frames, publish: publish, clock: options.Clock, model: options.Model, tools: options.Tools, toolsForTurn: options.ToolsForTurn, hooksForTurn: options.HooksForTurn, ctx: ctx, cancel: cancel, done: make(chan struct{}), wake: make(chan struct{}, 1), active: map[protocol.TurnID]*execution{}, children: map[protocol.TurnID]*delegatedChild{}, activity: make(chan struct{}), statistics: map[protocol.SessionID]bool{}}
 }
 
 // Recover closes interrupted owners and holds every surviving queue. It never
@@ -103,6 +116,12 @@ func (r *Runtime) Recover(ctx context.Context) error {
 func (r *Runtime) Start() { go r.run() }
 func (r *Runtime) Stop()  { r.cancel(); <-r.done }
 func (r *Runtime) Wake() {
+	r.mu.Lock()
+	if r.activity != nil {
+		close(r.activity)
+	}
+	r.activity = make(chan struct{})
+	r.mu.Unlock()
 	select {
 	case r.wake <- struct{}{}:
 	default:
@@ -128,16 +147,19 @@ func (r *Runtime) run() {
 	for {
 		select {
 		case <-r.ctx.Done():
+			r.settleQueuedChildren()
 			return
 		case <-r.wake:
 		}
 		for r.ctx.Err() == nil {
 			unlock := r.LockPublication()
 			var inv *store.AgentInvocation
+			changed := false
 			err := r.db.Write(r.ctx, func(db *sql.Conn) error {
 				var changes []protocol.Event
 				var err error
-				inv, changes, err = store.ClaimNext(r.ctx, db, r.clock.Now())
+				inv, changes, err = r.claimInvocation(r.ctx, db)
+				changed = len(changes) > 0
 				if err != nil {
 					return err
 				}
@@ -145,11 +167,22 @@ func (r *Runtime) run() {
 				return err
 			})
 			if err != nil || inv == nil {
+				if err == nil && changed {
+					r.publish()
+					r.Wake()
+				}
 				unlock()
 				break
 			}
 			r.publish()
-			ctx, cancel := context.WithCancel(r.ctx)
+			parent := r.ctx
+			r.mu.Lock()
+			if child := r.children[inv.Run.Turn]; child != nil {
+				parent = child.ctx
+				child.started = true
+			}
+			r.mu.Unlock()
+			ctx, cancel := context.WithCancel(parent)
 			x := &execution{inv: inv, ctx: ctx, cancel: cancel, wake: make(chan struct{}, 1), guidance: make(chan struct{}, 1)}
 			r.mu.Lock()
 			r.active[inv.Run.Turn] = x
@@ -168,15 +201,22 @@ func (r *Runtime) run() {
 			if err == nil {
 				r.feed.Publish(inv.Session.ID, protocol.ConversationChange{Kind: "run", Data: current})
 				r.RefreshStatisticsCommitted(inv.Session.ID)
+				if inv.Session.Delegation != nil && *inv.Session.Delegation != nil {
+					r.RefreshCommitted((*inv.Session.Delegation).Session)
+				}
 			}
 			unlock()
 			r.workers.Add(1)
 			go func() {
 				defer r.workers.Done()
 				defer cancel()
-				r.execute(x)
+				r.executeOwned(x)
 				r.mu.Lock()
 				delete(r.active, inv.Run.Turn)
+				if child := r.children[inv.Run.Turn]; child != nil {
+					child.cancel()
+					delete(r.children, inv.Run.Turn)
+				}
 				r.mu.Unlock()
 				r.Wake()
 			}()
@@ -245,6 +285,9 @@ func (r *Runtime) RefreshCommitted(session protocol.SessionID) {
 	}
 	for _, task := range history.Page.Background {
 		r.feed.Publish(session, protocol.ConversationChange{Kind: "background", Data: task})
+	}
+	for _, child := range history.Page.Children {
+		r.feed.Publish(session, protocol.ConversationChange{Kind: "child", Data: child})
 	}
 	for _, v := range history.Page.Questions {
 		r.feed.Publish(session, protocol.ConversationChange{Kind: "question", Data: v})

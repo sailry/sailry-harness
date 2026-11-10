@@ -1635,3 +1635,11 @@ notebook_empty: セルがありません
 git_diff_binary: バイナリ diff を表示できません
 git_diff_partial: 部分差分
 hooks_scope_windows: スクリプトは現在の Windows コマンドポリシーを使用します
+teams_role_conflict: ロールが変更されました。開き直してください
+team_conflict: チームが変更されました。開き直してください
+role_model_unavailable: 選択したモデルまたはプロバイダは利用できません
+role_capacity: サブエージェント限界に達しました
+role_unknown: 結果が確認されていません。元の要求をやり直します
+role_failed: 操作に失敗しました。やり直します
+chat_child_unavailable: サブセッションが利用できません。もう一度試してください
+reference_load_failed: Failed to load references

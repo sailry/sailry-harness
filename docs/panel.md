@@ -243,11 +243,17 @@ Unsaved JSON projects from the local draft, and invalid drafts return to Source
 with their bytes intact. Asynchronous results cannot recreate a closed tab or
 replace a newer draft. Notebook source saves use the ordinary full-file action.
 
+Child tabs use the real child SessionID and the shared Client conversation feed.
+Opening verifies the parent, child, project and worktree association. The live
+shell supplies `Hooks.RenderChild`; rendering projects the child's canonical
+history without copying a parent or preview transcript. The child composer
+remains read-only, and closing its tab only releases observation.
+
 ## UI state vs backend data
 
 | UI state (`State`) | Backend data |
 |---|---|
-| Tabs, active tab; per browser tab the address and history, per terminal tab the folder and find query; per project: shown file and change, open folders, Document/Source, scroll, accepted hunks (until applied), commit draft | Files, changes, hunks, checkpoints, documents |
+| Tabs, active tab; per browser tab the address and history, per terminal tab the folder and find query; per project: shown file and change, open folders, Document/Source, scroll, accepted hunks (until applied), commit draft | Files, changes, hunks, checkpoints, documents, registered child transcripts |
 
 ## Tests
 
