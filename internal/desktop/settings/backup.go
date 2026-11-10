@@ -184,9 +184,13 @@ func storageDialog(c *ui.Context, m *Model) {
 					if secret {
 						in.Password()
 					}
+					// The input keeps its last placeholder, so cleared
+					// credentials reset it.
+					placeholder := ""
 					if kept {
-						in.Placeholder(t("backup_keep_secret"))
+						placeholder = t("backup_keep_secret")
 					}
+					in.Placeholder(placeholder)
 				})
 			}
 			if x.Tab == 2 {
