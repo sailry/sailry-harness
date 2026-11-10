@@ -76,11 +76,18 @@ func restTip(tt *ui.Tester, x, y float32) bool {
 	return false
 }
 
+// TestTooltips groups the cases of one behavior; each keeps its own fixture.
+func TestTooltips(t *testing.T) {
+	t.Run("TooltipKeepsPopover", testTooltipKeepsPopover)
+	t.Run("TooltipShowsWhenNothingOpen", testTooltipShowsWhenNothingOpen)
+	t.Run("TooltipKeepsMenu", testTooltipKeepsMenu)
+}
+
 // A tooltip showing beside an open popover leaves it be. Overlay panels
 // were named by their place in MyGo's overlay layer, so the context ring's
 // tooltip, built before the model chip, took the model popover's place:
 // the popover replayed its entrance and the tip drew from its old frames.
-func TestTooltipKeepsPopover(t *testing.T) {
+func testTooltipKeepsPopover(t *testing.T) {
 	a, tt := newTester(t)
 	m := a.Composer(a.Sidebar.Selected).Chosen(a.Data.Models)
 	chip, ok := tt.Access(i18n.In("en", "composer_model_settings") + ": " + m.Name)
@@ -107,7 +114,7 @@ func TestTooltipKeepsPopover(t *testing.T) {
 }
 
 // With nothing open, tooltips show as before.
-func TestTooltipShowsWhenNothingOpen(t *testing.T) {
+func testTooltipShowsWhenNothingOpen(t *testing.T) {
 	a, tt := newTester(t)
 	r := ring(t, a, tt)
 	if !restTip(tt, r.X+10, r.Y+10) {
@@ -124,7 +131,7 @@ func TestTooltipShowsWhenNothingOpen(t *testing.T) {
 
 // The same with a menu open and the attach button's tooltip, built before
 // the menu's button.
-func TestTooltipKeepsMenu(t *testing.T) {
+func testTooltipKeepsMenu(t *testing.T) {
 	_, tt := newTester(t)
 	clickItem(t, tt, i18n.In("en", "composer_mode_code"))
 	tt.Frame()

@@ -8,7 +8,15 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 )
 
-func TestSidebarMenuPinsAndRenames(t *testing.T) {
+// TestSidebarSessions groups the cases of one behavior; each keeps its own fixture.
+func TestSidebarSessions(t *testing.T) {
+	t.Run("SidebarMenuPinsAndRenames", testSidebarMenuPinsAndRenames)
+	t.Run("SidebarRenameKeepsEmptyTitleOut", testSidebarRenameKeepsEmptyTitleOut)
+	t.Run("SidebarReordersPins", testSidebarReordersPins)
+	t.Run("SidebarDeleteConfirms", testSidebarDeleteConfirms)
+}
+
+func testSidebarMenuPinsAndRenames(t *testing.T) {
 	a, tt := newTester(t)
 	title := "Port the neutral theme tokens"
 	if err := tt.RightClick(title); err != nil {
@@ -40,7 +48,7 @@ func TestSidebarMenuPinsAndRenames(t *testing.T) {
 	}
 }
 
-func TestSidebarRenameKeepsEmptyTitleOut(t *testing.T) {
+func testSidebarRenameKeepsEmptyTitleOut(t *testing.T) {
 	a, tt := newTester(t)
 	cv := a.Data.Find("chat/regex")
 	a.Sidebar.StartRename(cv)
@@ -59,7 +67,7 @@ func TestSidebarRenameKeepsEmptyTitleOut(t *testing.T) {
 	}
 }
 
-func TestSidebarReordersPins(t *testing.T) {
+func testSidebarReordersPins(t *testing.T) {
 	a, _ := newTester(t)
 	order := func() []string {
 		var out []string
@@ -129,7 +137,7 @@ func clickField(t *testing.T, tt *ui.Tester, name string) {
 }
 
 // Delete asks first, naming the session once; confirming removes it.
-func TestSidebarDeleteConfirms(t *testing.T) {
+func testSidebarDeleteConfirms(t *testing.T) {
 	a, tt := newTester(t)
 	title := "Port the neutral theme tokens"
 	if err := tt.RightClick(title); err != nil {

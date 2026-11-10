@@ -200,7 +200,14 @@ func dragTo(t *testing.T, tt *ui.Tester, from ui.AccessInfo, x, y float32, durin
 	tt.Frame()
 }
 
-func TestDragSessionSplits(t *testing.T) {
+// TestPaneDrags groups the cases of one behavior; each keeps its own fixture.
+func TestPaneDrags(t *testing.T) {
+	t.Run("DragSessionSplits", testDragSessionSplits)
+	t.Run("DragTerminalTab", testDragTerminalTab)
+	t.Run("DragPaneIntoEarlierPane", testDragPaneIntoEarlierPane)
+}
+
+func testDragSessionSplits(t *testing.T) {
 	a, tt := newTester(t)
 	row, ok := tt.AccessByRole(ui.RoleButton, "Port the neutral theme tokens")
 	if !ok {
@@ -247,7 +254,7 @@ func TestDragSessionSplits(t *testing.T) {
 	}
 }
 
-func TestDragTerminalTab(t *testing.T) {
+func testDragTerminalTab(t *testing.T) {
 	a, tt := newTester(t)
 	a.PanelOpen = true
 	a.Panel.New(panel.Terminal)
@@ -361,7 +368,7 @@ func splitTwo(t *testing.T, a *App, tt *ui.Tester) ui.Rect {
 // Splitting A | B and dragging B's header into A, at its centre or any
 // edge: the drop applies while the panes build, and the tree the build
 // walks stays as it was, so B is neither built twice nor indexed past.
-func TestDragPaneIntoEarlierPane(t *testing.T) {
+func testDragPaneIntoEarlierPane(t *testing.T) {
 	big, theme := session(preview.Big), session(themeChat)
 	for _, c := range []struct {
 		name   string

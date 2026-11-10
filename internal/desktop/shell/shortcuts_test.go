@@ -19,10 +19,17 @@ func settle(tt *ui.Tester) {
 	tt.Frame()
 }
 
+// TestCloseShortcut groups the cases of one behavior; each keeps its own fixture.
+func TestCloseShortcut(t *testing.T) {
+	t.Run("CloseTabInFocusedPanel", testCloseTabInFocusedPanel)
+	t.Run("CloseFocusedPage", testCloseFocusedPage)
+	t.Run("CloseWithNothingClosableFocused", testCloseWithNothingClosableFocused)
+}
+
 // ⌘W in the focused panel closes its active tab, then the panel with its
 // last tab, and the focus goes back to the conversation; the window
 // stays.
-func TestCloseTabInFocusedPanel(t *testing.T) {
+func testCloseTabInFocusedPanel(t *testing.T) {
 	a, tt := newTester(t)
 	tt.Key(ui.Cmd, ui.KeyP)
 	tt.Key(ui.Ctrl|ui.Shift, ui.KeyG)
@@ -53,7 +60,7 @@ func TestCloseTabInFocusedPanel(t *testing.T) {
 
 // ⌘W in a focused Files or Git page closes the page, back to the
 // conversation.
-func TestCloseFocusedPage(t *testing.T) {
+func testCloseFocusedPage(t *testing.T) {
 	for _, f := range []struct {
 		label, inside string
 		page          Page
@@ -78,7 +85,7 @@ func TestCloseFocusedPage(t *testing.T) {
 
 // ⌘W with nothing closable focused does nothing: the composer of the
 // conversation has the focus while the panel shows a tab.
-func TestCloseWithNothingClosableFocused(t *testing.T) {
+func testCloseWithNothingClosableFocused(t *testing.T) {
 	a, tt := newTester(t)
 	tt.Key(ui.Cmd, ui.KeyP)
 	settle(tt)

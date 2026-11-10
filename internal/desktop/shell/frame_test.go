@@ -156,7 +156,14 @@ func TestSidebarToggleAndPrefs(t *testing.T) {
 	}
 }
 
-func TestSearchOpensConversation(t *testing.T) {
+// TestSearch groups the cases of one behavior; each keeps its own fixture.
+func TestSearch(t *testing.T) {
+	t.Run("SearchOpensConversation", testSearchOpensConversation)
+	t.Run("SearchFolderKeys", testSearchFolderKeys)
+	t.Run("SearchRules", testSearchRules)
+}
+
+func testSearchOpensConversation(t *testing.T) {
 	a, tt := newTester(t)
 	tt.Key(ui.Cmd, ui.KeyK)
 	tt.Frame()
@@ -176,7 +183,7 @@ func TestSearchOpensConversation(t *testing.T) {
 // A folder of the search has no back row: Backspace on an empty query
 // goes back to the root, and Escape clears the query, then goes back,
 // then closes.
-func TestSearchFolderKeys(t *testing.T) {
+func testSearchFolderKeys(t *testing.T) {
 	a, tt := newTester(t)
 	tt.Key(ui.Cmd, ui.KeyK)
 	tt.Frame()
@@ -270,7 +277,7 @@ func TestParseSource(t *testing.T) {
 	}
 }
 
-func TestSearchRules(t *testing.T) {
+func testSearchRules(t *testing.T) {
 	groups := []Group{{Choices: []Choice{{ID: "a", Label: "Alpha"}, {ID: "b", Label: "Beta", Keywords: []string{"billing-api"}}}}, {Heading: "x", Choices: []Choice{{ID: "c", Label: "Gamma"}}}}
 	if got := Filter(groups, "BILL"); len(got) != 1 || len(got[0].Choices) != 1 || got[0].Choices[0].ID != "b" {
 		t.Errorf("keyword match: %+v", got)

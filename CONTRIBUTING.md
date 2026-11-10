@@ -175,7 +175,8 @@ does not prove live or cross-platform acceptance.
 - Keep one assertion at one layer. Do not port Rust tests one for one or repeat
   store assertions through Client and UI. Prefer compact table-driven cases.
 - Each phase names its tests and target count. The full repository ceiling by
-  B14 is 400 test functions, including existing UI tests. B0 adds zero tests;
+  B14 is 400 default-run test functions, including existing UI tests; tests
+  behind `//go:build integration` are not counted. B0 adds zero tests;
   existing test bodies and assertions stay unchanged while imports and obsolete
   source comments follow the package moves.
 - Keep default tests deterministic and isolated. Use `t.TempDir()`, injected
