@@ -5,8 +5,10 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -19,6 +21,35 @@ func Environment(base []string, settings protocol.TerminalSettings) []string {
 		values = append(values, key+"="+settings.Environment[key])
 	}
 	return values
+}
+
+// terminalVersion is the pinned MyGo release, which fixes the libghostty-vt
+// build of the emulator: the plugin does not report the library's version.
+var terminalVersion = sync.OnceValue(func() string {
+	if build, valid := debug.ReadBuildInfo(); valid {
+		for _, module := range build.Deps {
+			if module.Path == "github.com/egoist/mygo" {
+				return strings.TrimPrefix(module.Version, "v")
+			}
+		}
+	}
+	return ""
+})
+
+// launchVariables identify the emulator and the worktree to a local program.
+// They follow every other variable, so nothing saved or inherited replaces
+// them.
+func launchVariables(goos, root string) []string {
+	if goos == "windows" {
+		root = plainWindowsPath(root)
+	}
+	variables := []string{"TERM_PROGRAM=ghostty", "TERM_PROGRAM_VERSION=" + terminalVersion(), "PWD=" + root}
+	// The plugin starts from this process's environment and can only add to
+	// it, so an inherited VTE marker is emptied where it should be absent.
+	if _, inherited := os.LookupEnv("VTE_VERSION"); inherited {
+		variables = append(variables, "VTE_VERSION=")
+	}
+	return variables
 }
 
 // shellCommand returns the program of a new shell terminal, the variables it

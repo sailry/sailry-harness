@@ -17,6 +17,8 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+var updateProcThreadAttribute = encodingKernel.NewProc("UpdateProcThreadAttribute")
+
 func launchNative(launch Launch, environment Environment, _ func(string) (string, error)) (_ *nativeProcess, failure error) {
 	directory, err := commandDirectory(launch)
 	if err != nil {
@@ -124,7 +126,9 @@ func launchNative(launch Launch, environment Environment, _ func(string) (string
 		if err = windows.CreatePseudoConsole(windows.Coord{X: 80, Y: 24}, windows.Handle(inReader.Fd()), windows.Handle(outWriter.Fd()), 0, &console); err != nil {
 			return nil, err
 		}
-		if err = attributes.Update(windows.PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, unsafe.Pointer(console), unsafe.Sizeof(console)); err != nil {
+		// This attribute's value is the console handle itself rather than
+		// a pointer to it, which Update's unsafe.Pointer cannot carry.
+		if result, _, err := updateProcThreadAttribute.Call(uintptr(unsafe.Pointer(attributes.List())), 0, windows.PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, uintptr(console), unsafe.Sizeof(console), 0, 0); result == 0 {
 			return nil, err
 		}
 		childPipes = []*os.File{inReader, outWriter}

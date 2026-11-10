@@ -228,7 +228,10 @@ func TestPluginUIIntegration(t *testing.T) {
 	runtime.App.PanelOpen = true
 	runtime.App.Panel.Open(panel.Terminal)
 	var terminalID protocol.TerminalID
-	wait("commands creates a Node terminal", func() bool {
+	// Local terminals are core-owned: with the commands package enabled, its
+	// declared terminal renderer and creation contribution stay unmounted and
+	// the panel creates and draws a core terminal named by its Node ID.
+	wait("the panel creates a Node terminal", func() bool {
 		for _, terminal := range controller.Snapshot().Terminals {
 			if terminal.Worktree != nil && *terminal.Worktree == session.Worktree && terminal.Status.Kind == "running" {
 				terminalID = terminal.ID
@@ -237,15 +240,19 @@ func TestPluginUIIntegration(t *testing.T) {
 		}
 		return false
 	})
-	wait("commands resource rendering", func() bool {
-		for _, mounted := range runtime.pluginViews.mounts {
-			if mounted.scope.Package.Name == "commands" && mounted.mounted != nil && strings.HasPrefix(mounted.key.role, "resource:") {
-				return tester.HasText("Terminal")
-			}
-		}
-		return false
+	wait("core terminal rendering", func() bool {
+		state := runtime.packages.terminals[terminalID.String()]
+		return state != nil && state.terminal != nil && runtime.terminalInventory().focus != terminalID.String() &&
+			runtime.App.Panel.Active == (panel.Tab{Kind: panel.Terminal, ID: terminalID.String()}) && tester.HasText("Terminal")
 	})
-	click("Terminal")
+	if len(runtime.pluginResources.panes) != 0 || len(runtime.pluginResources.pending) != 0 {
+		t.Fatalf("a package owns the panel terminal: %d panes, %d pending creations", len(runtime.pluginResources.panes), len(runtime.pluginResources.pending))
+	}
+	for key, mounted := range runtime.pluginViews.mounts {
+		if strings.HasPrefix(key.role, "resource:") {
+			t.Fatalf("package %q mounted a terminal renderer as %q", mounted.scope.Package.Name, key.role)
+		}
+	}
 	tester.Type("printf '\\163\\141\\151\\154\\162\\171\\055\\160\\154\\165\\147\\151\\156\\055\\151\\157\\n'")
 	tester.Key(0, ui.KeyEnter)
 	wait("commands terminal input reaches the Node PTY", func() bool {
@@ -253,7 +260,7 @@ func TestPluginUIIntegration(t *testing.T) {
 		screen, valid := detail[protocol.TerminalSnapshot](output.Data)
 		return valid && screen.Screen.VT != nil && strings.Contains(string(screen.Screen.VT.Bytes), "sailry-plugin-io")
 	})
-	t.Log("commands: real plugin contribution created, rendered and sent input to the attached Node PTY")
+	t.Log("commands: with the package enabled its terminal renderer stayed unmounted; the core terminal was created, rendered and sent input to the attached Node PTY")
 	for _, mounted := range runtime.pluginViews.mounts {
 		if unmountedPlugin(mounted.scope.Package.Name) {
 			t.Fatal("native Files/Git were also mounted through the plugin runtime")

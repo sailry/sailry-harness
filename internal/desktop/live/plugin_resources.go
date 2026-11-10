@@ -124,8 +124,10 @@ func (r *Runtime) pluginResourcesFrame(view *ui.Context) {
 	}
 }
 
+// pluginResourceRenderer is the renderer a package mounts for a resource
+// kind. A renderer declared for a core-owned kind is not one.
 func pluginResourceRenderer(info protocol.PluginInfo, kind string) (protocol.PluginDesktopRenderer, bool) {
-	if !pluginNativePackageAvailable(info) || info.Extension == nil || info.Extension.Desktop == nil || info.Extension.Desktop.Entry == nil {
+	if coreResource(kind) || !pluginNativePackageAvailable(info) || info.Extension == nil || info.Extension.Desktop == nil || info.Extension.Desktop.Entry == nil {
 		return protocol.PluginDesktopRenderer{}, false
 	}
 	for _, renderer := range info.Extension.Desktop.Renderers {

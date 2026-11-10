@@ -46,15 +46,25 @@ leaves once the local Node and every discovered peer delivered a snapshot.
 Tabs with the preview's numeric IDs name no Node terminal and leave in live
 mode. A terminal whose tab is gone is detached, never closed.
 
-When an enabled plugin declares a terminal renderer with a creation
-contribution, the plugin path above still creates and draws the tab. Without
-one, the core tab is used.
+Local terminals are a core feature, like Files and Git. The `terminal`
+resource kind is core-owned in live mode (`coreResource` in
+`live/plugin_views_navigation.go`, beside the Files and Git exclusion): a
+package's declared renderer for it is never mounted, its creation contribution
+and shortcut are never used, and a package cannot open or title a panel pane
+for it (`pluginResourceRenderer`, `pluginPaneTarget`). ⌃`, the panel's New
+terminal, the project's New terminal and ⌘D/⌘⇧D therefore always take the core
+path, also with the bundled `commands` package enabled. The rule names the
+resource kind, not a package. A package page may still embed the native
+Terminal component for a terminal it opens itself; SSH terminals stay
+package-owned that way. A saved tab whose ID is not a Node terminal ID, such
+as an earlier `plugin/…` tab, leaves under the prune rule above.
 
 The terminal display preferences are read in one place,
 `Runtime.terminalDisplay`: font size and family apply to every open core
 terminal as they change, and paste protection holds a paste of several lines
 behind a confirmation (`terminal_paste_confirm`, `terminal_paste_warning`,
-`terminal_paste`). Plugin-mounted terminals keep their own options.
+`terminal_paste`). A Terminal component embedded in a package page keeps its
+own options.
 
 Deviations:
 
@@ -64,6 +74,7 @@ Deviations:
 | Terminal tabs keep the title Terminal | The accepted tab title is unchanged; the Node title shows in the project's Terminal records |
 | An exited shell closes its terminal, tab and panes (user decision 2026-11-10) | The reference prunes only `closed` or missing terminals. The desktop closes an exited terminal once; a failed one stays to show its error, and a stopped one stays so it can be reopened |
 | A saved tab of a peer discovered after every known Node answered is dropped | A tab stores no Node; ownership is known only from snapshots |
+| Local terminals are core; a package's `terminal` renderer, creation contribution and shortcut are not mounted (user decision 2026-11-10) | The reference lets a package own terminals. Here local terminals are core, like Files and Git; SSH terminals remain package-owned through the Terminal component of the package's own page |
 
 The column right of the conversation: one flat strip of tabs, each an
 open item, over the active one, or the launcher when none is open (the reference implementation
@@ -268,11 +279,13 @@ revision cache avoids repeated reads on each presentation frame. Outcomes appear
 only in distinct failure, conflict, uncertain or success toasts.
 
 Plugin-declared project creation contributions and resource renderers use the
-existing panel hooks. The commands contribution creates a Node-owned terminal
-and opens a captured Node/worktree/resource pane. Resource titles, busy close
-behavior and pane events belong to that exact mount. Closing a view detaches
-presentation; explicit terminal actions own process termination. Files and Git
-remain the native core panel owners.
+existing panel hooks for a resource kind the core does not own. Resource
+titles, busy close behavior and pane events belong to that exact mount. Closing
+a view detaches presentation; explicit terminal actions own process
+termination. Files, Git and local terminals are native core panel owners: since
+B10 the `terminal` kind is core-owned, so the commands package's terminal
+renderer and its creation contribution are no longer mounted (see
+[B10 live terminal tabs](#b10-live-terminal-tabs)).
 
 The plugin terminal bridge reuses the existing MyGo Mirror/Conn owner and
 checks workspace read/control authority before creating a view. Disconnection

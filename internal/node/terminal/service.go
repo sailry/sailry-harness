@@ -59,6 +59,29 @@ type handle struct {
 	terminal *myterminal.Terminal
 	info     protocol.TerminalInfo
 	viewport protocol.TerminalViewport
+	// activity belongs to the goroutine that reads the terminal's output.
+	activity activityTracker
+}
+
+// track publishes the activity a running terminal's output reports.
+func (value *handle) track(output []byte) {
+	state, changed := value.activity.update(output)
+	if !changed {
+		return
+	}
+	value.mu.Lock()
+	if value.info.Status.Kind != "running" {
+		value.mu.Unlock()
+		return
+	}
+	report := protocol.TerminalActivityReport{State: state, Sequence: 1}
+	if value.info.Activity != nil {
+		report.Sequence = value.info.Activity.Sequence + 1
+	}
+	value.info.Activity = &report
+	info := value.info
+	value.mu.Unlock()
+	value.service.publish(info)
 }
 
 func New(ctx context.Context, node protocol.NodeID, changed func(protocol.TerminalInfo)) *Service {
@@ -101,6 +124,7 @@ func (service *Service) Start(ctx context.Context, launch Launch) (protocol.Term
 		}
 		environment = append(environment, variables...)
 	}
+	environment = append(environment, launchVariables(runtime.GOOS, launch.Root)...)
 	service.mu.Lock()
 	if service.stopped {
 		service.mu.Unlock()
@@ -154,9 +178,11 @@ func (service *Service) Start(ctx context.Context, launch Launch) (protocol.Term
 	if access == "" {
 		access = protocol.ProcessAccessUnrestricted
 	}
-	// The terminal plugin owns the pseudo-terminal, so its device cannot be
-	// granted to a sandbox profile here: a workspace terminal needs a command
-	// its caller already confined. A platform without the sandbox runs as is.
+	// The terminal plugin opens the pseudo-terminal inside its own launch and
+	// never reports the device, which a macOS sandbox profile must name, and
+	// the command sandbox is not exported to this package: a workspace
+	// terminal needs a command its caller already confined. A platform
+	// without the sandbox runs as is.
 	if launch.Connection == nil && access == protocol.ProcessAccessWorkspace && len(launch.Command) == 0 && process.SandboxSupported() {
 		err := fault(protocol.ErrorCodeNotConfigured, "workspace terminal requires a prepared sandbox command")
 		finish(protocol.TerminalInfo{}, err)
@@ -175,6 +201,9 @@ func (service *Service) Start(ctx context.Context, launch Launch) (protocol.Term
 	if launch.Connection != nil {
 		value.info.Worktree, value.info.Access, value.info.Directory, value.info.Ssh = nil, nil, nil, launch.SSH
 		options = myterminal.Options{Conn: launch.Connection}
+		// Only a connection's output passes through this package; the
+		// plugin reads a local program's itself and reports no activity.
+		launch.Connection.observe = value.track
 	}
 	options.Theme = terminalTheme(launch.Appearance)
 	options.ClipboardRead = myterminal.ClipboardForward

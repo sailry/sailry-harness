@@ -170,10 +170,10 @@ func (r *Runtime) pluginPaneTarget(mounted *pluginMountedView, resource pluginPa
 		!slices.Contains(info.Extension.Actions, protocol.PluginActionControlTerminals) {
 		return pluginResourceKey{}, false
 	}
-	if title {
-		if _, declared := pluginResourceRenderer(info, resource.Kind); !declared {
-			return pluginResourceKey{}, false
-		}
+	// Only a package whose renderer for the kind is mounted opens or titles
+	// its panes; a core-owned kind has none.
+	if _, declared := pluginResourceRenderer(info, resource.Kind); !declared {
+		return pluginResourceKey{}, false
 	}
 	key := pluginResourceKey{node: mounted.owner.controller.Target(), worktree: *mounted.scope.Worktree, kind: resource.Kind, id: resource.ID.String()}
 	if !pluginTerminalPresent(mounted.owner, key) {

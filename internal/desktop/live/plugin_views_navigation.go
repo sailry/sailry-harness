@@ -29,6 +29,15 @@ func unmountedPlugin(name string) bool {
 	return name == "files" || name == "git"
 }
 
+// coreResource reports a workspace resource kind the core owns in live mode.
+// Local terminals are core, like Files and Git: a package's renderer for the
+// kind, with its creation contribution and shortcut, is never mounted and
+// never draws the kind's panel tab. A package page may still embed the
+// native Terminal component for a terminal it opens itself, as SSH does.
+func coreResource(kind string) bool {
+	return kind == "terminal"
+}
+
 func (r *Runtime) projectPluginViews(view *ui.Context) {
 	root := r.localRuntime()
 	state := root.pluginViews

@@ -336,7 +336,19 @@ the existing confirmation, only removes it from the split: the terminal keeps
 running in its tab. A tab the live inventory prunes, because its Node closed
 the terminal or no longer reports it, takes its pane out of the split through
 `followPanes`. Saved `Prefs.Panes` and `Prefs.PanelTabs` come back at start-up
-and reattach when first shown.
+and reattach when first shown. A shell that exits closes its terminal, so its
+tab and pane leave the same way.
+
+Local terminals are core-owned: ⌃`, ⌘D and ⌘⇧D always start a core terminal,
+whatever packages are enabled. A package's `terminal` renderer, creation
+contribution and shortcut are not mounted
+(see [panel.md](panel.md#b10-live-terminal-tabs)).
+
+Deviation: the reference lets a package own terminals and routes a split
+through the package's creation contribution. Here local terminals are core by
+user decision (2026-11-10), like Files and Git; SSH terminals remain
+package-owned and are opened from the package's own page, so they are not
+split panes.
 
 Project ⋯ › New terminal (`sidebar.Actions.NewTerminal`) and the project
 overview's New terminal (`ProjectActions.NewTerminal`) start a terminal in the

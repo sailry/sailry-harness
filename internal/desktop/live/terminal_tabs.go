@@ -249,7 +249,7 @@ func (r *Runtime) terminalsFrame(c *ui.Context) {
 	settled := r.terminalOwnersSettled()
 	tabs := map[string]bool{}
 	for _, tab := range slices.Clone(r.App.Panel.Tabs) {
-		if tab.Kind != panel.Terminal || strings.HasPrefix(tab.ID, "plugin/") {
+		if tab.Kind != panel.Terminal {
 			continue
 		}
 		if r.terminalTabCurrent(owners, settled, tab.ID) {
