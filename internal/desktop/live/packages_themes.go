@@ -102,7 +102,7 @@ func (r *Runtime) projectMarketThemes() {
 		}
 		rows = append(rows, row)
 	}
-	for _, pkg := range theme.Packages {
+	for _, pkg := range theme.Packages() {
 		if pkg == theme.Builtin {
 			continue
 		}

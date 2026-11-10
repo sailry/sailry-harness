@@ -2,13 +2,15 @@ package live
 
 import (
 	"errors"
-	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
+	"fmt"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/egoist/mygo/plugins/permissionflow"
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -177,19 +179,31 @@ func TestPermissionsMapping(t *testing.T) {
 			t.Fatal(requests)
 		}
 	})
-	t.Run("a failed own check toasts once", func(t *testing.T) {
+	t.Run("failed checks of one action toast once", func(t *testing.T) {
+		failure := errors.New("framework")
 		r := &Runtime{}
-		r.permissions.probe = permissionProbe{goos: "darwin", check: func(permissionflow.Permission) (permissionflow.Status, error) {
-			return permissionflow.Unknown, errors.New("framework")
+		r.permissions.probe = permissionProbe{goos: "darwin", check: func(permission permissionflow.Permission) (permissionflow.Status, error) {
+			return permissionflow.Unknown, failure
 		}}
 		r.permissions.cards = permissionCards("darwin", local, nil, on(local, true), nil)
-		apply := r.permissionStep(r.permissions.cards[1], false)()
+		var pending []func(*ui.Context)
+		for _, card := range r.permissions.cards {
+			pending = append(pending, r.permissionStep(card, false)())
+		}
 		var toasts []string
 		tester := ui.NewTester(func(view *ui.Context) {
-			if apply != nil {
+			for _, apply := range pending {
 				apply(view)
-				apply = nil
 			}
+			if pending != nil {
+				// Work still running holds the toast back.
+				r.permissions.checking = true
+				r.permissions.report(view)
+				r.permissions.checking = false
+				r.permissions.report(view)
+				r.permissions.report(view)
+			}
+			pending = nil
 			ui.ToastViewportBase(view, func(_ ui.Element, shown []ui.Toast) {
 				toasts = toasts[:0]
 				for _, toast := range shown {
@@ -201,7 +215,18 @@ func TestPermissionsMapping(t *testing.T) {
 		tester.Frame()
 		tester.Frame()
 		if !reflect.DeepEqual(toasts, []string{i18n.In("en", "permission_failed")}) || r.permissions.cards[1].status != "permission_unknown" {
-			t.Fatalf("failed check: toasts %v, status %s", toasts, r.permissions.cards[1].status)
+			t.Fatalf("failed checks: toasts %v, status %s", toasts, r.permissions.cards[1].status)
+		}
+		// A grant the system does not keep is an ordinary state.
+		failure = fmt.Errorf("too old: %w", errors.ErrUnsupported)
+		apply := r.permissionStep(r.permissions.cards[1], false)()
+		tester.Advance(time.Minute)
+		tester.Frame()
+		pending = []func(*ui.Context){apply}
+		tester.Frame()
+		tester.Frame()
+		if len(toasts) != 0 || r.permissions.cards[1].status != "permission_unavailable" {
+			t.Fatalf("unsupported check: toasts %v, status %s", toasts, r.permissions.cards[1].status)
 		}
 	})
 	t.Run("bundle", func(t *testing.T) {

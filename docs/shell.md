@@ -238,7 +238,8 @@ and sends nothing. Otherwise the controller reads `read_knowledge_citation`
 `App.ShowKnowledge` opens the viewer on the answer: its title,
 `host · path · position` (`knowledge_lines`, `knowledge_page`,
 `knowledge_cells`, `knowledge_slide`, a section's name or a value's key and
-pointer) and text. Next reads the page at `next_offset`, Previous the offset
+pointer) and text. The viewer is the last link's: the answer to an earlier
+link that arrives after a newer one was opened is dropped. Next reads the page at `next_offset`, Previous the offset
 before it; each is disabled at its end and while a page loads, and a failed
 read keeps the page shown. Faults toast `knowledge_citation_changed`
 (revision conflict, not found), `knowledge_denied`,

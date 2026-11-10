@@ -220,6 +220,64 @@ func TestBackupArchiveLayout(t *testing.T) {
 		}
 	})
 
+	t.Run("local target", func(t *testing.T) {
+		// Only a folder inside the profile, or one that contains it, is
+		// refused; neighbours are not, however they are spelled.
+		root := t.TempDir()
+		resolved, err := filepath.EvalSymlinks(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		profile := filepath.Join(root, "x", "profile")
+		for _, path := range []string{profile, filepath.Join(root, "x", "profile-backups"), filepath.Join(root, "x", "backups"), filepath.Join(root, "other")} {
+			if err := os.MkdirAll(path, 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}
+		// The temporary root reached through a symbolic link, as /var is on macOS.
+		linked := filepath.Join(t.TempDir(), "link")
+		if err := os.Symlink(root, linked); err != nil {
+			t.Skip("symbolic links are unavailable")
+		}
+		for _, test := range []struct {
+			name    string
+			target  string
+			profile string
+			refused bool
+		}{
+			{"the profile", profile, profile, true},
+			{"inside", filepath.Join(profile, "backups"), profile, true},
+			{"missing folder inside", filepath.Join(profile, "a", "b"), profile, true},
+			{"parent", filepath.Join(root, "x"), profile, true},
+			{"ancestor", root, profile, true},
+			{"inside through a link", filepath.Join(linked, "x", "profile", "backups"), profile, true},
+			{"inside by the resolved spelling", filepath.Join(resolved, "x", "profile", "backups"), profile, true},
+			{"parent through a link", filepath.Join(linked, "x"), profile, true},
+			{"sibling", filepath.Join(root, "x", "backups"), profile, false},
+			{"missing sibling", filepath.Join(root, "x", "new", "backups"), profile, false},
+			{"prefix-similar name", filepath.Join(root, "x", "profile-backups"), profile, false},
+			{"profile with the longer name", profile, filepath.Join(root, "x", "profile-backups"), false},
+			{"shared grandparent", filepath.Join(root, "other"), profile, false},
+			{"sibling through a link", filepath.Join(linked, "x", "backups"), profile, false},
+			{"sibling by the resolved spelling", filepath.Join(resolved, "x", "backups"), profile, false},
+			{"sibling of a linked profile", filepath.Join(resolved, "other"), filepath.Join(linked, "x", "profile"), false},
+			{"separate temporary directory", t.TempDir(), profile, false},
+		} {
+			err := LocalTarget(test.target, test.profile)
+			if code := protocol.ErrorCode(""); err != nil {
+				fault, _ := err.(*protocol.Fault)
+				if fault != nil {
+					code = fault.Code
+				}
+				if !test.refused || code != protocol.ErrorCodePermissionDenied {
+					t.Errorf("%s: %v", test.name, err)
+				}
+			} else if test.refused {
+				t.Errorf("%s: accepted", test.name)
+			}
+		}
+	})
+
 	t.Run("encryption and storage", func(t *testing.T) {
 		passphrase := protocol.NewSecret("correct horse battery")
 		directory := filepath.Join(t.TempDir(), "backups")

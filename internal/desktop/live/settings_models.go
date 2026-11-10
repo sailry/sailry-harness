@@ -203,6 +203,16 @@ func (s *localModelState) acceptSettings(value protocol.ModelsLocalSettings) {
 	}
 }
 
+// registryChanged takes the registry an event carries. A read under way
+// may have been answered before the change and arrive after it, so what it
+// brings is read again.
+func (s *localModelState) registryChanged(models []protocol.ModelsLocalModel) {
+	s.models = models
+	if s.reading {
+		s.stale = true
+	}
+}
+
 // watchLocalModels follows the Node's events: a changed registry replaces
 // the models, changed settings and a new snapshot mark what was read as
 // stale, read again while a page shows. A stream that ends is not opened
@@ -240,7 +250,7 @@ func (r *Runtime) watchLocalModels() {
 				switch envelope.Event.Kind {
 				case "local_models_changed":
 					if changed, valid := detail[protocol.EventLocalModelsChangedPayload](envelope.Event.Data); valid {
-						r.enqueue(func(*ui.Context) { s.models = changed.Models })
+						r.enqueue(func(*ui.Context) { s.registryChanged(changed.Models) })
 					}
 				case "local_model_settings_changed":
 					if changed, valid := detail[protocol.EventLocalModelSettingsChangedPayload](envelope.Event.Data); valid {

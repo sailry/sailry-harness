@@ -68,6 +68,9 @@ func (node *Node) decide(ctx context.Context, request *protocol.DecisionRequest)
 	if id == nil {
 		return protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "a decision model must be selected"}
 	}
+	if err := registry.Settle(ctx, *id); err != nil {
+		return protocol.Output{}, err
+	}
 	resource, err := registry.Resource(protocol.ModelsKindDecision, *id, &choice)
 	if err != nil {
 		return protocol.Output{}, err

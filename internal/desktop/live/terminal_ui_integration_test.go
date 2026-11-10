@@ -341,17 +341,7 @@ func TestLiveTerminalIntegration(t *testing.T) {
 	if !valid {
 		t.Fatal("registered project was not returned")
 	}
-	// A session needs a model; no request is ever sent to this provider.
-	provider := protocol.DefaultConversationProvider()
-	provider.ID = protocol.NewProviderID()
-	provider.Name, provider.Api = "Terminal fixture", protocol.ConversationModelApiChatCompletions
-	provider.Authentication, provider.Endpoint = protocol.AuthenticationApiKey, "http://127.0.0.1:9/v1"
-	provider.Enabled, provider.DefaultModel = true, "fixture"
-	model := protocol.DefaultConversationModel()
-	model.ID, model.Context, model.Output = "fixture", 200000, 8192
-	model.Reasoning, model.DefaultEffort = true, protocol.Effort{Kind: "none"}
-	model.Efforts = []protocol.Effort{model.DefaultEffort}
-	provider.Models = []protocol.ConversationModel{model}
+	provider, model := fixtureProvider("Terminal fixture")
 	secret := protocol.NewSecret("fixture-key")
 	do(protocol.Command{Kind: "save_provider", Data: protocol.CommandSaveProviderPayload{Provider: provider, Secret: &secret}})
 	config := protocol.DefaultSessionConfig()
@@ -630,4 +620,20 @@ func TestLiveTerminalIntegration(t *testing.T) {
 	t.Log("step 9 passed: exit closed Node terminal " + third + " and removed its tab and pane")
 
 	terminalFindAndSettings(t, ctx, window, owner, profile, session, setup, first)
+}
+
+// fixtureProvider is an enabled provider with one model that a session can
+// be created on. No request is ever sent to it.
+func fixtureProvider(name string) (protocol.ConversationProvider, protocol.ConversationModel) {
+	provider := protocol.DefaultConversationProvider()
+	provider.ID = protocol.NewProviderID()
+	provider.Name, provider.Api = name, protocol.ConversationModelApiChatCompletions
+	provider.Authentication, provider.Endpoint = protocol.AuthenticationApiKey, "http://127.0.0.1:9/v1"
+	provider.Enabled, provider.DefaultModel = true, "fixture"
+	model := protocol.DefaultConversationModel()
+	model.ID, model.Context, model.Output = "fixture", 200000, 8192
+	model.Reasoning, model.DefaultEffort = true, protocol.Effort{Kind: "none"}
+	model.Efforts = []protocol.Effort{model.DefaultEffort}
+	provider.Models = []protocol.ConversationModel{model}
+	return provider, model
 }

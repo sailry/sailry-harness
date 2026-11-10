@@ -264,8 +264,11 @@ func TestSystemPermissionsUI(t *testing.T) {
 	press(window, "Check")
 	expect(window, "Check re-reads", map[string]string{disk: "Unauthorized", access: "Not checked", microphone: "Unauthorized"})
 	// A failed check of one of this process's grants is the row's Not
-	// checked status; the failure toast belongs to requests and packages.
-	noToast(window, "Permission check failed")
+	// checked status and one failure toast for the whole Check.
+	toast(window, "Permission check failed")
+	if count := lingering[window]["Permission check failed"]; count != 0 {
+		t.Fatalf("the failure toast stays: %d show", count)
+	}
 	for _, permission := range []permissionflow.Permission{permissionflow.FullDiskAccess, permissionflow.Accessibility, permissionflow.Microphone} {
 		if counts := probe.counts(permission); counts != [3]int{2, 0, 0} {
 			t.Fatalf("Check made %v checks, requests and settings openings of %s", counts, permission)
@@ -274,7 +277,9 @@ func TestSystemPermissionsUI(t *testing.T) {
 	probe.set(permissionflow.Accessibility, permissionflow.NotDetermined, false)
 	press(window, "Check")
 	expect(window, "Check re-reads again", map[string]string{disk: "Unauthorized", access: "Unauthorized", microphone: "Unauthorized"})
-	t.Logf("step 2 passed: Check read all three grants again: an undetermined microphone and accessibility show Unauthorized, and a failing check shows Not checked without a toast")
+	// Undetermined and ungranted are ordinary states, never a failure.
+	noToast(window, "Permission check failed")
+	t.Logf("step 2 passed: Check read all three grants again: an undetermined microphone and accessibility show Unauthorized without a toast, and a failing check shows Not checked with the Permission check failed toast, which runs out")
 
 	// Step 3: Request asks once and the row follows the grant.
 	clickRow(window, microphone, "Request access")
@@ -297,24 +302,23 @@ func TestSystemPermissionsUI(t *testing.T) {
 	probe.set(permissionflow.Microphone, permissionflow.Denied, false)
 	press(window, "Check")
 	expect(window, "the refused microphone", map[string]string{microphone: "Access denied"})
-	// The row has its settings shortcut and, in place of Request access,
-	// an action of the same name: both open the pane and neither asks.
-	var pair []ui.AccessInfo
-	settle(window, "the refused microphone's two Open settings", systemUIWait, func() bool {
-		pair = permissionButtons(window, microphone, "Open settings")
-		return len(pair) == 2
+	// In place of Request access the row has one Open settings, which
+	// opens the pane and does not ask; the settings shortcut is a granted
+	// row's.
+	var action []ui.AccessInfo
+	settle(window, "the refused microphone's one Open settings", systemUIWait, func() bool {
+		action = permissionButtons(window, microphone, "Open settings")
+		return len(action) == 1
 	})
-	window.clickOn(pair[1])
+	window.clickOn(action[0])
 	quiet(window)
 	if counts := probe.counts(permissionflow.Microphone); counts[1] != 1 || counts[2] != 1 {
 		t.Fatalf("a refused microphone's action made %v checks, requests and settings openings", counts)
 	}
-	window.clickOn(permissionButtons(window, microphone, "Open settings")[0])
-	quiet(window)
-	if counts := probe.counts(permissionflow.Microphone); counts[1] != 1 || counts[2] != 2 {
-		t.Fatalf("a refused microphone's settings shortcut made %v checks, requests and settings openings", counts)
+	if found := permissionButtons(window, access, "Open settings"); len(found) != 1 {
+		t.Fatalf("the granted accessibility row has %d settings shortcuts", len(found))
 	}
-	t.Logf("step 3 passed: Request access asked the injected system once for the microphone and once for accessibility and each row became Authorized; a refused microphone offers Open settings instead of Request access beside its settings shortcut, and each opened its pane exactly once and asked nothing")
+	t.Logf("step 3 passed: Request access asked the injected system once for the microphone and once for accessibility and each row became Authorized; a refused microphone offers one Open settings instead of Request access, which opened its pane exactly once and asked nothing; a granted row has its one settings shortcut")
 
 	// Step 4: Open settings of Full Disk Access, before and after the grant.
 	before := probe.counts(permissionflow.FullDiskAccess)
@@ -368,12 +372,13 @@ func TestSystemPermissionsUI(t *testing.T) {
 	showSection(window, settings.Permissions)
 	expect(window, "the unavailable rows", map[string]string{disk: "Unavailable on this device", access: "Unavailable on this device", microphone: "Unavailable on this device"})
 	press(window, "Check")
-	// The page still draws Request access on these rows; it does nothing.
-	inert := len(window.buttons("Request access"))
+	// The rows draw Request access disabled; a click does nothing.
 	for _, row := range []string{disk, access, microphone} {
-		if found := permissionButtons(window, row, "Request access"); len(found) == 1 {
-			window.clickOn(found[0])
+		found := permissionButtons(window, row, "Request access")
+		if len(found) != 1 || !found[0].Disabled {
+			t.Fatalf("the unavailable row %s offers %+v", row, found)
 		}
+		window.clickOn(found[0])
 	}
 	for range 20 {
 		window.frame()
@@ -387,7 +392,7 @@ func TestSystemPermissionsUI(t *testing.T) {
 		t.Fatalf("unavailable rows offer settings or the help; elements: %s", window.elements())
 	}
 	expect(window, "the rows stay unavailable", map[string]string{disk: "Unavailable on this device", access: "Unavailable on this device", microphone: "Unavailable on this device"})
-	t.Logf("step 6 passed: with the probe reporting a system other than macOS every row shows Unavailable on this device with no settings action and no help; Check and the %d Request access buttons the rows still draw probed, asked and opened nothing", inert)
+	t.Logf("step 6 passed: with the probe reporting a system other than macOS every row shows Unavailable on this device with no settings action, no help and a disabled Request access; Check and a click on each probed, asked and opened nothing")
 	window.close()
 
 	// Step 7: the computer package's grants through the stand-in helper.

@@ -439,7 +439,7 @@ func TestWelcome(t *testing.T) {
 // modes, each differently.
 func TestThemePackages(t *testing.T) {
 	seen := map[string]string{}
-	for _, pkg := range theme.Packages {
+	for _, pkg := range theme.Packages() {
 		for _, mode := range []theme.Mode{theme.Light, theme.Dark} {
 			name := fmt.Sprintf("%s-%d", pkg.ID, mode)
 			a, tt := newTester(t)

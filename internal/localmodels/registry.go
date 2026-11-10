@@ -43,8 +43,8 @@ type Registry struct {
 
 	rootMu sync.Mutex
 	root   string
-	// inspecting serializes file inspection so concurrent listings do not
-	// hash the same files.
+	// inspecting serializes hashing inspections so concurrent listings do
+	// not hash the same files. Start's receipt pass does not take it.
 	inspecting sync.Mutex
 
 	tasksMu sync.Mutex
@@ -56,11 +56,14 @@ type Registry struct {
 	definitions map[string]*protocol.ModelsDefinition
 	verified    map[string]*assets.Stamp
 	removing    map[string]bool
-	transfers   map[string]context.CancelFunc
-	scopes      map[protocol.ModelsKind]scope
-	latest      Update
-	signature   string
-	changed     chan struct{}
+	// pending holds the models Start found on disk without a receipt; each
+	// channel closes when that model's hashing ends.
+	pending   map[string]chan struct{}
+	transfers map[string]context.CancelFunc
+	scopes    map[protocol.ModelsKind]scope
+	latest    Update
+	signature string
+	changed   chan struct{}
 }
 
 type scope struct {
@@ -117,13 +120,15 @@ func (registry *Registry) scope() scope {
 	return scope{ctx: ctx, cancel: cancel}
 }
 
-// spawn runs background inspection that Shutdown waits for.
-func (registry *Registry) spawn(task func()) {
+// spawn runs background inspection that Shutdown waits for and reports
+// whether it was started.
+func (registry *Registry) spawn(task func()) bool {
 	registry.tasksMu.Lock()
 	defer registry.tasksMu.Unlock()
 	if !registry.closed {
 		registry.tasks.Go(task)
 	}
+	return !registry.closed
 }
 
 // Capabilities are the inference runtimes this registry schedules.
@@ -237,7 +242,8 @@ func (registry *Registry) List(kind protocol.ModelsKind) ([]protocol.ModelsLocal
 
 // Start accepts the files their receipts cover without reading contents and
 // hashes the others off the caller's thread, so a large model without a
-// receipt does not delay startup; it is listed as missing until verified.
+// receipt does not delay startup. Such a model is listed as missing until
+// its hash ends; operations that need it wait through Settle.
 func (registry *Registry) Start() error {
 	if registry.profile == "" {
 		return nil
@@ -245,13 +251,74 @@ func (registry *Registry) Start() error {
 	if err := registry.inspect(func(string, *protocol.ModelsDefinition) bool { return true }, known); err != nil {
 		return err
 	}
-	registry.spawn(func() { _, _ = registry.List("") })
+	root, err := registry.Root()
+	if err != nil {
+		return err
+	}
+	registry.mu.Lock()
+	unverified := map[string]*protocol.ModelsDefinition{}
+	for id, definition := range registry.definitions {
+		if registry.verified[id] == nil {
+			unverified[id] = definition
+		}
+	}
+	registry.mu.Unlock()
+	pending := map[string]chan struct{}{}
+	for id, definition := range unverified {
+		// Only marked files can verify; anything else stays missing.
+		if path, err := directory(root, id, definition); err == nil && assets.StampOf(path, files(definition), ID(definition)) != nil {
+			pending[id] = make(chan struct{})
+		}
+	}
+	registry.mu.Lock()
+	registry.pending = pending
+	registry.mu.Unlock()
+	started := registry.spawn(func() {
+		for _, id := range slices.Sorted(maps.Keys(pending)) {
+			if registry.stop.Err() == nil {
+				_ = registry.verify(func(candidate string, _ *protocol.ModelsDefinition) bool { return candidate == id })
+			}
+			close(pending[id])
+		}
+	})
+	if !started {
+		// A closed registry hashes nothing, so nothing is waited for.
+		registry.mu.Lock()
+		registry.pending = nil
+		registry.mu.Unlock()
+	}
+	return nil
+}
+
+// Settle waits until the hashing Start left running for the given models
+// has ended, so a model on disk is not reported missing while it is being
+// verified.
+func (registry *Registry) Settle(ctx context.Context, ids ...string) error {
+	registry.mu.Lock()
+	var waits []chan struct{}
+	for _, id := range ids {
+		if done := registry.pending[id]; done != nil {
+			waits = append(waits, done)
+		}
+	}
+	registry.mu.Unlock()
+	for _, done := range waits {
+		select {
+		case <-done:
+		case <-ctx.Done():
+			return Cancelled()
+		case <-registry.stop.Done():
+			return Cancelled()
+		}
+	}
 	return nil
 }
 
 // verify inspects files outside the configuration lock; hashing runs only
 // for changed files.
 func (registry *Registry) verify(include func(string, *protocol.ModelsDefinition) bool) error {
+	registry.inspecting.Lock()
+	defer registry.inspecting.Unlock()
 	return registry.inspect(include, stamp)
 }
 
@@ -260,8 +327,6 @@ func (registry *Registry) inspect(include func(string, *protocol.ModelsDefinitio
 	if err != nil {
 		return err
 	}
-	registry.inspecting.Lock()
-	defer registry.inspecting.Unlock()
 	type observation struct {
 		id         string
 		definition *protocol.ModelsDefinition

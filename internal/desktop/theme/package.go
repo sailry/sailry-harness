@@ -229,9 +229,9 @@ func Parse(data []byte, files fs.FS) (*Package, error) {
 // assets, no effects.
 var Builtin = &Package{ID: BuiltinID}
 
-// Packages are the themes shipped: the built-in default first, then the
-// official packages by name.
-var Packages = load()
+// embeddedPackages are the themes shipped: the built-in default first, then
+// the official packages by name.
+var embeddedPackages = load()
 
 func load() []*Package {
 	out := []*Package{Builtin}
@@ -261,7 +261,7 @@ func load() []*Package {
 
 // Find returns the package with id, or the built-in theme.
 func Find(id string) *Package {
-	for _, p := range Packages {
+	for _, p := range Packages() {
 		if p.ID == id {
 			return p
 		}

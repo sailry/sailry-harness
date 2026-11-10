@@ -3,9 +3,12 @@
 // (package.go), and the MyGo widget theme derived from them.
 package theme
 
-import "github.com/egoist/mygo/ui"
+import (
+	"sync"
+	"sync/atomic"
 
-var embeddedPackages = append([]*Package(nil), Packages...)
+	"github.com/egoist/mygo/ui"
+)
 
 // Mode is the appearance the user chose.
 type Mode int
@@ -178,75 +181,85 @@ type look struct {
 	widget  *ui.Theme
 }
 
-var (
-	looks    = map[key]look{}
-	byWidget = map[*ui.Theme]*Palette{}
-)
-
-func init() {
-	for _, pkg := range Packages {
-		for _, dark := range []bool{false, true} {
-			p := palette(pkg, dark)
-			w := build(p)
-			looks[key{pkg.ID, dark}] = look{p, w}
-			byWidget[w] = p
-		}
-	}
+// registry is the themes in use. It is replaced whole, never changed, so
+// every window's frame reads one consistent set.
+type registry struct {
+	packages []*Package
+	looks    map[key]look
+	byWidget map[*ui.Theme]*Palette
 }
 
+var (
+	current  atomic.Pointer[registry]
+	changing sync.Mutex
+)
+
+func init() { SetInstalled(nil) }
+
+// Packages are the themes in use: the built-in default first, then the
+// shipped packages by name with installed releases in their place, then
+// the other installed packages.
+func Packages() []*Package { return current.Load().packages }
+
+// SetInstalled replaces the installed packages. A package that stays keeps
+// its looks, so a window showing it keeps its theme; the looks of replaced
+// packages stay known to the windows still showing them.
 func SetInstalled(installed []*Package) {
-	Packages = append([]*Package(nil), embeddedPackages...)
+	changing.Lock()
+	defer changing.Unlock()
+	next := &registry{packages: append([]*Package(nil), embeddedPackages...), looks: map[key]look{}, byWidget: map[*ui.Theme]*Palette{}}
 	for _, pkg := range installed {
 		replaced := false
-		for index, embedded := range Packages {
+		for index, embedded := range next.packages {
 			if embedded.ID == pkg.ID {
-				Packages[index] = pkg
+				next.packages[index] = pkg
 				replaced = true
 				break
 			}
 		}
 		if !replaced {
-			Packages = append(Packages, pkg)
+			next.packages = append(next.packages, pkg)
 		}
+	}
+	previous := current.Load()
+	if previous != nil {
+		for widget, value := range previous.byWidget {
+			next.byWidget[widget] = value
+		}
+	}
+	for _, pkg := range next.packages {
 		for _, dark := range []bool{false, true} {
+			id := key{pkg.ID, dark}
+			if previous != nil && previous.looks[id].palette != nil && previous.looks[id].palette.Package == pkg {
+				next.looks[id] = previous.looks[id]
+				continue
+			}
 			value := palette(pkg, dark)
 			widget := build(value)
-			looks[key{pkg.ID, dark}] = look{value, widget}
-			byWidget[widget] = value
+			next.looks[id] = look{value, widget}
+			next.byWidget[widget] = value
 		}
 	}
-	for _, pkg := range embeddedPackages {
-		present := false
-		for _, current := range installed {
-			present = present || current.ID == pkg.ID
-		}
-		if !present {
-			for _, dark := range []bool{false, true} {
-				value := palette(pkg, dark)
-				widget := build(value)
-				looks[key{pkg.ID, dark}] = look{value, widget}
-				byWidget[widget] = value
-			}
-		}
-	}
+	current.Store(next)
 }
 
 // Of returns the palette of the frame's theme, or of the Themed subtree
 // being built.
 func Of(c *ui.Context) *Palette {
-	if p := byWidget[c.Theme()]; p != nil {
+	themes := current.Load()
+	if p := themes.byWidget[c.Theme()]; p != nil {
 		return p
 	}
-	return looks[key{BuiltinID, c.Theme().Dark}].palette
+	return themes.looks[key{BuiltinID, c.Theme().Dark}].palette
 }
 
 // Look returns the palette of a package in a mode, as previews show it.
 func Look(id string, dark bool) *Palette {
-	return looks[key{Find(id).ID, dark}].palette
+	return current.Load().looks[key{Find(id).ID, dark}].palette
 }
 
 func Preview(pkg *Package, dark bool) *Palette {
-	if cached, exists := looks[key{pkg.ID, dark}]; exists && cached.palette.Package == pkg {
+	if cached, exists := current.Load().looks[key{pkg.ID, dark}]; exists && cached.palette.Package == pkg {
 		return cached.palette
 	}
 	return palette(pkg, dark)
@@ -254,7 +267,7 @@ func Preview(pkg *Package, dark bool) *Palette {
 
 // Widget returns the MyGo theme of a package in a mode, for ui.Themed.
 func Widget(id string, dark bool) *ui.Theme {
-	return looks[key{Find(id).ID, dark}].widget
+	return current.Load().looks[key{Find(id).ID, dark}].widget
 }
 
 // IsDark resolves the mode against the system's appearance.

@@ -265,9 +265,12 @@ model and no download from these packages.
   the reference's thread counts; worker threads are not lowered in priority.
   Cancellation is observed between model runs, not inside one.
 - **Startup verification.** Node startup accepts the model files their
-  receipts cover and hashes the others in the background; such a model is
-  listed as missing until its hash completes and then announced by
-  `local_models_changed`. The reference hashes them before startup completes.
+  receipts cover and hashes the others in the background. Until its hash
+  completes such a model appears as missing in the published catalog and is
+  then announced by `local_models_changed`; `read_local_models` and every
+  operation that needs the model (OCR, embedding, decisions) wait for the hash
+  within the caller's cancellation instead of reporting it as not installed.
+  The reference hashes them before startup completes.
 - **Availability check.** Catalog availability checks that the runtime files
   exist; size and digest are verified when the first model loads.
 - **Image decoding.** Images are decoded by Go's `image` packages and

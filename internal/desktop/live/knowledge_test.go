@@ -7,6 +7,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/node/knowledge"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -146,5 +147,37 @@ func testKnowledgeViewer(t *testing.T) {
 				t.Fatalf("requests %v, want %v", requests, want)
 			}
 		}
+	}
+
+	// The viewer is the last link's: an earlier link's late answer, here of
+	// a slower Node, does not replace it.
+	root := &Runtime{App: shell.NewLive(&viewmodel.Data{Workspace: &viewmodel.Workspace{}})}
+	var answers []func(*ui.Context)
+	later := input
+	later.Chunk = strings.Repeat("d", 64)
+	page := func(input protocol.KnowledgeCitationRequest, title string) protocol.KnowledgeCitationPage {
+		citation := protocol.KnowledgeCitation{Collection: input.Collection, Chunk: input.Chunk, Revision: input.Revision, Path: title}
+		citation.Link = knowledge.CitationURL(citation)
+		return protocol.KnowledgeCitationPage{Citation: citation, Title: title, Untrusted: true}
+	}
+	for _, link := range []struct {
+		node  string
+		input protocol.KnowledgeCitationRequest
+		title string
+	}{{"remote", input, "earlier.md"}, {"", later, "later.md"}} {
+		root.readKnowledge(link.node, link.input, func(input protocol.KnowledgeCitationRequest, done func(*ui.Context, protocol.Output, error)) {
+			answers = append(answers, func(c *ui.Context) {
+				done(c, protocol.Output{Kind: "knowledge_citation", Data: page(input, link.title)}, nil)
+			})
+		}, func(*ui.Context) string { return link.node })
+	}
+	order := ui.NewTester(func(c *ui.Context) {
+		for _, index := range []int{1, 0} {
+			answers[index](c)
+		}
+	}, 320, 200)
+	order.Frame()
+	if reading := root.App.Reading(); reading == nil || reading.Title != "later.md" || reading.Host != "" {
+		t.Fatalf("after the earlier link answered last the viewer shows %+v", reading)
 	}
 }

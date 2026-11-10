@@ -440,24 +440,36 @@ func TestSystemBackupUI(t *testing.T) {
 		t.Fatalf("refused drafts changed the dialog or the Node: folder %q, Node %+v", value, saved())
 	}
 	fill(window, "Confirm passphrase", backupUIPassphrase, true)
+	// A folder inside the live profile is refused on save: the Node stores
+	// nothing and the dialog keeps its draft.
+	save("Backup access denied")
+	if value := labelled(window, "Node backup folder").Value; !dialog("Encryption passphrase") || value != inside {
+		t.Fatalf("the refused save closed the dialog or lost its folder: %q; elements: %s", value, window.elements())
+	}
+	if now := saved(); now.Revision != 0 || now.Local != nil || now.PassphraseConfigured {
+		t.Fatalf("the Node stored a target inside its profile: %+v", now)
+	}
+	if _, err := os.Stat(inside); !os.IsNotExist(err) {
+		t.Fatalf("the refused save left %s: %v", inside, err)
+	}
+	// The kept draft, with a folder outside the profile, saves.
+	earlier := filepath.Join(root, "backups-earlier")
+	picked = earlier
+	pressIn(window, "Choose folder")
+	settle(window, "Choose folder replaces the refused path", systemUIWait, func() bool { return labelled(window, "Node backup folder").Value == earlier })
+	if picks != 2 {
+		t.Fatalf("the folder picker ran %d times", picks)
+	}
 	save("Settings saved")
 	settle(window, "the saved storage dialog closes", systemUIWait, func() bool { return !dialog("Encryption passphrase") })
-	if now := saved(); now.Local == nil || now.Local.Directory != inside || !now.Local.Enabled || now.OnlineEnabled || !now.PassphraseConfigured || now.CredentialsConfigured {
+	if now := saved(); now.Local == nil || now.Local.Directory != earlier || !now.Local.Enabled || now.OnlineEnabled || !now.PassphraseConfigured || now.CredentialsConfigured {
 		t.Fatalf("the Node after saving a local target: %+v", now)
-	}
-	// A folder inside the live profile is refused when a backup is made.
-	backUp("Backup access denied")
-	if _, err := os.Stat(inside); !os.IsNotExist(err) {
-		t.Fatalf("a backup into the live profile left %s: %v", inside, err)
-	}
-	if len(backups().Records) != 0 {
-		t.Fatalf("a refused backup is listed: %+v", backups())
 	}
 	// SBAK-002: the saved target with its secrets empty; a blank passphrase
 	// keeps the saved one.
 	configure()
-	if value := labelled(window, "Node backup folder").Value; value != inside {
-		t.Fatalf("the dialog shows the folder %q, want the saved %q", value, inside)
+	if value := labelled(window, "Node backup folder").Value; value != earlier {
+		t.Fatalf("the dialog shows the folder %q, want the saved %q", value, earlier)
 	}
 	for _, label := range []string{"Encryption passphrase", "Confirm passphrase"} {
 		if field := labelled(window, label); field.Value != "" || field.Placeholder != "Keep existing" {
@@ -474,7 +486,7 @@ func TestSystemBackupUI(t *testing.T) {
 	if now := saved(); now.Local == nil || now.Local.Directory != folder || !now.PassphraseConfigured {
 		t.Fatalf("the Node after replacing the folder: %+v", now)
 	}
-	t.Log("step 2 passed: the storage dialog refused an empty folder, a missing, short and mismatched passphrase with their toasts and kept the draft; Choose folder filled the path; Save stored the local target; a folder inside the live profile was refused with Backup access denied; saved secrets show only as Keep existing")
+	t.Log("step 2 passed: the storage dialog refused an empty folder, a missing, short and mismatched passphrase with their toasts and kept the draft; Choose folder filled the path; a folder inside the live profile was refused on save with Backup access denied, the Node stored nothing and the draft stayed; the same draft with a folder outside the profile saved the local target; saved secrets show only as Keep existing and a blank passphrase keeps the saved one")
 
 	// (3) SBAK-001, SBAK-014, SBAK-016: Back up now, pending state and the
 	// stored backups.

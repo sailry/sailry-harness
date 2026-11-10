@@ -139,7 +139,6 @@ func StartWithOptions(ctx context.Context, path string, options Options) (*Node,
 		return nil, err
 	}
 	value.tasks = tasks.New(nodeContext)
-	value.tasks.Working = value.power.Hold
 	if err := value.initWorkspace(ctx, options); err != nil {
 		cancel()
 		_ = profile.Close()

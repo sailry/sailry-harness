@@ -145,12 +145,24 @@ var systemReadTool = operations.Alias("files", "read_file")
 
 // systemModel is a scripted chat-completions endpoint: a request that
 // is first answered with tool_search for read_file, then with a call of the
-// offered read_file for secret.txt, then with the final text.
+// offered read_file for secret.txt, then with the final text. hold makes the
+// next request wait, so a test can look at the Node while a turn runs.
 type systemModel struct {
-	mu     sync.Mutex
-	bodies []string
-	turn   int
-	server *httptest.Server
+	mu      sync.Mutex
+	bodies  []string
+	turn    int
+	gate    chan struct{}
+	arrived chan struct{}
+	server  *httptest.Server
+}
+
+// hold stops the next request before its answer. The request closes the
+// first channel when it arrives; closing the second lets it answer.
+func (m *systemModel) hold() (<-chan struct{}, chan<- struct{}) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.gate, m.arrived = make(chan struct{}), make(chan struct{})
+	return m.arrived, m.gate
 }
 
 const (
@@ -168,7 +180,17 @@ func newSystemModel(t *testing.T) *systemModel {
 		model.mu.Lock()
 		model.bodies = append(model.bodies, body)
 		call := fmt.Sprintf("call_fixture_%d", model.turn)
+		gate, arrived := model.gate, model.arrived
+		model.gate, model.arrived = nil, nil
 		model.mu.Unlock()
+		if gate != nil {
+			close(arrived)
+			select {
+			case <-gate:
+			case <-request.Context().Done():
+				return
+			}
+		}
 		writer.Header().Set("Content-Type", "text/event-stream")
 		chunk := func(delta, finish string) {
 			fmt.Fprintf(writer, "data: {\"id\":\"fixture\",\"object\":\"chat.completion.chunk\",\"model\":\"fixture\",\"created\":1,\"choices\":[{\"index\":0,\"delta\":%s,\"finish_reason\":%s}]}\n\n", delta, finish)
@@ -272,7 +294,8 @@ func menuItem(items []*mygo.MenuItem, id string) *mygo.MenuItem {
 // 15-minute timer is telemetry.Options.Timer, fired once by the test; the
 // system's sleep assertion is a counting power.Backend, so no real
 // assertion is held; the model is a scripted loopback chat-completions
-// server; the turn and the failing commands are sent by a second controller
+// server whose first answer of a turn waits while the test reads that
+// backend; the turn and the failing commands are sent by a second controller
 // of the same Node, not typed into the composer; the system viewer of
 // Help › Logs is the injected NativeFileActions.OpenLocal, so Finder is
 // never opened.
@@ -340,12 +363,31 @@ func TestSystemGeneralUI(t *testing.T) {
 			}
 		}
 	}
+	// idle waits for the Node's short work to end and returns the requests
+	// taken so far. Package commands are supervised tasks, so a window that
+	// reads its packages takes and returns the request many times: the test
+	// asserts what is held, and counts only where nothing may be taken.
+	idle := func(label string) int {
+		t.Helper()
+		deadline := time.Now().Add(systemUIWait)
+		for {
+			held, acquired, released := backend.counts()
+			if !held && acquired == released {
+				return acquired
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("%s: the idle Node holds the power request: held %v acquired %d released %d", label, held, acquired, released)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
 	// work is a read refused at warning level, a turn with a stale revision
 	// refused at error level and one completed turn that reads the secret
-	// file.
+	// file. awake is whether the turn holds the power request while it runs.
 	var finished protocol.TurnID
-	work := func(label string) {
+	work := func(label string, awake bool) {
 		t.Helper()
+		baseline := idle(label)
 		if _, err := desk.setup.Do(ctx, protocol.Command{Kind: "read_session", Data: protocol.CommandReadSessionPayload{Session: protocol.NewSessionID()}}); faultCode(err) != protocol.ErrorCodeNotFound {
 			t.Fatalf("%s: reading a missing session gave %v", label, err)
 		}
@@ -362,7 +404,25 @@ func TestSystemGeneralUI(t *testing.T) {
 		if !found {
 			t.Fatalf("%s: the session is gone", label)
 		}
+		arrived, release := model.hold()
 		desk.do(protocol.Command{Kind: "submit_turn", Data: protocol.CommandSubmitTurnPayload{Session: session.ID, ExpectedRevision: current.Revision, Message: protocol.ConversationInput{Text: systemPrompt}}})
+		select {
+		case <-arrived:
+		case <-time.After(systemUIWait):
+			t.Fatalf("%s: the turn did not reach the model within %s", label, systemUIWait)
+		}
+		// The turn waits for the model: it runs. With the switch on the
+		// request stays held without a break; with it off none is taken.
+		held, taken, returned := backend.counts()
+		time.Sleep(300 * time.Millisecond)
+		still, later, back := backend.counts()
+		if awake && (!held || !still || taken != returned+1 || later != taken || back != returned) {
+			t.Fatalf("%s: while the turn runs with Prevent sleep on: held %v then %v, acquired %d then %d, released %d then %d", label, held, still, taken, later, returned, back)
+		}
+		if !awake && (held || still || later != baseline) {
+			t.Fatalf("%s: while the turn runs with Prevent sleep off: held %v then %v, acquired %d, was %d", label, held, still, later, baseline)
+		}
+		close(release)
 		deadline := time.Now().Add(systemUIWait)
 		for {
 			now, _ := desk.current(session.ID)
@@ -384,6 +444,10 @@ func TestSystemGeneralUI(t *testing.T) {
 		}
 		// The turn is counted just after its run commits.
 		time.Sleep(500 * time.Millisecond)
+		// The completed turn returned what it held.
+		if after := idle(label); awake == (after == baseline) {
+			t.Fatalf("%s: after the turn %d requests were taken and returned, %d before it", label, after, baseline)
+		}
 	}
 	open := func() *terminalUI {
 		window := openTerminalWindow(t, ctx, desk.owner, profile, session, nil)
@@ -414,11 +478,13 @@ func TestSystemGeneralUI(t *testing.T) {
 		return errors.Checked, metrics.Checked, awake.Checked
 	}
 
-	// Step 1: a new profile reports and keeps the system awake.
+	// Step 1: a new profile reports, and with Prevent sleep on an idle Node
+	// holds nothing.
 	first := consent()
-	if held, acquired, released := backend.counts(); !first.Errors || !first.Metrics || !sleep().PreventSleep || !held || acquired != 1 || released != 0 {
-		t.Fatalf("a new profile: telemetry %+v, power %+v, request held %v acquired %d released %d", first, sleep(), held, acquired, released)
+	if !first.Errors || !first.Metrics || !sleep().PreventSleep {
+		t.Fatalf("a new profile: telemetry %+v, power %+v", first, sleep())
 	}
+	idle("a new profile")
 	if _, timers, stops := usage.counts(); timers != 1 || stops != 0 {
 		t.Fatalf("the launch opened %d usage windows and stopped %d", timers, stops)
 	}
@@ -426,23 +492,29 @@ func TestSystemGeneralUI(t *testing.T) {
 	if errors, metrics, awake := switches(window); !errors || !metrics || !awake {
 		t.Fatalf("the page shows errors %v, metrics %v, prevent sleep %v", errors, metrics, awake)
 	}
-	t.Logf("step 1 passed: the page loaded the Node's settings: error reports on, anonymous usage on, prevent sleep on; the launch held one power request and opened one usage window")
+	t.Logf("step 1 passed: the page loaded the Node's settings: error reports on, anonymous usage on, prevent sleep on; the idle Node holds no power request and one usage window is open")
 
-	// Step 2: the power switch releases and takes the request.
+	// Step 2: the switch alone takes nothing; the request follows work.
 	flip(window, "Prevent sleep", "Saved")
-	if held, acquired, released := backend.counts(); sleep().PreventSleep || held || acquired != 1 || released != 1 {
-		t.Fatalf("prevent sleep off: Node %+v, held %v acquired %d released %d", sleep(), held, acquired, released)
+	off := idle("prevent sleep off")
+	if sleep().PreventSleep {
+		t.Fatalf("prevent sleep off: Node %+v", sleep())
 	}
 	window.close()
 	window = open()
 	if _, _, awake := switches(window); awake {
 		t.Fatal("a new Runtime shows prevent sleep on after it was switched off")
 	}
-	flip(window, "Prevent sleep", "Saved")
-	if held, acquired, released := backend.counts(); !sleep().PreventSleep || !held || acquired != 2 || released != 1 {
-		t.Fatalf("prevent sleep on: Node %+v, held %v acquired %d released %d", sleep(), held, acquired, released)
+	// Off, the window's own package reads took nothing.
+	if held, acquired, released := backend.counts(); held || acquired != off || released != off {
+		t.Fatalf("with prevent sleep off: held %v acquired %d released %d, was %d", held, acquired, released, off)
 	}
-	t.Logf("step 2 passed: Prevent sleep off saved on the Node and released the request (1 acquired, 1 released), a new Runtime showed it off, and switching it on took a second request")
+	flip(window, "Prevent sleep", "Saved")
+	idle("prevent sleep on")
+	if !sleep().PreventSleep {
+		t.Fatalf("prevent sleep on: Node %+v", sleep())
+	}
+	t.Logf("step 2 passed: Prevent sleep off saved on the Node and a new Runtime showed it off, during which no request was taken; switched on again, the idle Node holds none")
 
 	// Step 3: both telemetry switches off survive a new Runtime.
 	flip(window, "Send error reports", "Privacy settings saved")
@@ -470,11 +542,13 @@ func TestSystemGeneralUI(t *testing.T) {
 	}
 
 	// Step 4: with both off, failures and a completed turn send nothing.
-	work("with the switches off")
+	// Prevent sleep is on: the request is held while the turn runs and
+	// returned when it completes.
+	work("with the switches off", true)
 	if sent, timers, _ := usage.counts(); len(reports.sent()) != base || sent != 0 || timers != 1 {
 		t.Fatalf("with the switches off: %d reports, %d usage requests, %d timers: %s", len(reports.sent()), sent, timers, bytes.Join(reports.sent(), []byte("\n====\n")))
 	}
-	t.Logf("step 4 passed: with both switches off a refused read, a refused stale turn and a completed turn that read a file sent 0 error reports and 0 usage requests and started no timer")
+	t.Logf("step 4 passed: with both switches off a refused read, a refused stale turn and a completed turn that read a file sent 0 error reports and 0 usage requests and started no timer; with Prevent sleep on the power request was held while the turn ran and returned when it completed")
 
 	// Step 5: Send diagnostics delivers the filtered log once.
 	window.clickOn(bring(window, ui.RoleButton, "Send diagnostics"))
@@ -576,7 +650,10 @@ func TestSystemGeneralUI(t *testing.T) {
 	if errors, metrics, _ := switches(window); !errors || !metrics {
 		t.Fatalf("a new Runtime shows errors %v, metrics %v after both were switched on", errors, metrics)
 	}
-	work("with the switches on")
+	// Prevent sleep off: the same turn takes no request.
+	flip(window, "Prevent sleep", "Saved")
+	work("with the switches on", false)
+	flip(window, "Prevent sleep", "Saved")
 	settle(window, "the error report arrives", systemUIWait, func() bool { return len(reports.sent()) >= base+3 })
 	sent = reports.sent()[base:]
 	if len(sent) != 3 {
@@ -666,7 +743,7 @@ func TestSystemGeneralUI(t *testing.T) {
 	if len(reports.sent()) != base+3 {
 		t.Fatalf("%d reports after the flush", len(reports.sent())-base)
 	}
-	t.Logf("step 7 passed: with both switches on (shown on by a new Runtime) the same work sent exactly one error report, command.submit_turn:revision_conflict, and one firing of the usage window's timer sent %d requests, one per table %v, with one completed turn; none carried the prompt, the file, the response, the key, a path, a name or a local identifier", len(bodies), tables)
+	t.Logf("step 7 passed: with Prevent sleep off the turn took no power request; with both switches on (shown on by a new Runtime) the same work sent exactly one error report, command.submit_turn:revision_conflict, and one firing of the usage window's timer sent %d requests, one per table %v, with one completed turn; none carried the prompt, the file, the response, the key, a path, a name or a local identifier", len(bodies), tables)
 
 	// Step 8: Help › Logs is enabled in live mode and names the log folder.
 	app := window.runtime.App
@@ -695,15 +772,15 @@ func TestSystemGeneralUI(t *testing.T) {
 	noToast(window, "Could not open the file")
 	t.Logf("step 8 passed: Help › Logs is disabled without a log folder and enabled with one; choosing it handed %s, which holds desktop/current.log, to the injected viewer once", folder)
 
-	// Step 9: the Node returns the power request when it stops.
+	// Step 9: a stopped Node holds no power request.
 	if err := desk.owner.Stop(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if held, acquired, released := backend.counts(); held || acquired != 2 || released != 2 {
+	if held, acquired, released := backend.counts(); held || acquired != released {
 		t.Fatalf("after the Node stopped: held %v acquired %d released %d", held, acquired, released)
 	}
 	if count, _, _ := usage.counts(); len(reports.sent()) != base+3 || count != len(bodies) {
 		t.Fatalf("stopping the Node sent more: %d reports, %d usage requests", len(reports.sent()), count)
 	}
-	t.Logf("step 9 passed: stopping the Node released the power request (2 acquired, 2 released) and sent nothing further")
+	t.Logf("step 9 passed: the stopped Node holds no power request and returned every one it took, and stopping sent nothing further")
 }

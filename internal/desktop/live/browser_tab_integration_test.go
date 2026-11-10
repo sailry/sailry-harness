@@ -51,16 +51,7 @@ func TestLiveBrowserTabIntegration(t *testing.T) {
 		}
 		return output
 	}
-	provider := protocol.DefaultConversationProvider()
-	provider.ID = protocol.NewProviderID()
-	provider.Name, provider.Api = "Browser fixture", protocol.ConversationModelApiChatCompletions
-	provider.Authentication, provider.Endpoint = protocol.AuthenticationApiKey, "http://127.0.0.1:9/v1"
-	provider.Enabled, provider.DefaultModel = true, "fixture"
-	model := protocol.DefaultConversationModel()
-	model.ID, model.Context, model.Output = "fixture", 200000, 8192
-	model.Reasoning, model.DefaultEffort = true, protocol.Effort{Kind: "none"}
-	model.Efforts = []protocol.Effort{model.DefaultEffort}
-	provider.Models = []protocol.ConversationModel{model}
+	provider, model := fixtureProvider("Browser fixture")
 	secret := protocol.NewSecret("fixture-key")
 	do(protocol.Command{Kind: "save_provider", Data: protocol.CommandSaveProviderPayload{Provider: provider, Secret: &secret}})
 	project, valid := detail[protocol.Project](do(protocol.Command{Kind: "create_project", Data: protocol.ProjectsDraft{

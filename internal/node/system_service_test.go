@@ -619,16 +619,23 @@ func TestPowerAssertionOwnership(t *testing.T) {
 			t.Fatalf("idle = %v %d", held, released)
 		}
 
-		// A supervised task is counted for as long as it runs.
+		// A short supervised command is not work: it never takes the request.
 		started, finish := make(chan struct{}), make(chan struct{})
 		if err := node.tasks.Submit(func(context.Context) { close(started); <-finish }); err != nil {
 			t.Fatal(err)
 		}
 		<-started
-		if held, acquired, _ := backend.counts(); !held || acquired != 3 {
-			t.Fatalf("running task = %v %d", held, acquired)
+		if held, acquired, _ := backend.counts(); held || acquired != 2 {
+			t.Fatalf("supervised command = %v %d", held, acquired)
 		}
 		close(finish)
+
+		// An installation is counted for as long as it runs.
+		working := node.plugins.installations.Working()
+		if held, acquired, _ := backend.counts(); !held || acquired != 3 {
+			t.Fatalf("running installation = %v %d", held, acquired)
+		}
+		working()
 		for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(time.Millisecond) {
 			if held, _, _ := backend.counts(); !held {
 				break

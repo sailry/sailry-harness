@@ -14,6 +14,17 @@ import (
 // the registry's projection onto the pages, the choice a page saves, the
 // request it sends, download progress and the library's rows.
 func checkLocalModelHelpers(t *testing.T) {
+	// A registry event during a read marks the read's answer stale.
+	watched := localModelState{reading: true}
+	watched.registryChanged([]protocol.ModelsLocalModel{{ID: "during"}})
+	if !watched.stale || len(watched.models) != 1 {
+		t.Fatalf("an event during a read: %+v", watched)
+	}
+	watched = localModelState{}
+	watched.registryChanged([]protocol.ModelsLocalModel{{ID: "idle"}})
+	if watched.stale || watched.models[0].ID != "idle" {
+		t.Fatalf("an event while idle: %+v", watched)
+	}
 	t.Helper()
 	model := func(id, name, format, state string, source protocol.ModelsSource) protocol.ModelsLocalModel {
 		return protocol.ModelsLocalModel{ID: id, Definition: protocol.ModelsDefinition{Source: source, Name: name, License: "mit",

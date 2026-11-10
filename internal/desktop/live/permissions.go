@@ -3,6 +3,7 @@ package live
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -56,7 +57,7 @@ func systemPermissions() permissionProbe {
 // refusal apart.
 func permissionStatus(goos string, kind protocol.PermissionsKind, status permissionflow.Status, err error) string {
 	switch {
-	case goos != "darwin":
+	case goos != "darwin" || errors.Is(err, errors.ErrUnsupported):
 		return "permission_unavailable"
 	case err != nil || status == permissionflow.Unknown:
 		return "permission_unknown"
@@ -257,6 +258,7 @@ type permissionState struct {
 	binding    string
 	checking   bool
 	pending    bool
+	failed     bool // a step of the running work failed; reported once when it ends
 	generation int
 	actions    settings.PermissionActions
 }
@@ -271,6 +273,7 @@ func (r *Runtime) permissionsFrame() {
 		if state.visible {
 			state.visible, state.checking, state.pending = false, false, false
 			state.generation++
+			state.failed = false
 		}
 		return
 	}
@@ -300,7 +303,7 @@ func (r *Runtime) permissionsFrame() {
 	if key := strings.Join(binding, "\x00"); refresh && state.cards == nil || key != state.binding {
 		state.binding, state.entries = key, entries
 		state.generation++
-		state.checking, state.pending = false, false
+		state.checking, state.pending, state.failed = false, false, false
 		state.cards = permissionCards(state.probe.goos, local, entries, func(entry permissionEntry) (protocol.NodeID, bool) {
 			return entry.owner.controller.Target(), entry.owner.controller.Connected()
 		}, state.cards)
@@ -339,9 +342,19 @@ func (r *Runtime) permissionWork(steps []func() func(*ui.Context), done func(*ui
 		r.enqueue(func(c *ui.Context) {
 			if state.generation == generation {
 				done(c)
+				state.report(c)
 			}
 		})
 	})
+}
+
+// report toasts the failures of one action once, when its work and the
+// check that follows a request have ended.
+func (state *permissionState) report(c *ui.Context) {
+	if state.failed && !state.checking && !state.pending {
+		state.failed = false
+		kit.Toast(c, kit.Failed, i18n.T(c, "permission_failed"))
+	}
 }
 
 func (r *Runtime) checkPermissions() {
@@ -363,7 +376,8 @@ func (r *Runtime) checkPermissions() {
 }
 
 // permissionStep reads one card's grants, asking for them first when
-// request is set, and reports a failure once as a toast.
+// request is set, and marks a failure for the work's one toast. A grant the
+// system does not keep is the row's unavailable status, not a failure.
 func (r *Runtime) permissionStep(card permissionCard, request bool) func() func(*ui.Context) {
 	state := &r.permissions
 	probe := state.probe
@@ -379,7 +393,7 @@ func (r *Runtime) permissionStep(card permissionCard, request bool) func() func(
 				_, err = probe.request(r.ctx, flow)
 			}
 			status, checkErr := probe.check(flow)
-			if err == nil {
+			if err == nil && !errors.Is(checkErr, errors.ErrUnsupported) {
 				err = checkErr
 			}
 			changes = []permissionChange{{card.kind, permissionStatus(probe.goos, card.kind, status, checkErr)}}
@@ -389,7 +403,7 @@ func (r *Runtime) permissionStep(card permissionCard, request bool) func() func(
 				if card.entry != nil {
 					changes = []permissionChange{{card.kind, "permission_unknown"}}
 				}
-				kit.Toast(c, kit.Failed, i18n.T(c, "permission_failed"))
+				state.failed = true
 			}
 			state.apply(card, changes)
 		}
@@ -526,9 +540,9 @@ func (r *Runtime) openPermissionSettings(resource string) {
 	}
 	steps = append(steps, func() func(*ui.Context) {
 		err := probe.settings(permissionKinds[kind].flow)
-		return func(c *ui.Context) {
+		return func(*ui.Context) {
 			if err != nil {
-				kit.Toast(c, kit.Failed, i18n.T(c, "permission_failed"))
+				state.failed = true
 			}
 		}
 	})

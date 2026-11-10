@@ -382,17 +382,7 @@ func newModelsUIDesk(t *testing.T, ctx context.Context) *modelsUIDesk {
 	if !valid {
 		t.Fatal("registered project was not returned")
 	}
-	// A session needs a model; no request is ever sent to this provider.
-	provider := protocol.DefaultConversationProvider()
-	provider.ID = protocol.NewProviderID()
-	provider.Name, provider.Api = "Models fixture", protocol.ConversationModelApiChatCompletions
-	provider.Authentication, provider.Endpoint = protocol.AuthenticationApiKey, "http://127.0.0.1:9/v1"
-	provider.Enabled, provider.DefaultModel = true, "fixture"
-	model := protocol.DefaultConversationModel()
-	model.ID, model.Context, model.Output = "fixture", 200000, 8192
-	model.Reasoning, model.DefaultEffort = true, protocol.Effort{Kind: "none"}
-	model.Efforts = []protocol.Effort{model.DefaultEffort}
-	provider.Models = []protocol.ConversationModel{model}
+	provider, model := fixtureProvider("Models fixture")
 	secret := protocol.NewSecret("fixture-key")
 	desk.do(protocol.Command{Kind: "save_provider", Data: protocol.CommandSaveProviderPayload{Provider: provider, Secret: &secret}})
 	config := protocol.DefaultSessionConfig()

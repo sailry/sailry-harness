@@ -49,7 +49,7 @@ func (node *Node) scannedParts(ctx context.Context, data []byte, parts []office.
 	if !scanned {
 		return parts, nil
 	}
-	resource, err := node.ocrResource()
+	resource, err := node.ocrResource(ctx)
 	if notConfigured(err) {
 		return parts, nil
 	}

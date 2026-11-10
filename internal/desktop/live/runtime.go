@@ -58,6 +58,7 @@ type Runtime struct {
 	localModels              localModelState
 	dictation                dictationState
 	permissions              permissionState
+	knowledgeWanted          string // the citation the knowledge viewer was last asked for
 	pendingSession           string
 	transferDialogOwner      *Runtime
 	admittedSessions         map[string]protocol.Session

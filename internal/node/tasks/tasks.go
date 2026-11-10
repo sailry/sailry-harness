@@ -17,8 +17,6 @@ type Supervisor struct {
 	stopped bool
 	permits chan struct{}
 	work    sync.WaitGroup
-	// Working, when set, brackets every running task.
-	Working func() func()
 }
 
 func New(ctx context.Context) *Supervisor {
@@ -41,9 +39,6 @@ func (owner *Supervisor) Submit(work func(context.Context)) error {
 	go func() {
 		defer owner.work.Done()
 		defer func() { <-owner.permits }()
-		if owner.Working != nil {
-			defer owner.Working()()
-		}
 		work(owner.ctx)
 	}()
 	return nil

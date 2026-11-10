@@ -82,6 +82,10 @@ func (node *Node) initKnowledge() {
 			if len(texts) > 4 {
 				return nil, &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "embedding batch exceeds four inputs"}
 			}
+			err := registry.Settle(ctx, model)
+			if err != nil {
+				return nil, err
+			}
 			resource, err := registry.Resource(protocol.ModelsKindEmbedding, model, &choice)
 			if err != nil {
 				return nil, err
@@ -96,6 +100,10 @@ func (node *Node) initKnowledge() {
 			})
 		},
 		Offsets: func(ctx context.Context, model string, choice protocol.ModelsLocalChoice, text string) ([][2]int, error) {
+			err := registry.Settle(ctx, model)
+			if err != nil {
+				return nil, err
+			}
 			resource, err := registry.Resource(protocol.ModelsKindEmbedding, model, &choice)
 			if err != nil {
 				return nil, err
@@ -107,7 +115,7 @@ func (node *Node) initKnowledge() {
 		},
 		OCR: &source.OCR{
 			Signature: func() ([32]byte, error) {
-				resource, err := node.ocrResource()
+				resource, err := node.ocrResource(node.ctx)
 				if notConfigured(err) {
 					return [32]byte{}, nil
 				}

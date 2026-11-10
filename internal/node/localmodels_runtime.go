@@ -67,8 +67,9 @@ func notConfigured(err error) bool {
 // ocrResource captures the OCR model the saved settings select: the chosen
 // model, or with no choice the first installed model in catalog order and
 // then any installed one. A chosen model that is not installed is not
-// replaced by another.
-func (node *Node) ocrResource() (localmodels.Resource, error) {
+// replaced by another. A model still being verified after startup is waited
+// for rather than reported as not installed.
+func (node *Node) ocrResource(ctx context.Context) (localmodels.Resource, error) {
 	registry := node.localModels.registry
 	settings := registry.Settings()
 	choice := localmodels.Choice(&settings, protocol.ModelsKindOcr)
@@ -76,6 +77,13 @@ func (node *Node) ocrResource() (localmodels.Resource, error) {
 		return localmodels.Resource{}, &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "OCR is disabled"}
 	}
 	if err := registry.Storage(); err != nil {
+		return localmodels.Resource{}, err
+	}
+	var ids []string
+	for _, model := range registry.Cached(protocol.ModelsKindOcr) {
+		ids = append(ids, model.ID)
+	}
+	if err := registry.Settle(ctx, ids...); err != nil {
 		return localmodels.Resource{}, err
 	}
 	installed := map[string]bool{}
@@ -137,7 +145,7 @@ func (node *Node) imageParts(ctx context.Context, data []byte, lane localmodels.
 	if err != nil {
 		return nil, ocrFailure(err)
 	}
-	resource, err := node.ocrResource()
+	resource, err := node.ocrResource(ctx)
 	if err != nil {
 		return nil, err
 	}

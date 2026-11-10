@@ -51,6 +51,7 @@ func (node *Node) initPlugins(ctx context.Context, configured *mcp.Options) erro
 		installations: installations.New(node.tasks, node.ID(), node.closed),
 		invocations:   map[protocol.RequestID]*pluginInvocation{},
 	}
+	controls.installations.Working = node.power.Hold
 	node.plugins = controls
 	for _, entry := range plugins.BundledDefaults() {
 		var current *protocol.PluginInfo

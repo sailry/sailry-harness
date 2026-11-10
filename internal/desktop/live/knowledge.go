@@ -145,23 +145,36 @@ func (r *Runtime) openKnowledge(c *ui.Context, node string, source shell.Source)
 	read := func(input protocol.KnowledgeCitationRequest, done func(*ui.Context, protocol.Output, error)) {
 		owner.execute(protocol.Command{Kind: "read_knowledge_citation", Data: input}, done)
 	}
+	root.readKnowledge(node, input, read, func(c *ui.Context) string {
+		if owner == root {
+			return i18n.T(c, "local_host_name")
+		}
+		if state := root.hostState(node); state != nil {
+			return state.view.Name
+		}
+		return node
+	})
+}
+
+// readKnowledge reads a link's first page and opens the viewer on it. The
+// viewer is the last link's: the answer of an earlier one is dropped.
+func (r *Runtime) readKnowledge(node string, input protocol.KnowledgeCitationRequest, read func(protocol.KnowledgeCitationRequest, func(*ui.Context, protocol.Output, error)), host func(*ui.Context) string) {
+	wanted := node + "\x00" + input.Collection.String() + "\x00" + input.Chunk + "\x00" + input.Revision
+	r.knowledgeWanted = wanted
 	read(input, func(c *ui.Context, output protocol.Output, err error) {
+		if r.knowledgeWanted != wanted {
+			return
+		}
 		page, failure := knowledgePage(output, err, input)
 		if failure != "" {
 			kit.Toast(c, kit.Failed, i18n.T(c, failure))
 			return
 		}
-		viewer := &knowledgeViewer{read: read, shown: root.App.Reading, view: &shell.Reading{}}
+		viewer := &knowledgeViewer{read: read, shown: r.App.Reading, view: &shell.Reading{}}
 		viewer.view.Turn = viewer.turn
-		viewer.view.Host = i18n.T(c, "local_host_name")
-		if owner != root {
-			viewer.view.Host = node
-			if state := root.hostState(node); state != nil {
-				viewer.view.Host = state.view.Name
-			}
-		}
+		viewer.view.Host = host(c)
 		viewer.show(c, input, page)
-		root.App.ShowKnowledge(viewer.view)
+		r.App.ShowKnowledge(viewer.view)
 	})
 }
 

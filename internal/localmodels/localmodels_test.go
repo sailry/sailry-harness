@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -205,6 +206,73 @@ func TestRegistryVerification(t *testing.T) {
 		}
 		if _, err := os.Lstat(receipt); state(registry, id) != "installed" || err != nil {
 			t.Fatalf("after the later inspection: state %q, receipt %v", state(registry, id), err)
+		}
+	})
+	t.Run("operations wait for the hash start left running", func(t *testing.T) {
+		server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) { _, _ = writer.Write(body) }))
+		t.Cleanup(server.Close)
+		definition := decisionModel(body, pinnedRevision, uint64(len(body)))
+		installed, id, err := configured(t, server, newEngines().capabilities(), definition)
+		if err == nil {
+			err = installed.Install(t.Context(), id, nil)
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		resource, err := installed.Resource(protocol.ModelsKindDecision, id, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Remove(filepath.Join(resource.Directory, ".verified")); err != nil {
+			t.Fatal(err)
+		}
+		registry := New(Options{Profile: installed.profile, Capabilities: installed.capabilities, Clock: clockwork.NewFakeClock()})
+		t.Cleanup(registry.Shutdown)
+		// Configuration's own background inspection is kept from running,
+		// then holding the task lock keeps Start's hash from starting, so
+		// the window between its receipt pass and the hash stays open.
+		registry.tasksMu.Lock()
+		registry.closed = true
+		registry.tasksMu.Unlock()
+		if err := registry.Configure(protocol.DefaultModelsLocalSettings(), []Registration{{ID: id, Definition: definition}}); err != nil {
+			t.Fatal(err)
+		}
+		registry.tasksMu.Lock()
+		registry.closed = false
+		started := make(chan error, 1)
+		go func() { started <- registry.Start() }()
+		for waiting := false; !waiting; runtime.Gosched() {
+			registry.mu.Lock()
+			waiting = registry.pending[id] != nil
+			registry.mu.Unlock()
+		}
+		if got := state(registry, id); got != "missing" {
+			t.Fatalf("state before the hash: got %q", got)
+		}
+		cancelled, cancel := context.WithCancel(t.Context())
+		cancel()
+		if err := registry.Settle(cancelled, id); code(err) != protocol.ErrorCodeCancelled {
+			t.Fatalf("settle with a cancelled caller = %v", err)
+		}
+		if err := registry.Settle(t.Context(), "unregistered"); err != nil {
+			t.Fatalf("settle without a pending model = %v", err)
+		}
+		settled := make(chan error, 1)
+		go func() { settled <- registry.Settle(t.Context(), id) }()
+		select {
+		case err := <-settled:
+			t.Fatalf("settle returned before the hash: %v", err)
+		default:
+		}
+		registry.tasksMu.Unlock()
+		if err := <-started; err != nil {
+			t.Fatal(err)
+		}
+		if err := <-settled; err != nil {
+			t.Fatal(err)
+		}
+		if _, err := registry.Resource(protocol.ModelsKindDecision, id, nil); err != nil || state(registry, id) != "installed" {
+			t.Fatalf("after the wait: state %q, resource %v", state(registry, id), err)
 		}
 	})
 	t.Run("unpinned revision", func(t *testing.T) {

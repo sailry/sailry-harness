@@ -8,11 +8,11 @@ import (
 
 func TestBuiltinPackagesParse(t *testing.T) {
 	want := []string{BuiltinID, "great-sage", "holographic-rhythm", "ink-dragon"}
-	if len(Packages) != len(want) {
-		t.Fatalf("packages = %d, want %d", len(Packages), len(want))
+	if len(Packages()) != len(want) {
+		t.Fatalf("packages = %d, want %d", len(Packages()), len(want))
 	}
 	ids := map[string]bool{}
-	for _, p := range Packages {
+	for _, p := range Packages() {
 		ids[p.ID] = true
 	}
 	for _, id := range want {
@@ -20,7 +20,7 @@ func TestBuiltinPackagesParse(t *testing.T) {
 			t.Errorf("missing package %s", id)
 		}
 	}
-	for _, p := range Packages[1:] {
+	for _, p := range Packages()[1:] {
 		if p.Name == "" || p.Release == "" || p.License.Author == "" || p.License.Text == "" {
 			t.Errorf("%s: incomplete manifest", p.ID)
 		}
@@ -72,5 +72,47 @@ func TestPaletteOverlaysNeutral(t *testing.T) {
 	}
 	if n.Variant != nil {
 		t.Error("built-in: no variant")
+	}
+}
+
+// Installing replaces the set whole: a frame of another window reads the
+// set before or after, a package that stays keeps its look, and a replaced
+// look stays known to the window still showing it.
+func TestSetInstalled(t *testing.T) {
+	defer SetInstalled(nil)
+	shipped := Widget("ink-dragon", true)
+	added := &Package{ID: "added", Name: "Added"}
+	newer := &Package{ID: "ink-dragon", Name: "Ink Dragon"}
+	stop, done := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				if Look("ink-dragon", true) == nil || Widget(BuiltinID, false) == nil || len(Packages()) < len(embeddedPackages) {
+					panic("a reader saw an incomplete set")
+				}
+			}
+		}
+	}()
+	for range 50 {
+		SetInstalled([]*Package{added, newer})
+		SetInstalled(nil)
+	}
+	SetInstalled([]*Package{added, newer})
+	close(stop)
+	<-done
+	if got := Packages(); len(got) != len(embeddedPackages)+1 || got[len(got)-1] != added || Find("ink-dragon") != newer {
+		t.Fatalf("installed set %v", got)
+	}
+	replaced, kept := Widget("ink-dragon", true), Widget("added", false)
+	if replaced == shipped || current.Load().byWidget[shipped] == nil {
+		t.Fatal("the replaced look is not known to the window showing it")
+	}
+	SetInstalled([]*Package{added})
+	if Widget("added", false) != kept || Find("ink-dragon") == newer || Widget("ink-dragon", true) == replaced {
+		t.Fatal("a staying package lost its look or a removed release stayed")
 	}
 }

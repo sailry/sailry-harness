@@ -453,7 +453,9 @@ Node; Dictation's speech models and options are the controller's (below). `live/
 shows, follows `local_models_changed` and `local_model_settings_changed` on
 the `node` topic from the first visit on, and projects each kind onto
 `LocalModels` (`Kind`, `Models`, `Catalog`, `Model`, `Missing`, `Unavailable`,
-`Enabled`). Download percent comes from the Node's installation tasks.
+`Enabled`). Download percent comes from the Node's installation tasks. A
+registry event that arrives while a read is under way makes that read
+repeat, so an older answer never replaces the event's registry.
 `live/settings_models_library.go` owns the model library dialog.
 
 - **Saves.** The switch, the picker and a row's Select send the whole
@@ -579,8 +581,11 @@ and keeps `preview_notice`.
   the `.app` bundle with `open -R`; a bare executable is the
   `permission_app_unavailable` toast.
 - **Outcomes.** A failed check, request or settings page is the
-  `permission_failed` toast; the row of a failed check reads Unknown. An
-  unavailable or remote row draws its action disabled, as the reference does.
+  `permission_failed` toast, once per action however many rows failed and
+  including the check that follows a request; the row of a failed check
+  reads Unknown. A grant the system does not keep (`errors.ErrUnsupported`)
+  reads `permission_unavailable` without a toast. An unavailable or remote
+  row draws its action disabled, as the reference does.
 - Outside macOS Sailry's rows read `permission_unavailable`; a package grant
   on another device reads through that device and is never requested from here.
 
@@ -607,7 +612,7 @@ the one policy for what a record may disclose. `internal/desktop/live`
 
 | Page | Control | Live behavior |
 |---|---|---|
-| General | Prevent sleep | `save_power_settings`; the Node holds one system keep-awake request while the setting is on and work runs: a turn, a command, a supervised task (installations, sign-ins, plugin and connector work), a knowledge collection indexing changed sources, a code index query or a backup (IOKit `PreventUserIdleSystemSleep` on macOS, a `PowerRequestSystemRequired` power request on Windows, unsupported elsewhere). A refused request writes one `power` notice and is not retried |
+| General | Prevent sleep | `save_power_settings`; the Node holds one system keep-awake request while the setting is on and work runs: a turn, a command, an installation, a knowledge collection indexing changed sources, a code index query or a backup (IOKit `PreventUserIdleSystemSleep` on macOS, a `PowerRequestSystemRequired` power request on Windows, unsupported elsewhere). A refused request writes one `power` notice and is not retried |
 | General | Error reports, Usage metrics | `save_telemetry_settings`; the Node reapplies consent after each committed change. With Error reports off no failure is reported or kept for a later report; with Usage metrics off nothing is counted and no timer runs. Turning either off drops what was pending |
 | General | Reset | `reset_telemetry_identity` with the shown revision; toasts `telemetry_reset`, `telemetry_conflict`, `telemetry_unknown` or `telemetry_failed` |
 | General | Send | `send_diagnostics`; one Sentry event with the reviewed fields only (level, logger, message `runtime.diagnostics:requested`, release, environment, fingerprint, the installation, channel, application, OS and architecture tags, and the `diagnostics.jsonl` attachment described below); toasts `telemetry_diagnostics_sent` or `telemetry_diagnostics_failed` |

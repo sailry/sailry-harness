@@ -35,6 +35,9 @@ type Queue struct {
 	pending  int
 	lanes    map[string]<-chan struct{}
 	changed  chan struct{}
+	// Working, when set, brackets every installation while it runs. Short
+	// plugin commands share the supervisor and are not counted as work.
+	Working func() func()
 }
 
 func New(owner *tasks.Supervisor, node protocol.NodeID, closed <-chan struct{}) *Queue {
@@ -94,6 +97,9 @@ func (queue *Queue) Submit(caller protocol.NodeID, request protocol.Request, res
 		defer close(release)
 		if previous != nil {
 			<-previous
+		}
+		if queue.Working != nil {
+			defer queue.Working()()
 		}
 		report := Report(func(protocol.InstallationPhase, *protocol.InstallationProgress) {})
 		if observe {

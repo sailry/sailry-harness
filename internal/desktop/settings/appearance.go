@@ -64,7 +64,7 @@ func appearance(c *ui.Context, look Look) {
 		d.live = look.Live
 		d.actions = look.Actions
 		gallery.Children(func() {
-			for _, pkg := range theme.Packages {
+			for _, pkg := range theme.Packages() {
 				themeCard(c, pkg, look.Theme, d)
 			}
 		})
