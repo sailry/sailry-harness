@@ -17,6 +17,8 @@ import (
 func TestPluginRuntimeAdmission(t *testing.T) {
 	t.Run("Status scheduling", testPluginStatusScheduling)
 	t.Run("native slash commands", testPluginMessageCommandOutputs)
+	t.Run("ssh resources", testSSHResourceRules)
+	t.Run("connection tools", testConnectionTools)
 	t.Run("callback storage receipt and read-only authority", func(t *testing.T) {
 		node := nodeFixture(t)
 		source := t.TempDir()

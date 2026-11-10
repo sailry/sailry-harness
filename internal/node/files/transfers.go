@@ -37,6 +37,7 @@ type transferEntry struct {
 	upload     *protocol.FileUploadSpec
 	attachment *protocol.Attachment
 	plugin     *protocol.PluginUploadSpec
+	ssh        *protocol.SshUploadSpec
 	format     *protocol.PluginSkillsArchiveFormat
 	download   bool
 	size       uint64

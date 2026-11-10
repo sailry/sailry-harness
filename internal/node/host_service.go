@@ -8,12 +8,14 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/admission"
 	"github.com/sailry/sailry-harness/internal/node/host"
 	"github.com/sailry/sailry-harness/internal/node/store"
+	"github.com/sailry/sailry-harness/internal/node/wsl"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 func (node *Node) initHost() {
 	node.hostSampler = host.NewSampler()
 	node.hostInstalls = host.NewInstallations(host.DeploymentOptions{})
+	node.wsl = wsl.NewService()
 }
 
 func hostCommand(kind string) bool {
@@ -21,11 +23,26 @@ func hostCommand(kind string) bool {
 	case "inspect_host", "read_host_metrics", "list_ssh", "save_ssh", "remove_ssh", "trust_ssh", "check_ssh", "install_host", "update_ssh_host", "read_host_install", "cancel_ssh":
 		return true
 	}
-	return false
+	return sshResourceCommand(kind) || databaseCommand(kind) || wslCommand(kind)
+}
+
+// dispatchResource runs the SSH resource, external database and WSL commands
+// that share the Host admission path. It performs remote work and must be
+// called outside any store writer.
+func (node *Node) dispatchResource(ctx context.Context, caller protocol.NodeID, request protocol.Request) (bool, protocol.Output, error) {
+	if handled, output, err := node.dispatchSSHResource(ctx, caller, request); handled {
+		return true, output, err
+	}
+	if handled, output, err := node.dispatchDatabase(ctx, caller, request); handled {
+		return true, output, err
+	}
+	return node.dispatchWSL(ctx, node.wsl, host.ConfigureNetwork, caller, request)
 }
 
 func (node *Node) dispatchHost(ctx context.Context, caller protocol.NodeID, request protocol.Request, body []byte) (link.Admission, error) {
-	if request.Plugin != nil {
+	// Plugin scopes reach only the connection commands their declared database
+	// and SSH actions admit; Node inspection stays with controllers.
+	if request.Plugin != nil && (request.Command.Kind == "inspect_host" || request.Command.Kind == "read_host_metrics") {
 		return link.Admission{}, &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "plugin invocation authority is unavailable"}
 	}
 	if err := node.begin(); err != nil {
@@ -66,6 +83,9 @@ func (node *Node) dispatchHost(ctx context.Context, caller protocol.NodeID, requ
 }
 
 func (node *Node) readHost(ctx context.Context, caller protocol.NodeID, request protocol.Request) link.Response {
+	if handled, output, err := node.dispatchResource(ctx, caller, request); handled {
+		return response(output, err)
+	}
 	switch request.Command.Kind {
 	case "inspect_host":
 		value, err := node.hostSampler.Inspect(ctx, node.ID())
@@ -83,6 +103,9 @@ func (node *Node) readHost(ctx context.Context, caller protocol.NodeID, request 
 		err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 			var err error
 			values, err = store.ListSsh(ctx, db)
+			if err == nil && request.Plugin != nil {
+				values, err = store.FilterPluginSsh(ctx, db, *request.Plugin, values)
+			}
 			return err
 		})
 		return response(protocol.Output{Kind: "ssh_profiles", Data: values}, err)

@@ -84,6 +84,17 @@ func (node *Node) scriptTools(ctx context.Context, invocation *store.AgentInvoca
 	var contextParts []string
 	if host.Turn != nil {
 		input := pluginTurnInput(invocation, info, names)
+		var selected []protocol.ToolOperation
+		for _, declaration := range info.Extension.Tools {
+			if slices.Contains(names, declaration.Name) && declaration.Handler != nil && declaration.Handler.Operation != nil {
+				selected = append(selected, *declaration.Handler.Operation)
+			}
+		}
+		connections, err := node.connectionTurnInput(ctx, invocation, selected)
+		if err != nil {
+			return nil, err
+		}
+		input["connections"] = connections
 		body, err := owner.evaluate(ctx, host.Turn.Initialize, "turn.initialize", host.Turn.Initialize, input, false)
 		if err != nil {
 			return nil, err

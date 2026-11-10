@@ -99,9 +99,6 @@ func validateConfig(ctx context.Context, db *sql.Conn, node protocol.NodeID, con
 			return fault(protocol.ErrorCodePermissionDenied, "credential expired; authenticate again")
 		}
 	}
-	if config.Resource != nil {
-		return fault(protocol.ErrorCodeNotConfigured, "connection conversations are unavailable")
-	}
 	stored, err := readBody[providerConfiguration](ctx, db, "SELECT body FROM providers WHERE id=?1", config.Provider.String())
 	if err != nil {
 		return err

@@ -254,6 +254,10 @@ func (s *State) choose(c *ui.Context, ctx *Context, actions Actions, r Reference
 		s.replace("")
 		s.openFiles(ctx)
 	default:
+		if r.Kind == Database && r.Key && r.Insert != "" {
+			// Select current: the database page itself.
+			r.Label, r.Description, r.Key = r.Insert, "", false
+		}
 		s.chip(c, r)
 	}
 	st.path = nil

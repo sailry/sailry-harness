@@ -292,6 +292,16 @@ with the ordinary session creation. The draft is busy meanwhile. A failure
 leaves the draft and base unchanged; an uncertain result retries its captured
 request rather than creating a second worktree.
 
+### Connection references
+
+`live/references_connections.go` fills the `@` Databases and SSH pages from the
+conversation's execution Node. Profiles follow the bound resource or their
+sharing with the conversation's project. A database page reads its databases
+and tables with `browse_database`; results are cached by session, profile
+revision and database, so a late answer cannot reach another composer. A failed
+read shows the empty page and one failure toast. Sent chips open a read-only
+details dialog.
+
 ## UI state vs backend data
 
 | UI state (`State`) | Backend data (`Context`) |

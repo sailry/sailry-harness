@@ -119,6 +119,38 @@ attachment creates a managed worktree on the chosen branch from the chosen
 commit, moves the draft into it and then creates the session. An uncertain
 creation keeps the base, so a retry reuses the captured request.
 
+## Connections
+
+Saved SSH and external database profiles belong to the execution Node. Secrets
+never enter snapshots, events, results or diagnostics. A saved database password
+is bound to its exact connection and current SSH destination; changing either
+requires a new password.
+
+`internal/databases` executes one statement per call on PostgreSQL, MySQL or a
+local SQLite file with bounded rows and bytes. Require TLS verifies the database
+hostname and system roots, also through an SSH tunnel. SQLite is a file on the
+execution Node, never inside its profile; the same pinned engine's low-level
+API opens it without following links and classifies each statement before it
+runs, because the driver's `database/sql` surface exposes neither.
+
+`internal/ssh` adds SFTP paging, file changes, bounded command output and
+transfers to the existing verified connection. Staged uploads use the Node's
+single-use transfer streams and are published once for their original caller,
+profile revision and path. Remote effects that may exist after cancellation,
+timeout or a lost connection report an uncertain outcome and are never replayed.
+
+Database and SSH commands share the Host admission path and run outside the
+storage writer. Plugin scopes reach them only through their declared database
+and SSH actions and the connection's sharing. A connection-bound conversation
+uses that connection's private scratch workspace. The agent's connection tools
+see only reachable connections; SQL execution, remote commands, transfers and
+saved-profile changes require approval, and an unknown SSH host key is confirmed
+in that approval before it is trusted.
+
+WSL discovery and WSL2 Host setup run only on Windows; other systems return the
+documented unavailable result. WSL setup downloads the release installer, which
+exists once the B14 release feed is published.
+
 ## Canonical cards
 
 Tool details retain canonical card receipts and ordering. The desktop reads the

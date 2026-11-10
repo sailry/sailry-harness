@@ -73,7 +73,13 @@ func CheckPluginRequest(ctx context.Context, db *sql.Conn, request protocol.Requ
 	if info.Summary.Compatibility.Kind != "compatible" || info.Extension == nil {
 		return fault(protocol.ErrorCodeNotConfigured, "plugin is incompatible")
 	}
-	action, allowed := pluginAction(request.Command.Kind)
+	action, allowed, err := PluginConnectionAction(ctx, db, request)
+	if err != nil {
+		return err
+	}
+	if !allowed {
+		action, allowed = pluginAction(request.Command.Kind)
+	}
 	if !allowed {
 		return fault(protocol.ErrorCodePermissionDenied, "command is not exposed to plugin software actions")
 	}

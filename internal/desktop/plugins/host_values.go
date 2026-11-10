@@ -224,10 +224,6 @@ func publicHostOutput(output protocol.Output) (any, error) {
 		hostRows(data, hostConnectionRevisions)
 	case "connection", "connector_login":
 		hostConnectionRevisions(data)
-	case "databases", "ssh":
-		hostRows(data, func(row any) { hostStringRevision(row, "revision") })
-	case "database", "ssh_profile":
-		hostStringRevision(data, "revision")
 	case "database_outcome":
 		if hostAt(data, "kind") == "query" {
 			hostStringRevision(data, "data", "affected_rows")

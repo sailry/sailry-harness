@@ -168,8 +168,26 @@ func Alias(owner, name string) string {
 	digest := blake3.Sum256([]byte(owner))
 	return "plugin_" + hex.EncodeToString(digest[:8]) + "_" + name
 }
-func (d Declaration) Available(project bool) bool {
-	return len(d.Contexts) == 0 || project && slices.Contains(d.Contexts, "workspace") || !project && slices.Contains(d.Contexts, "plugin")
+
+// Available reports whether the declaration's contexts admit a conversation.
+// bound names the kind of the connection resource the conversation is bound
+// to: "database", "ssh", or nothing for an unbound conversation.
+func (d Declaration) Available(project bool, bound ...string) bool {
+	if len(d.Contexts) == 0 {
+		return true
+	}
+	resource := ""
+	if len(bound) > 0 {
+		resource = bound[0]
+	}
+	context := "plugin"
+	switch {
+	case resource != "":
+		context = resource
+	case project:
+		context = "workspace"
+	}
+	return !(project && resource != "") && slices.Contains(d.Contexts, context)
 }
 func packageDigest(tree fs.FS) (string, error) {
 	var names []string

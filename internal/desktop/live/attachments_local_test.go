@@ -44,6 +44,7 @@ func TestAttachmentLocalIO(t *testing.T) {
 		}
 	})
 	t.Run("workspace uploads", testWorkspaceUploads)
+	t.Run("ssh transfers", testSshTransferBridge)
 	t.Run("source evidence and limits", func(t *testing.T) {
 		root := t.TempDir()
 		path := filepath.Join(root, "input.txt")

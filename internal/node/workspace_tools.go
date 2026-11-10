@@ -41,7 +41,12 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 	}
 	var tools []engine.Tool
 	for _, declaration := range catalog.Tools {
-		if !declaration.Available(inv.Worktree.Project != nil) || !slices.Contains(inv.Turn.Plugins, declaration.Owner) {
+		if !declaration.Available(inv.Worktree.Project != nil, connectionBound(inv)) || !slices.Contains(inv.Turn.Plugins, declaration.Owner) || operations.ConnectionOperation(declaration.Operation) {
+			continue
+		}
+		// A connection conversation without an assistant offers only tools that name a context.
+		if inv.Turn.Config.Resource != nil && inv.Turn.Config.Assistant == nil && len(declaration.Contexts) == 0 &&
+			!strings.HasPrefix(string(declaration.Operation), "artifacts.") {
 			continue
 		}
 		if declaration.Operation == protocol.ToolOperationWriteArtifact && inv.Session.Delegation != nil {
@@ -210,7 +215,11 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 		}
 		tools = append(tools, tool)
 	}
-	return node.pluginTools(ctx, inv, tools)
+	connections, err := node.connectionTools(ctx, inv, catalog)
+	if err != nil {
+		return nil, err
+	}
+	return node.pluginTools(ctx, inv, append(tools, connections...))
 }
 func workspaceToolFault(err error) engine.ToolResult {
 	return engine.ToolResult{Failure: nodeFault(err).(*protocol.Fault)}

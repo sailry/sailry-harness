@@ -270,6 +270,7 @@ func TestConversationProjection(t *testing.T) {
 			t.Fatal("latest failed-run diagnostic was not projected")
 		}
 	})
+	t.Run("connection references", testConnectionReferences)
 	t.Run("context_estimate_and_bound_mentions", func(t *testing.T) {
 		count, estimate := uint64(80), uint64(20)
 		limit := uint32(100)

@@ -10,6 +10,9 @@ import (
 )
 
 func (node *Node) runHost(caller protocol.NodeID, request protocol.Request) (protocol.Output, error) {
+	if handled, output, err := node.dispatchResource(node.ctx, caller, request); handled {
+		return output, err
+	}
 	if input, ok := request.Command.Data.(*protocol.CommandCancelSshPayload); ok {
 		err := node.hostInstalls.Cancel(caller, input.Request, request.Plugin)
 		return protocol.Output{Kind: "ssh_cancelled", Data: protocol.OutputSshCancelledPayload{Request: input.Request}}, err

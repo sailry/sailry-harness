@@ -200,6 +200,9 @@ func createSession(ctx context.Context, db *sql.Conn, node protocol.NodeID, prof
 	if err := validateAssistant(ctx, db, input.Project, *config); err != nil {
 		return protocol.Output{}, nil, err
 	}
+	if input.Project != nil && config.Resource != nil {
+		return protocol.Output{}, nil, invalid("choose a project or a connection for the conversation")
+	}
 	value := protocol.DefaultSession()
 	value.ID, value.Project, value.Config, value.Revision = protocol.NewSessionID(), input.Project, *config, 1
 	var err error
@@ -229,6 +232,14 @@ func createSession(ctx context.Context, db *sql.Conn, node protocol.NodeID, prof
 		value.Worktree, err = protocol.ParseWorktreeID(selected)
 		if err != nil {
 			return protocol.Output{}, nil, err
+		}
+	} else if config.Resource != nil {
+		value.Worktree, err = connectionWorkspace(ctx, db, profile, *config.Resource)
+		if err != nil {
+			return protocol.Output{}, nil, err
+		}
+		if input.Worktree != nil && *input.Worktree != value.Worktree {
+			return protocol.Output{}, nil, invalid("worktree does not belong to the connection")
 		}
 	} else if config.Assistant != nil {
 		value.Worktree, err = assistantWorkspace(ctx, db, profile, *config.Assistant)

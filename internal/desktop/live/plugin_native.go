@@ -86,6 +86,7 @@ func (r *Runtime) pluginNativeResourceBinding(ctx context.Context, scope protoco
 		state.refreshComposer()
 	}
 	state.locationOperations()
+	state.sshTransferOperations()
 	binding.Release = func() {
 		for identity, mounted := range state.terminals {
 			mounted.release()

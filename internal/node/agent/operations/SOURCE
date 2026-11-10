@@ -1,7 +1,7 @@
 Native operation schemas and descriptions captured independently from revision
  eaad1b7f18e448c8c4e9e9286e19560c8a351ae1.
-Source: crates/node-runtime/src/agent/plugins/operations/{schema,files,commands,repository,artifacts}.rs
+Source: crates/node-runtime/src/agent/plugins/operations/{schema,files,commands,repository,artifacts,connections}.rs
 Capture: agent::plugins::operations::tests::go_b5_workspace_schema_capture
-35 source operations, source parameter JSON and read-only/concurrency policy.
+44 source operations (the nine connection operations were transcribed from connections.rs), source parameter JSON and read-only/concurrency policy.
 The capture ran the source functions and did not read Go output.
 Bundled declarations come from this repository's immutable plugin snapshot.

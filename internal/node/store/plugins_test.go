@@ -28,6 +28,8 @@ func TestPluginInventoryAndSettings(t *testing.T) {
 	t.Run("controller authority", testPluginControllerAuthority)
 	t.Run("captured Plan actions", testPluginPlanActions)
 	t.Run("scoped Status contracts", testPluginStatusContracts)
+	t.Run("database profiles", testDatabaseProfiles)
+	t.Run("connection workspaces", testConnectionWorkspaces)
 	t.Run("scoped Activity reads", testPluginActivityReads)
 	t.Run("native slash command resolution", testPluginMessageCommandResolution)
 	_, _, storage := schemaFixture(t)

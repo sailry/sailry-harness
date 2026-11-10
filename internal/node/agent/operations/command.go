@@ -205,3 +205,122 @@ func Command(operation protocol.ToolOperation, arguments json.RawMessage, worktr
 func invalidCommand(message string) error {
 	return &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: message}
 }
+
+// ConnectionOperation reports whether an operation reaches a saved database or
+// SSH connection. These operations are bound by the Node, which owns the
+// sharing decision, instead of Command.
+func ConnectionOperation(operation protocol.ToolOperation) bool {
+	switch operation {
+	case protocol.ToolOperationListDatabaseConnections, protocol.ToolOperationSaveDatabaseConnection,
+		protocol.ToolOperationListSshConnections, protocol.ToolOperationSaveSshConnection,
+		protocol.ToolOperationBrowseDatabase, protocol.ToolOperationQueryDatabase, protocol.ToolOperationExecuteDatabase,
+		protocol.ToolOperationRunSsh, protocol.ToolOperationTransferSsh:
+		return true
+	}
+	return false
+}
+
+// ConnectionArguments is one decoded connection tool call. Only the fields of
+// its operation are set.
+type ConnectionArguments struct {
+	// Target is the connection a catalog, query, run or transfer names.
+	Target *protocol.ConnectionResource
+	// Save holds the checked arguments of a save operation.
+	Save json.RawMessage
+	// Catalog, query and execute.
+	Database *string
+	ReadOnly bool
+	Sql      string
+	RowLimit uint32
+	// Run and transfer.
+	Command    string
+	Path       string
+	RemotePath string
+	Direction  protocol.SshDirection
+	TimeoutMs  uint64
+}
+
+// ConnectionCall decodes the model arguments of a connection operation.
+func ConnectionCall(operation protocol.ToolOperation, arguments json.RawMessage) (ConnectionArguments, error) {
+	invalid := func(err error) (ConnectionArguments, error) {
+		return ConnectionArguments{}, invalidCommand("invalid connection operation: " + err.Error())
+	}
+	switch operation {
+	case protocol.ToolOperationListDatabaseConnections, protocol.ToolOperationListSshConnections:
+		var input struct{}
+		if err := protocol.DecodeObject(arguments, &input, nil, true); err != nil {
+			return invalid(err)
+		}
+		return ConnectionArguments{}, nil
+	case protocol.ToolOperationSaveDatabaseConnection, protocol.ToolOperationSaveSshConnection:
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(arguments, &fields); err != nil || fields == nil {
+			return ConnectionArguments{}, invalidCommand("invalid connection operation: expected an object")
+		}
+		for name, value := range fields {
+			if name != "connection" && name != "expected_revision" && string(value) == "null" {
+				return ConnectionArguments{}, invalidCommand("connection edit fields cannot be null")
+			}
+		}
+		if credential, present := fields["credential"]; present && operation == protocol.ToolOperationSaveSshConnection {
+			var tagged struct {
+				Kind string `json:"kind"`
+			}
+			if json.Unmarshal(credential, &tagged) != nil {
+				return ConnectionArguments{}, invalidCommand("invalid SSH credential")
+			}
+			switch tagged.Kind {
+			case "password", "private_key", "key_path", "agent":
+			default:
+				return ConnectionArguments{}, invalidCommand("invalid SSH credential")
+			}
+		}
+		return ConnectionArguments{Save: arguments}, nil
+	case protocol.ToolOperationBrowseDatabase:
+		var input struct {
+			Connection protocol.DatabaseID `json:"connection"`
+			Database   *string             `json:"database"`
+		}
+		if err := protocol.DecodeObject(arguments, &input, []string{"connection"}, true); err != nil {
+			return invalid(err)
+		}
+		return ConnectionArguments{Target: &protocol.ConnectionResource{Kind: "database", Data: input.Connection}, Database: input.Database}, nil
+	case protocol.ToolOperationQueryDatabase, protocol.ToolOperationExecuteDatabase:
+		var input struct {
+			Connection protocol.DatabaseID `json:"connection"`
+			Database   *string             `json:"database"`
+			Sql        string              `json:"sql"`
+			RowLimit   uint32              `json:"row_limit"`
+			TimeoutMs  uint64              `json:"timeout_ms"`
+		}
+		if err := protocol.DecodeObject(arguments, &input, []string{"connection", "sql", "row_limit", "timeout_ms"}, true); err != nil {
+			return invalid(err)
+		}
+		return ConnectionArguments{Target: &protocol.ConnectionResource{Kind: "database", Data: input.Connection}, Database: input.Database,
+			ReadOnly: operation == protocol.ToolOperationQueryDatabase, Sql: input.Sql, RowLimit: input.RowLimit, TimeoutMs: input.TimeoutMs}, nil
+	case protocol.ToolOperationRunSsh:
+		var input struct {
+			Connection protocol.SshID `json:"connection"`
+			Command    string         `json:"command"`
+			TimeoutMs  uint64         `json:"timeout_ms"`
+		}
+		if err := protocol.DecodeObject(arguments, &input, []string{"connection", "command", "timeout_ms"}, true); err != nil {
+			return invalid(err)
+		}
+		return ConnectionArguments{Target: &protocol.ConnectionResource{Kind: "ssh", Data: input.Connection}, Command: input.Command, TimeoutMs: input.TimeoutMs}, nil
+	case protocol.ToolOperationTransferSsh:
+		var input struct {
+			Connection protocol.SshID        `json:"connection"`
+			Path       string                `json:"path"`
+			RemotePath string                `json:"remote_path"`
+			Direction  protocol.SshDirection `json:"direction"`
+			TimeoutMs  uint64                `json:"timeout_ms"`
+		}
+		if err := protocol.DecodeObject(arguments, &input, []string{"connection", "path", "remote_path", "direction", "timeout_ms"}, true); err != nil {
+			return invalid(err)
+		}
+		return ConnectionArguments{Target: &protocol.ConnectionResource{Kind: "ssh", Data: input.Connection}, Path: input.Path, RemotePath: input.RemotePath,
+			Direction: input.Direction, TimeoutMs: input.TimeoutMs}, nil
+	}
+	return ConnectionArguments{}, invalidCommand("native operation is unavailable")
+}

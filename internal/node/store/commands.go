@@ -21,6 +21,10 @@ func ExecuteCommand(ctx context.Context, db *sql.Conn, node protocol.NodeID, pro
 		return setDefaults(ctx, db, node, *request.Command.Data.(*protocol.CommandSetDefaultsPayload))
 	case "create_session":
 		return createSession(ctx, db, node, profile, *request.Command.Data.(*protocol.CommandCreateSessionPayload))
+	case "bind_connection_session":
+		return bindConnectionSession(ctx, db, profile, *request.Command.Data.(*protocol.CommandBindConnectionSessionPayload))
+	case "save_database", "remove_database":
+		return ExecuteDatabaseCommand(ctx, db, request.Command)
 	case "rename_session":
 		return renameSession(ctx, db, *request.Command.Data.(*protocol.CommandRenameSessionPayload))
 	case "set_session_archived":

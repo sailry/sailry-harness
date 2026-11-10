@@ -1772,5 +1772,380 @@
     },
     "read_only": false,
     "concurrent": false
+  },
+  {
+    "operation": "databases.connections",
+    "description": "List public database connection configuration",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "read_only": true,
+    "concurrent": false
+  },
+  {
+    "operation": "databases.save",
+    "description": "Save database connection configuration without a password",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "connection": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "expected_revision": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "name": {
+          "type": "string"
+        },
+        "host": {
+          "type": "string"
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "username": {
+          "type": "string"
+        },
+        "engine": {
+          "enum": [
+            "sqlite",
+            "mysql",
+            "postgres"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "description": "SQLite file path on the execution Node; relative paths use the captured worktree. Saving does not create the file"
+        },
+        "database": {
+          "type": "string"
+        },
+        "read_only": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "read_only": false,
+    "concurrent": false
+  },
+  {
+    "operation": "ssh.connections",
+    "description": "List public SSH connection configuration",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "read_only": true,
+    "concurrent": false
+  },
+  {
+    "operation": "ssh.save",
+    "description": "Save SSH connection configuration and explicitly supplied credentials",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "connection": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "expected_revision": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "name": {
+          "type": "string"
+        },
+        "host": {
+          "type": "string"
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "username": {
+          "type": "string"
+        },
+        "authentication": {
+          "enum": [
+            "password",
+            "private_key",
+            "key_path",
+            "agent"
+          ]
+        },
+        "key_path": {
+          "type": "string"
+        },
+        "credential": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "password"
+                },
+                "password": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "password"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "private_key"
+                },
+                "key": {
+                  "type": "string"
+                },
+                "passphrase": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "kind",
+                "key"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "key_path"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "passphrase": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "kind",
+                "path"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "agent"
+                }
+              },
+              "required": [
+                "kind"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "read_only": false,
+    "concurrent": false
+  },
+  {
+    "operation": "databases.catalog",
+    "description": "Read a catalog from an admitted database connection",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "connection": {
+          "type": "string"
+        },
+        "database": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "connection"
+      ],
+      "additionalProperties": false
+    },
+    "read_only": true,
+    "concurrent": false
+  },
+  {
+    "operation": "databases.query",
+    "description": "Query an admitted database through a read-only connection",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "connection": {
+          "type": "string"
+        },
+        "database": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sql": {
+          "type": "string"
+        },
+        "row_limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3600000
+        }
+      },
+      "required": [
+        "connection",
+        "sql",
+        "row_limit",
+        "timeout_ms"
+      ],
+      "additionalProperties": false
+    },
+    "read_only": true,
+    "concurrent": false
+  },
+  {
+    "operation": "databases.execute",
+    "description": "Execute SQL on an admitted database connection",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "connection": {
+          "type": "string"
+        },
+        "database": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sql": {
+          "type": "string"
+        },
+        "row_limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3600000
+        }
+      },
+      "required": [
+        "connection",
+        "sql",
+        "row_limit",
+        "timeout_ms"
+      ],
+      "additionalProperties": false
+    },
+    "read_only": false,
+    "concurrent": false
+  },
+  {
+    "operation": "ssh.run",
+    "description": "Run a command through an admitted SSH connection",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "connection": {
+          "type": "string"
+        },
+        "command": {
+          "type": "string"
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "connection",
+        "command",
+        "timeout_ms"
+      ],
+      "additionalProperties": false
+    },
+    "read_only": false,
+    "concurrent": false
+  },
+  {
+    "operation": "ssh.transfer",
+    "description": "Transfer a file through an admitted SSH connection",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "connection": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "remote_path": {
+          "type": "string"
+        },
+        "direction": {
+          "enum": [
+            "upload",
+            "download"
+          ]
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "connection",
+        "path",
+        "remote_path",
+        "direction",
+        "timeout_ms"
+      ],
+      "additionalProperties": false
+    },
+    "read_only": false,
+    "concurrent": false
   }
 ]

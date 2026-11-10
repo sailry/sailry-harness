@@ -73,6 +73,15 @@ func (r *Runtime) openReference(session string, turn protocol.TurnID, ref protoc
 			r.App.Host = snapshot.Node.String()
 			r.App.Navigate(shell.HostPage)
 			return
+		case "ssh", "database":
+			scope := connectionScope{}
+			if current, ok := r.session(session); ok {
+				scope.project, scope.resource = current.Project, current.Config.Resource
+			}
+			if key, body, ok := connectionReferenceDetails(snapshot, scope, ref.Target); ok {
+				r.App.Messages.ShowReference(session, ref.Label, i18n.T(c, key), "```text\n"+body+"\n```")
+				return
+			}
 		case "project", "worktree":
 			if id, err := protocol.ParseSessionID(session); err == nil {
 				if state, ok := r.controller.Conversation(id); ok {

@@ -138,3 +138,14 @@ This additive form fills a verified UI gap: the accepted Save as model describes
 a byte-stream download and cannot represent an editable copy/move destination,
 a remaining entry queue or explicit outcome inspection. The original download
 model, renderer and layout remain unchanged.
+
+## SSH transfers
+
+`live/plugin_native_ssh_transfers.go` implements the `sailry/ssh-transfers`
+plugin module. Uploads stage on the execution Node and publish once; downloads
+publish atomically to the chosen local file. At most two uploads run together
+and each file is limited to 1 GiB. Scripts receive job snapshots only: local
+paths, streams and credentials stay in the application. An unconfirmed
+publication keeps its original request and is resolved by an explicit check,
+never by repeating the transfer. Jobs appear in the owning plugin's list and
+use the ordinary failure, conflict and uncertain toasts.

@@ -192,7 +192,7 @@ func (owner *Installations) Execute(ctx context.Context, connection *cryptossh.C
 		return protocol.SshOutcome{}, err
 	}
 	if selection != nil {
-		if err := configureNetwork(ctx, endpoint, address, request, *selection); err != nil {
+		if err := ConfigureNetwork(ctx, endpoint, address, request, *selection); err != nil {
 			return protocol.SshOutcome{Kind: "host_network_unconfirmed", Data: protocol.SshOutcomeHostNetworkUnconfirmedPayload{Node: address.ID, Selection: *selection}}, nil
 		}
 	}
@@ -360,7 +360,7 @@ func waitProbe(ctx context.Context) error {
 	}
 }
 
-func configureNetwork(ctx context.Context, endpoint *link.Link, address link.EndpointAddress, id protocol.RequestID, selected protocol.NetworkSelection) error {
+func ConfigureNetwork(ctx context.Context, endpoint *link.Link, address link.EndpointAddress, id protocol.RequestID, selected protocol.NetworkSelection) error {
 	controller := client.New(endpoint.Remote(address))
 	defer controller.Close()
 	read := func() (protocol.NetworkSettings, error) {

@@ -40,6 +40,8 @@ type Runtime struct {
 	nodeModels               []composer.Model
 	hosts                    map[string]*liveHost
 	connections              *connectionState
+	connectionReferences     map[string]*referenceCatalog
+	sshTransfers             *sshTransferStore
 	ports                    *livePorts
 	pickKeyFile              func(func(string))
 	teams                    *teamState

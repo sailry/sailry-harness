@@ -27,6 +27,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/tasks"
 	"github.com/sailry/sailry-harness/internal/node/terminal"
 	"github.com/sailry/sailry-harness/internal/node/web"
+	"github.com/sailry/sailry-harness/internal/node/wsl"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -44,6 +45,8 @@ type Node struct {
 	networkProbes     *networkProbes
 	hostSampler       *host.Sampler
 	hostInstalls      *host.Installations
+	wsl               *wsl.Service
+	databases         databaseOperations
 	ports             *ports.Service
 	cancel            context.CancelFunc
 	web               *workspaceWeb
@@ -366,7 +369,7 @@ func supportedCommand(kind string) bool {
 		return true
 	case "deliver_background", "continue_turn":
 		return true
-	case "create_project", "update_project", "remove_project", "register_worktree", "set_defaults", "create_session", "rename_session", "set_session_archived", "set_session_read", "archive_sessions", "remove_session", "remove_sessions", "set_session_order", "mark_notification_read", "mark_notifications_read", "dismiss_read_notifications", "dismiss_notifications", "publish_notification", "save_power_settings", "save_telemetry_settings":
+	case "create_project", "update_project", "remove_project", "register_worktree", "set_defaults", "create_session", "bind_connection_session", "list_databases", "save_database", "remove_database", "rename_session", "set_session_archived", "set_session_read", "archive_sessions", "remove_session", "remove_sessions", "set_session_order", "mark_notification_read", "mark_notifications_read", "dismiss_read_notifications", "dismiss_notifications", "publish_notification", "save_power_settings", "save_telemetry_settings":
 		return true
 	default:
 		return false
@@ -441,6 +444,13 @@ func (node *Node) read(ctx context.Context, caller protocol.NodeID, request prot
 		case "read_plugin_version":
 			value, err := store.ReadPluginVersion(ctx, db, request.Command.Data.(*protocol.CommandReadPluginVersionPayload).Package)
 			output = protocol.Output{Kind: "plugin", Data: value}
+			return err
+		case "list_databases":
+			profiles, err := store.ListDatabases(ctx, db)
+			if err == nil && request.Plugin != nil {
+				profiles, err = store.FilterPluginDatabases(ctx, db, *request.Plugin, profiles)
+			}
+			output = protocol.Output{Kind: "database_profiles", Data: profiles}
 			return err
 		case "read_activity_catalog":
 			value, err := store.ReadActivityCatalog(ctx, db, node.ID())
