@@ -20,7 +20,7 @@ func Floating(c *ui.Context, el ui.Element) ui.Element {
 		surface = surface.Mix(Opaque(p.Foreground), FloatingLift)
 	}
 	m := frost{blur: FloatingBlur, base: surface, tint: surface.Alpha(FloatingTint)}
-	return el.Radius(p.RadiusLg).Material(m).TextColor(p.PopoverForeground).Border(1, floatingEdge(p))
+	return m.on(c, el.Radius(p.RadiusLg)).TextColor(p.PopoverForeground).Border(1, floatingEdge(p))
 }
 
 // floatingEdge is a step off the frost: lighter in dark mode, darker in

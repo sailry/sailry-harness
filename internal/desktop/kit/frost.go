@@ -34,6 +34,15 @@ type frost struct {
 	base, tint ui.Color
 }
 
+// on gives el the frost, or its opaque base where the desktop asks for
+// reduced transparency, as MyGo's materials fall back.
+func (f frost) on(c *ui.Context, el ui.Element) ui.Element {
+	if c.Preferences().ReduceTransparency {
+		return el.Background(f.base)
+	}
+	return el.Material(f)
+}
+
 // PaintMaterial paints the frost over box, rounded by radii.
 func (f frost) PaintMaterial(p *ui.Painter, box ui.Rect, radii [4]float32) {
 	draw := func(r ui.Rect) {
@@ -72,7 +81,7 @@ func Opaque(c ui.Color) ui.Color {
 // CardTint): the app sets it, never a theme.
 func Frost(c *ui.Context, el ui.Element, base ui.Color, tint float32) ui.Element {
 	solid := base.Over(Opaque(theme.Of(c).Background))
-	return el.Material(frost{blur: FloatingBlur, base: solid, tint: solid.Alpha(tint)})
+	return frost{blur: FloatingBlur, base: solid, tint: solid.Alpha(tint)}.on(c, el)
 }
 
 const (
@@ -104,5 +113,5 @@ func Pane(c *ui.Context, el ui.Element, fill ui.Color, frosted bool, blur float3
 		return el.Background(fill)
 	}
 	solid := Opaque(fill).Over(Opaque(theme.Of(c).Background))
-	return el.Material(frost{blur: blur, base: solid, tint: solid.Alpha(float32(fill.A) / 255)})
+	return frost{blur: blur, base: solid, tint: solid.Alpha(float32(fill.A) / 255)}.on(c, el)
 }

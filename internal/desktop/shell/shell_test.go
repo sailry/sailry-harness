@@ -20,10 +20,14 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
+// opaque keeps the software shader interpreter out of every headless frame:
+// frosted surfaces fall back to their opaque fill under Reduce Transparency.
+var opaque = ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}}
+
 func newTester(t *testing.T) (*App, *ui.Tester) {
 	t.Helper()
 	a := New(preview.Load())
-	tt := ui.NewTester(a.View, 1280, 820)
+	tt := ui.NewTesterWith(a.View, 1280, 820, opaque)
 	tt.SetLocale("en")
 	tt.Frame()
 	return a, tt
@@ -394,7 +398,7 @@ func TestThemeSwitch(t *testing.T) {
 
 func TestChinese(t *testing.T) {
 	a := New(preview.Load())
-	tt := ui.NewTester(a.View, 1280, 820)
+	tt := ui.NewTesterWith(a.View, 1280, 820, opaque)
 	tt.SetLocale("zh-CN")
 	tt.Frame()
 	for _, want := range []string{"新会话", i18n.In("zh-CN", "preview")} {

@@ -282,7 +282,7 @@ func TestPanesPersist(t *testing.T) {
 	}
 	b := New(preview.Load())
 	b.SetPrefs(LoadPrefs(dir))
-	tb := ui.NewTester(b.View, 1280, 820)
+	tb := ui.NewTesterWith(b.View, 1280, 820, opaque)
 	tb.SetLocale("en")
 	tb.Frame()
 	// The selected session's group comes back with its shares.

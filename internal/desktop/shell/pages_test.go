@@ -83,7 +83,7 @@ func TestRailOpensPages(t *testing.T) {
 				done(false)
 			},
 		})
-		tester := ui.NewTester(app.View, 1280, 820)
+		tester := ui.NewTesterWith(app.View, 1280, 820, opaque)
 		tester.SetLocale("en")
 		tester.Frame()
 		if node, project, shown := app.ProjectOwner(); node != remote.Host || project != remote.ID || !shown {
@@ -152,7 +152,7 @@ func testLivePluginNavigation(t *testing.T) {
 			choices = append(choices, group.Choices...)
 		}
 	}
-	tester := ui.NewTester(app.View, 1280, 820)
+	tester := ui.NewTesterWith(app.View, 1280, 820, opaque)
 	tester.SetLocale("en")
 	tester.Frame()
 	for _, feature := range features {

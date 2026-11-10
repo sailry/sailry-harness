@@ -166,6 +166,10 @@ MyGo bases.
   dark-mode lift `FloatingLift` 0.1, a 1 DIP edge, no shadow. `glass.Blur`
   is unusable: it keeps the backdrop's alpha, so in our translucent window
   the sharp pixels under the panel show through.
+- Under the desktop's Reduce Transparency preference every frost surface
+  (`Floating`, `Frost`, `Pane`) paints its opaque base instead of the backdrop
+  blur, as MyGo asks of materials. Headless shell tests use that preference,
+  which keeps the software shader interpreter out of each frame.
 - Key a hand-built overlay panel with `kit.Anchored(panel, anchor, layer)`
   before building its children. Tooltips and hover cards are suppressed
   while a popover or menu is open (`kit.TipsHidden`); kit's own tooltips do
