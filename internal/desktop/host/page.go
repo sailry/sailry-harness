@@ -17,6 +17,11 @@ type Actions struct {
 	OpenProject func(id string)
 	OpenSession func(id string)
 	AddProject  func()
+	Update      func(Update)
+	OpenPort    func(Port)
+	ClosePort   func(Port)
+	CreatePort  func(remote, local string, completed func(bool))
+	Dialogs     func(*ui.Context)
 }
 
 // State is the page's UI state: its dialogs and their drafts.
@@ -37,16 +42,19 @@ func Page(c *ui.Context, s *State, h *Host, act Actions) {
 	}
 	ui.Scroll(c.Key("host-" + h.ID)).Grow(1).MinHeight(0).Children(func() {
 		ui.Column(c.Key("content")).FillWidth().MaxWidth(theme.ContentWidth).Margin(0, ui.Auto).Padding(24).Gap(24).Children(func() {
-			header(c, s, h)
+			header(c, s, h, act)
 			facts(c, h)
 			projects(c, h, act)
 			runtime(c, h.Runtime)
-			activity(c, h.Activity, act)
+			activity(c, h, act)
 		})
 	})
 	s.report(c, h)
-	updateDialog(c, s, h)
-	portDialogs(c, s, h)
+	updateDialog(c, s, h, act)
+	portDialogs(c, s, h, act)
+	if act.Dialogs != nil {
+		act.Dialogs(c)
+	}
 }
 
 // Platform is the platform's logo, the processor for one not known.
@@ -64,17 +72,26 @@ func Platform(os string) *ui.SVG {
 
 // header is the host's name, status and platform beside its logo, then its
 // port forwards and Update for a host updated from here.
-func header(c *ui.Context, s *State, h *Host) {
+func header(c *ui.Context, s *State, h *Host, act Actions) {
 	p := theme.Of(c)
 	ui.Row(c.Key("header")).Gap(16).Padding(16, 0).Wrap().Children(func() {
 		ui.Icon(c, Platform(h.OS)).FontSize(40).Shrink(0)
 		ui.Column(c.Key("name")).Grow(1).Shrink(1).MinWidth(220).Gap(4).Children(func() {
 			ui.Text(c, i18n.T(c, h.Name)).FontSize(20).FontWeight(600).SingleLine()
-			ui.Text(c, i18n.T(c, "workspace_host_status")).FontSize(14).TextColor(p.MutedForeground)
+			status := "workspace_host_status"
+			if h.Live {
+				status = "live_connected"
+				if h.Runtime.Error != "" {
+					status = "connections_offline"
+				} else if !h.Runtime.Known && h.Runtime.Version == "" {
+					status = "connection_connecting"
+				}
+			}
+			ui.Text(c, i18n.T(c, status)).FontSize(14).TextColor(p.MutedForeground)
 			ui.Text(c, i18n.T(c, h.Detail)).FontSize(14).TextColor(p.MutedForeground).SingleLine()
 		})
 		ui.Row(c.Key("actions")).Gap(8).Wrap().Justify(ui.End).Children(func() {
-			portsHeader(c, s, h)
+			portsHeader(c, s, h, act)
 			if h.Update != nil {
 				small(c, "update", icons.ArrowUp, i18n.T(c, "host_update"), false, true).OnClick(func() {
 					s.updating, s.expected = true, *h.Update
@@ -168,7 +185,11 @@ func runtime(c *ui.Context, r Runtime) {
 	p := theme.Of(c)
 	section(c, "runtime", i18n.T(c, "workspace_runtime"), "", func() {
 		if r.Loading {
-			kit.Shimmer(c, i18n.T(c, "host_runtime_loading"), 14, p.MutedForeground)
+			loading := "host_runtime_loading"
+			if r.Live {
+				loading = "live_host_runtime_loading"
+			}
+			kit.Shimmer(c, i18n.T(c, loading), 14, p.MutedForeground)
 		}
 		unknown := i18n.T(c, "host_unknown")
 		for _, f := range r.Facts() {
@@ -197,12 +218,19 @@ func runtime(c *ui.Context, r Runtime) {
 
 // activity is the host's running sessions: each a row with the agent or the
 // waiting user, title, location, model and status, opening the session.
-func activity(c *ui.Context, rows []Activity, act Actions) {
+func activity(c *ui.Context, h *Host, act Actions) {
 	p := theme.Of(c)
+	rows := h.Activity
 	section(c, "activity", i18n.T(c, "workspace_running"), strconv.Itoa(len(rows)), func() {
-		muted(c, i18n.T(c, "host_activity_hint"))
+		if !h.Live {
+			muted(c, i18n.T(c, "host_activity_hint"))
+		}
 		if len(rows) == 0 {
-			kit.Result(c, kit.ResultProps{Icon: icons.Dashboard, Title: i18n.T(c, "workspace_no_running"), Card: true})
+			empty := "workspace_no_running"
+			if h.Live {
+				empty = "live_host_no_running"
+			}
+			kit.Result(c, kit.ResultProps{Icon: icons.Dashboard, Title: i18n.T(c, empty), Card: true})
 			return
 		}
 		for _, r := range rows {
@@ -258,7 +286,11 @@ func small(c *ui.Context, key any, icon *ui.SVG, label string, disabled, outline
 // the runtime's with its detail.
 func (s *State) report(c *ui.Context, h *Host) {
 	if e := h.Runtime.Error; e != "" && e != s.runtimeFailed {
-		kit.Error(c, i18n.T(c, "host_runtime_error"), e)
+		key := "host_runtime_error"
+		if h.Live {
+			key = "live_host_runtime_error"
+		}
+		kit.Error(c, i18n.T(c, key), e)
 	}
 	s.runtimeFailed = h.Runtime.Error
 }

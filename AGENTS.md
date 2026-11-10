@@ -50,6 +50,8 @@ release procedures are in [CONTRIBUTING.md](CONTRIBUTING.md); package rules are 
 - Choose additional checks from the change and dependency boundaries. Reuse passing
   results until relevant code, dependencies, configuration or environment changes.
   Diagnose failures; never weaken assertions or report an unrun check as passed.
+- Reuse built native libraries. Rebuild Rust only when its source, C ABI,
+  dependency pins or target changes; Go-only development does not rerun Cargo.
 - Tests use `t.TempDir()`. Manual backend runs use
   `--data-dir .runtime/profiles/<fixed-name>` once B2 adds that flag. Never use
   `~/.sailry`; `~/.sailry-go` is reserved for the user's acceptance runs.

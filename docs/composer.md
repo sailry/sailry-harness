@@ -2,15 +2,15 @@
 
 B3 live construction permits an empty model catalog. `Chosen` returns an empty
 model and the existing model chip displays `composer_model_empty` while disabled.
-Live composers remain read-only until the owning conversation phase supplies
-models and submission actions; this never seeds a fixture model or starts work.
+Live adapters supply models and submission actions from the execution Node;
+an unavailable catalog never seeds a fixture model or starts work.
 
 The input under the transcript and on the welcome page: the capsules of
 what the run waits on, the queue strip, the draft with its file cards and
 inline reference chips, the `@` and `/` pickers, the toolbar (attach, mode,
 permission, model controls, dictation, send/stop) and the context bar
-(host, project, worktree, metrics), plus the file picker and location
-dialogs (the reference implementation `conversation/live/composer.rs`, `live/queue*`,
+(project, worktree, metrics), plus the file picker
+(the reference implementation `conversation/live/composer.rs`, `live/queue*`,
 `live/attachments.rs`, `live/references*`, `live/commands`, `live/mode.rs`,
 `live/permission.rs`, `live/location.rs`, `model_controls/*`,
 `file_picker*`, `dictation*`, `live/approvals*.rs`, `live/questions`).
@@ -23,7 +23,7 @@ dialogs (the reference implementation `conversation/live/composer.rs`, `live/que
 |---|---|
 | `model.go` | **The view model**: `Context`, models, teams, queue, hosts, projects, references, files, attachments, dictation, `Message` |
 | `composer.go` | `State`, `View`, the surface, draft keys, toolbar, send/stop, context bar, Escape |
-| `options.go` | Mode and permission menus, host, project and worktree, location dialog, compact settings popover |
+| `options.go` | Mode and permission menus, project and worktree, compact settings popover |
 | `models.go` | Model chip and its popover: team row, features, effort, model picker, score tooltip |
 | `track.go` | The effort track (custom drawing on `SliderBase`) |
 | `queue.go` | Queue strip: rows in `kit.SortableList` (from Lobe MyGo; drag by the handle or Space and the arrows, a drop calls `MoveQueued` before the message now after it), edit, send now, remove; a guiding row shows the loader and Withdraw |
@@ -53,8 +53,8 @@ rebuilt each frame from backend data.
 | `Feature{ID, Name, Icon, Options}` | One option toggles; more open a menu with Off |
 | `Context.Teams`, `Team{ID, Name, Members}`, `Member.Overridden` | Team row and list; an overridden member is marked |
 | `Context.Queue`, `Queued{ID, Text, Attachments, Notice, Compaction, Guided}` | The queue strip, oldest first; `Guided` is guidance pending for the running turn |
-| `Context.Hosts`, `Host{ID, Name, Local}` | Host menu (`Name` is an i18n key) |
-| `Context.Projects`, `Project{ID, Name, Worktrees}`, `Worktree{Branch, Main}` | Location dialog and worktree menu |
+| `Context.Hosts`, `Host{ID, Name, Local}` | Execution-owner metadata; there is no composer Host picker |
+| `Context.Projects`, `Project{ID, Name, Host, Worktrees}`, `Worktree{Branch, Main}` | Project and worktree menus; `Host` is the execution Node identity |
 | `Context.Repository{Kind, Branch}` | `Inspecting`, `Git`, `Directory`, `Unavailable`: branch label and New worktree |
 | `Context.References`, `Commands`, `Reference{ID, Kind, Label, Key, Description, Icon, Alias, Insert, Children}` | The `@` and `/` catalogs; `Page`/`Folder` have `Children`; `Key` marks i18n labels; `Insert` is the prompt key, mode, model ID or effort |
 | `Context.Files`, `Entry{Name, Path, Size, Modified, Mime, Children}` | The file picker's root folder; nil disables attaching |
@@ -241,6 +241,29 @@ project active registered children into the existing activity capsule and show
 their ordinary pending approvals with the child's name. Approval decisions target
 the child session; opening a row observes its real transcript.
 
+### B7 projects and services
+
+The project menu contains local and paired execution Nodes' registered projects.
+Choosing a project before first send captures its Node, resets the worktree to
+that project's first entry and reads that Node's available models and teams.
+Display names are labels, not routing identities. Existing admitted sessions
+keep their captured Node and location; no Host selector or location dialog is
+added to the composer.
+
+`live/commands.go` projects the captured session's running command services.
+The strip shows one Globe capsule per distinct port, disables it while the
+connection is unavailable or a forward is being opened, and labels a listening
+forward as `remote → local`. `OpenService` freezes the session, command and
+service identity, asks that Client to forward the port, then opens the confirmed
+loopback URL through the window's native browser callback. A service removed
+from the observed running command closes its associated Forwarder.
+
+Forwarding state belongs to the window and is keyed by Node and remote port.
+Another Node's matching port cannot supply the label or browser address.
+Connection loss changes the existing banner and service controls; it does not
+move the draft to a different Node or stop admitted work. Plugin Status
+contributions remain with their runtime phase.
+
 ## UI state vs backend data
 
 | UI state (`State`) | Backend data (`Context`) |
@@ -248,6 +271,7 @@ the child session; opening a row observes its real transcript.
 | Draft, chips, attachments list, mode, permission, model, effort, features, team, host, project, worktree | Models, families, teams, hosts, projects, repository, catalogs, files |
 | Pickers, popovers, dialogs, queue editor | Queue, `Running`, attachment status and progress, dictation phase |
 | Reason drafts, question draft, explicit member model drafts | Parent and child approvals, question, frozen team roster |
+| Selected project before admission and window-owned port actions | Project-to-Node identity, command services and Forwarder state from the captured Client |
 
 ## Live attachments
 
@@ -287,6 +311,7 @@ pictures (`preview.PlainTurns`).
 | Plugin-contributed toolbar controls are not shown | No plugin runtime in the prototype |
 | The Git changes badge is native, with the Git icon (Rust: the git plugin's Status button, Settings2 fallback icon) | Git is core here |
 | The activity strip wraps when it is full | Rust keeps one row and lets capsules overflow |
+| Live service labels use additive activity callbacks | Forwarder state stays with the captured Client while the accepted command DTO and capsule layout remain unchanged |
 | Subagent elapsed uses an additive activity callback | Captured run timestamps remain outside the accepted `conversation.Child` fields |
 | Modes are Code, Plan, Flagship (Rust `WorkMode`); explore/build/review/plan are only the welcome cards | Follows Rust |
 | Approval details' loading and retry, SSH trust prompts and child identicons are not shown | Not in the view model of this UI-only prototype |

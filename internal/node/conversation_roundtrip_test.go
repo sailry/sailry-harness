@@ -134,4 +134,77 @@ func TestAgentRoundTrip(t *testing.T) {
 	if text != "Hello world" || requests.Load() != 1 || len(state.Drafts) != 0 {
 		t.Fatalf("production route: text=%q requests=%d drafts=%d", text, requests.Load(), len(state.Drafts))
 	}
+	t.Run("native task commands use the existing loop", func(t *testing.T) {
+		draft := protocol.DefaultConversationStart()
+		draft.Config, draft.Title = &config, "Host task"
+		draft.Execution = protocol.ConversationExecutionModel
+		draft.Message.Text = "Say hello from the first task"
+		request := controller.Prepare(protocol.Command{Kind: "start_session", Data: draft})
+		output, err := controller.Execute(t.Context(), request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		first := output.Data.(protocol.QueuedTurn)
+		replayed, err := controller.Execute(t.Context(), request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var recovered protocol.QueuedTurn
+		switch value := replayed.Data.(type) {
+		case protocol.QueuedTurn:
+			recovered = value
+		case *protocol.QueuedTurn:
+			recovered = *value
+		default:
+			t.Fatalf("unexpected recovered task admission: %T", replayed.Data)
+		}
+		if first.Request != request.ID || recovered.ID != first.ID || recovered.Session != first.Session {
+			t.Fatal("original task request was not recovered")
+		}
+		taskChanges := make(chan struct{}, 1)
+		releaseTask, err := controller.WatchConversation(t.Context(), first.Session, func() {
+			select {
+			case taskChanges <- struct{}{}:
+			default:
+			}
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer releaseTask()
+		completed := func(turn protocol.TurnID) {
+			t.Helper()
+			for {
+				if current, ok := controller.Conversation(first.Session); ok {
+					if current.Err != nil {
+						t.Fatal(current.Err)
+					}
+					for _, run := range current.Snapshot.Page.Runs {
+						if run.Turn != turn {
+							continue
+						}
+						if run.Error != nil {
+							t.Fatal(run.Error)
+						}
+						if run.Status == protocol.ConversationStatusCompleted {
+							return
+						}
+					}
+				}
+				select {
+				case <-taskChanges:
+				case <-t.Context().Done():
+					t.Fatal(context.Cause(t.Context()))
+				}
+			}
+		}
+		completed(first.ID)
+		message := protocol.DefaultConversationInput()
+		message.Text = "Say hello from the next task"
+		second := do(protocol.Command{Kind: "submit_task", Data: protocol.CommandSubmitTaskPayload{Session: first.Session, ExpectedRevision: &first.Revision, Message: message}}).Data.(protocol.QueuedTurn)
+		completed(second.ID)
+		if requests.Load() != 3 {
+			t.Fatalf("task commands made %d model requests, expected three including the original round trip", requests.Load())
+		}
+	})
 }

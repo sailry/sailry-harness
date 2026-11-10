@@ -36,6 +36,8 @@ func (client *Client) Start(ctx context.Context) error {
 	} else {
 		client.watch = watch
 		go client.observe(watch)
+		client.connectionDone = make(chan struct{})
+		go client.observeConnection(client.context, client.connectionDone)
 	}
 	client.lifecycle.Unlock()
 	client.changed()
@@ -82,15 +84,29 @@ func (client *Client) Close() error {
 		client.stop()
 	}
 	err := client.stopObservation()
+	client.closeForwards()
 	client.closeConversations()
 	client.closeWorkspaces()
 	client.closeCommands()
+	if client.connectionDone != nil {
+		<-client.connectionDone
+	}
 	client.mu.Lock()
 	client.connected = false
 	client.mu.Unlock()
 	client.lifecycle.Unlock()
 	client.changed()
 	return err
+}
+
+func (client *Client) observeConnection(ctx context.Context, done chan struct{}) {
+	defer close(done)
+	_ = client.transport.WatchConnection(ctx, func(info link.ConnectionInfo) {
+		client.mu.Lock()
+		client.connection = copyValue(info)
+		client.mu.Unlock()
+		client.changed()
+	})
 }
 
 // lifecycle is held while replacing or joining the sole observation owner.

@@ -1643,3 +1643,60 @@ role_unknown: Resultado não confirmado; tente novamente a solicitação origina
 role_failed: Operação falhou; tente novamente
 chat_child_unavailable: Subsessão indisponível; tente novamente
 reference_load_failed: Failed to load references
+composer_metric_unknown: —
+connection_connecting: Conectando
+host_added: Host adicionado
+host_install_detecting: Verificando o host
+host_install_failed: Não foi possível adicionar host
+host_install_installing: Instalando Host
+host_install_pairing: Pareamento
+host_install_unknown: Resultado da instalação não confirmado; verifique o host e tente novamente
+host_network_conflict: As configurações de rede mudaram; tente novamente
+host_network_edit: Editar host
+host_network_failed: Não foi possível alterar a rede
+host_network_load_failed: Não foi possível carregar as configurações de rede
+host_network_saved: Rede alterada
+host_network_unavailable: As configurações de rede não estão disponíveis
+host_network_unknown: Não foi possível confirmar a alteração da rede
+host_update_local_artifacts: Uses locally built Host artifacts; verified when applying
+host_update_restart: O Host será reiniciado; as tarefas em execução serão interrompidas
+host_updated: Host atualizado
+pairing_failed: O emparelhamento falhou; verifique o código ou a rede e tente novamente
+pairing_invalid_endpoint: Insira um URL de serviço de emparelhamento HTTPS válido
+pairing_preparing: Preparando a conexão
+pairing_refresh_hint: Válido por 60 segundos; atualiza na expiração
+pairing_relay_checking: Verificando o relé
+pairing_relay_failed: Não foi possível se conectar ao relé; verifique o URL e tente novamente
+pairing_relay_invalid: Insira um URL de retransmissão HTTPS válido
+pairing_relay_ready: Relé conectado
+pairing_relay_selected: Rede selecionada
+pairing_retrying: Serviço de emparelhamento indisponível; tentando novamente
+pairing_success: Dispositivo emparelhado
+settings_retry: Tentar novamente
+ssh_key_changed: Chave de host alterada, verifique a impressão digital
+ssh_trust: Confiar
+ssh_trust_title: Chave de host confiável
+usage_duration_ms: '%{value} ms'
+live_host_runtime_loading: Loading Host runtime
+live_host_runtime_error: Could not read Host runtime
+live_host_no_running: No running sessions
+live_metrics_loading: Loading metrics
+live_metrics_error: Could not read Host metrics
+live_metrics_read: Read
+live_metrics_written: Written
+live_update_idle: Check for Host updates
+live_update_checking: Checking for updates
+live_update_current: Host is up to date
+live_update_available: Host update available
+live_update_downloading: Preparing update
+live_update_verifying: Verifying update
+live_update_staged: Ready to apply
+live_update_applying: Applying update
+live_update_restart: Restarting Host
+live_update_failed: Host update failed
+live_update_loading: Loading update
+live_update_unavailable: Host update unavailable
+live_update_check: Check
+live_update_download: Prepare
+live_update_apply: Apply
+live_update_retry: Retry

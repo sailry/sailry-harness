@@ -85,6 +85,7 @@ func agentHistoryFixture(t *testing.T, mode protocol.WorkMode) (*Store, protocol
 }
 func TestAgentHistoryAndReview(t *testing.T) {
 	t.Parallel()
+	t.Run("native task admission", testTaskAdmission)
 	t.Run("retained command stream keeps invocation and canonical revision", func(t *testing.T) {
 		storage, node, session, turn, now := agentHistoryFixture(t, protocol.WorkModeCode)
 		ctx := context.Background()
@@ -300,53 +301,65 @@ func TestAgentHistoryAndReview(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
-	t.Run("new input supersedes completed review", func(t *testing.T) {
-		t.Parallel()
-		storage, node, session, turn, now := agentHistoryFixture(t, protocol.WorkModePlan)
-		ctx := context.Background()
-		err := storage.Node.Write(ctx, func(db *sql.Conn) error {
-			record := canonical.NewRecord(turn, "message", ptr(canonical.NewMessage(canonical.Assistant, canonical.Text(0, "Plan"))), now)
-			record.Provenance.Author = "assistant"
-			if _, _, err := AppendCanonical(ctx, db, session.ID, record); err != nil {
-				return err
-			}
-			if _, _, err := FinishTurn(ctx, db, turn, protocol.ConversationStatusCompleted, nil, now); err != nil {
-				return err
-			}
-			_, question, _, err := PublishPlanReview(ctx, db, turn, now)
+	for _, kind := range []string{"submit_turn", "queue_turn", "submit_task"} {
+		t.Run("new "+kind+" input supersedes completed review", func(t *testing.T) {
+			t.Parallel()
+			storage, node, session, turn, now := agentHistoryFixture(t, protocol.WorkModePlan)
+			ctx := context.Background()
+			err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+				record := canonical.NewRecord(turn, "message", ptr(canonical.NewMessage(canonical.Assistant, canonical.Text(0, "Plan"))), now)
+				record.Provenance.Author = "assistant"
+				if _, _, err := AppendCanonical(ctx, db, session.ID, record); err != nil {
+					return err
+				}
+				if _, _, err := FinishTurn(ctx, db, turn, protocol.ConversationStatusCompleted, nil, now); err != nil {
+					return err
+				}
+				_, question, _, err := PublishPlanReview(ctx, db, turn, now)
+				if err != nil {
+					return err
+				}
+				if question == nil {
+					return errors.New("review was not created")
+				}
+				message := protocol.ConversationInput{Text: "New instructions"}
+				command := protocol.Command{Kind: kind}
+				switch kind {
+				case "submit_turn":
+					command.Data = &protocol.CommandSubmitTurnPayload{Session: session.ID, ExpectedRevision: session.Revision, Message: message}
+				case "queue_turn":
+					command.Data = &protocol.CommandQueueTurnPayload{Session: session.ID, ExpectedRevision: session.Revision, Message: message}
+				case "submit_task":
+					command.Data = &protocol.CommandSubmitTaskPayload{Session: session.ID, Message: message}
+				}
+				request := protocol.NewRequest(node, command)
+				body, err := encode(request)
+				if err != nil {
+					return err
+				}
+				if _, err = db.ExecContext(ctx, "INSERT INTO requests(caller,id,body,status) VALUES(?1,?2,?3,'admitted')", node[:], request.ID.String(), body); err != nil {
+					return err
+				}
+				output, _, err := ExecuteAgentCommand(ctx, db, node, "", node, request, now)
+				if err != nil {
+					return err
+				}
+				changes, _, err := ApplyReviewCommand(ctx, db, request, output, now)
+				if err != nil {
+					return err
+				}
+				saved, err := ReadQuestion(ctx, db, question.ID)
+				if err != nil {
+					return err
+				}
+				if saved.State.Kind != "cancelled" || len(changes) != 2 {
+					return errors.New("new input did not supersede review canonically")
+				}
+				return nil
+			})
 			if err != nil {
-				return err
+				t.Fatal(err)
 			}
-			if question == nil {
-				return errors.New("review was not created")
-			}
-			request := protocol.NewRequest(node, protocol.Command{Kind: "submit_turn", Data: &protocol.CommandSubmitTurnPayload{Session: session.ID, ExpectedRevision: session.Revision, Message: protocol.ConversationInput{Text: "New instructions"}}})
-			body, err := encode(request)
-			if err != nil {
-				return err
-			}
-			if _, err = db.ExecContext(ctx, "INSERT INTO requests(caller,id,body,status) VALUES(?1,?2,?3,'admitted')", node[:], request.ID.String(), body); err != nil {
-				return err
-			}
-			output, _, err := ExecuteAgentCommand(ctx, db, node, "", node, request, now)
-			if err != nil {
-				return err
-			}
-			changes, _, err := ApplyReviewCommand(ctx, db, request, output, now)
-			if err != nil {
-				return err
-			}
-			saved, err := ReadQuestion(ctx, db, question.ID)
-			if err != nil {
-				return err
-			}
-			if saved.State.Kind != "cancelled" || len(changes) != 2 {
-				return errors.New("new input did not supersede review canonically")
-			}
-			return nil
 		})
-		if err != nil {
-			t.Fatal(err)
-		}
-	})
+	}
 }

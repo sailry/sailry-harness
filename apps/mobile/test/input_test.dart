@@ -1,0 +1,87 @@
+import 'dart:convert';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:sailry_mobile/features/conversations/live/message_data.dart';
+
+void main() {
+  final attachment = {
+    'id': 'attachment',
+    'spec': {'name': 'captured.png', 'worktree': 'child-tree'},
+  };
+  final reference = {'target': 'project', 'label': 'Captured project'};
+  test('reads the Client input projection without fallback', () {
+    final segments = [
+      {
+        'inputs': [
+          {
+            'turn': 'turn',
+            'message': {
+              'text': 'Original input 中文 🙂',
+              'references': [reference],
+            },
+            'attachments': [attachment],
+            'canonical': false,
+          },
+          {
+            'turn': 'joined-turn',
+            'message': {'text': '', 'references': []},
+            'attachments': [attachment],
+            'canonical': true,
+          },
+        ],
+        'rows': [],
+      },
+    ];
+    final before = jsonEncode(segments);
+    final contents = segmentContents(segments, entries: {}, drafts: {});
+    final inputs = contents.single.inputs;
+    expect(inputs.first.turn, 'turn');
+    expect(inputs.first.text, 'Original input 中文 🙂');
+    expect(inputs.first.references, [reference]);
+    expect(inputs.first.attachments, [attachment]);
+    expect(inputs.first.canonical, isFalse);
+    expect(inputs.last.turn, 'joined-turn');
+    expect(inputs.last.text, isEmpty);
+    expect(inputs.last.canonical, isTrue);
+    expect(contents.single.rows, isEmpty);
+    expect(segmentContents(null, entries: {}, drafts: {}), isEmpty);
+    expect(jsonEncode(segments), before);
+  });
+
+  test('search uses the Client response owner', () {
+    final view = {
+      'owners': {'guidance': 'primary', 'primary': 'primary'},
+    };
+    expect(turnOwner(view, 'guidance'), 'primary');
+    expect(turnOwner(view, 'primary'), 'primary');
+    expect(turnOwner(view, 'unloaded'), 'unloaded');
+  });
+
+  test('history actions preserve canonical text boundaries', () {
+    final page = {
+      'entries': [
+        {
+          'turn': 'turn',
+          'author': 'user',
+          'parts': [
+            {'kind': 'attachment', 'data': attachment},
+          ],
+        },
+        {
+          'turn': 'turn',
+          'author': 'user',
+          'parts': [
+            {'kind': 'text', 'data': 'First'},
+            {'kind': 'reference', 'data': reference},
+            {'kind': 'text', 'data': 'Second'},
+          ],
+        },
+      ],
+    };
+    expect(sentInput(page, 'turn'), {
+      'text': 'First\nSecond',
+      'attachments': ['attachment'],
+      'references': [reference],
+    });
+  });
+}

@@ -92,8 +92,18 @@ func (r *Runtime) SetWorkspaceNative(native WorkspaceNative) {
 		r.initWorkspace()
 	}
 	r.workspace.native = native
+	for _, bound := range r.bindings {
+		bound.SetWorkspaceNative(native)
+	}
 }
 func (r *Runtime) workspaceProject() *panel.Project {
+	if r.parent == nil {
+		if owner := r.selectedRuntime(); owner == nil {
+			return nil
+		} else if owner != r {
+			return owner.workspaceProject()
+		}
+	}
 	if r.workspace == nil {
 		return nil
 	}
@@ -104,6 +114,7 @@ func (r *Runtime) workspaceProject() *panel.Project {
 	return project.panel
 }
 func (r *Runtime) workspaceFrame(c *ui.Context) {
+	r.bindArtifactCallbacks()
 	if r.workspace == nil {
 		r.initWorkspace()
 	}

@@ -28,10 +28,14 @@ type teamState struct {
 }
 
 func (r *Runtime) initTeams() {
-	r.teams = &teamState{roles: map[string]protocol.RoleProfile{}, teams: map[string]protocol.TeamProfile{}, creates: map[string]protocol.Command{}, composers: map[string]*teamComposer{}, childParents: map[string]protocol.SessionID{}, skills: map[protocol.PluginReference]protocol.PluginInfo{}, skillReads: map[protocol.PluginReference]bool{}, skillFailures: map[protocol.PluginReference]bool{}}
+	r.teams = newTeamState()
 	r.App.Settings.TeamActions = &settings.TeamActions{SaveConcurrency: r.saveConcurrency, SaveTeam: r.saveTeam, SaveRole: r.saveRole, RemoveTeam: r.removeTeam, RemoveRole: r.removeRole}
 	r.teamsFrame()
 	r.readTeamSettings()
+}
+
+func newTeamState() *teamState {
+	return &teamState{roles: map[string]protocol.RoleProfile{}, teams: map[string]protocol.TeamProfile{}, creates: map[string]protocol.Command{}, composers: map[string]*teamComposer{}, childParents: map[string]protocol.SessionID{}, skills: map[protocol.PluginReference]protocol.PluginInfo{}, skillReads: map[protocol.PluginReference]bool{}, skillFailures: map[protocol.PluginReference]bool{}}
 }
 
 func profileKey(id string, revision uint64) string { return fmt.Sprintf("%s/%d", id, revision) }

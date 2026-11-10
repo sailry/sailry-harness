@@ -15,6 +15,10 @@ import (
 
 func agentInput(command protocol.Command) (protocol.ConversationInput, error) {
 	switch v := command.Data.(type) {
+	case *protocol.ConversationStart:
+		return v.Message, nil
+	case *protocol.CommandSubmitTaskPayload:
+		return v.Message, nil
 	case *protocol.CommandSubmitTurnPayload:
 		return v.Message, nil
 	case *protocol.CommandQueueTurnPayload:

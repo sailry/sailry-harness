@@ -28,6 +28,8 @@ func (node *Node) conversationEvents(changes []protocol.Event) {
 			sessions[v.Session] = true
 		case protocol.EventTurnQueuedPayload:
 			sessions[v.Turn.Session] = true
+		case protocol.EventTaskStartedPayload:
+			sessions[v.Turn.Session] = true
 		case protocol.EventSessionRewoundPayload:
 			if v.Session != nil {
 				node.feed.Reset(v.Session.ID)

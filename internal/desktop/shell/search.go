@@ -114,7 +114,7 @@ func (a *App) catalog(c *ui.Context, folder string) []Group {
 	case "hosts":
 		var list []Choice
 		for _, h := range a.Data.Hosts {
-			list = append(list, Choice{ID: h.ID, Label: t(h.Name), Icon: icons.Cpu, Selected: h.Local, run: func() {
+			list = append(list, Choice{ID: h.ID, Label: t(h.Name), Icon: icons.Cpu, Selected: h.ID == a.Host, run: func() {
 				if a.Preview {
 					kit.Message(c, t("preview_notice"))
 				} else {

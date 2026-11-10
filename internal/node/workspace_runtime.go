@@ -70,6 +70,9 @@ func (node *Node) Open(ctx context.Context, caller protocol.NodeID, id protocol.
 		return nil, err
 	}
 	defer node.work.Done()
+	if stream, found, err := node.ports.Open(ctx, caller, id); found || err != nil {
+		return stream, err
+	}
 	return node.transfers.Open(ctx, caller, id)
 }
 func (node *Node) workspaceChanged(worktree protocol.WorktreeID) {

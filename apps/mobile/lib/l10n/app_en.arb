@@ -1,0 +1,1158 @@
+{
+  "@@locale": "en",
+  "guidanceWithdraw": "Withdraw guidance",
+  "updatesVersion": "Version",
+  "updatesCheck": "Check for updates",
+  "updatesChecking": "Checking",
+  "updatesAvailable": "Version {version} is available",
+  "@updatesAvailable": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "updatesDownload": "Download update",
+  "updatesCurrent": "You're up to date",
+  "updatesUnpublished": "No mobile release yet",
+  "updatesCheckFailed": "Could not check for updates",
+  "updatesOpenFailed": "Could not open the download",
+  "welcomeTitle": "What would you like to work on today?",
+  "welcomeExplore": "Explore a project",
+  "welcomeExploreDetail": "Understand its structure and entry points",
+  "welcomeExplorePrompt": "Help me understand this project, including its key modules and entry points.",
+  "welcomeBuild": "Build an idea",
+  "welcomeBuildDetail": "Bring your idea to life",
+  "welcomeBuildPrompt": "I want to add a feature to this project. First confirm the requirements with me and outline an implementation plan.",
+  "welcomeReview": "Review changes",
+  "welcomeReviewDetail": "Check changes and potential issues",
+  "welcomeReviewPrompt": "Review the current changes in this project, focusing on potential issues and missing tests.",
+  "welcomePlan": "Make a plan",
+  "welcomePlanDetail": "Clarify goals and steps",
+  "welcomePlanPrompt": "Help me create a step-by-step plan for the upcoming development work.",
+  "conversationEmpty": "Describe your task",
+  "conversationLoading": "Loading chat",
+  "conversationReconnecting": "Reconnecting",
+  "conversationErrorDetails": "View reason",
+  "conversationModelRetrying": "Retrying model request {attempt}/{limit}",
+  "@conversationModelRetrying": {
+    "placeholders": {
+      "attempt": {
+        "type": "String"
+      },
+      "limit": {
+        "type": "String"
+      }
+    }
+  },
+  "conversationModelRetried": "Model request retried {attempt}/{limit}",
+  "@conversationModelRetried": {
+    "placeholders": {
+      "attempt": {
+        "type": "String"
+      },
+      "limit": {
+        "type": "String"
+      }
+    }
+  },
+  "conversationToolsCount": "{count} tool calls",
+  "@conversationToolsCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "conversationGoal": "Goal",
+  "conversationGoalBlocked": "Blocked",
+  "conversationGoalBudget": "Budget {count} tokens",
+  "@conversationGoalBudget": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "conversationStepSkipped": "Skipped",
+  "conversationChild": "Subtask",
+  "conversationOffline": "Connection lost",
+  "conversationUnavailable": "Chat unavailable",
+  "conversationFailed": "Operation failed; retry",
+  "conversationUnknown": "Outcome unconfirmed; check the chat before acting again",
+  "conversationCheckResult": "Check outcome",
+  "conversationConflict": "Configuration changed; reopen before acting again",
+  "conversationOlder": "Load older messages",
+  "conversationNew": "New chat",
+  "conversationNoHost": "Connect a host first",
+  "conversationNoProject": "Add a project on the host first",
+  "conversationNoModel": "Configure a model on the host first",
+  "conversationNoTasks": "No chats yet",
+  "conversationNoMessages": "No messages",
+  "conversationPreviewUnavailable": "Message unavailable",
+  "conversationInterrupted": "Interrupted",
+  "conversationContinued": "Continued",
+  "conversationFailedStatus": "Failed",
+  "conversationStopping": "Stopping",
+  "conversationQueued": "Queued",
+  "conversationProcessing": "Processing",
+  "conversationUnsynced": "State not synced",
+  "conversationGenerating": "Responding",
+  "conversationWaiting": "Awaiting confirmation",
+  "conversationWaitingChild": "Waiting for 1 subagent",
+  "conversationWaitingChildren": "Waiting for {count} subagents",
+  "@conversationWaitingChildren": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "conversationCompacting": "Compacting context",
+  "conversationForkConfirm": "Fork a chat from this record?",
+  "conversationCompacted": "Context compacted",
+  "conversationToolWaiting": "Pending",
+  "conversationToolRunning": "Running",
+  "conversationToolReturned": "Returned",
+  "conversationUnsupportedInput": "Handle this input on desktop",
+  "conversationStartCoding": "Start execution",
+  "conversationPlanFeedback": "Suggest changes",
+  "conversationOther": "Other",
+  "conversationSubmit": "Submit",
+  "conversationSource": "Source",
+  "conversationMode": "Work mode",
+  "conversationCode": "Standard",
+  "conversationPlan": "Plan",
+  "conversationFlagship": "Flagship",
+  "conversationPermission": "Permissions",
+  "conversationAsk": "Ask each time",
+  "conversationProject": "Project access",
+  "conversationFull": "Full access",
+  "conversationReasoning": "Reasoning effort",
+  "conversationDefault": "Default",
+  "conversationNone": "Off",
+  "conversationMinimal": "Minimal",
+  "conversationLow": "Low",
+  "conversationMedium": "Medium",
+  "conversationHigh": "High",
+  "conversationXHigh": "Higher",
+  "conversationMax": "Maximum",
+  "conversationBudget": "Reasoning budget",
+  "conversationAttachment": "Attachment",
+  "conversationAttachmentTooLarge": "Attachment unreadable or larger than 64 MB",
+  "conversationDownload": "View attachment",
+  "conversationImageFailed": "Cannot display image",
+  "conversationImageUnavailable": "Image unavailable",
+  "conversationDownloadFailed": "Could not load attachment",
+  "conversationReadonly": "This chat is archived",
+  "conversationMicrophoneDenied": "Cannot access microphone",
+  "conversationRecordingFailed": "Speech recognition failed",
+  "conversationSpeechDisabled": "Voice input is off",
+  "conversationSpeechMissing": "Download the speech model in Settings first",
+  "conversationRecording": "Recording",
+  "conversationTranscribing": "Transcribing",
+  "conversationRecordReady": "Ready to record",
+  "conversationStartRecording": "Start recording",
+  "conversationFinishRecording": "Finish recording",
+  "conversationSources": "Sources",
+  "conversationSearchSuggestions": "Search suggestions",
+  "conversationStats": "Chat usage",
+  "conversationStatsEmpty": "No usage yet",
+  "conversationStatsOverview": "Overview",
+  "conversationStatsTokenGroup": "Token usage",
+  "conversationStatsCostGroup": "Cost",
+  "conversationStatsGenerationGroup": "Generation",
+  "conversationStatsTokens": "Tokens",
+  "conversationStatsInput": "Input",
+  "conversationStatsOutput": "Output",
+  "conversationStatsCached": "Cached input",
+  "conversationStatsReasoning": "Reasoning output",
+  "conversationStatsCacheRate": "Cache hits",
+  "conversationStatsCost": "Estimated cost",
+  "conversationStatsCostCoverage": "Cost coverage",
+  "conversationStatsSpeed": "Generation speed",
+  "conversationStatsSpeedValue": "{value} tok/s",
+  "@conversationStatsSpeedValue": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "conversationStatsTimingCoverage": "Timing coverage",
+  "conversationStatsTurns": "Turns",
+  "conversationStatsResponses": "Model responses",
+  "conversationStatsContext": "Current context",
+  "conversationStatsInputCost": "Input cost",
+  "conversationStatsOutputCost": "Output cost",
+  "conversationStatsCacheReadCost": "Cache read cost",
+  "conversationStatsCacheWriteCost": "Cache write cost",
+  "messageHistoryUpdated": "Chat updated; original records kept",
+  "turnUndoUnsaved": "Files have unsaved changes; save or discard them first",
+  "codePlain": "Plain text",
+  "toolArguments": "Arguments",
+  "toolResult": "Result",
+  "toolRaw": "Raw result",
+  "turnChanges": "Turn changes",
+  "turnChangesCount": "{count} files",
+  "@turnChangesCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "fileChangesApprovalOne": "Apply patch to 1 file",
+  "fileChangesApproval": "Apply patch to {count} files",
+  "@fileChangesApproval": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "fileChangesAdded": "Added",
+  "fileChangesModified": "Modified",
+  "fileChangesRenamed": "Renamed",
+  "fileChangesDeleted": "Deleted",
+  "turnUndo": "Undo changes",
+  "turnUndoAll": "Undo all",
+  "turnUndoConfirm": "Undo these file changes from this turn? Conflicts with later changes will stop the operation",
+  "turnUndoDone": "Undone",
+  "turnUndoPartial": "Some changes undone; check the remaining files",
+  "messageActions": "Message actions",
+  "messageEdit": "Edit and regenerate",
+  "messageEditConfirm": "Replace this message and the following chat? Files will not be rolled back",
+  "messageRewind": "Rewind here",
+  "messageRewindConfirm": "Keep this turn and remove later messages? Files stay unchanged",
+  "messageBackup": "View chat backup",
+  "messageRegenerate": "Regenerate",
+  "messageSearch": "Search chat",
+  "messageSearchHint": "Search messages",
+  "messageSearchMissing": "This message is no longer in the current chat",
+  "messageSearchStale": "Chat changed; search again",
+  "messageNoResults": "No matching messages",
+  "messageCheck": "Check operation outcome",
+  "messageReference": "Reference",
+  "messageReferenceContext": "This reference belongs to the context when the message was sent",
+  "toolFailed": "Failed",
+  "toolQuestionAnswered": "Answered",
+  "toolQuestionDeclined": "Declined",
+  "toolQuestionCancelled": "Cancelled",
+  "fileLinkUnavailable": "Cannot open this link",
+  "imagePreview": "Image preview",
+  "fileOpenExternal": "Open with another app",
+  "fileOpenFailed": "Cannot open file",
+  "fileNoApplication": "No app can open this file",
+  "fileSaveBeforeShare": "Save changes before sharing?",
+  "fileTrashConfirm": "Move “{name}” to the host trash? Unsaved changes will also be discarded",
+  "@fileTrashConfirm": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "fileTrashUncertain": "Deletion outcome unconfirmed; retry the query",
+  "fileSaveFailed": "File save failed",
+  "terminalHideKeyboard": "Hide keyboard",
+  "terminalEscape": "Esc",
+  "terminalTab": "Tab",
+  "terminalCtrl": "Ctrl",
+  "terminalAlt": "Alt",
+  "terminalShift": "Shift",
+  "terminalCmd": "Cmd",
+  "terminalArrowLeft": "Left",
+  "terminalArrowUp": "Up",
+  "terminalArrowDown": "Down",
+  "terminalArrowRight": "Right",
+  "resourceNoWorkspace": "Choose a worktree on a connected host",
+  "resourceDisconnected": "Host not connected",
+  "resourceRoot": "Root",
+  "resourceMore": "Load more",
+  "resourcePartial": "Partial content shown",
+  "resourceEmpty": "No content",
+  "resourceSaveError": "Save failed; draft kept",
+  "resourceReloadConfirm": "Discard the draft and load the latest content?",
+  "resourceWorktreeCreate": "New worktree",
+  "resourceSessionServices": "Chat services",
+  "resourceServicesUnavailable": "Service list unavailable",
+  "resourceNoServices": "No service addresses found",
+  "resourceServiceOpen": "Open service",
+  "resourceRemotePort": "Remote port",
+  "resourceOpenPort": "Forward port",
+  "resourceOpenBrowser": "Preview web page",
+  "resourcePreviewFailed": "Could not load page",
+  "resourcePreviewLink": "Cannot open this link in preview",
+  "resourceForwardStopped": "Forwarding stopped",
+  "resourceTerminalControl": "Take control",
+  "resourceTerminalControlHint": "Controlled by another device",
+  "resourceTerminalClaiming": "Taking control",
+  "resourceTerminalReadOnly": "Read-only terminal",
+  "resourceTerminalEnded": "Terminal ended",
+  "resourceTerminalConnecting": "Connecting terminal",
+  "resourceTerminalInput": "Terminal input",
+  "resourceTerminalPaste": "Paste",
+  "resourceGitNotRepository": "This directory is not a Git repository",
+  "resourceInvalidPort": "Enter a port from 1–65535",
+  "tool_navigate": "Open page",
+  "tool_back": "Go back",
+  "tool_forward": "Go forward",
+  "tool_refresh": "Refresh page",
+  "tool_right_click": "Click element",
+  "tool_clear": "Enter text",
+  "tool_select": "Select option",
+  "tool_hover": "Hover element",
+  "tool_scroll": "Scroll page",
+  "tool_press_key": "Press key",
+  "tool_new_tab": "New tab",
+  "tool_list_windows": "Browser tabs",
+  "tool_switch_window": "Switch tab",
+  "tool_close_window": "Close window",
+  "tool_close_session": "Close browser",
+  "tool_screenshot": "Capture page",
+  "tool_print_to_pdf": "Export PDF",
+  "tool_file_upload": "Upload file",
+  "tool_downloads": "View downloads",
+  "tool_save_download": "Save downloaded file",
+  "tool_evaluate_js": "Run page script",
+  "tool_get_cookies": "Read cookies",
+  "tool_delete_all_cookies": "Change cookies",
+  "tool_drag_and_drop": "Drag element",
+  "tool_focus": "Focus element",
+  "tool_handle_alert": "Handle page alert",
+  "tool_database_catalog": "Browse database",
+  "tool_database_query": "Query database",
+  "tool_database_execute": "Execute database operation",
+  "tool_search_memory": "Search memory",
+  "tool_review_memories": "Review memories",
+  "tool_consolidate_memories": "Merge memories",
+  "tool_save_memory": "Save memory",
+  "tool_forget_memory": "Delete memory",
+  "tool_update_plan": "Update plan",
+  "tool_create_goal": "Create goal",
+  "tool_get_goal": "View goal",
+  "tool_update_goal": "Update goal",
+  "tool_spawn_agent": "Subagent",
+  "tool_browser_tabs": "Browser tabs",
+  "tool_browser_read": "Read page",
+  "tool_browser_navigate": "Open page",
+  "tool_browser_click": "Click element",
+  "tool_browser_input": "Enter text",
+  "tool_browser_scroll": "Scroll page",
+  "tool_browser_back": "Go back",
+  "tool_browser_forward": "Go forward",
+  "tool_browser_refresh": "Refresh page",
+  "tool_browser_open": "New tab",
+  "tool_browser_close": "Close tab",
+  "tool_browser_focus": "Switch tab",
+  "tool_browser_select": "Select option",
+  "tool_browser_hover": "Hover element",
+  "tool_browser_key": "Press key",
+  "tool_browser_frame": "Switch frame",
+  "tool_browser_wait": "Wait for page",
+  "tool_browser_screenshot": "Capture page",
+  "tool_ssh_run": "Run SSH command",
+  "tool_ssh_transfer": "Transfer SSH file",
+  "tool_list_worktrees": "List worktrees",
+  "tool_create_worktree": "New worktree",
+  "tool_register_worktree": "Add worktree",
+  "tool_remove_worktree": "Remove worktree",
+  "tool_google_search": "Search web",
+  "tool_web_fetch": "Fetch page",
+  "tool_fetch_url": "Fetch page",
+  "tool_read_file": "Read file",
+  "tool_write_file": "Write file",
+  "tool_list_directory": "Browse directory",
+  "tool_search_files": "Search files",
+  "tool_run_command": "Run command",
+  "tool_read_command": "View background command",
+  "tool_stop_command": "Stop command",
+  "tool_load_skill": "Load skill",
+  "tool_read_skill_resource": "Read skill resource",
+  "tool_computer_desktop": "View desktop",
+  "tool_computer_observe": "Observe screen",
+  "tool_computer_input": "Control computer",
+  "tool_computer_focus": "Switch app",
+  "tool_computer_open": "Open app",
+  "tool_git_status": "Git status",
+  "tool_git_diff": "View diff",
+  "tool_git_log": "Git log",
+  "tool_inspect_image": "Inspect image",
+  "tool_generate_image": "Generate image",
+  "tool_generate_video": "Generate video",
+  "refresh": "Refresh",
+  "loading": "Loading",
+  "home": "Chats",
+  "idle": "Idle",
+  "allProjects": "All projects",
+  "unassignedChats": "Chats",
+  "allWorktrees": "All worktrees",
+  "tasksActive": "In progress",
+  "tasksToday": "Today",
+  "yesterday": "Yesterday",
+  "tasksThisWeek": "This week",
+  "tasksEarlier": "Earlier",
+  "filterProjects": "Filter projects",
+  "closeSearch": "Close search",
+  "onlineHostCount": "{count} online",
+  "@onlineHostCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "taskActions": "Task actions",
+  "archiveShort": "Archive",
+  "archiveTab": "Archived",
+  "archivedTasks": "Archived",
+  "delete": "Delete",
+  "deleteTask": "Delete chat",
+  "deleteWarning": "This chat cannot be resumed after deletion",
+  "busyDelete": "Stop the task before deleting this chat",
+  "stopBeforeDelete": "Stop task",
+  "restored": "Restored to home",
+  "restore": "Restore",
+  "archiveEmpty": "No archived chats",
+  "archiveKeepsRunning": "Archiving does not stop running tasks",
+  "brand": "Sailry",
+  "mobile": "Mobile workspace",
+  "edition": "MOBILE EXPLORATION / 01",
+  "intro": "Tasks, chats and remote workspaces",
+  "preview": "Preview",
+  "mixed": "Light and dark",
+  "dark": "Dark",
+  "light": "Light",
+  "gallery": "Overview",
+  "focus": "Single screen",
+  "page": "Choose page",
+  "experience": "Open page",
+  "backGallery": "Back to overview",
+  "design": "Features and design",
+  "footer": "SAILRY / MOBILE",
+  "tasks": "Tasks",
+  "chat": "Chat",
+  "hosts": "Hosts",
+  "resources": "Resources",
+  "settings": "Settings",
+  "usage": "Usage",
+  "changes": "Changes",
+  "terminal": "Terminal",
+  "newTerminal": "New terminal",
+  "files": "Files",
+  "project": "Project",
+  "worktree": "Worktree",
+  "subtitleTasks": "Tasks across hosts · Approvals and replies first",
+  "subtitleChat": "Continuous chat · Expand tool activity as needed",
+  "subtitleHosts": "Connections, host resources and processes",
+  "subtitleResources": "Host → Project → Worktree",
+  "subtitleChanges": "File diffs, staging and commits",
+  "subtitleTerminal": "Remote terminal · Explicit input control",
+  "subtitleUsage": "Sailry chats · Aggregated across hosts",
+  "subtitleSettings": "Local preferences and execution Node settings",
+  "allHosts": "All hosts",
+  "connectedHosts": "2 online",
+  "all": "All",
+  "running": "Running",
+  "waiting": "Pending",
+  "completed": "Completed",
+  "taskProgress": "Current task",
+  "taskWait": "Awaiting your decision",
+  "taskRecent": "Recently completed",
+  "search": "Search",
+  "searchTasks": "Search tasks and projects",
+  "filterTasks": "Filter tasks",
+  "noResults": "No matching tasks",
+  "notification": "Notifications",
+  "newTask": "New task",
+  "newConversation": "New chat",
+  "question": "Which language should the documentation use?",
+  "reply": "Reply",
+  "approval": "Approval",
+  "viewRequest": "View request",
+  "ago": "Just now",
+  "minutesAgo": "12 minutes ago",
+  "allow": "Allow once",
+  "deny": "Deny",
+  "working": "Working",
+  "viewChanges": "View changes",
+  "viewConversation": "View chat",
+  "branch": "feature/sign-in",
+  "today": "Today 09:36",
+  "phaseThinking": "Thinking",
+  "phaseReading": "Reading files",
+  "phaseQuestion": "Awaiting reply",
+  "phaseEditing": "Editing files",
+  "phaseApproval": "Awaiting approval",
+  "phaseTesting": "Running tests",
+  "phaseReply": "Responding",
+  "phaseFollowup": "Processing queue",
+  "phaseComplete": "Completed",
+  "phaseFailed": "Tests failed",
+  "allowShort": "Allow",
+  "queueShort": "Queue",
+  "replyingNow": "Responding",
+  "readFileProgress": "Reading file",
+  "questionPending": "Awaiting your reply",
+  "testTool": "Run project tests",
+  "testFailed": "Tests failed",
+  "queueCount": "{count} queued messages",
+  "@queueCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "queuePaused": "Queue paused · {count}",
+  "@queuePaused": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "queueGuidance": "{queue}, guidance waiting to join",
+  "@queueGuidance": {
+    "placeholders": {
+      "queue": {
+        "type": "String"
+      }
+    }
+  },
+  "pauseQueue": "Pause queue",
+  "resumeQueue": "Resume queue",
+  "enqueue": "Add to queue",
+  "moveUp": "Move up",
+  "thinkingNow": "Thinking",
+  "toolsNow": "Executing",
+  "thought": "Reasoning",
+  "toolDiff": "Inspect file diffs",
+  "approvalResolved": "Approval resolved",
+  "chatContinue": "Continue describing your task",
+  "describeTask": "Describe your task",
+  "send": "Send",
+  "attach": "Attach",
+  "voice": "Voice input",
+  "attachment": "Attachment",
+  "removeAttachment": "Remove attachment",
+  "model": "Model",
+  "copy": "Copy",
+  "copied": "Copied",
+  "copyFailed": "Copy unavailable; select the text manually",
+  "more": "More",
+  "close": "Close",
+  "back": "Back",
+  "cancel": "Cancel",
+  "save": "Save",
+  "queue": "Message queue",
+  "queueEmpty": "No queued messages",
+  "fork": "Fork chat",
+  "stop": "Stop task",
+  "stoppedStatus": "Stopped",
+  "hostSubtitle": "Your execution Nodes",
+  "pair": "Connect host",
+  "online": "Online",
+  "offline": "Offline",
+  "cpu": "CPU",
+  "memory": "Memory",
+  "metrics": "Resource usage",
+  "activity": "Activity",
+  "processes": "Processes",
+  "network": "Network",
+  "relay": "Relay",
+  "retry": "Retry",
+  "pairTitle": "Connect a host",
+  "pairCode": "Pairing code",
+  "pairInvalid": "Enter 6 digits",
+  "workspace": "Workspace",
+  "selectHost": "Choose host",
+  "selectProject": "Choose project",
+  "selectBranch": "Choose worktree",
+  "mainBranch": "Main worktree",
+  "connectionTools": "Connections",
+  "workspaceResources": "Workspace",
+  "confirm": "Confirm",
+  "git": "Git",
+  "gitBranches": "Branches",
+  "gitHistory": "History",
+  "gitViewAll": "View all {count} changes",
+  "@gitViewAll": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "terminalRunningCount": "{count} running",
+  "@terminalRunningCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "gitUnstaged": "Unstaged",
+  "gitStageFile": "Stage",
+  "gitCommitCount": "Commit {count}",
+  "@gitCommitCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "gitRemote": "Remote",
+  "gitCurrentShort": "Current",
+  "gitDiscardConfirm": "Discard all changes to “{name}”?",
+  "@gitDiscardConfirm": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "gitTrashConfirm": "Move “{name}” to the host trash?",
+  "@gitTrashConfirm": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "gitCommitOptions": "Commit options",
+  "gitSkipHooks": "Skip hooks",
+  "gitPushAfterCommit": "Push after commit",
+  "fileShare": "Share",
+  "fileTrash": "Move to trash",
+  "gitLineChanges": "{added} lines added · {removed} removed",
+  "@gitLineChanges": {
+    "placeholders": {
+      "added": {
+        "type": "String"
+      },
+      "removed": {
+        "type": "String"
+      }
+    }
+  },
+  "gitActions": "Git actions",
+  "gitFetch": "Fetch",
+  "gitPull": "Pull",
+  "gitPush": "Push",
+  "gitCurrent": "Current branch",
+  "gitCreateBranch": "New branch",
+  "gitBranchName": "Branch name",
+  "gitSwitch": "Switch branch",
+  "gitMerge": "Merge branch",
+  "gitDeleteBranch": "Delete branch",
+  "gitSwitchNote": "Switch branch in this worktree; simulation only",
+  "gitDeleteNote": "Delete selected branch; simulation only",
+  "review": "Review",
+  "reviewFiles": "View code changes",
+  "selectWorkspace": "Project and worktree",
+  "searchFiles": "Search files",
+  "recentFiles": "Files",
+  "src": "Source",
+  "folder": "Folder",
+  "modified": "Modified",
+  "filePreview": "File preview",
+  "edit": "Edit",
+  "unsaved": "Unsaved",
+  "discard": "Discard changes",
+  "connections": "More resources",
+  "ssh": "SSH",
+  "database": "Database",
+  "ports": "Port forwarding",
+  "browser": "Web preview",
+  "openTerminal": "Open terminal",
+  "openFile": "Open file",
+  "tables": "Tables",
+  "closePort": "Close forward",
+  "workingTree": "Working tree",
+  "staged": "Staged",
+  "stage": "Stage all",
+  "unstage": "Unstage",
+  "commit": "Commit",
+  "commitMessage": "Commit message",
+  "noChanges": "No changes to commit",
+  "terminalKeyboard": "Keyboard",
+  "terminalEnter": "Enter",
+  "terminalOutputLabel": "Terminal output",
+  "readOnly": "Read only",
+  "takeControl": "Take control",
+  "hasControl": "Input control",
+  "releaseControl": "Release control",
+  "usageSubtitle": "Sailry chats only",
+  "tokens": "Tokens",
+  "requests": "Responses",
+  "usageCoverage": "{priced} / {total} responses priced",
+  "@usageCoverage": {
+    "placeholders": {
+      "priced": {
+        "type": "String"
+      },
+      "total": {
+        "type": "String"
+      }
+    }
+  },
+  "usageEmpty": "No usage data",
+  "estimatedCost": "Estimated cost (USD)",
+  "partial": "Partial data",
+  "input": "Input",
+  "output": "Output",
+  "cached": "Cache hits",
+  "hostUsage": "Host usage",
+  "recentRequests": "Recent responses",
+  "allUsage": "Usage details",
+  "usageNote": "Costs are estimates; some responses are not priced",
+  "sourceNote": "Offline hosts retain their last known data",
+  "profileSubtitle": "Mobile controller",
+  "localSettings": "Local preferences",
+  "appearance": "Appearance",
+  "notifications": "Notifications",
+  "enabled": "On",
+  "disabled": "Off",
+  "add": "Add",
+  "configName": "Name",
+  "configEndpoint": "Endpoint",
+  "configModels": "Models",
+  "configInstructions": "Instructions",
+  "configEmpty": "No entries",
+  "configDuplicate": "Name already exists",
+  "configDelete": "Delete “{name}”?",
+  "@configDelete": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "speechInput": "Voice input",
+  "developerInstructions": "Change the code for the task and verify the result",
+  "reviewerInstructions": "Review code changes and identify issues",
+  "projectConventions": "Project conventions",
+  "memoryContent": "Preserve the existing code style",
+  "providers": "Models and providers",
+  "speech": "Speech",
+  "nodeSettingsNote": "Configuration saved on {host}",
+  "@nodeSettingsNote": {
+    "placeholders": {
+      "host": {
+        "type": "String"
+      }
+    }
+  },
+  "about": "About Sailry",
+  "modelPicker": "Choose model",
+  "team": "Team",
+  "executionModel": "Model only",
+  "teamDefault": "Default team",
+  "teamLead": "Lead",
+  "memberReset": "Reset model",
+  "nodeDefaults": "Node defaults",
+  "auto": "Auto",
+  "manual": "Ask each time",
+  "speechNote": "Uses the execution Node speech configuration",
+  "required": "Describe your task first",
+  "notificationsEmpty": "No new notifications",
+  "reviewTitle": "Design references",
+  "reviewConversation": "Chats, approvals, questions and queue",
+  "reviewConversationText": "Tasks retain host, project and worktree ownership; expand tool records and approvals within chats",
+  "reviewResources": "Files, Git, terminals and connections",
+  "reviewResourcesText": "File editing, staging, commits and ports retain their entry points; details open on secondary pages",
+  "reviewHosts": "Host connections and monitoring",
+  "reviewHostsText": "Paired Nodes, 6-digit codes, resource usage and processes; offline state is not shown as live",
+  "reviewUsage": "Usage and Node settings",
+  "reviewUsageText": "Sailry chats only; aggregated usage retains completeness and costs indicate estimates and coverage",
+  "reviewBoundary": "Mobile boundary",
+  "reviewVisual": "Visual references",
+  "reviewVisualText": "Reference 1: chat hierarchy; reference 2: soft cards and floating navigation; reference 3: compact monitoring",
+  "hostConnectPrompt": "Connect a host",
+  "hostDisconnected": "Connection lost",
+  "hostUpdateRequired": "Update the host to connect",
+  "appUpdateRequired": "Update this app to connect",
+  "language": "Language",
+  "languageSystem": "System",
+  "languageChinese": "简体中文",
+  "languageEnglish": "English",
+  "languageTraditionalChinese": "繁體中文",
+  "languageJapanese": "日本語",
+  "languageKorean": "한국어",
+  "languageFrench": "Français",
+  "languageGerman": "Deutsch",
+  "languageSpanish": "Español",
+  "languagePortugueseBrazil": "Português (Brasil)",
+  "languageRussian": "Русский",
+  "backgroundConnection": "Keep connected in background",
+  "backgroundConnectionActive": "Keeping host connections active",
+  "backgroundConnectionFailed": "Background connection not enabled; retry",
+  "resetReasoning": "Reset effort",
+  "completionAlerts": "Completion alerts",
+  "notificationsReadAll": "Mark all read",
+  "notificationsOpen": "Open",
+  "preferencesFailed": "Preferences not saved; retry",
+  "connectFirst": "Connect a host to begin",
+  "initializing": "Starting",
+  "startupFailed": "Startup failed",
+  "retryConnection": "Retry",
+  "pairAction": "Connect",
+  "pairFailed": "Connection failed; retry",
+  "pairExpired": "Pairing code expired; get a new code",
+  "pairing": "Connecting",
+  "hostUnavailable": "Host not connected",
+  "hostRemove": "Remove host",
+  "hostRemoveConfirm": "Remove “{name}” from this device? Pair again to reconnect",
+  "@hostRemoveConfirm": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "hostRemoved": "Host removed",
+  "hostRemoveFailed": "Could not remove host",
+  "hostMetricsFailed": "Cannot read host status",
+  "hostProcessesEmpty": "No processes",
+  "hostRegisterProject": "Add project",
+  "hostChooseDirectory": "Choose directory",
+  "hostChooseFile": "Choose file",
+  "hostParentDirectory": "Parent directory",
+  "hostEmptyDirectory": "Directory is empty",
+  "hostLoadMore": "Load more",
+  "hostProjectName": "Project name",
+  "hostProjectPath": "Project path on host",
+  "hostProjectFailed": "Cannot add project",
+  "hostUnknown": "No data",
+  "hostRefresh": "Refresh",
+  "hostMetricCpu": "CPU",
+  "hostMetricMemory": "Memory",
+  "hostMetricDisk": "Disk",
+  "failureConflict": "Content changed; reload and retry",
+  "failureUnknown": "Outcome unconfirmed; check the host state first",
+  "failureDenied": "Permission denied",
+  "failureUnavailable": "Host not connected",
+  "failureBusy": "Service busy; retry later",
+  "failureGeneric": "Operation failed",
+  "settingsSpeechLanguage": "Language",
+  "settingsSpeechAuto": "Auto-detect",
+  "settingsSpeechChinese": "Chinese",
+  "settingsSpeechEnglish": "English",
+  "settingsSpeechReady": "Speech model ready",
+  "settingsSpeechDownload": "Download speech model",
+  "settingsSpeechFailed": "Speech model not ready; retry",
+  "settingsNoHost": "Connect a host first",
+  "settingsUnavailable": "Unavailable",
+  "settingsLoadFailed": "Could not load",
+  "settingsSaveFailed": "Save failed; draft kept",
+  "settingsConflict": "Settings changed; reopen and retry",
+  "settingsUnknown": "Outcome unconfirmed; refresh to check",
+  "settingsLoading": "Loading",
+  "settingsRequired": "Enter a value",
+  "settingsApi": "API format",
+  "settingsOpenCodeGo": "OpenCode Go",
+  "settingsOpenCodeZen": "OpenCode Zen",
+  "settingsApiKey": "API Key",
+  "settingsEnabled": "Enabled",
+  "apiChatCompletions": "Chat Completions",
+  "apiResponses": "Responses",
+  "apiAnthropic": "Anthropic",
+  "apiGemini": "Gemini",
+  "apiDeepSeek": "DeepSeek",
+  "apiAzureOpenAi": "Azure OpenAI",
+  "apiAzureAi": "Azure AI",
+  "apiPlugin": "Plugin",
+  "providerNew": "New provider",
+  "providerEmpty": "No providers",
+  "providerDesktopHint": "Add presets and account logins on Desktop; their models are editable here",
+  "providerConnection": "Connection",
+  "providerKeyUnset": "Not set",
+  "providerShowKey": "Show key",
+  "providerHideKey": "Hide key",
+  "providerModelCount": "{count} models",
+  "@providerModelCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "providerFetch": "Fetch",
+  "providerFetchTitle": "Fetch models",
+  "providerFetched": "{count} returned",
+  "@providerFetched": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "providerSelectAll": "Select all",
+  "providerSelectNone": "Deselect all",
+  "providerSearch": "Search models",
+  "providerAdded": "Added",
+  "providerContext": "{tokens} context",
+  "@providerContext": {
+    "placeholders": {
+      "tokens": {
+        "type": "String"
+      }
+    }
+  },
+  "providerAddCount": "Add {count}",
+  "@providerAddCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "providerModelId": "Model ID",
+  "providerModelExists": "Model already added",
+  "providerDisplayName": "Display name",
+  "providerDefault": "Default",
+  "providerBasic": "Basic",
+  "providerContextTitle": "Context",
+  "providerContextLength": "Context length",
+  "providerMaxOutput": "Max output",
+  "providerCompaction": "Auto-compaction",
+  "providerCapabilities": "Capabilities",
+  "providerVision": "Image input",
+  "providerTools": "Tool calls",
+  "providerReasoning": "Reasoning",
+  "providerEfforts": "Reasoning effort",
+  "providerEffortPlaceholder": "Effort or token budget",
+  "providerEffortInvalid": "Invalid reasoning effort; check names, duplicates and API support",
+  "providerEffortDefault": "Default effort",
+  "providerEffortSetDefault": "Set as default",
+  "providerSetDefault": "Set as default model",
+  "providerIsDefault": "Default model",
+  "providerDeleteModel": "Delete model",
+  "providerDelete": "Delete provider",
+  "providerNumberInvalid": "Enter a positive whole number",
+  "providerLimitsInvalid": "Max output can't exceed context length",
+  "settingsDriver": "Service",
+  "settingsModel": "Model",
+  "settingsArchived": "Archived",
+  "settingsUsageUnknown": "Unknown",
+  "settingsUsagePartial": "Some hosts are out of date",
+  "settingsUsageCache": "Cached",
+  "settingsUsageInput": "Uncached",
+  "settingsUsageOutput": "Output",
+  "usageRange24h": "24 hours",
+  "usageRange7d": "7 days",
+  "usageRange30d": "30 days",
+  "usageRange90d": "90 days",
+  "usageRange1y": "1 year",
+  "usageReasoning": "Reasoning",
+  "usageHitRate": "Cache hit rate",
+  "usageSpeed": "Average speed",
+  "usageSpeedUnit": "tok/s",
+  "usageCostPartial": "Partial",
+  "usageTrend": "Token trend",
+  "usageLocalTime": "Local time",
+  "usageActiveDays": "{count} active days",
+  "@usageActiveDays": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "usageBreakdown": "Breakdown",
+  "usageProvider": "Provider",
+  "usageShowAll": "Show all",
+  "usageCollapse": "Show less",
+  "usageUnassigned": "Unassigned",
+  "usageHit": "Hit {value}",
+  "@usageHit": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "usageResponseCount": "{count} responses",
+  "@usageResponseCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "artifactContents": "Contents",
+  "artifactZoomIn": "Zoom in",
+  "artifactZoomOut": "Zoom out",
+  "artifactVersions": "Versions",
+  "artifactFormRequired": "Complete required fields",
+  "artifactFormInvalid": "Could not submit answers",
+  "artifactRenderFailed": "Could not render visual",
+  "artifactReply": "Reply to “{title}” v{revision} ({id}/{form})",
+  "@artifactReply": {
+    "placeholders": {
+      "id": {
+        "type": "String"
+      },
+      "revision": {
+        "type": "String"
+      },
+      "title": {
+        "type": "String"
+      },
+      "form": {
+        "type": "String"
+      }
+    }
+  },
+  "connectionRouteP2p": "P2P",
+  "connectionRouteRelay": "Relay",
+  "connectionRouteUnknown": "—",
+  "backgroundNoticeTitle": "Background results",
+  "backgroundCompleted": "Completed",
+  "backgroundFailed": "Failed",
+  "backgroundCancelled": "Cancelled",
+  "backgroundStopped": "Stopped",
+  "backgroundTimedOut": "Timed out",
+  "backgroundInterrupted": "Interrupted",
+  "backgroundStalled": "No recent output",
+  "backgroundUnknown": "Outcome uncertain",
+  "backgroundPending": "Background results ready",
+  "conversationSteps": "{count} steps",
+  "@conversationSteps": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "conversationStep": "1 step",
+  "activityProgress": "Progress",
+  "activityBackground": "Background tasks",
+  "activityPorts": "Ports",
+  "hostConnecting": "Connecting",
+  "hostInfo": "Host info",
+  "hostLatency": "Latency",
+  "hostLatencySummary": "Avg {average}  Max {peak}",
+  "@hostLatencySummary": {
+    "placeholders": {
+      "average": {
+        "type": "String"
+      },
+      "peak": {
+        "type": "String"
+      }
+    }
+  },
+  "hostSystem": "System",
+  "hostProcessor": "Processor",
+  "hostCores": "{count} cores",
+  "@hostCores": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "hostLoad": "Load {value}",
+  "@hostLoad": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "hostMemoryShare": "{percent} used",
+  "@hostMemoryShare": {
+    "placeholders": {
+      "percent": {
+        "type": "String"
+      }
+    }
+  },
+  "hostUptime": "Uptime",
+  "hostNodeUptime": "Service {duration}",
+  "@hostNodeUptime": {
+    "placeholders": {
+      "duration": {
+        "type": "String"
+      }
+    }
+  },
+  "hostDays": "{count} days",
+  "@hostDays": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "hostHours": "{count} hours",
+  "@hostHours": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "hostMinutes": "{count} minutes",
+  "@hostMinutes": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "hostTrend": "Trend",
+  "hostTrendWindow": "Last minute",
+  "hostChartStart": "60s ago",
+  "hostChartNow": "Now",
+  "hostMetricGpu": "GPU",
+  "hostMemoryUsed": "Used",
+  "hostMemoryCache": "Cached",
+  "hostMemorySwap": "Swap",
+  "hostGpuUsage": "Usage",
+  "hostNetwork": "Network",
+  "hostNetworkTotals": "Total ↓ {received}  ↑ {sent}",
+  "@hostNetworkTotals": {
+    "placeholders": {
+      "received": {
+        "type": "String"
+      },
+      "sent": {
+        "type": "String"
+      }
+    }
+  },
+  "hostDownload": "Download",
+  "hostUpload": "Upload",
+  "hostPartitions": "{count} partitions",
+  "@hostPartitions": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "hostDiskRead": "Read",
+  "hostDiskWrite": "Write",
+  "hostProcesses": "Processes",
+  "hostSortCpu": "By CPU",
+  "hostSortMemory": "By memory",
+  "hostSortRecent": "Recent",
+  "hostSearchProcesses": "Search processes",
+  "hostSearchProjects": "Search projects",
+  "hostProcessLimit": "Top {count} shown",
+  "@hostProcessLimit": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "hostNoMatches": "No matches",
+  "modelFeatureOff": "Standard",
+  "modelFeatureFast": "Fast",
+  "modelFeatureSpeed": "Speed"
+}

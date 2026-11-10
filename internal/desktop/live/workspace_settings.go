@@ -15,11 +15,89 @@ type workspaceSettingsState struct {
 	sandboxed       bool
 	sandboxRevision uint64
 	loading         bool
+	hookModels      map[protocol.WorktreeID]*settings.Stored[settings.HookSettings]
+	sandboxModel    settings.Stored[bool]
+	sandboxKnown    bool
 }
 
-func (r *Runtime) workspaceSettingsFrame() {
+func (r *Runtime) initWorkspaceSettings() {
 	state := &r.workspaceSettings
-	if r.controller.Snapshot().SandboxSettingsRevision != state.sandboxRevision && !r.App.Settings.Sandbox.Pending {
+	if state.hookModels != nil {
+		return
+	}
+	state.hookModels = map[protocol.WorktreeID]*settings.Stored[settings.HookSettings]{}
+	if owner := r.localRuntime().workspaceSettingsOwner; owner == nil || owner == r {
+		state.sandboxModel = r.App.Settings.Sandbox
+		if state.worktree != (protocol.WorktreeID{}) {
+			value := r.App.Settings.Hooks
+			state.hookModels[state.worktree] = &value
+		}
+	}
+}
+func (r *Runtime) workspaceHooksModel(id protocol.WorktreeID) *settings.Stored[settings.HookSettings] {
+	r.initWorkspaceSettings()
+	if model := r.workspaceSettings.hookModels[id]; model != nil {
+		return model
+	}
+	model := &settings.Stored[settings.HookSettings]{}
+	r.workspaceSettings.hookModels[id] = model
+	return model
+}
+func (r *Runtime) captureWorkspaceSettings() {
+	if r.localRuntime().workspaceSettingsOwner != r {
+		return
+	}
+	r.initWorkspaceSettings()
+	r.workspaceSettings.sandboxModel = r.App.Settings.Sandbox
+	if id := r.workspaceSettings.worktree; id != (protocol.WorktreeID{}) {
+		*r.workspaceHooksModel(id) = r.App.Settings.Hooks
+	}
+}
+func (r *Runtime) publishWorkspaceSettings() {
+	if r.localRuntime().workspaceSettingsOwner != r {
+		return
+	}
+	r.App.Settings.Sandbox = r.workspaceSettings.sandboxModel
+	r.App.Settings.Hooks = settings.Stored[settings.HookSettings]{}
+	if id := r.workspaceSettings.worktree; id != (protocol.WorktreeID{}) {
+		r.App.Settings.Hooks = *r.workspaceHooksModel(id)
+	}
+}
+func (r *Runtime) bindWorkspaceSettings() {
+	root := r.localRuntime()
+	r.initWorkspaceSettings()
+	root.workspaceSettingsOwner = r
+	root.App.Settings.SaveSandbox = r.saveSandbox
+	root.App.Settings.SaveHooks = r.saveWorkspaceHooks
+	root.App.Settings.HooksContext = r.hookContext
+	root.App.Settings.HooksSandboxed = r.hooksSandboxed
+	r.publishWorkspaceSettings()
+}
+func (r *Runtime) workspaceSettingsFrame() {
+	root := r.localRuntime()
+	owner := root.selectedRuntime()
+	previous := root.workspaceSettingsOwner
+	if previous != nil {
+		previous.captureWorkspaceSettings()
+		if root.App.Settings.HooksEditing() {
+			owner = previous
+		}
+	}
+	if owner == nil {
+		return
+	}
+	if previous != owner {
+		owner.bindWorkspaceSettings()
+	}
+	owner.refreshWorkspaceSettings()
+}
+func (r *Runtime) refreshWorkspaceSettings() {
+	if r.ctx != nil && r.ctx.Err() != nil {
+		return
+	}
+	r.initWorkspaceSettings()
+	state := &r.workspaceSettings
+	if (!state.sandboxKnown || r.controller.Snapshot().SandboxSettingsRevision != state.sandboxRevision) && !state.sandboxModel.Pending {
 		r.readSandbox()
 	}
 	session, ok := r.session(r.App.Sidebar.Selected)
@@ -30,16 +108,16 @@ func (r *Runtime) workspaceSettingsFrame() {
 	if ok && session.Project != nil {
 		id = session.Worktree
 	}
-	if id != state.worktree {
+	if id != state.worktree && !r.App.Settings.HooksEditing() {
 		state.worktree = id
 		state.hooks = protocol.DefaultHooksSettings()
 		state.sandboxed = false
 		state.loading = false
-		r.App.Settings.Hooks = settings.Stored[settings.HookSettings]{}
 		if id != (protocol.WorktreeID{}) {
 			r.readWorkspaceHooks(id)
 		}
 	}
+	r.publishWorkspaceSettings()
 }
 func (r *Runtime) hookContext() (string, bool) {
 	id := r.workspaceSettings.worktree
@@ -94,15 +172,19 @@ func hookDraft(value protocol.HooksSettings) settings.HookSettings {
 	return draft
 }
 func (r *Runtime) readWorkspaceHooks(id protocol.WorktreeID) {
+	model := r.workspaceHooksModel(id)
+	if model.Pending {
+		return
+	}
 	r.workspaceSettings.loading = true
-	r.App.Settings.Hooks.Pending = true
+	model.Pending = true
+	r.publishWorkspaceSettings()
 	r.execute(protocol.Command{Kind: "read_hooks", Data: protocol.CommandReadHooksPayload{Worktree: id}}, func(c *ui.Context, out protocol.Output, err error) {
-		if id != r.workspaceSettings.worktree {
-			return
+		model.Pending = false
+		if id == r.workspaceSettings.worktree {
+			r.workspaceSettings.loading = false
 		}
-		r.workspaceSettings.loading = false
-		m := &r.App.Settings.Hooks
-		m.Pending = false
+		defer r.publishWorkspaceSettings()
 		if err != nil {
 			r.reportKeys(c, err, "hooks_failed", "hooks_conflict", "hooks_unknown")
 			return
@@ -112,24 +194,32 @@ func (r *Runtime) readWorkspaceHooks(id protocol.WorktreeID) {
 			return
 		}
 		draft := hookDraft(value.Settings)
-		if reflect.DeepEqual(m.Draft, m.Saved) {
-			m.Draft = draft
+		if reflect.DeepEqual(model.Draft, model.Saved) {
+			model.Draft = draft
 		}
-		m.Saved, m.Revision = draft, value.Settings.Revision
-		r.workspaceSettings.hooks = value.Settings
-		r.workspaceSettings.sandboxed = value.Sandboxed
+		model.Saved, model.Revision = draft, value.Settings.Revision
+		if id == r.workspaceSettings.worktree {
+			r.workspaceSettings.hooks = value.Settings
+			r.workspaceSettings.sandboxed = value.Sandboxed
+		}
 	})
 }
 func (r *Runtime) saveWorkspaceHooks() {
+	if r.ctx != nil && r.ctx.Err() != nil {
+		r.Report(fileActionFault(protocol.ErrorCodeUnavailable, "the hooks execution host is unavailable"))
+		return
+	}
+	r.captureWorkspaceSettings()
 	id := r.workspaceSettings.worktree
 	if id == (protocol.WorktreeID{}) {
 		return
 	}
-	m := &r.App.Settings.Hooks
+	m := r.workspaceHooksModel(id)
 	if m.Pending {
 		return
 	}
 	m.Pending = true
+	r.publishWorkspaceSettings()
 	value := protocol.DefaultHooksSettings()
 	value.Revision = m.Revision
 	value.Enabled = m.Draft.Enabled
@@ -154,10 +244,8 @@ func (r *Runtime) saveWorkspaceHooks() {
 		}
 	}
 	r.saveSetting(protocol.Command{Kind: "save_hooks", Data: protocol.CommandSaveHooksPayload{Worktree: id, Settings: value, ExpectedRevision: m.Revision}}, settings.Messages{Done: "hooks_saved", Failed: "hooks_failed", Conflict: "hooks_conflict", Uncertain: "hooks_unknown"}, func(out protocol.Output, ok bool) {
-		if id != r.workspaceSettings.worktree {
-			return
-		}
 		m.Pending = false
+		defer r.publishWorkspaceSettings()
 		if !ok {
 			return
 		}
@@ -166,19 +254,25 @@ func (r *Runtime) saveWorkspaceHooks() {
 			return
 		}
 		m.Saved, m.Draft, m.Revision = hookDraft(state.Settings), hookDraft(state.Settings), state.Settings.Revision
-		r.workspaceSettings.hooks = state.Settings
-		r.workspaceSettings.sandboxed = state.Sandboxed
+		if id == r.workspaceSettings.worktree {
+			r.workspaceSettings.hooks = state.Settings
+			r.workspaceSettings.sandboxed = state.Sandboxed
+		}
 	})
 }
 func (r *Runtime) readSandbox() {
-	m := &r.App.Settings.Sandbox
+	r.initWorkspaceSettings()
+	m := &r.workspaceSettings.sandboxModel
 	if m.Pending {
 		return
 	}
 	m.Pending = true
 	r.workspaceSettings.sandboxRevision = r.controller.Snapshot().SandboxSettingsRevision
+	r.workspaceSettings.sandboxKnown = true
+	r.publishWorkspaceSettings()
 	r.execute(protocol.Command{Kind: "read_sandbox_settings"}, func(c *ui.Context, out protocol.Output, err error) {
 		m.Pending = false
+		defer r.publishWorkspaceSettings()
 		if err != nil {
 			r.reportKeys(c, err, "sandbox_settings_failed", "sandbox_settings_conflict", "sandbox_settings_unknown")
 			return
@@ -195,13 +289,20 @@ func (r *Runtime) readSandbox() {
 	})
 }
 func (r *Runtime) saveSandbox() {
-	m := &r.App.Settings.Sandbox
+	if r.ctx != nil && r.ctx.Err() != nil {
+		r.Report(fileActionFault(protocol.ErrorCodeUnavailable, "the sandbox execution host is unavailable"))
+		return
+	}
+	r.captureWorkspaceSettings()
+	m := &r.workspaceSettings.sandboxModel
 	if m.Pending {
 		return
 	}
 	m.Pending = true
+	r.publishWorkspaceSettings()
 	r.saveSetting(protocol.Command{Kind: "save_sandbox_settings", Data: protocol.SandboxSettings{Revision: m.Revision, Enabled: m.Draft}}, settings.Messages{Done: "sandbox_settings_saved", Failed: "sandbox_settings_failed", Conflict: "sandbox_settings_conflict", Uncertain: "sandbox_settings_unknown"}, func(out protocol.Output, ok bool) {
 		m.Pending = false
+		defer r.publishWorkspaceSettings()
 		if !ok {
 			return
 		}

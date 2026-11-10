@@ -64,7 +64,7 @@ func Sidebar(snapshot protocol.Snapshot, prefs preferences.Data) *viewmodel.Data
 		if s.Project != nil && projects[*s.Project] == nil {
 			continue
 		}
-		cv := &viewmodel.Conversation{ID: s.ID.String(), Title: s.Activity.Title, Archived: s.Archived, Created: int(s.CreationOrder), Revision: s.Revision, AttentionRevision: s.Activity.Attention.Revision}
+		cv := &viewmodel.Conversation{Node: owner, ID: s.ID.String(), Title: s.Activity.Title, Archived: s.Archived, Created: int(s.CreationOrder), Revision: s.Revision, AttentionRevision: s.Activity.Attention.Revision}
 		if last := lastRun(s); last != nil {
 			cv.Updated = time.UnixMilli(*last)
 		}
@@ -135,7 +135,7 @@ func Notices(list []client.Notice) []*viewmodel.Notice {
 				kind = viewmodel.NoticeFailed
 			}
 		}
-		v := &viewmodel.Notice{ID: id, Kind: kind, Title: n.Title, Message: n.Message, Host: "local_host_name", Read: n.Read}
+		v := &viewmodel.Notice{Node: n.ID.Node.String(), ID: id, Kind: kind, Title: n.Title, Message: n.Message, Host: "local_host_name", Read: n.Read}
 		v.TitleKey = headingKey(n)
 		if n.TimestampMs != nil {
 			v.Time = time.UnixMilli(*n.TimestampMs)

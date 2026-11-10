@@ -68,6 +68,9 @@ func (c *Client) WatchConversation(ctx context.Context, session protocol.Session
 		if w != nil {
 			next.state = w.state
 			next.projection.snapshot = w.projection.Snapshot()
+			next.projection.liveStart = w.projection.liveStart
+			next.projection.artifactCursor = w.projection.artifactCursor
+			next.projection.statisticsErr = w.projection.statisticsErr
 			next.extent = w.extent
 		}
 		for _, s := range c.Snapshot().Sessions {

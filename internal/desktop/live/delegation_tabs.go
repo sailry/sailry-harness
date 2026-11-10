@@ -93,6 +93,14 @@ func (r *Runtime) openLiveChild(parent *viewmodel.Conversation, id string) {
 }
 
 func (r *Runtime) renderLiveChild(c *ui.Context, id string) {
+	if r.parent == nil {
+		for _, bound := range r.bindings {
+			if _, ok := bound.teams.childParents[id]; ok {
+				bound.renderLiveChild(c, id)
+				return
+			}
+		}
+	}
 	if r.teams == nil {
 		return
 	}
@@ -112,7 +120,7 @@ func (r *Runtime) renderLiveChild(c *ui.Context, id string) {
 	if state, ready := r.controller.Conversation(parent); ready {
 		page = &state.Snapshot.Page
 	}
-	cv := &viewmodel.Conversation{ID: id, Title: childTitle(page, child, c.Locale())}
+	cv := &viewmodel.Conversation{Node: r.controller.Target().String(), ID: id, Title: childTitle(page, child, c.Locale())}
 	comp := r.App.Composer(id)
 	ctx, actions := r.conversation(c, cv, comp)
 	ctx.Readonly = true

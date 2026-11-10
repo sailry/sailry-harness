@@ -33,6 +33,9 @@ type workspaceUploadTransport struct {
 }
 
 func (f *workspaceUploadTransport) Target() protocol.NodeID { return f.node }
+func (f *workspaceUploadTransport) WatchConnection(ctx context.Context, changed func(link.ConnectionInfo)) error {
+	return link.NewLocal(f.Target(), f.Target(), nil).WatchConnection(ctx, changed)
+}
 func (*workspaceUploadTransport) Subscribe(context.Context, protocol.Topic) (link.Subscription, error) {
 	return nil, errors.New("upload fixture has no subscriptions")
 }

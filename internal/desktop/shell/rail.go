@@ -241,7 +241,11 @@ func (a *App) hostPicker(c *ui.Context) {
 			a.openHost(a.Host, false)
 		}
 		if m.Item(i18n.T(c, "connection_action_edit")).Chosen() {
-			a.notice(c)
+			if a.Hooks.EditHost != nil {
+				a.Hooks.EditHost(a.Host)
+			} else {
+				a.notice(c)
+			}
 		}
 		m.Separator()
 		if m.Item(i18n.T(c, "project_add")).Chosen() {

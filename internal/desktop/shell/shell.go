@@ -60,6 +60,7 @@ const (
 	MarketPage
 	HostPage
 	NotificationsPage
+	ProjectPage
 )
 
 // App is the window's state.
@@ -111,6 +112,7 @@ type App struct {
 	activity bool // the activity centre's popover
 	reading  *reading
 	shown    string // the conversation selected when a project page opened
+	overview *projectOverview
 	// The panes that take the focus: the main column, where the
 	// conversation or a page shows, and the right panel (pane).
 	mainPane, panelPane ui.Handle
@@ -455,6 +457,9 @@ func (a *App) page(c *ui.Context) {
 		return
 	case HostPage:
 		a.hostView(c)
+		return
+	case ProjectPage:
+		a.projectView(c)
 		return
 	}
 	if a.split(c) {

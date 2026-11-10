@@ -130,6 +130,7 @@ type Host struct {
 // Project is a location choice: a project and its worktrees.
 type Project struct {
 	ID, Name  string
+	Host      string
 	Worktrees []Worktree
 }
 

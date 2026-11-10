@@ -18,6 +18,7 @@ shortcuts}.rs`, `shortcuts.rs`, `app_menu.rs`, `activity/*.rs`).
 | `header.go` | The header: brand, sidebar toggle, breadcrumbs, activity strip, preview tag, details toggle |
 | `rail.go` | `Features`, `MoveFeature`, the rail, More, the host picker |
 | `pages.go` | The rail features' pages, `Navigate`, `ClosePage`, the selected project's `panel.Project` |
+| `project.go` | The captured project's overview, Git initialization confirmation and searchable session records |
 | `shortcuts.go` | `Shortcuts`, `CloseFocused`, `KeyText`, the window's key handling, the menu's commands (`Do`) |
 | `menu.go` | `Menu`, `Accelerator`: the native app menu |
 | `search.go` | `Choice`, `Group`, `Filter`, `Next`, the search overlay |
@@ -214,16 +215,18 @@ bounds in). `LoadPrefs` falls back to the defaults and clamps widths.
 
 ## Backend ownership
 
-The B3 live adapter, controller preferences and remaining phase boundaries are
-specified in [B3 live wiring](#b3-live-wiring). The preview remains an explicit,
-separate constructor and does not own backend facts. Later feature phases supply
-their owning Client actions and projections without changing the accepted UI.
+The live adapter and controller preferences are specified in
+[B3 live wiring](#b3-live-wiring) and
+[B7 remote wiring](#b7-remote-wiring). The preview remains an explicit, separate
+constructor and does not own backend facts. Feature phases supply their owning
+Client actions and projections without changing the accepted UI.
 
 ## UI state vs backend data
 
 | UI state (`App`) | Backend data |
 |---|---|
 | Page, column widths and openness, rail order and pins, the search's folder, query and row, popovers, the viewer's page | Hosts, notices and their read state, conversations, knowledge pages |
+| Chosen Host and pending session selection in a new window | Each execution Node's separate Client snapshot, verified peer metadata and connection state |
 
 ## Tests
 
@@ -295,8 +298,9 @@ collapsed projects, rail state, tabs and pane layout; its legacy welcome field i
 used only by the preview. Closing a live guide persists the profile choice.
 
 The new notification centre uses existing Kit page/card/segmented controls. Live
-host views hide preview-only notes and render unavailable metrics until B7;
-terminal panes retain the accepted static preview and never start a process.
+host views hide preview-only notes; B7 supplies their real facts and metrics.
+Terminal panes retain the accepted static preview until their resource phase
+and never start a process.
 
 ## B4 conversation wiring
 
@@ -315,3 +319,44 @@ injects its global active predicate, so speech completion and another window's
 speech update Read/Stop controls. Native selection capture calls `ShowSelection`;
 its Read action uses a distinct selection/session key on the same reader service.
 Preview keeps its local interactions and never reaches these live hooks.
+
+## B7 remote wiring
+
+Application startup creates one `live.Network` after the local Client starts.
+All windows share its remembered peers and remote Clients. Discovery responds
+to peer changes and the source's ten-second observation cadence; it verifies
+execution capability and protocol compatibility before requesting a Node
+snapshot. Initially offline peers remain remembered and can appear without
+pairing again. Paired Mobile controllers stay in the device list and do not
+receive Node commands.
+
+Each window creates a bound Runtime for each execution Node. Its combined
+presentation adds Node identity to projects, conversations and notices while
+retaining separate authoritative snapshots. Rail and search Host choices,
+header names and the Host page consume verified Host facts. The update dot
+compares the advertised version with the local Host build by SemVer precedence.
+It does not require opening the update dialog first. Edit network targets the
+captured Host; Add Host opens the existing Connections flow.
+
+Conversation and workspace actions resolve their execution Runtime before
+asynchronous work starts. A new window retains the requested remote session
+until that owner's snapshot arrives. Notice read/dismiss actions route through
+the owning Client. Sync and conversation Retry refresh the selected execution
+owner rather than changing local Node authority.
+
+The project overview is an independent `ProjectPage`, opened through
+`App.OpenProject` with captured presentation actions. Its `ProjectOwner` accessor
+retains the exact Node and project while the page is shown, including after a
+projection disappears; it never substitutes a same-ID project on another Node.
+The header names that project. Its 800 DIP content column uses the existing Kit
+controls for project facts, New session, Git initialization and session records.
+Records keep archived sessions and search by title or worktree path. Live pages
+hide the workspace preview note. The explicit preview retains its existing
+project-menu behavior. Terminal resources remain B10 and AI CLI remains B8.
+Choosing a project worktree opens the same page with that worktree captured by
+its Git and New session actions; ordinary Overview starts on the main worktree.
+
+Window shutdown releases that window's observations, transfer dialogs and
+Forwarders. It does not close shared Clients or stop admitted work. Application
+shutdown closes window Runtimes, then Network, the local Client and Node.
+Preview never constructs Network or opens a profile.

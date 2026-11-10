@@ -19,6 +19,9 @@ type conversationTransport struct {
 }
 
 func (t *conversationTransport) Target() protocol.NodeID { return protocol.NodeID{1} }
+func (t *conversationTransport) WatchConnection(ctx context.Context, changed func(link.ConnectionInfo)) error {
+	return link.NewLocal(t.Target(), t.Target(), nil).WatchConnection(ctx, changed)
+}
 func (t *conversationTransport) Subscribe(_ context.Context, topic protocol.Topic) (link.Subscription, error) {
 	if topic.Kind == "node" {
 		return t.node, nil

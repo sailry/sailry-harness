@@ -15,6 +15,8 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/reader"
+	"github.com/sailry/sailry-harness/internal/desktop/shell"
+	"github.com/sailry/sailry-harness/internal/desktop/sidebar"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
@@ -398,6 +400,9 @@ type conversationTestTransport struct {
 }
 
 func (t *conversationTestTransport) Target() protocol.NodeID { return t.snapshot.Node }
+func (t *conversationTestTransport) WatchConnection(ctx context.Context, changed func(link.ConnectionInfo)) error {
+	return link.NewLocal(t.Target(), t.Target(), nil).WatchConnection(ctx, changed)
+}
 func (t *conversationTestTransport) Subscribe(_ context.Context, topic protocol.Topic) (link.Subscription, error) {
 	s := &conversationTestSubscription{updates: make(chan protocol.Update, 2), closed: make(chan struct{})}
 	if topic.Kind == "node" {
@@ -501,6 +506,113 @@ func (t *conversationTestTransport) Dispatch(_ context.Context, request protocol
 }
 
 func TestComposerSendRouting(t *testing.T) {
+	t.Run("revoked remote actions never target same-ID local resources", func(t *testing.T) {
+		localNode, remoteNode := protocol.NodeID{1}, protocol.NodeID{2}
+		project, worktree, session := protocol.ProjectID{3}, protocol.WorktreeID{4}, protocol.SessionID{5}
+		transports := make([]*conversationTestTransport, 2)
+		owners := make([]*Runtime, 2)
+		for index, node := range []protocol.NodeID{localNode, remoteNode} {
+			snapshot := protocol.DefaultSnapshot()
+			snapshot.Node = node
+			snapshot.Projects = []protocol.Project{{ID: project, Name: "Workspace", Path: "/fixture/project"}}
+			snapshot.Worktrees = []protocol.Worktree{{ID: worktree, Project: &project, Path: "/fixture/worktree", Main: true}}
+			snapshot.Sessions = []protocol.Session{{ID: session, Project: &project, Worktree: worktree, Revision: 7}}
+			transports[index] = &conversationTestTransport{snapshot: snapshot}
+			controller := client.New(transports[index])
+			if err := controller.Start(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			defer controller.Close()
+			owners[index] = &Runtime{ctx: t.Context(), controller: controller, busy: map[string]bool{}, uncertain: map[string]protocol.Request{}}
+		}
+		local, remote := owners[0], owners[1]
+		localConversation := &viewmodel.Conversation{Node: localNode.String(), ID: session.String(), Revision: 7}
+		remoteConversation := &viewmodel.Conversation{Node: remoteNode.String(), ID: session.String(), Revision: 7}
+		localProject := &viewmodel.Project{Host: localNode.String(), ID: project.String(), Conversations: []*viewmodel.Conversation{localConversation}}
+		remoteProject := &viewmodel.Project{Host: remoteNode.String(), ID: project.String(), Conversations: []*viewmodel.Conversation{remoteConversation}}
+		local.App = shell.NewLive(&viewmodel.Data{Projects: []*viewmodel.Project{localProject, remoteProject}, Workspace: &viewmodel.Workspace{}})
+		remote.App, remote.parent = local.App, local
+		local.bindings = map[string]*Runtime{remoteNode.String(): remote}
+		local.newDraft(remoteProject)
+		if len(localProject.Conversations) != 1 || len(remoteProject.Conversations) != 2 {
+			t.Fatal("remote draft was inserted into a same-ID local project")
+		}
+		draft := remoteProject.Conversations[0]
+		draftComposer := local.App.Composer(draft.ID)
+		draftComposer.Draft = "Retained remote draft"
+		if local.conversationRuntime(draft, draftComposer) != remote || draft.Node != remoteNode.String() || draftComposer.Host != remoteNode.String() {
+			t.Fatal("remote draft project lookup replaced its captured Host")
+		}
+		local.App.Sidebar.Selected = localConversation.ID
+		local.App.OpenProject(remoteProject, shell.ProjectActions{})
+		if local.selectedRuntime() != remote {
+			t.Fatal("project overview followed the previous local conversation")
+		}
+		comp := composer.New("")
+		captured := &conversationActions{r: remote, cv: remoteConversation, comp: comp}
+		nativeEffects := 0
+		for _, owner := range owners {
+			owner.exportConversation = func(string, string, conversation.ExportFormat) { nativeEffects++ }
+			owner.readAloud = func(string, string, string) { nativeEffects++ }
+		}
+		delete(local.bindings, remoteNode.String())
+		if local.runtimeFor(remoteNode.String()) != nil || local.selectedRuntime() != nil {
+			t.Fatal("revoked remote owner fell back to the local Runtime")
+		}
+		if local.runtimeFor("") != local || local.runtimeFor(localNode.String()) != local {
+			t.Fatal("empty or explicit local Node lost local ownership")
+		}
+		local.Refresh()
+		renameCompleted, projectCompleted := false, false
+		local.rename(remoteConversation, "Captured rename", func(ok bool) { renameCompleted = !ok })
+		local.archive(remoteConversation)
+		local.read(remoteConversation, true)
+		local.removeSession(remoteConversation)
+		local.removeProject(remoteProject)
+		local.saveProject(sidebar.Editor{Project: remoteProject}, remoteNode.String(), func(ok bool) { projectCompleted = !ok })
+		local.forkHere(remoteConversation)
+		local.forkWorkspaceConversation(remoteConversation)
+		local.exportSession(remoteConversation, conversation.ExportMarkdown)
+		if !renameCompleted || !projectCompleted {
+			t.Fatal("revoked remote save did not preserve its failed draft")
+		}
+		tester := ui.NewTester(func(c *ui.Context) {
+			theme.Apply(c, "", theme.Light)
+			captured.c = c
+			captured.Compact()
+			captured.Fork((protocol.TurnID{6}).String())
+			captured.Export("", conversation.ExportMarkdown)
+			captured.Read("", "Captured text")
+			ctx, actions := local.conversation(c, remoteConversation, comp)
+			if !ctx.Readonly || remoteConversation.Session.Connection != conversation.Offline {
+				t.Fatal("revoked remote conversation was not rendered unavailable")
+			}
+			actions.Compact()
+			actions.Fork((protocol.TurnID{6}).String())
+			actions.Export("", conversation.ExportMarkdown)
+		}, 640, 400)
+		tester.Frame()
+		for index, owner := range owners {
+			owner.workers.Wait()
+			transports[index].mu.Lock()
+			requests := len(transports[index].requests)
+			transports[index].mu.Unlock()
+			if requests != 0 {
+				t.Fatalf("revoked action dispatched %d requests to Node %d", requests, index)
+			}
+		}
+		if nativeEffects != 0 {
+			t.Fatal("revoked remote action started a native effect")
+		}
+		freshLocalProject := &viewmodel.Project{Host: localNode.String(), ID: project.String(), Conversations: []*viewmodel.Conversation{localConversation}}
+		local.App.ApplyData(&viewmodel.Data{Projects: []*viewmodel.Project{freshLocalProject}, Workspace: &viewmodel.Workspace{}})
+		if len(freshLocalProject.Conversations) != 1 {
+			t.Fatal("revoked remote draft was retained inside a same-ID local project")
+		}
+		if retained := local.App.Data.Find(draft.ID); retained != draft || retained.Node != remoteNode.String() || draftComposer.Draft != "Retained remote draft" {
+			t.Fatal("revoked peer discarded the remote draft or its captured Node")
+		}
+	})
 	t.Run("file and folder references retain their captured paths", func(t *testing.T) {
 		rows := composerFileReferences("docs", []protocol.FileEntry{{Name: "guide.md", Kind: protocol.EntryKindFile}, {Name: "examples", Kind: protocol.EntryKindDirectory}, {Name: "link", Kind: protocol.EntryKindSymlink}})
 		if len(rows) != 2 || rows[0].ID != "docs/guide.md" || rows[1].Kind != composer.Folder {

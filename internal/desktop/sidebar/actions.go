@@ -24,6 +24,8 @@ type Actions struct {
 	OpenWindow    func(session string)
 	ForkHere      func(*viewmodel.Conversation)
 	Export        func(*viewmodel.Conversation, conversation.ExportFormat)
+	OpenWorkspace func(*viewmodel.Project, *viewmodel.Conversation)
+	Overview      func(*viewmodel.Project)
 }
 
 func (s *State) removeLabel() string {

@@ -34,6 +34,30 @@ func (target NoticeTarget) MarshalJSON() ([]byte, error) {
 	}
 }
 
+func (target *NoticeTarget) UnmarshalJSON(body []byte) error {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(body, &fields); err != nil {
+		return err
+	}
+	if len(fields) != 1 {
+		return fmt.Errorf("invalid notification target")
+	}
+	for kind, value := range fields {
+		switch kind {
+		case "Notification":
+			target.Kind = "notification"
+			return json.Unmarshal(value, &target.Notification)
+		case "Session":
+			target.Kind = "session"
+			return json.Unmarshal(value, &target.Session)
+		case "Terminal":
+			target.Kind = "terminal"
+			return json.Unmarshal(value, &target.Terminal)
+		}
+	}
+	return fmt.Errorf("invalid notification target")
+}
+
 type Notice struct {
 	ID               NoticeID                           `json:"id"`
 	Project          *protocol.ProjectID                `json:"project"`

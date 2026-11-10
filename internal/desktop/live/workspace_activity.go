@@ -104,7 +104,7 @@ func (r *Runtime) projectWorkspaceComposer(cv *viewmodel.Conversation, comp *com
 	}
 	for index := range ctx.Projects {
 		for _, project := range r.App.Data.Projects {
-			if project.ID == ctx.Projects[index].ID {
+			if project.ID == ctx.Projects[index].ID && project.Host == ctx.Projects[index].Host {
 				ctx.Projects[index].Worktrees = nil
 				for _, tree := range project.Worktrees {
 					ctx.Projects[index].Worktrees = append(ctx.Projects[index].Worktrees, composer.Worktree{Branch: tree.Path, Main: tree.Main})
@@ -397,7 +397,20 @@ func (r *Runtime) sidebarWorkspaceAction(project *viewmodel.Project, operation, 
 	if project == nil {
 		return
 	}
-	r.newDraft(project)
+	owner := r.projectOverviewRuntime(project)
+	if owner == nil {
+		r.Report(fileActionFault(protocol.ErrorCodeUnavailable, "the execution host is unavailable"))
+		return
+	}
+	if owner != r {
+		owner.sidebarWorkspaceAction(project, operation, relative)
+		return
+	}
+	if operation == "select" {
+		r.openProjectWorktree(project, relative)
+		return
+	}
+	r.localRuntime().newDraft(project)
 	comp := r.App.Composer(r.App.Sidebar.Selected)
 	comp.Project = project.ID
 	if relative != "" {
@@ -406,10 +419,6 @@ func (r *Runtime) sidebarWorkspaceAction(project *viewmodel.Project, operation, 
 	r.workspaceFrame(nil)
 	p := r.workspace.projects[r.workspace.selected]
 	if p == nil {
-		return
-	}
-	if operation == "select" {
-		r.selectDraftWorktree(comp, relative)
 		return
 	}
 	r.App.PanelOpen = true
@@ -421,4 +430,49 @@ func (r *Runtime) sidebarWorkspaceAction(project *viewmodel.Project, operation, 
 	} else {
 		p.manageWorktrees()
 	}
+}
+
+func (r *Runtime) openProjectWorktree(project *viewmodel.Project, relative string) {
+	if worktree, ok := r.projectWorktree(project, relative); ok {
+		r.openProjectOverviewAt(project, worktree.Path)
+		return
+	}
+	if worktree, ok := r.projectWorktree(project, ""); ok {
+		workspace := r.workspaceFor(worktree)
+		page, selected := r.App.Page, r.App.Sidebar.Selected
+		node, projectID, overview := r.App.ProjectOwner()
+		workspace.mutate(protocol.Command{Kind: "register_worktree", Data: protocol.CommandRegisterWorktreePayload{
+			Project: *worktree.Project, Path: relative,
+		}}, func(c *ui.Context, out protocol.Output) {
+			if registered, ok := detail[protocol.Worktree](out.Data); ok {
+				r.workspace.admitted[registered.ID] = registered
+				workspace.locationsLoaded = false
+				currentNode, currentProject, currentOverview := r.App.ProjectOwner()
+				if r.projectOverviewRuntime(project) == r && r.App.Page == page && r.App.Sidebar.Selected == selected &&
+					currentNode == node && currentProject == projectID && currentOverview == overview {
+					r.openProjectOverviewAt(project, registered.Path)
+				}
+			}
+		})
+		return
+	}
+	r.Report(fileActionFault(protocol.ErrorCodeUnavailable, "the project worktree is unavailable"))
+}
+
+func (r *Runtime) projectWorktree(project *viewmodel.Project, relative string) (protocol.Worktree, bool) {
+	matches := func(worktree protocol.Worktree) bool {
+		return worktree.Project != nil && worktree.Project.String() == project.ID &&
+			(relative == "" && worktree.Main || relative != "" && worktree.Path == relative)
+	}
+	for _, worktree := range r.controller.Snapshot().Worktrees {
+		if matches(worktree) {
+			return worktree, true
+		}
+	}
+	for _, worktree := range r.workspace.admitted {
+		if matches(worktree) {
+			return worktree, true
+		}
+	}
+	return protocol.Worktree{}, false
 }

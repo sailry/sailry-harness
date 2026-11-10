@@ -356,7 +356,7 @@ func (r *Runtime) withComposerTeam(session protocol.Session, comp *composer.Stat
 	} else if state.selecting || selectedTeam(session.Roles) != comp.Team {
 		command, err = r.teamSelectionCommand(session, comp)
 	} else {
-		models, modelErr := selectedMemberModels(comp, r.App.Data.Models, session.Roles)
+		models, modelErr := selectedMemberModels(comp, r.models(), session.Roles)
 		if modelErr != nil {
 			r.enqueue(func(c *ui.Context) { r.report(c, modelErr, "session_changed") })
 			return
@@ -421,7 +421,7 @@ func (r *Runtime) withComposerTeam(session protocol.Session, comp *composer.Stat
 		}
 		current, _ := r.session(id)
 		effort := ""
-		if chosen := comp.Chosen(r.App.Data.Models); chosen.Reasoning {
+		if chosen := comp.Chosen(r.models()); chosen.Reasoning {
 			effort = comp.EffortName(nil, chosen)
 		}
 		if config, _, err := r.composerConfig(comp, composer.Message{Model: comp.Model, Effort: effort, Features: comp.Features, Mode: comp.Mode, Permission: comp.Permission}); err == nil {
@@ -486,7 +486,7 @@ func (r *Runtime) teamSelectionCommand(session protocol.Session, comp *composer.
 		}
 	}
 	if value.Execution == protocol.ConversationExecutionTeam {
-		models, err := selectedMemberModels(comp, r.App.Data.Models, roles)
+		models, err := selectedMemberModels(comp, r.models(), roles)
 		if err != nil {
 			return protocol.Command{}, err
 		}

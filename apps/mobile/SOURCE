@@ -1,0 +1,7 @@
+Accepted Flutter application:
+eaad1b7f18e448c8c4e9e9286e19560c8a351ae1
+
+Tracked apps/mobile files and assets/branding/sailry.png are preserved from the
+reviewed source commit. Native bridge adaptation lives in packages/sailry_bridge,
+internal/mobile and cmd/sailry-mobile. Existing third-party notices remain with
+their assets. The application uses the repository's Apache-2.0 license.

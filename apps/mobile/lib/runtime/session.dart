@@ -1,0 +1,599 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:flutter/widgets.dart';
+import 'package:device_info_plus/device_info_plus.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:sailry_bridge/api.dart';
+import 'package:sailry_bridge/api/connection.dart';
+import 'package:sailry_bridge/bridge.dart';
+
+import 'json.dart';
+import 'background.dart';
+import 'speech.dart';
+import 'ports.dart';
+
+typedef CommandHandler =
+    Future<Map<String, dynamic>> Function(
+      String kind,
+      Map<String, dynamic>? data,
+    );
+
+/// Presentation lifetime only. Client and Link own trust and projections.
+class AppSession extends ChangeNotifier with WidgetsBindingObserver {
+  AppSession()
+    : _initialize = initializeBridge,
+      _openController = _open,
+      _createSpeech = SpeechController.new;
+
+  @visibleForTesting
+  AppSession.test({
+    List<HostConnection> hosts = const [],
+    this.controller,
+    this.ready = true,
+    Future<void> Function()? initialize,
+    Future<Controller> Function(String, bool)? openController,
+    SpeechController Function(String)? createSpeech,
+  }) : _initialize = initialize ?? initializeBridge,
+       _openController = openController ?? _open,
+       _createSpeech = createSpeech ?? SpeechController.new {
+    _hosts.addAll(hosts);
+    _selected = hosts.firstOrNull?.id;
+    for (final host in _hosts) {
+      host.addListener(_changed);
+    }
+  }
+
+  final Future<void> Function() _initialize;
+  final Future<Controller> Function(String, bool) _openController;
+  final SpeechController Function(String) _createSpeech;
+  final background = BackgroundConnection();
+  static Future<Controller> _open(String path, bool internet) async {
+    final owner = await Controller.open(
+      path: path,
+      internet: internet,
+      relays: const [],
+    );
+    try {
+      final info = DeviceInfoPlugin();
+      String name;
+      if (Platform.isAndroid) {
+        final android = await info.androidInfo;
+        name = android.name.trim().isEmpty ? android.model : android.name;
+      } else if (Platform.isIOS) {
+        name = (await info.iosInfo).name;
+      } else {
+        name = Platform.localHostname;
+      }
+      await owner.setName(name: name);
+    } catch (error) {
+      // A missing platform display name must not prevent reconnecting trusted peers.
+      debugPrint('Device name unavailable: $error');
+    }
+    return owner;
+  }
+
+  Controller? controller;
+  SpeechController? speech;
+  String profilePath = '';
+  bool ready = false;
+  bool loading = false;
+  Object? error;
+  bool _closed = false;
+  final List<HostConnection> _hosts = [];
+  final Map<HostConnection, Future<void>> _removals = {};
+  Future<void> _hostChanges = Future.value();
+  String? _selected;
+
+  List<HostConnection> get hosts => List.unmodifiable(_hosts);
+  HostConnection? get selectedHost => host(_selected);
+  HostConnection? host(String? id) =>
+      _hosts.where((value) => value.id == id).firstOrNull;
+
+  static AppSession of(BuildContext context) => maybeOf(context)!;
+  static AppSession? maybeOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<SessionScope>()?.notifier;
+
+  Future<void> start({String? path, bool internet = true}) async {
+    if (loading || ready || _closed) return;
+    loading = true;
+    error = null;
+    _changed();
+    try {
+      await _initialize();
+      if (_closed) return;
+      await background.initialize();
+      if (_closed) return;
+      profilePath =
+          path ??
+          '${(await getApplicationSupportDirectory()).path}${Platform.pathSeparator}controller';
+      if (_closed) return;
+      final opened = await _openController(profilePath, internet);
+      if (_closed) {
+        try {
+          await opened.close();
+        } finally {
+          opened.dispose();
+        }
+        return;
+      }
+      controller = opened;
+      speech = _createSpeech(profilePath);
+      unawaited(speech!.check());
+      final addresses = await opened.peers();
+      if (_closed || controller != opened) return;
+      for (final address in addresses) {
+        await _connect(address, opened);
+      }
+      if (_closed || controller != opened) return;
+      WidgetsBinding.instance.addObserver(this);
+      ready = true;
+    } catch (failure) {
+      if (!_closed) error = failure;
+      await _release();
+    } finally {
+      loading = false;
+      _changed();
+    }
+  }
+
+  Future<HostConnection> pair(String ticket) async {
+    final owner = controller;
+    if (_closed || !ready || owner == null) {
+      throw StateError('controller is not ready');
+    }
+    return _change(owner, () async {
+      final address = await owner.pair(ticket: ticket.trim());
+      return _connect(address, owner);
+    });
+  }
+
+  Future<HostConnection> pairPin(String pin) async {
+    final owner = controller;
+    if (_closed || !ready || owner == null) {
+      throw StateError('controller is not ready');
+    }
+    return _change(owner, () async {
+      final address = await owner.pairPin(origin: '', pin: pin.trim());
+      return _connect(address, owner);
+    });
+  }
+
+  Future<T> _change<T>(Controller owner, Future<T> Function() action) {
+    // Pairing reveals its peer only after persisting trust, so local pairing
+    // changes must serialize before starting the native operation.
+    final pending = _hostChanges.then((_) {
+      if (_closed || !ready || controller != owner) {
+        throw StateError('controller is not ready');
+      }
+      return action();
+    });
+    _hostChanges = pending.then<void>((_) {}, onError: (Object _) {});
+    return pending;
+  }
+
+  Future<HostConnection> _connect(String address, Controller owner) async {
+    if (_closed || controller != owner) {
+      throw StateError('controller is closed');
+    }
+    final id = text(object(jsonDecode(address))['id']);
+    if (id.isEmpty) throw const FormatException('endpoint has no identity');
+    final existing = host(id);
+    if (existing != null) {
+      selectHost(id);
+      return existing;
+    }
+    final connection = await owner.connect(address: address);
+    if (_closed || controller != owner) {
+      try {
+        await connection.close();
+      } finally {
+        connection.dispose();
+      }
+      throw StateError('controller is closed');
+    }
+    final registered = host(id);
+    if (registered != null) {
+      try {
+        await connection.close();
+      } finally {
+        connection.dispose();
+      }
+      selectHost(id);
+      return registered;
+    }
+    final connected = HostConnection._(id, address, connection);
+    connected.addListener(_changed);
+    _hosts.add(connected);
+    _selected ??= id;
+    _changed();
+    unawaited(connected.watch());
+    return connected;
+  }
+
+  void selectHost(String id) {
+    final target = host(id);
+    if (target == null) return;
+    if (target._connection != null) unawaited(target.watch());
+    if (_selected == id) return;
+    _selected = id;
+    _changed();
+  }
+
+  Future<void> removeHost(HostConnection target) {
+    final pending = _removals[target];
+    if (pending != null) return pending;
+    if (host(target.id) != target) return Future.value();
+    final owner = controller;
+    if (_closed || !ready || owner == null) {
+      return Future.error(StateError('controller is not ready'));
+    }
+    return _removals.putIfAbsent(
+      target,
+      () => _change(owner, () => _remove(target, owner)).whenComplete(() {
+        _removals.remove(target);
+      }),
+    );
+  }
+
+  Future<void> _remove(HostConnection target, Controller owner) async {
+    if (host(target.id) != target) return;
+    await owner.forget(address: target.address);
+    if (_closed || controller != owner || host(target.id) != target) return;
+    target.removeListener(_changed);
+    _hosts.remove(target);
+    if (_selected == target.id) _selected = _hosts.firstOrNull?.id;
+    _changed();
+    try {
+      await target.close();
+    } catch (failure) {
+      // The saved pairing is already removed even if cleanup fails.
+      debugPrint('Removed host cleanup failed: $failure');
+    } finally {
+      target.dispose();
+    }
+  }
+
+  bool _away = false;
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      _away = true;
+      return;
+    }
+    final owner = controller;
+    if (!_closed && state == AppLifecycleState.resumed && owner != null) {
+      final returned = _away;
+      _away = false;
+      unawaited(
+        owner
+            .networkChanged()
+            .catchError((Object failure) {
+              if (!_closed && controller == owner) {
+                error = failure;
+                _changed();
+              }
+            })
+            .whenComplete(() {
+              // Views can be stale after a long background period.
+              if (!returned || _closed || controller != owner) return;
+              for (final host in List.of(_hosts)) {
+                unawaited(host.refresh());
+              }
+            }),
+      );
+    }
+  }
+
+  void _changed() {
+    background.update(hasHosts: !_closed && ready && _hosts.isNotEmpty);
+    if (!_closed) notifyListeners();
+  }
+
+  Future<void> close() async {
+    if (_closed) return;
+    _closed = true;
+    WidgetsBinding.instance.removeObserver(this);
+    ready = false;
+    await background.close();
+    await _release();
+  }
+
+  Future<void> _release() async {
+    final hosts = List<HostConnection>.of(_hosts);
+    _hosts.clear();
+    _selected = null;
+    for (final host in hosts) {
+      host.removeListener(_changed);
+    }
+    speech?.dispose();
+    speech = null;
+    final opened = controller;
+    controller = null;
+    await Future.wait([
+      for (final host in hosts)
+        (() async {
+          try {
+            await host.close();
+          } finally {
+            host.dispose();
+          }
+        })(),
+      if (opened != null)
+        (() async {
+          try {
+            await opened.close();
+          } finally {
+            opened.dispose();
+          }
+        })(),
+    ]).then<void>(
+      (_) {},
+      onError: (Object failure) {
+        if (!_closed) error ??= failure;
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    unawaited(close());
+    background.dispose();
+    super.dispose();
+  }
+}
+
+class SessionScope extends InheritedNotifier<AppSession> {
+  const SessionScope({
+    super.key,
+    required AppSession session,
+    required super.child,
+  }) : super(notifier: session);
+}
+
+class HostConnection extends ChangeNotifier {
+  HostConnection._(this.id, this.address, this._connection);
+
+  @visibleForTesting
+  // Public test arguments keep widget fixtures independent of native handles.
+  HostConnection.test({
+    required this.id,
+    required String this._label,
+    this.snapshot = const {},
+    this.childTargets = const {},
+    this.connected = true,
+    CommandHandler? command,
+    this._connection,
+    this.address = '',
+  }) : _handler = command;
+
+  PortMappings? _ports;
+  PortMappings get ports => _ports ??= PortMappings(() => connection);
+
+  final String id;
+  final String address;
+  final Connection? _connection;
+  CommandHandler? _handler;
+  Connection get connection =>
+      _connection ?? (throw StateError('test connection has no native handle'));
+  String? _label;
+  String get label => _label ?? (id.length > 12 ? id.substring(0, 12) : id);
+  Map<String, dynamic> snapshot = {};
+  Map<String, dynamic> info = {};
+  List<Map<String, dynamic>> notifications = [];
+  Map<String, dynamic> childTargets = {};
+  bool connected = false;
+  Map<String, dynamic> transport = {};
+  Object? error;
+  Updates? _updates;
+  bool _closed = false;
+  bool _watching = false;
+  bool _restarting = false;
+  Completer<void>? _fresh;
+
+  /// Resubscribes for a fresh snapshot; the platform may stall the update
+  /// stream while the app is in the background. Completes on the first view.
+  Future<void> refresh() async {
+    if (_closed || _connection == null) return;
+    final fresh = _fresh ??= Completer<void>();
+    final updates = _updates;
+    if (updates != null) {
+      _restarting = true;
+      unawaited(updates.close());
+    } else if (!_watching) {
+      unawaited(watch());
+    }
+    await fresh.future.timeout(const Duration(seconds: 10), onTimeout: () {});
+  }
+
+  void _settle() {
+    final fresh = _fresh;
+    _fresh = null;
+    if (fresh != null && !fresh.isCompleted) fresh.complete();
+  }
+
+  Future<void> watch() async {
+    if (_closed || _watching) return;
+    _watching = true;
+    Updates? owned;
+    Object? observedError;
+    try {
+      final updates = await connection.watch();
+      if (_closed) {
+        try {
+          await updates.close();
+        } finally {
+          updates.dispose();
+        }
+        return;
+      }
+      owned = updates;
+      _updates = updates;
+      while (!_closed) {
+        final view = object(jsonDecode(await updates.next()));
+        if (_closed) break;
+        snapshot = object(view['snapshot']);
+        connected = view['connected'] == true;
+        transport = connected ? object(view['connection']) : {};
+        final fault = view['error'];
+        observedError = fault is Map ? fault : null;
+        error = fault;
+        notifications = objects(view['notifications']);
+        childTargets = object(view['child_targets']);
+        notifyListeners();
+        _settle();
+        if (connected && info.isEmpty) unawaited(inspect());
+      }
+    } catch (failure) {
+      if (!_closed && !_restarting) {
+        connected = false;
+        transport = {};
+        error = failure.toString() == 'channel closed' && observedError != null
+            ? observedError
+            : failure;
+        notifyListeners();
+      }
+    } finally {
+      _watching = false;
+      if (owned != null && identical(_updates, owned)) {
+        _updates = null;
+        try {
+          await owned.close();
+        } finally {
+          owned.dispose();
+        }
+      }
+      if (_restarting) {
+        _restarting = false;
+        if (!_closed) unawaited(watch());
+      } else {
+        _settle();
+      }
+    }
+  }
+
+  bool _inspecting = false;
+  Future<void> inspect() async {
+    if (_inspecting) return;
+    _inspecting = true;
+    try {
+      final response = await command('inspect_host');
+      if (_closed) return;
+      info = object(response['data']);
+      _label = text(info['name'], label);
+      notifyListeners();
+    } catch (failure) {
+      if (!_closed) error = failure;
+    } finally {
+      _inspecting = false;
+    }
+  }
+
+  Future<Map<String, dynamic>> command(
+    String kind, [
+    Map<String, dynamic>? data,
+  ]) async {
+    if (_closed) throw StateError('connection is closed');
+    if (_handler != null) return _handler!(kind, data);
+    final request = await connection.prepare(
+      command: jsonEncode({'kind': kind, 'data': ?data}),
+    );
+    return execute(request);
+  }
+
+  /// An explicit retry can reuse this request; no write is replayed automatically.
+  Future<Map<String, dynamic>> execute(String request) async {
+    if (_closed) throw StateError('connection is closed');
+    Map<String, dynamic> result;
+    try {
+      result = object(jsonDecode(await connection.execute(request: request)));
+    } catch (_) {
+      throw CommandFailure('outcome_unknown', request: request);
+    }
+    if (result.containsKey('Err')) {
+      final fault = object(result['Err']);
+      throw CommandFailure(
+        text(fault['code'], 'internal'),
+        detail: text(fault['message']),
+        details: object(fault['details']),
+        request: request,
+      );
+    }
+    if (!result.containsKey('Ok')) {
+      throw CommandFailure('outcome_unknown', request: request);
+    }
+    return object(result['Ok']);
+  }
+
+  Future<void> close() async {
+    if (_closed) return;
+    _closed = true;
+    connected = false;
+    transport = {};
+    _settle();
+    final updates = _updates;
+    _updates = null;
+    try {
+      try {
+        await updates?.close();
+      } finally {
+        updates?.dispose();
+      }
+    } finally {
+      try {
+        await _ports?.close();
+      } finally {
+        _ports?.dispose();
+        try {
+          await _connection?.close();
+        } finally {
+          _connection?.dispose();
+        }
+      }
+    }
+  }
+}
+
+/// Localization key naming the side to update after a protocol mismatch.
+/// Accepts a [CommandFailure] or a serialized fault from a Client view.
+String? versionMismatchKey(Object? failure) {
+  final details = failure is CommandFailure
+      ? failure.details
+      : failure is Map
+      ? failure['details']
+      : null;
+  if (details is! Map || details['kind'] != 'version_mismatch') return null;
+  return details['update_host'] == true
+      ? 'hostUpdateRequired'
+      : 'appUpdateRequired';
+}
+
+class CommandFailure implements Exception {
+  const CommandFailure(
+    this.code, {
+    this.detail = '',
+    this.details = const {},
+    this.request,
+  });
+  final String code;
+  final String detail;
+  // Structured fault details from the shared protocol, such as version_mismatch.
+  final Map<String, dynamic> details;
+  // Retained only in memory, never logged, rendered or persisted in a UI cache.
+  final String? request;
+
+  // Transport, cancellation and pairing failures do not resolve an older send.
+  bool get rejected => switch (code) {
+    'invalid_request' ||
+    'revision_conflict' ||
+    'conflict' ||
+    'not_found' ||
+    'not_configured' => true,
+    _ => false,
+  };
+  @override
+  String toString() => 'Command failed: $code';
+}

@@ -34,6 +34,8 @@ type consent struct {
 	settings HookSettings
 }
 
+func (m *Model) HooksEditing() bool { return m.hook.open || m.consent.open }
+
 // Check validates a hook's draft: the i18n key of the problem, or "".
 func (e *hookEditor) Check() string {
 	ms, err := strconv.Atoi(strings.TrimSpace(e.timeout))

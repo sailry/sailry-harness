@@ -1,0 +1,4 @@
+Generator: built-in image_gen
+Asset: technology.png
+
+Use case: stylized-concept. Asset type: full-bleed global root background texture for a mobile developer-control app, portrait 1024x1792. Create an extremely understated monochrome charcoal technology wallpaper, abstract fine circuit traces, sparse network nodes and a faint precision grid, with generous empty negative space for readable UI cards. The pattern should feel like a barely visible watermark integrated in a matte near-black surface. All values dark: black #101112 foundation, graphite detail around #292b2d at most, neutral to very subtly cool grey, no green tint. Fine lines mainly near the edges, quiet center, seamless visual falloff, subdued depth and no bright glow. No text, no letters, no numbers, no logos, no UI controls, no mockup phone, no colored lights, no decorative bright borders. Generate only the usable wallpaper asset.

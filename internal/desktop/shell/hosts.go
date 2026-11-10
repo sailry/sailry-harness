@@ -81,17 +81,28 @@ func (a *App) addHost() {
 // first conversation, a session itself.
 func (a *App) hostView(c *ui.Context) {
 	h, st := a.hostPage()
-	host.Page(c, st, h, host.Actions{
-		OpenProject: func(id string) {
+	actions := host.Actions{}
+	if a.Hooks.HostActions != nil {
+		actions = a.Hooks.HostActions(a.Host)
+	}
+	if actions.OpenProject == nil {
+		actions.OpenProject = func(id string) {
 			for _, pr := range a.Data.Projects {
 				if pr.ID == id && len(pr.Conversations) > 0 {
 					a.selectConversation(pr.Conversations[0].ID)
 				}
 			}
-		},
-		OpenSession: a.selectConversation,
-		AddProject:  func() { a.Sidebar.OpenEditor(nil) },
-	})
+		}
+	}
+	if actions.OpenSession == nil {
+		actions.OpenSession = a.selectConversation
+	}
+	if actions.AddProject == nil {
+		actions.AddProject = func() {
+			a.Sidebar.OpenEditorAtHost(a.Host)
+		}
+	}
+	host.Page(c, st, h, actions)
 }
 
 // selectConversation shows a conversation, revealing it in the sidebar.

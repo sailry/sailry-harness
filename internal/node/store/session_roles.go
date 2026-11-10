@@ -228,22 +228,30 @@ func sessionTeamCommand(ctx context.Context, db *sql.Conn, node protocol.NodeID,
 		session.Roles, err = AssignSessionMemberModel(ctx, db, node, session.Roles, v.Role, v.Model)
 	case *protocol.CommandSetSessionExecutionPayload:
 		session.Roles, err = CaptureSessionRoles(ctx, db, node, v.Execution, v.Team, v.Models)
-		if err == nil && v.Team != nil {
-			team, e := readBody[protocol.TeamProfile](ctx, db, "SELECT body FROM teams WHERE id=?1", v.Team.ID.String())
-			if e != nil {
-				return protocol.Output{}, nil, e
-			}
-			if team.Model != nil {
-				provider, e := listedRoleProvider(ctx, db, team.Model.Provider)
-				if e != nil {
-					return protocol.Output{}, nil, e
-				}
-				session.Config, err = roleModelConfig(session.Config, provider, *team.Model)
-			}
+		if err == nil && v.Execution == protocol.ConversationExecutionTeam {
+			session.Config, err = configureSessionTeam(ctx, db, session.Config, v.Team)
 		}
 	}
 	if err != nil {
 		return protocol.Output{}, nil, err
 	}
 	return reviseSession(ctx, db, session)
+}
+
+func configureSessionTeam(ctx context.Context, db *sql.Conn, config protocol.SessionConfig, selection *protocol.TeamSelection) (protocol.SessionConfig, error) {
+	if selection == nil {
+		return config, nil
+	}
+	team, err := readBody[protocol.TeamProfile](ctx, db, "SELECT body FROM teams WHERE id=?1", selection.ID.String())
+	if err != nil {
+		return config, err
+	}
+	if team.Model == nil {
+		return config, nil
+	}
+	provider, err := listedRoleProvider(ctx, db, team.Model.Provider)
+	if err != nil {
+		return config, err
+	}
+	return roleModelConfig(config, provider, *team.Model)
 }

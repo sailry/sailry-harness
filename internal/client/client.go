@@ -14,6 +14,8 @@ import (
 )
 
 type Client struct {
+	forwardMu               sync.Mutex
+	forwarders              map[*Forwarder]struct{}
 	detailSlots             chan struct{}
 	commandOutputs          map[commandOutputKey]*commandOutputWatch
 	commandsMu              sync.Mutex
@@ -32,6 +34,8 @@ type Client struct {
 	project                 *Projection
 	feed                    activityFeed
 	connected               bool
+	connection              link.ConnectionInfo
+	connectionDone          chan struct{}
 	err                     error
 	callbacks               map[uint64]func()
 	callback                uint64
@@ -128,6 +132,12 @@ func (client *Client) Connected() bool {
 	client.mu.RLock()
 	defer client.mu.RUnlock()
 	return client.connected
+}
+
+func (client *Client) Connection() link.ConnectionInfo {
+	client.mu.RLock()
+	defer client.mu.RUnlock()
+	return copyValue(client.connection)
 }
 
 func (client *Client) Err() error {

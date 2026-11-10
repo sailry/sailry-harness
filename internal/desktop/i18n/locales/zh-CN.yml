@@ -1643,3 +1643,60 @@ role_unknown: 结果未确认，请重试原请求
 role_failed: 操作失败，请重试
 chat_child_unavailable: 子会话尚不可用，请重试
 reference_load_failed: 引用加载失败
+composer_metric_unknown: —
+connection_connecting: 正在连接
+host_added: 主机已添加
+host_install_detecting: 检查主机
+host_install_failed: 添加失败
+host_install_installing: 安装主机服务
+host_install_pairing: 正在配对
+host_install_unknown: 安装结果未确认，请检查主机后重试
+host_network_conflict: 网络设置已变化，请重试
+host_network_edit: 编辑主机
+host_network_failed: 无法切换网络
+host_network_load_failed: 无法加载网络设置
+host_network_saved: 网络已切换
+host_network_unavailable: 网络设置不可用
+host_network_unknown: 无法确认网络是否已切换
+host_update_local_artifacts: 使用本地构建的主机程序，在应用时校验
+host_update_restart: 此 Host 将重启，运行中的任务将停止
+host_updated: Host 已更新
+pairing_failed: 配对失败，请检查配对码或网络后重试
+pairing_invalid_endpoint: 请输入有效的 HTTPS 配对服务地址
+pairing_preparing: 正在准备连接…
+pairing_refresh_hint: 60 秒内有效，到期自动更新
+pairing_relay_checking: 正在探测
+pairing_relay_failed: 无法连接中继，请检查地址后重试
+pairing_relay_invalid: 请输入有效的 HTTPS 中继地址
+pairing_relay_ready: 中继已连接
+pairing_relay_selected: 当前选择的网络
+pairing_retrying: 配对服务暂不可用，正在重试…
+pairing_success: 设备配对成功
+settings_retry: 重试
+ssh_key_changed: 主机密钥已变化，请核对指纹
+ssh_trust: 信任
+ssh_trust_title: 信任主机密钥
+usage_duration_ms: '%{value} ms'
+live_host_runtime_loading: 正在读取主机运行信息
+live_host_runtime_error: 无法读取主机运行信息
+live_host_no_running: 没有运行中的会话
+live_metrics_loading: 正在读取指标
+live_metrics_error: 无法读取主机指标
+live_metrics_read: 读取
+live_metrics_written: 写入
+live_update_idle: 检查主机更新
+live_update_checking: 正在检查更新
+live_update_current: 主机已是最新版本
+live_update_available: 有可用的主机更新
+live_update_downloading: 正在准备更新
+live_update_verifying: 正在校验更新
+live_update_staged: 可以应用
+live_update_applying: 正在应用更新
+live_update_restart: 正在重启主机
+live_update_failed: 主机更新失败
+live_update_loading: 正在读取更新
+live_update_unavailable: 主机更新不可用
+live_update_check: 检查
+live_update_download: 准备
+live_update_apply: 应用
+live_update_retry: 重试

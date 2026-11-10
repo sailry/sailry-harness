@@ -1643,3 +1643,60 @@ role_unknown: Result unconfirmed; retry the original request
 role_failed: Operation failed; retry
 chat_child_unavailable: Subsession unavailable; try again
 reference_load_failed: Failed to load references
+composer_metric_unknown: —
+connection_connecting: Connecting
+host_added: Host added
+host_install_detecting: Checking host
+host_install_failed: Could not add host
+host_install_installing: Installing Host
+host_install_pairing: Pairing
+host_install_unknown: Install result unconfirmed; check host and retry
+host_network_conflict: Network settings changed; retry
+host_network_edit: Edit host
+host_network_failed: Could not change network
+host_network_load_failed: Could not load network settings
+host_network_saved: Network changed
+host_network_unavailable: Network settings are unavailable
+host_network_unknown: Network change could not be confirmed
+host_update_local_artifacts: Uses locally built Host artifacts; verified when applying
+host_update_restart: This Host will restart; running tasks will stop
+host_updated: Host updated
+pairing_failed: Pairing failed; check the code or network and retry
+pairing_invalid_endpoint: Enter a valid HTTPS pairing service URL
+pairing_preparing: Preparing connection
+pairing_refresh_hint: Valid for 60 seconds; refreshes on expiry
+pairing_relay_checking: Checking relay
+pairing_relay_failed: Could not connect to relay; check the URL and retry
+pairing_relay_invalid: Enter a valid HTTPS relay URL
+pairing_relay_ready: Relay connected
+pairing_relay_selected: Selected network
+pairing_retrying: Pairing service unavailable; retrying
+pairing_success: Device paired
+settings_retry: Retry
+ssh_key_changed: Host key changed, verify the fingerprint
+ssh_trust: Trust
+ssh_trust_title: Trust host key
+usage_duration_ms: '%{value} ms'
+live_host_runtime_loading: Loading Host runtime
+live_host_runtime_error: Could not read Host runtime
+live_host_no_running: No running sessions
+live_metrics_loading: Loading metrics
+live_metrics_error: Could not read Host metrics
+live_metrics_read: Read
+live_metrics_written: Written
+live_update_idle: Check for Host updates
+live_update_checking: Checking for updates
+live_update_current: Host is up to date
+live_update_available: Host update available
+live_update_downloading: Preparing update
+live_update_verifying: Verifying update
+live_update_staged: Ready to apply
+live_update_applying: Applying update
+live_update_restart: Restarting Host
+live_update_failed: Host update failed
+live_update_loading: Loading update
+live_update_unavailable: Host update unavailable
+live_update_check: Check
+live_update_download: Prepare
+live_update_apply: Apply
+live_update_retry: Retry

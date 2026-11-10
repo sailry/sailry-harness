@@ -1643,3 +1643,60 @@ role_unknown: 결과 확인되지 않음; 원래 요청을 다시 시도하십�
 role_failed: 작업 실패; 다시 시도하기
 chat_child_unavailable: 하위 세션을 사용할 수 없습니다. 다시 시도하십시오
 reference_load_failed: Failed to load references
+composer_metric_unknown: —
+connection_connecting: 연결 중
+host_added: 호스트 추가됨
+host_install_detecting: 호스트 확인 중
+host_install_failed: 호스트를 추가할 수 없음
+host_install_installing: 호스트 설치 중
+host_install_pairing: 페어링
+host_install_unknown: 설치 결과 확인되지 않음; 호스트를 확인하고 다시 시도하십시오
+host_network_conflict: 네트워크 설정이 변경되었습니다. 다시 시도하세요
+host_network_edit: 호스트 편집
+host_network_failed: 네트워크를 변경할 수 없습니다
+host_network_load_failed: 네트워크 설정을 불러올 수 없습니다
+host_network_saved: 네트워크 변경됨
+host_network_unavailable: 네트워크 설정을 사용할 수 없습니다
+host_network_unknown: 네트워크 변경 여부를 확인할 수 없습니다
+host_update_local_artifacts: Uses locally built Host artifacts; verified when applying
+host_update_restart: Host가 다시 시작되며 실행 중인 작업이 중지됩니다
+host_updated: Host가 업데이트되었습니다
+pairing_failed: 페어링 실패; 코드 또는 네트워크를 확인하고 다시 시도하십시오
+pairing_invalid_endpoint: 유효한 HTTPS 페어링 서비스 URL 입력
+pairing_preparing: 연결 준비 중
+pairing_refresh_hint: 60초 동안 유효하며 만료시 새로 고침
+pairing_relay_checking: 릴레이 검사 중
+pairing_relay_failed: 리레이에 연결할 수 없습니다. URL을 확인하고 다시 시도하십시오
+pairing_relay_invalid: 유효한 HTTPS 중계 URL을 입력하십시오
+pairing_relay_ready: 릴레이 연결됨
+pairing_relay_selected: 선택한 네트워크
+pairing_retrying: 페어링 서비스를 사용할 수 없습니다. 다시 시도 중
+pairing_success: 장치 페어링됨
+settings_retry: 다시 시도
+ssh_key_changed: 호스트 키 변경, 지문 확인
+ssh_trust: 신뢰
+ssh_trust_title: 호스트 키 신뢰
+usage_duration_ms: '%{value} ms'
+live_host_runtime_loading: Loading Host runtime
+live_host_runtime_error: Could not read Host runtime
+live_host_no_running: No running sessions
+live_metrics_loading: Loading metrics
+live_metrics_error: Could not read Host metrics
+live_metrics_read: Read
+live_metrics_written: Written
+live_update_idle: Check for Host updates
+live_update_checking: Checking for updates
+live_update_current: Host is up to date
+live_update_available: Host update available
+live_update_downloading: Preparing update
+live_update_verifying: Verifying update
+live_update_staged: Ready to apply
+live_update_applying: Applying update
+live_update_restart: Restarting Host
+live_update_failed: Host update failed
+live_update_loading: Loading update
+live_update_unavailable: Host update unavailable
+live_update_check: Check
+live_update_download: Prepare
+live_update_apply: Apply
+live_update_retry: Retry

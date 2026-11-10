@@ -1,0 +1,10 @@
+{
+  "name": "sailry-pairing-relay",
+  "installCommand": "pnpm install --frozen-lockfile --ignore-scripts",
+  "buildCommand": "pnpm typecheck",
+  "outputDirectory": "public",
+  "cloudFunctions": { "maxDuration": 60 },
+  "schedules": [
+    { "name": "expire-pairing-codes", "cron": "0 0 * * *", "timezone": "UTC", "method": "GET", "path": "/internal/cleanup" }
+  ]
+}

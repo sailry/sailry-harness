@@ -110,6 +110,9 @@ func testConversationProjectionOrder(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		if p.artifactCursor != 1 || p.liveStart != nil || p.statisticsErr != nil {
+			t.Fatal("snapshot did not reset observation metadata")
+		}
 		for _, text := range []string{"First", " second"} {
 			snapshot := *p.Snapshot()
 			u := conversationFrame(snapshot, "delta", protocol.ConversationDraft{ID: "stream", Turn: s.Page.Runs[0].Turn, Author: "assistant", Parts: []protocol.ConversationPart{{Kind: "text", Data: text}}})
@@ -120,6 +123,37 @@ func testConversationProjectionOrder(t *testing.T) {
 		draft := p.Snapshot().Drafts[0]
 		if draft.Parts[0].Data != "First second" {
 			t.Fatal(draft)
+		}
+		if p.artifactCursor != 1 || p.liveStart != nil {
+			t.Fatal("text deltas advanced committed observation metadata")
+		}
+		entry := protocol.ConversationEntry{ID: "stream", Turn: s.Page.Runs[0].Turn, Sequence: 2, Author: "assistant", Parts: draft.Parts}
+		if _, err := p.Apply(1, conversationFrame(*p.Snapshot(), "entry", entry)); err != nil {
+			t.Fatal(err)
+		}
+		if p.liveStart == nil || *p.liveStart != 2 || p.artifactCursor != 1 {
+			t.Fatal("committed text lost its live boundary")
+		}
+		statisticsFailure := protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "statistics unavailable"}
+		if _, err := p.Apply(1, conversationFrame(*p.Snapshot(), "statistics_failed", statisticsFailure)); err != nil {
+			t.Fatal(err)
+		}
+		if p.snapshot.Statistics != nil || faultCode(p.statisticsErr) != statisticsFailure.Code {
+			t.Fatal("statistics failure did not retain its fault")
+		}
+		if _, err := p.Apply(1, conversationFrame(*p.Snapshot(), "statistics", protocol.DefaultConversationStatistics())); err != nil {
+			t.Fatal(err)
+		}
+		if p.snapshot.Statistics == nil || p.statisticsErr != nil {
+			t.Fatal("statistics recovery retained an obsolete fault")
+		}
+		artifact := protocol.DefaultArtifactSummary()
+		artifact.ID, artifact.Session, artifact.Turn, artifact.Revision = protocol.ArtifactID{1}, s.Page.Session, s.Page.Runs[0].Turn, 1
+		if _, err := p.Apply(1, conversationFrame(*p.Snapshot(), "artifact", artifact)); err != nil {
+			t.Fatal(err)
+		}
+		if p.artifactCursor != 2 || p.liveStart == nil || *p.liveStart != 2 {
+			t.Fatal("artifact commit lost observation metadata")
 		}
 		run := s.Page.Runs[0]
 		run.Status = "completed"
@@ -138,6 +172,9 @@ func testConversationProjectionOrder(t *testing.T) {
 		}
 		if p.Snapshot().Sequence != 1 {
 			t.Fatal("new generation kept the previous cursor")
+		}
+		if p.artifactCursor != 3 || p.liveStart != nil || p.statisticsErr != nil {
+			t.Fatal("new snapshot retained old live observation metadata")
 		}
 	})
 	t.Run("older_page_keeps_live_metadata", func(t *testing.T) {
@@ -184,6 +221,9 @@ func testConversationProjectionOrder(t *testing.T) {
 		p.settle()
 		if len(p.Snapshot().Page.Entries) != 3 || p.Snapshot().Page.Entries[1].ID != "reveal" {
 			t.Fatal("loaded reveal did not settle")
+		}
+		if p.liveStart != nil {
+			t.Fatal("older revealed history became live text")
 		}
 	})
 }

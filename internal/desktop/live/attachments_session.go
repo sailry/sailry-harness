@@ -26,7 +26,7 @@ func (x *conversationActions) ensureAttachmentSession(done func(*ui.Context, pro
 		return
 	}
 	message := composer.Message{Model: x.comp.Model, Mode: x.comp.Mode, Permission: x.comp.Permission, Features: x.comp.Features}
-	if chosen := x.comp.Chosen(r.App.Data.Models); chosen.Reasoning {
+	if chosen := x.comp.Chosen(r.models()); chosen.Reasoning {
 		message.Effort = x.comp.EffortName(x.c, chosen)
 	}
 	config, revision, err := r.composerConfig(x.comp, message)

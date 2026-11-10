@@ -1,8 +1,8 @@
 package live
 
 import (
-	"fmt"
 	"github.com/egoist/mygo/ui"
+	"strconv"
 	"strings"
 	"time"
 
@@ -63,6 +63,16 @@ func (r *Runtime) projectCommands(cv string, comp *composer.State, activity *com
 	comp.ActivityCallbacks.CommandBusy = func(text string) bool {
 		id, err := protocol.ParseRequestID(text)
 		return err == nil && r.commands.busy[commandViewKey{session.ID, id}]
+	}
+	comp.ActivityCallbacks.ServiceLabel = func(port int) string {
+		if forward, _ := r.forward(r.controller.Target().String(), port); forward != nil && forward.State().Kind == "listening" {
+			return strconv.Itoa(port) + " → " + strconv.Itoa(int(forward.LocalPort()))
+		}
+		return strconv.Itoa(port)
+	}
+	comp.ActivityCallbacks.ServiceBusy = func(port int) bool {
+		_, busy := r.forward(r.controller.Target().String(), port)
+		return busy
 	}
 	if state, ok := r.controller.Commands(session.ID); ok {
 		for _, value := range state.Items {
@@ -145,24 +155,5 @@ func (x *conversationActions) stopWorkspaceCommand(text string) {
 	})
 }
 func (x *conversationActions) openCommandService(port int) {
-	if x.r.openService == nil {
-		x.unavailable()
-		return
-	}
-	session, ok := x.r.session(x.cv.ID)
-	if !ok {
-		return
-	}
-	state, ok := x.r.controller.Commands(session.ID)
-	if !ok {
-		return
-	}
-	for _, command := range state.Items {
-		for _, service := range command.Services {
-			if int(service.Port) == port {
-				x.r.openService(fmt.Sprintf("http://127.0.0.1:%d", port))
-				return
-			}
-		}
-	}
+	x.forwardCommandService(port)
 }

@@ -1,8 +1,6 @@
 package sidebar
 
 import (
-	"net/url"
-	"os"
 	"slices"
 
 	"github.com/egoist/mygo/ui"
@@ -105,13 +103,8 @@ func (s *State) sessionMenu(c *ui.Context, m *ui.Menu, cv *preview.Conversation)
 	})
 	m.Separator()
 	if m.Item(t("files_open")).Disabled(pr == nil).Chosen() {
-		if s.Actions != nil {
-			path := sessionPath(pr, cv)
-			if _, err := os.Stat(path); err != nil {
-				kit.Toast(c, kit.Failed, t("files_open_failed"))
-			} else {
-				c.OpenURL((&url.URL{Scheme: "file", Path: path}).String())
-			}
+		if s.Actions != nil && s.Actions.OpenWorkspace != nil {
+			s.Actions.OpenWorkspace(pr, cv)
 		} else {
 			s.notice(c)
 		}
@@ -129,7 +122,11 @@ func (s *State) sessionMenu(c *ui.Context, m *ui.Menu, cv *preview.Conversation)
 func (s *State) projectMenu(c *ui.Context, m *ui.Menu, pr *preview.Project) {
 	t := func(key string) string { return i18n.T(c, key) }
 	if m.Item(t("workspace_project")).Chosen() {
-		s.notice(c)
+		if s.Actions != nil && s.Actions.Overview != nil {
+			s.Actions.Overview(pr)
+		} else {
+			s.notice(c)
+		}
 	}
 	m.Separator()
 	if m.Item(t("workspace_new_session")).Chosen() {

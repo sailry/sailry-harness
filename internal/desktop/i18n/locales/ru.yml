@@ -1643,3 +1643,60 @@ role_unknown: Результат не подтвержден; повторите
 role_failed: Операция не удалась; повторите попытку
 chat_child_unavailable: Подсессия недоступна; попробуйте еще раз
 reference_load_failed: Failed to load references
+composer_metric_unknown: —
+connection_connecting: Подключение
+host_added: Хост добавлен
+host_install_detecting: Проверка узла
+host_install_failed: Не удалось добавить узел
+host_install_installing: Установка хоста
+host_install_pairing: Сопряжение
+host_install_unknown: Результат установки не подтвержден; проверьте хост и повторите попытку
+host_network_conflict: Настройки сети изменились; повторите попытку
+host_network_edit: Изменить хост
+host_network_failed: Не удалось изменить сеть
+host_network_load_failed: Не удалось загрузить настройки сети
+host_network_saved: Сеть изменена
+host_network_unavailable: Настройки сети недоступны
+host_network_unknown: Не удалось подтвердить изменение сети
+host_update_local_artifacts: Uses locally built Host artifacts; verified when applying
+host_update_restart: Host перезапустится; выполняемые задачи остановятся
+host_updated: Host обновлён
+pairing_failed: Парирование не удалось; проверьте код или сеть и повторите попытку
+pairing_invalid_endpoint: Введите допустимый URL-адрес службы парирования HTTPS
+pairing_preparing: Подготовка соединения
+pairing_refresh_hint: Действует в течение 60 секунд; обновляется по истечении срока действия
+pairing_relay_checking: Проверка реле
+pairing_relay_failed: Не удалось подключиться к ретрансляции; проверьте URL и повторите попытку
+pairing_relay_invalid: Введите допустимый URL-адрес ретрансляции HTTPS
+pairing_relay_ready: Реле подключено
+pairing_relay_selected: Выбранная сеть
+pairing_retrying: Служба парирования недоступна; повторная попытка
+pairing_success: Устройство сопряжено
+settings_retry: Повторить
+ssh_key_changed: Ключ хоста изменился, проверьте отпечаток пальца
+ssh_trust: Доверять
+ssh_trust_title: Доверять ключу узла
+usage_duration_ms: '%{value} ms'
+live_host_runtime_loading: Loading Host runtime
+live_host_runtime_error: Could not read Host runtime
+live_host_no_running: No running sessions
+live_metrics_loading: Loading metrics
+live_metrics_error: Could not read Host metrics
+live_metrics_read: Read
+live_metrics_written: Written
+live_update_idle: Check for Host updates
+live_update_checking: Checking for updates
+live_update_current: Host is up to date
+live_update_available: Host update available
+live_update_downloading: Preparing update
+live_update_verifying: Verifying update
+live_update_staged: Ready to apply
+live_update_applying: Applying update
+live_update_restart: Restarting Host
+live_update_failed: Host update failed
+live_update_loading: Loading update
+live_update_unavailable: Host update unavailable
+live_update_check: Check
+live_update_download: Prepare
+live_update_apply: Apply
+live_update_retry: Retry

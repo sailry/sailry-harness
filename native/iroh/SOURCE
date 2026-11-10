@@ -1,0 +1,10 @@
+Sailry transport bootstrap and relay fixture are adapted from:
+https://github.com/sailry/sailry-public
+Commit: eaad1b7f18e448c8c4e9e9286e19560c8a351ae1
+Paths: crates/link/src/network/mod.rs, network/connection.rs, network/relays.rs,
+network/relays/tests.rs, crates/mobile-bridge/src/android.rs
+License: Apache-2.0
+
+iroh and iroh-relay: =1.3.0
+https://github.com/n0-computer/iroh
+Rust toolchain: 1.98.0

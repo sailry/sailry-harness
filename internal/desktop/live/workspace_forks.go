@@ -35,6 +35,13 @@ func (r *Runtime) forkWorkspaceTurn(x *conversationActions, turn string) {
 	r.openManagedConversation(x.cv, &session, true, nil)
 }
 func (r *Runtime) forkWorkspaceConversation(cv *viewmodel.Conversation) {
+	if owner := r.conversationRuntime(cv, nil); owner == nil {
+		r.Report(fileActionFault(protocol.ErrorCodeUnavailable, "the execution host is unavailable"))
+		return
+	} else if owner != r {
+		owner.forkWorkspaceConversation(cv)
+		return
+	}
 	session, ok := r.session(cv.ID)
 	if !ok {
 		return
@@ -155,7 +162,19 @@ func (r *Runtime) projectRecords(project *viewmodel.Project) {
 	if project == nil {
 		return
 	}
+	if owner := r.runtimeFor(project.Host); owner == nil {
+		r.Report(fileActionFault(protocol.ErrorCodeUnavailable, "the execution host is unavailable"))
+		return
+	} else if owner != r {
+		owner.projectRecords(project)
+		return
+	}
 	r.App.Sidebar.ShowRecords(project.ID, func(cv *viewmodel.Conversation, done func(bool)) {
+		if r.runtimeFor(project.Host) != r {
+			r.Report(fileActionFault(protocol.ErrorCodeUnavailable, "the execution host is unavailable"))
+			done(false)
+			return
+		}
 		session, ok := r.session(cv.ID)
 		if !ok {
 			done(false)

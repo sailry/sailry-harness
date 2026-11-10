@@ -26,6 +26,15 @@ import (
 )
 
 type Runtime struct {
+	parent                   *Runtime
+	network                  *Network
+	bindings                 map[string]*Runtime
+	unsubscribeNetwork       func()
+	nodeModels               []composer.Model
+	hosts                    map[string]*liveHost
+	connections              *connectionState
+	ports                    *livePorts
+	pickKeyFile              func(func(string))
 	teams                    *teamState
 	commands                 *liveCommands
 	openService              func(string)
@@ -33,6 +42,9 @@ type Runtime struct {
 	attachments              *attachmentState
 	workspace                *workspaceState
 	workspaceSettings        workspaceSettingsState
+	workspaceSettingsOwner   *Runtime
+	pendingSession           string
+	transferDialogOwner      *Runtime
 	admittedSessions         map[string]protocol.Session
 	composerRevisions        map[string]uint64
 	composerSaving           map[string]bool
@@ -111,10 +123,7 @@ func NewWithPreferences(ctx context.Context, controller *client.Client, prefs *p
 	r.App.Hooks.DownloadDialog = r.transferDialogs
 	r.initWorkspace()
 	r.App.Hooks.WorkspaceProject = r.workspaceProject
-	r.App.Settings.SaveSandbox = r.saveSandbox
-	r.App.Settings.SaveHooks = r.saveWorkspaceHooks
-	r.App.Settings.HooksContext = r.hookContext
-	r.App.Settings.HooksSandboxed = r.hooksSandboxed
+	r.bindWorkspaceSettings()
 	r.App.Settings.SavePower = r.savePower
 	r.App.Settings.SaveTelemetry = r.saveTelemetry
 	r.App.Hooks.Conversation = r.conversation
@@ -147,14 +156,26 @@ func NewWithPreferences(ctx context.Context, controller *client.Client, prefs *p
 	r.initProviders()
 	r.initTeams()
 	r.initConversationSearch()
+	r.initNetworkUI()
 	return r, nil
 }
 
-func (r *Runtime) SetInvalidate(f func())                { r.mu.Lock(); r.invalidate = f; r.mu.Unlock(); r.wake() }
-func (r *Runtime) SetUpdate(f func(func()))              { r.mu.Lock(); r.update = f; r.mu.Unlock(); r.wake() }
-func (r *Runtime) SetOpenWindow(f func(string))          { r.openWindow = f }
-func (r *Runtime) SetPickDirectory(f func(func(string))) { r.pickDirectory = f }
-func (r *Runtime) SetPreferencesChanged(f func())        { r.preferencesChanged = f }
+func (r *Runtime) SetInvalidate(f func())         { r.mu.Lock(); r.invalidate = f; r.mu.Unlock(); r.wake() }
+func (r *Runtime) SetUpdate(f func(func()))       { r.mu.Lock(); r.update = f; r.mu.Unlock(); r.wake() }
+func (r *Runtime) SetPreferencesChanged(f func()) { r.preferencesChanged = f }
+
+func (r *Runtime) SetOpenWindow(f func(string)) {
+	r.openWindow = f
+	for _, bound := range r.bindings {
+		bound.SetOpenWindow(f)
+	}
+}
+func (r *Runtime) SetPickDirectory(f func(func(string))) {
+	r.pickDirectory = f
+	for _, bound := range r.bindings {
+		bound.SetPickDirectory(f)
+	}
+}
 
 // Report presents a native callback failure without changing page content.
 func (r *Runtime) Report(err error) {
@@ -169,8 +190,19 @@ func (r *Runtime) Close() error {
 	}
 	r.closed = true
 	r.mu.Unlock()
-	r.unsubscribe()
-	r.unsubscribePrefs()
+	if r.unsubscribe != nil {
+		r.unsubscribe()
+	}
+	if r.unsubscribePrefs != nil {
+		r.unsubscribePrefs()
+	}
+	if r.unsubscribeNetwork != nil {
+		r.unsubscribeNetwork()
+	}
+	for _, bound := range r.bindings {
+		_ = bound.Close()
+	}
+	r.closeNetworkUI()
 	for _, release := range r.conversationWatches {
 		release()
 	}
@@ -195,8 +227,21 @@ func (r *Runtime) wake() {
 		invalidate()
 	}
 }
-func (r *Runtime) changed() { r.mu.Lock(); r.dirty = true; r.mu.Unlock(); r.wake() }
+func (r *Runtime) changed() {
+	if r.parent != nil {
+		r.parent.changed()
+		return
+	}
+	r.mu.Lock()
+	r.dirty = true
+	r.mu.Unlock()
+	r.wake()
+}
 func (r *Runtime) enqueue(f func(*ui.Context)) {
+	if r.parent != nil {
+		r.parent.enqueue(f)
+		return
+	}
 	r.mu.Lock()
 	if !r.closed {
 		r.queue = append(r.queue, f)
@@ -209,6 +254,10 @@ func (r *Runtime) enqueue(f func(*ui.Context)) {
 // touch the mutex-protected queue, never presentation fields.
 func (r *Runtime) drain(c *ui.Context) {
 	r.conversationSeen = map[protocol.SessionID]bool{}
+	r.syncNetwork()
+	for _, bound := range r.bindings {
+		bound.conversationSeen = map[protocol.SessionID]bool{}
+	}
 	if revision := r.Preferences.Revision(); revision != r.prefsRevision {
 		r.applyPreferences()
 		r.prefsRevision = revision
@@ -227,9 +276,20 @@ func (r *Runtime) drain(c *ui.Context) {
 	for _, f := range queue {
 		f(c)
 	}
-	r.workspaceFrame(c)
+	owner := r.selectedRuntime()
+	if owner != nil {
+		owner.workspaceFrame(c)
+	} else {
+		if r.workspace != nil {
+			r.releaseSelectedWorkspace()
+			r.workspace.selected = protocol.WorktreeID{}
+		}
+		r.App.Panel.Actions = nil
+		r.App.Panel.Data = &viewmodel.Workspace{}
+	}
 	r.workspaceSettingsFrame()
 	r.teamsFrame()
+	r.networkFrame(c)
 	snapshot := r.controller.Snapshot()
 	if snapshot.PowerSettingsRevision != r.powerObservedRevision && !r.App.Settings.Power.Pending {
 		r.readPower()
@@ -237,6 +297,17 @@ func (r *Runtime) drain(c *ui.Context) {
 }
 
 func (r *Runtime) afterFrame() {
+	for _, bound := range r.bindings {
+		bound.finishFrame()
+	}
+	r.finishFrame()
+	if session, err := protocol.ParseSessionID(r.App.Messages.SearchSession()); err == nil && !r.seenConversation(session) {
+		r.App.Messages.CloseSearch()
+	}
+	r.savePreferences()
+}
+
+func (r *Runtime) finishFrame() {
 	r.pruneAttachmentImages()
 	r.pruneCommands()
 	for id, release := range r.conversationWatches {
@@ -245,14 +316,37 @@ func (r *Runtime) afterFrame() {
 			delete(r.conversationWatches, id)
 		}
 	}
-	if session, err := protocol.ParseSessionID(r.App.Messages.SearchSession()); err == nil && !r.conversationSeen[session] {
-		r.App.Messages.CloseSearch()
-	}
-	r.savePreferences()
 }
 
 func (r *Runtime) project() {
+	if r.parent != nil {
+		r.parent.project()
+		return
+	}
 	snapshot := r.controller.Snapshot()
+	r.projectAdmission(&snapshot)
+	d := Sidebar(snapshot, r.Preferences.Data)
+	d.Notices = Notices(r.controller.Notices())
+	for _, bound := range r.bindings {
+		peerSnapshot := bound.controller.Snapshot()
+		bound.projectAdmission(&peerSnapshot)
+		peerData := Sidebar(peerSnapshot, r.Preferences.Data)
+		peerData.Notices = Notices(bound.controller.Notices())
+		d.Projects = append(d.Projects, peerData.Projects...)
+		d.Unassigned = append(d.Unassigned, peerData.Unassigned...)
+		d.Notices = append(d.Notices, peerData.Notices...)
+		bound.projectModels()
+		bound.prunePins(peerSnapshot)
+	}
+	r.projectHosts(d)
+	r.App.ApplyData(d)
+	r.selectPendingSession()
+	r.projectConversations()
+	r.projectProviderSnapshot()
+	r.prunePins(snapshot)
+}
+
+func (r *Runtime) projectAdmission(snapshot *protocol.Snapshot) {
 	for id, session := range r.admittedSessions {
 		present := false
 		for i, current := range snapshot.Sessions {
@@ -270,13 +364,9 @@ func (r *Runtime) project() {
 			snapshot.Sessions = append(snapshot.Sessions, session)
 		}
 	}
-	d := Sidebar(snapshot, r.Preferences.Data)
-	d.Notices = Notices(r.controller.Notices())
-	r.App.ApplyData(d)
-	r.projectConversations()
-	r.projectProviderSnapshot()
-	r.App.SetLocalHost(localHost(snapshot, d))
-	// Removed or archived resources lose their controller pins for this Node.
+}
+
+func (r *Runtime) prunePins(snapshot protocol.Snapshot) {
 	if pins := r.Preferences.Data.Pins; pins != nil {
 		keep := map[string]bool{}
 		for _, s := range snapshot.Sessions {
@@ -311,6 +401,20 @@ func (r *Runtime) async(work func()) bool {
 }
 
 func (r *Runtime) Refresh() {
+	if r.parent == nil {
+		owner := r.selectedRuntime()
+		if r.App.Page == shell.HostPage {
+			owner = r.runtimeFor(r.App.Host)
+		}
+		if owner == nil {
+			r.Report(fileActionFault(protocol.ErrorCodeUnavailable, "the execution host is unavailable"))
+			return
+		}
+		if owner != r {
+			owner.Refresh()
+			return
+		}
+	}
 	if r.busy["refresh"] {
 		return
 	}
@@ -322,7 +426,11 @@ func (r *Runtime) Refresh() {
 			if err != nil {
 				r.report(c, err, "session_changed")
 			}
-			r.readSettings()
+			if r.parent == nil {
+				r.readSettings()
+			} else {
+				r.readSandbox()
+			}
 		})
 	})
 }
@@ -404,6 +512,14 @@ func (r *Runtime) report(c *ui.Context, err error, conflict string) {
 }
 
 func (r *Runtime) rename(cv *viewmodel.Conversation, title string, done func(bool)) {
+	if owner := r.conversationRuntime(cv, nil); owner == nil {
+		r.Report(fileActionFault(protocol.ErrorCodeUnavailable, "the execution host is unavailable"))
+		done(false)
+		return
+	} else if owner != r {
+		owner.rename(cv, title, done)
+		return
+	}
 	if strings.HasPrefix(cv.ID, "draft/") {
 		cv.Title = title
 		done(true)
@@ -417,6 +533,13 @@ func (r *Runtime) rename(cv *viewmodel.Conversation, title string, done func(boo
 	r.command(protocol.Command{Kind: "rename_session", Data: protocol.CommandRenameSessionPayload{Session: id, ExpectedRevision: cv.Revision, Title: title}}, "session_changed", func(_ protocol.Output, ok bool) { done(ok) })
 }
 func (r *Runtime) archive(cv *viewmodel.Conversation) {
+	if owner := r.conversationRuntime(cv, nil); owner == nil {
+		r.Report(fileActionFault(protocol.ErrorCodeUnavailable, "the execution host is unavailable"))
+		return
+	} else if owner != r {
+		owner.archive(cv)
+		return
+	}
 	if strings.HasPrefix(cv.ID, "draft/") {
 		r.removeDraft(cv.ID)
 		return
@@ -428,6 +551,13 @@ func (r *Runtime) archive(cv *viewmodel.Conversation) {
 	r.command(protocol.Command{Kind: "set_session_archived", Data: protocol.CommandSetSessionArchivedPayload{Session: id, ExpectedRevision: cv.Revision, Archived: true}}, "session_changed", nil)
 }
 func (r *Runtime) read(cv *viewmodel.Conversation, read bool) {
+	if owner := r.conversationRuntime(cv, nil); owner == nil {
+		r.Report(fileActionFault(protocol.ErrorCodeUnavailable, "the execution host is unavailable"))
+		return
+	} else if owner != r {
+		owner.read(cv, read)
+		return
+	}
 	id, err := protocol.ParseSessionID(cv.ID)
 	if err != nil {
 		return
@@ -435,6 +565,13 @@ func (r *Runtime) read(cv *viewmodel.Conversation, read bool) {
 	r.command(protocol.Command{Kind: "set_session_read", Data: protocol.CommandSetSessionReadPayload{Session: id, ExpectedRevision: cv.AttentionRevision, Read: read}}, "session_changed", nil)
 }
 func (r *Runtime) removeSession(cv *viewmodel.Conversation) {
+	if owner := r.conversationRuntime(cv, nil); owner == nil {
+		r.Report(fileActionFault(protocol.ErrorCodeUnavailable, "the execution host is unavailable"))
+		return
+	} else if owner != r {
+		owner.removeSession(cv)
+		return
+	}
 	id, err := protocol.ParseSessionID(cv.ID)
 	if err != nil {
 		r.removeDraft(cv.ID)
@@ -448,6 +585,13 @@ func expectedProject(p *viewmodel.Project) (protocol.Project, error) {
 	return protocol.Project{ID: id, Name: p.Name, Path: p.Path, Appearance: protocol.ProjectsAppearance{Icon: p.Icon, Color: p.Color}}, err
 }
 func (r *Runtime) removeProject(p *viewmodel.Project) {
+	if owner := r.runtimeFor(p.Host); owner == nil {
+		r.Report(fileActionFault(protocol.ErrorCodeUnavailable, "the execution host is unavailable"))
+		return
+	} else if owner != r {
+		owner.removeProject(p)
+		return
+	}
 	expected, err := expectedProject(p)
 	if err != nil {
 		return
@@ -455,8 +599,16 @@ func (r *Runtime) removeProject(p *viewmodel.Project) {
 	r.command(protocol.Command{Kind: "remove_project", Data: protocol.CommandRemoveProjectPayload{Expected: expected}}, "project_changed", nil)
 }
 func (r *Runtime) saveProject(e sidebar.Editor, host string, done func(bool)) {
-	if len(r.App.Data.Hosts) == 0 || host != r.App.Data.Hosts[0].ID {
-		r.enqueue(func(c *ui.Context) { kit.Toast(c, kit.Failed, i18n.T(c, "unavailable")); done(false) })
+	if owner := r.runtimeFor(host); owner == nil {
+		r.Report(fileActionFault(protocol.ErrorCodeUnavailable, "the execution host is unavailable"))
+		done(false)
+		return
+	} else if owner != r {
+		owner.saveProject(e, host, done)
+		return
+	}
+	if host != "" && host != r.controller.Target().String() {
+		done(false)
 		return
 	}
 	source := protocol.ProjectsSource{Kind: "local"}
@@ -481,6 +633,10 @@ func (r *Runtime) saveProject(e sidebar.Editor, host string, done func(bool)) {
 }
 
 func (r *Runtime) browse(owner string, selected func(string)) {
+	if owner != "" && owner != r.localRuntime().controller.Target().String() {
+		r.enqueue(func(c *ui.Context) { kit.Toast(c, kit.Failed, i18n.T(c, "unavailable")) })
+		return
+	}
 	if r.pickDirectory == nil {
 		r.enqueue(func(c *ui.Context) { kit.Toast(c, kit.Failed, i18n.T(c, "unavailable")) })
 		return
@@ -495,12 +651,15 @@ func (r *Runtime) openFolder() { r.browse("", r.App.Sidebar.OpenFolder) }
 
 func (r *Runtime) newDraft(p *viewmodel.Project) {
 	r.drafts++
-	cv := &viewmodel.Conversation{ID: fmt.Sprintf("draft/%d", r.drafts), Updated: time.Now(), Created: int(^uint(0) >> 1)}
+	cv := &viewmodel.Conversation{Node: r.controller.Target().String(), ID: fmt.Sprintf("draft/%d", r.drafts), Updated: time.Now(), Created: int(^uint(0) >> 1)}
+	if p != nil {
+		cv.Node = p.Host
+	}
 	if p == nil {
 		r.App.Data.Unassigned = append([]*viewmodel.Conversation{cv}, r.App.Data.Unassigned...)
 	} else {
 		for _, current := range r.App.Data.Projects {
-			if current.ID == p.ID {
+			if current.ID == p.ID && current.Host == p.Host {
 				current.Conversations = append([]*viewmodel.Conversation{cv}, current.Conversations...)
 				r.App.Sidebar.Reveal(p.ID)
 				break
@@ -529,6 +688,13 @@ func (r *Runtime) removeDraft(id string) {
 }
 
 func (r *Runtime) pin(cv *viewmodel.Conversation) {
+	if owner := r.conversationRuntime(cv, nil); owner == nil {
+		r.Report(fileActionFault(protocol.ErrorCodeUnavailable, "the execution host is unavailable"))
+		return
+	} else if owner != r {
+		owner.pin(cv)
+		return
+	}
 	if strings.HasPrefix(cv.ID, "draft/") {
 		r.enqueue(func(c *ui.Context) { kit.Toast(c, kit.Failed, i18n.T(c, "unavailable")) })
 		return
@@ -560,7 +726,10 @@ func (r *Runtime) movePin(source, target string, after bool) {
 	}
 	for i, id := range moved {
 		order := uint64(i)
-		r.Preferences.Data.SetPin(r.controller.Target(), id, preferences.Pin{Pinned: true, Order: &order})
+		owner := r.conversationRuntime(r.App.Data.Find(id), nil)
+		if owner != nil {
+			r.Preferences.Data.SetPin(owner.controller.Target(), id, preferences.Pin{Pinned: true, Order: &order})
+		}
 	}
 	r.project()
 }
@@ -568,12 +737,23 @@ func (r *Runtime) movePin(source, target string, after bool) {
 // OpenSession and OpenNotice are called by window and notification callbacks on
 // the UI thread; asynchronous work still returns through the same queue.
 func (r *Runtime) OpenSession(id string) {
-	if r.App.Data.Find(id) != nil {
-		r.App.Page = shell.ConversationPage
-		r.App.Sidebar.Selected = id
+	r.pendingSession = id
+	r.selectPendingSession()
+}
+func (r *Runtime) selectPendingSession() {
+	if r.pendingSession == "" || r.App.Data.Find(r.pendingSession) == nil {
+		return
 	}
+	r.App.Page = shell.ConversationPage
+	r.App.Sidebar.Selected = r.pendingSession
+	r.pendingSession = ""
 }
 func (r *Runtime) markNotice(id string) {
+	if r.parent == nil {
+		for _, bound := range r.bindings {
+			bound.markNotice(id)
+		}
+	}
 	for _, n := range r.controller.Notices() {
 		if noticeID(n) != id {
 			continue
@@ -596,4 +776,9 @@ func (r *Runtime) OpenNotice(id string) {
 	}
 }
 
-func (r *Runtime) SetOpenService(open func(string)) { r.openService = open }
+func (r *Runtime) SetOpenService(open func(string)) {
+	r.openService = open
+	for _, bound := range r.bindings {
+		bound.SetOpenService(open)
+	}
+}

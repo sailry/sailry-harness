@@ -7,6 +7,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 )
 
 // The settings' view model: the boundary between the pages and their
@@ -242,9 +243,17 @@ type Model struct {
 	env             envEditor
 
 	// Connections.
-	Devices []preview.Device
-	Relays  []string
-	pairing pairing
+	Devices              []viewmodel.Device
+	Relays               []string
+	ConnectionRelays     []RelayChoice
+	ConnectionActions    *ConnectionActions
+	ConnectionPending    bool
+	ConnectionStage      string
+	Share                ShareState
+	NetworkEditor        *NetworkEditor
+	HostTrust            *HostTrust
+	pairing              pairing
+	connectionGeneration uint64
 
 	// Hooks (hooks/*).
 	Hooks   Stored[HookSettings]

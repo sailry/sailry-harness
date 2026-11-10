@@ -352,6 +352,27 @@ Background notices use committed delivery evidence; their canonical untrusted
 input is hidden from the ordinary user text while the notice bubble retains each
 task title and outcome.
 
+### B7 remote sessions
+
+The same Client projection serves in-process and iroh transport. A visible
+conversation retains its execution Node's bound Runtime for history, search,
+tool details, attachments, commands and all asynchronous actions. Transport
+connection changes feed the existing Reconnecting/Host disconnected banner.
+Retry refreshes that Client and its retained conversation observation; it does
+not resubmit a turn or select the controller's local Node.
+
+A revoked or removed execution peer leaves captured actions unavailable. Explicit
+Node ownership never falls back to the local Client, including when another
+Node has a resource with the same ID. Retained drafts stay read-only until their
+execution owner is available; their content and captured project Host are kept.
+
+The application export callback resolves and freezes the session's Client before
+opening the native save panel. Title, committed history, images and attachment
+bytes all use that exact owner even if navigation changes while the panel is
+open. Read aloud remains a controller-native effect. Opening a remote session
+in another window keeps its requested selection until remote data arrives.
+These routes use additive Node identity without rewriting protocol SessionIDs.
+
 ## UI state vs backend data
 
 | UI state (`State`) | Backend data |
@@ -360,6 +381,7 @@ task title and outcome.
 | Disclosures opened, image viewer, search, rewind confirmation | Run status, phase, elapsed, files, pictures, changes, citations |
 | Work regions toggled, open child tabs | Questions, registered children, frozen models, background notices, steps |
 | Markdown options | |
+| Native save-panel destination and pending window selection | Captured execution Client, connection state and verified remote resources |
 
 ## Preview
 

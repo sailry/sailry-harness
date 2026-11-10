@@ -249,11 +249,34 @@ shell supplies `Hooks.RenderChild`; rendering projects the child's canonical
 history without copying a parent or preview transcript. The child composer
 remains read-only, and closing its tab only releases observation.
 
+## B7 execution ownership
+
+Each execution Node has a bound live Runtime and its own workspace, attachment
+and preview descriptors. The shared panel presents the selected worktree while
+retained artifact tabs resolve their descriptor's original owner. Switching to a
+local conversation therefore cannot send a remote preview's Open, Save or image
+action through the local Client. Native file callbacks installed by the window
+propagate to both existing and newly bound Runtimes.
+
+The window presents one transfer dialog at a time, retaining the selected
+transfer's Runtime until its confirmation or progress flow closes. Remote
+copy/move confirmations, upload Replace decisions and attachment downloads use
+their captured Node even when navigation changes. Dialog Start, Retry and Cancel
+never dispatch through the newly selected conversation.
+
+Hooks and Sandbox share the settings presentation, with reads and saves bound
+to one retained execution owner. Per-Node and per-worktree drafts preserve
+revisions and failures. An open hook editor or consent dialog keeps its original
+owner through navigation; a remote read cannot populate a local save callback.
+Execution-host paths remain remote resource identities. Opening a remote
+workspace folder through a controller-local filesystem path is unavailable.
+
 ## UI state vs backend data
 
 | UI state (`State`) | Backend data |
 |---|---|
 | Tabs, active tab; per browser tab the address and history, per terminal tab the folder and find query; per project: shown file and change, open folders, Document/Source, scroll, accepted hunks (until applied), commit draft | Files, changes, hunks, checkpoints, documents, registered child transcripts |
+| Visible transfer dialog and retained hook/settings drafts | Captured Node, worktree and resource owner for every read and save |
 
 ## Tests
 
@@ -301,6 +324,7 @@ at its width.
 | Preview Git forms, Output, commit and stash documents show the notice | Live adapters require a real repository; B0 remains isolated |
 | Browser and terminal are placeholders in their chrome | Rendering is later work (MyGo WebView, libghostty-vt) |
 | The browser's chrome is core | In the reference the browser plugin draws it; the preview has no plugin UI host |
+| Controller-native folder opening is unavailable for remote workspaces | A remote path grants no controller filesystem authority and there is no supported remote folder-open effect |
 
 ## Native workspace activity
 

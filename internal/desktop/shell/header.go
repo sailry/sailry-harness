@@ -88,6 +88,14 @@ func (a *App) trail(c *ui.Context) {
 		ui.Text(c, i18n.T(c, h.Name)).FontSize(14).SingleLine().Shrink(1).TextColor(p.Foreground)
 		return
 	}
+	if a.Page == ProjectPage {
+		label := i18n.T(c, "workspace_project")
+		if project := a.overviewProject(); project != nil {
+			label = project.Name
+		}
+		ui.Text(c, label).FontSize(14).SingleLine().Shrink(1).TextColor(p.Foreground)
+		return
+	}
 	if id := a.feature(); a.Page != ConversationPage && id != "" {
 		f, _ := featureOf(id)
 		label := i18n.T(c, f.Label)

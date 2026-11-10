@@ -10,6 +10,7 @@ import (
 
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/core"
+	"github.com/sailry/sailry-harness/internal/desktop/live"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node"
@@ -39,6 +40,7 @@ type desktopBackend struct {
 	Path        string
 	Node        *node.Node
 	Client      *client.Client
+	Network     *live.Network
 	Preferences *preferences.Store
 	close       sync.Once
 	err         error
@@ -61,7 +63,7 @@ func openBackend(ctx context.Context, options startupOptions) (*desktopBackend, 
 	}
 	// First-launch detection must precede creation of the Node database.
 	backend.Path, backend.Preferences = path, preferences.ForStartup(path)
-	backend.Node, err = node.Start(ctx, path)
+	backend.Node, err = node.StartWithNetwork(ctx, path, link.NetworkScope{Internet: true})
 	if err != nil {
 		return nil, err
 	}
@@ -69,19 +71,23 @@ func openBackend(ctx context.Context, options startupOptions) (*desktopBackend, 
 	if err = backend.Client.Start(ctx); err != nil {
 		return nil, errors.Join(err, backend.Close())
 	}
+	backend.Network = live.NewNetwork(ctx, backend.Client, backend.Node.Link())
 	return backend, nil
 }
 
 func (backend *desktopBackend) Close() error {
 	backend.close.Do(func() {
-		var controller, nodeErr error
+		var network, controller, nodeErr error
+		if backend.Network != nil {
+			network = backend.Network.Close()
+		}
 		if backend.Client != nil {
 			controller = backend.Client.Close()
 		}
 		if backend.Node != nil {
 			nodeErr = backend.Node.Stop(context.Background())
 		}
-		backend.err = errors.Join(controller, nodeErr)
+		backend.err = errors.Join(network, controller, nodeErr)
 	})
 	return backend.err
 }

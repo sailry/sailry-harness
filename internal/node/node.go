@@ -16,6 +16,8 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
 	"github.com/sailry/sailry-harness/internal/node/files"
 	workspacegit "github.com/sailry/sailry-harness/internal/node/git"
+	"github.com/sailry/sailry-harness/internal/node/host"
+	"github.com/sailry/sailry-harness/internal/node/ports"
 	"github.com/sailry/sailry-harness/internal/node/process"
 	"github.com/sailry/sailry-harness/internal/node/providers"
 	"github.com/sailry/sailry-harness/internal/node/store"
@@ -25,6 +27,13 @@ import (
 
 // Node owns one profile, admitted operations and their committed event feed.
 type Node struct {
+	network           *link.Link
+	networkUpdate     sync.Mutex
+	networkDirectory  *networkDirectory
+	networkProbes     *networkProbes
+	hostSampler       *host.Sampler
+	hostInstalls      *host.Installations
+	ports             *ports.Service
 	cancel            context.CancelFunc
 	web               *workspaceWeb
 	transfers         *files.Transfers
@@ -64,12 +73,14 @@ var _ link.Handler = (*Node)(nil)
 
 // Options injects native process and clock boundaries for deterministic owners.
 type Options struct {
-	Model       func(context.Context, model.Binding) (fantasy.LanguageModel, error)
-	Fetch       web.FetchOptions
-	Search      web.SearchOptions
-	Environment *process.Environment
-	Git         workspacegit.Options
-	Process     process.Options
+	Network        *link.NetworkScope
+	HostDeployment *host.DeploymentOptions
+	Model          func(context.Context, model.Binding) (fantasy.LanguageModel, error)
+	Fetch          web.FetchOptions
+	Search         web.SearchOptions
+	Environment    *process.Environment
+	Git            workspacegit.Options
+	Process        process.Options
 }
 
 func Start(ctx context.Context, path string) (*Node, error) {
@@ -93,6 +104,13 @@ func StartWithOptions(ctx context.Context, path string, options Options) (*Node,
 		return nil, err
 	}
 	value.feed = feed.New(value.ID())
+	value.ports = ports.New(nodeContext, ports.Options{})
+	value.networkDirectory = &networkDirectory{listing: protocol.DefaultNetworkListing()}
+	value.networkProbes = &networkProbes{permits: make(chan struct{}, 4), now: time.Now}
+	value.initHost()
+	if options.HostDeployment != nil {
+		value.hostInstalls = host.NewInstallations(*options.HostDeployment)
+	}
 	value.agent = engine.New(profile.Store.Node, value.ID(), profile.Ownership.Path, value.feed, value.publish, engine.Options{Model: options.Model, Attachment: value.capturedAttachment, AttachmentBytes: value.transfers.AttachmentBytes, ToolsForTurn: value.workspaceTools, HooksForTurn: value.turnHooks})
 	if err := value.agent.Recover(ctx); err != nil {
 		cancel()
@@ -102,6 +120,12 @@ func StartWithOptions(ctx context.Context, path string, options Options) (*Node,
 	}
 	value.agent.Start()
 	go value.run()
+	if options.Network != nil {
+		if err := value.bindNetwork(ctx, *options.Network); err != nil {
+			_ = value.Stop(context.Background())
+			return nil, err
+		}
+	}
 	return value, nil
 }
 
@@ -117,9 +141,14 @@ func (node *Node) Stop(ctx context.Context) error {
 		go func() {
 			<-node.workerDone
 			node.agent.Stop()
+			var networkErr error
+			if node.network != nil {
+				networkErr = node.network.Close()
+			}
+			portErr := node.ports.Close()
 			node.work.Wait()
 			workspaceErr := node.closeWorkspace()
-			err := errors.Join(workspaceErr, node.profile.Close())
+			err := errors.Join(networkErr, portErr, workspaceErr, node.profile.Close())
 			node.mu.Lock()
 			node.stopErr = err
 			close(node.stopDone)
@@ -176,6 +205,12 @@ func (node *Node) Dispatch(ctx context.Context, caller protocol.NodeID, request 
 	}
 	if workspaceCommand(request.Command.Kind) {
 		return node.dispatchWorkspace(ctx, caller, request, encoded)
+	}
+	if hostCommand(request.Command.Kind) {
+		return node.dispatchHost(ctx, caller, request, encoded)
+	}
+	if request.Command.Kind == "open_port" || request.Command.Kind == "cancel_port" {
+		return node.dispatchPort(ctx, caller, request)
 	}
 	supported := supportedCommand(request.Command.Kind)
 	durable := request.Command.Durable()

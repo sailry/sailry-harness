@@ -387,9 +387,22 @@ func end(a ui.Anchor) bool {
 // the popover color, with a check on the chosen one. It reports whether
 // the user chose another option. id names it as MenuButton's; label
 // names the trigger for assistive technology.
-func Select(c *ui.Context, id, label string, chosen *string, options []string, disabled bool) (ui.Element, bool) {
+func Select(c *ui.Context, id, label string, chosen *string, options []string, disabled bool, values ...[]string) (ui.Element, bool) {
 	p, t := theme.Of(c), c.Theme()
 	changed := false
+	valueAt := func(index int) string {
+		if len(values) > 0 {
+			return values[0][index]
+		}
+		return options[index]
+	}
+	selectedLabel := *chosen
+	for index, option := range options {
+		if valueAt(index) == *chosen {
+			selectedLabel = option
+			break
+		}
+	}
 	b := MenuButton(c, id, func(b ui.Element) {
 		b.Label(label).Disabled(disabled).Padding(t.Space(1.5), t.Space(2.5)).Gap(8).MinWidth(140).Radius(p.Radius).
 			Border(1, p.Input).Background(t.Surface).AlignItems(ui.Center).Justify(ui.SpaceBetween).Cursor(ui.CursorPointer)
@@ -397,7 +410,7 @@ func Select(c *ui.Context, id, label string, chosen *string, options []string, d
 			b.Opacity(0.5)
 		}
 		b.Children(func() {
-			ui.Text(c, *chosen).FontSize(14).SingleLine().Shrink(1).MinWidth(0)
+			ui.Text(c, selectedLabel).FontSize(14).SingleLine().Shrink(1).MinWidth(0)
 			turn := float32(0)
 			if *menuState(c, id) {
 				turn = 180
@@ -406,9 +419,10 @@ func Select(c *ui.Context, id, label string, chosen *string, options []string, d
 			arrow.Rotate(arrow.AnimateTo("turn", turn, chevronTurn))
 		})
 	}, func(m *Menu) {
-		for _, o := range options {
-			if m.Item(o).Checked(o == *chosen).Chosen() && o != *chosen {
-				*chosen, changed = o, true
+		for index, option := range options {
+			value := valueAt(index)
+			if m.Item(option).Checked(value == *chosen).Chosen() && value != *chosen {
+				*chosen, changed = value, true
 			}
 		}
 	}, MenuOptions{CheckRight: true, MaxHeight: 320, Match: true})

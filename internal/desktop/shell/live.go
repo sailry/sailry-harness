@@ -16,6 +16,8 @@ import (
 
 // Hooks keeps I/O and thread scheduling in the live controller.
 type Hooks struct {
+	HostActions      func(string) host.Actions
+	EditHost         func(string)
 	WorkspaceProject func() *panel.Project
 	DownloadDialog   func(*ui.Context)
 	BeforeFrame      func(*ui.Context)
@@ -96,10 +98,16 @@ func (a *App) ApplyData(d *viewmodel.Data) {
 		for _, cv := range list {
 			if len(cv.ID) >= 6 && cv.ID[:6] == "draft/" && d.Find(cv.ID) == nil {
 				if old := a.Data.ProjectOf(cv.ID); old != nil {
+					retained := false
 					for _, pr := range d.Projects {
-						if pr.ID == old.ID {
+						if pr.ID == old.ID && pr.Host == old.Host {
 							pr.Conversations = append([]*viewmodel.Conversation{cv}, pr.Conversations...)
+							retained = true
+							break
 						}
+					}
+					if !retained {
+						d.Unassigned = append([]*viewmodel.Conversation{cv}, d.Unassigned...)
 					}
 				} else {
 					d.Unassigned = append([]*viewmodel.Conversation{cv}, d.Unassigned...)
@@ -121,11 +129,21 @@ func (a *App) ApplyData(d *viewmodel.Data) {
 		}
 	}
 	a.panes.Prune(a.paneExists)
-	a.hosts = nil
+	if a.Preview {
+		a.hosts = nil
+	}
 }
 
 // SetLocalHost supplies current local overview data without preview metrics.
 func (a *App) SetLocalHost(h *host.Host) { a.hosts = map[string]*host.Host{h.ID: h} }
+
+func (a *App) SetHosts(hosts map[string]*host.Host) { a.hosts = hosts }
+
+func (a *App) SetHostPorts(id string, ports []host.Port) {
+	if current := a.hosts[id]; current != nil {
+		current.Ports = ports
+	}
+}
 
 // SetWelcome uses the profile preference, independently of window UI state.
 func (a *App) SetWelcome(seen bool) { a.Welcome = onboarding.Guide{Seen: seen, Open: !seen} }

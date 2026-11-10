@@ -273,18 +273,30 @@ func (r *Runtime) localImageAction(a *composer.Attachment, action kit.ImageActio
 	}
 }
 func (r *Runtime) OpenWorkspaceExternal(worktree protocol.WorktreeID, path string, expected *string) {
+	if owner := r.workspaceRuntime(worktree); owner != r {
+		owner.OpenWorkspaceExternal(worktree, path, expected)
+		return
+	}
 	expected = cloneAttachmentRevision(expected)
 	r.enqueue(func(*ui.Context) {
 		r.openExternalAttachment(attachmentDescriptor{worktree: worktree, path: path, name: filepath.Base(path), revision: expected}, false)
 	})
 }
 func (r *Runtime) DownloadWorkspaceFile(worktree protocol.WorktreeID, path string, expected *string) {
+	if owner := r.workspaceRuntime(worktree); owner != r {
+		owner.DownloadWorkspaceFile(worktree, path, expected)
+		return
+	}
 	expected = cloneAttachmentRevision(expected)
 	r.enqueue(func(*ui.Context) {
 		r.chooseAttachmentDestination(attachmentDescriptor{worktree: worktree, path: path, name: filepath.Base(path), revision: expected})
 	})
 }
 func (r *Runtime) RevealWorkspaceFile(worktree protocol.WorktreeID, path string) {
+	if owner := r.workspaceRuntime(worktree); owner != r {
+		owner.RevealWorkspaceFile(worktree, path)
+		return
+	}
 	r.enqueue(func(c *ui.Context) {
 		if r.attachments == nil || r.attachments.native.RevealLocal == nil {
 			r.downloadOutcome(c, fileActionFault(protocol.ErrorCodeUnavailable, "native reveal is unavailable"))
@@ -312,6 +324,10 @@ func validWorkspaceRelative(path string) bool {
 	return fs.ValidPath(path) && path != "." && !strings.ContainsAny(path, "\\:")
 }
 func (r *Runtime) InsertWorkspaceReferences(worktree protocol.WorktreeID, paths []string) {
+	if owner := r.workspaceRuntime(worktree); owner != r {
+		owner.InsertWorkspaceReferences(worktree, paths)
+		return
+	}
 	paths = slices.Clone(paths)
 	r.enqueue(func(c *ui.Context) {
 		selected := r.App.Sidebar.Selected

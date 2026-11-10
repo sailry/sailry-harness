@@ -189,6 +189,55 @@ func TestAdmissionSameRequestID(t *testing.T) {
 			t.Fatalf("reopened project = %#v", value)
 		}
 	})
+	t.Run("project and captured worktree catalogs", func(t *testing.T) {
+		node := nodeFixture(t)
+		var projects []protocol.Project
+		for _, name := range []string{"First", "Second"} {
+			draft := protocol.ProjectsDraft{Name: name, Path: t.TempDir(), Appearance: protocol.DefaultProjectsAppearance(), Source: protocol.ProjectsSource{Kind: "local"}}
+			projects = append(projects, commandFixture(t, node, protocol.Command{Kind: "create_project", Data: draft}).Data.(protocol.Project))
+		}
+		session := sessionFixture(t, node)
+		snapshot := snapshotFixture(t, node)
+		var captured protocol.WorktreeID
+		for _, worktree := range snapshot.Worktrees {
+			if worktree.Project != nil && *worktree.Project == projects[0].ID {
+				captured = worktree.ID
+			}
+		}
+		for _, test := range []struct {
+			name     string
+			command  protocol.Command
+			projects int
+			trees    int
+			captured protocol.WorktreeID
+		}{
+			{"registered projects", protocol.Command{Kind: "read_project_catalog"}, 2, 2, protocol.WorktreeID{}},
+			{"captured project", protocol.Command{Kind: "read_worktree_catalog", Data: protocol.CommandReadWorktreeCatalogPayload{Worktree: captured}}, 1, 1, captured},
+			{"scratch workspace", protocol.Command{Kind: "read_worktree_catalog", Data: protocol.CommandReadWorktreeCatalogPayload{Worktree: session.Worktree}}, 0, 1, session.Worktree},
+		} {
+			t.Run(test.name, func(t *testing.T) {
+				output := commandFixture(t, node, test.command)
+				catalog, ok := output.Data.(protocol.ProjectsCatalog)
+				if output.Kind != "project_catalog" || !ok || len(catalog.Projects) != test.projects || len(catalog.Worktrees) != test.trees {
+					t.Fatalf("catalog = %#v", output)
+				}
+				if test.captured != (protocol.WorktreeID{}) && catalog.Worktrees[0].ID != test.captured {
+					t.Fatalf("catalog selected another worktree: %#v", catalog)
+				}
+				if len(catalog.Projects) == 1 && catalog.Projects[0].ID != projects[0].ID {
+					t.Fatalf("catalog selected another project: %#v", catalog)
+				}
+			})
+		}
+		request := protocol.NewRequest(node.ID(), protocol.Command{Kind: "read_worktree_catalog", Data: protocol.CommandReadWorktreeCatalogPayload{Worktree: protocol.NewWorktreeID()}})
+		result := dispatchFixture(t, node, node.ID(), request)
+		if result.Fault == nil || result.Fault.Code != protocol.ErrorCodeNotFound {
+			t.Fatalf("missing captured worktree = %#v", result)
+		}
+		if current := snapshotFixture(t, node).Cursor; current != snapshot.Cursor {
+			t.Fatalf("read-only catalogs changed the Node cursor: %d != %d", current, snapshot.Cursor)
+		}
+	})
 	t.Run("notification replay and settings revisions", func(t *testing.T) {
 		node := nodeFixture(t)
 		ctx := context.Background()

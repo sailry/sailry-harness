@@ -151,6 +151,9 @@ func (s *State) projectButton(c *ui.Context, ctx *Context, actions Actions, icon
 			}
 			s.Project, s.Worktree = id, ""
 			if pr := s.project(ctx); pr != nil && len(pr.Worktrees) > 0 {
+				if pr.Host != "" && pr.Host != s.Host {
+					s.Host, s.Model, s.Team, s.MemberModels = pr.Host, "", "", nil
+				}
 				s.Worktree = pr.Worktrees[0].Branch
 			}
 		}

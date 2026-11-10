@@ -29,13 +29,16 @@ func MetricsPanel(c *ui.Context, s *State, h *Host) {
 		}
 		ui.Text(c, i18n.T(c, h.Name)).FontSize(14).SingleLine()
 		m := h.Metrics
-		if h.Live && m == nil {
-			kit.Result(c, kit.ResultProps{Title: i18n.T(c, "unavailable")})
-			return
+		if h.Live && h.MetricsError != "" {
+			m = nil
 		}
 		if m == nil {
 			if h.MetricsError == "" {
-				ui.Progress(c.Key("loading"), -1).FillWidth().Height(4).Label(i18n.T(c, "metrics_loading"))
+				loading := "metrics_loading"
+				if h.Live {
+					loading = "live_metrics_loading"
+				}
+				ui.Progress(c.Key("loading"), -1).FillWidth().Height(4).Label(i18n.T(c, loading))
 				ui.Column(c.Key("processes")).Gap(12).Children(func() {
 					ui.Text(c, i18n.T(c, "metrics_processes")).FontSize(14).FontWeight(600)
 					processSkeleton(c)
@@ -53,10 +56,12 @@ func MetricsPanel(c *ui.Context, s *State, h *Host) {
 		ui.Column(c.Key("load")).Gap(8).Children(func() {
 			fact(c, i18n.T(c, "metrics_cpu"), or(Percent(m.CPU)))
 			total := unknown
+			used := unknown
 			if m.Memory > 0 {
 				total = Bytes(float64(m.Memory))
+				used = or(Bytes(float64(m.MemoryUsed)))
 			}
-			fact(c, i18n.T(c, "metrics_memory"), or(Bytes(float64(m.MemoryUsed)))+" / "+total)
+			fact(c, i18n.T(c, "metrics_memory"), used+" / "+total)
 			if v, ok := Usage(m.MemoryUsed, m.Memory); ok {
 				ui.Progress(c.Key("memory"), v/100).FillWidth().Height(4).Label(i18n.T(c, "metrics_memory"))
 			}
@@ -82,8 +87,14 @@ func MetricsPanel(c *ui.Context, s *State, h *Host) {
 					ui.Text(c, d.Mount).FontSize(14).SingleLine()
 					ui.Text(c, d.FileSystem+" / "+or(Bytes(float64(d.Total-min(d.Available, d.Total))))+" / "+or(Bytes(float64(d.Total)))).
 						FontSize(12).SingleLine().TextColor(p.MutedForeground)
-					fact(c, i18n.T(c, "metrics_read"), or(Bytes(float64(d.ReadBytes))))
-					fact(c, i18n.T(c, "metrics_written"), or(Bytes(float64(d.Written))))
+					readLabel, writtenLabel := "metrics_read", "metrics_written"
+					read, written := or(Bytes(float64(d.ReadBytes))), or(Bytes(float64(d.Written)))
+					if h.Live {
+						readLabel, writtenLabel = "live_metrics_read", "live_metrics_written"
+						read, written = i18n.T(c, "metrics_rate", "value", read), i18n.T(c, "metrics_rate", "value", written)
+					}
+					fact(c, i18n.T(c, readLabel), read)
+					fact(c, i18n.T(c, writtenLabel), written)
 				})
 			}
 		})
@@ -103,7 +114,7 @@ func MetricsPanel(c *ui.Context, s *State, h *Host) {
 			}
 		})
 	})
-	if h.MetricsError != "" && s.metricsFailed != h.MetricsError {
+	if !h.Live && h.MetricsError != "" && s.metricsFailed != h.MetricsError {
 		kit.Error(c, i18n.T(c, "metrics_error"), h.MetricsError)
 	}
 	s.metricsFailed = h.MetricsError

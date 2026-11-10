@@ -52,6 +52,8 @@ type ActivityCallbacks struct {
 	CommandState    func() (bool, bool)
 	CommandError    func(string) bool
 	CommandBusy     func(string) bool
+	ServiceLabel    func(int) string
+	ServiceBusy     func(int) bool
 	WorktreeLabel   func(string) string
 	Worktree        func(string)
 	WorktreeEnabled func() bool
@@ -371,10 +373,19 @@ func (s *State) commandActivity(c *ui.Context, a Activity, actions Actions) {
 				continue
 			}
 			seen[port] = true
-			b := chip(c.Key("service-"+strconv.Itoa(port)), strconv.Itoa(port), false, func() {
+			label, busy := strconv.Itoa(port), false
+			if s.ActivityCallbacks != nil {
+				if s.ActivityCallbacks.ServiceLabel != nil {
+					label = s.ActivityCallbacks.ServiceLabel(port)
+				}
+				if s.ActivityCallbacks.ServiceBusy != nil {
+					busy = s.ActivityCallbacks.ServiceBusy(port)
+				}
+			}
+			b := chip(c.Key("service-"+strconv.Itoa(port)), label, false, func() {
 				ui.Icon(c, icons.Globe).FontSize(14)
-				ui.Text(c, strconv.Itoa(port)).FontSize(14).SingleLine()
-			}).Disabled(!a.Connected).OnClick(func() { actions.OpenService(port) })
+				ui.Text(c, label).FontSize(14).SingleLine()
+			}).Disabled(!connected || busy).OnClick(func() { actions.OpenService(port) })
 			kit.Tooltip(c, b, i18n.T(c, "port_open_service"))
 		}
 	}

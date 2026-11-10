@@ -1,0 +1,2 @@
+-keep, includedescriptorclasses class org.rustls.platformverifier.** { *; }
+-keep class ai.sailry.bridge.Native { *; }

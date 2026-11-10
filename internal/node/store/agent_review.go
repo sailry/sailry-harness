@@ -307,7 +307,7 @@ func resolveReviewRecord(ctx context.Context, db *sql.Conn, question protocol.Co
 func ApplyReviewCommand(ctx context.Context, db *sql.Conn, request protocol.Request, output protocol.Output, now time.Time) ([]AgentReviewChange, []protocol.Event, error) {
 	switch output.Kind {
 	case "queued_turn":
-		if request.Command.Kind != "submit_turn" && request.Command.Kind != "queue_turn" {
+		if request.Command.Kind != "submit_turn" && request.Command.Kind != "queue_turn" && request.Command.Kind != "submit_task" {
 			return nil, nil, nil
 		}
 		var turn protocol.QueuedTurn

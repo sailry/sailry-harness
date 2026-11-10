@@ -18,6 +18,7 @@ to the frame (`docs/shell.md`).
 | `order.go` | **The rules** as pure functions: `Window`, `OrderPins`, `NextPinOrder`, `MovePin`, `RecentOrder`, `Adjacent`, `ValidTitle` |
 | `menus.go` | The right-click menus, archive and removal confirmations, the rename input |
 | `editor.go` | The project editor: `Editor`, `SuggestName`, `CheckProject`, `CheckClone`, `Destination` |
+| `metrics.go` | The optional live CPU and memory footer |
 
 ## Entry point
 
@@ -132,7 +133,8 @@ project and removes it. `internal/desktop/shell/shell_test.go`: Show more.
 | Project sessions do not reorder by dragging; no split folders | Not in this phase |
 | The pinned group does not append the host's running sessions | The preview has one host's pins only |
 | Chats keep the 5-row limit | Phase 1's accepted behavior; the reference scrolls a 7.4 rem box |
-| No terminals in the tree; the sidebar metrics footer is not shown | Terminals come with the terminal work; metrics are off by default |
+| No terminals in the tree | Terminals come with the terminal work |
+| The metrics footer is off by default | The existing controller preference enables B7's live CPU and memory display |
 
 ## B3 live wiring
 
@@ -164,3 +166,42 @@ without integer overflow, while persisted values remain unchanged. Pin reorderin
 never dispatches SetSessionOrder. Archived/removed resources lose their current
 Node's pins. Empty drafts remain UI-local and create no persisted session until
 B4's first-send path. Unsupported later actions remain unavailable.
+
+## B7 live wiring
+
+Combined presentation preserves each conversation's Node and each project's
+Host identity while every shared Client retains its own snapshot. Actions
+capture the owning Client instead of following later navigation. New projects
+opened from a Host page default to that exact Host; an existing project's Host
+remains read-only.
+
+Project Overview opens `shell.ProjectPage` with the project's captured Node and
+project ID. The page resolves current facts by both identities, independently of
+the selected conversation, and stays unavailable if that owner disappears. New
+session keeps the captured project. Records include ordinary project sessions,
+including archived ones, exclude delegated and resource-owned sessions, and
+search titles and worktree paths without changing ownership. Opening an archived
+record uses its owning Client's revision-checked `SetSessionArchived` before
+navigating; failure keeps the page open.
+
+Worktree menu selection captures that project's Node and worktree, registers a
+native checkout when needed, then opens the project overview without creating a
+session draft. The selected worktree supplies the overview's Git status and
+subsequent New session action; ordinary Overview defaults to the main worktree.
+Failed or uncertain registration keeps the current navigation, and a late
+registration result cannot replace a different page or conversation.
+
+The overview reads Git status for its captured worktree. Directory
+initialization uses the existing Node `RunGitAction` command and its expected
+Git state; nested repositories require the ordinary confirmation. New terminal
+and terminal records remain unavailable until B10, and AI CLI until B8. The
+preview's project-menu behavior remains unchanged.
+
+The existing `SidebarMetrics` controller preference enables a CPU and memory
+footer below the session tree. `sidebar.State.Metrics` carries the current
+sample's optional percentages; missing data displays an em dash. The footer
+uses the selected conversation's execution Node, or the selected Host while its
+page is open. It requests summary samples only while the navigation is visible
+and the preference is enabled. The Host details panel requests detailed samples
+through the same Node sampler. Hiding both consumers cancels their current read
+and stops polling; an empty footer never starts another Node or agent engine.

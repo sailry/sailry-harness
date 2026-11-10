@@ -23,6 +23,7 @@ model library and the extension details page.
 | `models.go` | Dictation, the OCR local-model page, managed model rows and their details dialog |
 | `terminal.go` | Terminal: environment variables, shell, paste protection, font size and family |
 | `connections.go` | Connections: hosts and mobile devices, add host (pairing or SSH), share code, revoke |
+| `connections_live.go` | Additive live connection callbacks, relay option timings, network editor and SSH host-key prompt data |
 | `hooks.go` | Hooks: switch, scripts, hook editor, consent dialog |
 | `runtime.go` | Runtime: bundled Python and its package index |
 | `system.go` | Permissions (the full disk hint is an info `kit.Alert` holding Show app), About (version, build, license) |
@@ -316,3 +317,51 @@ discovery capabilities take precedence. Provider saves preserve retained model
 capabilities and the selected default effort. Catalog refresh never inserts sample
 models. Compaction reads and saves use the Node revision; a failed save keeps its
 draft and never invents a new revision.
+
+## B7 Connections wiring
+
+`internal/desktop/live/connections*.go` adapts the shared application `Network`,
+its local Client and its Link endpoint to the accepted Connections page.
+Execution peers and Mobile controllers retain separate device identities.
+Offline peers keep the controller's remembered name, platform and execution
+classification. Route and RTT come from the shared Link connection observer;
+Mobile controllers are never queried as execution Nodes. The local execution
+Node has no revoke action. Existing row menus revoke trust after confirmation,
+and host Edit actions open the selected Node's network editor.
+
+The Add dialog retains its pairing and SSH drafts across method changes. PIN
+pairing uses `PairPINOnNetwork` with the selected relay network and one retained
+claim identity across uncertain attempts. It does not change the controller's
+relay settings. SSH installation, host-key consent and installation recovery
+belong to the Host adapter; Connections passes its captured draft and selected
+network to that owner. Native key-file selection returns a path through the
+window queue and cannot overwrite a newer draft.
+
+Visible network pickers read cached presets, refresh the Node-owned catalog and
+run finite probes with at most four concurrent measurements. Refresh preserves
+the exact selected destination, including a removed or changed preset and
+retained multi-relay settings. Custom-address probes use the source's 650 ms
+debounce. Picker reads and probes stop when their dialog closes or the page
+changes. Timings use the existing select's rows without adding another control.
+
+Sharing prepares the local Node's network with a revision-checked command before
+opening the Link Share session. It shows preparation, refreshing live six-digit
+codes and an explicit Retry action after failure; operation outcomes appear only
+as toasts. Share, pairing and pending reads have a window-owned cancellation
+context. Closing the dialog or window cancels the invitation and releases its
+code. Share keeps a captured uncertain network request for outcome inspection
+when Retry is selected.
+
+Network edits capture the selected Node's settings revision and durable request.
+A lost response inspects that request's outcome through the previous address
+before adding the selected network's hints. It then verifies the returned
+address belongs to the same Node, remembers it and confirms both the saved and
+effective selection. An uncertain result locks that request's draft and makes
+Retry inspect it without replaying the change. Definite failures and conflicts
+keep the editable draft; a refreshed backend revision does not replace it.
+Success, failure, conflict and uncertain outcomes use distinct toasts.
+
+The preview constructor remains isolated and shows its existing empty sharing
+code. The previously documented sharing-scope and WSL UI deviations remain.
+Executable acceptance and cross-platform runtime checks belong to the
+coordinator; this wiring's implementation review uses static checks only.

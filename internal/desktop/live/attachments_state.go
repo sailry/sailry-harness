@@ -10,7 +10,6 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
-	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/transfers"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -77,7 +76,7 @@ func (r *Runtime) initAttachments() {
 	ctx, cancel := context.WithCancel(r.ctx)
 	r.attachments = &attachmentState{ctx: ctx, cancel: cancel, items: map[*composer.Attachment]*attachmentRecord{}, files: map[string]attachmentDescriptor{}, publications: map[string]*attachmentPublication{}, previews: map[string]attachmentDescriptor{}, previewGeneration: map[string]uint64{}, previewHTML: map[string]string{}, documents: map[string]*attachmentDocumentImage{}, slots: make(chan struct{}, 2), imageSessions: map[string]*attachmentImageState{}, imageSlots: make(chan struct{}, 2), temporary: map[string]func(){}}
 	if r.App != nil && r.App.Panel != nil {
-		r.App.Panel.SetArtifactCallbacks(panel.ArtifactCallbacks{OpenExternal: r.OpenArtifactExternal, Image: r.ArtifactImageAction, Render: r.renderArtifactPreview})
+		r.bindArtifactCallbacks()
 	}
 }
 func (r *Runtime) closeAttachments() {
@@ -100,6 +99,9 @@ func (r *Runtime) SetNativeFileActions(actions NativeFileActions) {
 		r.initAttachments()
 	}
 	r.attachments.native = actions
+	for _, bound := range r.bindings {
+		bound.SetNativeFileActions(actions)
+	}
 }
 func attachmentKey(session, id string) string { return session + "\x00" + id }
 func (r *Runtime) bindComposerAttachments(x *conversationActions) {

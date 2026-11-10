@@ -25,6 +25,7 @@ type Editor struct {
 	Repo    string
 	Branch  string
 	suggest string // the name last suggested from the path or repository
+	host    string
 }
 
 // Editing reports whether the project editor shows.
@@ -36,7 +37,13 @@ func (s *State) OpenEditor(pr *preview.Project) {
 	s.editor = Editor{Open: true, Project: pr}
 	if pr != nil {
 		s.editor.Name, s.editor.Path = pr.Name, pr.Path
+		s.editor.host = pr.Host
 	}
+}
+
+func (s *State) OpenEditorAtHost(id string) {
+	s.OpenEditor(nil)
+	s.editor.host = id
 }
 
 // OpenCloneEditor opens the existing new-project form with Clone selected.
@@ -100,18 +107,18 @@ func (s *State) editorDialog(c *ui.Context) {
 	}
 	p := theme.Of(c)
 	hosts := make([]string, len(s.Data.Hosts))
+	hostIDs := make([]string, len(s.Data.Hosts))
 	for i, h := range s.Data.Hosts {
 		hosts[i] = i18n.T(c, h.Name)
-	}
-	if e.Host == "" && len(hosts) > 0 {
-		e.Host = hosts[0]
-	}
-	hostID := ""
-	for i, h := range s.Data.Hosts {
-		if hosts[i] == e.Host {
-			hostID = h.ID
+		hostIDs[i] = h.ID
+		if e.host == "" && i == 0 {
+			e.host = h.ID
+		}
+		if e.host == h.ID {
+			e.Host = hosts[i]
 		}
 	}
+	hostID := e.host
 	if e.Project != nil {
 		hostID = e.Project.Host
 	}
@@ -142,8 +149,9 @@ func (s *State) editorDialog(c *ui.Context) {
 				ui.TextInput(c.Key("input"), &e.Name).Placeholder(i18n.T(c, "project_name_placeholder")).Label(i18n.T(c, "project_name")).FillWidth().Disabled(e.Pending)
 			})
 			kit.Field(c, "host", i18n.T(c, "project_host"), "", func() {
-				b, _ := kit.Select(c.Key("select"), "project-host", i18n.T(c, "project_host"), &e.Host, hosts, e.Project != nil || e.Pending)
+				b, _ := kit.Select(c.Key("select"), "project-host", i18n.T(c, "project_host"), &e.host, hosts, e.Project != nil || e.Pending, hostIDs)
 				b.FillWidth()
+				hostID = e.host
 			})
 			if e.Clone == 1 && e.Project == nil {
 				kit.Field(c, "repo", i18n.T(c, "project_repository"), "", func() {
@@ -168,7 +176,12 @@ func (s *State) editorDialog(c *ui.Context) {
 					kit.IconButton(c.Key("browse"), icons.FolderOpen, i18n.T(c, "directory_title"), 32, false).
 						Border(1, p.Input).Disabled(e.Pending).OnClick(func() {
 						if s.Actions != nil && s.Actions.Browse != nil {
-							s.Actions.Browse(hostID, func(path string) { e.Path = path })
+							generation, owner := s.editorGeneration, hostID
+							s.Actions.Browse(owner, func(path string) {
+								if generation == s.editorGeneration && e.Open && e.host == owner {
+									e.Path = path
+								}
+							})
 						} else {
 							s.notice(c)
 						}

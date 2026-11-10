@@ -20,27 +20,32 @@ type portPicker struct {
 	query         string
 	selected      int
 	remote, local string
+	pending       bool
 }
 
 // portsHeader is the host header's forwards: the first three, each opening
 // its address, then Port forwarding, which opens the picker.
-func portsHeader(c *ui.Context, s *State, h *Host) {
+func portsHeader(c *ui.Context, s *State, h *Host, actions Actions) {
 	for i, x := range h.Ports {
 		if i == 3 {
 			break
 		}
 		b := small(c, "port-"+strconv.Itoa(i), icons.Globe, strconv.Itoa(x.Remote), !x.Listening, false)
 		kit.Tooltip(c, b, x.Route())
-		b.OnClick(func() { openPort(c, x) })
+		b.OnClick(func() { openPort(c, x, actions) })
 	}
 	small(c, "ports", icons.Network, i18n.T(c, "port_title"), false, false).OnClick(func() {
 		s.ports = portPicker{open: true}
 	})
 }
 
-// openPort would open the forward's address in the browser; the preview
-// does not reach the port, which the toast says.
-func openPort(c *ui.Context, _ Port) { kit.Message(c, i18n.T(c, "preview_notice")) }
+func openPort(c *ui.Context, port Port, actions Actions) {
+	if actions.OpenPort != nil {
+		actions.OpenPort(port)
+		return
+	}
+	kit.Message(c, i18n.T(c, "preview_notice"))
+}
 
 // pick is a row of the picker.
 type pick struct {
@@ -54,7 +59,7 @@ type pick struct {
 // pickers: the forwards, then New forward; a forward chosen lists Open
 // address, Copy address, Close forwarding and Back) and the new forward
 // dialog.
-func portDialogs(c *ui.Context, s *State, h *Host) {
+func portDialogs(c *ui.Context, s *State, h *Host, actions Actions) {
 	pk := &s.ports
 	p := theme.Of(c)
 	w, _ := c.Size()
@@ -63,10 +68,14 @@ func portDialogs(c *ui.Context, s *State, h *Host) {
 		if i := slices.IndexFunc(h.Ports, func(x Port) bool { return x.Local == pk.selected }); pk.selected != 0 && i >= 0 {
 			x := h.Ports[i]
 			rows = []pick{
-				{"open", i18n.T(c, "port_address"), icons.Globe, !x.Listening, func() { openPort(c, x); pk.open = false }},
+				{"open", i18n.T(c, "port_address"), icons.Globe, !x.Listening, func() { openPort(c, x, actions); pk.open = false }},
 				{"copy", i18n.T(c, "port_copy"), icons.Copy, false, func() { c.WriteClipboard(x.Address()); pk.open = false }},
 				{"close", i18n.T(c, "port_close"), icons.Close, false, func() {
-					h.Ports = slices.Delete(h.Ports, i, i+1)
+					if actions.ClosePort != nil {
+						actions.ClosePort(x)
+					} else {
+						h.Ports = slices.Delete(h.Ports, i, i+1)
+					}
 					pk.selected = 0
 				}},
 				{"back", i18n.T(c, "reference_back"), icons.ChevronLeft, false, func() { pk.selected = 0 }},
@@ -128,13 +137,22 @@ func portDialogs(c *ui.Context, s *State, h *Host) {
 		ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
 			kit.Secondary(c.Key("cancel"), i18n.T(c, "settings_cancel")).OnClick(func() { pk.adding = false })
 			create := i18n.T(c, "port_create")
-			kit.Primary(c.Key("create"), create, false).Children(func() { ui.Text(c, create).FontSize(14) }).OnClick(func() {
+			kit.Primary(c.Key("create"), create, false).Disabled(pk.pending).Children(func() { ui.Text(c, create).FontSize(14) }).OnClick(func() {
 				x, problem := AddPort(h.Ports, pk.remote, pk.local)
 				if problem != "" {
 					kit.Toast(c, kit.Failed, i18n.T(c, problem))
 					return
 				}
-				// The forward is listed; the preview opens no port.
+				if actions.CreatePort != nil {
+					pk.pending = true
+					actions.CreatePort(pk.remote, pk.local, func(success bool) {
+						pk.pending = false
+						if success {
+							pk.adding = false
+						}
+					})
+					return
+				}
 				h.Ports = append(h.Ports, x)
 				pk.adding = false
 				kit.Message(c, i18n.T(c, "preview_notice"))

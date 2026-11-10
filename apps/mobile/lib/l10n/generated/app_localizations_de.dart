@@ -1,0 +1,2617 @@
+// ignore: unused_import
+import 'package:intl/intl.dart' as intl;
+import 'app_localizations.dart';
+
+// ignore_for_file: type=lint
+
+/// The translations for German (`de`).
+class AppLocalizationsDe extends AppLocalizations {
+  AppLocalizationsDe([String locale = 'de']) : super(locale);
+
+  @override
+  String get guidanceWithdraw => 'Anweisung zurückziehen';
+
+  @override
+  String get updatesVersion => 'Version';
+
+  @override
+  String get updatesCheck => 'Nach Updates suchen';
+
+  @override
+  String get updatesChecking => 'Wird geprüft';
+
+  @override
+  String updatesAvailable(String version) {
+    return 'Version $version ist verfügbar';
+  }
+
+  @override
+  String get updatesDownload => 'Update herunterladen';
+
+  @override
+  String get updatesCurrent => 'Sie sind auf dem Laufenden';
+
+  @override
+  String get updatesUnpublished => 'Noch keine mobile Version';
+
+  @override
+  String get updatesCheckFailed => 'Konnte nicht nach Updates suchen';
+
+  @override
+  String get updatesOpenFailed => 'Der Download konnte nicht geöffnet werden';
+
+  @override
+  String get welcomeTitle => 'Woran möchten Sie heute arbeiten?';
+
+  @override
+  String get welcomeExplore => 'Ein Projekt durchsuchen';
+
+  @override
+  String get welcomeExploreDetail => 'Struktur und Einstiegspunkte verstehen';
+
+  @override
+  String get welcomeExplorePrompt =>
+      'Helfen Sie mir, dieses Projekt zu verstehen, einschließlich seiner Schlüsselmodule und Einstiegspunkte.';
+
+  @override
+  String get welcomeBuild => 'Baue eine Idee';
+
+  @override
+  String get welcomeBuildDetail => 'Erwecken Sie Ihre Idee zum Leben';
+
+  @override
+  String get welcomeBuildPrompt =>
+      'Ich möchte ein Feature zu diesem Projekt hinzufügen, bitte bestätigen Sie zuerst die Anforderungen mit mir und skizzieren Sie einen Implementierungsplan.';
+
+  @override
+  String get welcomeReview => 'Änderungen überprüfen';
+
+  @override
+  String get welcomeReviewDetail =>
+      'Änderungen und potenzielle Probleme prüfen';
+
+  @override
+  String get welcomeReviewPrompt =>
+      'Überprüfen Sie die aktuellen Änderungen in diesem Projekt und konzentrieren Sie sich auf mögliche Probleme und fehlende Tests.';
+
+  @override
+  String get welcomePlan => 'Machen Sie einen Plan';
+
+  @override
+  String get welcomePlanDetail => 'Ziele und Schritte klären';
+
+  @override
+  String get welcomePlanPrompt =>
+      'Helfen Sie mir, einen Schritt-für-Schritt-Plan für die anstehenden Entwicklungsarbeiten zu erstellen.';
+
+  @override
+  String get conversationEmpty => 'Beschreiben Sie Ihre Aufgabe';
+
+  @override
+  String get conversationLoading => 'Chat wird geladen';
+
+  @override
+  String get conversationReconnecting => 'Verbindung wird wiederhergestellt';
+
+  @override
+  String get conversationErrorDetails => 'Grund anzeigen';
+
+  @override
+  String conversationModelRetrying(String attempt, String limit) {
+    return 'Wiederholung der Modellanfrage $attempt/$limit';
+  }
+
+  @override
+  String conversationModelRetried(String attempt, String limit) {
+    return 'Modellanfrage wiederholt $attempt/$limit';
+  }
+
+  @override
+  String conversationToolsCount(String count) {
+    return '$count Werkzeugaufrufe';
+  }
+
+  @override
+  String get conversationGoal => 'Ziel';
+
+  @override
+  String get conversationGoalBlocked => 'Blockiert';
+
+  @override
+  String conversationGoalBudget(String count) {
+    return 'Budget $count Token';
+  }
+
+  @override
+  String get conversationStepSkipped => 'Übersprungen';
+
+  @override
+  String get conversationChild => 'Unteraufgabe';
+
+  @override
+  String get conversationOffline => 'Verbindung verloren';
+
+  @override
+  String get conversationUnavailable => 'Chat nicht verfügbar';
+
+  @override
+  String get conversationFailed =>
+      'Vorgang fehlgeschlagen; versuchen Sie es erneut';
+
+  @override
+  String get conversationUnknown =>
+      'Ergebnis unbestätigt; überprüfen Sie den Chat, bevor Sie erneut handeln';
+
+  @override
+  String get conversationCheckResult => 'Ergebnis prüfen';
+
+  @override
+  String get conversationConflict =>
+      'Konfiguration geändert; erneut öffnen, bevor Sie erneut handeln';
+
+  @override
+  String get conversationOlder => 'Ältere Nachrichten laden';
+
+  @override
+  String get conversationNew => 'Neuen Chat erstellen';
+
+  @override
+  String get conversationNoHost => 'Verbinden Sie zuerst einen Host';
+
+  @override
+  String get conversationNoProject =>
+      'Zuerst ein Projekt auf dem Host hinzufügen';
+
+  @override
+  String get conversationNoModel =>
+      'Konfigurieren Sie zuerst ein Modell auf dem Host';
+
+  @override
+  String get conversationNoTasks => 'Noch keine Chats';
+
+  @override
+  String get conversationNoMessages => 'Keine Nachrichten gefunden';
+
+  @override
+  String get conversationPreviewUnavailable => 'Nachricht nicht verfügbar';
+
+  @override
+  String get conversationInterrupted => 'Unterbrochen';
+
+  @override
+  String get conversationContinued => 'Fortgesetzt';
+
+  @override
+  String get conversationFailedStatus => 'Fehlgeschlagen';
+
+  @override
+  String get conversationStopping => 'Wird gestoppt';
+
+  @override
+  String get conversationQueued => 'Warteschlange';
+
+  @override
+  String get conversationProcessing => 'Verarbeitung';
+
+  @override
+  String get conversationUnsynced => 'Status nicht synchronisiert';
+
+  @override
+  String get conversationGenerating => 'Antworten';
+
+  @override
+  String get conversationWaiting => 'Warten auf Bestätigung';
+
+  @override
+  String get conversationWaitingChild => 'Warten auf einen Unteragenten';
+
+  @override
+  String conversationWaitingChildren(String count) {
+    return 'Warten auf $count Unteragenten';
+  }
+
+  @override
+  String get conversationCompacting => 'Kompaktierung des Kontexts';
+
+  @override
+  String get conversationForkConfirm =>
+      'Einen Chat aus diesem Datensatz forken?';
+
+  @override
+  String get conversationCompacted => 'Kontext komprimiert';
+
+  @override
+  String get conversationToolWaiting => 'Ausstehend';
+
+  @override
+  String get conversationToolRunning => 'Wird ausgeführt';
+
+  @override
+  String get conversationToolReturned => 'Zurückgegeben';
+
+  @override
+  String get conversationUnsupportedInput =>
+      'Diese Eingabe auf dem Desktop behandeln';
+
+  @override
+  String get conversationStartCoding => 'Ausführung starten';
+
+  @override
+  String get conversationPlanFeedback => 'Änderungen vorschlagen';
+
+  @override
+  String get conversationOther => 'Andere';
+
+  @override
+  String get conversationSubmit => 'Absenden';
+
+  @override
+  String get conversationSource => 'Quelle';
+
+  @override
+  String get conversationMode => 'Arbeitsmodus';
+
+  @override
+  String get conversationCode => 'Standard';
+
+  @override
+  String get conversationPlan => 'Plan';
+
+  @override
+  String get conversationFlagship => 'Flaggschiff';
+
+  @override
+  String get conversationPermission => 'Berechtigungen';
+
+  @override
+  String get conversationAsk => 'Fragen Sie jedes Mal';
+
+  @override
+  String get conversationProject => 'Zugriff auf Projekte';
+
+  @override
+  String get conversationFull => 'Vollständiger Zugriff auf';
+
+  @override
+  String get conversationReasoning => 'Argumentationsaufwand';
+
+  @override
+  String get conversationDefault => 'Standard';
+
+  @override
+  String get conversationNone => 'Aus';
+
+  @override
+  String get conversationMinimal => 'Minimal';
+
+  @override
+  String get conversationLow => 'Niedrig';
+
+  @override
+  String get conversationMedium => 'Mittel';
+
+  @override
+  String get conversationHigh => 'Hoch';
+
+  @override
+  String get conversationXHigh => 'Höher';
+
+  @override
+  String get conversationMax => 'Maximum';
+
+  @override
+  String get conversationBudget => 'Begründung des Haushaltsplans';
+
+  @override
+  String get conversationAttachment => 'Anhang';
+
+  @override
+  String get conversationAttachmentTooLarge =>
+      'Anhang unleserlich oder größer als 64 MB';
+
+  @override
+  String get conversationDownload => 'Anhang anzeigen';
+
+  @override
+  String get conversationImageFailed => 'Bild kann nicht angezeigt werden';
+
+  @override
+  String get conversationImageUnavailable => 'Bild nicht verfügbar';
+
+  @override
+  String get conversationDownloadFailed => 'Anhang konnte nicht geladen werden';
+
+  @override
+  String get conversationReadonly => 'Dieser Chat ist archiviert';
+
+  @override
+  String get conversationMicrophoneDenied =>
+      'Kann nicht auf das Mikrofon zugreifen';
+
+  @override
+  String get conversationRecordingFailed => 'Spracherkennung fehlgeschlagen';
+
+  @override
+  String get conversationSpeechDisabled => 'Spracheingabe ist deaktiviert';
+
+  @override
+  String get conversationSpeechMissing =>
+      'Laden Sie das Sprachmodell zuerst in den Einstellungen herunter';
+
+  @override
+  String get conversationRecording => 'Aufnahme läuft';
+
+  @override
+  String get conversationTranscribing => 'Transkription';
+
+  @override
+  String get conversationRecordReady => 'Bereit zum Aufnehmen';
+
+  @override
+  String get conversationStartRecording => 'Aufnahme starten';
+
+  @override
+  String get conversationFinishRecording => 'Aufnahme beenden';
+
+  @override
+  String get conversationSources => 'Quellen';
+
+  @override
+  String get conversationSearchSuggestions => 'Vorschläge für die Suche';
+
+  @override
+  String get conversationStats => 'Nutzung des Chats';
+
+  @override
+  String get conversationStatsEmpty => 'Noch keine Nutzung';
+
+  @override
+  String get conversationStatsOverview => 'Übersicht';
+
+  @override
+  String get conversationStatsTokenGroup => 'Token-Nutzung';
+
+  @override
+  String get conversationStatsCostGroup => 'Kosten';
+
+  @override
+  String get conversationStatsGenerationGroup => 'Generierung';
+
+  @override
+  String get conversationStatsTokens => 'Tokens';
+
+  @override
+  String get conversationStatsInput => 'Eingabe';
+
+  @override
+  String get conversationStatsOutput => 'Ausgabe';
+
+  @override
+  String get conversationStatsCached => 'Zwischengespeicherte Eingabe';
+
+  @override
+  String get conversationStatsReasoning => 'Argumentationsausgang';
+
+  @override
+  String get conversationStatsCacheRate => 'Cache-Treffer';
+
+  @override
+  String get conversationStatsCost => 'Geschätzte Kosten';
+
+  @override
+  String get conversationStatsCostCoverage => 'Kostendeckung';
+
+  @override
+  String get conversationStatsSpeed => 'Generationsgeschwindigkeit';
+
+  @override
+  String conversationStatsSpeedValue(String value) {
+    return '$value tok/s';
+  }
+
+  @override
+  String get conversationStatsTimingCoverage => 'Zeitabdeckung';
+
+  @override
+  String get conversationStatsTurns => 'Runden';
+
+  @override
+  String get conversationStatsResponses => 'Modellantworten';
+
+  @override
+  String get conversationStatsContext => 'Der aktuelle Kontext';
+
+  @override
+  String get conversationStatsInputCost => 'Inputkosten';
+
+  @override
+  String get conversationStatsOutputCost => 'Outputkosten';
+
+  @override
+  String get conversationStatsCacheReadCost => 'Cache-Lesekosten';
+
+  @override
+  String get conversationStatsCacheWriteCost => 'Cache-Schreibkosten';
+
+  @override
+  String get messageHistoryUpdated =>
+      'Chat aktualisiert; ursprüngliche Aufzeichnungen erhalten';
+
+  @override
+  String get turnUndoUnsaved =>
+      'Dateien haben nicht gespeicherte Änderungen; speichern oder verwerfen Sie sie zuerst';
+
+  @override
+  String get codePlain => 'Klartext';
+
+  @override
+  String get toolArguments => 'Argumente';
+
+  @override
+  String get toolResult => 'Ergebnis';
+
+  @override
+  String get toolRaw => 'Rohergebnis';
+
+  @override
+  String get turnChanges => 'Wenden Sie Änderungen';
+
+  @override
+  String turnChangesCount(String count) {
+    return '$count-Dateien';
+  }
+
+  @override
+  String get fileChangesApprovalOne => 'Patch auf 1 Datei anwenden';
+
+  @override
+  String fileChangesApproval(String count) {
+    return 'Patch auf $count Dateien anwenden';
+  }
+
+  @override
+  String get fileChangesAdded => 'Hinzugefügt';
+
+  @override
+  String get fileChangesModified => 'Geändert';
+
+  @override
+  String get fileChangesRenamed => 'Umbenannt';
+
+  @override
+  String get fileChangesDeleted => 'Gelöscht';
+
+  @override
+  String get turnUndo => 'Änderungen rückgängig machen';
+
+  @override
+  String get turnUndoAll => 'Alles rückgängig';
+
+  @override
+  String get turnUndoConfirm =>
+      'Diese Dateiänderungen ab diesem Zug rückgängig machen? Konflikte mit späteren Änderungen stoppen den Vorgang';
+
+  @override
+  String get turnUndoDone => 'Rückgängig gemacht';
+
+  @override
+  String get turnUndoPartial =>
+      'Einige Änderungen rückgängig gemacht; Überprüfen der verbleibenden Dateien';
+
+  @override
+  String get messageActions => 'Aktionen für Nachrichten';
+
+  @override
+  String get messageEdit => 'Bearbeiten und regenerieren';
+
+  @override
+  String get messageEditConfirm =>
+      'Diese Nachricht und den folgenden Chat ersetzen? Dateien werden nicht zurückgesetzt';
+
+  @override
+  String get messageRewind => 'Hier zurückspulen';
+
+  @override
+  String get messageRewindConfirm =>
+      'Diesen Schritt behalten und spätere Nachrichten entfernen? Dateien bleiben unverändert';
+
+  @override
+  String get messageBackup => 'Chat-Backup anzeigen';
+
+  @override
+  String get messageRegenerate => 'Neu generieren';
+
+  @override
+  String get messageSearch => 'Chat suchen';
+
+  @override
+  String get messageSearchHint => 'Nachrichten durchsuchen';
+
+  @override
+  String get messageSearchMissing =>
+      'Diese Nachricht ist nicht mehr im aktuellen Chat';
+
+  @override
+  String get messageSearchStale => 'Chat geändert; erneut suchen';
+
+  @override
+  String get messageNoResults => 'Keine passenden Nachrichten';
+
+  @override
+  String get messageCheck => 'Operationsergebnis prüfen';
+
+  @override
+  String get messageReference => 'Referenz';
+
+  @override
+  String get messageReferenceContext =>
+      'Diese Referenz gehört zum Kontext, in dem die Nachricht gesendet wurde';
+
+  @override
+  String get toolFailed => 'Fehlgeschlagen';
+
+  @override
+  String get toolQuestionAnswered => 'Beantwortet';
+
+  @override
+  String get toolQuestionDeclined => 'Abgelehnt';
+
+  @override
+  String get toolQuestionCancelled => 'Abgebrochen';
+
+  @override
+  String get fileLinkUnavailable => 'Dieser Link kann nicht geöffnet werden';
+
+  @override
+  String get imagePreview => 'Vorschau des Bildes';
+
+  @override
+  String get fileOpenExternal => 'Mit einer anderen App öffnen';
+
+  @override
+  String get fileOpenFailed => 'Datei nicht öffnen';
+
+  @override
+  String get fileNoApplication => 'Keine App kann diese Datei öffnen';
+
+  @override
+  String get fileSaveBeforeShare => 'Änderungen vor dem Teilen speichern?';
+
+  @override
+  String fileTrashConfirm(String name) {
+    return '“$name” in den Papierkorb des Hosts verschieben? Nicht gespeicherte Änderungen werden ebenfalls verworfen';
+  }
+
+  @override
+  String get fileTrashUncertain =>
+      'Löschungsergebnis nicht bestätigt; die Abfrage erneut versuchen';
+
+  @override
+  String get fileSaveFailed => 'Dateispeicher fehlgeschlagen';
+
+  @override
+  String get terminalHideKeyboard => 'Tastatur ausblenden';
+
+  @override
+  String get terminalEscape => 'Esc';
+
+  @override
+  String get terminalTab => 'Tab';
+
+  @override
+  String get terminalCtrl => 'Ctrl';
+
+  @override
+  String get terminalAlt => 'Alt';
+
+  @override
+  String get terminalShift => 'Shift';
+
+  @override
+  String get terminalCmd => 'Cmd';
+
+  @override
+  String get terminalArrowLeft => 'Links';
+
+  @override
+  String get terminalArrowUp => 'Nach oben';
+
+  @override
+  String get terminalArrowDown => 'Nach unten';
+
+  @override
+  String get terminalArrowRight => 'Rechts';
+
+  @override
+  String get resourceNoWorkspace =>
+      'Auswählen eines Arbeitsbaums auf einem verbundenen Host';
+
+  @override
+  String get resourceDisconnected => 'Host nicht verbunden';
+
+  @override
+  String get resourceRoot => 'Wurzel';
+
+  @override
+  String get resourceMore => 'Mehr laden »';
+
+  @override
+  String get resourcePartial => 'Teilweise Inhalte angezeigt';
+
+  @override
+  String get resourceEmpty => 'Keine Inhalte gefunden';
+
+  @override
+  String get resourceSaveError =>
+      'Speichern fehlgeschlagen; Entwurf beibehalten';
+
+  @override
+  String get resourceReloadConfirm =>
+      'Den Entwurf verwerfen und den neuesten Inhalt laden?';
+
+  @override
+  String get resourceWorktreeCreate => 'Neuer Arbeitsbaum';
+
+  @override
+  String get resourceSessionServices => 'Chat-Services';
+
+  @override
+  String get resourceServicesUnavailable => 'Serviceliste nicht verfügbar';
+
+  @override
+  String get resourceNoServices => 'Keine Serviceadressen gefunden';
+
+  @override
+  String get resourceServiceOpen => 'Offener Service';
+
+  @override
+  String get resourceRemotePort => 'Remote Port';
+
+  @override
+  String get resourceOpenPort => 'Forward-Port';
+
+  @override
+  String get resourceOpenBrowser => 'Vorschau der Webseite';
+
+  @override
+  String get resourcePreviewFailed => 'Seite konnte nicht gefunden werden';
+
+  @override
+  String get resourcePreviewLink =>
+      'Dieser Link kann nicht in der Vorschau geöffnet werden';
+
+  @override
+  String get resourceForwardStopped => 'Die Weiterleitung wurde gestoppt';
+
+  @override
+  String get resourceTerminalControl => 'Übernehmen Sie die Kontrolle';
+
+  @override
+  String get resourceTerminalControlHint => 'Von einem anderen Gerät gesteuert';
+
+  @override
+  String get resourceTerminalClaiming => 'Die Kontrolle übernehmen';
+
+  @override
+  String get resourceTerminalReadOnly => 'Read-only-Terminal';
+
+  @override
+  String get resourceTerminalEnded => 'Terminal beendet';
+
+  @override
+  String get resourceTerminalConnecting => 'Anschlussklemme';
+
+  @override
+  String get resourceTerminalInput => 'Terminal-Eingang';
+
+  @override
+  String get resourceTerminalPaste => 'Einfügen';
+
+  @override
+  String get resourceGitNotRepository =>
+      'Dieses Verzeichnis ist kein Git-Repository';
+
+  @override
+  String get resourceInvalidPort => 'Geben Sie einen Port von 1–65535 ein';
+
+  @override
+  String get tool_navigate => 'Seite öffnen';
+
+  @override
+  String get tool_back => 'Zurück gehen »';
+
+  @override
+  String get tool_forward => 'Gehen Sie vorwärts';
+
+  @override
+  String get tool_refresh => 'Seite aktualisieren';
+
+  @override
+  String get tool_right_click => 'Klickelement';
+
+  @override
+  String get tool_clear => 'Text eingeben';
+
+  @override
+  String get tool_select => 'Wählen Sie eine Option';
+
+  @override
+  String get tool_hover => 'Hover';
+
+  @override
+  String get tool_scroll => 'Seite scrollen';
+
+  @override
+  String get tool_press_key => 'Taste drücken';
+
+  @override
+  String get tool_new_tab => 'Neue Registerkarte';
+
+  @override
+  String get tool_list_windows => 'Browser-Tabs';
+
+  @override
+  String get tool_switch_window => 'Schalter';
+
+  @override
+  String get tool_close_window => 'Fenster schließen »';
+
+  @override
+  String get tool_close_session => 'Schließen Sie den Browser';
+
+  @override
+  String get tool_screenshot => 'Seite aufnehmen';
+
+  @override
+  String get tool_print_to_pdf => 'Exportieren als PDF';
+
+  @override
+  String get tool_file_upload => 'Datei hochladen';
+
+  @override
+  String get tool_downloads => 'Alle Downloads anzeigen';
+
+  @override
+  String get tool_save_download => 'Heruntergeladene Datei speichern';
+
+  @override
+  String get tool_evaluate_js => 'Seitenskript ausführen';
+
+  @override
+  String get tool_get_cookies => 'Lesen von Cookies';
+
+  @override
+  String get tool_delete_all_cookies => 'Ändern Sie Cookies';
+
+  @override
+  String get tool_drag_and_drop => 'Drag-Element';
+
+  @override
+  String get tool_focus => 'Fokuselement';
+
+  @override
+  String get tool_handle_alert => 'Handle-Seite Alarm';
+
+  @override
+  String get tool_database_catalog => 'Datenbank durchsuchen';
+
+  @override
+  String get tool_database_query => 'Abfragedatenbank';
+
+  @override
+  String get tool_database_execute => 'Datenbankoperation ausführen';
+
+  @override
+  String get tool_search_memory => 'Suchspeicher';
+
+  @override
+  String get tool_review_memories => 'Überprüfen Sie Erinnerungen';
+
+  @override
+  String get tool_consolidate_memories => 'Erinnerungen zusammenführen';
+
+  @override
+  String get tool_save_memory => 'Speicher sparen';
+
+  @override
+  String get tool_forget_memory => 'Speicher löschen';
+
+  @override
+  String get tool_update_plan => 'Update-Plan';
+
+  @override
+  String get tool_create_goal => 'Ziel erstellen';
+
+  @override
+  String get tool_get_goal => 'Ziel anzeigen';
+
+  @override
+  String get tool_update_goal => 'Ziel aktualisieren';
+
+  @override
+  String get tool_spawn_agent => 'Unteragent';
+
+  @override
+  String get tool_browser_tabs => 'Browser-Tabs';
+
+  @override
+  String get tool_browser_read => 'Lesen Sie Seite';
+
+  @override
+  String get tool_browser_navigate => 'Seite öffnen';
+
+  @override
+  String get tool_browser_click => 'Klickelement';
+
+  @override
+  String get tool_browser_input => 'Text eingeben';
+
+  @override
+  String get tool_browser_scroll => 'Seite scrollen';
+
+  @override
+  String get tool_browser_back => 'Zurück gehen »';
+
+  @override
+  String get tool_browser_forward => 'Gehen Sie vorwärts';
+
+  @override
+  String get tool_browser_refresh => 'Seite aktualisieren';
+
+  @override
+  String get tool_browser_open => 'Neue Registerkarte';
+
+  @override
+  String get tool_browser_close => 'Schließen Sie den Tab';
+
+  @override
+  String get tool_browser_focus => 'Schalter';
+
+  @override
+  String get tool_browser_select => 'Wählen Sie eine Option';
+
+  @override
+  String get tool_browser_hover => 'Hover';
+
+  @override
+  String get tool_browser_key => 'Taste drücken';
+
+  @override
+  String get tool_browser_frame => 'Schalterrahmen';
+
+  @override
+  String get tool_browser_wait => 'Warten auf Seite';
+
+  @override
+  String get tool_browser_screenshot => 'Seite aufnehmen';
+
+  @override
+  String get tool_ssh_run => 'Befehl SSH ausführen';
+
+  @override
+  String get tool_ssh_transfer => 'Datei SSH übertragen';
+
+  @override
+  String get tool_list_worktrees => 'Liste der Arbeitsbäume';
+
+  @override
+  String get tool_create_worktree => 'Neuer Arbeitsbaum';
+
+  @override
+  String get tool_register_worktree => 'Worktree hinzufügen';
+
+  @override
+  String get tool_remove_worktree => 'Worktree entfernen';
+
+  @override
+  String get tool_google_search => 'Web durchsuchen';
+
+  @override
+  String get tool_web_fetch => 'Seite abrufen';
+
+  @override
+  String get tool_fetch_url => 'Seite abrufen';
+
+  @override
+  String get tool_read_file => 'Datei lesen';
+
+  @override
+  String get tool_write_file => 'Datei schreiben';
+
+  @override
+  String get tool_list_directory => 'Verzeichnis durchsuchen';
+
+  @override
+  String get tool_search_files => 'Dateien durchsuchen';
+
+  @override
+  String get tool_run_command => 'Befehl ausführen';
+
+  @override
+  String get tool_read_command => 'Befehl Hintergrund anzeigen';
+
+  @override
+  String get tool_stop_command => 'Stoppbefehl';
+
+  @override
+  String get tool_load_skill => 'Load Skill';
+
+  @override
+  String get tool_read_skill_resource => 'Skill-Ressource lesen';
+
+  @override
+  String get tool_computer_desktop => 'Desktop anzeigen';
+
+  @override
+  String get tool_computer_observe => 'Bildschirm beobachten';
+
+  @override
+  String get tool_computer_input => 'Steuerrechner';
+
+  @override
+  String get tool_computer_focus => 'Die Switch-App';
+
+  @override
+  String get tool_computer_open => 'Die App öffnen';
+
+  @override
+  String get tool_git_status => 'Git Status';
+
+  @override
+  String get tool_git_diff => 'Diff anzeigen';
+
+  @override
+  String get tool_git_log => 'Git log';
+
+  @override
+  String get tool_inspect_image => 'Bild inspizieren';
+
+  @override
+  String get tool_generate_image => 'Bild generieren';
+
+  @override
+  String get tool_generate_video => 'Video generieren';
+
+  @override
+  String get refresh => 'Aktualisieren';
+
+  @override
+  String get loading => 'Wird geladen';
+
+  @override
+  String get home => 'Chats';
+
+  @override
+  String get idle => 'Inaktiv';
+
+  @override
+  String get allProjects => 'Alle Projekte anzeigen';
+
+  @override
+  String get unassignedChats => 'Chats';
+
+  @override
+  String get allWorktrees => 'Alle Arbeitsbäume anzeigen';
+
+  @override
+  String get tasksActive => 'Laufend';
+
+  @override
+  String get tasksToday => 'Heute';
+
+  @override
+  String get yesterday => 'Gestern';
+
+  @override
+  String get tasksThisWeek => 'Diese Woche';
+
+  @override
+  String get tasksEarlier => 'Früher';
+
+  @override
+  String get filterProjects => 'Projekte nach Filtern';
+
+  @override
+  String get closeSearch => 'Die Suche schließen';
+
+  @override
+  String onlineHostCount(String count) {
+    return '$count online';
+  }
+
+  @override
+  String get taskActions => 'Task-Aktionen';
+
+  @override
+  String get archiveShort => 'Archiv';
+
+  @override
+  String get archiveTab => 'Archiviert';
+
+  @override
+  String get archivedTasks => 'Archiviert';
+
+  @override
+  String get delete => 'Löschen';
+
+  @override
+  String get deleteTask => 'Chat löschen';
+
+  @override
+  String get deleteWarning =>
+      'Dieser Chat kann nach dem Löschen nicht fortgesetzt werden';
+
+  @override
+  String get busyDelete =>
+      'Beenden Sie die Aufgabe, bevor Sie diesen Chat löschen';
+
+  @override
+  String get stopBeforeDelete => 'Aufgabe stoppen';
+
+  @override
+  String get restored => 'Zu Hause wiederhergestellt';
+
+  @override
+  String get restore => 'Wiederherstellen';
+
+  @override
+  String get archiveEmpty => 'Keine archivierten Chats';
+
+  @override
+  String get archiveKeepsRunning =>
+      'Durch die Archivierung werden laufende Aufgaben nicht gestoppt';
+
+  @override
+  String get brand => 'Sailry';
+
+  @override
+  String get mobile => 'Mobiler Arbeitsbereich';
+
+  @override
+  String get edition => 'MOBILE ERFORSCHUNG / 01';
+
+  @override
+  String get intro => 'Aufgaben, Chats und Remote-Arbeitsbereiche';
+
+  @override
+  String get preview => 'Vorschau';
+
+  @override
+  String get mixed => 'Hell und dunkel';
+
+  @override
+  String get dark => 'Dunkel';
+
+  @override
+  String get light => 'Hell';
+
+  @override
+  String get gallery => 'Übersicht';
+
+  @override
+  String get focus => 'Einzelbildschirm';
+
+  @override
+  String get page => 'Seite wählen »';
+
+  @override
+  String get experience => 'Seite öffnen';
+
+  @override
+  String get backGallery => 'Zurück zur Übersicht';
+
+  @override
+  String get design => 'Funktionen und Design';
+
+  @override
+  String get footer => 'Segelboot / Mobil';
+
+  @override
+  String get tasks => 'Aufgaben';
+
+  @override
+  String get chat => 'Chat';
+
+  @override
+  String get hosts => 'Hosts';
+
+  @override
+  String get resources => 'Ressource';
+
+  @override
+  String get settings => 'Einstellungen';
+
+  @override
+  String get usage => 'Nutzung';
+
+  @override
+  String get changes => 'Änderungen';
+
+  @override
+  String get terminal => 'Terminal';
+
+  @override
+  String get newTerminal => 'Das neue Terminal';
+
+  @override
+  String get files => 'Dateien';
+
+  @override
+  String get project => 'Projekt';
+
+  @override
+  String get worktree => 'Worktree';
+
+  @override
+  String get subtitleTasks =>
+      'Hostübergreifende Aufgaben · Genehmigungen und Antworten zuerst';
+
+  @override
+  String get subtitleChat =>
+      'Kontinuierlicher Chat · Erweitern Sie die Werkzeugaktivität nach Bedarf';
+
+  @override
+  String get subtitleHosts => 'Verbindungen, Hostressourcen und Prozesse';
+
+  @override
+  String get subtitleResources => 'Host → Projekt → Arbeitsbaum';
+
+  @override
+  String get subtitleChanges => 'Datei-Diffs, Staging und Commits';
+
+  @override
+  String get subtitleTerminal =>
+      'Remote-Terminal · Explizite Eingangssteuerung';
+
+  @override
+  String get subtitleUsage => 'Sailry Chats · Über Hosts hinweg aggregiert';
+
+  @override
+  String get subtitleSettings =>
+      'Lokale Voreinstellungen und Ausführungseinstellungen Node';
+
+  @override
+  String get allHosts => 'Alle Hosts anzeigen';
+
+  @override
+  String get connectedHosts => '2 online';
+
+  @override
+  String get all => 'Alle';
+
+  @override
+  String get running => 'Wird ausgeführt';
+
+  @override
+  String get waiting => 'Ausstehend';
+
+  @override
+  String get completed => 'Abgeschlossen';
+
+  @override
+  String get taskProgress => 'Aktuelle Aufgabe';
+
+  @override
+  String get taskWait => 'Wir warten auf Ihre Entscheidung';
+
+  @override
+  String get taskRecent => 'Vor kurzem abgeschlossen';
+
+  @override
+  String get search => 'Suchen';
+
+  @override
+  String get searchTasks => 'Aufgaben und Projekte suchen';
+
+  @override
+  String get filterTasks => 'Aufgaben filtern';
+
+  @override
+  String get noResults => 'Keine passenden Aufgaben';
+
+  @override
+  String get notification => 'Benachrichtigungen';
+
+  @override
+  String get newTask => 'Neue Aufgabe';
+
+  @override
+  String get newConversation => 'Neuen Chat erstellen';
+
+  @override
+  String get question =>
+      'In welcher Sprache soll die Dokumentation verwendet werden?';
+
+  @override
+  String get reply => 'Antwort';
+
+  @override
+  String get approval => 'Genehmigung';
+
+  @override
+  String get viewRequest => 'Anfrage anzeigen';
+
+  @override
+  String get ago => 'Gerade jetzt';
+
+  @override
+  String get minutesAgo => 'Vor 12 Stunden';
+
+  @override
+  String get allow => 'Einmal zulassen';
+
+  @override
+  String get deny => 'Ablehnen';
+
+  @override
+  String get working => 'In Bearbeitung';
+
+  @override
+  String get viewChanges => 'Änderungen anzeigen';
+
+  @override
+  String get viewConversation => 'Chat anzeigen';
+
+  @override
+  String get branch => 'feature/sign-in';
+
+  @override
+  String get today => 'Heute 09:36';
+
+  @override
+  String get phaseThinking => 'Denken';
+
+  @override
+  String get phaseReading => 'Lesen von Dateien';
+
+  @override
+  String get phaseQuestion => 'Warten auf Antwort';
+
+  @override
+  String get phaseEditing => 'Bearbeiten von Dateien';
+
+  @override
+  String get phaseApproval => 'Warten auf Genehmigung';
+
+  @override
+  String get phaseTesting => 'Laufversuche';
+
+  @override
+  String get phaseReply => 'Antworten';
+
+  @override
+  String get phaseFollowup => 'Warteschlange wird verarbeitet';
+
+  @override
+  String get phaseComplete => 'Abgeschlossen';
+
+  @override
+  String get phaseFailed => 'Die Tests sind fehlgeschlagen';
+
+  @override
+  String get allowShort => 'Zulassen';
+
+  @override
+  String get queueShort => 'Warteschlange';
+
+  @override
+  String get replyingNow => 'Antworten';
+
+  @override
+  String get readFileProgress => 'Datei lesen';
+
+  @override
+  String get questionPending => 'Wir warten auf Ihre Antwort';
+
+  @override
+  String get testTool => 'Projekttests durchführen';
+
+  @override
+  String get testFailed => 'Die Tests sind fehlgeschlagen';
+
+  @override
+  String queueCount(String count) {
+    return '$count in der Warteschlange stehende Nachrichten';
+  }
+
+  @override
+  String queuePaused(String count) {
+    return 'Warteschlange angehalten · $count';
+  }
+
+  @override
+  String queueGuidance(String queue) {
+    return '$queue, Anweisung wartet auf Übernahme';
+  }
+
+  @override
+  String get pauseQueue => 'Pause Queue';
+
+  @override
+  String get resumeQueue => 'Warteschlange fortsetzen';
+
+  @override
+  String get enqueue => 'Zur Warteschlange hinzufügen';
+
+  @override
+  String get moveUp => 'Nach oben bewegen';
+
+  @override
+  String get thinkingNow => 'Denken';
+
+  @override
+  String get toolsNow => 'Wird ausgeführt';
+
+  @override
+  String get thought => 'Denkaufwand';
+
+  @override
+  String get toolDiff => 'Datei-Diffs überprüfen';
+
+  @override
+  String get approvalResolved => 'Genehmigung beschlossen';
+
+  @override
+  String get chatContinue => 'Beschreiben Sie Ihre Aufgabe weiter';
+
+  @override
+  String get describeTask => 'Beschreiben Sie Ihre Aufgabe';
+
+  @override
+  String get send => 'Senden';
+
+  @override
+  String get attach => 'Anhängen';
+
+  @override
+  String get voice => 'Spracheingabe';
+
+  @override
+  String get attachment => 'Anhang';
+
+  @override
+  String get removeAttachment => 'Anhang entfernen';
+
+  @override
+  String get model => 'Modell';
+
+  @override
+  String get copy => 'Kopieren';
+
+  @override
+  String get copied => 'Kopiert';
+
+  @override
+  String get copyFailed => 'Kopie nicht verfügbar; Text manuell auswählen';
+
+  @override
+  String get more => 'Mehr';
+
+  @override
+  String get close => 'Schließen';
+
+  @override
+  String get back => 'Zurück';
+
+  @override
+  String get cancel => 'Abbrechen';
+
+  @override
+  String get save => 'Speichern';
+
+  @override
+  String get queue => 'Message Queue';
+
+  @override
+  String get queueEmpty => 'Keine in der Warteschlange stehenden Nachrichten';
+
+  @override
+  String get fork => 'Unterhaltung abzweigen';
+
+  @override
+  String get stop => 'Aufgabe stoppen';
+
+  @override
+  String get stoppedStatus => 'Gestoppt';
+
+  @override
+  String get hostSubtitle => 'Ihre Ausführungsknoten';
+
+  @override
+  String get pair => 'Host verbinden';
+
+  @override
+  String get online => 'Online';
+
+  @override
+  String get offline => 'Offline';
+
+  @override
+  String get cpu => 'CPU';
+
+  @override
+  String get memory => 'Gedächtnis';
+
+  @override
+  String get metrics => 'Ressourcennutzung';
+
+  @override
+  String get activity => 'Aktivität';
+
+  @override
+  String get processes => 'Prozesse';
+
+  @override
+  String get network => 'Netz';
+
+  @override
+  String get relay => 'Relais';
+
+  @override
+  String get retry => 'Erneut versuchen';
+
+  @override
+  String get pairTitle => 'Einen Host verbinden';
+
+  @override
+  String get pairCode => 'Pairing Code';
+
+  @override
+  String get pairInvalid => '6 Ziffern eingeben';
+
+  @override
+  String get workspace => 'Arbeitsbereich';
+
+  @override
+  String get selectHost => 'Host auswählen';
+
+  @override
+  String get selectProject => 'Wählen Sie ein Projekt';
+
+  @override
+  String get selectBranch => 'Wählen Sie Worktree';
+
+  @override
+  String get mainBranch => 'Haupt-Worktree';
+
+  @override
+  String get connectionTools => 'Verbindungen';
+
+  @override
+  String get workspaceResources => 'Arbeitsbereich';
+
+  @override
+  String get confirm => 'Bestätigen';
+
+  @override
+  String get git => 'Git';
+
+  @override
+  String get gitBranches => 'Branches';
+
+  @override
+  String get gitHistory => 'Verlauf';
+
+  @override
+  String gitViewAll(String count) {
+    return 'Alle $count Änderungen anzeigen';
+  }
+
+  @override
+  String terminalRunningCount(String count) {
+    return '$count aktiv';
+  }
+
+  @override
+  String get gitUnstaged => 'Nicht bereitgestellt';
+
+  @override
+  String get gitStageFile => 'Bereitstellen';
+
+  @override
+  String gitCommitCount(String count) {
+    return '$count committen';
+  }
+
+  @override
+  String get gitRemote => 'Remote';
+
+  @override
+  String get gitCurrentShort => 'Aktuell';
+
+  @override
+  String gitDiscardConfirm(String name) {
+    return 'Alle Änderungen an „$name“ verwerfen?';
+  }
+
+  @override
+  String gitTrashConfirm(String name) {
+    return '„$name“ in den Papierkorb des Hosts verschieben?';
+  }
+
+  @override
+  String get gitCommitOptions => 'Commit-Optionen';
+
+  @override
+  String get gitSkipHooks => 'Hooks überspringen';
+
+  @override
+  String get gitPushAfterCommit => 'Nach Commit pushen';
+
+  @override
+  String get fileShare => 'Teilen';
+
+  @override
+  String get fileTrash => 'In den Papierkorb';
+
+  @override
+  String gitLineChanges(String added, String removed) {
+    return '$added Zeilen hinzugefügt · $removed entfernt';
+  }
+
+  @override
+  String get gitActions => 'Git Aktionen';
+
+  @override
+  String get gitFetch => 'Fetch';
+
+  @override
+  String get gitPull => 'Pull';
+
+  @override
+  String get gitPush => 'Push';
+
+  @override
+  String get gitCurrent => 'Aktueller Zweig';
+
+  @override
+  String get gitCreateBranch => 'Neue Niederlassung';
+
+  @override
+  String get gitBranchName => 'Name der Niederlassung';
+
+  @override
+  String get gitSwitch => 'Branch wechseln';
+
+  @override
+  String get gitMerge => 'Zweig zusammenführen';
+
+  @override
+  String get gitDeleteBranch => 'Zweig löschen';
+
+  @override
+  String get gitSwitchNote =>
+      'Zweig in diesem Arbeitsbaum wechseln; nur Simulation';
+
+  @override
+  String get gitDeleteNote => 'Ausgewählten Zweig löschen; nur Simulation';
+
+  @override
+  String get review => 'Prüfen';
+
+  @override
+  String get reviewFiles => 'Codeänderungen anzeigen';
+
+  @override
+  String get selectWorkspace => 'Projekt- und Arbeitsbaum';
+
+  @override
+  String get searchFiles => 'Dateien durchsuchen';
+
+  @override
+  String get recentFiles => 'Dateien';
+
+  @override
+  String get src => 'Quelle';
+
+  @override
+  String get folder => 'Ordner';
+
+  @override
+  String get modified => 'Geändert';
+
+  @override
+  String get filePreview => 'Dateivorschau';
+
+  @override
+  String get edit => 'Bearbeiten';
+
+  @override
+  String get unsaved => 'Nicht gespeichert';
+
+  @override
+  String get discard => 'Änderungen verwerfen';
+
+  @override
+  String get connections => 'Mehr Ressourcen anzeigen';
+
+  @override
+  String get ssh => 'SSH';
+
+  @override
+  String get database => 'Datenbank';
+
+  @override
+  String get ports => 'Portweiterleitung';
+
+  @override
+  String get browser => 'Web-Vorschau';
+
+  @override
+  String get openTerminal => 'Open Terminal';
+
+  @override
+  String get openFile => 'Datei öffnen';
+
+  @override
+  String get tables => 'Tabellen';
+
+  @override
+  String get closePort => 'Schließen Sie nach vorne';
+
+  @override
+  String get workingTree => 'Arbeitsbaum';
+
+  @override
+  String get staged => 'Vorgemerkt';
+
+  @override
+  String get stage => 'Alle Bühnen';
+
+  @override
+  String get unstage => 'Vormerkung aufheben';
+
+  @override
+  String get commit => 'Commit';
+
+  @override
+  String get commitMessage => 'Commit-Meldung';
+
+  @override
+  String get noChanges => 'Keine Änderungen zum Commit';
+
+  @override
+  String get terminalKeyboard => 'Tastatur';
+
+  @override
+  String get terminalEnter => 'Eingabe';
+
+  @override
+  String get terminalOutputLabel => 'Terminal-Ausgang';
+
+  @override
+  String get readOnly => 'Schreibgeschützt';
+
+  @override
+  String get takeControl => 'Übernehmen Sie die Kontrolle';
+
+  @override
+  String get hasControl => 'Input Control';
+
+  @override
+  String get releaseControl => 'Steuerung freigeben';
+
+  @override
+  String get usageSubtitle => 'Sailry nur Chats';
+
+  @override
+  String get tokens => 'Tokens';
+
+  @override
+  String get requests => 'Responses';
+
+  @override
+  String usageCoverage(String priced, String total) {
+    return '$priced / $total Antworten bewertet';
+  }
+
+  @override
+  String get usageEmpty => 'Keine Nutzungsdaten';
+
+  @override
+  String get estimatedCost => 'Geschätzte Kosten (USD)';
+
+  @override
+  String get partial => 'Teildaten';
+
+  @override
+  String get input => 'Eingabe';
+
+  @override
+  String get output => 'Ausgabe';
+
+  @override
+  String get cached => 'Cache-Treffer';
+
+  @override
+  String get hostUsage => 'Host-Nutzung';
+
+  @override
+  String get recentRequests => 'Die letzten Antworten';
+
+  @override
+  String get allUsage => 'Details zur Verwendung';
+
+  @override
+  String get usageNote =>
+      'Die Kosten sind Schätzungen; einige Antworten sind nicht preislich ausgewiesen';
+
+  @override
+  String get sourceNote =>
+      'Offline-Hosts behalten ihre zuletzt bekannten Daten';
+
+  @override
+  String get profileSubtitle => 'Mobiler Controller';
+
+  @override
+  String get localSettings => 'Lokale Präferenzen';
+
+  @override
+  String get appearance => 'Darstellung';
+
+  @override
+  String get notifications => 'Benachrichtigungen';
+
+  @override
+  String get enabled => 'Ein';
+
+  @override
+  String get disabled => 'Aus';
+
+  @override
+  String get add => 'Hinzufügen';
+
+  @override
+  String get configName => 'Name';
+
+  @override
+  String get configEndpoint => 'Endpunkt';
+
+  @override
+  String get configModels => 'Modelle';
+
+  @override
+  String get configInstructions => 'Anweisungen';
+
+  @override
+  String get configEmpty => 'Keine Einträge gefunden';
+
+  @override
+  String get configDuplicate => 'Name existiert bereits';
+
+  @override
+  String configDelete(String name) {
+    return '“$name” löschen?';
+  }
+
+  @override
+  String get speechInput => 'Spracheingabe';
+
+  @override
+  String get developerInstructions =>
+      'Ändern Sie den Code für die Aufgabe und überprüfen Sie das Ergebnis';
+
+  @override
+  String get reviewerInstructions =>
+      'Codeänderungen überprüfen und Probleme identifizieren';
+
+  @override
+  String get projectConventions => 'Projektkonventionen';
+
+  @override
+  String get memoryContent => 'Beibehalten des vorhandenen Codestils';
+
+  @override
+  String get providers => 'Modelle und Anbieter';
+
+  @override
+  String get speech => 'Spracheingabe';
+
+  @override
+  String nodeSettingsNote(String host) {
+    return 'Konfiguration gespeichert auf $host';
+  }
+
+  @override
+  String get about => 'Über Sailry';
+
+  @override
+  String get modelPicker => 'Wählen Sie ein Modell';
+
+  @override
+  String get team => 'Team';
+
+  @override
+  String get executionModel => 'Nur Modell';
+
+  @override
+  String get teamDefault => 'Standardteam';
+
+  @override
+  String get teamLead => 'Leitung';
+
+  @override
+  String get memberReset => 'Modell zurücksetzen';
+
+  @override
+  String get nodeDefaults => 'Node Standards';
+
+  @override
+  String get auto => 'Automatisch';
+
+  @override
+  String get manual => 'Fragen Sie jedes Mal';
+
+  @override
+  String get speechNote => 'Verwendet die Ausführung Node Sprachkonfiguration';
+
+  @override
+  String get required => 'Beschreiben Sie zuerst Ihre Aufgabe';
+
+  @override
+  String get notificationsEmpty => 'Keine neuen Nachrichten';
+
+  @override
+  String get reviewTitle => 'Referenzen zum Design';
+
+  @override
+  String get reviewConversation => 'Chats, Freigaben, Fragen und Warteschlange';
+
+  @override
+  String get reviewConversationText =>
+      'Aufgaben behalten Host-, Projekt- und Worktree-Eigentum; erweitern Sie Werkzeugdatensätze und Genehmigungen innerhalb von Chats';
+
+  @override
+  String get reviewResources => 'Dateien, Git, Klemmen und Anschlüsse';
+
+  @override
+  String get reviewResourcesText =>
+      'Dateibearbeitung, Staging, Commits und Ports behalten ihre Einstiegspunkte; Details öffnen sich auf sekundären Seiten';
+
+  @override
+  String get reviewHosts => 'Host-Verbindungen und Überwachung';
+
+  @override
+  String get reviewHostsText =>
+      'Gepaarte Knoten, 6-stellige Codes, Ressourcennutzung und Prozesse; Offline-Zustand wird nicht als Live angezeigt';
+
+  @override
+  String get reviewUsage => 'Verwendung und Node Einstellungen';
+
+  @override
+  String get reviewUsageText =>
+      'Sailry Nur Chats; aggregierte Nutzung bleibt vollständig und Kosten geben Schätzungen und Abdeckung an';
+
+  @override
+  String get reviewBoundary => 'Mobile Grenze';
+
+  @override
+  String get reviewVisual => 'Visuelle Referenzen';
+
+  @override
+  String get reviewVisualText =>
+      'Referenz 1: Chat-Hierarchie; Referenz 2: Softcards und Floating-Navigation; Referenz 3: Compact-Monitoring';
+
+  @override
+  String get hostConnectPrompt => 'Einen Host verbinden';
+
+  @override
+  String get hostDisconnected => 'Verbindung verloren';
+
+  @override
+  String get hostUpdateRequired => 'Host aktualisieren, um zu verbinden';
+
+  @override
+  String get appUpdateRequired => 'App aktualisieren, um zu verbinden';
+
+  @override
+  String get language => 'Sprache';
+
+  @override
+  String get languageSystem => 'System';
+
+  @override
+  String get languageChinese => '简体中文';
+
+  @override
+  String get languageEnglish => 'English';
+
+  @override
+  String get languageTraditionalChinese => '繁體中文';
+
+  @override
+  String get languageJapanese => '日本語';
+
+  @override
+  String get languageKorean => '한국어';
+
+  @override
+  String get languageFrench => 'Français';
+
+  @override
+  String get languageGerman => 'Deutsch';
+
+  @override
+  String get languageSpanish => 'Español';
+
+  @override
+  String get languagePortugueseBrazil => 'Português (Brasil)';
+
+  @override
+  String get languageRussian => 'Русский';
+
+  @override
+  String get backgroundConnection => 'Im Hintergrund verbunden bleiben';
+
+  @override
+  String get backgroundConnectionActive => 'Hostverbindungen aktiv halten';
+
+  @override
+  String get backgroundConnectionFailed =>
+      'Hintergrundverbindung nicht aktiviert; versuchen Sie es erneut';
+
+  @override
+  String get resetReasoning => 'Aufwand zurücksetzen';
+
+  @override
+  String get completionAlerts => 'Benachrichtigungen zur Fertigstellung';
+
+  @override
+  String get notificationsReadAll => 'Alle als gelesen markieren';
+
+  @override
+  String get notificationsOpen => 'Öffnen';
+
+  @override
+  String get preferencesFailed =>
+      'Einstellungen nicht gespeichert; versuchen Sie es erneut';
+
+  @override
+  String get connectFirst => 'Verbinden Sie einen Host, um zu beginnen';
+
+  @override
+  String get initializing => 'Wird gestartet';
+
+  @override
+  String get startupFailed => 'Start fehlgeschlagen';
+
+  @override
+  String get retryConnection => 'Erneut versuchen';
+
+  @override
+  String get pairAction => 'Verbinden';
+
+  @override
+  String get pairFailed => 'Verbindung fehlgeschlagen; versuchen Sie es erneut';
+
+  @override
+  String get pairExpired =>
+      'Der Pairing-Code ist abgelaufen; erhalte einen neuen Code';
+
+  @override
+  String get pairing => 'Verbindung wird hergestellt';
+
+  @override
+  String get hostUnavailable => 'Host nicht verbunden';
+
+  @override
+  String get hostRemove => 'Host entfernen';
+
+  @override
+  String hostRemoveConfirm(String name) {
+    return '„$name“ von diesem Gerät entfernen? Zum erneuten Verbinden neu koppeln';
+  }
+
+  @override
+  String get hostRemoved => 'Host entfernt';
+
+  @override
+  String get hostRemoveFailed => 'Host konnte nicht entfernt werden';
+
+  @override
+  String get hostMetricsFailed => 'Hoststatus kann nicht gelesen werden';
+
+  @override
+  String get hostProcessesEmpty => 'Keine Prozesse';
+
+  @override
+  String get hostRegisterProject => 'Projekt hinzufügen';
+
+  @override
+  String get hostChooseDirectory => 'Verzeichnis auswählen';
+
+  @override
+  String get hostChooseFile => 'Datei auswählen';
+
+  @override
+  String get hostParentDirectory => 'Übergeordnetes Verzeichnis';
+
+  @override
+  String get hostEmptyDirectory => 'Das Verzeichnis ist leer';
+
+  @override
+  String get hostLoadMore => 'Mehr laden »';
+
+  @override
+  String get hostProjectName => 'Name des Projekts';
+
+  @override
+  String get hostProjectPath => 'Projektpfad auf dem Host';
+
+  @override
+  String get hostProjectFailed => 'Projekt kann nicht hinzugefügt werden';
+
+  @override
+  String get hostUnknown => 'Keine Daten verfügbar';
+
+  @override
+  String get hostRefresh => 'Aktualisieren';
+
+  @override
+  String get hostMetricCpu => 'CPU';
+
+  @override
+  String get hostMetricMemory => 'Gedächtnis';
+
+  @override
+  String get hostMetricDisk => 'Datenträger';
+
+  @override
+  String get failureConflict =>
+      'Inhalt geändert; neu laden und erneut versuchen';
+
+  @override
+  String get failureUnknown =>
+      'Ergebnis nicht bestätigt; überprüfen Sie zuerst den Host-Zustand';
+
+  @override
+  String get failureDenied => 'Berechtigung verweigert';
+
+  @override
+  String get failureUnavailable => 'Host nicht verbunden';
+
+  @override
+  String get failureBusy => 'Bitte versuchen Sie es später noch einmal';
+
+  @override
+  String get failureGeneric => 'Operation ist fehlgeschlagen';
+
+  @override
+  String get settingsSpeechLanguage => 'Sprache';
+
+  @override
+  String get settingsSpeechAuto => 'Automatisch erkennen';
+
+  @override
+  String get settingsSpeechChinese => 'Chinesisch';
+
+  @override
+  String get settingsSpeechEnglish => 'English';
+
+  @override
+  String get settingsSpeechReady => 'Sprachmodell bereit';
+
+  @override
+  String get settingsSpeechDownload => 'Sprachmodell herunterladen';
+
+  @override
+  String get settingsSpeechFailed =>
+      'Sprachmodell nicht bereit; versuchen Sie es erneut';
+
+  @override
+  String get settingsNoHost => 'Verbinden Sie zuerst einen Host';
+
+  @override
+  String get settingsUnavailable => 'Nicht verfügbar';
+
+  @override
+  String get settingsLoadFailed => 'Konnte nicht geladen werden';
+
+  @override
+  String get settingsSaveFailed =>
+      'Speichern fehlgeschlagen; Entwurf beibehalten';
+
+  @override
+  String get settingsConflict =>
+      'Einstellungen geändert; erneut öffnen und erneut versuchen';
+
+  @override
+  String get settingsUnknown =>
+      'Ergebnis nicht bestätigt; aktualisieren, um zu überprüfen';
+
+  @override
+  String get settingsLoading => 'Wird geladen';
+
+  @override
+  String get settingsRequired => 'Geben Sie einen Wert ein';
+
+  @override
+  String get settingsApi => 'API-Format';
+
+  @override
+  String get settingsOpenCodeGo => 'OpenCode Go';
+
+  @override
+  String get settingsOpenCodeZen => 'OpenCode Zen';
+
+  @override
+  String get settingsApiKey => 'API-Schlüssel';
+
+  @override
+  String get settingsEnabled => 'Aktiviert';
+
+  @override
+  String get apiChatCompletions => 'Chat Completions';
+
+  @override
+  String get apiResponses => 'Responses';
+
+  @override
+  String get apiAnthropic => 'Anthropic';
+
+  @override
+  String get apiGemini => 'Gemini';
+
+  @override
+  String get apiDeepSeek => 'DeepSeek';
+
+  @override
+  String get apiAzureOpenAi => 'Azure OpenAI';
+
+  @override
+  String get apiAzureAi => 'Azure AI';
+
+  @override
+  String get apiPlugin => 'Plug-in';
+
+  @override
+  String get providerNew => 'Neuer Dienst';
+
+  @override
+  String get providerEmpty => 'Keine Dienste';
+
+  @override
+  String get providerDesktopHint =>
+      'Voreinstellungen und Kontoanmeldungen am Desktop hinzufügen; ihre Modelle lassen sich hier bearbeiten';
+
+  @override
+  String get providerConnection => 'Verbindung';
+
+  @override
+  String get providerKeyUnset => 'Nicht festgelegt';
+
+  @override
+  String get providerShowKey => 'Schlüssel anzeigen';
+
+  @override
+  String get providerHideKey => 'Schlüssel verbergen';
+
+  @override
+  String providerModelCount(String count) {
+    return '$count Modelle';
+  }
+
+  @override
+  String get providerFetch => 'Abrufen';
+
+  @override
+  String get providerFetchTitle => 'Modelle abrufen';
+
+  @override
+  String providerFetched(String count) {
+    return '$count gefunden';
+  }
+
+  @override
+  String get providerSelectAll => 'Alle auswählen';
+
+  @override
+  String get providerSelectNone => 'Auswahl aufheben';
+
+  @override
+  String get providerSearch => 'Modelle suchen';
+
+  @override
+  String get providerAdded => 'Hinzugefügt';
+
+  @override
+  String providerContext(String tokens) {
+    return '$tokens Kontext';
+  }
+
+  @override
+  String providerAddCount(String count) {
+    return '$count hinzufügen';
+  }
+
+  @override
+  String get providerModelId => 'Modell-ID';
+
+  @override
+  String get providerModelExists => 'Modell bereits vorhanden';
+
+  @override
+  String get providerDisplayName => 'Anzeigename';
+
+  @override
+  String get providerDefault => 'Standard';
+
+  @override
+  String get providerBasic => 'Allgemein';
+
+  @override
+  String get providerContextTitle => 'Kontext';
+
+  @override
+  String get providerContextLength => 'Kontextlänge';
+
+  @override
+  String get providerMaxOutput => 'Max. Ausgabe';
+
+  @override
+  String get providerCompaction => 'Auto-Komprimierung';
+
+  @override
+  String get providerCapabilities => 'Fähigkeiten';
+
+  @override
+  String get providerVision => 'Bildeingabe';
+
+  @override
+  String get providerTools => 'Tool-Aufrufe';
+
+  @override
+  String get providerReasoning => 'Denken';
+
+  @override
+  String get providerEfforts => 'Denkaufwand';
+
+  @override
+  String get providerEffortPlaceholder => 'Aufwand oder Token-Budget';
+
+  @override
+  String get providerEffortInvalid =>
+      'Ungültiger Denkaufwand; Namen, Duplikate und API-Unterstützung prüfen';
+
+  @override
+  String get providerEffortDefault => 'Standardaufwand';
+
+  @override
+  String get providerEffortSetDefault => 'Als Standard festlegen';
+
+  @override
+  String get providerSetDefault => 'Als Standardmodell festlegen';
+
+  @override
+  String get providerIsDefault => 'Standardmodell';
+
+  @override
+  String get providerDeleteModel => 'Modell löschen';
+
+  @override
+  String get providerDelete => 'Dienst löschen';
+
+  @override
+  String get providerNumberInvalid => 'Positive ganze Zahl eingeben';
+
+  @override
+  String get providerLimitsInvalid =>
+      'Max. Ausgabe darf die Kontextlänge nicht überschreiten';
+
+  @override
+  String get settingsDriver => 'Dienst';
+
+  @override
+  String get settingsModel => 'Modell';
+
+  @override
+  String get settingsArchived => 'Archiviert';
+
+  @override
+  String get settingsUsageUnknown => 'Unbekannt';
+
+  @override
+  String get settingsUsagePartial => 'Einige Hosts sind nicht aktuell';
+
+  @override
+  String get settingsUsageCache => 'Gecacht';
+
+  @override
+  String get settingsUsageInput => 'Nicht gecacht';
+
+  @override
+  String get settingsUsageOutput => 'Ausgabe';
+
+  @override
+  String get usageRange24h => '24 Stunden';
+
+  @override
+  String get usageRange7d => '7 Tage';
+
+  @override
+  String get usageRange30d => '30 Tage';
+
+  @override
+  String get usageRange90d => '90 Tage';
+
+  @override
+  String get usageRange1y => '1 Jahr';
+
+  @override
+  String get usageReasoning => 'Reasoning';
+
+  @override
+  String get usageHitRate => 'Cache-Trefferquote';
+
+  @override
+  String get usageSpeed => 'Durchschnittstempo';
+
+  @override
+  String get usageSpeedUnit => 'tok/s';
+
+  @override
+  String get usageCostPartial => 'Teilweise';
+
+  @override
+  String get usageTrend => 'Token-Verlauf';
+
+  @override
+  String get usageLocalTime => 'Ortszeit';
+
+  @override
+  String usageActiveDays(String count) {
+    return '$count aktive Tage';
+  }
+
+  @override
+  String get usageBreakdown => 'Aufschlüsselung';
+
+  @override
+  String get usageProvider => 'Anbieter';
+
+  @override
+  String get usageShowAll => 'Alle anzeigen';
+
+  @override
+  String get usageCollapse => 'Weniger anzeigen';
+
+  @override
+  String get usageUnassigned => 'Nicht zugeordnet';
+
+  @override
+  String usageHit(String value) {
+    return 'Treffer $value';
+  }
+
+  @override
+  String usageResponseCount(String count) {
+    return '$count Antworten';
+  }
+
+  @override
+  String get artifactContents => 'Inhalt';
+
+  @override
+  String get artifactZoomIn => 'Vergrößern';
+
+  @override
+  String get artifactZoomOut => 'Verkleinern';
+
+  @override
+  String get artifactVersions => 'Versionen';
+
+  @override
+  String get artifactFormRequired => 'Pflichtfelder ausfüllen';
+
+  @override
+  String get artifactFormInvalid => 'Antworten konnten nicht gesendet werden';
+
+  @override
+  String get artifactRenderFailed => 'Grafik konnte nicht dargestellt werden';
+
+  @override
+  String artifactReply(String id, String revision, String title, String form) {
+    return 'Antwort zu „$title“ v$revision ($id/$form)';
+  }
+
+  @override
+  String get connectionRouteP2p => 'P2P';
+
+  @override
+  String get connectionRouteRelay => 'Relay';
+
+  @override
+  String get connectionRouteUnknown => '—';
+
+  @override
+  String get backgroundNoticeTitle => 'Hintergrundergebnisse';
+
+  @override
+  String get backgroundCompleted => 'Abgeschlossen';
+
+  @override
+  String get backgroundFailed => 'Fehlgeschlagen';
+
+  @override
+  String get backgroundCancelled => 'Abgebrochen';
+
+  @override
+  String get backgroundStopped => 'Gestoppt';
+
+  @override
+  String get backgroundTimedOut => 'Zeitüberschreitung';
+
+  @override
+  String get backgroundInterrupted => 'Unterbrochen';
+
+  @override
+  String get backgroundStalled => 'Keine neue Ausgabe';
+
+  @override
+  String get backgroundUnknown => 'Ergebnis ungewiss';
+
+  @override
+  String get backgroundPending => 'Hintergrundergebnisse stehen bereit';
+
+  @override
+  String conversationSteps(String count) {
+    return '$count Schritte';
+  }
+
+  @override
+  String get conversationStep => '1 Schritt';
+
+  @override
+  String get activityProgress => 'Fortschritt';
+
+  @override
+  String get activityBackground => 'Hintergrundaufgaben';
+
+  @override
+  String get activityPorts => 'Ports';
+
+  @override
+  String get hostConnecting => 'Verbinden';
+
+  @override
+  String get hostInfo => 'Host-Infos';
+
+  @override
+  String get hostLatency => 'Latenz';
+
+  @override
+  String hostLatencySummary(String average, String peak) {
+    return 'Ø $average  Max. $peak';
+  }
+
+  @override
+  String get hostSystem => 'System';
+
+  @override
+  String get hostProcessor => 'Prozessor';
+
+  @override
+  String hostCores(String count) {
+    return '$count Kerne';
+  }
+
+  @override
+  String hostLoad(String value) {
+    return 'Last $value';
+  }
+
+  @override
+  String hostMemoryShare(String percent) {
+    return '$percent belegt';
+  }
+
+  @override
+  String get hostUptime => 'Laufzeit';
+
+  @override
+  String hostNodeUptime(String duration) {
+    return 'Dienst $duration';
+  }
+
+  @override
+  String hostDays(String count) {
+    return '$count Tage';
+  }
+
+  @override
+  String hostHours(String count) {
+    return '$count Stunden';
+  }
+
+  @override
+  String hostMinutes(String count) {
+    return '$count Minuten';
+  }
+
+  @override
+  String get hostTrend => 'Verlauf';
+
+  @override
+  String get hostTrendWindow => 'Letzte Minute';
+
+  @override
+  String get hostChartStart => 'Vor 60 s';
+
+  @override
+  String get hostChartNow => 'Jetzt';
+
+  @override
+  String get hostMetricGpu => 'GPU';
+
+  @override
+  String get hostMemoryUsed => 'Belegt';
+
+  @override
+  String get hostMemoryCache => 'Cache';
+
+  @override
+  String get hostMemorySwap => 'Swap';
+
+  @override
+  String get hostGpuUsage => 'Auslastung';
+
+  @override
+  String get hostNetwork => 'Netzwerk';
+
+  @override
+  String hostNetworkTotals(String received, String sent) {
+    return 'Gesamt ↓ $received  ↑ $sent';
+  }
+
+  @override
+  String get hostDownload => 'Download';
+
+  @override
+  String get hostUpload => 'Upload';
+
+  @override
+  String hostPartitions(String count) {
+    return '$count Partitionen';
+  }
+
+  @override
+  String get hostDiskRead => 'Lesen';
+
+  @override
+  String get hostDiskWrite => 'Schreiben';
+
+  @override
+  String get hostProcesses => 'Prozesse';
+
+  @override
+  String get hostSortCpu => 'Nach CPU';
+
+  @override
+  String get hostSortMemory => 'Nach Speicher';
+
+  @override
+  String get hostSortRecent => 'Zuletzt verwendet';
+
+  @override
+  String get hostSearchProcesses => 'Prozesse suchen';
+
+  @override
+  String get hostSearchProjects => 'Projekte suchen';
+
+  @override
+  String hostProcessLimit(String count) {
+    return 'Top $count angezeigt';
+  }
+
+  @override
+  String get hostNoMatches => 'Keine Treffer';
+
+  @override
+  String get modelFeatureOff => 'Standard';
+
+  @override
+  String get modelFeatureFast => 'Schnell';
+
+  @override
+  String get modelFeatureSpeed => 'Tempo';
+}

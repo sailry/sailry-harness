@@ -1643,3 +1643,60 @@ role_unknown: Résultat non confirmé; réessayer la demande originale
 role_failed: Opération a échoué; réessayez
 chat_child_unavailable: Sous-session indisponible; réessayez
 reference_load_failed: Failed to load references
+composer_metric_unknown: —
+connection_connecting: Connexion en cours
+host_added: Hôte ajouté
+host_install_detecting: Vérification de l'hôte
+host_install_failed: Impossible d'ajouter l'hôte
+host_install_installing: Installation de l’hôte
+host_install_pairing: Appairage
+host_install_unknown: Résultat d'installation non confirmé; vérifiez l'hôte et réessayez
+host_network_conflict: Les paramètres réseau ont changé ; réessayez
+host_network_edit: Modifier l’hôte
+host_network_failed: Impossible de changer de réseau
+host_network_load_failed: Impossible de charger les paramètres réseau
+host_network_saved: Réseau modifié
+host_network_unavailable: Les paramètres réseau sont indisponibles
+host_network_unknown: Le changement de réseau n’a pas pu être confirmé
+host_update_local_artifacts: Uses locally built Host artifacts; verified when applying
+host_update_restart: Host va redémarrer ; les tâches en cours seront arrêtées
+host_updated: Host mis à jour
+pairing_failed: L'appairage a échoué; vérifiez le code ou le réseau et réessayez
+pairing_invalid_endpoint: Entrez une URL de service d'appairage HTTPS valide
+pairing_preparing: Préparation de la connexion
+pairing_refresh_hint: Valide pendant 60 secondes; se rafraîchit à l'expiration
+pairing_relay_checking: Vérification du relais
+pairing_relay_failed: Impossible de se connecter au relais; vérifiez l'URL et réessayez
+pairing_relay_invalid: Entrez une URL de relais HTTPS valide
+pairing_relay_ready: Relais connecté
+pairing_relay_selected: Réseau sélectionné
+pairing_retrying: Service d'appairage indisponible; réessai
+pairing_success: Appareil couplé
+settings_retry: Réessayer
+ssh_key_changed: Clé d'hôte modifiée, vérifiez l'empreinte digitale
+ssh_trust: Faire confiance
+ssh_trust_title: Clé d'hôte de confiance
+usage_duration_ms: '%{value} ms'
+live_host_runtime_loading: Loading Host runtime
+live_host_runtime_error: Could not read Host runtime
+live_host_no_running: No running sessions
+live_metrics_loading: Loading metrics
+live_metrics_error: Could not read Host metrics
+live_metrics_read: Read
+live_metrics_written: Written
+live_update_idle: Check for Host updates
+live_update_checking: Checking for updates
+live_update_current: Host is up to date
+live_update_available: Host update available
+live_update_downloading: Preparing update
+live_update_verifying: Verifying update
+live_update_staged: Ready to apply
+live_update_applying: Applying update
+live_update_restart: Restarting Host
+live_update_failed: Host update failed
+live_update_loading: Loading update
+live_update_unavailable: Host update unavailable
+live_update_check: Check
+live_update_download: Prepare
+live_update_apply: Apply
+live_update_retry: Retry

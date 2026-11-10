@@ -11,13 +11,38 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
+	"github.com/sailry/sailry-harness/internal/desktop/theme"
+	"github.com/sailry/sailry-harness/internal/desktop/transfers"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"lukechampine.com/blake3"
 )
 
 func TestAttachmentLocalIO(t *testing.T) {
 	t.Parallel()
+	t.Run("remote transfer dialog retains its cancel owner", func(t *testing.T) {
+		local := &Runtime{}
+		cancelled := 0
+		remote := &Runtime{parent: local, attachments: &attachmentState{
+			download:       &transfers.Download{Open: true, Name: "remote-result.bin", Status: transfers.Receiving, Size: 10},
+			downloadCancel: func() { cancelled++ },
+		}}
+		local.bindings = map[string]*Runtime{"remote": remote}
+		tester := ui.NewTester(func(c *ui.Context) {
+			theme.Apply(c, "", theme.Light)
+			local.transferDialogs(c)
+		}, 640, 480)
+		tester.Frame()
+		if !tester.HasText("remote-result.bin") || !local.transferModalBusy(true) {
+			t.Fatal("remote transfer dialog was not presented by its window")
+		}
+		tester.Key(0, ui.KeyEscape)
+		tester.Frame()
+		if cancelled != 1 || !remote.attachments.download.Canceled {
+			t.Fatal("remote transfer cancellation was routed to another owner")
+		}
+	})
 	t.Run("workspace uploads", testWorkspaceUploads)
 	t.Run("source evidence and limits", func(t *testing.T) {
 		root := t.TempDir()
@@ -113,6 +138,27 @@ func TestAttachmentLocalIO(t *testing.T) {
 
 func TestAttachmentSourceProjection(t *testing.T) {
 	t.Run("notebook projection", testEditorNotebookProjection)
+	t.Run("retained remote artifact renders through its captured owner", func(t *testing.T) {
+		file := conversation.File{ID: "preview/remote/session/artifact"}
+		artifact := protocol.ArtifactSummary{ID: protocol.NewArtifactID(), Revision: 3}
+		local := &Runtime{attachments: &attachmentState{previews: map[string]attachmentDescriptor{}}}
+		rendered := 0
+		remote := &Runtime{parent: local, attachments: &attachmentState{
+			previews:    map[string]attachmentDescriptor{file.ID: {artifact: &artifact}},
+			previewHTML: map[string]string{file.ID: "<p>Remote artifact</p>"},
+			native: NativeFileActions{DocumentView: func(_ *ui.Context, source protocol.ArtifactSummary, html string) bool {
+				if source != artifact || html != "<p>Remote artifact</p>" {
+					t.Error("artifact rendering lost the captured revision or content")
+				}
+				rendered++
+				return true
+			}},
+		}}
+		local.bindings = map[string]*Runtime{"remote": remote}
+		if !local.renderArtifactPreview(nil, file) || rendered != 1 {
+			t.Fatal("local navigation replaced the remote artifact owner")
+		}
+	})
 	t.Parallel()
 	r := &Runtime{ctx: t.Context()}
 	r.initAttachments()

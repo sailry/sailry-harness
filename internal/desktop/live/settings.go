@@ -119,6 +119,11 @@ func (r *Runtime) saveSetting(command protocol.Command, messages settings.Messag
 }
 
 func (r *Runtime) readNotices(ids []string) {
+	if r.parent == nil {
+		for _, bound := range r.bindings {
+			bound.readNotices(ids)
+		}
+	}
 	selected := map[string]bool{}
 	for _, id := range ids {
 		selected[id] = true
@@ -141,6 +146,11 @@ func (r *Runtime) readNotices(ids []string) {
 func (r *Runtime) dismissRead(ids []string)    { r.dismiss(ids, true) }
 func (r *Runtime) dismissNotices(ids []string) { r.dismiss(ids, false) }
 func (r *Runtime) dismiss(ids []string, readOnly bool) {
+	if r.parent == nil {
+		for _, bound := range r.bindings {
+			bound.dismiss(ids, readOnly)
+		}
+	}
 	selected := map[string]bool{}
 	for _, id := range ids {
 		selected[id] = true

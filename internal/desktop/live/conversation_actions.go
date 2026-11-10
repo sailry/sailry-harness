@@ -10,6 +10,9 @@ import (
 )
 
 func (x *conversationActions) state() (protocol.Session, protocol.ConversationSnapshot, bool) {
+	if !x.owned() {
+		return protocol.Session{}, protocol.ConversationSnapshot{}, false
+	}
 	s, ok := x.r.session(x.cv.ID)
 	if !ok {
 		return s, protocol.ConversationSnapshot{}, false
@@ -174,6 +177,9 @@ func (x *conversationActions) DeclineQuestion(id string) {
 	x.question(id, protocol.ConversationQuestionResponse{Kind: "decline"})
 }
 func (x *conversationActions) Fork(turn string) {
+	if !x.owned() {
+		return
+	}
 	s, ok := x.r.session(x.cv.ID)
 	if !ok {
 		return
@@ -328,6 +334,9 @@ func composerFingerprint(s *composer.State) string {
 }
 
 func (x *conversationActions) readonly() bool {
+	if !x.owned() {
+		return true
+	}
 	session, ok := x.r.session(x.cv.ID)
 	return !x.r.controller.Connected() || ok && delegated(session)
 }

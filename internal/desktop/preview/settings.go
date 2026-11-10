@@ -19,13 +19,7 @@ type Shell struct {
 }
 
 // Device is a paired host (Execution) or mobile controller.
-type Device struct {
-	ID, Name, Platform string
-	Execution, Online  bool
-	Local              bool   // this computer
-	Route              string // "p2p", "relay" or "" while offline
-	RTT                int    // round trip in ms; 0 for none
-}
+type Device = viewmodel.Device
 
 type HookPhase = viewmodel.HookPhase
 

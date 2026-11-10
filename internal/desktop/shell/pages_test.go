@@ -8,6 +8,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 )
 
 // The rail's features open pages in the main column, never panel tabs.
@@ -47,6 +48,85 @@ func TestRailOpensPages(t *testing.T) {
 	if a.Page != ConversationPage {
 		t.Errorf("selecting a conversation kept page %d", a.Page)
 	}
+	t.Run("project overview captures its owner", func(t *testing.T) {
+		local := &viewmodel.Project{
+			ID: "shared-project", Host: "local-node", Name: "Local project", Path: "/local/project",
+			Conversations: []*viewmodel.Conversation{{Node: "local-node", ID: "local-session", Title: "Local session"}},
+		}
+		remote := &viewmodel.Project{
+			ID: "shared-project", Host: "remote-node", Name: "Remote project", Path: "/remote/project", Branch: "main",
+			Conversations: []*viewmodel.Conversation{
+				{Node: "remote-node", ID: "remote-session", Title: "Remote session", WorktreePath: "/remote/project"},
+				{Node: "remote-node", ID: "archived-session", Title: "Archived remote session", Archived: true, WorktreePath: "/remote/worktrees/archive"},
+				{Node: "remote-node", ID: "resource-session", Title: "Resource session"},
+				{Node: "local-node", ID: "wrong-owner", Title: "Wrong owner"},
+			},
+		}
+		data := &viewmodel.Data{
+			Projects: []*viewmodel.Project{local, remote},
+			Workspace: &viewmodel.Workspace{Hosts: []viewmodel.Host{
+				{ID: "local-node", Name: "Local host", Local: true},
+				{ID: "remote-node", Name: "Remote host"},
+			}},
+		}
+		app := NewLive(data)
+		app.NavOpen = false
+		app.Sidebar.Selected = "local-session"
+		var drafted *viewmodel.Project
+		var opened *viewmodel.Conversation
+		app.OpenProject(remote, ProjectActions{
+			NewSession:     func(project *viewmodel.Project) { drafted = project },
+			VisibleSession: func(session *viewmodel.Conversation) bool { return session.ID != "resource-session" },
+			OpenSession: func(session *viewmodel.Conversation, done func(bool)) {
+				opened = session
+				done(false)
+			},
+		})
+		tester := ui.NewTester(app.View, 1280, 820)
+		tester.SetLocale("en")
+		tester.Frame()
+		if node, project, shown := app.ProjectOwner(); node != remote.Host || project != remote.ID || !shown {
+			t.Fatalf("overview owner = %q %q %v", node, project, shown)
+		}
+		for _, text := range []string{"Remote project", "Remote host", "/remote/project", "main", "Remote session", "Archived remote session"} {
+			if !tester.HasText(text) {
+				t.Fatalf("overview is missing %q: %q", text, tester.Texts())
+			}
+		}
+		for _, text := range []string{"Local project", "/local/project", "Resource session", "Wrong owner", i18n.In("en", "workspace_preview"), i18n.In("en", "workspace_runtime")} {
+			if tester.HasText(text) {
+				t.Fatalf("overview shows unrelated content %q: %q", text, tester.Texts())
+			}
+		}
+		clickButton(t, tester, i18n.In("en", "workspace_new_session"))
+		if drafted != remote || app.Sidebar.Selected != "local-session" {
+			t.Fatalf("new session used %v with selected %q", drafted, app.Sidebar.Selected)
+		}
+		for _, query := range []string{"ARCHIVED", "WORKTREES/ARCHIVE"} {
+			app.overview.search = query
+			tester.Frame()
+			if !tester.HasText("Archived remote session") || tester.HasText("Remote session") {
+				t.Fatalf("query %q has wrong records: %q", query, tester.Texts())
+			}
+		}
+		clickButton(t, tester, "Archived remote session")
+		if opened != remote.Conversations[1] || !opened.Archived || app.overview.pending || app.Page != ProjectPage {
+			t.Fatalf("record opening lost its capture or failed-state page: opened=%v page=%v", opened, app.Page)
+		}
+		app.overview.search = "missing"
+		tester.Frame()
+		if !tester.HasText(i18n.In("en", "connection_search_empty")) || tester.HasText("Archived remote session") {
+			t.Fatalf("missing query did not show the empty result: %q", tester.Texts())
+		}
+		app.Data.Projects = []*viewmodel.Project{local}
+		tester.Frame()
+		if !tester.HasText(i18n.In("en", "unavailable")) || tester.HasText("Local project") || tester.HasText("/remote/project") {
+			t.Fatalf("missing remote project fell back to another owner: %q", tester.Texts())
+		}
+		if node, project, shown := app.ProjectOwner(); node != remote.Host || project != remote.ID || !shown {
+			t.Fatalf("missing project discarded its captured owner: %q %q %v", node, project, shown)
+		}
+	})
 }
 
 // The Files and Git page and tab of a project share one state; another

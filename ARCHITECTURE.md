@@ -39,8 +39,14 @@ search, and captured hooks. Native Files/Git/History/Documents surfaces and
 conversation assets consume the same Node resources through Client ownership.
 B6 adds frozen team and role selection, delegated child execution through the
 same loop, exact background completion delivery, captured skill resources and
-package mode mapping. Remote services and package callback execution arrive in
-their later phases. Platform-specific runtime acceptance is recorded separately.
+package mode mapping. B7 adds authenticated iroh Link transport, persistent
+pairing, remote Clients, Host service and control commands, Node-owned SSH Host
+deployment, metrics and port streams. Desktop windows share one Network and
+retain one bound Runtime per execution Node. The preserved Flutter application
+uses the shared Client and Link through the Go C ABI and a thin Dart adapter.
+Plugin callbacks and the remaining resource services arrive in their assigned
+phases. Implementation does not imply acceptance on every target;
+platform-specific runtime results are recorded separately.
 
 ## System context
 
@@ -467,13 +473,18 @@ exclusive lock.
   The service is a short-lived trust boundary, not a business relay or account
   system.
 - Paired peers reconnect without a new code. Established trust survives restart.
+- Desktop discovers remembered peers on peer changes and the source's ten-second
+  observation cadence. It starts a shared Client only after identifying a
+  compatible execution peer; paired controllers remain devices, not Nodes.
+  iroh owns transport path recovery.
 - A separate iroh data relay carries encrypted traffic when a direct connection is
   unavailable. Pairing-service and data-relay URLs are separate settings.
 - Relay settings belong to the execution Node and are changed by a
   revision-checked durable command. Pairing on a selected network does not change
   the controller's own relay settings.
-- Cloudflare and EdgeOne adapters share the ticket-exchange logic. See the
-  service contract in the Rust reference; its unchanged copy lands in B7.
+- Cloudflare and EdgeOne adapters share the ticket-exchange logic in
+  `services/pairing-relay`. Its preserved source and provenance live in this
+  checkout.
 
 ## Deployment and operations
 

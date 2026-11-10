@@ -12,13 +12,16 @@ import (
 
 // ConversationProjection retains one session's loaded canonical range.
 type ConversationProjection struct {
-	node       protocol.NodeID
-	session    protocol.SessionID
-	generation uint64
-	snapshot   *protocol.ConversationSnapshot
-	recovering bool
-	hidden     map[string]bool
-	revealed   map[string]protocol.ConversationEntry
+	node           protocol.NodeID
+	session        protocol.SessionID
+	generation     uint64
+	snapshot       *protocol.ConversationSnapshot
+	recovering     bool
+	liveStart      *uint64
+	artifactCursor uint64
+	statisticsErr  error
+	hidden         map[string]bool
+	revealed       map[string]protocol.ConversationEntry
 }
 
 // Reveals outside the loaded extent wait for pagination, so their sequence
@@ -42,6 +45,9 @@ func (p *ConversationProjection) settle() {
 			continue
 		}
 		if !slices.ContainsFunc(s.Page.Entries, func(e protocol.ConversationEntry) bool { return e.Sequence == entry.Sequence }) {
+			if p.liveStart == nil && (len(s.Page.Entries) == 0 || entry.Sequence > s.Page.Entries[len(s.Page.Entries)-1].Sequence) {
+				p.liveStart = new(entry.Sequence)
+			}
 			s.Page.Entries = append(s.Page.Entries, entry)
 			slices.SortFunc(s.Page.Entries, func(a, b protocol.ConversationEntry) int { return cmp.Compare(a.Sequence, b.Sequence) })
 			s.Drafts = slices.DeleteFunc(s.Drafts, func(d protocol.ConversationDraft) bool { return d.Turn == entry.Turn && d.ID == entry.ID })
@@ -111,8 +117,14 @@ func (p *ConversationProjection) Apply(generation uint64, update protocol.Update
 		if !p.recovering && p.snapshot != nil && v.Sequence < p.snapshot.Sequence {
 			return Ignored, nil
 		}
+		if p.artifactCursor == ^uint64(0) {
+			return Ignored, fault(protocol.ErrorCodeInvalidRequest, "artifact cursor exhausted")
+		}
 		p.snapshot = new(copyValue(v))
 		p.recovering = false
+		p.liveStart = nil
+		p.artifactCursor++
+		p.statisticsErr = nil
 		p.hidden = map[string]bool{}
 		p.revealed = map[string]protocol.ConversationEntry{}
 		return Applied, nil
@@ -142,6 +154,7 @@ func (p *ConversationProjection) Apply(generation uint64, update protocol.Update
 	f = copyValue(f)
 	v := copyValue(*p.snapshot)
 	hidden, revealed := maps.Clone(p.hidden), maps.Clone(p.revealed)
+	liveStart, artifactCursor, statisticsErr := p.liveStart, p.artifactCursor, p.statisticsErr
 	page := &v.Page
 	switch f.Change.Kind {
 	case "entry", "revealed":
@@ -167,6 +180,9 @@ func (p *ConversationProjection) Apply(generation uint64, update protocol.Update
 			}
 			page.Entries = append(page.Entries, x)
 			slices.SortFunc(page.Entries, func(a, b protocol.ConversationEntry) int { return cmp.Compare(a.Sequence, b.Sequence) })
+			if liveStart == nil {
+				liveStart = new(x.Sequence)
+			}
 		}
 		delete(hidden, x.ID)
 		v.Drafts = slices.DeleteFunc(v.Drafts, func(d protocol.ConversationDraft) bool { return d.Turn == x.Turn && d.ID == x.ID })
@@ -320,20 +336,31 @@ func (p *ConversationProjection) Apply(generation uint64, update protocol.Update
 			return Ignored, e
 		}
 		v.Statistics = &x
+		statisticsErr = nil
 	case "statistics_failed":
+		x, e := payload[protocol.Fault](f.Change.Data)
+		if e != nil {
+			return Ignored, e
+		}
 		v.Statistics = nil
+		statisticsErr = &x
 	case "artifact":
 		x, e := payload[protocol.ArtifactSummary](f.Change.Data)
 		if e != nil {
 			return Ignored, e
 		}
+		if artifactCursor == ^uint64(0) {
+			return Ignored, fault(protocol.ErrorCodeInvalidRequest, "artifact cursor exhausted")
+		}
 		v.Artifacts.Items = upsertConversation(v.Artifacts.Items, x, func(v protocol.ArtifactSummary) protocol.ArtifactID { return v.ID }, false)
+		artifactCursor++
 	default:
 		return Ignored, fault(protocol.ErrorCodeInvalidRequest, "unknown conversation frame change")
 	}
 	v.Sequence = f.Sequence
 	p.snapshot = &v
 	p.hidden, p.revealed = hidden, revealed
+	p.liveStart, p.artifactCursor, p.statisticsErr = liveStart, artifactCursor, statisticsErr
 	p.settle()
 	return Applied, nil
 }

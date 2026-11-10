@@ -31,6 +31,7 @@ const (
 type State struct {
 	Data     *viewmodel.Data
 	Actions  *Actions
+	Metrics  *Metrics
 	records  recordsState
 	Selected string // conversation ID
 	open     map[string]*bool
@@ -223,6 +224,7 @@ func View(c *ui.Context, s *State) {
 			}
 		})
 	})
+	metricsFooter(c, s.Metrics)
 	s.dialogs(c)
 }
 

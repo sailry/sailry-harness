@@ -62,7 +62,7 @@ func (r *Runtime) UploadWorkspaceFiles(worktree protocol.WorktreeID, directory s
 		r.Report(fileActionFault(protocol.ErrorCodeNotFound, "upload worktree is unavailable"))
 		return
 	}
-	if r.workspaceTransferOpen() || r.workspaceUploadOpen() || r.attachments.download != nil && r.attachments.download.Open {
+	if r.transferDialogElsewhere() || r.workspaceTransferOpen() || r.workspaceUploadOpen() || r.attachments.download != nil && r.attachments.download.Open {
 		r.Report(fileActionFault(protocol.ErrorCodeBusy, "another file transfer dialog is open"))
 		return
 	}
@@ -82,7 +82,7 @@ func (r *Runtime) UploadWorkspaceFiles(worktree protocol.WorktreeID, directory s
 			if len(selected) == 0 {
 				return
 			}
-			if r.workspaceTransferOpen() || r.workspaceUploadOpen() || r.attachments.download != nil && r.attachments.download.Open {
+			if r.transferDialogElsewhere() || r.workspaceTransferOpen() || r.workspaceUploadOpen() || r.attachments.download != nil && r.attachments.download.Open {
 				project.workspaceError(c, protocol.ErrorCodeBusy, "another file transfer dialog is open")
 				return
 			}
@@ -162,7 +162,7 @@ func (p *workspaceProject) pendingWorkspaceUploads() []panel.PendingOperation {
 		}
 		result = append(result, panel.PendingOperation{Label: upload.view.Destination, Run: func(c *ui.Context) {
 			r := p.runtime
-			if r.workspaceTransferOpen() || r.attachments != nil && r.attachments.download != nil && r.attachments.download.Open || r.workspaceUploadOpen() && r.workspace.uploads.current != upload {
+			if r.transferDialogElsewhere() || r.workspaceTransferOpen() || r.attachments != nil && r.attachments.download != nil && r.attachments.download.Open || r.workspaceUploadOpen() && r.workspace.uploads.current != upload {
 				p.workspaceError(c, protocol.ErrorCodeBusy, "another file transfer dialog is open")
 				return
 			}

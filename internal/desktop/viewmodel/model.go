@@ -21,6 +21,7 @@ const (
 )
 
 type Conversation struct {
+	Node              string
 	Revision          uint64
 	AttentionRevision uint64
 	ID                string
@@ -117,6 +118,7 @@ const (
 
 // Notice is an entry of the activity centre.
 type Notice struct {
+	Node       string
 	TitleKey   string // fallback or system heading, localized by the surface
 	Details    *protocol.NotificationDetails
 	DetailText string

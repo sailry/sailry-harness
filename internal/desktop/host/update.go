@@ -10,7 +10,7 @@ import (
 // updateDialog is the host's update: 480 wide, the preview's note, the
 // headline, the versions, the note of an unavailable update, the progress,
 // then Close and the phase's action. A failure toasts its detail.
-func updateDialog(c *ui.Context, s *State, h *Host) {
+func updateDialog(c *ui.Context, s *State, h *Host, act Actions) {
 	if !s.updating {
 		return
 	}
@@ -20,20 +20,30 @@ func updateDialog(c *ui.Context, s *State, h *Host) {
 	u := h.Update
 	kit.Dialog(c.Key("host-update"), &s.updating, func() {
 		ui.Text(c, title).FontSize(16).FontWeight(600).TextColor(p.PopoverForeground)
-		ui.Text(c, i18n.T(c, "update_preview")).FontSize(14).TextColor(p.MutedForeground)
+		if !h.Live {
+			ui.Text(c, i18n.T(c, "update_preview")).FontSize(14).TextColor(p.MutedForeground)
+		}
 		ui.Scroll(c.Key("status")).MaxHeight(min(max(wh-300, 80), 300)).Gap(12).Children(func() {
 			if u == nil {
 				ui.Text(c, i18n.T(c, "update_target_changed")).FontSize(14)
 				return
 			}
-			ui.Text(c, i18n.T(c, u.Headline())).FontSize(14).FontWeight(600)
-			versions := i18n.T(c, "update_version", "current", u.Current)
+			headline := u.Headline()
+			if h.Live {
+				headline = "live_" + headline
+			}
+			ui.Text(c, i18n.T(c, headline)).FontSize(14).FontWeight(600)
+			current := u.Current
+			if current == "" {
+				current = i18n.T(c, "host_unknown")
+			}
+			versions := i18n.T(c, "update_version", "current", current)
 			if u.Target != "" && u.Target != u.Current {
-				versions = i18n.T(c, "update_versions", "current", u.Current, "target", u.Target)
+				versions = i18n.T(c, "update_versions", "current", current, "target", u.Target)
 			}
 			ui.Text(c, versions).FontSize(14).SingleLine().TextColor(p.MutedForeground)
-			if u.Note != "" && u.Phase == Idle {
-				ui.Text(c, u.Note).FontSize(14).TextColor(p.MutedForeground)
+			if u.Note != "" && (u.Phase == Idle || h.Live) {
+				ui.Text(c, i18n.T(c, u.Note)).FontSize(14).TextColor(p.MutedForeground)
 			}
 			if u.Progress >= 0 {
 				ui.Progress(c.Key("progress"), float64(min(u.Progress, 100))/100).FillWidth().Height(4).Label(title)
@@ -45,15 +55,26 @@ func updateDialog(c *ui.Context, s *State, h *Host) {
 				return
 			}
 			if _, label, ok := u.Primary(); ok {
+				expected := *u
+				if h.Live {
+					label = "live_" + label
+				}
 				text := i18n.T(c, label)
 				kit.Primary(c.Key("action"), text, false).Children(func() { ui.Text(c, text).FontSize(14) }).OnClick(func() {
-					u.Advance(s.expected)
+					if act.Update != nil {
+						act.Update(expected)
+						if action, _, _ := expected.Primary(); action == Apply {
+							s.updating = false
+						}
+						return
+					}
+					u.Advance(expected)
 					s.expected = *u
 				})
 			}
 		})
 	}).Width(min(480, w-48)).Label(title)
-	if u != nil && u.Error != "" && s.failed != u.Error {
+	if !h.Live && u != nil && u.Error != "" && s.failed != u.Error {
 		kit.Error(c, title, u.Error)
 	}
 	if u != nil {

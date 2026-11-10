@@ -17,7 +17,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-func bindConversation(ctx context.Context, entry *desktopWindow, controller *client.Client, speech *reader.Service) {
+func bindConversation(ctx context.Context, entry *desktopWindow, speech *reader.Service) {
 	runtime := entry.live
 	runtime.SetReaderActive(speech.Active)
 	runtime.SetReadAloud(func(session, turn, text string) {
@@ -26,6 +26,11 @@ func bindConversation(ctx context.Context, entry *desktopWindow, controller *cli
 		}
 	})
 	runtime.SetExport(func(sessionText, turnText string, selected conversation.ExportFormat) {
+		controller, ok := runtime.SessionClient(sessionText)
+		if !ok {
+			runtime.ReportExport(fmt.Errorf("conversation execution owner is unavailable"))
+			return
+		}
 		session, err := protocol.ParseSessionID(sessionText)
 		if err != nil {
 			runtime.ReportExport(err)

@@ -1,0 +1,19 @@
+name: SailryBindings
+description: Sailry Mobile C ABI
+exclude-all-by-default: true
+output: lib/src/bindings.g.dart
+headers:
+  entry-points:
+    - ../../../../cmd/sailry-mobile/sailry_mobile.h
+  include-directives:
+    - '**/sailry_mobile.h'
+functions:
+  include:
+    - sailry_open
+    - sailry_invoke
+    - sailry_subscribe
+    - sailry_cancel
+    - sailry_free
+    - sailry_close
+preamble: |
+  // ignore_for_file: type=lint

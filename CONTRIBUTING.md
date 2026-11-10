@@ -11,8 +11,10 @@ Node, Client and live sidebar, notifications and preferences. B4 adds captured
 model transport and canonical agent execution; B5 adds workspace tools, Git,
 verified transfers, sandboxed commands, Web resources and hooks with live native
 resource panels. B6 connects frozen teams and roles, child execution, background
-delivery and immutable skill resources. Remote Link, Host, Mobile and plugin
-runtimes arrive in their assigned phases.
+delivery and immutable skill resources. B7 supplies remote Link, pairing, Host
+control, SSH Host deployment, metrics, port forwarding and the Flutter Go
+adapter. Plugin runtimes and the remaining resource services arrive in their
+assigned phases. Each platform's runtime acceptance is recorded separately.
 Implement phases in order, with centralized checks and a report per phase.
 The user has authorized continuing through B14 without confirmation pauses.
 
@@ -33,8 +35,10 @@ Requirements:
 - The MyGo version pinned in `go.mod`:
   `v0.8.4-0.20261109104234-eadf1fce6af3`. Do not upgrade it or edit its source.
 - Platform-native runtime dependencies required by that MyGo version.
-- Later phases add pinned native libraries, Flutter, Node.js for plugin tests and
-  the unchanged TypeScript pairing service. Those are not B0 prerequisites.
+- B7 Link requires the pinned Rust 1.98.0 toolchain to build iroh 1.3.0. Mobile
+  requires Flutter and the target's Android NDK or Apple SDK; the preserved
+  TypeScript pairing service uses its own Node.js package tooling.
+- Later phases add their pinned native runtimes and plugin tooling.
 
 Use this environment before every Go command:
 
@@ -74,9 +78,11 @@ export GOTOOLCHAIN=go1.27.3 CGO_ENABLED=0
 go run ./cmd/sailry-desktop
 ```
 
-The desktop starts one local Node and Client. `--preview` exits backend startup
-before opening any profile, including an explicit `--data-dir`. Additional live
-windows share the process backend and profile preference authority. MyGo keeps
+The desktop starts one local Node, Client and shared Network. `--preview` exits
+backend startup before opening any profile, including an explicit `--data-dir`.
+Additional live windows share the process backend, remote Clients and profile
+preference authority. Each window closes its own observations and forwards;
+application shutdown closes Network before the local Client and Node. MyGo keeps
 window bounds and `shell.Prefs` in its application-data folder. For implementer
 UI checks, isolate that folder with MyGo's path override in a disposable harness.
 
@@ -99,6 +105,7 @@ installed release profile. Tests use `t.TempDir()`.
 | `internal/{protocol,link,client,core,node,...}` | Backend packages added only by their assigned phases |
 | `cmd/sailry-host`, `cmd/sailry-mobile`, `internal/mobile`, `apps/mobile` | Host and Mobile boundaries added in B7 |
 | `native/` | Pinned native libraries and their phase-specific build inputs |
+| `services/pairing-relay` | Preserved short-code rendezvous service, separate from the encrypted iroh data relay |
 | `.runtime/` | Ignored fixed-purpose experiments, libraries and test profiles |
 
 B0 retains `settings.Stored[T]`, `shell.Prefs` and callback-driven window
@@ -135,6 +142,18 @@ The mobile C ABI and local race detector are the documented cgo exceptions;
 ordinary Desktop and Host code uses `CGO_ENABLED=0`. Native artifacts belong
 under `.runtime/native/<goos>-<goarch>/`, never in commits. Native Rust builds
 use their committed lockfiles and keep toolchain and target settings stable.
+Reuse those artifacts for Go development. Cargo runs again only when the native
+source, C ABI, dependency pins or target changes.
+`sh native/iroh/build.sh` builds the local Host/Desktop library into that
+directory. Use the pinned Rust toolchain in `PATH`; do not substitute another
+Cargo implementation. Target Mobile build inputs and ABI ownership are
+described in [Mobile](docs/mobile.md).
+
+Native transport, relay outage/recovery, SSH installation, Host task automation
+and actual Dart callbacks require isolated integration fixtures. A passing
+macOS c-shared build or Dart process does not establish physical Android or iOS
+acceptance. Flutter analysis and the existing Flutter contract tests remain
+separate checks.
 
 When the transcript changes, run its benchmarks separately:
 
@@ -205,15 +224,48 @@ and signing acceptance remain later-phase work.
 
 ## Host automation
 
-Host implementation is B7. The target binary is `cmd/sailry-host`, with
-`--version`, `share`, `submit` and `wait` matching the cited Rust options.
-These commands are not available before B7.
+The Host entry point is `cmd/sailry-host`, built as `sailry-host`. It starts the
+same Node as Desktop and never opens an interactive Agent prompt. Service
+options are `--data-dir`, `--bind`, `--internet`, repeated `--relay`,
+`--pairing-service`, `--bootstrap` and `--telemetry on|off`. Network modes are
+mutually exclusive; the default binds loopback and pairing is opt-in.
+`--version`, `share`, `submit` and `wait` are management commands.
+
+```sh
+unset GOROOT
+export GOTOOLCHAIN=go1.27.3 CGO_ENABLED=0
+go build -o .runtime/sailry-host ./cmd/sailry-host
+.runtime/sailry-host --data-dir /absolute/path/to/isolated/profile --internet
+```
+
+The running binary loads its target's iroh library through the shared loader.
+`share --data-dir <profile>` asks the existing owner to publish a private
+six-digit pairing code. Keep PINs, invitation tickets, profile contents and
+private endpoint output out of logs intended for distribution.
 
 Management talks to the running Node through a profile-private owner-only Unix
 socket with a v1 envelope. It never starts another persistence owner. Submit uses
 ordinary durable admission; wait observes without resubmission or approving
 tools. Uncertain submission recovers with the original request ID. Cancelling
-observation does not stop admitted work.
+observation does not stop admitted work. Local control commands therefore require
+a Unix Host; Windows keeps the service transport but has no substitute control
+socket.
+
+`submit` chooses an existing session or a registered worktree and accepts one of
+`--prompt`, `--prompt-file` or `--stdin`. New worktree tasks may supply captured
+configuration, model/team execution, title and association. `--no-wait` returns
+after admission. `wait --session <id> --turn <id>` observes that exact task.
+Both commands emit one JSON result. Exit codes are 0 for admitted/completed, 1
+for failed/stopped, 3 for approval/input/paused, 4 for uncertain, 124 for timeout
+and 130 for cancelled observation.
+
+For B7 Add Host, place the locally built `sailry-host` and its iroh library under
+`host-artifacts/<goos>-<goarch>/` beside the controller executable, or set
+`internal/node/host.ArtifactRoot` at build time. The execution Node verifies and
+uploads those artifacts through authenticated SSH after exact host-key trust.
+Updates preserve the managed profile and paired Node identity. Release feed
+acquisition belongs to B14; an uncertain install or update must be inspected
+with its original request before any new operation.
 
 ## Licensing
 

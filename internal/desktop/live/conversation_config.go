@@ -12,7 +12,7 @@ import (
 
 func (r *Runtime) composerKey(c *composer.State) string {
 	effort := ""
-	if chosen := c.Chosen(r.App.Data.Models); chosen.Reasoning {
+	if chosen := c.Chosen(r.models()); chosen.Reasoning {
 		effort = c.EffortName(nil, chosen)
 	}
 	config, _, err := r.composerConfig(c, composer.Message{Model: c.Model, Mode: c.Mode, Permission: c.Permission, Features: c.Features, Effort: effort})
@@ -43,7 +43,7 @@ func (r *Runtime) defaultComposer(c *composer.State) {
 		}
 		c.Model = modelKey(p.ID, model.ID)
 		c.Effort = 0
-		for _, display := range r.App.Data.Models {
+		for _, display := range r.models() {
 			if display.ID == c.Model {
 				if i := slices.Index(display.Efforts, effortName(model.DefaultEffort)); i >= 0 {
 					c.Effort = float64(i)

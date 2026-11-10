@@ -23,6 +23,9 @@ import (
 
 func (r *Runtime) SetReadAloud(f func(string, string, string)) {
 	r.readAloud = f
+	for _, bound := range r.bindings {
+		bound.SetReadAloud(f)
+	}
 	if f == nil {
 		r.App.Hooks.ReadSelection = nil
 		return
@@ -35,19 +38,26 @@ func (r *Runtime) SetReaderActive(f func(string) bool) {
 }
 func (r *Runtime) SetExport(f func(string, string, conversation.ExportFormat)) {
 	r.exportConversation = f
+	for _, bound := range r.bindings {
+		bound.SetExport(f)
+	}
 }
 
 func (r *Runtime) projectConversations() {
 	project := func(list []*viewmodel.Conversation) {
 		for _, cv := range list {
+			owner := r.conversationRuntime(cv, nil)
+			if owner == nil {
+				continue
+			}
 			if id, err := protocol.ParseSessionID(cv.ID); err == nil {
-				if state, ok := r.controller.Conversation(id); ok {
+				if state, ok := owner.controller.Conversation(id); ok {
 					cv.Turns, cv.Session, cv.Waiting, cv.Queue = Conversation(state)
-					r.enrichDetails(cv, state)
-					r.enrichQueue(cv, state.Snapshot.Page.Queue)
-					r.projectConversationAssets(cv, state)
-					r.bindAttachmentSources(cv.ID, state.Snapshot.Page)
-					r.projectAttachmentImages(cv)
+					owner.enrichDetails(cv, state)
+					owner.enrichQueue(cv, state.Snapshot.Page.Queue)
+					owner.projectConversationAssets(cv, state)
+					owner.bindAttachmentSources(cv.ID, state.Snapshot.Page)
+					owner.projectAttachmentImages(cv)
 					cv.Animating = len(state.Snapshot.Drafts) > 0
 				}
 			}
@@ -115,8 +125,11 @@ func (r *Runtime) projectModels() {
 			models = append(models, v)
 		}
 	}
-	r.App.Data.Models = models
-	r.App.Data.Providers = providers
+	r.nodeModels = models
+	if r.parent == nil {
+		r.App.Data.Models = models
+		r.App.Data.Providers = providers
+	}
 	r.readModelScores()
 }
 
@@ -153,6 +166,13 @@ func (r *Runtime) session(id string) (protocol.Session, bool) {
 }
 
 func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *composer.State) (*composer.Context, shell.ConversationActions) {
+	if owner := r.conversationRuntime(cv, comp); owner == nil {
+		cv.Session.Connection = conversation.Offline
+		return &composer.Context{Readonly: true, Interactions: cv.Waiting, Queue: cv.Queue},
+			&conversationActions{r: r, c: c, cv: cv, comp: comp}
+	} else if owner != r {
+		return owner.conversation(c, cv, comp)
+	}
 	snapshot := r.controller.Snapshot()
 	if id, err := protocol.ParseSessionID(cv.ID); err == nil {
 		r.conversationSeen[id] = true
@@ -223,7 +243,13 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 		}
 		r.composerRevisions[cv.ID] = s.Revision
 	}
-	ctx := &composer.Context{Models: r.App.Data.Models, Interactions: cv.Waiting, Queue: cv.Queue, Readonly: !r.controller.Connected(), Repository: composer.Repository{Kind: composer.Directory}, Activity: composer.Activity{Connected: r.controller.Connected()}}
+	ctx := &composer.Context{Models: r.models(), Interactions: cv.Waiting, Queue: cv.Queue, Readonly: !r.controller.Connected(), Repository: composer.Repository{Kind: composer.Directory}, Activity: composer.Activity{Connected: r.controller.Connected()}}
+	if !r.controller.Connected() {
+		cv.Session.Connection = conversation.Offline
+		if r.controller.Err() == nil || faultCode(r.controller.Err()) == protocol.ErrorCodeUnavailable || faultCode(r.controller.Err()) == protocol.ErrorCodeBusy {
+			cv.Session.Connection = conversation.Reconnecting
+		}
+	}
 	ctx.Models = slices.Clone(ctx.Models)
 	for i := range ctx.Models {
 		model := &ctx.Models[i]
@@ -239,12 +265,10 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 	for _, h := range r.App.Data.Hosts {
 		ctx.Hosts = append(ctx.Hosts, composer.Host{ID: h.ID, Name: h.Name, Local: h.Local})
 	}
-	for _, p := range snapshot.Projects {
-		v := composer.Project{ID: p.ID.String(), Name: p.Name}
-		for _, w := range snapshot.Worktrees {
-			if w.Project != nil && *w.Project == p.ID {
-				v.Worktrees = append(v.Worktrees, composer.Worktree{Branch: w.Path, Main: w.Main})
-			}
+	for _, p := range r.App.Data.Projects {
+		v := composer.Project{ID: p.ID, Name: p.Name, Host: p.Host}
+		for _, w := range p.Worktrees {
+			v.Worktrees = append(v.Worktrees, composer.Worktree{Branch: w.Path, Main: w.Main})
 		}
 		ctx.Projects = append(ctx.Projects, v)
 	}
@@ -336,7 +360,7 @@ func (r *Runtime) applyComposer(c *composer.State, config protocol.SessionConfig
 	for k, v := range config.Features {
 		c.Features[k] = v
 	}
-	for _, m := range r.App.Data.Models {
+	for _, m := range r.models() {
 		if m.ID == c.Model {
 			if i := slices.Index(m.Efforts, effortName(config.Effort)); i >= 0 {
 				c.Effort = float64(i)
@@ -417,10 +441,10 @@ func (r *Runtime) references(cv *viewmodel.Conversation, comp *composer.State) (
 		refs = append(refs, composer.Reference{ID: "sessions", Kind: composer.Page, Label: "reference_sessions", Key: true, Group: "reference_group_context", Icon: icons.Chat, Children: sessions})
 	}
 	var models, efforts []composer.Reference
-	for _, m := range r.App.Data.Models {
+	for _, m := range r.models() {
 		models = append(models, composer.Reference{ID: m.ID, Kind: composer.ModelCommand, Label: m.Name, Insert: m.ID, Description: m.Provider, Icon: icons.Bot})
 	}
-	chosen := comp.Chosen(r.App.Data.Models)
+	chosen := comp.Chosen(r.models())
 	for _, e := range chosen.Efforts {
 		efforts = append(efforts, composer.Reference{ID: e, Kind: composer.EffortCommand, Label: e, Insert: e, Icon: icons.Bot})
 	}
@@ -534,6 +558,10 @@ type conversationActions struct {
 	c    *ui.Context
 	cv   *viewmodel.Conversation
 	comp *composer.State
+}
+
+func (x *conversationActions) owned() bool {
+	return x.r.runtimeFor(x.cv.Node) == x.r
 }
 
 func (x *conversationActions) unavailable()             { kit.Toast(x.c, kit.Failed, i18n.T(x.c, "unavailable")) }
@@ -662,13 +690,21 @@ func (x *conversationActions) Stop() {
 	}
 }
 func (x *conversationActions) LoadOlder() {
+	if !x.owned() {
+		return
+	}
 	if id, err := protocol.ParseSessionID(x.cv.ID); err == nil {
 		x.r.async(func() { _ = x.r.controller.LoadOlderConversation(x.r.ctx, id) })
 	}
 }
 func (x *conversationActions) Reconnect() {
+	if !x.owned() {
+		x.unavailable()
+		return
+	}
+	x.r.Refresh()
 	if id, err := protocol.ParseSessionID(x.cv.ID); err == nil {
-		_ = x.r.controller.RefreshConversation(x.r.ctx, id)
+		x.r.async(func() { _ = x.r.controller.RefreshConversation(x.r.ctx, id) })
 	}
 }
 func (x *conversationActions) Quote(text string) {
@@ -678,33 +714,49 @@ func (x *conversationActions) Quote(text string) {
 	x.comp.Draft += text
 }
 func (x *conversationActions) Read(turn, text string) {
-	if x.r.readAloud != nil {
+	if x.owned() && x.r.readAloud != nil {
 		x.r.readAloud(x.cv.ID, turn, text)
 	} else {
 		x.unavailable()
 	}
 }
 func (x *conversationActions) Export(turn string, format conversation.ExportFormat) {
-	if x.r.exportConversation != nil {
+	if x.owned() && x.r.exportConversation != nil {
 		x.r.exportConversation(x.cv.ID, turn, format)
 	} else {
 		x.unavailable()
 	}
 }
-func (x *conversationActions) OpenChild(id string)             { x.r.openLiveChild(x.cv, id) }
-func (x *conversationActions) OpenFile(file conversation.File) { x.r.openAttachmentFile(x, file) }
+func (x *conversationActions) OpenChild(id string) {
+	if x.owned() {
+		x.r.openLiveChild(x.cv, id)
+	}
+}
+func (x *conversationActions) OpenFile(file conversation.File) {
+	if x.owned() {
+		x.r.openAttachmentFile(x, file)
+	}
+}
 func (x *conversationActions) FileAction(file conversation.File, action conversation.FileAction) {
-	x.r.attachmentFileAction(x, file, action)
+	if x.owned() {
+		x.r.attachmentFileAction(x, file, action)
+	}
 }
 func (x *conversationActions) ImageAction(action kit.ImageAction, image conversation.Image) {
-	x.r.attachmentImageAction(x, action, image)
+	if x.owned() {
+		x.r.attachmentImageAction(x, action, image)
+	}
 }
 func (x *conversationActions) Undo(turn, path string) {
 	if !x.readonly() {
 		x.r.undoWorkspaceTurn(x, turn, path)
 	}
 }
-func (x *conversationActions) Review(turn, path string) { x.r.reviewWorkspaceTurn(x, turn, path) }
+func (x *conversationActions) Review(turn, path string) {
+	if x.owned() {
+		x.r.reviewWorkspaceTurn(x, turn, path)
+	}
+}
 func (x *conversationActions) Worktree(turn string) {
 	if !x.readonly() {
 		x.r.forkWorkspaceTurn(x, turn)
@@ -726,10 +778,22 @@ func (x *conversationActions) ManageTeams() {
 		x.r.App.Navigate(shell.SettingsPage)
 	}
 }
-func (x *conversationActions) OpenChange(path string) { x.r.openWorkspaceChange(x, path) }
-func (x *conversationActions) Badge(string, string)   { x.unavailable() }
-func (x *conversationActions) StopCommand(id string)  { x.stopWorkspaceCommand(id) }
-func (x *conversationActions) OpenService(port int)   { x.openCommandService(port) }
+func (x *conversationActions) OpenChange(path string) {
+	if x.owned() {
+		x.r.openWorkspaceChange(x, path)
+	}
+}
+func (x *conversationActions) Badge(string, string) { x.unavailable() }
+func (x *conversationActions) StopCommand(id string) {
+	if x.owned() {
+		x.stopWorkspaceCommand(id)
+	}
+}
+func (x *conversationActions) OpenService(port int) {
+	if x.owned() {
+		x.openCommandService(port)
+	}
+}
 func (x *conversationActions) Upload(a *composer.Attachment) {
 	if !x.readonly() {
 		x.r.uploadAttachment(x, a)

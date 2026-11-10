@@ -105,6 +105,7 @@ func main() {
 				return err
 			}
 			entry.live = runtime
+			runtime.SetNetwork(backend.Network)
 			entry.app = entry.live.App
 		}
 		app := entry.app
@@ -137,8 +138,13 @@ func main() {
 					}
 				})
 			}
-			bindConversation(ctx, entry, backend.Client, speech)
+			bindConversation(ctx, entry, speech)
 			bindFiles(entry, backend.Client.Target())
+			runtime.SetOpenService(func(address string) {
+				if err := mygo.Shell.OpenExternal(address); err != nil {
+					runtime.Report(err)
+				}
+			})
 			runtime.SetOpenWindow(func(id string) {
 				if err := openWindow(id); err != nil {
 					log.Printf("session window: %v", err)
@@ -146,6 +152,16 @@ func main() {
 				}
 			})
 			runtime.SetPreferencesChanged(applyPreferences)
+			runtime.SetPickKeyFile(func(selected func(string)) {
+				paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Parent: entry.window, Title: i18n.In(i18n.Match(mygo.App.Locale()), "ssh_key_file")})
+				if err != nil {
+					runtime.Report(err)
+					return
+				}
+				if len(paths) > 0 {
+					selected(paths[0])
+				}
+			})
 			runtime.SetPickDirectory(func(selected func(string)) {
 				paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Parent: entry.window, Title: i18n.In(i18n.Match(mygo.App.Locale()), "directory_title"), Directory: true})
 				if err != nil {

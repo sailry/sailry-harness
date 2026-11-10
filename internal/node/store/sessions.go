@@ -182,7 +182,7 @@ func reviseSession(ctx context.Context, db *sql.Conn, value protocol.Session) (p
 	return protocol.Output{Kind: "session", Data: value}, []protocol.Event{{Kind: "session_changed", Data: &value}}, err
 }
 
-func createSession(ctx context.Context, db *sql.Conn, node protocol.NodeID, profile string, input protocol.CommandCreateSessionPayload) (protocol.Output, []protocol.Event, error) {
+func createSession(ctx context.Context, db *sql.Conn, node protocol.NodeID, profile string, input protocol.CommandCreateSessionPayload, capturedRoles ...protocol.RoleSnapshot) (protocol.Output, []protocol.Event, error) {
 	config := input.Config
 	if config == nil {
 		defaults, err := ReadDefaults(ctx, db)
@@ -200,9 +200,13 @@ func createSession(ctx context.Context, db *sql.Conn, node protocol.NodeID, prof
 	value := protocol.DefaultSession()
 	value.ID, value.Project, value.Config, value.Revision = protocol.NewSessionID(), input.Project, *config, 1
 	var err error
-	value.Roles, err = CaptureSessionRoles(ctx, db, node, protocol.ConversationExecutionTeam, nil, nil)
-	if err != nil {
-		return protocol.Output{}, nil, err
+	if len(capturedRoles) > 0 {
+		value.Roles = capturedRoles[0]
+	} else {
+		value.Roles, err = CaptureSessionRoles(ctx, db, node, protocol.ConversationExecutionTeam, nil, nil)
+		if err != nil {
+			return protocol.Output{}, nil, err
+		}
 	}
 	if input.Project != nil {
 		var selected string

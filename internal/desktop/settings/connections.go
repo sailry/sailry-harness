@@ -5,8 +5,8 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
-	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 )
 
 // Method is how a host is added.
@@ -32,7 +32,7 @@ type pairing struct {
 	code                    string
 	name, host, port, user  string
 	secret, key, passphrase string
-	revoking                *preview.Device
+	revoking                *viewmodel.Device
 }
 
 // relayOptions are the connection servers: the public network, the named
@@ -49,18 +49,23 @@ func connections(c *ui.Context, m *Model) {
 		kit.Secondary(c.Key("share"), i18n.T(c, "pairing_share")).OnClick(func() { pr.sharing = true })
 		label := i18n.T(c, "settings_add")
 		kit.Primary(c.Key("add"), label, false).Children(func() { ui.Text(c, label).FontSize(14) }).OnClick(func() {
-			*pr = pairing{adding: true, port: "22"}
+			m.openAddHost()
 		})
 	}, func() { devices(c, m, true) })
 	kit.Group(c, "mobile", i18n.T(c, "connections_mobile"), "", nil, func() { devices(c, m, false) })
 	addHost(c, m)
 	shareCode(c, m)
+	connectionDialogs(c, m)
 	if d := pr.revoking; d != nil {
 		open := true
 		// Removing the pairing tells the device to forget this one.
 		if ui.AlertDialog(c.Key("revoke"), &open, i18n.T(c, "live_revoke")+" "+deviceName(c, *d),
 			i18n.T(c, "connections_revoke_confirm"), i18n.T(c, "settings_cancel"), i18n.T(c, "live_revoke")) == 1 {
-			notice(c)
+			if m.ConnectionActions != nil && m.ConnectionActions.Revoke != nil {
+				m.ConnectionActions.Revoke(*d)
+			} else {
+				notice(c)
+			}
 		}
 		if !open {
 			pr.revoking = nil
@@ -74,7 +79,7 @@ func connections(c *ui.Context, m *Model) {
 // network.
 func devices(c *ui.Context, m *Model, execution bool) {
 	p := theme.Of(c)
-	var list []preview.Device
+	var list []viewmodel.Device
 	for _, d := range m.Devices {
 		if d.Execution == execution {
 			list = append(list, d)
@@ -91,7 +96,11 @@ func devices(c *ui.Context, m *Model, execution bool) {
 				row.ContextMenu(func(menu *ui.Menu) {
 					// Editing a host's network asks the host for it.
 					if menu.Item(i18n.T(c, "connection_action_edit")).Chosen() {
-						notice(c)
+						if m.ConnectionActions != nil && m.ConnectionActions.EditNetwork != nil {
+							m.ConnectionActions.EditNetwork(d)
+						} else {
+							notice(c)
+						}
 					}
 				})
 			}
@@ -121,7 +130,11 @@ func devices(c *ui.Context, m *Model, execution bool) {
 						}, func(menu *kit.Menu) {
 							// Editing a host's network asks the host for it.
 							if execution && menu.Item(i18n.T(c, "connection_action_edit")).Chosen() {
-								notice(c)
+								if m.ConnectionActions != nil && m.ConnectionActions.EditNetwork != nil {
+									m.ConnectionActions.EditNetwork(d)
+								} else {
+									notice(c)
+								}
 							}
 							if menu.Item(i18n.T(c, "live_revoke")).Danger().Chosen() {
 								m.pairing.revoking = &d
@@ -134,7 +147,7 @@ func devices(c *ui.Context, m *Model, execution bool) {
 	})
 }
 
-func deviceName(c *ui.Context, d preview.Device) string {
+func deviceName(c *ui.Context, d viewmodel.Device) string {
 	if d.Name != "" {
 		return d.Name
 	}
@@ -143,7 +156,7 @@ func deviceName(c *ui.Context, d preview.Device) string {
 
 // deviceStatus is the status label's key: the route of an online remote
 // device, else this computer, online or offline (label_key).
-func deviceStatus(d preview.Device) string {
+func deviceStatus(d viewmodel.Device) string {
 	switch {
 	case d.Online && !d.Local && d.Route == "p2p":
 		return "connection_route_p2p"
@@ -157,7 +170,7 @@ func deviceStatus(d preview.Device) string {
 	return "connections_offline"
 }
 
-func platformIcon(d preview.Device) *ui.SVG {
+func platformIcon(d viewmodel.Device) *ui.SVG {
 	switch d.Platform {
 	case "android":
 		return icons.Android
@@ -206,33 +219,55 @@ func addHost(c *ui.Context, m *Model) {
 			ui.Text(c, i18n.T(c, "host_pairing_hint")).FontSize(14).TextColor(p.MutedForeground)
 		})
 		ui.Scroll(c.Key("body")).Grow(1).Shrink(1).Gap(16).Padding(4, 0, 0, 0).Children(func() {
-			kit.Segmented(c, "method", &pr.method, labels(c, methods), kit.SegmentedProps{Block: true}).Label(i18n.T(c, "connection"))
+			kit.Segmented(c, "method", &pr.method, labels(c, methods), kit.SegmentedProps{Block: true}).Disabled(m.ConnectionPending).Label(i18n.T(c, "connection"))
 			if Method(pr.method) == ByPairing {
 				ui.Row(c.Key("code")).FillWidth().Justify(ui.Center).Padding(16, 0).Children(func() {
-					// Six digits (link rendezvous valid_code); a full code
-					// would pair, which the preview does not.
-					kit.InputOTP(c, "input", &pr.code, kit.InputOTPProps{Length: 6, Size: kit.SizeLarge}).Label(i18n.T(c, "host_pairing_mode"))
+					kit.InputOTP(c, "input", &pr.code, kit.InputOTPProps{Length: 6, Size: kit.SizeLarge}).Disabled(m.ConnectionPending).Label(i18n.T(c, "host_pairing_mode"))
 				})
 			} else {
-				sshFields(c, pr)
+				sshFields(c, pr, m)
 			}
-			relayFields(c, pr, m.Relays)
+			connectionRelayFields(c, pr, m.Relays, m.ConnectionRelays, m.ConnectionPending)
+			if m.ConnectionPending {
+				stage := m.ConnectionStage
+				if stage == "" {
+					stage = "connection_connecting"
+				}
+				kit.Shimmer(c.Key("progress"), i18n.T(c, stage), 14, p.MutedForeground)
+			}
 		})
 		action := i18n.T(c, "pairing_connect")
 		if Method(pr.method) != ByPairing {
 			action = i18n.T(c, "host_install")
 		}
-		footer(c, action, func() { pr.adding = false }, func() { notice(c) })
+		ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
+			kit.Secondary(c.Key("cancel"), i18n.T(c, "settings_cancel")).OnClick(func() { pr.adding = false })
+			kit.Primary(c.Key("ok"), action, false).Disabled(m.ConnectionPending).Children(func() { ui.Text(c, action).FontSize(14) }).OnClick(func() {
+				if m.ConnectionActions != nil && m.ConnectionActions.Add != nil {
+					draft := m.ConnectionDraft()
+					generation := m.connectionGeneration
+					m.ConnectionActions.Add(draft, func(ok bool) {
+						current := m.ConnectionDraft()
+						current.Relay = draft.Relay
+						if ok && generation == m.connectionGeneration && draft == current {
+							pr.adding = false
+						}
+					})
+				} else {
+					notice(c)
+				}
+			})
+		})
 	}).Width(min(520, width(c)-48)).Label(title)
 }
 
 // sshFields are the name, the host and port on one row, the user, then the
 // method's secret.
-func sshFields(c *ui.Context, pr *pairing) {
+func sshFields(c *ui.Context, pr *pairing, m *Model) {
 	p := theme.Of(c)
 	field := func(key string, value *string) {
 		label := i18n.T(c, key)
-		kit.Field(c, key, label, "", func() { ui.TextInput(c.Key("input"), value).Label(label).FillWidth() })
+		kit.Field(c, key, label, "", func() { ui.TextInput(c.Key("input"), value).Disabled(m.ConnectionPending).Label(label).FillWidth() })
 	}
 	field("settings_name", &pr.name)
 	ui.Row(c.Key("address")).Gap(12).Children(func() {
@@ -243,26 +278,39 @@ func sshFields(c *ui.Context, pr *pairing) {
 	switch Method(pr.method) {
 	case ByPassword:
 		label := i18n.T(c, "ssh_password")
-		kit.Field(c, "secret", label, "", func() { ui.TextInput(c.Key("input"), &pr.secret).Password().Label(label).FillWidth() })
+		kit.Field(c, "secret", label, "", func() {
+			ui.TextInput(c.Key("input"), &pr.secret).Disabled(m.ConnectionPending).Password().Label(label).FillWidth()
+		})
 	case ByPrivateKey:
 		label := i18n.T(c, "ssh_private_key")
 		kit.Field(c, "key", label, "", func() {
-			ui.TextArea(c.Key("input"), &pr.key).Label(label).Placeholder(i18n.T(c, "form_private_key_hint")).FillWidth().Height(96).Font("monospace")
+			ui.TextArea(c.Key("input"), &pr.key).Disabled(m.ConnectionPending).Label(label).Placeholder(i18n.T(c, "form_private_key_hint")).FillWidth().Height(96).Font("monospace")
 		})
 	case ByKeyFile:
 		label := i18n.T(c, "ssh_key_path")
 		kit.Field(c, "path", label, "", func() {
 			ui.Row(c).Gap(6).Children(func() {
-				ui.TextInput(c.Key("input"), &pr.key).Label(label).Placeholder("~/.ssh/id_ed25519").Grow(1)
+				ui.TextInput(c.Key("input"), &pr.key).Disabled(m.ConnectionPending).Label(label).Placeholder("~/.ssh/id_ed25519").Grow(1)
 				// Choosing the file reads the disk.
-				kit.IconButton(c.Key("browse"), icons.FolderOpen, i18n.T(c, "ssh_key_file"), 32, false).Border(1, p.Input).OnClick(func() { notice(c) })
+				kit.IconButton(c.Key("browse"), icons.FolderOpen, i18n.T(c, "ssh_key_file"), 32, false).Disabled(m.ConnectionPending).Border(1, p.Input).OnClick(func() {
+					if m.ConnectionActions != nil && m.ConnectionActions.BrowseKey != nil {
+						generation, key := m.connectionGeneration, pr.key
+						m.ConnectionActions.BrowseKey(func(path string) {
+							if m.Adding() && generation == m.connectionGeneration && Method(pr.method) == ByKeyFile && pr.key == key {
+								pr.key = path
+							}
+						})
+					} else {
+						notice(c)
+					}
+				})
 			})
 		})
 	}
 	if Method(pr.method) != ByPassword {
 		label := i18n.T(c, "ssh_passphrase")
 		kit.Field(c, "passphrase", label, "", func() {
-			ui.TextInput(c.Key("input"), &pr.passphrase).Password().Label(label).Placeholder(i18n.T(c, "form_passphrase_hint")).FillWidth()
+			ui.TextInput(c.Key("input"), &pr.passphrase).Disabled(m.ConnectionPending).Password().Label(label).Placeholder(i18n.T(c, "form_passphrase_hint")).FillWidth()
 		})
 	}
 }
@@ -280,14 +328,42 @@ func shareCode(c *ui.Context, m *Model) {
 	kit.Dialog(c.Key("share"), &pr.sharing, func() {
 		ui.Text(c, title).FontSize(16).FontWeight(600)
 		ui.Column(c.Key("body")).Gap(16).Padding(0, 0, 8, 0).AlignItems(ui.Center).Children(func() {
-			ui.Column(c).FillWidth().Gap(16).Children(func() { relayFields(c, pr, m.Relays) })
+			ui.Column(c).FillWidth().Gap(16).Children(func() { connectionRelayFields(c, pr, m.Relays, m.ConnectionRelays, false) })
 			ui.Row(c.Key("digits")).Gap(8).Children(func() {
 				for i := range 6 {
-					ui.Text(c.Key(i), "–").Size(48, 64).TextAlign(ui.Center).Center().FontSize(30).FontWeight(600).
-						Radius(p.RadiusLg).Background(p.Secondary).TextColor(p.MutedForeground)
+					digit := "–"
+					if i < len(m.Share.Code) {
+						digit = m.Share.Code[i : i+1]
+					}
+					color := p.MutedForeground
+					if m.Live && len(m.Share.Code) == 6 {
+						color = p.Success
+					}
+					ui.Text(c.Key(i), digit).Size(48, 64).TextAlign(ui.Center).Center().FontSize(30).FontWeight(600).
+						Radius(p.RadiusLg).Background(p.Secondary).TextColor(color)
 				}
 			})
-			ui.Text(c, i18n.T(c, "pairing_preview_disabled")).FontSize(14).TextColor(p.MutedForeground)
+			if m.Live {
+				if m.Share.Kind == "preparing" || m.Share.Kind == "retrying" || m.Share.Kind == "checking" {
+					key := "pairing_preparing"
+					if m.Share.Kind == "checking" {
+						key = "pairing_relay_checking"
+					}
+					kit.Shimmer(c, i18n.T(c, key), 14, p.MutedForeground)
+				}
+				if m.Share.Code != "" {
+					ui.Text(c, i18n.T(c, "pairing_refresh_hint")).FontSize(14).TextColor(p.MutedForeground)
+				}
+				if m.Share.Kind == "failed" {
+					kit.Secondary(c.Key("retry"), i18n.T(c, "update_retry")).OnClick(func() {
+						if m.ConnectionActions != nil && m.ConnectionActions.RetryShare != nil {
+							m.ConnectionActions.RetryShare()
+						}
+					})
+				}
+			} else {
+				ui.Text(c, i18n.T(c, "pairing_preview_disabled")).FontSize(14).TextColor(p.MutedForeground)
+			}
 			ui.Text(c, i18n.T(c, "pairing_share_hint")).FontSize(14).TextAlign(ui.Center).TextColor(p.MutedForeground)
 		})
 	}).Width(min(400, width(c)-48)).Label(title)
@@ -295,4 +371,38 @@ func shareCode(c *ui.Context, m *Model) {
 
 // AddHost opens the Add host dialog (Shell::add_host), as the rail's Add
 // host does over the Connections page.
-func (s *State) AddHost() { s.pairing = pairing{adding: true, port: "22"} }
+func (s *State) AddHost() { s.Model.openAddHost() }
+
+func (m *Model) openAddHost() {
+	m.connectionGeneration++
+	m.pairing = pairing{adding: true, port: "22"}
+}
+
+func connectionRelayFields(c *ui.Context, pr *pairing, relays []string, choices []RelayChoice, disabled bool) {
+	if len(choices) == 0 {
+		relayFields(c, pr, relays)
+		return
+	}
+	options := make([]string, len(choices))
+	for index, choice := range choices {
+		label := choice.Label
+		if choice.LabelKey != "" {
+			label = i18n.T(c, choice.LabelKey)
+		}
+		timing := i18n.T(c, "composer_metric_unknown")
+		if choice.Pending {
+			timing = "…"
+		} else if choice.Millis != nil {
+			timing = i18n.T(c, "usage_duration_ms", "value", *choice.Millis)
+		}
+		options[index] = label + " · " + timing
+	}
+	label := i18n.T(c, "pairing_relay_server")
+	kit.Field(c, "relay", label, "", func() { pick(c, "relay", label, &pr.relay, options, disabled).Fill() })
+	if pr.relay >= 0 && pr.relay < len(choices) && choices[pr.relay].Custom {
+		title := i18n.T(c, "pairing_relay_address")
+		kit.Field(c, "address", title, "", func() {
+			ui.TextInput(c.Key("input"), &pr.address).Disabled(disabled).Label(title).Placeholder(i18n.T(c, "pairing_relay_address_hint")).FillWidth()
+		})
+	}
+}

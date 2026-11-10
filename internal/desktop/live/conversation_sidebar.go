@@ -10,6 +10,13 @@ import (
 )
 
 func (r *Runtime) exportSession(cv *viewmodel.Conversation, format conversation.ExportFormat) {
+	if owner := r.conversationRuntime(cv, nil); owner == nil {
+		r.Report(fileActionFault(protocol.ErrorCodeUnavailable, "the execution host is unavailable"))
+		return
+	} else if owner != r {
+		owner.exportSession(cv, format)
+		return
+	}
 	if r.exportConversation != nil {
 		r.exportConversation(cv.ID, "", format)
 	} else {
@@ -18,6 +25,13 @@ func (r *Runtime) exportSession(cv *viewmodel.Conversation, format conversation.
 }
 
 func (r *Runtime) forkHere(cv *viewmodel.Conversation) {
+	if owner := r.conversationRuntime(cv, nil); owner == nil {
+		r.Report(fileActionFault(protocol.ErrorCodeUnavailable, "the execution host is unavailable"))
+		return
+	} else if owner != r {
+		owner.forkHere(cv)
+		return
+	}
 	s, ok := r.session(cv.ID)
 	if !ok || s.Project == nil {
 		return

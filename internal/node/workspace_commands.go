@@ -49,10 +49,15 @@ func workspaceGitWrite(kind string) bool {
 	return false
 }
 func workspaceCommand(kind string) bool {
+	if networkCommand(kind) {
+		return true
+	}
 	if files.SupportsRead(kind) || files.SupportsMutation(kind) || store.SupportsFilesCommand(kind) || workspaceGitRead(kind) || workspaceGitWrite(kind) {
 		return true
 	}
 	switch kind {
+	case "read_project_catalog", "read_worktree_catalog":
+		return true
 	case "fetch_web", "cancel_web_fetch", "search_web", "cancel_web_search", "test_search_driver", "read_search_settings", "save_search_settings", "write_artifact", "upload_file", "upload_attachment", "download_file", "download_attachment", "download_image", "finish_file_upload", "cancel_file_transfer", "restore_file_checkpoint", "apply_turn_hunk", "read_hooks", "save_hooks", "read_sandbox_settings", "save_sandbox_settings", "run_command", "list_commands", "read_command", "read_command_page", "write_command", "stop_command", "stop_commands":
 		return true
 	}
@@ -184,6 +189,12 @@ func (node *Node) dispatchWorkspace(ctx context.Context, caller protocol.NodeID,
 
 func (node *Node) workspaceIO(ctx context.Context, caller protocol.NodeID, request protocol.Request, prepared *files.Prepared, effect *workspaceCompletion) (protocol.Output, error) {
 	command := request.Command
+	if networkCommand(command.Kind) {
+		return node.networkIO(ctx, command)
+	}
+	if command.Kind == "read_project_catalog" || command.Kind == "read_worktree_catalog" {
+		return node.readWorkspaceCatalog(ctx, command)
+	}
 	access := core.FileAccessForRequest(request, request.Plugin != nil)
 	if request.Command.Durable() && command.Kind != "run_command" && command.Kind != "stop_command" && command.Kind != "stop_commands" && command.Kind != "write_command" {
 		node.effects.Lock()

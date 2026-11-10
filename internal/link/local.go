@@ -19,6 +19,14 @@ func NewLocal(target, caller protocol.NodeID, handler Handler) *Local {
 
 func (local *Local) Target() protocol.NodeID { return local.target }
 
+func (local *Local) WatchConnection(ctx context.Context, changed func(ConnectionInfo)) error {
+	route := RouteLocal
+	changed(ConnectionInfo{Route: &route})
+	<-ctx.Done()
+	changed(ConnectionInfo{})
+	return nil
+}
+
 func (local *Local) Dispatch(ctx context.Context, request protocol.Request) (Admission, error) {
 	return local.handler.Dispatch(ctx, local.caller, request)
 }

@@ -29,7 +29,7 @@ func (r *Runtime) openCapturedFilePreview(session string, file conversation.File
 		r.openExternalAttachment(descriptor, false)
 		return
 	}
-	file.ID = "preview/" + session + "/" + file.ID
+	file.ID = "preview/" + r.controller.Target().String() + "/" + session + "/" + file.ID
 	r.attachments.previews[file.ID] = descriptor
 	r.attachments.previewGeneration[file.ID]++
 	generation := r.attachments.previewGeneration[file.ID]
@@ -119,26 +119,36 @@ func (r *Runtime) readPublishedArtifact(ctx context.Context, descriptor attachme
 // OpenArtifactExternal and ArtifactImageAction receive only captured preview IDs.
 func (r *Runtime) OpenArtifactExternal(file conversation.File) {
 	r.enqueue(func(c *ui.Context) {
-		descriptor, ok := r.attachments.previews[file.ID]
+		owner := r.artifactRuntime(file.ID)
+		if owner == nil {
+			r.downloadOutcome(c, fileActionFault(protocol.ErrorCodeNotFound, "file preview source is unavailable"))
+			return
+		}
+		descriptor, ok := owner.attachments.previews[file.ID]
 		if !ok {
 			r.downloadOutcome(c, fileActionFault(protocol.ErrorCodeNotFound, "file preview source is unavailable"))
 			return
 		}
 		if descriptor.artifact != nil {
-			r.openExternalArtifact(descriptor)
+			owner.openExternalArtifact(descriptor)
 			return
 		}
-		r.openExternalAttachment(descriptor, false)
+		owner.openExternalAttachment(descriptor, false)
 	})
 }
 func (r *Runtime) ArtifactImageAction(action kit.ImageAction, image conversation.Image) {
 	r.enqueue(func(c *ui.Context) {
-		descriptor, ok := r.attachments.previews[image.ID]
+		owner := r.artifactRuntime(image.ID)
+		if owner == nil {
+			r.downloadOutcome(c, fileActionFault(protocol.ErrorCodeNotFound, "image preview source is unavailable"))
+			return
+		}
+		descriptor, ok := owner.attachments.previews[image.ID]
 		if !ok {
 			r.downloadOutcome(c, fileActionFault(protocol.ErrorCodeNotFound, "image preview source is unavailable"))
 			return
 		}
-		r.attachmentImageDescriptorAction(c, action, descriptor)
+		owner.attachmentImageDescriptorAction(c, action, descriptor)
 	})
 }
 func (r *Runtime) chooseArtifactDestination(descriptor attachmentDescriptor) {
@@ -260,6 +270,12 @@ func (r *Runtime) projectDocumentThumbnail(session, id string, descriptor attach
 }
 
 func (r *Runtime) renderArtifactPreview(c *ui.Context, file conversation.File) bool {
+	if owner := r.artifactRuntime(file.ID); owner != nil && owner != r {
+		return owner.renderArtifactPreview(c, file)
+	}
+	if r.attachments == nil {
+		return false
+	}
 	if r.attachments.native.DocumentView == nil {
 		return false
 	}
@@ -269,4 +285,21 @@ func (r *Runtime) renderArtifactPreview(c *ui.Context, file conversation.File) b
 		return false
 	}
 	return r.attachments.native.DocumentView(c, *descriptor.artifact, html)
+}
+
+func (r *Runtime) artifactRuntime(id string) *Runtime {
+	root := r.localRuntime()
+	if root.attachments != nil {
+		if _, ok := root.attachments.previews[id]; ok {
+			return root
+		}
+	}
+	for _, bound := range root.bindings {
+		if bound.attachments != nil {
+			if _, ok := bound.attachments.previews[id]; ok {
+				return bound
+			}
+		}
+	}
+	return nil
 }

@@ -38,6 +38,20 @@ type Transport interface {
 	Target() protocol.NodeID
 	Dispatch(context.Context, protocol.Request) (Admission, error)
 	Subscribe(context.Context, protocol.Topic) (Subscription, error)
+	WatchConnection(context.Context, func(ConnectionInfo)) error
+}
+
+type Route string
+
+const (
+	RouteLocal Route = "local"
+	RouteP2P   Route = "p2p"
+	RouteRelay Route = "relay"
+)
+
+type ConnectionInfo struct {
+	Route *Route  `json:"route"`
+	RTTMS *uint64 `json:"rtt_ms"`
 }
 
 // FaultError carries a protocol fault through an ordinary Go error boundary.

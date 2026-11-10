@@ -51,6 +51,9 @@ type clientTransport struct {
 }
 
 func (transport *clientTransport) Target() protocol.NodeID { return protocol.NodeID{1} }
+func (transport *clientTransport) WatchConnection(ctx context.Context, changed func(link.ConnectionInfo)) error {
+	return link.NewLocal(transport.Target(), transport.Target(), nil).WatchConnection(ctx, changed)
+}
 
 func (transport *clientTransport) Dispatch(_ context.Context, request protocol.Request) (link.Admission, error) {
 	transport.mu.Lock()
