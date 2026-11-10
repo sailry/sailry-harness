@@ -7,6 +7,7 @@ type ProviderDraft struct {
 	Channel          viewmodel.Channel
 	Key              string
 	ExpectedRevision uint64
+	OAuth            [4]string
 }
 type ProviderActions struct {
 	NewID          func() string
@@ -18,4 +19,7 @@ type ProviderActions struct {
 	ReadKey        func(string, func(bool))
 	RefreshCatalog func()
 	SaveCompaction func()
+	SignIn         func(string)
+	SubmitLogin    func(string)
+	CancelLogin    func()
 }

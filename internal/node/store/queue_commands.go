@@ -15,6 +15,18 @@ import (
 
 func agentInput(command protocol.Command) (protocol.ConversationInput, error) {
 	switch v := command.Data.(type) {
+	case *protocol.CommandPluginTransactionPayload:
+		for _, operation := range v.Operations {
+			if operation.Kind != "submit" && operation.Kind != "continue" {
+				continue
+			}
+			nested, err := pluginTransactionCommand(operation, protocol.PluginReference{})
+			if err != nil {
+				return protocol.ConversationInput{}, err
+			}
+			return agentInput(nested)
+		}
+		return protocol.ConversationInput{}, invalid("transaction has no pending input")
 	case *protocol.ConversationStart:
 		return v.Message, nil
 	case *protocol.CommandSubmitTaskPayload:

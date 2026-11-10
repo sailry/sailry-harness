@@ -1700,3 +1700,85 @@ live_update_check: Check
 live_update_download: Prepare
 live_update_apply: Apply
 live_update_retry: Retry
+provider_login_failed: Anmeldung fehlgeschlagen; versuchen Sie es erneut
+provider_login_unknown: Anmeldeergebnis nicht bestätigt; erneut versuchen
+connector_conflict: Verbindung geändert, erneut öffnen
+connector_unknown: Verbindung vor dem erneuten Versuch prüfen
+authorization_connected: Verbunden
+connector_bound: Verknüpft
+connector_checked: Verbindung in Ordnung
+connector_mcp_reconnected: Verbunden, %{n} Werkzeuge
+connector_consent_effect: Geänderte Autorisierungsziele vor dem Fortfahren prüfen
+connector_changed_origins: Ursprünge
+connector_changed_scopes: Berechtigungen
+connector_changed_client: Client
+connector_changed_flow: Anmeldeablauf
+connector_changed_targets: Anmeldedatenziele
+connector_changed_mcp: MCP-Server
+connector_changed_source: Paketquelle
+appearance_up_to_date: Themes sind aktuell
+appearance_updates_available: Updates verfügbar
+market_themes_failed: Designs konnten nicht geladen werden
+appearance_export_done: Theme exportiert
+appearance_export_failed: Theme konnte nicht exportiert werden; erneut versuchen
+appearance_removed: Theme deinstalliert
+appearance_remove_failed: Theme nicht vollständig entfernt; versuchen Sie es erneut
+appearance_import_done: Theme importiert
+appearance_import_invalid: Konnte nicht importieren; überprüfen Sie das Theme-Paket und die Ressourcen
+appearance_save_failed: Theme nicht gespeichert; versuchen Sie es erneut
+appearance_save_uncertain: Ersetzung ungewiss; installierte Themes prüfen
+directory_outcome_unknown: Ergebnis nicht bestätigt; überprüfen Sie zuerst die Quell- und Zielpfade
+market_permission_artifacts_read: Artefakte lesen
+market_permission_artifacts_write: Artefakte speichern
+market_permission_code_read: Code lesen
+market_permission_code_manage: Code verwalten
+market_permission_code_settings_read: Code-Einstellungen lesen
+market_permission_code_settings_write: Code-Einstellungen ändern
+market_permission_web_settings_read: Sucheinstellungen lesen
+market_permission_web_settings_write: Sucheinstellungen ändern
+market_permission_activity_read: Aktivitäten lesen
+market_permission_usage_read: Nutzung lesen
+market_permission_databases_read: Datenbankverbindungen lesen
+market_permission_databases_manage: Datenbankverbindungen verwalten
+market_permission_ssh_read: SSH-Verbindungen lesen
+market_permission_ssh_control: SSH-Sitzungen verwenden
+market_permission_ssh_manage: SSH-Verbindungen verwalten
+market_permission_agents_delegate: An Unteragenten delegieren
+market_permission_roles_read: Rollen lesen
+market_permission_teams_read: Teams lesen
+market_permission_roles_write: Rollen ändern
+market_permission_models_read: Modelle lesen
+market_permission_decisions_run: Lokale Entscheidungen ausführen
+market_permission_models_provide: Modelle bereitstellen
+market_permission_models_authenticate: Bei Modelldiensten anmelden
+market_permission_credentials_inspect: Anmeldedaten prüfen
+market_permission_models_install: Modelle installieren
+market_permission_media_inspect: Medien anzeigen
+market_permission_media_image: Bilder generieren
+market_permission_media_video: Videos generieren
+market_permission_media_settings_read: Medieneinstellungen lesen
+market_permission_media_settings_write: Medieneinstellungen ändern
+market_permission_computer_read: Bildschirm und Fenster anzeigen
+market_permission_computer_control: Computer steuern
+market_permission_browser_read: Integrierten Browser lesen
+market_permission_external_browser_read: Externen Browser lesen
+market_permission_external_browser_control: Externen Browser steuern
+market_permission_notifications_publish: Benachrichtigungen senden
+market_permission_dispatch_manage: Aufgabenverteilung verwalten
+market_permission_files_write: Dateien ändern
+market_permission_worktrees_read: Arbeitsbäume lesen
+market_permission_worktrees_write: Arbeitsbäume verwalten
+market_permission_process_read: Befehle anzeigen
+market_permission_process_control: Befehle ausführen
+market_permission_terminals_read: Terminals lesen
+market_permission_conversation_read: Unterhaltungen lesen
+market_permission_conversation_control: Unterhaltungen steuern
+market_permission_conversation_message_read: Nachrichten lesen
+market_permission_sessions_start: Unterhaltungen starten
+market_permission_projects_read: Projekte lesen
+market_permission_web_read: Webseiten lesen
+market_permission_models_generate: Modelle verwenden
+market_permission_storage_read: Plugin-Daten lesen
+market_permission_storage_write: Plugin-Daten speichern
+market_permission_knowledge_read: Wissen lesen
+market_permission_knowledge_write: Wissen ändern

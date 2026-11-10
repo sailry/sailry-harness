@@ -127,6 +127,9 @@ func questionSpec(ctx context.Context, db *sql.Conn, value protocol.Conversation
 	if review := planReviewSpec(*record); review != nil {
 		return *review, nil
 	}
+	if input := elicitationInput(*record); input != nil {
+		return input.Spec, nil
+	}
 	if message := record.Message(); message != nil {
 		for _, block := range message.Content {
 			if block.Index == value.Index {
@@ -175,6 +178,14 @@ func validateQuestionAnswer(spec protocol.ConversationQuestionSpec, answer proto
 	case "plan":
 		if answer.Kind != "text" || len(*answer.Data.(*string)) > 64*1024 {
 			return invalid("answer type does not match the question")
+		}
+	case "form":
+		if answer.Kind != "form" {
+			return invalid("answer type does not match the MCP form")
+		}
+	case "url":
+		if answer.Kind != "opened" {
+			return invalid("answer type does not match the MCP URL")
 		}
 	default:
 		return invalid("question answer requires an MCP input")
@@ -269,6 +280,9 @@ func resolveQuestion(ctx context.Context, db *sql.Conn, node, caller protocol.No
 	case "answer":
 		answer := input.Response.Data.(*protocol.ConversationQuestionAnswer)
 		if err = validateQuestionAnswer(spec, *answer); err != nil {
+			return protocol.Output{}, nil, err
+		}
+		if err = validateMCPAnswer(ctx, db, value, *answer); err != nil {
 			return protocol.Output{}, nil, err
 		}
 		state.Kind = "answered"

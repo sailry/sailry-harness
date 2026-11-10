@@ -185,6 +185,11 @@ func safeDiagnostic(message string, secrets []protocol.Secret) string {
 	return message
 }
 func Fault(err error) *protocol.Fault {
+	var existing *protocol.Fault
+	if errors.As(err, &existing) {
+		copy := *existing
+		return &copy
+	}
 	failure := Classify(err)
 	if failure == nil {
 		return nil

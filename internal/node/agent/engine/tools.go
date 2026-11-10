@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -32,6 +33,11 @@ type Tool struct {
 	Prepare           func(context.Context, canonical.ToolRequest) error
 	ConfigureApproval func(context.Context, *sql.Conn, canonical.ToolRequest, protocol.ConversationApproval) (protocol.ConversationApproval, error)
 	Approved          func(canonical.ToolRequest, protocol.ApprovalID, protocol.RequestID)
+	Close             func() error
+	Instruction       string
+	ContextParts      []string
+	BeforeModel       func(context.Context, []canonical.Record) (bool, error)
+	BindDelegation    func(Tool) Tool
 	schema            *jsonschema.Schema
 }
 type ToolResult struct {
@@ -40,6 +46,7 @@ type ToolResult struct {
 	ReturnedFailure *protocol.ToolFailure
 	ReturnedError   bool
 	Value           any
+	Format          canonical.ToolFormat
 	Error           bool
 	Failure         *protocol.Fault
 	Context         *canonical.Context
@@ -54,7 +61,21 @@ func (r *Runtime) captureTools(x *execution) error {
 		}
 		x.tools = append(x.tools, scoped...)
 	}
-	x.tools = append(r.builtins(x), x.tools...)
+	builtins := r.builtins(x)
+	x.tools = append(builtins, x.tools...)
+	for index := range x.tools {
+		if bind := x.tools[index].BindDelegation; bind != nil {
+			if delegate := findTool(builtins, "spawn_agent"); delegate != nil {
+				x.tools[index] = bind(*delegate)
+			}
+		}
+	}
+	x.tools = slices.DeleteFunc(x.tools, func(tool Tool) bool { return tool.BindDelegation != nil && !tool.Delegation })
+	for _, tool := range x.tools {
+		if tool.Close != nil {
+			x.toolCleanup = append(x.toolCleanup, tool.Close)
+		}
+	}
 	if x.inv.Session.Delegation != nil && *x.inv.Session.Delegation != nil {
 		if x.childRole != nil && x.childRole.Tools != nil {
 			for _, selection := range *x.childRole.Tools {
@@ -68,6 +89,7 @@ func (r *Runtime) captureTools(x *execution) error {
 	for i := range x.tools {
 		tool := &x.tools[i]
 		compiler := jsonschema.NewCompiler()
+		compiler.UseLoader(jsonschema.SchemeURLLoader{})
 		location := "urn:sailry:tool:" + tool.Definition.Name
 		if err := compiler.AddResource(location, tool.Definition.InputSchema); err != nil {
 			return err
@@ -77,6 +99,18 @@ func (r *Runtime) captureTools(x *execution) error {
 			return err
 		}
 		tool.schema = schema
+	}
+	return nil
+}
+
+func (r *Runtime) closeTools(x *execution) error {
+	var failures []error
+	for _, close := range x.toolCleanup {
+		failures = append(failures, close())
+	}
+	x.toolCleanup = nil
+	if errors.Join(failures...) != nil {
+		return &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "tool resource cleanup could not be confirmed"}
 	}
 	return nil
 }
@@ -268,7 +302,7 @@ func (r *Runtime) executableRecord(x *execution, call canonical.ToolRequest, all
 func responseBlock(index uint64, call canonical.ToolRequest, result ToolResult) canonical.Block {
 	value := result.Value
 	status := canonical.ToolSuccess
-	format := canonical.JSON
+	format := result.Format
 	if result.ReturnedError {
 		status = canonical.ToolErrorStatus
 	}

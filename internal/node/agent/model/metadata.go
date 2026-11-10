@@ -31,6 +31,9 @@ func ApplyStreamMetadata(block *canonical.Block, part fantasy.StreamPart) error 
 	if block == nil {
 		return fmt.Errorf("canonical output block is missing")
 	}
+	if err := ApplyPluginMetadata(block, part); err != nil {
+		return err
+	}
 	for key, raw := range part.ProviderMetadata {
 		switch key {
 		case anthropic.Name:

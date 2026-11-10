@@ -439,7 +439,7 @@ a running read, its output, then the answer growing a character at a time.
 | Copy confirms with a toast, not Kit `Clipboard`'s check icon | Sailry's rule: outcomes show as toasts |
 | Shimmer and identicon are approximations | Custom drawing (MyGo has no moving text highlight or procedural avatar); same timing and colours, not pixel-identical |
 | Diff rows have no syntax highlighting or line numbers | Not in the view model yet |
-| MCP form/link controls retain their later-phase ownership | Plan review uses the existing reviewed transition; `Ask` keeps the accepted form |
+| MCP forms and authorization links use the existing question controls | The Node binds each request to its exact active parent call and persists its answer without adding a second transcript row |
 | A jump across the transcript (scroll bar drag) costs ≈4.1 ms a frame, against ≈1.8 ms before tool rows | MyGo's `ListState.AtEnd` builds another frame whenever the rows in view change, not only the end; a jump re-measures rows until they settle. Steady (≈0.19 ms), hover (≈0.19 ms) and scroll (≈1.0 ms) frames are unaffected |
 
 Workspace tool details replace successful single-file edit fragments with their
@@ -450,3 +450,16 @@ rows count actual changes, excluding unified headers and hunk metadata.
 File approvals show the Node-validated change preview with rename targets,
 counts and truncation, plus localized captured approval notices. These are
 projected independently of the tool output so consent precedes physical effects.
+
+Installed script tools wrap the captured native operation owner. Their bounded,
+read-only prepare and result steps preserve native approval previews, sandbox
+selection, request identity, checkpoints and receipts. Delegation binds to the
+existing child execution owner. MCP tools use the official Go SDK pool and retain
+their original content, structured result and error status in canonical history.
+An unavailable server contributes a bounded safe startup instruction and leaves
+the remaining tools available; cancellation and uncertain cleanup remain terminal.
+
+MCP form and URL elicitation uses the canonical question owner. Concurrent
+questions keep distinct parent identities and decision wakes. Only active
+elicitation time pauses tool timing. Closing a turn joins its tool resources
+before settlement; failed cleanup retains `OutcomeUnknown`.

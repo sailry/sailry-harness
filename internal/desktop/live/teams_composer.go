@@ -515,5 +515,6 @@ func (r *Runtime) teamReferences(cv *viewmodel.Conversation, _ *composer.State) 
 	if len(agents) > 0 {
 		rows = append(rows, composer.Reference{ID: "agents", Kind: composer.Page, Label: "reference_agents", Description: "reference_agents_description", Key: true, Alias: "agents", Group: "reference_group_context", Icon: icons.Bot, Children: agents})
 	}
+	rows = append(rows, r.pluginReferences()...)
 	return append(rows, r.skillReferences(cv)...)
 }

@@ -20,6 +20,7 @@ type Hooks struct {
 	EditHost         func(string)
 	WorkspaceProject func() *panel.Project
 	DownloadDialog   func(*ui.Context)
+	PackageDialogs   func(*ui.Context)
 	BeforeFrame      func(*ui.Context)
 	AfterFrame       func()
 	Refresh          func()

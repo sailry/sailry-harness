@@ -36,12 +36,14 @@ type Declaration struct {
 	Name         string
 	Exposed      string
 	Initial      bool
+	Script       bool
 	Contexts     []string
 	Presentation protocol.ToolPresentation
 	Grouping     protocol.ToolGrouping
 	Display      *protocol.ToolDisplay
 }
 type Instruction struct {
+	Owner    protocol.PluginReference
 	Text     string
 	AnyTools []string
 }
@@ -97,6 +99,7 @@ func load() (*Catalog, error) {
 				Modes        []protocol.PluginModesDeclaration `json:"conversation_modes"`
 				Options      json.RawMessage                   `json:"conversation_options"`
 				Tools        []manifestTool                    `json:"tools"`
+				Host         *protocol.PluginHostManifest      `json:"host"`
 				ArtifactView *struct {
 					AllowedClasses []string `json:"allowed_classes"`
 				} `json:"artifact_view"`
@@ -137,7 +140,7 @@ func load() (*Catalog, error) {
 			if grouping == "" {
 				grouping = protocol.ToolGroupingSequence
 			}
-			declarations = append(declarations, Declaration{Spec: spec, Name: Alias(manifest.Name, tool.Name), Exposed: tool.Name, Initial: tool.Initial, Contexts: tool.Contexts, Presentation: presentation, Grouping: grouping, Display: tool.Display})
+			declarations = append(declarations, Declaration{Spec: spec, Name: Alias(manifest.Name, tool.Name), Exposed: tool.Name, Initial: tool.Initial, Script: extension.Host != nil && tool.Handler != nil, Contexts: tool.Contexts, Presentation: presentation, Grouping: grouping, Display: tool.Display})
 			instructionTools = append(instructionTools, Alias(manifest.Name, tool.Name))
 		}
 		tree, err := fs.Sub(sailry.Plugins, path.Dir(name))
@@ -156,7 +159,7 @@ func load() (*Catalog, error) {
 			catalog.Tools = append(catalog.Tools, declaration)
 		}
 		if extension.Instructions != "" && len(declarations) > 0 {
-			catalog.Instructions = append(catalog.Instructions, Instruction{Text: extension.Instructions, AnyTools: instructionTools})
+			catalog.Instructions = append(catalog.Instructions, Instruction{Owner: owner, Text: extension.Instructions, AnyTools: instructionTools})
 		}
 	}
 	return catalog, nil

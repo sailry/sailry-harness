@@ -99,6 +99,10 @@ func (transport claudeTransport) RoundTrip(request *http.Request) (*http.Respons
 		request.URL.RawQuery = query.Encode()
 	}
 	for key, value := range claudeHeaders() {
+		if strings.EqualFold(key, "user-agent") && strings.HasPrefix(strings.ToLower(request.Header.Get(key)), "claude-cli") &&
+			request.Header.Get(key) != "claude-cli/2.1.280" {
+			continue
+		}
 		request.Header.Set(key, value)
 	}
 	thinking, _ := body["thinking"].(map[string]any)

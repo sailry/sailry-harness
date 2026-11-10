@@ -22,6 +22,7 @@ func (r *Runtime) execute(x *execution) {
 	err := r.turn(x)
 	r.drainOperations(x)
 	r.cancelForeground(x)
+	cleanupErr := r.closeTools(x)
 	status := protocol.ConversationStatusCompleted
 	var failure *protocol.Fault
 	if x.ctx.Err() != nil {
@@ -29,6 +30,10 @@ func (r *Runtime) execute(x *execution) {
 	} else if err != nil {
 		status = protocol.ConversationStatusFailed
 		failure = model.Fault(err)
+	}
+	if cleanupErr != nil {
+		status = protocol.ConversationStatusFailed
+		failure = model.Fault(cleanupErr)
 	}
 	// Final effects use the Node lifetime, independently of the stopped request.
 	ctx := context.WithoutCancel(x.ctx)
@@ -141,6 +146,11 @@ func (r *Runtime) turn(x *execution) error {
 	if err := r.captureResources(x); err != nil {
 		return err
 	}
+	if r.authorizeProvider != nil {
+		if err := r.authorizeProvider(x.ctx, inv); err != nil {
+			return err
+		}
+	}
 	if inv.AuthorizationFailure != nil {
 		return inv.AuthorizationFailure
 	}
@@ -163,6 +173,13 @@ func (r *Runtime) turn(x *execution) error {
 		return err
 	}
 	policy := prompt.Policy(inv.Turn.Config.Mode, inv.Turn.Config.Permission, inv.Session.Delegation != nil)
+	instructions := map[string]bool{}
+	for _, tool := range x.tools {
+		if tool.Instruction != "" && !instructions[tool.Instruction] {
+			policy += "\n\n" + tool.Instruction
+			instructions[tool.Instruction] = true
+		}
+	}
 	if x.rolePolicy != "" {
 		policy += "\n\n" + x.rolePolicy
 	}
@@ -286,6 +303,20 @@ func (r *Runtime) turn(x *execution) error {
 		}
 		if limited {
 			return nil
+		}
+		observed := map[string]bool{}
+		for _, tool := range x.tools {
+			if tool.BeforeModel == nil || tool.Binding == nil || observed[tool.Binding.Owner.Name] {
+				continue
+			}
+			observed[tool.Binding.Owner.Name] = true
+			stopped, err := tool.BeforeModel(x.ctx, state.Records)
+			if err != nil {
+				return err
+			}
+			if stopped {
+				return nil
+			}
 		}
 		if err = r.infer(x, binding, languageModel, state); err != nil {
 			return err

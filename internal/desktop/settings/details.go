@@ -39,6 +39,14 @@ type Detail struct {
 func (s *State) ShowDetails(kind DetailKind, id string) {
 	s.Details = &Detail{Kind: kind, ID: id}
 	s.Details.Load.Start()
+	if s.Live && s.PackageActions != nil && s.PackageActions.LoadDetails != nil {
+		detail := s.Details
+		s.PackageActions.LoadDetails(kind, id, func() {
+			if s.Details == detail {
+				detail.Load.Loading, detail.Load.Loaded = false, true
+			}
+		})
+	}
 }
 
 // CloseDetails closes the details page (CloseDetails).
@@ -53,7 +61,7 @@ func DetailsPanel(c *ui.Context, s *State) {
 	}
 	p := theme.Of(c)
 	t := func(k string, a ...any) string { return i18n.T(c, k, a...) }
-	if d.Load.Advance(c.Now()) {
+	if !s.Live && d.Load.Advance(c.Now()) {
 		c.After(preview.Tick)
 	}
 	title := map[DetailKind]string{DetailPlugin: "market_plugin_details", DetailSkill: "market_skill_details", DetailTheme: "market_theme_details"}[d.Kind]
@@ -77,6 +85,9 @@ func DetailsPanel(c *ui.Context, s *State) {
 							return
 						}
 						facts(c, [][2]string{{t("market_details_source"), skillSource(c, sk)}})
+						if sk.Content != "" {
+							kit.Markdown(c.Key("document"), sk.Content, kit.MarkdownProps{})
+						}
 					}
 				case DetailTheme:
 					if th := s.theme(d.ID); th != nil {
@@ -168,18 +179,36 @@ func pluginDetails(c *ui.Context, s *State, pk *preview.Package, d *Detail) {
 	switch {
 	case !pk.Installed && pk.Requires == "":
 		action = func() {
-			kit.Primary(c.Key("primary"), t("market_install"), false).Height(28).Children(func() { ui.Text(c, t("market_install")).FontSize(14) }).OnClick(func() { notice(c) })
+			kit.Primary(c.Key("primary"), t("market_install"), false).Height(28).Children(func() { ui.Text(c, t("market_install")).FontSize(14) }).OnClick(func() {
+				if s.PackageActions != nil && s.PackageActions.MarketPlugin != nil {
+					s.PackageActions.MarketPlugin(pk.ID)
+					return
+				}
+				notice(c)
+			})
 		}
 	case Update(pk) && pk.Requires == "":
 		action = func() {
-			kit.Primary(c.Key("primary"), t("market_update"), false).Height(28).Children(func() { ui.Text(c, t("market_update")).FontSize(14) }).OnClick(func() { notice(c) })
+			kit.Primary(c.Key("primary"), t("market_update"), false).Height(28).Children(func() { ui.Text(c, t("market_update")).FontSize(14) }).OnClick(func() {
+				if s.PackageActions != nil && s.PackageActions.Update != nil {
+					s.PackageActions.Update([]string{pk.ID})
+					return
+				}
+				notice(c)
+			})
 		}
 	}
 	summary(c, pk.Name, pk.Description, func() { kit.Tile(c, pk.Name, icons.Puzzle) }, action)
 	if msg := compatibility(c, pk); msg != "" {
 		ui.Row(c.Key("required")).Gap(8).Children(func() {
 			ui.Text(c, msg).FontSize(14).Grow(1).TextColor(p.MutedForeground)
-			kit.Secondary(c.Key("sailry"), t("plugins_update_sailry")).Height(28).OnClick(func() { notice(c) })
+			kit.Secondary(c.Key("sailry"), t("plugins_update_sailry")).Height(28).OnClick(func() {
+				if s.PackageActions != nil && s.PackageActions.About != nil {
+					s.PackageActions.About()
+					return
+				}
+				notice(c)
+			})
 		})
 	}
 	if d.Load.Loading {
@@ -190,11 +219,15 @@ func pluginDetails(c *ui.Context, s *State, pk *preview.Package, d *Detail) {
 	kit.Segmented(c, "tabs", &d.Tab, tabs, kit.SegmentedProps{Block: true}).Label(t("market_plugin_details"))
 	switch d.Tab {
 	case 0:
-		installed := t("market_details_latest")
-		if pk.Installed {
-			installed = pk.Version
+		installed := pk.Version
+		if installed == "" {
+			installed = t("market_details_latest")
 		}
-		facts(c, [][2]string{{t("market_details_version"), installed}, {t("market_details_source"), t(pk.Source)}, {t("market_details_host"), t("composer_host_local")}})
+		host := pk.Host
+		if host == "" {
+			host = "composer_host_local"
+		}
+		facts(c, [][2]string{{t("market_details_version"), installed}, {t("market_details_source"), t(pk.Source)}, {t("market_details_host"), t(host)}})
 		includes := [][3]any{{"market_details_tools", icons.Settings2, len(pk.Tools)}, {"market_details_skills", icons.BookOpen, len(pk.Skills)}, {"market_details_mcp", icons.Network, len(pk.MCP)}}
 		ui.Column(c.Key("includes")).Gap(8).Children(func() {
 			ui.Text(c, t("market_details_includes")).FontSize(14).FontWeight(500)

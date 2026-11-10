@@ -182,7 +182,11 @@ func (s *State) projectMenu(c *ui.Context, m *ui.Menu, pr *preview.Project) {
 			action: t(s.removeLabel()), run: func() { s.remove(pr) }}
 	}
 	if m.Item(t("cli_launch")).Chosen() {
-		s.notice(c)
+		if s.Actions != nil && s.Actions.CLI != nil {
+			s.Actions.CLI(pr)
+		} else {
+			s.notice(c)
+		}
 	}
 }
 

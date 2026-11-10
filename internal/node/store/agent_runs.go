@@ -98,6 +98,22 @@ func admitAgentTurn(ctx context.Context, db *sql.Conn, node, caller protocol.Nod
 		return value, err
 	}
 	value.Plugins = append([]protocol.PluginReference(nil), catalog.References...)
+	var initialized bool
+	if err := db.QueryRowContext(ctx, "SELECT plugin_defaults FROM node WHERE singleton=1").Scan(&initialized); err != nil {
+		return value, err
+	}
+	if initialized {
+		infos, err := ReadPluginInfos(ctx, db)
+		if err != nil {
+			return value, err
+		}
+		value.Plugins = []protocol.PluginReference{}
+		for _, info := range infos {
+			if info.Summary.Enabled && info.Summary.Compatibility.Kind == "compatible" {
+				value.Plugins = append(value.Plugins, protocol.PluginReference{Name: info.Summary.Name, Digest: info.Summary.Digest, SettingsRevision: info.Summary.SettingsRevision})
+			}
+		}
+	}
 	if session.Delegation != nil {
 		return value, fault(protocol.ErrorCodePermissionDenied, "child conversation is read-only")
 	}
@@ -261,8 +277,30 @@ func claimAgentInvocation(ctx context.Context, db *sql.Conn, turn protocol.TurnI
 	if err = json.Unmarshal(provider, &inv.Provider); err != nil {
 		return nil, nil, err
 	}
-	for _, instruction := range catalog.Instructions {
-		inv.Instructions = append(inv.Instructions, AgentInstruction{Text: instruction.Text, AnyTools: instruction.AnyTools})
+	for _, reference := range inv.Turn.Plugins {
+		info, err := ReadPluginVersion(ctx, db, reference)
+		if err == nil {
+			if info.Extension != nil && info.Extension.Instructions != nil {
+				tools := []string{}
+				for _, tool := range info.Extension.Tools {
+					tools = append(tools, operations.Alias(reference.Name, tool.Name))
+				}
+				inv.Instructions = append(inv.Instructions, AgentInstruction{Text: *info.Extension.Instructions, AnyTools: tools})
+			}
+			continue
+		}
+		var initialized bool
+		if err := db.QueryRowContext(ctx, "SELECT plugin_defaults FROM node WHERE singleton=1").Scan(&initialized); err != nil {
+			return nil, nil, err
+		}
+		if initialized {
+			return nil, nil, err
+		}
+		for _, instruction := range catalog.Instructions {
+			if instruction.Owner.Name == reference.Name && instruction.Owner.Digest == reference.Digest {
+				inv.Instructions = append(inv.Instructions, AgentInstruction{Text: instruction.Text, AnyTools: instruction.AnyTools})
+			}
+		}
 	}
 	var userInstructions []AgentInstruction
 	if err = json.Unmarshal(instructions, &userInstructions); err != nil {

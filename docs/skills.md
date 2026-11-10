@@ -20,10 +20,12 @@ reject changed resources rather than substituting current bytes.
 Embedded files materialize under the existing private profile package location,
 `plugins/packages/<digest>`. Rooted filesystem handles confine materialization
 and reads; existing files are verified and never overwritten. This is access to
-the bundled snapshot, and does not seed installation records or perform package
-updates. Package installation and immutable installed-version resolution belong
-to B8. The B6 loader returns `python: null`; it does not install environments or
-substitute system Python.
+the captured snapshot and does not update installation records. B8 resolves
+bundled and installed versions by admitted digest and settings revision.
+Required Python preparation uses the shared Node manager, retains a turn lease
+and selects the latest loaded ready skill for commands. Plain standalone skills
+return `python: null` when the bundled interpreter is unavailable. There is no
+system interpreter substitution; see [Python](python.md).
 
 Package conversation modes use captured host-scope declarations and validated
 string options. One selected mode is allowed, package modes cannot combine with

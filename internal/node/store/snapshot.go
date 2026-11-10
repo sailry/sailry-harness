@@ -54,9 +54,14 @@ func Snapshot(ctx context.Context, db *sql.Conn, node protocol.NodeID) (protocol
 		return value, err
 	}
 	for _, saved := range providers {
+		if saved.Quota != nil {
+			if err := validateProviderQuota(saved.ID, *saved.Quota); err != nil {
+				return value, err
+			}
+		}
 		if saved.Listed && saved.Provider != nil {
 			value.Providers = append(value.Providers, *saved.Provider)
-			if saved.Quota != nil {
+			if saved.Quota != nil && providerQuotaPresent(*saved.Quota) && providerQuotaMatches(node, saved, *saved.Quota) {
 				value.ProviderQuotas = append(value.ProviderQuotas, *saved.Quota)
 			}
 		}

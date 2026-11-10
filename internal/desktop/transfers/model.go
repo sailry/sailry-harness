@@ -125,7 +125,9 @@ func Overall(entries []Entry) (float64, bool) {
 
 // Queue is the installation requests in their order.
 type Queue struct {
-	Entries []Entry
+	Entries     []Entry
+	Dismiss     func(Entry)
+	RetryAction func(Entry)
 }
 
 // Remove drops a request, as its Remove does.

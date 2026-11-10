@@ -992,6 +992,7 @@ provider_remove_effect: 移除后，会话需重新选择供应商
 provider_save_failed: 保存失败，请重试
 provider_save_unknown: 结果未确认，请保持内容不变后重试
 provider_revision_changed: 配置已变化，请重新打开编辑
+connector_consent_effect: 允许更改后的连接权限
 provider_credential_unavailable: 密钥不可用，请重新填写
 provider_configuration_invalid: 请检查模型和接口配置
 provider_models: 模型

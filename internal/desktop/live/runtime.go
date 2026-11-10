@@ -26,6 +26,8 @@ import (
 )
 
 type Runtime struct {
+	authorizations           *authorizationState
+	packages                 *packageState
 	parent                   *Runtime
 	network                  *Network
 	bindings                 map[string]*Runtime
@@ -64,6 +66,7 @@ type Runtime struct {
 	invalidate               func()
 	update                   func(func())
 	workers                  sync.WaitGroup
+	observers                sync.WaitGroup
 	openWindow               func(string)
 	pickDirectory            func(func(string))
 	preferencesChanged       func()
@@ -157,6 +160,7 @@ func NewWithPreferences(ctx context.Context, controller *client.Client, prefs *p
 	r.initTeams()
 	r.initConversationSearch()
 	r.initNetworkUI()
+	r.initB8Packages()
 	return r, nil
 }
 
@@ -211,6 +215,7 @@ func (r *Runtime) Close() error {
 	r.closeWorkspace()
 	r.cancel()
 	r.workers.Wait()
+	r.observers.Wait()
 	return nil
 }
 
@@ -289,6 +294,7 @@ func (r *Runtime) drain(c *ui.Context) {
 	}
 	r.workspaceSettingsFrame()
 	r.teamsFrame()
+	r.packagesFrame(c)
 	r.networkFrame(c)
 	snapshot := r.controller.Snapshot()
 	if snapshot.PowerSettingsRevision != r.powerObservedRevision && !r.App.Settings.Power.Pending {
@@ -397,6 +403,18 @@ func (r *Runtime) async(work func()) bool {
 	r.workers.Add(1)
 	r.mu.Unlock()
 	go func() { defer r.workers.Done(); work() }()
+	return true
+}
+
+func (r *Runtime) observe(work func()) bool {
+	r.mu.Lock()
+	if r.closed {
+		r.mu.Unlock()
+		return false
+	}
+	r.observers.Add(1)
+	r.mu.Unlock()
+	go func() { defer r.observers.Done(); work() }()
 	return true
 }
 

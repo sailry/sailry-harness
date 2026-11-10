@@ -31,7 +31,7 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 	if _, err := node.workspaceRoot(ctx, inv.Run.Worktree, false); err != nil {
 		return nil, err
 	}
-	catalog, err := operations.Bundled()
+	catalog, err := operations.CaptureCatalog(ctx, node.profile.Ownership.Path, inv.Turn.Plugins)
 	if err != nil {
 		return nil, err
 	}
@@ -210,7 +210,7 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 		}
 		tools = append(tools, tool)
 	}
-	return tools, nil
+	return node.pluginTools(ctx, inv, tools)
 }
 func workspaceToolFault(err error) engine.ToolResult {
 	return engine.ToolResult{Failure: nodeFault(err).(*protocol.Fault)}

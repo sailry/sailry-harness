@@ -23,6 +23,18 @@ type events struct {
 }
 
 func (node *Node) Subscribe(ctx context.Context, caller protocol.NodeID, topic protocol.Topic) (link.Subscription, error) {
+	if topic.Kind == "terminal" {
+		return node.subscribeTerminal(topic)
+	}
+	if topic.Kind == "provider_login" || topic.Kind == "connector_login" || topic.Kind == "connections" {
+		return node.subscribeAuth(ctx, caller, topic)
+	}
+	if topic.Kind == "installations" {
+		return node.plugins.installations.Subscribe(caller), nil
+	}
+	if topic.Kind == "python" {
+		return &pythonEvents{node: node, initial: true, closed: make(chan struct{})}, nil
+	}
 	if topic.Kind == "files" || topic.Kind == "repository" || topic.Kind == "commands" {
 		return node.subscribeWorkspace(ctx, topic)
 	}

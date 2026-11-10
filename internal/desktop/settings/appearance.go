@@ -14,6 +14,7 @@ import (
 // which a backend would persist as the reference's preferences.
 type Look struct {
 	Live    bool
+	Actions *AppearanceActions
 	Theme   *string // the theme package's ID; empty is the built-in theme
 	Mode    *theme.Mode
 	Effects *bool // the theme's animated effects
@@ -42,28 +43,70 @@ func appearance(c *ui.Context, look Look) {
 	transparency(c, look.Surfaces)
 	kit.Group(c, "packages", i18n.T(c, "appearance_packages"), "", func() {
 		// Checking for updates asks the network; importing reads a file.
-		kit.Secondary(c.Key("updates"), i18n.T(c, "plugins_check_updates")).OnClick(func() { appearanceNotice(c, look.Live) })
+		kit.Secondary(c.Key("updates"), i18n.T(c, "plugins_check_updates")).OnClick(func() {
+			if look.Actions != nil && look.Actions.CheckUpdates != nil {
+				look.Actions.CheckUpdates()
+				return
+			}
+			appearanceNotice(c, look.Live)
+		})
 		label := i18n.T(c, "appearance_import")
-		kit.Primary(c.Key("import"), label, false).Children(func() { ui.Text(c, label).FontSize(14) }).OnClick(func() { appearanceNotice(c, look.Live) })
+		kit.Primary(c.Key("import"), label, false).Children(func() { ui.Text(c, label).FontSize(14) }).OnClick(func() {
+			if look.Actions != nil && look.Actions.Import != nil {
+				look.Actions.Import()
+				return
+			}
+			appearanceNotice(c, look.Live)
+		})
 	}, func() {
 		gallery := ui.Grid(c.Key("gallery")).Columns(3).Gap(12).FillWidth()
 		d := ui.Local(gallery, themeDetails{}, func() themeDetails { return themeDetails{} })
 		d.live = look.Live
+		d.actions = look.Actions
 		gallery.Children(func() {
 			for _, pkg := range theme.Packages {
 				themeCard(c, pkg, look.Theme, d)
 			}
 		})
 		details(c, d, look.Theme)
+		if pkg := d.removing; pkg != nil {
+			open := true
+			if confirm(c, "remove-theme", &open, i18n.T(c, "appearance_uninstall")+" "+pkg.Name, i18n.T(c, "appearance_remove", "name", pkg.Name), i18n.T(c, "appearance_uninstall")) {
+				if d.actions != nil && d.actions.Uninstall != nil {
+					d.actions.Uninstall(pkg, func(ok bool) {
+						if ok && *look.Theme == pkg.ID {
+							*look.Theme = ""
+						}
+					})
+				}
+				open = false
+			}
+			if !open {
+				d.removing = nil
+			}
+		}
+		if look.Actions != nil && look.Actions.Preview != nil {
+			imported := look.Actions.Preview
+			if imported.Open && imported.Package != nil {
+				if imported.details == nil {
+					imported.details = &themeDetails{pkg: imported.Package, open: true, importing: imported}
+				}
+				details(c, imported.details, look.Theme)
+				imported.Open = imported.details.open
+			}
+		}
 	})
 }
 
 // themeDetails is the theme whose details dialog shows, if any.
 type themeDetails struct {
-	live    bool
-	pkg     *theme.Package
-	open    bool
-	license bool // the license text unfolded
+	live      bool
+	actions   *AppearanceActions
+	removing  *theme.Package
+	pkg       *theme.Package
+	open      bool
+	license   bool // the license text unfolded
+	importing *ThemeImport
 }
 
 func appearanceNotice(c *ui.Context, live bool) {
@@ -118,22 +161,33 @@ func themeCard(c *ui.Context, pkg *theme.Package, chosen *string, d *themeDetail
 		})
 	}).OnClick(func() { apply(pkg, chosen) })
 	installed := pkg != theme.Builtin
+	if d.live {
+		installed = d.actions != nil && d.actions.Installed != nil && d.actions.Installed(pkg.ID)
+	}
 	b.ContextMenu(func(m *ui.Menu) {
 		if m.Item(i18n.T(c, "appearance_select")).Checked(selected).Chosen() {
 			apply(pkg, chosen)
 		}
-		if m.Item(i18n.T(c, "appearance_details")).Disabled(!installed).Chosen() {
-			*d = themeDetails{pkg: pkg, open: true}
+		if m.Item(i18n.T(c, "appearance_details")).Disabled(pkg == theme.Builtin).Chosen() {
+			d.pkg, d.open, d.license = pkg, true, false
 		}
 		if m.Item(i18n.T(c, "appearance_homepage")).Disabled(pkg.Homepage == "").Chosen() {
 			c.OpenURL(pkg.Homepage)
 		}
 		// Exporting writes a file and uninstalling removes the package.
 		if m.Item(i18n.T(c, "appearance_export")).Disabled(!installed).Chosen() {
-			appearanceNotice(c, d.live)
+			if d.actions != nil && d.actions.Export != nil {
+				d.actions.Export(pkg)
+			} else {
+				appearanceNotice(c, d.live)
+			}
 		}
 		if m.Item(i18n.T(c, "appearance_uninstall")).Disabled(!installed).Chosen() {
-			appearanceNotice(c, d.live)
+			if d.actions != nil && d.actions.Uninstall != nil {
+				d.removing = pkg
+			} else {
+				appearanceNotice(c, d.live)
+			}
 		}
 	})
 }
@@ -142,7 +196,7 @@ func themeCard(c *ui.Context, pkg *theme.Package, chosen *string, d *themeDetail
 // window art, a sidebar column with the emphasis dot and three rows, and a
 // page with a title, a line and a composer.
 func miniature(c *ui.Context, pkg *theme.Package, dark bool) {
-	t := theme.Look(pkg.ID, dark)
+	t := theme.Preview(pkg, dark)
 	art := t.Variant.Asset("background.window")
 	if art == nil {
 		art = t.Variant.Asset("background.content")
@@ -235,7 +289,19 @@ func details(c *ui.Context, d *themeDetails, chosen *string) {
 		})
 		ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
 			kit.Secondary(c.Key("close"), i18n.T(c, "close")).OnClick(func() { d.open = false })
-			kit.Secondary(c.Key("apply"), i18n.T(c, "appearance_select")).OnClick(func() { apply(pkg, chosen) })
+			if d.importing != nil {
+				kit.Secondary(c.Key("install"), i18n.T(c, "plugins_install")).Disabled(d.importing.Pending).OnClick(func() {
+					d.importing.Pending = true
+					d.importing.Install(func(ok bool) {
+						d.importing.Pending = false
+						if ok {
+							d.importing.Open = false
+						}
+					})
+				})
+			} else {
+				kit.Secondary(c.Key("apply"), i18n.T(c, "appearance_select")).OnClick(func() { apply(pkg, chosen) })
+			}
 		})
 	}).Width(w).Label(title)
 }

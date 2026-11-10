@@ -5644,6 +5644,8 @@ type CommandInputTerminalPayload struct {
 	Terminal TerminalID      `json:"terminal"`
 	Revision uint64          `json:"revision"`
 	Inputs   []TerminalInput `json:"inputs"`
+	Bytes    Bytes           `json:"bytes,omitempty"`
+	Clear    bool            `json:"clear,omitempty"`
 }
 
 func DefaultCommandInputTerminalPayload() CommandInputTerminalPayload {

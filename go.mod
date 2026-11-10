@@ -6,6 +6,7 @@ require (
 	charm.land/fantasy v0.46.0
 	github.com/Bios-Marcel/wastebasket/v2 v2.0.3
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.2
+	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/anthropics/anthropic-sdk-go v1.84.0
 	github.com/bmatcuk/doublestar/v4 v4.10.4
 	github.com/cenkalti/backoff/v5 v5.0.3
@@ -20,7 +21,9 @@ require (
 	github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376
 	github.com/go-git/go-billy/v5 v5.9.2
 	github.com/go-git/go-git/v5 v5.19.3
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
+	github.com/jonboulle/clockwork v0.5.0
 	github.com/kaptinlin/jsonpointer v0.4.28
 	github.com/klauspost/compress v1.20.4
 	github.com/ledongthuc/pdf v0.0.0-20261020125853-5e46805f718e
@@ -39,11 +42,13 @@ require (
 	golang.org/x/image v0.47.0
 	golang.org/x/mod v0.43.0
 	golang.org/x/net v0.62.0
+	golang.org/x/oauth2 v0.37.0
 	golang.org/x/sync v0.25.0
 	golang.org/x/sys v0.50.0
 	golang.org/x/text v0.43.0
 	google.golang.org/genai v1.76.0
 	lukechampine.com/blake3 v1.4.1
+	modernc.org/quickjs v0.27.0
 	modernc.org/sqlite v1.62.0
 )
 
@@ -136,7 +141,6 @@ require (
 	go.opentelemetry.io/otel/metric v1.47.0 // indirect
 	go.opentelemetry.io/otel/trace v1.47.0 // indirect
 	go.yaml.in/yaml/v4 v4.0.0-rc.3 // indirect
-	golang.org/x/oauth2 v0.37.0 // indirect
 	golang.org/x/time v0.16.0 // indirect
 	google.golang.org/api v0.309.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20261026165753-2ffab32bce7e // indirect
@@ -144,6 +148,7 @@ require (
 	google.golang.org/protobuf v1.36.12 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 	modernc.org/libc v1.80.1 // indirect
+	modernc.org/libquickjs v0.14.0 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
 )

@@ -1,5 +1,34 @@
 # Settings
 
+B8 connects the accepted Plugins, Skills, Market and Runtime pages through
+`settings.PackageActions` and `live/packages_*.go`. The selected Node owns package
+inventory, immutable package reads, revisioned configuration and secret updates,
+source discovery, installation and removal. The UI retains configuration and
+source drafts after failure. Secret fields send keep, replace or clear actions;
+public settings reads contain configured/keepable field names only.
+Configuration reads retain their Node/package revision and declared scalar
+types. Enum fields keep an unset selection rather than choosing the first
+option; model fields read the Node's plugin model catalog. Pending saves lock
+fields and an older completion cannot close a newly opened draft.
+
+Catalog selections capture immutable source commits before installation.
+Standalone skills support Git, skills.sh, Skillhub and controller-local
+directories/archives transferred through Client. A source with multiple skills
+uses the existing Kit dialog/list controls for explicit selection; this adds the
+discovery step missing from the source-only preview form. Installed skill details
+read the exact retained package document. Python index selection uses the Node's
+revisioned settings and preserves failed custom URL drafts.
+Closing source discovery cancels its captured context and staged upload before
+admission. Selecting discovered skills transfers ownership to the durable
+installation queue. A later dialog close does not stop an admitted install.
+
+Market cards derive installed identity from the package or skill's recorded
+source, including registry namespace and Git repository/path. Catalog versions
+and release notes merge with the immutable installed manifest; a catalog slug
+does not replace the actual package name. Details show the captured execution
+Host. Enter in the existing search field explicitly refreshes a failed query;
+live fetches never reuse preview timers or add a controller retry loop.
+
 The settings navigation and its pages, in the groups of the reference implementation
 `settings/mod.rs` `Section::GROUPS`: App (General, Appearance,
 Conversation, Shortcuts, Dictation), AI (Providers, Connectors, Teams,

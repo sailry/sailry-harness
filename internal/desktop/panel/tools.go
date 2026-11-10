@@ -137,13 +137,27 @@ func (s *State) terminal(c *ui.Context, t Tab) {
 			ui.Icon(c, icons.Terminal).FontSize(14).TextColor(p.MutedForeground)
 			ui.Text(c, x.cwd).FontSize(14).SingleLine().Grow(1).Shrink(1).TextColor(p.MutedForeground)
 			kit.Action(c.Key("find"), icons.Search, i18n.T(c, "terminal_search_placeholder"), false).OnClick(func() { x.find = true })
-			kit.Action(c.Key("close"), icons.Close, i18n.T(c, "workspace_close_terminal"), false).OnClick(func() { s.Close(t) })
+			kit.Action(c.Key("close"), icons.Close, i18n.T(c, "workspace_close_terminal"), false).OnClick(func() {
+				if s.TerminalActions != nil && s.TerminalActions.Close != nil {
+					s.TerminalActions.Close(t.ID)
+					return
+				}
+				s.Close(t)
+			})
 			kit.IconButtonHint(c.Key("new"), icons.Plus, i18n.T(c, "workspace_new_terminal"), "", 28, false).OnClick(func() { s.New(Terminal) })
 		})
 		ui.Column(c.Key("screen")).Grow(1).MinHeight(0).Children(func() {
-			placeholder(c, icons.Terminal, i18n.T(c, "workspace_terminal_preview"), p.Muted)
+			if s.TerminalActions != nil && s.TerminalActions.View != nil {
+				s.TerminalActions.View(c, t.ID)
+			} else {
+				placeholder(c, icons.Terminal, i18n.T(c, "workspace_terminal_preview"), p.Muted)
+			}
+			count := 0
+			if s.TerminalActions != nil && s.TerminalActions.Search != nil {
+				count, x.match = s.TerminalActions.Search(t.ID, x.query, x.find, x.match)
+			}
 			w, _ := c.Size()
-			bar := kit.Floating(c, ui.FindBar(c.Key("find-bar"), &x.find, &x.query, 0, &x.match).Placeholder(i18n.T(c, "terminal_search_placeholder"))).
+			bar := kit.Floating(c, ui.FindBar(c.Key("find-bar"), &x.find, &x.query, count, &x.match).Placeholder(i18n.T(c, "terminal_search_placeholder"))).
 				Absolute().Top(4).Right(8).Width(min(420, w-32)).Radius(p.Radius)
 			if bar.OverlayShortcut(0, ui.KeyEscape) {
 				x.find = false

@@ -1,5 +1,15 @@
 # Shell
 
+B8 connects Market and the installation rail to the live Client adapters.
+`Hooks.PackageDialogs` renders captured package-discovery and AI CLI dialogs
+beside the existing download dialog hook; it changes no rail or page layout.
+The project overview and sidebar share one CLI launcher that reads available
+tools from the project's owning Node and retains its chosen worktree through
+launch. The authorized terminal prerequisite now displays that Node-owned AI CLI
+through MyGo Mirror/Conn in the panel, with actual input, resize and close.
+General terminal resources, split shell actions and browser surfaces remain
+assigned to B10.
+
 The main window's frame: the header band, the feature rail, the sidebar
 column and the right panel beside the page, their motion and resizing,
 the window's shortcuts and native app menu, the search, the activity

@@ -121,6 +121,23 @@ func (node *Node) launchWorkspaceCommand(ctx context.Context, caller protocol.No
 			return protocol.Output{}, err
 		}
 	}
+	python, err := node.agent.CommandPython(ctx, input.Turn)
+	if err != nil {
+		if launch.Release != nil {
+			launch.Release()
+		}
+		return protocol.Output{}, err
+	}
+	if python != nil {
+		launch.Environment = python.Variables()
+		release := launch.Release
+		launch.Release = func() {
+			_ = python.Close()
+			if release != nil {
+				release()
+			}
+		}
+	}
 	if launch.Release != nil {
 		release := launch.Release
 		var once sync.Once

@@ -1,7 +1,8 @@
 # Model providers
 
-`internal/node/providers` owns native API-key provider metadata, endpoint policy,
-model discovery, the reference catalog, partner presets and model scores.
+`internal/node/providers` owns native provider metadata, account grant headers,
+endpoint policy, model discovery, the reference catalog, partner presets and
+model scores.
 `internal/node/agent/model` snapshots one admitted provider selection and exposes
 a per-step Fantasy `LanguageModel`. The selected official SDK adapters preserve
 request and stream behavior after the Fantasy provider trial found concrete
@@ -14,9 +15,10 @@ Provider settings and credentials share the existing `providers.body` encoding.
 Each provider record contains its public provider configuration, listing state,
 authorizations keyed by credential ID and optional quota snapshot. Credential
 metadata includes its authentication, revision and expiry; the secret never enters
-a provider event or controller snapshot. Reading a key is an explicit settings
-command. Removing a provider clears listing state and retains its authorizations
-and historical captures.
+a provider event or controller snapshot. Native account authorizations also retain
+their declaring package's authentication target in the existing `auth` field.
+Reading a key is an explicit API-key-only settings command. Removing a provider
+clears listing state and retains its authorizations and historical captures.
 
 `store.PrepareProviderCommand` captures current provider, revision and credential
 facts inside the SQL owner. `providers.Run` performs explicitly requested HTTP work
@@ -33,6 +35,30 @@ request policy. Partner policy is frozen when the editable provider is saved;
 `store.CaptureProvider` freezes native preset injection and policy for a fresh turn.
 Inherited captures remain independent of later settings and feed changes.
 
+Installed model provider presets join the same directory. Their saved bindings
+capture package, settings, authentication flow and optional model adapter. Native
+account aliases are selected by declared authentication, with ambiguous aliases
+rejected. Core has no package-name authentication dispatch.
+
+`node.provider_login` owns controller-scoped attempts and captured declarations.
+Start, callback and cancel effects begin after their durable command result
+commits. The shared authorization owner runs declared script, device, PKCE and
+token exchange effects, including OIDC verification where declared. The controller
+owns its loopback listener and browser actions. Login success attaches the new
+credential and publishes metadata; account grants never become editable API keys.
+
+Renewal runs under Node ownership and coalesces concurrent requests for one
+credential. Every claimed account turn reaches the engine's `AuthorizeProvider`
+boundary before immutable model capture. It uses the admitted provider and
+credential reference, including an account that expired while queued, rather than
+the provider's later selected account. SQL claims perform no HTTP. A stopped turn
+drops its observer while the Node task retains ownership of the credential write.
+A rotating exchange writes `renewal_pending` before HTTP; cancellation
+or restart cannot silently replay an uncertain exchange. A changed client, scope,
+flow, issuer or destination requires sign-in again, while an implementation-only
+package update retains the same account owner. OAuth header and catalog overrides
+are saved with the provider and explicit discovery captures.
+
 ## Native routes and metadata
 
 Supported native routes are OpenAI Responses, OpenAI-compatible Chat Completions,
@@ -42,6 +68,29 @@ pagination on the configured origin and uses the source five-second lookup bound
 model generation has no added deadline. API-key headers and Azure API version
 queries follow the captured provider. Provider endpoints permit HTTP and HTTPS
 without embedded credentials, queries or fragments; redirects are refused.
+
+Account generation is confined to the grant's authorized destination. ChatGPT
+direct use requires its two plan scopes; Codex uses the captured catalog identity
+and account header, Claude uses its OAuth transport, and Copilot uses its
+authorized service endpoint. Native discovery preserves visible ChatGPT catalog
+order, reported names, limits, reasoning and service tiers. Copilot catalogs filter
+by the selected chat or Responses endpoint. Plugin adapters use their declared
+discovery translation.
+
+Declared provider HTTP resources capture package, provider revision, credential
+revision, fixed endpoint and headers. Native account resources expose only their
+allowed account origin; plugin resources use their captured flow. Read caching is
+bounded to 32 entries and scoped to credential revision. Overlapping acquisitions
+share a response, mutations are never cached, and protected grant values cannot
+escape through the response.
+
+Quota snapshots retain the exact enabled ChatGPT provider, credential and
+credential revision. Changes that invalidate that owner remove the public
+snapshot. Desktop clamps remaining share to zero and hides an observed window
+once its reset time arrives. One controller timer invalidates at the next reset;
+it performs no provider polling. The reviewed source's observation writer is
+test-only, so this phase preserves stored-snapshot projection without inventing a
+provider usage endpoint.
 
 All HTTP clients use MyGo netproxy. Discovery keeps its 30-second total and
 15-second request bounds, at most 20 pages, 2 MiB per page, 8 MiB total and 1,000
@@ -79,12 +128,18 @@ the smaller advertised limit, with the lowest declared reasoning choice.
 
 ## Validation and current boundaries
 
-The six named model tests cover semantic provider requests, stable prompt fields,
+The model tests cover semantic provider requests, stable prompt fields,
 SDK cancellation and early release, optional usage, failure mapping and injected
 clock retry policy. Their source fixture table includes captured synthetic OAuth
-request formatting; interactive authorization and plugin-model execution remain
-separate feature owners. Native model IDs and adaptive thinking policy use the
-locally copied, pinned rig-core capability catalog rather than a second table.
+request formatting. The authorization tests exercise a captured package flow
+through the Node's durable admission, fake fixed HTTP boundary, private attempt
+subscription, credential completion, replay and cancellation. Store fixtures cover
+renewal fencing, queued credential identity, metadata protection and quota
+ownership. Account catalogs and
+controller callback projection use deterministic synthetic fixtures. These checks
+do not establish interactive acceptance with real provider accounts.
+Native model IDs and adaptive thinking policy use the locally copied, pinned
+rig-core capability catalog rather than a second table.
 Imported Goose, rig-core and OMP notices remain beside the adaptations.
 
 Independent HTTP socket captures from the reviewed Rust revision live under

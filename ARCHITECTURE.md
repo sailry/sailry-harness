@@ -44,8 +44,14 @@ pairing, remote Clients, Host service and control commands, Node-owned SSH Host
 deployment, metrics and port streams. Desktop windows share one Network and
 retain one bound Runtime per execution Node. The preserved Flutter application
 uses the shared Client and Link through the Go C ABI and a thin Dart adapter.
-Plugin callbacks and the remaining resource services arrive in their assigned
-phases. Implementation does not imply acceptance on every target;
+B8 adds immutable installed packages, settings, private storage, QuickJS
+callbacks and model translation, scoped HTTP and credentials, declared account
+and connector flows, MCP pooling and elicitation, Python preparation, durable
+dispatch and the installation queue. Live settings, skills, markets and theme
+packages consume those owners. The AI CLI launcher includes the minimal
+Node-owned terminal/Mirror and desktop Conn prerequisite; the remaining terminal,
+browser and visual work keeps its assigned phase. Plugin-owned UI surfaces keep
+their UI compatibility phase. Implementation does not imply acceptance on every target;
 platform-specific runtime results are recorded separately.
 
 ## System context
@@ -87,7 +93,7 @@ Disconnecting a controller does not stop admitted work.
 | `internal/protocol/wire` | JSON framing, compression and snapshot paging | Business execution and UI |
 | `internal/link` | Identity, pairing, authenticated transport, receipt and reconnect | Agent history and business execution |
 | `internal/client` | Typed commands, ordered projections, deduplication and snapshot recovery | UI widgets, Node execution and a business database |
-| `internal/node` | Admission, persistence, configuration, Agent execution and resource services | MyGo, Flutter and controller presentation |
+| `internal/node` | Admission, persistence, configuration, Agent execution and resource services | Flutter and controller presentation; MyGo except the pinned terminal runtime |
 | `internal/core` | Node errors, profile ownership, workspace layout and confined file primitives | Storage, agents and transport |
 | `internal/localmodels` | Local model registry, Hub discovery and CPU scheduling | Node storage, admission and controllers |
 | `internal/localmodels/{embedding,ocr,decision,assets}` | CPU inference, model decoding and verified downloads | Node persistence and controller state |
@@ -126,6 +132,10 @@ link         → protocol + transport dependencies
 - Desktop UI never imports Node except through `internal/desktop/live` and
   `cmd/sailry-desktop`. Preview and live actions are separate implementations;
   live never imports preview.
+- `internal/node/terminal` uses the pinned MyGo terminal package for its headless
+  PTY and Mirror owner. That dependency imports MyGo UI types internally, but the
+  Node creates no application, window or view. The verified headless prerequisite
+  permits only this terminal dependency; controller presentation stays in Desktop.
 - The Mobile adapter consumes only Client, Link, Protocol and Speech. Its C ABI
   uses `dart:ffi`, with no independent business rules or persistence.
 - Go code uses `CGO_ENABLED=0` and purego for native libraries. The only cgo
@@ -181,7 +191,7 @@ link         → protocol + transport dependencies
   completion when scheduling fails.
 - **Skill resources.** The turn retains exact package digests and complete
   confined UTF-8 resources. Loading a skill grants no additional permission.
-  Python preparation and package callbacks retain their later runtime owners.
+  Python preparation and package callbacks use the shared Node runtime owners.
 
 ### Storage
 
@@ -374,7 +384,8 @@ dispatch service and require an online Node.
   execution Node.
 - **Python.** Desktop and Host bundle Python 3.12.13. Plugin environments are
   prepared lazily from hash-locked requirements using prebuilt wheels. Python is
-  optional for commands and skills without requirements.
+  optional for commands and skills without requirements. Immutable environments
+  retain package, turn, process and MCP leases; no system interpreter is selected.
 - **Session documents.** Bounded HTML is stored as immutable revisions. Preview
   HTML renders in an opaque-origin sandbox with no Node, tool, credential or
   filesystem bridge.
@@ -430,6 +441,9 @@ dispatch service and require an online Node.
   parameters. Server options (`tools`, `exclusive`, `keep_images`, `reuse`) are
   part of the v1 configuration. Failed or uncertain cleanup returns
   `OutcomeUnknown` and input is never replayed.
+- **Skills.** Sailry resolves `SKILL.md` and confined resources from exact captured
+  package references. YAML front matter uses the pinned YAML library; there is no
+  additional Skills execution framework.
 
 ## Presentation boundaries
 

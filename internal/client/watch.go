@@ -84,6 +84,7 @@ func (client *Client) Close() error {
 		client.stop()
 	}
 	err := client.stopObservation()
+	client.closeTopics()
 	client.closeForwards()
 	client.closeConversations()
 	client.closeWorkspaces()
@@ -153,6 +154,7 @@ func (client *Client) initializeObservation(ctx context.Context, subscription li
 		return nil, err
 	}
 	watchContext, cancel := context.WithCancel(client.context)
+	client.resumeTopics()
 	return &observation{subscription: subscription, context: watchContext, cancel: cancel, done: make(chan struct{}), generation: generation}, nil
 }
 

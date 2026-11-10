@@ -322,3 +322,4 @@ git_repository: "Contains 1 Git repository"
 git_switch_confirm: "Switch to %{branch}"
 git_switch_confirm_action: "Switch"
 git_switch_confirm_detail: "Sessions, terminals and open files in this worktree all move to this branch."
+connector_consent_effect: Allow the changed connection permissions

@@ -27,6 +27,7 @@ type Channel struct {
 	Models                    []ChannelModel
 	Default                   int
 	Quota                     *Quota
+	OAuth                     [4]string
 }
 type Method struct {
 	ID, Name, Access, API, Endpoint string

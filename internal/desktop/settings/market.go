@@ -42,6 +42,12 @@ func (m *Model) theme(id string) *preview.MarketTheme {
 
 // installedPackage is the installed package of a catalog entry.
 func (m *Model) installedPackage(id string) *preview.Package {
+	for _, entry := range m.MarketPlugins {
+		if entry.ID == id && entry.InstallName != "" {
+			id = entry.InstallName
+			break
+		}
+	}
 	for i := range m.Packages {
 		if m.Packages[i].ID == id && m.Packages[i].Installed {
 			return &m.Packages[i]
@@ -54,7 +60,7 @@ func (m *Model) installedPackage(id string) *preview.Package {
 func MarketPage(c *ui.Context, s *State) {
 	m := s.Model
 	t := func(k string, a ...any) string { return i18n.T(c, k, a...) }
-	if m.MarketLoad.Advance(c.Now()) {
+	if !m.Live && m.MarketLoad.Advance(c.Now()) {
 		c.After(preview.Tick)
 	}
 	ui.Scroll(c.Key("market")).Fill().Children(func() {
@@ -65,7 +71,11 @@ func MarketPage(c *ui.Context, s *State) {
 			})
 			search := []string{"market_search_plugins", "market_search_skills", "market_search_themes"}[m.MarketKind]
 			ui.Row(c.Key("search")).Gap(12).Children(func() {
-				ui.SearchField(c.Key("query"), &m.MarketQuery).Placeholder(t(search)).Label(t(search)).Grow(1)
+				ui.SearchField(c.Key("query"), &m.MarketQuery).Placeholder(t(search)).Label(t(search)).Grow(1).OnSubmit(func() {
+					if m.PackageActions != nil && m.PackageActions.RetryMarket != nil {
+						m.PackageActions.RetryMarket()
+					}
+				})
 				switch m.MarketKind {
 				case 0:
 					pick(c, "source", t("market_details_source"), &m.MarketSource, []string{t("market_source_official"), t("market_source_community")}, false).Width(140)
@@ -145,9 +155,9 @@ func marketCard(c *ui.Context, key, title, desc string, tile func(), action stri
 		case "market_installed", "market_theme_current":
 			ui.Text(c, label).FontSize(14).Shrink(0).TextColor(p.MutedForeground)
 		case "market_install":
-			kit.Primary(c.Key("action"), label, false).Height(28).Shrink(0).Children(func() { ui.Text(c, label).FontSize(14) }).OnClick(act)
+			kit.Primary(c.Key("action"), label, act == nil).Height(28).Shrink(0).Children(func() { ui.Text(c, label).FontSize(14) }).OnClick(act)
 		default:
-			kit.Secondary(c.Key("action"), label).Height(28).Shrink(0).OnClick(act)
+			kit.Secondary(c.Key("action"), label).Height(28).Shrink(0).Disabled(act == nil).OnClick(act)
 		}
 	})
 }
@@ -191,8 +201,18 @@ func marketPlugins(c *ui.Context, s *State) {
 			inst := m.installedPackage(x.ID)
 			action := MarketAction(inst != nil, inst != nil && Update(inst))
 			desc := i18n.T(c, x.Source) + " · " + x.Description
+			var install func()
+			if x.Requires == "" {
+				install = func() {
+					if m.PackageActions != nil && m.PackageActions.MarketPlugin != nil {
+						m.PackageActions.MarketPlugin(x.ID)
+						return
+					}
+					notice(c)
+				}
+			}
 			marketCard(c, x.ID, x.Name, desc, func() { kit.Tile(c, x.Name, icons.Puzzle) }, action,
-				func() { s.ShowDetails(DetailPlugin, x.ID) }, func() { notice(c) })
+				func() { s.ShowDetails(DetailPlugin, x.ID) }, install)
 		}
 	})
 }
@@ -211,12 +231,18 @@ func marketSkills(c *ui.Context, s *State) {
 	}
 	kit.Grid(c, func() {
 		for _, x := range shown {
-			installed := false
+			installed := x.Installed
 			for _, y := range m.SkillList {
 				installed = installed || y.ID == x.ID
 			}
 			marketCard(c, x.ID, x.Name, x.Origin+" · "+x.Description, func() { kit.Tile(c, x.Name, icons.Bot) },
-				MarketAction(installed, x.Update), func() { s.ShowDetails(DetailSkill, x.ID) }, func() { notice(c) })
+				MarketAction(installed, x.Update), func() { s.ShowDetails(DetailSkill, x.ID) }, func() {
+					if m.PackageActions != nil && m.PackageActions.MarketSkill != nil {
+						m.PackageActions.MarketSkill(x.ID)
+						return
+					}
+					notice(c)
+				})
 		}
 	})
 }
@@ -236,7 +262,13 @@ func themeAction(c *ui.Context, m *Model, th *preview.MarketTheme) {
 		ui.Text(c, label).FontSize(14).TextColor(theme.Of(c).MutedForeground)
 		return
 	}
-	kit.Secondary(c.Key("theme-action"), label).Height(28).OnClick(func() { notice(c) })
+	kit.Secondary(c.Key("theme-action"), label).Height(28).OnClick(func() {
+		if m.PackageActions != nil && m.PackageActions.Theme != nil {
+			m.PackageActions.Theme(th.ID)
+			return
+		}
+		notice(c)
+	})
 }
 
 func marketThemes(c *ui.Context, s *State) {
@@ -268,7 +300,13 @@ func marketThemes(c *ui.Context, s *State) {
 				desc = i18n.T(c, "market_theme_builtin") + " · " + desc
 			}
 			marketCard(c, x.ID, x.Name, desc, func() { kit.Tile(c, x.Name, icons.Palette) }, action,
-				func() { s.ShowDetails(DetailTheme, x.ID) }, func() { notice(c) })
+				func() { s.ShowDetails(DetailTheme, x.ID) }, func() {
+					if m.PackageActions != nil && m.PackageActions.Theme != nil {
+						m.PackageActions.Theme(x.ID)
+						return
+					}
+					notice(c)
+				})
 		}
 	})
 }

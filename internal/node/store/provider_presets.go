@@ -36,7 +36,7 @@ func bindProviderPreset(ctx context.Context, db *sql.Conn, provider *protocol.Co
 	}
 	reference := provider.Preset
 	if reference.Source.Kind == "package" {
-		return fault(protocol.ErrorCodeNotConfigured, "plugin channel preset is unavailable")
+		return bindPackageProvider(ctx, db, provider, previous, capture)
 	}
 	catalog := providers.Bundled()
 	presets := catalog.Builtin

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"charm.land/fantasy"
+	"github.com/jonboulle/clockwork"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node/admission"
 	"github.com/sailry/sailry-harness/internal/node/agent/engine"
@@ -17,16 +18,25 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/files"
 	workspacegit "github.com/sailry/sailry-harness/internal/node/git"
 	"github.com/sailry/sailry-harness/internal/node/host"
+	"github.com/sailry/sailry-harness/internal/node/mcp"
 	"github.com/sailry/sailry-harness/internal/node/ports"
 	"github.com/sailry/sailry-harness/internal/node/process"
 	"github.com/sailry/sailry-harness/internal/node/providers"
+	"github.com/sailry/sailry-harness/internal/node/python"
 	"github.com/sailry/sailry-harness/internal/node/store"
+	"github.com/sailry/sailry-harness/internal/node/tasks"
+	"github.com/sailry/sailry-harness/internal/node/terminal"
 	"github.com/sailry/sailry-harness/internal/node/web"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 // Node owns one profile, admitted operations and their committed event feed.
 type Node struct {
+	terminals         *terminal.Service
+	auth              *authControls
+	plugins           *pluginControls
+	dispatch          *dispatchControls
+	tasks             *tasks.Supervisor
 	network           *link.Link
 	networkUpdate     sync.Mutex
 	networkDirectory  *networkDirectory
@@ -54,6 +64,7 @@ type Node struct {
 	stopDone          chan struct{}
 	stopErr           error
 	agent             *engine.Runtime
+	modelFactory      func(context.Context, model.Binding) (fantasy.LanguageModel, error)
 	feed              *feed.Hub
 	providerDirectory providers.Directory
 	subscribersMu     sync.Mutex
@@ -73,6 +84,9 @@ var _ link.Handler = (*Node)(nil)
 
 // Options injects native process and clock boundaries for deterministic owners.
 type Options struct {
+	MCP            *mcp.Options
+	Python         *python.Options
+	DispatchClock  clockwork.Clock
 	Network        *link.NetworkScope
 	HostDeployment *host.DeploymentOptions
 	Model          func(context.Context, model.Binding) (fantasy.LanguageModel, error)
@@ -98,8 +112,41 @@ func StartWithOptions(ctx context.Context, path string, options Options) (*Node,
 	}
 	nodeContext, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	value := &Node{cancel: cancel, profile: profile, ctx: nodeContext, jobs: make(chan commandJob), workerDone: make(chan struct{}), closed: make(chan struct{}), stopDone: make(chan struct{}), subscribers: make(map[*events]struct{})}
+	value.tasks = tasks.New(nodeContext)
 	if err := value.initWorkspace(ctx, options); err != nil {
 		cancel()
+		_ = profile.Close()
+		return nil, err
+	}
+	if err := value.initPlugins(ctx, options.MCP); err != nil {
+		cancel()
+		_ = value.tasks.Close(context.Background())
+		_ = value.closeWorkspace()
+		_ = profile.Close()
+		return nil, err
+	}
+	if err := value.initPython(ctx, options.Python); err != nil {
+		cancel()
+		_ = value.closePlugins()
+		_ = value.tasks.Close(context.Background())
+		_ = value.closeWorkspace()
+		_ = profile.Close()
+		return nil, err
+	}
+	if err := value.initAuth(ctx); err != nil {
+		cancel()
+		_ = value.closePlugins()
+		_ = value.tasks.Close(context.Background())
+		_ = value.closeWorkspace()
+		_ = profile.Close()
+		return nil, err
+	}
+	if err := value.initTerminals(ctx); err != nil {
+		cancel()
+		value.closeAuth()
+		_ = value.closePlugins()
+		_ = value.tasks.Close(context.Background())
+		_ = value.closeWorkspace()
 		_ = profile.Close()
 		return nil, err
 	}
@@ -111,15 +158,21 @@ func StartWithOptions(ctx context.Context, path string, options Options) (*Node,
 	if options.HostDeployment != nil {
 		value.hostInstalls = host.NewInstallations(*options.HostDeployment)
 	}
-	value.agent = engine.New(profile.Store.Node, value.ID(), profile.Ownership.Path, value.feed, value.publish, engine.Options{Model: options.Model, Attachment: value.capturedAttachment, AttachmentBytes: value.transfers.AttachmentBytes, ToolsForTurn: value.workspaceTools, HooksForTurn: value.turnHooks})
+	value.modelFactory = options.Model
+	value.agent = engine.New(profile.Store.Node, value.ID(), profile.Ownership.Path, value.feed, value.publish, engine.Options{Python: value.plugins.python, Model: value.newModel, AuthorizeProvider: value.authorizeTurnProvider, Attachment: value.capturedAttachment, AttachmentBytes: value.transfers.AttachmentBytes, ToolsForTurn: value.workspaceTools, HooksForTurn: value.turnHooks})
 	if err := value.agent.Recover(ctx); err != nil {
 		cancel()
+		value.closeAuth()
+		_ = value.terminals.Close()
+		_ = value.closePlugins()
+		_ = value.tasks.Close(context.Background())
 		_ = value.closeWorkspace()
 		_ = profile.Close()
 		return nil, err
 	}
 	value.agent.Start()
 	go value.run()
+	value.initDispatch(options.DispatchClock)
 	if options.Network != nil {
 		if err := value.bindNetwork(ctx, *options.Network); err != nil {
 			_ = value.Stop(context.Background())
@@ -141,14 +194,18 @@ func (node *Node) Stop(ctx context.Context) error {
 		go func() {
 			<-node.workerDone
 			node.agent.Stop()
+			node.closeAuth()
+			terminalErr := node.terminals.Close()
 			var networkErr error
 			if node.network != nil {
 				networkErr = node.network.Close()
 			}
 			portErr := node.ports.Close()
+			taskErr := node.tasks.Close(context.Background())
+			pluginErr := node.closePlugins()
 			node.work.Wait()
 			workspaceErr := node.closeWorkspace()
-			err := errors.Join(networkErr, portErr, workspaceErr, node.profile.Close())
+			err := errors.Join(networkErr, terminalErr, portErr, taskErr, pluginErr, workspaceErr, node.profile.Close())
 			node.mu.Lock()
 			node.stopErr = err
 			close(node.stopDone)
@@ -202,6 +259,14 @@ func (node *Node) Dispatch(ctx context.Context, caller protocol.NodeID, request 
 	// Capture controller-owned maps and pointers before returning the receipt.
 	if err := json.Unmarshal(encoded, &request); err != nil {
 		return link.Admission{}, &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "invalid command"}
+	}
+	if request.Plugin != nil {
+		if err := node.validatePluginRequest(ctx, caller, request); err != nil {
+			return link.Admission{}, nodeFault(err)
+		}
+	}
+	if pluginCommand(request.Command.Kind) {
+		return node.dispatchPlugins(ctx, caller, request, encoded)
 	}
 	if workspaceCommand(request.Command.Kind) {
 		return node.dispatchWorkspace(ctx, caller, request, encoded)
@@ -269,6 +334,8 @@ func externalCommand(command protocol.Command) bool {
 		return true
 	}
 	switch command.Kind {
+	case "submit_turn", "submit_task", "continue_turn", "compact_context", "start_queued_turn", "send_queued_turn", "replace_turn":
+		return true
 	case "create_project", "update_project", "remove_project", "register_worktree":
 		return true
 	case "create_session":
@@ -315,6 +382,9 @@ func (node *Node) read(ctx context.Context, caller protocol.NodeID, request prot
 	}
 
 	if store.SupportsProviderCommand(request.Command.Kind) {
+		if err := node.renewCommandProvider(ctx, request); err != nil {
+			return response(protocol.Output{}, err)
+		}
 		return node.readProvider(ctx, caller, request)
 	}
 	var output protocol.Output
@@ -331,7 +401,9 @@ func (node *Node) read(ctx context.Context, caller protocol.NodeID, request prot
 	}
 	err := node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 		if request.Plugin != nil {
-			return &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "plugin invocation authority is unavailable"}
+			if err := node.validatePluginRequestDB(ctx, db, caller, request); err != nil {
+				return err
+			}
 		}
 		switch request.Command.Kind {
 		case "snapshot":
@@ -393,6 +465,9 @@ func (node *Node) run() {
 		}
 
 		prepared, prepareErr := node.prepare(job.request.Command)
+		if prepareErr == nil {
+			prepareErr = node.renewCommandProvider(node.ctx, job.request)
+		}
 		if prepareErr == nil && store.SupportsProviderCommand(job.request.Command.Kind) {
 			job.provider, prepareErr = node.prepareProvider(node.ctx, job.caller, job.request)
 		}
@@ -433,8 +508,8 @@ func (node *Node) execute(job commandJob, prepared store.PreparedPaths, prepareE
 			return err
 		}
 		operationErr = prepareErr
-		if operationErr == nil && job.request.Plugin != nil && job.request.Command.Kind != "continue_turn" {
-			operationErr = &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "plugin invocation authority is unavailable"}
+		if operationErr == nil && job.request.Plugin != nil {
+			operationErr = node.validatePluginRequestDB(node.ctx, db, job.caller, job.request)
 		}
 		if operationErr == nil {
 			switch {

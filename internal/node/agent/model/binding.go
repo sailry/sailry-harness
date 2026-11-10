@@ -10,6 +10,7 @@ import (
 
 	"charm.land/fantasy"
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
+	"github.com/sailry/sailry-harness/internal/node/providers"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -39,6 +40,7 @@ type transportConfig struct {
 	JSON                       map[string]any
 	Remove                     []string
 	OAuth                      bool
+	Protection                 []protocol.Secret
 }
 
 // Capture retains independent copies of the immutable admitted configuration.
@@ -48,9 +50,6 @@ func Capture(provider protocol.ConversationProvider, config protocol.SessionConf
 	}
 	if provider.ID != config.Provider || strings.TrimSpace(config.Model) == "" {
 		return Binding{}, &Failure{Kind: NotConfigured, Message: "model selection is not configured"}
-	}
-	if provider.Authentication != protocol.AuthenticationApiKey {
-		return Binding{}, &Failure{Kind: NotConfigured, Message: "provider authorization is not configured"}
 	}
 	var result Binding
 	// Protocol JSON is the capture boundary; nested maps and pointers cannot follow later saves.
@@ -73,8 +72,17 @@ func Capture(provider protocol.ConversationProvider, config protocol.SessionConf
 		value := protocol.NewSecret(secret.Expose())
 		result.Secret = &value
 	}
-	if _, err := transportBinding(result); err != nil {
-		return Binding{}, err
+	if PluginBound(provider) {
+		if (**provider.Binding).Package == nil {
+			return Binding{}, &Failure{Kind: NotConfigured, Message: "captured model package is unavailable"}
+		}
+		if _, err := pluginAddress(provider.Endpoint); err != nil {
+			return Binding{}, err
+		}
+	} else {
+		if _, err := transportBinding(result); err != nil {
+			return Binding{}, err
+		}
 	}
 	return result, nil
 }
@@ -211,6 +219,30 @@ func transportBinding(binding Binding) (transportConfig, error) {
 	if binding.Secret != nil {
 		config.Key = binding.Secret.Expose()
 	}
+	var account *providers.AccountGrant
+	if provider.Authentication != protocol.AuthenticationApiKey {
+		grant, headers, err := providers.AccountHeaders(provider, binding.Secret)
+		if err != nil {
+			return config, err
+		}
+		account = &grant
+		config.Protection = grant.Secrets()
+		config.Key = ""
+		for name, values := range headers {
+			config.Headers[name] = strings.Join(values, ", ")
+		}
+		config.OAuth = provider.Authentication == protocol.AuthenticationClaudeOAuth
+		if config.OAuth {
+			installation, accountID := "", ""
+			if grant.InstallationID != nil {
+				installation = *grant.InstallationID
+			}
+			if grant.AccountID != nil {
+				accountID = *grant.AccountID
+			}
+			config.JSON["metadata"] = claudeMetadata(installation, binding.Session.String(), accountID)
+		}
+	}
 	api := provider.Api
 	if api == protocol.ConversationModelApiAzureOpenAi {
 		if provider.Options == nil || provider.Options.Kind != "azure_open_ai" {
@@ -271,6 +303,29 @@ func transportBinding(binding Binding) (transportConfig, error) {
 	}
 	config.Endpoint = strings.TrimRight(u.String(), "/")
 	key := config.Key
+	if account != nil {
+		if provider.Api == protocol.ConversationModelApiAnthropic {
+			config.Headers["anthropic-version"] = "2023-06-01"
+		}
+		if provider.Authentication == protocol.AuthenticationChatGptOAuth {
+			config.JSON["store"] = false
+			config.Remove = append(config.Remove, "max_output_tokens", "temperature")
+		}
+		remove := config.RemoveHeaders[:0]
+		for _, name := range config.RemoveHeaders {
+			keep := true
+			for configured := range config.Headers {
+				if strings.EqualFold(name, configured) {
+					keep = false
+				}
+			}
+			if keep {
+				remove = append(remove, name)
+			}
+		}
+		config.RemoveHeaders = remove
+		return config, nil
+	}
 	header, value := "authorization", "Bearer "+key
 	switch provider.Api {
 	case protocol.ConversationModelApiAnthropic:

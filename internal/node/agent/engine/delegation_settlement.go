@@ -22,6 +22,7 @@ func (r *Runtime) executeOwned(x *execution) {
 		x.cancel()
 		r.drainOperations(x)
 		r.cancelForeground(x)
+		_ = r.closeTools(x)
 		ctx := context.WithoutCancel(r.ctx)
 		failure := &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "child execution failed unexpectedly; calls were not replayed"}
 		unlock := r.LockPublication()

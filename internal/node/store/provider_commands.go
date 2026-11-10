@@ -44,6 +44,11 @@ func currentProvider(ctx context.Context, db *sql.Conn, id protocol.ProviderID, 
 	return saved, nil
 }
 func saveProviderConfiguration(ctx context.Context, db *sql.Conn, saved providerConfiguration) error {
+	if saved.Quota != nil {
+		if err := validateProviderQuota(saved.ID, *saved.Quota); err != nil {
+			return err
+		}
+	}
 	body, err := encode(saved)
 	if err != nil {
 		return err
@@ -114,6 +119,14 @@ func PrepareProviderCommand(ctx context.Context, db *sql.Conn, node protocol.Nod
 				return nil, err
 			}
 			work.Provider = saved.Provider
+			if input.Oauth != nil {
+				provider := *saved.Provider
+				provider.Oauth = input.Oauth
+				if _, err := providers.OAuthFields(provider); err != nil {
+					return nil, err
+				}
+				work.Provider = &provider
+			}
 		case "draft":
 			var input protocol.ConversationDiscoveryDraft
 			raw, _ := json.Marshal(source.Data)
@@ -149,7 +162,18 @@ func PrepareProviderCommand(ctx context.Context, db *sql.Conn, node protocol.Nod
 	}
 	return work, nil
 }
-func ExecuteProviderCommand(ctx context.Context, db *sql.Conn, node protocol.NodeID, caller protocol.NodeID, request protocol.Request, prepared *providers.Prepared) (protocol.Output, []protocol.Event, error) {
+func ExecuteProviderCommand(ctx context.Context, db *sql.Conn, node protocol.NodeID, caller protocol.NodeID, request protocol.Request, prepared *providers.Prepared) (output protocol.Output, changes []protocol.Event, resultErr error) {
+	defer func() {
+		if resultErr != nil {
+			return
+		}
+		switch request.Command.Kind {
+		case "put_provider", "save_provider", "remove_provider", "put_credential", "revoke_credential":
+			var quotaChanges []protocol.Event
+			quotaChanges, resultErr = ReconcileProviderQuotas(ctx, db, node)
+			changes = append(changes, quotaChanges...)
+		}
+	}()
 	if request.Plugin != nil {
 		return protocol.Output{}, nil, fault(protocol.ErrorCodePermissionDenied, "plugin invocation authority is unavailable")
 	}
@@ -343,7 +367,8 @@ func ExecuteProviderCommand(ctx context.Context, db *sql.Conn, node protocol.Nod
 				if err != nil {
 					return protocol.Output{}, nil, err
 				}
-				return protocol.Output{Kind: "channel_presets", Data: providers.Listing(cached, true)}, nil, nil
+				listing, err = appendPackagePresets(ctx, db, providers.Listing(cached, true))
+				return protocol.Output{Kind: "channel_presets", Data: listing}, nil, err
 			}
 			catalog := protocol.DefaultConversationPresetsCatalog()
 			catalog.Version = 1
@@ -359,7 +384,8 @@ func ExecuteProviderCommand(ctx context.Context, db *sql.Conn, node protocol.Nod
 			if _, err := db.ExecContext(ctx, "INSERT INTO channel_presets(singleton,body) VALUES(1,?1) ON CONFLICT(singleton) DO UPDATE SET body=excluded.body", body); err != nil {
 				return protocol.Output{}, nil, err
 			}
-			return *prepared.Output, nil, nil
+			listing, err = appendPackagePresets(ctx, db, listing)
+			return protocol.Output{Kind: "channel_presets", Data: listing}, nil, err
 		}
 	}
 	output, err := ReadProviderCommand(ctx, db, node, command)
@@ -409,7 +435,11 @@ func ReadProviderCommand(ctx context.Context, db *sql.Conn, node protocol.NodeID
 		return protocol.Output{Kind: "model_scores", Data: scores}, err
 	case "list_channel_presets":
 		catalog, err := providerCachedPresets(ctx, db)
-		return protocol.Output{Kind: "channel_presets", Data: providers.Listing(catalog, false)}, err
+		if err != nil {
+			return protocol.Output{}, err
+		}
+		listing, err := appendPackagePresets(ctx, db, providers.Listing(catalog, false))
+		return protocol.Output{Kind: "channel_presets", Data: listing}, err
 	}
 	return protocol.Output{}, fault(protocol.ErrorCodeNotConfigured, "provider command is unavailable")
 }

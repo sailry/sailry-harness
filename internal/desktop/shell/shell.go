@@ -446,10 +446,6 @@ func (a *App) page(c *ui.Context) {
 		settings.Page(c, a.Settings, a.Data, settings.Look{Theme: &a.Theme, Mode: &a.Mode, Effects: &a.Effects, Surfaces: &a.Surfaces})
 		return
 	case MarketPage:
-		if !a.Preview {
-			a.unavailable(c)
-			return
-		}
 		settings.MarketPage(c, a.Settings)
 		return
 	case FilesPage, GitPage, ActivityPage:

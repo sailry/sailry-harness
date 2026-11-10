@@ -39,10 +39,12 @@ func Classified(ps []preview.Package, kind preview.PackageKind) []int {
 // pluginConfig is the plugin's settings drafted, with the secret action (0
 // keep, 1 replace, 2 clear) of each secret.
 type pluginConfig struct {
-	open    bool
-	id      string
-	fields  []preview.Setting
-	secrets map[string]int
+	open       bool
+	pending    bool
+	generation uint64
+	id         string
+	fields     []preview.Setting
+	secrets    map[string]int
 }
 
 // pluginDownload is the Git repository, revision and path, and the download's
@@ -57,6 +59,7 @@ type pluginDownload struct {
 // pluginInstall is a package path and directory.
 type pluginInstall struct {
 	open           bool
+	pending        bool
 	pkg, directory string
 }
 
@@ -107,6 +110,10 @@ func plugins(c *ui.Context, s *State) {
 	// blocks.
 	kit.Group(c, "installed", t("plugins_installed"), "", func() {
 		kit.Secondary(c.Key("check"), t("plugins_check_updates")).Disabled(len(shown) == 0).OnClick(func() {
+			if m.PackageActions != nil && m.PackageActions.CheckUpdates != nil {
+				m.PackageActions.CheckUpdates(preview.KindPlugin)
+				return
+			}
 			m.checked = true
 			switch {
 			case updates == 0:
@@ -116,7 +123,19 @@ func plugins(c *ui.Context, s *State) {
 			}
 		})
 		if m.checked && updates > blocked {
-			kit.Secondary(c.Key("update-all"), t("plugins_update_all")).OnClick(func() { notice(c) })
+			kit.Secondary(c.Key("update-all"), t("plugins_update_all")).OnClick(func() {
+				if m.PackageActions != nil && m.PackageActions.Update != nil {
+					var names []string
+					for _, index := range shown {
+						if p := m.Packages[index]; Update(&p) && p.Requires == "" {
+							names = append(names, p.ID)
+						}
+					}
+					m.PackageActions.Update(names)
+					return
+				}
+				notice(c)
+			})
 		}
 		if m.checked && blocked > 0 {
 			kit.Secondary(c.Key("review"), t("plugins_review_updates")).OnClick(func() {
@@ -144,6 +163,16 @@ func plugins(c *ui.Context, s *State) {
 	if p := m.pkg(m.uninstalling); p != nil {
 		open := true
 		if confirm(c, "uninstall", &open, t("plugins_uninstall")+" "+p.Name, t("plugins_remove_effect", "name", p.Name), t("plugins_uninstall")) {
+			if m.PackageActions != nil && m.PackageActions.Uninstall != nil {
+				id := p.ID
+				m.PackageActions.Uninstall(id, func(ok bool) {
+					if ok && s.Details != nil && s.Details.ID == id {
+						s.Details = nil
+					}
+				})
+				m.uninstalling = ""
+				return
+			}
 			p.Installed, p.Enabled = false, false
 			if s.Details != nil && s.Details.ID == p.ID {
 				s.Details = nil
@@ -167,9 +196,17 @@ func pluginCard(c *ui.Context, s *State, p *preview.Package) {
 	}
 	kit.ResourceCard(c, p.ID, p.Name, desc, func() { pluginTile(c, p, kit.TileSize) }, func() { s.ShowDetails(DetailPlugin, p.ID) }, func(bool) {
 		if Update(p) && p.Requires == "" {
-			kit.Action(c.Key("update"), icons.Download, t("plugins_update_available"), false).OnClick(func() { notice(c) })
+			kit.Action(c.Key("update"), icons.Download, t("plugins_update_available"), false).OnClick(func() {
+				if m.PackageActions != nil && m.PackageActions.Update != nil {
+					m.PackageActions.Update([]string{p.ID})
+					return
+				}
+				notice(c)
+			})
 		}
-		ui.Switch(c.Key("enabled"), &p.Enabled).Label(t("plugins_enabled") + " " + p.Name)
+		if ui.Switch(c.Key("enabled"), &p.Enabled).Label(t("plugins_enabled")+" "+p.Name).Changed() && m.PackageActions != nil && m.PackageActions.Toggle != nil {
+			m.PackageActions.Toggle(p.ID, p.Enabled)
+		}
 		kit.MenuButton(c.Key("menu"), "plugin-menu-"+p.ID, func(b ui.Element) {
 			kit.IconLook(c, b, icons.Ellipsis, t("more"), "", 28, false)
 		}, func(menu *Menu) {
@@ -188,7 +225,11 @@ func pluginCard(c *ui.Context, s *State, p *preview.Package) {
 }
 
 func (m *Model) openConfig(p *preview.Package) {
-	m.config = pluginConfig{open: true, id: p.ID, fields: slices.Clone(p.Settings), secrets: map[string]int{}}
+	if m.PackageActions != nil && m.PackageActions.Configure != nil {
+		m.PackageActions.Configure(p.ID)
+		return
+	}
+	m.config = pluginConfig{open: true, generation: m.config.generation + 1, id: p.ID, fields: slices.Clone(p.Settings), secrets: map[string]int{}}
 }
 
 // Check validates the configuration draft: the i18n key of the problem, or
@@ -198,11 +239,13 @@ func (e *pluginConfig) Check() string {
 		switch {
 		case f.Kind == "secret" && e.secrets[f.Name] == 1 && f.Value == "":
 			return "plugins_settings_secret_required"
+		case f.Kind == "secret" && f.Required && (e.secrets[f.Name] == 2 || !f.Set && f.Value == ""):
+			return "plugins_settings_required"
 		case f.Kind == "number" && f.Value != "":
 			if _, err := strconv.ParseFloat(f.Value, 64); err != nil {
 				return "plugins_settings_number"
 			}
-		case f.Required && f.Kind != "secret" && strings.TrimSpace(f.Value) == "":
+		case f.Required && f.Kind != "secret" && strings.TrimSpace(f.Value) == "" && !(f.Kind == "choice" && slices.Contains(f.Options, f.Value)):
 			return "plugins_settings_required"
 		}
 	}
@@ -238,37 +281,58 @@ func pluginConfigDialog(c *ui.Context, m *Model) {
 					switch f.Kind {
 					case "bool":
 						on := f.Value == "true"
-						if ui.Switch(c.Key("switch"), &on).Label(label).Changed() {
+						if ui.Switch(c.Key("switch"), &on).Label(label).Disabled(e.pending).Changed() {
 							f.Value = strconv.FormatBool(on)
 						}
 					case "choice":
-						chosen := max(0, slices.Index(f.Options, f.Value))
-						if pick(c, "select", label, &chosen, f.Options, false).FillWidth().Changed() {
+						chosen := slices.Index(f.Options, f.Value)
+						if pick(c, "select", label, &chosen, f.Options, e.pending).FillWidth().Changed() {
 							f.Value = f.Options[chosen]
 						}
 					case "secret":
 						action := e.secrets[f.Name]
 						if f.Set {
-							kit.Segmented(c, "action", &action, []string{t("plugins_settings_keep"), t("plugins_settings_replace"), t("plugins_settings_clear")}, kit.SegmentedProps{Block: true}).Label(label)
+							kit.Segmented(c, "action", &action, []string{t("plugins_settings_keep"), t("plugins_settings_replace"), t("plugins_settings_clear")}, kit.SegmentedProps{Block: true}).Label(label).Disabled(e.pending)
 							e.secrets[f.Name] = action
 						}
 						switch {
 						case !f.Set || action == 1:
-							ui.TextInput(c.Key("input"), &f.Value).Password().Label(label).Placeholder(t("plugins_settings_input_hint", "field", label)).FillWidth()
+							ui.TextInput(c.Key("input"), &f.Value).Password().Label(label).Placeholder(t("plugins_settings_input_hint", "field", label)).FillWidth().Disabled(e.pending)
 						case action == 0:
 							ui.Text(c, t("plugins_settings_configured")).FontSize(14).TextColor(pal.MutedForeground)
 						default:
 							ui.Text(c, t("plugins_settings_clear_effect")).FontSize(12).TextColor(pal.Warning)
 						}
 					default:
-						ui.TextInput(c.Key("input"), &f.Value).Label(label).Placeholder(t("plugins_settings_input_hint", "field", label)).FillWidth()
+						ui.TextInput(c.Key("input"), &f.Value).Label(label).Placeholder(t("plugins_settings_input_hint", "field", label)).FillWidth().Disabled(e.pending)
 					}
 				})
 			}
 		})
 		footer(c, t("settings_save"), func() { e.open = false }, func() {
+			if e.pending {
+				return
+			}
 			if problem := e.Check(); problem != "" {
 				kit.Toast(c, kit.Failed, t(problem))
+				return
+			}
+			if m.PackageActions != nil && m.PackageActions.SaveSettings != nil {
+				e.pending = true
+				id, generation := e.id, e.generation
+				m.PackageActions.SaveSettings(id, slices.Clone(e.fields), e.secrets, func(ok bool) {
+					if e.id == id && e.generation == generation {
+						e.pending = false
+						if ok {
+							e.open = false
+							for index := range e.fields {
+								if e.fields[index].Kind == "secret" {
+									e.fields[index].Value = ""
+								}
+							}
+						}
+					}
+				})
 				return
 			}
 			saved := Stored[[]preview.Setting]{Saved: p.Settings, Draft: e.fields}
@@ -291,6 +355,40 @@ func pluginConfigDialog(c *ui.Context, m *Model) {
 // installs nothing.
 func pluginInstallDialog(c *ui.Context, m *Model) {
 	e := &m.install
+	if m.PackageActions != nil && m.PackageActions.Install != nil {
+		if !e.open {
+			return
+		}
+		title := i18n.T(c, "plugins_install")
+		kit.Dialog(c.Key("plugin-install"), &e.open, func() {
+			ui.Text(c, title).FontSize(16).FontWeight(600)
+			for _, field := range []struct {
+				label, hint string
+				value       *string
+			}{{"plugins_package", "form_package_hint", &e.pkg}, {"plugins_directory", "form_directory_hint", &e.directory}} {
+				kit.Field(c, field.label, i18n.T(c, field.label), "", func() {
+					ui.TextInput(c.Key("input"), field.value).Label(i18n.T(c, field.label)).Placeholder(i18n.T(c, field.hint)).FillWidth().Disabled(e.pending)
+				})
+			}
+			footer(c, title, func() { e.open = false }, func() {
+				if e.pending {
+					return
+				}
+				if strings.TrimSpace(e.pkg) == "" {
+					kit.Toast(c, kit.Failed, i18n.T(c, "plugins_package_required"))
+					return
+				}
+				e.pending = true
+				m.PackageActions.Install(e.pkg, e.directory, func(ok bool) {
+					e.pending = false
+					if ok {
+						e.open = false
+					}
+				})
+			})
+		}).Width(min(520, width(c)-48)).Label(title)
+		return
+	}
 	draftDialog(c, "plugin-install", &e.open, "plugins_install", []field{
 		{label: "plugins_package", hint: "form_package_hint", value: &e.pkg},
 		{label: "plugins_directory", hint: "form_directory_hint", value: &e.directory},
@@ -324,18 +422,25 @@ func pluginDownloadDialog(c *ui.Context, m *Model) {
 			})
 		}
 		if e.pending {
-			// The preview's download: progress over two seconds, then the
-			// notice that nothing was fetched.
-			frac := float64(c.Now().Sub(e.started)) / float64(2*time.Second)
-			if frac >= 1 {
-				e.pending, e.open = false, false
-				notice(c)
-			} else {
-				c.After(time.Second / kit.FPS)
+			if m.PackageActions != nil {
 				ui.Column(c.Key("progress")).Gap(6).Children(func() {
-					ui.Progress(c, frac).FillWidth().Height(4)
+					ui.Progress(c, -1).FillWidth().Height(4)
 					ui.Text(c, t("plugins_preparing_package")).FontSize(12).TextColor(pal.MutedForeground)
 				})
+			} else {
+				// The preview's download: progress over two seconds, then the
+				// notice that nothing was fetched.
+				frac := float64(c.Now().Sub(e.started)) / float64(2*time.Second)
+				if frac >= 1 {
+					e.pending, e.open = false, false
+					notice(c)
+				} else {
+					c.After(time.Second / kit.FPS)
+					ui.Column(c.Key("progress")).Gap(6).Children(func() {
+						ui.Progress(c, frac).FillWidth().Height(4)
+						ui.Text(c, t("plugins_preparing_package")).FontSize(12).TextColor(pal.MutedForeground)
+					})
+				}
 			}
 		}
 		label := t("plugins_install")
@@ -343,13 +448,26 @@ func pluginDownloadDialog(c *ui.Context, m *Model) {
 			label = t("plugins_installing")
 		}
 		ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
-			kit.Secondary(c.Key("cancel"), t("settings_cancel")).OnClick(func() { e.open, e.pending = false, false })
+			kit.Secondary(c.Key("cancel"), t("settings_cancel")).OnClick(func() {
+				if m.PackageActions != nil && m.PackageActions.CancelDownload != nil {
+					m.PackageActions.CancelDownload()
+				}
+				e.open, e.pending = false, false
+			})
 			kit.Primary(c.Key("ok"), label, e.pending).Children(func() { ui.Text(c, label).FontSize(14) }).OnClick(func() {
 				if !strings.HasPrefix(e.repository, "https://") {
 					kit.Toast(c, kit.Failed, t("skills_invalid"))
 					return
 				}
 				e.pending, e.started = true, c.Now()
+				if m.PackageActions != nil && m.PackageActions.Download != nil {
+					m.PackageActions.Download(e.repository, e.rev, e.path, func(ok bool) {
+						e.pending = false
+						if ok {
+							e.open = false
+						}
+					})
+				}
 			})
 		})
 	}).Width(min(520, width(c)-48)).Label(title)
@@ -385,7 +503,13 @@ func pluginUpdatesDialog(c *ui.Context, m *Model) {
 							ui.Text(c, t("plugins_update_version", "version", p.Latest)).FontSize(12).TextColor(pal.MutedForeground)
 						})
 						if p.Requires != "" {
-							kit.Secondary(c.Key("sailry"), t("plugins_update_sailry")).Height(28).OnClick(func() { notice(c) })
+							kit.Secondary(c.Key("sailry"), t("plugins_update_sailry")).Height(28).OnClick(func() {
+								if m.PackageActions != nil && m.PackageActions.About != nil {
+									m.PackageActions.About()
+									return
+								}
+								notice(c)
+							})
 						}
 					})
 					if msg := compatibility(c, p); msg != "" {
@@ -406,6 +530,16 @@ func pluginUpdatesDialog(c *ui.Context, m *Model) {
 			label := t("plugins_updates_selected", "count", n)
 			kit.Primary(c.Key("ok"), label, n == 0).Children(func() { ui.Text(c, label).FontSize(14) }).OnClick(func() {
 				e.open = false
+				if m.PackageActions != nil && m.PackageActions.Update != nil {
+					var names []string
+					for name, chosen := range e.chosen {
+						if chosen {
+							names = append(names, name)
+						}
+					}
+					m.PackageActions.Update(names)
+					return
+				}
 				notice(c)
 			})
 		})

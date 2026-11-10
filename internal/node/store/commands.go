@@ -8,9 +8,6 @@ import (
 )
 
 func ExecuteCommand(ctx context.Context, db *sql.Conn, node protocol.NodeID, profile string, request protocol.Request, prepared PreparedPaths) (protocol.Output, []protocol.Event, error) {
-	if request.Plugin != nil {
-		return protocol.Output{}, nil, fault(protocol.ErrorCodePermissionDenied, "plugin invocation authority is unavailable")
-	}
 	switch request.Command.Kind {
 	case "create_project":
 		return createProject(ctx, db, *request.Command.Data.(*protocol.ProjectsDraft), prepared)

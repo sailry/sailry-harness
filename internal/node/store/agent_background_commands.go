@@ -16,8 +16,6 @@ type continuationFence struct {
 	Scope    protocol.PluginStorageScope `json:"scope"`
 }
 
-// ExecuteBackgroundCommand never grants package authority from wire provenance.
-// The package runtime supplies trusted continuation dispatch when it is installed.
 func ExecuteBackgroundCommand(ctx context.Context, db *sql.Conn, node, caller protocol.NodeID, request protocol.Request, now time.Time) (protocol.Output, []protocol.Event, error) {
 	if request.Command.Kind == "deliver_background" {
 		return protocol.Output{}, nil, fault(protocol.ErrorCodePermissionDenied, "background delivery is internal Node input")
@@ -28,7 +26,17 @@ func ExecuteBackgroundCommand(ctx context.Context, db *sql.Conn, node, caller pr
 	if request.Plugin == nil {
 		return protocol.Output{}, nil, fault(protocol.ErrorCodePermissionDenied, "continuation requires plugin provenance")
 	}
-	return protocol.Output{}, nil, fault(protocol.ErrorCodePermissionDenied, "plugin invocation authority is unavailable")
+	info, err := ReadPlugin(ctx, db, request.Plugin.Package.Name)
+	if err != nil {
+		return protocol.Output{}, nil, err
+	}
+	if info == nil {
+		return protocol.Output{}, nil, fault(protocol.ErrorCodePermissionDenied, "continuation package is unavailable")
+	}
+	if err := CheckPluginRequest(ctx, db, request, *info); err != nil {
+		return protocol.Output{}, nil, err
+	}
+	return admitContinuation(ctx, db, node, caller, request)
 }
 
 func validContinuation(ctx context.Context, db *sql.Conn, fence continuationFence, session protocol.SessionID) (bool, error) {
@@ -51,8 +59,6 @@ func validContinuation(ctx context.Context, db *sql.Conn, fence continuationFenc
 	return current, err
 }
 
-// admitContinuation is the SQL half of trusted package dispatch. Public callers
-// cannot reach it until the package runtime verifies their invocation authority.
 func admitContinuation(ctx context.Context, db *sql.Conn, node, caller protocol.NodeID, request protocol.Request) (protocol.Output, []protocol.Event, error) {
 	input, ok := request.Command.Data.(*protocol.CommandContinueTurnPayload)
 	if !ok || request.Plugin == nil {

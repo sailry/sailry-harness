@@ -16,7 +16,12 @@ func (r *Runtime) saveProvider(d settings.ProviderDraft, done func(bool)) {
 		s := protocol.NewSecret(d.Key)
 		secret = &s
 	}
-	r.providerCommand(protocol.Command{Kind: "save_provider", Data: protocol.CommandSaveProviderPayload{Provider: p, ExpectedRevision: d.ExpectedRevision, Secret: secret}}, func(_ protocol.Output, ok bool) {
+	r.providerCommand(protocol.Command{Kind: "save_provider", Data: protocol.CommandSaveProviderPayload{Provider: p, ExpectedRevision: d.ExpectedRevision, Secret: secret}}, func(output protocol.Output, ok bool) {
+		if ok {
+			if saved, valid := detail[protocol.ConversationProvider](output.Data); valid {
+				r.authorizations.savedProviders[saved.ID.String()] = saved
+			}
+		}
 		done(ok)
 		if ok {
 			r.project()
@@ -62,7 +67,10 @@ func (r *Runtime) readProviderKey(id string, done func(bool)) {
 func (r *Runtime) discoverModels(d settings.ProviderDraft, done func([]viewmodel.ChannelModel)) {
 	draft := r.providerDraft(d)
 	source := protocol.ConversationDiscoverySource{Kind: "draft", Data: protocol.ConversationDiscoveryDraft{Provider: draft.ID, Api: draft.Api, Endpoint: draft.Endpoint, Preset: draft.Preset, Credential: draft.Credential}}
-	if d.Key != "" {
+	if draft.Authentication != protocol.AuthenticationApiKey && d.ExpectedRevision != 0 {
+		source = protocol.ConversationDiscoverySource{Kind: "saved", Data: protocol.ConversationDiscoverySourceSavedPayload{Provider: draft.ID, ExpectedRevision: d.ExpectedRevision, Oauth: draft.Oauth}}
+	}
+	if d.Key != "" && source.Kind == "draft" {
 		value := source.Data.(protocol.ConversationDiscoveryDraft)
 		s := protocol.NewSecret(d.Key)
 		value.Secret = &s

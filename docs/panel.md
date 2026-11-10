@@ -1,5 +1,28 @@
 # Right panel
 
+B8's AI CLI launcher retains the Node terminal ID returned by the captured
+`open_tool_terminal` command and selects its live panel tab. The authorized B10
+terminal prerequisite uses the pinned MyGo terminal after its headless spike:
+Node owns the PTY and one Mirror per subscription; Desktop uses a Conn terminal
+and the library View. Each frame applies its source viewport before its bytes.
+Input, source clear, resize and appearance use the existing authenticated Client
+commands with caller ownership and exact terminal revision. Closing the view's
+connection only detaches; the explicit Close terminal action closes the Node
+resource. The panel's existing chrome and find bar remain Kit controls.
+
+The optional v1 `TerminalScreen.vt` payload carries typed source viewport and
+byte-array frames; existing cell-grid declarations remain intact. Raw input and
+source clear are additive optional command fields. No second emulator or
+controller-owned process was introduced. The minimal terminal service retains
+the source's limit of 32 running/pending starts and shares same-ID startup
+reservations without holding its registry lock across native work.
+
+Browser tabs, SSH terminals, shell/settings, split terminal rendering and split
+shortcuts remain B10. The explicit preview still draws its marked placeholder.
+Headless macOS and authenticated Link integration results are coordinator-owned;
+visible Kitty images, actual IME interaction and Windows ConPTY require their
+named platform checks.
+
 The column right of the conversation: one flat strip of tabs, each an
 open item, over the active one, or the launcher when none is open (the reference implementation
 `resources/*.rs`, `navigation_tabs.rs`, `resources/launcher.rs`,

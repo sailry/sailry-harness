@@ -6,6 +6,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
+	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -55,6 +56,14 @@ func (r *Runtime) openReference(session string, turn protocol.TurnID, ref protoc
 	r.enqueue(func(c *ui.Context) {
 		snapshot := r.controller.Snapshot()
 		switch ref.Target.Kind {
+		case "plugin":
+			if name, ok := detail[string](ref.Target.Data); ok {
+				r.App.Host = r.controller.Target().String()
+				r.App.Settings.Open(settings.Plugins)
+				r.App.Navigate(shell.SettingsPage)
+				r.App.Settings.ShowDetails(settings.DetailPlugin, name)
+				return
+			}
 		case "session":
 			if id, ok := detail[protocol.SessionID](ref.Target.Data); ok && r.App.Data.Find(id.String()) != nil {
 				r.OpenSession(id.String())

@@ -14,6 +14,8 @@ import (
 )
 
 type Client struct {
+	topicsMu                sync.Mutex
+	topics                  map[*topicSubscription]struct{}
 	forwardMu               sync.Mutex
 	forwarders              map[*Forwarder]struct{}
 	detailSlots             chan struct{}

@@ -185,6 +185,9 @@ func reviewRaw(record canonical.Record, index uint64) (*rawAgentTool, error) {
 	if index != 0 {
 		return nil, nil
 	}
+	if raw, err := elicitationRaw(record, index); raw != nil || err != nil {
+		return raw, err
+	}
 	notice := planNotice(record)
 	if notice == nil {
 		return nil, nil

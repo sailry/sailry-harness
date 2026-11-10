@@ -496,6 +496,8 @@ func conversationInput(m composer.Message) protocol.ConversationInput {
 			if packageName, name, ok := strings.Cut(ref.ID, ":"); ok && packageName != "" && name != "" {
 				target = protocol.ConversationReferenceTarget{Kind: "skill", Data: protocol.ConversationReferenceTargetSkillPayload{Package: packageName, Name: name}}
 			}
+		case composer.Plugin:
+			target = protocol.ConversationReferenceTarget{Kind: "plugin", Data: ref.ID}
 		case composer.Location:
 			if ref.ID == "host" || ref.ID == "project" || ref.ID == "worktree" {
 				target.Kind = ref.ID
@@ -542,6 +544,12 @@ func composerReference(ref protocol.ConversationReference) (composer.Reference, 
 			return value, false
 		}
 		value.ID, value.Kind, value.Icon = skill.Package+":"+skill.Name, composer.Skill, icons.Bot
+	case "plugin":
+		name, ok := detail[string](ref.Target.Data)
+		if !ok {
+			return value, false
+		}
+		value.ID, value.Kind, value.Icon = name, composer.Plugin, icons.Puzzle
 	case "host", "project", "worktree":
 		value.ID, value.Kind, value.Icon = ref.Target.Kind, composer.Location, icons.Folder
 		if ref.Target.Kind == "host" {

@@ -161,10 +161,11 @@ type providerConfiguration struct {
 }
 
 type providerAuthorization struct {
-	Authentication protocol.Authentication `json:"authentication"`
-	Revision       uint64                  `json:"revision"`
-	Key            *protocol.Secret        `json:"key"`
-	ExpiresAtMs    *uint64                 `json:"expires_at_ms"`
+	Authentication protocol.Authentication  `json:"authentication"`
+	Revision       uint64                   `json:"revision"`
+	Key            *protocol.Secret         `json:"key"`
+	ExpiresAtMs    *uint64                  `json:"expires_at_ms"`
+	Auth           *providers.AccountTarget `json:"auth,omitempty"`
 }
 
 func ReadDefaults(ctx context.Context, db *sql.Conn) (protocol.Defaults, error) {

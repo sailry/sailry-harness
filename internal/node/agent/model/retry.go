@@ -83,8 +83,11 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 	schedule := backoff.NewConstantBackOff(delay)
 	requestID, requestStarted := protocol.NewRequestID().String(), timer.Now()
 	var secrets []protocol.Secret
-	if sdk, ok := languageModel.(*sdkModel); ok && sdk.config.Key != "" {
-		secrets = append(secrets, protocol.NewSecret(sdk.config.Key))
+	if sdk, ok := languageModel.(*sdkModel); ok {
+		secrets = append(secrets, sdk.config.Protection...)
+		if sdk.config.Key != "" {
+			secrets = append(secrets, protocol.NewSecret(sdk.config.Key))
+		}
 	}
 	for index := uint64(0); ; index++ {
 		if err := ctx.Err(); err != nil {
@@ -175,6 +178,9 @@ func Run(ctx context.Context, languageModel fantasy.LanguageModel, call fantasy.
 	}
 }
 func outputPart(part fantasy.StreamPart) bool {
+	if PluginOutput(part) {
+		return true
+	}
 	switch part.Type {
 	case fantasy.StreamPartTypeTextDelta:
 		return part.Delta != ""

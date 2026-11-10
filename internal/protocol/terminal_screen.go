@@ -235,6 +235,7 @@ func (value TerminalScreenCursor) MarshalJSON() ([]byte, error) {
 }
 
 type TerminalScreen struct {
+	VT             *TerminalVT           `json:"vt,omitempty"`
 	Columns        uint16                `json:"columns"`
 	Scrollback     []TerminalScreenLine  `json:"scrollback"`
 	Rows           []TerminalScreenLine  `json:"rows"`

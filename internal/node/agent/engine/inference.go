@@ -43,8 +43,17 @@ func (r *Runtime) infer(x *execution, binding model.Binding, languageModel fanta
 			parts = append(parts, instruction.Text)
 		}
 	}
-	parts = prompt.Pending(state.Records, nil, parts)
-	if contextRecord := prompt.ContextMessage(x.inv.Run.Turn, parts, nil, r.clock.Now()); contextRecord != nil {
+	ownedParts := []string{}
+	for _, tool := range x.tools {
+		for _, part := range tool.ContextParts {
+			if !slices.Contains(ownedParts, part) {
+				ownedParts = append(ownedParts, part)
+				parts = append(parts, part)
+			}
+		}
+	}
+	parts = prompt.Pending(state.Records, ownedParts, parts)
+	if contextRecord := prompt.ContextMessage(x.inv.Run.Turn, parts, ownedParts, r.clock.Now()); contextRecord != nil {
 		if err := r.save(x.ctx, x.inv.Session.ID, *contextRecord); err != nil {
 			return err
 		}

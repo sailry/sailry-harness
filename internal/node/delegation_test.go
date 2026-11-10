@@ -98,7 +98,7 @@ func TestChildApprovalPath(t *testing.T) {
 		t.Fatal("native write tool is unavailable")
 	}
 	environment := process.NewEnvironment([]string{"PATH=/usr/bin:/bin"})
-	node, err := StartWithOptions(t.Context(), filepath.Join(t.TempDir(), "profile"), Options{Environment: &environment, Process: process.Options{After: func(time.Duration) <-chan time.Time { return make(chan time.Time) }}, Model: script.bind})
+	node, err := StartWithOptions(t.Context(), filepath.Join(t.TempDir(), "profile"), Options{MCP: fixtureMCPOptions(), Environment: &environment, Process: process.Options{After: func(time.Duration) <-chan time.Time { return make(chan time.Time) }}, Model: script.bind})
 	if err != nil {
 		t.Fatal(err)
 	}

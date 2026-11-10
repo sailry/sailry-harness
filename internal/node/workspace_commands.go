@@ -49,6 +49,9 @@ func workspaceGitWrite(kind string) bool {
 	return false
 }
 func workspaceCommand(kind string) bool {
+	if terminalCommand(kind) {
+		return true
+	}
 	if networkCommand(kind) {
 		return true
 	}
@@ -131,9 +134,6 @@ func (node *Node) workspaceRoots(ctx context.Context, command protocol.Command, 
 // dispatchWorkspace records durable admission before starting any resource IO.
 // Its worker owns Node lifetime; losing the controller never repeats an effect.
 func (node *Node) dispatchWorkspace(ctx context.Context, caller protocol.NodeID, request protocol.Request, body []byte) (link.Admission, error) {
-	if request.Plugin != nil {
-		return link.Admission{}, &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "plugin invocation authority is unavailable"}
-	}
 	node.mu.Lock()
 	defer node.mu.Unlock()
 	if node.stopped {
@@ -189,6 +189,9 @@ func (node *Node) dispatchWorkspace(ctx context.Context, caller protocol.NodeID,
 
 func (node *Node) workspaceIO(ctx context.Context, caller protocol.NodeID, request protocol.Request, prepared *files.Prepared, effect *workspaceCompletion) (protocol.Output, error) {
 	command := request.Command
+	if terminalCommand(command.Kind) {
+		return node.terminalIO(ctx, caller, request, effect)
+	}
 	if networkCommand(command.Kind) {
 		return node.networkIO(ctx, command)
 	}

@@ -1,5 +1,26 @@
 # Theme
 
+B8 stores controller-local installed packages under `desktop/themes` in the
+isolated profile. `theme.Profile` validates complete snapshots, compares the
+installed digest before replacement/removal and publishes a staged directory.
+The gallery merges those snapshots with the pinned embedded themes on the UI
+thread. Local import opens the existing details/preview dialog before Install.
+Export writes a ZIP through the same staged native-save destination used by
+downloads. Uninstall confirms the named package and restores the default if it
+was selected.
+
+`theme.Market` follows the website catalog and immutable source commit, verifies
+resource SHA256 descriptors and the Rust package digest, and retains the existing
+installation on acquisition/validation failure. Its bounded profile cache uses
+the Rust v1 saved-catalog envelope. Network failures may use retained or embedded
+catalog data; invalid fresh feeds do not replace a valid cache. Package updates
+require strictly greater SemVer precedence.
+Windows sharing a profile share its publication mutex and change observation,
+so each gallery reloads after a successful import, update or removal. Theme
+catalog loading drives the existing Market skeleton until completion. Update
+checks distinguish current packages, available updates and catalog failure
+through the existing theme toast keys.
+
 Sailry's one application theme: the built-in default's semantic tokens
 overlaid by the selected theme package, the MyGo widget theme derived from
 them, and the package's surfaces: artwork, mode cards, messages, the

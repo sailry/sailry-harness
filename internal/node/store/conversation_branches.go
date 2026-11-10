@@ -71,6 +71,9 @@ func forkConversation(ctx context.Context, db *sql.Conn, input protocol.CommandF
 	if err = rebuildCanonicalState(ctx, db, value.ID); err != nil {
 		return value, nil, err
 	}
+	if err = ForkPluginConversation(ctx, db, input.Session, value.ID, input.Through, false); err != nil {
+		return value, nil, err
+	}
 	value.Fork = &protocol.ConversationFork{Session: input.Session, Through: input.Through}
 	value.Activity, err = readActivity(ctx, db, value.ID)
 	return value, []protocol.Event{{Kind: "session_changed", Data: &value}}, err
@@ -159,6 +162,9 @@ func rewindConversation(ctx context.Context, db *sql.Conn, input protocol.Comman
 		return value, nil, err
 	}
 	if err = rebuildCanonicalState(ctx, db, input.Session); err != nil {
+		return value, nil, err
+	}
+	if err = RewindPluginConversation(ctx, db, input.Session, input.Through); err != nil {
 		return value, nil, err
 	}
 	value.Revision = revision + 1

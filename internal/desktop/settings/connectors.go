@@ -2,6 +2,7 @@ package settings
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -76,17 +77,19 @@ func StatusOf(s *preview.Service) ConnStatus {
 // connectorEditor is the add dialog's query, the type chosen, its method tab,
 // the fields typed and the CLI account.
 type connectorEditor struct {
-	open    bool
-	query   string
-	kind    *preview.ConnectorType
-	service string // the service edited, "" for a new one
-	method  int
-	fields  map[string]string
-	account int
-	pending bool
+	open     bool
+	query    string
+	kind     *preview.ConnectorType
+	service  string // the service edited, "" for a new one
+	revision uint64
+	method   int
+	fields   map[string]string
+	account  int
+	pending  bool
 	// accounts is the host's look at its local CLI accounts: the account
 	// row's skeleton shows while it runs.
-	accounts preview.Fetch
+	accounts   preview.Fetch
+	cliStarted bool
 }
 
 // mcpEditor is a server's name, transport, command and arguments or URL, and
@@ -101,6 +104,7 @@ type mcpEditor struct {
 	url       string
 	slots     []preview.EnvVar
 	saved     []bool // the slot has a saved value
+	revision  uint64
 }
 
 func connectors(c *ui.Context, m *Model) {
@@ -120,7 +124,9 @@ func connectors(c *ui.Context, m *Model) {
 				m.mcp = mcpEditor{open: true, transport: 0}
 			})
 		})
-		kit.Tag(c, t("connector_preview")).AlignSelf(ui.Start)
+		if !m.Live {
+			kit.Tag(c, t("connector_preview")).AlignSelf(ui.Start)
+		}
 		q := strings.ToLower(strings.TrimSpace(m.ConnQuery))
 		var shown []int
 		for i := range m.Services {
@@ -146,11 +152,34 @@ func connectors(c *ui.Context, m *Model) {
 	connectorDialog(c, m)
 	mcpDialog(c, m)
 	serviceDetails(c, m)
+	if m.Live && m.ConnectorActions != nil {
+		actions := m.ConnectorActions
+		if consent := actions.Consent; consent != nil && consent.Open {
+			lines := []string{t("connector_consent_effect")}
+			for _, change := range consent.Changes {
+				lines = append(lines, t("connector_changed_"+change))
+			}
+			if ui.AlertDialog(c.Key("connector-consent"), &consent.Open, t("connector_confirm")+" "+consent.Target, strings.Join(lines, "\n"), t("settings_cancel"), t("connector_confirm")) == 1 {
+				consent.Apply(true)
+			}
+		}
+		authorization(c, "connector-login", &actions.Authorization, func() {
+			serviceTile(c, actions.Authorization.Title)
+		}, actions.Retry, func() {
+			if actions.Submit != nil {
+				actions.Submit(actions.Authorization.Pasted)
+			}
+		})
+	}
 	if s := m.service(m.connRemoving); s != nil {
 		open := true
 		if confirm(c, "remove", &open, t("connector_remove")+" "+s.Name, t("connector_remove_effect", "name", s.Name), t("connector_remove")) {
-			m.Services = slices.DeleteFunc(m.Services, func(x preview.Service) bool { return x.ID == s.ID })
-			kit.Toast(c, kit.Done, t("connector_removed"))
+			if m.Live && m.ConnectorActions != nil && m.ConnectorActions.Remove != nil {
+				m.ConnectorActions.Remove(s.ID)
+			} else {
+				m.Services = slices.DeleteFunc(m.Services, func(x preview.Service) bool { return x.ID == s.ID })
+				kit.Toast(c, kit.Done, t("connector_removed"))
+			}
 		}
 		if !open {
 			m.connRemoving = ""
@@ -209,10 +238,16 @@ func serviceRow(c *ui.Context, m *Model, s *preview.Service) {
 			statusView(c, st)
 			switch {
 			case s.Account:
-				ui.Switch(c.Key("account"), &s.AccountOn).Label(t("connector_account_enabled") + " " + s.Name).Disabled(s.State == preview.Connecting)
+				if ui.Switch(c.Key("account"), &s.AccountOn).Label(t("connector_account_enabled")+" "+s.Name).Disabled(s.State == preview.Connecting).Changed() && m.Live && m.ConnectorActions != nil && m.ConnectorActions.Enable != nil {
+					m.ConnectorActions.Enable(s.ID, s.AccountOn)
+				}
 			case len(s.Servers) == 1:
 				if ui.Switch(c.Key("allowed"), &s.Servers[0].Allowed).Label(t("connector_server_allowed") + " " + s.Name).Changed() {
-					kit.Toast(c, kit.Done, t("connector_saved"))
+					if m.Live && m.ConnectorActions != nil && m.ConnectorActions.AllowMCP != nil {
+						m.ConnectorActions.AllowMCP(s.ID, s.Servers[0].Name, s.Servers[0].Allowed)
+					} else {
+						kit.Toast(c, kit.Done, t("connector_saved"))
+					}
 				}
 			}
 			kit.MenuButton(c.Key("menu"), "connector-menu-"+s.ID, func(b ui.Element) {
@@ -229,8 +264,32 @@ func serviceRow(c *ui.Context, m *Model, s *preview.Service) {
 							m.connRemoving = s.ID
 						case "connector_details":
 							m.connDetails = s.ID
-						case "connector_configure", "connector_confirm", "connector_bind", "connector_reauthorize", "connector_connect", "connector_add_credentials":
-							if s.Manual {
+						case "connector_confirm":
+							if m.Live && m.ConnectorActions != nil && m.ConnectorActions.Confirm != nil {
+								m.ConnectorActions.Confirm(s.ID)
+							} else {
+								m.editService(s)
+							}
+						case "connector_probe":
+							if m.Live && m.ConnectorActions != nil && m.ConnectorActions.Probe != nil {
+								m.ConnectorActions.Probe(s.ID)
+							} else {
+								notice(c)
+							}
+						case "connector_mcp_reconnect":
+							if m.Live && m.ConnectorActions != nil && m.ConnectorActions.Reconnect != nil {
+								m.ConnectorActions.Reconnect(s.ID)
+							} else {
+								notice(c)
+							}
+						case "connector_add_credentials":
+							if m.Live && m.ConnectorActions != nil && m.ConnectorActions.ConfigureMCP != nil {
+								m.ConnectorActions.ConfigureMCP(s.ID)
+							} else {
+								m.editService(s)
+							}
+						case "connector_configure", "connector_bind", "connector_reauthorize", "connector_connect":
+							if s.Manual && k != "connector_connect" {
 								m.editServer(s)
 							} else {
 								m.editService(s)
@@ -253,6 +312,9 @@ func serviceItems(s *preview.Service) []string {
 	switch {
 	case s.Manual:
 		out = []string{"connector_configure", "connector_remove"}
+		if slices.ContainsFunc(s.Servers, func(server preview.Server) bool { return server.State == preview.ServerAuth }) {
+			out = append(out, "connector_connect")
+		}
 	case s.Account:
 		label := "connector_configure"
 		switch {
@@ -290,7 +352,11 @@ func (m *Model) editService(s *preview.Service) {
 	for i := range m.ConnTypes {
 		if m.ConnTypes[i].ID == s.Type {
 			k := &m.ConnTypes[i]
-			m.connector = connectorEditor{open: true, kind: k, service: s.ID, fields: map[string]string{}}
+			fields := maps.Clone(s.Fields)
+			if fields == nil {
+				fields = map[string]string{}
+			}
+			m.connector = connectorEditor{open: true, kind: k, service: s.ID, fields: fields, revision: s.Revision}
 			m.connector.method = max(0, slices.Index(k.Methods, s.Method))
 			return
 		}
@@ -299,7 +365,7 @@ func (m *Model) editService(s *preview.Service) {
 
 func (m *Model) editServer(s *preview.Service) {
 	x := s.Servers[0]
-	m.mcp = mcpEditor{open: true, original: s.ID, name: strings.TrimPrefix(x.Name, "mcp-"), transport: x.Transport,
+	m.mcp = mcpEditor{open: true, original: s.ID, revision: s.Revision, name: strings.TrimPrefix(x.Name, "mcp-"), transport: x.Transport,
 		command: x.Command, args: slices.Clone(x.Args), url: x.URL, slots: slices.Clone(x.Env)}
 	m.mcp.saved = make([]bool, len(x.Env))
 	for i := range m.mcp.saved {
@@ -369,13 +435,32 @@ func connectorDialog(c *ui.Context, m *Model) {
 		ui.Column(c.Key("content")).Gap(12).Children(func() {
 			switch {
 			case method == "connector_cli":
-				if !e.accounts.Loaded && !e.accounts.Loading {
-					e.accounts.Start()
-				}
-				if e.accounts.Advance(c.Now()) {
-					c.After(preview.Tick)
-					accountSkeleton(c)
-					break
+				if m.Live {
+					if !e.cliStarted && m.ConnectorActions != nil && m.ConnectorActions.InspectCLI != nil {
+						e.cliStarted = true
+						e.accounts.Loading = true
+						m.ConnAccounts = nil
+						typeID := k.ID
+						m.ConnectorActions.InspectCLI(typeID, func(accounts []string) {
+							if e.open && e.kind != nil && e.kind.ID == typeID {
+								m.ConnAccounts = accounts
+								e.accounts.Loading, e.accounts.Loaded = false, true
+							}
+						})
+					}
+					if e.accounts.Loading {
+						accountSkeleton(c)
+						break
+					}
+				} else {
+					if !e.accounts.Loaded && !e.accounts.Loading {
+						e.accounts.Start()
+					}
+					if e.accounts.Advance(c.Now()) {
+						c.After(preview.Tick)
+						accountSkeleton(c)
+						break
+					}
 				}
 				names := m.ConnAccounts
 				modalList(c, "accounts", t("connector_choose_account"), "", t("connector_not_connected"), len(names), func() {
@@ -399,7 +484,15 @@ func connectorDialog(c *ui.Context, m *Model) {
 								in.Password().Placeholder(t("form_secret_hint"))
 							}
 							if f.Help {
-								kit.Action(c.Key("help"), icons.ExternalLink, t("menu_help"), false).OnClick(func() { notice(c) })
+								kit.Action(c.Key("help"), icons.ExternalLink, t("menu_help"), false).OnClick(func() {
+									if m.Live && m.ConnectorActions != nil && m.ConnectorActions.Help != nil {
+										if url := m.ConnectorActions.Help(k.ID, f.Name); url != "" {
+											c.OpenURL(url)
+										}
+									} else {
+										notice(c)
+									}
+								})
 							}
 						})
 					})
@@ -407,7 +500,19 @@ func connectorDialog(c *ui.Context, m *Model) {
 				}
 			}
 			if method == "connector_application" {
-				kit.Secondary(c.Key("register"), t("connector_register")).Height(28).AlignSelf(ui.Start).OnClick(func() { notice(c) })
+				kit.Secondary(c.Key("register"), t("connector_register")).Height(28).AlignSelf(ui.Start).OnClick(func() {
+					if m.Live && m.ConnectorActions != nil && m.ConnectorActions.Save != nil {
+						e.pending = true
+						m.ConnectorActions.Save(ConnectorDraft{Type: k.ID, Service: e.service, Method: method, ExpectedRevision: e.revision, Fields: maps.Clone(e.fields), Registration: true}, func(ok bool) {
+							e.pending = false
+							if ok {
+								e.open = false
+							}
+						})
+					} else {
+						notice(c)
+					}
+				})
 			}
 		})
 		action := "settings_save"
@@ -422,12 +527,22 @@ func connectorDialog(c *ui.Context, m *Model) {
 		}
 		ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
 			kit.Secondary(c.Key("cancel"), t("authorization_cancel")).OnClick(func() { e.open = false })
-			kit.Primary(c.Key("ok"), t(action), false).Children(func() { ui.Text(c, t(action)).FontSize(14) }).OnClick(func() {
+			kit.Primary(c.Key("ok"), t(action), e.pending).Children(func() { ui.Text(c, t(action)).FontSize(14) }).OnClick(func() {
 				for _, f := range k.Fields {
-					if method != "connector_oauth" && method != "connector_cli" && strings.TrimSpace(e.fields[f.Name]) == "" {
+					if method != "connector_oauth" && method != "connector_cli" && !f.Optional && !(m.Live && f.Secret && e.service != "") && strings.TrimSpace(e.fields[f.Name]) == "" {
 						kit.Toast(c, kit.Failed, t("mcp_invalid"))
 						return
 					}
+				}
+				if m.Live && m.ConnectorActions != nil && m.ConnectorActions.Save != nil {
+					e.pending = true
+					m.ConnectorActions.Save(ConnectorDraft{Type: k.ID, Service: e.service, Method: method, ExpectedRevision: e.revision, Fields: maps.Clone(e.fields)}, func(ok bool) {
+						e.pending = false
+						if ok {
+							e.open = false
+						}
+					})
+					return
 				}
 				if s := m.service(e.service); s == nil {
 					st := preview.Connected
@@ -498,7 +613,13 @@ func serviceDetails(c *ui.Context, m *Model) {
 		ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
 			kit.Secondary(c.Key("close"), t("close")).OnClick(func() { open = false })
 			kit.Primary(c.Key("reconnect"), t("connector_mcp_reconnect"), false).
-				Children(func() { ui.Text(c, t("connector_mcp_reconnect")).FontSize(14) }).OnClick(func() { notice(c) })
+				Children(func() { ui.Text(c, t("connector_mcp_reconnect")).FontSize(14) }).OnClick(func() {
+				if m.Live && m.ConnectorActions != nil && m.ConnectorActions.Reconnect != nil {
+					m.ConnectorActions.Reconnect(s.ID)
+				} else {
+					notice(c)
+				}
+			})
 		})
 	}).Width(min(560, width(c)-48)).Label(s.Name)
 	if !open {
@@ -583,6 +704,16 @@ func mcpDialog(c *ui.Context, m *Model) {
 		footer(c, t("settings_save"), func() { e.open = false }, func() {
 			if problem := e.Check(); problem != "" {
 				kit.Toast(c, kit.Failed, t(problem))
+				return
+			}
+			if m.Live && m.ConnectorActions != nil && m.ConnectorActions.SaveMCP != nil {
+				draft := MCPDraft{Service: e.original, Name: strings.TrimSpace(e.name), Revision: e.revision,
+					Server: preview.Server{Name: strings.TrimSpace(e.name), Transport: e.transport, Command: e.command, Args: slices.Clone(e.args), URL: e.url, Env: slices.Clone(e.slots)}}
+				m.ConnectorActions.SaveMCP(draft, func(ok bool) {
+					if ok {
+						e.open = false
+					}
+				})
 				return
 			}
 			e.save(m)

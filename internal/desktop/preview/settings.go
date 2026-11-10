@@ -10,7 +10,7 @@ import (
 // masked placeholders.
 
 // EnvVar is a terminal environment variable.
-type EnvVar struct{ Key, Value string }
+type EnvVar = viewmodel.EnvVar
 
 // Shell is a terminal shell a host offers; an empty Path is its default.
 type Shell struct {
@@ -91,7 +91,7 @@ type Settings struct {
 func SettingsData() *Settings {
 	return &Settings{
 		Version: "0.1.0", Errors: true, Metrics: true, Sandbox: true,
-		Env:    []EnvVar{{"EDITOR", "nvim"}, {"LANG", "en_US.UTF-8"}},
+		Env:    []EnvVar{{Key: "EDITOR", Value: "nvim"}, {Key: "LANG", Value: "en_US.UTF-8"}},
 		Shells: []Shell{{}, {Path: "/bin/zsh"}, {Path: "/bin/bash"}, {Path: "/opt/homebrew/bin/fish"}},
 		Devices: []Device{
 			{ID: "7f3a9c21", Name: "MacBook Pro", Platform: "macos", Execution: true, Online: true, Local: true},

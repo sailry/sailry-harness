@@ -5,6 +5,7 @@ import (
 	"database/sql"
 
 	"github.com/sailry/sailry-harness/internal/link"
+	"github.com/sailry/sailry-harness/internal/node/agent/model"
 	"github.com/sailry/sailry-harness/internal/node/providers"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -22,6 +23,22 @@ func (node *Node) prepareProvider(ctx context.Context, caller protocol.NodeID, r
 	})
 	if err != nil || work == nil {
 		return nil, err
+	}
+	if work.Provider != nil && model.PluginBound(*work.Provider) {
+		binding := model.Binding{Provider: *work.Provider, Secret: work.Secret}
+		capture, err := node.capturePluginModel(ctx, binding)
+		if err != nil {
+			return nil, err
+		}
+		catalog, err := model.DiscoverPlugin(ctx, binding, capture)
+		if err != nil {
+			return nil, err
+		}
+		output := protocol.Output{Kind: "discovered_models", Data: catalog}
+		if request.Command.Kind == "validate_provider" {
+			output = protocol.Output{Kind: "provider_validation", Data: providers.ValidateDiscovery(*work.Provider, catalog.Models)}
+		}
+		return &providers.Prepared{Provider: work.Provider, Output: &output}, nil
 	}
 	work.Directory = &node.providerDirectory
 	return providers.Run(ctx, *work)

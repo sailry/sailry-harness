@@ -25,6 +25,9 @@ func (a *App) downloadDialog(c *ui.Context) {
 		if a.Hooks.DownloadDialog != nil {
 			a.Hooks.DownloadDialog(c)
 		}
+		if a.Hooks.PackageDialogs != nil {
+			a.Hooks.PackageDialogs(c)
+		}
 		return
 	}
 	d := &a.download

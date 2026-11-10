@@ -97,6 +97,11 @@ release procedures are in [CONTRIBUTING.md](CONTRIBUTING.md); package rules are 
 - Use the libraries named by the backend plan. Do not hand-roll infrastructure,
   add unlisted retries or timeouts, revalidate our own data or duplicate checks a
   library already enforces. A failed spike uses only its documented fallback.
+- The user's November 10, 2026 B8 decision replaces gocron with a direct port of
+  the Rust dispatch calendar, standard production timers and clockwork tests.
+  This source port is explicitly authorized. QuickJS uses a fixed stack-slot
+  constant as the documented counterpart of Rust STACK_BYTES; byte equivalence
+  is not required, but recursion must fail without crashing the host.
 
 ## Dependencies and versions
 

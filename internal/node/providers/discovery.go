@@ -18,11 +18,11 @@ func Discover(ctx context.Context, provider protocol.ConversationProvider, secre
 	if provider.Api == protocol.ConversationModelApiPlugin {
 		return catalog, &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "custom model discovery requires its captured translation"}
 	}
+	if provider.Authentication != protocol.AuthenticationApiKey {
+		return discoverAccount(ctx, provider, secret)
+	}
 	if provider.Api == protocol.ConversationModelApiAzureAi || provider.Api == protocol.ConversationModelApiAzureOpenAi {
 		return catalog, invalid("cloud deployments require an explicit model ID")
-	}
-	if provider.Authentication != protocol.AuthenticationApiKey {
-		return catalog, &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "provider sign-in is required"}
 	}
 	root, err := Endpoint(provider.Endpoint)
 	if err != nil {

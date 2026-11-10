@@ -8,6 +8,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/sailry/sailry-harness/internal/node/providers"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -41,7 +42,14 @@ func providerCredentialMetadata(provider protocol.ProviderID, id protocol.Creden
 	if revision == 0 {
 		revision = 1
 	}
-	return protocol.Credential{ID: id, Provider: provider, Authentication: authentication, Revision: revision, ExpiresAtMs: saved.ExpiresAtMs, Revoked: saved.Key == nil}
+	metadata := protocol.Credential{ID: id, Provider: provider, Authentication: authentication, Revision: revision, ExpiresAtMs: saved.ExpiresAtMs, Revoked: saved.Key == nil}
+	if authentication != protocol.AuthenticationApiKey && saved.Key != nil {
+		var grant providers.AccountGrant
+		if json.Unmarshal([]byte(saved.Key.Expose()), &grant) == nil {
+			metadata.AccountLabel = grant.Label()
+		}
+	}
+	return metadata
 }
 func providerCredentials(ctx context.Context, db *sql.Conn) ([]protocol.Credential, error) {
 	saved, err := readBodies[providerConfiguration](ctx, db, "SELECT body FROM providers ORDER BY rowid")

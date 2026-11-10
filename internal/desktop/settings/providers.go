@@ -93,7 +93,11 @@ func providers(c *ui.Context, s *State) {
 			kit.Toast(c, kit.Failed, i18n.T(c, "provider_login_callback_required"))
 			return
 		}
-		notice(c)
+		if m.Live && m.ProviderActions.SubmitLogin != nil {
+			m.ProviderActions.SubmitLogin(m.login.Pasted)
+		} else {
+			notice(c)
+		}
 	})
 	if ch := m.channel(m.removing); ch != nil {
 		open := true
@@ -304,6 +308,9 @@ func (m *Model) channel(id string) *preview.Channel {
 // browser page with the pasted callback.
 func (m *Model) signIn(id string) {
 	if m.Live {
+		if m.ProviderActions.SignIn != nil {
+			m.ProviderActions.SignIn(id)
+		}
 		return
 	}
 	ch := m.channel(id)
@@ -385,7 +392,8 @@ func (e *providerEditor) edit(m *Model, ch *preview.Channel) {
 	*e = providerEditor{open: true, step: stepConfigure, editing: ch.ID, id: ch.ID, generation: e.generation + 1, name: ch.Name, endpoint: ch.Endpoint,
 		keySet: ch.KeySet, models: draftsOf(ch.Models), def: ch.Default}
 	e.revision = ch.Revision
-	if m.Live && m.ProviderActions.ReadKey != nil {
+	e.oauth = ch.OAuth
+	if m.Live && ch.Auth == preview.AuthKey && m.ProviderActions.ReadKey != nil {
 		id := ch.ID
 		generation := e.generation
 		m.ProviderActions.ReadKey(id, func(set bool) {
@@ -516,7 +524,9 @@ func (e *providerEditor) save(m *Model) string {
 		e.probing = true
 		channel := preview.Channel{ID: e.id, Revision: e.revision, Name: strings.TrimSpace(e.name), Brand: brand, Method: e.method.ID, API: e.method.API, Endpoint: e.endpoint, Auth: auth, Enabled: true, KeySet: e.keySet, Models: models, Default: e.def}
 		generation := e.generation
-		m.ProviderActions.Save(ProviderDraft{Channel: channel, Key: e.key, ExpectedRevision: e.revision}, func(ok bool) {
+		signIn := e.login() && e.editing == ""
+		id := e.id
+		m.ProviderActions.Save(ProviderDraft{Channel: channel, Key: e.key, ExpectedRevision: e.revision, OAuth: e.oauth}, func(ok bool) {
 			if e.generation != generation || !e.open {
 				return
 			}
@@ -524,6 +534,9 @@ func (e *providerEditor) save(m *Model) string {
 			if ok {
 				e.open = false
 				e.key = ""
+				if signIn {
+					m.signIn(id)
+				}
 			}
 		})
 		return ""

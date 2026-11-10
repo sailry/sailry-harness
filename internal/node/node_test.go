@@ -13,8 +13,10 @@ import (
 	"testing"
 
 	git "github.com/go-git/go-git/v5"
+	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node/admission"
+	"github.com/sailry/sailry-harness/internal/node/mcp"
 	"github.com/sailry/sailry-harness/internal/node/process"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -732,5 +734,11 @@ func TestResetRequiredRecovers(t *testing.T) {
 
 func startFixtureNode(ctx context.Context, path string) (*Node, error) {
 	environment := process.NewEnvironment([]string{"PATH=/usr/bin:/bin"})
-	return StartWithOptions(ctx, path, Options{Environment: &environment})
+	return StartWithOptions(ctx, path, Options{Environment: &environment, MCP: fixtureMCPOptions()})
+}
+
+func fixtureMCPOptions() *mcp.Options {
+	return &mcp.Options{Open: func(context.Context, mcp.Launch, func(context.Context, *sdk.ElicitRequest) (*sdk.ElicitResult, error)) (*sdk.ClientSession, error) {
+		return nil, &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "fixture MCP server is unavailable"}
+	}}
 }

@@ -13,23 +13,27 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/agent/operations"
 	"github.com/sailry/sailry-harness/internal/node/agent/output"
 	"github.com/sailry/sailry-harness/internal/node/hooks"
+	"github.com/sailry/sailry-harness/internal/node/python"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 // Options exposes the actual model and clock boundaries to deterministic tests.
 type Options struct {
-	ValidateWorktree func(context.Context, protocol.WorktreeID) error
-	Attachment       func(context.Context, protocol.TurnID, protocol.AttachmentID) (protocol.Attachment, bool, error)
-	AttachmentBytes  func(context.Context, protocol.Attachment) ([]byte, error)
-	Clock            clock.Clock
-	Model            func(context.Context, model.Binding) (fantasy.LanguageModel, error)
-	Tools            []Tool
-	ToolsForTurn     func(context.Context, *store.AgentInvocation) ([]Tool, error)
-	HooksForTurn     func(context.Context, *store.AgentInvocation) *hooks.Binding
+	Python            *python.Manager
+	ValidateWorktree  func(context.Context, protocol.WorktreeID) error
+	Attachment        func(context.Context, protocol.TurnID, protocol.AttachmentID) (protocol.Attachment, bool, error)
+	AttachmentBytes   func(context.Context, protocol.Attachment) ([]byte, error)
+	Clock             clock.Clock
+	Model             func(context.Context, model.Binding) (fantasy.LanguageModel, error)
+	AuthorizeProvider func(context.Context, *store.AgentInvocation) error
+	Tools             []Tool
+	ToolsForTurn      func(context.Context, *store.AgentInvocation) ([]Tool, error)
+	HooksForTurn      func(context.Context, *store.AgentInvocation) *hooks.Binding
 }
 
 type Runtime struct {
+	python            *python.Manager
 	validateWorktree  func(context.Context, protocol.WorktreeID) error
 	attachment        func(context.Context, protocol.TurnID, protocol.AttachmentID) (protocol.Attachment, bool, error)
 	attachmentBytes   func(context.Context, protocol.Attachment) ([]byte, error)
@@ -42,6 +46,7 @@ type Runtime struct {
 	publish           func()
 	clock             clock.Clock
 	model             func(context.Context, model.Binding) (fantasy.LanguageModel, error)
+	authorizeProvider func(context.Context, *store.AgentInvocation) error
 	tools             []Tool
 	ctx               context.Context
 	cancel            context.CancelFunc
@@ -61,6 +66,7 @@ type Runtime struct {
 }
 
 type execution struct {
+	python            []python.Access
 	resources         *operations.Resources
 	skillContext      string
 	modeContext       string
@@ -80,6 +86,9 @@ type execution struct {
 	wake              chan struct{}
 	guidance          chan struct{}
 	tools             []Tool
+	toolCleanup       []func() error
+	inputMu           sync.Mutex
+	inputWake         chan struct{}
 	output            output.Cache
 }
 
@@ -91,7 +100,7 @@ func New(db *store.Handle, node protocol.NodeID, profile string, frames *feed.Hu
 		options.Model = model.New
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Runtime{validateWorktree: options.ValidateWorktree, attachment: options.Attachment, attachmentBytes: options.AttachmentBytes, db: db, node: node, profile: profile, feed: frames, publish: publish, clock: options.Clock, model: options.Model, tools: options.Tools, toolsForTurn: options.ToolsForTurn, hooksForTurn: options.HooksForTurn, ctx: ctx, cancel: cancel, done: make(chan struct{}), wake: make(chan struct{}, 1), active: map[protocol.TurnID]*execution{}, children: map[protocol.TurnID]*delegatedChild{}, activity: make(chan struct{}), statistics: map[protocol.SessionID]bool{}}
+	return &Runtime{python: options.Python, validateWorktree: options.ValidateWorktree, attachment: options.Attachment, attachmentBytes: options.AttachmentBytes, db: db, node: node, profile: profile, feed: frames, publish: publish, clock: options.Clock, model: options.Model, authorizeProvider: options.AuthorizeProvider, tools: options.Tools, toolsForTurn: options.ToolsForTurn, hooksForTurn: options.HooksForTurn, ctx: ctx, cancel: cancel, done: make(chan struct{}), wake: make(chan struct{}, 1), active: map[protocol.TurnID]*execution{}, children: map[protocol.TurnID]*delegatedChild{}, activity: make(chan struct{}), statistics: map[protocol.SessionID]bool{}}
 }
 
 // Recover closes interrupted owners and holds every surviving queue. It never
@@ -251,6 +260,12 @@ func (r *Runtime) Committed() {
 		case x.wake <- struct{}{}:
 		default:
 		}
+		x.inputMu.Lock()
+		if x.inputWake != nil {
+			close(x.inputWake)
+			x.inputWake = make(chan struct{})
+		}
+		x.inputMu.Unlock()
 		select {
 		case x.guidance <- struct{}{}:
 		default:

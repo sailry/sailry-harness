@@ -1700,3 +1700,85 @@ live_update_check: Check
 live_update_download: Prepare
 live_update_apply: Apply
 live_update_retry: Retry
+provider_login_failed: 로그인 실패; 다시 시도하십시오
+provider_login_unknown: 로그인 결과가 확인되지 않았습니다. 다시 시도하십시오
+connector_conflict: 연결이 변경되었습니다. 다시 여세요
+connector_unknown: 연결 결과를 확인한 후 다시 시도하세요
+authorization_connected: 연결됨
+connector_bound: 연동됨
+connector_checked: 연결 정상
+connector_mcp_reconnected: 연결됨, 도구 %{n}개
+connector_consent_effect: 계속하기 전에 변경된 인증 대상을 확인하세요
+connector_changed_origins: 출처
+connector_changed_scopes: 권한 범위
+connector_changed_client: 클라이언트
+connector_changed_flow: 로그인 방식
+connector_changed_targets: 인증 정보 대상
+connector_changed_mcp: MCP 서버
+connector_changed_source: 패키지 출처
+appearance_up_to_date: 테마가 최신 상태입니다
+appearance_updates_available: 업데이트 있음
+market_themes_failed: 테마를 불러올 수 없습니다
+appearance_export_done: 테마를 내보냈습니다
+appearance_export_failed: 테마를 내보낼 수 없습니다. 다시 시도하세요
+appearance_removed: 테마를 제거했습니다
+appearance_remove_failed: 테마가 완전히 제거되지 않았습니다. 다시 시도하십시오
+appearance_import_done: 테마를 가져왔습니다
+appearance_import_invalid: 가져올 수 없습니다. 테마 패키지와 자원을 확인하십시오
+appearance_save_failed: 테마가 저장되지 않았습니다. 다시 시도하십시오
+appearance_save_uncertain: 교체 결과가 불확실합니다. 설치된 테마를 확인하세요
+directory_outcome_unknown: 결과가 확인되지 않았습니다. 먼저 원본과 대상 경로를 확인하십시오
+market_permission_artifacts_read: 아티팩트 읽기
+market_permission_artifacts_write: 아티팩트 저장
+market_permission_code_read: 코드 읽기
+market_permission_code_manage: 코드 관리
+market_permission_code_settings_read: 코드 설정 읽기
+market_permission_code_settings_write: 코드 설정 변경
+market_permission_web_settings_read: 검색 설정 읽기
+market_permission_web_settings_write: 검색 설정 변경
+market_permission_activity_read: 활동 읽기
+market_permission_usage_read: 사용량 읽기
+market_permission_databases_read: 데이터베이스 연결 읽기
+market_permission_databases_manage: 데이터베이스 연결 관리
+market_permission_ssh_read: SSH 연결 읽기
+market_permission_ssh_control: SSH 세션 사용
+market_permission_ssh_manage: SSH 연결 관리
+market_permission_agents_delegate: 하위 에이전트에 위임
+market_permission_roles_read: 역할 읽기
+market_permission_teams_read: 팀 읽기
+market_permission_roles_write: 역할 변경
+market_permission_models_read: 모델 읽기
+market_permission_decisions_run: 로컬 결정 실행
+market_permission_models_provide: 모델 제공
+market_permission_models_authenticate: 모델 서비스 로그인
+market_permission_credentials_inspect: 자격 증명 확인
+market_permission_models_install: 모델 설치
+market_permission_media_inspect: 미디어 보기
+market_permission_media_image: 이미지 생성
+market_permission_media_video: 동영상 생성
+market_permission_media_settings_read: 미디어 설정 읽기
+market_permission_media_settings_write: 미디어 설정 변경
+market_permission_computer_read: 화면 및 창 보기
+market_permission_computer_control: 컴퓨터 제어
+market_permission_browser_read: 내장 브라우저 읽기
+market_permission_external_browser_read: 외부 브라우저 읽기
+market_permission_external_browser_control: 외부 브라우저 제어
+market_permission_notifications_publish: 알림 보내기
+market_permission_dispatch_manage: 작업 배정 관리
+market_permission_files_write: 파일 변경
+market_permission_worktrees_read: 작업 트리 읽기
+market_permission_worktrees_write: 작업 트리 관리
+market_permission_process_read: 명령 보기
+market_permission_process_control: 명령 실행
+market_permission_terminals_read: 터미널 읽기
+market_permission_conversation_read: 대화 읽기
+market_permission_conversation_control: 대화 제어
+market_permission_conversation_message_read: 메시지 읽기
+market_permission_sessions_start: 대화 시작
+market_permission_projects_read: 프로젝트 읽기
+market_permission_web_read: 웹 페이지 읽기
+market_permission_models_generate: 모델 사용
+market_permission_storage_read: 플러그인 데이터 읽기
+market_permission_storage_write: 플러그인 데이터 저장
+market_permission_knowledge_read: 지식 읽기
+market_permission_knowledge_write: 지식 변경

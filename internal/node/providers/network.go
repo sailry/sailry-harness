@@ -129,6 +129,10 @@ func Endpoint(value string) (*url.URL, error) {
 	return endpoint, nil
 }
 func headers(provider protocol.ConversationProvider, secret *protocol.Secret) (http.Header, error) {
+	if provider.Authentication != protocol.AuthenticationApiKey {
+		_, headers, err := AccountHeaders(provider, secret)
+		return headers, err
+	}
 	result := http.Header{}
 	if secret != nil {
 		name, value := "authorization", "Bearer "+secret.Expose()

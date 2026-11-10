@@ -182,6 +182,8 @@ type Authorization struct {
 	Pasted     string
 	Busy       bool
 	Cancelling bool
+	OpenURL    func(string)
+	Cancel     func()
 }
 
 // authorization is a 48 DIP tile, the title, a hint, the code in cells, a
@@ -194,7 +196,8 @@ func authorization(c *ui.Context, key any, a *Authorization, tile func(), refres
 	}
 	p := theme.Of(c)
 	t := func(k string, args ...any) string { return i18n.T(c, k, args...) }
-	kit.Dialog(c.Key(key), &a.Open, func() {
+	open := a.Open
+	kit.Dialog(c.Key(key), &open, func() {
 		ui.Column(c.Key("authorization")).AlignItems(ui.Center).Padding(12, 8, 4, 8).Children(func() {
 			ui.Row(c).Size(48, 48).Center().Children(tile)
 			ui.Text(c, a.Title).FontSize(16).FontWeight(600).SingleLine().Margin(14, 0, 0, 0)
@@ -262,7 +265,13 @@ func authorization(c *ui.Context, key any, a *Authorization, tile func(), refres
 						Children(func() { ui.Text(c, t("provider_login_continue")).FontSize(14) }).OnClick(submit)
 				})
 			}
-			open := func() { notice(c) }
+			open := func() {
+				if a.OpenURL != nil {
+					a.OpenURL(a.URL)
+				} else {
+					notice(c)
+				}
+			}
 			var secondary, primary string
 			var onSecondary, onPrimary func()
 			switch a.Flow {
@@ -298,9 +307,22 @@ func authorization(c *ui.Context, key any, a *Authorization, tile func(), refres
 				gap = 8
 			}
 			kit.Secondary(c.Key("cancel"), t("authorization_cancel")).FillWidth().Margin(gap, 0, 0, 0).Disabled(a.Cancelling).
-				OnClick(func() { a.Open = false })
+				OnClick(func() {
+					if a.Cancel != nil {
+						a.Cancel()
+					} else {
+						a.Open = false
+					}
+				})
 		})
 	}).Width(min(400, width(c)-48)).Label(a.Title)
+	if !open && a.Open && !a.Cancelling {
+		if a.Cancel != nil {
+			a.Cancel()
+		} else {
+			a.Open = false
+		}
+	}
 }
 
 // host is a URL's host name, for the code hint.

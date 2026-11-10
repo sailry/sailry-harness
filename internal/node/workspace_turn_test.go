@@ -87,7 +87,7 @@ func TestWorkspaceNativeTurn(t *testing.T) {
 			return protocol.ProcessCompletion{Outcome: protocol.ProcessOutcome{Kind: "exited", Data: int32(0)}}, nil
 		},
 	}
-	node, err := StartWithOptions(t.Context(), filepath.Join(t.TempDir(), "profile"), Options{Environment: &environment, Process: processOptions, Model: func(context.Context, model.Binding) (fantasy.LanguageModel, error) { return script, nil }})
+	node, err := StartWithOptions(t.Context(), filepath.Join(t.TempDir(), "profile"), Options{MCP: fixtureMCPOptions(), Environment: &environment, Process: processOptions, Model: func(context.Context, model.Binding) (fantasy.LanguageModel, error) { return script, nil }})
 	if err != nil {
 		t.Fatal(err)
 	}

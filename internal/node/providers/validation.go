@@ -50,17 +50,17 @@ func ValidateConfiguration(provider protocol.ConversationProvider) error {
 				return invalid("reasoning choices must be unique, bounded and include the default")
 			}
 		}
-		if err := validateFeatures(provider.Api, model, nil); err != nil {
+		if err := ValidateFeatures(provider.Api, model, nil); err != nil {
 			return err
 		}
 	}
 	if len(provider.Models) > 0 && !ids[provider.DefaultModel] {
 		return invalid("default model is not in this provider")
 	}
-	if provider.Authentication != protocol.AuthenticationApiKey {
-		return &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "provider sign-in is not configured"}
+	if _, err := OAuthFields(provider); err != nil {
+		return err
 	}
-	if provider.Api == protocol.ConversationModelApiPlugin {
+	if provider.Api == protocol.ConversationModelApiPlugin && (provider.Binding == nil || *provider.Binding == nil || (**provider.Binding).Adapter == nil) {
 		return &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "plugin model requires its captured translation"}
 	}
 	if err := ValidateBinding(provider); err != nil {
@@ -101,7 +101,7 @@ func ValidateSelection(provider protocol.ConversationProvider, config protocol.S
 					return err
 				}
 			}
-			return validateFeatures(provider.Api, model, config.Features)
+			return ValidateFeatures(provider.Api, model, config.Features)
 		}
 	}
 	if len(config.Features) > 0 {
@@ -165,7 +165,7 @@ func validateEffort(api protocol.ConversationModelApi, effort protocol.Effort, o
 	}
 	return nil
 }
-func validateFeatures(api protocol.ConversationModelApi, model protocol.ConversationModel, selected map[string]string) error {
+func ValidateFeatures(api protocol.ConversationModelApi, model protocol.ConversationModel, selected map[string]string) error {
 	var features []protocol.ConversationFeaturesFeature
 	if model.Capabilities != nil {
 		features = model.Capabilities.Features
@@ -187,13 +187,14 @@ func validateFeatures(api protocol.ConversationModelApi, model protocol.Conversa
 		return true
 	}
 	for _, feature := range features {
-		if !validID(feature.ID) || ids[feature.ID] || len(feature.Options) == 0 || len(feature.Options) > 16 || feature.Name != nil && !identifier(*feature.Name, 256) {
+		if !validID(feature.ID) || ids[feature.ID] || len(feature.Options) == 0 || len(feature.Options) > 16 ||
+			feature.Name != nil && !identifier(*feature.Name, 256) || feature.Icon != nil && !feature.Icon.Valid() {
 			return invalid("model feature declarations must be unique and bounded")
 		}
 		ids[feature.ID] = true
 		options := map[string]bool{}
 		for _, option := range feature.Options {
-			if !validID(option.ID) || options[option.ID] || option.Name != nil && !identifier(*option.Name, 256) {
+			if !validID(option.ID) || options[option.ID] || option.Name != nil && !identifier(*option.Name, 256) || option.Icon != nil && !option.Icon.Valid() {
 				return invalid("model feature declarations must be unique and bounded")
 			}
 			options[option.ID] = true
@@ -214,12 +215,15 @@ func ValidateBinding(provider protocol.ConversationProvider) error {
 	if provider.Binding == nil || *provider.Binding == nil {
 		return nil
 	}
-	if provider.Preset == nil || provider.Preset.Source.Kind != "partner" {
+	if provider.Preset == nil || (provider.Preset.Source.Kind != "partner" && provider.Preset.Source.Kind != "package") {
 		return invalid("captured channel bindings cannot be saved as configuration")
 	}
 	binding := **provider.Binding
-	if binding.Package != nil || binding.Origin != nil || binding.Auth != nil || binding.Adapter != nil {
+	if provider.Preset.Source.Kind == "partner" && (binding.Package != nil || binding.Origin != nil || binding.Auth != nil || binding.Adapter != nil) {
 		return invalid("partner policy cannot bind executable package resources")
+	}
+	if provider.Preset.Source.Kind == "package" && (binding.Package == nil || binding.Origin == nil) {
+		return invalid("package policy requires an immutable package capture")
 	}
 	for _, policy := range binding.Policies {
 		if err := ValidatePolicy(policy); err != nil {
@@ -230,7 +234,7 @@ func ValidateBinding(provider protocol.ConversationProvider) error {
 		if err := validateInjection(*binding.KeyInjection); err != nil {
 			return err
 		}
-		if provider.Api != protocol.ConversationModelApiChatCompletions && provider.Api != protocol.ConversationModelApiResponses && provider.Api != protocol.ConversationModelApiAnthropic {
+		if provider.Api != protocol.ConversationModelApiChatCompletions && provider.Api != protocol.ConversationModelApiResponses && provider.Api != protocol.ConversationModelApiAnthropic && !(provider.Api == protocol.ConversationModelApiPlugin && binding.Adapter != nil) {
 			return invalid("channel protocol does not support custom key headers")
 		}
 	}

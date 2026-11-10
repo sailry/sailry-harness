@@ -114,72 +114,42 @@ var Discovered = []ChannelModel{
 }
 
 // ConnState is a connector account's state (connector::State).
-type ConnState int
+type ConnState = viewmodel.ConnState
 
 const (
-	Unconnected ConnState = iota
-	Connecting
-	Connected
-	Expired
-	NeedsConfirmation
-	ConnFailed
+	Unconnected       = viewmodel.Unconnected
+	Connecting        = viewmodel.Connecting
+	Connected         = viewmodel.Connected
+	Expired           = viewmodel.Expired
+	NeedsConfirmation = viewmodel.NeedsConfirmation
+	ConnFailed        = viewmodel.ConnFailed
 )
 
 // ServerState is an MCP server's runtime state; ServerAuth is a server
 // waiting for its connector's credentials (Availability::ConnectionRequired).
-type ServerState int
+type ServerState = viewmodel.ServerState
 
 const (
-	ServerUp ServerState = iota
-	ServerStarting
-	ServerDown
-	ServerAuth
+	ServerUp       = viewmodel.ServerUp
+	ServerStarting = viewmodel.ServerStarting
+	ServerDown     = viewmodel.ServerDown
+	ServerAuth     = viewmodel.ServerAuth
 )
 
 // Server is an MCP server of a connector or added by hand.
-type Server struct {
-	Name      string
-	Transport int // 0 stdio, 1 streamable HTTP, 2 SSE
-	Command   string
-	Args      []string
-	URL       string
-	Env       []EnvVar // environment (stdio) or headers (HTTP); values are never loaded
-	Allowed   bool
-	State     ServerState
-	Tools     int
-	Updated   string // "2026-11-09 11:42:10"
-	Error     string
-}
+type Server = viewmodel.ConnectorServer
 
 // ConnectorField is a value a connector asks for.
-type ConnectorField struct {
-	Name, Title string
-	Secret      bool
-	Help        bool // the field links to its help page
-}
+type ConnectorField = viewmodel.ConnectorField
 
 // ConnectorType is a connector a plugin declares (catalog types): its
 // methods by i18n key (connector_oauth, _token, _application, _cli) and
 // fields.
-type ConnectorType struct {
-	ID, Package, Name, Description string
-	Methods                        []string
-	Fields                         []ConnectorField
-	Enabled                        bool
-}
+type ConnectorType = viewmodel.ConnectorType
 
 // Service is a row of the Connectors page: a connector's account, its MCP
 // servers, or an MCP server added by hand (Manual).
-type Service struct {
-	ID, Type, Name, Description string
-	Identity                    string // the account's identity
-	Method                      string // the account's method key; "" none
-	Account                     bool
-	State                       ConnState
-	AccountOn                   bool
-	Manual                      bool
-	Servers                     []Server
-}
+type Service = viewmodel.ConnectorService
 
 // Connectors is the connectors page's dataset.
 type Connectors struct {
@@ -258,56 +228,27 @@ func TeamsData() *TeamSet {
 
 // PackageKind classifies a package by what it provides: plugins show in
 // Plugins, skill packages in Skills, MCP packages in Connectors.
-type PackageKind int
+type PackageKind = viewmodel.PackageKind
 
 const (
-	KindPlugin PackageKind = iota
-	KindSkill
-	KindMCP
+	KindPlugin = viewmodel.KindPlugin
+	KindSkill  = viewmodel.KindSkill
+	KindMCP    = viewmodel.KindMCP
 )
 
 // Setting is a plugin configuration field: Kind is "text", "secret", "bool",
 // "choice" or "number". A secret's value is never loaded; Set says one is
 // saved.
-type Setting struct {
-	Name, Title, Kind string
-	Options           []string
-	Value             string
-	Set, Required     bool
-}
+type Setting = viewmodel.Setting
 
 // Package is an installed or catalog plugin (plugin::Summary and Info).
-type Package struct {
-	ID, Name, Description string
-	Version, Latest       string // Latest > Version is an update
-	Requires              string // the newer Sailry an update needs; "" compatible
-	Kind                  PackageKind
-	Category              string // market_category_*
-	Source                string // market_details_source_*
-	Official, Enabled     bool
-	Installed             bool
-	Tools, Skills, MCP    []string
-	Permissions           []string // market_permission_* keys
-	Notes                 string   // the latest version's release notes
-	Settings              []Setting
-	Versions              []string
-}
+type Package = viewmodel.Package
 
 // Skill is an installed skill.
-type Skill struct {
-	ID, Name, Description string
-	Package               string // the plugin it came with; "" imported
-	Origin                string // the source it was imported from
-	Enabled, Update       bool
-}
+type Skill = viewmodel.Skill
 
 // MarketTheme is a theme in the market.
-type MarketTheme struct {
-	ID, Name, Description       string
-	Dark, Light                 bool
-	Installed, Builtin, Current bool
-	Update                      bool
-}
+type MarketTheme = viewmodel.MarketTheme
 
 // LibraryModel is a model the model library finds (model_library rows).
 type LibraryModel struct {

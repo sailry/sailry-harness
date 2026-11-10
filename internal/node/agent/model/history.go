@@ -17,6 +17,9 @@ import (
 )
 
 func BuildCall(binding Binding, request Request) (fantasy.Call, error) {
+	if PluginBound(binding.Provider) {
+		return BuildPluginCall(binding, request)
+	}
 	call := fantasy.Call{MaxOutputTokens: request.MaxOutputTokens, Temperature: request.Temperature, Headers: request.Headers, ProviderOptions: fantasy.ProviderOptions{}}
 	if call.MaxOutputTokens == nil {
 		if limit := OutputLimit(binding, false); limit > 0 {

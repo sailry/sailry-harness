@@ -1,5 +1,17 @@
 # Transfers
 
+B8 fills the installation rail from each authenticated Node's `installations`
+topic through Client. Failed and uncertain requests remain until the Node accepts
+Dismiss. A known failed request may be submitted again by an explicit Retry;
+uncertain Retry inspects the original request and keeps its identity. Entries
+from other controllers are visible but have no fabricated retry command.
+This follows the source's optional domain retry capture: observation alone does
+not grant authority to reconstruct or replay a command. A retryable uncertain
+request keeps its original identity until inspection yields a known outcome.
+Progress, phase and speed come from the Node queue; no preview timer runs in
+live mode. The transfer `Queue` adds optional dismiss/retry callbacks while its
+preview behavior and existing fields remain intact.
+
 The installation requests the rail shows and the Save as dialog
 (the reference implementation `installations.rs`, `installations/{popover,rows}.rs`,
 `downloads.rs`, `downloads/transfer.rs`).

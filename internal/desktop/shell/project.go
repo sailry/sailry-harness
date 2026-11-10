@@ -24,6 +24,7 @@ type ProjectActions struct {
 	OpenSession    func(*viewmodel.Conversation, func(bool))
 	Repository     func() ProjectRepository
 	Initialize     func(func(bool))
+	CLI            func(*viewmodel.Project)
 }
 
 type projectOverview struct {
@@ -116,11 +117,16 @@ func (a *App) projectView(c *ui.Context) {
 				}).OnClick(func() { state.actions.NewSession(project) })
 				for _, key := range []string{"workspace_new_terminal", "cli_launch"} {
 					label := i18n.T(c, key)
-					button := kit.Secondary(c.Key(key), label).Disabled(true).Children(func() {
+					available := key == "cli_launch" && state.actions.CLI != nil
+					button := kit.Secondary(c.Key(key), label).Disabled(!available).Children(func() {
 						ui.Icon(c, icons.Terminal).FontSize(16)
 						ui.Text(c, label).FontSize(14)
 					})
-					kit.Tooltip(c, button, i18n.T(c, "unavailable"))
+					if available {
+						button.OnClick(func() { state.actions.CLI(project) })
+					} else {
+						kit.Tooltip(c, button, i18n.T(c, "unavailable"))
+					}
 				}
 			})
 			a.projectRecordsView(c, project, state)

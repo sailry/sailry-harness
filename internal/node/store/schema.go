@@ -168,7 +168,20 @@ func prepareSchema(ctx context.Context, handle *Handle, node protocol.NodeID) (c
 				return nil
 			}
 		}
-		definition.expected, err = referenceSchema(ctx, filepath.Dir(handle.Path()))
+		var pluginIndexes []string
+		if !fresh {
+			var declared uint64
+			if err := connection.QueryRowContext(ctx, "SELECT count(*) FROM sqlite_schema WHERE type='table' AND name IN ('plugins','plugin_values')").Scan(&declared); err != nil {
+				return err
+			}
+			if declared == 2 {
+				pluginIndexes, err = PluginSearchDefinitions(ctx, connection)
+				if err != nil {
+					return err
+				}
+			}
+		}
+		definition.expected, err = referenceSchema(ctx, filepath.Dir(handle.Path()), pluginIndexes...)
 		if err != nil {
 			return err
 		}
@@ -361,7 +374,7 @@ func currentGeneration(ctx context.Context, connection *sql.Conn, path string) (
 	return true, nil
 }
 
-func referenceSchema(ctx context.Context, parent string) (schemaObjects, error) {
+func referenceSchema(ctx context.Context, parent string, additional ...string) (schemaObjects, error) {
 	directory := filepath.Join(parent, ".schema-reference-"+uuid.NewString())
 	if err := core.PrivateDirectory(directory); err != nil {
 		return nil, err
@@ -373,8 +386,15 @@ func referenceSchema(ctx context.Context, parent string) (schemaObjects, error) 
 	}
 	defer handle.Close()
 	if err := handle.Write(ctx, func(connection *sql.Conn) error {
-		_, err := connection.ExecContext(ctx, sqliteSchema(NodeSchema))
-		return err
+		if _, err := connection.ExecContext(ctx, sqliteSchema(NodeSchema)); err != nil {
+			return err
+		}
+		for _, definition := range additional {
+			if _, err := connection.ExecContext(ctx, definition); err != nil {
+				return err
+			}
+		}
+		return nil
 	}); err != nil {
 		return nil, err
 	}

@@ -26,6 +26,7 @@ type Actions struct {
 	Export        func(*viewmodel.Conversation, conversation.ExportFormat)
 	OpenWorkspace func(*viewmodel.Project, *viewmodel.Conversation)
 	Overview      func(*viewmodel.Project)
+	CLI           func(*viewmodel.Project)
 }
 
 func (s *State) removeLabel() string {

@@ -16,6 +16,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/sailry/sailry-harness/internal/core"
+	"github.com/sailry/sailry-harness/internal/node/plugins"
+	"github.com/sailry/sailry-harness/internal/node/python"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"go.yaml.in/yaml/v3"
 	"lukechampine.com/blake3"
@@ -25,12 +27,15 @@ const SkillBytes = 128 * 1024
 
 // Package keeps metadata and resources from one immutable bundled digest.
 type Package struct {
-	Reference protocol.PluginReference
-	Skills    []protocol.PluginSkill
-	Scope     protocol.PluginScope
-	Modes     []protocol.PluginModesDeclaration
-	Options   json.RawMessage
-	tree      fs.FS
+	Reference  protocol.PluginReference
+	Skills     []protocol.PluginSkill
+	Scope      protocol.PluginScope
+	Modes      []protocol.PluginModesDeclaration
+	Options    json.RawMessage
+	standalone bool
+	tree       fs.FS
+	directory  string
+	read       func(context.Context, string, int) ([]byte, error)
 }
 
 type Resources struct {
@@ -56,7 +61,27 @@ func CaptureResources(profile string, references []protocol.PluginReference, ass
 			return p.Reference.Name == reference.Name && p.Reference.Digest == reference.Digest
 		})
 		if index < 0 {
-			return nil, resourceFault(protocol.ErrorCodeNotConfigured, "plugin resource is unavailable in this turn's package versions")
+			manager := plugins.NewManager(profile)
+			info, err := manager.CapturedInfo(context.Background(), reference)
+			if err != nil {
+				return nil, err
+			}
+			directory, err := manager.PackageRoot(reference)
+			if err != nil {
+				return nil, err
+			}
+			captured := Package{Reference: reference, Skills: info.Skills, directory: directory, standalone: info.Skill != nil}
+			captured.read = func(ctx context.Context, name string, limit int) ([]byte, error) {
+				return manager.ReadResource(ctx, reference, name, limit)
+			}
+			if info.Extension != nil {
+				captured.Scope, captured.Modes = info.Extension.Scope, info.Extension.ConversationModes
+				if info.Extension.ConversationOptions != nil {
+					captured.Options = *info.Extension.ConversationOptions
+				}
+			}
+			value.packages = append(value.packages, captured)
+			continue
 		}
 		captured := catalog.Packages[index]
 		captured.Reference = reference
@@ -73,6 +98,40 @@ func (r *Resources) Skills() map[string]protocol.PluginSkill {
 		}
 	}
 	return values
+}
+
+func (r *Resources) Python(ctx context.Context, key string, manager *python.Manager) (*python.Ready, error) {
+	owner, _, _ := strings.Cut(key, ":")
+	index := slices.IndexFunc(r.packages, func(value Package) bool { return value.Reference.Name == owner })
+	if index < 0 || manager == nil {
+		return nil, nil
+	}
+	value := r.packages[index]
+	var requirements *python.Requirements
+	if !value.standalone {
+		var content []byte
+		var err error
+		if value.read != nil {
+			content, err = value.read(ctx, "requirements.txt", 512*1024)
+		} else {
+			content, err = fs.ReadFile(value.tree, "requirements.txt")
+		}
+		var fault *protocol.Fault
+		if err != nil && !errors.Is(err, fs.ErrNotExist) && (!errors.As(err, &fault) || fault.Code != protocol.ErrorCodeNotFound) {
+			return nil, err
+		}
+		if err == nil {
+			requirements, err = python.NewRequirements(value.Reference, string(content))
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+	ready, err := manager.Ensure(ctx, requirements)
+	if err != nil && requirements == nil && ctx.Err() == nil {
+		return nil, nil
+	}
+	return ready, err
 }
 
 func (r *Resources) Catalog() (string, error) {
@@ -110,7 +169,13 @@ func (r *Resources) Read(ctx context.Context, key, relative string) (SkillText, 
 	}
 	p := r.packages[index]
 	resource := path.Join("skills", name, relative)
-	expected, err := fs.ReadFile(p.tree, resource)
+	var expected []byte
+	var err error
+	if p.read != nil {
+		expected, err = p.read(ctx, resource, SkillBytes)
+	} else {
+		expected, err = fs.ReadFile(p.tree, resource)
+	}
 	if err != nil {
 		return SkillText{}, resourceFault(protocol.ErrorCodeNotFound, "skill resource is missing")
 	}
@@ -156,6 +221,9 @@ func (r *Resources) Read(ctx context.Context, key, relative string) (SkillText, 
 // materialize exposes embedded resources through the existing profile package
 // location. It never installs, updates or overwrites an existing package file.
 func (r *Resources) materialize(ctx context.Context, p Package) (string, error) {
+	if p.directory != "" {
+		return p.directory, nil
+	}
 	r.catalog.resourceMu.Lock()
 	defer r.catalog.resourceMu.Unlock()
 	directory, err := filepath.Abs(filepath.Join(r.profile, "plugins", "packages", p.Reference.Digest))

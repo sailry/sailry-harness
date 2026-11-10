@@ -1,0 +1,4 @@
+Behavior ported from Sailry revision eaad1b7f18e448c8c4e9e9286e19560c8a351ae1:
+crates/node-runtime/src/python.rs and python/{runtime,requirements,environment,
+integrity,validation,execution,process}.rs.
+The launcher relocation source is preserved from python/environment/relocate.py.

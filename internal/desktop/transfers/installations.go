@@ -60,7 +60,17 @@ func Button(c *ui.Context, q *Queue, open *bool, retry func(e Entry)) {
 		}
 		ui.Scroll(c.Key("list")).MaxHeight(min(h*0.55, 400)).Children(func() {
 			for _, e := range q.Entries {
-				row(c, e, func() { q.Remove(e.Key) }, func() {
+				row(c, e, func() {
+					if q.Dismiss != nil {
+						q.Dismiss(e)
+					} else {
+						q.Remove(e.Key)
+					}
+				}, func() {
+					if q.RetryAction != nil {
+						q.RetryAction(e)
+						return
+					}
 					q.Retry(e.Key)
 					retry(e)
 				})

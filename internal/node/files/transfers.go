@@ -36,6 +36,8 @@ type transferEntry struct {
 	target     *core.FileTarget
 	upload     *protocol.FileUploadSpec
 	attachment *protocol.Attachment
+	plugin     *protocol.PluginUploadSpec
+	format     *protocol.PluginSkillsArchiveFormat
 	download   bool
 	size       uint64
 	revision   string

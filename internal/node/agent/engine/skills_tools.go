@@ -8,6 +8,7 @@ import (
 
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
 	"github.com/sailry/sailry-harness/internal/node/agent/operations"
+	"github.com/sailry/sailry-harness/internal/node/python"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -94,11 +95,42 @@ func (r *Runtime) skillTools(x *execution) []Tool {
 			out := map[string]any{"skill": args.Skill, "path": args.Path, "content": value.Content, "directory": value.Directory}
 			if !resource {
 				out["python"] = nil
+				ready, err := x.resources.Python(ctx, args.Skill, r.python)
+				if err != nil {
+					return toolFault(err)
+				}
+				if ready != nil {
+					r.mu.Lock()
+					x.python = append(x.python, python.Access{Ready: ready, Directory: value.Directory})
+					x.toolCleanup = append(x.toolCleanup, ready.Close)
+					r.mu.Unlock()
+					out["python"] = ready.Python
+				}
 			}
 			return ToolResult{Value: out}
 		}))
 	}
 	return tools
+}
+
+func (r *Runtime) CommandPython(ctx context.Context, turn protocol.TurnID) (*python.Execution, error) {
+	if r.python == nil {
+		return nil, nil
+	}
+	r.mu.Lock()
+	owner := r.active[turn]
+	if owner == nil || owner.ctx.Err() != nil {
+		r.mu.Unlock()
+		return nil, &protocol.Fault{Code: protocol.ErrorCodeConflict, Message: "turn is no longer running"}
+	}
+	skills := slices.Clone(owner.python)
+	session := owner.inv.Session.ID
+	r.mu.Unlock()
+	value, err := r.python.Execution(ctx, session, skills)
+	if err != nil && len(skills) == 0 && ctx.Err() == nil {
+		return nil, nil
+	}
+	return value, err
 }
 
 func roleToolMatches(selection protocol.PluginConversationTool, tool Tool) bool {

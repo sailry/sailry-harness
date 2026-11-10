@@ -24,6 +24,8 @@ var skillSources = []string{"skill_source_git", "skill_source_skills", "skill_so
 // skillInstall is the source and its fields.
 type skillInstall struct {
 	open                        bool
+	pending                     bool
+	generation                  uint64
 	source                      int
 	repository, rev, path, link string
 }
@@ -68,8 +70,14 @@ func skills(c *ui.Context, s *State) {
 	ui.Column(c.Key("skills")).Gap(16).Children(func() {
 		ui.Row(c.Key("toolbar")).Gap(8).Children(func() {
 			ui.SearchField(c.Key("search"), &m.SkillQuery).Placeholder(t("skills_search")).Label(t("skills_search")).Grow(1)
-			kit.Secondary(c.Key("check"), t("plugins_check_updates")).OnClick(func() { notice(c) })
-			iconButton(c, "install", icons.Plus, t("skills_install"), true, false).OnClick(func() { m.skillAdd = skillInstall{open: true} })
+			kit.Secondary(c.Key("check"), t("plugins_check_updates")).OnClick(func() {
+				if m.PackageActions != nil && m.PackageActions.CheckUpdates != nil {
+					m.PackageActions.CheckUpdates(preview.KindSkill)
+					return
+				}
+				notice(c)
+			})
+			iconButton(c, "install", icons.Plus, t("skills_install"), true, false).OnClick(func() { m.skillAdd = skillInstall{open: true, generation: m.skillAdd.generation + 1} })
 		})
 		q := strings.ToLower(strings.TrimSpace(m.SkillQuery))
 		var shown []int
@@ -92,6 +100,11 @@ func skills(c *ui.Context, s *State) {
 	if sk := m.skill(m.skillRemoving); sk != nil {
 		open := true
 		if confirm(c, "uninstall", &open, t("plugins_uninstall")+" "+sk.Name, t("skills_remove_effect", "name", sk.Name), t("plugins_uninstall")) {
+			if m.PackageActions != nil && m.PackageActions.Uninstall != nil {
+				m.PackageActions.Uninstall(sk.ID, func(bool) {})
+				m.skillRemoving = ""
+				return
+			}
 			m.SkillList = slices.DeleteFunc(m.SkillList, func(x preview.Skill) bool { return x.ID == sk.ID })
 		}
 		if !open {
@@ -110,9 +123,17 @@ func skillCard(c *ui.Context, s *State, sk *preview.Skill) {
 	}
 	kit.ResourceCard(c, sk.ID, sk.Name, desc, func() { kit.Tile(c, sk.Name, icons.Bot) }, func() { s.ShowDetails(DetailSkill, sk.ID) }, func(bool) {
 		if sk.Update {
-			kit.Action(c.Key("update"), icons.Download, t("settings_update"), false).OnClick(func() { notice(c) })
+			kit.Action(c.Key("update"), icons.Download, t("settings_update"), false).OnClick(func() {
+				if m.PackageActions != nil && m.PackageActions.Update != nil {
+					m.PackageActions.Update([]string{sk.ID})
+					return
+				}
+				notice(c)
+			})
 		}
-		ui.Switch(c.Key("enabled"), &sk.Enabled).Label(t("plugins_enabled") + " " + sk.Name).Disabled(sk.Package != "")
+		if ui.Switch(c.Key("enabled"), &sk.Enabled).Label(t("plugins_enabled")+" "+sk.Name).Disabled(sk.Package != "").Changed() && m.PackageActions != nil && m.PackageActions.Toggle != nil {
+			m.PackageActions.Toggle(sk.ID, sk.Enabled)
+		}
 		kit.MenuButton(c.Key("menu"), "skill-menu-"+sk.ID, func(b ui.Element) {
 			kit.IconLook(c, b, icons.Ellipsis, t("more"), "", 28, false)
 		}, func(menu *Menu) {
@@ -126,7 +147,11 @@ func skillCard(c *ui.Context, s *State, sk *preview.Skill) {
 				return
 			}
 			if menu.Item(t("skill_source_reimport")).Icon(icons.RotateCw).Chosen() {
-				notice(c)
+				if m.PackageActions != nil && m.PackageActions.ReimportSkill != nil {
+					m.PackageActions.ReimportSkill(sk.ID)
+				} else {
+					notice(c)
+				}
 			}
 			menu.Separator()
 			if menu.Item(t("plugins_uninstall")).Icon(icons.Trash).Danger().Chosen() {
@@ -147,12 +172,12 @@ func skillInstallDialog(c *ui.Context, m *Model) {
 	title := t("skills_install")
 	input := func(key, label, hint string, v *string) {
 		kit.Field(c, key, t(label), "", func() {
-			ui.TextInput(c.Key("input"), v).Label(t(label)).Placeholder(t(hint)).FillWidth()
+			ui.TextInput(c.Key("input"), v).Label(t(label)).Placeholder(t(hint)).FillWidth().Disabled(e.pending)
 		})
 	}
 	kit.Dialog(c.Key("skill-install"), &e.open, func() {
 		ui.Text(c, title).FontSize(16).FontWeight(600)
-		kit.Segmented(c, "source", &e.source, labels(c, skillSources), kit.SegmentedProps{Block: true}).Label(t("skill_source_origin"))
+		kit.Segmented(c, "source", &e.source, labels(c, skillSources), kit.SegmentedProps{Block: true}).Label(t("skill_source_origin")).Disabled(e.pending)
 		switch e.source {
 		case 0:
 			ui.Text(c, t("skill_source_git_help")).FontSize(12).TextColor(theme.Of(c).MutedForeground)
@@ -170,15 +195,46 @@ func skillInstallDialog(c *ui.Context, m *Model) {
 			if e.source == 4 {
 				key = "skill_source_choose_archive"
 			}
-			kit.Secondary(c.Key("choose"), t(key)).AlignSelf(ui.Start).OnClick(func() { notice(c) })
+			kit.Secondary(c.Key("choose"), t(key)).AlignSelf(ui.Start).Disabled(e.pending).OnClick(func() {
+				if m.PackageActions != nil && m.PackageActions.ChooseSkill != nil {
+					m.PackageActions.ChooseSkill(e.source, func(path string) { e.path = path })
+					return
+				}
+				notice(c)
+			})
 		}
-		footer(c, t("plugins_install"), func() { e.open = false }, func() {
+		footer(c, t("plugins_install"), func() {
+			if m.PackageActions != nil && m.PackageActions.CancelSkill != nil {
+				m.PackageActions.CancelSkill()
+			}
+			e.open = false
+		}, func() {
+			if e.pending {
+				return
+			}
 			if problem := e.Check(); problem != "" {
 				kit.Toast(c, kit.Failed, t(problem))
+				return
+			}
+			if m.PackageActions != nil && m.PackageActions.InstallSkill != nil {
+				e.pending = true
+				generation := e.generation
+				m.PackageActions.InstallSkill(SkillSourceDraft{Source: e.source, Repository: e.repository, Revision: e.rev, Path: e.path, Link: e.link}, func(ok bool) {
+					if e.generation != generation {
+						return
+					}
+					e.pending = false
+					if ok {
+						e.open = false
+					}
+				})
 				return
 			}
 			e.open = false
 			notice(c)
 		})
 	}).Width(min(560, width(c)-48)).Label(title)
+	if !e.open && e.pending && m.PackageActions != nil && m.PackageActions.CancelSkill != nil {
+		m.PackageActions.CancelSkill()
+	}
 }
