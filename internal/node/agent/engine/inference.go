@@ -113,7 +113,9 @@ func (r *Runtime) infer(x *execution, binding model.Binding, languageModel fanta
 		var streamErr error
 		var attempts []model.Attempt
 		escaped := false
+		metric := r.telemetry.Capture()
 		err = model.Run(x.ctx, languageModel, call, model.Main, r.clock, func(attempt model.Attempt) error {
+			r.observeModel(metric, binding, attempt)
 			out.usage = attempt.Usage
 			if attempt.Failure != nil && attempt.Failure.Retryable() && !escaped && attempt.Index < 5 {
 				record := r.observationRecord(x, binding, purpose, attempt)

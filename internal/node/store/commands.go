@@ -46,6 +46,8 @@ func ExecuteCommand(ctx context.Context, db *sql.Conn, node protocol.NodeID, pro
 		return savePower(ctx, db, *request.Command.Data.(*protocol.PowerSettings))
 	case "save_telemetry_settings":
 		return saveTelemetry(ctx, db, *request.Command.Data.(*protocol.TelemetryUpdate))
+	case "reset_telemetry_identity":
+		return resetTelemetry(ctx, db, request)
 	default:
 		return protocol.Output{}, nil, fault(protocol.ErrorCodeNotConfigured, "command is unavailable")
 	}

@@ -723,6 +723,23 @@ backup_timezone: Fuseau horaire
 backup_unarchive: Désarchiver
 backup_unknown: Résultat incertain ; réessayez la même demande ou consultez la liste distante
 backup_webdav: WebDAV
+backup_archived: Sessions archivées
+backup_delete_session_consequence: Supprimer cette session et ses sessions enfants. Action irréversible ; les fichiers du projet et les paramètres du compte sont conservés
+backup_deleted: Sessions supprimées
+backup_denied: Accès à la sauvegarde refusé
+backup_empty: Aucune sauvegarde
+backup_exported: Sauvegarde exportée
+backup_invalid_target: Saisissez un nouveau chemin absolu de profil
+backup_online_enabled: Sauvegarde en ligne
+backup_partial: D’autres sauvegardes peuvent être disponibles
+backup_restore_consequence: Restaurer dans un dossier vide. La copie conserve cette identité de nœud ; ne lancer qu’une copie à la fois
+backup_restored: Profil restauré
+backup_sessions_busy: Arrêtez les sessions actives avant de continuer
+backup_sessions_failed: Échec de la mise à jour des sessions
+backup_sessions_unknown: Mise à jour non confirmée ; réessayez pour vérifier le résultat
+backup_target: Nouveau chemin absolu du profil
+backup_unarchived: Session désarchivée
+files_upload_picker: Impossible d'ouvrir le sélecteur de fichiers
 connection_route_p2p: P2P
 connection_route_relay: Relay
 connections_device: Appareil %{id}
@@ -820,6 +837,12 @@ permission_unknown: Non vérifié
 permission_settings: Ouvrir les paramètres
 permission_show_app: Afficher l'appli
 permission_title: Accès au système
+permission_denied: Accès refusé
+permission_remote: Autoriser l'accès sur le périphérique d'exécution
+permission_partial: Partiellement autorisé
+permission_unavailable: Indisponible sur cet appareil
+permission_failed: Échec de la vérification des autorisations
+permission_app_unavailable: Utilisez l'application Sailry installée pour accorder l'accès
 plugins_check_updates: Vérifier les mises à jour
 power_prevent_sleep: Empêcher la veille
 power_prevent_sleep_description: L’écran peut toujours s’éteindre
@@ -1861,3 +1884,27 @@ dictation_permission: Autoriser l'accès au microphone dans les paramètres syst
 dictation_no_audio: Aucun audio du microphone reçu; vérifiez l'appareil et les autorisations
 dictation_silent: Aucun son détecté; vérifier le microphone
 dictation_draft_changed: Brouillon modifié; entrée vocale arrêtée
+telemetry_reset: Identifiant anonyme réinitialisé
+telemetry_diagnostics_sent: Diagnostic envoyé
+telemetry_diagnostics_failed: L’envoi du diagnostic n’a pas pu être confirmé
+settings_build_debug: Développement
+settings_build_release: Release
+updates_source_unready: La source de mise à jour n'est pas configurée
+updates_manifest_invalid: Les métadonnées de mise à jour sont invalides
+updates_signature_invalid: La signature de mise à jour est invalide
+updates_digest_invalid: Le package de mise à jour est endommagé
+updates_package_invalid: Le package de mise à jour est invalide
+updates_platform: Aucune mise à jour n'est disponible pour cette plateforme
+updates_system_unavailable: Impossible de lire la version du système
+updates_system_old: La mise à jour nécessite un système plus récent
+updates_version_old: La mise à jour sélectionnée n'est pas plus récente
+updates_bundle_required: Installez une application Sailry emballée avant la mise à jour
+updates_io_failed: Impossible d'enregistrer la mise à jour
+updates_receipt_unread: Vérifiez la mise à jour précédente avant de réessayer
+updates_install_failed: La mise à jour n'a pas été terminée ; redémarrez Sailry
+updates_restart_failed: Impossible de redémarrer Sailry; ouvrez-le à nouveau
+updates_shutdown_failed: Impossible d'arrêter le local Node; redémarrer Sailry
+updates_install_uncertain: Le résultat de l'installation n'est pas confirmé; l'application d'origine a été conservée
+updates_receipt_failed: La mise à jour a été installée; impossible d'enregistrer les détails de récupération
+updates_profile_inside: Le profil de données est à l'intérieur de Sailry; déplacez-le avant la mise à jour
+compatibility_update_unavailable: Cette version ne permet pas encore la mise à jour automatique

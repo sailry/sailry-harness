@@ -140,12 +140,16 @@ type Model struct {
 	HooksSandboxed    func() bool
 	TeamActions       *TeamActions
 	SaveTelemetry     func()
+	ResetTelemetry    func()
+	SendDiagnostics   func()
 	SaveTerminal      func()
 	ProviderActions   ProviderActions
 	ConnectorActions  *ConnectorActions
 	PackageActions    *PackageActions
 	AppearanceActions *AppearanceActions
 	ModelActions      *ModelActions
+	// PermissionActions are the live permissions page's; the preview has none.
+	PermissionActions *PermissionActions
 	// General.
 	Language       int // of Languages
 	SidebarMetrics bool
@@ -287,12 +291,17 @@ type Model struct {
 	Archived []preview.Archived
 	Sessions int
 	backups  backupDialogs
+	// BackupActions are the live backup page's; the preview has none.
+	BackupActions *BackupActions
 
 	// About.
 	Version string
-	Channel int // 0 stable, 1 experience
+	Build   string // the build row's message key, "" for the preview
+	Channel int    // 0 stable, 1 experience
 	// Updater is the app's updater (About).
 	Updater Updater
+	// UpdateActions drive the real updater; nil plays the preview's.
+	UpdateActions *UpdateActions
 }
 
 // Languages are the language choices.

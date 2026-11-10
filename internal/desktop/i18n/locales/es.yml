@@ -723,6 +723,23 @@ backup_timezone: Zona horaria
 backup_unarchive: Desarchivar
 backup_unknown: Resultado incierto; reintenta la misma solicitud o consulta la lista remota
 backup_webdav: WebDAV
+backup_archived: Sesiones archivadas
+backup_delete_session_consequence: Eliminar esta sesión y sus sesiones secundarias. No se puede deshacer; se conservan los archivos del proyecto y la configuración de la cuenta
+backup_deleted: Sesiones eliminadas
+backup_denied: Acceso a la copia denegado
+backup_empty: No hay copias
+backup_exported: Copia exportada
+backup_invalid_target: Introduce una nueva ruta absoluta de perfil
+backup_online_enabled: Copia en línea
+backup_partial: Puede haber más copias disponibles
+backup_restore_consequence: Restaurar en una carpeta vacía. La copia conserva la identidad del nodo; ejecuta solo una copia a la vez
+backup_restored: Perfil restaurado
+backup_sessions_busy: Detén las sesiones activas antes de continuar
+backup_sessions_failed: Error al actualizar las sesiones
+backup_sessions_unknown: Actualización de sesión sin confirmar; reintenta para consultar el resultado
+backup_target: Nueva ruta absoluta del perfil
+backup_unarchived: Sesión desarchivada
+files_upload_picker: No se pudo abrir el selector de archivos
 connection_route_p2p: P2P
 connection_route_relay: Relay
 connections_device: Dispositivo %{id}
@@ -820,6 +837,12 @@ permission_unknown: No verificado
 permission_settings: Abrir la configuración
 permission_show_app: Mostrar la app
 permission_title: Acceso al sistema
+permission_denied: Acceso denegado
+permission_remote: Permitir acceso en el dispositivo de ejecución
+permission_partial: Autorización parcial
+permission_unavailable: No disponible en este dispositivo
+permission_failed: No se pudo comprobar el permiso
+permission_app_unavailable: Usa la aplicación Sailry instalada para conceder acceso
 plugins_check_updates: Comprobar las actualizaciones
 power_prevent_sleep: Evitar la suspensión
 power_prevent_sleep_description: La pantalla puede apagarse
@@ -1861,3 +1884,27 @@ dictation_permission: Permitir acceso al micrófono en la configuración del sis
 dictation_no_audio: No se recibe audio del micrófono; comprueba el dispositivo y los permisos
 dictation_silent: No se detectó sonido; compruebe el micrófono
 dictation_draft_changed: Cambio de borrador; detención de la entrada de voz
+telemetry_reset: ID anónimo restablecido
+telemetry_diagnostics_sent: Diagnóstico enviado
+telemetry_diagnostics_failed: No se pudo confirmar el envío del diagnóstico
+settings_build_debug: Desarrollo
+settings_build_release: Release
+updates_source_unready: El origen de actualización no está configurado
+updates_manifest_invalid: Los metadatos de actualización no son válidos
+updates_signature_invalid: La firma de actualización no es válida
+updates_digest_invalid: El paquete de actualización está dañado
+updates_package_invalid: El paquete de actualización no es válido
+updates_platform: No hay ninguna actualización disponible para esta plataforma
+updates_system_unavailable: No se pudo leer la versión del sistema
+updates_system_old: La actualización requiere un sistema más reciente
+updates_version_old: La actualización seleccionada no es más reciente
+updates_bundle_required: Instale una aplicación empaquetada Sailry antes de actualizar
+updates_io_failed: No se pudo guardar la actualización
+updates_receipt_unread: Revise la actualización anterior antes de volver a intentarlo
+updates_install_failed: La actualización no se completó; reinicie Sailry
+updates_restart_failed: No se pudo reiniciar Sailry; ábralo de nuevo
+updates_shutdown_failed: No se pudo detener el local Node; reiniciar Sailry
+updates_install_uncertain: El resultado de la instalación no está confirmado; se conservó la aplicación original
+updates_receipt_failed: La actualización se instaló; no se pudo guardar los detalles de recuperación
+updates_profile_inside: El perfil de datos está dentro de Sailry; muévalo antes de actualizar
+compatibility_update_unavailable: Esta versión aún no está disponible para actualizar automáticamente

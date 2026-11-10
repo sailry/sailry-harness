@@ -229,6 +229,20 @@ func TestMenu(t *testing.T) {
 	if logs := menu[5].Submenu[2]; !logs.Disabled {
 		t.Error("Logs is enabled without a log folder")
 	}
+	// A live window with a log folder opens it.
+	opened := 0
+	logged := New(preview.Load())
+	logged.Preview = false
+	logged.Hooks.OpenLogs = func() { opened++ }
+	if logs := logged.Menu("en", logged.Do)[5].Submenu[2]; logs.Disabled || logs.Click == nil {
+		t.Error("Logs is disabled with a log folder")
+	} else {
+		logs.Click(logs, nil)
+		logged.run(nil, "help.logs")
+		if opened != 1 || !slices.Equal(logged.sent, []string{"help.logs"}) {
+			t.Errorf("Logs opened %d times after sending %q", opened, logged.sent)
+		}
+	}
 	// Find in Conversation sends its command, as ⌘F.
 	if find := menu[3].Submenu[1]; find.Disabled || find.ID != "conversation.find" {
 		t.Errorf("Find in Conversation %+v", find)

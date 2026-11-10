@@ -74,10 +74,22 @@ func telemetry(c *ui.Context, m *Model) {
 				}
 			}
 			kit.Row(c, "identity", i18n.T(c, "telemetry_identity"), "", func() {
-				small(c, "reset", i18n.T(c, "telemetry_reset_action")).Disabled(m.Live).OnClick(func() { notice(c) })
+				small(c, "reset", i18n.T(c, "telemetry_reset_action")).Disabled(m.Live && (m.ResetTelemetry == nil || t.Pending)).OnClick(func() {
+					if m.ResetTelemetry != nil {
+						m.ResetTelemetry()
+					} else {
+						notice(c)
+					}
+				})
 			})
 			kit.Row(c, "support", i18n.T(c, "telemetry_support"), "", func() {
-				small(c, "send", i18n.T(c, "telemetry_send_action")).Disabled(m.Live).OnClick(func() { notice(c) })
+				small(c, "send", i18n.T(c, "telemetry_send_action")).Disabled(m.Live && (m.SendDiagnostics == nil || t.Pending)).OnClick(func() {
+					if m.SendDiagnostics != nil {
+						m.SendDiagnostics()
+					} else {
+						notice(c)
+					}
+				})
 			})
 			ui.Text(c, i18n.T(c, "telemetry_excludes")).FontSize(14).Padding(12, 0).TextColor(p.MutedForeground)
 		})

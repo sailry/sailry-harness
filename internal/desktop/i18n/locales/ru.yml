@@ -723,6 +723,23 @@ backup_timezone: Часовой пояс
 backup_unarchive: Разархивировать
 backup_unknown: Результат неизвестен; повторите тот же запрос или проверьте удалённый список
 backup_webdav: WebDAV
+backup_archived: Сессии архивированы
+backup_delete_session_consequence: Удалить эту сессию и дочерние сессии. Отменить нельзя; файлы проекта и настройки аккаунта сохранятся
+backup_deleted: Сессии удалены
+backup_denied: Доступ к копии запрещён
+backup_empty: Нет резервных копий
+backup_exported: Копия экспортирована
+backup_invalid_target: Введите новый абсолютный путь профиля
+backup_online_enabled: Онлайн-копия
+backup_partial: Могут быть доступны другие копии
+backup_restore_consequence: Восстановление в пустой каталог. Идентификатор узла сохраняется; запускайте только одну копию одновременно
+backup_restored: Профиль восстановлен
+backup_sessions_busy: Сначала остановите активные сессии
+backup_sessions_failed: Не удалось обновить сессии
+backup_sessions_unknown: Изменение сессий не подтверждено; повторите для проверки результата
+backup_target: Новый абсолютный путь профиля
+backup_unarchived: Сессия разархивирована
+files_upload_picker: Не удалось открыть инструмент выбора файлов
 connection_route_p2p: P2P
 connection_route_relay: Relay
 connections_device: Устройство %{id}
@@ -820,6 +837,12 @@ permission_unknown: Не проверено
 permission_settings: Открыть настройки
 permission_show_app: Показать приложение
 permission_title: Системный доступ
+permission_denied: Доступ запрещен
+permission_remote: Разрешить доступ на устройстве выполнения
+permission_partial: Частично разрешено
+permission_unavailable: Недоступно на этом устройстве
+permission_failed: Не удалось проверить разрешение
+permission_app_unavailable: Используйте установленное приложение Sailry для предоставления доступа
 plugins_check_updates: Проверка обновлений
 power_prevent_sleep: Предотвращать сон
 power_prevent_sleep_description: Экран по-прежнему может выключаться
@@ -1861,3 +1884,27 @@ dictation_permission: Разрешить доступ к микрофону в �
 dictation_no_audio: Нет звука микрофона; проверьте устройство и разрешения
 dictation_silent: Отсутствие обнаруженного звука; проверка микрофона
 dictation_draft_changed: Изменен черновой текст; прекращен голосовой ввод
+telemetry_reset: Анонимный ID сброшен
+telemetry_diagnostics_sent: Диагностика отправлена
+telemetry_diagnostics_failed: Не удалось подтвердить отправку диагностики
+settings_build_debug: Развитие
+settings_build_release: Выпуск
+updates_source_unready: Источник обновления не настроен
+updates_manifest_invalid: Неверные метаданные обновления
+updates_signature_invalid: Неверная подпись обновления
+updates_digest_invalid: Пакет обновления поврежден
+updates_package_invalid: Пакет обновления неверный
+updates_platform: Обновление для этой платформы недоступно
+updates_system_unavailable: Не удалось прочитать версию системы
+updates_system_old: Обновление требует более новой системы
+updates_version_old: Выбранное обновление не является более новым
+updates_bundle_required: Установка пакетированного приложения Sailry перед обновлением
+updates_io_failed: Не удалось сохранить обновление
+updates_receipt_unread: Просмотр предыдущего обновления перед повторением
+updates_install_failed: Обновление не завершено; перезагрузка Sailry
+updates_restart_failed: Не удалось перезапустить Sailry; откройте его снова
+updates_shutdown_failed: Не удалось остановить локальный Node; перезапустить Sailry
+updates_install_uncertain: Результат установки не подтвержден; первоначальное приложение было сохранено
+updates_receipt_failed: Обновление было установлено; не удалось сохранить данные восстановления
+updates_profile_inside: Профиль данных находится внутри Sailry; переместите его перед обновлением
+compatibility_update_unavailable: Эта версия пока недоступна для автоматического обновления

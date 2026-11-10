@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"sync"
+	"time"
 
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
 	"github.com/sailry/sailry-harness/internal/node/store"
@@ -127,7 +128,9 @@ func (node *Node) workspaceWebIO(ctx context.Context, caller protocol.NodeID, re
 	} else {
 		input = *request.Command.Data.(*protocol.SearchRequest)
 	}
+	metric, started := node.telemetry.Capture(), time.Now()
 	page, err := node.web.search.SearchFresh(operation, plan, input, fresh)
+	metric.Record(searchObservation(plan, page, err, time.Since(started)))
 	return protocol.Output{Kind: "search_page", Data: page}, err
 }
 func (node *Node) searchRenderer(plan web.SearchPlan, enabled bool) *web.Renderer {

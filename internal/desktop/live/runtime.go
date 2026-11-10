@@ -55,8 +55,10 @@ type Runtime struct {
 	workspaceSettings        workspaceSettingsState
 	workspaceSettingsOwner   *Runtime
 	terminalSettings         terminalSettingsState
+	backupSettings           backupSettingsState
 	localModels              localModelState
 	dictation                dictationState
+	permissions              permissionState
 	pendingSession           string
 	transferDialogOwner      *Runtime
 	admittedSessions         map[string]protocol.Session
@@ -91,6 +93,8 @@ type Runtime struct {
 	lastFeatures             string
 	lastKeys                 string
 	powerObservedRevision    uint64
+	updates                  *Updates
+	updatesFocused           func() bool
 	prefsRevision            uint64
 	conversationWatches      map[protocol.SessionID]func()
 	conversationSeen         map[protocol.SessionID]bool
@@ -127,7 +131,8 @@ func NewWithPreferences(ctx context.Context, controller *client.Client, prefs *p
 	r.App.SetLocalHost(localHost(snapshot, d))
 	r.applyPreferences()
 	r.App.Hooks = shell.Hooks{BeforeFrame: r.drain, AfterFrame: r.afterFrame, Refresh: r.Refresh, OpenFolder: r.openFolder,
-		ReadNotice: r.markNotice, ReadNotices: r.readNotices, DismissRead: r.dismissRead, DismissNotices: r.dismissNotices, OpenKnowledge: r.openKnowledge}
+		ReadNotice: r.markNotice, ReadNotices: r.readNotices, DismissRead: r.dismissRead, DismissNotices: r.dismissNotices, OpenKnowledge: r.openKnowledge,
+		CaptureSelection: func() { r.CaptureSelection(nil) }}
 	r.App.Messages.OpenLink = r.openChatLink
 	r.App.Sidebar.Actions = &sidebar.Actions{Rename: r.rename, Archive: r.archive, Read: r.read, Delete: r.removeSession,
 		Pin: r.pin, MovePin: r.movePin, NewDraft: r.newDraft, RemoveProject: r.removeProject, Worktrees: r.sidebarWorkspaceAction, Records: r.projectRecords, SaveProject: r.saveProject, Browse: r.browse, ForkHere: r.forkHere, ForkWorktree: r.forkWorkspaceConversation, Export: r.exportSession, OpenWindow: func(id string) {
@@ -143,6 +148,8 @@ func NewWithPreferences(ctx context.Context, controller *client.Client, prefs *p
 	r.bindWorkspaceSettings()
 	r.App.Settings.SavePower = r.savePower
 	r.App.Settings.SaveTelemetry = r.saveTelemetry
+	r.App.Settings.ResetTelemetry = r.resetTelemetry
+	r.App.Settings.SendDiagnostics = r.sendDiagnostics
 	r.App.Hooks.Conversation = r.conversation
 	r.App.Hooks.RenderChild = r.renderLiveChild
 	r.conversationWatches = map[protocol.SessionID]func(){}
@@ -317,8 +324,10 @@ func (r *Runtime) drain(c *ui.Context) {
 	}
 	r.workspaceSettingsFrame()
 	r.terminalSettingsFrame()
+	r.backupSettingsFrame(c)
 	r.localModelsFrame()
 	r.dictationFrame(c)
+	r.permissionsFrame()
 	r.teamsFrame()
 	r.packagesFrame(c)
 	r.pluginViewsFrame(c)
@@ -327,6 +336,7 @@ func (r *Runtime) drain(c *ui.Context) {
 	r.pluginCardsFrame(c)
 	r.networkFrame(c)
 	r.browserFrame()
+	r.aboutFrame(c)
 	snapshot := r.controller.Snapshot()
 	if snapshot.PowerSettingsRevision != r.powerObservedRevision && !r.App.Settings.Power.Pending {
 		r.readPower()

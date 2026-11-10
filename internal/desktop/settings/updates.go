@@ -42,6 +42,15 @@ type Updater struct {
 	shownFailure  *UpdateFailure
 }
 
+// UpdateActions are the real updater's actions. Its state arrives in Updater.
+type UpdateActions struct{ Check, Download, Cancel, Install, Restart func() }
+
+// Confirm opens the install confirmation, as the ready toast's action does.
+func (u *Updater) Confirm() { u.confirm = true }
+
+// ShowDetails opens the failure's details, as the failure toast's action does.
+func (u *Updater) ShowDetails() { u.details = true }
+
 // Locked reports whether the channel cannot change now.
 func (u *Updater) Locked() bool {
 	switch u.State {
@@ -121,29 +130,43 @@ func (u *Updater) start(s UpdateState, now time.Time) {
 func updates(c *ui.Context, m *Model) {
 	u := &m.Updater
 	p := theme.Of(c)
-	if u.advance(c.Now(), m.Channel == 1) {
-		c.After(50 * time.Millisecond)
+	// The real updater reports its own state and toasts in every window.
+	live := m.UpdateActions
+	if live == nil {
+		if u.advance(c.Now(), m.Channel == 1) {
+			c.After(50 * time.Millisecond)
+		}
+		u.notify(c)
 	}
-	u.notify(c)
+	// run is an action: the real updater's, or the preview's step.
+	run := func(action func(*UpdateActions) func(), preview func()) func() {
+		return func() {
+			if live != nil {
+				action(live)()
+			} else {
+				preview()
+			}
+		}
+	}
 	kit.Group(c, "updates", i18n.T(c, "updates"), "", func() {
 		if u.Failure != nil {
 			kit.Secondary(c.Key("details"), i18n.T(c, "updates_details")).OnClick(func() { u.details = true })
 		}
 		if u.State == UpdateAvailable {
-			iconButton(c, "download", nil, i18n.T(c, "updates_download"), true, false).OnClick(func() { u.start(UpdateDownloading, c.Now()) })
+			iconButton(c, "download", nil, i18n.T(c, "updates_download"), true, false).OnClick(run(func(a *UpdateActions) func() { return a.Download }, func() { u.start(UpdateDownloading, c.Now()) }))
 		}
 		switch u.State {
 		case UpdateIdle, UpdateAvailable:
-			kit.Secondary(c.Key("check"), i18n.T(c, "updates_check")).OnClick(func() { u.start(UpdateChecking, c.Now()) })
+			kit.Secondary(c.Key("check"), i18n.T(c, "updates_check")).OnClick(run(func(a *UpdateActions) func() { return a.Check }, func() { u.start(UpdateChecking, c.Now()) }))
 		case UpdateChecking, UpdateDownloading:
-			kit.Secondary(c.Key("cancel"), i18n.T(c, "settings_cancel")).OnClick(func() { u.start(UpdateIdle, c.Now()) })
+			kit.Secondary(c.Key("cancel"), i18n.T(c, "settings_cancel")).OnClick(run(func(a *UpdateActions) func() { return a.Cancel }, func() { u.start(UpdateIdle, c.Now()) }))
 		case UpdateReady:
 			iconButton(c, "install", nil, i18n.T(c, "updates_install"), true, false).OnClick(func() { u.confirm = true })
 		case UpdateInstalling, UpdateRestarting:
 			iconButton(c, "installing", nil, i18n.T(c, "updates_installing"), false, true)
 		case UpdateStopped:
 			// Relaunching leaves the preview.
-			kit.Secondary(c.Key("restart"), i18n.T(c, "updates_restart")).OnClick(func() { notice(c) })
+			kit.Secondary(c.Key("restart"), i18n.T(c, "updates_restart")).OnClick(run(func(a *UpdateActions) func() { return a.Restart }, func() { notice(c) }))
 		}
 	}, func() {
 		kit.Card(c, func() {
@@ -184,7 +207,7 @@ func updates(c *ui.Context, m *Model) {
 		})
 	})
 	if confirm(c, "install-confirm", &u.confirm, i18n.T(c, "updates_install"), i18n.T(c, "updates_restart_description"), i18n.T(c, "updates_install")) {
-		u.start(UpdateInstalling, c.Now())
+		run(func(a *UpdateActions) func() { return a.Install }, func() { u.start(UpdateInstalling, c.Now()) })()
 	}
 	if u.Failure != nil {
 		kit.Details(c, &u.details, i18n.T(c, "updates_details"), "", u.Failure.Detail)

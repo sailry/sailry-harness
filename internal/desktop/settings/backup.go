@@ -14,10 +14,15 @@ import (
 var backupMessages = Messages{"backup_saved", "backup_failed", "backup_conflict", "backup_unknown"}
 
 // backupDialogs are the Backup page's dialogs: the storage editor with
-// its draft, the archived sessions and deleting every session.
+// its draft, the archived sessions and deleting every session. The live
+// page adds the stored backups, the restore form and deleting one session.
 type backupDialogs struct {
 	editing, archives, deleting bool
 	draft                       BackupTarget
+	records, restoring          bool
+	restore                     BackupRestore
+	removing                    bool
+	removed, removedTitle       string
 }
 
 // Check validates the storage draft: the i18n key of the problem, or "".
@@ -43,6 +48,7 @@ func (b *BackupTarget) Check() string {
 func backup(c *ui.Context, m *Model) {
 	b := &m.Backup
 	d := &m.backups
+	a := m.BackupActions
 	t := func(k string) string { return i18n.T(c, k) }
 	target := b.Saved.PassphraseSet && (b.Saved.Tab == 2 && b.Saved.Directory != "" || b.Saved.Tab < 2 && b.Saved.Endpoint != "")
 	entry := func(key, title, action string, run func()) {
@@ -58,7 +64,8 @@ func backup(c *ui.Context, m *Model) {
 	kit.Group(c, "backup", "", "", nil, func() {
 		kit.Card(c, func() {
 			entry("storage", t("backup_destination"), t("backup_configure"), configure)
-			if kit.SwitchRow(c, "schedule", t("backup_schedule_enabled"), "", &b.Draft.Schedule) {
+			// The live page saves the schedule's draft whenever it changes.
+			if kit.SwitchRow(c, "schedule", t("backup_schedule_enabled"), "", &b.Draft.Schedule) && a == nil {
 				report(c, b.Commit(), Messages{Failed: backupMessages.Failed, Conflict: backupMessages.Conflict, Uncertain: backupMessages.Uncertain})
 			}
 			if b.Draft.Schedule {
@@ -78,7 +85,11 @@ func backup(c *ui.Context, m *Model) {
 					configure()
 					return
 				}
-				notice(c)
+				if a == nil {
+					notice(c)
+					return
+				}
+				a.Export()
 			})
 			now := t("backup_configure")
 			if target {
@@ -89,15 +100,38 @@ func backup(c *ui.Context, m *Model) {
 					configure()
 					return
 				}
-				notice(c)
+				if a == nil {
+					notice(c)
+					return
+				}
+				a.Now()
 			})
-			entry("import", t("backup_import"), t("backup_restore"), func() { notice(c) })
+			entry("import", t("backup_import"), t("backup_restore"), func() {
+				if a == nil {
+					notice(c)
+					return
+				}
+				a.Import(func(path string) { d.openRestore(BackupRestore{File: path}) })
+			})
 			kit.Entry(c, "storage-restore", func() { ui.Text(c, t("backup_restore_storage")).FontSize(14) }, nil, func() {
-				kit.TextAction(c.Key("action"), t("backup_restore"), b.Pending || !target).OnClick(func() { notice(c) })
+				kit.TextAction(c.Key("action"), t("backup_restore"), b.Pending || !target).OnClick(func() {
+					if a == nil {
+						notice(c)
+						return
+					}
+					d.records = true
+					a.List()
+				})
 			})
 			entry("archives", t("backup_archived_sessions"), t("backup_manage"), func() { d.archives = true })
 			kit.Entry(c, "archive-all", func() { ui.Text(c, t("backup_archive_all")).FontSize(14) }, nil, func() {
-				kit.TextAction(c.Key("action"), t("backup_archive_all_action"), b.Pending || m.Sessions == 0).OnClick(func() { notice(c) })
+				kit.TextAction(c.Key("action"), t("backup_archive_all_action"), b.Pending || m.Sessions == 0).OnClick(func() {
+					if a == nil {
+						notice(c)
+						return
+					}
+					a.ArchiveAll()
+				})
 			})
 			kit.Entry(c, "delete-all", func() { ui.Text(c, t("backup_delete_all")).FontSize(14) }, func() {
 				kit.Danger(c.Key("action"), t("backup_delete_all_action")).Height(28).Disabled(b.Pending).OnClick(func() { d.deleting = true })
@@ -110,7 +144,20 @@ func backup(c *ui.Context, m *Model) {
 		// Destructive: named and its consequence said once.
 		if ui.AlertDialog(c.Key("delete-all"), &d.deleting, t("backup_delete_all")+"?", t("backup_delete_all_consequence"),
 			t("settings_cancel"), t("backup_delete_all_action")) == 1 {
-			notice(c)
+			if a == nil {
+				notice(c)
+			} else {
+				a.DeleteAll()
+			}
+		}
+	}
+	recordsDialog(c, m)
+	restoreDialog(c, m)
+	if d.removing && a != nil {
+		// Destructive: the session is named and its consequence said once.
+		if ui.AlertDialog(c.Key("delete-session"), &d.removing, d.removedTitle+"?", t("backup_delete_session_consequence"),
+			t("settings_cancel"), t("backup_delete")) == 1 {
+			a.Delete(d.removed)
 		}
 	}
 }
@@ -148,7 +195,13 @@ func storageDialog(c *ui.Context, m *Model) {
 					ui.Row(c).Gap(8).Children(func() {
 						ui.TextInput(c.Key("input"), &x.Directory).Label(label).ReadOnly(true).Grow(1)
 						// The folder picker browses the host's disk.
-						kit.Secondary(c.Key("choose"), t("backup_choose_directory")).OnClick(func() { notice(c) })
+						kit.Secondary(c.Key("choose"), t("backup_choose_directory")).OnClick(func() {
+							if a := m.BackupActions; a != nil {
+								a.ChooseFolder(func(path string) { x.Directory = path })
+								return
+							}
+							notice(c)
+						})
 					})
 				})
 			} else {
@@ -175,6 +228,19 @@ func storageDialog(c *ui.Context, m *Model) {
 		footer(c, t("settings_save"), func() { d.editing = false }, func() {
 			if problem := x.Check(); problem != "" {
 				kit.Toast(c, kit.Failed, t(problem))
+				return
+			}
+			if a := m.BackupActions; a != nil {
+				// The draft, typed secrets included, stays in the dialog
+				// until the Node has saved it.
+				if m.Backup.Pending {
+					return
+				}
+				a.Save(*x, func(ok bool) {
+					if ok {
+						d.editing, d.draft = false, BackupTarget{}
+					}
+				})
 				return
 			}
 			saved := *x
@@ -206,9 +272,26 @@ func archivesDialog(c *ui.Context, m *Model) {
 		} else {
 			ui.Scroll(c.Key("list")).Grow(1).Shrink(1).Dividers(1, p.Border).Children(func() {
 				for _, a := range m.Archived {
-					kit.Entry(c, a.ID, func() { kit.Record(c, a.Title, a.At.Format(time.DateOnly)) }, nil, func() {
-						kit.TextAction(c.Key("unarchive"), t("backup_unarchive"), false).OnClick(func() { notice(c) })
-						kit.TextAction(c.Key("delete"), t("backup_delete"), false).TextColor(p.Danger).OnClick(func() { notice(c) })
+					// A session that never ran has no date.
+					at := ""
+					if !a.At.IsZero() {
+						at = a.At.Format(time.DateOnly)
+					}
+					kit.Entry(c, a.ID, func() { kit.Record(c, a.Title, at) }, nil, func() {
+						kit.TextAction(c.Key("unarchive"), t("backup_unarchive"), m.Backup.Pending).OnClick(func() {
+							if x := m.BackupActions; x != nil {
+								x.Unarchive(a.ID)
+								return
+							}
+							notice(c)
+						})
+						kit.TextAction(c.Key("delete"), t("backup_delete"), m.Backup.Pending).TextColor(p.Danger).OnClick(func() {
+							if m.BackupActions != nil {
+								d.removed, d.removedTitle, d.removing = a.ID, a.Title, true
+								return
+							}
+							notice(c)
+						})
 					})
 				}
 			})

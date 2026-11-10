@@ -39,6 +39,7 @@ type transferEntry struct {
 	plugin     *protocol.PluginUploadSpec
 	ssh        *protocol.SshUploadSpec
 	format     *protocol.PluginSkillsArchiveFormat
+	backup     bool
 	download   bool
 	size       uint64
 	revision   string
@@ -568,6 +569,8 @@ func (t *Transfers) Cancel(caller protocol.NodeID, id protocol.StreamID) error {
 	active := e.state == "active"
 	if active && e.cancel != nil {
 		e.cancel()
+		// The worker closes the stream too; closing here refuses bytes at once.
+		_ = e.service.Close()
 	}
 	t.mu.Unlock()
 	if !active {

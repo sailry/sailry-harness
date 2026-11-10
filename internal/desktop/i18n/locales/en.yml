@@ -723,6 +723,23 @@ backup_timezone: Time zone
 backup_unarchive: Unarchive
 backup_unknown: Backup outcome is unknown; retry the same request or inspect the remote list
 backup_webdav: WebDAV
+backup_archived: Sessions archived
+backup_delete_session_consequence: Delete this session and its child sessions. This cannot be undone; project files and account settings are kept
+backup_deleted: Sessions deleted
+backup_denied: Backup access denied
+backup_empty: No backups
+backup_exported: Backup exported
+backup_invalid_target: Enter a new absolute profile path
+backup_online_enabled: Online backup
+backup_partial: More backups may be available
+backup_restore_consequence: Restore to an empty directory. The copy retains this Node identity; run only one copy at a time
+backup_restored: Profile restored
+backup_sessions_busy: Stop active sessions before continuing
+backup_sessions_failed: Session update failed
+backup_sessions_unknown: Session update is unconfirmed; retry to check the result
+backup_target: New absolute profile path
+backup_unarchived: Session unarchived
+files_upload_picker: Could not open the file picker
 connection_route_p2p: P2P
 connection_route_relay: Relay
 connections_device: Device %{id}
@@ -820,6 +837,12 @@ permission_unknown: Not checked
 permission_settings: Open settings
 permission_show_app: Show app
 permission_title: System access
+permission_denied: Access denied
+permission_remote: Allow access on the execution device
+permission_partial: Partially authorized
+permission_unavailable: Unavailable on this device
+permission_failed: Permission check failed
+permission_app_unavailable: Use the installed Sailry app to grant access
 plugins_check_updates: Check updates
 power_prevent_sleep: Prevent sleep
 power_prevent_sleep_description: The display can still turn off
@@ -1861,3 +1884,27 @@ dictation_permission: Allow microphone access in system settings
 dictation_no_audio: No microphone audio received; check device and permissions
 dictation_silent: No sound detected; check microphone
 dictation_draft_changed: Draft changed; voice input stopped
+telemetry_reset: Anonymous ID reset
+telemetry_diagnostics_sent: Diagnostics sent
+telemetry_diagnostics_failed: Could not confirm diagnostic delivery
+settings_build_debug: Development
+settings_build_release: Release
+updates_source_unready: The update source is not configured
+updates_manifest_invalid: Update metadata is invalid
+updates_signature_invalid: The update signature is invalid
+updates_digest_invalid: The update package is damaged
+updates_package_invalid: The update package is invalid
+updates_platform: No update is available for this platform
+updates_system_unavailable: Could not read the system version
+updates_system_old: The update requires a newer system
+updates_version_old: The selected update is not newer
+updates_bundle_required: Install a packaged Sailry application before updating
+updates_io_failed: Could not save the update
+updates_receipt_unread: Review the previous update before retrying
+updates_install_failed: The update did not complete; restart Sailry
+updates_restart_failed: Could not restart Sailry; open it again
+updates_shutdown_failed: Could not stop the local Node; restart Sailry
+updates_install_uncertain: The installation outcome is unconfirmed; the original app was retained
+updates_receipt_failed: The update was installed; could not save recovery details
+updates_profile_inside: The data profile is inside Sailry; move it before updating
+compatibility_update_unavailable: This version is not available for automatic update yet

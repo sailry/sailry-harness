@@ -22,7 +22,8 @@ const (
 // window does. The system's items are MyGo's roles under the reference's
 // labels and keys: the menu binds Close Window, Hide, Hide Others, Minimize
 // and Full Screen on cmd (ui.Super), the rest on secondary (ui.Cmd). Save follows
-// the focused live editor. Logs stays disabled without a log folder. Help's
+// the focused live editor. Logs stays disabled without a log folder
+// (Hooks.OpenLogs). Help's
 // last items open the welcome guide and the selected text dialog, which the preview reaches no
 // other way.
 func (a *App) Menu(lang string, send func(id string)) []*mygo.MenuItem {
@@ -58,6 +59,11 @@ func (a *App) Menu(lang string, send func(id string)) []*mygo.MenuItem {
 			}
 		}
 		a.fileSaveMenu = save.SetEnabled
+	}
+	logs := off("menu_logs", "help.logs", 0, 0)
+	if !a.Preview && a.Hooks.OpenLogs != nil {
+		logs.Disabled = false
+		logs.Click = func(*mygo.MenuItem, *mygo.Window) { send("help.logs") }
 	}
 	view := []*mygo.MenuItem{
 		item("menu_search", "app.search"),
@@ -119,7 +125,7 @@ func (a *App) Menu(lang string, send func(id string)) []*mygo.MenuItem {
 		{Label: t("menu_help"), Submenu: []*mygo.MenuItem{
 			item("menu_website", "help.website"),
 			item("menu_feedback", "help.feedback"),
-			off("menu_logs", "help.logs", 0, 0),
+			logs,
 			// The preview's way to the first launch's guide.
 			sep(),
 			item("onboarding_title", "app.welcome"),

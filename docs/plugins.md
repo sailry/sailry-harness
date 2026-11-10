@@ -177,3 +177,35 @@ scope and generation; it cannot select a newly focused draft or another Node.
   explicit unavailable embedded-browser result.
 - Native Files and Git remain the accepted core pages. Their package desktop
   entries and Git Status contribution are deliberately not mounted.
+
+## B13 computer helper
+
+The computer package's tools are its MCP server's `desktop_*` tools, approved
+like any MCP tool. Core supplies only the helper:
+
+- **Locator.** An stdio server whose command is `${SAILRY_COMPUTER_USE}`
+  launches the execution Node's packaged helper (`internal/node/computer`):
+  `Sailry Computer Use.app/Contents/MacOS/agent-desktop` under the bundle's
+  `Contents/Helpers` on macOS, `helpers/agent-desktop[.exe]` beside the
+  executable elsewhere, or under `SAILRY_HELPERS_DIR`. `PATH` is never
+  searched. A missing or unsupported helper is an `Unavailable` fault, with no
+  fallback. Linux launches inherit the graphical session variables.
+- **Identity.** On macOS the helper starts through a trampoline of the Node
+  executable (`computer.Trampoline` in `cmd/sailry-desktop` and
+  `cmd/sailry-host`) that replaces itself with the helper under a disclaimed
+  responsibility, so the helper application owns its Accessibility and Screen
+  Recording grants.
+- **Permissions.** `read_computer_permissions` and `request_computer_permission`
+  need the calling package's captured helper launch on macOS; they run
+  `agent-desktop permissions [--request]` with a 15-second deadline and a
+  64 KiB output bound. Other systems report no requirement without starting the
+  helper, and a request there is `Unavailable`. A request from another device
+  is `PermissionDenied`.
+- **Overlay.** A helper launch of an enabled package whose `cursor_overlay`
+  setting is not off joins one `agent-desktop` session per helper home
+  (`AGENT_DESKTOP_SESSION`), configured with the cursor overlay. The session
+  ends when the package is removed, disabled or turns the setting off, and at
+  Node shutdown. A failed overlay step leaves the launch without an overlay.
+- The retired `computer.read` and `computer.control` operations are not
+  registered: the reference keeps them only as unavailable metadata.
+

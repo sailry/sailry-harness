@@ -723,6 +723,23 @@ backup_timezone: Zeitzone
 backup_unarchive: Archivierung aufheben
 backup_unknown: Ergebnis unbekannt; dieselbe Anfrage wiederholen oder entfernte Liste prüfen
 backup_webdav: WebDAV
+backup_archived: Sitzungen archiviert
+backup_delete_session_consequence: Diese Sitzung und ihre untergeordneten Sitzungen unwiderruflich löschen. Projektdateien und Kontoeinstellungen bleiben erhalten
+backup_deleted: Sitzungen gelöscht
+backup_denied: Zugriff auf Sicherung verweigert
+backup_empty: Keine Sicherungen
+backup_exported: Sicherung exportiert
+backup_invalid_target: Neuen absoluten Profilpfad eingeben
+backup_online_enabled: Online-Sicherung
+backup_partial: Weitere Sicherungen können verfügbar sein
+backup_restore_consequence: In ein leeres Verzeichnis wiederherstellen. Die Kopie behält die Node-Identität; nur eine Kopie gleichzeitig starten
+backup_restored: Profil wiederhergestellt
+backup_sessions_busy: Aktive Sitzungen zuerst stoppen
+backup_sessions_failed: Sitzungsänderung fehlgeschlagen
+backup_sessions_unknown: Sitzungsänderung unbestätigt; erneut versuchen, um das Ergebnis abzurufen
+backup_target: Neuer absoluter Profilpfad
+backup_unarchived: Sitzung wiederhergestellt
+files_upload_picker: Die Dateiauswahl konnte nicht geöffnet werden
 connection_route_p2p: P2P
 connection_route_relay: Relay
 connections_device: Gerät %{id}
@@ -820,6 +837,12 @@ permission_unknown: Nicht geprüft
 permission_settings: Öffnen Sie Einstellungen
 permission_show_app: App anzeigen
 permission_title: Systemzugriff
+permission_denied: Zugriff verweigert
+permission_remote: Zugriff auf dem Ausführungsgerät zulassen
+permission_partial: Teilweise autorisiert
+permission_unavailable: Auf diesem Gerät nicht verfügbar
+permission_failed: Berechtigungsprüfung fehlgeschlagen
+permission_app_unavailable: Verwenden Sie die installierte Sailry-App, um Zugriff zu gewähren
 plugins_check_updates: Überprüfen Sie Updates
 power_prevent_sleep: Ruhezustand verhindern
 power_prevent_sleep_description: Der Bildschirm darf sich weiterhin ausschalten
@@ -1861,3 +1884,27 @@ dictation_permission: Mikrofonzugriff in den Systemeinstellungen zulassen
 dictation_no_audio: Kein Mikrofon-Audio empfangen; Gerät und Berechtigungen überprüfen
 dictation_silent: Kein Ton erkannt; Mikrofon überprüfen
 dictation_draft_changed: Entwurf geändert; Spracheingabe gestoppt
+telemetry_reset: Anonyme ID zurückgesetzt
+telemetry_diagnostics_sent: Diagnose gesendet
+telemetry_diagnostics_failed: Diagnoseversand konnte nicht bestätigt werden
+settings_build_debug: Entwicklung
+settings_build_release: Release
+updates_source_unready: Die Updatequelle ist nicht konfiguriert
+updates_manifest_invalid: Metadaten aktualisieren ist ungültig
+updates_signature_invalid: Die Update-Signatur ist ungültig
+updates_digest_invalid: Das Update-Paket ist beschädigt
+updates_package_invalid: Das Update-Paket ist ungültig
+updates_platform: Für diese Plattform ist kein Update verfügbar
+updates_system_unavailable: Die Systemversion konnte nicht gelesen werden
+updates_system_old: Das Update erfordert ein neueres System
+updates_version_old: Das ausgewählte Update ist nicht neuer
+updates_bundle_required: Installieren Sie eine gepackte Sailry-Anwendung vor dem Update
+updates_io_failed: Das Update konnte nicht gespeichert werden
+updates_receipt_unread: Überprüfen Sie das vorherige Update, bevor Sie es erneut versuchen
+updates_install_failed: Das Update wurde nicht abgeschlossen; Neustart Sailry
+updates_restart_failed: Sailry konnte nicht neu gestartet werden; öffnen Sie es erneut
+updates_shutdown_failed: Konnte den lokalen Node nicht stoppen; Neustart Sailry
+updates_install_uncertain: Das Installationsergebnis ist nicht bestätigt; die ursprüngliche App wurde beibehalten
+updates_receipt_failed: Das Update wurde installiert; Wiederherstellungsdetails konnten nicht gespeichert werden
+updates_profile_inside: Das Datenprofil befindet sich in Sailry; verschieben Sie es vor dem Aktualisieren
+compatibility_update_unavailable: Diese Version ist noch nicht automatisch verfügbar

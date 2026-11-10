@@ -723,6 +723,23 @@ backup_timezone: 时区
 backup_unarchive: 取消归档
 backup_unknown: 备份结果尚不确定，请重试原请求或查看远端列表
 backup_webdav: WebDAV
+backup_archived: 会话已归档
+backup_delete_session_consequence: 删除此会话及其子会话，无法恢复。项目文件和账户设置将保留
+backup_deleted: 会话已删除
+backup_denied: 备份访问被拒绝
+backup_empty: 暂无备份
+backup_exported: 备份已导出
+backup_invalid_target: 请输入新的资料绝对路径
+backup_online_enabled: 线上备份
+backup_partial: 可能还有更多备份
+backup_restore_consequence: 恢复到空目录。副本保留此节点身份，请勿同时运行两个副本
+backup_restored: 资料已恢复
+backup_sessions_busy: 请先停止运行中的会话
+backup_sessions_failed: 会话更新失败
+backup_sessions_unknown: 会话更新尚未确认，请重试以查询结果
+backup_target: 新的资料绝对路径
+backup_unarchived: 会话已取消归档
+files_upload_picker: 无法打开文件选择窗口
 connection_route_p2p: P2P
 connection_route_relay: 中继
 connections_device: 设备 %{id}
@@ -820,6 +837,12 @@ permission_unknown: 尚未检查
 permission_settings: 打开设置
 permission_show_app: 显示应用
 permission_title: 系统权限
+permission_denied: 已拒绝
+permission_remote: 请在执行设备上授权
+permission_partial: 部分授权
+permission_unavailable: 此设备不可用
+permission_failed: 权限检查失败
+permission_app_unavailable: 请使用已安装的 Sailry 应用授权
 plugins_check_updates: 检查更新
 power_prevent_sleep: 防止休眠
 power_prevent_sleep_description: 屏幕仍可关闭
@@ -1861,3 +1884,27 @@ dictation_permission: 请在系统设置中允许麦克风访问
 dictation_no_audio: 未收到麦克风音频，请检查设备和权限
 dictation_silent: 未检测到声音，请检查麦克风
 dictation_draft_changed: 草稿已修改，已停止语音输入
+telemetry_reset: 匿名标识已重置
+telemetry_diagnostics_sent: 诊断信息已发送
+telemetry_diagnostics_failed: 未能确认诊断信息已送达
+settings_build_debug: 开发版
+settings_build_release: 发布版
+updates_source_unready: 更新源尚未配置
+updates_manifest_invalid: 更新信息无效
+updates_signature_invalid: 更新签名无效
+updates_digest_invalid: 更新包已损坏
+updates_package_invalid: 更新包无效
+updates_platform: 此平台暂无可用更新
+updates_system_unavailable: 无法读取系统版本
+updates_system_old: 此更新需要更高的系统版本
+updates_version_old: 所选更新不比当前版本新
+updates_bundle_required: 请先安装打包的 Sailry 应用
+updates_io_failed: 无法保存更新
+updates_receipt_unread: 请先检查上次更新结果
+updates_install_failed: 更新未完成，请重启 Sailry
+updates_restart_failed: 无法重启 Sailry，请重新打开
+updates_shutdown_failed: 本机 Node 未能停止，请重启 Sailry
+updates_install_uncertain: 安装结果尚未确认，原应用已保留
+updates_receipt_failed: 更新已安装，但无法保存恢复信息
+updates_profile_inside: 数据目录位于 Sailry 应用内，请移出后再更新
+compatibility_update_unavailable: 此版本暂不可自动更新

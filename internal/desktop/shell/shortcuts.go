@@ -146,6 +146,10 @@ func (a *App) run(c *ui.Context, id string) {
 		if project := a.project(); project != nil {
 			project.SaveFocused(c)
 		}
+	case "help.logs":
+		if a.Hooks.OpenLogs != nil {
+			a.Hooks.OpenLogs()
+		}
 	case "conversation.find":
 		// The native menu takes ⌘F first: in a terminal tab it finds in the
 		// terminal.

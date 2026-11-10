@@ -15,6 +15,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/hooks"
 	"github.com/sailry/sailry-harness/internal/node/python"
 	"github.com/sailry/sailry-harness/internal/node/store"
+	"github.com/sailry/sailry-harness/internal/node/telemetry"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -30,6 +31,7 @@ type Options struct {
 	Tools             []Tool
 	ToolsForTurn      func(context.Context, *store.AgentInvocation) ([]Tool, error)
 	HooksForTurn      func(context.Context, *store.AgentInvocation) *hooks.Binding
+	Telemetry         *telemetry.Control
 }
 
 type Runtime struct {
@@ -39,6 +41,7 @@ type Runtime struct {
 	attachmentBytes   func(context.Context, protocol.Attachment) ([]byte, error)
 	toolsForTurn      func(context.Context, *store.AgentInvocation) ([]Tool, error)
 	hooksForTurn      func(context.Context, *store.AgentInvocation) *hooks.Binding
+	telemetry         *telemetry.Control
 	db                *store.Handle
 	node              protocol.NodeID
 	profile           string
@@ -101,7 +104,7 @@ func New(db *store.Handle, node protocol.NodeID, profile string, frames *feed.Hu
 		options.Model = model.New
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Runtime{python: options.Python, validateWorktree: options.ValidateWorktree, attachment: options.Attachment, attachmentBytes: options.AttachmentBytes, db: db, node: node, profile: profile, feed: frames, publish: publish, clock: options.Clock, model: options.Model, authorizeProvider: options.AuthorizeProvider, tools: options.Tools, toolsForTurn: options.ToolsForTurn, hooksForTurn: options.HooksForTurn, ctx: ctx, cancel: cancel, done: make(chan struct{}), wake: make(chan struct{}, 1), active: map[protocol.TurnID]*execution{}, children: map[protocol.TurnID]*delegatedChild{}, activity: make(chan struct{}), statistics: map[protocol.SessionID]bool{}}
+	return &Runtime{telemetry: options.Telemetry, python: options.Python, validateWorktree: options.ValidateWorktree, attachment: options.Attachment, attachmentBytes: options.AttachmentBytes, db: db, node: node, profile: profile, feed: frames, publish: publish, clock: options.Clock, model: options.Model, authorizeProvider: options.AuthorizeProvider, tools: options.Tools, toolsForTurn: options.ToolsForTurn, hooksForTurn: options.HooksForTurn, ctx: ctx, cancel: cancel, done: make(chan struct{}), wake: make(chan struct{}, 1), active: map[protocol.TurnID]*execution{}, children: map[protocol.TurnID]*delegatedChild{}, activity: make(chan struct{}), statistics: map[protocol.SessionID]bool{}}
 }
 
 // Recover closes interrupted owners and holds every surviving queue. It never

@@ -168,7 +168,7 @@ placeholder in an empty masked input.
 | Connections | add host (pairing code or SSH), connect/install, share code, revoke, edit network | dialogs open; the network steps are preview_notice; revoke confirms first |
 | Hooks | add/edit (dialog), enable (consent dialog), disable, remove | `Commit`, hooks_* toast |
 | Runtime | package index, custom URL | `Commit` |
-| Permissions | check, settings, request | preview_notice |
+| Permissions | check, settings, request, show app | preview_notice; live through `Model.PermissionActions` (B13) |
 | Backup | configure (storage dialog), schedule | `Commit`, backup_* toast |
 | Backup | export, back up, restore, archive/unarchive/delete sessions | preview_notice; delete all confirms first |
 | About | Check, Cancel, Download, Install (confirms first), Details | `Updater` plays the states on the frame clock: the stable channel finds 0.2.0-preview, the experience one fails to reach the feed; ready and failure toast with Install and Details; Restart is preview_notice |
@@ -546,3 +546,161 @@ Deviations from the reference:
 | A registered model is validated by constructing the recognizer, not by reading the graph's SenseVoice metadata | The ONNX binding exposes no model metadata; no control registers a model |
 | Speech downloads are not listed among a Node's installation tasks | They are the controller's and the accepted UI has no controller task list |
 | The speech, ONNX Runtime and capture libraries load only from the executable's directory | B11 loader rule; without them dictation and the device list report `dictation_unavailable` and the picker offers the system default alone |
+
+## B13 Permissions wiring
+
+In live mode `live/permissions.go` owns the Permissions page while it shows.
+Each frame it projects `Model.Permissions` and sets `Model.PermissionActions`
+(`Check`, `Request`, `Settings`, `ShowApp`); the preview leaves the actions nil
+and keeps `preview_notice`.
+
+- **Sources.** Sailry's own grants (Full Disk Access, Accessibility,
+  Microphone; subject `sailry`) are read in this process with MyGo
+  `permissionflow.Check`, which needs no application loop. Every enabled
+  package's `permissions` contributions on the selected host and on the
+  controller add grants owned by the package's subject: the computer package
+  declares Accessibility and Screen Recording for the helper. A package grant
+  is read with `read_plugin_callback` and requested with `call_plugin` on the
+  `permissions` surface; its host handlers call `read_computer_permissions` and
+  `request_computer_permission`, which run the helper's own `permissions`
+  diagnostic on the execution Node (see [plugins](plugins.md)).
+- **Rows.** One row per resource. Several owners fold into granted, partially
+  authorized (`permission_partial`) or required. A row's `Settings` flag is the
+  settings shortcut of a granted resource, or marks an action that opens the
+  system's settings (Full Disk Access, a refused microphone).
+- **Check** runs when the page opens, when its packages or their connection
+  change, after a request, and from the header button. **Request** asks each
+  missing owner in turn: `permissionflow.Request` raises the system prompt for
+  Sailry, the package's request handler raises the helper's. **Settings** is
+  `permissionflow.OpenSettings`; Full Disk Access is checked first, because the
+  refused protected open is what lists the application. **Show app** reveals
+  the `.app` bundle with `open -R`; a bare executable is the
+  `permission_app_unavailable` toast.
+- **Outcomes.** A failed check, request or settings page is the
+  `permission_failed` toast; the row of a failed package check reads Unknown.
+- Outside macOS Sailry's rows read `permission_unavailable`; a package grant
+  on another device reads through that device and is never requested from here.
+
+Deviations from the reference:
+
+| Deviation | Reason |
+|---|---|
+| A requestable row that is not granted shows Request alone, without the settings shortcut | The accepted row draws the shortcut and the action label from one `Settings` flag |
+| A refused microphone shows both the settings shortcut and Open settings | Same flag; both open the same page |
+| Buttons are not disabled or shown loading while a check or request runs; a second click is ignored | The accepted view has no busy state |
+| A restricted microphone reads Denied | `permissionflow` reports refused and restricted alike |
+| Full Disk Access is probed by opening the TCC database, then Safari's folder, not by listing the Trash | `permissionflow.Check` owns the probe |
+| The Chrome and Keychain workflow cards and the permission dialog opened by other features are absent | Not part of the accepted Settings page |
+| An unavailable or remote row keeps an inert Request button | The accepted view draws the action for every row that is not granted |
+
+
+## B13 system wiring
+
+Ownership: `internal/desktop/updater` owns release discovery, verification,
+staging, installation and the receipt; `internal/node/power` owns the one
+keep-awake request; `internal/node/telemetry` owns reporting consent, the
+anonymous identity's use, the diagnostics report, automatic error reports and
+usage counters; `internal/node/logging` owns the process's rotating log and
+the one policy for what a record may disclose. `internal/desktop/live`
+(`about.go`, `settings_general_telemetry.go`) only maps their state and outcomes.
+
+| Page | Control | Live behavior |
+|---|---|---|
+| General | Prevent sleep | `save_power_settings`; the Node holds one system keep-awake request while the setting is on and the Node runs (IOKit `PreventUserIdleSystemSleep` on macOS, a `PowerRequestSystemRequired` power request on Windows, unsupported elsewhere). A refused request writes one `power` notice and is not retried |
+| General | Error reports, Usage metrics | `save_telemetry_settings`; the Node reapplies consent after each committed change. With Error reports off no failure is reported or kept for a later report; with Usage metrics off nothing is counted and no timer runs. Turning either off drops what was pending |
+| General | Reset | `reset_telemetry_identity` with the shown revision; toasts `telemetry_reset`, `telemetry_conflict`, `telemetry_unknown` or `telemetry_failed` |
+| General | Send | `send_diagnostics`; one Sentry event with the reviewed fields only (level, logger, message `runtime.diagnostics:requested`, release, environment, fingerprint, the installation, channel, application, OS and architecture tags, and the `diagnostics.jsonl` attachment described below); toasts `telemetry_diagnostics_sent` or `telemetry_diagnostics_failed` |
+| About | Version, Build | `link.ProductVersion`; `settings_build_release` when the build carries a revision, otherwise `settings_build_debug` |
+| About | Updates | `Model.UpdateActions` call the process's one `updater.Service`; `Runtime.aboutFrame` copies its state into `Updater`, restarts the check after a channel change and shows its notices as toasts in the focused window (ready with Install, failures with Details, an uncertain installation as a warning) |
+
+The updater verifies the signed `update-v1` catalog against the release-owned
+ed25519 keys, the archive's zipsign signature and digest, the bundle identifier
+and the code-signing identity before Ready. Installation stops the Node, swaps
+the bundle with a retained original and writes a receipt the next launch
+acknowledges.
+
+Deviations from the reference:
+
+| Deviation | Reason |
+|---|---|
+| The MyGo updater is not used | It cannot verify the signed `update-v1` envelope or zipsign archives, keep Download, Ready and Install as separate steps, or report the reference's failure keys; the documented fallback ports the reference's verification |
+| Installation is macOS only; other systems fail a check with `updates_platform` | The reference's out-of-process Windows install helper and draft recovery are not ported |
+| A host's required-version check is not requested by Hosts | `Service.CheckVersion` exists; no caller is wired |
+| The Sentry event also carries the SDK's `sdk` and an empty `user` object | sentry-go adds them to every event |
+| Rotated files are named `current-<time>.log`, not `current.log.<n>` | lumberjack names its backups; size, count and the active name match |
+| Records are written synchronously; there is no bounded queue that drops under load, no macOS unified-log sink and no temporary preview log | `log/slog` with lumberjack has neither; the preview installs no log |
+| A report's public fields travel as `contexts.sailry`, not `extra` | sentry-go's event has no free `extra` object |
+| No panic reports and no debug images | Go has no process panic hook that could report before exit |
+| A package and a package's tool are always reported as `third_party` | The bundled-identity check that lets the reference name official packages is not ported |
+| Only command records are written | The reference's other record sites (runs, model streams, MCP, attachments, sign-in, desktop feedback) are not ported; their fields are in the policy and unused |
+| A model request is counted per attempt, without a retry count | The engine reports attempts, not a finished request |
+
+### Logs, reports and counters
+
+Send diagnostics is a controller's own act. **The Error reports and Usage
+metrics switches do not gate it**: it is refused only by
+`SAILRY_TELEMETRY=off`, `DO_NOT_TRACK=1` or a missing endpoint, as in the
+reference. The switches gate everything that would otherwise leave unasked.
+
+`cmd/sailry-desktop` and `cmd/sailry-host` install the log once, before the
+Node starts, with `logging.Install`; the preview installs none. The Node
+attaches only when the installed log lies in its own profile.
+
+| Part | Behavior |
+|---|---|
+| Files | `<profile>/logs/<desktop\|host>/current.log`, mode 0600 in a 0700 directory, with `writer.lock` held by the one writing process. 10 MiB a file, ten files, rotated by size only. Earlier daily `YYYY-MM-DD.log` files are removed once the Node owns the profile |
+| Records | `<UTC time, microseconds> <DEBUG\|INFO\|WARN\|ERROR> <application> key=value…` in the policy's order. Only the policy's keys are written; strings lose control characters and stop at 256 characters. Records of other libraries stay with the previous `slog` handler |
+| Commands | `logging_commands.go` records the kind, Node, caller, request, session and turn of the listed commands, and a package's commands as `plugin_command` with its name, digest and settings revision. Reads are recorded only when slow (100 ms), failed or uncertain; a package's reads at DEBUG. Not found, invalid request and network unavailability are WARN. Payloads, results, prompts, file contents and credentials are never read |
+| Disclosure | `logging.Remote`: `area`, `phase`, `operation`, `code` and `cause_code` as lowercase tokens, `duration_us`, `elapsed_us` and `count`, a SemVer `app_version`, and a package only as `third_party`. Identifiers, names, details and paths never pass |
+| Attachment | The last 500 records in the last mebibyte of the active file, each reduced by `Remote`, one JSON object a line. Rotated files are not read |
+| Error reports | While Error reports is on, an ERROR record with `phase=failed` becomes one Sentry event (`<area>.<operation>:<code>`, exception `SailryError`, module-relative stack frames) with up to 50 earlier WARN records as breadcrumbs: ten an hour for one fingerprint, 32 in flight, ten seconds each, no redirects |
+| Usage metrics | While Usage metrics is on, launches, finished task turns, calls of the listed built-in, MCP and package tools, model requests and web searches are counted by result, mode, error code, duration and tokens. A window of at most 256 groups is posted to Telemetry.sh by table 15 minutes after its first count and at shutdown; a model is named only when a built-in preset lists it |
+
+## B13 Backup wiring
+
+Settings › Backup is live. `live/settings_backup.go` keeps the page on the
+selected host's Node (`App.Host`); `Model.BackupActions` is nil in the preview,
+which keeps `Commit` and `preview_notice`. Turning to another host drops the
+page's dialogs and drafts. Each Node keeps its own settings and running action,
+so an action finishes and toasts after the page has moved on.
+
+| Control | Command | Notes |
+|---|---|---|
+| Page | `read_backup_settings`, the controller's snapshot | Read when the page shows and after every action that did not return settings. Controls are disabled (`Backup.Pending`) until the settings are known and while an action runs. Archived sessions and the session count come from the snapshot |
+| Storage dialog › Save | `save_backup_settings` | Sent at the revision read. Typed secrets replace, blank ones keep, Clear credentials removes; WebDAV clears the session token. The schedule is left as saved. A clean draft closes without a request. The draft stays in the dialog until the Node has saved it |
+| Choose folder | native folder picker | Local Node only; another host toasts `unavailable` |
+| Schedule switch, time, timezone | `save_backup_settings` | The switch saves at once, time and timezone 350 ms after they rest, with every secret kept. An enabled schedule without a timezone waits. A draft the Node refused is not sent again until it changes |
+| Export | save panel, `download_backup`, download stream | Written beside the chosen path and published when complete |
+| Back up now | `export_backup` | |
+| Import › Restore | file picker, `upload_backup`, upload stream, `restore_backup_file` | A refused restore releases the staged upload with `cancel_file_transfer` |
+| Restore from storage | `list_backups`, `restore_backup` | Each record offers its local and online copies |
+| Unarchive, Delete | `set_session_archived`, `remove_session` | Delete confirms first, naming the session |
+| Archive all, Delete all | `archive_sessions`, `remove_sessions` | Named at the revisions in the snapshot; delegated sessions follow their parents |
+
+The restore form names the host, shows `backup_restore_consequence` once and
+asks for the passphrase (blank uses the saved one) and the new profile path.
+The Node refuses a path that exists with content or lies inside the running
+profile, so a restore never writes over a live profile.
+
+Outcomes are toasts only: `backup_saved`, `backup_exported`,
+`backup_restored`, `backup_archived`, `backup_unarchived`, `backup_deleted`;
+`backup_conflict`, `backup_invalid`, `backup_denied`, `backup_unknown`,
+`backup_failed`; for sessions `backup_sessions_busy`, `session_changed`,
+`backup_sessions_unknown`, `backup_sessions_failed`. A request whose outcome is
+unknown is retained and sent again by the same action.
+
+Backend ownership: `internal/node/backup` (archive, encryption, storage,
+restore staging), `internal/node/backup_service*.go` (commands),
+`internal/node/store/backup_settings*.go` (settings, schedule, restored
+profile), `internal/node/files/backup_transfers.go` (streams).
+
+Deviations from the reference:
+
+| Deviation | Reason |
+|---|---|
+| Choose folder uses the controller's native picker and is unavailable for a remote host | The reference's host file picker is not built in this UI |
+| No toast actions (Retry, Reload) | The accepted toasts carry no actions; repeating the action resends a retained request, and the page reads the settings again on entry |
+| The page does not subscribe to `backup_settings_changed` | The snapshot has no backup revision; a stale revision surfaces as `backup_conflict` and a fresh read |
+| A file restore with an unknown outcome is staged again when repeated | The staged stream belongs to the first request |
+| A running action is not cancelled when the page is left | Its toast still reports the outcome |
+| An archived session that never ran shows no date | A session carries no archive time |

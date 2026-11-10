@@ -16,17 +16,20 @@ import (
 	"github.com/sailry/sailry-harness/internal/node/agent/engine"
 	"github.com/sailry/sailry-harness/internal/node/agent/feed"
 	"github.com/sailry/sailry-harness/internal/node/agent/model"
+	"github.com/sailry/sailry-harness/internal/node/computer"
 	"github.com/sailry/sailry-harness/internal/node/files"
 	workspacegit "github.com/sailry/sailry-harness/internal/node/git"
 	"github.com/sailry/sailry-harness/internal/node/host"
 	knowledgeservice "github.com/sailry/sailry-harness/internal/node/knowledge/service"
 	"github.com/sailry/sailry-harness/internal/node/mcp"
 	"github.com/sailry/sailry-harness/internal/node/ports"
+	"github.com/sailry/sailry-harness/internal/node/power"
 	"github.com/sailry/sailry-harness/internal/node/process"
 	"github.com/sailry/sailry-harness/internal/node/providers"
 	"github.com/sailry/sailry-harness/internal/node/python"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/node/tasks"
+	"github.com/sailry/sailry-harness/internal/node/telemetry"
 	"github.com/sailry/sailry-harness/internal/node/terminal"
 	"github.com/sailry/sailry-harness/internal/node/web"
 	"github.com/sailry/sailry-harness/internal/node/wsl"
@@ -52,6 +55,9 @@ type Node struct {
 	ports             *ports.Service
 	browsers          browserRegistry
 	localModels       *localModelControls
+	power             *power.Service
+	telemetry         *telemetry.Control
+	logs              bool
 	knowledge         *knowledgeservice.Service
 	cancel            context.CancelFunc
 	web               *workspaceWeb
@@ -60,6 +66,7 @@ type Node struct {
 	processes         *process.Service
 	watches           *workspaceWatches
 	codeIndex         *codeIndexControls
+	computerOverlay   computer.Overlay
 	environment       process.Environment
 	processAfter      func(time.Duration) <-chan time.Time
 	effects           sync.Mutex
@@ -106,6 +113,8 @@ type Options struct {
 	Git            workspacegit.Options
 	Process        process.Options
 	LocalModels    localmodels.Options
+	Power          power.Backend
+	Telemetry      telemetry.Options
 }
 
 func Start(ctx context.Context, path string) (*Node, error) {
@@ -170,7 +179,8 @@ func StartWithOptions(ctx context.Context, path string, options Options) (*Node,
 		value.hostInstalls = host.NewInstallations(*options.HostDeployment)
 	}
 	value.modelFactory = options.Model
-	value.agent = engine.New(profile.Store.Node, value.ID(), profile.Ownership.Path, value.feed, value.publish, engine.Options{Python: value.plugins.python, Model: value.newModel, AuthorizeProvider: value.authorizeTurnProvider, Attachment: value.capturedAttachment, AttachmentBytes: value.transfers.AttachmentBytes, ToolsForTurn: value.workspaceTools, HooksForTurn: value.turnHooks})
+	value.telemetry = newTelemetry(options.Telemetry)
+	value.agent = engine.New(profile.Store.Node, value.ID(), profile.Ownership.Path, value.feed, value.publish, engine.Options{Telemetry: value.telemetry, Python: value.plugins.python, Model: value.newModel, AuthorizeProvider: value.authorizeTurnProvider, Attachment: value.capturedAttachment, AttachmentBytes: value.transfers.AttachmentBytes, ToolsForTurn: value.workspaceTools, HooksForTurn: value.turnHooks})
 	if err := value.agent.Recover(ctx); err != nil {
 		cancel()
 		value.closeAuth()
@@ -181,7 +191,19 @@ func StartWithOptions(ctx context.Context, path string, options Options) (*Node,
 		_ = profile.Close()
 		return nil, err
 	}
+	if err := errors.Join(value.initPower(ctx, options.Power), value.initTelemetry(ctx)); err != nil {
+		cancel()
+		value.power.Close()
+		value.closeAuth()
+		_ = value.terminals.Close()
+		_ = value.closePlugins()
+		_ = value.tasks.Close(context.Background())
+		_ = value.closeWorkspace()
+		_ = profile.Close()
+		return nil, err
+	}
 	if err := value.initLocalModels(ctx, options.LocalModels); err != nil {
+		value.power.Close()
 		cancel()
 		value.closeAuth()
 		_ = value.terminals.Close()
@@ -229,6 +251,9 @@ func (node *Node) Stop(ctx context.Context) error {
 			node.closeLocalModels()
 			pluginErr := node.closePlugins()
 			node.work.Wait()
+			node.detachLogging()
+			node.telemetry.Close()
+			node.power.Close()
 			workspaceErr := node.closeWorkspace()
 			err := errors.Join(networkErr, terminalErr, portErr, taskErr, pluginErr, workspaceErr, node.profile.Close())
 			node.mu.Lock()
@@ -270,7 +295,7 @@ func (node *Node) Snapshot(ctx context.Context) (protocol.Snapshot, error) {
 	return value, nodeFault(err)
 }
 
-func (node *Node) Dispatch(ctx context.Context, caller protocol.NodeID, request protocol.Request) (link.Admission, error) {
+func (node *Node) admitCommand(ctx context.Context, caller protocol.NodeID, request protocol.Request) (link.Admission, error) {
 	if request.Target != node.ID() || request.Version != protocol.VERSION {
 		return link.Admission{}, &protocol.Fault{Code: protocol.ErrorCodeWrongTarget, Message: "Node or protocol version mismatch"}
 	}
@@ -307,14 +332,23 @@ func (node *Node) Dispatch(ctx context.Context, caller protocol.NodeID, request 
 	if request.Command.Kind == "decide" {
 		return node.dispatchDecision(ctx, request)
 	}
+	if request.Command.Kind == "send_diagnostics" {
+		return node.dispatchDiagnostics(ctx, request)
+	}
 	if localModelCommand(request.Command.Kind) {
 		return node.dispatchLocalModels(ctx, caller, request, encoded)
 	}
 	if knowledgeCommand(request.Command.Kind) {
 		return node.dispatchKnowledge(ctx, caller, request, encoded)
 	}
+	if computerCommand(request.Command.Kind) {
+		return node.dispatchComputer(ctx, caller, request)
+	}
 	if hostCommand(request.Command.Kind) {
 		return node.dispatchHost(ctx, caller, request, encoded)
+	}
+	if backupCommand(request.Command.Kind) {
+		return node.dispatchBackup(ctx, caller, request, encoded)
 	}
 	if request.Command.Kind == "open_port" || request.Command.Kind == "cancel_port" {
 		return node.dispatchPort(ctx, caller, request)
@@ -400,7 +434,7 @@ func supportedCommand(kind string) bool {
 		return true
 	case "deliver_background", "continue_turn":
 		return true
-	case "create_project", "update_project", "remove_project", "register_worktree", "set_defaults", "create_session", "bind_connection_session", "list_databases", "save_database", "remove_database", "rename_session", "set_session_archived", "set_session_read", "archive_sessions", "remove_session", "remove_sessions", "set_session_order", "mark_notification_read", "mark_notifications_read", "dismiss_read_notifications", "dismiss_notifications", "publish_notification", "save_power_settings", "save_telemetry_settings":
+	case "create_project", "update_project", "remove_project", "register_worktree", "set_defaults", "create_session", "bind_connection_session", "list_databases", "save_database", "remove_database", "rename_session", "set_session_archived", "set_session_read", "archive_sessions", "remove_session", "remove_sessions", "set_session_order", "mark_notification_read", "mark_notifications_read", "dismiss_read_notifications", "dismiss_notifications", "publish_notification", "save_power_settings", "reset_telemetry_identity", "save_telemetry_settings":
 		return true
 	default:
 		return false
@@ -617,6 +651,7 @@ func (node *Node) execute(job commandJob, prepared store.PreparedPaths, prepareE
 			node.feed.Publish(review.Session, review.Change)
 		}
 		node.conversationEvents(changes)
+		node.systemEvents(changes)
 	}
 	return response(output, operationErr), err
 }

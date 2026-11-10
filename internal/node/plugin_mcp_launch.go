@@ -13,6 +13,7 @@ import (
 	"sync"
 
 	"github.com/sailry/sailry-harness/internal/core"
+	"github.com/sailry/sailry-harness/internal/node/computer"
 	"github.com/sailry/sailry-harness/internal/node/mcp"
 	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/node/python"
@@ -111,6 +112,11 @@ func (node *Node) prepareMCPLaunch(ctx context.Context, info protocol.PluginInfo
 		launch := &prepared.Launch
 		launch.Directory = filepath.Join(basePath, filepath.FromSlash(relative))
 		launch.Command = value.Command
+		if value.Command == computer.Token {
+			if launch.Command, err = computer.Executable(); err != nil {
+				return prepared, err
+			}
+		}
 		if relativeCommand, found := strings.CutPrefix(value.Command, "./"); found {
 			file, err := owner.packageRoot.Open(filepath.FromSlash(relativeCommand))
 			if err != nil {
@@ -132,6 +138,14 @@ func (node *Node) prepareMCPLaunch(ctx context.Context, info protocol.PluginInfo
 			launch.Env[key] = expandMCP(content, packagePath, dataPath)
 		}
 		launch.Env["PLUGIN_ROOT"], launch.Env["PLUGIN_DATA"] = packagePath, dataPath
+		if value.Command == computer.Token {
+			computer.Session(launch.Env)
+			if home, declared := launch.Env["AGENT_DESKTOP_HOME"]; declared {
+				if err := computer.PrepareHome(dataPath, home); err != nil {
+					return prepared, &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "computer helper home is unavailable"}
+				}
+			}
+		}
 		environment := node.environment.TerminalValues()
 		launch.Environment = slices.Clone(environment)
 		slices.Sort(launch.Environment)

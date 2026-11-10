@@ -121,7 +121,9 @@ func (node *Node) closePlugins() error {
 		invocation.cancel()
 	}
 	node.plugins.mu.Unlock()
-	return node.plugins.mcp.Close()
+	err := node.plugins.mcp.Close()
+	node.computerOverlay.Shutdown()
+	return err
 }
 
 func (node *Node) validatePluginRequest(ctx context.Context, caller protocol.NodeID, request protocol.Request) error {
@@ -288,12 +290,14 @@ func (node *Node) pluginCommitted(changes []protocol.Event) {
 			packagesChanged = true
 			if summary, ok := dispatchPayload[protocol.PluginSummary](change.Data); ok {
 				_ = node.plugins.mcp.Observe(summary)
+				node.retainComputerOverlay(summary.Name)
 			}
 		}
 		if change.Kind == "plugin_removed" {
 			packagesChanged = true
 			if removed, ok := dispatchPayload[protocol.EventPluginRemovedPayload](change.Data); ok {
 				_ = node.plugins.mcp.Invalidate(removed.Name)
+				node.retainComputerOverlay(removed.Name)
 			}
 		}
 	}

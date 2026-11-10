@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"charm.land/fantasy"
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
@@ -233,6 +234,8 @@ func (r *Runtime) runTools(x *execution, state store.AgentState, calls []canonic
 				workers.Add(1)
 				go func(i int) {
 					defer workers.Done()
+					metric, started := r.telemetry.Capture(), time.Now()
+					defer func() { observeTool(metric, x.ctx, calls[i].Name, results[i], started) }()
 					if err := x.hooks.Before(x.ctx, calls[i].Name); err != nil {
 						results[i] = toolFault(err)
 						return

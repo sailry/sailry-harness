@@ -36,9 +36,13 @@ func (a *App) SystemShortcuts() map[string]string {
 }
 
 // captureSelection is the selection shortcut (dispatch "system.selection"):
-// the preview reads no other app, so it shows the preview's sample text.
+// the preview reads no other app, so it shows the preview's sample text. The
+// live controller reads the front app and answers through ShowSelection.
 func (a *App) captureSelection() {
 	if !a.Preview {
+		if a.Hooks.CaptureSelection != nil {
+			a.Hooks.CaptureSelection()
+		}
 		return
 	}
 	if a.dialog() {

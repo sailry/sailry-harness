@@ -15,6 +15,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/localmodels"
 	"github.com/sailry/sailry-harness/internal/node"
+	"github.com/sailry/sailry-harness/internal/node/logging"
 )
 
 type startupOptions struct {
@@ -44,6 +45,7 @@ type desktopBackend struct {
 	Network     *live.Network
 	Preferences *preferences.Store
 	close       sync.Once
+	logs        func()
 	err         error
 }
 
@@ -64,11 +66,14 @@ func openBackend(ctx context.Context, options startupOptions) (*desktopBackend, 
 	}
 	// First-launch detection must precede creation of the Node database.
 	backend.Path, backend.Preferences = path, preferences.ForStartup(path)
+	// The application runs without its log when the log cannot be opened.
+	backend.logs, _ = logging.Install(path, "desktop")
 	backend.Node, err = node.StartWithOptions(ctx, path, node.Options{
 		Network:     &link.NetworkScope{Internet: true},
 		LocalModels: localmodels.Options{Capabilities: node.LocalModelCapabilities()},
 	})
 	if err != nil {
+		backend.closeLogs()
 		return nil, err
 	}
 	backend.Client = client.New(link.NewLocal(backend.Node.ID(), backend.Node.ID(), backend.Node))
@@ -77,6 +82,12 @@ func openBackend(ctx context.Context, options startupOptions) (*desktopBackend, 
 	}
 	backend.Network = live.NewNetwork(ctx, backend.Client, backend.Node.Link())
 	return backend, nil
+}
+
+func (backend *desktopBackend) closeLogs() {
+	if backend.logs != nil {
+		backend.logs()
+	}
 }
 
 func (backend *desktopBackend) Close() error {
@@ -91,6 +102,7 @@ func (backend *desktopBackend) Close() error {
 		if backend.Node != nil {
 			nodeErr = backend.Node.Stop(context.Background())
 		}
+		backend.closeLogs()
 		backend.err = errors.Join(network, controller, nodeErr)
 	})
 	return backend.err

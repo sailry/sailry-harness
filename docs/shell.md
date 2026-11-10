@@ -444,3 +444,31 @@ Window shutdown releases that window's observations, transfer dialogs and
 Forwarders. It does not close shared Clients or stop admitted work. Application
 shutdown closes window Runtimes, then Network, the local Client and Node.
 Preview never constructs Network or opens a profile.
+
+## B13 system shortcuts
+
+`cmd/sailry-desktop` registers `App.SystemShortcuts` with the system on focus
+and after every preference change, so a rebound key re-registers and a cleared
+key unregisters. A refused registration toasts `shortcut_conflict` once per
+accelerator through `Runtime.ReportShortcutConflict`.
+
+`system.activate` shows and focuses the active window, then opens the search.
+`system.selection` calls `Runtime.CaptureSelection` before the window comes
+forward: the front app's selection is read off the UI thread, then the window
+activates and shows the text through `App.ShowSelection`, or toasts
+`selection_permission`, `selection_empty`, `selection_large` or
+`selection_unavailable`. Help › Selected text reaches the same reader through
+`Hooks.CaptureSelection` without activation. The text is refused over 65536
+bytes or with a NUL, and secure text fields are never read.
+
+Help › Logs is enabled in a live window whose process installed a log
+(`Runtime.SetLogFolder`, `Hooks.OpenLogs`). It sends `help.logs`, which opens
+`<profile>/logs`; a missing folder toasts `files_open_failed`. The preview and
+a process without a log keep the item disabled.
+
+Deviations from the reference:
+
+| Deviation | Reason |
+|---|---|
+| Selection capture is macOS only (Accessibility through purego); other systems toast `selection_unavailable` | The UI Automation and X11 readers are not ported |
+| Help › Logs opens the profile's `logs` folder with the system's file manager | The reference opens the current file in Console on macOS; the folder also holds the rotated files |

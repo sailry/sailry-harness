@@ -723,6 +723,23 @@ backup_timezone: タイムゾーン
 backup_unarchive: アーカイブ解除
 backup_unknown: 結果は不明です。同じ要求を再試行するか、リモート一覧を確認してください
 backup_webdav: WebDAV
+backup_archived: セッションをアーカイブしました
+backup_delete_session_consequence: このセッションと子セッションを削除します。元に戻せません。プロジェクトファイルとアカウント設定は保持されます
+backup_deleted: セッションを削除しました
+backup_denied: バックアップへのアクセスが拒否されました
+backup_empty: バックアップなし
+backup_exported: バックアップを書き出しました
+backup_invalid_target: 新しいプロファイルの絶対パスを入力してください
+backup_online_enabled: オンラインバックアップ
+backup_partial: ほかにもバックアップがある可能性があります
+backup_restore_consequence: 空のディレクトリに復元します。ノード識別子は同じなので、同時に実行するコピーは1つにしてください
+backup_restored: プロファイルを復元しました
+backup_sessions_busy: 続行する前に実行中のセッションを停止してください
+backup_sessions_failed: セッションを更新できませんでした
+backup_sessions_unknown: セッションの更新は未確認です。再試行して結果を確認してください
+backup_target: 新しいプロファイルの絶対パス
+backup_unarchived: アーカイブを解除しました
+files_upload_picker: ファイル選択ツールを開けませんでした
 connection_route_p2p: P2P
 connection_route_relay: Relay
 connections_device: デバイス %{id}
@@ -820,6 +837,12 @@ permission_unknown: チェックされていません
 permission_settings: 設定を開く
 permission_show_app: アプリを表示
 permission_title: システムアクセス
+permission_denied: アクセス拒否
+permission_remote: 実行デバイスのアクセスを許可
+permission_partial: 一部許可済み
+permission_unavailable: このデバイスでは利用できません
+permission_failed: 権限を確認できませんでした
+permission_app_unavailable: アクセスを許可するためにインストールされている Sailry アプリを使う
 plugins_check_updates: 更新をチェック
 power_prevent_sleep: スリープを防止
 power_prevent_sleep_description: 画面は消灯できます
@@ -1861,3 +1884,27 @@ dictation_permission: システム設定でマイクアクセスを許可
 dictation_no_audio: マイク音が受信されませんでした。デバイスと権限を確認してください
 dictation_silent: 音が検出されません。マイクをチェックしてください
 dictation_draft_changed: 草稿が変更されました。音声入力を停止しました
+telemetry_reset: 匿名 ID をリセットしました
+telemetry_diagnostics_sent: 診断情報を送信しました
+telemetry_diagnostics_failed: 診断情報の送信を確認できませんでした
+settings_build_debug: 開発
+settings_build_release: リリース
+updates_source_unready: 更新ソースが設定されていません
+updates_manifest_invalid: メタデータの更新が不正です
+updates_signature_invalid: 更新署名が無効です
+updates_digest_invalid: 更新パッケージが損傷しています
+updates_package_invalid: 更新パッケージが無効です
+updates_platform: このプラットフォームには更新がありません
+updates_system_unavailable: システムバージョンを読めませんでした
+updates_system_old: 更新には新しいシステムが必要です
+updates_version_old: 選択した更新は新しいものではありません
+updates_bundle_required: アップデートする前にパッケージ化された Sailry アプリケーションをインストールします
+updates_io_failed: 更新を保存できませんでした
+updates_receipt_unread: もう一度試みる前に前回の更新を確認する
+updates_install_failed: 更新が完了しませんでした。Sailry を再起動してください
+updates_restart_failed: Sailry を再起動できませんでした。もう一度開きます
+updates_shutdown_failed: ローカル Node を停止できませんでした。Sailry を再起動してください
+updates_install_uncertain: インストール結果は確認されていません。元のアプリケーションを保持しました
+updates_receipt_failed: 更新はインストールされましたが、回復の詳細を保存できませんでした
+updates_profile_inside: データプロファイルは Sailry の中にあります。更新する前に移動してください
+compatibility_update_unavailable: このバージョンはまだ自動更新できません

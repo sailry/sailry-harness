@@ -17,6 +17,8 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/reader"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
+	"github.com/sailry/sailry-harness/internal/node/computer"
+	"github.com/sailry/sailry-harness/internal/node/logging"
 )
 
 type desktopWindow struct {
@@ -27,6 +29,7 @@ type desktopWindow struct {
 }
 
 func main() {
+	computer.Trampoline()
 	options, err := parseOptions(os.Args[1:])
 	if err != nil {
 		log.Fatal(err)
@@ -54,6 +57,12 @@ func main() {
 	var active *desktopWindow
 	var speech *reader.Service
 	registered := map[string]bool{}
+	conflicted := map[string]bool{}
+	var updates *live.Updates
+	if backend.Client != nil && backend.Preferences != nil {
+		updates = live.NewUpdates(backend.Preferences, backend.Path, backend.Close, mygo.App.Quit)
+		defer updates.Service.Close()
+	}
 	var refreshCommands func()
 	refreshCommands = func() {
 		if active == nil {
@@ -69,6 +78,11 @@ func main() {
 				delete(registered, accelerator)
 			}
 		}
+		for accelerator := range conflicted {
+			if _, exists := shortcuts[accelerator]; !exists {
+				delete(conflicted, accelerator)
+			}
+		}
 		for accelerator, command := range shortcuts {
 			if registered[accelerator] {
 				mygo.GlobalShortcut.Unregister(accelerator)
@@ -77,14 +91,26 @@ func main() {
 				if active == nil {
 					return
 				}
-				active.window.Show()
-				active.window.Focus()
-				active.app.Do(command)
-				active.window.Invalidate()
+				current := active
+				if command == "system.selection" && current.live != nil {
+					// The selection belongs to the app in front, so it is
+					// read before this window takes its place.
+					current.live.CaptureSelection(func() { current.window.Show(); current.window.Focus() })
+					return
+				}
+				current.window.Show()
+				current.window.Focus()
+				current.app.Do(command)
+				current.window.Invalidate()
 			}); err != nil {
 				log.Printf("system shortcut %s: %v", accelerator, err)
+				delete(registered, accelerator)
+				if !conflicted[accelerator] && entry.live != nil {
+					entry.live.ReportShortcutConflict()
+				}
+				conflicted[accelerator] = true
 			} else {
-				registered[accelerator] = true
+				registered[accelerator], conflicted[accelerator] = true, false
 			}
 		}
 	}
@@ -106,6 +132,7 @@ func main() {
 			}
 			entry.live = runtime
 			runtime.SetNetwork(backend.Network)
+			runtime.SetLogFolder(logging.Directory())
 			entry.app = entry.live.App
 		}
 		app := entry.app
@@ -153,6 +180,9 @@ func main() {
 				}
 			})
 			runtime.SetPreferencesChanged(applyPreferences)
+			if updates != nil {
+				runtime.SetUpdates(updates, func() bool { return active == entry })
+			}
 			runtime.SetPickKeyFile(func(selected func(string)) {
 				paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Parent: entry.window, Title: i18n.In(i18n.Match(mygo.App.Locale()), "ssh_key_file")})
 				if err != nil {
@@ -225,6 +255,9 @@ func main() {
 		}
 		if err := openWindow(""); err != nil {
 			log.Printf("desktop composition: %v", err)
+		}
+		if updates != nil {
+			updates.Service.Startup()
 		}
 		mygo.App.OnNotificationClick(func(id string) {
 			if active == nil && !options.Preview {

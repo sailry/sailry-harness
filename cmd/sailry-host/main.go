@@ -14,9 +14,13 @@ import (
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/localmodels"
 	"github.com/sailry/sailry-harness/internal/node"
+	"github.com/sailry/sailry-harness/internal/node/computer"
+	"github.com/sailry/sailry-harness/internal/node/logging"
+	"github.com/sailry/sailry-harness/internal/node/telemetry"
 )
 
 func main() {
+	computer.Trampoline()
 	code, err := run(os.Args[1:])
 	if err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, "sailry-host: "+err.Error())
@@ -54,9 +58,14 @@ func run(args []string) (int, error) {
 		_, err := fmt.Fprintln(os.Stdout, hostctl.ServiceUsage)
 		return 0, err
 	}
+	// The Host runs without its log when the log cannot be opened.
+	if closeLogs, err := logging.Install(options.Profile, "host"); err == nil {
+		defer closeLogs()
+	}
 	execution, err := node.StartWithOptions(ctx, options.Profile, node.Options{
 		Network:     &options.Network,
 		LocalModels: localmodels.Options{Capabilities: node.LocalModelCapabilities()},
+		Telemetry:   telemetry.Options{Application: "host"},
 	})
 	if err != nil {
 		return 1, err

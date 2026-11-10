@@ -4,6 +4,8 @@ go 1.27.3
 
 require (
 	charm.land/fantasy v0.46.0
+	filippo.io/age v1.3.2
+	filippo.io/edwards25519 v1.2.0
 	github.com/Bios-Marcel/wastebasket/v2 v2.0.3
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.2
 	github.com/Masterminds/semver/v3 v3.5.0
@@ -22,6 +24,7 @@ require (
 	github.com/firede/limu/limumygo v0.5.0
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/gabriel-vasile/mimetype v1.4.16
+	github.com/getsentry/sentry-go v0.50.0
 	github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376
 	github.com/go-git/go-billy/v5 v5.9.2
 	github.com/go-git/go-git/v5 v5.19.3
@@ -35,6 +38,7 @@ require (
 	github.com/klippa-app/go-pdfium v1.21.4
 	github.com/ledongthuc/pdf v0.0.0-20261020125853-5e46805f718e
 	github.com/microcosm-cc/bluemonday v1.0.27
+	github.com/minio/minio-go/v7 v7.4.1
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/nikolalohinski/gonja/v2 v2.5.1
 	github.com/odvcencio/gotreesitter v0.57.0
@@ -45,6 +49,7 @@ require (
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	github.com/sergi/go-diff v1.4.0
 	github.com/shirou/gopsutil/v4 v4.26.10
+	github.com/studio-b12/gowebdav v0.13.0
 	github.com/xuri/excelize/v2 v2.11.1
 	github.com/yuin/goldmark v1.8.7
 	go.yaml.in/yaml/v3 v3.0.6
@@ -58,6 +63,7 @@ require (
 	golang.org/x/text v0.43.0
 	google.golang.org/genai v1.76.0
 	google.golang.org/protobuf v1.36.12
+	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	lukechampine.com/blake3 v1.4.1
 	modernc.org/libc v1.80.1
 	modernc.org/sqlite v1.62.0
@@ -70,8 +76,6 @@ require (
 	cloud.google.com/go/auth/oauth2adapt v0.3.0 // indirect
 	cloud.google.com/go/compute/metadata v0.10.0 // indirect
 	dario.cat/mergo v1.0.0 // indirect
-	filippo.io/age v1.3.2 // indirect
-	filippo.io/edwards25519 v1.2.0 // indirect
 	filippo.io/hpke v0.4.0 // indirect
 	github.com/JohannesKaufmann/dom v0.3.1 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
@@ -103,7 +107,6 @@ require (
 	github.com/dustin/go-humanize v1.1.0 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
 	github.com/felixge/httpsnoop v1.1.0 // indirect
-	github.com/getsentry/sentry-go v0.50.0 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect
@@ -135,7 +138,6 @@ require (
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/minio/crc64nvme v1.1.1 // indirect
 	github.com/minio/md5-simd v1.1.2 // indirect
-	github.com/minio/minio-go/v7 v7.4.1 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/ncruces/go-strftime v1.1.0 // indirect
@@ -153,7 +155,6 @@ require (
 	github.com/sirupsen/logrus v1.10.2 // indirect
 	github.com/skeema/knownhosts v1.3.1 // indirect
 	github.com/standard-webhooks/standard-webhooks/libraries v0.0.1 // indirect
-	github.com/studio-b12/gowebdav v0.13.0 // indirect
 	github.com/tetratelabs/wazero v1.12.0 // indirect
 	github.com/tidwall/gjson v1.20.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
@@ -163,7 +164,6 @@ require (
 	github.com/tinylib/msgp v1.6.4 // indirect
 	github.com/tklauser/go-sysconf v0.4.0 // indirect
 	github.com/tklauser/numcpus v0.12.0 // indirect
-	github.com/ulikunitz/xz v0.5.17 // indirect
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
 	github.com/xuri/efp v0.0.3-0.20260924042702-217b81952dec // indirect
 	github.com/xuri/nfp v0.0.2-0.20250530014748-2ddeb826f9a9 // indirect

@@ -78,6 +78,7 @@ func (node *Node) connectMCPTools(ctx context.Context, invocation *store.AgentIn
 	if err != nil {
 		return nil, err
 	}
+	node.startComputer(binding.info, binding.settings, binding.configuration, &prepared)
 	lease, err := node.plugins.mcp.Acquire(ctx, prepared)
 	if err != nil {
 		return nil, err
