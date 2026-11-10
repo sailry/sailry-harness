@@ -1842,3 +1842,16 @@ model_library_partial: Einige Ergebnisse sind nicht verfügbar
 local_models_unavailable: Nicht verfügbar
 dictation_unavailable: Lokale Spracheingabe nicht verfügbar
 dictation_model_missing: Zuerst ein Sprachmodell herunterladen
+dictation_busy: Spracheingabe in Verwendung; später wiederholen
+dictation_microphone: Mikrofon nicht verfügbar; Systemberechtigungen überprüfen
+dictation_storage: Das Sprachmodell konnte nicht gespeichert werden
+dictation_download: Der Download des Sprachmodells ist fehlgeschlagen
+dictation_model_invalid: Ungültiges Sprachmodell; versuchen Sie es erneut
+dictation_failed: Transkription fehlgeschlagen; versuchen Sie es erneut
+dictation_empty: Keine Sprache erkannt
+dictation_device_missing: Ausgewähltes Mikrofon nicht verfügbar
+dictation_device_loading: Erkennen von Mikrofonen
+dictation_permission: Mikrofonzugriff in den Systemeinstellungen zulassen
+dictation_no_audio: Kein Mikrofon-Audio empfangen; Gerät und Berechtigungen überprüfen
+dictation_silent: Kein Ton erkannt; Mikrofon überprüfen
+dictation_draft_changed: Entwurf geändert; Spracheingabe gestoppt

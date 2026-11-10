@@ -22,6 +22,28 @@ const (
 	CancelDictation
 )
 
+// DictationCaret is where a transcript goes: the draft's caret as the last
+// frame saw it, in runes.
+func (s *State) DictationCaret() int {
+	return min(max(s.pluginEdit.selection[0], s.pluginEdit.selection[1], 0), len([]rune(s.Draft)))
+}
+
+// ReplaceDictation puts a transcript in place of the draft's runes from
+// start to end and the caret after it. It does nothing while the input
+// composes or when the range is not the draft's.
+func (s *State) ReplaceDictation(start, end int, text string) bool {
+	runes := []rune(s.Draft)
+	if s.pluginEdit.composing || start < 0 || end < start || end > len(runes) {
+		return false
+	}
+	s.Draft = string(runes[:start]) + text + string(runes[end:])
+	caret := start + len([]rune(text))
+	s.pluginEdit.selection = [2]int{caret, caret}
+	s.pluginEdit.pending = &[2]int{caret, caret}
+	s.focus = true
+	return true
+}
+
 func (s *State) dictation(c *ui.Context, ctx *Context, actions Actions) {
 	d := &s.Dictation
 	label := [...]string{"dictation_start", "dictation_preparing", "dictation_finish", "dictation_transcribing"}[d.Phase]

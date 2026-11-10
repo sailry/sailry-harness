@@ -1842,3 +1842,16 @@ model_library_partial: Certains résultats sont indisponibles
 local_models_unavailable: Indisponible
 dictation_unavailable: Entrée vocale locale non disponible
 dictation_model_missing: Télécharger un modèle de discours en premier
+dictation_busy: Saisie vocale en cours d'utilisation; essayez plus tard
+dictation_microphone: Microphone indisponible; vérifier les autorisations du système
+dictation_storage: Impossible d'enregistrer le modèle de parole
+dictation_download: Le téléchargement du modèle de discours a échoué; réessayez
+dictation_model_invalid: Modèle de discours invalide; réessayez
+dictation_failed: La transcription a échoué; réessayez
+dictation_empty: Aucun discours reconnu
+dictation_device_missing: Microphone sélectionné indisponible
+dictation_device_loading: Détection des microphones
+dictation_permission: Autoriser l'accès au microphone dans les paramètres système
+dictation_no_audio: Aucun audio du microphone reçu; vérifiez l'appareil et les autorisations
+dictation_silent: Aucun son détecté; vérifier le microphone
+dictation_draft_changed: Brouillon modifié; entrée vocale arrêtée

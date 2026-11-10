@@ -56,6 +56,7 @@ type Runtime struct {
 	workspaceSettingsOwner   *Runtime
 	terminalSettings         terminalSettingsState
 	localModels              localModelState
+	dictation                dictationState
 	pendingSession           string
 	transferDialogOwner      *Runtime
 	admittedSessions         map[string]protocol.Session
@@ -316,6 +317,7 @@ func (r *Runtime) drain(c *ui.Context) {
 	r.workspaceSettingsFrame()
 	r.terminalSettingsFrame()
 	r.localModelsFrame()
+	r.dictationFrame(c)
 	r.teamsFrame()
 	r.packagesFrame(c)
 	r.pluginViewsFrame(c)

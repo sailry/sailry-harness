@@ -224,8 +224,40 @@ preview fallback. Captured queue revisions protect edits and reordering.
 `Context.LocationLocked` freezes admitted session locations during B4. New drafts
 choose from registered projects and worktrees; the existing worktree DTO carries
 the canonical path until Git inspection supplies branch labels in B5. File
-transfers and worktree creation use their live workspace owners. Dictation keeps
-its speech-phase ownership.
+transfers and worktree creation use their live workspace owners.
+
+### Dictation
+
+Dictation is the controller's, whichever Node the conversation runs on
+(COMP-041 to COMP-043). `live/dictation.go` owns it on the local runtime and
+moves `State.Dictation`; the view is unchanged.
+
+- Start leases the selected speech model (`dictation.model`) from
+  `internal/speech/models` and shows `PreparingSpeech`. A worker verifies the
+  model's files, asks for the microphone (`capture.Request`), constructs the
+  recognizer (`internal/speech`, sherpa-onnx through purego) with
+  `dictation.language` and opens `dictation.microphone` or the system default
+  (`internal/speech/capture`, miniaudio through purego). Nothing is
+  downloaded: a missing model opens Settings › Dictation.
+- `Recording` mixes the device's frames to mono at 16 kHz every 20 ms and
+  appends a level (RMS on a 60 dB scale) to `Dictation.Levels` every 60 ms;
+  the button draws the last four. After each further second of audio, at most
+  every 800 ms, the cumulative audio is decoded and the hypothesis replaces
+  the previous one at the caret. Five minutes finish the recording.
+- Finish shows `Transcribing`, stops the device, decodes everything and puts
+  the transcript in the draft through `State.DictationCaret` and
+  `State.ReplaceDictation`. An empty transcript is the `dictation_empty`
+  message; a draft edited under the partial transcript stops the dictation
+  with `dictation_draft_changed`.
+- Cancel (a click while preparing or transcribing) leaves the button idle at
+  once and drops later results. The worker keeps the model's lease until its
+  decode returns; a dictation started meanwhile is `dictation_busy`, as is a
+  second composer's while one dictates.
+- Failures are toasts and keep the draft: `dictation_permission`,
+  `dictation_unavailable` (libraries absent), `dictation_model_invalid`,
+  `dictation_microphone`, `dictation_no_audio`, `dictation_silent`,
+  `dictation_failed`. A read-only conversation does not start.
+- Audio stays in memory and is never stored or sent.
 
 Team choices use the Node's catalog and the session's frozen role profiles.
 `State.MemberModels` separates member edits from the lead model controls;
@@ -335,11 +367,16 @@ worktree menu; Tab queueing, the `@` picker into an agent page and chip,
 and the Escape order (picker before stop); approvals and the question.
 `internal/desktop/conversation/bench_test.go` Scroll builds from scenes without
 pictures (`preview.PlainTurns`).
+`internal/desktop/live/dictation_test.go` (in `TestWorkspaceHookSettings`):
+the dictation's phases, its insertion at the caret, cancellation in each phase
+and every failure, over a fake microphone and recognizer.
 
 ## Deviations
 
 | Deviation | Reason |
 |---|---|
+| A refused microphone is the `dictation_permission` toast | The reference's permission card is not part of the accepted composer |
+| The recording meter is the capture level the live owner computes | The reference's Kit speech state supplies it; MyGo has none |
 | Kit `DropdownButton` is a button and a chevron button with a menu | MyGo has no split button |
 | Chips are `TextRanges` (primary color, weight 500), deleted whole by Backspace; no click on a chip | A MyGo text area draws no inline elements |
 | The model score ring is a tooltip with axis bars | No ring component; the data is the same |

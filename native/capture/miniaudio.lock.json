@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "miniaudio_version": "0.11.26",
+  "commit": "877ea4a7c2601c7b0f2a44e83dfac42e6470fea6",
+  "archive": "https://github.com/mackron/miniaudio/archive/refs/tags/0.11.26.tar.gz",
+  "archive_sha256": "838ba55a21c9142adf7b76bdc4351e5cd8b7ae128f46b25ec25f94ae9969c600",
+  "header": "miniaudio-0.11.26/miniaudio.h",
+  "header_sha256": "6b376c7fbb1352ba1e0e432ab66069b335ea9405e45cb6c30b97ef0f3c9c3e0e"
+}

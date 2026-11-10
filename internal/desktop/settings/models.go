@@ -24,7 +24,13 @@ func dictation(c *ui.Context, m *Model) {
 				}
 				// Asking the system for the microphone is the system's
 				// prompt, which the preview does not raise.
-				kit.Secondary(c.Key("authorize"), i18n.T(c, "permission_request")).OnClick(func() { notice(c) })
+				kit.Secondary(c.Key("authorize"), i18n.T(c, "permission_request")).OnClick(func() {
+					m.modelAction(c, func(a *ModelActions) {
+						if a.Microphone != nil {
+							a.Microphone()
+						}
+					})
+				})
 			})
 			mics := append([]string{i18n.T(c, "dictation_microphone_default")}, m.Microphones...)
 			title := i18n.T(c, "dictation_microphone_label")

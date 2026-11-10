@@ -1842,3 +1842,16 @@ model_library_partial: 部分結果無法取得
 local_models_unavailable: 不可用
 dictation_unavailable: 本地語音輸入不可用
 dictation_model_missing: 請先下載語音模型
+dictation_busy: 語音輸入正在使用中，請稍後重試
+dictation_microphone: 無法使用麥克風，請檢查系統許可權
+dictation_storage: 無法儲存語音模型
+dictation_download: 語音模型下載失敗，請重試
+dictation_model_invalid: 語音模型無效，請重試
+dictation_failed: 語音識別失敗，請重試
+dictation_empty: 未識別到語音
+dictation_device_missing: 所選麥克風不可用
+dictation_device_loading: 正在檢測麥克風
+dictation_permission: 請在系統設定中允許麥克風訪問
+dictation_no_audio: 未收到麥克風音訊，請檢查裝置和許可權
+dictation_silent: 未檢測到聲音，請檢查麥克風
+dictation_draft_changed: 草稿已修改，已停止語音輸入

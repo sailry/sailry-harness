@@ -162,7 +162,7 @@ placeholder in an empty masked input.
 | Appearance | Details, Homepage (card menu) | the details dialog; the system's browser |
 | Conversation | sandbox | `Commit`, sandbox_settings_* toast |
 | Shortcuts | click a key, then press one; reset; clear; Escape | live: the window uses the new key |
-| Dictation | request access, install, cancel download | preview_notice |
+| Dictation | request access, install, cancel download | preview_notice; live: the system's prompt and the controller's speech-model manager |
 | Dictation, OCR | choose model, details | in memory; details dialog |
 | Terminal | add/edit (draft dialog), delete, shell | `Commit`, terminal_settings_* toasts on failure |
 | Connections | add host (pairing code or SSH), connect/install, share code, revoke, edit network | dialogs open; the network steps are preview_notice; revoke confirms first |
@@ -499,16 +499,50 @@ therefore preferences (SDICT-007 names `SaveLocalModelSettings`, which the
 reference does not use), and SDICT-006 is the controller's speech-model
 manager, not `ReadLocalModels`.
 
-- `live/preferences.go` maps `Model.SpeechLanguage` to `dictation.language`
-  and leaves `dictation.microphone` as stored.
-- `live/settings_models_speech.go` projects the speech rows and stores a
-  row's Select in `dictation.model`.
+- `live/preferences.go` maps `Model.SpeechLanguage` to `dictation.language`.
 - `preferences.Data` has `DictationModel()`, `DictationLanguage()` and
-  `DictationMicrophone()` for the dictation feature.
-- The reference lists, registers, installs, cancels and deletes speech models
-  in a controller-local manager (`models/speech.json`, `models/speech/<id>`,
-  `models/sensevoice-int8`); only `resolve_model`, `search_models` and
-  `read_model_versions` with the speech kind reach a Node. That manager is the
-  dictation feature's and does not exist yet: the live list is the recommended
-  model alone, shown as not installed, and Install reports
+  `DictationMicrophone()`, which a dictation reads when it starts.
+- `internal/speech/models` is the controller's speech-model manager under the
+  desktop data directory (the directory of `preferences.json`): the index
+  `models/speech.json`, registered models in `models/speech/<id>` and the
+  recommended SenseVoice INT8 model, pinned by size and SHA-256, in
+  `models/sensevoice-int8`. Downloads reuse `internal/localmodels/assets`
+  (resume, size and SHA-256) over `netproxy.Transport()`, so they follow the
+  desktop's proxy settings. A downloaded model counts as installed only after
+  the recognizer was constructed over it. A model in use by a dictation is
+  neither removed nor downloaded again.
+- `live/settings_models_speech.go` owns the page (`dictationFrame`, called by
+  `drain`):
+  - SDICT-001: `Model.MicrophoneGranted` is `capture.Status()`, read on every
+    frame the page shows, so a change made in the system's settings appears
+    on return. Request is `ModelActions.Microphone` → `capture.Request`; a
+    refusal is the `dictation_permission` toast.
+  - SDICT-002: `Model.Microphones` are the input devices listed by
+    `capture.Devices()` when the page opens; the picker's choice is stored in
+    `dictation.microphone` (null for System default). A stored device that
+    is not listed stays chosen as a last entry labelled
+    `dictation_device_missing` (`dictation_device_loading` while listing).
+  - SDICT-005/006: the rows are the recommended model, whose files are
+    verified when the page opens, followed by the registered models. Install
+    is `Manager.Start`, the row shows the download's percent, Cancel is
+    `Manager.Cancel`; the end of a download is the `knowledge_installed`
+    toast or the failure's (`dictation_download`, `dictation_storage`,
+    `dictation_model_invalid`, `dictation_unavailable`).
+  - SDICT-007: Select stores an installed row in `dictation.model`.
+- Only `resolve_model`, `search_models` and `read_model_versions` with the
+  speech kind reach a Node in the reference, from its model library. The
+  accepted Dictation page has no library, so nothing registers a speech model:
+  `Manager.Register` and `Manager.Remove` exist and are tested but have no
+  control, and the library dialog still answers a speech result with
   `dictation_unavailable`.
+
+Deviations from the reference:
+
+| Deviation | Reason |
+|---|---|
+| `dictation.microphone` holds miniaudio's device identifier in hexadecimal, not cpal's | The capture library is miniaudio; a preference written by the Rust desktop shows as the missing-device entry |
+| Outside macOS the access row always reads Allowed | Only macOS gates the microphone per application; the reference shows an inert Request on Windows |
+| A refused or restricted microphone is the `dictation_permission` toast | The reference's permission card with its system-settings link is not part of the accepted page |
+| A registered model is validated by constructing the recognizer, not by reading the graph's SenseVoice metadata | The ONNX binding exposes no model metadata; no control registers a model |
+| Speech downloads are not listed among a Node's installation tasks | They are the controller's and the accepted UI has no controller task list |
+| The speech, ONNX Runtime and capture libraries load only from the executable's directory | B11 loader rule; without them dictation and the device list report `dictation_unavailable` and the picker offers the system default alone |

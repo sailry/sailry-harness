@@ -1854,3 +1854,16 @@ model_library_partial
 local_models_unavailable
 dictation_unavailable
 dictation_model_missing
+dictation_busy
+dictation_microphone
+dictation_storage
+dictation_download
+dictation_model_invalid
+dictation_failed
+dictation_empty
+dictation_device_missing
+dictation_device_loading
+dictation_permission
+dictation_no_audio
+dictation_silent
+dictation_draft_changed

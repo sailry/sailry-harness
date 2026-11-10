@@ -29,6 +29,8 @@ type ModelActions struct {
 	// Install downloads a registered model; Cancel stops its download.
 	Install func(kind, id string)
 	Cancel  func(kind, id string)
+	// Microphone asks the system for microphone access.
+	Microphone func()
 	// The library's rows: Install resolves, registers and downloads the
 	// model, Cancel stops its download, Delete removes its files after the
 	// confirmation, Details reads its size and license.

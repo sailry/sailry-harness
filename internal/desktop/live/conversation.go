@@ -847,8 +847,5 @@ func (x *conversationActions) Discard(a *composer.Attachment) {
 		x.r.discardAttachment(x, a)
 	}
 }
-func (x *conversationActions) Dictate(*composer.Dictation, composer.DictationCommand) {
-	x.unavailable()
-}
 
 var _ shell.ConversationActions = (*conversationActions)(nil)

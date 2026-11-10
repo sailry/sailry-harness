@@ -300,6 +300,9 @@ func (node *Node) Dispatch(ctx context.Context, caller protocol.NodeID, request 
 	if workspaceCommand(request.Command.Kind) {
 		return node.dispatchWorkspace(ctx, caller, request, encoded)
 	}
+	if request.Command.Kind == "decide" {
+		return node.dispatchDecision(ctx, request)
+	}
 	if localModelCommand(request.Command.Kind) {
 		return node.dispatchLocalModels(ctx, caller, request, encoded)
 	}

@@ -1842,3 +1842,16 @@ model_library_partial: 一部の結果を取得できません
 local_models_unavailable: 利用不可
 dictation_unavailable: ローカル音声入力が利用できません
 dictation_model_missing: まず音声モデルをダウンロード
+dictation_busy: 音声入力が使われています。後で試してください
+dictation_microphone: マイクが使用できません。システムの権限を確認してください
+dictation_storage: 音声モデルを保存できませんでした
+dictation_download: 音声モデルのダウンロードに失敗しました。やり直します
+dictation_model_invalid: 無効な音声モデル; やり直します
+dictation_failed: 転写に失敗しました。やり直します
+dictation_empty: 音声が認識されません
+dictation_device_missing: 選択したマイクが利用できません
+dictation_device_loading: マイク検出
+dictation_permission: システム設定でマイクアクセスを許可
+dictation_no_audio: マイク音が受信されませんでした。デバイスと権限を確認してください
+dictation_silent: 音が検出されません。マイクをチェックしてください
+dictation_draft_changed: 草稿が変更されました。音声入力を停止しました

@@ -12,6 +12,7 @@ import (
 
 	"github.com/sailry/sailry-harness/internal/hostctl"
 	"github.com/sailry/sailry-harness/internal/link"
+	"github.com/sailry/sailry-harness/internal/localmodels"
 	"github.com/sailry/sailry-harness/internal/node"
 )
 
@@ -53,7 +54,10 @@ func run(args []string) (int, error) {
 		_, err := fmt.Fprintln(os.Stdout, hostctl.ServiceUsage)
 		return 0, err
 	}
-	execution, err := node.StartWithNetwork(ctx, options.Profile, options.Network)
+	execution, err := node.StartWithOptions(ctx, options.Profile, node.Options{
+		Network:     &options.Network,
+		LocalModels: localmodels.Options{Capabilities: node.LocalModelCapabilities()},
+	})
 	if err != nil {
 		return 1, err
 	}

@@ -68,14 +68,24 @@ func Parts(name string, data []byte) (parts []Part, err error) {
 	}
 }
 func Inspect(name string, data []byte, offset uint64) (protocol.OfficeInspection, error) {
+	parts, err := Parts(name, data)
+	if err != nil {
+		out := protocol.DefaultOfficeInspection()
+		out.Path = name
+		out.Revision = fmt.Sprintf("%x", blake3.Sum256(data))
+		return out, err
+	}
+	return Sections(name, data, parts, offset)
+}
+
+// Sections pages extracted parts into an inspection of at most eight
+// sections starting at offset. Callers that add recognized text to the parts
+// of a document use it directly.
+func Sections(name string, data []byte, parts []Part, offset uint64) (protocol.OfficeInspection, error) {
 	out := protocol.DefaultOfficeInspection()
 	out.Path = name
 	sum := blake3.Sum256(data)
 	out.Revision = fmt.Sprintf("%x", sum)
-	parts, err := Parts(name, data)
-	if err != nil {
-		return out, err
-	}
 	var count uint64
 	for _, part := range parts {
 		if !utf8.ValidString(part.Text) {

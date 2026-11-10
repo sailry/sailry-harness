@@ -1,0 +1,55 @@
+{
+  "version": "1.0",
+  "truncation": null,
+  "padding": null,
+  "added_tokens": [
+    {"id": 31, "content": "<s>", "single_word": false, "lstrip": false, "rstrip": false, "normalized": false, "special": true},
+    {"id": 32, "content": "</s>", "single_word": false, "lstrip": false, "rstrip": false, "normalized": false, "special": true},
+    {"id": 33, "content": "<tag>", "single_word": true, "lstrip": false, "rstrip": false, "normalized": false, "special": false},
+    {"id": 34, "content": "<sep>", "single_word": false, "lstrip": false, "rstrip": false, "normalized": false, "special": false}
+  ],
+  "normalizer": null,
+  "pre_tokenizer": {
+    "type": "Sequence",
+    "pretokenizers": [
+      {
+        "type": "Split",
+        "pattern": {"Regex": "[^\\r\\n\\p{L}\\p{N}]?\\p{L}+|\\p{N}{1,3}| ?[^\\s\\p{L}\\p{N}]+|\\s+(?!\\S)|\\s+"},
+        "behavior": "Isolated",
+        "invert": false
+      },
+      {"type": "ByteLevel", "add_prefix_space": false, "trim_offsets": true, "use_regex": false}
+    ]
+  },
+  "post_processor": {
+    "type": "TemplateProcessing",
+    "single": [
+      {"SpecialToken": {"id": "<s>", "type_id": 0}},
+      {"Sequence": {"id": "A", "type_id": 0}},
+      {"SpecialToken": {"id": "</s>", "type_id": 0}}
+    ],
+    "pair": [],
+    "special_tokens": {
+      "<s>": {"id": "<s>", "ids": [31], "tokens": ["<s>"]},
+      "</s>": {"id": "</s>", "ids": [32], "tokens": ["</s>"]}
+    }
+  },
+  "decoder": {"type": "ByteLevel", "add_prefix_space": true, "trim_offsets": true, "use_regex": true},
+  "model": {
+    "type": "BPE",
+    "dropout": null,
+    "unk_token": null,
+    "continuing_subword_prefix": null,
+    "end_of_word_suffix": null,
+    "fuse_unk": false,
+    "byte_fallback": false,
+    "ignore_merges": true,
+    "vocab": {
+      "h": 0, "e": 1, "l": 2, "o": 3, "w": 4, "r": 5, "d": 6, "Ġ": 7, "!": 8,
+      "1": 9, "2": 10, "3": 11, "4": 12, "Ã": 13, "©": 14, "¼": 15,
+      "a": 16, "b": 17, "t": 18, "g": 19, "<": 20, ">": 21, "x": 22,
+      "he": 23, "ll": 24, "hell": 25, "hello": 26, "Ã©": 27, "12": 28, "world": 29, "ĠĠ": 30
+    },
+    "merges": [["h", "e"], ["l", "l"], ["he", "ll"], ["hell", "o"], ["Ã", "©"], ["1", "2"], ["Ġ", "Ġ"]]
+  }
+}

@@ -1842,3 +1842,16 @@ model_library_partial: 部分结果不可用
 local_models_unavailable: 不可用
 dictation_unavailable: 本地语音输入不可用
 dictation_model_missing: 请先下载语音模型
+dictation_busy: 语音输入正在使用中，请稍后重试
+dictation_microphone: 无法使用麦克风，请检查系统权限
+dictation_storage: 无法保存语音模型
+dictation_download: 语音模型下载失败，请重试
+dictation_model_invalid: 语音模型无效，请重试
+dictation_failed: 语音识别失败，请重试
+dictation_empty: 未识别到语音
+dictation_device_missing: 所选麦克风不可用
+dictation_device_loading: 正在检测麦克风
+dictation_permission: 请在系统设置中允许麦克风访问
+dictation_no_audio: 未收到麦克风音频，请检查设备和权限
+dictation_silent: 未检测到声音，请检查麦克风
+dictation_draft_changed: 草稿已修改，已停止语音输入

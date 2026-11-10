@@ -13,6 +13,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/live"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/link"
+	"github.com/sailry/sailry-harness/internal/localmodels"
 	"github.com/sailry/sailry-harness/internal/node"
 )
 
@@ -63,7 +64,10 @@ func openBackend(ctx context.Context, options startupOptions) (*desktopBackend, 
 	}
 	// First-launch detection must precede creation of the Node database.
 	backend.Path, backend.Preferences = path, preferences.ForStartup(path)
-	backend.Node, err = node.StartWithNetwork(ctx, path, link.NetworkScope{Internet: true})
+	backend.Node, err = node.StartWithOptions(ctx, path, node.Options{
+		Network:     &link.NetworkScope{Internet: true},
+		LocalModels: localmodels.Options{Capabilities: node.LocalModelCapabilities()},
+	})
 	if err != nil {
 		return nil, err
 	}

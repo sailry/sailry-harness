@@ -84,7 +84,7 @@ func checkLocalModelHelpers(t *testing.T) {
 	if stored.DictationModel() != nil || stored.DictationLanguage() != "auto" || stored.DictationMicrophone() != nil {
 		t.Fatalf("default dictation preferences = %+v", stored.Dictation)
 	}
-	speech, chosen := speechModels(stored.DictationModel())
+	speech, chosen := speechModels(stored.DictationModel(), nil)
 	if len(speech) != 1 || speech[0].ID != "" || chosen != 0 {
 		t.Fatalf("speech models = %+v, selected %d", speech, chosen)
 	}
@@ -100,7 +100,7 @@ func checkLocalModelHelpers(t *testing.T) {
 		t.Fatal("a Node model ID is taken for a speech model")
 	}
 	stored.Dictation = &preferences.Dictation{Microphone: &microphone, Language: "chinese", Model: picked}
-	if _, chosen := speechModels(stored.DictationModel()); chosen != -1 {
+	if _, chosen := speechModels(stored.DictationModel(), nil); chosen != -1 {
 		t.Fatalf("an unlisted speech model is selected at %d", chosen)
 	}
 	if stored.DictationLanguage() != "chinese" || *stored.DictationMicrophone() != "usb" || *stored.DictationModel() != id {

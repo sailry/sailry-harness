@@ -68,7 +68,7 @@ func (r *Runtime) localModelsFrame() {
 		if m.ModelActions == nil {
 			m.ModelActions = root.modelActions()
 		}
-		m.Speech, m.SpeechModel = speechModels(root.Preferences.Data.DictationModel())
+		m.Speech, m.SpeechModel = speechModels(root.Preferences.Data.DictationModel(), root.speechManager())
 	}
 	visible := settingsPage && (m.Section == settings.OCR || m.Section == settings.Knowledge || m.Section == settings.Decision)
 	if !visible {
@@ -126,7 +126,7 @@ func (r *Runtime) modelActions() *settings.ModelActions {
 		},
 		Install: func(key, id string) {
 			if key == settings.ModelsSpeech {
-				r.speechUnavailable()
+				r.installSpeechModel(id)
 				return
 			}
 			on(func(owner *Runtime) {
@@ -136,11 +136,13 @@ func (r *Runtime) modelActions() *settings.ModelActions {
 			})
 		},
 		Cancel: func(key, id string) {
-			// No speech download runs without the controller's manager.
-			if key != settings.ModelsSpeech {
-				on(func(owner *Runtime) { owner.cancelLocalModel(id) })
+			if key == settings.ModelsSpeech {
+				r.cancelSpeechModel(id)
+				return
 			}
+			on(func(owner *Runtime) { owner.cancelLocalModel(id) })
 		},
+		Microphone:     r.requestMicrophone,
 		LibraryInstall: r.installLibraryModel,
 		LibraryCancel:  r.cancelLibraryModel,
 		LibraryDelete:  r.deleteLibraryModel,

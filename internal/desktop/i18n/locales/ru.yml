@@ -1842,3 +1842,16 @@ model_library_partial: Некоторые результаты недоступ�
 local_models_unavailable: Недоступно
 dictation_unavailable: Локальный голосовой ввод недоступен
 dictation_model_missing: Сначала загрузите модель речи
+dictation_busy: Используется голосовой ввод; попробуйте позже
+dictation_microphone: Микрофон недоступен; проверьте системные разрешения
+dictation_storage: Не удалось сохранить модель речи
+dictation_download: Не удалось загрузить модель речи; повторите попытку
+dictation_model_invalid: Неверная модель речи; повторите попытку
+dictation_failed: Транскрипция не удалась; повторите попытку
+dictation_empty: Нет распознавания речи
+dictation_device_missing: Выбранный микрофон недоступен
+dictation_device_loading: Обнаружение микрофонов
+dictation_permission: Разрешить доступ к микрофону в системных настройках
+dictation_no_audio: Нет звука микрофона; проверьте устройство и разрешения
+dictation_silent: Отсутствие обнаруженного звука; проверка микрофона
+dictation_draft_changed: Изменен черновой текст; прекращен голосовой ввод

@@ -1,0 +1,8 @@
+miniaudio: 0.11.26
+https://github.com/mackron/miniaudio
+Commit: 877ea4a7c2601c7b0f2a44e83dfac42e6470fea6
+License: Unlicense (public domain) or MIT-0
+The header is fetched and verified by build.sh; it is not committed.
+
+sailry_capture.c is Sailry's own shim over that header.
+License: Apache-2.0

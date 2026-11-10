@@ -1842,3 +1842,16 @@ model_library_partial: 일부 결과를 사용할 수 없습니다
 local_models_unavailable: 사용 불가
 dictation_unavailable: 로컬 음성 입력을 사용할 수 없음
 dictation_model_missing: 먼저 음성 모델 다운로드하기
+dictation_busy: 음성 입력이 사용 중입니다. 나중에 다시 시도하십시오
+dictation_microphone: 마이크를 사용할 수 없습니다. 시스템 권한 확인
+dictation_storage: 음성 모델을 저장할 수 없음
+dictation_download: 음성 모델 다운로드 실패; 다시 시도하기
+dictation_model_invalid: 잘못된 음성 모델; 다시 시도하기
+dictation_failed: 번역 실패; 다시 시도
+dictation_empty: 음성이 인식되지 않음Name
+dictation_device_missing: 선택한 마이크를 사용할 수 없음
+dictation_device_loading: 마이크 감지 중
+dictation_permission: 시스템 설정에서 마이크 액세스 허용
+dictation_no_audio: 마이크 오디오가 수신되지 않습니다. 장치 및 권한 확인
+dictation_silent: 소리가 감지되지 않았습니다. 마이크 확인
+dictation_draft_changed: 초안 변경; 음성 입력 중지Name

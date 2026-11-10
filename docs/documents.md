@@ -35,5 +35,6 @@ unreferenced orphan. Package view resources retain their owning package referenc
 The native Documents presentation follows the accepted panel contract in
 [panel.md](panel.md); live document HTML renders in the bridge-free sandboxed
 WebView described there. B5 supplies text inspection and immutable document reads;
-B11 separately owns PDF rendering for OCR. Other-platform runtime acceptance is
+B11 separately owns PDF rendering for OCR
+([models.md](models.md#embedding-and-ocr)). Other-platform runtime acceptance is
 performed on its target operating system rather than inferred from local builds.

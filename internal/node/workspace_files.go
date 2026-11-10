@@ -43,10 +43,10 @@ func (node *Node) inspectWorkspaceFiles(ctx context.Context, request protocol.Re
 		if err != nil {
 			return protocol.Output{}, err
 		}
-		value, err := office.Inspect(attachment.Spec.Name, data, input.Options.Offset)
+		value, err := node.inspectDocument(ctx, attachment.Spec.Name, data, input.Options.Offset)
 		return protocol.Output{Kind: "office_content", Data: value}, err
 	}
-	return files.Inspect(ctx, root, request.Command, access)
+	return files.Inspect(ctx, root, request.Command, access, node.inspectDocument)
 }
 func (node *Node) readWorkspaceArtifact(ctx context.Context, request protocol.Request) (protocol.Output, error) {
 	var capture store.ArtifactRead

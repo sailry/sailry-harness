@@ -1842,3 +1842,16 @@ model_library_partial: Some results are unavailable
 local_models_unavailable: Unavailable
 dictation_unavailable: Local voice input unavailable
 dictation_model_missing: Download a speech model first
+dictation_busy: Voice input in use; try later
+dictation_microphone: Microphone unavailable; check system permissions
+dictation_storage: Could not save speech model
+dictation_download: Speech model download failed; retry
+dictation_model_invalid: Invalid speech model; retry
+dictation_failed: Transcription failed; retry
+dictation_empty: No speech recognized
+dictation_device_missing: Selected microphone unavailable
+dictation_device_loading: Detecting microphones
+dictation_permission: Allow microphone access in system settings
+dictation_no_audio: No microphone audio received; check device and permissions
+dictation_silent: No sound detected; check microphone
+dictation_draft_changed: Draft changed; voice input stopped
