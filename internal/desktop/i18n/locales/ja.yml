@@ -1832,3 +1832,13 @@ project_color_cyan: シアン
 terminal_paste_confirm: 複数行を貼り付け
 terminal_paste_warning: 複数の行は直ちにコマンドを実行できます
 terminal_paste: 貼り付け
+runtime_failed: 実行環境の操作に失敗しました
+runtime_conflict: 設定が変更されました。再読み込みして下書きを保持してください
+runtime_unknown: 結果を確認できませんでした。再試行してください
+knowledge_saved: 保存しました
+knowledge_cancel_requested: キャンセルを要求しました
+model_library_failed: モデルを読み込めません
+model_library_partial: 一部の結果を取得できません
+local_models_unavailable: 利用不可
+dictation_unavailable: ローカル音声入力が利用できません
+dictation_model_missing: まず音声モデルをダウンロード

@@ -1832,3 +1832,13 @@ project_color_cyan: Ciano
 terminal_paste_confirm: Colar várias linhas
 terminal_paste_warning: Várias linhas podem executar comandos imediatamente
 terminal_paste: Colar
+runtime_failed: Falha na operação
+runtime_conflict: As configurações mudaram; recarregue para manter o rascunho
+runtime_unknown: Resultado não confirmado; tente novamente
+knowledge_saved: Salvo
+knowledge_cancel_requested: Cancelamento solicitado
+model_library_failed: Não foi possível carregar os modelos
+model_library_partial: Alguns resultados estão indisponíveis
+local_models_unavailable: Indisponível
+dictation_unavailable: Entrada de voz local indisponível
+dictation_model_missing: Baixe primeiro um modelo de discurso

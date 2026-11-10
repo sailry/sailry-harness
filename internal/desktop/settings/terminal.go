@@ -31,11 +31,25 @@ type envEditor struct {
 // letters, digits and underscores.
 var variable = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
+// reservedVariables and reservedVariable are the names the Node keeps for
+// itself and rejects in saved terminal settings, whatever their case.
+var reservedVariables = []string{"TERM", "TERM_PROGRAM", "TERM_PROGRAM_VERSION", "COLORTERM", "COLORFGBG", "COLOR_SCHEME", "PWD", "VTE_VERSION", "BASH_ENV", "ENV", "ZDOTDIR", "IFS", "NODE_OPTIONS", "PERL5OPT", "PYTHONSTARTUP"}
+
+func reservedVariable(key string) bool {
+	upper := strings.ToUpper(key)
+	for _, prefix := range []string{"SAILRY_", "DMUX_", "LD_", "DYLD_"} {
+		if strings.HasPrefix(upper, prefix) {
+			return true
+		}
+	}
+	return strings.HasSuffix(upper, "_PRELOAD") || slices.Contains(reservedVariables, upper)
+}
+
 // SetVariable saves an environment variable at index (-1 adds it): the
 // i18n key of the problem, or "" once saved.
 func (h *TerminalHost) SetVariable(index int, key, value string) string {
 	key = strings.TrimSpace(key)
-	if !variable.MatchString(key) {
+	if !variable.MatchString(key) || reservedVariable(key) {
 		return "terminal_variable_invalid"
 	}
 	for i, e := range h.Env {

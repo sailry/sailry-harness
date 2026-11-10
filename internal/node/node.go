@@ -11,6 +11,7 @@ import (
 	"charm.land/fantasy"
 	"github.com/jonboulle/clockwork"
 	"github.com/sailry/sailry-harness/internal/link"
+	"github.com/sailry/sailry-harness/internal/localmodels"
 	"github.com/sailry/sailry-harness/internal/node/admission"
 	"github.com/sailry/sailry-harness/internal/node/agent/engine"
 	"github.com/sailry/sailry-harness/internal/node/agent/feed"
@@ -49,6 +50,7 @@ type Node struct {
 	databases         databaseOperations
 	ports             *ports.Service
 	browsers          browserRegistry
+	localModels       *localModelControls
 	cancel            context.CancelFunc
 	web               *workspaceWeb
 	transfers         *files.Transfers
@@ -100,6 +102,7 @@ type Options struct {
 	Environment    *process.Environment
 	Git            workspacegit.Options
 	Process        process.Options
+	LocalModels    localmodels.Options
 }
 
 func Start(ctx context.Context, path string) (*Node, error) {
@@ -175,6 +178,16 @@ func StartWithOptions(ctx context.Context, path string, options Options) (*Node,
 		_ = profile.Close()
 		return nil, err
 	}
+	if err := value.initLocalModels(ctx, options.LocalModels); err != nil {
+		cancel()
+		value.closeAuth()
+		_ = value.terminals.Close()
+		_ = value.closePlugins()
+		_ = value.tasks.Close(context.Background())
+		_ = value.closeWorkspace()
+		_ = profile.Close()
+		return nil, err
+	}
 	value.agent.Start()
 	go value.run()
 	value.initDispatch(options.DispatchClock)
@@ -209,6 +222,7 @@ func (node *Node) Stop(ctx context.Context) error {
 			}
 			portErr := node.ports.Close()
 			taskErr := node.tasks.Close(context.Background())
+			node.closeLocalModels()
 			pluginErr := node.closePlugins()
 			node.work.Wait()
 			workspaceErr := node.closeWorkspace()
@@ -285,6 +299,9 @@ func (node *Node) Dispatch(ctx context.Context, caller protocol.NodeID, request 
 	}
 	if workspaceCommand(request.Command.Kind) {
 		return node.dispatchWorkspace(ctx, caller, request, encoded)
+	}
+	if localModelCommand(request.Command.Kind) {
+		return node.dispatchLocalModels(ctx, caller, request, encoded)
 	}
 	if hostCommand(request.Command.Kind) {
 		return node.dispatchHost(ctx, caller, request, encoded)

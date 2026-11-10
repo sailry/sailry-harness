@@ -1832,3 +1832,13 @@ project_color_cyan: Cyan
 terminal_paste_confirm: Mehrere Zeilen einfügen
 terminal_paste_warning: Mehrere Zeilen können Befehle sofort ausführen
 terminal_paste: Einfügen
+runtime_failed: Laufzeitaktion fehlgeschlagen
+runtime_conflict: Einstellungen geändert; neu laden, um den Entwurf zu behalten
+runtime_unknown: Ergebnis unbestätigt; erneut versuchen
+knowledge_saved: Gespeichert
+knowledge_cancel_requested: Abbruch angefordert
+model_library_failed: Modelle konnten nicht geladen werden
+model_library_partial: Einige Ergebnisse sind nicht verfügbar
+local_models_unavailable: Nicht verfügbar
+dictation_unavailable: Lokale Spracheingabe nicht verfügbar
+dictation_model_missing: Zuerst ein Sprachmodell herunterladen

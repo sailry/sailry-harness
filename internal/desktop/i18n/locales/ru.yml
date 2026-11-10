@@ -1832,3 +1832,13 @@ project_color_cyan: Циан
 terminal_paste_confirm: Вставить несколько строк
 terminal_paste_warning: Несколько строк могут выполнять команды немедленно
 terminal_paste: Вставить
+runtime_failed: Ошибка операции среды
+runtime_conflict: Настройки изменились; перезагрузите, чтобы сохранить черновик
+runtime_unknown: Результат не подтверждён; повторите проверку
+knowledge_saved: Сохранено
+knowledge_cancel_requested: Запрошена отмена
+model_library_failed: Не удалось загрузить модели
+model_library_partial: Некоторые результаты недоступны
+local_models_unavailable: Недоступно
+dictation_unavailable: Локальный голосовой ввод недоступен
+dictation_model_missing: Сначала загрузите модель речи

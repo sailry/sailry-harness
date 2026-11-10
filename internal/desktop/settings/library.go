@@ -19,12 +19,15 @@ import (
 var libraryHubs = []string{"model_library_huggingface", "model_library_modelscope"}
 
 // library is the hub, the query as typed and as searched, and the model whose
-// details or removal show.
+// details or removal show. A live library is opened for a page's kind and
+// counts the searches run (LibraryRequest).
 type library struct {
 	open            bool
 	hub             int
 	query, searched string
 	info, removing  string
+	kind            string
+	serial          uint64
 }
 
 func (m *Model) libraryModel(id string) *preview.LibraryModel {
@@ -42,13 +45,24 @@ func libraryDialog(c *ui.Context, m *Model) {
 	if e.open {
 		title := t("model_library_manage")
 		load := &m.LibraryLoad
-		if !load.Loaded && !load.Loading {
-			load.Start() // the first page, as the dialog opens
+		// A live library's pages come from the host's hub search, which
+		// follows LibraryRequest and sets the load; the preview plays its
+		// own on the frame clock.
+		if !m.Live {
+			if !load.Loaded && !load.Loading {
+				load.Start() // the first page, as the dialog opens
+			}
+			if load.Advance(c.Now()) {
+				c.After(preview.Tick)
+			}
 		}
-		if load.Advance(c.Now()) {
-			c.After(preview.Tick)
+		search := func() {
+			e.searched = e.query
+			e.serial++
+			if !m.Live {
+				load.Start()
+			}
 		}
-		search := func() { e.searched = e.query; load.Start() }
 		kit.Dialog(c.Key("model-library"), &e.open, func() {
 			ui.Text(c, title).FontSize(16).FontWeight(600)
 			ui.Row(c.Key("controls")).Gap(12).Children(func() {
@@ -61,7 +75,8 @@ func libraryDialog(c *ui.Context, m *Model) {
 			var shown []*preview.LibraryModel
 			for i := range m.Library {
 				x := &m.Library[i]
-				if x.Source == libraryHubs[e.hub] && (q == "" || strings.Contains(strings.ToLower(x.Name+" "+x.Repo), q)) {
+				// A live library holds what the hub found for the request.
+				if m.Live || x.Source == libraryHubs[e.hub] && (q == "" || strings.Contains(strings.ToLower(x.Name+" "+x.Repo), q)) {
 					shown = append(shown, x)
 				}
 			}
@@ -95,7 +110,11 @@ func libraryRows(c *ui.Context, m *Model, shown []*preview.LibraryModel) {
 	kit.Card(c, func() {
 		for _, x := range shown {
 			kit.Entry(c, x.ID, func() {
-				kit.Record(c, x.Name, x.Repo+" · "+t(x.Kind)+" · "+x.Size)
+				detail := x.Repo + " · " + t(x.Kind)
+				if x.Size != "" { // a hub's result has no size until it is resolved
+					detail += " · " + x.Size
+				}
+				kit.Record(c, x.Name, detail)
 			}, func() {
 				switch x.Status {
 				case preview.ModelDownloading:
@@ -107,12 +126,21 @@ func libraryRows(c *ui.Context, m *Model, shown []*preview.LibraryModel) {
 					kit.Badge(c, t("knowledge_installed"), kit.Positive)
 				}
 			}, func() {
-				kit.Action(c.Key("info"), icons.Info, t("knowledge_model_details"), false).OnClick(func() { e.info = x.ID })
+				kit.Action(c.Key("info"), icons.Info, t("knowledge_model_details"), false).OnClick(func() {
+					e.info = x.ID
+					if m.Live && m.ModelActions != nil {
+						m.ModelActions.LibraryDetails(x.ID)
+					}
+				})
 				switch x.Status {
 				case preview.ModelMissing:
-					kit.Action(c.Key("install"), icons.Download, t("knowledge_install"), false).OnClick(func() { notice(c) })
+					kit.Action(c.Key("install"), icons.Download, t("knowledge_install"), false).OnClick(func() {
+						m.modelAction(c, func(a *ModelActions) { a.LibraryInstall(x.ID) })
+					})
 				case preview.ModelDownloading:
-					kit.Action(c.Key("cancel"), icons.CircleX, t("settings_cancel"), false).OnClick(func() { notice(c) })
+					kit.Action(c.Key("cancel"), icons.CircleX, t("settings_cancel"), false).OnClick(func() {
+						m.modelAction(c, func(a *ModelActions) { a.LibraryCancel(x.ID) })
+					})
 				default:
 					kit.Action(c.Key("delete"), icons.Trash, t("knowledge_delete"), false).OnClick(func() { e.removing = x.ID })
 				}
@@ -145,7 +173,14 @@ func libraryDialogs(c *ui.Context, m *Model) {
 		open := true
 		kit.Dialog(c.Key("model-library-details"), &open, func() {
 			ui.Text(c, x.Name).FontSize(16).FontWeight(600)
-			facts(c, [][2]string{{t("model_library_source"), t(x.Source) + " · " + x.Repo}, {t("knowledge_model_size"), x.Size}, {t("settings_license"), x.License}})
+			rows := [][2]string{{t("model_library_source"), t(x.Source) + " · " + x.Repo}}
+			for _, row := range [][2]string{{t("knowledge_model_size"), x.Size}, {t("settings_license"), x.License}} {
+				// A live model's size and license show once the hub resolved it.
+				if !m.Live || row[1] != "" {
+					rows = append(rows, row)
+				}
+			}
+			facts(c, rows)
 			ui.Row(c.Key("footer")).Justify(ui.End).Children(func() {
 				kit.Secondary(c.Key("close"), t("close")).OnClick(func() { open = false })
 			})
@@ -156,9 +191,22 @@ func libraryDialogs(c *ui.Context, m *Model) {
 	}
 	if x := m.libraryModel(e.removing); x != nil {
 		open := true
-		if confirm(c, "library-delete", &open, t("knowledge_delete")+" "+x.Name, t("knowledge_delete_model_effect", "name", x.Name), t("knowledge_delete")) {
-			x.Status = preview.ModelMissing
-			kit.Toast(c, kit.Done, t("knowledge_deleted"))
+		title, consequence := t("knowledge_delete")+" "+x.Name, t("knowledge_delete_model_effect", "name", x.Name)
+		if m.Live && x.Kind != ModelsEmbedding {
+			// Only an embedding model's removal changes collections; the
+			// others name the model, as the reference's prompt does.
+			title, consequence = t("knowledge_delete"), x.Name
+		}
+		if confirm(c, "library-delete", &open, title, consequence, t("knowledge_delete")) {
+			if m.Live {
+				// The host deletes the files; its outcome is the toast.
+				if m.ModelActions != nil {
+					m.ModelActions.LibraryDelete(x.ID)
+				}
+			} else {
+				x.Status = preview.ModelMissing
+				kit.Toast(c, kit.Done, t("knowledge_deleted"))
+			}
 		}
 		if !open {
 			e.removing = ""

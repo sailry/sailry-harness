@@ -94,6 +94,12 @@ type LocalModels struct {
 	Query   string
 	Models  []preview.LocalModel
 	Catalog []preview.LocalModel
+	// A live page's: its kind (a Models* key), the chosen model's name when
+	// the host no longer has it installed (the picker's last choice), and
+	// whether the host cannot run this kind.
+	Kind        string
+	Missing     string
+	Unavailable bool
 }
 
 // Installed are the models a host has.
@@ -139,6 +145,7 @@ type Model struct {
 	ConnectorActions  *ConnectorActions
 	PackageActions    *PackageActions
 	AppearanceActions *AppearanceActions
+	ModelActions      *ModelActions
 	// General.
 	Language       int // of Languages
 	SidebarMetrics bool

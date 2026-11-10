@@ -1844,3 +1844,13 @@ project_color_cyan
 terminal_paste_confirm
 terminal_paste_warning
 terminal_paste
+runtime_failed
+runtime_conflict
+runtime_unknown
+knowledge_saved
+knowledge_cancel_requested
+model_library_failed
+model_library_partial
+local_models_unavailable
+dictation_unavailable
+dictation_model_missing

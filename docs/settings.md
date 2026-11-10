@@ -442,3 +442,73 @@ the internal key list. Shells show their program name, not the catalog's
 friendly names (`locales/terminal-shells.*.yml`). An unavailable Node during a
 save reports failure, not an unknown outcome. The font family is saved as
 typed on each change, not trimmed on blur; readers get it trimmed.
+
+## B11 local-model wiring
+
+In live mode the OCR, Knowledge and Decision pages show the selected host's
+Node; Dictation's speech models and options are the controller's (below). `live/settings_models.go` reads
+`read_local_model_settings` and `read_local_models` when one of the pages
+shows, follows `local_models_changed` and `local_model_settings_changed` on
+the `node` topic from the first visit on, and projects each kind onto
+`LocalModels` (`Kind`, `Models`, `Catalog`, `Model`, `Missing`, `Unavailable`,
+`Enabled`). Download percent comes from the Node's installation tasks.
+`live/settings_models_library.go` owns the model library dialog.
+
+- **Saves.** The switch, the picker and a row's Select send the whole
+  `save_local_model_settings` at the revision read, through
+  `Model.ModelActions`. The toasts are `LocalModelMessages` (`knowledge_saved`,
+  `runtime_failed`, `runtime_conflict`, `runtime_unknown`). A choice whose save
+  failed, conflicted or is in doubt stays the page's draft and the settings are
+  read again; an identical retry reuses the retained request.
+- **Lock.** `Enabled.Pending` disables the switch, the picker and Select until
+  the settings are read, during a save, and where the Node reports the kind
+  unavailable; that case adds a `local_models_status` row with the
+  `local_models_unavailable` badge.
+- **Missing selection.** A saved model that is no longer installed stays the
+  picker's last choice (`Missing`) instead of being cleared silently.
+- **Knowledge.** There is no switch: Keyword only saves `enabled: false`, a
+  model saves `enabled: true`.
+- **Library.** `LibraryRequest` (kind, hub, searched query, search serial)
+  drives `search_models`; a search is abandoned when the request changes or
+  the dialog closes. Install is `resolve_model` → `register_local_model` →
+  `install_local_model`, Details is `read_model_versions` → `resolve_model`,
+  Cancel is `cancel_local_model` (`knowledge_cancel_requested`), Delete is
+  `delete_local_model` after the confirmation (`knowledge_deleted`). An
+  install's request is retained for the installation queue's Retry and reused
+  after an unknown outcome; a canceled install shows no toast.
+- **Preview.** Unchanged: `ModelActions` is nil, pages change in memory and
+  downloads are `preview_notice`.
+
+Deviations from the Rust reference:
+
+- The library loads the first hub page only (following empty pages); the
+  accepted dialog has no load-more control.
+- `refresh_local_model` is not called: the accepted details dialogs have no
+  Update control.
+- Only the save locks the page; a running download does not.
+
+### Dictation (controller-local)
+
+Dictation's options are desktop preferences, as in the reference: the
+`dictation` object of `desktop/preferences.json` holds `microphone` (device
+identifier or null), `language` (`auto`, `chinese`, `english`) and `model`
+(speech model ID or null for the recommended model). No Node command reads or
+saves them, and a Node refuses the speech kind in `save_local_model_settings`
+and `register_local_model`. Coverage rows SDICT-003 and SDICT-007 are
+therefore preferences (SDICT-007 names `SaveLocalModelSettings`, which the
+reference does not use), and SDICT-006 is the controller's speech-model
+manager, not `ReadLocalModels`.
+
+- `live/preferences.go` maps `Model.SpeechLanguage` to `dictation.language`
+  and leaves `dictation.microphone` as stored.
+- `live/settings_models_speech.go` projects the speech rows and stores a
+  row's Select in `dictation.model`.
+- `preferences.Data` has `DictationModel()`, `DictationLanguage()` and
+  `DictationMicrophone()` for the dictation feature.
+- The reference lists, registers, installs, cancels and deletes speech models
+  in a controller-local manager (`models/speech.json`, `models/speech/<id>`,
+  `models/sensevoice-int8`); only `resolve_model`, `search_models` and
+  `read_model_versions` with the speech kind reach a Node. That manager is the
+  dictation feature's and does not exist yet: the live list is the recommended
+  model alone, shown as not installed, and Install reports
+  `dictation_unavailable`.

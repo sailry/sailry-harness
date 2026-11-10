@@ -19,6 +19,7 @@ func (r *Runtime) applyPreferences() {
 	m.Notify, m.SidebarMetrics = d.Notifications, d.SidebarMetrics
 	m.Language, m.MessageDisplay, m.SessionOrder, m.Channel = 0, 0, 0, 0
 	m.TextSize = 14
+	m.SpeechLanguage = max(0, slices.Index(preferences.DictationLanguages, d.DictationLanguage()))
 	if d.Language != nil {
 		m.Language = max(0, slices.Index(preferences.Languages, *d.Language))
 	}
@@ -110,6 +111,12 @@ func (r *Runtime) savePreferences() {
 		r.project()
 	}
 	setChoice(&d.MessageTextSize, uint8(m.TextSize), uint8(14))
+	if language := preferences.DictationLanguages[min(max(m.SpeechLanguage, 0), 2)]; language != d.DictationLanguage() {
+		if d.Dictation == nil {
+			d.Dictation = &preferences.Dictation{}
+		}
+		d.Dictation.Language = language
+	}
 	setChoice(&d.UpdateChannel, []string{"stable", "experience"}[min(max(m.Channel, 0), 1)], "stable")
 	d.Terminal.FontSize, d.Terminal.FontFamily, d.Terminal.PasteProtection = uint8(m.FontSize), m.Font, m.PasteProtection
 	packageID := a.Theme

@@ -1832,3 +1832,13 @@ project_color_cyan: Cyan
 terminal_paste_confirm: Coller plusieurs lignes
 terminal_paste_warning: Plusieurs lignes peuvent exécuter des commandes immédiatement
 terminal_paste: Coller
+runtime_failed: L’opération a échoué
+runtime_conflict: Les réglages ont changé ; rechargez pour conserver le brouillon
+runtime_unknown: Résultat non confirmé ; réessayez
+knowledge_saved: Enregistré
+knowledge_cancel_requested: Annulation demandée
+model_library_failed: Impossible de charger les modèles
+model_library_partial: Certains résultats sont indisponibles
+local_models_unavailable: Indisponible
+dictation_unavailable: Entrée vocale locale non disponible
+dictation_model_missing: Télécharger un modèle de discours en premier

@@ -1,0 +1,182 @@
+[
+  {
+    "source": {
+      "hub": "model_scope",
+      "repository": "greatv/oar-ocr",
+      "revision": "114107c96ed39253cc6a9a06df13b69e503dddae"
+    },
+    "name": "PP-OCRv6 tiny",
+    "license": "Apache-2.0",
+    "format": {
+      "kind": "paddle_ocr",
+      "family": "v6",
+      "orientation": true
+    },
+    "assets": [
+      {
+        "source": {
+          "hub": "model_scope",
+          "repository": "greatv/oar-ocr",
+          "revision": "7ddd96399ffff09ca1979215d63d70555275bee4"
+        },
+        "path": "pp-ocrv6_tiny_det.onnx",
+        "name": "detector.onnx",
+        "bytes": 1780590,
+        "sha256": "193bab7a04fca699a6c82e6abb5b81bdb28177f0abd4062552b04908dafb19f8"
+      },
+      {
+        "source": {
+          "hub": "model_scope",
+          "repository": "greatv/oar-ocr",
+          "revision": "114107c96ed39253cc6a9a06df13b69e503dddae"
+        },
+        "path": "pp-ocrv6_tiny_rec.onnx",
+        "name": "recognizer.onnx",
+        "bytes": 4462639,
+        "sha256": "9ef676d6ed3c88256a2d92c640c44f25b0c40947e111b14b8be8f594091563e6"
+      },
+      {
+        "source": {
+          "hub": "model_scope",
+          "repository": "greatv/oar-ocr",
+          "revision": "ae09f612823f6d6a17f51b9d7735bd8e57620a75"
+        },
+        "path": "ppocrv6_tiny_dict.txt",
+        "name": "dictionary.txt",
+        "bytes": 27156,
+        "sha256": "c5cbe34ef40c29c4df07ed012bf96569cb69a2d2a01a07027e9f13cb832bd9cd"
+      },
+      {
+        "source": {
+          "hub": "model_scope",
+          "repository": "greatv/oar-ocr",
+          "revision": "e8a9057c7d04abbb62d31104a38979fa3dbbcbf5"
+        },
+        "path": "pp-lcnet_x0_25_textline_ori.onnx",
+        "name": "orientation.onnx",
+        "bytes": 1018629,
+        "sha256": "fb402220f39b183d64a68cd48d4bd53267a21354b6fc39370c2a83fbdad85b10"
+      }
+    ]
+  },
+  {
+    "source": {
+      "hub": "model_scope",
+      "repository": "greatv/oar-ocr",
+      "revision": "530eb4393b10ccc07867d6d8ee7abf4ab7a07474"
+    },
+    "name": "PP-OCRv5 mobile",
+    "license": "Apache-2.0",
+    "format": {
+      "kind": "paddle_ocr",
+      "family": "v5",
+      "orientation": true
+    },
+    "assets": [
+      {
+        "source": {
+          "hub": "model_scope",
+          "repository": "greatv/oar-ocr",
+          "revision": "41eaa7fa91fdb46de50a7a9f91e0e4f63a4ac53f"
+        },
+        "path": "pp-ocrv5_mobile_det.onnx",
+        "name": "detector.onnx",
+        "bytes": 4826518,
+        "sha256": "1eb7b4f7ab657ebd1c66d5f79bca7497f29768a2e3c15e52daecbba1a8e4a039"
+      },
+      {
+        "source": {
+          "hub": "model_scope",
+          "repository": "greatv/oar-ocr",
+          "revision": "530eb4393b10ccc07867d6d8ee7abf4ab7a07474"
+        },
+        "path": "pp-ocrv5_mobile_rec.onnx",
+        "name": "recognizer.onnx",
+        "bytes": 16562373,
+        "sha256": "243a0f06d826761323e9045e9b113ab2c191c3aa50565585e628300b8eda0224"
+      },
+      {
+        "source": {
+          "hub": "model_scope",
+          "repository": "greatv/oar-ocr",
+          "revision": "530eb4393b10ccc07867d6d8ee7abf4ab7a07474"
+        },
+        "path": "ppocrv5_dict.txt",
+        "name": "dictionary.txt",
+        "bytes": 74012,
+        "sha256": "d1979e9f794c464c0d2e0b70a7fe14dd978e9dc644c0e71f14158cdf8342af1b"
+      },
+      {
+        "source": {
+          "hub": "model_scope",
+          "repository": "greatv/oar-ocr",
+          "revision": "e8a9057c7d04abbb62d31104a38979fa3dbbcbf5"
+        },
+        "path": "pp-lcnet_x0_25_textline_ori.onnx",
+        "name": "orientation.onnx",
+        "bytes": 1018629,
+        "sha256": "fb402220f39b183d64a68cd48d4bd53267a21354b6fc39370c2a83fbdad85b10"
+      }
+    ]
+  },
+  {
+    "source": {
+      "hub": "model_scope",
+      "repository": "greatv/oar-ocr",
+      "revision": "1684bdef2329ac08227939501a49d91c9cc0d24a"
+    },
+    "name": "PP-OCRv6 small",
+    "license": "Apache-2.0",
+    "format": {
+      "kind": "paddle_ocr",
+      "family": "v6",
+      "orientation": true
+    },
+    "assets": [
+      {
+        "source": {
+          "hub": "model_scope",
+          "repository": "greatv/oar-ocr",
+          "revision": "3f286c18c934050784bdf25dae4ccf55d197208d"
+        },
+        "path": "pp-ocrv6_small_det.onnx",
+        "name": "detector.onnx",
+        "bytes": 9880512,
+        "sha256": "d73e0058b7a8086bbd57f3d10b8bcd4ff95363f67e06e2762b5e814fe9c9410e"
+      },
+      {
+        "source": {
+          "hub": "model_scope",
+          "repository": "greatv/oar-ocr",
+          "revision": "1684bdef2329ac08227939501a49d91c9cc0d24a"
+        },
+        "path": "pp-ocrv6_small_rec.onnx",
+        "name": "recognizer.onnx",
+        "bytes": 21159378,
+        "sha256": "5435fd747c9e0efe15a96d0b378d5bd157e9492ed8fd80edf08f30d02fa24634"
+      },
+      {
+        "source": {
+          "hub": "model_scope",
+          "repository": "greatv/oar-ocr",
+          "revision": "f5adaf9b173ce1ac489cdf07fc9f001082f4371b"
+        },
+        "path": "ppocrv6_dict.txt",
+        "name": "dictionary.txt",
+        "bytes": 74947,
+        "sha256": "b5f2bfe2bdd9448429e3e82b51c789775d9b42f2403d082b00662eb77e401c5d"
+      },
+      {
+        "source": {
+          "hub": "model_scope",
+          "repository": "greatv/oar-ocr",
+          "revision": "e8a9057c7d04abbb62d31104a38979fa3dbbcbf5"
+        },
+        "path": "pp-lcnet_x0_25_textline_ori.onnx",
+        "name": "orientation.onnx",
+        "bytes": 1018629,
+        "sha256": "fb402220f39b183d64a68cd48d4bd53267a21354b6fc39370c2a83fbdad85b10"
+      }
+    ]
+  }
+]

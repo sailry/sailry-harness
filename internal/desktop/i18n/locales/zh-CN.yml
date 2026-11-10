@@ -1832,3 +1832,13 @@ project_color_cyan: 青色
 terminal_paste_confirm: 粘贴多行内容
 terminal_paste_warning: 多行内容可能立即执行命令
 terminal_paste: 粘贴
+runtime_failed: 运行时操作失败
+runtime_conflict: 设置已变化，请重新加载以保留草稿
+runtime_unknown: 无法确认结果，请重试查询
+knowledge_saved: 已保存
+knowledge_cancel_requested: 已请求取消
+model_library_failed: 无法加载模型
+model_library_partial: 部分结果不可用
+local_models_unavailable: 不可用
+dictation_unavailable: 本地语音输入不可用
+dictation_model_missing: 请先下载语音模型

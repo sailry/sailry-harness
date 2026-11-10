@@ -65,34 +65,56 @@ func dictation(c *ui.Context, m *Model) {
 				if x.ID == "" {
 					name = i18n.T(c, "dictation_model_name")
 				}
-				modelRow(c, x, name, i == m.SpeechModel, func() { m.SpeechModel = i }, func() { m.info = &modelInfo{name, *x} })
+				modelRow(c, m, ModelsSpeech, x, name, i == m.SpeechModel, false, func() { m.SpeechModel = i }, func() { m.info = &modelInfo{name, *x} })
 			}
 		})
 	})
+	m.followModel(m.Speech)
 	modelDetails(c, &m.info)
 }
 
 // localModels is whether it is on, the model it uses, and its Installed and
 // Available tabs. Knowledge (Embedding) has no switch: enable is "" and its
 // first choice, none, turns it to keywords only.
+//
+// A live page is locked (Enabled.Pending) until its host's settings are
+// read, while a save is under way and where the host cannot run the kind,
+// which a status row then says. Its switch, picker and rows save through
+// ModelActions; a chosen model the host no longer has stays the picker's
+// last choice (Missing) rather than changing the setting silently.
 func localModels(c *ui.Context, m *Model, lm *LocalModels, title, label, enable, none string) {
 	installed := lm.Installed()
+	locked := lm.Enabled.Pending
+	save := func() {
+		if m.Live && m.ModelActions != nil {
+			m.ModelActions.Save(lm.Kind)
+		}
+	}
 	kit.Group(c, "controls", i18n.T(c, title), "", nil, func() {
 		kit.Card(c, func() {
-			if enable != "" {
-				kit.SwitchRow(c, "enabled", i18n.T(c, enable), "", &lm.Enabled.Draft)
+			if enable != "" && settingSwitch(c, "enabled", i18n.T(c, enable), "", &lm.Enabled.Draft, locked) {
+				save()
 			}
 			names := []string{i18n.T(c, none)}
 			for _, x := range installed {
 				names = append(names, x.Name)
 			}
+			if lm.Missing != "" {
+				names = append(names, lm.Missing)
+			}
 			t := i18n.T(c, label)
 			chosen := lm.Model + 1
 			kit.WideRow(c, "model", t, "", func() {
-				if pick(c, "select", t, &chosen, names, !lm.Enabled.Draft).Fill().Changed() {
+				if pick(c, "select", t, &chosen, names, !lm.Enabled.Draft || locked).Fill().Changed() {
 					lm.Model = chosen - 1
+					save()
 				}
 			})
+			if lm.Unavailable {
+				kit.Row(c, "status", i18n.T(c, "local_models_status"), "", func() {
+					kit.Badge(c, i18n.T(c, "local_models_unavailable"), kit.Neutral)
+				})
+			}
 		})
 	})
 	ui.Column(c.Key("library")).Gap(16).Children(func() {
@@ -103,7 +125,7 @@ func localModels(c *ui.Context, m *Model, lm *LocalModels, title, label, enable,
 				ui.SearchField(c.Key("search"), &lm.Query).Placeholder(i18n.T(c, "search")).Width(220)
 			}
 			ui.Spacer(c)
-			kit.Secondary(c.Key("library"), i18n.T(c, "model_library_manage")).OnClick(func() { m.library.open = true })
+			kit.Secondary(c.Key("library"), i18n.T(c, "model_library_manage")).OnClick(func() { m.openLibrary(lm.Kind) })
 		})
 		list := installed
 		if lm.Tab == 1 {
@@ -123,17 +145,20 @@ func localModels(c *ui.Context, m *Model, lm *LocalModels, title, label, enable,
 			for i := range list {
 				x := list[i]
 				selected := lm.Tab == 0 && i == lm.Model
-				modelRow(c, &x, x.Name, selected, func() { lm.Model = i }, func() { m.info = &modelInfo{x.Name, x} })
+				modelRow(c, m, lm.Kind, &x, x.Name, selected, locked, func() { lm.Model = i }, func() { m.info = &modelInfo{x.Name, x} })
 			}
 		})
 	})
+	m.followModel(lm.Models)
 	modelDetails(c, &m.info)
 }
 
 // modelRow is a managed model: its name and repository, its details, the
 // install or the download's progress and cancel, and choosing it. Installing
-// and canceling download models, which the preview does not.
-func modelRow(c *ui.Context, x *preview.LocalModel, name string, selected bool, choose, show func()) {
+// and canceling download models, which the preview does not: a live row
+// asks its host through ModelActions, and chooses through them too, where
+// the preview's choose changes the page in memory.
+func modelRow(c *ui.Context, m *Model, kind string, x *preview.LocalModel, name string, selected, locked bool, choose, show func()) {
 	key := x.ID
 	if key == "" {
 		key = "default"
@@ -142,17 +167,27 @@ func modelRow(c *ui.Context, x *preview.LocalModel, name string, selected bool, 
 		kit.Action(c.Key("details"), icons.Settings2, i18n.T(c, "knowledge_model_details"), false).OnClick(show)
 		switch x.Status {
 		case preview.ModelMissing:
-			kit.Action(c.Key("install"), icons.Download, i18n.T(c, "knowledge_install"), false).OnClick(func() { notice(c) })
+			kit.Action(c.Key("install"), icons.Download, i18n.T(c, "knowledge_install"), false).OnClick(func() {
+				m.modelAction(c, func(a *ModelActions) { a.Install(kind, x.ID) })
+			})
 		case preview.ModelDownloading:
 			ui.Textf(c, "%.0f%%", x.Percent).FontSize(14).Width(40).TextAlign(ui.End).TextColor(theme.Of(c).MutedForeground)
-			kit.Action(c.Key("cancel"), icons.CircleX, i18n.T(c, "settings_cancel"), false).OnClick(func() { notice(c) })
+			kit.Action(c.Key("cancel"), icons.CircleX, i18n.T(c, "settings_cancel"), false).OnClick(func() {
+				m.modelAction(c, func(a *ModelActions) { a.Cancel(kind, x.ID) })
+			})
 		}
 		if x.Status == preview.ModelInstalled {
 			label := "model_library_select"
 			if selected {
 				label = "model_library_selected"
 			}
-			kit.Action(c.Key("select"), icons.Check, i18n.T(c, label), selected).OnClick(choose)
+			kit.Action(c.Key("select"), icons.Check, i18n.T(c, label), selected || locked).OnClick(func() {
+				if !m.Live {
+					choose()
+				} else if m.ModelActions != nil {
+					m.ModelActions.Select(kind, x.ID)
+				}
+			})
 		}
 	})
 }

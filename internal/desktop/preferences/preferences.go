@@ -169,6 +169,35 @@ func (d *Data) UnmarshalJSON(b []byte) error {
 
 var packageID = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
 
+// DictationLanguages are the values of dictation.language.
+var DictationLanguages = []string{"auto", "chinese", "english"}
+
+// DictationModel is the selected speech model, nil for the recommended one.
+// The dictation getters read Data and belong to the thread that edits it.
+func (d *Data) DictationModel() *protocol.ModelID {
+	if d.Dictation == nil {
+		return nil
+	}
+	return d.Dictation.Model
+}
+
+// DictationLanguage is the transcription language, one of DictationLanguages.
+func (d *Data) DictationLanguage() string {
+	if d.Dictation == nil || d.Dictation.Language == "" {
+		return DictationLanguages[0]
+	}
+	return d.Dictation.Language
+}
+
+// DictationMicrophone is the chosen input device's identifier, nil for the
+// system default.
+func (d *Data) DictationMicrophone() *string {
+	if d.Dictation == nil {
+		return nil
+	}
+	return d.Dictation.Microphone
+}
+
 var Languages = []string{"system", "english", "chinese", "traditional_chinese", "japanese", "korean", "french", "german", "spanish", "portuguese_brazil", "russian"}
 
 func (d Data) Validate() error {

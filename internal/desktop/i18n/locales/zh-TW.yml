@@ -1832,3 +1832,13 @@ project_color_cyan: 青色
 terminal_paste_confirm: 貼上多行內容
 terminal_paste_warning: 多行內容可能立即執行命令
 terminal_paste: 貼上
+runtime_failed: 執行環境操作失敗
+runtime_conflict: 設定已變更，請重新載入以保留草稿
+runtime_unknown: 無法確認結果，請重試查詢
+knowledge_saved: 已儲存
+knowledge_cancel_requested: 已要求取消
+model_library_failed: 無法載入模型
+model_library_partial: 部分結果無法取得
+local_models_unavailable: 不可用
+dictation_unavailable: 本地語音輸入不可用
+dictation_model_missing: 請先下載語音模型
