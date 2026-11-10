@@ -1,5 +1,5 @@
-// Package power holds one serialized native idle-sleep request controlled by
-// the Node's power setting.
+// Package power holds one serialized native idle-sleep request while the
+// Node's power setting is on and the Node has running work.
 package power
 
 import (
@@ -36,10 +36,11 @@ type Status struct {
 	Error     int64 // the first system error, 0 for none
 }
 
-// Service keeps the system awake while the setting is on and the Node runs.
+// Service keeps the system awake while the setting is on and work is held.
 type Service struct {
 	mu            sync.Mutex
 	settings      protocol.PowerSettings
+	active        int
 	status        Status
 	backend       Backend
 	releaseFailed bool
@@ -67,6 +68,13 @@ func (s *Service) Apply(settings protocol.PowerSettings) {
 	})
 }
 
+// Hold counts one piece of running work until the returned function is
+// called.
+func (s *Service) Hold() func() {
+	s.update(func() { s.active++ })
+	return sync.OnceFunc(func() { s.update(func() { s.active-- }) })
+}
+
 // Status reports what the service holds.
 func (s *Service) Status() Status {
 	s.mu.Lock()
@@ -80,7 +88,7 @@ func (s *Service) Close() { s.update(func() { s.status.Closed = true }) }
 func (s *Service) update(change func()) {
 	s.mu.Lock()
 	change()
-	needed := s.status.Enabled && !s.status.Closed
+	needed := s.status.Enabled && !s.status.Closed && s.active > 0
 	var code int64
 	switch {
 	case !needed && s.status.Acquired && !s.releaseFailed:

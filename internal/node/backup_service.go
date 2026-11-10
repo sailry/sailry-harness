@@ -117,7 +117,9 @@ func (node *Node) executeBackup(caller protocol.NodeID, request protocol.Request
 	var operationErr error
 	update, configuration := request.Command.Data.(*protocol.BackupUpdate)
 	if !configuration {
+		working := node.power.Hold()
 		output, operationErr = node.changeBackup(node.ctx, caller, request)
+		working()
 	}
 	err := node.profile.Store.Node.Write(node.ctx, func(db *sql.Conn) error {
 		if configuration {
@@ -127,6 +129,10 @@ func (node *Node) executeBackup(caller protocol.NodeID, request protocol.Request
 				return err
 			}
 			settings, events, operationErr = store.SaveBackupSettings(node.ctx, db, *update, node.dispatch.clock.Now().UnixMilli())
+			if operationErr == nil && settings.Local != nil {
+				// An export would refuse this directory; so does the save.
+				operationErr = backup.LocalTarget(settings.Local.Directory, node.profile.Ownership.Path)
+			}
 			output = protocol.Output{Kind: "backup_settings", Data: settings}
 			if operationErr != nil {
 				events = nil

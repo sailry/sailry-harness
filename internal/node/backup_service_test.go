@@ -76,7 +76,9 @@ func backupFixtureCode(value link.Response) protocol.ErrorCode {
 	return value.Fault.Code
 }
 
+// Over 1 s: a real export and restore archive and flush the profile's bundled packages (about 690 files).
 func TestBackupRoundTrip(t *testing.T) {
+	t.Parallel()
 	profile := filepath.Join(t.TempDir(), "profile")
 	directory := filepath.Join(t.TempDir(), "backups")
 	node := backupFixtureNode(t, profile, nil)
@@ -96,6 +98,12 @@ func TestBackupRoundTrip(t *testing.T) {
 		{"relative directory", func(update *protocol.BackupUpdate) {
 			update.Settings.Local = &protocol.BackupLocal{Directory: "backups", Enabled: true}
 		}, protocol.ErrorCodeInvalidRequest},
+		{"directory inside the profile", func(update *protocol.BackupUpdate) {
+			update.Settings.Local = &protocol.BackupLocal{Directory: filepath.Join(profile, "backups"), Enabled: true}
+		}, protocol.ErrorCodePermissionDenied},
+		{"directory around the profile", func(update *protocol.BackupUpdate) {
+			update.Settings.Local = &protocol.BackupLocal{Directory: filepath.Dir(profile), Enabled: true}
+		}, protocol.ErrorCodePermissionDenied},
 		{"stale revision", func(update *protocol.BackupUpdate) { update.Settings.Revision = 7 }, protocol.ErrorCodeRevisionConflict},
 		{"endpoint credentials", func(update *protocol.BackupUpdate) {
 			update.Settings.Destination = &protocol.BackupDestination{Kind: protocol.BackupKindWebdav, Endpoint: "https://user:secret@example.test/dav"}
@@ -182,7 +190,9 @@ func TestBackupRoundTrip(t *testing.T) {
 	}
 }
 
+// Over 1 s: a real download and file restore archive and flush the profile's bundled packages (about 690 files).
 func TestRestoreIntoEmptyProfile(t *testing.T) {
+	t.Parallel()
 	profile := filepath.Join(t.TempDir(), "profile")
 	node := backupFixtureNode(t, profile, nil)
 	settings := backupFixtureConfigure(t, node, filepath.Join(t.TempDir(), "backups"))
@@ -313,7 +323,9 @@ func TestRestoreIntoEmptyProfile(t *testing.T) {
 	}
 }
 
+// Over 1 s: the scheduled run is a real export of the profile's bundled packages (about 690 files).
 func TestScheduleNextRun(t *testing.T) {
+	t.Parallel()
 	start := time.Date(2026, time.March, 7, 12, 0, 0, 0, time.UTC)
 	clock := clockwork.NewFakeClockAt(start)
 	directory := filepath.Join(t.TempDir(), "backups")

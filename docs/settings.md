@@ -250,6 +250,8 @@ the app preferences.
   fields change (debounced) and Close ends the edit.
 - The model details dialog shows the source and status only; size and
   license come with the model library (phase 5b).
+- A downloading library row shows its bar and `Downloading`; the reference
+  adds the percent as text.
 - Backup's local folder picker, restore from file and the records dialog
   are preview_notice.
 - About's license is the reference's (Apache-2.0) as text; the build row
@@ -577,7 +579,8 @@ and keeps `preview_notice`.
   the `.app` bundle with `open -R`; a bare executable is the
   `permission_app_unavailable` toast.
 - **Outcomes.** A failed check, request or settings page is the
-  `permission_failed` toast; the row of a failed package check reads Unknown.
+  `permission_failed` toast; the row of a failed check reads Unknown. An
+  unavailable or remote row draws its action disabled, as the reference does.
 - Outside macOS Sailry's rows read `permission_unavailable`; a package grant
   on another device reads through that device and is never requested from here.
 
@@ -586,12 +589,10 @@ Deviations from the reference:
 | Deviation | Reason |
 |---|---|
 | A requestable row that is not granted shows Request alone, without the settings shortcut | The accepted row draws the shortcut and the action label from one `Settings` flag |
-| A refused microphone shows both the settings shortcut and Open settings | Same flag; both open the same page |
 | Buttons are not disabled or shown loading while a check or request runs; a second click is ignored | The accepted view has no busy state |
 | A restricted microphone reads Denied | `permissionflow` reports refused and restricted alike |
 | Full Disk Access is probed by opening the TCC database, then Safari's folder, not by listing the Trash | `permissionflow.Check` owns the probe |
 | The Chrome and Keychain workflow cards and the permission dialog opened by other features are absent | Not part of the accepted Settings page |
-| An unavailable or remote row keeps an inert Request button | The accepted view draws the action for every row that is not granted |
 
 
 ## B13 system wiring
@@ -606,7 +607,7 @@ the one policy for what a record may disclose. `internal/desktop/live`
 
 | Page | Control | Live behavior |
 |---|---|---|
-| General | Prevent sleep | `save_power_settings`; the Node holds one system keep-awake request while the setting is on and the Node runs (IOKit `PreventUserIdleSystemSleep` on macOS, a `PowerRequestSystemRequired` power request on Windows, unsupported elsewhere). A refused request writes one `power` notice and is not retried |
+| General | Prevent sleep | `save_power_settings`; the Node holds one system keep-awake request while the setting is on and work runs: a turn, a command, a supervised task (installations, sign-ins, plugin and connector work), a knowledge collection indexing changed sources, a code index query or a backup (IOKit `PreventUserIdleSystemSleep` on macOS, a `PowerRequestSystemRequired` power request on Windows, unsupported elsewhere). A refused request writes one `power` notice and is not retried |
 | General | Error reports, Usage metrics | `save_telemetry_settings`; the Node reapplies consent after each committed change. With Error reports off no failure is reported or kept for a later report; with Usage metrics off nothing is counted and no timer runs. Turning either off drops what was pending |
 | General | Reset | `reset_telemetry_identity` with the shown revision; toasts `telemetry_reset`, `telemetry_conflict`, `telemetry_unknown` or `telemetry_failed` |
 | General | Send | `send_diagnostics`; one Sentry event with the reviewed fields only (level, logger, message `runtime.diagnostics:requested`, release, environment, fingerprint, the installation, channel, application, OS and architecture tags, and the `diagnostics.jsonl` attachment described below); toasts `telemetry_diagnostics_sent` or `telemetry_diagnostics_failed` |
@@ -623,6 +624,7 @@ Deviations from the reference:
 
 | Deviation | Reason |
 |---|---|
+| Keep-awake is held only while work runs, not whenever the setting is on | An idle Node has nothing to finish, so the machine may sleep; `power.Service.Hold` is the one counter and every source brackets its own work with it. A terminal alone does not count |
 | The MyGo updater is not used | It cannot verify the signed `update-v1` envelope or zipsign archives, keep Download, Ready and Install as separate steps, or report the reference's failure keys; the documented fallback ports the reference's verification |
 | Installation is macOS only; other systems fail a check with `updates_platform` | The reference's out-of-process Windows install helper and draft recovery are not ported |
 | A host's required-version check is not requested by Hosts | `Service.CheckVersion` exists; no caller is wired |
@@ -632,6 +634,7 @@ Deviations from the reference:
 | A report's public fields travel as `contexts.sailry`, not `extra` | sentry-go's event has no free `extra` object |
 | No panic reports and no debug images | Go has no process panic hook that could report before exit |
 | A package and a package's tool are always reported as `third_party` | The bundled-identity check that lets the reference name official packages is not ported |
+| A cancelled command, and any refusal of a read whose caller has gone, is recorded as `cancelled` at info level and never reported | Closing a window abandons its reads; that is not a failure of the Node |
 | Only command records are written | The reference's other record sites (runs, model streams, MCP, attachments, sign-in, desktop feedback) are not ported; their fields are in the policy and unused |
 | A model request is counted per attempt, without a retry count | The engine reports attempts, not a finished request |
 
@@ -698,7 +701,10 @@ Deviations from the reference:
 
 | Deviation | Reason |
 |---|---|
+| Saving a local folder inside or around the running profile is refused (`PermissionDenied`) | The reference refuses it only when an export runs; the save would store a folder that can never be used |
+| The staged copy of each archived file is not flushed to disk; the finished archive is | The reference flushes every staged file; the copies are read back into the archive and removed, so only the archive needs to survive a crash |
 | Choose folder uses the controller's native picker and is unavailable for a remote host | The reference's host file picker is not built in this UI |
+| The records, restore and session removal dialogs exist only in live mode | The reference has all three; the preview's Backup actions are the notice |
 | No toast actions (Retry, Reload) | The accepted toasts carry no actions; repeating the action resends a retained request, and the page reads the settings again on entry |
 | The page does not subscribe to `backup_settings_changed` | The snapshot has no backup revision; a stale revision surfaces as `backup_conflict` and a fresh read |
 | A file restore with an unknown outcome is staged again when repeated | The staged stream belongs to the first request |

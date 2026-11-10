@@ -194,7 +194,18 @@ like any MCP tool. Core supplies only the helper:
   executable (`computer.Trampoline` in `cmd/sailry-desktop` and
   `cmd/sailry-host`) that replaces itself with the helper under a disclaimed
   responsibility, so the helper application owns its Accessibility and Screen
-  Recording grants.
+  Recording grants. The trampoline triggers only when the executable's first
+  argument is exactly `--sailry-computer-helper` and a program path follows;
+  no environment variable, later argument, URL or document open selects it,
+  and the Node adds the argument only to its own helper launches. It runs
+  before any flag parsing, opens nothing and reads no profile. The helper
+  receives the remaining arguments, the environment, the standard streams, the
+  signal mask and the ignored signals exactly as a direct launch would,
+  because the spawn attributes carry only the replace-image flag and the
+  disclaimer. A failed disclaimer falls back to a plain `exec`; a failed
+  `exec` exits with status 127. The trampoline grants nothing: a disclaimed
+  program answers for its own permissions and never inherits Sailry's, so
+  starting it by hand gives no more than running that program directly.
 - **Permissions.** `read_computer_permissions` and `request_computer_permission`
   need the calling package's captured helper launch on macOS; they run
   `agent-desktop permissions [--request]` with a 15-second deadline and a

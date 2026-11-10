@@ -32,6 +32,13 @@ func testPluginLocationOwnership(t *testing.T) {
 			composer: &pluginNativeComposer{source: "draft/first"},
 		}
 		state.locationOperations()
+		// No package view is a workspace pane, and none can open one.
+		bindPluginPanes(&native)
+		for operation, want := range map[string]string{"sailry/ui.pane": "null", "sailry/ui.openPane": "false"} {
+			if body, err := native.Operations[operation](root.ctx, nil); err != nil || string(body) != want {
+				t.Fatalf("%s = %s, %v", operation, body, err)
+			}
+		}
 		root.App.Sidebar.Selected = "draft/second"
 		body, err := native.Operations["sailry/ui.readLocation"](root.ctx, nil)
 		var initial struct {

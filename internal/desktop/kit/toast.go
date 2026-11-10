@@ -65,7 +65,8 @@ var (
 // the top, with the older ones peeking below it, spread out while the pointer rests on them. A toast has its
 // type's icon and color (info, success, warning, error), the title over
 // the description, a close button and its action; one with a negative
-// Timeout stays until closed. Call it once in the window's view.
+// Timeout stays until closed. Call it once, last in the window's view, so
+// the toasts lie over an open dialog and stay closable.
 func ToastHost(c *ui.Context) ui.Element {
 	return ui.ToastViewportBase(c, func(viewport ui.Element, toasts []ui.Toast) {
 		viewport.Padding(56, 16, 16, 16).AlignItems(ui.Center).Justify(ui.Start)

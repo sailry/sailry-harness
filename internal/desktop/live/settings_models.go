@@ -7,9 +7,9 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
-	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -381,7 +381,7 @@ func projectLocalModels(m *settings.Model, s *localModelState, tasks []protocol.
 		availability, reported := s.availability[kind]
 		page.Kind = key
 		page.Models = localModelViews(s.models, kind, tasks)
-		page.Catalog = slices.DeleteFunc(slices.Clone(page.Models), func(x preview.LocalModel) bool { return x.Status == preview.ModelInstalled })
+		page.Catalog = slices.DeleteFunc(slices.Clone(page.Models), func(x viewmodel.LocalModel) bool { return x.Status == viewmodel.ModelInstalled })
 		page.Unavailable = reported && availability.Kind == "unavailable"
 		saved, choice := s.settings.Choices[kind], s.choice(kind)
 		page.Enabled = settings.Stored[bool]{Saved: saved.Enabled, Draft: choice.Enabled, Revision: s.settings.Revision,
@@ -401,11 +401,11 @@ func projectLocalModels(m *settings.Model, s *localModelState, tasks []protocol.
 // chosenLocalModel is the picker's choice among the installed models: -1
 // for none, and one past them with its name for a chosen model the Node no
 // longer has installed.
-func chosenLocalModel(installed []preview.LocalModel, models []protocol.ModelsLocalModel, selected *string) (int, string) {
+func chosenLocalModel(installed []viewmodel.LocalModel, models []protocol.ModelsLocalModel, selected *string) (int, string) {
 	if selected == nil {
 		return -1, ""
 	}
-	if index := slices.IndexFunc(installed, func(x preview.LocalModel) bool { return x.ID == *selected }); index >= 0 {
+	if index := slices.IndexFunc(installed, func(x viewmodel.LocalModel) bool { return x.ID == *selected }); index >= 0 {
 		return index, ""
 	}
 	for _, model := range models {
@@ -419,14 +419,14 @@ func chosenLocalModel(installed []preview.LocalModel, models []protocol.ModelsLo
 // localModelViews are the registry's models of a kind as the pages' rows.
 // Models that share a name show their repository too, so that the picker
 // tells them apart.
-func localModelViews(models []protocol.ModelsLocalModel, kind protocol.ModelsKind, tasks []protocol.InstallationTask) []preview.LocalModel {
-	var views []preview.LocalModel
+func localModelViews(models []protocol.ModelsLocalModel, kind protocol.ModelsKind, tasks []protocol.InstallationTask) []viewmodel.LocalModel {
+	var views []viewmodel.LocalModel
 	names := map[string]int{}
 	for _, model := range models {
 		if modelFormatKind(model.Definition.Format) != kind {
 			continue
 		}
-		view := preview.LocalModel{ID: model.ID, Name: model.Definition.Name, Repo: model.Definition.Source.Repository}
+		view := viewmodel.LocalModel{ID: model.ID, Name: model.Definition.Name, Repo: model.Definition.Source.Repository}
 		if view.Name == "" {
 			view.Name = model.ID
 		}
@@ -444,14 +444,14 @@ func localModelViews(models []protocol.ModelsLocalModel, kind protocol.ModelsKin
 
 // localModelStatus is a model's state, with its download's percent from
 // the Node's installations.
-func localModelStatus(model protocol.ModelsLocalModel, kind protocol.ModelsKind, tasks []protocol.InstallationTask) (preview.ModelStatus, float64) {
+func localModelStatus(model protocol.ModelsLocalModel, kind protocol.ModelsKind, tasks []protocol.InstallationTask) (viewmodel.ModelStatus, float64) {
 	switch model.State.Kind {
 	case "installed":
-		return preview.ModelInstalled, 0
+		return viewmodel.ModelInstalled, 0
 	case "downloading":
-		return preview.ModelDownloading, modelProgress(tasks, kind, model.ID)
+		return viewmodel.ModelDownloading, modelProgress(tasks, kind, model.ID)
 	}
-	return preview.ModelMissing, 0
+	return viewmodel.ModelMissing, 0
 }
 
 // modelProgress is the percent of the model's running installation, 0

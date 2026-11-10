@@ -245,14 +245,6 @@ func TestPluginUIIntegration(t *testing.T) {
 		return state != nil && state.terminal != nil && runtime.terminalInventory().focus != terminalID.String() &&
 			runtime.App.Panel.Active == (panel.Tab{Kind: panel.Terminal, ID: terminalID.String()}) && tester.HasText("Terminal")
 	})
-	if len(runtime.pluginResources.panes) != 0 || len(runtime.pluginResources.pending) != 0 {
-		t.Fatalf("a package owns the panel terminal: %d panes, %d pending creations", len(runtime.pluginResources.panes), len(runtime.pluginResources.pending))
-	}
-	for key, mounted := range runtime.pluginViews.mounts {
-		if strings.HasPrefix(key.role, "resource:") {
-			t.Fatalf("package %q mounted a terminal renderer as %q", mounted.scope.Package.Name, key.role)
-		}
-	}
 	tester.Type("printf '\\163\\141\\151\\154\\162\\171\\055\\160\\154\\165\\147\\151\\156\\055\\151\\157\\n'")
 	tester.Key(0, ui.KeyEnter)
 	wait("commands terminal input reaches the Node PTY", func() bool {

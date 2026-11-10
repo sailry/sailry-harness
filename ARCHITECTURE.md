@@ -44,7 +44,7 @@ pairing, remote Clients, Host service and control commands, Node-owned SSH Host
 deployment, metrics and port streams. Desktop windows share one Network and
 retain one bound Runtime per execution Node. The preserved Flutter application
 uses the shared Client and Link through the Go C ABI and a thin Dart adapter.
-B8 adds immutable installed packages, settings, private storage, QuickJS
+B8 adds immutable installed packages, settings, private storage, moejs
 callbacks and model translation, scoped HTTP and credentials, declared account
 and connector flows, MCP pooling and elicitation, Python preparation, durable
 dispatch and the installation queue. Live settings, skills, markets and theme

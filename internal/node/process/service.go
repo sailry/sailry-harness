@@ -203,6 +203,9 @@ func (s *Service) begin(launch Launch, background bool) (*commandEntry, error) {
 func (s *Service) run(ctx context.Context, entry *commandEntry) {
 	defer s.workers.Done()
 	defer entry.stop()
+	if s.options.Working != nil {
+		defer s.options.Working()()
+	}
 	if entry.launch.Release != nil {
 		defer entry.launch.Release()
 	}

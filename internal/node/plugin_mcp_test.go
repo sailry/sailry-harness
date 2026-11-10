@@ -16,6 +16,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+// Over 1 s: each Node start installs and verifies the bundled packages.
 func TestMCPPackageAndScriptCapture(t *testing.T) {
 	t.Run("conversation selects MCP and preserves scripted native receipt", pluginMCPConversationAcceptance)
 	t.Run("assistant conversation uses its declared workspace, packages, tools and context", pluginAssistantAcceptance)

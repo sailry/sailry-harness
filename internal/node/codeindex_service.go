@@ -198,6 +198,7 @@ func (node *Node) codeIndexIO(ctx context.Context, caller protocol.NodeID, reque
 		return protocol.Output{}, err
 	}
 	defer release()
+	defer node.power.Hold()()
 	var output protocol.Output
 	switch input := request.Command.Data.(type) {
 	case *protocol.CommandSearchCodePayload:

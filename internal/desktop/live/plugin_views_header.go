@@ -142,13 +142,12 @@ func validPluginHeaderMenu(items []pluginHeaderMenuItem) bool {
 	return true
 }
 
-func (r *Runtime) activePluginHeader(view *ui.Context) (*pluginMountedView, pluginHeaderContent) {
+func (r *Runtime) activePluginHeader() (*pluginMountedView, pluginHeaderContent) {
 	root := r.localRuntime()
 	if root.pluginViews == nil {
 		return nil, pluginHeaderContent{}
 	}
 	var key pluginMountKey
-	var mounted *pluginMountedView
 	switch root.App.Page {
 	case shell.PluginPage:
 		entry, exists := root.pluginViews.navigation[root.App.PluginFeature()]
@@ -162,34 +161,10 @@ func (r *Runtime) activePluginHeader(view *ui.Context) (*pluginMountedView, plug
 			return nil, pluginHeaderContent{}
 		}
 		key = pluginMountKey{scope: pluginScopeIdentity(entry.owner.controller.Target(), entry.scope), role: "settings", name: entry.scope.Package.Name}
-	case shell.ConversationPage:
-		if !root.App.PanelOpen || root.pluginResources == nil {
-			return nil, pluginHeaderContent{}
-		}
-		width, _ := view.Size()
-		nav := float32(0)
-		if root.App.NavOpen {
-			nav = shell.ClampNav(root.App.NavWidth)
-		}
-		panelWidth := shell.ClampPanel(root.App.PanelWidth, width, nav)
-		if !shell.PanelFits(width, nav, panelWidth) {
-			return nil, pluginHeaderContent{}
-		}
-		for _, pane := range root.pluginResources.panes {
-			if pane.tab == root.App.Panel.Active {
-				mounted = pane.mounted
-				break
-			}
-		}
-		if mounted == nil {
-			return nil, pluginHeaderContent{}
-		}
 	default:
 		return nil, pluginHeaderContent{}
 	}
-	if mounted == nil {
-		mounted = root.pluginViews.mounts[key]
-	}
+	mounted := root.pluginViews.mounts[key]
 	if mounted == nil || mounted.host == nil || mounted.mounted == nil || !root.pluginViewCurrent(mounted) {
 		return nil, pluginHeaderContent{}
 	}
@@ -206,7 +181,7 @@ func (r *Runtime) activePluginHeader(view *ui.Context) (*pluginMountedView, plug
 }
 
 func (r *Runtime) renderPluginTitle(view *ui.Context) bool {
-	mounted, content := r.activePluginHeader(view)
+	mounted, content := r.activePluginHeader()
 	if mounted == nil {
 		return false
 	}
@@ -256,7 +231,7 @@ func (r *Runtime) renderPluginHeader(view *ui.Context) {
 			}
 		}
 	}
-	mounted, content := r.activePluginHeader(view)
+	mounted, content := r.activePluginHeader()
 	if mounted == nil || len(content.Items) == 0 && len(content.Actions) == 0 && len(content.Filters) == 0 {
 		return
 	}

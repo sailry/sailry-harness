@@ -10,9 +10,9 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
-	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -108,14 +108,14 @@ func (r *Runtime) backupSettingsFrame(c *ui.Context) {
 
 // backupSessions are the archived sessions the page lists and how many
 // sessions Archive all would archive. Delegated sessions follow their parents.
-func backupSessions(sessions []protocol.Session, untitled string) (archived []preview.Archived, active int) {
+func backupSessions(sessions []protocol.Session, untitled string) (archived []viewmodel.Archived, active int) {
 	for _, session := range sessions {
 		switch {
 		case session.Delegation != nil:
 		case !session.Archived:
 			active++
 		default:
-			row := preview.Archived{ID: session.ID.String(), Title: session.Activity.Title}
+			row := viewmodel.Archived{ID: session.ID.String(), Title: session.Activity.Title}
 			if row.Title == "" {
 				row.Title = untitled
 			}

@@ -81,6 +81,7 @@ func (script *delegationScript) Stream(_ context.Context, _ fantasy.Call) (fanta
 	}, nil
 }
 
+// Over 1 s: each Node start installs and verifies the bundled packages.
 func TestChildApprovalPath(t *testing.T) {
 	t.Parallel()
 	catalog, err := operations.Bundled()

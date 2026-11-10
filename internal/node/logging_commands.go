@@ -116,8 +116,14 @@ func (node *Node) commandSpan(caller protocol.NodeID, request protocol.Request) 
 	return logging.NewSpan("command", attrs...)
 }
 
-// rejectCommand records a refusal. Expected refusals are warnings.
-func rejectCommand(span *logging.Span, fault *protocol.Fault) {
+// rejectCommand records a refusal. Expected refusals are warnings; a
+// cancelled command, or any refusal of a read whose caller has gone, is the
+// caller's own act and not a failure.
+func rejectCommand(span *logging.Span, fault *protocol.Fault, abandoned bool) {
+	if abandoned || fault.Code == protocol.ErrorCodeCancelled {
+		span.Finish(logging.Cancelled, string(protocol.ErrorCodeCancelled), false)
+		return
+	}
 	diagnostic := fault.Details != nil && fault.Details.Kind == "system_diagnostic"
 	if report, found := faultDiagnostic(fault); found {
 		if report.Cause != nil {
@@ -157,7 +163,7 @@ func (node *Node) Dispatch(ctx context.Context, caller protocol.NodeID, request 
 		if !errors.As(err, &fault) {
 			fault = &protocol.Fault{Code: protocol.ErrorCodeInternal}
 		}
-		rejectCommand(span, fault)
+		rejectCommand(span, fault, !request.Command.Durable() && ctx.Err() != nil)
 		return accepted, err
 	}
 	span.Set(slog.Bool("durable", accepted.Receipt.Durable))
@@ -172,7 +178,7 @@ func (node *Node) Dispatch(ctx context.Context, caller protocol.NodeID, request 
 			span.Finish(logging.Interrupted, string(protocol.ErrorCodeOutcomeUnknown), false)
 			return
 		case result.Fault != nil:
-			rejectCommand(span, result.Fault)
+			rejectCommand(span, result.Fault, !accepted.Receipt.Durable && ctx.Err() != nil)
 		default:
 			observeOutput(span, request, result.Output)
 			span.Finish(logging.Completed, "", false)

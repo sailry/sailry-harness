@@ -1,3 +1,5 @@
+//go:build integration
+
 package live
 
 import (
@@ -19,15 +21,15 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// testBrowserTab drives the panel's browser tab of the real App over a real
-// temporary Node. The headless tester hosts no WebView and MyGo exports no
+// TestLiveBrowserTabIntegration drives the panel's browser tab of the real
+// App over a real temporary Node (KEY-015, PANEL-041 to PANEL-045, PANEL-048). The headless tester hosts no WebView and MyGo exports no
 // fake of one, so the page behind the tab is a fake history that writes the
 // tab's address and history flags as the WebView callbacks of browserLoad do.
 // Everything else is production: the shortcut, the chrome, the address
 // validation, the Node's browser call routing and the adapter's tab planning.
 // The real WebView history, the main-thread hop of executeBrowserCall and the
 // page script are covered by the browserprobe program.
-func testBrowserTab(t *testing.T) {
+func TestLiveBrowserTabIntegration(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
 	defer cancel()
 	profile := filepath.Join(t.TempDir(), "profile")

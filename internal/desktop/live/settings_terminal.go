@@ -7,7 +7,6 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
-	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
@@ -22,7 +21,7 @@ import (
 // the page holds, and whether the page showed last frame.
 type terminalSettingsState struct {
 	model    settings.Stored[settings.TerminalHost]
-	choices  []preview.Shell
+	choices  []viewmodel.Shell
 	shells   []protocol.TerminalShell
 	saved    protocol.TerminalSettings
 	observed uint64
@@ -126,11 +125,11 @@ func (r *Runtime) acceptTerminalSettings(value protocol.TerminalSettings, shells
 	state := &r.terminalSettings
 	model := r.terminalModel()
 	dirty := state.known && !sameTerminalHost(model.Draft, model.Saved)
-	var keep []preview.Shell
+	var keep []viewmodel.Shell
 	if dirty {
-		keep = []preview.Shell{terminalShell(model.Draft, state.choices, state.saved)}
+		keep = []viewmodel.Shell{terminalShell(model.Draft, state.choices, state.saved)}
 	}
-	choices := terminalShells(shells, append(keep, preview.Shell{Path: value.Shell, Args: value.ShellArguments})...)
+	choices := terminalShells(shells, append(keep, viewmodel.Shell{Path: value.Shell, Args: value.ShellArguments})...)
 	host := terminalHost(value, choices)
 	if dirty {
 		model.Draft.Shell = shellIndex(choices, keep[0])
@@ -171,15 +170,15 @@ func (r *Runtime) saveTerminalSettings() {
 // terminalShells are the select's choices: the host's default, the shells
 // the Node offers once each, and then any shell in use the Node did not
 // list.
-func terminalShells(offered []protocol.TerminalShell, used ...preview.Shell) []preview.Shell {
-	choices := []preview.Shell{{}}
-	add := func(s preview.Shell) {
+func terminalShells(offered []protocol.TerminalShell, used ...viewmodel.Shell) []viewmodel.Shell {
+	choices := []viewmodel.Shell{{}}
+	add := func(s viewmodel.Shell) {
 		if s.Path != "" && shellIndex(choices, s) == 0 {
-			choices = append(choices, preview.Shell{Path: s.Path, Args: slices.Clone(s.Args)})
+			choices = append(choices, viewmodel.Shell{Path: s.Path, Args: slices.Clone(s.Args)})
 		}
 	}
 	for _, s := range offered {
-		add(preview.Shell{Path: s.Path, Args: s.Arguments})
+		add(viewmodel.Shell{Path: s.Path, Args: s.Arguments})
 	}
 	for _, s := range used {
 		add(s)
@@ -188,16 +187,16 @@ func terminalShells(offered []protocol.TerminalShell, used ...preview.Shell) []p
 }
 
 // shellIndex is s among choices, or the default's 0.
-func shellIndex(choices []preview.Shell, s preview.Shell) int {
-	return max(slices.IndexFunc(choices, func(o preview.Shell) bool {
+func shellIndex(choices []viewmodel.Shell, s viewmodel.Shell) int {
+	return max(slices.IndexFunc(choices, func(o viewmodel.Shell) bool {
 		return o.Path == s.Path && slices.Equal(o.Args, s.Args)
 	}), 0)
 }
 
 // terminalHost is the page's view of the Node's settings: the variables by
 // name and the shell's place among choices.
-func terminalHost(value protocol.TerminalSettings, choices []preview.Shell) settings.TerminalHost {
-	host := settings.TerminalHost{Shell: shellIndex(choices, preview.Shell{Path: value.Shell, Args: value.ShellArguments})}
+func terminalHost(value protocol.TerminalSettings, choices []viewmodel.Shell) settings.TerminalHost {
+	host := settings.TerminalHost{Shell: shellIndex(choices, viewmodel.Shell{Path: value.Shell, Args: value.ShellArguments})}
 	for key, v := range value.Environment {
 		host.Env = append(host.Env, viewmodel.EnvVar{Key: key, Value: v})
 	}
@@ -207,15 +206,15 @@ func terminalHost(value protocol.TerminalSettings, choices []preview.Shell) sett
 
 // terminalShell is the shell a draft chose; a choice out of range keeps
 // the saved shell.
-func terminalShell(draft settings.TerminalHost, choices []preview.Shell, saved protocol.TerminalSettings) preview.Shell {
+func terminalShell(draft settings.TerminalHost, choices []viewmodel.Shell, saved protocol.TerminalSettings) viewmodel.Shell {
 	if draft.Shell < 0 || draft.Shell >= len(choices) {
-		return preview.Shell{Path: saved.Shell, Args: saved.ShellArguments}
+		return viewmodel.Shell{Path: saved.Shell, Args: saved.ShellArguments}
 	}
 	return choices[draft.Shell]
 }
 
 // terminalRequest is the draft as the Node saves it, at revision.
-func terminalRequest(draft settings.TerminalHost, revision uint64, choices []preview.Shell, saved protocol.TerminalSettings) protocol.TerminalSettings {
+func terminalRequest(draft settings.TerminalHost, revision uint64, choices []viewmodel.Shell, saved protocol.TerminalSettings) protocol.TerminalSettings {
 	chosen := terminalShell(draft, choices, saved)
 	request := protocol.TerminalSettings{Revision: revision, Shell: chosen.Path, ShellArguments: slices.Clone(chosen.Args), Environment: map[string]string{}}
 	if request.ShellArguments == nil {

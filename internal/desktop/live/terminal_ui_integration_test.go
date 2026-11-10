@@ -4,6 +4,7 @@ package live
 
 import (
 	"context"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -15,7 +16,6 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/panes"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
-	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/link"
@@ -187,23 +187,12 @@ func (w *terminalUI) buttons(name string) []ui.AccessInfo {
 	return found
 }
 
-// corePanes fails when a package drew or took over a terminal tab: every
-// terminal tab names a Node terminal and no package resource view is mounted.
+// corePanes fails unless every terminal tab names a Node terminal.
 func (w *terminalUI) corePanes(label string) {
 	w.t.Helper()
 	for _, id := range w.terminalTabs() {
 		if _, err := protocol.ParseTerminalID(id); err != nil || w.status(id) == "" {
 			w.t.Fatalf("%s: terminal tab %q names no Node terminal: %s", label, id, w.nodeTerminals())
-		}
-	}
-	if resources := w.runtime.pluginResources; resources != nil && (len(resources.panes) != 0 || len(resources.pending) != 0) {
-		w.t.Fatalf("%s: a package owns a terminal: %d panes, %d pending creations", label, len(resources.panes), len(resources.pending))
-	}
-	if views := w.runtime.pluginViews; views != nil {
-		for key, mounted := range views.mounts {
-			if strings.HasPrefix(key.role, "resource:") {
-				w.t.Fatalf("%s: package %q mounted a renderer as %q", label, mounted.scope.Package.Name, key.role)
-			}
 		}
 	}
 }
@@ -562,7 +551,7 @@ func TestLiveTerminalIntegration(t *testing.T) {
 		t.Fatalf("the page does not hold the Node's settings: %+v, Node %+v", app.Settings.Host, before)
 	}
 	for _, candidate := range offered {
-		if !slices.ContainsFunc(app.Settings.Shells, func(choice preview.Shell) bool {
+		if !slices.ContainsFunc(app.Settings.Shells, func(choice viewmodel.Shell) bool {
 			return choice.Path == candidate.Path && slices.Equal(choice.Args, candidate.Arguments)
 		}) {
 			t.Fatalf("the page lacks the Node's shell %+v: %+v", candidate, app.Settings.Shells)

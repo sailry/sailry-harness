@@ -12,11 +12,11 @@ func Message(c *ui.Context, message string) {
 	c.AddToast(ui.Toast{ID: message, Title: message, Timeout: ToastDuration(c)})
 }
 
-// Error is an error toast with an optional title over the problem's detail,
-// which stays until closed so it is read. Views keep their content and
-// drafts; the toast is the only place a failure shows.
+// Error is an error toast with an optional title over the problem's detail.
+// Views keep their content and drafts; the toast is the only place a failure
+// shows.
 func Error(c *ui.Context, title, detail string) {
-	c.AddToast(ui.Toast{Type: "error", Title: title, Description: detail, Timeout: -1})
+	c.AddToast(ui.Toast{Type: "error", Title: title, Description: detail, Timeout: ToastDuration(c)})
 }
 
 // Notify is a neutral toast with an optional title over its detail.
@@ -28,7 +28,7 @@ func Notify(c *ui.Context, title, detail string) {
 }
 
 // Retry is an error toast whose action retries what failed: the action closes
-// the toast and runs again.
+// the toast and runs again. It stays until closed, as its recovery does.
 func Retry(c *ui.Context, message string, again func()) {
 	c.AddToast(ui.Toast{Type: "error", Title: message, Timeout: -1, Action: i18n.T(c, "chat_retry"), OnAction: again})
 }

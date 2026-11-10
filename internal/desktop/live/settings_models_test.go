@@ -2,10 +2,10 @@ package live
 
 import (
 	"encoding/json"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"testing"
 
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
-	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -40,8 +40,8 @@ func checkLocalModelHelpers(t *testing.T) {
 	}
 
 	views := localModelViews(models, protocol.ModelsKindEmbedding, tasks)
-	if len(views) != 3 || views[0].Status != preview.ModelInstalled || views[1].Status != preview.ModelDownloading || views[1].Percent != 42 ||
-		views[2].Status != preview.ModelMissing || views[0].Name == views[1].Name || views[2].Name != "Other" {
+	if len(views) != 3 || views[0].Status != viewmodel.ModelInstalled || views[1].Status != viewmodel.ModelDownloading || views[1].Percent != 42 ||
+		views[2].Status != viewmodel.ModelMissing || views[0].Name == views[1].Name || views[2].Name != "Other" {
 		t.Fatalf("embedding views = %+v", views)
 	}
 	if got := modelProgress(tasks, protocol.ModelsKindOcr, "e3"); got != 25 {
@@ -161,9 +161,9 @@ func checkLocalModelHelpers(t *testing.T) {
 	}
 	resolved := map[string]protocol.ModelsDefinition{libraryID(items[3].Source): {License: "apache-2.0", Assets: []protocol.ModelsAsset{{Bytes: 512}}}}
 	rows := libraryRows(items, models, resolved, tasks)
-	if rows[0].Status != preview.ModelInstalled || rows[0].Size != "1.5 MiB" || rows[0].License != "mit" || rows[0].Kind != settings.ModelsEmbedding ||
-		rows[0].Source != "model_library_huggingface" || rows[1].Status != preview.ModelMissing || rows[1].Size != "" ||
-		rows[2].Status != preview.ModelDownloading || rows[2].Percent != 42 || rows[3].Size != "0.5 KiB" || rows[3].License != "apache-2.0" {
+	if rows[0].Status != viewmodel.ModelInstalled || rows[0].Size != "1.5 MiB" || rows[0].License != "mit" || rows[0].Kind != settings.ModelsEmbedding ||
+		rows[0].Source != "model_library_huggingface" || rows[1].Status != viewmodel.ModelMissing || rows[1].Size != "" ||
+		rows[2].Status != viewmodel.ModelDownloading || rows[2].Percent != 42 || rows[3].Size != "0.5 KiB" || rows[3].License != "apache-2.0" {
 		t.Fatalf("library rows = %+v", rows)
 	}
 	if !commitRevision(commit) || commitRevision("main") || commitRevision(commit[:39]+"G") {

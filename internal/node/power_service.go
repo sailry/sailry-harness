@@ -11,8 +11,9 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-// initPower holds the system's idle-sleep request while the saved setting is
-// on, from startup until Stop.
+// initPower creates the owner of the system's idle-sleep request. It holds
+// the request while the saved setting is on and a turn, command, supervised
+// task, knowledge indexing, code query or backup runs.
 func (node *Node) initPower(ctx context.Context, backend power.Backend) error {
 	// A test binary never takes the machine's real request.
 	if backend == nil && testing.Testing() {

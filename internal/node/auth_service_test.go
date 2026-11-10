@@ -27,6 +27,7 @@ func (transport accountHTTP) RoundTrip(request *http.Request) (*http.Response, e
 	return transport(request)
 }
 
+// Over 1 s: each Node start installs and verifies the bundled packages.
 func TestProviderAuthorizationAdmissionAndCancellation(t *testing.T) {
 	node := nodeFixture(t)
 	for _, summary := range snapshotFixture(t, node).Plugins {

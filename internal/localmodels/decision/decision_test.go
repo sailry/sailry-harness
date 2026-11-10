@@ -534,10 +534,20 @@ func TestDecisionContracts(t *testing.T) {
 			"{% if %}", "{% include 'other' %}", "{% import 'other' as other %}", "{% extends 'other' %}",
 			"{% macro again() %}{{ again() }}{% endmacro %}{{ again() }}", "{% block body %}{% endblock %}",
 			"{% filter upper %}{{ state }}{% endfilter %}", "{% autoescape true %}{{ state }}{% endautoescape %}",
+			// Nesting past the parser bound; 100,000 levels once overflowed the stack.
+			"{{ " + strings.Repeat("(", 10_000) + "1" + strings.Repeat(")", 10_000) + " }}",
+			"{{ " + strings.Repeat("[", maxNesting+1) + strings.Repeat("]", maxNesting+1) + " }}",
+			strings.Repeat("{% if true %}", maxNesting+1) + strings.Repeat("{% endif %}", maxNesting+1),
 		} {
 			if _, err := newTemplates(source); kind(err) != Invalid || err.Error() != "decision input is invalid: unsupported systemone template" {
-				t.Fatalf("template %q = %v", source, err)
+				t.Fatalf("template %.80q = %v", source, err)
 			}
+		}
+		nested := "{{ " + strings.Repeat("(", maxNesting) + "1" + strings.Repeat(")", maxNesting) + " }}" + strings.Repeat("{% if true %}", maxNesting) + "{{ state }}" + strings.Repeat("{% endif %}", maxNesting)
+		if templates, err := newTemplates(nested); err != nil {
+			t.Fatalf("template at the nesting bound = %v", err)
+		} else if output, err := templates.render("state", query, running); err != nil || output.text != "1state" {
+			t.Fatalf("render at the nesting bound = %v", err)
 		}
 		for source, state := range map[string]string{
 			"{{ missing }}": "state",

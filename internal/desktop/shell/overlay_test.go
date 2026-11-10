@@ -77,6 +77,8 @@ func restTip(tt *ui.Tester, x, y float32) bool {
 }
 
 // TestTooltips groups the cases of one behavior; each keeps its own fixture.
+// Over 1 s: three fresh Apps, each held through the tooltip's delay and the
+// overlays' motion in full frames.
 func TestTooltips(t *testing.T) {
 	t.Run("TooltipKeepsPopover", testTooltipKeepsPopover)
 	t.Run("TooltipShowsWhenNothingOpen", testTooltipShowsWhenNothingOpen)

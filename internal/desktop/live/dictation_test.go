@@ -6,11 +6,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -18,7 +21,6 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
-	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
@@ -125,6 +127,36 @@ func (f *dictationFake) backend() dictationBackend {
 // recording, transcribing and the insertion, cancels it in each state and
 // fails it at each step, with a fake microphone and recognizer.
 func checkDictation(t *testing.T) {
+	// The worker polls the microphone and spaces its partial transcripts on
+	// the clock; the bubble's clock runs them without waiting.
+	synctest.Test(t, walkDictation)
+	t.Run("close waits for a download", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			var ended atomic.Bool
+			manager, err := models.Open(ctx, models.Options{Directory: t.TempDir(), Transport: roundTrip(func(request *http.Request) (*http.Response, error) {
+				<-request.Context().Done()
+				time.Sleep(time.Second) // the download's unwinding, on the bubble's clock
+				ended.Store(true)
+				return nil, request.Context().Err()
+			})})
+			if err != nil {
+				t.Fatal(err)
+			}
+			closing := &Runtime{ctx: ctx, cancel: cancel, App: shell.NewLive(&viewmodel.Data{Workspace: &viewmodel.Workspace{}})}
+			closing.dictation.manager = manager
+			if err := manager.Start(nil, nil); err != nil {
+				t.Fatal(err)
+			}
+			synctest.Wait()
+			if err := closing.Close(); err != nil || !ended.Load() {
+				t.Fatalf("Close returned %v before the download ended (%v)", err, ended.Load())
+			}
+		})
+	})
+}
+
+func walkDictation(t *testing.T) {
 	node := protocol.NodeID{7}
 	snapshot := protocol.DefaultSnapshot()
 	snapshot.Node = node
@@ -426,14 +458,14 @@ func checkDictation(t *testing.T) {
 	// The settings rows: the recommended model first, then the registered
 	// ones; only an installed model is selected.
 	rows, chosen := speechModels(&id, state.manager)
-	if len(rows) != 2 || rows[0].ID != "" || rows[0].Status != preview.ModelMissing || chosen != 1 ||
-		rows[1].ID != id.String() || rows[1].Name != "Voice" || rows[1].Repo != "org/voice" || rows[1].Status != preview.ModelInstalled {
+	if len(rows) != 2 || rows[0].ID != "" || rows[0].Status != viewmodel.ModelMissing || chosen != 1 ||
+		rows[1].ID != id.String() || rows[1].Name != "Voice" || rows[1].Repo != "org/voice" || rows[1].Status != viewmodel.ModelInstalled {
 		t.Fatalf("speech rows = %+v, selected %d", rows, chosen)
 	}
-	if status, percent := speechStatus(models.State{Status: models.Downloading}); status != preview.ModelDownloading || percent != 0 {
+	if status, percent := speechStatus(models.State{Status: models.Downloading}); status != viewmodel.ModelDownloading || percent != 0 {
 		t.Fatalf("downloading row = %v, %v", status, percent)
 	}
-	if status, _ := speechStatus(models.State{Status: models.Failed, Err: errors.New("failed")}); status != preview.ModelMissing {
+	if status, _ := speechStatus(models.State{Status: models.Failed, Err: errors.New("failed")}); status != viewmodel.ModelMissing {
 		t.Fatalf("failed row = %v", status)
 	}
 	r.selectSpeechModel("")
@@ -481,4 +513,9 @@ func checkDictation(t *testing.T) {
 			t.Fatalf("%v is reported as %s", err, got)
 		}
 	}
+
 }
+
+type roundTrip func(*http.Request) (*http.Response, error)
+
+func (f roundTrip) RoundTrip(request *http.Request) (*http.Response, error) { return f(request) }

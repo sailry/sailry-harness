@@ -34,7 +34,8 @@ func knowledgeCommand(kind string) bool {
 func (node *Node) initKnowledge() {
 	registry := node.localModels.registry
 	node.knowledge = knowledgeservice.New(knowledgeservice.Options{
-		Index: node.profile.Store.Knowledge,
+		Working: node.power.Hold,
+		Index:   node.profile.Store.Knowledge,
 		Catalog: func(ctx context.Context) (catalog []store.KnowledgeStored, err error) {
 			err = node.profile.Store.Node.Read(ctx, func(db *sql.Conn) error {
 				catalog, err = store.ReadKnowledgeCatalog(ctx, db)

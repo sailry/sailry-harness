@@ -78,6 +78,7 @@ func snapshotFixture(t *testing.T, node *Node) protocol.Snapshot {
 	return value
 }
 
+// Over 1 s: each Node start installs and verifies the bundled packages.
 func TestAdmissionSameRequestID(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
@@ -299,6 +300,7 @@ func TestAdmissionSameRequestID(t *testing.T) {
 	})
 }
 
+// Over 1 s: each Node start installs and verifies the bundled packages.
 func TestReceiptAfterDurableAdmission(t *testing.T) {
 	t.Parallel()
 	node := nodeFixture(t)
@@ -331,6 +333,7 @@ func TestReceiptAfterDurableAdmission(t *testing.T) {
 	}
 }
 
+// Over 1 s: each Node start installs and verifies the bundled packages.
 func TestOutcomeUnknownAfterCrash(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -376,6 +379,7 @@ func TestOutcomeUnknownAfterCrash(t *testing.T) {
 	}
 }
 
+// Over 1 s: each Node start installs and verifies the bundled packages.
 func TestRenameRevisionConflict(t *testing.T) {
 	t.Parallel()
 	node := nodeFixture(t)
@@ -436,6 +440,7 @@ func TestRenameRevisionConflict(t *testing.T) {
 	}
 }
 
+// Over 1 s: each Node start installs and verifies the bundled packages.
 func TestArchiveAndRemoveEvents(t *testing.T) {
 	t.Parallel()
 	node := nodeFixture(t)
@@ -503,6 +508,7 @@ func TestArchiveAndRemoveEvents(t *testing.T) {
 	})
 }
 
+// Over 1 s: each Node start installs and verifies the bundled packages.
 func TestSnapshotCursor(t *testing.T) {
 	t.Parallel()
 	node := nodeFixture(t)
@@ -679,6 +685,7 @@ func TestSnapshotCursor(t *testing.T) {
 	})
 }
 
+// Over 1 s: each Node start installs and verifies the bundled packages.
 func TestResetRequiredRecovers(t *testing.T) {
 	t.Parallel()
 	node := nodeFixture(t)

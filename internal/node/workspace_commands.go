@@ -173,7 +173,6 @@ func (node *Node) dispatchWorkspace(ctx context.Context, caller protocol.NodeID,
 			operationContext = node.ctx
 		}
 		effect := &workspaceCompletion{}
-		defer effect.close()
 		output, effectErr := node.workspaceIO(operationContext, caller, request, nil, effect)
 		if result.Receipt.Durable {
 			unlock := node.agent.LockPublication()
@@ -187,6 +186,8 @@ func (node *Node) dispatchWorkspace(ctx context.Context, caller protocol.NodeID,
 			}
 			unlock()
 		}
+		// A completed command's effect is visible to its caller's next command.
+		effect.close()
 		completion <- response(output, effectErr)
 	}()
 	return result, nil

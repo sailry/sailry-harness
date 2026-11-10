@@ -6,7 +6,14 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 )
 
-func TestSuggestName(t *testing.T) {
+// TestEditorChecks groups the project editor's pure checks; each case keeps its own fixture.
+func TestEditorChecks(t *testing.T) {
+	t.Run("SuggestName", testSuggestName)
+	t.Run("CheckProject", testCheckProject)
+	t.Run("CheckClone", testCheckClone)
+}
+
+func testSuggestName(t *testing.T) {
 	for in, want := range map[string]string{
 		"~/Web/sailry-go":                       "sailry-go",
 		"~/Web/sailry-go/":                      "sailry-go",
@@ -20,7 +27,7 @@ func TestSuggestName(t *testing.T) {
 	}
 }
 
-func TestCheckProject(t *testing.T) {
+func testCheckProject(t *testing.T) {
 	a := &preview.Project{Path: "~/Web/a", Host: "local"}
 	others := []*preview.Project{a}
 	if k := CheckProject("", "~/x", "local", others, nil); k != "project_required" {
@@ -37,7 +44,7 @@ func TestCheckProject(t *testing.T) {
 	}
 }
 
-func TestCheckClone(t *testing.T) {
+func testCheckClone(t *testing.T) {
 	if k := CheckClone("tool", "https://x/tool.git", "~/src"); k != "" {
 		t.Errorf("valid clone: %q", k)
 	}

@@ -4,7 +4,6 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -22,8 +21,8 @@ func checkTerminalSettingsHelpers(t *testing.T) {
 		{Path: ""},
 	}
 	saved := protocol.TerminalSettings{Revision: 4, Shell: "/opt/fish", ShellArguments: []string{"-i"}, Environment: map[string]string{"ZED": "1", "ALPHA": "a b"}}
-	choices := terminalShells(offered, preview.Shell{Path: saved.Shell, Args: saved.ShellArguments})
-	want := []preview.Shell{{}, {Path: "/bin/zsh", Args: []string{"-l"}}, {Path: "/bin/bash"}, {Path: "/opt/fish", Args: []string{"-i"}}}
+	choices := terminalShells(offered, viewmodel.Shell{Path: saved.Shell, Args: saved.ShellArguments})
+	want := []viewmodel.Shell{{}, {Path: "/bin/zsh", Args: []string{"-l"}}, {Path: "/bin/bash"}, {Path: "/opt/fish", Args: []string{"-i"}}}
 	if len(choices) != len(want) {
 		t.Fatalf("choices = %+v, want %+v", choices, want)
 	}

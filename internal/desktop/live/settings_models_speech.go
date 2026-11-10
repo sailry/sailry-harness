@@ -7,9 +7,9 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
-	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"github.com/sailry/sailry-harness/internal/speech/capture"
 	"github.com/sailry/sailry-harness/internal/speech/models"
@@ -39,14 +39,14 @@ type dictationPage struct {
 // -1 when the selected model is not listed. The recommended model has no
 // ID and comes first; it is selected while the preference names none.
 // Without a manager it is the only row, not installed.
-func speechModels(selected *protocol.ModelID, manager *models.Manager) ([]preview.LocalModel, int) {
-	rows := []preview.LocalModel{{Status: preview.ModelMissing}}
+func speechModels(selected *protocol.ModelID, manager *models.Manager) ([]viewmodel.LocalModel, int) {
+	rows := []viewmodel.LocalModel{{Status: viewmodel.ModelMissing}}
 	if manager != nil {
 		if state, known := manager.RecommendedState(); known {
 			rows[0].Status, rows[0].Percent = speechStatus(state)
 		}
 		for _, entry := range manager.Entries() {
-			row := preview.LocalModel{ID: entry.Record.ID.String(), Name: entry.Record.Definition.Name, Repo: entry.Record.Definition.Source.Repository}
+			row := viewmodel.LocalModel{ID: entry.Record.ID.String(), Name: entry.Record.Definition.Name, Repo: entry.Record.Definition.Source.Repository}
 			row.Status, row.Percent = speechStatus(entry.State)
 			rows = append(rows, row)
 		}
@@ -55,18 +55,18 @@ func speechModels(selected *protocol.ModelID, manager *models.Manager) ([]previe
 		return rows, 0
 	}
 	id := selected.String()
-	return rows, slices.IndexFunc(rows, func(row preview.LocalModel) bool { return row.ID == id })
+	return rows, slices.IndexFunc(rows, func(row viewmodel.LocalModel) bool { return row.ID == id })
 }
 
 // speechStatus is a row's state: a failed download can be started again.
-func speechStatus(state models.State) (preview.ModelStatus, float64) {
+func speechStatus(state models.State) (viewmodel.ModelStatus, float64) {
 	switch state.Status {
 	case models.Downloading:
-		return preview.ModelDownloading, float64(state.Progress.Percent)
+		return viewmodel.ModelDownloading, float64(state.Progress.Percent)
 	case models.Installed:
-		return preview.ModelInstalled, 0
+		return viewmodel.ModelInstalled, 0
 	}
-	return preview.ModelMissing, 0
+	return viewmodel.ModelMissing, 0
 }
 
 // speechSelection is the dictation.model preference for a row: none for
@@ -99,8 +99,8 @@ func (r *Runtime) selectSpeechModel(id string) {
 	root := r.localRuntime()
 	selected, valid := speechSelection(id)
 	rows, _ := speechModels(nil, root.speechManager())
-	index := slices.IndexFunc(rows, func(row preview.LocalModel) bool { return row.ID == id })
-	if !valid || index < 0 || rows[index].Status != preview.ModelInstalled {
+	index := slices.IndexFunc(rows, func(row viewmodel.LocalModel) bool { return row.ID == id })
+	if !valid || index < 0 || rows[index].Status != viewmodel.ModelInstalled {
 		root.enqueue(func(c *ui.Context) { kit.Message(c, i18n.T(c, "dictation_model_missing")) })
 		return
 	}

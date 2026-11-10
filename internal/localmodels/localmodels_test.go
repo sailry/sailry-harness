@@ -158,6 +158,55 @@ func TestRegistryVerification(t *testing.T) {
 			}
 		})
 	}
+	t.Run("start accepts receipts and hashes later", func(t *testing.T) {
+		server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) { _, _ = writer.Write(body) }))
+		t.Cleanup(server.Close)
+		definition := decisionModel(body, pinnedRevision, uint64(len(body)))
+		installed, id, err := configured(t, server, newEngines().capabilities(), definition)
+		if err == nil {
+			err = installed.Install(t.Context(), id, nil)
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		resource, err := installed.Resource(protocol.ModelsKindDecision, id, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// restarted is a registry over the same files whose background
+		// inspections never run, so only Start decides the state.
+		restarted := func() *Registry {
+			registry := New(Options{Profile: installed.profile, Capabilities: installed.capabilities, Clock: clockwork.NewFakeClock()})
+			t.Cleanup(registry.Shutdown)
+			registry.tasksMu.Lock()
+			registry.closed = true
+			registry.tasksMu.Unlock()
+			if err := registry.Configure(protocol.DefaultModelsLocalSettings(), []Registration{{ID: id, Definition: definition}}); err != nil {
+				t.Fatal(err)
+			}
+			if err := registry.Start(); err != nil {
+				t.Fatal(err)
+			}
+			return registry
+		}
+		if got := state(restarted(), id); got != "installed" {
+			t.Fatalf("state with a receipt: got %q", got)
+		}
+		receipt := filepath.Join(resource.Directory, ".verified")
+		if err := os.Remove(receipt); err != nil {
+			t.Fatal(err)
+		}
+		registry := restarted()
+		if _, err := os.Lstat(receipt); state(registry, id) != "missing" || err == nil {
+			t.Fatalf("start hashed files without a receipt: state %q, receipt %v", state(registry, id), err)
+		}
+		if _, err := registry.List(""); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Lstat(receipt); state(registry, id) != "installed" || err != nil {
+			t.Fatalf("after the later inspection: state %q, receipt %v", state(registry, id), err)
+		}
+	})
 	t.Run("unpinned revision", func(t *testing.T) {
 		server := httptest.NewTLSServer(http.NotFoundHandler())
 		t.Cleanup(server.Close)

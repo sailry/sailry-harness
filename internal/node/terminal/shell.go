@@ -97,6 +97,17 @@ func shellCommand(goos string, settings protocol.TerminalSettings, root string) 
 	return append(command, "--cd", target), nil, directory, nil
 }
 
+// loginShell is the shell the terminal runtime starts for an empty command.
+func loginShell(environment []string) string {
+	shell := "/bin/sh"
+	for _, entry := range environment {
+		if value, found := strings.CutPrefix(entry, "SHELL="); found && value != "" {
+			shell = value
+		}
+	}
+	return shell
+}
+
 // plainWindowsPath removes the verbatim prefix of a Windows path.
 func plainWindowsPath(path string) string {
 	rest, verbatim := strings.CutPrefix(path, `\\?\`)

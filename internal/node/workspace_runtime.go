@@ -35,6 +35,7 @@ func (node *Node) initWorkspace(ctx context.Context, options Options) error {
 	processOptions.Context, processOptions.Profile, processOptions.Environment = node.ctx, node.profile.Ownership.Path, node.environment
 	processOptions.CaptureManaged = node.git.CaptureManaged
 	processOptions.Finished = node.commandFinished
+	processOptions.Working = node.power.Hold
 	processOptions.Changed = node.workspaceChanged
 	var err error
 	node.processes, err = process.New(processOptions)

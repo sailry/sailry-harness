@@ -12,11 +12,7 @@ import (
 // EnvVar is a terminal environment variable.
 type EnvVar = viewmodel.EnvVar
 
-// Shell is a terminal shell a host offers; an empty Path is its default.
-type Shell struct {
-	Path string
-	Args []string
-}
+type Shell = viewmodel.Shell
 
 // Device is a paired host (Execution) or mobile controller.
 type Device = viewmodel.Device
@@ -31,35 +27,19 @@ const (
 
 type Hook = viewmodel.Hook
 
-// ModelStatus is a local model's state on its host.
-type ModelStatus int
+type ModelStatus = viewmodel.ModelStatus
 
 const (
-	ModelMissing ModelStatus = iota
-	ModelDownloading
-	ModelInstalled
+	ModelMissing     = viewmodel.ModelMissing
+	ModelDownloading = viewmodel.ModelDownloading
+	ModelInstalled   = viewmodel.ModelInstalled
 )
 
-// LocalModel is a model a host runs for OCR, dictation, knowledge or
-// decisions.
-type LocalModel struct {
-	ID, Name, Repo string
-	Status         ModelStatus
-	Percent        float64 // of a download
-}
+type LocalModel = viewmodel.LocalModel
 
-// Permission is a system permission the app or a plugin needs, by its
-// i18n keys (permission_screen; permission_granted).
-type Permission struct {
-	Resource, Status string
-	Settings         bool // the system has a settings page for it
-}
+type Permission = viewmodel.Permission
 
-// Archived is an archived session.
-type Archived struct {
-	ID, Title string
-	At        time.Time
-}
+type Archived = viewmodel.Archived
 
 // Settings is the settings pages' dataset.
 type Settings struct {
@@ -134,15 +114,15 @@ func SettingsData() *Settings {
 		},
 		Microphones: []string{"MacBook Pro Microphone", "AirPods Pro"},
 		Permissions: []Permission{
-			{"permission_accessibility", "permission_granted", true},
-			{"permission_screen", "permission_required", true},
-			{"permission_microphone", "permission_granted", true},
-			{"permission_full_disk", "permission_unknown", true},
-			{"permission_keychain", "permission_not_needed", false},
+			{Resource: "permission_accessibility", Status: "permission_granted", Settings: true},
+			{Resource: "permission_screen", Status: "permission_required", Settings: true},
+			{Resource: "permission_microphone", Status: "permission_granted", Settings: true},
+			{Resource: "permission_full_disk", Status: "permission_unknown", Settings: true},
+			{Resource: "permission_keychain", Status: "permission_not_needed", Settings: false},
 		},
 		Archived: []Archived{
-			{"arch-1", "Refactor the updater", Now.Add(-26 * time.Hour)},
-			{"arch-2", "Plan the relay probe", Now.Add(-9 * 24 * time.Hour)},
+			{ID: "arch-1", Title: "Refactor the updater", At: Now.Add(-26 * time.Hour)},
+			{ID: "arch-2", Title: "Plan the relay probe", At: Now.Add(-9 * 24 * time.Hour)},
 		},
 		Sessions: 12,
 	}

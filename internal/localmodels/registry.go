@@ -235,9 +235,27 @@ func (registry *Registry) List(kind protocol.ModelsKind) ([]protocol.ModelsLocal
 	return registry.Cached(kind), nil
 }
 
+// Start accepts the files their receipts cover without reading contents and
+// hashes the others off the caller's thread, so a large model without a
+// receipt does not delay startup; it is listed as missing until verified.
+func (registry *Registry) Start() error {
+	if registry.profile == "" {
+		return nil
+	}
+	if err := registry.inspect(func(string, *protocol.ModelsDefinition) bool { return true }, known); err != nil {
+		return err
+	}
+	registry.spawn(func() { _, _ = registry.List("") })
+	return nil
+}
+
 // verify inspects files outside the configuration lock; hashing runs only
 // for changed files.
 func (registry *Registry) verify(include func(string, *protocol.ModelsDefinition) bool) error {
+	return registry.inspect(include, stamp)
+}
+
+func (registry *Registry) inspect(include func(string, *protocol.ModelsDefinition) bool, observe func(string, *protocol.ModelsDefinition, *assets.Stamp) *assets.Stamp) error {
 	root, err := registry.Root()
 	if err != nil {
 		return err
@@ -264,7 +282,7 @@ func (registry *Registry) verify(include func(string, *protocol.ModelsDefinition
 		if err != nil {
 			return err
 		}
-		entry.stamp = stamp(path, entry.definition, entry.cached)
+		entry.stamp = observe(path, entry.definition, entry.cached)
 	}
 	registry.mu.Lock()
 	defer registry.mu.Unlock()

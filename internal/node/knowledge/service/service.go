@@ -43,6 +43,9 @@ type Options struct {
 	// OCR reads images and scanned PDF pages.
 	OCR   *source.OCR
 	Clock clockwork.Clock
+	// Working, when set, brackets a collection from its first changed source
+	// to the end of its pass.
+	Working func() func()
 }
 
 // Service owns the retrieval index and the worker that maintains it.

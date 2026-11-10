@@ -50,18 +50,16 @@ const (
 	Uncertain                // its result is unknown, as after a timeout
 )
 
-// Toast tells an operation's outcome; failures and conflicts stay until
-// closed, so they are read. Pages show outcomes only as toasts.
+// Toast tells an operation's outcome for the window's toast duration, as
+// the reference's notifications do. Pages show outcomes only as toasts.
 func Toast(c *ui.Context, outcome Outcome, message string) {
 	t := ui.Toast{Title: message, Timeout: ToastDuration(c)}
 	switch outcome {
 	case Done:
 		t.Type = "success"
 	case Failed:
-		t.Type, t.Timeout = "error", -1
-	case Conflict:
-		t.Type, t.Timeout = "warning", -1
-	case Uncertain:
+		t.Type = "error"
+	case Conflict, Uncertain:
 		t.Type = "warning"
 	}
 	c.AddToast(t)

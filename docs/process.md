@@ -67,3 +67,12 @@ mount a future, nonexistent `.git` entry read-only; existing captured metadata i
 protected, while macOS also denies future `.git` writes by path rule. Platform
 policy fixtures are deterministic. Real process, sandbox and PTY checks use the
 integration build tag; cross-compilation alone does not establish native behavior.
+
+Workspace-access terminals: on Linux the terminal's program runs under the same
+`bwrap` policy as workspace commands (`process.SandboxTerminal`), with private
+state under the profile's `tmp` directory that is removed when the terminal
+ends, and without zsh prompt marks because the wrapper is the launched program.
+On macOS they are refused with `not_configured`: a `sandbox-exec` profile must
+name the pseudo-terminal device, which the pinned MyGo terminal opens inside its
+own launch and does not report. The reference sandboxes both. The Linux path is
+cross-compiled and vetted only; it has not run on Linux.

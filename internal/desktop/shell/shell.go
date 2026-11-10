@@ -243,7 +243,6 @@ func (a *App) View(c *ui.Context) {
 	}
 	a.frosted = window != nil
 	root := kit.Draws(ui.Column(c.Key("frame")).Fill(), window)
-	kit.ToastHost(c)
 	f := a.frame(c, root)
 	root.Children(func() {
 		a.header(c, f)
@@ -264,6 +263,8 @@ func (a *App) View(c *ui.Context) {
 	if a.Hooks.PluginOverlays != nil {
 		a.Hooks.PluginOverlays(c)
 	}
+	// Last, over every dialog: a toast shown while one is open stays reachable.
+	kit.ToastHost(c)
 }
 
 // frame is where the columns are in this frame: how open each is, from 0

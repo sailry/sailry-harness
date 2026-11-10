@@ -352,7 +352,7 @@ func (r *Runtime) mountPluginView(view *ui.Context, mounted *pluginMountedView, 
 		r.failPluginView(view, mounted, errors.New("plugin native services are unavailable"), "plugin_initialization_failed")
 		return
 	}
-	root.bindPluginResource(mounted, native)
+	bindPluginPanes(native)
 	mounted.activityVisible = root.bindPluginActivity(mounted, native)
 	mounted.activityVisible(mounted.key.role == "navigation" && mounted.seen)
 	native.Invalidate = root.wake

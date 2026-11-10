@@ -11,6 +11,7 @@ import (
 	"github.com/nikolalohinski/gonja/v2/loaders"
 	"github.com/nikolalohinski/gonja/v2/nodes"
 	"github.com/nikolalohinski/gonja/v2/parser"
+	"github.com/nikolalohinski/gonja/v2/tokens"
 )
 
 const (
@@ -19,6 +20,10 @@ const (
 	// maxSteps bounds the work of one render: every write, executed control
 	// structure and generated range item costs one step.
 	maxSteps = 100_000
+	// maxNesting bounds nested control structures and nested brackets of one
+	// expression, as the reference parser bounds its depth: the recursive
+	// parser would otherwise exhaust the stack on a hostile template.
+	maxNesting = 150
 )
 
 var errStopped = errors.New("render was cancelled")
@@ -51,11 +56,22 @@ func (m metered) Execute(renderer *exec.Renderer, block *nodes.ControlStructureB
 // newTemplates parses a template in an environment without a file system,
 // macros, inclusion, inheritance or output capture.
 func newTemplates(source string) (*templates, error) {
+	settings := config.New()
+	settings.StrictUndefined = true
+	if !shallow(source, settings) {
+		return nil, invalid("unsupported systemone template")
+	}
 	structures := map[string]parser.ControlStructureParser{}
+	depth := 0
 	for _, name := range []string{"if", "for", "set", "with", "raw"} {
 		parse, _ := builtins.ControlStructures.Get(name)
 		structures[name] = func(p *parser.Parser, args *parser.Parser) (nodes.ControlStructure, error) {
+			// A structure parses its body before it returns.
+			if depth++; depth > maxNesting {
+				return nil, errors.New("systemone template is nested too deeply")
+			}
 			structure, err := parse(p, args)
+			depth--
 			if executable, runs := structure.(exec.ControlStructure); err == nil && runs {
 				return metered{executable}, nil
 			}
@@ -66,8 +82,6 @@ func newTemplates(source string) (*templates, error) {
 	for _, name := range []string{"namespace", "dict", "joiner", "cycler"} {
 		globals[name], _ = builtins.GlobalFunctions.Get(name)
 	}
-	settings := config.New()
-	settings.StrictUndefined = true
 	environment := &exec.Environment{
 		Context:           exec.NewContext(globals),
 		Filters:           builtins.Filters,
@@ -84,6 +98,27 @@ func newTemplates(source string) (*templates, error) {
 		return nil, invalid("unsupported systemone template")
 	}
 	return &templates{template: template, source: source}, nil
+}
+
+// shallow reports whether no expression nests brackets beyond maxNesting.
+func shallow(source string, settings *config.Config) bool {
+	lexer := tokens.NewLexer(source, settings)
+	go lexer.Run()
+	depth, bounded := 0, true
+	// The lexer stops only once its channel is drained.
+	for token := range lexer.Tokens {
+		switch token.Type {
+		case tokens.LeftParenthesis, tokens.LeftBracket, tokens.LeftBrace:
+			if depth++; depth > maxNesting {
+				bounded = false
+			}
+		case tokens.RightParenthesis, tokens.RightBracket, tokens.RightBrace:
+			depth--
+		case tokens.VariableEnd, tokens.BlockEnd:
+			depth = 0
+		}
+	}
+	return bounded
 }
 
 // output strips the value brackets while the template writes and enforces

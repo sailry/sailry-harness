@@ -56,8 +56,7 @@ func main() {
 	var windows []*desktopWindow
 	var active *desktopWindow
 	var speech *reader.Service
-	registered := map[string]bool{}
-	conflicted := map[string]bool{}
+	system := systemShortcuts{register: mygo.GlobalShortcut.Register, unregister: mygo.GlobalShortcut.Unregister}
 	var updates *live.Updates
 	if backend.Client != nil && backend.Preferences != nil {
 		updates = live.NewUpdates(backend.Preferences, backend.Path, backend.Close, mygo.App.Quit)
@@ -71,48 +70,26 @@ func main() {
 		entry := active
 		lang := i18n.Match(mygo.App.Locale())
 		mygo.App.SetMenu(mygo.NewMenu(entry.app.Menu(lang, func(id string) { entry.app.Do(id); entry.window.Invalidate() })))
-		shortcuts := entry.app.SystemShortcuts()
-		for accelerator := range registered {
-			if _, exists := shortcuts[accelerator]; !exists {
-				mygo.GlobalShortcut.Unregister(accelerator)
-				delete(registered, accelerator)
+		system.apply(entry.app.SystemShortcuts(), func(command string) {
+			if active == nil {
+				return
 			}
-		}
-		for accelerator := range conflicted {
-			if _, exists := shortcuts[accelerator]; !exists {
-				delete(conflicted, accelerator)
+			current := active
+			if command == "system.selection" && current.live != nil {
+				// The selection belongs to the app in front, so it is
+				// read before this window takes its place.
+				current.live.CaptureSelection(func() { current.window.Show(); current.window.Focus() })
+				return
 			}
-		}
-		for accelerator, command := range shortcuts {
-			if registered[accelerator] {
-				mygo.GlobalShortcut.Unregister(accelerator)
+			current.window.Show()
+			current.window.Focus()
+			current.app.Do(command)
+			current.window.Invalidate()
+		}, func() {
+			if entry.live != nil {
+				entry.live.ReportShortcutConflict()
 			}
-			if err := mygo.GlobalShortcut.Register(accelerator, func() {
-				if active == nil {
-					return
-				}
-				current := active
-				if command == "system.selection" && current.live != nil {
-					// The selection belongs to the app in front, so it is
-					// read before this window takes its place.
-					current.live.CaptureSelection(func() { current.window.Show(); current.window.Focus() })
-					return
-				}
-				current.window.Show()
-				current.window.Focus()
-				current.app.Do(command)
-				current.window.Invalidate()
-			}); err != nil {
-				log.Printf("system shortcut %s: %v", accelerator, err)
-				delete(registered, accelerator)
-				if !conflicted[accelerator] && entry.live != nil {
-					entry.live.ReportShortcutConflict()
-				}
-				conflicted[accelerator] = true
-			} else {
-				registered[accelerator], conflicted[accelerator] = true, false
-			}
-		}
+		})
 	}
 	applyPreferences := func() {
 		if backend.Preferences != nil {

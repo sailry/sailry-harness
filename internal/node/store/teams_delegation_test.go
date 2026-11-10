@@ -364,6 +364,7 @@ func backgroundFixtureRecord(ctx context.Context, db *sql.Conn, session protocol
 	return record, err
 }
 
+// Over 1 s only beside the package's other parallel tests: each opens its own synced store.
 func TestBackgroundNoticeEvidence(t *testing.T) {
 	t.Parallel()
 	t.Run("command tool collection", func(t *testing.T) {

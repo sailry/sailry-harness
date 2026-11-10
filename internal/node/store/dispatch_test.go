@@ -14,6 +14,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+// Over 1 s only beside the package's other parallel tests: each opens its own synced store.
 func TestDispatchContracts(test *testing.T) {
 	test.Parallel()
 	test.Run("metadata_edits_preserve_consumed_cursor", func(test *testing.T) {

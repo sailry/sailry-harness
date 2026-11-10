@@ -11,6 +11,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+// Over 1 s: each Node start installs and verifies the bundled packages.
 func TestRetainedMCPAuthorization(t *testing.T) {
 	for _, scenario := range []string{"disabled connection", "changed credential", "withdrawn server permission"} {
 		t.Run(scenario, func(t *testing.T) {

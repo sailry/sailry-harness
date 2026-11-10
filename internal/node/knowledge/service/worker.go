@@ -209,12 +209,16 @@ func (service *Service) collection(ctx context.Context, stored store.KnowledgeSt
 		}
 		return false
 	}
-	active := false
+	active, working := false, func() {}
+	defer func() { working() }()
 	starting := func() error {
 		if active {
 			return nil
 		}
 		active = true
+		if service.options.Working != nil {
+			working = service.options.Working()
+		}
 		return report(progress)
 	}
 	clock := service.options.Clock

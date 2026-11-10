@@ -82,7 +82,7 @@ MyGo bases.
 
 | Component | Origin | Use | Not for | Used in |
 |---|---|---|---|---|
-| `ToastHost` | Lobe `pkg/feedback/toast.go` (ToastBase) | Once, at the window's root | — | shell |
+| `ToastHost` | Lobe `pkg/feedback/toast.go` (ToastBase) | Once, last in the window's view, over every dialog | — | shell |
 | `Toast`, `Outcome` | Own | An operation's outcome: done, failed, conflict, uncertain | Text in pages or dialogs | composer, host, settings, shell, sidebar |
 | `Error`, `Notify`, `Retry` | Own | An error toast with detail; a neutral toast; an error toast with Retry | Inline errors | host, shell |
 | `Result` | Lobe `pkg/feedback/result.go` | Empty and unavailable states, load failures, centered | Operation outcomes | composer, conversation, host, panel, settings, shell, transfers |

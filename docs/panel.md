@@ -47,16 +47,17 @@ Tabs with the preview's numeric IDs name no Node terminal and leave in live
 mode. A terminal whose tab is gone is detached, never closed.
 
 Local terminals are a core feature, like Files and Git. The `terminal`
-resource kind is core-owned in live mode (`coreResource` in
-`live/plugin_views_navigation.go`, beside the Files and Git exclusion): a
-package's declared renderer for it is never mounted, its creation contribution
-and shortcut are never used, and a package cannot open or title a panel pane
-for it (`pluginResourceRenderer`, `pluginPaneTarget`). ⌃`, the panel's New
-terminal, the project's New terminal and ⌘D/⌘⇧D therefore always take the core
-path, also with the bundled `commands` package enabled. The rule names the
-resource kind, not a package. A package page may still embed the native
-Terminal component for a terminal it opens itself; SSH terminals stay
-package-owned that way. A saved tab whose ID is not a Node terminal ID, such
+resource kind is core-owned in live mode: a package's declared renderer for it
+is never mounted, its creation contribution and shortcut are never used, and a
+package cannot open or title a panel pane. A terminal is the only pane
+resource of the v1 SDK, so no pane owner remains: `pane()` answers `null`,
+`openPane` answers `false` and the other pane calls report unavailable
+(`bindPluginPanes` in `live/plugin_resources.go`). ⌃`, the panel's New
+terminal (`createPanelResource`), the project's New terminal and ⌘D/⌘⇧D
+therefore always take the core path, also with the bundled `commands` package
+enabled. The rule names the resource kind, not a package. A package page may
+still embed the native Terminal component for a terminal it opens itself; SSH
+terminals stay package-owned that way. A saved tab whose ID is not a Node terminal ID, such
 as an earlier `plugin/…` tab, leaves under the prune rule above.
 
 The terminal display preferences are read in one place,
@@ -72,6 +73,7 @@ Deviations:
 |---|---|
 | While a terminal's split pane is displayed, its tab's screen is empty | MyGo shows a terminal in one view at a time; the pane owns the screen |
 | Terminal tabs keep the title Terminal | The accepted tab title is unchanged; the Node title shows in the project's Terminal records |
+| A local terminal reports no activity (OSC 9;4, 133, 633) | MyGo's terminal view does not surface these sequences; SSH terminals report theirs |
 | An exited shell closes its terminal, tab and panes (user decision 2026-11-10) | The reference prunes only `closed` or missing terminals. The desktop closes an exited terminal once; a failed one stays to show its error, and a stopped one stays so it can be reopened |
 | A saved tab of a peer discovered after every known Node answered is dropped | A tab stores no Node; ownership is known only from snapshots |
 | Local terminals are core; a package's `terminal` renderer, creation contribution and shortcut are not mounted (user decision 2026-11-10) | The reference lets a package own terminals. Here local terminals are core, like Files and Git; SSH terminals remain package-owned through the Terminal component of the package's own page |
@@ -215,7 +217,7 @@ terminal, subagent and file-preview tabs are single-pane.
   (`workspace_close_terminal`) and New terminal, over
   `workspace_terminal_preview`. The live terminal has no Reset.
   ⌘F with the focus in the tab opens MyGo's `FindBar` at the screen's top
-  right (`terminal_search_placeholder`, 420 wide at most, 0 matches);
+  right (420 wide at most, 0 matches in the preview);
   Escape or Done closes it. The window routes the native menu's ⌘F
   (`conversation.find`) to `State.Find` while the panel holds the focus.
 
@@ -278,14 +280,11 @@ and stops at the first failure. Session documents read `ListArtifacts` and
 revision cache avoids repeated reads on each presentation frame. Outcomes appear
 only in distinct failure, conflict, uncertain or success toasts.
 
-Plugin-declared project creation contributions and resource renderers use the
-existing panel hooks for a resource kind the core does not own. Resource
-titles, busy close behavior and pane events belong to that exact mount. Closing
-a view detaches presentation; explicit terminal actions own process
+Closing a view detaches presentation; explicit terminal actions own process
 termination. Files, Git and local terminals are native core panel owners: since
 B10 the `terminal` kind is core-owned, so the commands package's terminal
-renderer and its creation contribution are no longer mounted (see
-[B10 live terminal tabs](#b10-live-terminal-tabs)).
+renderer and its creation contribution are not mounted and the panel has no
+package pane hooks (see [B10 live terminal tabs](#b10-live-terminal-tabs)).
 
 The plugin terminal bridge reuses the existing MyGo Mirror/Conn owner and
 checks workspace read/control authority before creating a view. Disconnection
@@ -450,7 +449,9 @@ at its width.
 | Preview browser and terminal are placeholders in their chrome | The preview loads no page and starts no process; live tabs render (MyGo WebView, libghostty-vt) |
 | Browser tabs belong to the window, each to the conversation it was opened in | The accepted panel keeps one flat tab strip; the agent drives only its own conversation's tabs, and a tab opened in a draft follows the session that draft becomes |
 | Saving a browser capture as a session file is unavailable | The Node has no generated-media publication owner yet; inline captures are returned |
+| A page that changes its own address (`history.pushState`) may leave the address field behind | The field follows the WebView's navigation events; unverified for same-document changes |
 | Browser tools are listed without a connected browser | The turn catalog is frozen before a controller subscribes; a call then reports the disconnected controller |
+| The terminal's find field reads MyGo's "Find", not `terminal_search_placeholder` | MyGo's `FindBar` does not expose its field; the toolbar's Find action carries the key |
 | The browser's chrome is core | In the reference the browser plugin draws it; the preview has no plugin UI host |
 | Controller-native folder opening is unavailable for remote workspaces | A remote path grants no controller filesystem authority and there is no supported remote folder-open effect |
 

@@ -14,9 +14,9 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
-	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -185,11 +185,11 @@ func permissionCards(goos string, local protocol.NodeID, entries []permissionEnt
 
 // permissionRows folds the cards of one resource into the page's row: all
 // granted, some granted, or none.
-func permissionRows(cards []permissionCard) []preview.Permission {
-	var rows []preview.Permission
+func permissionRows(cards []permissionCard) []viewmodel.Permission {
+	var rows []viewmodel.Permission
 	for _, card := range cards {
 		key := permissionKinds[card.kind].key
-		if slices.ContainsFunc(rows, func(row preview.Permission) bool { return row.Resource == key }) {
+		if slices.ContainsFunc(rows, func(row viewmodel.Permission) bool { return row.Resource == key }) {
 			continue
 		}
 		status, granted, missing, settings, opens := card.status, 0, 0, false, false
@@ -217,7 +217,7 @@ func permissionRows(cards []permissionCard) []preview.Permission {
 				status = "permission_required"
 			}
 		}
-		row := preview.Permission{Resource: key, Status: status}
+		row := viewmodel.Permission{Resource: key, Status: status}
 		// The row's flag selects both its settings shortcut and the label of
 		// its action: the shortcut of a granted resource, or an action that
 		// opens the system's settings.
@@ -379,6 +379,9 @@ func (r *Runtime) permissionStep(card permissionCard, request bool) func() func(
 				_, err = probe.request(r.ctx, flow)
 			}
 			status, checkErr := probe.check(flow)
+			if err == nil {
+				err = checkErr
+			}
 			changes = []permissionChange{{card.kind, permissionStatus(probe.goos, card.kind, status, checkErr)}}
 		}
 		return func(c *ui.Context) {

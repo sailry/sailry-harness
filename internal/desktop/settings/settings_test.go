@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 )
@@ -266,7 +267,7 @@ func TestExtensions(t *testing.T) {
 func TestAccountSkeleton(t *testing.T) {
 	m := NewModel(preview.SettingsData())
 	m.connector = connectorEditor{open: true, kind: &m.ConnTypes[0], method: 2, fields: map[string]string{}}
-	tt := ui.NewTester(func(c *ui.Context) { connectorDialog(c, m) }, 900, 700)
+	tt := ui.NewTesterWith(func(c *ui.Context) { connectorDialog(c, m) }, 900, 700, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
 	tt.SetLocale("en")
 	tt.Frame()
 	busy := func() bool {
@@ -284,5 +285,39 @@ func TestAccountSkeleton(t *testing.T) {
 	tt.Frame()
 	if busy() || !tt.HasText(m.ConnAccounts[0]) {
 		t.Fatalf("accounts not shown: %q", tt.Texts())
+	}
+}
+
+// A permission row draws one way into the system's settings, and an action
+// that nothing on this device can take is disabled.
+func TestPermissionRowActions(t *testing.T) {
+	m := NewModel(preview.SettingsData())
+	m.Permissions = []preview.Permission{
+		{Resource: "permission_microphone", Status: "permission_denied", Settings: true},
+		{Resource: "permission_accessibility", Status: "permission_unavailable"},
+		{Resource: "permission_screen", Status: "permission_granted", Settings: true},
+	}
+	var requested []string
+	m.PermissionActions = &PermissionActions{Request: func(resource string) { requested = append(requested, resource) }}
+	tt := ui.NewTester(func(c *ui.Context) { permissions(c, m) }, 900, 700)
+	tt.SetLocale("en")
+	tt.Frame()
+	opens, request := i18n.In("en", "permission_settings"), i18n.In("en", "permission_request")
+	var settings, requests []ui.AccessInfo
+	for _, x := range tt.AccessAll() {
+		if x.Role == ui.RoleButton && x.Name == opens {
+			settings = append(settings, x)
+		}
+		if x.Role == ui.RoleButton && x.Name == request {
+			requests = append(requests, x)
+		}
+	}
+	// The refused microphone's action and the granted row's shortcut.
+	if len(settings) != 2 || len(requests) != 1 || !requests[0].Disabled {
+		t.Fatalf("settings buttons %d, request buttons %+v", len(settings), requests)
+	}
+	tt.ClickAt(requests[0].Bounds.X+requests[0].Bounds.W/2, requests[0].Bounds.Y+requests[0].Bounds.H/2)
+	if len(requested) != 0 {
+		t.Fatalf("an unavailable row requested %v", requested)
 	}
 }

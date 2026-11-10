@@ -167,7 +167,7 @@ func (s *State) terminal(c *ui.Context, t Tab) {
 				count, x.match = s.TerminalActions.Search(t.ID, x.query, x.find, x.match)
 			}
 			w, _ := c.Size()
-			bar := kit.Floating(c, ui.FindBar(c.Key("find-bar"), &x.find, &x.query, count, &x.match).Placeholder(i18n.T(c, "terminal_search_placeholder"))).
+			bar := kit.Floating(c, ui.FindBar(c.Key("find-bar"), &x.find, &x.query, count, &x.match)).
 				Absolute().Top(4).Right(8).Width(min(420, w-32)).Radius(p.Radius)
 			if bar.OverlayShortcut(0, ui.KeyEscape) {
 				x.find = false

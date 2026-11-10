@@ -74,6 +74,7 @@ func environment(values map[string]string) func(string) string {
 	return func(key string) string { return values[key] }
 }
 
+// Over 1 s: each Node start installs and verifies the bundled packages.
 func TestTelemetryOffSendsNothing(t *testing.T) {
 	send := func(t *testing.T, node *Node) *protocol.Fault {
 		t.Helper()
@@ -84,6 +85,7 @@ func TestTelemetryOffSendsNothing(t *testing.T) {
 		"DO_NOT_TRACK=1":       {"DO_NOT_TRACK": "1"},
 	} {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			server := newSentryFixture(t)
 			values["SAILRY_SENTRY_DSN"] = server.dsn()
 			node := systemNodeFixture(t, Options{Telemetry: telemetry.Options{Lookup: environment(values)}})
@@ -105,12 +107,14 @@ func TestTelemetryOffSendsNothing(t *testing.T) {
 		})
 	}
 	t.Run("no endpoint", func(t *testing.T) {
+		t.Parallel()
 		node := systemNodeFixture(t, Options{Telemetry: telemetry.Options{Lookup: environment(nil)}})
 		if fault := send(t, node); fault == nil || fault.Code != protocol.ErrorCodeUnavailable {
 			t.Fatalf("diagnostics fault = %#v", fault)
 		}
 	})
 	t.Run("switches off send nothing unasked", func(t *testing.T) {
+		t.Parallel()
 		server := newSentryFixture(t)
 		node := systemNodeFixture(t, Options{Telemetry: telemetry.Options{Lookup: environment(map[string]string{"SAILRY_SENTRY_DSN": server.dsn()})}})
 		settings := commandFixture(t, node, protocol.Command{Kind: "read_telemetry_settings"}).Data.(protocol.TelemetrySettings)
@@ -126,6 +130,7 @@ func TestTelemetryOffSendsNothing(t *testing.T) {
 		}
 	})
 	t.Run("plugin cannot send", func(t *testing.T) {
+		t.Parallel()
 		server := newSentryFixture(t)
 		node := systemNodeFixture(t, Options{Telemetry: telemetry.Options{Lookup: environment(map[string]string{"SAILRY_SENTRY_DSN": server.dsn()})}})
 		if _, err := node.dispatchDiagnostics(context.Background(), protocol.Request{Plugin: &protocol.PluginContext{}}); err == nil {
@@ -136,6 +141,7 @@ func TestTelemetryOffSendsNothing(t *testing.T) {
 		}
 	})
 	t.Run("requested report carries only reviewed fields", func(t *testing.T) {
+		t.Parallel()
 		server := newSentryFixture(t)
 		node := systemNodeFixture(t, Options{Telemetry: telemetry.Options{Lookup: environment(map[string]string{"SAILRY_SENTRY_DSN": server.dsn()})}})
 		settings := commandFixture(t, node, protocol.Command{Kind: "read_telemetry_settings"}).Data.(protocol.TelemetrySettings)
@@ -270,6 +276,13 @@ func TestTelemetryOffSendsNothing(t *testing.T) {
 		if refused.Fault == nil {
 			t.Fatal("a turn was queued in a missing session")
 		}
+		// A read whose caller has gone is cancelled, not failed.
+		gone, leave := context.WithCancel(context.Background())
+		leave()
+		abandoned := protocol.NewRequest(node.ID(), protocol.Command{Kind: "read_session", Data: protocol.CommandReadSessionPayload{Session: session}})
+		if accepted, err := node.Dispatch(gone, node.ID(), abandoned); err == nil {
+			<-accepted.Completion
+		}
 		failure()
 		node.telemetry.Observe(telemetry.Turn("completed", protocol.WorkModeCode, false, nil))
 		if node.telemetry.Capture() != nil {
@@ -291,6 +304,18 @@ func TestTelemetryOffSendsNothing(t *testing.T) {
 			!bytes.Contains(written, []byte(" WARN desktop area=command phase=failed ")) || bytes.Contains(written, []byte("SECRET")) ||
 			bytes.Contains(written, []byte("save_telemetry_settings")) {
 			t.Fatalf("log = %s", written)
+		}
+		observed := 0
+		for _, line := range bytes.Split(written, []byte("\n")) {
+			if bytes.Contains(line, []byte(abandoned.ID.String())) {
+				observed++
+				if !bytes.Contains(line, []byte(" INFO desktop area=command phase=cancelled ")) || !bytes.Contains(line, []byte("code=cancelled")) {
+					t.Fatalf("abandoned read logged as %s", line)
+				}
+			}
+		}
+		if observed != 1 {
+			t.Fatalf("abandoned read has %d records", observed)
 		}
 		// A requested report is the controller's own act: the switches do
 		// not gate it, and it attaches the log's public fields only.
@@ -549,25 +574,30 @@ func (f *powerFixture) counts() (bool, int, int) {
 	return f.held, f.acquired, f.released
 }
 
+// Over 1 s: each Node start installs and verifies the bundled packages.
 func TestPowerAssertionOwnership(t *testing.T) {
+	t.Parallel()
 	save := func(t *testing.T, node *Node, prevent bool) {
 		t.Helper()
 		settings := commandFixture(t, node, protocol.Command{Kind: "read_power_settings"}).Data.(protocol.PowerSettings)
 		commandFixture(t, node, protocol.Command{Kind: "save_power_settings", Data: protocol.PowerSettings{Revision: settings.Revision, PreventSleep: prevent}})
 	}
-	t.Run("one request follows the setting and the Node", func(t *testing.T) {
+	t.Run("one request follows the setting and running work", func(t *testing.T) {
+		t.Parallel()
 		backend := &powerFixture{}
 		path := filepath.Join(t.TempDir(), "profile")
 		node, err := StartWithOptions(context.Background(), path, Options{Power: backend})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if held, acquired, released := backend.counts(); !held || acquired != 1 || released != 0 {
-			t.Fatalf("startup = %v %d %d", held, acquired, released)
+		// An idle Node lets the machine sleep whatever the setting says.
+		if held, acquired, _ := backend.counts(); held || acquired != 0 {
+			t.Fatalf("startup = %v %d", held, acquired)
 		}
+		first, second := node.power.Hold(), node.power.Hold()
 		save(t, node, true)
-		if _, acquired, _ := backend.counts(); acquired != 1 {
-			t.Fatal("a second request was taken")
+		if held, acquired, _ := backend.counts(); !held || acquired != 1 {
+			t.Fatalf("overlapping work = %v %d", held, acquired)
 		}
 		save(t, node, false)
 		if held, _, released := backend.counts(); held || released != 1 {
@@ -579,37 +609,76 @@ func TestPowerAssertionOwnership(t *testing.T) {
 			t.Fatalf("stale save = %#v, held %v", stale, held)
 		}
 		save(t, node, true)
+		first()
+		first()
 		if held, acquired, _ := backend.counts(); !held || acquired != 2 {
-			t.Fatalf("on = %v %d", held, acquired)
+			t.Fatalf("on with one work left = %v %d", held, acquired)
 		}
+		second()
+		if held, _, released := backend.counts(); held || released != 2 {
+			t.Fatalf("idle = %v %d", held, released)
+		}
+
+		// A supervised task is counted for as long as it runs.
+		started, finish := make(chan struct{}), make(chan struct{})
+		if err := node.tasks.Submit(func(context.Context) { close(started); <-finish }); err != nil {
+			t.Fatal(err)
+		}
+		<-started
+		if held, acquired, _ := backend.counts(); !held || acquired != 3 {
+			t.Fatalf("running task = %v %d", held, acquired)
+		}
+		close(finish)
+		for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(time.Millisecond) {
+			if held, _, _ := backend.counts(); !held {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("the request outlived its task")
+			}
+		}
+
+		// Stop releases the request under work that is still counted.
+		abandoned := node.power.Hold()
 		if err := node.Stop(context.Background()); err != nil {
 			t.Fatal(err)
 		}
-		if held, acquired, released := backend.counts(); held || acquired != 2 || released != 2 {
+		if held, acquired, released := backend.counts(); held || acquired != 4 || released != 4 {
 			t.Fatalf("stopped = %v %d %d", held, acquired, released)
 		}
+		abandoned()
 		if status := node.power.Status(); !status.Closed || status.Acquired {
 			t.Fatalf("status = %#v", status)
 		}
 
-		// The saved setting is what the next start holds.
+		// The saved setting is what the next start applies to its work.
 		restarted, err := StartWithOptions(context.Background(), path, Options{Power: backend})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if held, acquired, _ := backend.counts(); !held || acquired != 3 {
+		if held, acquired, _ := backend.counts(); held || acquired != 4 {
 			t.Fatalf("restart = %v %d", held, acquired)
+		}
+		work := restarted.power.Hold()
+		if held, acquired, _ := backend.counts(); !held || acquired != 5 {
+			t.Fatalf("work after restart = %v %d", held, acquired)
 		}
 		if err := restarted.Stop(context.Background()); err != nil {
 			t.Fatal(err)
 		}
+		work()
 		if held, _, _ := backend.counts(); held {
 			t.Fatal("the request outlived the Node")
 		}
 	})
 	t.Run("a refusal is one notice and no retry", func(t *testing.T) {
+		t.Parallel()
 		backend := &powerFixture{refuse: 7}
 		node := systemNodeFixture(t, Options{Power: backend})
+		if notices := snapshotFixture(t, node).Notifications; len(notices) != 0 {
+			t.Fatalf("an idle Node asked for the request: %#v", notices)
+		}
+		defer node.power.Hold()()
 		notices := snapshotFixture(t, node).Notifications
 		if len(notices) != 1 || notices[0].Content.Kind != protocol.NotificationKindError || notices[0].Content.Details == nil || notices[0].Content.Details.Kind != "power" {
 			t.Fatalf("notices = %#v", notices)
@@ -622,6 +691,7 @@ func TestPowerAssertionOwnership(t *testing.T) {
 		backend.mu.Unlock()
 		save(t, node, false)
 		save(t, node, true)
+		defer node.power.Hold()()
 		if status := node.power.Status(); status.Acquired || status.Error != 7 || len(snapshotFixture(t, node).Notifications) != 1 {
 			t.Fatalf("status = %#v", status)
 		}

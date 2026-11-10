@@ -7,8 +7,8 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
-	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -69,14 +69,14 @@ func (r *Runtime) searchLibrary(owner *Runtime, request settings.LibraryRequest)
 	lib.request, lib.owner, lib.items = request, owner, nil
 	lib.details, lib.resolving = map[string]protocol.ModelsDefinition{}, map[string]bool{}
 	m := r.App.Settings
-	m.LibraryLoad = preview.Fetch{Loading: true}
+	m.LibraryLoad.Loading, m.LibraryLoad.Loaded = true, false
 	finish := func(page protocol.ModelsPage, err error) {
 		r.enqueue(func(c *ui.Context) {
 			if lib.generation != generation {
 				return
 			}
 			lib.items = uniqueLibraryItems(page.Items)
-			m.LibraryLoad = preview.Fetch{Loaded: true}
+			m.LibraryLoad.Loading, m.LibraryLoad.Loaded = false, true
 			if err != nil {
 				kit.Toast(c, kit.Failed, i18n.T(c, "model_library_failed"))
 			} else if page.Partial {
@@ -113,7 +113,7 @@ func (r *Runtime) searchLibrary(owner *Runtime, request settings.LibraryRequest)
 		}
 	})
 	if !started {
-		m.LibraryLoad = preview.Fetch{Loaded: true}
+		m.LibraryLoad.Loading, m.LibraryLoad.Loaded = false, true
 	}
 }
 
@@ -332,11 +332,11 @@ func (r *Runtime) cancelLocalModel(id string) {
 // libraryRows are the hub's results as the dialog's rows: each with the
 // state of the Node's model from the same source, and the size and
 // license of that model or of the definition resolved for its details.
-func libraryRows(items []protocol.ModelsItem, models []protocol.ModelsLocalModel, details map[string]protocol.ModelsDefinition, tasks []protocol.InstallationTask) []preview.LibraryModel {
-	rows := make([]preview.LibraryModel, 0, len(items))
+func libraryRows(items []protocol.ModelsItem, models []protocol.ModelsLocalModel, details map[string]protocol.ModelsDefinition, tasks []protocol.InstallationTask) []viewmodel.LibraryModel {
+	rows := make([]viewmodel.LibraryModel, 0, len(items))
 	for _, item := range items {
 		id := libraryID(item.Source)
-		row := preview.LibraryModel{ID: id, Name: item.Name, Repo: item.Source.Repository, Kind: libraryKindKey(modelFormatKind(item.Format)), Source: libraryHubKey(item.Source.Hub)}
+		row := viewmodel.LibraryModel{ID: id, Name: item.Name, Repo: item.Source.Repository, Kind: libraryKindKey(modelFormatKind(item.Format)), Source: libraryHubKey(item.Source.Hub)}
 		if row.Name == "" {
 			row.Name = row.Repo
 		}

@@ -14,6 +14,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+// Over 1 s: each Node start installs and verifies the bundled packages.
 func TestPluginRuntimeAdmission(t *testing.T) {
 	t.Run("Status scheduling", testPluginStatusScheduling)
 	t.Run("native slash commands", testPluginMessageCommandOutputs)

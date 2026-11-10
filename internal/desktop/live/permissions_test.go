@@ -2,11 +2,13 @@ package live
 
 import (
 	"errors"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"reflect"
 	"testing"
 
 	"github.com/egoist/mygo/plugins/permissionflow"
-	"github.com/sailry/sailry-harness/internal/desktop/preview"
+	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -118,8 +120,8 @@ func TestPermissionsMapping(t *testing.T) {
 	})
 	t.Run("rows", func(t *testing.T) {
 		cards := permissionCards("darwin", local, []permissionEntry{helper(accessibility, true, true), helper(screen, true, true)}, on(local, true), nil)
-		rows := func() map[string]preview.Permission {
-			values := map[string]preview.Permission{}
+		rows := func() map[string]viewmodel.Permission {
+			values := map[string]viewmodel.Permission{}
 			for _, row := range permissionRows(cards) {
 				values[row.Resource] = row
 			}
@@ -173,6 +175,33 @@ func TestPermissionsMapping(t *testing.T) {
 		}
 		if requests := permissionRequests(cards, disk); len(requests) != 1 || !requests[0].opensSettings() {
 			t.Fatal(requests)
+		}
+	})
+	t.Run("a failed own check toasts once", func(t *testing.T) {
+		r := &Runtime{}
+		r.permissions.probe = permissionProbe{goos: "darwin", check: func(permissionflow.Permission) (permissionflow.Status, error) {
+			return permissionflow.Unknown, errors.New("framework")
+		}}
+		r.permissions.cards = permissionCards("darwin", local, nil, on(local, true), nil)
+		apply := r.permissionStep(r.permissions.cards[1], false)()
+		var toasts []string
+		tester := ui.NewTester(func(view *ui.Context) {
+			if apply != nil {
+				apply(view)
+				apply = nil
+			}
+			ui.ToastViewportBase(view, func(_ ui.Element, shown []ui.Toast) {
+				toasts = toasts[:0]
+				for _, toast := range shown {
+					toasts = append(toasts, toast.Title)
+				}
+			})
+		}, 320, 200)
+		tester.SetLocale("en")
+		tester.Frame()
+		tester.Frame()
+		if !reflect.DeepEqual(toasts, []string{i18n.In("en", "permission_failed")}) || r.permissions.cards[1].status != "permission_unknown" {
+			t.Fatalf("failed check: toasts %v, status %s", toasts, r.permissions.cards[1].status)
 		}
 	})
 	t.Run("bundle", func(t *testing.T) {

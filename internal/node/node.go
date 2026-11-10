@@ -132,7 +132,14 @@ func StartWithOptions(ctx context.Context, path string, options Options) (*Node,
 	}
 	nodeContext, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	value := &Node{cancel: cancel, profile: profile, ctx: nodeContext, jobs: make(chan commandJob), workerDone: make(chan struct{}), closed: make(chan struct{}), stopDone: make(chan struct{}), subscribers: make(map[*events]struct{})}
+	// The keep-awake owner precedes every source of work it counts.
+	if err := value.initPower(ctx, options.Power); err != nil {
+		cancel()
+		_ = profile.Close()
+		return nil, err
+	}
 	value.tasks = tasks.New(nodeContext)
+	value.tasks.Working = value.power.Hold
 	if err := value.initWorkspace(ctx, options); err != nil {
 		cancel()
 		_ = profile.Close()
@@ -180,7 +187,7 @@ func StartWithOptions(ctx context.Context, path string, options Options) (*Node,
 	}
 	value.modelFactory = options.Model
 	value.telemetry = newTelemetry(options.Telemetry)
-	value.agent = engine.New(profile.Store.Node, value.ID(), profile.Ownership.Path, value.feed, value.publish, engine.Options{Telemetry: value.telemetry, Python: value.plugins.python, Model: value.newModel, AuthorizeProvider: value.authorizeTurnProvider, Attachment: value.capturedAttachment, AttachmentBytes: value.transfers.AttachmentBytes, ToolsForTurn: value.workspaceTools, HooksForTurn: value.turnHooks})
+	value.agent = engine.New(profile.Store.Node, value.ID(), profile.Ownership.Path, value.feed, value.publish, engine.Options{Telemetry: value.telemetry, Working: value.power.Hold, Python: value.plugins.python, Model: value.newModel, AuthorizeProvider: value.authorizeTurnProvider, Attachment: value.capturedAttachment, AttachmentBytes: value.transfers.AttachmentBytes, ToolsForTurn: value.workspaceTools, HooksForTurn: value.turnHooks})
 	if err := value.agent.Recover(ctx); err != nil {
 		cancel()
 		value.closeAuth()
@@ -191,9 +198,8 @@ func StartWithOptions(ctx context.Context, path string, options Options) (*Node,
 		_ = profile.Close()
 		return nil, err
 	}
-	if err := errors.Join(value.initPower(ctx, options.Power), value.initTelemetry(ctx)); err != nil {
+	if err := value.initTelemetry(ctx); err != nil {
 		cancel()
-		value.power.Close()
 		value.closeAuth()
 		_ = value.terminals.Close()
 		_ = value.closePlugins()
@@ -203,7 +209,6 @@ func StartWithOptions(ctx context.Context, path string, options Options) (*Node,
 		return nil, err
 	}
 	if err := value.initLocalModels(ctx, options.LocalModels); err != nil {
-		value.power.Close()
 		cancel()
 		value.closeAuth()
 		_ = value.terminals.Close()

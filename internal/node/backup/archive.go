@@ -244,10 +244,9 @@ func (snapshot *Snapshot) copy(ctx context.Context, source *os.Root, name, relat
 	if err != nil {
 		return err
 	}
+	// The staged copy is read back into the archive and removed; only the
+	// archive is flushed to disk.
 	size, sum, err := copyHash(ctx, input, output, uint64(before.Size()))
-	if err == nil {
-		err = wrapIO(output.Sync())
-	}
 	if closeErr := output.Close(); err == nil {
 		err = wrapIO(closeErr)
 	}

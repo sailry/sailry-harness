@@ -250,13 +250,7 @@ type Skill = viewmodel.Skill
 // MarketTheme is a theme in the market.
 type MarketTheme = viewmodel.MarketTheme
 
-// LibraryModel is a model the model library finds (model_library rows).
-type LibraryModel struct {
-	ID, Name, Repo, Kind  string // Kind: model_library_embedding, _ocr, _speech, model_library_decision
-	Source, Size, License string
-	Status                ModelStatus
-	Percent               float64
-}
+type LibraryModel = viewmodel.LibraryModel
 
 // Extensions is the plugins, skills, market and model library dataset.
 type Extensions struct {

@@ -60,7 +60,7 @@ func (node *Node) initLocalModels(ctx context.Context, options localmodels.Optio
 	})
 	if err == nil {
 		controls.registry.Apply(prepared)
-		_, err = controls.registry.List("")
+		err = controls.registry.Start()
 	}
 	if err != nil {
 		controls.registry.Shutdown()

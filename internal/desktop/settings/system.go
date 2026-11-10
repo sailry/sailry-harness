@@ -32,8 +32,13 @@ func permissions(c *ui.Context, m *Model) {
 		kit.Card(c, func() {
 			for _, x := range m.Permissions {
 				granted := x.Status == "permission_granted" || x.Status == "permission_not_needed"
+				// Nothing on this device grants a resource that is unavailable
+				// here or granted on the execution device.
+				absent := x.Status == "permission_unavailable" || x.Status == "permission_remote"
 				kit.Row(c, x.Resource, i18n.T(c, x.Resource), i18n.T(c, x.Status), func() {
-					if x.Settings && (x.Resource != "permission_full_disk" || granted) {
+					// The shortcut of a granted resource; before that the
+					// row's one action opens the settings itself.
+					if x.Settings && granted {
 						kit.Action(c.Key("settings"), icons.Settings2, i18n.T(c, "permission_settings"), false).OnClick(act(func(a *PermissionActions) { a.Settings(x.Resource) }))
 					}
 					if !granted {
@@ -41,7 +46,7 @@ func permissions(c *ui.Context, m *Model) {
 						if x.Settings {
 							action = "permission_settings"
 						}
-						small(c, "request", i18n.T(c, action)).OnClick(act(func(a *PermissionActions) { a.Request(x.Resource) }))
+						small(c, "request", i18n.T(c, action)).Disabled(absent).OnClick(act(func(a *PermissionActions) { a.Request(x.Resource) }))
 					}
 				})
 			}

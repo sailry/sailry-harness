@@ -105,15 +105,6 @@ func (s *syntax) spanBetween(from node, end int) span {
 
 func (s *syntax) spanTrimmed(n node) span { return s.spanBetween(n, int(n.EndByte())) }
 
-func nextNamed(n node) node {
-	for sibling := n.NextSibling(); sibling != nil; sibling = sibling.NextSibling() {
-		if sibling.IsNamed() {
-			return sibling
-		}
-	}
-	return nil
-}
-
 // walk visits a subtree in pre-order. visit reports whether to descend.
 func walk(root node, visit func(n node, depth int) bool) {
 	var descend func(n node, depth int)

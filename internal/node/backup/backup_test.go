@@ -84,6 +84,7 @@ func fixturePacked(t *testing.T, profile string) *Packed {
 	return packed
 }
 
+// Over 1 s: sealing and opening run scrypt at the production work factor.
 func TestBackupArchiveLayout(t *testing.T) {
 	profile, files := fixtureProfile(t)
 	packed := fixturePacked(t, profile)

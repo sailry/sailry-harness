@@ -18,6 +18,8 @@ import (
 type workspaceHTTP func(*http.Request) (*http.Response, error)
 
 func (f workspaceHTTP) RoundTrip(request *http.Request) (*http.Response, error) { return f(request) }
+
+// Over 1 s: each Node start installs and verifies the bundled packages.
 func TestWorkspaceAdmissionAndWebOwnership(t *testing.T) {
 	t.Run("manual Git hunk receipt never replays its index effect", testManualGitHunkAdmission)
 	t.Run("completed file effect never replays", func(t *testing.T) {
@@ -54,6 +56,15 @@ func TestWorkspaceAdmissionAndWebOwnership(t *testing.T) {
 		conflict := dispatchFixture(t, node, node.ID(), protocol.NewRequest(node.ID(), protocol.Command{Kind: "write_file", Data: protocol.CommandWriteFilePayload{Worktree: session.Worktree, Path: "note.txt", Text: "overwrite", ExpectedRevision: &expected}}))
 		if conflict.Fault == nil || conflict.Fault.Code != protocol.ErrorCodeRevisionConflict {
 			t.Fatalf("conflict lost: %v", conflict.Fault)
+		}
+	})
+	t.Run("saved code index setting applies before completion", func(t *testing.T) {
+		node := nodeFixture(t)
+		session := sessionFixture(t, node)
+		commandFixture(t, node, protocol.Command{Kind: "save_code_index_settings", Data: protocol.CommandSaveCodeIndexSettingsPayload{Settings: protocol.CodeIndexSettings{Enabled: false}}})
+		result := dispatchFixture(t, node, node.ID(), protocol.NewRequest(node.ID(), protocol.Command{Kind: "search_code", Data: protocol.CommandSearchCodePayload{Worktree: session.Worktree, Query: protocol.CodeIndexSearch{Query: "main", Limit: 1}}}))
+		if result.Fault == nil || result.Fault.Code != protocol.ErrorCodeNotConfigured {
+			t.Fatalf("search after disabling = %#v", result)
 		}
 	})
 	t.Run("caller scoped cancellation and public fetch boundary", func(t *testing.T) {

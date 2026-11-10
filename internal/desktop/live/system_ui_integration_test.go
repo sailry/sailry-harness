@@ -164,9 +164,9 @@ func toast(w *terminalUI, text string) {
 	}
 	settle(w, fmt.Sprintf("a new toast %q (%d linger)", text, seen[text]), systemUIWait, func() bool { return shown(w, text) > seen[text] })
 	seen[text] = shown(w, text)
-	// Done toasts run out on the frame clock. Failure and conflict toasts
-	// stay until closed, and one under an open dialog cannot be reached, so
-	// whatever still shows is counted and the next wait asks for one more.
+	// Toasts run out on the frame clock; one with a recovery stays until
+	// closed, so whatever still shows is counted and the next wait asks for
+	// one more.
 	for range 48 {
 		w.tester.Advance(250 * time.Millisecond)
 		w.tester.Frame()

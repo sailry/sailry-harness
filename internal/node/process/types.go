@@ -44,5 +44,7 @@ type Options struct {
 	Finished       func(context.Context, Finished) error
 	Changed        func(protocol.WorktreeID)
 	CaptureManaged func(string) (string, error)
-	Run            func(context.Context, Launch, func(protocol.ProcessOutputOutputStream, []byte), <-chan []byte) (protocol.ProcessCompletion, error)
+	// Working, when set, brackets every running command.
+	Working func() func()
+	Run     func(context.Context, Launch, func(protocol.ProcessOutputOutputStream, []byte), <-chan []byte) (protocol.ProcessCompletion, error)
 }

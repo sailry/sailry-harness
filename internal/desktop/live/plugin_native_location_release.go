@@ -42,23 +42,5 @@ func (location *pluginNativeLocation) releasePresentation(tree protocol.Worktree
 			}
 		}
 	}
-	if resources := root.pluginResources; resources != nil {
-		node := owner.controller.Target()
-		for key, pane := range resources.panes {
-			if key.node == node && key.worktree == tree {
-				root.detachPluginResource(pane)
-			}
-		}
-		for key := range resources.titles {
-			if key.resource.node == node && key.resource.worktree == tree {
-				delete(resources.titles, key)
-			}
-		}
-		for key := range resources.pending {
-			if key.node == node && key.worktree == tree {
-				delete(resources.pending, key)
-			}
-		}
-	}
 	root.wake()
 }

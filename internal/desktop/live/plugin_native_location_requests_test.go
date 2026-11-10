@@ -7,7 +7,6 @@ import (
 	"errors"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"strings"
 	"testing"
 	"testing/synctest"
@@ -16,7 +15,6 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
-	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	desktopplugins "github.com/sailry/sailry-harness/internal/desktop/plugins"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
@@ -513,7 +511,7 @@ func testPluginLocationPicker(t *testing.T) {
 		firstContext := context("First current project", "First picker target", firstProject, "/fixture/first")
 		secondContext := context("Second current project", "Second picker target", secondProject, "/fixture/second")
 		first.Model, second.Model = "fixture", "fixture"
-		tester := ui.NewTester(func(view *ui.Context) {
+		tester := ui.NewTesterWith(func(view *ui.Context) {
 			theme.Apply(view, "", theme.Light)
 			ui.Column(view).Fill().Children(func() {
 				ui.Column(view).Key("second").Children(func() {
@@ -523,7 +521,7 @@ func testPluginLocationPicker(t *testing.T) {
 					composer.View(view, first, firstContext, &conversationActions{r: root, c: view, cv: root.App.Data.Find("draft/first"), comp: first})
 				})
 			})
-		}, 1000, 1000)
+		}, 1000, 1000, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}}) // no frost to rasterize
 		tester.SetLocale("en")
 		tester.Frame()
 		tester.Advance(time.Second)
@@ -623,25 +621,6 @@ func testPluginLocationReleases(t *testing.T) {
 					displayed = &viewmodel.Workspace{}
 					root.App.Panel.Data = displayed
 				}
-				root.initPluginResources()
-				captured := pluginResourceKey{node: root.controller.Target(), worktree: fixture.main.ID, kind: "terminal", id: "captured"}
-				differentTree := pluginResourceKey{node: captured.node, worktree: fixture.target.ID, kind: "terminal", id: "other-tree"}
-				differentNode := pluginResourceKey{node: protocol.NodeID{9}, worktree: fixture.main.ID, kind: "terminal", id: "other-node"}
-				mountContext, mountCancel := context.WithCancel(root.ctx)
-				mountKey := pluginMountKey{scope: pluginScopeKey{node: captured.node, worktree: fixture.main.ID.String()}, role: "resource", name: "terminal"}
-				mounted := &pluginMountedView{key: mountKey, owner: root, ctx: mountContext, cancel: mountCancel}
-				root.pluginViews.mounts[mountKey] = mounted
-				for _, key := range []pluginResourceKey{captured, differentTree, differentNode} {
-					tab := panel.Tab{Kind: panel.Terminal, ID: "plugin/" + key.id}
-					pane := &pluginPane{key: key, owner: root, tab: tab}
-					if key == captured {
-						pane.mounted = mounted
-					}
-					root.pluginResources.panes[key] = pane
-					root.pluginResources.pending[key] = &pluginResourceCreate{owner: root}
-					root.pluginResources.titles[pluginResourceTitleKey{resource: key, name: "fixture"}] = pluginResourceTitle{value: key.id}
-					root.App.Panel.Tabs = append(root.App.Panel.Tabs, tab)
-				}
 				request := fixture.prepare(t, protocol.Command{Kind: "remove_worktree", Data: protocol.CommandRemoveWorktreePayload{Worktree: fixture.main.ID}})
 				fixture.source.outcome = pluginLocationTestOutcome(protocol.Output{Kind: "worktree_removed", Data: protocol.OutputWorktreeRemovedPayload{ID: fixture.main.ID}})
 				body, err := fixture.call(t, "sailry/ui.releaseWorktree", pluginLocationTestArguments(t, fixture.main.ID, request.ID))
@@ -666,16 +645,6 @@ func testPluginLocationReleases(t *testing.T) {
 					if text, dirty := retained.panel.FileDraft("source.go"); text != "unsaved" || !dirty {
 						t.Fatal("confirmed removal discarded a retained unsaved buffer")
 					}
-				}
-				for _, key := range []pluginResourceKey{differentTree, differentNode} {
-					if root.pluginResources.panes[key] == nil || root.pluginResources.pending[key] == nil {
-						t.Fatal("confirmed removal detached another Node or worktree presentation")
-					}
-				}
-				if root.pluginResources.panes[captured] != nil || root.pluginResources.pending[captured] != nil ||
-					len(root.pluginResources.titles) != 2 || root.pluginViews.mounts[mountKey] != nil || mountContext.Err() == nil ||
-					slices.ContainsFunc(root.App.Panel.Tabs, func(tab panel.Tab) bool { return tab.ID == "plugin/captured" }) {
-					t.Fatal("removed worktree retained a resource pane, mount, title or pending creation")
 				}
 			})
 		})

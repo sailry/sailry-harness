@@ -16,6 +16,9 @@ import (
 )
 
 func (r *Runtime) execute(x *execution) {
+	if r.working != nil {
+		defer r.working()()
+	}
 	if r.hooksForTurn != nil {
 		x.hooks = r.hooksForTurn(x.ctx, x.inv)
 	}

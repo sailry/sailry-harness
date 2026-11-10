@@ -18,10 +18,12 @@ import (
 func pageTester(t *testing.T, k Kind) (*Project, *ui.Tester) {
 	t.Helper()
 	pr := NewProjects(preview.Load().Workspace).Of("sailry-go")
-	tt := ui.NewTester(func(c *ui.Context) {
+	// Opaque surfaces: the frost of menus and popovers costs most of a
+	// headless frame and none of the assertions.
+	tt := ui.NewTesterWith(func(c *ui.Context) {
 		theme.Apply(c, "", theme.Light)
 		ui.Column(c).Fill().Children(func() { Page(c, k, pr, func() {}) })
-	}, 1100, 760)
+	}, 1100, 760, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
 	tt.SetLocale("en")
 	tt.Frame()
 	return pr, tt

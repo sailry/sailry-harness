@@ -7,7 +7,16 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 )
 
-func TestOpenedAddsOnce(t *testing.T) {
+// TestTabsModel groups the pure tab and history model; each case keeps its own fixture.
+func TestTabsModel(t *testing.T) {
+	t.Run("OpenedAddsOnce", testOpenedAddsOnce)
+	t.Run("ClosedChoosesNext", testClosedChoosesNext)
+	t.Run("FlatTabs", testFlatTabs)
+	t.Run("ItemTabs", testItemTabs)
+	t.Run("BrowserHistory", testBrowserHistory)
+}
+
+func testOpenedAddsOnce(t *testing.T) {
 	files, changes := Tab{Kind: Files}, Tab{Kind: Changes}
 	tabs := Opened(Opened(nil, files), changes)
 	if tabs = Opened(tabs, files); !slices.Equal(tabs, []Tab{files, changes}) {
@@ -15,7 +24,7 @@ func TestOpenedAddsOnce(t *testing.T) {
 	}
 }
 
-func TestClosedChoosesNext(t *testing.T) {
+func testClosedChoosesNext(t *testing.T) {
 	files, changes, page := Tab{Kind: Files}, Tab{Kind: Changes}, Tab{Browser, "1"}
 	tabs := []Tab{files, changes, page}
 	if out, active := Closed(tabs, page, files); active != files || len(out) != 2 {
@@ -32,7 +41,7 @@ func TestClosedChoosesNext(t *testing.T) {
 // Each open item is its own tab: Files and Git once without a project,
 // browser pages and terminals each new; a kind the panel no longer opens
 // is not shown.
-func TestFlatTabs(t *testing.T) {
+func testFlatTabs(t *testing.T) {
 	s := New(preview.Load().Workspace)
 	s.Open(Files)
 	s.Open(Changes)
@@ -50,7 +59,7 @@ func TestFlatTabs(t *testing.T) {
 
 // Each open file and diff is its own tab, the same items as the page's
 // strip; another project's items replace them.
-func TestItemTabs(t *testing.T) {
+func testItemTabs(t *testing.T) {
 	w := preview.Load().Workspace
 	ps := NewProjects(w)
 	one := ps.Of("one")
@@ -84,7 +93,7 @@ func TestItemTabs(t *testing.T) {
 	}
 }
 
-func TestBrowserHistory(t *testing.T) {
+func testBrowserHistory(t *testing.T) {
 	b := &page{at: -1}
 	if b.Go("  ") || b.at != -1 {
 		t.Fatal("an empty address went")

@@ -163,6 +163,7 @@ func (service *Service) CloseTerminal(worktree *protocol.WorktreeID, id protocol
 	value.mu.Unlock()
 	// The terminal is closed either way; a teardown error changes nothing.
 	_ = value.terminal.Close()
+	value.release()
 	service.mu.Lock()
 	delete(service.handles, id)
 	service.mu.Unlock()

@@ -7,9 +7,16 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
+// TestEffects groups the effect simulation; each case keeps its own fixture.
+func TestEffects(t *testing.T) {
+	t.Run("EffectsFollowMotion", testEffectsFollowMotion)
+	t.Run("EffectsAreDeterministic", testEffectsAreDeterministic)
+	t.Run("EffectSimulation", testEffectSimulation)
+}
+
 // Theme effects ask for frames while they show, and none with Reduce
 // Motion, the Appearance switch off or a hidden window.
-func TestEffectsFollowMotion(t *testing.T) {
+func testEffectsFollowMotion(t *testing.T) {
 	tt := ui.NewTester(func(c *ui.Context) {
 		theme.Apply(c, "great-sage", theme.Dark)
 		Draws(ui.Column(c).Fill(), Backdrop(c, "background.window"))
@@ -46,13 +53,13 @@ func TestEffectsFollowMotion(t *testing.T) {
 }
 
 // The same seed and phase place the same particles.
-func TestEffectsAreDeterministic(t *testing.T) {
+func testEffectsAreDeterministic(t *testing.T) {
 	if sample(3, 11, 0.4) != sample(3, 11, 0.4) {
 		t.Error("a particle moves between runs")
 	}
 }
 
-func TestEffectSimulation(t *testing.T) {
+func testEffectSimulation(t *testing.T) {
 	t.Parallel()
 	for _, scenario := range []string{"varies_with_seed", "remains_bounded", "loops_without_position_jump", "hides_travel_endpoints"} {
 		t.Run(scenario, func(t *testing.T) {

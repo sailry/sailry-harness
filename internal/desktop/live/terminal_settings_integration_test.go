@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -19,7 +20,6 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
-	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/link"
@@ -397,9 +397,9 @@ func terminalFindAndSettings(t *testing.T, ctx context.Context, window *terminal
 	for _, choice := range app.Settings.Shells {
 		titles[filepath.Base(choice.Path)]++
 	}
-	var chosen preview.Shell
+	var chosen viewmodel.Shell
 	for _, base := range []string{"bash", "zsh", "ksh", "dash"} {
-		index := slices.IndexFunc(app.Settings.Shells, func(choice preview.Shell) bool { return filepath.Base(choice.Path) == base })
+		index := slices.IndexFunc(app.Settings.Shells, func(choice viewmodel.Shell) bool { return filepath.Base(choice.Path) == base })
 		if index > 0 && base != login && titles[base] == 1 && chosen.Path == "" {
 			chosen = app.Settings.Shells[index]
 		}

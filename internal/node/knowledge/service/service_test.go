@@ -31,6 +31,8 @@ type harness struct {
 	mu        sync.Mutex
 	installed bool
 	encoded   int
+	working   int // collections that held the Node awake
+	holding   int // holds not yet released
 }
 
 // install makes the selected embedding model runnable.
@@ -124,6 +126,16 @@ func newHarness(t *testing.T) *harness {
 		},
 		Offsets: func(context.Context, string, protocol.ModelsLocalChoice, string) ([][2]int, error) { return nil, nil },
 		Clock:   fixture.clock,
+		Working: func() func() {
+			fixture.mu.Lock()
+			defer fixture.mu.Unlock()
+			fixture.working, fixture.holding = fixture.working+1, fixture.holding+1
+			return func() {
+				fixture.mu.Lock()
+				defer fixture.mu.Unlock()
+				fixture.holding--
+			}
+		},
 	})
 	return fixture
 }
@@ -566,6 +578,32 @@ func TestKnowledgeQuery(t *testing.T) {
 			if _, err := fixture.service.Query(ctx, fixture.request("query_knowledge", &query), query); err == nil || code(err) != protocol.ErrorCodeInvalidRequest {
 				t.Errorf("%s error = %v", name, err)
 			}
+		}
+	})
+
+	t.Run("work is held only while sources change", func(t *testing.T) {
+		fixture := newHarness(t)
+		held := func() (int, int) {
+			fixture.mu.Lock()
+			defer fixture.mu.Unlock()
+			return fixture.working, fixture.holding
+		}
+		// A pass over an empty catalog is not work.
+		fixture.sweep()
+		if working, holding := held(); working != 0 || holding != 0 {
+			t.Fatalf("empty pass = %d %d", working, holding)
+		}
+		root := t.TempDir()
+		write(t, filepath.Join(root, "notes.md"), "plain notes\n")
+		fixture.create("Docs", directory(root))
+		fixture.sweep()
+		if working, holding := held(); working != 1 || holding != 0 {
+			t.Fatalf("indexing pass = %d %d", working, holding)
+		}
+		// Neither is a pass that finds every source unchanged.
+		fixture.sweep()
+		if working, holding := held(); working != 1 || holding != 0 {
+			t.Fatalf("unchanged pass = %d %d", working, holding)
 		}
 	})
 }

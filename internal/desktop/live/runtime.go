@@ -30,7 +30,6 @@ type Runtime struct {
 	pluginStatus             map[string]*pluginStatusFeed
 	pluginControls           map[string]*pluginControlPresentation
 	pluginCards              *pluginCardState
-	pluginResources          *pluginResourceState
 	terminals                *terminalState
 	browser                  *browserState
 	authorizations           *authorizationState
@@ -184,7 +183,7 @@ func NewWithPreferences(ctx context.Context, controller *client.Client, prefs *p
 	r.initNetworkUI()
 	r.initB8Packages()
 	r.initPluginViews()
-	r.initPluginResources()
+	r.App.Panel.SetCreateResource(r.createPanelResource)
 	r.App.Hooks.PluginOverlays = r.renderPluginOverlays
 	r.App.Hooks.PluginHeader = r.renderPluginHeader
 	r.App.Hooks.PluginTitle = r.renderPluginTitle
@@ -246,6 +245,11 @@ func (r *Runtime) Close() error {
 	r.cancel()
 	r.workers.Wait()
 	r.observers.Wait()
+	if r.dictation.manager != nil {
+		// A speech download ends with the context and leaves no partial
+		// write behind the closed window.
+		r.dictation.manager.Wait()
+	}
 	return nil
 }
 
@@ -332,7 +336,6 @@ func (r *Runtime) drain(c *ui.Context) {
 	r.packagesFrame(c)
 	r.pluginViewsFrame(c)
 	r.terminalsFrame(c)
-	r.pluginResourcesFrame(c)
 	r.pluginCardsFrame(c)
 	r.networkFrame(c)
 	r.browserFrame()

@@ -24,12 +24,13 @@ import (
 // Desktop side: KEY-022, KEY-023, KEY-024, SKEY-009, SHELL-035 and
 // SHELL-070, as far as the process can be driven without the system.
 //
-// Substitutions and limits: cmd/sailry-desktop registers the keys of
-// App.SystemShortcuts with mygo.GlobalShortcut inline and has no seam, so
-// no key is registered with the system here: the test proves the set of
-// accelerators the entry point reads after each change, the conflict toast
-// through Runtime.ReportShortcutConflict, which the entry point calls when
-// a registration fails, and the commands the registered callbacks send.
+// Substitutions and limits: no key is registered with the system here. The
+// test proves the set of accelerators the entry point reads after each
+// change, the conflict toast through Runtime.ReportShortcutConflict, which
+// the entry point calls when a registration fails, and the commands the
+// registered callbacks send. cmd/sailry-desktop's
+// TestSystemShortcutRegistration proves what the entry point registers and
+// unregisters for such a set.
 // The front app's selection is the package variable selectionReader
 // replaced by a fixed text: no other application is read. The window's
 // activation is the callback handed to Runtime.CaptureSelection, counted.
@@ -117,9 +118,6 @@ func TestSystemShortcutsUI(t *testing.T) {
 	if window.runtime.App.Settings.Keys.Active != "system.selection" || saved()["system.selection"] != "ctrl-alt-s" {
 		t.Fatalf("a refused key ended the recording (%q) or changed the saved key %v", window.runtime.App.Settings.Keys.Active, saved())
 	}
-	// Closing the toast took the focus from the recorder; clicking the
-	// recording button gives it back.
-	clickRow(window, "Use selected text", "Press shortcut")
 	window.tester.Key(0, ui.KeyEscape)
 	settle(window, "Escape cancels the recording", systemUIWait, func() bool {
 		_, found := rowAction(window, "Use selected text", choose)

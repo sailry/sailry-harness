@@ -6,7 +6,7 @@ Core interprets declarations without dispatching by package name.
 
 `internal/node/authorization` supplies bounded HTTP, PKCE, device/polling,
 script workflow effects, token exchange, OIDC verification and issued grants.
-Scripts use the bounded QuickJS translation engine. HTTP and redirects stay
+Scripts use the bounded moejs translation engine. HTTP and redirects stay
 within captured origins and cannot carry credentials to another destination.
 
 Attempts belong to their initiating controller. Login topics expose that

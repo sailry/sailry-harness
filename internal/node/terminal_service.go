@@ -214,7 +214,7 @@ func (node *Node) startTerminal(ctx context.Context, launch terminal.Launch) (pr
 	if launch.Settings, err = node.terminalSettings(ctx); err != nil {
 		return protocol.TerminalInfo{}, err
 	}
-	launch.Root, launch.Environment = root, node.environment.TerminalValues()
+	launch.Root, launch.Environment, launch.Sandbox = root, node.environment.TerminalValues(), node.processes.SandboxTerminal
 	return node.terminals.Start(ctx, launch)
 }
 

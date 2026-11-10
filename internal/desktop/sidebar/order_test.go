@@ -14,7 +14,18 @@ func ids(pins []Pin) []string {
 	return out
 }
 
-func TestOrdersLegacyPinsBeforeNewPins(t *testing.T) {
+// TestOrder groups the sidebar's pure ordering rules; each case keeps its own fixture.
+func TestOrder(t *testing.T) {
+	t.Run("OrdersLegacyPinsBeforeNewPins", testOrdersLegacyPinsBeforeNewPins)
+	t.Run("AppendsPinOrder", testAppendsPinOrder)
+	t.Run("MovePin", testMovePin)
+	t.Run("Window", testWindow)
+	t.Run("RecentOrder", testRecentOrder)
+	t.Run("AdjacentWrapsInSidebarOrder", testAdjacentWrapsInSidebarOrder)
+	t.Run("ValidTitle", testValidTitle)
+}
+
+func testOrdersLegacyPinsBeforeNewPins(t *testing.T) {
 	zero, one := 0, 1
 	now := time.Now()
 	got := ids(OrderPins([]Pin{
@@ -28,7 +39,7 @@ func TestOrdersLegacyPinsBeforeNewPins(t *testing.T) {
 	}
 }
 
-func TestAppendsPinOrder(t *testing.T) {
+func testAppendsPinOrder(t *testing.T) {
 	zero, two := 0, 2
 	if n := NextPinOrder(nil); n != 0 {
 		t.Errorf("first pin: %d", n)
@@ -38,7 +49,7 @@ func TestAppendsPinOrder(t *testing.T) {
 	}
 }
 
-func TestMovePin(t *testing.T) {
+func testMovePin(t *testing.T) {
 	list := []string{"a", "b", "c"}
 	if got, ok := MovePin(list, "a", "c", true); !ok || !slices.Equal(got, []string{"b", "c", "a"}) {
 		t.Errorf("after: %v %v", got, ok)
@@ -54,7 +65,7 @@ func TestMovePin(t *testing.T) {
 	}
 }
 
-func TestWindow(t *testing.T) {
+func testWindow(t *testing.T) {
 	for _, c := range []struct {
 		n        int
 		expanded bool
@@ -67,7 +78,7 @@ func TestWindow(t *testing.T) {
 	}
 }
 
-func TestRecentOrder(t *testing.T) {
+func testRecentOrder(t *testing.T) {
 	got := RecentOrder([]Recent{{ID: "a", Created: 1}, {ID: "b", Created: 3, Archived: true}, {ID: "c", Created: 2}, {ID: "d", Created: 2}})
 	var names []string
 	for _, r := range got {
@@ -78,7 +89,7 @@ func TestRecentOrder(t *testing.T) {
 	}
 }
 
-func TestAdjacentWrapsInSidebarOrder(t *testing.T) {
+func testAdjacentWrapsInSidebarOrder(t *testing.T) {
 	list := []string{"a", "b", "c"}
 	for _, c := range []struct {
 		sel     string
@@ -94,7 +105,7 @@ func TestAdjacentWrapsInSidebarOrder(t *testing.T) {
 	}
 }
 
-func TestValidTitle(t *testing.T) {
+func testValidTitle(t *testing.T) {
 	if s, ok := ValidTitle("  Plan  "); !ok || s != "Plan" {
 		t.Errorf("trim: %q %v", s, ok)
 	}

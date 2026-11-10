@@ -83,6 +83,8 @@ func agentHistoryFixture(t *testing.T, mode protocol.WorkMode) (*Store, protocol
 	}
 	return storage, node, session, turn, now
 }
+
+// Over 1 s only beside the package's other parallel tests: each opens its own synced store.
 func TestAgentHistoryAndReview(t *testing.T) {
 	t.Parallel()
 	t.Run("canonical card authority", testPluginCardAuthority)

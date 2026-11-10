@@ -26,6 +26,10 @@ type Launch struct {
 	// Settings are the saved terminal settings: their environment applies to
 	// every local launch and their shell to one without a tool or command.
 	Settings protocol.TerminalSettings
+	// Sandbox confines the program of a workspace terminal: it returns the
+	// wrapped command, the variables that follow the terminal's own and the
+	// release of its private state.
+	Sandbox func(root string, command, environment []string) ([]string, []string, func(), error)
 	// SSH and Connection replace the local program with a remote shell. The
 	// terminal then has no worktree, access policy or directory.
 	SSH        *protocol.SshID
@@ -57,6 +61,8 @@ type handle struct {
 	service  *Service
 	mu       sync.Mutex
 	terminal *myterminal.Terminal
+	// release removes a workspace terminal's sandbox state.
+	release  func()
 	info     protocol.TerminalInfo
 	viewport protocol.TerminalViewport
 	// activity belongs to the goroutine that reads the terminal's output.
@@ -178,17 +184,20 @@ func (service *Service) Start(ctx context.Context, launch Launch) (protocol.Term
 	if access == "" {
 		access = protocol.ProcessAccessUnrestricted
 	}
-	// The terminal plugin opens the pseudo-terminal inside its own launch and
-	// never reports the device, which a macOS sandbox profile must name, and
-	// the command sandbox is not exported to this package: a workspace
-	// terminal needs a command its caller already confined. A platform
-	// without the sandbox runs as is.
-	if launch.Connection == nil && access == protocol.ProcessAccessWorkspace && len(launch.Command) == 0 && process.SandboxSupported() {
-		err := fault(protocol.ErrorCodeNotConfigured, "workspace terminal requires a prepared sandbox command")
-		finish(protocol.TerminalInfo{}, err)
-		return protocol.TerminalInfo{}, err
+	release := func() {}
+	if launch.Connection == nil && access == protocol.ProcessAccessWorkspace && process.SandboxSupported() {
+		if len(command) == 0 {
+			// A wrapper replaces argv[0], so ask for the login startup files.
+			command = []string{loginShell(environment), "-l"}
+		}
+		confined, variables, free, err := launch.Sandbox(launch.Root, command, environment)
+		if err != nil {
+			finish(protocol.TerminalInfo{}, err)
+			return protocol.TerminalInfo{}, err
+		}
+		command, environment, release = confined, append(environment, variables...), sync.OnceFunc(free)
 	}
-	value := &handle{service: service, viewport: launch.Viewport, info: protocol.TerminalInfo{
+	value := &handle{service: service, viewport: launch.Viewport, release: release, info: protocol.TerminalInfo{
 		ID: launch.ID, Worktree: &launch.Worktree, Tool: launch.Tool, Access: &access,
 		Status: protocol.TerminalStatus{Kind: "running"}, Title: &title, Directory: &launch.Root,
 		Owner: &launch.Caller, Revision: launch.Revision,
@@ -219,6 +228,7 @@ func (service *Service) Start(ctx context.Context, launch Launch) (protocol.Term
 		service.publish(info)
 	}
 	options.OnExit = func(code int) {
+		release()
 		value.mu.Lock()
 		if value.info.Status.Kind != "running" {
 			value.mu.Unlock()
@@ -241,6 +251,7 @@ func (service *Service) Start(ctx context.Context, launch Launch) (protocol.Term
 	}
 	terminal, err := myterminal.New(options)
 	if err != nil {
+		release()
 		finish(protocol.TerminalInfo{}, err)
 		return protocol.TerminalInfo{}, err
 	}
@@ -254,6 +265,7 @@ func (service *Service) Start(ctx context.Context, launch Launch) (protocol.Term
 		value.info.Owner = nil
 		value.mu.Unlock()
 		_ = terminal.Close()
+		release()
 		err := ctx.Err()
 		if err == nil {
 			err = fault(protocol.ErrorCodeUnavailable, "terminal service is stopped")
@@ -345,6 +357,7 @@ func (service *Service) Close() error {
 		value.info.Owner = nil
 		value.mu.Unlock()
 		_ = value.terminal.Close()
+		value.release()
 	}
 	service.work.Wait()
 	close(service.done)

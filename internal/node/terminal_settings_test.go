@@ -18,6 +18,7 @@ import (
 // TestTerminalSettings covers the saved shell and environment of new
 // terminals: validation, revisions, the snapshot revision and discovery. It
 // starts no terminal process.
+// Over 1 s: each Node start installs and verifies the bundled packages.
 func TestTerminalSettings(t *testing.T) {
 	t.Parallel()
 	node := nodeFixture(t)
@@ -128,6 +129,7 @@ func TestTerminalSettings(t *testing.T) {
 // TestTerminalInventory covers what controllers see of terminals that no
 // longer run: they stay in the snapshot with their final status until a close
 // command marks them closed. It starts no terminal process or connection.
+// Over 1 s: each Node start installs and verifies the bundled packages.
 func TestTerminalInventory(t *testing.T) {
 	t.Parallel()
 	node := nodeFixture(t)

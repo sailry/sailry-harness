@@ -783,16 +783,8 @@ func TestCodeIndexCommands(t *testing.T) {
 		if disabled != (protocol.CodeIndexSettings{Revision: 1, Enabled: false}) {
 			t.Fatalf("disabled settings %+v", disabled)
 		}
-		// The saved enablement is applied by the command's deferred effect,
-		// which runs after its completion is delivered.
-		var failure *protocol.Fault
-		attempts := 0
-		acceptanceEventually(t, "a disabled index refuses a search", func() bool {
-			attempts++
-			_, failure = acceptanceCall[protocol.CodeIndexSearchPage](t, node, protocol.Command{Kind: "search_code", Data: protocol.CommandSearchCodePayload{Worktree: main, Query: protocol.CodeIndexSearch{Query: "Serve", Limit: 20}}})
-			return failure != nil
-		})
-		t.Logf("the disabled index refused search attempt %d after the save completed", attempts)
+		// The saved enablement applies before the save completes.
+		_, failure := acceptanceCall[protocol.CodeIndexSearchPage](t, node, protocol.Command{Kind: "search_code", Data: protocol.CommandSearchCodePayload{Worktree: main, Query: protocol.CodeIndexSearch{Query: "Serve", Limit: 20}}})
 		acceptanceFault(t, "disabled search", failure, protocol.ErrorCodeNotConfigured, "code index is disabled")
 		_, failure = acceptanceCall[protocol.CodeIndexOutline](t, node, protocol.Command{Kind: "outline_code", Data: protocol.CommandOutlineCodePayload{Worktree: main, Path: "cmd/server.go"}})
 		acceptanceFault(t, "disabled outline", failure, protocol.ErrorCodeNotConfigured, "code index is disabled")
@@ -808,22 +800,13 @@ func TestCodeIndexCommands(t *testing.T) {
 		if enabled != (protocol.CodeIndexSettings{Revision: 2, Enabled: true}) {
 			t.Fatalf("enabled settings %+v", enabled)
 		}
-		attempts = 0
-		acceptanceEventually(t, "an enabled index answers a search", func() bool {
-			attempts++
-			page, failure := acceptanceCall[protocol.CodeIndexSearchPage](t, node, protocol.Command{Kind: "search_code", Data: protocol.CommandSearchCodePayload{Worktree: main, Query: protocol.CodeIndexSearch{Query: "Serve", Limit: 20}}})
-			if failure != nil {
-				if failure.Code != protocol.ErrorCodeNotConfigured {
-					t.Fatalf("search after enabling again: %+v", failure)
-				}
-				return false
-			}
-			if found := codeSymbols(page.Symbols); len(found) == 0 || found[0].name != "Serve" || page.Partial || page.Truncated {
-				t.Fatalf("search after enabling again found %+v", page)
-			}
-			return true
-		})
-		t.Logf("the enabled index answered search attempt %d after the save completed", attempts)
+		page, failure := acceptanceCall[protocol.CodeIndexSearchPage](t, node, protocol.Command{Kind: "search_code", Data: protocol.CommandSearchCodePayload{Worktree: main, Query: protocol.CodeIndexSearch{Query: "Serve", Limit: 20}}})
+		if failure != nil {
+			t.Fatalf("search after enabling again: %+v", failure)
+		}
+		if found := codeSymbols(page.Symbols); len(found) == 0 || found[0].name != "Serve" || page.Partial || page.Truncated {
+			t.Fatalf("search after enabling again found %+v", page)
+		}
 		if read := acceptanceDo[protocol.CodeIndexSettings](t, node, protocol.Command{Kind: "read_code_index_settings"}); read != enabled {
 			t.Fatalf("saved settings read as %+v", read)
 		}
@@ -840,12 +823,10 @@ func TestCodeIndexCommands(t *testing.T) {
 			t.Fatalf("the worktree has no index cache: %v", err)
 		}
 		acceptanceDo[json.RawMessage](t, node, protocol.Command{Kind: "remove_worktree", Data: protocol.CommandRemoveWorktreePayload{Worktree: created.ID, ExpectedHead: commit, ExpectedBranch: "feature"}})
-		// The cache is deleted by the command's deferred effect, which runs
-		// after its completion is delivered.
-		acceptanceEventually(t, "the removed worktree's index cache is deleted", func() bool {
-			_, err := os.Stat(cache(created.ID))
-			return errors.Is(err, os.ErrNotExist)
-		})
+		// The cache is deleted before the removal completes.
+		if _, err := os.Stat(cache(created.ID)); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("the removed worktree's index cache remains: %v", err)
+		}
 		if _, err := os.Stat(filepath.Join(cache(main), "index.sqlite")); err != nil {
 			t.Fatalf("removing a worktree removed the main cache: %v", err)
 		}

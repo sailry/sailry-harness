@@ -16,6 +16,7 @@ import (
 
 // This checks the production admission, SDK stream, feed and controller route
 // together. Detailed request shaping and reduction cases live in their owners.
+// Over 1 s: each Node start installs and verifies the bundled packages.
 func TestAgentRoundTrip(t *testing.T) {
 	t.Parallel()
 	var requests atomic.Int32

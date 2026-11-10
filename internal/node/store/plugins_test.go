@@ -23,6 +23,7 @@ func pluginTestInfo(name string, digest byte) protocol.PluginInfo {
 	return info
 }
 
+// Over 1 s only beside the package's other parallel tests: each opens its own synced store.
 func TestPluginInventoryAndSettings(t *testing.T) {
 	t.Parallel()
 	t.Run("controller authority", testPluginControllerAuthority)

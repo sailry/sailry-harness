@@ -48,9 +48,6 @@ func View(c *ui.Context, s *State, pr *Project, keys Shortcut) {
 	}
 	own := s.owns(t)
 	ui.Column(c.Key(t)).Grow(1).MinHeight(0).Children(func() {
-		if s.Live && s.pluginResource != nil && s.pluginResource(c, t) {
-			return
-		}
 		if s.Live && t.Kind != Terminal && t.Kind != Files && t.Kind != Changes && t.Kind != History && t.Kind != Documents && t.Kind != Artifact && (t.Kind != Browser || s.BrowserActions == nil) {
 			key := "unavailable"
 			if (t.Kind == Files || t.Kind == Changes) && !s.HasProject {
@@ -87,11 +84,6 @@ func View(c *ui.Context, s *State, pr *Project, keys Shortcut) {
 
 // look is a tab's icon and title.
 func (s *State) look(c *ui.Context, t Tab) (*ui.SVG, string) {
-	if s.pluginResourceTitle != nil {
-		if title, exists := s.pluginResourceTitle(t); exists {
-			return ResourceOf(t.Kind).Icon, title
-		}
-	}
 	switch t.Kind {
 	case Artifact:
 		if f, ok := s.artifacts[t.ID]; ok {

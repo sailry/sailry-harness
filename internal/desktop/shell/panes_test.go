@@ -202,6 +202,8 @@ func dragTo(t *testing.T, tt *ui.Tester, from ui.AccessInfo, x, y float32, durin
 }
 
 // TestPaneDrags groups the cases of one behavior; each keeps its own fixture.
+// Over 1 s: every pointer step of each drag is a full frame of the App, and
+// the five drop zones each split a fresh App with the largest conversation.
 func TestPaneDrags(t *testing.T) {
 	t.Run("DragSessionSplits", testDragSessionSplits)
 	t.Run("DragTerminalTab", testDragTerminalTab)

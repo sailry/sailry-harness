@@ -15,9 +15,19 @@ func named(name string, n int) []Call {
 	return out
 }
 
+// TestGrouping groups the pure grouping and summary rules; each case keeps its own fixture.
+func TestGrouping(t *testing.T) {
+	t.Run("Compact", testCompact)
+	t.Run("RunsAndSequence", testRunsAndSequence)
+	t.Run("Summary", testSummary)
+	t.Run("AnswerFrom", testAnswerFrom)
+	t.Run("LastLines", testLastLines)
+	t.Run("Elapsed", testElapsed)
+}
+
 // Adjacent tool blocks join, text splits them and blank text does not;
 // terminal calls stand alone; adjacent children join.
-func TestCompact(t *testing.T) {
+func testCompact(t *testing.T) {
 	t.Run("citations retain Unicode positions across work and answer blocks", func(t *testing.T) {
 		blocks := []Block{{Kind: TextBlock, Text: "结果🙂"}, {Kind: ToolsBlock, Calls: named("read", 1)}, {Kind: TextBlock, Text: "More"}}
 		citations := []Citation{{URI: "https://example.com/start", End: -1}, {URI: "https://example.com/first", End: 3}, {URI: "https://example.com/next-start", End: -4}, {URI: "https://example.com/second", End: 5}, {URI: "https://example.com/final"}}
@@ -55,7 +65,7 @@ func TestCompact(t *testing.T) {
 	}
 }
 
-func TestRunsAndSequence(t *testing.T) {
+func testRunsAndSequence(t *testing.T) {
 	calls := append(append(named("read", 2), named("grep", 1)...), named("read", 1)...)
 	runs := Runs(calls)
 	if len(runs) != 3 || len(runs[0]) != 2 {
@@ -68,7 +78,7 @@ func TestRunsAndSequence(t *testing.T) {
 
 // The header of a group is its last call with the flags of all of them:
 // failures show only once nothing runs, and a failure hides warnings.
-func TestSummary(t *testing.T) {
+func testSummary(t *testing.T) {
 	calls := named("read", 3)
 	calls[0].Failed, calls[1].Warning, calls[2].Detail = true, true, "last"
 	s := Summary(calls)
@@ -83,7 +93,7 @@ func TestSummary(t *testing.T) {
 
 // The work region ends at the last work block; questions and text after
 // it are the answer.
-func TestAnswerFrom(t *testing.T) {
+func testAnswerFrom(t *testing.T) {
 	blocks := []Block{
 		{Kind: ReasoningBlock},
 		{Kind: ToolsBlock, Calls: named("read", 1)},
@@ -100,7 +110,7 @@ func TestAnswerFrom(t *testing.T) {
 	}
 }
 
-func TestLastLines(t *testing.T) {
+func testLastLines(t *testing.T) {
 	var lines []string
 	for i := range 130 {
 		lines = append(lines, fmt.Sprint(i))
@@ -111,7 +121,7 @@ func TestLastLines(t *testing.T) {
 	}
 }
 
-func TestElapsed(t *testing.T) {
+func testElapsed(t *testing.T) {
 	for d, want := range map[int]string{9: "9s", 65: "1m05s", 3725: "1h02m05s"} {
 		if got := Elapsed(secs(d)); got != want {
 			t.Errorf("%d s is %q, want %q", d, got, want)

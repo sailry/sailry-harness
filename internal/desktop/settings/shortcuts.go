@@ -172,6 +172,11 @@ func shortcuts(c *ui.Context, k *Keys) {
 		}
 		return true
 	})
+	// The recorder keeps the keys when a click elsewhere, as on a toast's
+	// close button, took the focus.
+	if k.Recording() && !k.focus.FocusWithin(c) {
+		k.focus.Focus(c)
+	}
 	page.Children(func() {
 		kit.Group(c, "commands", i18n.T(c, "settings_global_commands"), "", nil, func() {
 			kit.Card(c, func() {

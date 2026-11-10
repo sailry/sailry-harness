@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"io"
 	"io/fs"
 	"net/http"
@@ -26,7 +27,6 @@ import (
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
-	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/link"
@@ -613,11 +613,11 @@ func modelsUIDigest(t *testing.T, path string) string {
 
 // libraryRow is the library dialog's row of a repository and the text of
 // its detail line, which anchors its buttons.
-func libraryRow(w *terminalUI, repository string) (preview.LibraryModel, string, bool) {
+func libraryRow(w *terminalUI, repository string) (viewmodel.LibraryModel, string, bool) {
 	rows := w.runtime.App.Settings.Library
-	index := slices.IndexFunc(rows, func(row preview.LibraryModel) bool { return row.Repo == repository })
+	index := slices.IndexFunc(rows, func(row viewmodel.LibraryModel) bool { return row.Repo == repository })
 	if index < 0 {
-		return preview.LibraryModel{}, "", false
+		return viewmodel.LibraryModel{}, "", false
 	}
 	for _, text := range w.tester.Texts() {
 		if strings.HasPrefix(text, repository+" · ") {
@@ -730,7 +730,7 @@ func TestModelSettingsUI(t *testing.T) {
 	percent := ""
 	settle(window, "the embedding download's percent", modelsUIWait, func() bool {
 		for _, row := range app.Settings.Knowledge.Catalog {
-			if row.ID == embedding.ID && row.Status == preview.ModelDownloading && row.Percent > 0 && row.Percent < 100 {
+			if row.ID == embedding.ID && row.Status == viewmodel.ModelDownloading && row.Percent > 0 && row.Percent < 100 {
 				percent = fmt.Sprintf("%.0f%%", row.Percent)
 			}
 		}
@@ -837,7 +837,7 @@ func TestModelSettingsUI(t *testing.T) {
 	searchLibrary(window, hub, "julia")
 	settle(window, "the hub's result", modelsUIWait, func() bool {
 		row, _, visible := libraryRow(window, modelsUIJuliaRepository)
-		return visible && row.Status == preview.ModelMissing && len(app.Settings.Library) == 1
+		return visible && row.Status == viewmodel.ModelMissing && len(app.Settings.Library) == 1
 	})
 	if requests := hub.seen("search:julia"); len(requests) == 0 || requests[0].host != "huggingface.co" {
 		t.Fatalf("the library search asked %+v", requests)
@@ -845,28 +845,28 @@ func TestModelSettingsUI(t *testing.T) {
 	hub.stall(juliaKey, juliaInfo.Size()/2)
 	clickLibraryRow(window, modelsUIJuliaRepository, "Install")
 	hub.awaitStall(juliaKey)
-	var downloading preview.LibraryModel
+	var downloading viewmodel.LibraryModel
 	settle(window, "the library download's progress", modelsUIWait, func() bool {
 		row, _, visible := libraryRow(window, modelsUIJuliaRepository)
 		downloading = row
-		return visible && row.Status == preview.ModelDownloading && row.Percent > 0 && row.Percent < 100 && shown(window, "Downloading") == 1
+		return visible && row.Status == viewmodel.ModelDownloading && row.Percent > 0 && row.Percent < 100 && shown(window, "Downloading") == 1
 	})
 	clickLibraryRow(window, modelsUIJuliaRepository, "Cancel")
 	requested = false
 	settle(window, "the cancelled library download", modelsUIWait, func() bool {
 		requested = requested || shown(window, "Cancellation requested") > 0
 		row, _, visible := libraryRow(window, modelsUIJuliaRepository)
-		return requested && visible && row.Status == preview.ModelMissing && desk.state(protocol.ModelsKindDecision, modelsUIJuliaRepository) == "missing"
+		return requested && visible && row.Status == viewmodel.ModelMissing && desk.state(protocol.ModelsKindDecision, modelsUIJuliaRepository) == "missing"
 	})
 	hub.stall(juliaKey, 0)
 	clickLibraryRow(window, modelsUIJuliaRepository, "Install")
 	saved = false
-	var installedRow preview.LibraryModel
+	var installedRow viewmodel.LibraryModel
 	settle(window, "the decision model installs", modelsUIInstallWait, func() bool {
 		saved = saved || shown(window, "Saved") > 0
 		row, _, visible := libraryRow(window, modelsUIJuliaRepository)
 		installedRow = row
-		return saved && visible && row.Status == preview.ModelInstalled && desk.state(protocol.ModelsKindDecision, modelsUIJuliaRepository) == "installed"
+		return saved && visible && row.Status == viewmodel.ModelInstalled && desk.state(protocol.ModelsKindDecision, modelsUIJuliaRepository) == "installed"
 	})
 	if requests := hub.seen(juliaKey); len(requests) != 2 || requests[0].ranged != "" || requests[1].ranged == "" || requests[1].host != "huggingface.co" {
 		t.Fatalf("the resumed decision download asked %+v", requests)
@@ -950,11 +950,11 @@ func TestModelSettingsUI(t *testing.T) {
 
 	// (7) The library deletes after a confirmation that names the model.
 	searchLibrary(window, hub, "julia")
-	var listed preview.LibraryModel
+	var listed viewmodel.LibraryModel
 	settle(window, "the installed result", modelsUIWait, func() bool {
 		row, _, visible := libraryRow(window, modelsUIJuliaRepository)
 		listed = row
-		return visible && row.Status == preview.ModelInstalled
+		return visible && row.Status == viewmodel.ModelInstalled
 	})
 	named := shown(window, listed.Name)
 	_, anchor, _ := libraryRow(window, modelsUIJuliaRepository)
@@ -985,7 +985,7 @@ func TestModelSettingsUI(t *testing.T) {
 	settle(window, "the deleted decision model", modelsUIWait, func() bool {
 		deleted = deleted || shown(window, "Deleted") > 0
 		row, _, visible := libraryRow(window, modelsUIJuliaRepository)
-		return deleted && visible && row.Status == preview.ModelMissing && desk.state(protocol.ModelsKindDecision, modelsUIJuliaRepository) != "installed"
+		return deleted && visible && row.Status == viewmodel.ModelMissing && desk.state(protocol.ModelsKindDecision, modelsUIJuliaRepository) != "installed"
 	})
 	if len(app.Settings.Decision.Installed()) != 0 {
 		t.Fatalf("the Decisions page still lists %+v", app.Settings.Decision.Installed())
@@ -1121,7 +1121,7 @@ func TestDictationUI(t *testing.T) {
 	settle(window, "the Voice input page", modelsUIWait, func() bool {
 		return shown(window, "No installed models") == 1 && len(app.Settings.Speech) == 1 && !runtime.dictation.page.checking
 	})
-	if row := app.Settings.Speech[0]; row.ID != "" || row.Status != preview.ModelMissing || app.Settings.SpeechModel != -1 {
+	if row := app.Settings.Speech[0]; row.ID != "" || row.Status != viewmodel.ModelMissing || app.Settings.SpeechModel != -1 {
 		t.Fatalf("the speech rows before installation: %+v, selected %d", app.Settings.Speech, app.Settings.SpeechModel)
 	}
 	press(window, "Available")
@@ -1142,7 +1142,7 @@ func TestDictationUI(t *testing.T) {
 	hub.awaitStall(graphKey)
 	percent := ""
 	settle(window, "the speech download's percent", modelsUIWait, func() bool {
-		if row := app.Settings.Speech[0]; row.Status == preview.ModelDownloading && row.Percent > 0 && row.Percent < 100 {
+		if row := app.Settings.Speech[0]; row.Status == viewmodel.ModelDownloading && row.Percent > 0 && row.Percent < 100 {
 			percent = fmt.Sprintf("%.0f%%", row.Percent)
 		}
 		return percent != "" && shown(window, percent) == 1
@@ -1151,7 +1151,7 @@ func TestDictationUI(t *testing.T) {
 	settle(window, "the cancelled speech download", modelsUIWait, func() bool {
 		state, known := manager.RecommendedState()
 		_, installable := rowAction(window, recommended, "Install")
-		return installable && (!known || state.Status != models.Downloading) && app.Settings.Speech[0].Status == preview.ModelMissing
+		return installable && (!known || state.Status != models.Downloading) && app.Settings.Speech[0].Status == viewmodel.ModelMissing
 	})
 	hub.stall(graphKey, 0)
 	notices := shown(window, "Installed")
@@ -1202,7 +1202,7 @@ func TestDictationUI(t *testing.T) {
 	showSection(window, settings.Dictation)
 	settle(window, "the relaunched Voice input page", modelsUIWait, func() bool {
 		_, selected := rowAction(window, recommended, "Selected")
-		return selected && app.Settings.SpeechModel == 0 && len(app.Settings.Speech) == 1 && app.Settings.Speech[0].Status == preview.ModelInstalled
+		return selected && app.Settings.SpeechModel == 0 && len(app.Settings.Speech) == 1 && app.Settings.Speech[0].Status == viewmodel.ModelInstalled
 	})
 	if runtime.Preferences.Data.DictationModel() != nil {
 		t.Fatalf("the relaunched window selects %v", runtime.Preferences.Data.DictationModel())

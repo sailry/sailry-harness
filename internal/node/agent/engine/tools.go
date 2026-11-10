@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 
@@ -163,7 +162,9 @@ func (r *Runtime) runTools(x *execution, state store.AgentState, calls []canonic
 			results[i] = ToolResult{Failure: &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: call.Error.Message}}
 			continue
 		}
-		if tool == nil || tool.Deferred && !slices.Contains(state.LoadedTools, call.Name) && call.ID != "sailry-selected-"+x.inv.Run.Turn.String() {
+		// A captured deferred tool called by name runs under its own approval:
+		// the saved request already loaded it, as in the Rust catalog.
+		if tool == nil {
 			results[i] = ToolResult{Error: true, Value: map[string]any{"content": []any{map[string]any{"type": "text", "text": "This tool call was not handled."}}, "isError": true}}
 			continue
 		}
@@ -342,42 +343,6 @@ func jsonTool(name, description, schema string, readOnly, concurrent bool, execu
 	}
 	return Tool{Definition: fantasy.FunctionTool{Name: name, Description: description, InputSchema: input}, SchemaJSON: json.RawMessage(schema), ReadOnly: readOnly, Concurrent: concurrent, Execute: execute}
 }
-func searchTools(tools []Tool, query string, limit int) []fantasy.FunctionTool {
-	var selected []fantasy.FunctionTool
-	if names, ok := strings.CutPrefix(strings.TrimSpace(query), "select:"); ok {
-		for _, name := range strings.Split(names, ",") {
-			if tool := findTool(tools, strings.TrimSpace(name)); tool != nil && tool.Deferred && !slices.ContainsFunc(selected, func(v fantasy.FunctionTool) bool { return v.Name == tool.Definition.Name }) {
-				selected = append(selected, tool.Definition)
-				if len(selected) == limit {
-					break
-				}
-			}
-		}
-		return selected
-	}
-	terms := strings.FieldsFunc(strings.ToLower(query), func(r rune) bool { return !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r > 127) })
-	for _, tool := range tools {
-		if !tool.Deferred {
-			continue
-		}
-		haystack := strings.ToLower(tool.Definition.Name + " " + tool.Definition.Description)
-		matched := false
-		for _, term := range terms {
-			if len([]rune(term)) >= 3 && strings.Contains(haystack, term) {
-				matched = true
-				break
-			}
-		}
-		if matched {
-			selected = append(selected, tool.Definition)
-			if len(selected) == limit {
-				break
-			}
-		}
-	}
-	return selected
-}
-
 func returnedToolFailure(result ToolResult) protocol.ToolFailure {
 	if result.ReturnedFailure != nil {
 		return *result.ReturnedFailure

@@ -122,8 +122,11 @@ Inference is CPU-only. There is no fallback runtime, model or GPU path.
     the render with `cancelled`.
   - Output: at most 256 KiB of prompt, counted without the brackets, and the
     prompt must be UTF-8.
-  - Not enforced: an expression or block nesting depth. The parser and
-    evaluator recurse with the nesting of the 128 KiB source.
+  - Nesting: at most 150 open brackets and 150 nested control structures,
+    checked when the model loads (minijinja's parser bound). gonja's parser
+    recurses with the nesting of the source, and a deeper template would
+    overflow the stack instead of failing. Such a template is rejected as
+    "unsupported systemone template".
 - **Lock location.** The lock is embedded from
   `internal/localmodels/decision/llama-runtime.lock.json`, a copy of the
   packaging lock; this repository has no `scripts/package`.
@@ -261,6 +264,10 @@ model and no download from these packages.
 - **Threads and cancellation.** onnxruntime's own thread pool is used with
   the reference's thread counts; worker threads are not lowered in priority.
   Cancellation is observed between model runs, not inside one.
+- **Startup verification.** Node startup accepts the model files their
+  receipts cover and hashes the others in the background; such a model is
+  listed as missing until its hash completes and then announced by
+  `local_models_changed`. The reference hashes them before startup completes.
 - **Availability check.** Catalog availability checks that the runtime files
   exist; size and digest are verified when the first model loads.
 - **Image decoding.** Images are decoded by Go's `image` packages and
