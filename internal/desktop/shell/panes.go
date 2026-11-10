@@ -111,7 +111,7 @@ func (a *App) dropPane(c *ui.Context, dest, t panes.Target, p panes.Placement) {
 
 // closePane takes t out of its split: it stands alone again and the focus
 // goes to the group's next pane. A session keeps its history and a terminal
-// its tab: the preview closes nothing else.
+// keeps running in its tab: closing a pane closes nothing else.
 func (a *App) closePane(c *ui.Context, t panes.Target) {
 	w := &a.panes
 	if !w.Detach(t) {
@@ -221,7 +221,7 @@ func (a *App) paneView(c *ui.Context, t panes.Target) {
 	}, func() {
 		a.paneHeader(c, t)
 		if t.Kind == panes.Terminal {
-			terminalPane(c)
+			a.terminalPane(c, t.ID)
 			return
 		}
 		if cv := a.Data.Find(t.ID); cv != nil {
@@ -249,11 +249,15 @@ func (a *App) paneHeader(c *ui.Context, t panes.Target) {
 	})
 }
 
-// terminalPane is a terminal's pane: a static preview, marked as one, as
-// the panel's terminal tab shows; no shell starts. Rendering the real
-// terminal in a pane comes with B10.
-func terminalPane(c *ui.Context) {
+// terminalPane is a terminal's pane: the screen of the tab's Node terminal,
+// which shows here instead of in its tab while the pane is displayed. The
+// preview shows a static placeholder, marked as one; no shell starts.
+func (a *App) terminalPane(c *ui.Context, id string) {
 	p := theme.Of(c)
+	if actions := a.Panel.TerminalActions; actions != nil && actions.Pane != nil {
+		ui.Column(c.Key("terminal")).Grow(1).MinHeight(0).Background(p.Background).Children(func() { actions.Pane(c, id) })
+		return
+	}
 	ui.Column(c.Key("terminal")).Grow(1).MinHeight(0).Background(p.Muted).Center().Gap(8).Padding(24).Children(func() {
 		ui.Icon(c, icons.Terminal).FontSize(32).TextColor(p.MutedForeground)
 		kit.Tag(c, i18n.T(c, "preview"))
@@ -262,10 +266,16 @@ func terminalPane(c *ui.Context) {
 }
 
 // splitTerminal opens a new terminal beside terminal pane t, within the
-// workspace's limit; the preview terminal is a tab of the right panel, as one
-// the panel's + opens.
+// workspace's limit: a new Node terminal in t's worktree, or the preview's
+// terminal, a tab of the right panel as one the panel's + opens.
 func (a *App) splitTerminal(c *ui.Context, t panes.Target, p panes.Placement) {
 	if len(a.panes.Members(t)) >= panes.Limit {
+		return
+	}
+	if actions := a.Panel.TerminalActions; actions != nil && actions.Split != nil {
+		if id, ok := actions.Split(t.ID); ok {
+			a.dropPane(c, t, panes.Target{Kind: panes.Terminal, ID: id}, p)
+		}
 		return
 	}
 	a.Panel.New(panel.Terminal)

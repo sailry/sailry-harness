@@ -136,6 +136,8 @@ func (s *State) projectMenu(c *ui.Context, m *ui.Menu, pr *preview.Project) {
 		if m.Item(t(key)).Chosen() {
 			if key == "workspace_records" && s.Actions != nil && s.Actions.Records != nil {
 				s.Actions.Records(pr)
+			} else if key == "workspace_new_terminal" && s.Actions != nil && s.Actions.NewTerminal != nil {
+				s.Actions.NewTerminal(pr)
 			} else {
 				s.notice(c)
 			}

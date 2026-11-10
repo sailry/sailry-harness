@@ -103,6 +103,8 @@ type State struct {
 	pluginResourceTitle  func(Tab) (string, bool)
 	Actions              *Actions
 	TerminalActions      *TerminalActions
+	BrowserActions       *BrowserActions
+	documentView         func(*ui.Context, string) bool
 	historyConfirm       confirm
 	Live                 bool
 	HasProject           bool

@@ -1829,3 +1829,6 @@ project_color_amber: 호박색
 project_color_green: 녹색
 project_color_teal: 청록색color
 project_color_cyan: 청록
+terminal_paste_confirm: 여러 줄 붙여넣기
+terminal_paste_warning: 여러 라인이 즉시 명령을 실행할 수 있습니다
+terminal_paste: 붙여넣기

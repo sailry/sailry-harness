@@ -1829,3 +1829,6 @@ project_color_amber: Янтарный
 project_color_green: Зеленый
 project_color_teal: Тиал
 project_color_cyan: Циан
+terminal_paste_confirm: Вставить несколько строк
+terminal_paste_warning: Несколько строк могут выполнять команды немедленно
+terminal_paste: Вставить

@@ -373,6 +373,26 @@ open. Read aloud remains a controller-native effect. Opening a remote session
 in another window keeps its requested selection until remote data arrives.
 These routes use additive Node identity without rewriting protocol SessionIDs.
 
+### B10 visuals
+
+A fenced `mermaid` block inside a reply's Markdown is drawn in place by limu
+(`visuals.go`, the `mermaid` entry of the replies' `markdown.Options.Code`),
+with no WebView. It shares the layout cache of `VisualBlock`: one scene per
+source and reply width, at most 256, laid out again only when the width
+changes. The palette is applied at paint time (`ThemeOnly`), so a theme switch
+lays nothing out. The diagram is centered at its own size and scrolls sideways
+when it is wider than the reply. A block that is still streaming, is empty, is
+over 64 KiB, or that limu cannot read shows as the ordinary code block.
+
+Math is bound by `bindMath`. The default build has no typesetter
+(`math_source.go`): formulas keep their source text, which is the documented
+fallback. `math_untie.go` holds the Untie integration behind the `untie` build
+tag: one process-wide `untiemygo.Renderer` bound with `BindMarkdown` for
+`$…$`, `$$…$$`, `\(…\)` and `\[…\]`, colored from the theme at paint time. It
+needs `github.com/caelyreth/untie` and its `contrib/mygo` module in `go.mod`
+and an OpenType MATH font at `internal/desktop/conversation/math.otf`; until
+both are added the tag does not build.
+
 ## UI state vs backend data
 
 Canonical plugin cards append to the existing tool disclosure in their original
@@ -442,6 +462,8 @@ a running read, its output, then the answer growing a character at a time.
 | The selection pill sits at the turn's top end | MyGo reports the selection's text, not its bounds |
 | Citations are placed in the answer's last text block | Rust offsets them across the text parts of the run |
 | Thinking figures (Orbits, Globe, Ribbon, Ring) approximate Rust's dot drawings | Drawn on the painter at 60 fps from the same states, not ported point for point |
+| Math shows as its TeX source in the default build | Untie is not in `go.mod` and no math font is chosen; the integration waits behind the `untie` build tag |
+| Mermaid is laid out on the UI goroutine and its unreadable sources show the code block without a notice | limu lays a 64 KiB bounded source out once per width; Rust prepares images off the UI thread |
 | ⌘F is a window shortcut, not an entry in the native menu | The shell's menu has no conversation commands yet |
 | Subagent tabs show Bot, not the identicon | `panel.look` returns an icon; the identicon is a drawing |
 | Older pages load when the first turn is built (near the start) | Rust asks on scrolling near the top; the list builds rows just outside the view |

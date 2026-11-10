@@ -14,6 +14,13 @@ import (
 )
 
 func TestWorkspaceHookSettings(t *testing.T) {
+	t.Run("terminal settings projection", checkTerminalSettingsHelpers)
+	t.Run("terminal tabs prune", testTerminalTabsPrune)
+	t.Run("terminal tabs create", testTerminalTabsCreate)
+	t.Run("terminal tabs close", testTerminalTabsClose)
+	t.Run("terminal tabs project", testTerminalTabsProject)
+	t.Run("browser address", testBrowserAddress)
+	t.Run("browser capture", testBrowserCapture)
 	t.Run("remote settings keep their owner through navigation and completion", func(t *testing.T) {
 		owners := make([]*Runtime, 2)
 		transports := make([]*conversationTestTransport, 2)

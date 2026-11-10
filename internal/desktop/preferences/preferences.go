@@ -30,6 +30,19 @@ type Terminal struct {
 	FontFamily      string `json:"font_family"`
 	PasteProtection bool   `json:"paste_protection"`
 }
+
+// TerminalFontSize is the terminals' text size in DIPs, 8 to 32
+// (terminal.font_size).
+func (d *Data) TerminalFontSize() float32 { return float32(d.Terminal.FontSize) }
+
+// TerminalFontFamily is the terminals' font family without surrounding
+// space, "" for the platform's monospace font (terminal.font_family).
+func (d *Data) TerminalFontFamily() string { return strings.TrimSpace(d.Terminal.FontFamily) }
+
+// TerminalPasteProtection reports whether a terminal confirms a paste of
+// several lines before sending it (terminal.paste_protection).
+func (d *Data) TerminalPasteProtection() bool { return d.Terminal.PasteProtection }
+
 type Device struct {
 	Name      *string `json:"name"`
 	Execution bool    `json:"execution"`

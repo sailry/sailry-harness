@@ -253,6 +253,7 @@ func (p *workspaceProject) readDocument(id string) {
 		if !ok {
 			return
 		}
+		p.runtime.storeDocument(id, value)
 		p.runtime.async(func() {
 			text, err := htmltomarkdown.ConvertString(value.Html)
 			p.runtime.enqueue(func(c *ui.Context) {

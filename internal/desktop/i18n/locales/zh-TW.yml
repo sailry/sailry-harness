@@ -1829,3 +1829,6 @@ project_color_amber: 琥珀
 project_color_green: 綠色
 project_color_teal: 青綠
 project_color_cyan: 青色
+terminal_paste_confirm: 貼上多行內容
+terminal_paste_warning: 多行內容可能立即執行命令
+terminal_paste: 貼上

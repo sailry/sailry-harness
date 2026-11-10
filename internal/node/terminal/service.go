@@ -2,7 +2,6 @@ package terminal
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -11,6 +10,7 @@ import (
 
 	myterminal "github.com/egoist/mygo/plugins/terminal"
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/node/process"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -23,9 +23,16 @@ type Launch struct {
 	Access      protocol.ProcessAccess
 	Command     []string
 	Environment []string
-	Viewport    protocol.TerminalViewport
-	Appearance  protocol.TerminalAppearance
-	Revision    uint64
+	// Settings are the saved terminal settings: their environment applies to
+	// every local launch and their shell to one without a tool or command.
+	Settings protocol.TerminalSettings
+	// SSH and Connection replace the local program with a remote shell. The
+	// terminal then has no worktree, access policy or directory.
+	SSH        *protocol.SshID
+	Connection *SSHConnection
+	Viewport   protocol.TerminalViewport
+	Appearance protocol.TerminalAppearance
+	Revision   uint64
 }
 
 type Service struct {
@@ -64,10 +71,10 @@ func (service *Service) Start(ctx context.Context, launch Launch) (protocol.Term
 	if err := ctx.Err(); err != nil {
 		return protocol.TerminalInfo{}, err
 	}
-	if err := validateViewport(launch.Viewport); err != nil {
+	if err := ValidateViewport(launch.Viewport); err != nil {
 		return protocol.TerminalInfo{}, err
 	}
-	if !filepath.IsAbs(launch.Root) {
+	if launch.Connection == nil && !filepath.IsAbs(launch.Root) {
 		return protocol.TerminalInfo{}, fault(protocol.ErrorCodeInvalidRequest, "terminal worktree root must be absolute")
 	}
 	if launch.ID == (protocol.TerminalID{}) {
@@ -76,13 +83,23 @@ func (service *Service) Start(ctx context.Context, launch Launch) (protocol.Term
 	if launch.Revision == 0 {
 		launch.Revision = 1
 	}
-	command := slices.Clone(launch.Command)
-	if launch.Tool != nil && len(command) == 0 {
-		path, err := resolveTool(launch.Root, launch.Environment, *launch.Tool)
+	command, directory := slices.Clone(launch.Command), launch.Root
+	environment := Environment(launch.Environment, launch.Settings)
+	switch {
+	case launch.Connection != nil || len(command) != 0:
+	case launch.Tool != nil:
+		path, err := resolveTool(launch.Root, environment, *launch.Tool)
 		if err != nil {
 			return protocol.TerminalInfo{}, err
 		}
 		command = []string{path}
+	default:
+		var variables []string
+		var err error
+		if command, variables, directory, err = shellCommand(runtime.GOOS, launch.Settings, launch.Root); err != nil {
+			return protocol.TerminalInfo{}, err
+		}
+		environment = append(environment, variables...)
 	}
 	service.mu.Lock()
 	if service.stopped {
@@ -137,7 +154,10 @@ func (service *Service) Start(ctx context.Context, launch Launch) (protocol.Term
 	if access == "" {
 		access = protocol.ProcessAccessUnrestricted
 	}
-	if access == protocol.ProcessAccessWorkspace && len(launch.Command) == 0 {
+	// The terminal plugin owns the pseudo-terminal, so its device cannot be
+	// granted to a sandbox profile here: a workspace terminal needs a command
+	// its caller already confined. A platform without the sandbox runs as is.
+	if launch.Connection == nil && access == protocol.ProcessAccessWorkspace && len(launch.Command) == 0 && process.SandboxSupported() {
 		err := fault(protocol.ErrorCodeNotConfigured, "workspace terminal requires a prepared sandbox command")
 		finish(protocol.TerminalInfo{}, err)
 		return protocol.TerminalInfo{}, err
@@ -147,39 +167,50 @@ func (service *Service) Start(ctx context.Context, launch Launch) (protocol.Term
 		Status: protocol.TerminalStatus{Kind: "running"}, Title: &title, Directory: &launch.Root,
 		Owner: &launch.Caller, Revision: launch.Revision,
 	}}
-	terminal, err := myterminal.New(myterminal.Options{
-		Command: command, Dir: launch.Root, Env: slices.Clone(launch.Environment),
-		ShellIntegration: true, Theme: terminalTheme(launch.Appearance),
-		ClipboardRead: myterminal.ClipboardForward,
-		OnTitle: func(title string) {
-			value.mu.Lock()
-			if value.info.Status.Kind != "running" {
-				value.mu.Unlock()
-				return
-			}
-			value.info.Title = &title
-			info := value.info
+	options := myterminal.Options{
+		Command: command, Dir: directory, Env: environment,
+		// Prompt marks belong to the default startup of a plain shell.
+		ShellIntegration: launch.Tool == nil && len(launch.Settings.ShellArguments) == 0,
+	}
+	if launch.Connection != nil {
+		value.info.Worktree, value.info.Access, value.info.Directory, value.info.Ssh = nil, nil, nil, launch.SSH
+		options = myterminal.Options{Conn: launch.Connection}
+	}
+	options.Theme = terminalTheme(launch.Appearance)
+	options.ClipboardRead = myterminal.ClipboardForward
+	options.OnTitle = func(title string) {
+		value.mu.Lock()
+		if value.info.Status.Kind != "running" {
 			value.mu.Unlock()
-			service.publish(info)
-		},
-		OnExit: func(code int) {
-			value.mu.Lock()
-			if value.info.Status.Kind != "running" {
-				value.mu.Unlock()
-				return
-			}
-			if code < 0 {
-				value.info.Status = protocol.TerminalStatus{Kind: "failed", Data: protocol.TerminalStatusFailedPayload{Message: "terminal process could not start"}}
-			} else {
-				value.info.Status = protocol.TerminalStatus{Kind: "exited", Data: protocol.TerminalStatusExitedPayload{Code: uint32(code)}}
-			}
-			value.info.Owner = nil
-			value.info.Revision++
-			info := value.info
+			return
+		}
+		value.info.Title = &title
+		info := value.info
+		value.mu.Unlock()
+		service.publish(info)
+	}
+	options.OnExit = func(code int) {
+		value.mu.Lock()
+		if value.info.Status.Kind != "running" {
 			value.mu.Unlock()
-			service.publish(info)
-		},
-	})
+			return
+		}
+		switch {
+		case launch.Connection != nil:
+			// A connection always reports code zero; the session has the status.
+			value.info.Status = launch.Connection.status()
+		case code < 0:
+			value.info.Status = protocol.TerminalStatus{Kind: "failed", Data: protocol.TerminalStatusFailedPayload{Message: "terminal process could not start"}}
+		default:
+			value.info.Status = protocol.TerminalStatus{Kind: "exited", Data: protocol.TerminalStatusExitedPayload{Code: uint32(code)}}
+		}
+		value.info.Owner = nil
+		value.info.Revision++
+		info := value.info
+		value.mu.Unlock()
+		service.publish(info)
+	}
+	terminal, err := myterminal.New(options)
 	if err != nil {
 		finish(protocol.TerminalInfo{}, err)
 		return protocol.TerminalInfo{}, err
@@ -325,34 +356,8 @@ func resolveTool(root string, environment []string, tool protocol.TerminalToolsT
 	if _, err := tool.MarshalJSON(); err != nil {
 		return "", fault(protocol.ErrorCodeInvalidRequest, "unknown terminal tool")
 	}
-	searchPath, extensions := "", ""
-	for _, entry := range environment {
-		name, value, valid := strings.Cut(entry, "=")
-		if valid && strings.EqualFold(name, "PATH") {
-			searchPath = value
-		}
-		if valid && strings.EqualFold(name, "PATHEXT") {
-			extensions = value
-		}
-	}
-	suffixes := []string{""}
-	if runtime.GOOS == "windows" {
-		if extensions == "" {
-			extensions = ".COM;.EXE;.BAT;.CMD"
-		}
-		suffixes = strings.Split(extensions, ";")
-	}
-	for _, directory := range filepath.SplitList(searchPath) {
-		if !filepath.IsAbs(directory) {
-			directory = filepath.Join(root, directory)
-		}
-		for _, extension := range suffixes {
-			candidate := filepath.Join(directory, string(tool)+extension)
-			info, err := os.Stat(candidate)
-			if err == nil && info.Mode().IsRegular() && (runtime.GOOS == "windows" || info.Mode()&0111 != 0) {
-				return candidate, nil
-			}
-		}
+	if path, found := findExecutable(root, environment, string(tool)); found {
+		return path, nil
 	}
 	return "", fault(protocol.ErrorCodeNotConfigured, "terminal tool is unavailable on this Node")
 }

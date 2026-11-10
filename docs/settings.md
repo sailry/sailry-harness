@@ -403,3 +403,42 @@ The preview constructor remains isolated and shows its existing empty sharing
 code. The previously documented sharing-scope and WSL UI deviations remain.
 Executable acceptance and cross-platform runtime checks belong to the
 coordinator; this wiring's implementation review uses static checks only.
+
+## B10 Terminal wiring
+
+Settings › Terminal is live. `live/settings_terminal.go` keeps the page on the
+Node of the host selected in the shell (`App.Host`, the local Node by default)
+and holds each Node's draft while another is shown. While the page shows, it
+runs `read_terminal_settings` and then `list_shells` when the Node's settings
+are unknown, after a save that did not succeed, and when the snapshot reports
+a newer `terminal_settings_revision`. A failed read is one
+`terminal_settings_failed` toast and is tried again when the page is entered
+anew. Controls stay disabled until the settings are read
+(`Model.SaveTerminal` is nil) and while a save is pending.
+
+The shell select lists the host's default, the Node's shells once each, and
+the saved shell when the Node did not list it. Shells whose program names
+collide show their whole command. Environment variables are shown by name.
+Add, Edit, Delete and the shell select call `Model.SaveTerminal`, which sends
+`save_terminal_settings` with the whole draft at the revision read. Success
+takes the Node's answer; failure, conflict and unknown outcomes are the
+`terminal_settings_*` toasts and keep the draft. A request with an unknown
+outcome is retained and reused by an identical draft. After a failed or
+conflicting save the settings are read again: the saved value and revision
+follow the Node while a differing draft stays, so the next change saves it at
+the new revision.
+
+Paste protection, font size and font family are controller preferences
+(`terminal.paste_protection`, `terminal.font_size`, `terminal.font_family`),
+saved with the other preferences after the frame that changed them. Terminals
+read them through `preferences.Data.TerminalFontSize`, `TerminalFontFamily`
+and `TerminalPasteProtection`.
+
+Deviations: an invalid request and a failed shell list use
+`terminal_settings_failed`, and a kept draft has no Reload action, because
+`terminal_settings_invalid`, `terminal_shells_failed`,
+`terminal_settings_reload` and `terminal_settings_discard_reload` are not in
+the internal key list. Shells show their program name, not the catalog's
+friendly names (`locales/terminal-shells.*.yml`). An unavailable Node during a
+save reports failure, not an unknown outcome. The font family is saved as
+typed on each change, not trimmed on blur; readers get it trimmed.

@@ -41,6 +41,7 @@ func buttons(tt *ui.Tester, name string) int {
 }
 
 func TestPanesRender(t *testing.T) {
+	t.Run("live terminal pane", testLiveTerminalPane)
 	a, tt := newTester(t)
 	splitThree(t, a, tt)
 	snapshot(t, tt, "panes-split")

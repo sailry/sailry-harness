@@ -25,6 +25,17 @@ type ProjectActions struct {
 	Repository     func() ProjectRepository
 	Initialize     func(func(bool))
 	CLI            func(*viewmodel.Project)
+	// NewTerminal starts a terminal in the project's main worktree and shows
+	// its tab. Terminals lists the project's terminals the Node has not
+	// closed, and OpenTerminal shows one's tab.
+	NewTerminal  func(*viewmodel.Project)
+	Terminals    func() []ProjectTerminal
+	OpenTerminal func(id string)
+}
+
+// ProjectTerminal is one row of a project's Terminal records.
+type ProjectTerminal struct {
+	ID, Title, Path string
 }
 
 type projectOverview struct {
@@ -117,12 +128,14 @@ func (a *App) projectView(c *ui.Context) {
 				}).OnClick(func() { state.actions.NewSession(project) })
 				for _, key := range []string{"workspace_new_terminal", "cli_launch"} {
 					label := i18n.T(c, key)
-					available := key == "cli_launch" && state.actions.CLI != nil
+					available := key == "cli_launch" && state.actions.CLI != nil || key == "workspace_new_terminal" && state.actions.NewTerminal != nil
 					button := kit.Secondary(c.Key(key), label).Disabled(!available).Children(func() {
 						ui.Icon(c, icons.Terminal).FontSize(16)
 						ui.Text(c, label).FontSize(14)
 					})
-					if available {
+					if available && key == "workspace_new_terminal" {
+						button.OnClick(func() { state.actions.NewTerminal(project) })
+					} else if available {
 						button.OnClick(func() { state.actions.CLI(project) })
 					} else {
 						kit.Tooltip(c, button, i18n.T(c, "unavailable"))
@@ -145,12 +158,40 @@ func (a *App) projectRecordsView(c *ui.Context, project *viewmodel.Project, stat
 			ui.SearchField(c.Key("search"), &state.search).Placeholder(label).Label(label).Width(240).MinWidth(0)
 		})
 		ui.Column(c.Key("records")).FillWidth().Border(1, palette.Border).Radius(palette.RadiusLg).Padding(8).Children(func() {
-			if state.tab == 1 {
-				kit.Result(c, kit.ResultProps{Icon: icons.Terminal, Title: i18n.T(c, "unavailable")}).FillWidth()
-				return
-			}
 			query := strings.ToLower(strings.TrimSpace(state.search))
 			shown := 0
+			if state.tab == 1 {
+				if state.actions.Terminals == nil {
+					kit.Result(c, kit.ResultProps{Icon: icons.Terminal, Title: i18n.T(c, "unavailable")}).FillWidth()
+					return
+				}
+				for _, terminal := range state.actions.Terminals() {
+					title := terminal.Title
+					if title == "" {
+						title = i18n.T(c, "terminal")
+					}
+					if query != "" && !strings.Contains(strings.ToLower(title), query) && !strings.Contains(strings.ToLower(terminal.Path), query) {
+						continue
+					}
+					shown++
+					kit.Ghost(c.Key("terminal/"+terminal.ID), title, false).FillWidth().Padding(12).Gap(12).Justify(ui.Start).
+						Disabled(state.actions.OpenTerminal == nil).Children(func() {
+						ui.Icon(c, icons.Terminal).FontSize(16).Shrink(0).TextColor(palette.MutedForeground)
+						ui.Column(c.Key("details")).Grow(1).MinWidth(0).Gap(4).Children(func() {
+							ui.Text(c, title).FontSize(14).SingleLine()
+							ui.Text(c, terminal.Path).FontSize(12).SingleLine().TextColor(palette.MutedForeground)
+						})
+					}).OnClick(func() { state.actions.OpenTerminal(terminal.ID) })
+				}
+				if shown == 0 {
+					key := "workspace_no_terminal"
+					if query != "" {
+						key = "connection_search_empty"
+					}
+					kit.Result(c, kit.ResultProps{Icon: icons.Terminal, Title: i18n.T(c, key)}).FillWidth()
+				}
+				return
+			}
 			for _, session := range project.Conversations {
 				if (!a.Preview && session.Node != state.node) || (state.actions.VisibleSession != nil && !state.actions.VisibleSession(session)) {
 					continue

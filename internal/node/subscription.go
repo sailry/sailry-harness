@@ -38,6 +38,9 @@ func (node *Node) Subscribe(ctx context.Context, caller protocol.NodeID, topic p
 	if topic.Kind == "scoped_installations" {
 		return node.subscribeScopedInstallations(ctx, caller, topic)
 	}
+	if topic.Kind == "browser" {
+		return node.browsers.subscribe(caller)
+	}
 	if topic.Kind == "python" {
 		return &pythonEvents{node: node, initial: true, closed: make(chan struct{})}, nil
 	}

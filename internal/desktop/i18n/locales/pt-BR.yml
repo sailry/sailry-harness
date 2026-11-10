@@ -1829,3 +1829,6 @@ project_color_amber: Âmbar
 project_color_green: Verde
 project_color_teal: Teal
 project_color_cyan: Ciano
+terminal_paste_confirm: Colar várias linhas
+terminal_paste_warning: Várias linhas podem executar comandos imediatamente
+terminal_paste: Colar

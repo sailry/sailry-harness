@@ -140,6 +140,7 @@ func main() {
 			}
 			bindConversation(ctx, entry, speech)
 			bindFiles(entry, backend.Client.Target())
+			runtime.SetWebViewWindow(entry.window)
 			runtime.SetOpenService(func(address string) {
 				if err := mygo.Shell.OpenExternal(address); err != nil {
 					runtime.Report(err)

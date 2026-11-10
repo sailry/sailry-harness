@@ -90,7 +90,7 @@ func TestTerminalMirrorIntegration(t *testing.T) {
 			if _, err := service.Input(protocol.NodeID{3}, protocol.CommandInputTerminalPayload{Terminal: info.ID, Revision: info.Revision, Bytes: []byte("blocked")}); err == nil {
 				t.Fatal("another controller wrote terminal input")
 			}
-			if _, err := service.CloseTerminal(*info.Worktree, info.ID); err != nil {
+			if _, err := service.CloseTerminal(info.Worktree, info.ID); err != nil {
 				t.Fatal(err)
 			}
 			if len(service.List(*info.Worktree)) != 0 {

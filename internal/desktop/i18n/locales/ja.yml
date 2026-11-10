@@ -1829,3 +1829,6 @@ project_color_amber: アンバー
 project_color_green: グリーン
 project_color_teal: ティール
 project_color_cyan: シアン
+terminal_paste_confirm: 複数行を貼り付け
+terminal_paste_warning: 複数の行は直ちにコマンドを実行できます
+terminal_paste: 貼り付け

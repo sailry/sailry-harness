@@ -58,6 +58,10 @@ func (s *State) pageOf(id string) *page {
 // page's placeholder. ⌘T opens another tab and ⌘R reloads while the focus is
 // in it. The preview loads nothing: going and reloading toast so.
 func (s *State) browser(c *ui.Context, t Tab) {
+	if s.Live && s.BrowserActions != nil {
+		s.liveBrowser(c, t)
+		return
+	}
 	p := theme.Of(c)
 	b := s.pageOf(t.ID)
 	col := ui.Column(c.Key("browser")).Grow(1).MinHeight(0)
@@ -122,15 +126,21 @@ func (s *State) Find() bool {
 }
 
 // terminal is a terminal tab: the folder it runs in, Close and New terminal
-// over the screen's placeholder, and MyGo's find bar at its top right, ⌘F
-// opening it while the focus is in the tab. The preview starts no shell:
-// there is nothing to match.
+// over the screen, and MyGo's find bar at its top right, ⌘F opening it while
+// the focus is in the tab. The preview starts no shell and shows the
+// screen's placeholder: there is nothing to match. A live tab shows its Node
+// terminal through TerminalActions.
 func (s *State) terminal(c *ui.Context, t Tab) {
 	p := theme.Of(c)
 	x := s.termOf(t.ID)
 	col := ui.Column(c.Key("terminal")).Grow(1).MinHeight(0)
 	if col.Shortcut(ui.Cmd, ui.KeyF) && !c.ShortcutRepeated() {
 		x.find = true
+	}
+	if s.TerminalActions != nil && s.TerminalActions.Folder != nil {
+		if folder, known := s.TerminalActions.Folder(t.ID); known {
+			x.cwd = folder
+		}
 	}
 	col.Children(func() {
 		toolbar(c, "toolbar", func() {

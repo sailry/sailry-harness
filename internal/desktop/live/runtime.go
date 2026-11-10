@@ -31,6 +31,8 @@ type Runtime struct {
 	pluginControls           map[string]*pluginControlPresentation
 	pluginCards              *pluginCardState
 	pluginResources          *pluginResourceState
+	terminals                *terminalState
+	browser                  *browserState
 	authorizations           *authorizationState
 	packages                 *packageState
 	parent                   *Runtime
@@ -52,6 +54,7 @@ type Runtime struct {
 	workspace                *workspaceState
 	workspaceSettings        workspaceSettingsState
 	workspaceSettingsOwner   *Runtime
+	terminalSettings         terminalSettingsState
 	pendingSession           string
 	transferDialogOwner      *Runtime
 	admittedSessions         map[string]protocol.Session
@@ -310,12 +313,15 @@ func (r *Runtime) drain(c *ui.Context) {
 		r.App.Panel.Data = &viewmodel.Workspace{}
 	}
 	r.workspaceSettingsFrame()
+	r.terminalSettingsFrame()
 	r.teamsFrame()
 	r.packagesFrame(c)
 	r.pluginViewsFrame(c)
+	r.terminalsFrame(c)
 	r.pluginResourcesFrame(c)
 	r.pluginCardsFrame(c)
 	r.networkFrame(c)
+	r.browserFrame()
 	snapshot := r.controller.Snapshot()
 	if snapshot.PowerSettingsRevision != r.powerObservedRevision && !r.App.Settings.Power.Pending {
 		r.readPower()

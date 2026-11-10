@@ -7,7 +7,8 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-func validateViewport(viewport protocol.TerminalViewport) error {
+// ValidateViewport checks a requested terminal size before any launch work.
+func ValidateViewport(viewport protocol.TerminalViewport) error {
 	if viewport.Columns < 1 || viewport.Columns > 500 || viewport.Rows < 1 || viewport.Rows > 200 {
 		return fault(protocol.ErrorCodeInvalidRequest, "terminal viewport is outside the supported range")
 	}
@@ -108,7 +109,7 @@ func (service *Service) Input(caller protocol.NodeID, input protocol.CommandInpu
 }
 
 func (service *Service) Resize(caller protocol.NodeID, input protocol.CommandResizeTerminalPayload) (protocol.TerminalInfo, error) {
-	if err := validateViewport(input.Viewport); err != nil {
+	if err := ValidateViewport(input.Viewport); err != nil {
 		return protocol.TerminalInfo{}, err
 	}
 	value, err := service.get(input.Terminal)
@@ -139,13 +140,19 @@ func (service *Service) Appearance(caller protocol.NodeID, input protocol.Comman
 	return value.info, nil
 }
 
-func (service *Service) CloseTerminal(worktree protocol.WorktreeID, id protocol.TerminalID) (protocol.TerminalInfo, error) {
+// CloseTerminal closes a worktree's terminal, or an SSH terminal when
+// worktree is nil.
+func (service *Service) CloseTerminal(worktree *protocol.WorktreeID, id protocol.TerminalID) (protocol.TerminalInfo, error) {
 	value, err := service.get(id)
 	if err != nil {
 		return protocol.TerminalInfo{}, err
 	}
 	value.mu.Lock()
-	if value.info.Worktree == nil || *value.info.Worktree != worktree {
+	if worktree == nil && value.info.Ssh == nil {
+		value.mu.Unlock()
+		return protocol.TerminalInfo{}, fault(protocol.ErrorCodeWrongTarget, "terminal is not an SSH connection")
+	}
+	if worktree != nil && (value.info.Worktree == nil || *value.info.Worktree != *worktree) {
 		value.mu.Unlock()
 		return protocol.TerminalInfo{}, fault(protocol.ErrorCodeWrongTarget, "terminal belongs to another worktree")
 	}
@@ -154,12 +161,13 @@ func (service *Service) CloseTerminal(worktree protocol.WorktreeID, id protocol.
 	value.info.Revision++
 	info := value.info
 	value.mu.Unlock()
-	err = value.terminal.Close()
+	// The terminal is closed either way; a teardown error changes nothing.
+	_ = value.terminal.Close()
 	service.mu.Lock()
 	delete(service.handles, id)
 	service.mu.Unlock()
 	service.publish(info)
-	return info, err
+	return info, nil
 }
 
 func payload[Value any](data any) (Value, bool) {

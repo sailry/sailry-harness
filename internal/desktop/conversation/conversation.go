@@ -82,6 +82,7 @@ func View(c *ui.Context, s *State, id string, turns []Turn, sess *Session, actio
 	defer func() { s.renderSession = previousSession }()
 	s.messageTheme(c)
 	s.md.ShareSelection = true
+	s.bindVisuals()
 	if sess != nil && sess.Loading {
 		loading(c)
 		return

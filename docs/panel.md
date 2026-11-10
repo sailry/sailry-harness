@@ -17,11 +17,53 @@ controller-owned process was introduced. The minimal terminal service retains
 the source's limit of 32 running/pending starts and shares same-ID startup
 reservations without holding its registry lock across native work.
 
-Browser tabs, SSH terminals, shell/settings, split terminal rendering and split
-shortcuts remain B10. The explicit preview still draws its marked placeholder.
+SSH terminal opening remains B10; live browser tabs, live terminal tabs and split
+panes are described below. The explicit preview still draws its marked placeholder.
 Headless macOS and authenticated Link integration results are coordinator-owned;
 visible Kitty images, actual IME interaction and Windows ConPTY require their
 named platform checks.
+
+### B10 live terminal tabs
+
+In live mode a terminal tab is the shell of one Node terminal and its tab ID is
+that terminal's ID. `live/terminal_tabs.go` owns the window's inventory on the
+root runtime; `live/terminal.go` owns the MyGo terminal of each tab.
+
+| Action | Backend |
+|---|---|
+| New terminal (toolbar, launcher, +, ⌃`) | `create_terminal` in the selected worktree with unrestricted access. The prepared request ID is the terminal ID, so the tab shows before the Node answers; a failed creation takes the tab back and toasts |
+| Toolbar folder | `TerminalInfo.Directory` through `TerminalActions.Folder` |
+| Close terminal | `close_terminal`, or `close_ssh_terminal` for a terminal without a worktree; the tab leaves on success or `not_found`, any other outcome keeps it and toasts failure, conflict or uncertain |
+| Closing the tab in the strip | Detaches the window only; the terminal keeps running and stays in the project's Terminal records |
+| Find | MyGo terminal search through `TerminalActions.Search` |
+| Saved tab after relaunch | The first frame that shows it subscribes again; a terminal that is not running is sent `open_terminal` first, which restarts a stored shell under the same ID |
+
+Each frame `terminalsFrame` ports the reference `prune`: a tab stays only while
+a Node's snapshot has its terminal with a status other than `closed`. Tabs of a
+Node that is not connected stay, a tab created by a command stays until its
+terminal first appears in a snapshot, and a saved tab no Node has reported
+leaves once the local Node and every discovered peer delivered a snapshot.
+Tabs with the preview's numeric IDs name no Node terminal and leave in live
+mode. A terminal whose tab is gone is detached, never closed.
+
+When an enabled plugin declares a terminal renderer with a creation
+contribution, the plugin path above still creates and draws the tab. Without
+one, the core tab is used.
+
+The terminal display preferences are read in one place,
+`Runtime.terminalDisplay`: font size and family apply to every open core
+terminal as they change, and paste protection holds a paste of several lines
+behind a confirmation (`terminal_paste_confirm`, `terminal_paste_warning`,
+`terminal_paste`). Plugin-mounted terminals keep their own options.
+
+Deviations:
+
+| Deviation | Reason |
+|---|---|
+| While a terminal's split pane is displayed, its tab's screen is empty | MyGo shows a terminal in one view at a time; the pane owns the screen |
+| Terminal tabs keep the title Terminal | The accepted tab title is unchanged; the Node title shows in the project's Terminal records |
+| An exited, failed or stopped shell keeps its tab until Close terminal | The Node keeps those terminals listed; only `closed` or missing ones are pruned, as the reference does |
+| A saved tab of a peer discovered after every known Node answered is dropped | A tab stores no Node; ownership is known only from snapshots |
 
 The column right of the conversation: one flat strip of tabs, each an
 open item, over the active one, or the launcher when none is open (the reference implementation
@@ -235,7 +277,44 @@ remain the native core panel owners.
 The plugin terminal bridge reuses the existing MyGo Mirror/Conn owner and
 checks workspace read/control authority before creating a view. Disconnection
 retains its native presentation while disabling interaction. General terminal
-settings, split-terminal acceptance and browser execution remain B10.
+settings and split-terminal acceptance remain B10.
+
+## Live browser and documents
+
+A live Browser tab is a pinned MyGo `WebView` under the accepted chrome
+(`panel/browser_live.go`, `live/browser.go`). Back and Forward follow the
+page's history, Reload and ⌘R reload it and stay disabled before a first
+address, Enter loads the address with `https://` added when it names no scheme,
+and New tab and ⌘T open another tab. The page is untrusted: it has no host
+function, opens no window and stays on HTTP(S) addresses without embedded
+credentials. A workspace plugin that declares a browser resource still creates
+it; the core tab is the fallback. The WebView is created before the next frame
+builds and is destroyed with its tab. Where the system has no WebView the tab
+shows the `unavailable` result.
+
+The agent's browser tool uses the same tabs. `internal/node/browser.go` routes
+`use_browser` to the controller that issued it as a `browser_call` update on
+the `browser` topic and settles it with `complete_browser`: one subscription
+per controller, a 30-second deadline, a retryable fault for unanswered reads
+and an unknown outcome for unanswered actions. `browser.read` and
+`browser.control` plugin tools reach it through the turn's native tools; control
+actions ask for workspace approval. `client.ServeBrowser` delivers each call and
+`live/browser_calls.go` runs it against the tabs opened in the call's
+conversation with the automation script of the reference, never with source
+the model provides. Captures are measured, cropped and encoded within 1 MiB and
+1568 pixels by `live/browser_capture.go`, and the Node checks them again.
+
+A session document renders its own HTML (`live/document_view.go`,
+`panel/document_live.go`) in a WebView with an ephemeral session, no preload,
+no trusted origin and developer tools disabled. The HTML sits in a
+`sandbox="allow-scripts"` frame of an opaque origin under a policy without
+network access, and the page may only be `about:blank` or `about:srcdoc`. The
+document tab keeps its converted text until the HTML is read or where no WebView
+exists. The view is destroyed once a frame no longer places it.
+
+`go run -tags integration ./internal/desktop/live/browserprobe` checks page
+loading, the automation script, capture and the document sandbox on the
+current platform against a page it serves itself.
 
 ## Live file editing
 
@@ -355,7 +434,10 @@ at its width.
 | The split's list is a fixed column past our own drag handle | MyGo's `Split` sizes its first pane, so a first frame jumped |
 | Hunks show in the Git tab's main area, not a dialog | One place for the preview's diffs |
 | Preview Git forms, Output, commit and stash documents show the notice | Live adapters require a real repository; B0 remains isolated |
-| Browser and terminal are placeholders in their chrome | Rendering is later work (MyGo WebView, libghostty-vt) |
+| Preview browser and terminal are placeholders in their chrome | The preview loads no page and starts no process; live tabs render (MyGo WebView, libghostty-vt) |
+| Browser tabs belong to the window, each to the conversation it was opened in | The accepted panel keeps one flat tab strip; the agent drives only its own conversation's tabs, and a tab opened in a draft follows the session that draft becomes |
+| Saving a browser capture as a session file is unavailable | The Node has no generated-media publication owner yet; inline captures are returned |
+| Browser tools are listed without a connected browser | The turn catalog is frozen before a controller subscribes; a call then reports the disconnected controller |
 | The browser's chrome is core | In the reference the browser plugin draws it; the preview has no plugin UI host |
 | Controller-native folder opening is unavailable for remote workspaces | A remote path grants no controller filesystem authority and there is no supported remote folder-open effect |
 

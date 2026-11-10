@@ -10,6 +10,8 @@ require (
 	github.com/MoeForge/moejs v0.1.0
 	github.com/anthropics/anthropic-sdk-go v1.84.0
 	github.com/bmatcuk/doublestar/v4 v4.10.4
+	github.com/caelyreth/untie v0.5.0
+	github.com/caelyreth/untie/contrib/mygo v0.5.0
 	github.com/cenkalti/backoff/v5 v5.0.3
 	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/creack/pty/v2 v2.0.1
@@ -99,6 +101,7 @@ require (
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/go-text/typesetting v0.3.5 // indirect
+	github.com/go-typeset/bidi v0.3.1 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/gobwas/glob v0.2.3 // indirect
 	github.com/goccy/go-yaml v1.19.2 // indirect

@@ -62,6 +62,7 @@ func (transport *topicTransport) Subscribe(ctx context.Context, topic protocol.T
 }
 
 func TestTopicRecovery(t *testing.T) {
+	t.Run("serve browser", testServeBrowser)
 	t.Parallel()
 	first := &topicFixture{fail: true, first: make(chan struct{})}
 	second := &topicFixture{updates: make(chan protocol.Update, 1), closed: make(chan struct{})}

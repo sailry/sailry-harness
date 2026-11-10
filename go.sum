@@ -77,6 +77,10 @@ github.com/bmatcuk/doublestar/v4 v4.10.4 h1:oTKkRmRuOsKMqFe1AQazd9gGBFNEpOmgKp/x
 github.com/bmatcuk/doublestar/v4 v4.10.4/go.mod h1:xBQ8jztBU6kakFMg+8WGxn0c6z1fTSPVIjEY1Wr7jzc=
 github.com/buger/jsonparser v1.1.2 h1:frqHqw7otoVbk5M8LlE/L7HTnIq2v9RX6EJ48i9AxJk=
 github.com/buger/jsonparser v1.1.2/go.mod h1:6RYKKt7H4d4+iWqouImQ9R2FZql3VbhNgx27UK13J/0=
+github.com/caelyreth/untie v0.5.0 h1:qIOhfHtjlA3nfzWQaBFDFyZgWipYJs6YdMh1VV8948I=
+github.com/caelyreth/untie v0.5.0/go.mod h1:5/Y+ktLaE+mTqFbl4IjAEQMMMjA3eEykEib+/ZIpVDg=
+github.com/caelyreth/untie/contrib/mygo v0.5.0 h1:CQxSKRq+T14S66AyKOsnGmpBpMKnxpGSGk24rEqahUM=
+github.com/caelyreth/untie/contrib/mygo v0.5.0/go.mod h1:DYBf2r2mWeNRVL8bwM3rR7NeteozNFBJpU7FsE9zL9Q=
 github.com/cenkalti/backoff/v5 v5.0.3 h1:ZN+IMa753KfX5hd8vVaMixjnqRZ3y8CuJKRKj1xcsSM=
 github.com/cenkalti/backoff/v5 v5.0.3/go.mod h1:rkhZdG3JZukswDf7f0cwqPNk4K0sa+F97BxZthm/crw=
 github.com/cespare/xxhash/v2 v2.3.0 h1:UL815xU9SqsFlibzuggzjXhog7bL6oX9BbNZnL2UFvs=
@@ -149,6 +153,8 @@ github.com/go-text/typesetting v0.3.5 h1:XZPUooClHY0Vf/rFyUyuPRNEkawARaFzLMQcXLS
 github.com/go-text/typesetting v0.3.5/go.mod h1:XZO1hD+nQVyvVa5IicQk7FsCa4PFQaJ2soWAP1f//68=
 github.com/go-text/typesetting-utils v0.0.0-20260419141703-4ffe8874dabc h1:8FGo2It5K75XkavhTiCKExUfVaVDS1feBnLCru5qeoY=
 github.com/go-text/typesetting-utils v0.0.0-20260419141703-4ffe8874dabc/go.mod h1:3/62I4La/HBRX9TcTpBj4eipLiwzf+vhI+7whTc9V7o=
+github.com/go-typeset/bidi v0.3.1 h1:fsTa0b9txt2SkH7M55EZ06+q3N9C4O0Oerf+SPLLGFs=
+github.com/go-typeset/bidi v0.3.1/go.mod h1:ct3cmYT8Qt1FGJQ+2QaakrUxqaP4ZysgdQQg2ym5+Xo=
 github.com/go-viper/mapstructure/v2 v2.5.0 h1:vM5IJoUAy3d7zRSVtIwQgBj7BiWtMPfmPEgAXnvj1Ro=
 github.com/go-viper/mapstructure/v2 v2.5.0/go.mod h1:oJDH3BJKyqBA2TXFhDsKDGDTlndYOZ6rGS0BRZIxGhM=
 github.com/gobwas/glob v0.2.3 h1:A4xDbljILXROh+kObIiy5kIaPYD8e96x1tgBhUI5J+Y=

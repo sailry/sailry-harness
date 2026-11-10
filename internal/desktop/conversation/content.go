@@ -177,23 +177,40 @@ type diagramKey struct {
 	width int
 }
 
-// diagrams keeps the scenes laid out, as layout measures every label.
-var diagrams sync.Map
+// laidOut is what limu made of a source at a width: its scene, or why it
+// could not read it.
+type laidOut struct {
+	sc  *scene.Scene
+	err error
+}
+
+// diagramLimit bounds the layouts kept: a window resized across many
+// widths starts over rather than keeping a scene for each.
+const diagramLimit = 256
+
+// diagrams keeps the scenes laid out, as layout measures every label, and
+// the sources limu could not read, so they are not parsed every frame.
+var diagrams = struct {
+	sync.Mutex
+	m map[diagramKey]laidOut
+}{m: map[diagramKey]laidOut{}}
 
 // diagram is src laid out for a width (a frame's whole DIPs; none before
 // the first layout), in the app's fonts and 14 DIP text.
 func diagram(src string, width float32) (*scene.Scene, error) {
 	k := diagramKey{src, max(int(width), 0)}
-	if sc, ok := diagrams.Load(k); ok {
-		return sc.(*scene.Scene), nil
+	diagrams.Lock()
+	defer diagrams.Unlock()
+	if d, ok := diagrams.m[k]; ok {
+		return d.sc, d.err
 	}
 	o := &layout.Options{Measurer: limumygo.DefaultFonts, FontSize: 14, MaxWidth: float64(k.width), Snap: 0.5}
 	sc, err := limu.Layout(src, o)
-	if err != nil {
-		return nil, err
+	if len(diagrams.m) >= diagramLimit {
+		clear(diagrams.m)
 	}
-	diagrams.Store(k, sc)
-	return sc, nil
+	diagrams.m[k] = laidOut{sc, err}
+	return sc, err
 }
 
 // diagramTheme is limu's theme in the palette's colors: no fill behind

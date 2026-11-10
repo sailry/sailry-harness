@@ -219,7 +219,11 @@ func (node *Node) workspaceTools(ctx context.Context, inv *store.AgentInvocation
 	if err != nil {
 		return nil, err
 	}
-	return node.pluginTools(ctx, inv, append(tools, connections...))
+	browsers, err := node.browserTools(ctx, inv)
+	if err != nil {
+		return nil, err
+	}
+	return node.pluginTools(ctx, inv, append(append(tools, connections...), browsers...))
 }
 func workspaceToolFault(err error) engine.ToolResult {
 	return engine.ToolResult{Failure: nodeFault(err).(*protocol.Fault)}

@@ -51,7 +51,7 @@ func View(c *ui.Context, s *State, pr *Project, keys Shortcut) {
 		if s.Live && s.pluginResource != nil && s.pluginResource(c, t) {
 			return
 		}
-		if s.Live && t.Kind != Terminal && t.Kind != Files && t.Kind != Changes && t.Kind != History && t.Kind != Documents && t.Kind != Artifact {
+		if s.Live && t.Kind != Terminal && t.Kind != Files && t.Kind != Changes && t.Kind != History && t.Kind != Documents && t.Kind != Artifact && (t.Kind != Browser || s.BrowserActions == nil) {
 			key := "unavailable"
 			if (t.Kind == Files || t.Kind == Changes) && !s.HasProject {
 				key = "resource_project_empty"
@@ -658,7 +658,9 @@ func (s *State) document(c *ui.Context, id string) {
 		if d.ID != id {
 			continue
 		}
-		ui.Scroll(c.Key(d.ID)).Grow(1).Padding(16).Children(func() { kit.Markdown(c, d.Text, kit.MarkdownProps{}) })
+		if !s.liveDocument(c, d.ID) {
+			ui.Scroll(c.Key(d.ID)).Grow(1).Padding(16).Children(func() { kit.Markdown(c, d.Text, kit.MarkdownProps{}) })
+		}
 		status(c, d.Path, nil)
 	}
 }

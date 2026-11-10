@@ -1841,3 +1841,6 @@ project_color_amber
 project_color_green
 project_color_teal
 project_color_cyan
+terminal_paste_confirm
+terminal_paste_warning
+terminal_paste

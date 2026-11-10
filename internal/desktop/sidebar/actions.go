@@ -27,6 +27,7 @@ type Actions struct {
 	OpenWorkspace func(*viewmodel.Project, *viewmodel.Conversation)
 	Overview      func(*viewmodel.Project)
 	CLI           func(*viewmodel.Project)
+	NewTerminal   func(*viewmodel.Project)
 }
 
 func (s *State) removeLabel() string {

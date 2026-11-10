@@ -161,6 +161,9 @@ func (r *Runtime) createPluginResource(kind panel.Kind) bool {
 	root.initPluginResources()
 	owner := root.selectedRuntime()
 	if owner == nil || !owner.controller.Connected() || owner.workspace == nil || owner.workspace.selected == (protocol.WorktreeID{}) {
+		if kind == panel.Browser && root.browser != nil {
+			return false
+		}
 		root.Report(pluginNativeFault(protocol.ErrorCodeUnavailable, "resource creation requires an available workspace"))
 		return true
 	}
@@ -182,6 +185,13 @@ func (r *Runtime) createPluginResource(kind panel.Kind) bool {
 		}
 		root.wake()
 		return true
+	}
+	if kind == panel.Terminal {
+		root.createLiveTerminal(owner, owner.workspace.selected)
+		return true
+	}
+	if root.browser != nil {
+		return false
 	}
 	root.Report(pluginNativeFault(protocol.ErrorCodeUnavailable, "workspace resource renderer is unavailable"))
 	return true
@@ -230,6 +240,9 @@ func (r *Runtime) renderPluginResource(view *ui.Context, tab panel.Tab) bool {
 				break
 			}
 		}
+	}
+	if pane == nil && !strings.HasPrefix(tab.ID, "plugin/") {
+		return false
 	}
 	if pane == nil {
 		kit.Result(view, kit.ResultProps{Icon: panel.ResourceOf(tab.Kind).Icon, Title: i18n.T(view, "terminal_unavailable")}).Grow(1).Justify(ui.Center)

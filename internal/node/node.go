@@ -48,6 +48,7 @@ type Node struct {
 	wsl               *wsl.Service
 	databases         databaseOperations
 	ports             *ports.Service
+	browsers          browserRegistry
 	cancel            context.CancelFunc
 	web               *workspaceWeb
 	transfers         *files.Transfers
@@ -290,6 +291,9 @@ func (node *Node) Dispatch(ctx context.Context, caller protocol.NodeID, request 
 	}
 	if request.Command.Kind == "open_port" || request.Command.Kind == "cancel_port" {
 		return node.dispatchPort(ctx, caller, request)
+	}
+	if request.Command.Kind == "use_browser" || request.Command.Kind == "complete_browser" {
+		return node.dispatchBrowser(ctx, caller, request, encoded)
 	}
 	supported := supportedCommand(request.Command.Kind)
 	durable := request.Command.Durable()

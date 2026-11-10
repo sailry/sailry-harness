@@ -94,6 +94,9 @@ func (r *Runtime) openProjectOverviewAt(project *viewmodel.Project, selectedPath
 		OpenSession: func(cv *viewmodel.Conversation, done func(bool)) {
 			root.openProjectSession(project, cv, done)
 		},
+		NewTerminal:  func(current *viewmodel.Project) { root.newProjectTerminal(current, selectedPath) },
+		Terminals:    func() []shell.ProjectTerminal { return root.projectTerminals(project) },
+		OpenTerminal: root.showLiveTerminal,
 	}
 	if owner := root.projectOverviewRuntime(project); owner != nil {
 		if worktree, ok := owner.projectWorktree(project, selectedPath); ok {

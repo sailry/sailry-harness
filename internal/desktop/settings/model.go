@@ -134,6 +134,7 @@ type Model struct {
 	HooksSandboxed    func() bool
 	TeamActions       *TeamActions
 	SaveTelemetry     func()
+	SaveTerminal      func()
 	ProviderActions   ProviderActions
 	ConnectorActions  *ConnectorActions
 	PackageActions    *PackageActions

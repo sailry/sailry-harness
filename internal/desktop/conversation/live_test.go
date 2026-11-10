@@ -114,6 +114,8 @@ func scenesTester(t *testing.T, dark bool, lang string) (*conversation.State, []
 // Every new block shows on the preview's scenes, in both languages and
 // modes; snapshots go to $SAILRY_SNAPSHOTS when set.
 func TestLiveBlocks(t *testing.T) {
+	t.Run("mermaid", checkMermaidBlocks)
+	t.Run("math", checkMath)
 	for _, lang := range []string{"en", "zh-CN"} {
 		for _, dark := range []bool{false, true} {
 			_, _, r, tt := scenesTester(t, dark, lang)

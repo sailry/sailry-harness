@@ -1829,3 +1829,6 @@ project_color_amber: Bernstein
 project_color_green: Grün
 project_color_teal: Teal
 project_color_cyan: Cyan
+terminal_paste_confirm: Mehrere Zeilen einfügen
+terminal_paste_warning: Mehrere Zeilen können Befehle sofort ausführen
+terminal_paste: Einfügen

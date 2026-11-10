@@ -322,8 +322,27 @@ used only by the preview. Closing a live guide persists the profile choice.
 
 The new notification centre uses existing Kit page/card/segmented controls. Live
 host views hide preview-only notes; B7 supplies their real facts and metrics.
-Terminal panes retain the accepted static preview until their resource phase
-and never start a process.
+In the preview, terminal panes retain the accepted static placeholder and never
+start a process.
+
+### B10 live terminal panes
+
+In live mode a terminal pane builds its tab's Node terminal through
+`panel.TerminalActions.Pane` (see [panel.md](panel.md#b10-live-terminal-tabs));
+the pane's ID is the tab's, which is the Node terminal's. ⌘D and ⌘⇧D call
+`TerminalActions.Split`, which starts a Node terminal in the pane's worktree,
+and drop its tab beside the pane within the 9-pane limit. Closing a pane, after
+the existing confirmation, only removes it from the split: the terminal keeps
+running in its tab. A tab the live inventory prunes, because its Node closed
+the terminal or no longer reports it, takes its pane out of the split through
+`followPanes`. Saved `Prefs.Panes` and `Prefs.PanelTabs` come back at start-up
+and reattach when first shown.
+
+Project ⋯ › New terminal (`sidebar.Actions.NewTerminal`) and the project
+overview's New terminal (`ProjectActions.NewTerminal`) start a terminal in the
+project's worktree and open its tab. The overview's Terminal records list the
+project's terminals its Node has not closed (`ProjectActions.Terminals`) and a
+row shows that terminal's tab (`ProjectActions.OpenTerminal`).
 
 ## B4 conversation wiring
 
