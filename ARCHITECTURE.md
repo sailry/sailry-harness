@@ -456,6 +456,9 @@ dispatch service and require an online Node.
 - MyGo and `internal/desktop/kit` own standard controls, semantic themes, focus,
   keyboard behavior and overlays. Desktop owns product composition and small
   native adapters. Accepted layouts and view-model fields remain stable.
+- CrychicUI fills approved gaps only, with its sound off and untrusted data
+  passed through `internal/desktop/kit/crychic` (see
+  [docs/crychic.md](docs/crychic.md)). It never replaces a Kit component.
 - Terminal rendering uses MyGo's terminal plugin and libghostty-vt if its spike
   passes; the specified fallback is a purego binding with Sailry's renderer.
   The controls around the terminal remain Kit controls.

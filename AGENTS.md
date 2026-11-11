@@ -80,6 +80,8 @@ release procedures are in [CONTRIBUTING.md](CONTRIBUTING.md); package rules are 
   framework internals.
 - Lobe MyGo is a source reference for already adapted Kit components, not a module
   dependency. Preserve imported notices.
+- CrychicUI is allowed only for the approved gaps in
+  [docs/crychic.md](docs/crychic.md); Kit wins when both have a component.
 - Custom rendering requires a verified framework gap and an explanation in the
   feature's deviations. Right-click menus are OS-native; left-click menus use
   Kit menus or popovers.

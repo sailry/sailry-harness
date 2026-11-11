@@ -63,6 +63,7 @@ In the **Linked into** column, D is Desktop, H is Host and M is Mobile.
 | `github.com/dustin/go-humanize` | v1.1.0 | MIT | `LICENSE` | D H |
 | `github.com/ebitengine/purego` | v0.11.3 | Apache-2.0 | `LICENSE` | D H M |
 | `github.com/egoist/mygo` | v0.8.4-0.20261109104234-eadf1fce6af3 | MIT | `LICENSE` | D H |
+| `github.com/ELY-Open-Source/CrychicUI` | v0.0.0-20261110123803-1c55e6a884bb | MIT; bundled Lucide icons ISC | `LICENSE`, `THIRD_PARTY_NOTICES.md` | D |
 | `github.com/emirpasic/gods` | v1.18.1 | BSD-2-Clause, ISC | `LICENSE` | D H |
 | `github.com/felixge/httpsnoop` | v1.1.0 | MIT | `LICENSE.txt` | D H |
 | `github.com/firede/limu` | v0.5.0 | MIT | `LICENSE` | D |

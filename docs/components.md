@@ -17,8 +17,12 @@ ours in `internal/desktop/kit`. Theme tokens and surfaces are in
    `ToastBase`, `CollapsibleBase`, `TextInputBase`), with custom drawing only
    where MyGo has no such figure (the reason stays in the doc comment).
 
+4. An approved CrychicUI component, only for a gap the three above leave and
+   under the rules in [crychic.md](crychic.md). Kit wins when both have one.
+
 Every floating layer (dialog, popover, menu, select, toast, tooltip, hover
-card) paints through `kit.Floating`. Nothing else sets a floating surface.
+card) paints through `kit.Floating`. Nothing else sets a floating surface,
+except the six CrychicUI overlays named in [crychic.md](crychic.md).
 
 ## Kit components
 

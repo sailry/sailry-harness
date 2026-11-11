@@ -13,6 +13,7 @@ import (
 	_ "github.com/egoist/mygo/locales/zh-Hant"
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/kit/crychic"
 	"github.com/sailry/sailry-harness/internal/desktop/live"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/reader"
@@ -54,6 +55,7 @@ func run() error {
 		}
 	}()
 	mygo.App.SetLanguages(i18n.Languages...)
+	crychic.Setup()
 	var notifier *live.Notifier
 	var notificationWindow *mygo.Window
 	if backend.Client != nil {

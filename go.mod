@@ -7,6 +7,7 @@ require (
 	filippo.io/age v1.3.2
 	filippo.io/edwards25519 v1.2.0
 	github.com/Bios-Marcel/wastebasket/v2 v2.0.3
+	github.com/ELY-Open-Source/CrychicUI v0.0.0-20261110123803-1c55e6a884bb
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.2
 	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/MoeForge/moego v0.1.0-alpha.1
