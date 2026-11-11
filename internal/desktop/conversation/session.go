@@ -123,9 +123,9 @@ func Quote(text string) string {
 	return strings.Join(lines, "\n") + "\n\n"
 }
 
-// selection is the pill over a turn holding a selection: Quote and Copy, at
-// the turn's top end.
-func selection(c *ui.Context, turn ui.Element, actions Actions) {
+// selection is the pill over a turn holding a selection: Quote (disabled in a
+// read-only session), Copy and New conversation, at the turn's top end.
+func selection(c *ui.Context, turn ui.Element, readonly bool, actions Actions) {
 	sel := turn.SelectedTexts()
 	if len(sel) == 0 {
 		return
@@ -140,14 +140,15 @@ func selection(c *ui.Context, turn ui.Element, actions Actions) {
 		return
 	}
 	kit.Floating(c, ui.Row(c.Key("selection"))).Absolute().Top(-4).Right(padX).Padding(4).Gap(4).Radius(18).Children(func() {
-		pill := func(key, label string, do func()) {
-			kit.Ghost(c.Key(key), label, false).Height(28).PaddingX(10).Radius(14).
+		pill := func(key, label string, do func()) ui.Element {
+			return kit.Ghost(c.Key(key), label, false).Height(28).PaddingX(10).Radius(14).
 				Children(func() { ui.Text(c, label).FontSize(14) }).OnClick(do)
 		}
-		pill("quote", i18n.T(c, "message_quote"), func() { actions.Quote(Quote(text)) })
+		pill("quote", i18n.T(c, "message_quote"), func() { actions.Quote(Quote(text)) }).Disabled(readonly)
 		pill("copy", i18n.T(c, "message_copy"), func() {
 			c.WriteClipboard(text)
 			kit.Message(c, i18n.T(c, "content_copied"))
 		})
+		pill("new", i18n.T(c, "chat_new"), func() { actions.Start(Quote(text)) })
 	})
 }

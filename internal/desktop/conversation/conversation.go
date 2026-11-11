@@ -11,6 +11,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
+	"github.com/egoist/mygo/ui/markdown/parser"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
@@ -39,14 +40,15 @@ type State struct {
 	md            markdown.Options // the replies' (kit.Markdown fills the rest)
 	mdBase        *markdown.Theme
 	mdSize        float32
-	light         float32    // the welcome wordmark's beam, in window DIPs
-	lit           bool       // the pointer has moved over the welcome page
-	view          Viewer     // the image viewer
-	rewind        string     // the turn whose rewind waits to be confirmed
-	reading       string     // the turn read aloud
-	find          search     // the search bar
-	wantOlder     bool       // the start came into view this frame
-	nav           navigation // the message navigation rail
+	light         float32          // the welcome wordmark's beam, in window DIPs
+	lit           bool             // the pointer has moved over the welcome page
+	view          Viewer           // the image viewer
+	edits         map[string]*edit // the open message editor of each conversation
+	rewind        string           // the turn whose rewind waits to be confirmed
+	reading       string           // the turn read aloud
+	find          search           // the search bar
+	wantOlder     bool             // the start came into view this frame
+	nav           navigation       // the message navigation rail
 	// Split is whether the transcripts show in the panes of a split, which have
 	// no navigation rail.
 	Split            bool
@@ -60,6 +62,15 @@ type State struct {
 	// OpenLink takes a link of a reply the application opens itself, as a
 	// knowledge source; the rest open as the system opens them.
 	OpenLink func(c *ui.Context, session, link string) bool
+	// Embed resolves a link (image false) or an image standing alone in a
+	// reply of session to what shows in its place; false leaves it as
+	// Markdown shows it.
+	Embed func(session, dest, label string, image bool) (Embed, bool)
+	// SessionLink reports a link that opens a session: it carries the
+	// agent's icon.
+	SessionLink func(link string) bool
+	result      *Block            // the search result open over the window
+	resultMD    *markdown.Options // its answer's Markdown
 }
 
 func New() *State {
@@ -87,6 +98,13 @@ func View(c *ui.Context, s *State, id string, turns []Turn, sess *Session, actio
 	s.messageTheme(c)
 	s.md.ShareSelection = true
 	s.bindVisuals()
+	s.md.Block, s.md.LinkIcon = nil, nil
+	if s.Embed != nil {
+		s.md.Block = func(c *ui.Context, d *parser.Document, i int) bool { return s.embed(c, id, d, i, actions) }
+	}
+	if s.SessionLink != nil {
+		s.md.LinkIcon = sessionIcon(c, s.SessionLink)
+	}
 	if s.OpenLink != nil {
 		s.md.OnLink = func(link string) {
 			switch {
@@ -128,6 +146,7 @@ func View(c *ui.Context, s *State, id string, turns []Turn, sess *Session, actio
 	}
 	s.viewer(c, actions)
 	s.confirmRewind(c, actions)
+	s.searchResult(c)
 	s.referenceDialog(c, id)
 }
 
@@ -146,14 +165,16 @@ func (s *State) turn(c *ui.Context, session string, i int, t *Turn, n int, sess 
 		if first {
 			s.older(c, sess, actions)
 		}
-		selection(c, col, actions)
+		selection(c, col, sess != nil && sess.ReadOnly, actions)
 		if t.Compaction != nil {
 			s.compaction(c, t)
 			return
 		}
 		if t.User != "" || len(t.Images) > 0 || len(t.Files) > 0 {
 			ui.Column(c.Key("user")).Gap(8).Children(func() {
-				if t.User != "" {
+				if t.Editing != nil {
+					s.editor(c, session, t, actions)
+				} else if t.User != "" {
 					var hl []ui.Span
 					if marked {
 						hl = spans(t.User, q, current, theme.Of(c))
@@ -191,7 +212,6 @@ func (s *State) turn(c *ui.Context, session string, i int, t *Turn, n int, sess 
 // colors, border and radius, with its corner art; marks, when set, are its
 // text with the search's matches marked.
 func userMessage(c *ui.Context, text string, marks []ui.Span, references []Reference) {
-	p := theme.Of(c)
 	ui.Row(c).Justify(ui.End).Children(func() {
 		var b ui.Element
 		if len(references) > 0 {
@@ -201,24 +221,32 @@ func userMessage(c *ui.Context, text string, marks []ui.Span, references []Refer
 		} else {
 			b = ui.Text(c, text)
 		}
-		b.FontSize(kit.MessageTextSize(c)).LineHeight(1.6).Padding(9, 14).Radius(p.Radius).Background(kit.Veil(c, p.Muted)).TextColor(p.Foreground).MaxWidth(bubbleMax)
-		v := p.Variant
-		if v == nil {
-			return
-		}
-		if m, ok := v.Messages["user"]; ok {
-			b.Background(kit.Veil(c, m.Background.Or(p.Muted))).TextColor(m.Foreground.Or(p.Foreground))
-			if m.Radius != nil {
-				b.Radius(*m.Radius)
-			}
-			if m.BorderWidth > 0 {
-				b.Border(m.BorderWidth, m.Border.Or(p.Border))
-			}
-		}
-		if v.Asset("message.user.top_left") != nil || v.Asset("message.user.bottom_right") != nil {
-			b.Draw(func(pt *ui.Painter, r ui.Rect) { kit.Corners(pt, r, v, "message.user") })
-		}
+		bubble(c, b.FontSize(kit.MessageTextSize(c)).LineHeight(1.6).Padding(9, 14).MaxWidth(bubbleMax))
 	})
+}
+
+// bubble gives b the user message's look: the theme's colors, border, radius
+// and corner art.
+func bubble(c *ui.Context, b ui.Element) ui.Element {
+	p := theme.Of(c)
+	b.Radius(p.Radius).Background(kit.Veil(c, p.Muted)).TextColor(p.Foreground)
+	v := p.Variant
+	if v == nil {
+		return b
+	}
+	if m, ok := v.Messages["user"]; ok {
+		b.Background(kit.Veil(c, m.Background.Or(p.Muted))).TextColor(m.Foreground.Or(p.Foreground))
+		if m.Radius != nil {
+			b.Radius(*m.Radius)
+		}
+		if m.BorderWidth > 0 {
+			b.Border(m.BorderWidth, m.Border.Or(p.Border))
+		}
+	}
+	if v.Asset("message.user.top_left") != nil || v.Asset("message.user.bottom_right") != nil {
+		b.Draw(func(pt *ui.Painter, r ui.Rect) { kit.Corners(pt, r, v, "message.user") })
+	}
+	return b
 }
 
 // messageTheme scales the caller-owned Markdown theme without changing Kit's
@@ -428,6 +456,9 @@ func phaseRow(c *ui.Context, r *Reply) {
 		label = i18n.T(c, "turn_awaiting_response")
 	case Compacting:
 		label = i18n.T(c, "turn_compacting")
+		if r.PhaseElapsed >= time.Second {
+			label += " " + Elapsed(r.PhaseElapsed)
+		}
 	case WaitingChildren:
 		if r.Waiting == 1 {
 			label = i18n.T(c, "turn_waiting_child")

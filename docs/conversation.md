@@ -25,6 +25,8 @@ Kit's `MessageScroller`.
 | `content.go` | File cards, thumbnails (Kit's `ImageGroup`), visuals, notices, grounding, retries, compaction turns, the changes card, `Cite`, `Kind`, `FileIcon` |
 | `viewer.go` | The image viewer: `Viewer` is `kit.Viewer[Image]` (zoom 0.25–8 by 1.25, pan, turn, flip, gallery and its counter) drawn by `kit.ImageViewer` |
 | `actions.go` | The reply and user footers, fork and export menus, rewind confirmation, `AnswerText`, `Resendable` |
+| `edit.go` | The inline editor of a sent message |
+| `embed.go` | File and image cards from a reply's Markdown, the session link icon |
 | `search.go` | ⌘F search (MyGo's `FindBar`), `Find`, `Mark`, match highlights and reveal |
 | `session.go` | Loading, older pages, connection banner, diagnostic, selection pill, `Quote` |
 | `usage.go` | The context bar's metrics and the composer's context ring (`UsageBar`, `ContextRing`, `Metrics`, `Count`) |
@@ -224,8 +226,17 @@ Kit `MessageScroller`, in `jump.go`:
 | `Reply.Notice` | A notice-only run: no reply frame |
 | `ImagesBlock` / `Block.Images` | Thumbnails (`kit.Image`) up to 240 DIPs, wrapping; a Skeleton while `Source` is nil |
 | `FilesBlock` / `Block.Files` (`File`) | File cards; a document with `Image` shows it on top |
-| `SearchBlock` / `Block.Sources` | Globe "Search results" disclosure listing the sources |
-| `RetryBlock` / `Block.Retry` (`Attempt`, `Limit`, `Reason` key, `Detail`, `Exhausted`) | Network row, shimmer while active, the provider's message when opened |
+| `SearchBlock` / `Block.Sources`, `Block.Suggestions` | Globe "Search results" row; it opens the result dialog: the answer as Markdown, the numbered sources and the links of the provider's suggestions. Only http(s) links without credentials open, in the system browser |
+| `RetryBlock` / `Block.Retry` (`Attempt`, `Limit`, `Reason` key, `Detail`, `Exhausted`, `Stopped`) | Network row, shimmer while active, the provider's message when opened; a stopped recovery is a warning row with its reason after the label |
+| `Turn.Editing` (`Text`, `Pending`) | The user bubble is its editor (`edit.go`): a field of 1 to 12 lines, Cancel and Save. Enter or Save calls `SaveEdit`; Escape, Cancel or the focus leaving the editor calls `CancelEdit`. While `Pending` the field is read-only, Save and Cancel are disabled and a loader shows |
+| `Turn.Controls` (`ReadOnly`, `NoEdit`, `NoFork`, `NoRewind`, `NoWorktree`, `NoExport`, `Busy`) | `ReadOnly` hides Edit, Retry and the fork menu; the `No…` fields disable their control or menu item; `Busy` replaces the fork button with a loader while a fork or rewind of the turn is in flight |
+| `Output.Images` | A tool result's pictures as thumbnails under its output; one opens the image viewer |
+| `Image.Missing` | A picture that is gone or past the limits shows `chat_image_missing` instead of a frame |
+| `State.Embed` | Asked for a link or images standing alone in a paragraph of a reply (`embed.go`): a file card, thumbnails, the missing line, or a link button; web images and links inside a sentence stay Markdown's |
+| `State.SessionLink` | A link that opens a session carries the Bot icon before its text |
+| `Compaction.Elapsed`, `CompactionInterrupted` | The compaction turn's label carries its duration; an interrupted one reads `chat_compact_interrupted` |
+| `Reply.PhaseElapsed` | The Compacting phase row carries how long it has run |
+| `File.Document`, `Exportable`, `Interactive` | A published document's More menu adds Export HTML and, unless it is an interactive preview, Export image; both disabled while `Exportable` is false |
 | `VisualBlock` / `Block.Visual` (`Title`, `Mermaid`) | The chart or diagram on the group box: limu (`github.com/firede/limu` and `limumygo` v0.5.0) lays the Mermaid source out to the card's width in the app's fonts, cached per source and width, and paints it in the palette (`ThemeOnly`); a source limu cannot read shows as code |
 | `File` (`Path`, `Mime`, `Kind`, `Text`, `Image`, `State`, `Editable`) | Card label/kind, the preview tab's content or state |
 | `Session.Older`, `LoadingOlder`, `OlderFailed` | Row before the first turn: loader (reaching it calls `LoadOlder`), failure with Retry |
@@ -249,7 +260,10 @@ type Actions interface {
 	Worktree(turn string)
 	Export(turn string, format ExportFormat) // "" exports the conversation
 	Read(turn, text string)                  // read aloud / stop
-	Edit(turn string)                        // edit a sent message
+	Edit(turn string)                        // open a sent message's editor
+	SaveEdit(turn, text string)              // replace the turn with text
+	CancelEdit(turn string)                  // close the editor
+	Start(text string)                       // a new conversation quoting text
 	OpenFile(f File)                         // preview in the right panel
 	FileAction(f File, action FileAction)    // open elsewhere, save, request edit
 	Undo(turn, path string)                  // "" undoes all
@@ -268,9 +282,12 @@ type Actions interface {
 | `Rewind` | Fork menu → Rewind, then the dialog's Rewind | Keep the turn, drop later messages; files unchanged |
 | `Export` | More menu: Markdown, HTML, Image | Save the turn |
 | `Read` | Read aloud / Stop reading | Start or stop the reader |
-| `Edit` | User footer Edit | Edit the message in place; live moves it into the empty composer and the next Send replaces the turn |
+| `Edit` | User footer Edit | Set `Turn.Editing`; the button is disabled where the edit cannot apply, so a refusal says nothing |
+| `SaveEdit` | The editor's Save or Enter | Replace the turn (`replace_turn`); the editor stays, pending, until the Node accepts, and a failure, conflict or unknown outcome toasts and keeps it |
+| `CancelEdit` | The editor's Cancel, Escape or blur | Clear `Turn.Editing`; ignored while pending |
+| `Start` | Selection pill New conversation | Open the unsent conversation of the same project with the quote in its draft |
 | `OpenFile` | Card Open, More → Preview, document picture | Preview tab in the right panel; an `OtherFile` (PDF, office) opens in the system's app instead |
-| `FileAction` | More → Open, Save as, Request edit | As named; the shell's one `openSystem` opens files in the system's app |
+| `FileAction` | More → Open, Save as, Request edit, Export HTML, Export image | As named; the exports save the document's captured revision (`<title>-v<revision>.html` or `.png`) where the user chooses; the shell's one `openSystem` opens files in the system's app |
 | `ImageAction` | Image viewer Copy, Save as, Open | Copy the picture, save it, open it in the system's app (the preview toasts `preview_notice`) |
 | `Undo`, `Review` | Changes card | Revert / review the turn's changes |
 | `LoadOlder` | The start comes into view, or Retry after a failure | Load the page before; set `LoadingOlder` while it loads |
@@ -337,15 +354,59 @@ usage is absent.
 
 Sent context/session mentions retain their canonical target bindings in private
 transcript state through `SetReferences`; inline MyGo text opens the bound target.
-Editing restores the same references before `ReplaceTurn`. Edit captures the
-turn, the head turn and the history revision, as the reference does, and keeps
-the sent attachments and the references the composer has no chip for. It is
-refused with the unavailable toast while the composer holds a draft, references
-or attachments, while a turn runs or is queued, on a read-only conversation and
-for a message without text or restorable references. The edit ends when its
-composer is emptied, its conversation leaves the screen, the text is guided or
-queued instead, or the Node answers: a rejected replacement keeps the text as an
-ordinary draft, and only an uncertain outcome keeps the edit for its retry.
+A sent message is edited in its bubble. `Edit` captures the turn, the head
+turn, the history revision and what the turn sent in the adapter's
+`conversationEdits`; `projectControls` shows it as `Turn.Editing`. Only
+`SaveEdit` sends `replace_turn`, with the edited text, the sent attachments and
+the sent references (a reference written as `@label` in the sent text is
+dropped once the new text no longer names it), so the composer's draft is never
+read or changed and an abandoned editor cannot turn a later send into a
+replacement. The editor closes on Escape, Cancel, blur, when its turn leaves the
+history or when its conversation leaves the screen. A rejected replacement
+keeps the editor and its text and toasts the failure, the conflict or the
+unknown outcome.
+
+`pageControls` follows the reference's enablement. A delegated (child) or
+unowned session is read-only: no Edit, Retry or fork menu. Otherwise every
+action waits for a connected Node and for no fork, rewind or replacement in
+flight; Edit also needs an idle conversation and a turn that sent something;
+Fork and New worktree need the turn's run ended (New worktree also a movable
+workspace); Rewind needs an idle conversation and a turn before the head. The
+export menu is disabled while disconnected.
+
+A rewind reports `chat_rewound`; when the Node saved the removed history, the
+toast's `chat_rewind_backup` action opens that backup session. A send that
+fails after its text left the composer reports with a `chat_restore_draft`
+action, which puts the submission back into an empty composer
+(`queue_draft_present` when it is not empty, `chat_restore_unavailable` on a
+read-only conversation).
+
+Links of a reply go through `openChatLink` (`conversation_links.go`): a
+`sailry://session/<id>` link opens that session (a child in its panel tab); an
+http(s) link opens in a new in-app browser tab, or in the system browser with
+the platform modifier or when no browser pane exists; `mailto:` and `tel:` go
+to the system; `sailry-knowledge:` opens the knowledge source; anything else is
+a path resolved against the session's worktree. A workspace file opens in the
+right panel at its line (`#L12`, `path:12`, `path:12:3`), a file with a preview
+kind in its preview tab, a folder in the file manager on this device, and with
+the modifier on this device in its own app; a path outside the worktree opens
+in the system on this device and toasts `files_remote_path` elsewhere.
+
+`chatEmbed` (`conversation_embeds.go`) answers `State.Embed`:
+`sailry-image:<result>/<index>` is the tool result's picture of that reference
+(`Image.Reference`) or the missing line; a workspace picture is a thumbnail
+read through the attachment image cache; another workspace file is a file
+card. Links with a fragment, a query or a line keep their navigation. Tool
+result pictures are read as other conversation images: at most the attachment
+transfer limit, decoded under the bitmap limits, two at a time; one that is
+gone, too large or undecodable is marked `Missing`.
+
+Built-in tools carry `LabelKey` and an icon (`coreTool`); a failed call
+without a message of its own shows its failure kind in the user's language
+(`toolFailure`). A failed run's title is classified by `failureKey` (model
+recovery stop reason, model request reason, plugin callback, compaction), and
+the last retry row of a stopped recovery carries the same reason.
+
 Session and host
 mentions navigate existing views. Project and worktree mentions use the shared
 read-only details dialog for the turn's captured location; dedicated workspace
@@ -463,11 +524,26 @@ a running read, its output, then the answer growing a character at a time.
 - `internal/desktop/shell/shell_test.go`: send, stop, the reply playing to
   Completed, approvals and the question.
 
+`TestLiveBlocks/transcript` drives the message actions with the pointer in
+Chinese and dark: the inline editor (open, Escape, Cancel, blur, Save, pending),
+enablement in a read-only session and on a turn whose actions do not apply,
+Markdown cards, a tool result's picture, the stopped retry, the interrupted
+compaction, the document exports, the search result dialog and the selection
+pill; its frames go to `.runtime/ui-shots/transcript-*.png`. The live
+`TestComposerSendRouting/replace_references` row does the same against the
+adapter: the `replace_turn` command and its failures, every link kind's
+destination, the rewind toast's backup action, and
+`failure_retains_draft` the Restore draft action.
+
 ## Deviations
 
 | Deviation | Reason |
 |---|---|
-| A sent message is edited in the composer, which must be empty, and nothing marks or cancels the edit except emptying the composer or leaving the conversation | Rust edits in the bubble and cancels on blur or Escape; the accepted bubble has no editor, indicator or cancel control |
+| The editor of a sent message edits its text only; its attachments and references show unchanged and are sent again | The reference's editor is the same text field; the bubble has no chip editor |
+| A file link of a reply resolves against the session's current worktree | The reference resolves against the worktree the turn ran in; the page projects no per-turn worktree path |
+| The web search result is a dialog over the window, and the provider's suggestions show as their links | The reference opens a second window with the suggestions in a scriptless web view; the transcript owns no window, and the dialog is the existing host for content over it |
+| A tool result's pictures follow its other output | The reference places each picture at its position among the result's content blocks; the summary carries the pictures apart from the detail |
+| A failed send keeps its draft; Restore draft is offered only when the composer was changed before the failure arrived | The reference clears the composer on send and always offers the restore; saves keep drafts on failure here |
 | Reasoning is shown as a disclosure; live mode drops it | Kept for the preview to show the block; drop it in `project` to match |
 | The jump fade runs at the display's rate | MyGo element transitions have no frame-rate parameter; only drawings take `AnimationFrameRate` |
 | The in-progress step's `loader-circle` does not spin | A spinning icon would be an `Element.Loop` at the display's rate; the shimmer on its text marks it instead |

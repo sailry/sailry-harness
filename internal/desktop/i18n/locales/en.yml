@@ -2134,3 +2134,33 @@ project_revoke_title: Revoke project trust
 project_trust: Manage project trust
 project_trust_preview: Changes preview only
 task_completed: Completed
+artifact_export_failed: Could not export
+chat_compact_incomplete: Summary incomplete
+chat_compact_interrupted: Compaction interrupted
+chat_compact_no_reduction: Summary did not reduce context
+chat_compact_timeout: Summary request timed out
+chat_compact_too_large: Summary exceeds length limit
+chat_history_changed: History changed; select again
+chat_image_missing: Image unavailable
+chat_model_context_exceeded: Model context limit exceeded
+chat_model_failed: Model request failed
+chat_model_flex_unavailable: Flex service unavailable
+chat_model_policy_rejected: Request rejected by service policy
+chat_model_request_rejected: Request rejected
+chat_model_request_unavailable: Could not prepare model request
+chat_model_response_incomplete: Model response incomplete
+chat_model_unauthorized: Model credentials were rejected
+chat_model_usage_exhausted: Usage limit reached
+chat_model_usage_not_included: Usage is not included in this account
+chat_response_invalid: Could not parse model response
+chat_response_timeout: Response timed out
+chat_restore_draft: Restore draft
+chat_restore_unavailable: Draft cannot be restored here
+chat_rewind_backup: Open backup
+chat_rewound: History rewound
+chat_subscription_limit: ChatGPT shared usage limit reached
+chat_subscription_unavailable: ChatGPT shared usage is unavailable
+files_remote_path: This path is outside the remote workspace
+queue_draft_present: Composer has a draft
+tool_read_skill_resource: Read skill resource
+tool_session_title: Set session title

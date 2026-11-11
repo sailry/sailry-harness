@@ -2134,3 +2134,33 @@ project_revoke_title: Révoquer l'approbation du projet
 project_trust: Gérer la confiance du projet
 project_trust_preview: Aperçu des modifications uniquement
 task_completed: Achevée
+artifact_export_failed: Échec de l’export
+chat_compact_incomplete: Résumé incomplet
+chat_compact_interrupted: Compactage interrompu
+chat_compact_no_reduction: Le résumé ne réduisait pas le contexte
+chat_compact_timeout: Demande de résumé dépassée
+chat_compact_too_large: Le résumé dépasse la limite de longueur
+chat_history_changed: L'historique a changé; sélectionnez à nouveau
+chat_image_missing: Image indisponible
+chat_model_context_exceeded: Limite de contexte du modèle dépassée
+chat_model_failed: La demande de modèle a échoué
+chat_model_flex_unavailable: Service Flex indisponible
+chat_model_policy_rejected: Requête refusée par la politique du service
+chat_model_request_rejected: Requête refusée
+chat_model_request_unavailable: Impossible de préparer la requête du modèle
+chat_model_response_incomplete: Réponse du modèle incomplète
+chat_model_unauthorized: Identifiants du modèle refusés
+chat_model_usage_exhausted: Limite d’utilisation atteinte
+chat_model_usage_not_included: Cette utilisation n’est pas incluse dans le compte
+chat_response_invalid: Impossible d'analyser la réponse du modèle
+chat_response_timeout: Réponse dépassée
+chat_restore_draft: Restaurer le brouillon
+chat_restore_unavailable: Impossible de restaurer le brouillon ici
+chat_rewind_backup: Ouvrir la sauvegarde
+chat_rewound: L'histoire refaite
+chat_subscription_limit: Limite d’utilisation partagée de ChatGPT atteinte
+chat_subscription_unavailable: L’utilisation partagée de ChatGPT est indisponible
+files_remote_path: Ce chemin se trouve en dehors de l'espace de travail distant
+queue_draft_present: Le champ contient un brouillon
+tool_read_skill_resource: Lire la ressource de compétence
+tool_session_title: Définir le titre de la session

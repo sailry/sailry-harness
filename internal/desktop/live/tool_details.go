@@ -10,7 +10,11 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-func (r *Runtime) enrichDetails(cv *viewmodel.Conversation, state client.ConversationState) {
+func (r *Runtime) enrichDetails(cv *viewmodel.Conversation, state client.ConversationState, locales ...string) {
+	language := ""
+	if len(locales) > 0 {
+		language = locales[0]
+	}
 	type source struct {
 		ref     protocol.ToolDetailReference
 		name    string
@@ -70,7 +74,7 @@ func (r *Runtime) enrichDetails(cv *viewmodel.Conversation, state client.Convers
 					r.bindPluginCards(cv, call.ID, loaded)
 					summary := *source.summary
 					summary.Resolved = loaded.Resolved
-					projected := projectCall(source.name, &summary)
+					projected := projectCall(source.name, &summary, language)
 					projected.ID = call.ID
 					projected.Pending = call.Pending
 					projected.Running = call.Running
@@ -90,6 +94,12 @@ func (r *Runtime) enrichDetails(cv *viewmodel.Conversation, state client.Convers
 						projected.Running = false
 					}
 					projectToolContent(&projected, loaded)
+					if call.Output != nil && len(call.Output.Images) > 0 {
+						if projected.Output == nil {
+							projected.Output = &conversation.Output{}
+						}
+						projected.Output.Images = call.Output.Images
+					}
 					*call = projected
 					continue
 				}

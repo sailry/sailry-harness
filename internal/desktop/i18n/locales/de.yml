@@ -2134,3 +2134,33 @@ project_revoke_title: Projektvertrauensstellung widerrufen
 project_trust: Verwalten von Projektvertrauensstellungen
 project_trust_preview: Nur Vorschau der Änderungen
 task_completed: Abgeschlossen
+artifact_export_failed: Export fehlgeschlagen
+chat_compact_incomplete: Die Zusammenfassung ist unvollständig
+chat_compact_interrupted: Die Verdichtung wurde unterbrochen
+chat_compact_no_reduction: Zusammenfassung reduzierte nicht den Kontext
+chat_compact_timeout: Zusammenfassungsanforderung abgelaufen
+chat_compact_too_large: Die Zusammenfassung überschreitet die Längenbeschränkung
+chat_history_changed: Verlauf geändert; erneut auswählen
+chat_image_missing: Bild nicht verfügbar
+chat_model_context_exceeded: Kontextlimit des Modells überschritten
+chat_model_failed: Modellanfrage fehlgeschlagen
+chat_model_flex_unavailable: Flex-Dienst nicht verfügbar
+chat_model_policy_rejected: Anfrage durch Dienstrichtlinie abgelehnt
+chat_model_request_rejected: Anfrage abgelehnt
+chat_model_request_unavailable: Modellanfrage konnte nicht vorbereitet werden
+chat_model_response_incomplete: Modellantwort unvollständig
+chat_model_unauthorized: Modellzugangsdaten wurden abgelehnt
+chat_model_usage_exhausted: Nutzungslimit erreicht
+chat_model_usage_not_included: Diese Nutzung ist im Konto nicht enthalten
+chat_response_invalid: Die Modellantwort konnte nicht analysiert werden
+chat_response_timeout: Antwortzeitüberschreitung
+chat_restore_draft: Entwurf wiederherstellen
+chat_restore_unavailable: Der Entwurf kann hier nicht wiederhergestellt werden
+chat_rewind_backup: Backup öffnen
+chat_rewound: Verlauf zurückgesetzt
+chat_subscription_limit: ChatGPT-Limit für geteilte Nutzung erreicht
+chat_subscription_unavailable: Geteilte ChatGPT-Nutzung ist nicht verfügbar
+files_remote_path: Dieser Pfad befindet sich außerhalb des Remote-Arbeitsbereichs
+queue_draft_present: Eingabefeld enthält einen Entwurf
+tool_read_skill_resource: Skill-Ressource lesen
+tool_session_title: Sitzungstitel festlegen

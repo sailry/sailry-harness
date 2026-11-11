@@ -48,6 +48,7 @@ type attachmentImageState struct {
 	cancel  context.CancelFunc
 	images  map[string]*ui.Bitmap
 	loading map[string]bool
+	missing map[string]bool // pictures that cannot show: gone or past the limits
 }
 type attachmentState struct {
 	ctx                context.Context
@@ -180,5 +181,9 @@ func (r *Runtime) attachmentFileAction(x *conversationActions, file conversation
 		r.downloadFileCard(x, file, false)
 	case conversation.OpenExternal:
 		r.downloadFileCard(x, file, true)
+	case conversation.ExportDocumentHTML:
+		r.exportDocument(x, file, false)
+	case conversation.ExportDocumentImage:
+		r.exportDocument(x, file, true)
 	}
 }

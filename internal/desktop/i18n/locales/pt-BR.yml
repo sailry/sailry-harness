@@ -2134,3 +2134,33 @@ project_revoke_title: Revogar confiança de projeto
 project_trust: Gerenciar confiança do projeto
 project_trust_preview: Apenas pré-visualização de alterações
 task_completed: Concluído
+artifact_export_failed: Não foi possível exportar
+chat_compact_incomplete: Resumo incompleto
+chat_compact_interrupted: Compactação interrompida
+chat_compact_no_reduction: O resumo não reduziu o contexto
+chat_compact_timeout: Pedido de resumo expirou
+chat_compact_too_large: O resumo excede o limite de comprimento
+chat_history_changed: Histórico alterado; selecione novamente
+chat_image_missing: Imagem indisponível
+chat_model_context_exceeded: Limite de contexto do modelo excedido
+chat_model_failed: Pedido de modelo falhou
+chat_model_flex_unavailable: Serviço Flex indisponível
+chat_model_policy_rejected: Solicitação rejeitada pela política do serviço
+chat_model_request_rejected: Solicitação rejeitada
+chat_model_request_unavailable: Não foi possível preparar a solicitação do modelo
+chat_model_response_incomplete: Resposta do modelo incompleta
+chat_model_unauthorized: Credenciais do modelo recusadas
+chat_model_usage_exhausted: Limite de uso atingido
+chat_model_usage_not_included: Este uso não está incluído na conta
+chat_response_invalid: Não foi possível analisar a resposta do modelo
+chat_response_timeout: Tempo de resposta excedido
+chat_restore_draft: Restaurar rascunho
+chat_restore_unavailable: Não é possível restaurar o rascunho aqui
+chat_rewind_backup: Abrir o backup
+chat_rewound: História rebobinada
+chat_subscription_limit: Limite de uso compartilhado do ChatGPT atingido
+chat_subscription_unavailable: O uso compartilhado do ChatGPT está indisponível
+files_remote_path: Este caminho está fora do espaço de trabalho remoto
+queue_draft_present: O campo contém um rascunho
+tool_read_skill_resource: Ler recurso de habilidade
+tool_session_title: Definir título da sessão

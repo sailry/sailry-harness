@@ -2134,3 +2134,33 @@ project_revoke_title: 撤銷專案信任
 project_trust: 管理專案信任
 project_trust_preview: 僅修改示例
 task_completed: 已完成
+artifact_export_failed: 匯出失敗
+chat_compact_incomplete: 摘要未完整返回
+chat_compact_interrupted: 壓縮已中斷
+chat_compact_no_reduction: 摘要未縮短上下文
+chat_compact_timeout: 摘要請求超時
+chat_compact_too_large: 摘要超出長度限制
+chat_history_changed: 歷史已變化，請重新選擇
+chat_image_missing: 圖片無法使用
+chat_model_context_exceeded: 上下文超出模型限制
+chat_model_failed: 模型請求失敗
+chat_model_flex_unavailable: Flex 服務暫時無法使用
+chat_model_policy_rejected: 請求遭服務政策拒絕
+chat_model_request_rejected: 請求遭拒
+chat_model_request_unavailable: 無法準備模型請求
+chat_model_response_incomplete: 模型回應未完成
+chat_model_unauthorized: 模型憑證被拒絕
+chat_model_usage_exhausted: 用量額度已用盡
+chat_model_usage_not_included: 帳戶未包含此服務
+chat_response_invalid: 無法解析模型響應
+chat_response_timeout: 響應超時
+chat_restore_draft: 復原草稿
+chat_restore_unavailable: 無法在此恢復草稿
+chat_rewind_backup: 開啟備份
+chat_rewound: 歷史已回退
+chat_subscription_limit: ChatGPT 共享用量已達上限
+chat_subscription_unavailable: ChatGPT 共享用量暫不可用
+files_remote_path: 此路徑不在遠端工作區內
+queue_draft_present: 輸入框已有草稿
+tool_read_skill_resource: 讀取技能資源
+tool_session_title: 設定會話標題

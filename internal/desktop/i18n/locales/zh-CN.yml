@@ -2134,3 +2134,33 @@ project_revoke_title: 撤销项目信任
 project_trust: 管理项目信任
 project_trust_preview: 仅修改示例
 task_completed: 已完成
+artifact_export_failed: 导出失败
+chat_compact_incomplete: 摘要未完整返回
+chat_compact_interrupted: 压缩已中断
+chat_compact_no_reduction: 摘要未缩短上下文
+chat_compact_timeout: 摘要请求超时
+chat_compact_too_large: 摘要超出长度限制
+chat_history_changed: 历史已变化，请重新选择
+chat_image_missing: 图片不可用
+chat_model_context_exceeded: 上下文超出模型限制
+chat_model_failed: 模型请求失败
+chat_model_flex_unavailable: Flex 服务暂不可用
+chat_model_policy_rejected: 请求被服务策略拒绝
+chat_model_request_rejected: 请求被拒绝
+chat_model_request_unavailable: 无法准备模型请求
+chat_model_response_incomplete: 模型响应未完成
+chat_model_unauthorized: 模型凭据被拒绝
+chat_model_usage_exhausted: 用量额度已耗尽
+chat_model_usage_not_included: 账户未包含此服务
+chat_response_invalid: 无法解析模型响应
+chat_response_timeout: 响应超时
+chat_restore_draft: 恢复草稿
+chat_restore_unavailable: 无法在此恢复草稿
+chat_rewind_backup: 打开备份
+chat_rewound: 历史已回退
+chat_subscription_limit: ChatGPT 共享用量已达上限
+chat_subscription_unavailable: ChatGPT 共享用量暂不可用
+files_remote_path: 此路径不在远程工作区内
+queue_draft_present: 输入框已有草稿
+tool_read_skill_resource: 读取技能资源
+tool_session_title: 设置会话标题

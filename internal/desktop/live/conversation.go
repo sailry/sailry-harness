@@ -208,7 +208,7 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 			cv.Animating = len(state.Snapshot.Drafts) > 0
 			r.bindReferences(cv.ID, state.Snapshot.Page)
 			r.App.Messages.SyncSearch(cv.ID, state.Snapshot.Page.Revision)
-			r.enrichDetails(cv, state)
+			r.enrichDetails(cv, state, c.Locale())
 			r.enrichQueue(cv, state.Snapshot.Page.Queue)
 			r.projectConversationAssets(cv, state)
 			r.bindAttachmentSources(cv.ID, state.Snapshot.Page)
@@ -216,9 +216,7 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 			r.settleTurnRetry(cv.ID, comp, snapshot.Turns, state.Snapshot.Page)
 		}
 	}
-	if edit, ok := r.conversationEdits[cv.ID]; ok && edit.comp == comp && comp.Draft == "" && len(comp.References) == 0 {
-		delete(r.conversationEdits, cv.ID)
-	}
+	r.projectControls(c, cv, comp)
 	for ti := range cv.Turns {
 		for bi := range cv.Turns[ti].Reply.Blocks {
 			block := &cv.Turns[ti].Reply.Blocks[bi]
@@ -627,6 +625,9 @@ type conversationActions struct {
 	cv      *viewmodel.Conversation
 	comp    *composer.State
 	created func(protocol.Session)
+	// restore is the submission a failed send offers to put back.
+	restore      *composer.Message
+	restoreDraft string // the composer's fingerprint when it was captured
 }
 
 func (x *conversationActions) owned() bool {
@@ -707,10 +708,11 @@ func (x *conversationActions) submit(m composer.Message, guide, queue bool, draf
 	}
 	x.r.rememberConfig(config)
 	if s, ok := x.r.session(x.cv.ID); ok {
-		edit, editing := x.r.conversationEdits[x.cv.ID]
-		if editing = editing && edit.comp == x.comp && !guide && !queue; !editing {
-			delete(x.r.conversationEdits, x.cv.ID)
-		}
+		// A failed send whose composer was changed meanwhile offers the
+		// submission back from its toast.
+		sender := *x
+		sender.restore, sender.restoreDraft = &m, draft
+		x := &sender
 		submit := func(session protocol.Session) {
 			input := conversationInput(m)
 			if guide {
@@ -719,19 +721,6 @@ func (x *conversationActions) submit(m composer.Message, guide, queue bool, draf
 				} else {
 					x.unavailable()
 				}
-				return
-			}
-			if editing {
-				x.turn(protocol.Command{Kind: "replace_turn", Data: protocol.CommandReplaceTurnPayload{Session: session.ID, Turn: edit.Turn, ExpectedHead: edit.Head, ExpectedHistoryRevision: edit.History, ExpectedRevision: session.Revision, Message: editedInput(edit.Input, input)}}, func(out protocol.Output, ok bool) {
-					// Only an unknown outcome keeps the edit for its retry.
-					if _, uncertain := x.r.turnRetries[x.cv.ID]; !uncertain {
-						delete(x.r.conversationEdits, x.cv.ID)
-					}
-					if ok {
-						_ = x.r.controller.RefreshConversation(x.r.ctx, session.ID)
-					}
-					finish(out, ok)
-				})
 				return
 			}
 			kind := "submit_turn"

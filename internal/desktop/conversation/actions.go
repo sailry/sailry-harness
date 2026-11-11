@@ -139,42 +139,50 @@ func (s *State) footer(c *ui.Context, t *Turn, blocks []Block, actions Actions) 
 			})
 		}
 		if !t.Reply.Notice {
-			kit.MenuButton(c.Key("fork"), "fork-"+t.ID, func(b ui.Element) {
-				kit.IconLook(c, b, icons.Network, i18n.T(c, "chat_fork"), "", 28, false)
-			}, func(m *kit.Menu) {
-				if m.Item(i18n.T(c, "chat_fork")).Icon(icons.Network).Chosen() {
-					actions.Fork(t.ID)
-				}
-				if m.Item(i18n.T(c, "chat_rewind")).Icon(icons.Undo).Chosen() {
-					s.rewind = t.ID
-				}
-				if m.Item(i18n.T(c, "worktree_create")).Icon(icons.Plus).Chosen() {
-					actions.Worktree(t.ID)
-				}
-			})
-			if Resendable(t.Reply.Status) {
+			// A read-only session forks, rewinds and branches nothing.
+			if ctl := t.Controls; ctl.ReadOnly {
+			} else if ctl.Busy {
+				ui.Row(c.Key("fork-busy")).Width(28).Height(28).Center().Label(i18n.T(c, "chat_fork")).Role(ui.RoleStatus).
+					Children(func() { kit.Loader(c, 14) })
+			} else {
+				kit.MenuButton(c.Key("fork"), "fork-"+t.ID, func(b ui.Element) {
+					kit.IconLook(c, b, icons.Network, i18n.T(c, "chat_fork"), "", 28, false)
+				}, func(m *kit.Menu) {
+					if m.Item(i18n.T(c, "chat_fork")).Icon(icons.Network).Disabled(ctl.NoFork).Chosen() {
+						actions.Fork(t.ID)
+					}
+					if m.Item(i18n.T(c, "chat_rewind")).Icon(icons.Undo).Disabled(ctl.NoRewind).Chosen() {
+						s.rewind = t.ID
+					}
+					if m.Item(i18n.T(c, "worktree_create")).Icon(icons.Plus).Disabled(ctl.NoWorktree).Chosen() {
+						actions.Worktree(t.ID)
+					}
+				})
+			}
+			if Resendable(t.Reply.Status) && !t.Controls.ReadOnly {
 				kit.IconButton(c.Key("retry"), icons.RotateCw, i18n.T(c, "chat_retry"), 28, false).OnClick(func() { actions.Retry(t.ID) })
 			}
 		}
-		exportMenu(c, "export-"+t.ID, t.ID, actions)
+		exportMenu(c, "export-"+t.ID, t.ID, t.Controls.NoExport, actions)
 		if hovered && !t.Reply.Finished.IsZero() {
 			ui.Text(c, t.Reply.Finished.Format("15:04")).FontSize(14).SingleLine()
 		}
 	})
 }
 
-// exportMenu is the More menu exporting a turn ("" the conversation) as
-// Markdown, HTML or an image.
+// ExportSupported reports whether this system exports format.
 func ExportSupported(format ExportFormat) bool {
 	return format != ExportImage || runtime.GOOS == "darwin" || runtime.GOOS == "windows"
 }
 
-func exportMenu(c *ui.Context, id, turn string, actions Actions) {
+// exportMenu is the More menu exporting a turn ("" the conversation) as
+// Markdown, HTML or an image; disabled while the Node does not answer.
+func exportMenu(c *ui.Context, id, turn string, disabled bool, actions Actions) {
 	kit.MenuButton(c.Key("export"), id, func(b ui.Element) {
 		kit.IconLook(c, b, icons.EllipsisVertical, i18n.T(c, "more"), "", 28, false)
 	}, func(m *kit.Menu) {
 		for i, key := range []string{"conversation_export_markdown", "conversation_export_html", "conversation_export_image"} {
-			if m.Item(i18n.T(c, key)).Disabled(!ExportSupported(ExportFormat(i))).Chosen() {
+			if m.Item(i18n.T(c, key)).Disabled(disabled || !ExportSupported(ExportFormat(i))).Chosen() {
 				actions.Export(turn, ExportFormat(i))
 			}
 		}
@@ -197,7 +205,12 @@ func userFooter(c *ui.Context, t *Turn, actions Actions) {
 				kit.Message(c, i18n.T(c, "content_copied"))
 			})
 		}
-		kit.IconButton(c.Key("edit"), icons.Writing, i18n.T(c, "message_edit"), 28, false).OnClick(func() { actions.Edit(t.ID) })
+		// A read-only session has no Edit; elsewhere it is disabled while it
+		// cannot apply or an editor is already open.
+		if !t.Controls.ReadOnly {
+			kit.IconButton(c.Key("edit"), icons.Writing, i18n.T(c, "message_edit"), 28, t.Editing != nil).
+				Disabled(t.Controls.NoEdit || t.Editing != nil).OnClick(func() { actions.Edit(t.ID) })
+		}
 	})
 }
 

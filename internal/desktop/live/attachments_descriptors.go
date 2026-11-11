@@ -233,6 +233,7 @@ func (r *Runtime) projectAttachmentImages(cv *viewmodel.Conversation) {
 			image.Source = source
 			image.Width, image.Height = source.Size()
 		}
+		image.Missing = cache.missing[key]
 	}
 	for ti := range cv.Turns {
 		turn := &cv.Turns[ti]
@@ -247,6 +248,13 @@ func (r *Runtime) projectAttachmentImages(cv *viewmodel.Conversation) {
 			for file := range block.Files {
 				if block.Files[file].Image != nil {
 					project(block.Files[file].Image)
+				}
+			}
+			for call := range block.Calls {
+				if output := block.Calls[call].Output; output != nil {
+					for image := range output.Images {
+						project(&output.Images[image])
+					}
 				}
 			}
 		}
@@ -275,7 +283,7 @@ func (r *Runtime) attachmentImages(session string) *attachmentImageState {
 	cache := state.imageSessions[session]
 	if cache == nil {
 		ctx, cancel := context.WithCancel(state.ctx)
-		cache = &attachmentImageState{ctx: ctx, cancel: cancel, images: map[string]*ui.Bitmap{}, loading: map[string]bool{}}
+		cache = &attachmentImageState{ctx: ctx, cancel: cancel, images: map[string]*ui.Bitmap{}, loading: map[string]bool{}, missing: map[string]bool{}}
 		state.imageSessions[session] = cache
 	}
 	return cache
@@ -300,12 +308,23 @@ func (r *Runtime) projectAttachmentImage(cache *attachmentImageState, key string
 		}
 		data, err := r.readAttachmentImage(ctx, descriptor)
 		var bitmap *ui.Bitmap
+		undecodable := false
 		if err == nil {
 			bitmap, err = decodeAttachmentBitmap(data)
+			undecodable = err != nil
 		}
 		r.enqueue(func(*ui.Context) {
-			if ctx.Err() == nil && err == nil {
+			if ctx.Err() != nil {
+				return
+			}
+			if err == nil {
 				cache.images[key] = bitmap
+				return
+			}
+			// A picture that is gone or past the transfer and decoding limits
+			// never shows; a broken connection tries again once it returns.
+			if code := faultCode(err); undecodable || code == protocol.ErrorCodeNotFound || code == protocol.ErrorCodeInvalidRequest {
+				cache.missing[key] = true
 			}
 		})
 	})
