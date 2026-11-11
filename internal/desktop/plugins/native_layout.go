@@ -2,6 +2,8 @@ package plugins
 
 import (
 	"encoding/json"
+	"slices"
+	"strings"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
@@ -44,7 +46,17 @@ func (binding *NativeBinding) renderLayout(view *ui.Context, element NativeEleme
 				})
 			}
 			rows := func() {
-				if renderErr == nil {
+				if renderErr != nil {
+					return
+				}
+				// A group with an icon on one row keeps every row's text
+				// aligned behind the slot.
+				lead := binding.state.rowLead
+				binding.state.rowLead = slices.ContainsFunc(element.Children[first:], rowHasIcon)
+				defer func() { binding.state.rowLead = lead }()
+				if nativeProp(props, "sortable", false) {
+					renderErr = binding.renderSortable(view, element, identity, props, element.Children[first:])
+				} else {
 					renderErr = renderNativeChildren(view, element, element.Children[first:])
 				}
 			}
@@ -56,7 +68,26 @@ func (binding *NativeBinding) renderLayout(view *ui.Context, element NativeEleme
 		})
 		return result, renderErr
 	case "SettingsRow":
-		return kit.Row(view, identity, nativeProp(props, "label", ""), "", children), nil
+		label, description := nativeProp(props, "label", ""), nativeProp(props, "description", "")
+		if nativeProp(props, "wide", false) {
+			return kit.WideRow(view, identity, label, description, children), nil
+		}
+		var control func()
+		if len(element.Children) > 0 {
+			control = children
+		}
+		// The slot holds the row's icon, or stays empty beside rows that
+		// have one; a name no icon set knows draws nothing.
+		icon := nativeIcon(nativeProp(props, "icon", ""))
+		var lead func()
+		if icon != nil || binding.state.rowLead {
+			lead = func() {
+				if icon != nil {
+					ui.Icon(view, icon).FontSize(rowIconSize)
+				}
+			}
+		}
+		return kit.LeadRow(view, identity, lead, label, description, control), nil
 	case "CardList":
 		return ui.Column(view).FillWidth().Gap(12).Children(func() {
 			if len(element.Children) > 0 {
@@ -76,7 +107,8 @@ func (binding *NativeBinding) renderLayout(view *ui.Context, element NativeEleme
 			}
 		}), nil
 	case "CardRow":
-		return kit.Frost(view, ui.Row(view).FillWidth().MinWidth(0).Padding(12, 16).Gap(12).Radius(palette.RadiusLg).Border(1, palette.Border), palette.Surface, kit.CardTint).Children(children), nil
+		// A card row keeps the application's row metrics.
+		return kit.Frost(view, ui.Row(view).FillWidth().MinWidth(0).MinHeight(kit.RowMinHeight).Padding(kit.RowPad, 16).Gap(12).Radius(palette.RadiusLg).Border(1, palette.Border), palette.Surface, kit.CardTint).Children(children), nil
 	case "CardColumn":
 		// The reference's column widths: w_32 and w_48 metadata, a w_12
 		// control, a title that takes the rest from min_w_24.
@@ -107,8 +139,8 @@ func (binding *NativeBinding) renderLayout(view *ui.Context, element NativeEleme
 	case "CardSummary":
 		return ui.Row(view).MinWidth(0).Grow(1).Basis(0).Gap(12).Children(func() {
 			children()
-			ui.Column(view).Grow(1).Basis(0).MinWidth(0).Gap(4).Children(func() {
-				nativeText(view, nativeProp(props, "title", "")).FontSize(14).SingleLine()
+			ui.Column(view).Grow(1).Basis(0).MinWidth(0).Gap(kit.TitleGap).Children(func() {
+				nativeText(view, nativeProp(props, "title", "")).FontSize(kit.RowFont).SingleLine()
 				subtitle := nativeProp(props, "subtitle", "")
 				icon := nativeIcon(nativeProp(props, "icon", ""))
 				if subtitle == "" && icon == nil {
@@ -118,7 +150,7 @@ func (binding *NativeBinding) renderLayout(view *ui.Context, element NativeEleme
 					if icon != nil {
 						ui.Icon(view, icon).FontSize(16).Shrink(0)
 					}
-					nativeText(view, subtitle).FontSize(12).SingleLine().Shrink(1).MinWidth(0)
+					nativeText(view, subtitle).FontSize(kit.RowFont).SingleLine().Shrink(1).MinWidth(0)
 				})
 			})
 		}), nil
@@ -214,6 +246,60 @@ func (binding *NativeBinding) renderLayout(view *ui.Context, element NativeEleme
 		return binding.renderStatusRing(view, props), nil
 	}
 	return ui.Element{}, hostInvalid("unknown native layout")
+}
+
+// rowIconSize is a row's leading icon inside Kit's RowIcon slot.
+const rowIconSize = 20
+
+// rowHasIcon reports whether a group's child is a settings row whose icon
+// name resolves.
+func rowHasIcon(child *NativeElement) bool {
+	if child.Module != "sailry/ui" || child.Export != "SettingsRow" {
+		return false
+	}
+	_, props, err := nativeProps(*child)
+	return err == nil && nativeIcon(nativeProp(props, "icon", "")) != nil
+}
+
+// renderSortable draws a group's rows as Kit's sortable list: each behind
+// its drag handle, a divider between them. A drop that moved a row is
+// reported as a control event of the group, with the rows' identifiers in
+// their new order; the package answers with its children in that order.
+func (binding *NativeBinding) renderSortable(view *ui.Context, element NativeElement, identity string, props map[string]json.RawMessage, children []*NativeElement) error {
+	label := nativeProp(props, "sort_label", "")
+	if strings.TrimSpace(label) == "" {
+		return hostInvalid("sortable group requires a sort label")
+	}
+	rows := slices.Clone(children)
+	names := make(map[*NativeElement]string, len(rows))
+	for _, row := range rows {
+		name, _, err := nativeProps(*row)
+		if err != nil {
+			return err
+		}
+		names[row] = name
+	}
+	var renderErr error
+	kit.SortableList(view, &rows, func(row *NativeElement) string { return names[row] }, kit.SortableListProps{
+		Divided:  true,
+		Handle:   label,
+		Disabled: nativeProp(props, "sort_disabled", false),
+		OnMove: func(from, to int) {
+			order := make([]string, len(rows))
+			for index, row := range rows {
+				order[index] = names[row]
+			}
+			binding.emit("control", map[string]any{"id": identity, "value": map[string]any{"from": from, "to": to, "order": order}})
+		},
+	}, func(row *NativeElement, handle func()) {
+		handle()
+		ui.Column(view).Grow(1).Basis(0).MinWidth(0).MarginStart(8).Children(func() {
+			if renderErr == nil {
+				renderErr = renderNativeChildren(view, element, []*NativeElement{row})
+			}
+		})
+	})
+	return renderErr
 }
 
 func (binding *NativeBinding) renderStatusList(view *ui.Context, props map[string]json.RawMessage, children func()) ui.Element {

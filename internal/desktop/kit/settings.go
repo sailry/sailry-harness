@@ -63,18 +63,37 @@ func Card(c *ui.Context, rows func()) ui.Element {
 }
 
 // Row is a setting: a title and a muted description on the left, its
-// control on the right, 12 above and below. control may be nil.
+// control on the right, at the row metrics. control may be nil.
 func Row(c *ui.Context, key any, title, description string, control func()) ui.Element {
-	p := theme.Of(c)
-	return ui.Row(c.Key(key)).Padding(12, 0).Gap(16).MinHeight(56).Children(func() {
-		ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(TitleGap).Children(func() {
-			ui.Text(c, title).FontSize(14).TextColor(p.SurfaceForeground)
-			if description != "" {
-				ui.Text(c, description).FontSize(14).TextColor(p.Description())
+	return LeadRow(c, key, nil, title, description, control)
+}
+
+// LeadRow is a Row with a leading icon slot: lead draws into a centered
+// RowIcon square, RowIconGap before the text. A nil lead leaves no slot;
+// one that draws nothing keeps the text aligned with its neighbours'.
+func LeadRow(c *ui.Context, key any, lead func(), title, description string, control func()) ui.Element {
+	return ui.Row(c.Key(key)).Padding(RowPad, 0).Gap(16).MinHeight(RowMinHeight).Children(func() {
+		ui.Row(c).Grow(1).Shrink(1).MinWidth(0).Gap(RowIconGap).Children(func() {
+			if lead != nil {
+				ui.Row(c.Key("lead")).Size(RowIcon, RowIcon).Shrink(0).Center().Children(lead)
 			}
+			RowText(c, title, description).Grow(1).Shrink(1)
 		})
 		if control != nil {
 			ui.Row(c).Shrink(0).Gap(8).Children(control)
+		}
+	})
+}
+
+// RowText is a list row's text at the row metrics: the title in the body
+// size and regular weight over its description in the same size, muted,
+// TitleGap below. description may be "".
+func RowText(c *ui.Context, title, description string) ui.Element {
+	p := theme.Of(c)
+	return ui.Column(c).MinWidth(0).Gap(TitleGap).Children(func() {
+		ui.Text(c, title).FontSize(RowFont).TextColor(p.SurfaceForeground)
+		if description != "" {
+			ui.Text(c, description).FontSize(RowFont).TextColor(p.Description())
 		}
 	})
 }
@@ -162,23 +181,17 @@ func ButtonRow(c *ui.Context, key any, title, description, action string, danger
 // WideRow is a Row whose control takes 256 DIPs and wraps under the title
 // when the page is narrow: selects, inputs and sliders.
 func WideRow(c *ui.Context, key any, title, description string, control func()) ui.Element {
-	p := theme.Of(c)
-	return ui.Row(c.Key(key)).Padding(12, 0).Gap(16).MinHeight(56).Wrap().Children(func() {
-		ui.Column(c).Grow(1).Shrink(1).MinWidth(160).Gap(2).Children(func() {
-			ui.Text(c, title).FontSize(14).TextColor(p.SurfaceForeground)
-			if description != "" {
-				ui.Text(c, description).FontSize(14).TextColor(p.Description())
-			}
-		})
+	return ui.Row(c.Key(key)).Padding(RowPad, 0).Gap(16).MinHeight(RowMinHeight).Wrap().Children(func() {
+		RowText(c, title, description).Grow(1).Shrink(1).MinWidth(160)
 		ui.Row(c).Width(256).MaxWidthPercent(100).Margin(0, 0, 0, ui.Auto).Gap(8).Justify(ui.End).Children(control)
 	})
 }
 
 // Entry is a record in a group's card: its content, then an optional control
-// and small ghost actions, 12 above and below. control and actions may be
+// and small ghost actions, at the row metrics. control and actions may be
 // nil.
 func Entry(c *ui.Context, key any, content, control, actions func()) ui.Element {
-	return ui.Row(c.Key(key)).Padding(12, 0).Gap(12).MinHeight(56).Children(func() {
+	return ui.Row(c.Key(key)).Padding(RowPad, 0).Gap(12).MinHeight(RowMinHeight).Children(func() {
 		ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Children(content)
 		if control != nil {
 			ui.Row(c).Shrink(0).Children(control)
@@ -189,14 +202,14 @@ func Entry(c *ui.Context, key any, content, control, actions func()) ui.Element 
 	})
 }
 
-// Record is an entry's content: a medium title over a muted detail, each
-// on one line; detail may be "".
+// Record is an entry's content: a medium title over a muted detail,
+// TitleGap below, each on one line; detail may be "".
 func Record(c *ui.Context, title, detail string) {
 	p := theme.Of(c)
-	ui.Column(c).MinWidth(0).Gap(4).Children(func() {
-		ui.Text(c, title).FontSize(14).FontWeight(500).SingleLine().TextColor(p.SurfaceForeground)
+	ui.Column(c).MinWidth(0).Gap(TitleGap).Children(func() {
+		ui.Text(c, title).FontSize(RowFont).FontWeight(500).SingleLine().TextColor(p.SurfaceForeground)
 		if detail != "" {
-			ui.Text(c, detail).FontSize(14).SingleLine().TextColor(p.MutedForeground)
+			ui.Text(c, detail).FontSize(RowFont).SingleLine().TextColor(p.MutedForeground)
 		}
 	})
 }
@@ -237,6 +250,20 @@ func TextActionBusy(c *ui.Context, label string, disabled, busy bool) ui.Element
 	return b
 }
 
-// TitleGap is the space between a list row's title and its description
-// (settings rows, media rows).
-const TitleGap = 5
+// The row metrics: one vertical rhythm for every list row with a title and
+// a description, the application's settings rows and records and a
+// package's settings and card rows alike.
+const (
+	// RowPad is the space above and below a row's content.
+	RowPad = 12
+	// RowMinHeight is the height of a row with a title alone.
+	RowMinHeight = 56
+	// RowFont is the size of a row's title and of its description.
+	RowFont = 14
+	// TitleGap is the space between a row's title and its description
+	// (settings rows, records, media rows).
+	TitleGap = 5
+	// RowIcon is a row's leading icon slot; RowIconGap follows it.
+	RowIcon    = 24
+	RowIconGap = 12
+)

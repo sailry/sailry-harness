@@ -114,9 +114,21 @@ func (binding *NativeBinding) renderMenu(view *ui.Context, identity string, prop
 	if strings.TrimSpace(label) == "" {
 		return ui.Element{}, hostInvalid("plugin menu requires a label")
 	}
+	icon := nativeIcon(nativeProp(props, "icon", ""))
+	disabled := nativeProp(props, "disabled", false)
 	return kit.MenuButton(view, identity, func(button ui.Element) {
-		kit.GhostLook(view, button.Label(label).Disabled(nativeProp(props, "disabled", false)).Padding(6, 10).Gap(6), false).Children(func() {
-			if icon := nativeIcon(nativeProp(props, "icon", "")); icon != nil {
+		if icon != nil && !nativeProp(props, "caret", false) && !nativeProp(props, "show_label", false) {
+			// An icon's menu is Kit's icon button, as the application's own
+			// row menus: the label is its tooltip and accessible name.
+			size := float32(28)
+			if nativeProp(props, "size", "") == "medium" {
+				size = 32
+			}
+			kit.IconLook(view, button.Disabled(disabled), icon, label, "", size, false)
+			return
+		}
+		kit.GhostLook(view, button.Label(label).Disabled(disabled).Padding(6, 10).Gap(6), false).Children(func() {
+			if icon != nil {
 				ui.Icon(view, icon).Size(16, 16)
 			}
 			nativeText(view, label)

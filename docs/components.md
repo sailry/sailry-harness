@@ -52,13 +52,14 @@ MyGo bases.
 | `SplitButton`, `SplitProps` | Own (ButtonBase, MenuButton) | Kit's DropdownButton: a main action joined to a caret menu of the others (Git's Stage and Commit) | A single action (`Secondary`) | panel |
 | `Select`, `SelectField`, `SelectProps`, `SelectOption`, `SelectTrigger` | Lobe `pkg/field/select.go` chevron (MenuBase) | A form field choosing one string; trigger looks like `ui.TextInput`, dropdown as wide. `SelectField` is the same control over options with a placeholder and disabled choices; `SelectTrigger` is its frame for a select with a popup of its own (the searchable header filter) | Toolbars and composer pickers (`MenuButton`) | settings, sidebar, plugins, live |
 | `InputOTP` | Lobe `pkg/field/otp.go` | One-time codes | Other text | settings |
-| `SortableList` | Lobe `pkg/layout/sortablelist.go` | Lists the user reorders, by mouse and keyboard | Static lists | composer |
+| `SortableList` | Lobe `pkg/layout/sortablelist.go` | Lists the user reorders, by mouse and keyboard, never with up and down buttons. `Divided` rows sit in a settings `Card` with a divider between them and lift as a `Floating` panel; `Disabled` dims the handles while the order is fixed | Static lists | composer, plugins |
 
 ### Settings and records
 
 | Component | Origin | Use | Used in |
 |---|---|---|---|
 | `Page`, `Group`, `Card`, `Row`, `WideRow` | Own | A settings page, its groups, the card of rows, a setting (`WideRow` for selects, inputs and sliders). `Page` returns its scroll root; a plugin's `SettingsPage` is this page | settings, plugins |
+| `LeadRow`, `RowText` | Own | A `Row` with a leading `RowIcon` slot (a brand mark or icon; an empty slot keeps the text aligned with its neighbours); the title and description of any row at the row metrics | plugins |
 | `SwitchRow`, `SegmentedRow` | Own | An on/off or few-labels setting | settings |
 | `SelectRow`, `TextRow`, `SecretRow`, `NumberRow`, `SliderRow`, `ButtonRow` | Own | The other one-control settings; prefer them over a hand-built `Row` | defined, not yet used |
 | `Entry`, `Record`, `Action`, `TextAction` | Own | A record in a group's card, its text and small ghost actions | settings, host, panel |
@@ -184,6 +185,26 @@ MyGo bases.
   before building its children. Tooltips and hover cards are suppressed
   while a popover or menu is open (`kit.TipsHidden`); kit's own tooltips do
   this already.
+
+### Row metrics
+
+Every list row with a title and a description shares one vertical rhythm,
+defined once in `kit/settings.go` and used by `Row`, `WideRow`, `LeadRow`,
+`Entry`, `Record` and by a package's `SettingsRow`, `CardRow` and
+`CardSummary`:
+
+| Metric | Constant | Value |
+|---|---|---|
+| Title and description size | `RowFont` | 14 |
+| Title weight | — | regular (`Record` titles are medium, `MediaRow` titles 16 medium beside their 36 tile) |
+| Title to description | `TitleGap` | 5 |
+| Padding above and below | `RowPad` | 12 |
+| Minimum row height | `RowMinHeight` | 56 |
+| Leading icon slot, gap after it | `RowIcon`, `RowIconGap` | 24, 12 (icon 20) |
+
+A row's overflow menu is an icon button (`IconLook` with the ellipsis, 28),
+named by its label for the tooltip and assistive technology, never an icon
+with the word beside it. A plugin's `Menu` with an icon is drawn the same way.
 
 ### Visual details
 

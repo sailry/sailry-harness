@@ -261,6 +261,10 @@ for that concept, at the same sizes and tokens:
 | `SettingsPage` | `kit.Page`, the one centered page column |
 | `SelectField` | `kit.SelectField`, filling its slot |
 | `MenuButton` | `kit.MenuButton` with `kit.SecondaryLook` and a caret |
+| `Menu` with an icon and no caret | `kit.MenuButton` with `kit.IconLook` (28, or 32 for `medium`): the label is the tooltip and accessible name |
+| `SettingsRow` | `kit.LeadRow` (`kit.WideRow` for `wide`): label, description and a leading icon |
+| sortable `SettingsGroup` | `kit.SortableList` with `Divided` rows inside `kit.Card` |
+| `CardRow`, `CardSummary` | a frosted card at Kit's row metrics (`RowPad`, `RowMinHeight`, `RowFont`, `TitleGap`) |
 | `SegmentedTabs` | `kit.Segmented` (`fill` is `Block`) |
 | `EmptyState`, empty `CardList`, empty `DataTable` | `kit.Result` (`Card` for the dashed list card) |
 | loading `CardList` | a card of `kit.Skeleton` lines |
@@ -269,9 +273,33 @@ for that concept, at the same sizes and tokens:
 | searchable header filter | `kit.SelectTrigger` over a query popover |
 
 `CardColumn` and `CardSummary` keep the source widths (128, 192, 48; title from
-96) and text sizes.
+96). Their rows follow Kit's row metrics
+([components](components.md#row-metrics)), so a package's settings rows and
+card rows have the rhythm of the application's own settings rows.
+
+A sortable `SettingsGroup` draws each child behind `kit.SortableList`'s drag
+handle and reports a drop as the group's control event
+`{id, value: {from, to, order}}` ([SDK](../sdk/plugins.md)). The renderer keeps
+no order: the package persists it and returns its children reordered. The
+bundled `web-search` Settings page orders its services this way; no bundled
+package or core settings list reorders with up and down buttons.
+
+A row's `icon` is resolved by `icons.Plugin`. A name it does not know, such as
+an `ailogo:<slug>` brand mark before that collection is present, draws no icon
+and raises no error; when another row of the group has an icon the slot stays
+empty so the text remains aligned.
 
 ## Deviations
+
+- The source draws `CardSummary` subtitles at 12 px and `CardRow` without a
+  minimum height. Both follow Kit's row metrics here (14 px, 56 minimum), so
+  package rows match the application's settings rows.
+- The source `Menu` draws its label beside its icon. An icon's menu is Kit's
+  icon button here, as every row menu of the application; `show_label` keeps
+  the label.
+- `SettingsRow` `description`, `icon`, `wide` and `SettingsGroup` `sortable`,
+  `sort_label`, `sort_disabled` are additions to the v1 element contract: the
+  source has no reorderable list component.
 
 - MyGo does not resolve a child's percentage size along a scrolling axis. The
   renderer resolves it against the scroll container's previous-frame bounds and
