@@ -56,6 +56,10 @@ func PrepareRestored(ctx context.Context, staging string, node protocol.NodeID, 
 }
 
 func prepareRestored(ctx context.Context, handle *Handle, node protocol.NodeID, original, target string) error {
+	// The archive's checksum proves the copy, not that its source was sound.
+	if err := checkIntegrity(ctx, handle, "restored Node database is corrupt"); err != nil {
+		return err
+	}
 	definition, err := prepareSchema(ctx, handle, node)
 	if err != nil {
 		return err
@@ -82,6 +86,20 @@ func prepareRestored(ctx context.Context, handle *Handle, node protocol.NodeID, 
 	})
 }
 
+// checkIntegrity refuses a database whose pages or indexes are damaged.
+func checkIntegrity(ctx context.Context, handle *Handle, damaged string) error {
+	return handle.Read(ctx, func(connection *sql.Conn) error {
+		var integrity string
+		if err := connection.QueryRowContext(ctx, "PRAGMA integrity_check").Scan(&integrity); err != nil {
+			return invalid(damaged)
+		}
+		if integrity != "ok" {
+			return invalid(damaged)
+		}
+		return nil
+	})
+}
+
 func checkRestoredKnowledge(ctx context.Context, path string) error {
 	if _, err := os.Lstat(path); errors.Is(err, fs.ErrNotExist) {
 		return nil
@@ -92,16 +110,7 @@ func checkRestoredKnowledge(ctx context.Context, path string) error {
 	if err != nil {
 		return err
 	}
-	err = handle.Read(ctx, func(connection *sql.Conn) error {
-		var integrity string
-		if err := connection.QueryRowContext(ctx, "PRAGMA integrity_check").Scan(&integrity); err != nil {
-			return err
-		}
-		if integrity != "ok" {
-			return invalid("restored knowledge database is corrupt")
-		}
-		return nil
-	})
+	err = checkIntegrity(ctx, handle, "restored knowledge database is corrupt")
 	if err == nil {
 		var closed *Closed
 		if closed, err = handle.Pause(ctx); err == nil {
