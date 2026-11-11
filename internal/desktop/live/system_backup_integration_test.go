@@ -24,6 +24,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/jonboulle/clockwork"
 	"github.com/sailry/sailry-harness/internal/client"
+	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
@@ -283,9 +284,10 @@ func backupUISealedFiles(t *testing.T, root string, plain ...string) (sealed, fi
 // TestSystemBackupUI is the B13 acceptance of Settings › Backup against a
 // real Node: SBAK-001 to SBAK-021.
 //
-// Substitutions: the native folder picker, save panel and file picker are
-// the Runtime's own seams (SetPickDirectory, NativeFileActions.SaveFile and
-// PickFiles) answered by the test with paths under t.TempDir(); the WebDAV
+// Substitutions: the native save panel and file picker are the Runtime's own
+// seams (NativeFileActions.SaveFile and PickFiles) answered by the test with
+// paths under t.TempDir(); the backup folder is chosen in the in-app picker,
+// which reads the real Node's directories; the WebDAV
 // and S3 targets are the in-process fakes above; the Node's dispatch clock
 // is a fake clock so the scheduled run can be reached.
 func TestSystemBackupUI(t *testing.T) {
@@ -323,14 +325,10 @@ func TestSystemBackupUI(t *testing.T) {
 	}
 
 	var window *terminalUI
-	var picked, saveTo, saveName, pickFile string
-	var picks, saves, opens int
+	var saveTo, saveName, pickFile string
+	var saves, opens int
 	open := func() {
 		window = openTerminalWindow(t, ctx, desk.owner, profile, alpha, nil)
-		window.runtime.SetPickDirectory(func(selected func(string)) {
-			picks++
-			selected(picked)
-		})
 		window.runtime.SetNativeFileActions(NativeFileActions{
 			SaveFile: func(name string, selected func(string)) {
 				saves++
@@ -415,6 +413,37 @@ func TestSystemBackupUI(t *testing.T) {
 	t.Log("step 1 passed: the page loaded from the Node; without a passphrase Export and Back up now open Configure and Restore from storage is disabled")
 
 	// (2) SBAK-003, SBAK-007, SBAK-008, SBAK-009: a local folder target.
+	// choose picks an existing directory in the in-app picker: the path typed
+	// into its address, then its confirmation.
+	choose := func(path string) {
+		t.Helper()
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if path, err = filepath.EvalSymlinks(path); err != nil {
+			t.Fatal(err)
+		}
+		address, confirm := i18n.In("en", "directory_address"), i18n.In("en", "directory_title")
+		shown := window.runtime.App.Sidebar.Picker
+		pressIn(window, "Choose folder")
+		settle(window, "the directory picker lists a directory", systemUIWait, func() bool {
+			return shown.Showing() && len(window.named(ui.RoleButton, address)) == 1
+		})
+		window.clickOn(window.named(ui.RoleButton, address)[0])
+		window.frame()
+		window.tester.Key(ui.Cmd, ui.KeyA)
+		window.tester.Type(path)
+		window.tester.Key(0, ui.KeyEnter)
+		settle(window, "the picker shows the typed directory", systemUIWait, func() bool {
+			return len(window.named(ui.RoleButton, address)) == 1 && window.tester.HasText(path)
+		})
+		found := window.named(ui.RoleButton, confirm)
+		if len(found) == 0 {
+			t.Fatalf("the picker has no %q; elements: %s", confirm, window.elements())
+		}
+		window.clickOn(found[len(found)-1])
+		settle(window, "the picker closes", systemUIWait, func() bool { return !shown.Showing() })
+	}
 	inside := filepath.Join(profile, "backups-inside")
 	folder := filepath.Join(root, "backups")
 	configure()
@@ -422,12 +451,8 @@ func TestSystemBackupUI(t *testing.T) {
 	settle(window, "the local folder field", systemUIWait, func() bool { return len(window.named(ui.RoleTextField, "Node backup folder")) == 1 })
 	footerAction(window, "Cancel", "Save")
 	toast(window, "Check the backup configuration")
-	picked = inside
-	pressIn(window, "Choose folder")
+	choose(inside)
 	settle(window, "Choose folder fills the path", systemUIWait, func() bool { return labelled(window, "Node backup folder").Value == inside })
-	if picks != 1 {
-		t.Fatalf("the folder picker ran %d times", picks)
-	}
 	footerAction(window, "Cancel", "Save")
 	toast(window, "Enter a backup passphrase")
 	fill(window, "Encryption passphrase", "short", true)
@@ -451,17 +476,13 @@ func TestSystemBackupUI(t *testing.T) {
 	if now := saved(); now.Revision != 0 || now.Local != nil || now.PassphraseConfigured {
 		t.Fatalf("the Node stored a target inside its profile: %+v", now)
 	}
-	if _, err := os.Stat(inside); !os.IsNotExist(err) {
-		t.Fatalf("the refused save left %s: %v", inside, err)
+	if left, err := os.ReadDir(inside); err != nil || len(left) != 0 {
+		t.Fatalf("the refused save wrote into %s: %v %v", inside, left, err)
 	}
 	// The kept draft, with a folder outside the profile, saves.
 	earlier := filepath.Join(root, "backups-earlier")
-	picked = earlier
-	pressIn(window, "Choose folder")
+	choose(earlier)
 	settle(window, "Choose folder replaces the refused path", systemUIWait, func() bool { return labelled(window, "Node backup folder").Value == earlier })
-	if picks != 2 {
-		t.Fatalf("the folder picker ran %d times", picks)
-	}
 	save("Settings saved")
 	settle(window, "the saved storage dialog closes", systemUIWait, func() bool { return !dialog("Encryption passphrase") })
 	if now := saved(); now.Local == nil || now.Local.Directory != earlier || !now.Local.Enabled || now.OnlineEnabled || !now.PassphraseConfigured || now.CredentialsConfigured {
@@ -481,8 +502,7 @@ func TestSystemBackupUI(t *testing.T) {
 	if leaked(window, backupUIPassphrase) {
 		t.Fatalf("the saved passphrase shows; elements: %s", window.elements())
 	}
-	picked = folder
-	pressIn(window, "Choose folder")
+	choose(folder)
 	settle(window, "Choose folder replaces the path", systemUIWait, func() bool { return labelled(window, "Node backup folder").Value == folder })
 	save("Settings saved")
 	if now := saved(); now.Local == nil || now.Local.Directory != folder || !now.PassphraseConfigured {
@@ -720,8 +740,7 @@ func TestSystemBackupUI(t *testing.T) {
 	// (8) SBAK-009: a stale revision is a conflict and keeps the draft.
 	second := filepath.Join(root, "backups-second")
 	configure()
-	picked = second
-	pressIn(window, "Choose folder")
+	choose(second)
 	settle(window, "the drafted folder", systemUIWait, func() bool { return labelled(window, "Node backup folder").Value == second })
 	stale := saved()
 	stale.Schedule.Minute = 45

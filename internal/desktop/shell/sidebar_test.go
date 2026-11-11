@@ -521,16 +521,17 @@ func testSidebarReordersPins(t *testing.T) {
 
 func TestProjectEditorAndRemoval(t *testing.T) {
 	a, tt := newTester(t)
+	en := func(key string, args ...any) string { return i18n.In("en", key, args...) }
 	clickButton(t, tt, "Add project")
 	tt.Frame()
 	click(t, tt, "Save preview")
-	if !tt.HasText(i18n.In("en", "project_required")) {
+	if !tt.HasText(en("project_required")) {
 		t.Fatalf("no validation toast: %q", tt.Texts())
 	}
 	n := len(a.Data.Projects)
 	a.Sidebar.OpenEditor(nil)
 	tt.Frame()
-	clickField(t, tt, i18n.In("en", "project_path"))
+	clickField(t, tt, en("project_path"))
 	tt.Type("~/Work/new-tool")
 	tt.Frame()
 	click(t, tt, "Save preview")
@@ -538,24 +539,255 @@ func TestProjectEditorAndRemoval(t *testing.T) {
 	if len(a.Data.Projects) != n+1 || a.Data.Projects[n].Name != "new-tool" {
 		t.Fatalf("the project was not added with its suggested name: %d", len(a.Data.Projects))
 	}
-	a.Sidebar.SetCollapsed([]string{"sailry-go", "sailry"})
-	tt.Frame()
+	if pr := a.Data.Projects[n]; pr.Icon != "folder" || pr.Color != "none" {
+		t.Fatalf("a new project's appearance is %q %q, want the folder without a color", pr.Icon, pr.Color)
+	}
+
+	// The appearance: the glyph button opens the colors and the icons.
+	a.Sidebar.OpenEditor(nil)
+	settle(tt)
+	clickButton(t, tt, en("project_appearance"))
+	settle(tt)
+	for _, name := range []string{"project_color_magenta", "project_color_none", "project_icon_folder", "project_icon_favorite"} {
+		if _, ok := tt.AccessByRole(ui.RoleButton, en(name)); !ok {
+			t.Fatalf("the appearance popover lacks %s: %q", name, tt.Texts())
+		}
+	}
+	clickButton(t, tt, en("project_color_green"))
+	settle(tt)
+	clickButton(t, tt, en("project_icon_code"))
+	settle(tt)
+	if d := a.Sidebar.Draft(); d.Icon != "code" || d.Color != "green" {
+		t.Fatalf("the draft's appearance is %q %q", d.Icon, d.Color)
+	}
+	tt.Key(0, ui.KeyEscape)
+	settle(tt)
+
+	// The directory picker lists the host's sample directories: navigating,
+	// filtering and the hidden toggle, then the choice fills the path.
+	pick := func(name string) {
+		t.Helper()
+		all := tt.AccessAll()
+		for i := len(all) - 1; i >= 0; i-- {
+			if all[i].Role == ui.RoleButton && all[i].Name == name {
+				b := all[i].Bounds
+				tt.ClickAt(b.X+b.W/2, b.Y+b.H/2)
+				settle(tt)
+				return
+			}
+		}
+		t.Fatalf("no button %q: %q", name, tt.Texts())
+	}
+	clickButton(t, tt, en("directory_title"))
+	settle(tt)
+	for _, text := range []string{en("directory_preview"), "sailry", "scratch", "many", en("directory_locations"), en("directory_devices"),
+		en("directory_count_directories", "count", 5), "/preview"} {
+		if !tt.HasText(text) {
+			t.Fatalf("the picker does not show %q: %q", text, tt.Texts())
+		}
+	}
+	clickField(t, tt, en("directory_filter"))
+	tt.Type("zz")
+	settle(tt)
+	if !tt.HasText(en("directory_no_matches")) || tt.HasText("scratch") {
+		t.Fatalf("the filter kept unmatched entries: %q", tt.Texts())
+	}
+	pick(en("directory_filter")) // the clear button
+	if !tt.HasText("scratch") {
+		t.Fatalf("clearing the filter did not restore the entries: %q", tt.Texts())
+	}
+	click(t, tt, "scratch")
+	settle(tt)
+	if !tt.HasText("/preview/scratch") {
+		t.Fatalf("selecting a directory does not show its path: %q", tt.Texts())
+	}
+	tt.Key(0, ui.KeyEnter)
+	settle(tt)
+	if !tt.HasText("new-project") || tt.HasText("many") {
+		t.Fatalf("Enter did not open the directory: %q", tt.Texts())
+	}
+	tt.Key(0, ui.KeyBackspace)
+	settle(tt)
+	if !tt.HasText("many") {
+		t.Fatalf("Backspace did not go up: %q", tt.Texts())
+	}
+	pick(en("directory_back"))
+	if !tt.HasText("new-project") {
+		t.Fatalf("Back did not return: %q", tt.Texts())
+	}
+	// A new folder is made in memory through the native menu, and is hidden
+	// until the toggle shows it.
+	if err := tt.RightClick("new-project"); err != nil {
+		t.Fatal(err)
+	}
+	if got := tt.Menu(); !slices.Contains(got, en("directory_open")) || !slices.Contains(got, en("files_rename")) || !slices.Contains(got, en("files_trash")) {
+		t.Fatalf("the entry menu is %q", got)
+	}
+	tt.CloseMenu()
+	settle(tt)
+	a.Sidebar.Picker.Create(".cache")
+	settle(tt)
+	if tt.HasText(".cache") || !tt.HasText(en("directory_count_hidden", "count", 1)) {
+		t.Fatalf("a hidden entry shows before the toggle: %q", tt.Texts())
+	}
+	pick(en("directory_hidden"))
+	if !tt.HasText(".cache") || !a.Sidebar.Picker.Hidden {
+		t.Fatalf("the hidden toggle did not show the entry: %q", tt.Texts())
+	}
+	pick(en("directory_grid"))
+	if !a.Sidebar.Picker.Grid || !tt.HasText("new-project") || tt.HasText(en("directory_kind")) {
+		t.Fatalf("the grid view did not replace the table: %q", tt.Texts())
+	}
+	pick(en("directory_list"))
+	click(t, tt, "new-project")
+	settle(tt)
+	snapshot(t, tt, "project-picker")
+	pick(en("directory_title"))
+	if d := a.Sidebar.Draft(); d.Path != "/preview/scratch/new-project" || d.Name != "new-project" || a.Sidebar.Picker.Showing() {
+		t.Fatalf("the choice did not fill the path: %+v", d)
+	}
+
+	// Clone keeps its own folder, takes a repository and a branch, and names
+	// the project after the repository.
+	click(t, tt, en("project_clone"))
+	settle(tt)
+	if d := a.Sidebar.Draft(); d.Path != "" {
+		t.Fatalf("Clone kept the local path %q", d.Path)
+	}
+	clickField(t, tt, en("project_repository"))
+	tt.Type("https://github.com/org/tool.git")
+	clickField(t, tt, en("project_branch"))
+	tt.Type("release")
+	clickField(t, tt, en("project_destination"))
+	tt.Type("~/src")
+	settle(tt)
+	if d := a.Sidebar.Draft(); d.Name != "tool" || !tt.HasText("~/src/tool") {
+		t.Fatalf("the clone is named %q: %q", d.Name, tt.Texts())
+	}
+	if _, ok := tt.AccessByRole(ui.RoleButton, en("project_clone")); !ok {
+		t.Fatalf("the clone's save button is not Clone: %q", tt.Texts())
+	}
+	snapshot(t, tt, "project-editor-clone")
+	click(t, tt, en("project_local"))
+	settle(tt)
+	if d := a.Sidebar.Draft(); d.Path != "/preview/scratch/new-project" {
+		t.Fatalf("Local lost its path: %q", d.Path)
+	}
+	click(t, tt, "Save preview")
+	settle(tt)
+	added := a.Data.Projects[len(a.Data.Projects)-1]
+	if len(a.Data.Projects) != n+2 || added.Icon != "code" || added.Color != "green" || added.Path != "/preview/scratch/new-project" {
+		t.Fatalf("the project was not saved with its appearance: %+v", added)
+	}
+	if !slices.Contains(tt.Texts(), en("project_icon_code")) {
+		t.Fatalf("the sidebar row does not show the project's glyph")
+	}
+
+	// Editing keeps the host and changes the name and the appearance.
+	if err := tt.RightClick("new-project"); err != nil {
+		t.Fatal(err)
+	}
+	menu := tt.Menu()
+	want := []string{"workspace_project", "workspace_new_session", "workspace_new_terminal", "workspace_records", "project_edit", "project_trust",
+		"workspace_copy_path", "worktree_manage", "project_remove", "cli_launch"}
+	at := 0
+	for _, key := range want {
+		i := slices.Index(menu[at:], en(key))
+		if i < 0 {
+			t.Fatalf("the project menu lacks %s in order: %q", key, menu)
+		}
+		at += i
+	}
+	if err := tt.ChooseMenuItem(en("project_edit")); err != nil {
+		t.Fatal(err)
+	}
+	settle(tt)
+	if !tt.HasText(en("project_edit")) || tt.HasText(en("project_clone")) {
+		t.Fatalf("editing shows the new project's source: %q", tt.Texts())
+	}
+	clickButton(t, tt, en("project_appearance"))
+	settle(tt)
+	clickButton(t, tt, en("project_color_red"))
+	settle(tt)
+	tt.Key(0, ui.KeyEscape)
+	settle(tt)
+	click(t, tt, "Save preview")
+	settle(tt)
+	if added.Color != "red" || added.Icon != "code" || len(a.Data.Projects) != n+2 {
+		t.Fatalf("the edit did not change the appearance: %+v", added)
+	}
+	snapshot(t, tt, "project-sidebar")
+
+	// Trust is the preview's record alone, asked first.
+	if err := tt.RightClick("new-project"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.ChooseMenuItem(en("project_trust")); err != nil {
+		t.Fatal(err)
+	}
+	settle(tt)
+	clickButton(t, tt, en("project_grant"))
+	settle(tt)
+	if !added.Trusted {
+		t.Fatal("granting trust did not record it")
+	}
+
+	// Open folder opens the project already at the chosen directory, or adds
+	// one named after it.
+	a.Do("folder.open")
+	settle(tt)
+	if !tt.HasText(en("menu_open_folder")) || !a.Sidebar.Picker.Showing() {
+		t.Fatalf("Open folder did not open the picker: %q", tt.Texts())
+	}
+	click(t, tt, "sailry")
+	settle(tt)
+	pick(en("directory_open"))
+	if last := a.Data.Projects[len(a.Data.Projects)-1]; len(a.Data.Projects) != n+3 || last.Name != "sailry" || last.Path != "/preview/sailry" || a.Sidebar.Picker.Showing() {
+		t.Fatalf("Open folder did not add the project: %+v", last)
+	}
+	a.Do("folder.open")
+	settle(tt)
+	click(t, tt, "sailry")
+	settle(tt)
+	pick(en("directory_open"))
+	if len(a.Data.Projects) != n+3 || a.Sidebar.Picker.Showing() {
+		t.Fatalf("Open folder added a registered directory again: %d", len(a.Data.Projects))
+	}
+
+	// A project its sessions still use stays; an unused one is removed after
+	// the confirmation names it.
+	var all []string
+	for _, pr := range a.Data.Projects {
+		all = append(all, pr.ID)
+	}
+	a.Sidebar.SetCollapsed(all)
+	settle(tt)
 	tt.Advance(time.Second)
-	tt.Frame()
+	settle(tt)
 	if err := tt.RightClick("field-notes"); err != nil {
 		t.Fatal(err)
 	}
 	if err := tt.ChooseMenuItem("Remove project"); err != nil {
 		t.Fatal(err)
 	}
+	settle(tt)
+	if !tt.HasText(en("project_remove_sessions")) || len(a.Data.Projects) != n+3 {
+		t.Fatalf("a project with sessions was offered for removal: %q", tt.Texts())
+	}
+	if err := tt.RightClick("new-tool"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.ChooseMenuItem("Remove project"); err != nil {
+		t.Fatal(err)
+	}
 	tt.Frame()
-	msg := i18n.In("en", "project_remove_named", "name", "~/Documents/field-notes")
+	msg := en("project_remove_sample", "name", "~/Work/new-tool")
 	if !tt.HasText(msg) {
 		t.Fatalf("the confirmation does not name the project: %q", tt.Texts())
 	}
-	click(t, tt, i18n.In("en", "project_remove_preview"))
+	click(t, tt, en("project_remove_preview"))
 	tt.Frame()
-	if len(a.Data.Projects) != n {
+	if len(a.Data.Projects) != n+2 {
 		t.Error("the project was not removed")
 	}
 }

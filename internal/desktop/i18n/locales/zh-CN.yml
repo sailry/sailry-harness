@@ -2064,3 +2064,55 @@ app_exit_confirm: 退出 Sailry
 app_exit_description: 本机正在运行的任务和终端将停止
 updates_save_first: 请先保存打开的文档
 notification_details: 详情
+directory_action_failed: 操作失败，请检查路径和权限
+directory_address: 输入路径
+directory_count_hidden: '%{count} 隐藏'
+directory_create: 新建文件夹
+directory_denied: 此目录为无访问权限示例，可选择其他目录
+directory_devices: 设备
+directory_extension_kind: '%{extension} 文件'
+directory_go_to: 前往文件夹
+directory_grid: 网格
+directory_hidden: 隐藏项
+directory_image_kind: 图像
+directory_invalid_name: 请输入有效名称
+directory_json_kind: JSON 文件
+directory_keep_both: 保留两者
+directory_list: 列表
+directory_markdown_kind: Markdown 文档
+directory_missing: 此路径不在该主机的示例目录中，可返回示例位置
+directory_refresh: 刷新
+directory_root: 根目录
+directory_stale: 原表单路径已变更，请关闭后重新选择
+directory_stop: 遇到同名时停止
+directory_text_kind: 文本文档
+directory_toml_kind: TOML 文件
+directory_volume: 磁盘
+directory_yaml_kind: YAML 文件
+files_entry_name: 名称
+files_paste_conflict: 目标已存在或路径不可用，请检查后重试
+files_trash_confirm: 确认删除“%{name}”
+live_request_failed: 请求未完成，请检查节点连接和目录；重试会保留原请求标识
+plugins_loading: 正在读取
+project_appearance: 项目外观
+project_clone_failed: 克隆未完成，请检查目标目录
+project_grant: 信任并继续
+project_grant_description: 信任后，项目指令和工具可能执行代码，适用于所有 worktree
+project_grant_title: 信任此项目
+project_outcome_unknown: 结果未确认，请先检查目标目录，重试将查询原请求
+project_path_in_use: 路径已关联会话或 worktree，不能直接修改
+project_remove_busy: 项目正在使用中，请稍后重试
+project_remove_changed_partial: 项目已变化，请重新打开后重试，部分终端可能已关闭
+project_remove_failed: 项目已保留，部分终端可能已关闭
+project_remove_sample: 确认移除示例项目“%{name}”
+project_remove_sessions: 项目仍被会话引用（包括已归档会话），不能移除
+project_remove_tasks: 请先停止运行中的任务再移除项目
+project_remove_tasks_partial: 项目已保留，请先停止任务再重试，部分终端可能已关闭
+project_remove_unknown: 移除结果未确认，请检查项目和终端
+project_removed: 项目已移除
+project_revoke: 撤销信任
+project_revoke_description: 撤销后停止项目任务，保留历史和草稿
+project_revoke_title: 撤销项目信任
+project_trust: 管理项目信任
+project_trust_preview: 仅修改示例
+task_completed: 已完成

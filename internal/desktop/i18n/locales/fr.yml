@@ -2064,3 +2064,55 @@ app_exit_confirm: Quitter Sailry
 app_exit_description: Les tâches et terminaux en cours d'exécution s'arrêteront
 updates_save_first: Enregistrer les documents ouverts avant de les mettre à jour
 notification_details: Détails
+directory_action_failed: Opération échouée; vérifiez le chemin et les autorisations
+directory_address: Entrez le chemin
+directory_count_hidden: '%{count} masqués'
+directory_create: Nouveau dossier
+directory_denied: Aperçu refusé; choisissez un autre répertoire
+directory_devices: Appareils
+directory_extension_kind: Fichier %{extension}
+directory_go_to: Aller au dossier
+directory_grid: Grille
+directory_hidden: Fichiers masqués
+directory_image_kind: Image
+directory_invalid_name: Entrez un nom valide
+directory_json_kind: Fichier JSON
+directory_keep_both: Gardez les deux
+directory_list: Liste
+directory_markdown_kind: Document Markdown
+directory_missing: Chemin non dans l'aperçu de cet hôte; retourner à un emplacement d'aperçu
+directory_refresh: Actualiser
+directory_root: Racine
+directory_stale: Changement du chemin du formulaire; rouvrir le sélecteur
+directory_stop: Arrêt sur conflit de noms
+directory_text_kind: Document texte
+directory_toml_kind: Fichier TOML
+directory_volume: Disque
+directory_yaml_kind: Fichier YAML
+files_entry_name: Nom
+files_paste_conflict: La destination existe ou le chemin est indisponible
+files_trash_confirm: Supprimer « %{name} »
+live_request_failed: Demande incomplète; vérifier la connexion et le répertoire Node. Réessayer conserve l'ID de requête d'origine.
+plugins_loading: Chargement
+project_appearance: Apparence du projet
+project_clone_failed: Cloner incomplet; vérifier la destination
+project_grant: Faites confiance et continuez
+project_grant_description: Les instructions et outils de projet peuvent exécuter du code dans tous les arbres de travail
+project_grant_title: Faire confiance à ce projet
+project_outcome_unknown: Résultat non confirmé ; vérifiez la destination. Réessayer vérifie la requête originale.
+project_path_in_use: Ce chemin est utilisé par une session ou une arborescence
+project_remove_busy: Le projet est occupé ; réessayez
+project_remove_changed_partial: Le projet a changé ; rouvrez-le avant de réessayer. Certains terminaux peuvent déjà être fermés
+project_remove_failed: Projet conservé ; certains terminaux peuvent déjà être fermés
+project_remove_sample: Supprimer l'aperçu du projet “%{name}”
+project_remove_sessions: Les sessions, y compris celles archivées, font toujours référence à ce projet
+project_remove_tasks: Arrêtez les tâches actives avant de retirer le projet
+project_remove_tasks_partial: Projet conservé ; arrêtez les tâches avant de réessayer. Certains terminaux peuvent déjà être fermés
+project_remove_unknown: Retrait non confirmé ; vérifiez le projet et ses terminaux
+project_removed: Projet retiré
+project_revoke: Révoquer la confiance
+project_revoke_description: Arrêter les tâches de projet; conserver l'historique et les brouillons
+project_revoke_title: Révoquer l'approbation du projet
+project_trust: Gérer la confiance du projet
+project_trust_preview: Aperçu des modifications uniquement
+task_completed: Achevée

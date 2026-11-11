@@ -2064,3 +2064,55 @@ app_exit_confirm: Quit Sailry
 app_exit_description: Local running tasks and terminals will stop
 updates_save_first: Save open documents before updating
 notification_details: Details
+directory_action_failed: Operation failed; check path and permissions
+directory_address: Enter path
+directory_count_hidden: '%{count} hidden'
+directory_create: New folder
+directory_denied: Access-denied preview; choose another directory
+directory_devices: Devices
+directory_extension_kind: '%{extension} file'
+directory_go_to: Go to folder
+directory_grid: Grid
+directory_hidden: Hidden files
+directory_image_kind: Image
+directory_invalid_name: Enter a valid name
+directory_json_kind: JSON file
+directory_keep_both: Keep both
+directory_list: List
+directory_markdown_kind: Markdown document
+directory_missing: Path not in this host's preview; return to a preview location
+directory_refresh: Refresh
+directory_root: Root
+directory_stale: Form path changed; reopen the picker
+directory_stop: Stop on name conflict
+directory_text_kind: Text document
+directory_toml_kind: TOML file
+directory_volume: Disk
+directory_yaml_kind: YAML file
+files_entry_name: Name
+files_paste_conflict: The destination exists or the path is unavailable
+files_trash_confirm: Delete “%{name}”
+live_request_failed: Request incomplete; check Node connection and directory. Retry keeps the original request ID.
+plugins_loading: Loading
+project_appearance: Project appearance
+project_clone_failed: Clone incomplete; check the destination
+project_grant: Trust and continue
+project_grant_description: Project instructions and tools may run code in all worktrees
+project_grant_title: Trust this project
+project_outcome_unknown: Result unconfirmed; check the destination. Retry checks the original request.
+project_path_in_use: This path is used by a session or worktree
+project_remove_busy: Project is busy; try again
+project_remove_changed_partial: Project changed; reopen before retrying. Terminals may already be closed
+project_remove_failed: Project kept; terminals may already be closed
+project_remove_sample: Remove preview project “%{name}”
+project_remove_sessions: Sessions, including archived ones, still reference this project
+project_remove_tasks: Stop active tasks before removing the project
+project_remove_tasks_partial: Project kept; stop active tasks before retrying. Terminals may already be closed
+project_remove_unknown: Removal unconfirmed; check the project and its terminals
+project_removed: Project removed
+project_revoke: Revoke trust
+project_revoke_description: Stop project tasks; keep history and drafts
+project_revoke_title: Revoke project trust
+project_trust: Manage project trust
+project_trust_preview: Changes preview only
+task_completed: Completed

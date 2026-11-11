@@ -31,6 +31,58 @@ children and BLAKE3 content before passing the source to Trash. Host picker
 actions use absolute execution-host paths, protect home ancestors and report
 per-entry conflict, replacement and cut outcomes.
 
+## Host file picker
+
+`internal/desktop/picker` is the in-app file picker of the reference
+(`file_picker.rs`, `file_picker/**`): one `State` per window
+(`sidebar.State.Picker`), drawn by the shell's overlays above every dialog.
+It browses the file system of one execution host through a `Source`:
+`Browse` (`browse_files`, paged until the cursor ends) and `Manage`
+(`manage_files`). `live.Runtime.files(host)` binds the source to that host's
+controller, so the local Node and a paired Host are read the same way and a
+remote directory can be chosen; the preview uses the in-memory
+`picker.Catalog`. There is no OS-native folder dialog, for the local host
+either, as in the reference.
+
+| Part | Behavior |
+|---|---|
+| Toolbar | Back, Forward, Up; the address as crumbs (the volume or root as the host names it, each crumb a menu of its child directories), scrolled to its end, or a path field after a click beside them or ⌘L; the filter; list and grid; the hidden-entries toggle; Refresh (F5); Go to folder |
+| Side column | `directory_locations` (home, desktop, documents, downloads) and `directory_devices` (volumes, roots) of the host |
+| Entries | `ui.Table` with name, kind and size, sortable, directories always first; or `ui.GridView` tiles; both virtualised. Each entry shows a tinted tile of its type (`picker.Class`), 28 DIP in a row and 44 in the grid. Hidden entries are dimmed. Enter or a double click opens a directory (in the file modes, chooses that file alone and confirms), Backspace goes up, the arrows move the selection. `Files` mode chooses several entries through `ui.Selection` (Cmd-click, Shift-click, Shift with the arrows, Cmd+A); only those still shown stay chosen |
+| Empty | `files_directory_empty`, or `directory_no_matches` under a filter |
+| Menus (native) | Entry: Open, Copy, Cut, Rename, Paste (stop, replace, keep both), Trash after a confirmation; background: New folder, Paste, Refresh. Outcomes are toasts naming the host |
+| Footer | The path Confirm would choose (the selected directory, otherwise the one shown), Cancel, Confirm; Confirm is disabled while loading, after a failed load, while the caller saves and once the caller's draft changed (`directory_stale`) |
+
+List or grid and the hidden toggle are the controller preference
+`file_picker` in `desktop/preferences.json`.
+
+Callers, the reference's and ours:
+
+| Reference caller | Mode | Go |
+|---|---|---|
+| Project editor's folder button | Directory on the editor's host | `sidebar.State.browse`; fills the path and suggests the name |
+| Open folder (`menu_open_folder`) | Directory on the shown host | `sidebar.State.OpenFolder`; opens the registered project or adds one, the picker staying open while it saves |
+| Settings › Backup, local directory | Directory on the shown host | `live.Runtime.chooseDirectory` through `settings.BackupActions.ChooseFolder` |
+| Documents plugin, Markdown image (`content_image_choose`) | One file | Not wired: the Go editor's image prompt (`files_insert_image`) takes an address only and has no Choose file button |
+
+Everything else that takes a path in the reference (attachments, SSH keys,
+imports, exports, package installs) uses the system's dialogs there and here.
+The multi-file mode has no caller in the reference or here. Not ported, having
+no caller: the Save mode.
+
+Deviations from the reference, by the user's decision of November 11, 2026:
+the rows take the look of CrychicUI's `files.FileList` without its module: a
+tile washed at 14% with the status color of the entry's type (folders and
+archives `Warning`, code `Primary`, images and sheets `Success`, PDF, audio
+and video `Danger`, the rest muted) holding the glyph in that color, and the
+chosen entry's name in bold. A chosen row is filled with the accent, so its
+tile takes `PrimaryForeground`. The list keeps MyGo's own table and grid
+behavior. There is no Modified column: `protocol.FileEntry` carries a name, a
+kind and a size, not a modified time. Several files are chosen with the
+list's own modifiers rather than the reference's name-cell checkbox.
+
+## Transfers
+
 One `Transfers` instance owns raw authenticated streams. A stream is caller-bound
 and opens once. Uploads verify exact size and BLAKE3, sync protected staging,
 receive write-half EOF and acknowledge readiness before a durable finish

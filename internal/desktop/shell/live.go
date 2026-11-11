@@ -24,7 +24,6 @@ type Hooks struct {
 	BeforeFrame      func(*ui.Context)
 	AfterFrame       func()
 	Refresh          func()
-	OpenFolder       func()
 	ReadNotice       func(string)
 	ReadNotices      func([]string)
 	DismissRead      func([]string)

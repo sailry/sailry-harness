@@ -88,6 +88,7 @@ type Runtime struct {
 	observers                sync.WaitGroup
 	openWindow               func(string)
 	pickDirectory            func(func(string))
+	savedProject             string // the project the editor saved, opened once projected
 	preferencesChanged       func()
 	busy                     map[string]bool
 	uncertain                map[string]protocol.Request
@@ -195,16 +196,17 @@ func NewWithPreferences(ctx context.Context, controller *client.Client, prefs *p
 	r.App = shell.NewLive(d)
 	r.App.SetLocalHost(localHost(snapshot, d))
 	r.applyPreferences()
-	r.App.Hooks = shell.Hooks{BeforeFrame: r.drain, AfterFrame: r.afterFrame, Refresh: r.Refresh, OpenFolder: r.openFolder,
+	r.App.Hooks = shell.Hooks{BeforeFrame: r.drain, AfterFrame: r.afterFrame, Refresh: r.Refresh,
 		ReadNotice: r.markNotice, ReadNotices: r.readNotices, DismissRead: r.dismissRead, DismissNotices: r.dismissNotices, OpenKnowledge: r.openKnowledge,
 		CaptureSelection: func() { r.CaptureSelection(nil) }}
 	r.App.Messages.OpenLink = r.openChatLink
 	r.App.Sidebar.Actions = &sidebar.Actions{Rename: r.rename, Archive: r.archive, Read: r.read, Delete: r.removeSession,
-		Pin: r.pin, MovePin: r.movePin, NewDraft: r.newDraft, RemoveProject: r.removeProject, Worktrees: r.sidebarWorkspaceAction, Records: r.projectRecords, SaveProject: r.saveProject, Browse: r.browse, ForkHere: r.forkHere, ForkWorktree: r.forkWorkspaceConversation, Export: r.exportSession, OpenWindow: func(id string) {
+		Pin: r.pin, MovePin: r.movePin, NewDraft: r.newDraft, RemoveProject: r.removeProject, Worktrees: r.sidebarWorkspaceAction, Records: r.projectRecords, SaveProject: r.saveProject, Files: r.files, ForkHere: r.forkHere, ForkWorktree: r.forkWorkspaceConversation, Export: r.exportSession, OpenWindow: func(id string) {
 			if r.openWindow != nil {
 				r.openWindow(id)
 			}
 		}}
+	r.bindPicker()
 	r.initCommands()
 	r.initAttachments()
 	r.App.Hooks.DownloadDialog = r.transferDialogs
@@ -384,6 +386,16 @@ func (r *Runtime) drain(c *ui.Context) {
 	r.draftsShown = map[string]bool{}
 	r.listSidebar()
 	r.conversationPanelsFrame()
+	if r.savedProject != "" {
+		for _, project := range r.App.Data.Projects {
+			if project.ID == r.savedProject {
+				r.savedProject = ""
+				r.App.Sidebar.Reveal(project.ID)
+				r.openProjectOverview(project)
+				break
+			}
+		}
+	}
 	owner := r.selectedRuntime()
 	if owner != nil {
 		owner.workspaceFrame(c)
@@ -768,6 +780,10 @@ func expectedProject(p *viewmodel.Project) (protocol.Project, error) {
 	id, err := protocol.ParseProjectID(p.ID)
 	return protocol.Project{ID: id, Name: p.Name, Path: p.Path, Appearance: protocol.ProjectsAppearance{Icon: p.Icon, Color: p.Color}}, err
 }
+
+// removeProject removes a project from its Node's inventory. The outcome is
+// a toast: removed, or why it stayed; after a failure the confirmation shows
+// again, as a retry is a new attempt.
 func (r *Runtime) removeProject(p *viewmodel.Project) {
 	if owner := r.runtimeFor(p.Host); owner == nil {
 		r.Report(fileActionFault(protocol.ErrorCodeUnavailable, "the execution host is unavailable"))
@@ -780,8 +796,59 @@ func (r *Runtime) removeProject(p *viewmodel.Project) {
 	if err != nil {
 		return
 	}
-	r.command(protocol.Command{Kind: "remove_project", Data: protocol.CommandRemoveProjectPayload{Expected: expected}}, "project_changed", nil)
+	root := r.localRuntime()
+	r.execute(protocol.Command{Kind: "remove_project", Data: protocol.CommandRemoveProjectPayload{Expected: expected}}, func(c *ui.Context, _ protocol.Output, err error) {
+		if err == nil {
+			kit.Toast(c, kit.Done, i18n.T(c, "project_removed"))
+			if node, project, shown := root.App.ProjectOwner(); shown && node == p.Host && project == p.ID {
+				root.App.Host = p.Host
+				root.App.Navigate(shell.HostPage)
+			}
+			return
+		}
+		outcome, key := projectRemovalFailure(err)
+		kit.Toast(c, outcome, i18n.T(c, key))
+		root.App.Sidebar.AskRemove(c, p)
+	})
 }
+
+// projectRemovalFailure names why a project stayed: an unknown outcome
+// first, then what the Node says of its tasks and terminals, then the code.
+func projectRemovalFailure(err error) (kit.Outcome, string) {
+	code := faultCode(err)
+	var removal *protocol.FaultDetailsProjectRemovalPayload
+	details := false
+	var fault *link.FaultError
+	if errors.As(err, &fault) && fault.Fault.Details != nil {
+		details = true
+		if value, ok := detail[protocol.FaultDetailsProjectRemovalPayload](fault.Fault.Details.Data); ok {
+			removal = &value
+		}
+	}
+	switch {
+	case code == protocol.ErrorCodeOutcomeUnknown || code == "" || code == protocol.ErrorCodeUnavailable && !details:
+		return kit.Uncertain, "project_remove_unknown"
+	case removal != nil && removal.TasksActive && removal.TerminalsMayBeClosed:
+		return kit.Failed, "project_remove_tasks_partial"
+	case removal != nil && removal.TasksActive:
+		return kit.Failed, "project_remove_tasks"
+	case removal != nil && removal.TerminalsMayBeClosed && code == protocol.ErrorCodeRevisionConflict:
+		return kit.Conflict, "project_remove_changed_partial"
+	case removal != nil && removal.TerminalsMayBeClosed:
+		return kit.Failed, "project_remove_failed"
+	case removal != nil:
+		return kit.Failed, "live_request_failed"
+	case code == protocol.ErrorCodeBusy:
+		return kit.Failed, "project_remove_busy"
+	case code == protocol.ErrorCodeRevisionConflict || code == protocol.ErrorCodeNotFound:
+		return kit.Conflict, "project_changed"
+	}
+	return kit.Failed, "live_request_failed"
+}
+
+// saveProject creates or updates a project on its host with the editor's
+// name, path and appearance; a clone goes into the destination folder under
+// the project's name. The outcome is a toast, and the draft stays on failure.
 func (r *Runtime) saveProject(e sidebar.Editor, host string, done func(bool)) {
 	if owner := r.runtimeFor(host); owner == nil {
 		r.Report(fileActionFault(protocol.ErrorCodeUnavailable, "the execution host is unavailable"))
@@ -795,43 +862,56 @@ func (r *Runtime) saveProject(e sidebar.Editor, host string, done func(bool)) {
 		done(false)
 		return
 	}
+	clone := e.Clone == 1 && e.Project == nil
+	appearance := protocol.ProjectsAppearance{Icon: e.Icon, Color: e.Color}
+	if appearance.Icon == "" || appearance.Color == "" {
+		appearance = protocol.DefaultProjectsAppearance()
+	}
+	path := strings.TrimSpace(e.Path)
 	source := protocol.ProjectsSource{Kind: "local"}
-	if e.Clone == 1 && e.Project == nil {
+	if clone {
 		var branch *string
 		if strings.TrimSpace(e.Branch) != "" {
 			value := strings.TrimSpace(e.Branch)
 			branch = &value
 		}
-		source = protocol.ProjectsSource{Kind: "clone", Data: protocol.ProjectsSourceClonePayload{Url: e.Repo, Branch: branch}}
+		path = sidebar.Destination(path, e.Name)
+		source = protocol.ProjectsSource{Kind: "clone", Data: protocol.ProjectsSourceClonePayload{Url: strings.TrimSpace(e.Repo), Branch: branch}}
 	}
-	command := protocol.Command{Kind: "create_project", Data: protocol.ProjectsDraft{Name: e.Name, Path: e.Path, Appearance: protocol.DefaultProjectsAppearance(), Source: source}}
+	command := protocol.Command{Kind: "create_project", Data: protocol.ProjectsDraft{Name: e.Name, Path: path, Appearance: appearance, Source: source}}
 	if e.Project != nil {
 		expected, err := expectedProject(e.Project)
 		if err != nil {
 			done(false)
 			return
 		}
-		command = protocol.Command{Kind: "update_project", Data: protocol.CommandUpdateProjectPayload{Expected: expected, Name: e.Name, Path: e.Path, Appearance: expected.Appearance}}
+		command = protocol.Command{Kind: "update_project", Data: protocol.CommandUpdateProjectPayload{Expected: expected, Name: e.Name, Path: path, Appearance: appearance}}
 	}
-	r.command(command, "project_changed", func(_ protocol.Output, ok bool) { done(ok) })
-}
-
-func (r *Runtime) browse(owner string, selected func(string)) {
-	if owner != "" && owner != r.localRuntime().controller.Target().String() {
-		r.enqueue(func(c *ui.Context) { kit.Toast(c, kit.Failed, i18n.T(c, "unavailable")) })
-		return
-	}
-	if r.pickDirectory == nil {
-		r.enqueue(func(c *ui.Context) { kit.Toast(c, kit.Failed, i18n.T(c, "unavailable")) })
-		return
-	}
-	r.pickDirectory(func(path string) {
-		if path != "" {
-			r.enqueue(func(*ui.Context) { selected(path) })
+	root := r.localRuntime()
+	r.execute(command, func(c *ui.Context, output protocol.Output, err error) {
+		if err != nil {
+			outcome, key := kit.Failed, "live_request_failed"
+			switch code := faultCode(err); {
+			case code == protocol.ErrorCodeOutcomeUnknown || code == protocol.ErrorCodeUnavailable || code == "":
+				outcome, key = kit.Uncertain, "project_outcome_unknown"
+			case code == protocol.ErrorCodeRevisionConflict:
+				outcome, key = kit.Conflict, "project_changed"
+			case code == protocol.ErrorCodeBusy:
+				key = "project_path_in_use"
+			case clone:
+				key = "project_clone_failed"
+			}
+			kit.Toast(c, outcome, i18n.T(c, key))
+			done(false)
+			return
+		}
+		done(true)
+		// The saved project opens once the Node's snapshot holds it.
+		if saved, ok := detail[protocol.Project](output.Data); ok {
+			root.savedProject = saved.ID.String()
 		}
 	})
 }
-func (r *Runtime) openFolder() { r.browse("", r.App.Sidebar.OpenFolder) }
 
 func (r *Runtime) pin(cv *viewmodel.Conversation) {
 	if owner := r.conversationRuntime(cv, nil); owner == nil {

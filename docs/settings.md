@@ -906,7 +906,7 @@ so an action finishes and toasts after the page has moved on.
 |---|---|---|
 | Page | `read_backup_settings`, the controller's snapshot | Read when the page shows and after every action that did not return settings. Controls are disabled (`Backup.Pending`) until the settings are known and while an action runs. Archived sessions and the session count come from the snapshot |
 | Storage dialog › Save | `save_backup_settings` | Sent at the revision read. Typed secrets replace, blank ones keep, Clear credentials removes; WebDAV clears the session token. The schedule is left as saved. A clean draft closes without a request. The draft stays in the dialog until the Node has saved it |
-| Choose folder | native folder picker | Local Node only; another host toasts `unavailable` |
+| Choose folder | the in-app host file picker (docs/files.md), titled `backup_local_directory` | Browses the shown host through its controller, opening at the field's path |
 | Schedule switch, time, timezone | `save_backup_settings` | The switch saves at once, time and timezone 350 ms after they rest, with every secret kept. An enabled schedule without a timezone waits. A draft the Node refused is not sent again until it changes |
 | Export | save panel, `download_backup`, download stream | Written beside the chosen path and published when complete |
 | Back up now | `export_backup` | |
@@ -938,7 +938,6 @@ Deviations from the reference:
 |---|---|
 | Saving a local folder inside or around the running profile is refused (`PermissionDenied`) | The reference refuses it only when an export runs; the save would store a folder that can never be used |
 | The staged copy of each archived file is not flushed to disk; the finished archive is | The reference flushes every staged file; the copies are read back into the archive and removed, so only the archive needs to survive a crash |
-| Choose folder uses the controller's native picker and is unavailable for a remote host | The reference's host file picker is not built in this UI |
 | The records, restore and session removal dialogs exist only in live mode | The reference has all three; the preview's Backup actions are the notice |
 | No toast actions (Retry, Reload) | The accepted toasts carry no actions; repeating the action resends a retained request, and the page reads the settings again on entry |
 | The page does not subscribe to `backup_settings_changed` | The snapshot has no backup revision; a stale revision surfaces as `backup_conflict` and a fresh read |

@@ -8,12 +8,13 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
+	"github.com/sailry/sailry-harness/internal/desktop/picker"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
 // Editor is the project editor's draft: a new project, local or cloned, or an
-// existing one's name and path.
+// existing one's name, path and appearance.
 type Editor struct {
 	Open    bool
 	Pending bool
@@ -24,9 +25,20 @@ type Editor struct {
 	Path    string
 	Repo    string
 	Branch  string
-	suggest string // the name last suggested from the path or repository
-	host    string
+	// Icon and Color are the project's appearance: folder and none on a new
+	// project.
+	Icon, Color string
+	suggest     string // the name last suggested from the path or repository
+	source      string // the path or repository the name was last suggested from
+	other       string // the path the other source kept (Local | Clone)
+	mode        int    // the source the path belongs to
+	host        string
+	// folder marks the draft Open folder saves without showing the dialog.
+	folder bool
 }
+
+// Draft returns the project editor's draft as it stands.
+func (s *State) Draft() Editor { return s.editor }
 
 // Editing reports whether the project editor shows.
 func (s *State) Editing() bool { return s.editor.Open }
@@ -34,10 +46,16 @@ func (s *State) Editing() bool { return s.editor.Open }
 // OpenEditor opens the project editor for pr, or for a new project.
 func (s *State) OpenEditor(pr *preview.Project) {
 	s.editorGeneration++
-	s.editor = Editor{Open: true, Project: pr}
+	s.editor = Editor{Open: true, Project: pr, Icon: "folder", Color: "none"}
 	if pr != nil {
-		s.editor.Name, s.editor.Path = pr.Name, pr.Path
+		s.editor.Name, s.editor.Path, s.editor.source = pr.Name, pr.Path, pr.Path
 		s.editor.host = pr.Host
+		if pr.Icon != "" {
+			s.editor.Icon = pr.Icon
+		}
+		if pr.Color != "" {
+			s.editor.Color = pr.Color
+		}
 	}
 }
 
@@ -47,17 +65,36 @@ func (s *State) OpenEditorAtHost(id string) {
 }
 
 // OpenCloneEditor opens the existing new-project form with Clone selected.
-func (s *State) OpenCloneEditor() { s.OpenEditor(nil); s.editor.Clone = 1 }
+func (s *State) OpenCloneEditor() { s.OpenEditor(nil); s.editor.Clone, s.editor.mode = 1, 1 }
 
 // SuggestName is the name a path or a repository suggests: its last segment,
-// split on / \ and:, without ".git".
-func SuggestName(path string) string {
-	path = strings.TrimRight(path, `/\:`)
+// split on / \ and :, a repository's without ".git".
+func SuggestName(path string, repository bool) string {
+	path = strings.TrimRight(strings.TrimSpace(path), `/\`)
 	if i := strings.LastIndexAny(path, `/\:`); i >= 0 {
 		path = path[i+1:]
 	}
-	return strings.TrimSuffix(path, ".git")
+	if repository {
+		path = strings.TrimSuffix(path, ".git")
+	}
+	return path
 }
+
+// suggestName follows the path, or a clone's repository, with the name until
+// the name is typed over.
+func (e *Editor) suggestName() {
+	source := e.Path
+	if e.cloning() {
+		source = e.Repo
+	}
+	name := SuggestName(source, e.cloning())
+	if strings.TrimSpace(e.Name) == "" || e.Name == e.suggest {
+		e.Name = name
+	}
+	e.suggest, e.source = name, source
+}
+
+func (e *Editor) cloning() bool { return e.Clone == 1 && e.Project == nil }
 
 // CheckProject returns the i18n key of what is wrong with a local
 // project's name and path, "" when nothing is: both are needed, and the
@@ -97,9 +134,20 @@ func Destination(path, name string) string {
 	return strings.TrimRight(path, `/\`) + sep + strings.TrimSpace(name)
 }
 
+// hostLabel is a host's name as the editor and the picker's toasts show it.
+func (s *State) hostLabel(c *ui.Context, h preview.Host) string {
+	// The preview's hosts and the local one are named by i18n keys; a
+	// device's own name shows as it is.
+	if s.Actions == nil || h.Name == "local_host_name" {
+		return i18n.T(c, h.Name)
+	}
+	return h.Name
+}
+
 // editorDialog is the project editor: on a new project a Local | Clone
-// switch, then the name, the host, the repository and branch of a clone,
-// and the folder. Saving changes the preview in memory only.
+// switch, then the name behind its appearance, the host, the repository and
+// branch of a clone, and the folder with the host's directory picker. The
+// preview saves in memory only.
 func (s *State) editorDialog(c *ui.Context) {
 	e := &s.editor
 	if !e.Open {
@@ -109,13 +157,7 @@ func (s *State) editorDialog(c *ui.Context) {
 	hosts := make([]string, len(s.Data.Hosts))
 	hostIDs := make([]string, len(s.Data.Hosts))
 	for i, h := range s.Data.Hosts {
-		// The preview's hosts and the local one are named by i18n keys; a
-		// device's own name shows as it is.
-		hosts[i] = h.Name
-		if s.Actions == nil || h.Name == "local_host_name" {
-			hosts[i] = i18n.T(c, h.Name)
-		}
-		hostIDs[i] = h.ID
+		hosts[i], hostIDs[i] = s.hostLabel(c, h), h.ID
 		if e.host == "" && i == 0 {
 			e.host = h.ID
 		}
@@ -123,17 +165,21 @@ func (s *State) editorDialog(c *ui.Context) {
 			e.Host = hosts[i]
 		}
 	}
-	hostID := e.host
 	if e.Project != nil {
-		hostID = e.Project.Host
+		e.host = e.Project.Host
+	}
+	// Each source keeps its own folder.
+	if e.Clone != e.mode {
+		e.mode, e.Path, e.other = e.Clone, e.other, e.Path
+		e.suggestName()
 	}
 	// The name follows the path or the repository until it is typed over.
 	source := e.Path
-	if e.Clone == 1 {
+	if e.cloning() {
 		source = e.Repo
 	}
-	if sug := SuggestName(source); e.Name == "" || e.Name == e.suggest {
-		e.Name, e.suggest = sug, sug
+	if source != e.source {
+		e.suggestName()
 	}
 	title := i18n.T(c, "project_add")
 	if e.Project != nil {
@@ -147,76 +193,179 @@ func (s *State) editorDialog(c *ui.Context) {
 			}
 		})
 		ui.Scroll(c.Key("body")).Grow(1).Shrink(1).Gap(12).Children(func() {
-			if e.Project == nil && s.Actions == nil {
-				kit.Segmented(c, "source", &e.Clone, []string{i18n.T(c, "project_local"), i18n.T(c, "project_clone")}, kit.SegmentedProps{Block: true})
+			if e.Project == nil {
+				kit.Segmented(c, "source", &e.Clone, []string{i18n.T(c, "project_local"), i18n.T(c, "project_clone")},
+					kit.SegmentedProps{Block: true, Disabled: e.Pending})
 			}
 			kit.Field(c, "name", i18n.T(c, "project_name"), "", func() {
-				ui.TextInput(c.Key("input"), &e.Name).Placeholder(i18n.T(c, "project_name_placeholder")).Label(i18n.T(c, "project_name")).FillWidth().Disabled(e.Pending)
+				ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+					kit.AppearancePicker(c.Key("appearance"), &e.Icon, &e.Color, e.Pending).Size(32, 32).Border(1, p.Input)
+					ui.TextInput(c.Key("input"), &e.Name).Placeholder(i18n.T(c, "project_name_placeholder")).Label(i18n.T(c, "project_name")).Grow(1).Disabled(e.Pending)
+				})
 			})
 			kit.Field(c, "host", i18n.T(c, "project_host"), "", func() {
+				before := e.host
 				b, _ := kit.Select(c.Key("select"), "project-host", i18n.T(c, "project_host"), &e.host, hosts, e.Project != nil || e.Pending, hostIDs)
 				b.FillWidth()
-				hostID = e.host
+				if e.host != before {
+					// A path belongs to the host it was chosen on.
+					e.Path, e.other = "", ""
+					e.suggestName()
+				}
 			})
-			if e.Clone == 1 && e.Project == nil {
+			if e.cloning() {
 				kit.Field(c, "repo", i18n.T(c, "project_repository"), "", func() {
-					ui.TextInput(c.Key("input"), &e.Repo).Placeholder(i18n.T(c, "project_repository_placeholder")).Label(i18n.T(c, "project_repository")).FillWidth()
+					ui.TextInput(c.Key("input"), &e.Repo).Placeholder(i18n.T(c, "project_repository_placeholder")).Label(i18n.T(c, "project_repository")).FillWidth().Disabled(e.Pending)
 				})
 				kit.Field(c, "branch", i18n.T(c, "project_branch"), "", func() {
-					ui.TextInput(c.Key("input"), &e.Branch).Placeholder(i18n.T(c, "project_branch_placeholder")).Label(i18n.T(c, "project_branch")).FillWidth()
+					ui.TextInput(c.Key("input"), &e.Branch).Placeholder(i18n.T(c, "project_branch_placeholder")).Label(i18n.T(c, "project_branch")).FillWidth().Disabled(e.Pending)
 				})
 			}
 			label := i18n.T(c, "project_path")
 			hint := ""
-			if e.Clone == 1 && e.Project == nil {
+			if e.cloning() {
 				label = i18n.T(c, "project_destination")
-				if e.Path != "" && e.Name != "" {
+				if CheckClone(e.Name, e.Repo, e.Path) == "" {
 					hint = Destination(e.Path, e.Name)
 				}
 			}
 			kit.Field(c, "path", label, hint, func() {
 				ui.Row(c).Gap(6).Children(func() {
 					ui.TextInput(c.Key("input"), &e.Path).Placeholder(i18n.T(c, "project_path_placeholder")).Label(label).Grow(1).Disabled(e.Pending)
-					// The folder picker would read the disk.
 					kit.IconButton(c.Key("browse"), icons.FolderOpen, i18n.T(c, "directory_title"), 32, false).
-						Border(1, p.Input).Disabled(e.Pending).OnClick(func() {
-						if s.Actions != nil && s.Actions.Browse != nil {
-							generation, owner := s.editorGeneration, hostID
-							s.Actions.Browse(owner, func(path string) {
-								if generation == s.editorGeneration && e.Open && e.host == owner {
-									e.Path = path
-								}
-							})
-						} else {
-							s.notice(c)
-						}
-					})
+						Border(1, p.Input).Disabled(e.Pending).OnClick(func() { s.browse(c, false) })
 				})
 			})
 		})
 		ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
 			kit.Secondary(c.Key("cancel"), i18n.T(c, "settings_cancel")).OnClick(func() { e.Open = false })
 			saveKey := "settings_save_preview"
-			if s.Actions != nil {
+			switch {
+			case e.cloning():
+				saveKey = "project_clone"
+			case s.Actions != nil:
 				saveKey = "settings_save"
 			}
 			save := i18n.T(c, saveKey)
-			kit.PrimaryBusy(c.Key("save"), save, false, e.Pending).OnClick(func() {
-				problem := CheckProject(e.Name, e.Path, hostID, s.Data.Projects, e.Project)
-				if e.Clone == 1 && e.Project == nil {
-					problem = CheckClone(e.Name, e.Repo, e.Path)
-				}
-				if problem != "" {
-					kit.Toast(c, kit.Failed, i18n.T(c, problem))
-					return
-				}
-				s.saveProject(hostID)
-			})
+			kit.PrimaryBusy(c.Key("save"), save, false, e.Pending).OnClick(func() { s.submit(c) })
 		})
 	}).Width(560).Label(title)
 }
 
-// saveProject applies the editor's draft to the preview, in memory.
+// submit checks the draft and saves it. The preview checks the name, the
+// path and its duplicates itself; a Node checks its own, so only a clone's
+// destination, which is composed here, is checked before a live save.
+func (s *State) submit(c *ui.Context) {
+	e := &s.editor
+	if e.Pending {
+		return
+	}
+	if e.Project == nil && strings.TrimSpace(e.Name) == "" {
+		e.suggestName()
+	}
+	problem := ""
+	switch {
+	case e.cloning():
+		problem = CheckClone(e.Name, e.Repo, e.Path)
+	case s.Actions == nil:
+		problem = CheckProject(e.Name, e.Path, e.host, s.Data.Projects, e.Project)
+	}
+	if problem != "" {
+		kit.Toast(c, kit.Failed, i18n.T(c, problem))
+		return
+	}
+	s.saveProject(e.host)
+}
+
+// files is the file system of a host: the Node's through the live adapter,
+// the sample catalog in the preview.
+func (s *State) files(host string) (picker.Source, bool) {
+	if s.Actions != nil {
+		if s.Actions.Files == nil {
+			return picker.Source{}, false
+		}
+		return s.Actions.Files(host)
+	}
+	if s.catalogs == nil {
+		s.catalogs = map[string]*picker.Catalog{}
+	}
+	if s.catalogs[host] == nil {
+		s.catalogs[host] = picker.NewCatalog(len(s.Data.Hosts) > 0 && s.Data.Hosts[0].ID != host)
+	}
+	return s.catalogs[host].Source(), true
+}
+
+// browse opens the host's directory picker for the draft. From the editor a
+// choice fills the path; register (Open folder) opens the project already at
+// the chosen directory or saves a new one, keeping the picker open meanwhile.
+// The picker goes stale when the draft's host, or the path it started from,
+// changes under it.
+func (s *State) browse(c *ui.Context, register bool) {
+	e := &s.editor
+	host, original, generation := e.host, e.Path, s.editorGeneration
+	source, ok := s.files(host)
+	if !ok {
+		kit.Toast(c, kit.Failed, i18n.T(c, "unavailable"))
+		return
+	}
+	current := func() bool {
+		return generation == s.editorGeneration && e.host == host && (register || e.Open && e.Path == original)
+	}
+	o := picker.Options{Mode: picker.Directory, Title: "directory_title", Confirm: "directory_title", Initial: strings.TrimSpace(original),
+		Source: source, Preview: s.Actions == nil, Valid: current, Pending: func() bool { return e.Pending },
+		Choose: func(paths []string) bool {
+			if !current() || len(paths) != 1 {
+				return false
+			}
+			e.Path = paths[0]
+			e.suggestName()
+			if !register {
+				return true
+			}
+			if s.openRegistered(host, paths[0]) {
+				return true
+			}
+			s.saveProject(host)
+			return false
+		}}
+	for _, h := range s.Data.Hosts {
+		if h.ID == host {
+			o.Host = s.hostLabel(c, h)
+		}
+	}
+	if register {
+		o.Title, o.Confirm = "menu_open_folder", "directory_open"
+	}
+	s.Picker.Open(o)
+}
+
+// OpenFolder chooses a directory of host and opens it as a project: the one
+// already registered there, or a new one named after the directory.
+func (s *State) OpenFolder(c *ui.Context, host string) {
+	s.editorGeneration++
+	s.editor = Editor{Icon: "folder", Color: "none", host: host, folder: true}
+	if host == "" && len(s.Data.Hosts) > 0 {
+		s.editor.host = s.Data.Hosts[0].ID
+	}
+	s.browse(c, true)
+}
+
+// openRegistered shows the project of host at path, if there is one.
+func (s *State) openRegistered(host, path string) bool {
+	for _, pr := range s.Data.Projects {
+		if pr.Host == host && pr.Path == path {
+			s.Reveal(pr.ID)
+			if s.Actions != nil && s.Actions.Overview != nil {
+				s.Actions.Overview(pr)
+			}
+			return true
+		}
+	}
+	return false
+}
+
+// saveProject applies the editor's draft: through the live adapter, which
+// keeps the draft on failure, or to the preview in memory.
 func (s *State) saveProject(host string) {
 	e := &s.editor
 	if s.Actions != nil && s.Actions.SaveProject != nil {
@@ -230,16 +379,19 @@ func (s *State) saveProject(host string) {
 			e.Pending = false
 			if ok {
 				e.Open = false
+				if e.folder {
+					s.Picker.Close()
+				}
 			}
 		})
 		return
 	}
 	name, path := strings.TrimSpace(e.Name), strings.TrimSpace(e.Path)
-	if e.Clone == 1 && e.Project == nil {
+	if e.cloning() {
 		path = Destination(path, name)
 	}
 	if pr := e.Project; pr != nil {
-		pr.Name, pr.Path = name, path
+		pr.Name, pr.Path, pr.Icon, pr.Color = name, path, e.Icon, e.Color
 		pr.Worktrees[0].Path = path
 	} else {
 		s.created++
@@ -247,10 +399,15 @@ func (s *State) saveProject(host string) {
 		if branch == "" {
 			branch = "main"
 		}
-		s.Data.Projects = append(s.Data.Projects, &preview.Project{
+		pr := &preview.Project{
 			ID: fmt.Sprintf("project/new-%d", s.created), Name: name, Path: path, Branch: branch, Host: host,
-			Worktrees: []preview.Worktree{{Branch: branch, Path: path, Main: true}},
-		})
+			Icon: e.Icon, Color: e.Color, Worktrees: []preview.Worktree{{Branch: branch, Path: path, Main: true}},
+		}
+		s.Data.Projects = append(s.Data.Projects, pr)
+		s.Reveal(pr.ID)
 	}
 	e.Open = false
+	if e.folder {
+		s.Picker.Close()
+	}
 }

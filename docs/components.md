@@ -53,6 +53,8 @@ MyGo bases.
 | `Select`, `SelectField`, `SelectProps`, `SelectOption`, `SelectTrigger` | Lobe `pkg/field/select.go` chevron (MenuBase) | A form field choosing one string; trigger looks like `ui.TextInput`, dropdown as wide. `SelectField` is the same control over options with a placeholder and disabled choices; `SelectTrigger` is its frame for a select with a popup of its own (the searchable header filter) | Toolbars and composer pickers (`MenuButton`) | settings, sidebar, plugins, live |
 | `InputOTP` | Lobe `pkg/field/otp.go` | One-time codes | Other text | settings |
 | `SortableList` | Lobe `pkg/layout/sortablelist.go` | Lists the user reorders, by mouse and keyboard, never with up and down buttons. `Divided` rows sit in a settings `Card` with a divider between them and lift as a `Floating` panel; `Disabled` dims the handles while the order is fixed | Static lists | composer, plugins |
+| `AppearancePicker`, `ProjectGlyph`, `ProjectColor`, `ProjectColors` | Own (`Popover`, `Ghost`) | A project's icon and color: the glyph button with its popover of swatches and icons, and the glyph itself wherever a project shows | Other icons or colors | sidebar |
+| `SortableList` | Lobe `pkg/layout/sortablelist.go` | Lists the user reorders, by mouse and keyboard | Static lists | composer |
 
 ### Settings and records
 

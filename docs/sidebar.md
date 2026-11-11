@@ -17,7 +17,7 @@ to the frame (`docs/shell.md`).
 | `sidebar.go` | `State`, `View`, groups, project rows, session rows, the pinned reorder, the hover card, `Age`, `Title` |
 | `order.go` | **The rules** as pure functions: `Window`, `OrderPins`, `NextPinOrder`, `MovePin`, `Sort`, `Sorted`, `SortOf`, `Adjacent`, `ValidTitle` |
 | `menus.go` | The right-click menus, archive and removal confirmations, the rename input |
-| `editor.go` | The project editor: `Editor`, `SuggestName`, `CheckProject`, `CheckClone`, `Destination` |
+| `editor.go` | The project editor and Open folder: `Editor`, `SuggestName`, `CheckProject`, `CheckClone`, `Destination`, `OpenFolder` |
 | `metrics.go` | The optional live CPU and memory footer |
 
 ## Entry point
@@ -117,8 +117,10 @@ mono worktree path.
 | Copy title, ID, path | menu › `content_copy` | Clipboard |
 | New session | project menu | The project's unsent conversation when it has one, otherwise an empty one in the project, in memory |
 | New terminal, Records, Overview, Worktrees, AI CLI | project menu | `preview_notice` toast |
-| Edit project | project menu | The editor with its name and path |
-| Remove project | project menu | Confirm naming the path once (`project_remove_named`, `project_remove_preview`), then removed from memory |
+| Edit project | project menu | The editor with its name, path and appearance |
+| Trust (`project_trust`) | project menu, preview only | Confirm (`project_grant_title` or `project_revoke_title`, the name, the path, the description and `project_trust_preview`), then `Trusted` flips in memory. The reference's live menu has no such item |
+| Remove project | project menu | A project with sessions is refused with the toast `project_remove_sessions`; otherwise confirm naming the path once (`project_remove_sample`, `project_remove_preview`), then removed from memory |
+| Open folder | `folder.open` (the menu, the shortcut) | The directory picker titled `menu_open_folder`; the choice opens the project already at that path on the shown host, otherwise adds one named after the directory |
 
 Right-click menus are the system's (`Element.ContextMenu`); their items and
 order follow `live/menus/session_actions.rs` and `workspace/menus.rs`.
@@ -144,16 +146,28 @@ which is the one place that keeps them out of the tree.
 
 ### Project editor
 
-`kit.Dialog` 560 wide, description `project_editor_preview`. New
-projects: `project_local` | `project_clone`. Fields: `project_name`
-(suggested from the path or repository by `SuggestName` until typed over),
-`project_host` (`kit.Select`; read-only when editing), for a clone
-`project_repository` and `project_branch`, then `project_path` or
-`project_destination` with the resulting `Destination` under it, and the
-folder button (`directory_title`, preview toast). Save preview checks
-`CheckProject` (`project_required`, `project_duplicate_path`) or
-`CheckClone` (`project_clone_required`) and toasts the failure, keeping
-the draft.
+`kit.Dialog` 560 wide, description `project_editor_preview` in the preview.
+It follows `workspace/project_editor.rs` and `project_editor/form.rs`
+element by element:
+
+| Element | Behavior |
+|---|---|
+| Source (`kit.Segmented`, block) | `project_local` \| `project_clone`, for a new project only, in the preview and live. Each mode keeps its own path: switching swaps the path field with the other mode's and suggests the name again |
+| Appearance (`kit.AppearancePicker`) | The 32 DIP button before the name shows the chosen glyph; its popover holds 11 colors (`project_color_*`: none, blue, indigo, violet, magenta, red, orange, amber, green, teal, cyan) and 30 icons (`project_icon_*`, `icons.Projects`, from the reference's reicon set) tinted with the chosen color. Default `folder` and `none`; an existing project opens on its own |
+| `project_name` | Suggested by `SuggestName` from the path's last element, or the repository's without `.git`, until the user types a different name; an empty name is suggested again on save |
+| `project_host` (`kit.Select`) | The hosts of `Data.Hosts`; disabled when editing and while saving. Changing it clears the path, since a path belongs to its host |
+| `project_repository`, `project_branch` | Clone only; the branch is optional |
+| `project_path` or `project_destination` | With the resulting `Destination` under it for a clone; the folder button (`directory_title`) opens the [directory picker](files.md#host-file-picker) on the selected host at the typed path. The answer is dropped if the host or the path changed meanwhile |
+| Save | `settings_save` (`settings_save_preview` in the preview), `project_clone` for a clone. Disabled with a `ui.Spinner` from the click to the Node's answer; every field is disabled meanwhile. The outcome is a toast and a failure keeps the draft |
+
+The preview checks `CheckProject` (`project_required`,
+`project_duplicate_path`) or `CheckClone` (`project_clone_required`). Live,
+a clone is checked the same way and a local project is sent as typed, as
+the reference does: the Node validates the name and the path.
+
+The sidebar's project row draws the project's glyph (`kit.ProjectGlyph`):
+the icon in the color's 600 shade on light and 400 on dark, `none` in the
+muted foreground, an unknown icon as the folder.
 
 ## Backend ownership
 
@@ -174,7 +188,22 @@ their owning Client actions and projections without changing the accepted UI.
 `MovePin`, `Window`, `Sorted` in the three orders and the preference's values,
 `Adjacent` wrapping, `ValidTitle`.
 `internal/desktop/sidebar/editor_test.go`: name suggestion, duplicate paths per
-host, clone names and destinations. `internal/desktop/shell/sidebar_test.go`:
+host, clone names and destinations, and that only a repository loses `.git`.
+`TestProjectEditorAndRemoval` in `internal/desktop/shell/sidebar_test.go`
+drives the editor in the preview: validation, the appearance popover, the
+picker over the sample directories (filter, Enter, Backspace, Back, the
+entry menu, the hidden toggle, grid and list, the choice filling the path
+and the name), Clone with its repository, branch and destination, the saved
+appearance in the sidebar, editing, the project menu's items in order,
+trust, Open folder adding and reopening, the refusal to remove a project
+with sessions and the removal of one without. `firstRunProjects` in
+`internal/desktop/live/first_run_test.go` does it against a real Node: the
+picker lists a temporary directory tree through `browse_files`, Save is
+pending while `create_project` is held, the appearance reaches
+`create_project` and `update_project` and the sidebar, a second real Node
+bound as a paired Host is browsed and receives its project through its own
+controller, and removal names the consequence and toasts `project_removed`.
+`internal/desktop/shell/sidebar_test.go` also covers:
 the native menu pins and renames, an empty rename stays out and Escape
 gives up, pins reorder, the editor validates and adds, removal names the
 project and removes it; New session opens one unsent chat, stays enabled over
@@ -205,6 +234,8 @@ it, and the choice survives a restart of the runtime through
 | Chats keep the 5-row limit | Phase 1's accepted behavior; the reference scrolls a 7.4 rem box |
 | No terminals in the tree | Terminals come with the terminal work |
 | The metrics footer is off by default | The existing controller preference enables B7's live CPU and memory display |
+| The live project menu keeps New terminal, Records, Worktrees and AI CLI | They were accepted with the page; the reference's live menu has Overview, Edit, New session, Copy path and Remove |
+| The appearance popover lays the icons out six to a row | `kit.Popover` with Kit ghost buttons; the reference's popover wraps them freely |
 
 ## B3 live wiring
 
@@ -228,7 +259,18 @@ panes; project removal hides its sessions without changing project files/history
 Rename/archive/read/remove dispatch the corresponding v1 commands. Session read
 uses AttentionRevision; rename/archive/remove use Revision. Project creation is
 local only in B3, and UpdateProject/RemoveProject carry the complete captured
-expected Project. Directory selection is supplied by the native window adapter.
+expected Project. Directory selection is the in-app host file picker
+(`Actions.Files`, docs/files.md), never a native dialog, as in the reference.
+`create_project` and `update_project` carry the editor's appearance; a clone
+sends `Destination` as its path with the trimmed URL and optional branch. A
+failed save toasts `project_outcome_unknown` (unknown or unavailable),
+`project_changed` (revision conflict), `project_path_in_use` (busy),
+`project_clone_failed` or `live_request_failed`; a saved project is revealed
+and its overview opens once the snapshot holds it. Removal confirms with
+`project_remove_named`, toasts `project_removed`, and on failure toasts what
+the Node reports (`project_remove_unknown`, `project_remove_tasks`,
+`project_remove_tasks_partial`, `project_remove_changed_partial`,
+`project_remove_failed`, `project_changed`) and asks again.
 Directory open uses the system opener; new-window navigation shares the Node and
 Client through the application window factory.
 

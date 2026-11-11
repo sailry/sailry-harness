@@ -443,13 +443,9 @@ func (r *Runtime) backupActions() *settings.BackupActions {
 			command := protocol.Command{Kind: "save_backup_settings", Data: backupStorageUpdate(target, saved)}
 			owner.submitBackup(command, "backup_saved", backupFailure, func(err error) { done(err == nil) })
 		},
-		ChooseFolder: func(selected func(string)) {
+		ChooseFolder: func(initial string, selected func(string)) {
 			owner := state.shown
-			r.browse(r.App.Host, func(path string) {
-				if state.shown == owner {
-					selected(path)
-				}
-			})
+			r.chooseDirectory(r.App.Host, "backup_local_directory", initial, func() bool { return state.shown == owner }, selected)
 		},
 		Export: func() {
 			owner := ready()

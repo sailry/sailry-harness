@@ -207,3 +207,32 @@ func Menu(icon *ui.SVG) ui.MenuIcon {
 	v, _ := menuIcons.LoadOrStore(icon, mi)
 	return v.(ui.MenuIcon)
 }
+
+// List and EyeOff are the file picker's list view and hidden-files glyphs.
+var (
+	List   = load("list")
+	EyeOff = load("eye-off")
+)
+
+// Projects are the project glyphs a project's appearance names, in the
+// editor's order.
+var Projects = []string{"folder", "code", "terminal", "globe", "server", "database", "package", "game", "book", "finance",
+	"device", "education", "writing", "tags", "music", "media", "design", "health", "nature", "business", "analytics",
+	"profile", "fitness", "law", "audio", "travel", "tools", "science", "ai", "favorite"}
+
+var projects = func() map[string]*ui.SVG {
+	out := make(map[string]*ui.SVG, len(Projects))
+	for _, name := range Projects {
+		out[name] = load("project-" + name)
+	}
+	return out
+}()
+
+// Project returns the glyph of a project appearance's icon, the folder for
+// a name it does not know.
+func Project(name string) *ui.SVG {
+	if icon := projects[name]; icon != nil {
+		return icon
+	}
+	return projects["folder"]
+}

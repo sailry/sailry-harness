@@ -21,9 +21,13 @@ func testSuggestName(t *testing.T) {
 		"https://github.com/org/repository.git": "repository",
 		"git@github.com:org/tool.git":           "tool",
 	} {
-		if got := SuggestName(in); got != want {
+		if got := SuggestName(in, true); got != want {
 			t.Errorf("SuggestName(%q) = %q, want %q", in, got, want)
 		}
+	}
+	// Only a repository loses ".git": a folder keeps its name.
+	if got := SuggestName("~/Work/mirror.git/ ", false); got != "mirror.git" {
+		t.Errorf("SuggestName of a folder = %q", got)
 	}
 }
 

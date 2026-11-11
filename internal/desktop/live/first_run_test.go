@@ -38,6 +38,8 @@ type firstRunTransport struct {
 	mu    *sync.Mutex
 	kinds *[]string
 	hold  map[string]chan struct{}
+	// gate, when set, keeps create_project from the Node until it is closed.
+	gate *atomic.Pointer[chan struct{}]
 }
 
 func (t firstRunTransport) Dispatch(ctx context.Context, request protocol.Request) (link.Admission, error) {
@@ -55,13 +57,18 @@ func (t firstRunTransport) Dispatch(ctx context.Context, request protocol.Reques
 		}
 		return link.Admission{}, errors.New("held command released")
 	}
+	if t.gate != nil && name == "create_project" {
+		if gate := t.gate.Load(); gate != nil {
+			<-*gate
+		}
+	}
 	return t.Transport.Dispatch(ctx, request)
 }
 
 // firstRun drives the whole desktop against a real Node on a new profile
 // without a provider. It runs as a step of TestComposerSendRouting.
 func firstRun(t *testing.T) {
-	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(t.Context(), 6*time.Minute)
 	defer cancel()
 	profile := filepath.Join(t.TempDir(), "profile")
 	owner, err := node.StartWithOptions(ctx, profile, node.Options{})
@@ -73,8 +80,9 @@ func firstRun(t *testing.T) {
 	var kinds []string
 	// The catalog refresh would ask the network: it is held, then fails.
 	refresh := make(chan struct{})
+	var gate atomic.Pointer[chan struct{}]
 	controller := client.New(firstRunTransport{Transport: link.NewLocal(owner.ID(), owner.ID(), owner), mu: &mu, kinds: &kinds,
-		hold: map[string]chan struct{}{"refresh_model_catalog": refresh}})
+		hold: map[string]chan struct{}{"refresh_model_catalog": refresh}, gate: &gate})
 	if err := controller.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -264,7 +272,7 @@ func firstRun(t *testing.T) {
 	if frames := idle(); frames != 0 || len(sent()) != before {
 		t.Fatalf("the settings page redrew %d times and sent %v while idle", frames, sent()[before:])
 	}
-	firstRunChinese(t, r, tester, func() *ui.Context { return view }, settle, sent)
+	firstRunChinese(t, r, tester, func() *ui.Context { return view }, settle, sent, &gate)
 
 	// The Chinese pass ends on a conversation; Update is on the providers'
 	// settings.
@@ -310,7 +318,7 @@ func firstRun(t *testing.T) {
 // ring, the header's buttons, New session's refocus, a plugin page entered
 // once, and no English where the catalog has Chinese. It is a step of
 // firstRun; SAILRY_UI_SHOTS names a directory that receives its frames.
-func firstRunChinese(t *testing.T, r *Runtime, tester *ui.Tester, view func() *ui.Context, settle func(), sent func() []string) {
+func firstRunChinese(t *testing.T, r *Runtime, tester *ui.Tester, view func() *ui.Context, settle func(), sent func() []string, hold *atomic.Pointer[chan struct{}]) {
 	// shots saves the frame in the light and the dark theme.
 	shots := func(name string) {
 		dir := os.Getenv("SAILRY_UI_SHOTS")
@@ -482,6 +490,294 @@ func firstRunChinese(t *testing.T, r *Runtime, tester *ui.Tester, view func() *u
 	tester.SetSize(1280, 820)
 	firstRunConnectors(t, r, tester, settle, sent, shots)
 	firstRunLocation(t, r, tester, settle, shots)
+	firstRunProjects(t, r, tester, settle, sent, shots, hold)
+}
+
+// firstRunProjects adds, edits and removes a project through the editor
+// against the real Node: the appearance reaches the Node and the sidebar, the
+// in-app picker lists a real directory tree through browse_files, Save is
+// pending while the Node works, and a second real Node bound as a remote
+// Host is browsed through its own controller. It is a step of firstRun.
+func firstRunProjects(t *testing.T, r *Runtime, tester *ui.Tester, settle func(), sent func() []string, shots func(string), hold *atomic.Pointer[chan struct{}]) {
+	zh := func(key string, a ...any) string { return i18n.In("zh-CN", key, a...) }
+	count := func(kind string) (n int) {
+		for _, name := range sent() {
+			if name == kind {
+				n++
+			}
+		}
+		return
+	}
+	// press clicks the topmost button of a name: the dialog's over the page's.
+	press := func(name string) {
+		t.Helper()
+		all := tester.AccessAll()
+		for i := len(all) - 1; i >= 0; i-- {
+			if all[i].Role == ui.RoleButton && all[i].Name == name {
+				tester.ClickAt(all[i].Bounds.X+all[i].Bounds.W/2, all[i].Bounds.Y+all[i].Bounds.H/2)
+				settle()
+				return
+			}
+		}
+		t.Fatalf("no %q button: %q", name, tester.Texts())
+	}
+	field := func(name string) {
+		t.Helper()
+		info, ok := tester.AccessByRole(ui.RoleTextField, name)
+		if !ok {
+			t.Fatalf("no %q field: %q", name, tester.Texts())
+		}
+		tester.ClickAt(info.Bounds.X+info.Bounds.W/2, info.Bounds.Y+info.Bounds.H/2)
+		settle()
+	}
+	stored := func(name string) (protocol.Project, bool) {
+		for _, project := range r.controller.Snapshot().Projects {
+			if project.Name == name {
+				return project, true
+			}
+		}
+		return protocol.Project{}, false
+	}
+	shown := func(name string) *viewmodel.Project {
+		for _, project := range r.App.Data.Projects {
+			if project.Name == name {
+				return project
+			}
+		}
+		return nil
+	}
+	// menu opens the native menu of a project's sidebar row; the project's
+	// overview shows its name too.
+	menu := func(name string) {
+		t.Helper()
+		for _, info := range tester.AccessAll() {
+			if b := info.Bounds; info.Name == name && b.X >= shell.RailWidth && b.X+b.W <= shell.RailWidth+shell.NavWidth {
+				tester.RightClickAt(b.X+b.W/2, b.Y+b.H/2)
+				settle()
+				return
+			}
+		}
+		t.Fatalf("no sidebar row %q: %q", name, tester.Texts())
+	}
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{"alpha", filepath.Join("beta", "inner"), ".secret"} {
+		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "notes.md"), []byte("# notes\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// The editor: the appearance, then the folder through the picker.
+	press(zh("project_add"))
+	if !tester.HasText(zh("project_local")) || !tester.HasText(zh("project_clone")) {
+		t.Fatalf("the live editor does not offer Local and Clone: %q", tester.Texts())
+	}
+	press(zh("project_appearance"))
+	press(zh("project_color_blue"))
+	press(zh("project_icon_terminal"))
+	shots("project-editor-appearance")
+	tester.Key(0, ui.KeyEscape)
+	settle()
+	if draft := r.App.Sidebar.Draft(); draft.Icon != "terminal" || draft.Color != "blue" || !draft.Open {
+		t.Fatalf("the draft's appearance is %q %q", draft.Icon, draft.Color)
+	}
+	field(zh("project_path"))
+	tester.Type(root)
+	settle()
+	before := count("browse_files")
+	press(zh("directory_title"))
+	settle()
+	if count("browse_files") == before || !r.App.Sidebar.Picker.Showing() {
+		t.Fatal("the folder button did not browse the Node")
+	}
+	for _, name := range []string{"alpha", "beta", "notes.md", zh("directory_count_directories", "count", 2), zh("directory_count_hidden", "count", 1)} {
+		if !tester.HasText(name) {
+			t.Fatalf("the picker does not list %q of %s: %q", name, root, tester.Texts())
+		}
+	}
+	if tester.HasText(".secret") {
+		t.Fatal("the picker shows a hidden directory before the toggle")
+	}
+	field(zh("directory_filter"))
+	tester.Type("be")
+	settle()
+	if tester.HasText("alpha") || tester.HasText("notes.md") || !tester.HasText("beta") {
+		t.Fatalf("the filter did not narrow the entries: %q", tester.Texts())
+	}
+	press(zh("directory_filter")) // the field's clear button
+	press(zh("directory_hidden"))
+	if !tester.HasText(".secret") || !tester.HasText("alpha") || r.Preferences.Data.FilePicker == nil || !r.Preferences.Data.FilePicker.Hidden {
+		t.Fatalf("the hidden toggle did not show and save: %q", tester.Texts())
+	}
+	shots("project-picker")
+	if err := tester.Click("beta"); err != nil {
+		t.Fatal(err)
+	}
+	settle()
+	tester.Key(0, ui.KeyEnter)
+	settle()
+	if !tester.HasText("inner") || tester.HasText("alpha") {
+		t.Fatalf("Enter did not open the directory: %q", tester.Texts())
+	}
+	if err := tester.Click("inner"); err != nil {
+		t.Fatal(err)
+	}
+	settle()
+	press(zh("directory_title"))
+	chosen := filepath.Join(root, "beta", "inner")
+	if draft := r.App.Sidebar.Draft(); draft.Path != chosen || draft.Name != "inner" || r.App.Sidebar.Picker.Showing() {
+		t.Fatalf("the choice did not fill the path: %q named %q", draft.Path, draft.Name)
+	}
+
+	// Save is pending while the Node works: disabled, and the draft stays.
+	created := count("create_project")
+	gate := make(chan struct{})
+	hold.Store(&gate)
+	all := tester.AccessAll()
+	for i := len(all) - 1; i >= 0; i-- {
+		if all[i].Role == ui.RoleButton && all[i].Name == zh("settings_save") {
+			tester.ClickAt(all[i].Bounds.X+all[i].Bounds.W/2, all[i].Bounds.Y+all[i].Bounds.H/2)
+			break
+		}
+	}
+	tester.Frame()
+	save, ok := tester.AccessByRole(ui.RoleButton, zh("settings_save"))
+	if draft := r.App.Sidebar.Draft(); !ok || !save.Disabled || !draft.Pending || !draft.Open {
+		t.Fatalf("Save is not pending while the Node works: %+v", save)
+	}
+	if _, exists := stored("inner"); exists {
+		t.Fatal("the project exists before the Node answered")
+	}
+	hold.Store(nil)
+	close(gate)
+	settle()
+	settle()
+	project, exists := stored("inner")
+	if !exists || project.Path != chosen || project.Appearance.Icon != "terminal" || project.Appearance.Color != "blue" || count("create_project") != created+1 {
+		t.Fatalf("create_project did not carry the draft: %+v", project)
+	}
+	row := shown("inner")
+	if row == nil || row.Icon != "terminal" || row.Color != "blue" || r.App.Sidebar.Draft().Open || !slices.Contains(tester.Texts(), zh("project_icon_terminal")) {
+		t.Fatalf("the sidebar does not show the saved appearance: %+v", row)
+	}
+	if plain := shown("Plain folder"); plain == nil || plain.Icon != "folder" || plain.Color != "none" {
+		t.Fatalf("a project without a choice is not the plain folder: %+v", plain)
+	}
+	shots("project-sidebar")
+
+	// Editing sends the changed appearance with update_project.
+	menu("inner")
+	items := tester.Menu()
+	for _, key := range []string{"workspace_project", "project_edit", "workspace_new_session", "workspace_copy_path", "project_remove"} {
+		if !slices.Contains(items, zh(key)) {
+			t.Errorf("the project menu lacks %s: %q", key, items)
+		}
+	}
+	if slices.Contains(items, zh("project_trust")) {
+		t.Errorf("the live project menu offers the preview's trust: %q", items)
+	}
+	if err := tester.ChooseMenuItem(zh("project_edit")); err != nil {
+		t.Fatal(err)
+	}
+	settle()
+	if draft := r.App.Sidebar.Draft(); draft.Name != "inner" || draft.Path != chosen || draft.Icon != "terminal" || draft.Color != "blue" || tester.HasText(zh("project_clone")) {
+		t.Fatalf("editing did not open on the project: %+v", draft)
+	}
+	press(zh("project_appearance"))
+	press(zh("project_color_red"))
+	press(zh("project_icon_science"))
+	tester.Key(0, ui.KeyEscape)
+	settle()
+	press(zh("settings_save"))
+	settle()
+	project, _ = stored("inner")
+	if project.Appearance.Icon != "science" || project.Appearance.Color != "red" || count("update_project") != 1 {
+		t.Fatalf("update_project did not carry the appearance: %+v after %d updates", project, count("update_project"))
+	}
+	if row := shown("inner"); row == nil || row.Icon != "science" || row.Color != "red" {
+		t.Fatalf("the sidebar kept the old appearance: %+v", row)
+	}
+
+	// A remote owner is browsed through its own controller: a second real
+	// Node, bound the way a paired Host is.
+	other, err := node.StartWithOptions(r.ctx, filepath.Join(t.TempDir(), "remote"), node.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.Stop(context.Background())
+	var mu sync.Mutex
+	var kinds []string
+	remote := client.New(firstRunTransport{Transport: link.NewLocal(other.ID(), other.ID(), other), mu: &mu, kinds: &kinds})
+	if err := remote.Start(r.ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer remote.Close()
+	host := remote.Target().String()
+	if r.bindings == nil {
+		r.bindings = map[string]*Runtime{}
+	}
+	bound := r.newBinding(remote)
+	defer bound.Close()
+	r.bindings[host] = bound
+	defer delete(r.bindings, host)
+	settle()
+	local := count("browse_files")
+	r.App.Sidebar.OpenEditorAtHost(host)
+	settle()
+	field(zh("project_path"))
+	tester.Type(root)
+	settle()
+	press(zh("directory_title"))
+	settle()
+	mu.Lock()
+	browsed := slices.Contains(kinds, "browse_files")
+	mu.Unlock()
+	if !browsed || count("browse_files") != local || !tester.HasText("alpha") {
+		t.Fatalf("the remote directory was not read through its controller: remote %v: %q", browsed, tester.Texts())
+	}
+	if err := tester.Click("alpha"); err != nil {
+		t.Fatal(err)
+	}
+	settle()
+	press(zh("directory_title"))
+	if draft := r.App.Sidebar.Draft(); draft.Path != filepath.Join(root, "alpha") || draft.Name != "alpha" {
+		t.Fatalf("the remote choice did not fill the path: %+v", draft)
+	}
+	// Saving creates the project on that Host, not on the local Node.
+	created = count("create_project")
+	press(zh("settings_save"))
+	settle()
+	settle()
+	projects := remote.Snapshot().Projects
+	if _, here := stored("alpha"); here || count("create_project") != created || len(projects) != 1 || projects[0].Path != filepath.Join(root, "alpha") {
+		t.Fatalf("the remote project was not created on its Host: %+v", projects)
+	}
+	if row := shown("alpha"); row == nil || row.Host != host {
+		t.Fatalf("the sidebar does not show the remote project: %+v", row)
+	}
+
+	// Removal names the project and what happens, then reports the outcome.
+	menu("inner")
+	if err := tester.ChooseMenuItem(zh("project_remove")); err != nil {
+		t.Fatal(err)
+	}
+	settle()
+	if !tester.HasText(zh("project_remove_named", "name", chosen)) {
+		t.Fatalf("the confirmation does not name the project and the consequence: %q", tester.Texts())
+	}
+	press(zh("project_remove"))
+	settle()
+	if _, exists := stored("inner"); exists || shown("inner") != nil || count("remove_project") != 1 || !tester.HasText(zh("project_removed")) {
+		t.Fatalf("the project was not removed: %q", tester.Texts())
+	}
+	if _, err := os.Stat(chosen); err != nil {
+		t.Fatal("removing the project touched its directory:", err)
+	}
 }
 
 // firstRunLocation shows the context bar's location with the bundled

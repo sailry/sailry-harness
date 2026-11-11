@@ -142,4 +142,6 @@ func (a *App) overlays(c *ui.Context) {
 	a.welcome(c)
 	a.selectionDialog(c)
 	a.closeDialog(c)
+	// The file picker opens from other dialogs, so it is built after them.
+	a.Sidebar.Picker.View(c)
 }

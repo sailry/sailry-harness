@@ -2,6 +2,7 @@ package sidebar
 
 import (
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
+	"github.com/sailry/sailry-harness/internal/desktop/picker"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 )
 
@@ -17,7 +18,9 @@ type Actions struct {
 	NewDraft      func(*viewmodel.Project)
 	RemoveProject func(*viewmodel.Project)
 	SaveProject   func(Editor, string, func(bool))
-	Browse        func(host string, selected func(string))
+	// Files returns the file system of a host for the directory picker, false
+	// while the host cannot be reached.
+	Files         func(host string) (picker.Source, bool)
 	Worktrees     func(*viewmodel.Project, string, string)
 	ForkWorktree  func(*viewmodel.Conversation)
 	Records       func(*viewmodel.Project)
@@ -37,8 +40,13 @@ func (s *State) removeLabel() string {
 	return "project_remove_preview"
 }
 
-// OpenFolder starts a local project draft with a chosen directory.
-func (s *State) OpenFolder(path string) { s.OpenEditor(nil); s.editor.Path = path }
+// appearanceIcon is the icon an appearance names, the folder for none.
+func appearanceIcon(icon string) string {
+	if icon == "" {
+		return "folder"
+	}
+	return icon
+}
 
 func sessionPath(pr *viewmodel.Project, cv *viewmodel.Conversation) string {
 	if cv.WorktreePath != "" {

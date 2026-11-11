@@ -2064,3 +2064,55 @@ app_exit_confirm: Sailry 종료
 app_exit_description: 실행 중인 로컬 작업과 터미널이 중지됩니다
 updates_save_first: 열린 문서를 업데이트하기 전에 저장하기
 notification_details: 세부 정보
+directory_action_failed: 작업 실패; 경로와 권한 확인
+directory_address: 경로 입력
+directory_count_hidden: 숨김 %{count}개
+directory_create: 새 폴더
+directory_denied: 미리 보기 접근 거부; 다른 디렉터리 선택
+directory_devices: 장치
+directory_extension_kind: '%{extension} 파일'
+directory_go_to: 폴더로 이동
+directory_grid: 격자
+directory_hidden: 숨김 파일
+directory_image_kind: 이미지
+directory_invalid_name: 유효한 이름 입력
+directory_json_kind: JSON 파일
+directory_keep_both: 둘 다 가져가
+directory_list: 목록
+directory_markdown_kind: Markdown 문서
+directory_missing: 이 호스트의 미리보기에 없는 경로; 미리보기 위치로 돌아가기
+directory_refresh: 새로고침
+directory_root: 루트
+directory_stale: 양식 경로가 변경되었습니다. 선택기를 다시 엽니다
+directory_stop: 이름 충돌시 중지
+directory_text_kind: 텍스트 문서
+directory_toml_kind: TOML 파일
+directory_volume: 디스크
+directory_yaml_kind: YAML 파일
+files_entry_name: 이름
+files_paste_conflict: 대상이 존재하거나 경로를 사용할 수 없습니다
+files_trash_confirm: “%{name}” 삭제
+live_request_failed: 요청이 완료되지 않았습니다. Node 연결 및 디렉토리를 확인하십시오. 다시 시도하면 원래 요청 ID가 유지됩니다.
+plugins_loading: 로딩 중
+project_appearance: 프로젝트 외관
+project_clone_failed: 복제가 불완전합니다. 대상을 확인하십시오
+project_grant: 신뢰하고 계속하세요
+project_grant_description: 프로젝트 명령과 도구는 모든 작업 트리에서 코드를 실행할 수 있습니다
+project_grant_title: 이 프로젝트 신뢰하기
+project_outcome_unknown: 결과가 확인되지 않았습니다. 대상을 확인하십시오. 다시 시도하면 원래 요청을 확인합니다.
+project_path_in_use: 이 경로는 세션이나 작업 트리에 의해 사용됩니다
+project_remove_busy: 프로젝트가 사용 중입니다. 다시 시도하세요
+project_remove_changed_partial: 프로젝트가 변경되었습니다. 다시 연 후 재시도하세요. 일부 터미널은 이미 닫혔을 수 있습니다
+project_remove_failed: 프로젝트가 유지되었습니다. 일부 터미널은 이미 닫혔을 수 있습니다
+project_remove_sample: 미리보기 프로젝트 “%{name}” 제거
+project_remove_sessions: 보관된 세션을 포함한 세션은 여전히 이 프로젝트를 참조합니다
+project_remove_tasks: 실행 중인 작업을 중지한 후 프로젝트를 제거하세요
+project_remove_tasks_partial: 프로젝트가 유지되었습니다. 작업을 중지한 후 다시 시도하세요. 일부 터미널은 이미 닫혔을 수 있습니다
+project_remove_unknown: 제거 결과가 확인되지 않았습니다. 프로젝트와 터미널을 확인하세요
+project_removed: 프로젝트가 제거되었습니다
+project_revoke: 신뢰 취소
+project_revoke_description: 프로젝트 작업 중지; 기록 및 초안 유지
+project_revoke_title: 프로젝트 신뢰 취소
+project_trust: 프로젝트 신뢰 관리
+project_trust_preview: 변경 사항 미리 보기만
+task_completed: 완료됨
