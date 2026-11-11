@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type BackupKind string
@@ -14,14 +13,7 @@ const (
 	BackupKindS3     BackupKind = "s3"
 )
 
-func (value BackupKind) MarshalJSON() ([]byte, error) {
-	switch value {
-	case BackupKindWebdav, BackupKindS3:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown BackupKind %q", value)
-	}
-}
+func (value BackupKind) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *BackupKind) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -32,7 +24,7 @@ func (value *BackupKind) UnmarshalJSON(data []byte) error {
 		*value = BackupKind(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown BackupKind %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value BackupKind) MarshalText() ([]byte, error) {
@@ -237,14 +229,7 @@ const (
 	BackupLocationOnline BackupLocation = "online"
 )
 
-func (value BackupLocation) MarshalJSON() ([]byte, error) {
-	switch value {
-	case BackupLocationLocal, BackupLocationOnline:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown BackupLocation %q", value)
-	}
-}
+func (value BackupLocation) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *BackupLocation) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -255,7 +240,7 @@ func (value *BackupLocation) UnmarshalJSON(data []byte) error {
 		*value = BackupLocation(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown BackupLocation %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value BackupLocation) MarshalText() ([]byte, error) {

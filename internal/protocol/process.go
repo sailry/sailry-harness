@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type ProcessAccess string
@@ -14,14 +13,7 @@ const (
 	ProcessAccessUnrestricted ProcessAccess = "unrestricted"
 )
 
-func (value ProcessAccess) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ProcessAccessWorkspace, ProcessAccessUnrestricted:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ProcessAccess %q", value)
-	}
-}
+func (value ProcessAccess) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *ProcessAccess) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -32,7 +24,7 @@ func (value *ProcessAccess) UnmarshalJSON(data []byte) error {
 		*value = ProcessAccess(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ProcessAccess %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value ProcessAccess) MarshalText() ([]byte, error) {

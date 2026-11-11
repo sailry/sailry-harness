@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type PluginSkillcatalogSource string
@@ -15,14 +14,7 @@ const (
 	PluginSkillcatalogSourceSkillhub PluginSkillcatalogSource = "skillhub"
 )
 
-func (value PluginSkillcatalogSource) MarshalJSON() ([]byte, error) {
-	switch value {
-	case PluginSkillcatalogSourceOfficial, PluginSkillcatalogSourceSkillsSh, PluginSkillcatalogSourceSkillhub:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown PluginSkillcatalogSource %q", value)
-	}
-}
+func (value PluginSkillcatalogSource) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *PluginSkillcatalogSource) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -33,7 +25,7 @@ func (value *PluginSkillcatalogSource) UnmarshalJSON(data []byte) error {
 		*value = PluginSkillcatalogSource(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown PluginSkillcatalogSource %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value PluginSkillcatalogSource) MarshalText() ([]byte, error) {
@@ -126,14 +118,7 @@ const (
 	PluginSkillcatalogQueryScopePage    PluginSkillcatalogQueryScope = "page"
 )
 
-func (value PluginSkillcatalogQueryScope) MarshalJSON() ([]byte, error) {
-	switch value {
-	case PluginSkillcatalogQueryScopeCatalog, PluginSkillcatalogQueryScopePage:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown PluginSkillcatalogQueryScope %q", value)
-	}
-}
+func (value PluginSkillcatalogQueryScope) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *PluginSkillcatalogQueryScope) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -144,7 +129,7 @@ func (value *PluginSkillcatalogQueryScope) UnmarshalJSON(data []byte) error {
 		*value = PluginSkillcatalogQueryScope(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown PluginSkillcatalogQueryScope %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value PluginSkillcatalogQueryScope) MarshalText() ([]byte, error) {

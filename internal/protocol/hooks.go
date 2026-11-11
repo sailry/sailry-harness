@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type HooksScript struct {
@@ -139,14 +138,7 @@ const (
 	HooksPhaseTurnEnd    HooksPhase = "turn_end"
 )
 
-func (value HooksPhase) MarshalJSON() ([]byte, error) {
-	switch value {
-	case HooksPhaseBeforeTool, HooksPhaseAfterTool, HooksPhaseTurnEnd:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown HooksPhase %q", value)
-	}
-}
+func (value HooksPhase) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *HooksPhase) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -157,7 +149,7 @@ func (value *HooksPhase) UnmarshalJSON(data []byte) error {
 		*value = HooksPhase(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown HooksPhase %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value HooksPhase) MarshalText() ([]byte, error) {

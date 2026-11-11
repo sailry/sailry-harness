@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type PluginDesktopManifest struct {
@@ -71,14 +70,7 @@ const (
 	PluginDesktopResourceKindGit       PluginDesktopResourceKind = "git"
 )
 
-func (value PluginDesktopResourceKind) MarshalJSON() ([]byte, error) {
-	switch value {
-	case PluginDesktopResourceKindTerminal, PluginDesktopResourceKindBrowser, PluginDesktopResourceKindDocuments, PluginDesktopResourceKindGit:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown PluginDesktopResourceKind %q", value)
-	}
-}
+func (value PluginDesktopResourceKind) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *PluginDesktopResourceKind) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -89,7 +81,7 @@ func (value *PluginDesktopResourceKind) UnmarshalJSON(data []byte) error {
 		*value = PluginDesktopResourceKind(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown PluginDesktopResourceKind %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value PluginDesktopResourceKind) MarshalText() ([]byte, error) {
@@ -174,14 +166,7 @@ const (
 	PluginDesktopNavigationTargetWorktree PluginDesktopNavigationTarget = "worktree"
 )
 
-func (value PluginDesktopNavigationTarget) MarshalJSON() ([]byte, error) {
-	switch value {
-	case PluginDesktopNavigationTargetNode, PluginDesktopNavigationTargetWorktree:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown PluginDesktopNavigationTarget %q", value)
-	}
-}
+func (value PluginDesktopNavigationTarget) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *PluginDesktopNavigationTarget) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -192,7 +177,7 @@ func (value *PluginDesktopNavigationTarget) UnmarshalJSON(data []byte) error {
 		*value = PluginDesktopNavigationTarget(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown PluginDesktopNavigationTarget %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value PluginDesktopNavigationTarget) MarshalText() ([]byte, error) {
@@ -284,14 +269,7 @@ const (
 	PluginDesktopSettingsGroupSystem PluginDesktopSettingsGroup = "system"
 )
 
-func (value PluginDesktopSettingsGroup) MarshalJSON() ([]byte, error) {
-	switch value {
-	case PluginDesktopSettingsGroupApp, PluginDesktopSettingsGroupAi, PluginDesktopSettingsGroupTools, PluginDesktopSettingsGroupSystem:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown PluginDesktopSettingsGroup %q", value)
-	}
-}
+func (value PluginDesktopSettingsGroup) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *PluginDesktopSettingsGroup) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -302,7 +280,7 @@ func (value *PluginDesktopSettingsGroup) UnmarshalJSON(data []byte) error {
 		*value = PluginDesktopSettingsGroup(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown PluginDesktopSettingsGroup %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value PluginDesktopSettingsGroup) MarshalText() ([]byte, error) {

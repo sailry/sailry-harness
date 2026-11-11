@@ -12,6 +12,11 @@ type variantFactories map[string]func() any
 func MarshalUnion(tag, content, kind string, value any, variants map[string]func() any) ([]byte, error) {
 	factory, exists := variants[kind]
 	if !exists {
+		// A variant a peer reported and this build does not declare is
+		// written back as it arrived.
+		if unknown, ok := value.(UnknownVariant); ok && json.Valid(unknown) {
+			return bytes.Clone(unknown), nil
+		}
 		return nil, fmt.Errorf("unknown variant %q", kind)
 	}
 	if factory == nil {

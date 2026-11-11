@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type SshAuthentication string
@@ -16,14 +15,7 @@ const (
 	SshAuthenticationAgent      SshAuthentication = "agent"
 )
 
-func (value SshAuthentication) MarshalJSON() ([]byte, error) {
-	switch value {
-	case SshAuthenticationPassword, SshAuthenticationPrivateKey, SshAuthenticationKeyPath, SshAuthenticationAgent:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown SshAuthentication %q", value)
-	}
-}
+func (value SshAuthentication) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *SshAuthentication) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -34,7 +26,7 @@ func (value *SshAuthentication) UnmarshalJSON(data []byte) error {
 		*value = SshAuthentication(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown SshAuthentication %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value SshAuthentication) MarshalText() ([]byte, error) {
@@ -439,14 +431,7 @@ const (
 	SshDirectionDownload SshDirection = "download"
 )
 
-func (value SshDirection) MarshalJSON() ([]byte, error) {
-	switch value {
-	case SshDirectionUpload, SshDirectionDownload:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown SshDirection %q", value)
-	}
-}
+func (value SshDirection) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *SshDirection) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -457,7 +442,7 @@ func (value *SshDirection) UnmarshalJSON(data []byte) error {
 		*value = SshDirection(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown SshDirection %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value SshDirection) MarshalText() ([]byte, error) {

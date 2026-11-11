@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type PluginConversationDeclaration struct {
@@ -47,14 +46,7 @@ const (
 	PluginConversationResourceSsh       PluginConversationResource = "ssh"
 )
 
-func (value PluginConversationResource) MarshalJSON() ([]byte, error) {
-	switch value {
-	case PluginConversationResourcePlugin, PluginConversationResourceWorkspace, PluginConversationResourceDatabase, PluginConversationResourceSsh:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown PluginConversationResource %q", value)
-	}
-}
+func (value PluginConversationResource) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *PluginConversationResource) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -65,7 +57,7 @@ func (value *PluginConversationResource) UnmarshalJSON(data []byte) error {
 		*value = PluginConversationResource(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown PluginConversationResource %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value PluginConversationResource) MarshalText() ([]byte, error) {

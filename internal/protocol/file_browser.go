@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type FileBrowserLocationKind string
@@ -19,14 +18,7 @@ const (
 	FileBrowserLocationKindRoot         FileBrowserLocationKind = "root"
 )
 
-func (value FileBrowserLocationKind) MarshalJSON() ([]byte, error) {
-	switch value {
-	case FileBrowserLocationKindHome, FileBrowserLocationKindDesktop, FileBrowserLocationKindDocuments, FileBrowserLocationKindDownloads, FileBrowserLocationKindApplications, FileBrowserLocationKindVolume, FileBrowserLocationKindRoot:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown FileBrowserLocationKind %q", value)
-	}
-}
+func (value FileBrowserLocationKind) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *FileBrowserLocationKind) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -37,7 +29,7 @@ func (value *FileBrowserLocationKind) UnmarshalJSON(data []byte) error {
 		*value = FileBrowserLocationKind(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown FileBrowserLocationKind %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value FileBrowserLocationKind) MarshalText() ([]byte, error) {
@@ -62,14 +54,7 @@ const (
 	FileBrowserMediumNetwork  FileBrowserMedium = "network"
 )
 
-func (value FileBrowserMedium) MarshalJSON() ([]byte, error) {
-	switch value {
-	case FileBrowserMediumInternal, FileBrowserMediumExternal, FileBrowserMediumNetwork:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown FileBrowserMedium %q", value)
-	}
-}
+func (value FileBrowserMedium) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *FileBrowserMedium) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -80,7 +65,7 @@ func (value *FileBrowserMedium) UnmarshalJSON(data []byte) error {
 		*value = FileBrowserMedium(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown FileBrowserMedium %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value FileBrowserMedium) MarshalText() ([]byte, error) {
@@ -165,14 +150,7 @@ const (
 	FileBrowserConflictKeepBoth FileBrowserConflict = "keep_both"
 )
 
-func (value FileBrowserConflict) MarshalJSON() ([]byte, error) {
-	switch value {
-	case FileBrowserConflictStop, FileBrowserConflictReplace, FileBrowserConflictKeepBoth:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown FileBrowserConflict %q", value)
-	}
-}
+func (value FileBrowserConflict) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *FileBrowserConflict) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -183,7 +161,7 @@ func (value *FileBrowserConflict) UnmarshalJSON(data []byte) error {
 		*value = FileBrowserConflict(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown FileBrowserConflict %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value FileBrowserConflict) MarshalText() ([]byte, error) {

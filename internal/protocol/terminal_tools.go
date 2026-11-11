@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type TerminalToolsTool string
@@ -19,14 +18,7 @@ const (
 	TerminalToolsToolKimi     TerminalToolsTool = "kimi"
 )
 
-func (value TerminalToolsTool) MarshalJSON() ([]byte, error) {
-	switch value {
-	case TerminalToolsToolCodex, TerminalToolsToolClaude, TerminalToolsToolGemini, TerminalToolsToolAgy, TerminalToolsToolGrok, TerminalToolsToolOpencode, TerminalToolsToolKimi:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown TerminalToolsTool %q", value)
-	}
-}
+func (value TerminalToolsTool) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *TerminalToolsTool) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -37,7 +29,7 @@ func (value *TerminalToolsTool) UnmarshalJSON(data []byte) error {
 		*value = TerminalToolsTool(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown TerminalToolsTool %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value TerminalToolsTool) MarshalText() ([]byte, error) {

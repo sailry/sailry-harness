@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type PluginModelAdapterWireRequest struct {
@@ -871,14 +870,7 @@ const (
 	PluginModelAdapterWireFinishOther         PluginModelAdapterWireFinish = "other"
 )
 
-func (value PluginModelAdapterWireFinish) MarshalJSON() ([]byte, error) {
-	switch value {
-	case PluginModelAdapterWireFinishStop, PluginModelAdapterWireFinishLength, PluginModelAdapterWireFinishToolCalls, PluginModelAdapterWireFinishContentFilter, PluginModelAdapterWireFinishOther:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown PluginModelAdapterWireFinish %q", value)
-	}
-}
+func (value PluginModelAdapterWireFinish) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *PluginModelAdapterWireFinish) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -889,7 +881,7 @@ func (value *PluginModelAdapterWireFinish) UnmarshalJSON(data []byte) error {
 		*value = PluginModelAdapterWireFinish(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown PluginModelAdapterWireFinish %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value PluginModelAdapterWireFinish) MarshalText() ([]byte, error) {
@@ -920,14 +912,7 @@ const (
 	PluginModelAdapterWireClassUnknown         PluginModelAdapterWireClass = "unknown"
 )
 
-func (value PluginModelAdapterWireClass) MarshalJSON() ([]byte, error) {
-	switch value {
-	case PluginModelAdapterWireClassAuthentication, PluginModelAdapterWireClassPermission, PluginModelAdapterWireClassRateLimited, PluginModelAdapterWireClassQuota, PluginModelAdapterWireClassContextOverflow, PluginModelAdapterWireClassInvalidRequest, PluginModelAdapterWireClassUnavailable, PluginModelAdapterWireClassUnsupported, PluginModelAdapterWireClassUnknown:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown PluginModelAdapterWireClass %q", value)
-	}
-}
+func (value PluginModelAdapterWireClass) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *PluginModelAdapterWireClass) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -938,7 +923,7 @@ func (value *PluginModelAdapterWireClass) UnmarshalJSON(data []byte) error {
 		*value = PluginModelAdapterWireClass(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown PluginModelAdapterWireClass %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value PluginModelAdapterWireClass) MarshalText() ([]byte, error) {

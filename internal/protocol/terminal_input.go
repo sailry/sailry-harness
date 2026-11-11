@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type TerminalInputInputError struct {
@@ -318,14 +317,7 @@ const (
 	TerminalInputMouseActionMotion  TerminalInputMouseAction = "motion"
 )
 
-func (value TerminalInputMouseAction) MarshalJSON() ([]byte, error) {
-	switch value {
-	case TerminalInputMouseActionPress, TerminalInputMouseActionRelease, TerminalInputMouseActionMotion:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown TerminalInputMouseAction %q", value)
-	}
-}
+func (value TerminalInputMouseAction) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *TerminalInputMouseAction) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -336,7 +328,7 @@ func (value *TerminalInputMouseAction) UnmarshalJSON(data []byte) error {
 		*value = TerminalInputMouseAction(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown TerminalInputMouseAction %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value TerminalInputMouseAction) MarshalText() ([]byte, error) {
@@ -365,14 +357,7 @@ const (
 	TerminalInputMouseButtonWheelRight TerminalInputMouseButton = "wheel_right"
 )
 
-func (value TerminalInputMouseButton) MarshalJSON() ([]byte, error) {
-	switch value {
-	case TerminalInputMouseButtonLeft, TerminalInputMouseButtonMiddle, TerminalInputMouseButtonRight, TerminalInputMouseButtonWheelUp, TerminalInputMouseButtonWheelDown, TerminalInputMouseButtonWheelLeft, TerminalInputMouseButtonWheelRight:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown TerminalInputMouseButton %q", value)
-	}
-}
+func (value TerminalInputMouseButton) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *TerminalInputMouseButton) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -383,7 +368,7 @@ func (value *TerminalInputMouseButton) UnmarshalJSON(data []byte) error {
 		*value = TerminalInputMouseButton(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown TerminalInputMouseButton %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value TerminalInputMouseButton) MarshalText() ([]byte, error) {
@@ -546,14 +531,7 @@ const (
 	TerminalInputActionRelease TerminalInputAction = "release"
 )
 
-func (value TerminalInputAction) MarshalJSON() ([]byte, error) {
-	switch value {
-	case TerminalInputActionPress, TerminalInputActionRepeat, TerminalInputActionRelease:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown TerminalInputAction %q", value)
-	}
-}
+func (value TerminalInputAction) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *TerminalInputAction) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -564,7 +542,7 @@ func (value *TerminalInputAction) UnmarshalJSON(data []byte) error {
 		*value = TerminalInputAction(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown TerminalInputAction %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value TerminalInputAction) MarshalText() ([]byte, error) {
@@ -654,14 +632,7 @@ const (
 	TerminalInputNamedKeyNumpadClear    TerminalInputNamedKey = "numpad_clear"
 )
 
-func (value TerminalInputNamedKey) MarshalJSON() ([]byte, error) {
-	switch value {
-	case TerminalInputNamedKeyAltLeft, TerminalInputNamedKeyAltRight, TerminalInputNamedKeyControlLeft, TerminalInputNamedKeyControlRight, TerminalInputNamedKeyMetaLeft, TerminalInputNamedKeyMetaRight, TerminalInputNamedKeyShiftLeft, TerminalInputNamedKeyShiftRight, TerminalInputNamedKeyCapsLock, TerminalInputNamedKeyNumLock, TerminalInputNamedKeyFn, TerminalInputNamedKeyPrintScreen, TerminalInputNamedKeyScrollLock, TerminalInputNamedKeyPause, TerminalInputNamedKeyContextMenu, TerminalInputNamedKeyNumpad0, TerminalInputNamedKeyNumpad1, TerminalInputNamedKeyNumpad2, TerminalInputNamedKeyNumpad3, TerminalInputNamedKeyNumpad4, TerminalInputNamedKeyNumpad5, TerminalInputNamedKeyNumpad6, TerminalInputNamedKeyNumpad7, TerminalInputNamedKeyNumpad8, TerminalInputNamedKeyNumpad9, TerminalInputNamedKeyNumpadAdd, TerminalInputNamedKeyNumpadSubtract, TerminalInputNamedKeyNumpadMultiply, TerminalInputNamedKeyNumpadDivide, TerminalInputNamedKeyNumpadEnter, TerminalInputNamedKeyNumpadEqual, TerminalInputNamedKeyNumpadDecimal, TerminalInputNamedKeyNumpadComma, TerminalInputNamedKeyNumpadClear:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown TerminalInputNamedKey %q", value)
-	}
-}
+func (value TerminalInputNamedKey) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *TerminalInputNamedKey) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -672,7 +643,7 @@ func (value *TerminalInputNamedKey) UnmarshalJSON(data []byte) error {
 		*value = TerminalInputNamedKey(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown TerminalInputNamedKey %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value TerminalInputNamedKey) MarshalText() ([]byte, error) {

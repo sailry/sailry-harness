@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type TerminalShell struct {
@@ -99,14 +98,7 @@ const (
 	TerminalColorSchemeDark  TerminalColorScheme = "dark"
 )
 
-func (value TerminalColorScheme) MarshalJSON() ([]byte, error) {
-	switch value {
-	case TerminalColorSchemeLight, TerminalColorSchemeDark:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown TerminalColorScheme %q", value)
-	}
-}
+func (value TerminalColorScheme) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *TerminalColorScheme) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -117,7 +109,7 @@ func (value *TerminalColorScheme) UnmarshalJSON(data []byte) error {
 		*value = TerminalColorScheme(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown TerminalColorScheme %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value TerminalColorScheme) MarshalText() ([]byte, error) {
@@ -275,14 +267,7 @@ const (
 	TerminalActivityFailed          TerminalActivity = "failed"
 )
 
-func (value TerminalActivity) MarshalJSON() ([]byte, error) {
-	switch value {
-	case TerminalActivityIdle, TerminalActivityWorking, TerminalActivityWaitingForInput, TerminalActivityCompleted, TerminalActivityFailed:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown TerminalActivity %q", value)
-	}
-}
+func (value TerminalActivity) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *TerminalActivity) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -293,7 +278,7 @@ func (value *TerminalActivity) UnmarshalJSON(data []byte) error {
 		*value = TerminalActivity(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown TerminalActivity %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value TerminalActivity) MarshalText() ([]byte, error) {

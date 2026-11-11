@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type CodeIndexGraphView string
@@ -17,14 +16,7 @@ const (
 	CodeIndexGraphViewMap     CodeIndexGraphView = "map"
 )
 
-func (value CodeIndexGraphView) MarshalJSON() ([]byte, error) {
-	switch value {
-	case CodeIndexGraphViewCallers, CodeIndexGraphViewCallees, CodeIndexGraphViewContext, CodeIndexGraphViewImpact, CodeIndexGraphViewMap:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown CodeIndexGraphView %q", value)
-	}
-}
+func (value CodeIndexGraphView) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *CodeIndexGraphView) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -35,7 +27,7 @@ func (value *CodeIndexGraphView) UnmarshalJSON(data []byte) error {
 		*value = CodeIndexGraphView(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown CodeIndexGraphView %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value CodeIndexGraphView) MarshalText() ([]byte, error) {
@@ -104,14 +96,7 @@ const (
 	CodeIndexGraphConfidenceWorkspace CodeIndexGraphConfidence = "workspace"
 )
 
-func (value CodeIndexGraphConfidence) MarshalJSON() ([]byte, error) {
-	switch value {
-	case CodeIndexGraphConfidenceLocal, CodeIndexGraphConfidenceImported, CodeIndexGraphConfidenceDirectory, CodeIndexGraphConfidenceWorkspace:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown CodeIndexGraphConfidence %q", value)
-	}
-}
+func (value CodeIndexGraphConfidence) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *CodeIndexGraphConfidence) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -122,7 +107,7 @@ func (value *CodeIndexGraphConfidence) UnmarshalJSON(data []byte) error {
 		*value = CodeIndexGraphConfidence(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown CodeIndexGraphConfidence %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value CodeIndexGraphConfidence) MarshalText() ([]byte, error) {

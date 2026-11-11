@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type ToolDisplayProjectionTable struct {
@@ -73,14 +72,7 @@ const (
 	ToolDisplayProjectionTableBytesHex ToolDisplayProjectionTableBytes = "hex"
 )
 
-func (value ToolDisplayProjectionTableBytes) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ToolDisplayProjectionTableBytesHex:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ToolDisplayProjectionTableBytes %q", value)
-	}
-}
+func (value ToolDisplayProjectionTableBytes) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *ToolDisplayProjectionTableBytes) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -91,7 +83,7 @@ func (value *ToolDisplayProjectionTableBytes) UnmarshalJSON(data []byte) error {
 		*value = ToolDisplayProjectionTableBytes(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ToolDisplayProjectionTableBytes %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value ToolDisplayProjectionTableBytes) MarshalText() ([]byte, error) {

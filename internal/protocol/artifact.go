@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type ArtifactKind string
@@ -14,14 +13,7 @@ const (
 	ArtifactKindPreview  ArtifactKind = "preview"
 )
 
-func (value ArtifactKind) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ArtifactKindDocument, ArtifactKindPreview:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ArtifactKind %q", value)
-	}
-}
+func (value ArtifactKind) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *ArtifactKind) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -32,7 +24,7 @@ func (value *ArtifactKind) UnmarshalJSON(data []byte) error {
 		*value = ArtifactKind(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ArtifactKind %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value ArtifactKind) MarshalText() ([]byte, error) {
@@ -175,14 +167,7 @@ const (
 	ArtifactLibraryMathjax ArtifactLibrary = "mathjax"
 )
 
-func (value ArtifactLibrary) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ArtifactLibraryMermaid, ArtifactLibraryEcharts, ArtifactLibraryMathjax:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ArtifactLibrary %q", value)
-	}
-}
+func (value ArtifactLibrary) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *ArtifactLibrary) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -193,7 +178,7 @@ func (value *ArtifactLibrary) UnmarshalJSON(data []byte) error {
 		*value = ArtifactLibrary(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ArtifactLibrary %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value ArtifactLibrary) MarshalText() ([]byte, error) {

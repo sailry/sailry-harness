@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type PluginHostManifest struct {
@@ -90,14 +89,7 @@ const (
 	PluginHostChangeRepository   PluginHostChange = "repository"
 )
 
-func (value PluginHostChange) MarshalJSON() ([]byte, error) {
-	switch value {
-	case PluginHostChangePackage, PluginHostChangeConversation, PluginHostChangeRepository:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown PluginHostChange %q", value)
-	}
-}
+func (value PluginHostChange) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *PluginHostChange) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -108,7 +100,7 @@ func (value *PluginHostChange) UnmarshalJSON(data []byte) error {
 		*value = PluginHostChange(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown PluginHostChange %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value PluginHostChange) MarshalText() ([]byte, error) {

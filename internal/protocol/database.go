@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type DatabaseEngine string
@@ -15,14 +14,7 @@ const (
 	DatabaseEnginePostgres DatabaseEngine = "postgres"
 )
 
-func (value DatabaseEngine) MarshalJSON() ([]byte, error) {
-	switch value {
-	case DatabaseEngineSqlite, DatabaseEngineMysql, DatabaseEnginePostgres:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown DatabaseEngine %q", value)
-	}
-}
+func (value DatabaseEngine) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *DatabaseEngine) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -33,7 +25,7 @@ func (value *DatabaseEngine) UnmarshalJSON(data []byte) error {
 		*value = DatabaseEngine(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown DatabaseEngine %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value DatabaseEngine) MarshalText() ([]byte, error) {
@@ -58,14 +50,7 @@ const (
 	DatabaseTlsRequire DatabaseTls = "require"
 )
 
-func (value DatabaseTls) MarshalJSON() ([]byte, error) {
-	switch value {
-	case DatabaseTlsDisable, DatabaseTlsPrefer, DatabaseTlsRequire:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown DatabaseTls %q", value)
-	}
-}
+func (value DatabaseTls) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *DatabaseTls) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -76,7 +61,7 @@ func (value *DatabaseTls) UnmarshalJSON(data []byte) error {
 		*value = DatabaseTls(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown DatabaseTls %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value DatabaseTls) MarshalText() ([]byte, error) {

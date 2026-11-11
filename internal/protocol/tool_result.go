@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type ToolResultResultDisplay struct {
@@ -46,14 +45,7 @@ const (
 	ToolResultExpectedFileNotFound      ToolResultExpected = "file_not_found"
 )
 
-func (value ToolResultExpected) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ToolResultExpectedDirectoryNotFound, ToolResultExpectedFileNotFound:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ToolResultExpected %q", value)
-	}
-}
+func (value ToolResultExpected) MarshalJSON() ([]byte, error)     { return marshalEnum(value) }
 func (value *ToolResultExpected) UnmarshalJSON(data []byte) error { return DecodeValue(data, value) }
 func (value *ToolResultExpected) DecodeJSON(decoder *Decoder) error {
 	decoded, err := decoder.String()
@@ -65,7 +57,7 @@ func (value *ToolResultExpected) DecodeJSON(decoder *Decoder) error {
 		*value = ToolResultExpected(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ToolResultExpected %q", decoded)
+		return settleEnum(decoder.tolerance, value, decoded)
 	}
 }
 func (value ToolResultExpected) MarshalText() ([]byte, error) {

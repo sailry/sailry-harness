@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type ConversationCheckpointReceipt string
@@ -16,14 +15,7 @@ const (
 	ConversationCheckpointReceiptAbsent    ConversationCheckpointReceipt = "Absent"
 )
 
-func (value ConversationCheckpointReceipt) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ConversationCheckpointReceiptWritten, ConversationCheckpointReceiptUncertain, ConversationCheckpointReceiptPending, ConversationCheckpointReceiptAbsent:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ConversationCheckpointReceipt %q", value)
-	}
-}
+func (value ConversationCheckpointReceipt) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *ConversationCheckpointReceipt) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -34,7 +26,7 @@ func (value *ConversationCheckpointReceipt) UnmarshalJSON(data []byte) error {
 		*value = ConversationCheckpointReceipt(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ConversationCheckpointReceipt %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value ConversationCheckpointReceipt) MarshalText() ([]byte, error) {

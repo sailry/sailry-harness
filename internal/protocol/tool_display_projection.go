@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type ToolDisplayProjectionOutput struct {
@@ -75,14 +74,7 @@ const (
 	ToolDisplayProjectionSourceItem      ToolDisplayProjectionSource = "item"
 )
 
-func (value ToolDisplayProjectionSource) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ToolDisplayProjectionSourceArguments, ToolDisplayProjectionSourceResult, ToolDisplayProjectionSourceItem:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ToolDisplayProjectionSource %q", value)
-	}
-}
+func (value ToolDisplayProjectionSource) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *ToolDisplayProjectionSource) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -93,7 +85,7 @@ func (value *ToolDisplayProjectionSource) UnmarshalJSON(data []byte) error {
 		*value = ToolDisplayProjectionSource(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ToolDisplayProjectionSource %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value ToolDisplayProjectionSource) MarshalText() ([]byte, error) {
@@ -180,12 +172,7 @@ const (
 )
 
 func (value ToolDisplayProjectionValueFormat) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ToolDisplayProjectionValueFormatJson:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ToolDisplayProjectionValueFormat %q", value)
-	}
+	return marshalEnum(value)
 }
 func (value *ToolDisplayProjectionValueFormat) UnmarshalJSON(data []byte) error {
 	var decoded string
@@ -197,7 +184,7 @@ func (value *ToolDisplayProjectionValueFormat) UnmarshalJSON(data []byte) error 
 		*value = ToolDisplayProjectionValueFormat(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ToolDisplayProjectionValueFormat %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value ToolDisplayProjectionValueFormat) MarshalText() ([]byte, error) {
@@ -393,14 +380,7 @@ const (
 	ToolDisplayProjectionFormatCheckpoint ToolDisplayProjectionFormat = "checkpoint"
 )
 
-func (value ToolDisplayProjectionFormat) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ToolDisplayProjectionFormatAdded, ToolDisplayProjectionFormatUnified, ToolDisplayProjectionFormatCheckpoint:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ToolDisplayProjectionFormat %q", value)
-	}
-}
+func (value ToolDisplayProjectionFormat) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *ToolDisplayProjectionFormat) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -411,7 +391,7 @@ func (value *ToolDisplayProjectionFormat) UnmarshalJSON(data []byte) error {
 		*value = ToolDisplayProjectionFormat(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ToolDisplayProjectionFormat %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value ToolDisplayProjectionFormat) MarshalText() ([]byte, error) {

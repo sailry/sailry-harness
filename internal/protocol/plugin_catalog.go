@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type PluginCatalogSource string
@@ -14,14 +13,7 @@ const (
 	PluginCatalogSourceThirdParty PluginCatalogSource = "third_party"
 )
 
-func (value PluginCatalogSource) MarshalJSON() ([]byte, error) {
-	switch value {
-	case PluginCatalogSourceOfficial, PluginCatalogSourceThirdParty:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown PluginCatalogSource %q", value)
-	}
-}
+func (value PluginCatalogSource) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *PluginCatalogSource) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -32,7 +24,7 @@ func (value *PluginCatalogSource) UnmarshalJSON(data []byte) error {
 		*value = PluginCatalogSource(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown PluginCatalogSource %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value PluginCatalogSource) MarshalText() ([]byte, error) {
@@ -139,14 +131,7 @@ const (
 	PluginCatalogFormatClaudeCode PluginCatalogFormat = "claude_code"
 )
 
-func (value PluginCatalogFormat) MarshalJSON() ([]byte, error) {
-	switch value {
-	case PluginCatalogFormatCodex, PluginCatalogFormatClaudeCode:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown PluginCatalogFormat %q", value)
-	}
-}
+func (value PluginCatalogFormat) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *PluginCatalogFormat) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -157,7 +142,7 @@ func (value *PluginCatalogFormat) UnmarshalJSON(data []byte) error {
 		*value = PluginCatalogFormat(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown PluginCatalogFormat %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value PluginCatalogFormat) MarshalText() ([]byte, error) {

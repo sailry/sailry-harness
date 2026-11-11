@@ -13,6 +13,26 @@ import (
 
 func TestFixtureRoundTrip(t *testing.T) {
 	t.Parallel()
+	eachFixture(t, func(t *testing.T, _ string, original []byte, target func() any) {
+		value := target()
+		if err := json.Unmarshal(original, value); err != nil {
+			t.Fatalf("decode Rust fixture: %v", err)
+		}
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			t.Fatalf("encode protocol value: %v", err)
+		}
+		if !reflect.DeepEqual(fixtureJSON(t, original), fixtureJSON(t, encoded)) {
+			t.Fatalf("Rust JSON changed\nwant: %s\n got: %s", original, encoded)
+		}
+	})
+}
+
+// eachFixture runs check as a parallel subtest for every JSON fixture, with
+// the fixture's name, its bytes and a constructor of its concrete protocol
+// type.
+func eachFixture(t *testing.T, check func(t *testing.T, name string, original []byte, target func() any)) {
+	t.Helper()
 	factories := map[string]func() any{
 		"browser_action":        func() any { return new(BrowserAction) },
 		"command":               func() any { return new(Command) },
@@ -50,23 +70,14 @@ func TestFixtureRoundTrip(t *testing.T) {
 			return nil
 		}
 		fixtures++
-		t.Run(strings.TrimSuffix(name, ".json"), func(t *testing.T) {
+		name = strings.TrimSuffix(name, ".json")
+		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			original, err := os.ReadFile(path)
 			if err != nil {
 				t.Fatal(err)
 			}
-			value := factory()
-			if err := json.Unmarshal(original, value); err != nil {
-				t.Fatalf("decode Rust fixture: %v", err)
-			}
-			encoded, err := json.Marshal(value)
-			if err != nil {
-				t.Fatalf("encode protocol value: %v", err)
-			}
-			if !reflect.DeepEqual(fixtureJSON(t, original), fixtureJSON(t, encoded)) {
-				t.Fatalf("Rust JSON changed\nwant: %s\n got: %s", original, encoded)
-			}
+			check(t, name, original, factory)
 		})
 		return nil
 	})

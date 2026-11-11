@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type ProcessOutputOutputStream string
@@ -14,14 +13,7 @@ const (
 	ProcessOutputOutputStreamStderr ProcessOutputOutputStream = "stderr"
 )
 
-func (value ProcessOutputOutputStream) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ProcessOutputOutputStreamStdout, ProcessOutputOutputStreamStderr:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ProcessOutputOutputStream %q", value)
-	}
-}
+func (value ProcessOutputOutputStream) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *ProcessOutputOutputStream) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -32,7 +24,7 @@ func (value *ProcessOutputOutputStream) UnmarshalJSON(data []byte) error {
 		*value = ProcessOutputOutputStream(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ProcessOutputOutputStream %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value ProcessOutputOutputStream) MarshalText() ([]byte, error) {

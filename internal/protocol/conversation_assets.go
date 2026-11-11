@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type ConversationAssetsKind string
@@ -14,14 +13,7 @@ const (
 	ConversationAssetsKindArtifact ConversationAssetsKind = "artifact"
 )
 
-func (value ConversationAssetsKind) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ConversationAssetsKindResource, ConversationAssetsKindArtifact:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ConversationAssetsKind %q", value)
-	}
-}
+func (value ConversationAssetsKind) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *ConversationAssetsKind) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -32,7 +24,7 @@ func (value *ConversationAssetsKind) UnmarshalJSON(data []byte) error {
 		*value = ConversationAssetsKind(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ConversationAssetsKind %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value ConversationAssetsKind) MarshalText() ([]byte, error) {

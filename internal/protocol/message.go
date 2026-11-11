@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type ErrorCode string
@@ -25,14 +24,7 @@ const (
 	ErrorCodeInternal         ErrorCode = "internal"
 )
 
-func (value ErrorCode) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ErrorCodeInvalidRequest, ErrorCodeWrongTarget, ErrorCodeNotFound, ErrorCodeNotConfigured, ErrorCodeConflict, ErrorCodeRevisionConflict, ErrorCodePermissionDenied, ErrorCodeExpired, ErrorCodeBusy, ErrorCodeUnavailable, ErrorCodeCancelled, ErrorCodeOutcomeUnknown, ErrorCodeInternal:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ErrorCode %q", value)
-	}
-}
+func (value ErrorCode) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *ErrorCode) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -43,7 +35,7 @@ func (value *ErrorCode) UnmarshalJSON(data []byte) error {
 		*value = ErrorCode(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ErrorCode %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value ErrorCode) MarshalText() ([]byte, error) {
@@ -246,14 +238,7 @@ const (
 	ConversationContinuationRefusalStale       ConversationContinuationRefusal = "stale"
 )
 
-func (value ConversationContinuationRefusal) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ConversationContinuationRefusalPlan, ConversationContinuationRefusalChild, ConversationContinuationRefusalArchived, ConversationContinuationRefusalWorktree, ConversationContinuationRefusalQueuePaused, ConversationContinuationRefusalQueuedInput, ConversationContinuationRefusalRunning, ConversationContinuationRefusalInteraction, ConversationContinuationRefusalLimit, ConversationContinuationRefusalStale:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ConversationContinuationRefusal %q", value)
-	}
-}
+func (value ConversationContinuationRefusal) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *ConversationContinuationRefusal) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -264,7 +249,7 @@ func (value *ConversationContinuationRefusal) UnmarshalJSON(data []byte) error {
 		*value = ConversationContinuationRefusal(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ConversationContinuationRefusal %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 
@@ -338,14 +323,7 @@ const (
 	ModelFailureSharedUsageUnavailable ModelFailure = "shared_usage_unavailable"
 )
 
-func (value ModelFailure) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ModelFailureRequest, ModelFailureUnauthorized, ModelFailureRateLimited, ModelFailureTimeout, ModelFailureInvalidResponse, ModelFailureSharedUsageLimit, ModelFailureSharedUsageUnavailable:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ModelFailure %q", value)
-	}
-}
+func (value ModelFailure) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *ModelFailure) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -356,7 +334,7 @@ func (value *ModelFailure) UnmarshalJSON(data []byte) error {
 		*value = ModelFailure(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ModelFailure %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value ModelFailure) MarshalText() ([]byte, error) {

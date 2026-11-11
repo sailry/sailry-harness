@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type PluginStorageDeclaration struct {
@@ -99,14 +98,7 @@ const (
 	PluginStorageScopeConversation PluginStorageScope = "conversation"
 )
 
-func (value PluginStorageScope) MarshalJSON() ([]byte, error) {
-	switch value {
-	case PluginStorageScopeNode, PluginStorageScopeConversation:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown PluginStorageScope %q", value)
-	}
-}
+func (value PluginStorageScope) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *PluginStorageScope) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -117,7 +109,7 @@ func (value *PluginStorageScope) UnmarshalJSON(data []byte) error {
 		*value = PluginStorageScope(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown PluginStorageScope %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value PluginStorageScope) MarshalText() ([]byte, error) {

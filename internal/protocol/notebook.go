@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type NotebookRead struct {
@@ -172,14 +171,7 @@ const (
 	NotebookKindRaw      NotebookKind = "raw"
 )
 
-func (value NotebookKind) MarshalJSON() ([]byte, error) {
-	switch value {
-	case NotebookKindCode, NotebookKindMarkdown, NotebookKindRaw:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown NotebookKind %q", value)
-	}
-}
+func (value NotebookKind) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *NotebookKind) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -190,7 +182,7 @@ func (value *NotebookKind) UnmarshalJSON(data []byte) error {
 		*value = NotebookKind(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown NotebookKind %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value NotebookKind) MarshalText() ([]byte, error) {

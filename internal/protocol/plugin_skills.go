@@ -369,14 +369,7 @@ const (
 	PluginSkillsArchiveFormatTarGz PluginSkillsArchiveFormat = "tar_gz"
 )
 
-func (value PluginSkillsArchiveFormat) MarshalJSON() ([]byte, error) {
-	switch value {
-	case PluginSkillsArchiveFormatZip, PluginSkillsArchiveFormatTar, PluginSkillsArchiveFormatTarGz:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown PluginSkillsArchiveFormat %q", value)
-	}
-}
+func (value PluginSkillsArchiveFormat) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *PluginSkillsArchiveFormat) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -387,7 +380,7 @@ func (value *PluginSkillsArchiveFormat) UnmarshalJSON(data []byte) error {
 		*value = PluginSkillsArchiveFormat(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown PluginSkillsArchiveFormat %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value PluginSkillsArchiveFormat) MarshalText() ([]byte, error) {

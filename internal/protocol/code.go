@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type CodeStartup struct {
@@ -50,14 +49,7 @@ const (
 	CodeStatusNotInstalled CodeStatus = "not_installed"
 )
 
-func (value CodeStatus) MarshalJSON() ([]byte, error) {
-	switch value {
-	case CodeStatusStarting, CodeStatusIndexing, CodeStatusReady, CodeStatusFailed, CodeStatusStopped, CodeStatusNotInstalled:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown CodeStatus %q", value)
-	}
-}
+func (value CodeStatus) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *CodeStatus) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -68,7 +60,7 @@ func (value *CodeStatus) UnmarshalJSON(data []byte) error {
 		*value = CodeStatus(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown CodeStatus %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value CodeStatus) MarshalText() ([]byte, error) {
@@ -124,14 +116,7 @@ const (
 	CodeSeverityHint        CodeSeverity = "hint"
 )
 
-func (value CodeSeverity) MarshalJSON() ([]byte, error) {
-	switch value {
-	case CodeSeverityError, CodeSeverityWarning, CodeSeverityInformation, CodeSeverityHint:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown CodeSeverity %q", value)
-	}
-}
+func (value CodeSeverity) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *CodeSeverity) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -142,7 +127,7 @@ func (value *CodeSeverity) UnmarshalJSON(data []byte) error {
 		*value = CodeSeverity(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown CodeSeverity %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value CodeSeverity) MarshalText() ([]byte, error) {
@@ -688,14 +673,7 @@ const (
 	CodeInstallStatusCancelled   CodeInstallStatus = "cancelled"
 )
 
-func (value CodeInstallStatus) MarshalJSON() ([]byte, error) {
-	switch value {
-	case CodeInstallStatusPreparing, CodeInstallStatusDownloading, CodeInstallStatusInstalling, CodeInstallStatusReady, CodeInstallStatusFailed, CodeInstallStatusCancelled:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown CodeInstallStatus %q", value)
-	}
-}
+func (value CodeInstallStatus) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *CodeInstallStatus) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -706,7 +684,7 @@ func (value *CodeInstallStatus) UnmarshalJSON(data []byte) error {
 		*value = CodeInstallStatus(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown CodeInstallStatus %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value CodeInstallStatus) MarshalText() ([]byte, error) {

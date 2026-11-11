@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type ExternalBrowserAction string
@@ -61,14 +60,7 @@ const (
 	ExternalBrowserActionSaveDownload           ExternalBrowserAction = "save_download"
 )
 
-func (value ExternalBrowserAction) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ExternalBrowserActionDragAndDrop, ExternalBrowserActionRightClick, ExternalBrowserActionFocus, ExternalBrowserActionElementState, ExternalBrowserActionPressKey, ExternalBrowserActionFileUpload, ExternalBrowserActionPrintToPdf, ExternalBrowserActionClick, ExternalBrowserActionDoubleClick, ExternalBrowserActionGetCookies, ExternalBrowserActionGetCookie, ExternalBrowserActionAddCookie, ExternalBrowserActionDeleteCookie, ExternalBrowserActionDeleteAllCookies, ExternalBrowserActionEvaluateJs, ExternalBrowserActionScroll, ExternalBrowserActionHover, ExternalBrowserActionHandleAlert, ExternalBrowserActionExtractText, ExternalBrowserActionExtractAttribute, ExternalBrowserActionExtractLinks, ExternalBrowserActionPageInfo, ExternalBrowserActionPageSource, ExternalBrowserActionSwitchToFrame, ExternalBrowserActionSwitchToParentFrame, ExternalBrowserActionSwitchToDefaultContent, ExternalBrowserActionNavigate, ExternalBrowserActionBack, ExternalBrowserActionForward, ExternalBrowserActionRefresh, ExternalBrowserActionScreenshot, ExternalBrowserActionType, ExternalBrowserActionClear, ExternalBrowserActionSelect, ExternalBrowserActionWaitForElement, ExternalBrowserActionWait, ExternalBrowserActionWaitForPageLoad, ExternalBrowserActionWaitForText, ExternalBrowserActionListWindows, ExternalBrowserActionNewTab, ExternalBrowserActionNewWindow, ExternalBrowserActionSwitchWindow, ExternalBrowserActionCloseWindow, ExternalBrowserActionMaximizeWindow, ExternalBrowserActionMinimizeWindow, ExternalBrowserActionSetWindowSize, ExternalBrowserActionCloseSession, ExternalBrowserActionDownloads, ExternalBrowserActionSaveDownload:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ExternalBrowserAction %q", value)
-	}
-}
+func (value ExternalBrowserAction) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *ExternalBrowserAction) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -79,7 +71,7 @@ func (value *ExternalBrowserAction) UnmarshalJSON(data []byte) error {
 		*value = ExternalBrowserAction(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ExternalBrowserAction %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value ExternalBrowserAction) MarshalText() ([]byte, error) {

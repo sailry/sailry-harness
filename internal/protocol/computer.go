@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type ComputerPermission string
@@ -14,14 +13,7 @@ const (
 	ComputerPermissionAccessibility ComputerPermission = "accessibility"
 )
 
-func (value ComputerPermission) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ComputerPermissionScreenCapture, ComputerPermissionAccessibility:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ComputerPermission %q", value)
-	}
-}
+func (value ComputerPermission) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *ComputerPermission) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -32,7 +24,7 @@ func (value *ComputerPermission) UnmarshalJSON(data []byte) error {
 		*value = ComputerPermission(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ComputerPermission %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value ComputerPermission) MarshalText() ([]byte, error) {

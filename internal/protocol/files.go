@@ -152,14 +152,7 @@ const (
 	SearchModeCount   SearchMode = "count"
 )
 
-func (value SearchMode) MarshalJSON() ([]byte, error) {
-	switch value {
-	case SearchModeContent, SearchModeFiles, SearchModeCount:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown SearchMode %q", value)
-	}
-}
+func (value SearchMode) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *SearchMode) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -170,7 +163,7 @@ func (value *SearchMode) UnmarshalJSON(data []byte) error {
 		*value = SearchMode(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown SearchMode %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value SearchMode) MarshalText() ([]byte, error) {
@@ -339,14 +332,7 @@ const (
 	EntryKindOther     EntryKind = "other"
 )
 
-func (value EntryKind) MarshalJSON() ([]byte, error) {
-	switch value {
-	case EntryKindFile, EntryKindDirectory, EntryKindSymlink, EntryKindOther:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown EntryKind %q", value)
-	}
-}
+func (value EntryKind) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *EntryKind) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -357,7 +343,7 @@ func (value *EntryKind) UnmarshalJSON(data []byte) error {
 		*value = EntryKind(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown EntryKind %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value EntryKind) MarshalText() ([]byte, error) {
@@ -976,14 +962,7 @@ const (
 	ChangeKindDeleted  ChangeKind = "deleted"
 )
 
-func (value ChangeKind) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ChangeKindAdded, ChangeKindModified, ChangeKindRenamed, ChangeKindDeleted:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ChangeKind %q", value)
-	}
-}
+func (value ChangeKind) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *ChangeKind) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -994,7 +973,7 @@ func (value *ChangeKind) UnmarshalJSON(data []byte) error {
 		*value = ChangeKind(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ChangeKind %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value ChangeKind) MarshalText() ([]byte, error) {
@@ -1019,14 +998,7 @@ const (
 	ChangesStatusRejected ChangesStatus = "rejected"
 )
 
-func (value ChangesStatus) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ChangesStatusApplied, ChangesStatusPartial, ChangesStatusRejected:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ChangesStatus %q", value)
-	}
-}
+func (value ChangesStatus) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *ChangesStatus) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -1037,7 +1009,7 @@ func (value *ChangesStatus) UnmarshalJSON(data []byte) error {
 		*value = ChangesStatus(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ChangesStatus %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value ChangesStatus) MarshalText() ([]byte, error) {
@@ -1063,14 +1035,7 @@ const (
 	ChangeStatusNotAttempted ChangeStatus = "not_attempted"
 )
 
-func (value ChangeStatus) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ChangeStatusApplied, ChangeStatusFailed, ChangeStatusUnknown, ChangeStatusNotAttempted:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ChangeStatus %q", value)
-	}
-}
+func (value ChangeStatus) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *ChangeStatus) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -1081,7 +1046,7 @@ func (value *ChangeStatus) UnmarshalJSON(data []byte) error {
 		*value = ChangeStatus(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ChangeStatus %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value ChangeStatus) MarshalText() ([]byte, error) {

@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type ConversationCompactionSource string
@@ -14,14 +13,7 @@ const (
 	ConversationCompactionSourceManual    ConversationCompactionSource = "manual"
 )
 
-func (value ConversationCompactionSource) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ConversationCompactionSourceAutomatic, ConversationCompactionSourceManual:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ConversationCompactionSource %q", value)
-	}
-}
+func (value ConversationCompactionSource) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *ConversationCompactionSource) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -32,7 +24,7 @@ func (value *ConversationCompactionSource) UnmarshalJSON(data []byte) error {
 		*value = ConversationCompactionSource(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ConversationCompactionSource %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value ConversationCompactionSource) MarshalText() ([]byte, error) {
@@ -60,14 +52,7 @@ const (
 	ConversationCompactionStagePersistence ConversationCompactionStage = "persistence"
 )
 
-func (value ConversationCompactionStage) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ConversationCompactionStageUnknown, ConversationCompactionStageHistory, ConversationCompactionStageBudget, ConversationCompactionStageRequest, ConversationCompactionStageSummary, ConversationCompactionStagePersistence:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ConversationCompactionStage %q", value)
-	}
-}
+func (value ConversationCompactionStage) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *ConversationCompactionStage) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -78,7 +63,7 @@ func (value *ConversationCompactionStage) UnmarshalJSON(data []byte) error {
 		*value = ConversationCompactionStage(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ConversationCompactionStage %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value ConversationCompactionStage) MarshalText() ([]byte, error) {
@@ -117,14 +102,7 @@ const (
 	ConversationCompactionReasonPersistenceFailed   ConversationCompactionReason = "persistence_failed"
 )
 
-func (value ConversationCompactionReason) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ConversationCompactionReasonUnknown, ConversationCompactionReasonHistoryMismatch, ConversationCompactionReasonNoFittingPrefix, ConversationCompactionReasonRequestFailed, ConversationCompactionReasonRequestTimeout, ConversationCompactionReasonRateLimited, ConversationCompactionReasonAuthorizationFailed, ConversationCompactionReasonServiceRejected, ConversationCompactionReasonContextOverflow, ConversationCompactionReasonContentFiltered, ConversationCompactionReasonEmptySummary, ConversationCompactionReasonIncompleteResponse, ConversationCompactionReasonTruncatedSummary, ConversationCompactionReasonUnexpectedOutput, ConversationCompactionReasonSummaryTooLarge, ConversationCompactionReasonNoReduction, ConversationCompactionReasonPersistenceFailed:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ConversationCompactionReason %q", value)
-	}
-}
+func (value ConversationCompactionReason) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *ConversationCompactionReason) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -135,7 +113,7 @@ func (value *ConversationCompactionReason) UnmarshalJSON(data []byte) error {
 		*value = ConversationCompactionReason(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ConversationCompactionReason %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value ConversationCompactionReason) MarshalText() ([]byte, error) {

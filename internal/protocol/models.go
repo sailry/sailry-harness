@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type ModelsHub string
@@ -14,14 +13,7 @@ const (
 	ModelsHubModelScope  ModelsHub = "model_scope"
 )
 
-func (value ModelsHub) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ModelsHubHuggingFace, ModelsHubModelScope:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ModelsHub %q", value)
-	}
-}
+func (value ModelsHub) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *ModelsHub) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -32,7 +24,7 @@ func (value *ModelsHub) UnmarshalJSON(data []byte) error {
 		*value = ModelsHub(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ModelsHub %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value ModelsHub) MarshalText() ([]byte, error) {
@@ -58,14 +50,7 @@ const (
 	ModelsKindDecision  ModelsKind = "decision"
 )
 
-func (value ModelsKind) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ModelsKindEmbedding, ModelsKindSpeech, ModelsKindOcr, ModelsKindDecision:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ModelsKind %q", value)
-	}
-}
+func (value ModelsKind) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *ModelsKind) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -76,7 +61,7 @@ func (value *ModelsKind) UnmarshalJSON(data []byte) error {
 		*value = ModelsKind(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ModelsKind %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value ModelsKind) MarshalText() ([]byte, error) {
@@ -100,14 +85,7 @@ const (
 	ModelsPaddleFamilyV6 ModelsPaddleFamily = "v6"
 )
 
-func (value ModelsPaddleFamily) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ModelsPaddleFamilyV5, ModelsPaddleFamilyV6:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ModelsPaddleFamily %q", value)
-	}
-}
+func (value ModelsPaddleFamily) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *ModelsPaddleFamily) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -118,7 +96,7 @@ func (value *ModelsPaddleFamily) UnmarshalJSON(data []byte) error {
 		*value = ModelsPaddleFamily(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ModelsPaddleFamily %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value ModelsPaddleFamily) MarshalText() ([]byte, error) {
@@ -142,14 +120,7 @@ const (
 	ModelsPoolingMean ModelsPooling = "mean"
 )
 
-func (value ModelsPooling) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ModelsPoolingCls, ModelsPoolingMean:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ModelsPooling %q", value)
-	}
-}
+func (value ModelsPooling) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *ModelsPooling) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -160,7 +131,7 @@ func (value *ModelsPooling) UnmarshalJSON(data []byte) error {
 		*value = ModelsPooling(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ModelsPooling %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value ModelsPooling) MarshalText() ([]byte, error) {

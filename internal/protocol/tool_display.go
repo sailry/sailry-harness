@@ -4,7 +4,6 @@ package protocol
 
 import (
 	"encoding/json"
-	"fmt"
 )
 
 type ToolDisplay struct {
@@ -134,14 +133,7 @@ const (
 	ToolDisplayInputFormatConnection ToolDisplayInputFormat = "connection"
 )
 
-func (value ToolDisplayInputFormat) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ToolDisplayInputFormatCommand, ToolDisplayInputFormatSession, ToolDisplayInputFormatConnection:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ToolDisplayInputFormat %q", value)
-	}
-}
+func (value ToolDisplayInputFormat) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *ToolDisplayInputFormat) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -152,7 +144,7 @@ func (value *ToolDisplayInputFormat) UnmarshalJSON(data []byte) error {
 		*value = ToolDisplayInputFormat(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ToolDisplayInputFormat %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value ToolDisplayInputFormat) MarshalText() ([]byte, error) {
@@ -202,14 +194,7 @@ const (
 	ToolDisplayAliasKindPython ToolDisplayAliasKind = "python"
 )
 
-func (value ToolDisplayAliasKind) MarshalJSON() ([]byte, error) {
-	switch value {
-	case ToolDisplayAliasKindHome, ToolDisplayAliasKindPython:
-		return json.Marshal(string(value))
-	default:
-		return nil, fmt.Errorf("unknown ToolDisplayAliasKind %q", value)
-	}
-}
+func (value ToolDisplayAliasKind) MarshalJSON() ([]byte, error) { return marshalEnum(value) }
 func (value *ToolDisplayAliasKind) UnmarshalJSON(data []byte) error {
 	var decoded string
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -220,7 +205,7 @@ func (value *ToolDisplayAliasKind) UnmarshalJSON(data []byte) error {
 		*value = ToolDisplayAliasKind(decoded)
 		return nil
 	default:
-		return fmt.Errorf("unknown ToolDisplayAliasKind %q", decoded)
+		return unknownEnum(data, value, decoded)
 	}
 }
 func (value ToolDisplayAliasKind) MarshalText() ([]byte, error) {
