@@ -214,6 +214,38 @@ specified in [B3 live wiring](#b3-live-wiring). The preview remains an explicit,
 separate constructor and does not own backend facts. Later feature phases supply
 their owning Client actions and projections without changing the accepted UI.
 
+### The Node Settings edits
+
+Every page that configures a Node edits one Node: the host selected in the
+shell (`App.Host`, the local Node by default), as the reference binds its
+pages to `settings_target.unwrap_or(live.selected)`. `live/settings_target.go`
+holds the rule; `Runtime.settingsOwner` is the one lookup.
+
+| Owner | Pages and settings |
+| --- | --- |
+| The selected host's Node | General › Prevent sleep; Providers, the model catalog and the compaction threshold; Media models; Teams, roles and child concurrency; Connectors and MCP; Conversation › Command sandbox; Hooks; Terminal shell and environment; Backup; Knowledge, Decision and OCR models; Plugins, Skills and Python |
+| This desktop (`preferences.json`) | Language, notifications, toast duration, appearance, session order, message display, shortcuts, dictation, terminal font and paste protection, experimental switches, the update channel |
+| The local Node, whichever host is selected | Telemetry consent, identity reset and Send diagnostics (the reference's stated exception) |
+
+The pages share one view model, so only the Runtime of the Node shown writes
+it. Selecting another host ends a provider or connector sign-in under way on
+the Node left (`Model.CloseNodeDialogs` closes the provider, connector and team
+editors), drops the pages' values and drafts, and reads the new Node; the
+sandbox, the hooks and the terminal keep each Node's draft, as before. An
+answer for a Node the pages left is dropped, and a save sent before the turn
+still ends in its toast. A host without a connection has no Node to edit: its
+controls wait (`Pending`), its lists are empty, the sandbox switch is disabled
+and an action answers the `chat_action_failed` toast. Select model and Manage
+teams in a conversation select that conversation's host first, as the
+reference's `Event::Settings(node)` and `Event::TeamSettings(node)` do.
+
+Hooks are those of the conversation shown when it runs on the selected host;
+a conversation on another host shows `hooks_project_required`, as the
+reference passes a worktree only when the settings Node is the selected one.
+The host edited is named where the layout already names it: the hooks consent
+scope, the plugin details and the backup restore dialog. No page gained a host
+label.
+
 ## UI state vs backend data
 
 UI state: `State.Section`, `State.Details`, `Query`, the pages'
@@ -294,6 +326,14 @@ hover style.
 - The extension details have no title row and no close button; the title is
   in the header band and the details toggle closes them (user decision
   2026-11-11; docs/shell.md).
+
+- The settings Node is the host selected in the rail; the reference keeps a
+  separate `settings_target` that a conversation's Settings entry sets
+  without moving the rail's selection. Go has one selection (`App.Host`), so
+  those entries select the host.
+- Selecting another host drops the drafts of Prevent sleep, compaction, child
+  concurrency and media models instead of holding one per Node: each is a
+  single control that saves on change.
 
 - Preview pages show populated data where the reference shows
   "knowledge_host_required"/"hooks_project_required" without a host

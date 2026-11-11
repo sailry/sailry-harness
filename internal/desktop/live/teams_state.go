@@ -27,11 +27,10 @@ type teamState struct {
 	locale          string
 }
 
+// initTeams starts the local Runtime's team state. The Teams page's actions
+// and its reads belong to the Node Settings shows (settings_target.go).
 func (r *Runtime) initTeams() {
 	r.teams = newTeamState()
-	r.App.Settings.TeamActions = &settings.TeamActions{SaveConcurrency: r.saveConcurrency, SaveTeam: r.saveTeam, SaveRole: r.saveRole, RemoveTeam: r.removeTeam, RemoveRole: r.removeRole}
-	r.teamsFrame()
-	r.readTeamSettings()
 }
 
 func newTeamState() *teamState {
@@ -40,8 +39,10 @@ func newTeamState() *teamState {
 
 func profileKey(id string, revision uint64) string { return fmt.Sprintf("%s/%d", id, revision) }
 
+// teamsFrame shows the Node's roles and teams on the page that holds this
+// Node, and reads its team settings when the Node reports newer ones.
 func (r *Runtime) teamsFrame() {
-	if r.teams == nil {
+	if r.teams == nil || !r.showsSettings() {
 		return
 	}
 	snapshot := r.snapshot()
@@ -113,7 +114,7 @@ func (r *Runtime) readTeamSettings() {
 // answered before a save whose result was accepted since.
 func (r *Runtime) acceptTeamRead(value protocol.TeamSettings) {
 	field := &r.App.Settings.Concurrency
-	if field.Pending || r.teams.settingsUnknown != nil || value.Revision < field.Revision {
+	if !r.showsSettings() || field.Pending || r.teams.settingsUnknown != nil || value.Revision < field.Revision {
 		return
 	}
 	if field.Draft == field.Saved {
@@ -135,14 +136,18 @@ func (r *Runtime) saveConcurrency() {
 	}
 	m.Pending = true
 	r.executeScoped("teams/settings", protocol.Command{Kind: "save_team_settings", Data: value}, func(c *ui.Context, out protocol.Output, err error) {
-		m.Pending = false
 		outcome := teamOutcome(err)
+		settings.Report(c, outcome, settings.Messages{Failed: "teams_settings_failed", Conflict: "teams_settings_conflict", Uncertain: "teams_settings_unknown"})
+		// The slider is this Node's only while the page shows it.
+		if !r.showsSettings() {
+			return
+		}
+		m.Pending = false
 		if outcome == kit.Uncertain {
 			r.teams.settingsUnknown = &value
 		} else {
 			r.teams.settingsUnknown = nil
 		}
-		settings.Report(c, outcome, settings.Messages{Failed: "teams_settings_failed", Conflict: "teams_settings_conflict", Uncertain: "teams_settings_unknown"})
 		if err == nil {
 			if saved, ok := detail[protocol.TeamSettings](out.Data); ok {
 				m.Saved, m.Draft, m.Revision = float64(saved.ChildConcurrency), float64(saved.ChildConcurrency), saved.Revision

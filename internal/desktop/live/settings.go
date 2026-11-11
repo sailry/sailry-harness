@@ -10,7 +10,18 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
-func (r *Runtime) readSettings() { r.readPower(); r.readTelemetry(); r.readSandbox() }
+// readSettings reads this Runtime's Node again: prevent sleep while Settings
+// shows the Node, the desktop's telemetry consent on the local Node, and the
+// sandbox.
+func (r *Runtime) readSettings() {
+	if r.showsSettings() {
+		r.readPower()
+	}
+	if r.parent == nil {
+		r.readTelemetry()
+	}
+	r.readSandbox()
+}
 
 func (r *Runtime) readPower() {
 	m := &r.App.Settings.Power
@@ -22,6 +33,9 @@ func (r *Runtime) readPower() {
 	r.async(func() {
 		output, err := r.controller.Do(r.ctx, protocol.Command{Kind: "read_power_settings"})
 		r.enqueue(func(c *ui.Context) {
+			if !r.showsSettings() {
+				return
+			}
 			m.Pending = false
 			value, ok := detail[protocol.PowerSettings](output.Data)
 			if err == nil && (output.Kind != "power_settings" || !ok) {
@@ -73,6 +87,9 @@ func (r *Runtime) savePower() {
 	m.Pending = true
 	request := protocol.PowerSettings{Revision: m.Revision, PreventSleep: m.Draft}
 	r.saveSetting(protocol.Command{Kind: "save_power_settings", Data: request}, settings.PowerMessages, func(output protocol.Output, ok bool) {
+		if !r.showsSettings() {
+			return
+		}
 		m.Pending = false
 		if !ok {
 			return

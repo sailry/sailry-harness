@@ -150,8 +150,10 @@ filter toggle for each capability at least one offered model has; choosing
 one again clears it.
 
 `Runtime.followMedia` reads `read_media_settings` and `list_media_models`
-on the local Node whenever the snapshot's media revision or a provider's
-revision changes. A change that arrives during a read is read for when that
+on the Node Settings edits (the selected host's, see
+[settings](settings.md#the-node-settings-edits)) whenever that Node's
+snapshot shows another media revision or provider revision, and when the
+page turns to another host. A change that arrives during a read is read for when that
 read ends, and an answer older than the revision shown, as one overtaken by
 a save, is dropped. The section shows its title and description over one card
 without a group heading. Each of the four rows (Vision, Image, Video, Speech) is a
@@ -212,5 +214,5 @@ refresh and assignment validation. No real provider is called.
 | The retired package's `imagegen` skill has no core counterpart | Core has no built-in skills; the tool description carries the rule |
 | Protocol keeps the `media.inspect`, `media.image` and `media.video` action and operation values | Stored plugin records, approvals and captures decode strictly |
 | A hosted image tool unticked and saved comes back as `image` when ticked later | The editor only knows the hosted tool from the tags it opened with |
-| Media models and the read-aloud voice are the local Node's | The page's other Node settings are too; read aloud is a controller effect |
+| Read aloud speaks with the local Node's speech model, whichever host a session runs on or Settings shows | Read aloud is a controller effect: the desktop synthesizes and plays it. The Media models page itself follows the selected host; it was local only while the page's other Node settings were |
 | MP3 playback through real audio hardware is not covered by tests | Tests replace the player; the decoder and output are MyGo's |

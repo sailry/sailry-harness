@@ -330,7 +330,9 @@ func (r *Runtime) conversation(c *ui.Context, cv *viewmodel.Conversation, comp *
 	// running reply's guidance uses that turn's.
 	ctx.SendBlocked = !comp.Running && (err != nil || r.conversationCreating[cv.ID])
 	ctx.SelectModel = func() {
+		// The providers are those of the Node this conversation runs on.
 		root := r.localRuntime()
+		root.App.Host = r.controller.Target().String()
 		root.App.Settings.Open(settings.Providers)
 		root.App.Navigate(shell.SettingsPage)
 	}
@@ -867,6 +869,8 @@ func (x *conversationActions) AddProject() {
 }
 func (x *conversationActions) ManageTeams() {
 	if !x.readonly() {
+		// The teams are those of the Node this conversation runs on.
+		x.r.App.Host = x.r.controller.Target().String()
 		x.r.App.Settings.Open(settings.Teams)
 		x.r.App.Navigate(shell.SettingsPage)
 	}

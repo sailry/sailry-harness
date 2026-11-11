@@ -95,3 +95,13 @@ func (m *Model) FailMCPConfiguration(id, detail string) {
 		m.mcp.loading, m.mcp.unread, m.mcp.detail = false, true, detail
 	}
 }
+
+// CloseNodeDialogs closes the editors, sign-ins and removal prompts of the
+// provider, connector and team pages, as when Settings turns to another
+// host: their drafts belong to the Node they were opened on.
+func (m *Model) CloseNodeDialogs() {
+	m.provider = providerEditor{generation: m.provider.generation + 1}
+	m.login, m.loginFor, m.removing, m.expanded = Authorization{}, "", "", ""
+	m.connector, m.mcp, m.connDetails, m.connRemoving = connectorEditor{}, mcpEditor{}, "", ""
+	m.teamEdit, m.roleEdit, m.teamRemoving, m.roleRemoving = teamEditor{}, roleEditor{}, "", ""
+}

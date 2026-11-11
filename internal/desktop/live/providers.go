@@ -15,33 +15,47 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+// initProviders prepares what this Runtime keeps of its Node's providers and
+// connectors, once: Settings reads them when it turns to the Node
+// (settings_target.go).
 func (r *Runtime) initProviders() {
-	r.initAuthorization()
-	r.providerPresets = map[string]protocol.ConversationPresetsEntry{}
-	r.providerModels = map[string]map[string]protocol.ConversationModel{}
-	r.providerDraftBases = map[string]protocol.ConversationProvider{}
-	r.App.Settings.ProviderActions = settings.ProviderActions{Save: r.saveProvider, Discover: r.discoverModels, ReadKey: r.readProviderKey, Remove: r.removeProvider, Enable: r.enableProvider, SaveCompaction: r.saveCompaction,
-		NewID:     func() string { return protocol.NewProviderID().String() },
-		Available: r.controller.Connected,
-		SignIn:    r.beginProviderLogin, SubmitLogin: r.submitProviderLogin, CancelLogin: r.cancelProviderLogin,
-		RefreshCatalog: func() {
-			r.App.Settings.SetBusy(settings.BusyCatalog, true)
-			r.command(protocol.Command{Kind: "refresh_model_catalog"}, "provider_catalog_failed", func(_ protocol.Output, ok bool) {
-				r.App.Settings.SetBusy(settings.BusyCatalog, false)
-				if ok {
-					r.readProviders()
-				}
-			})
-		},
+	if r.authorizations == nil {
+		r.initAuthorization()
 	}
-	r.App.Settings.SaveMedia = r.saveMedia
-	r.readProviders()
+	if r.providerPresets == nil {
+		r.providerPresets = map[string]protocol.ConversationPresetsEntry{}
+	}
+	if r.providerModels == nil {
+		r.providerModels = map[string]map[string]protocol.ConversationModel{}
+	}
+	if r.providerDraftBases == nil {
+		r.providerDraftBases = map[string]protocol.ConversationProvider{}
+	}
 }
 
+// refreshModelCatalog asks the Node shown to fetch its model catalog again.
+func (r *Runtime) refreshModelCatalog() {
+	r.App.Settings.SetBusy(settings.BusyCatalog, true)
+	r.command(protocol.Command{Kind: "refresh_model_catalog"}, "provider_catalog_failed", func(_ protocol.Output, ok bool) {
+		if !r.showsSettings() {
+			return
+		}
+		r.App.Settings.SetBusy(settings.BusyCatalog, false)
+		if ok {
+			r.readProviders()
+		}
+	})
+}
+
+// readProviders reads the Node's preset directory and compaction threshold
+// for the pages; an answer for a Node they left is dropped.
 func (r *Runtime) readProviders() {
 	r.async(func() {
 		out, err := r.controller.Do(r.ctx, protocol.Command{Kind: "list_channel_presets", Data: protocol.CommandListChannelPresetsPayload{}})
 		r.enqueue(func(c *ui.Context) {
+			if !r.showsSettings() {
+				return
+			}
 			if err != nil {
 				r.reportKeys(c, err, "provider_catalog_failed", "provider_catalog_failed", "provider_catalog_failed")
 				return
@@ -53,6 +67,9 @@ func (r *Runtime) readProviders() {
 		})
 		result, failed := r.controller.Do(r.ctx, protocol.Command{Kind: "read_compaction_settings"})
 		r.enqueue(func(c *ui.Context) {
+			if !r.showsSettings() {
+				return
+			}
 			if failed != nil {
 				r.reportKeys(c, failed, "compaction_settings_load_failed", "compaction_settings_conflict", "compaction_settings_load_failed")
 				return
@@ -230,7 +247,12 @@ func apiForProtocol(p protocol.ConversationPresetsProtocol) protocol.Conversatio
 	}
 }
 
+// projectProviderSnapshot shows the Node's channels, catalog and media
+// models on the pages that hold this Node.
 func (r *Runtime) projectProviderSnapshot() {
+	if !r.showsSettings() {
+		return
+	}
 	r.readProviderCredentials()
 	snapshot := r.snapshot()
 	now := uint64(time.Now().UnixMilli())
