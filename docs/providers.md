@@ -189,6 +189,12 @@ A credential that is still valid is read locally; an expired one is renewed
 through its provider flow, and the transport is rebuilt only when the secret
 changed. API-key providers keep the secret captured with the turn.
 
+A native model request that sends nothing for 600 seconds, before its response
+or between two reads of its stream, is cancelled and fails as a network error
+"Model stream sent no data for 600 seconds", as the reference's read timeout
+and the plugin transport do. A step that has shown nothing then takes the
+retry path below; stopping the turn still cancels the request at once.
+
 Main transport attempts have at most five additional transient retries, 60 seconds
 apart, before any output event escapes. Summary output stays buffered and has one
 additional transient retry after five seconds. Authentication, quota, invalid

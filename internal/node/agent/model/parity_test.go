@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"charm.land/fantasy"
 	"charm.land/fantasy/providers/anthropic"
@@ -452,6 +453,7 @@ func TestRequestParity(t *testing.T) {
 	t.Run("cancellation", func(t *testing.T) { cancellationFixture(t, false) })
 	t.Run("early_iterator_release", func(t *testing.T) { cancellationFixture(t, true) })
 	t.Run("incomplete_tools_and_eof", incompleteFixture)
+	t.Run("stalled_response", stallFixture)
 	t.Run("one_request_on_rejection", rejectionFixture)
 	t.Run("usage_presence", usagePresenceFixture)
 	t.Run("additional_source_contracts", additionalParityFixtures)
@@ -727,6 +729,74 @@ func cancellationFixture(t *testing.T, early bool) {
 		t.Error("explicit cancellation was not surfaced as failure")
 	}
 	<-closed
+}
+
+// stallFixture leaves a provider silent before its response and inside its
+// stream: the request is released, the failure is a retryable network one and
+// a step that showed nothing is sent again.
+func stallFixture(t *testing.T) {
+	prefixes := map[string]string{"responses": "responses-partial.sse", "anthropic": "", "google": "", "chat": ""}
+	for kind, prefix := range prefixes {
+		for _, phase := range []string{"headers", "stream"} {
+			t.Run(kind+"_"+phase, func(t *testing.T) {
+				var lock sync.Mutex
+				requests := 0
+				released := make(chan struct{}, 1)
+				server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+					io.Copy(io.Discard, request.Body)
+					lock.Lock()
+					requests++
+					first := requests == 1
+					lock.Unlock()
+					writer.Header().Set("Content-Type", "text/event-stream")
+					if !first {
+						writer.Write(fixture(t, kind+"-text.sse"))
+						return
+					}
+					if phase == "stream" {
+						writer.WriteHeader(http.StatusOK)
+						if prefix != "" {
+							writer.Write(fixture(t, prefix))
+						}
+						writer.(http.Flusher).Flush()
+					}
+					<-request.Context().Done()
+					released <- struct{}{}
+				}))
+				t.Cleanup(server.Close)
+				name := "fixture"
+				if kind == "anthropic" {
+					name = "claude-opus-4-8"
+				}
+				language, err := newSDK(t.Context(), transportConfig{Kind: kind, Model: name, Endpoint: server.URL, Key: "captured-key"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				sdk := language.(*sdkModel)
+				sdk.client.Transport = responseTransport{base: sdk.client.Transport.(responseTransport).base, stall: 50 * time.Millisecond}
+				var attempts []Attempt
+				var texts []string
+				err = Run(t.Context(), language, requestCall(t, kind), Main, &policyClock{}, func(attempt Attempt) error { attempts = append(attempts, attempt); return nil }, func(part fantasy.StreamPart) bool {
+					if part.Type == fantasy.StreamPartTypeTextDelta {
+						texts = append(texts, part.Delta)
+					}
+					return true
+				})
+				<-released
+				if len(attempts) == 0 || attempts[0].Failure == nil || attempts[0].Failure.Kind != Network || !attempts[0].Failure.Retryable() || attempts[0].Failure.Message != "Model stream sent no data for 600 seconds" {
+					t.Fatalf("stalled attempt = %+v", attempts)
+				}
+				// A partial answer was shown, so that step is not sent again.
+				if shown := phase == "stream" && prefix != ""; shown {
+					if err == nil || len(attempts) != 1 || len(texts) != 1 {
+						t.Errorf("shown stall: attempts=%d texts=%v error=%v", len(attempts), texts, err)
+					}
+				} else if err != nil || len(attempts) != 2 || len(texts) == 0 {
+					t.Errorf("silent stall: attempts=%d texts=%v error=%v", len(attempts), texts, err)
+				}
+			})
+		}
+	}
 }
 
 func incompleteFixture(t *testing.T) {
