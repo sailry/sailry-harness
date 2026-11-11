@@ -289,6 +289,43 @@ func TestConversationProjection(t *testing.T) {
 		if session.Diagnostic == nil || session.Diagnostic.Detail != "Provider rejected the request" || len(session.Diagnostic.Fields) != 1 || session.Diagnostic.Fields[0][1] != string(protocol.ErrorCodeUnavailable) {
 			t.Fatal("latest failed-run diagnostic was not projected")
 		}
+		// A failed automatic compaction says why once: its own block replaces the run's.
+		page.Entries = []protocol.ConversationEntry{{ID: "failure", Turn: protocol.TurnID{1}, Author: "system", Parts: []protocol.ConversationPart{{Kind: "resource", Data: json.RawMessage(`{"type":"compaction_failure","failure":{"source":"automatic","stage":"request","reason":"request_failed","continued":false,"cause":"Provider rejected the request"}}`)}}}}
+		compacting, reported, _, _ := Conversation(client.ConversationState{Connected: true, Snapshot: protocol.ConversationSnapshot{Page: page}})
+		if blocks := compacting[0].Reply.Blocks; len(blocks) != 1 || blocks[0].Kind != conversation.ErrorBlock || blocks[0].Label != "chat_compact_failed" || blocks[0].Text != "Provider rejected the request" || reported.Diagnostic == nil {
+			t.Fatalf("failed compaction blocks = %+v", compacting[0].Reply.Blocks)
+		}
+		// Compaction runs: a completed one without a summary compacted nothing,
+		// unless its entries are not loaded.
+		for _, row := range []struct {
+			name    string
+			status  protocol.ConversationStatus
+			summary bool
+			missing bool
+			want    conversation.CompactionState
+		}{
+			{"summarized", "completed", true, false, conversation.Compacted},
+			{"unneeded", "completed", false, false, conversation.CompactionUnneeded},
+			{"not loaded", "completed", false, true, conversation.Compacted},
+			{"failed", "failed", false, false, conversation.CompactionFailed},
+			{"running", "running", false, false, conversation.CompactionRunning},
+		} {
+			manual := protocol.DefaultConversationPage()
+			manual.Session = protocol.SessionID{1}
+			manual.Runs = []protocol.ConversationRun{{Turn: protocol.TurnID{2}, Kind: "compaction", Status: row.status}}
+			if row.summary {
+				manual.Entries = []protocol.ConversationEntry{{ID: "summary", Turn: protocol.TurnID{2}, Author: "system", Parts: []protocol.ConversationPart{{Kind: "compaction", Data: "Summary"}}}}
+			}
+			snapshot := protocol.ConversationSnapshot{Page: manual}
+			if row.missing {
+				snapshot.Missing = []protocol.TurnID{{2}}
+			}
+			compacted, _, _, _ := Conversation(client.ConversationState{Connected: true, Snapshot: snapshot})
+			if k := compacted[0].Compaction; k == nil || k.State != row.want || row.summary != (k.Summary == "Summary") {
+				t.Fatalf("%s compaction = %+v", row.name, compacted[0].Compaction)
+			}
+		}
+		page.Entries = nil
 		// A recovery that gave up names its reason on the last retry row and as the failure's title.
 		turn := protocol.TurnID{1}
 		page.Runs[0].Error = &protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "429", Details: &protocol.FaultDetails{Kind: "model_recovery", Data: protocol.FaultDetailsModelRecoveryPayload{Reason: protocol.ConversationRecoveryStopRateLimited}}}

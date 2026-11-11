@@ -74,6 +74,28 @@ func shouldCompact(binding model.Binding, state store.AgentState, percent uint8)
 	count := contextTokens(state.Records)
 	return count > budget.TriggerTokens
 }
+
+// compactionFailure is the conversation's record of a compaction that failed.
+// Clients show it as their own localized notice with the cause.
+func (r *Runtime) compactionFailure(x *execution, manual bool, stage protocol.ConversationCompactionStage, reason protocol.ConversationCompactionReason, attempts []model.Attempt, failure error) canonical.Record {
+	detail := protocol.DefaultConversationCompactionFailure()
+	detail.Source, detail.Stage, detail.Reason = protocol.ConversationCompactionSourceAutomatic, stage, reason
+	if manual {
+		detail.Source = protocol.ConversationCompactionSourceManual
+	}
+	if len(attempts) > 0 {
+		detail.Status = attempts[len(attempts)-1].Status
+	}
+	cause := model.Classify(failure).Message
+	detail.Cause = &cause
+	record := canonical.NewRecord(x.inv.Run.Turn, "message", canonical.NewMessage(canonical.Assistant), r.clock.Now())
+	record.Provenance.Author = "system"
+	runtime := canonical.DefaultRuntime()
+	runtime.AgentVisible = false
+	record.Metadata.Runtime = &runtime
+	record.Metadata.Compaction = &canonical.Maintenance{Failure: &detail}
+	return record
+}
 func (r *Runtime) compact(x *execution, binding model.Binding, state store.AgentState, manual bool) error {
 	summaryID := protocol.NewRequestID().String()
 	if !manual {
@@ -91,23 +113,38 @@ func (r *Runtime) compact(x *execution, binding model.Binding, state store.Agent
 	if manual && strings.TrimSpace(x.inv.Message.Text) != "" {
 		requestText += "\n\nUser focus for the handoff:\n" + x.inv.Message.Text
 	}
+	var attempts []model.Attempt
+	// A compaction that ends without a summary leaves its billed attempts and
+	// one record saying where and why it stopped; a stopped turn is no failure.
+	failed := func(stage protocol.ConversationCompactionStage, reason protocol.ConversationCompactionReason, failure error) error {
+		var records []canonical.Record
+		for _, attempt := range attempts {
+			records = append(records, r.observationRecord(x, summaryBinding, canonical.PurposeCompaction, attempt))
+		}
+		if x.ctx.Err() == nil {
+			records = append(records, r.compactionFailure(x, manual, stage, reason, attempts, failure))
+		}
+		if e := r.save(context.WithoutCancel(x.ctx), x.inv.Session.ID, records...); e != nil {
+			return e
+		}
+		return failure
+	}
 	system, err := handoff.Prepare(state.Records, uint64(selected.Context), uint64(output), requestText)
 	if err != nil {
-		return err
+		return failed(protocol.ConversationCompactionStageBudget, protocol.ConversationCompactionReasonNoFittingPrefix, err)
 	}
 	languageModel, err := r.model(x.ctx, summaryBinding)
 	if err != nil {
-		return err
+		return failed(protocol.ConversationCompactionStageRequest, protocol.ConversationCompactionReasonRequestFailed, err)
 	}
 	request := canonical.NewRecord(x.inv.Run.Turn, "message", canonical.NewMessage(canonical.User, canonical.Text(0, requestText)), r.clock.Now())
 	call, err := model.BuildCall(summaryBinding, model.Request{System: system, Records: []canonical.Record{request}, MaxOutputTokens: &output})
 	if err != nil {
-		return err
+		return failed(protocol.ConversationCompactionStageRequest, protocol.ConversationCompactionReasonRequestFailed, err)
 	}
 	var text strings.Builder
 	limited, textBlock := false, false
 	var usage canonical.Usage
-	var attempts []model.Attempt
 	err = model.Run(x.ctx, languageModel, call, model.SummaryPurpose, r.clock, func(attempt model.Attempt) error {
 		usage = attempt.Usage
 		attempts = append(attempts, attempt)
@@ -130,25 +167,32 @@ func (r *Runtime) compact(x *execution, binding model.Binding, state store.Agent
 		}
 		return x.ctx.Err() == nil
 	})
-	failed := func(failure error) error {
-		var records []canonical.Record
-		for _, attempt := range attempts {
-			records = append(records, r.observationRecord(x, summaryBinding, canonical.PurposeCompaction, attempt))
-		}
-		if e := r.save(context.WithoutCancel(x.ctx), x.inv.Session.ID, records...); e != nil {
-			return e
-		}
-		return failure
-	}
 	if err != nil {
-		return failed(err)
+		reason := protocol.ConversationCompactionReasonRequestFailed
+		switch model.Classify(err).Kind {
+		case model.RateLimited, model.Quota:
+			reason = protocol.ConversationCompactionReasonRateLimited
+		case model.Authentication, model.NotConfigured:
+			reason = protocol.ConversationCompactionReasonAuthorizationFailed
+		case model.ContextOverflow:
+			reason = protocol.ConversationCompactionReasonContextOverflow
+		case model.InvalidRequest, model.Unsupported:
+			reason = protocol.ConversationCompactionReasonServiceRejected
+		case model.InvalidResponse:
+			reason = protocol.ConversationCompactionReasonIncompleteResponse
+		}
+		return failed(protocol.ConversationCompactionStageRequest, reason, err)
 	}
 	if limited {
-		return failed(fmt.Errorf("compaction summary reached its output limit"))
+		return failed(protocol.ConversationCompactionStageSummary, protocol.ConversationCompactionReasonTruncatedSummary, fmt.Errorf("compaction summary reached its output limit"))
 	}
 	summary, err := handoff.Parse(text.String())
 	if err != nil {
-		return failed(err)
+		reason := protocol.ConversationCompactionReasonUnexpectedOutput
+		if strings.TrimSpace(text.String()) == "" {
+			reason = protocol.ConversationCompactionReasonEmptySummary
+		}
+		return failed(protocol.ConversationCompactionStageSummary, reason, err)
 	}
 	rendered := summary.Render()
 	// Missing counters describe the bounded JSON document before rendering.
@@ -172,7 +216,7 @@ func (r *Runtime) compact(x *execution, binding model.Binding, state store.Agent
 		}
 	}
 	if boundary == nil {
-		return failed(fmt.Errorf("conversation has no compaction boundary"))
+		return failed(protocol.ConversationCompactionStageHistory, protocol.ConversationCompactionReasonHistoryMismatch, fmt.Errorf("conversation has no compaction boundary"))
 	}
 	message := canonical.NewMessage(canonical.User, canonical.Text(0, rendered))
 	message.Model = &binding.Config.Model

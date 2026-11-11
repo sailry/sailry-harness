@@ -154,6 +154,7 @@ func Conversation(state client.ConversationState, locales ...string) ([]conversa
 	associations := map[string][]toolAssociation{}
 	// User entries replace the captured pending input once canonical history arrives.
 	canonicalUsers := map[protocol.TurnID]bool{}
+	summarized := map[int]bool{}
 	for _, entry := range page.Entries {
 		owner := owners[entry.Turn]
 		position, ok := positions[owner]
@@ -225,6 +226,7 @@ func Conversation(state client.ConversationState, locales ...string) ([]conversa
 		if t.Compaction != nil {
 			for _, part := range entry.Parts {
 				if part.Kind == "compaction" {
+					summarized[position] = true
 					if text, ok := detail[string](part.Data); ok {
 						t.Compaction.Summary += text
 					}
@@ -243,6 +245,14 @@ func Conversation(state client.ConversationState, locales ...string) ([]conversa
 				}
 			}
 			t.Reply.Citations = append(t.Reply.Citations, v)
+		}
+	}
+	// A completed compaction whose loaded turn holds no summary compacted nothing.
+	for _, r := range runs {
+		if position, ok := positions[r.Turn]; ok && r.Kind == "compaction" && r.Status == "completed" && !summarized[position] && !slices.Contains(snapshot.Missing, r.Turn) {
+			if k := turns[position].Compaction; k != nil {
+				k.State = conversation.CompactionUnneeded
+			}
 		}
 	}
 	for _, draft := range snapshot.Drafts {
@@ -268,7 +278,12 @@ func Conversation(state client.ConversationState, locales ...string) ([]conversa
 				}
 			}
 			title := failureKey(*r.Error)
-			t.Reply.Blocks = append(t.Reply.Blocks, conversation.Block{Kind: conversation.ErrorBlock, Label: title, Text: r.Error.Message})
+			// A compaction that failed has said so, with this cause, on its own block.
+			if !slices.ContainsFunc(t.Reply.Blocks, func(block conversation.Block) bool {
+				return block.Kind == conversation.ErrorBlock && block.Label == "chat_compact_failed" && block.Text == r.Error.Message
+			}) {
+				t.Reply.Blocks = append(t.Reply.Blocks, conversation.Block{Kind: conversation.ErrorBlock, Label: title, Text: r.Error.Message})
+			}
 			if position == len(turns)-1 && session.Diagnostic == nil {
 				session.Diagnostic = &conversation.Diagnostic{Title: title, Fields: [][2]string{{"code", string(r.Error.Code)}}, Detail: r.Error.Message}
 			}

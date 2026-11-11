@@ -197,11 +197,7 @@ func canonicalEntry(record canonical.Record, sequence uint64, resolve func(canon
 		}
 	}
 	if c := record.Metadata.Compaction; c != nil && c.Failure != nil {
-		body, _ := encode(c.Failure)
-		var object map[string]json.RawMessage
-		_ = json.Unmarshal(body, &object)
-		object["type"] = json.RawMessage(`"compaction_failed"`)
-		value.Parts = append(value.Parts, resourcePart(object))
+		value.Parts = append(value.Parts, resourcePart(map[string]any{"type": "compaction_failure", "failure": c.Failure}))
 	}
 	if execution := record.Metadata.Execution; execution != nil {
 		if execution.Retry != nil {
