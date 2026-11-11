@@ -102,11 +102,6 @@ func (notice Notice) Target() NoticeTarget {
 	if notice.Session != nil {
 		return NoticeTarget{Kind: "session", Session: *notice.Session}
 	}
-	if notice.Details != nil && notice.Details.Kind == "terminal" {
-		if terminal, err := payload[protocol.NotificationDetailsTerminal](notice.Details.Data); err == nil {
-			return NoticeTarget{Kind: "terminal", Terminal: terminal.ID}
-		}
-	}
 	return notice.ID.Target
 }
 
@@ -177,39 +172,21 @@ func (feed *activityFeed) observe(snapshot protocol.Snapshot) {
 				}
 			}
 		}
-		if entry.Content.Details != nil {
-			switch entry.Content.Details.Kind {
-			case "task":
-				if task, err := payload[protocol.NotificationDetailsTask](entry.Content.Details.Data); err == nil {
-					notice.Kind = "failed"
-					switch task.Status {
-					case protocol.ConversationStatusCompleted:
-						notice.Kind = "completed"
-					case protocol.ConversationStatusRunning:
-						// The Node's durable notice of a scheduled run that waits.
-						notice.Kind = "input"
-						if entry.Content.Kind == protocol.NotificationKindWarning {
-							notice.Kind = "approval"
-						}
-					}
-					if task.Error != nil {
-						notice.Error = &protocol.Fault{Code: *task.Error}
+		if entry.Content.Details != nil && entry.Content.Details.Kind == "task" {
+			if task, err := payload[protocol.NotificationDetailsTask](entry.Content.Details.Data); err == nil {
+				notice.Kind = "failed"
+				switch task.Status {
+				case protocol.ConversationStatusCompleted:
+					notice.Kind = "completed"
+				case protocol.ConversationStatusRunning:
+					// The Node's durable notice of a scheduled run that waits.
+					notice.Kind = "input"
+					if entry.Content.Kind == protocol.NotificationKindWarning {
+						notice.Kind = "approval"
 					}
 				}
-			case "terminal":
-				if terminal, err := payload[protocol.NotificationDetailsTerminal](entry.Content.Details.Data); err == nil {
-					notice.Kind = "completed"
-					if terminal.Failed {
-						notice.Kind = "failed"
-					}
-					if notice.Worktree == nil {
-						for _, info := range snapshot.Terminals {
-							if info.ID == terminal.ID {
-								notice.Worktree = info.Worktree
-								break
-							}
-						}
-					}
+				if task.Error != nil {
+					notice.Error = &protocol.Fault{Code: *task.Error}
 				}
 			}
 		}
