@@ -19,7 +19,7 @@ func TestHostSDKCalls(t *testing.T) {
 	t.Run("native retained lifecycle", testNativeRetainedLifecycle)
 	t.Run("host construction observations", testHostConstructionObservations)
 	t.Run("request failure reconciliation", testHostRequestFailures)
-	t.Run("a closed view stops its page fetch", testHostWebFetchCancellation)
+	t.Run("a closed view stops its page fetch and code query", testHostReadCancellation)
 	t.Run("decimal revisions cross JavaScript exactly", func(t *testing.T) {
 		for _, current := range []struct {
 			value string

@@ -60,9 +60,9 @@ func (owner *Host) read(ctx context.Context, command protocol.Command) (json.Raw
 	scope := owner.scope()
 	request.Plugin = &scope
 	output, err := owner.binding.Client.Execute(ctx, request)
-	if err != nil && ctx.Err() != nil && command.Kind == "fetch_web" {
-		// The view closed on a page still loading: the Node stops fetching it.
-		cancellation := owner.binding.Client.Prepare(protocol.Command{Kind: "cancel_web_fetch", Data: protocol.CommandCancelWebFetchPayload{Request: request.ID}})
+	if stop, long := hostCancellation(request); long && err != nil && ctx.Err() != nil {
+		// The view closed on work the Node still does for it.
+		cancellation := owner.binding.Client.Prepare(stop)
 		cancellation.Plugin = &scope
 		_, _ = owner.binding.Client.Execute(context.WithoutCancel(ctx), cancellation)
 	}
@@ -76,6 +76,18 @@ func (owner *Host) read(ctx context.Context, command protocol.Command) (json.Raw
 		return nil, err
 	}
 	return hostJSON(hostAt(value, "data"))
+}
+
+// hostCancellation is the command that stops a read the Node keeps working on
+// after its caller left: a page fetch and a code index query.
+func hostCancellation(request protocol.Request) (protocol.Command, bool) {
+	switch request.Command.Kind {
+	case "fetch_web":
+		return protocol.Command{Kind: "cancel_web_fetch", Data: protocol.CommandCancelWebFetchPayload{Request: request.ID}}, true
+	case "search_code", "outline_code":
+		return protocol.Command{Kind: "cancel_code_index_query", Data: protocol.CommandCancelCodeIndexQueryPayload{Request: request.ID}}, true
+	}
+	return protocol.Command{}, false
 }
 
 func (owner *Host) readData(ctx context.Context, kind string, data any) (json.RawMessage, error) {
