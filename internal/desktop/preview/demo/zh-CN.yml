@@ -32,8 +32,6 @@ goal.label: "目标"
 goal.running: "执行中"
 goal.text: "上线预订接口的按客户端限流，p99 延迟保持在 40 毫秒以内"
 goal.empty: "暂无目标"
-goal.stop: "停止"
-goal.clear: "清理"
 
 limit.title: "为预订接口添加限流"
 limit.0.user: "给 `POST /bookings` 加上按客户端的限流。秒杀活动期间，匿名客户端把它打得很厉害。"

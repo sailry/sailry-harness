@@ -471,21 +471,13 @@ func background() []composer.Command {
 	}
 }
 
-// goal is the goals plugin's Status badge (plugins/goals host badge and
-// desktop view): Goal · Running, the description as tooltip and panel,
-// Stop and Clear.
+// goal is the goals plugin's Status badge as the demo's goals have it
+// (goalStatus): Goal · Running · 12m, the counters as its tooltip, and the
+// panel with the objective and Pause, Edit and Clear.
 func goal() composer.StatusBadge {
-	t := func(en, zh string) composer.Text {
-		return composer.Text{Label: en, Locales: map[string]string{"zh-CN": zh}}
-	}
-	desc := "Port the composer's activity strip and keep the benchmarks within budget"
-	return composer.StatusBadge{ID: "goals/status", Label: t("Goal", "目标"), Icon: icons.Target,
-		Segment: []composer.Segment{{Text: t("Goal", "目标"), Tone: kit.Neutral}, {Text: t("Running", "执行中"), Tone: kit.Neutral}},
-		Details: []composer.Detail{{Label: t("Goal", "目标"), Value: desc}},
-		Panel: &composer.Panel{Body: composer.Text{Label: desc}, Empty: t("No goal", "暂无目标"), Buttons: []composer.PanelButton{
-			{ID: "goal-stop", Label: t("Stop", "停止")},
-			{ID: "goal-clear", Label: t("Clear", "清理"), Ghost: true},
-		}}}
+	objective := "Port the composer's activity strip and keep the benchmarks within budget"
+	return goalStatus("goal.running", kit.Info, composer.Text{Label: "12m"}, composer.Text{Label: objective}, objective,
+		"3 / 25", "12m", "96.4k", "pause", "edit", "clear")
 }
 
 // Overview is c's session overview: the last turn's subagents, task progress
