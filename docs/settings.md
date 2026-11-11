@@ -39,8 +39,11 @@ Market cards derive installed identity from the package or skill's recorded
 source, including registry namespace and Git repository/path. Catalog versions
 and release notes merge with the immutable installed manifest; a catalog slug
 does not replace the actual package name. Details show the captured execution
-Host. Enter in the existing search field explicitly refreshes a failed query;
-live fetches never reuse preview timers or add a controller retry loop.
+Host. The Market projection searches whenever the kind, source or query it last
+searched differs from the page's, which is the reference's search on every
+change of the field; the page has no search action of its own. Enter in the
+existing search field explicitly refreshes a failed query; live fetches never
+reuse preview timers or add a controller retry loop.
 
 The settings navigation and its pages, in the groups of the reference implementation
 `settings/mod.rs` `Section::GROUPS`: App (General, Appearance,

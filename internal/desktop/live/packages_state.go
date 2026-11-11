@@ -144,7 +144,6 @@ func (r *Runtime) initB8Packages() {
 				done()
 			}
 		},
-		SearchMarket: r.searchPackageMarket,
 		RetryMarket: func() {
 			if owner := r.packageOwner(); owner != nil {
 				owner.packages.marketKey = ""
