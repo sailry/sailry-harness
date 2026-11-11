@@ -177,7 +177,7 @@ func (a *App) run(c *ui.Context, id string) {
 	case "project.new":
 		a.Sidebar.OpenEditor(nil)
 	case "folder.open":
-		if a.Hooks.OpenFolder != nil {
+		if a.Hooks.OpenFolder != nil && !a.Demo() {
 			a.Hooks.OpenFolder()
 		} else {
 			kit.PreviewNotice(c)

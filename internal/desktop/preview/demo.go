@@ -126,10 +126,10 @@ func DemoModels() []Model {
 
 // DemoComposer is what the composer of demo conversation c is offered: the
 // preview's context over the demo's data, with the demo's provider on the
-// model picker's rail.
+// model picker's rail and no teams, as a profile that has made none.
 func DemoComposer(d *Data, c *Conversation, worktree string) *composer.Context {
 	ctx := Composer(d, c, worktree)
-	ctx.Families = DemoFamilies
+	ctx.Families, ctx.Teams = DemoFamilies, nil
 	return ctx
 }
 

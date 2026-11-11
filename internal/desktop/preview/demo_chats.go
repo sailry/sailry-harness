@@ -38,9 +38,11 @@ func (b *demo) handbook() *Conversation {
 	start := b.user(id+"/0", "handbook.0.user")
 	chapters := b.call(start.ID, "read", "book-open", "handbook/01-principles.md")
 	chapters.Output = output(b.t("handbook.file"))
+	// A built-in tool is labeled by the application's own catalog.
+	skill := cv.Call{ID: start.ID + "/skill", Name: "load_skill", LabelKey: "tool_load_skill", Icon: "book-open", Detail: "technical-summaries"}
 	start.Reply = done(cv.Completed, 204)
 	start.Reply.Blocks = []cv.Block{
-		tools(chapters),
+		tools(skill, chapters),
 		text(b.t("handbook.0.answer")),
 		{Kind: cv.CompactionBlock, Label: "handoff", Text: b.t("handbook.handoff")},
 		text(b.t("handbook.0.more")),

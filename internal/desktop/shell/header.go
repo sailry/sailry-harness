@@ -56,7 +56,8 @@ func (a *App) header(c *ui.Context, f frame) {
 			}
 			a.trail(c)
 			ui.Spacer(c)
-			if a.Hooks.PluginHeader != nil {
+			// A demo conversation is no session a plugin could mount over.
+			if a.Hooks.PluginHeader != nil && !(a.Demo() && a.Page == ConversationPage) {
 				a.Hooks.PluginHeader(c)
 			}
 			// Preview data is identified wherever it shows.

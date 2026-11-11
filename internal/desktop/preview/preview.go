@@ -1,7 +1,8 @@
 // Package preview is PREVIEW DATA: an in-memory, deterministic dataset that
 // stands in for Sailry's backend in this prototype. It never calls models,
-// tools or the network, and never reads or writes user data. Views that show
-// it say so with the "Preview" indicator.
+// tools or the network, and never reads or writes user data. The preview
+// window says so with the "Preview" indicator; the demo (demo.go), shown by
+// Demo mode over a live window, has the same bounds and no indicator.
 package preview
 
 import (

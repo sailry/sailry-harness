@@ -82,7 +82,7 @@ func (a *App) openKnowledge(c *ui.Context, node, link string) {
 		kit.Toast(c, kit.Failed, i18n.T(c, "knowledge_citation_invalid"))
 		return
 	}
-	if a.Hooks.OpenKnowledge != nil {
+	if a.Hooks.OpenKnowledge != nil && !a.Demo() {
 		a.Hooks.OpenKnowledge(c, node, source)
 		return
 	}
