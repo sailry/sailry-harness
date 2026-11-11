@@ -1988,3 +1988,12 @@ host_wsl_distribution: Distribución
 host_wsl_requirement: Requiere WSL2, GNU Linux x64/arm64 y systemd
 host_wsl_empty: No hay distribuciones WSL2 instaladas
 host_wsl_load_failed: No se pudieron cargar las distribuciones WSL
+files_unsaved: Cambios no guardados
+files_unsaved_description: Closing without saving discards the changes to these documents
+files_unsaved_discard: Discard changes
+files_save_all: Save all
+app_exit: Salir
+app_exit_confirm: Salir de Sailry
+app_exit_description: Las tareas y terminales locales en ejecución se detendrán
+updates_save_first: Guardar documentos abiertos antes de actualizar
+notification_details: Detalles

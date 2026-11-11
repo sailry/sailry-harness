@@ -1988,3 +1988,12 @@ host_wsl_distribution: ディストリビューション
 host_wsl_requirement: WSL2、GNU Linux x64/arm64、systemd が必要です
 host_wsl_empty: WSL2 ディストリビューションが未インストールです
 host_wsl_load_failed: WSL ディストリビューションを読み込めません
+files_unsaved: 未保存の変更
+files_unsaved_description: Closing without saving discards the changes to these documents
+files_unsaved_discard: Discard changes
+files_save_all: Save all
+app_exit: 終了
+app_exit_confirm: Sailry を終了
+app_exit_description: ローカルで実行中のタスクとターミナルが停止しますName
+updates_save_first: 更新する前に開いた文書を保存する
+notification_details: 詳細

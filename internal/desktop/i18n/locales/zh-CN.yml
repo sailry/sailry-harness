@@ -1988,3 +1988,12 @@ host_wsl_distribution: 发行版
 host_wsl_requirement: 需要 WSL2、GNU Linux x64/arm64 和 systemd
 host_wsl_empty: 未安装 WSL2 发行版
 host_wsl_load_failed: 无法加载 WSL 发行版
+files_unsaved: 有未保存的修改
+files_unsaved_description: 不保存就关闭将丢弃这些文档的修改
+files_unsaved_discard: 放弃修改
+files_save_all: 全部保存
+app_exit: 退出
+app_exit_confirm: 退出 Sailry
+app_exit_description: 本机正在运行的任务和终端将停止
+updates_save_first: 请先保存打开的文档
+notification_details: 详情

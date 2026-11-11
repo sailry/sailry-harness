@@ -141,4 +141,5 @@ func (a *App) overlays(c *ui.Context) {
 	a.downloadDialog(c)
 	a.welcome(c)
 	a.selectionDialog(c)
+	a.closeDialog(c)
 }

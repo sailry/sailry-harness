@@ -31,6 +31,9 @@ type workspaceState struct {
 	transfer  *workspaceTransfer
 	transfers map[string]*workspaceTransfer
 	uploads   *workspaceUploads
+	// savingAll is set from Save all in the close prompt until the frame
+	// that starts the saves (closing.go).
+	savingAll bool
 }
 type workspaceClipboard struct {
 	worktree protocol.WorktreeID

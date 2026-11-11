@@ -18,6 +18,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/reader"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/node/computer"
 	"github.com/sailry/sailry-harness/internal/node/logging"
 )
@@ -27,6 +28,8 @@ type desktopWindow struct {
 	app    *shell.App
 	live   *live.Runtime
 	save   func()
+	// passing is a confirmed close of this window (exitGuard).
+	passing bool
 }
 
 func main() {
@@ -65,9 +68,33 @@ func run() error {
 	var active *desktopWindow
 	var speech *reader.Service
 	system := systemShortcuts{register: mygo.GlobalShortcut.Register, unregister: mygo.GlobalShortcut.Unregister}
+	guard := &exitGuard{
+		windows: func() []*desktopWindow { return windows },
+		active:  func() *desktopWindow { return active },
+		documents: func(entry *desktopWindow) []string {
+			if entry.live == nil {
+				return nil
+			}
+			return entry.live.UnsavedDocuments()
+		},
+		save:   func(entry *desktopWindow) { entry.live.SaveDocuments() },
+		saving: func(entry *desktopWindow) bool { return entry.live != nil && entry.live.SavingDocuments() },
+		work:   func() bool { return active != nil && active.live != nil && active.live.LocalWork() },
+		raise: func(entry *desktopWindow) {
+			entry.window.Show()
+			entry.window.Focus()
+			entry.window.Invalidate()
+		},
+		// The prompt answers inside the window's frame, which must end
+		// before the window goes.
+		shut: func(entry *desktopWindow) { go entry.window.Close() },
+		quit: mygo.App.Quit,
+	}
 	var updates *live.Updates
 	if backend.Client != nil && backend.Preferences != nil {
-		updates = live.NewUpdates(backend.Preferences, backend.Path, backend.Close, mygo.App.Quit)
+		// The updater quits after it replaced the application: nothing is
+		// left to ask about.
+		updates = live.NewUpdates(backend.Preferences, backend.Path, backend.Close, func() { mygo.RunOnMain(guard.pass) })
 		defer updates.Service.Close()
 	}
 	var refreshCommands func()
@@ -199,6 +226,17 @@ func run() error {
 			notificationWindow = entry.window
 			notifier.SetUpdate(notificationWindow.Update)
 			notifier.SetLocale(mygo.App.Locale)
+			// A focused window shows the notice itself; the system
+			// notification is for an application in the background.
+			notifier.SetPresent(func(notice *viewmodel.Notice) bool {
+				for _, candidate := range windows {
+					if candidate.live != nil && candidate.window.IsFocused() {
+						candidate.live.PresentNotice(notice)
+						return true
+					}
+				}
+				return false
+			})
 			notifier.SetNotify(func(id, title, body, session string) {
 				notification := mygo.NewNotification(mygo.NotificationOptions{ID: id, Title: title, Body: body, Group: session})
 				go func() {
@@ -213,7 +251,12 @@ func run() error {
 		backend.reports.watch(entry.window, app)
 		entry.window.OnFocus(func() { active = entry; refreshCommands() })
 		entry.window.OnBlur(entry.save)
-		entry.window.OnClose(func(*mygo.CloseEvent) { entry.save() })
+		entry.window.OnClose(func(e *mygo.CloseEvent) {
+			entry.save()
+			if guard.closing(entry) {
+				e.PreventDefault()
+			}
+		})
 		entry.window.OnClosed(func() {
 			if entry.live != nil {
 				if err := entry.live.Close(); err != nil {
@@ -263,6 +306,11 @@ func run() error {
 			active.window.Show()
 			active.window.Focus()
 			active.live.OpenNotice(id)
+		})
+		mygo.App.OnBeforeQuit(func(e *mygo.QuitEvent) {
+			if guard.beforeQuit(e.SessionEnding) {
+				e.PreventDefault()
+			}
 		})
 		mygo.App.OnWillQuit(func(*mygo.QuitEvent) {
 			if speech != nil {

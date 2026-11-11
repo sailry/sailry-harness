@@ -2000,3 +2000,12 @@ host_wsl_distribution
 host_wsl_requirement
 host_wsl_empty
 host_wsl_load_failed
+files_unsaved
+files_unsaved_description
+files_unsaved_discard
+files_save_all
+app_exit
+app_exit_confirm
+app_exit_description
+updates_save_first
+notification_details

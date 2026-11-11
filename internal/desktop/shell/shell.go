@@ -169,6 +169,8 @@ type App struct {
 	Welcome onboarding.Guide
 	// selected is the selected text dialog (system shortcuts).
 	selected selection
+	// closing is the close and quit prompt (closing.go).
+	closing *closing
 	// panes is the split workspace (panes.go).
 	panes workspace
 	// panels are the conversations' right panels (panels.go).

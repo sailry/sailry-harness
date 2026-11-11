@@ -2775,3 +2775,6 @@ panel_history_empty: 暂无历史
 panel_documents_empty: 暂无文档
 connections_copy_id: 复制 ID
 host_check_status: 检查状态
+files_unsaved_description: 不保存就关闭将丢弃这些文档的修改
+files_unsaved_discard: 放弃修改
+files_save_all: 全部保存

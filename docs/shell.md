@@ -53,6 +53,8 @@ shortcuts}.rs`, `shortcuts.rs`, `app_menu.rs`, `activity/*.rs`).
 | `transfers.go` | The Save as dialog's playback (docs/transfers.md) |
 | `welcome.go` | The welcome guide over the window (docs/onboarding.md) |
 | `selection.go` | `SystemShortcuts`, the selected text dialog |
+| `closing.go` | `CloseRequest`, `ConfirmClose`, `Closing`: the close and quit prompt |
+| `closing.go` | `CloseRequest`, `ConfirmClose`, `Closing`: the close and quit prompt |
 
 ## Entry point
 
@@ -475,6 +477,11 @@ Phase 1–2 screens.
 | A live citation always opens in the knowledge viewer | The reference opens a worktree citation with a line position in the conversation's file panel; the coverage rows name the viewer |
 | The knowledge viewer shows no spinner while a page loads | The accepted layout has none; Previous and Next are disabled instead |
 | A live notice opens the knowledge viewer when its text details are one citation link | The protocol's notifications have no link field and the reference opens citations only from chat links. `live.Notices` sets `Notice.Link` when a notification's `text` details, trimmed, are exactly one `sailry-knowledge://` link the Node can read; any other text stays details only. No bundled package publishes such a notice yet |
+| The unsaved-documents prompt has Save all | The reference offers only Discard and Cancel; saving from the prompt keeps the drafts without a second trip |
+| A quit without unsaved documents confirms only while the local Node runs a task or a terminal | The reference always confirms. Nothing is lost by quitting an idle app, and work on a remote Node goes on without this controller |
+| Save all in a window that is not the asking one saves in that window's next frame | Each window's Runtime writes its own files on its UI frame; the prompt polls every 100 ms while saves are under way and only then |
+| Details on a toast for a notice without a conversation opens the notification centre without expanding that notice | The centre's expansion state belongs to its page |
+| Plugin notifications are not gated by the per-kind notification switches | The existing Notifier rule: the three switches name approval, input and task outcomes |
 | With the live `OpenLink` set, `#heading` links in replies no longer scroll | MyGo hands every link to `OnLink` once it is set; knowledge links need it |
 
 ## B3 live wiring
@@ -505,8 +512,32 @@ Copying the report emits `notification_report_copied` after the clipboard write.
 Read/dismiss use captured identifiers and ordinary Node commands; transient
 attention read/dismiss remains Client-owned. One application-lifetime Notifier
 observes Client independently of frames, suppresses categories from controller
-preferences and delivers each new notice once. Its UI scheduler remains alive
-when all windows are closed; it closes before Client shutdown.
+preferences and delivers each new notice once, through one channel. While a
+window is focused that window takes the notice: `Runtime.PresentNotice` adds a
+Kit toast with a Details action, which opens the notice's conversation, or the
+notification centre for a notice without one. A notice of a conversation that
+window is showing has no toast and no system notification. With no focused
+window the notice is a system notification, which the first notification
+preference switches off; that switch does not silence in-app toasts. The
+Notifier's UI scheduler remains alive when all windows are closed; it closes
+before Client shutdown.
+
+Closing a window or quitting asks once before something is lost.
+`cmd/sailry-desktop/closing.go` owns the decision: MyGo's `Window.OnClose` and
+`Application.OnBeforeQuit` prevent the close, and the prompt's answer repeats
+it with the guard passing. `App.ConfirmClose` (`closing.go`) draws the prompt
+in the window that asks; `live/closing.go` supplies the window's unsaved
+documents (`panel.Project.Unsaved`), saves them through the ordinary file
+write and reports running local work. With unsaved documents the prompt names
+them and offers Save all, Discard changes and Cancel. Save all closes only
+after every save succeeded; a failed save tells its usual toast, closes the
+prompt and leaves the window and the drafts as they were. A quit, which
+closing the last window is, covers every window's documents in one prompt and,
+without documents, confirms only while the local Node runs a task or a
+terminal. Closing one of several windows without drafts never asks. An ending
+OS session cannot wait and passes. Installing an update is refused with a
+toast while any window has unsaved documents; its restart then passes the
+guard.
 
 Profile preferences are one shared Store across windows. Each window synchronizes
 its revision before rendering; disk writes are serialized immutable snapshots,
