@@ -180,6 +180,19 @@ func (value *ConversationBackgroundHold) UnmarshalJSON(data []byte) error {
 		return unknownEnum(data, value, decoded)
 	}
 }
+func (value ConversationBackgroundHold) MarshalText() ([]byte, error) {
+	if _, err := value.MarshalJSON(); err != nil {
+		return nil, err
+	}
+	return []byte(value), nil
+}
+func (value *ConversationBackgroundHold) UnmarshalText(data []byte) error {
+	encoded, err := json.Marshal(string(data))
+	if err != nil {
+		return err
+	}
+	return value.UnmarshalJSON(encoded)
+}
 
 type ConversationBackgroundTask struct {
 	ID         string                         `json:"id"`

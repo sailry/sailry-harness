@@ -252,6 +252,19 @@ func (value *ConversationContinuationRefusal) UnmarshalJSON(data []byte) error {
 		return unknownEnum(data, value, decoded)
 	}
 }
+func (value ConversationContinuationRefusal) MarshalText() ([]byte, error) {
+	if _, err := value.MarshalJSON(); err != nil {
+		return nil, err
+	}
+	return []byte(value), nil
+}
+func (value *ConversationContinuationRefusal) UnmarshalText(data []byte) error {
+	encoded, err := json.Marshal(string(data))
+	if err != nil {
+		return err
+	}
+	return value.UnmarshalJSON(encoded)
+}
 
 // FaultDetailsContinuationPayload accompanies a refused continue_turn. Count
 // and Limit are the session's automatic turns since its last user input and

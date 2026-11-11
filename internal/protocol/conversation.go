@@ -624,6 +624,19 @@ func (value *ConversationQueuePause) UnmarshalJSON(data []byte) error {
 		return unknownEnum(data, value, decoded)
 	}
 }
+func (value ConversationQueuePause) MarshalText() ([]byte, error) {
+	if _, err := value.MarshalJSON(); err != nil {
+		return nil, err
+	}
+	return []byte(value), nil
+}
+func (value *ConversationQueuePause) UnmarshalText(data []byte) error {
+	encoded, err := json.Marshal(string(data))
+	if err != nil {
+		return err
+	}
+	return value.UnmarshalJSON(encoded)
+}
 
 type ConversationQueue struct {
 	Revision    uint64                  `json:"revision"`

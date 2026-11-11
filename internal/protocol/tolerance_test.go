@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"encoding"
 	"encoding/json"
 	"reflect"
 	"strings"
@@ -395,5 +396,31 @@ func TestLeaseEndsWithItsDecode(t *testing.T) {
 	}
 	if _, err := json.Marshal(ConversationBackgroundTask{}); err == nil {
 		t.Fatal("an unset enum was encoded")
+	}
+}
+
+// The enums this build added have the text form their siblings have, with
+// the same exactness: an undeclared name is refused.
+func TestAddedEnumText(t *testing.T) {
+	t.Parallel()
+	for name, value := range map[string]interface {
+		encoding.TextMarshaler
+	}{
+		"interrupted": ConversationQueuePauseInterrupted,
+		"limit":       ConversationBackgroundHoldLimit,
+		"stale":       ConversationContinuationRefusalStale,
+	} {
+		if text, err := value.MarshalText(); err != nil || string(text) != name {
+			t.Errorf("%T text = %q, %v", value, text, err)
+		}
+	}
+	for _, target := range []encoding.TextUnmarshaler{new(ConversationQueuePause), new(ConversationBackgroundHold), new(ConversationContinuationRefusal)} {
+		if err := target.UnmarshalText([]byte("future")); err == nil {
+			t.Errorf("%T accepted an undeclared name", target)
+		}
+	}
+	var hold ConversationBackgroundHold
+	if err := hold.UnmarshalText([]byte("failed")); err != nil || hold != ConversationBackgroundHoldFailed {
+		t.Errorf("hold from text = %q, %v", hold, err)
 	}
 }
