@@ -34,7 +34,7 @@ func testLoadingMarks(t *testing.T) {
 				Loader(c.Key(i), 12).Label(fmt.Sprintf("loader %d", i))
 			}
 			Busy(c).Label("busy")
-			for st, name := range []string{Breathing: "breathing", Working: "working", Searching: "searching", Composing: "composing"} {
+			for st, name := range []string{Breathing: "breathing", Working: "working", Searching: "searching", Composing: "composing", Waiting: "waiting"} {
 				Indicator(c.Key(name), Thinking(st), 16).Label(name)
 			}
 		})
@@ -44,7 +44,7 @@ func testLoadingMarks(t *testing.T) {
 		tt.Frame()
 	}
 	settle()
-	for name, size := range map[string]float32{"loader 0": 12, "busy": BusySize, "searching": 16, "working": 16, "breathing": 16, "composing": 16} {
+	for name, size := range map[string]float32{"loader 0": 12, "busy": BusySize, "searching": 16, "working": 16, "breathing": 16, "composing": 16, "waiting": 16} {
 		info, ok := tt.AccessByRole(ui.RoleProgress, name)
 		if !ok || info.Bounds.W != size || info.Bounds.H != size {
 			t.Errorf("%s: %+v, want a progress mark %v across", name, info.Bounds, size)
@@ -166,7 +166,7 @@ func loadingSheet(t *testing.T) {
 					for _, phase := range []struct {
 						st    Thinking
 						label string
-					}{{Searching, "正在思考"}, {Composing, "正在回复"}, {Working, "等待 2 个子代理"}} {
+					}{{Searching, "正在思考"}, {Composing, "正在回复"}, {Working, "等待 2 个子代理"}, {Waiting, "等待处理"}} {
 						ui.Row(c.Key(phase.label)).Gap(8).Height(24).Children(func() {
 							Indicator(c, phase.st, 16)
 							Level(c, ui.Text(c, phase.label).FontSize(14).SingleLine().TextColor(p.MutedForeground), 14)
@@ -191,7 +191,7 @@ func loadingSheet(t *testing.T) {
 					Markdown(c, "```go\nfunc main() {\n\tfmt.Println(\"hello\")\n}\n```", MarkdownProps{Variant: Chat})
 				})
 			})
-		}, 460, 290)
+		}, 560, 290)
 		tt.SetLocale("zh-CN")
 		tt.SetScale(2)
 		tt.Frame()

@@ -469,11 +469,16 @@ func phaseRow(c *ui.Context, r *Reply) {
 	default:
 		label = i18n.T(c, "turn_thinking")
 	}
+	mark := Indicator(r.Phase)
+	// A run queued behind another has no phase yet: it waits.
+	if r.Status == Queued {
+		label, mark = i18n.T(c, "turn_queued"), kit.Waiting
+	}
 	// One band across the row, past the indicator.
 	sw := &kit.Sweep{}
 	row := ui.Row(c.Key("phase")).Gap(8).Height(rowHeight)
 	row.Children(func() {
-		kit.Indicator(c, Indicator(r.Phase), 16)
+		kit.Indicator(c, mark, 16)
 		sw.Text(c, level(c, ui.Text(c, label).FontSize(14).SingleLine().TextColor(p.MutedForeground), false),
 			ui.Span{Text: label, Size: 14, Color: p.MutedForeground})
 	})
