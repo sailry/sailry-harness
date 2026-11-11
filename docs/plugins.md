@@ -92,6 +92,19 @@ Node admission, action checks, writer transactions and receipts. Read-only
 callbacks cannot admit durable effects. Tools retain the turn's exact packages,
 selected declarations, approvals, mode and role.
 
+A package scope confines every command to its own worktree and session, with
+two rules of their own. `start_session` creates a session rather than
+addressing one: it is admitted with no turn and no session in scope, the
+association must be filed under the package's own name, an assistant or
+resource configuration is refused, and the draft's worktree is compared only
+when the scope itself names one. A Node-wide callback, such as a scheduled
+task's, therefore starts its session in whichever worktree the task stored. A
+package scope without a turn or session may then address a session it started,
+recognised by that association, when the session is not a delegated child and
+lies inside the scope's worktree if one is set. `store/plugin_authority.go`
+owns both rules; `TestScheduledTaskStart` fires the bundled scheduled-tasks
+callbacks through them.
+
 The callback engine has a 64 MiB allocation budget. Calls have a 60-second
 deadline and honor cancellation, including compilation and result conversion.
 The engine's own fixed call-depth bound handles recursion; it is not a physical
