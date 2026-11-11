@@ -47,12 +47,11 @@ func capBaseline(size float32) float32 {
 // scale 1 and half of one at scale 2. Level moves the box by the difference
 // between that baseline and the capitals' (capBaseline), with a margin
 // above and its opposite below, which keeps the box's size and the row's
-// height. A RichText whose line has the theme's size as its strut takes
-// that size, whatever its spans'.
+// height. The line of a ui.RichText is not its text's: LevelSpan levels
+// one.
 func Level(c *ui.Context, e ui.Element, size float32) ui.Element {
 	m := metricsOf(c.Theme().Font, size)
-	dy := capBaseline(size) - (m.Ascent-m.Descent)/2
-	return e.Margin(dy, 0, -dy, 0)
+	return levelled(e, size, m.Ascent, m.Descent)
 }
 
 // LevelTop is Level for a text that may wrap, in a row aligned to its top
@@ -60,6 +59,53 @@ func Level(c *ui.Context, e ui.Element, size float32) ui.Element {
 // of height has its line, and a text of one line makes the row that high.
 func LevelTop(c *ui.Context, e ui.Element, size, height float32) ui.Element {
 	m := metricsOf(c.Theme().Font, size)
-	top := height/2 + capBaseline(size) - m.Ascent
-	return e.Margin(top, 0, max(height-top-m.Ascent-m.Descent, 0), 0)
+	return levelledTop(e, size, height, m.Ascent, m.Descent)
+}
+
+// LevelSpan is Level for a single-line ui.RichText of span in a row whose
+// text is of size, as Sweep.Text takes its texts: the span's baseline is
+// where Level puts that text's, so the two read as one line whatever the
+// span's own font and size (a mono detail a DIP smaller). The line is not
+// the span's: spanLine.
+func LevelSpan(c *ui.Context, e ui.Element, span ui.Span, size float32) ui.Element {
+	ascent, descent := spanLine(c, span)
+	return levelled(e, size, ascent, descent)
+}
+
+// LevelSpanTop is LevelTop for a ui.RichText of span (LevelSpan).
+func LevelSpanTop(c *ui.Context, e ui.Element, span ui.Span, size, height float32) ui.Element {
+	ascent, descent := spanLine(c, span)
+	return levelledTop(e, size, height, ascent, descent)
+}
+
+// spanLine is the ascent and the descent of the line of a ui.RichText of
+// span. MyGo starts a RichText's line from the theme's font at the theme's
+// size, its strut, and grows it to what a span needs: a span smaller than
+// the theme's size stands on the theme's line, and a larger one, or one of
+// a taller font, on its own. The element must take the theme's font size,
+// as it does where no ancestor sets another.
+func spanLine(c *ui.Context, span ui.Span) (ascent, descent float32) {
+	t := c.Theme()
+	family, size := span.Font, span.Size
+	if family == "" {
+		family = t.Font
+	}
+	if size == 0 {
+		size = t.FontSize
+	}
+	strut, own := metricsOf(t.Font, t.FontSize), metricsOf(family, size)
+	return max(strut.Ascent, own.Ascent), max(strut.Descent, own.Descent)
+}
+
+// levelled moves e, whose line has that ascent and descent, for the
+// capitals of a text of size to stand in the middle of the row.
+func levelled(e ui.Element, size, ascent, descent float32) ui.Element {
+	dy := capBaseline(size) - (ascent-descent)/2
+	return e.Margin(dy, 0, -dy, 0)
+}
+
+// levelledTop is levelled in a row of height aligned to its top.
+func levelledTop(e ui.Element, size, height, ascent, descent float32) ui.Element {
+	top := height/2 + capBaseline(size) - ascent
+	return e.Margin(top, 0, max(height-top-ascent-descent, 0), 0)
 }

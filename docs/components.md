@@ -244,6 +244,15 @@ within 0.3 DIP of the icon at both scales (`kit` `TestSweepSharesRow/level
 with the icon`, and the transcript's own rows in `shell`
 `TestShellRules/LoadingMarks`).
 
+`kit.LevelSpan(c, text, span, size)` and `kit.LevelSpanTop` do the same for a
+single-line `ui.RichText` of one span in a row whose text is of `size`. Its
+line starts from the theme's 14 whatever the span's size and takes the larger
+ascent and descent of the two, so its baseline is not the one `kit.Level`
+expects off 14 or in another font. What a `kit.Sweep` crosses is laid out
+this way, because the band is drawn with `Painter.RichText`: a plain
+`ui.Text` under it agrees only at the theme's size. The transcript's rows use
+it at every message text size, where texts are within 1 DIP of the icon.
+
 Levelled today: the transcript's tool, question, subagent, step and phase
 rows, the composer's capsules, context bar buttons and settings rows, the
 sidebar's group, project and session rows, `kit.Menu`'s rows and a code

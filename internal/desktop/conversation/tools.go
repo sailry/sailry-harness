@@ -14,15 +14,32 @@ import (
 
 // Layout metrics.
 const (
-	rowHeight  = 24
-	rowIcon    = 16
-	caretSize  = 12
-	detailMax  = 480 // mono details
-	outputMax  = 100 // 5 lines of 20 DIPs
-	diffRow    = 13 * 1.6
-	railMargin = 7.5  // 8 - 0.5: the rail's line sits under the icon's middle
-	railPad    = 15.5 // 8 + 8 - 0.5: the body starts where the label does
+	detailMax = 480      // mono details
+	diffRow   = 13 * 1.6 // Kit's code line, as the diff viewer's
 )
+
+// textSize is the size of the transcript's content text in DIPs: the
+// message text size setting (kit.MessageTextSize, 14 unless set), which the
+// message bodies take too. Every text of a turn derives from it and keeps
+// what it was apart from 14: a mono detail is a DIP smaller, counts and
+// captions two. Controls (buttons, menus, dialogs, tooltips) keep Kit's
+// sizes.
+func textSize(c *ui.Context) float32 { return kit.MessageTextSize(c) }
+
+// A row's metrics for text of size, the reference's at 14: 24 DIPs high,
+// its icon 16 and its caret 12.
+func rowHeight(size float32) float32 { return size + 10 }
+func rowIcon(size float32) float32   { return size + 2 }
+func caretSize(size float32) float32 { return size - 2 }
+
+// outputMax is five lines of a call's output, 20 DIPs each at 14.
+func outputMax(size float32) float32 { return 100 * size / 14 }
+
+// railMargin puts the rail's 1 DIP line under the icon's middle, and
+// railPad starts the body where the label does, past the icon and the
+// row's gap of 8: 7.5 and 15.5 at 14.
+func railMargin(size float32) float32 { return rowIcon(size)/2 - 0.5 }
+func railPad(size float32) float32    { return rowIcon(size)/2 + 7.5 }
 
 // opened reports whether a disclosure is open. They start closed, and the
 // state keeps the open ones alone, so the rows a long transcript scrolls
@@ -76,6 +93,7 @@ func stateText(c *ui.Context, st RowState) string {
 // row, sw's; the icon has none.
 func summary(c *ui.Context, call Call, hovered, caret, open bool, sw *kit.Sweep) {
 	p := theme.Of(c)
+	size := textSize(c)
 	color := rowColor(p, call)
 	quiet := !call.Failed && !call.Pending && !flagged(call)
 	if hovered && quiet {
@@ -87,9 +105,9 @@ func summary(c *ui.Context, call Call, hovered, caret, open bool, sw *kit.Sweep)
 	} else if icon == nil {
 		icon = icons.Settings2
 	}
-	ic := ui.Icon(c, icon).FontSize(rowIcon).Shrink(0).TextColor(color)
+	ic := ui.Icon(c, icon).FontSize(rowIcon(size)).Shrink(0).TextColor(color)
 	if call.wrap {
-		ic.Margin((rowHeight-rowIcon)/2, 0, 0, 0)
+		ic.Margin((rowHeight(size)-rowIcon(size))/2, 0, 0, 0)
 	}
 	label := call.Label
 	if label == "" && call.LabelKey != "" {
@@ -97,12 +115,16 @@ func summary(c *ui.Context, call Call, hovered, caret, open bool, sw *kit.Sweep)
 	}
 	shimmer := call.Running && quiet
 	switch {
-	case shimmer && label != "":
-		sw.Text(c, level(c, ui.Text(c, label).FontSize(14).SingleLine().Shrink(0).TextColor(color), call.wrap), ui.Span{Text: label, Size: 14, Color: color})
+	case label != "" && (shimmer || !call.wrap):
+		// Laid out as the sweep draws it (kit.Sweep.Text), running or not,
+		// so the label stays where it is when the row settles.
+		span := ui.Span{Text: label, Size: size, Color: color}
+		t := levelSpan(c, ui.RichText(c, span).SingleLine().Shrink(0), span, size, call.wrap)
+		if shimmer {
+			sw.Text(c, t, span)
+		}
 	case call.wrap:
-		level(c, ui.Text(c, label).FontSize(14).Grow(1).Shrink(1).MinWidth(0).TextColor(color), true)
-	case label != "":
-		level(c, ui.Text(c, label).FontSize(14).SingleLine().Shrink(0).TextColor(color), false)
+		level(c, ui.Text(c, label).FontSize(size).Grow(1).Shrink(1).MinWidth(0).TextColor(color), size, true)
 	}
 	detail, code := call.Detail, call.Code
 	if (call.Failed || call.Warning) && call.State != Denied && call.Error != "" {
@@ -113,13 +135,12 @@ func summary(c *ui.Context, call Call, hovered, caret, open bool, sw *kit.Sweep)
 		if !quiet {
 			dc = color
 		}
-		span := ui.Span{Text: detail, Size: 14, Color: dc}
+		span := ui.Span{Text: detail, Size: size, Color: dc}
 		if code {
-			span.Font, span.Size = "monospace", 13
+			span.Font, span.Size = "monospace", size-1
 		}
-		// Laid out as the sweep draws it (kit.Sweep.Text): its line has the
-		// theme's size as its strut, which levels it with the label.
-		d := level(c, ui.RichText(c, span).SingleLine().Grow(1).Shrink(1).MinWidth(0), call.wrap)
+		// Laid out as the sweep draws it, on the label's baseline.
+		d := levelSpan(c, ui.RichText(c, span).SingleLine().Grow(1).Shrink(1).MinWidth(0), span, size, call.wrap)
 		if code {
 			d.MaxWidth(detailMax)
 		}
@@ -132,16 +153,16 @@ func summary(c *ui.Context, call Call, hovered, caret, open bool, sw *kit.Sweep)
 		st = call.note
 	}
 	if st != "" {
-		level(c, ui.Text(c, st).FontSize(14).SingleLine().Shrink(0).TextColor(color), call.wrap)
+		level(c, ui.Text(c, st).FontSize(size).SingleLine().Shrink(0).TextColor(color), size, call.wrap)
 	}
 	if caret {
 		chevron := icons.ChevronRight
 		if open {
 			chevron = icons.ChevronDown
 		}
-		ch := ui.Icon(c, chevron).FontSize(caretSize).Shrink(0).TextColor(color)
+		ch := ui.Icon(c, chevron).FontSize(caretSize(size)).Shrink(0).TextColor(color)
 		if call.wrap {
-			ch.Margin((rowHeight-caretSize)/2, 0, 0, 0)
+			ch.Margin((rowHeight(size)-caretSize(size))/2, 0, 0, 0)
 		}
 		if !hovered {
 			ch.Opacity(0)
@@ -149,29 +170,39 @@ func summary(c *ui.Context, call Call, hovered, caret, open bool, sw *kit.Sweep)
 	}
 }
 
-// level puts a row's 14 DIP text level with its icon (kit.Level): centred
+// level puts a row's text of size level with its icon (kit.Level): centred
 // in the row, or on the first line of a row that wraps.
-func level(c *ui.Context, e ui.Element, wrap bool) ui.Element {
+func level(c *ui.Context, e ui.Element, size float32, wrap bool) ui.Element {
 	if wrap {
-		return kit.LevelTop(c, e, 14, rowHeight)
+		return kit.LevelTop(c, e, size, rowHeight(size))
 	}
-	return kit.Level(c, e, 14)
+	return kit.Level(c, e, size)
 }
 
-// rowSize gives a row the summary's height: 24 DIPs, or, for a label that
-// wraps, the full width, at least 24 tall, with the icon, state and caret
-// where a row of one line has them, level with the first line
-// (kit.LevelTop).
-func rowSize(e ui.Element, wrap bool) ui.Element {
+// levelSpan is level for a single-line ui.RichText of span in a row whose
+// text is of size (kit.LevelSpan): what a sweep crosses, and a row's
+// detail.
+func levelSpan(c *ui.Context, e ui.Element, span ui.Span, size float32, wrap bool) ui.Element {
 	if wrap {
-		return e.FillWidth().MinHeight(rowHeight).AlignItems(ui.Start)
+		return kit.LevelSpanTop(c, e, span, size, rowHeight(size))
 	}
-	return e.Height(rowHeight)
+	return kit.LevelSpan(c, e, span, size)
 }
 
-// plain is a row without details: 24 DIPs, no caret.
+// rowSize gives a row the summary's height for text of size: 24 DIPs at
+// 14, or, for a label that wraps, the full width, at least that tall, with
+// the icon, state and caret where a row of one line has them, level with
+// the first line (kit.LevelTop).
+func rowSize(e ui.Element, size float32, wrap bool) ui.Element {
+	if wrap {
+		return e.FillWidth().MinHeight(rowHeight(size)).AlignItems(ui.Start)
+	}
+	return e.Height(rowHeight(size))
+}
+
+// plain is a row without details: no caret.
 func plain(c *ui.Context, key any, call Call) {
-	row := rowSize(ui.Row(c.Key(key)), call.wrap).Gap(8).MaxWidthPercent(100)
+	row := rowSize(ui.Row(c.Key(key)), textSize(c), call.wrap).Gap(8).MaxWidthPercent(100)
 	hovered := row.Hovered()
 	sw := &kit.Sweep{}
 	row.Children(func() { summary(c, call, hovered, false, false, sw) })
@@ -190,22 +221,23 @@ func (s *State) disclosure(c *ui.Context, key string, head func(hovered, open bo
 // wrapping is a disclosure whose row may wrap its label (rowSize).
 func (s *State) wrapping(c *ui.Context, key string, wrap bool, head func(hovered, open bool, sw *kit.Sweep), top, bottom float32, body func()) {
 	open := s.opened(key)
+	size := textSize(c)
 	ui.Column(c.Key(key)).Children(func() {
-		t := rowSize(ui.ButtonBase(c), wrap).Gap(8).AlignSelf(ui.Start).MaxWidthPercent(100).
+		t := rowSize(ui.ButtonBase(c), size, wrap).Gap(8).AlignSelf(ui.Start).MaxWidthPercent(100).
 			Justify(ui.Start).Expanded(open).Cursor(ui.CursorPointer)
 		hovered := t.Hovered() || t.FocusVisible()
 		sw := &kit.Sweep{}
 		t.Children(func() { head(hovered, open, sw) }).OnClick(func() { s.toggle(key) })
 		sw.Frame(t)
 		if open {
-			Rail(c).Padding(top, 0, bottom, railPad).Children(body)
+			Rail(c).Padding(top, 0, bottom, railPad(size)).Children(body)
 		}
 	})
 }
 
 // Rail is the indented body of a disclosure: a 1 DIP line under the icon.
 func Rail(c *ui.Context) ui.Element {
-	return ui.Column(c).MarginStart(railMargin).BorderWidth(0, 0, 0, 1).BorderColor(theme.Of(c).Border).Gap(8)
+	return ui.Column(c).MarginStart(railMargin(textSize(c))).BorderWidth(0, 0, 0, 1).BorderColor(theme.Of(c).Border).Gap(8)
 }
 
 // tools builds a tool block. continuing marks the last call running while
@@ -306,13 +338,14 @@ func failureTone(c *ui.Context, o *Output) ui.Color {
 
 // notice is a line of the output's notes.
 func notice(c *ui.Context, text string, tone ui.Color) {
-	ui.Text(c, text).FontSize(14).Padding(8, 12).TextColor(tone).Selectable()
+	ui.Text(c, text).FontSize(textSize(c)).Padding(8, 12).TextColor(tone).Selectable()
 }
 
 // output builds a call's result: failure, table, diff, text, notices, with
 // a copy button showing while the pointer is over it.
 func (s *State) output(c *ui.Context, o *Output) {
 	p := theme.Of(c)
+	size := textSize(c)
 	box := ui.Column(c).Gap(4)
 	hovered := box.Hovered()
 	box.Children(func() {
@@ -331,11 +364,11 @@ func (s *State) output(c *ui.Context, o *Output) {
 				text, hidden = lastLines(text)
 			}
 			if hidden > 0 {
-				ui.Text(c, i18n.T(c, "tool_output_earlier", "count", hidden)).FontSize(14).
+				ui.Text(c, i18n.T(c, "tool_output_earlier", "count", hidden)).FontSize(size).
 					Padding(0, 12, 8, 12).TextColor(p.MutedForeground)
 			}
-			ui.ScrollBoth(c).MaxHeight(outputMax).Children(func() {
-				ui.Text(c, text).Font("monospace").FontSize(14).LineHeight(20.0 / 14).NoWrap().
+			ui.ScrollBoth(c).MaxHeight(outputMax(size)).Children(func() {
+				ui.Text(c, text).Font("monospace").FontSize(size).LineHeight(20.0 / 14).NoWrap().
 					Selectable().TextColor(p.MutedForeground).PaddingEnd(28)
 			})
 		}
@@ -383,23 +416,24 @@ func (*Diff) Op(l DiffLine) byte {
 }
 
 // diff is a file change preview: an outlined box, its header the file name
-// and +N −M, its body up to five rows of the diff.
+// and +N −M, its body up to five rows of the diff in Kit's code size.
 func diff(c *ui.Context, d *Diff) {
 	p := theme.Of(c)
+	size := textSize(c)
 	name := d.Path
 	if i := strings.LastIndexByte(name, '/'); i >= 0 {
 		name = name[i+1:]
 	}
 	ui.Column(c).Border(1, p.Border).Radius(p.Radius2xl()).Background(p.Background).Clip().Children(func() {
-		ui.Row(c).Height(32).PaddingX(12).Gap(8).BorderWidth(0, 0, 1, 0).BorderColor(p.Border).
+		ui.Row(c).Height(size+18).PaddingX(12).Gap(8).BorderWidth(0, 0, 1, 0).BorderColor(p.Border).
 			TextColor(p.MutedForeground).Children(func() {
-			kit.Tooltip(c, ui.Text(c, name).FontSize(14).SingleLine().Grow(1).Shrink(1), d.Path)
+			kit.Tooltip(c, ui.Text(c, name).FontSize(size).SingleLine().Grow(1).Shrink(1), d.Path)
 			ui.Row(c).Gap(6).Shrink(0).Children(func() {
 				if d.Added > 0 || d.Removed == 0 {
-					ui.Textf(c, "+%d", d.Added).Font("monospace").FontSize(12).TextColor(p.Success)
+					ui.Textf(c, "+%d", d.Added).Font("monospace").FontSize(size - 2).TextColor(p.Success)
 				}
 				if d.Removed > 0 {
-					ui.Textf(c, "−%d", d.Removed).Font("monospace").FontSize(12).TextColor(p.Danger)
+					ui.Textf(c, "−%d", d.Removed).Font("monospace").FontSize(size - 2).TextColor(p.Danger)
 				}
 			})
 		})
@@ -411,15 +445,18 @@ func diff(c *ui.Context, d *Diff) {
 	})
 }
 
-// table is tabular output: 180 DIP columns, at most five rows in view.
+// table is tabular output: 180 DIP columns, at most five rows in view,
+// each 28 DIPs at 14.
 func table(c *ui.Context, t *Table) {
 	p := theme.Of(c)
+	size := textSize(c)
+	height := size + 14
 	rows := min(max(len(t.Rows), 1), 5)
-	ui.ScrollBoth(c).MaxHeight(float32(rows+1) * 28).Children(func() {
+	ui.ScrollBoth(c).MaxHeight(float32(rows+1) * height).Children(func() {
 		cells := func(values []string, head bool) {
-			ui.Row(c).Height(28).BorderWidth(0, 0, 1, 0).BorderColor(p.Border).Children(func() {
+			ui.Row(c).Height(height).BorderWidth(0, 0, 1, 0).BorderColor(p.Border).Children(func() {
 				for _, v := range values {
-					cell := ui.Text(c, v).FontSize(14).SingleLine().Width(180).PaddingX(8)
+					cell := ui.Text(c, v).FontSize(size).SingleLine().Width(180).PaddingX(8)
 					kit.Tooltip(c, cell, v)
 					if head {
 						cell.FontWeight(500).TextColor(p.MutedForeground)
@@ -444,14 +481,18 @@ func (s *State) steps(c *ui.Context, key string, steps []Step, active bool) {
 	}
 	head := Call{Label: i18n.T(c, "task_progress"), Icon: "circle-check", Detail: fmt.Sprintf("%d/%d", done, len(steps)), Running: active}
 	s.disclosure(c, "progress-"+key, func(hovered, open bool, sw *kit.Sweep) { summary(c, head, hovered, true, open, sw) }, 4, 8, func() {
-		ui.Scroll(c).MaxHeight(320).PaddingEnd(12).Children(func() { Steps(c, steps, active) })
+		ui.Scroll(c).MaxHeight(320).PaddingEnd(12).Children(func() { stepRows(c, steps, active, textSize(c)) })
 	})
 }
 
 // Steps are a task's progress rows: its state's icon and the step, settled
 // ones struck through, the step in progress shimmering while active. The
-// transcript and the composer's task capsule show them.
-func Steps(c *ui.Context, steps []Step, active bool) {
+// composer's task capsule shows them, in Kit's 14; the transcript shows
+// them in its text size (stepRows).
+func Steps(c *ui.Context, steps []Step, active bool) { stepRows(c, steps, active, 14) }
+
+// stepRows are Steps for text of size: each row 32 DIPs at 14.
+func stepRows(c *ui.Context, steps []Step, active bool, size float32) {
 	p := theme.Of(c)
 	for i, st := range steps {
 		icon, color := icons.CircleCheck, p.MutedForeground
@@ -469,15 +510,15 @@ func Steps(c *ui.Context, steps []Step, active bool) {
 		case StepFailed:
 			icon, color = icons.CircleX, p.Danger
 		}
-		ui.Row(c.Key(i)).Height(32).Padding(4, 8, 4, 0).Gap(8).Children(func() {
-			ui.Icon(c, icon).FontSize(16).Shrink(0).TextColor(color)
+		ui.Row(c.Key(i)).Height(rowHeight(size)+8).Padding(4, 8, 4, 0).Gap(8).Children(func() {
+			ui.Icon(c, icon).FontSize(rowIcon(size)).Shrink(0).TextColor(color)
 			switch {
 			case st.State == StepInProgress && active:
-				level(c, kit.Shimmer(c, st.Text, 14, p.Foreground), false)
+				levelSpan(c, kit.Shimmer(c, st.Text, size, p.Foreground), ui.Span{Size: size}, size, false)
 			case st.State == StepCompleted || st.State == StepSkipped:
-				level(c, ui.Text(c, st.Text).FontSize(14).SingleLine().Strikethrough().TextColor(p.MutedForeground), false)
+				level(c, ui.Text(c, st.Text).FontSize(size).SingleLine().Strikethrough().TextColor(p.MutedForeground), size, false)
 			default:
-				level(c, ui.Text(c, st.Text).FontSize(14).SingleLine().TextColor(p.Foreground), false)
+				level(c, ui.Text(c, st.Text).FontSize(size).SingleLine().TextColor(p.Foreground), size, false)
 			}
 		})
 	}
@@ -487,6 +528,7 @@ func Steps(c *ui.Context, steps []Step, active bool) {
 // state, and the answers below.
 func (s *State) question(c *ui.Context, q *Question) {
 	p := theme.Of(c)
+	size := textSize(c)
 	// The state shows as the icon alone, without a text.
 	head := Call{Label: q.Prompt, Icon: "circle-check", Pending: q.State == QuestionPending, wrap: true}
 	switch q.State {
@@ -502,9 +544,9 @@ func (s *State) question(c *ui.Context, q *Question) {
 		return
 	}
 	s.wrapping(c, "question-"+q.CallID, true, func(hovered, open bool, sw *kit.Sweep) { summary(c, head, hovered, true, open, sw) }, 4, 8, func() {
-		ui.Scroll(c).MaxHeight(outputMax).Gap(4).Children(func() {
+		ui.Scroll(c).MaxHeight(outputMax(size)).Gap(4).Children(func() {
 			for _, a := range q.Answers {
-				ui.Text(c, a).FontSize(14).Selectable().TextColor(p.Foreground)
+				ui.Text(c, a).FontSize(size).Selectable().TextColor(p.Foreground)
 			}
 		})
 	})
@@ -518,6 +560,7 @@ func (s *State) children(c *ui.Context, kids []Child, actions Actions) {
 		return
 	}
 	p := theme.Of(c)
+	size := textSize(c)
 	done, running := 0, false
 	for _, k := range kids {
 		if k.Status == ChildCompleted {
@@ -533,14 +576,16 @@ func (s *State) children(c *ui.Context, kids []Child, actions Actions) {
 		}
 		ui.Row(c).Gap(4).Shrink(0).Children(func() {
 			for _, k := range kids {
-				kit.Identicon(c.Key(k.ID), k.ID, k.Status.Active(), 16)
+				kit.Identicon(c.Key(k.ID), k.ID, k.Status.Active(), rowIcon(size))
 			}
 		})
-		t := level(c, ui.Text(c, label).FontSize(14).SingleLine().TextColor(color), false)
+		// Laid out as the sweep draws it, running or not (summary).
+		span := ui.Span{Text: label, Size: size, Color: color}
+		t := levelSpan(c, ui.RichText(c, span).SingleLine(), span, size, false)
 		if running {
-			sw.Text(c, t, ui.Span{Text: label, Size: 14, Color: color})
+			sw.Text(c, t, span)
 		}
-		ch := ui.Icon(c, map[bool]*ui.SVG{true: icons.ChevronDown, false: icons.ChevronRight}[open]).FontSize(caretSize).TextColor(color)
+		ch := ui.Icon(c, map[bool]*ui.SVG{true: icons.ChevronDown, false: icons.ChevronRight}[open]).FontSize(caretSize(size)).TextColor(color)
 		if !hovered {
 			ch.Opacity(0)
 		}
@@ -556,6 +601,7 @@ func (s *State) children(c *ui.Context, kids []Child, actions Actions) {
 // child is a subagent's row; a click opens its session.
 func child(c *ui.Context, k Child, actions Actions) {
 	p := theme.Of(c)
+	size := textSize(c)
 	title := k.Title
 	if title == "" {
 		title = i18n.T(c, "chat_child")
@@ -564,24 +610,24 @@ func child(c *ui.Context, k Child, actions Actions) {
 	if k.Status == ChildFailed || k.Status == ChildInterrupted {
 		color = p.Danger
 	}
-	b := ui.ButtonBase(c.Key("child-" + k.ID)).Label(title).Height(rowHeight).Gap(8).AlignSelf(ui.Start).Justify(ui.Start).Cursor(ui.CursorPointer)
+	b := ui.ButtonBase(c.Key("child-" + k.ID)).Label(title).Height(rowHeight(size)).Gap(8).AlignSelf(ui.Start).Justify(ui.Start).Cursor(ui.CursorPointer)
 	hovered := b.Hovered()
 	if hovered && color == p.MutedForeground {
 		color = p.Foreground
 	}
 	b.Children(func() {
 		if k.Status == ChildContinued {
-			ui.Icon(c, icons.ArrowRight).FontSize(16).TextColor(color)
+			ui.Icon(c, icons.ArrowRight).FontSize(rowIcon(size)).TextColor(color)
 		} else {
-			kit.Identicon(c, k.ID, k.Status.Active(), 16)
+			kit.Identicon(c, k.ID, k.Status.Active(), rowIcon(size))
 		}
 		if k.Status.Active() {
-			level(c, kit.Shimmer(c, title, 14, color), false)
+			levelSpan(c, kit.Shimmer(c, title, size, color), ui.Span{Size: size}, size, false)
 		} else {
-			level(c, ui.Text(c, title).FontSize(14).SingleLine().TextColor(color), false)
+			level(c, ui.Text(c, title).FontSize(size).SingleLine().TextColor(color), size, false)
 		}
-		level(c, ui.Text(c, strings.TrimSpace(k.Model+" "+k.Effort)).FontSize(14).SingleLine().TextColor(p.MutedForeground.Alpha(0.65)), false)
-		ch := ui.Icon(c, icons.ChevronRight).FontSize(caretSize).TextColor(color)
+		level(c, ui.Text(c, strings.TrimSpace(k.Model+" "+k.Effort)).FontSize(size).SingleLine().TextColor(p.MutedForeground.Alpha(0.65)), size, false)
+		ch := ui.Icon(c, icons.ChevronRight).FontSize(caretSize(size)).TextColor(color)
 		if !hovered {
 			ch.Opacity(0)
 		}

@@ -63,10 +63,16 @@ func (s *Sweep) Frame(row ui.Element) {
 
 // Text draws the band over e, a single-line text of span's text, font,
 // size and color. Without a Frame, the band crosses e alone. The band is
-// the span drawn again by the painter, whose line has the theme's font
-// size as its strut: a text in another size or font must be laid out the
-// same way, as ui.RichText of span, or its glyphs sit a fraction of a
-// pixel off the band's and the text looks heavier as the band passes.
+// the span drawn again by the painter, as a RichText: its line starts from
+// the theme's font size, the strut, whatever the span's. So e must be laid
+// out the same way, as ui.RichText(c, span) with no font size of its own,
+// which Shimmer builds and LevelSpan levels. A plain ui.Text agrees with
+// it only at the theme's own size and font. Smaller, its baseline is its
+// own size's and the band's the strut's, about 2 DIPs lower at 12 under
+// 14; larger, it has half its font's line gap above it, where the font has
+// one, and the band's line, grown past the strut, has none; in another
+// font the ascents differ. The glyphs then sit off the band's and the
+// text looks doubled or heavier as the band passes.
 func (s *Sweep) Text(c *ui.Context, e ui.Element, span ui.Span) ui.Element {
 	if c.Preferences().ReduceMotion {
 		return e

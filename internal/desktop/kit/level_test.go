@@ -69,10 +69,18 @@ func inkMiddle(img *image.RGBA, scale float32, r ui.Rect) float64 {
 // capitals are within half a DIP of the icon's middle and of each other, at
 // scale 1 and 2, in a centred row and on the first line of a row that wraps
 // (LevelTop). Unlevelled, as MyGo centres the line box, they are not.
+//
+// The label laid out as a sweep takes it, a RichText of its span, and the
+// detail, a RichText a DIP smaller in the mono font, are levelled from
+// their spans (LevelSpan, LevelSpanTop): their line starts from the
+// theme's 14 whatever their size. A row of another text size, as the
+// transcript's at 12 and 18, has an icon 2 DIPs larger than its text and is
+// 10 higher; there the capitals' baseline, a whole DIP, is up to half a
+// DIP from their middle's, so the texts are within one DIP of the icon.
 func testLevel(t *testing.T) {
-	const height = 24
-	row := func(c *ui.Context, key, label string, level, wrap bool) {
+	row := func(c *ui.Context, key, label string, size float32, level, wrap bool) {
 		p := theme.Of(c)
+		height, mark := size+10, size+2
 		r := ui.Row(c.Key(key)).Gap(8).MaxWidthPercent(100)
 		if wrap {
 			r.FillWidth().MinHeight(height).AlignItems(ui.Start)
@@ -80,51 +88,61 @@ func testLevel(t *testing.T) {
 			r.Height(height)
 		}
 		r.Children(func() {
-			icon := ui.Icon(c, icons.Help).FontSize(16).Shrink(0).TextColor(p.Foreground).Label(key + " icon")
-			text := ui.Text(c, label).FontSize(14).Shrink(0).TextColor(p.Foreground).Label(key + " label")
-			span := ui.Span{Text: "HIDE", Size: 13, Font: "monospace", Color: p.Foreground}
+			icon := ui.Icon(c, icons.Help).FontSize(mark).Shrink(0).TextColor(p.Foreground).Label(key + " icon")
+			text := ui.Text(c, label).FontSize(size).Shrink(0).TextColor(p.Foreground).Label(key + " label")
+			run := ui.Span{Text: label, Size: size, Color: p.Foreground}
+			swept := ui.RichText(c, run).SingleLine().Shrink(0).Label(key + " swept")
+			span := ui.Span{Text: "HIDE", Size: size - 1, Font: "monospace", Color: p.Foreground}
 			detail := ui.RichText(c, span).SingleLine().Label(key + " detail")
 			switch {
 			case wrap:
-				icon.Margin((height-16)/2, 0, 0, 0)
-				LevelTop(c, text, 14, height)
-				LevelTop(c, detail, 14, height)
+				icon.Margin((height-mark)/2, 0, 0, 0)
+				LevelTop(c, text, size, height)
+				LevelSpanTop(c, swept, run, size, height)
+				LevelSpanTop(c, detail, span, size, height)
 			case level:
-				Level(c, text.SingleLine(), 14)
-				Level(c, detail, 14)
+				Level(c, text.SingleLine(), size)
+				LevelSpan(c, swept, run, size)
+				LevelSpan(c, detail, span, size)
 			}
 		})
 	}
-	for _, scale := range []float32{1, 2} {
-		for _, label := range []string{"HIDE", "田口"} {
-			tt := ui.NewTester(func(c *ui.Context) {
-				theme.Apply(c, "", theme.Dark)
-				ui.Column(c).Fill().Background(theme.Of(c).Background).Padding(20).Gap(12).Children(func() {
-					row(c, "plain", label, false, false)
-					row(c, "level", label, true, false)
-					row(c, "wrap", label, true, true)
-				})
-			}, 400, 160)
-			tt.SetScale(scale)
-			tt.Frame()
-			img := tt.Image()
-			at := func(name string, measure func(*image.RGBA, float32, ui.Rect) float64) float64 {
-				r, ok := tt.Find(name)
-				if !ok {
-					t.Fatalf("no %q", name)
+	for _, size := range []float32{12, 14, 18} {
+		limit := 0.5
+		if size != 14 {
+			limit = 1
+		}
+		for _, scale := range []float32{1, 2} {
+			for _, label := range []string{"HIDE", "田口"} {
+				tt := ui.NewTester(func(c *ui.Context) {
+					theme.Apply(c, "", theme.Dark)
+					ui.Column(c).Fill().Background(theme.Of(c).Background).Padding(20).Gap(12).Children(func() {
+						row(c, "plain", label, size, false, false)
+						row(c, "level", label, size, true, false)
+						row(c, "wrap", label, size, true, true)
+					})
+				}, 400, 160)
+				tt.SetScale(scale)
+				tt.Frame()
+				img := tt.Image()
+				at := func(name string, measure func(*image.RGBA, float32, ui.Rect) float64) float64 {
+					r, ok := tt.Find(name)
+					if !ok {
+						t.Fatalf("no %q", name)
+					}
+					return measure(img, scale, r)
 				}
-				return measure(img, scale, r)
-			}
-			var report string
-			for _, key := range []string{"plain", "level", "wrap"} {
-				icon, text, detail := at(key+" icon", inkMiddle), at(key+" label", inkCentre), at(key+" detail", inkCentre)
-				report += fmt.Sprintf(" %s: icon %.2f, label %+.2f, detail %+.2f;", key, icon, text-icon, detail-icon)
-				off := max(math.Abs(text-icon), math.Abs(detail-icon), math.Abs(text-detail))
-				if key != "plain" && off > 0.5 {
-					t.Errorf("scale %v, %q, %s row: icon %.2f, label %.2f, detail %.2f: %.2f DIPs apart", scale, label, key, icon, text, detail, off)
+				var report string
+				for _, key := range []string{"plain", "level", "wrap"} {
+					icon, text, swept, detail := at(key+" icon", inkMiddle), at(key+" label", inkCentre), at(key+" swept", inkCentre), at(key+" detail", inkCentre)
+					report += fmt.Sprintf(" %s: icon %.2f, label %+.2f, swept %+.2f, detail %+.2f;", key, icon, text-icon, swept-icon, detail-icon)
+					off := max(math.Abs(text-icon), math.Abs(swept-icon), math.Abs(detail-icon), math.Abs(text-detail), math.Abs(text-swept))
+					if key != "plain" && off > limit {
+						t.Errorf("size %v, scale %v, %q, %s row: icon %.2f, label %.2f, swept %.2f, detail %.2f: %.2f DIPs apart", size, scale, label, key, icon, text, swept, detail, off)
+					}
 				}
+				t.Logf("size %v, scale %v, %q:%s", size, scale, label, report)
 			}
-			t.Logf("scale %v, %q:%s", scale, label, report)
 		}
 	}
 }

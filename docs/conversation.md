@@ -1,7 +1,15 @@
 # Conversation transcript
 
 B3 installs the controller's message text size in window-scoped Kit preferences.
-User bubbles and reply Markdown use 12, 14, 16 or 18 DIPs; the default stays 14.
+The transcript's content text follows it, 12 to 18 DIPs with the default 14
+(`textSize` in `tools.go`): user bubbles, reply Markdown, the status header, the
+tool, question, subagent, step and phase rows and what they open, notices,
+sources, compaction, the changes card's texts, captions and the footer's time.
+Every measure in this document is the one at 14. A row is `size+10` high, its
+icon `size+2` and its caret `size-2`; text a DIP or two smaller than the body
+keeps that difference. Controls keep Kit's sizes: buttons, menus, popovers,
+dialogs, tooltips, the banner, the welcome page and the composer's context bar
+and task capsule (`Steps`).
 The transcript retains a caller-owned Markdown theme for its palette/size pair,
 so shared Kit themes remain immutable and dynamic theme changes still apply.
 
@@ -870,6 +878,7 @@ destination, the rewind toast's backup action, and
 | Citations are placed in the answer's last text block | Rust offsets them across the text parts of the run |
 | The phase's mark is one of MyGo's loading marks (`plugins/loading`: Pulse, LinearDots, Swirl), not Rust's dot figures (Orbits, Globe, Ribbon, Ring) | The user's decision: ready-made marks from one set with the sidebar's loader. The custom figures are removed; the marks move at the display's rate ([components.md](components.md#theming-caveats)) |
 | Row texts are moved a fraction of a DIP by `kit.Level` so their capitals sit at the icon's middle; a question's row is as high as the others for one line (24), its icon and caret where theirs are | MyGo centres a text's line box and snaps its baseline, which left labels up to 1.2 DIPs below their icons ([components.md](components.md#text-beside-icons)); the wrapping row had its text at the top with the icon 2 below |
+| A row's single-line label and its detail are `ui.RichText` of one span, levelled by `kit.LevelSpan`, running or not | `kit.Sweep` draws its band with `Painter.RichText`, whose line starts from the theme's 14 whatever the span's size; a plain `ui.Text` at another message text size sits up to 2 DIPs off the band, and a label laid out one way while running and another once settled would move |
 | A code block's Copy is an icon button confirmed by a toast, not MyGo's `CopyButton` with its "Copy" and "Copied" texts | The user's decision: the icon alone; outcomes show as toasts |
 | Math shows as its TeX source in the default build | Untie is not in `go.mod` and no math font is chosen; the integration waits behind the `untie` build tag |
 | Mermaid is laid out on the UI goroutine and its unreadable sources show the code block without a notice | limu lays a 64 KiB bounded source out once per width; Rust prepares images off the UI thread |
