@@ -368,7 +368,7 @@ project_name_placeholder: Enter a name
 project_path_placeholder: Select directory
 project_repository_placeholder: https://github.com/org/repository.git
 project_branch_placeholder: Default branch
-directory_title: Select directory
+directory_title: Select folder
 project_required: Enter a project name and path
 project_duplicate_path: This host already has a project at this path
 project_clone_required: Enter a name, repository and destination
@@ -741,11 +741,11 @@ dictation_preparing: Preparing local speech model
 dictation_transcribing: Transcribing
 directory_back: Back
 directory_forward: Forward
-directory_up: Parent directory
+directory_up: Parent folder
 directory_filter: Filter
 directory_home: Home
 directory_desktop: Desktop
-directory_documents: Documentation
+directory_documents: Documents
 directory_downloads: Downloads
 directory_locations: Locations
 directory_count_directories: '%{count} folders'
@@ -758,7 +758,7 @@ directory_no_matches: No matches
 directory_preview: Preview files
 directory_folder_kind: Folder
 directory_file_kind: File
-files_directory_empty: Empty directory
+files_directory_empty: Empty folder
 reference_select_current: Select current
 provider_openai: OpenAI
 provider_anthropic: Anthropic
@@ -2085,19 +2085,19 @@ directory_action_failed: Operation failed; check path and permissions
 directory_address: Enter path
 directory_count_hidden: '%{count} hidden'
 directory_create: New folder
-directory_denied: Access-denied preview; choose another directory
+directory_denied: No permission to open this folder
 directory_devices: Devices
 directory_extension_kind: '%{extension} file'
 directory_go_to: Go to folder
 directory_grid: Grid
-directory_hidden: Hidden files
+directory_hidden: Show hidden files
 directory_image_kind: Image
 directory_invalid_name: Enter a valid name
 directory_json_kind: JSON file
 directory_keep_both: Keep both
 directory_list: List
 directory_markdown_kind: Markdown document
-directory_missing: Path not in this host's preview; return to a preview location
+directory_missing: Folder not found
 directory_refresh: Refresh
 directory_root: Root
 directory_stale: Form path changed; reopen the picker
@@ -2192,3 +2192,15 @@ settings_experimental_description: Development and debugging settings
 settings_demo_mode: Demo mode
 settings_demo_mode_description: Show sample conversations for review and screenshots
 provider_deepseek: DeepSeek
+directory_modified: Modified
+directory_modified_today: Today %{time}
+directory_modified_yesterday: Yesterday %{time}
+directory_counts: '%{directories} folders, %{files} files'
+directory_counts_hidden: '%{directories} folders, %{files} files, %{hidden} hidden'
+directory_selected_files: '%{count} files selected'
+directory_nothing_selected: No file selected
+directory_failed: Could not read the folder
+directory_host_unavailable: The host is unavailable
+directory_fallback: Could not open %{path}; showing the home folder
+directory_trash: Move to Trash
+directory_trash_confirm: Move “%{name}” to the Trash

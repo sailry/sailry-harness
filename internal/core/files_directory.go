@@ -143,6 +143,10 @@ func (files *Files) ListDirectory(ctx context.Context, relative string, after *p
 			return out, fileConflict()
 		}
 		out.Entries[index].Size = uint64(m.Size())
+		if modified := m.ModTime().UnixMilli(); modified > 0 {
+			stamp := uint64(modified)
+			out.Entries[index].ModifiedMs = &stamp
+		}
 	}
 	return out, nil
 }

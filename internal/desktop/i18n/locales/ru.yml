@@ -2085,7 +2085,7 @@ directory_action_failed: Операция не удалась; проверьт�
 directory_address: Введите путь
 directory_count_hidden: '%{count} скрыто'
 directory_create: Новая папка
-directory_denied: Предварительный просмотр с отказом доступа; выберите другой каталог
+directory_denied: Нет прав для открытия этой папки
 directory_devices: Устройства
 directory_extension_kind: Файл %{extension}
 directory_go_to: Перейти к папке
@@ -2097,7 +2097,7 @@ directory_json_kind: Файл JSON
 directory_keep_both: Держите оба
 directory_list: Список
 directory_markdown_kind: Документ Markdown
-directory_missing: Путь отсутствует в предварительном просмотре этого узла; вернитесь в расположение предварительного просмотра
+directory_missing: Папка не найдена
 directory_refresh: Обновить
 directory_root: Корень
 directory_stale: Путь формы изменен; переоткройте выборщик
@@ -2192,3 +2192,15 @@ settings_experimental_description: Development and debugging settings
 settings_demo_mode: Demo mode
 settings_demo_mode_description: Show sample conversations for review and screenshots
 provider_deepseek: DeepSeek
+directory_modified: Modified
+directory_modified_today: Today %{time}
+directory_modified_yesterday: Yesterday %{time}
+directory_counts: '%{directories} folders, %{files} files'
+directory_counts_hidden: '%{directories} folders, %{files} files, %{hidden} hidden'
+directory_selected_files: '%{count} files selected'
+directory_nothing_selected: No file selected
+directory_failed: Could not read the folder
+directory_host_unavailable: The host is unavailable
+directory_fallback: Could not open %{path}; showing the home folder
+directory_trash: Move to Trash
+directory_trash_confirm: Move “%{name}” to the Trash

@@ -2085,7 +2085,7 @@ directory_action_failed: Opération échouée; vérifiez le chemin et les autori
 directory_address: Entrez le chemin
 directory_count_hidden: '%{count} masqués'
 directory_create: Nouveau dossier
-directory_denied: Aperçu refusé; choisissez un autre répertoire
+directory_denied: Aucune autorisation d'ouvrir ce dossier
 directory_devices: Appareils
 directory_extension_kind: Fichier %{extension}
 directory_go_to: Aller au dossier
@@ -2097,7 +2097,7 @@ directory_json_kind: Fichier JSON
 directory_keep_both: Gardez les deux
 directory_list: Liste
 directory_markdown_kind: Document Markdown
-directory_missing: Chemin non dans l'aperçu de cet hôte; retourner à un emplacement d'aperçu
+directory_missing: Dossier introuvable
 directory_refresh: Actualiser
 directory_root: Racine
 directory_stale: Changement du chemin du formulaire; rouvrir le sélecteur
@@ -2192,3 +2192,15 @@ settings_experimental_description: Development and debugging settings
 settings_demo_mode: Demo mode
 settings_demo_mode_description: Show sample conversations for review and screenshots
 provider_deepseek: DeepSeek
+directory_modified: Modified
+directory_modified_today: Today %{time}
+directory_modified_yesterday: Yesterday %{time}
+directory_counts: '%{directories} folders, %{files} files'
+directory_counts_hidden: '%{directories} folders, %{files} files, %{hidden} hidden'
+directory_selected_files: '%{count} files selected'
+directory_nothing_selected: No file selected
+directory_failed: Could not read the folder
+directory_host_unavailable: The host is unavailable
+directory_fallback: Could not open %{path}; showing the home folder
+directory_trash: Move to Trash
+directory_trash_confirm: Move “%{name}” to the Trash

@@ -2204,3 +2204,15 @@ settings_experimental_description
 settings_demo_mode
 settings_demo_mode_description
 provider_deepseek
+directory_modified
+directory_modified_today
+directory_modified_yesterday
+directory_counts
+directory_counts_hidden
+directory_selected_files
+directory_nothing_selected
+directory_failed
+directory_host_unavailable
+directory_fallback
+directory_trash
+directory_trash_confirm

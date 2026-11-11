@@ -445,7 +445,7 @@ func (r *Runtime) backupActions() *settings.BackupActions {
 		},
 		ChooseFolder: func(initial string, selected func(string)) {
 			owner := state.shown
-			r.chooseDirectory(r.App.Host, "backup_local_directory", initial, func() bool { return state.shown == owner }, selected)
+			r.chooseDirectory(r.App.Host, state.actions.Host, "backup_local_directory", initial, func() bool { return state.shown == owner }, selected)
 		},
 		Export: func() {
 			owner := ready()
