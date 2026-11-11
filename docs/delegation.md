@@ -118,11 +118,12 @@ in flight or the child is stopping, and reports failure, conflict and
 uncertain outcomes as toasts (`subagent_stop_failed`, `session_changed`,
 `subagent_stop_unknown`). A child's own tab stays read-only.
 
-A stopped child's status is named by the engine's finishing code for every
-turn: a stop the user or the parent asked for is the cancelled outcome and
-only a Node shutdown is interrupted. Delegation treats `cancelled` and
-`interrupted` alike: neither starts an automatic notice turn, and the parent
-waits for the child to settle in both cases.
+The status of a stopped child that had started is named by the engine's
+finishing code shared by every turn, not by delegation; a child that never
+started is always `cancelled`, or `interrupted` at Node shutdown. Delegation
+treats `cancelled` and `interrupted` alike: neither starts an automatic notice
+turn, the parent receives the cancellation note, and the parent waits for the
+child to settle in both cases.
 
 Captured localized tool metadata uses the existing source locale keys. Native
 child approval and question updates also refresh the owning parent's shared
