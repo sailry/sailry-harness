@@ -1,1 +1,2 @@
 internal/office/testdata/*.pdf binary
+*.sh text eol=lf

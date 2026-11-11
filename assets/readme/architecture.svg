@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="560" viewBox="0 0 1200 560" role="img" aria-labelledby="title desc">
+  <title id="title">How Sailry connects</title>
+  <desc id="desc">The desktop app and the phone control one or more Hosts over peer-to-peer, end-to-end encrypted links with relay fallback. Each Host runs the agent loop and its tools next to your code and data, keeps credentials, and calls the model providers you choose.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#9AA4B2"/></marker>
+    <marker id="link" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#3D8BEF"/></marker>
+  </defs>
+  <rect width="1200" height="560" rx="28" fill="#0F1217"/>
+  <text x="40" y="60" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="14" fill="#9AA4B2" text-anchor="start" letter-spacing="2">CONTROL</text>
+  <text x="450" y="60" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="14" fill="#9AA4B2" text-anchor="start" letter-spacing="2">HOST · WHERE THE WORK RUNS</text>
+  <text x="960" y="60" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="14" fill="#9AA4B2" text-anchor="start" letter-spacing="2">OUTSIDE</text>
+  <rect x="40" y="96" width="230" height="128" rx="14" fill="#161B22" stroke="#262D38" stroke-width="1.5"/>
+  <text x="64" y="136" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="19" fill="#F2F5F9" text-anchor="start" font-weight="600">Desktop app</text>
+  <text x="64" y="164" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="15" fill="#9AA4B2" text-anchor="start">native, GPU-drawn</text>
+  <text x="64" y="190" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="15" fill="#9AA4B2" text-anchor="start">includes a local Host</text>
+  <rect x="40" y="256" width="230" height="96" rx="14" fill="#161B22" stroke="#262D38" stroke-width="1.5"/>
+  <text x="64" y="296" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="19" fill="#F2F5F9" text-anchor="start" font-weight="600">Phone</text>
+  <text x="64" y="324" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="15" fill="#9AA4B2" text-anchor="start">Android · iOS</text>
+  <polyline points="270,160 450,160" fill="none" stroke="#3D8BEF" stroke-width="2" marker-start="url(#link)" marker-end="url(#link)"/>
+  <polyline points="270,304 450,304" fill="none" stroke="#3D8BEF" stroke-width="2" marker-start="url(#link)" marker-end="url(#link)"/>
+  <text x="360" y="214" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="14" fill="#79C9F1" text-anchor="middle">peer-to-peer</text>
+  <text x="360" y="236" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="14" fill="#79C9F1" text-anchor="middle">end-to-end encrypted</text>
+  <text x="360" y="258" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="14" fill="#79C9F1" text-anchor="middle">relay fallback</text>
+  <rect x="462" y="108" width="450" height="420" rx="14" fill="#0F1217" stroke="#262D38" stroke-width="1.5"/>
+  <rect x="450" y="96" width="450" height="420" rx="14" fill="#12161C" stroke="#262D38" stroke-width="1.5"/>
+  <text x="474" y="132" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="19" fill="#F2F5F9" text-anchor="start" font-weight="600">Sailry Host</text>
+  <text x="474" y="158" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="15" fill="#9AA4B2" text-anchor="start">background service on Mac or Linux</text>
+  <rect x="474" y="180" width="402" height="64" rx="14" fill="#161B22" stroke="#3D8BEF" stroke-width="1.5"/>
+  <text x="498" y="210" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="17" fill="#F2F5F9" text-anchor="start" font-weight="600">Agent loop</text>
+  <text x="498" y="232" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="14" fill="#9AA4B2" text-anchor="start">plans, calls tools, asks for approval</text>
+  <polyline points="675,244 675,286" fill="none" stroke="#9AA4B2" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="685" y="270" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="13" fill="#9AA4B2" text-anchor="start">calls</text>
+  <rect x="474" y="288" width="94" height="34" rx="14" fill="#161B22" stroke="#262D38" stroke-width="1.5"/>
+  <text x="521" y="310" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="14" fill="#F2F5F9" text-anchor="middle">Files</text>
+  <rect x="576" y="288" width="94" height="34" rx="14" fill="#161B22" stroke="#262D38" stroke-width="1.5"/>
+  <text x="623" y="310" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="14" fill="#F2F5F9" text-anchor="middle">Terminal</text>
+  <rect x="678" y="288" width="94" height="34" rx="14" fill="#161B22" stroke="#262D38" stroke-width="1.5"/>
+  <text x="725" y="310" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="14" fill="#F2F5F9" text-anchor="middle">Git</text>
+  <rect x="780" y="288" width="94" height="34" rx="14" fill="#161B22" stroke="#262D38" stroke-width="1.5"/>
+  <text x="827" y="310" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="14" fill="#F2F5F9" text-anchor="middle">Browser</text>
+  <rect x="474" y="330" width="94" height="34" rx="14" fill="#161B22" stroke="#262D38" stroke-width="1.5"/>
+  <text x="521" y="352" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="14" fill="#F2F5F9" text-anchor="middle">Code graph</text>
+  <rect x="576" y="330" width="94" height="34" rx="14" fill="#161B22" stroke="#262D38" stroke-width="1.5"/>
+  <text x="623" y="352" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="14" fill="#F2F5F9" text-anchor="middle">Databases</text>
+  <rect x="678" y="330" width="94" height="34" rx="14" fill="#161B22" stroke="#262D38" stroke-width="1.5"/>
+  <text x="725" y="352" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="14" fill="#F2F5F9" text-anchor="middle">SSH</text>
+  <rect x="780" y="330" width="94" height="34" rx="14" fill="#161B22" stroke="#262D38" stroke-width="1.5"/>
+  <text x="827" y="352" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="14" fill="#F2F5F9" text-anchor="middle">MCP</text>
+  <rect x="474" y="388" width="195" height="104" rx="14" fill="#161B22" stroke="#262D38" stroke-width="1.5"/>
+  <text x="494" y="418" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="16" fill="#F2F5F9" text-anchor="start" font-weight="600">Projects</text>
+  <text x="494" y="444" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="14" fill="#9AA4B2" text-anchor="start">sessions, terminals,</text>
+  <text x="494" y="466" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="14" fill="#9AA4B2" text-anchor="start">worktrees</text>
+  <rect x="681" y="388" width="195" height="104" rx="14" fill="#161B22" stroke="#262D38" stroke-width="1.5"/>
+  <text x="701" y="418" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="16" fill="#F2F5F9" text-anchor="start" font-weight="600">Credentials</text>
+  <text x="701" y="444" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="14" fill="#9AA4B2" text-anchor="start">stay on this Host;</text>
+  <text x="701" y="466" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="14" fill="#9AA4B2" text-anchor="start">agents use IDs</text>
+  <rect x="960" y="160" width="200" height="112" rx="14" fill="#161B22" stroke="#262D38" stroke-width="1.5"/>
+  <text x="980" y="198" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="19" fill="#F2F5F9" text-anchor="start" font-weight="600">Models</text>
+  <text x="980" y="226" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="14" fill="#9AA4B2" text-anchor="start">providers you choose,</text>
+  <text x="980" y="248" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="14" fill="#9AA4B2" text-anchor="start">keys or subscriptions</text>
+  <polyline points="876,212 960,212" fill="none" stroke="#9AA4B2" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="918" y="202" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="13" fill="#9AA4B2" text-anchor="middle">requests</text>
+  <rect x="960" y="312" width="200" height="96" rx="14" fill="#161B22" stroke="#262D38" stroke-width="1.5"/>
+  <text x="980" y="350" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="19" fill="#F2F5F9" text-anchor="start" font-weight="600">Your code &amp; data</text>
+  <text x="980" y="378" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="14" fill="#9AA4B2" text-anchor="start">on the same machine</text>
+  <polyline points="876,360 960,360" fill="none" stroke="#9AA4B2" stroke-width="2" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+  <text x="918" y="350" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="13" fill="#9AA4B2" text-anchor="middle">edits</text>
+</svg>

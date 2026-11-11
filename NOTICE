@@ -1,0 +1,85 @@
+Sailry
+Copyright 2026 Sailry contributors
+
+Sailry-owned code, including adaptations of the authors' earlier Sailry Code
+and Sailry Platform implementations, is licensed under the Apache License,
+version 2.0 (Apache-2.0); see LICENSE. Source comments and notices that cite
+those earlier Sailry-owned revisions record the provenance of the referenced
+revision. The plugin SDK (sdk/) and the official plugins and themes
+repositories (plugins/ and themes/) are also licensed under Apache-2.0.
+
+The Apache-2.0 license does not grant rights to the Sailry name or logos; see
+TRADEMARKS.md.
+
+Third-party materials retain their own licenses and attribution. See
+third_party_licenses/README.md for the index of every notice, and the notices
+alongside bundled code and assets. These include MyGo and the other Go modules,
+retained Goose, Rig, Codex and ADK-derived source, Ghostty, fonts, icons and
+native runtimes.
+
+Go modules
+The Go modules linked into Desktop, Host and the Mobile adapter are listed with
+their licenses in third_party_licenses/go-modules.md. Release packaging copies
+their license and notice files into the package.
+
+OpenAI Codex patch format
+The apply_patch parser and hunk matching in internal/node/files/patch.go are
+adapted from https://github.com/openai/codex at
+451787127c0e70247034c33e358536ffd2b89cf8, codex-rs/apply-patch/src/ (Apache-2.0,
+Copyright 2025 OpenAI). Provenance, the original NOTICE and the license text are
+in third_party_licenses/codex.md, third_party_licenses/codex-NOTICE and
+third_party_licenses/codex-LICENSE.
+
+Retained Goose-derived Agent operations and provider adaptations
+Source derives from https://github.com/aaif-goose/goose at
+ee8500d5e060eea6f2bcee92e8a5e351f12c3a70 and https://github.com/sailry/goose at
+14741e9a7639810840b43767bd1218a6a43e87ec (Apache-2.0), through Sailry's earlier
+Rust implementation. Goose libraries are not dependencies. The adapting files
+under internal/node/agent name their source revision, and the original
+Copyright 2024 Block, Inc. license notice is retained in
+internal/node/agent/model/LICENSE.goose and
+internal/node/agent/output/LICENSE.goose.
+
+Rig request layouts
+Request layouts and parameter policy in internal/node/agent/model derive from
+rig-core 0.46.0, https://github.com/0xPlaygrounds/rig at
+6e039cd24994bc1e7d963af6f6278df73a81b130 (MIT). Rig is not a dependency. The
+original Copyright 2024 Playgrounds Analytics Inc. notice is retained in
+internal/node/agent/model/LICENSE.rig.
+
+Retained ADK-Rust sandbox policy at commit
+675c02b6c0df6d632b953a06a5a12d1f814b7780 is documented in
+third_party_licenses/adk-support.md, with its Apache-2.0 notice retained in
+third_party_licenses/adk-LICENSE.
+
+Ghostty terminal engine
+Desktop ships the unmodified libghostty-vt library pinned by the MyGo terminal
+plugin. Provenance and the retained MIT notice are in
+third_party_licenses/ghostty-terminal.md and third_party_licenses/ghostty-MIT.txt.
+
+Offline conversation export
+html2canvas, Apache ECharts, MathJax and Mermaid retain their licenses and
+source checksums in internal/desktop/exporter/assets/.
+
+Local decision inference
+Sailry bundles unmodified official llama.cpp b11756 shared libraries and their ggml
+runtime dependencies from https://github.com/ggml-org/llama.cpp.
+Pinned archive and member checksums are in
+internal/localmodels/decision/llama-runtime.lock.json.
+The original MIT license is retained in native/llama-LICENSE and provenance in
+third_party_licenses/llama.md. The Windows OpenMP runtime retains its license
+in third_party_licenses/llvm-OpenMP-LICENSE.
+
+ONNX Runtime and sherpa-onnx
+Local embedding, OCR and speech load the shared libraries pinned in
+native/onnxruntime.lock.json. The ONNX Runtime MIT license is retained in
+native/onnxruntime-LICENSE.
+
+agent-desktop
+-------------
+The computer-use helper uses unmodified official agent-desktop v1.2.0 release
+executables (Apache-2.0) from https://github.com/vercel-labs/agent-desktop,
+built from commit 2b0a7334fc111730454b726e6800aa41cdafc093. Archive and member
+checksums are recorded in native/agent-desktop.lock.json. Provenance is in
+third_party_licenses/agent-desktop.md and the license text in
+native/agent-desktop-LICENSE.

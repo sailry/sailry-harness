@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "presets": [
+    {
+      "id": "global",
+      "label": {
+        "label": "Public network",
+        "locales": {
+          "en": "Public network",
+          "zh": "公共网络",
+          "zh-CN": "公共网络",
+          "zh-TW": "公共網路",
+          "de": "Öffentliches Netzwerk",
+          "es": "Red pública",
+          "fr": "Réseau public",
+          "ja": "パブリックネットワーク",
+          "ko": "공용 네트워크",
+          "pt-BR": "Rede pública",
+          "ru": "Общедоступная сеть"
+        }
+      },
+      "selection": { "kind": "iroh" }
+    },
+    {
+      "id": "china-tencent",
+      "label": {
+        "label": "China (Tencent Cloud)",
+        "locales": {
+          "en": "China (Tencent Cloud)",
+          "zh": "中国（腾讯云）",
+          "zh-CN": "中国（腾讯云）",
+          "zh-TW": "中國（騰訊雲）",
+          "de": "China (Tencent Cloud)",
+          "es": "China (Tencent Cloud)",
+          "fr": "Chine (Tencent Cloud)",
+          "ja": "中国（Tencent Cloud）",
+          "ko": "중국 (Tencent Cloud)",
+          "pt-BR": "China (Tencent Cloud)",
+          "ru": "Китай (Tencent Cloud)"
+        }
+      },
+      "selection": {
+        "kind": "custom",
+        "relays": ["https://iroh-service.dux.plus"]
+      }
+    },
+    {
+      "id": "china-aliyun",
+      "label": {
+        "label": "China (Alibaba Cloud)",
+        "locales": {
+          "en": "China (Alibaba Cloud)",
+          "zh": "中国（阿里云）",
+          "zh-CN": "中国（阿里云）",
+          "zh-TW": "中國（阿里雲）",
+          "de": "China (Alibaba Cloud)",
+          "es": "China (Alibaba Cloud)",
+          "fr": "Chine (Alibaba Cloud)",
+          "ja": "中国（Alibaba Cloud）",
+          "ko": "중국 (Alibaba Cloud)",
+          "pt-BR": "China (Alibaba Cloud)",
+          "ru": "Китай (Alibaba Cloud)"
+        }
+      },
+      "selection": {
+        "kind": "custom",
+        "relays": ["https://aliyun-1.iroh.jujiang.me"]
+      }
+    }
+  ]
+}
