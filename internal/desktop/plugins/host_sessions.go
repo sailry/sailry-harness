@@ -180,6 +180,9 @@ type hostFeed struct {
 	query    *protocol.UsageQuery
 	all      bool
 	revision uint64
+	// replaced marks a usage feed whose successor already waits in its
+	// place, after a change of the usage sample.
+	replaced bool
 }
 
 func (owner *Host) feed(key, kind string, arguments json.RawMessage) (*hostFeed, error) {
