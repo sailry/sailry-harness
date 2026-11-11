@@ -463,10 +463,10 @@ does and the demo's panels and order are never saved. The Node keeps running.
 | Rail Files and Git pages | The demo project's sample resource (`App.project` returns the demo's `panel.Project`, whose `Actions` is nil): nothing is read or written, and the worktree manager, which a live project's actions open, is not offered |
 | Project editor and appearance | Saved to the demo's memory. The host directory picker and Open folder are not offered: the demo has no host whose directories it could list |
 | Session overview (header) | `preview.Overview` over the demo conversation, not `Hooks.Overview`. An output or a source opens the demo's file in the panel (`preview.Asset`); a cited page opens nothing |
-| Questions and approvals | Answered and decided in memory, every kind: a plan review's Continue and Execute, a form's values, an authorization link (no page opens) and a denial's reason, which shows on the call's row (`preview.Reason`). A request read again or sent again changes the demo's rows |
+| Questions and approvals | Answered and decided in memory, every kind: a plan review's Continue and Execute, a form's values and an authorization link (no page opens). A request read again or sent again changes the demo's rows |
 | Editing a sent message | Save replaces the message in memory. New chat from a selection opens a demo chat with the quote as its draft |
 | Links standing alone in a reply | The demo's own resolver (`preview.Embed` on the demo's `conversation.State`): its files as cards, its pictures and a tool's pictures as thumbnails. The controller's resolver is not called |
-| Composer host control, plugin modes, pasted files | The hosts are the window's own and choosing one changes only the demo draft; no plugin mode is offered; a pasted or dropped file plays a transfer and is not read |
+| Composer plugin modes, pasted files | No plugin mode is offered; a pasted or dropped file plays a transfer and is not read |
 | Queue | Edited, reordered and sent in memory. A subagent's session (`Session.ReadOnly`) has its read-only tray and no composer |
 | Shortcuts `conversation.stop`, `composer.focus`, `composer.models` | Act on the demo's composer; the model controls list the demo's models |
 | Close and quit prompt | Considers the window's own documents only: `live.Runtime.UnsavedDocuments` reads the controller's projects, never the demo's stage, and Save all saves those |

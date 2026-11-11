@@ -174,9 +174,6 @@ question_other: Andere
 question_decline: Ablehnen
 interaction_submit: Senden
 interaction_cancel: Abbrechen
-approval_deny_reason: Mit Begründung ablehnen
-approval_reason: Begründung
-approval_reason_cancel: Abbrechen
 approval_receipt: Genehmigungsbeleg
 approval_busy: Genehmigung ausstehend
 approval_ssh_trust: Vertraue %{host}:%{port} — %{algorithm} %{fingerprint}
@@ -1057,7 +1054,6 @@ telemetry_send_action: Diagnose senden
 telemetry_support: Support
 telemetry_title: Diagnose und Datenschutz
 telemetry_unknown: Ergebnis unbekannt. Zum Prüfen neu laden
-telemetry_welcome: Anonyme Diagnosen sind standardmäßig aktiv. Sie können dies in den Einstellungen ändern
 terminal_environment: Globale Umweltvariablen
 terminal_environment_add: Umgebungsvariable hinzufügen
 terminal_input: Eingabe

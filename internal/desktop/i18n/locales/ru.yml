@@ -174,9 +174,6 @@ question_other: Другое
 question_decline: Отклонить
 interaction_submit: Отправить
 interaction_cancel: Отмена
-approval_deny_reason: Отклонить с причиной
-approval_reason: Причина
-approval_reason_cancel: Отмена
 approval_receipt: Получение утверждения
 approval_busy: Ожидание подтверждения
 approval_ssh_trust: Доверять %{host}:%{port} — %{algorithm} %{fingerprint}
@@ -1057,7 +1054,6 @@ telemetry_send_action: Отправить диагностику
 telemetry_support: Поддержка
 telemetry_title: Диагностика и конфиденциальность
 telemetry_unknown: Результат неизвестен. Обновите для проверки
-telemetry_welcome: Анонимная диагностика включена по умолчанию. Это можно изменить в настройках
 terminal_environment: Глобальные экологические переменные
 terminal_environment_add: Добавить переменную среды
 terminal_input: Ввод

@@ -1716,13 +1716,13 @@ func testSessionForwarding(t *testing.T) {
 		t.Fatalf("after the own creation: conversation %s, draft %q", cv.ID, comp.Draft)
 	}
 
-	// A draft's host control lists this computer and the bound Hosts, and
-	// moves the draft between them; on another Host the model list says
-	// whose configuration each provider is.
+	// On another Host the model list says whose configuration each provider
+	// is. The composer offers no host choice (docs/removed-ui.md): its
+	// context names no Hosts and the bar has no control named after one.
 	cv, comp, _ = draft(modelKey(remoteProvider, "fixture"))
 	// The fixture has no network to list its paired Hosts from: the frame
-	// names them, one of them not bound.
-	paired := []viewmodel.Host{{ID: localNode.String(), Name: "local_host_name", Local: true}, {ID: remoteNode.String(), Name: "Build box"}, {ID: "unbound", Name: "Unbound box"}}
+	// names them.
+	paired := []viewmodel.Host{{ID: localNode.String(), Name: "local_host_name", Local: true}, {ID: remoteNode.String(), Name: "Build box"}}
 	var shown *composer.Context
 	window := ui.NewTesterWith(func(c *ui.Context) {
 		local.drain(c)
@@ -1734,68 +1734,32 @@ func testSessionForwarding(t *testing.T) {
 	}, 960, 520, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
 	window.SetLocale("zh-CN")
 	window.SetDark(true)
-	show := func() {
-		for range 4 {
-			local.workers.Wait()
-			remote.workers.Wait()
-			window.Advance(100 * time.Millisecond)
-			window.Frame()
-		}
+	for range 4 {
+		local.workers.Wait()
+		remote.workers.Wait()
+		window.Advance(100 * time.Millisecond)
+		window.Frame()
 	}
-	show()
-	hosts := func() (ids []string) {
-		for _, host := range shown.Hosts {
-			ids = append(ids, host.ID)
-		}
-		return
-	}
-	providers := func() (names []string) {
-		for _, model := range shown.Models {
-			names = append(names, model.Provider)
-		}
-		return
-	}
-	if got, want := hosts(), []string{localNode.String(), remoteNode.String()}; !slices.Equal(got, want) {
-		t.Fatalf("the host control offers %q, want %q", got, want)
+	var providers []string
+	for _, model := range shown.Models {
+		providers = append(providers, model.Provider)
 	}
 	desktop := i18n.In("zh-CN", "chat_config_desktop")
-	if got, want := providers(), []string{"Remote · Build box", "Local · " + desktop}; !slices.Equal(got, want) {
-		t.Fatalf("a draft on another Host names its providers %q, want %q", got, want)
+	if want := []string{"Remote · Build box", "Local · " + desktop}; !slices.Equal(providers, want) {
+		t.Fatalf("a draft on another Host names its providers %q, want %q", providers, want)
+	}
+	if len(shown.Hosts) != 0 {
+		t.Errorf("the composer is offered a host choice: %+v", shown.Hosts)
+	}
+	for _, e := range window.AccessAll() {
+		if e.Role != ui.RoleText && (e.Name == "Build box" || e.Name == i18n.In("zh-CN", "local_host_name")) {
+			t.Errorf("the composer has a control named after the host %q", e.Name)
+		}
 	}
 	if dir := os.Getenv("SAILRY_UI_SHOTS"); dir != "" {
-		if file, err := os.Create(filepath.Join(dir, "parity-live-host-control.png")); err == nil {
+		if file, err := os.Create(filepath.Join(dir, "parity-live-provider-sources.png")); err == nil {
 			_ = png.Encode(file, window.Image())
 			file.Close()
 		}
-	}
-	choose := func(from, to string) {
-		t.Helper()
-		for _, name := range []string{from, to} {
-			var target ui.AccessInfo
-			for _, e := range window.AccessAll() {
-				if e.Name == name && e.Role != ui.RoleText {
-					target = e
-				}
-			}
-			if target.Name == "" {
-				t.Fatalf("no control %q: %q", name, window.Texts())
-			}
-			window.ClickAt(target.Bounds.X+target.Bounds.W/2, target.Bounds.Y+target.Bounds.H/2)
-			show()
-		}
-	}
-	choose("Build box", i18n.In("zh-CN", "local_host_name"))
-	if comp.Host != localNode.String() || comp.Project != "" || local.conversationRuntime(cv, comp) != local {
-		t.Fatalf("choosing this computer left host %q, project %q", comp.Host, comp.Project)
-	}
-	if got, want := providers(), []string{"Local"}; !slices.Equal(got, want) {
-		t.Fatalf("a draft on this computer names its providers %q, want %q", got, want)
-	}
-	if comp.Model != modelKey(localProvider, "fixture") {
-		t.Fatalf("the moved draft's model = %q", comp.Model)
-	}
-	choose(i18n.In("zh-CN", "local_host_name"), "Build box")
-	if comp.Host != remoteNode.String() || local.conversationRuntime(cv, comp) != remote || comp.Model != modelKey(remoteProvider, "fixture") {
-		t.Fatalf("choosing the other Host left host %q, model %q", comp.Host, comp.Model)
 	}
 }

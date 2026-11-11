@@ -1,8 +1,8 @@
 // Package composer is the message composer under the transcript: the queue
 // strip, the attachment chips, the draft with its inline reference chips and
 // the @ and / pickers, the toolbar (attach, mode, permission, the model chip
-// and its controls, dictation, send and stop), and the context bar (host,
-// project and worktree, usage).
+// and its controls, dictation, send and stop), and the context bar (project
+// and worktree, usage).
 //
 // Custom drawing, each for a verified MyGo gap: the model controls' effort
 // track (track.go: MyGo's StepSlider has no gradient fill or step dots),
@@ -480,8 +480,7 @@ func action(b ui.Element, a *theme.Action, disabled bool) {
 	}
 }
 
-// contextBar is under the surface: the host where there is another to
-// choose, the project and the worktree, then the
+// contextBar is under the surface: the project and the worktree, then the
 // usage at its end. Wide, both wrap; compact, they stay on one line and the
 // usage is one button; below the icon width the location is in the settings
 // popover and the bar keeps the usage alone.
@@ -501,7 +500,6 @@ func (s *State) contextBar(c *ui.Context, ctx *Context, actions Actions) {
 		}
 		location.Children(func() {
 			if !narrow {
-				s.hostMenu(c, ctx, toolbarForm)
 				s.projectButton(c, ctx, actions, toolbarForm)
 				s.worktreeMenu(c, ctx, actions, toolbarForm)
 			}

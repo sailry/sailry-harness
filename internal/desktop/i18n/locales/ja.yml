@@ -174,9 +174,6 @@ question_other: その他
 question_decline: 拒否
 interaction_submit: 送信
 interaction_cancel: キャンセル
-approval_deny_reason: 理由を添えて拒否
-approval_reason: 理由
-approval_reason_cancel: キャンセル
 approval_receipt: 承認書
 approval_busy: 承認待ち
 approval_ssh_trust: '%{host}:%{port} を信頼 — %{algorithm} %{fingerprint}'
@@ -1057,7 +1054,6 @@ telemetry_send_action: 診断情報を送信
 telemetry_support: サポート
 telemetry_title: 診断とプライバシー
 telemetry_unknown: 結果は不明です。再読み込みして確認してください
-telemetry_welcome: 匿名の診断は既定で有効です。設定で変更できます
 terminal_environment: 大域環境変数
 terminal_environment_add: 環境変数を追加
 terminal_input: 入力

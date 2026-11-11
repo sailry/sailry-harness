@@ -87,8 +87,8 @@ func (h *Host) label(c *ui.Context, text string) string {
 }
 
 // header is the host's name, status and platform beside its logo, then its
-// port forwards, Update for a host updated from here and Remove pairing for
-// a paired one, disabled while its removal runs.
+// port forwards and Update for a host updated from here. It has no Remove
+// pairing button (docs/removed-ui.md): the rail's host menu asks for it.
 func header(c *ui.Context, s *State, h *Host, act Actions) {
 	p := theme.Of(c)
 	ui.Row(c.Key("header")).Gap(16).Padding(16, 0).Wrap().Children(func() {
@@ -111,9 +111,6 @@ func header(c *ui.Context, s *State, h *Host, act Actions) {
 			portsHeader(c, s, h, act)
 			if h.Update != nil {
 				small(c, "update", icons.ArrowUp, i18n.T(c, "host_update"), false, true).OnClick(func() { s.updating = true })
-			}
-			if act.Revoke != nil {
-				small(c, "revoke", nil, i18n.T(c, "live_revoke"), h.Revoking, true).OnClick(func() { s.revoking = true })
 			}
 		})
 	})

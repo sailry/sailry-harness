@@ -182,9 +182,6 @@ question_other
 question_decline
 interaction_submit
 interaction_cancel
-approval_deny_reason
-approval_reason
-approval_reason_cancel
 approval_receipt
 approval_busy
 approval_ssh_trust
@@ -1076,7 +1073,6 @@ telemetry_send_action
 telemetry_support
 telemetry_title
 telemetry_unknown
-telemetry_welcome
 terminal_environment
 terminal_environment_add
 terminal_input

@@ -21,9 +21,8 @@ func (r *Runtime) draftWorkspaceSession(id string) (protocol.Session, bool) {
 	comp := r.App.Composer(id)
 	project := comp.Project
 	if project == "" {
-		// The draft's row may still sit under another Host's project after
-		// the host control moved the draft here: that project is not this
-		// Host's.
+		// The draft's row may sit under another Host's project: that project
+		// is not this Host's.
 		if owner := r.App.Data.ProjectOf(id); owner != nil && (owner.Host == "" || owner.Host == r.controller.Target().String()) {
 			project = owner.ID
 			comp.Project = project

@@ -174,9 +174,6 @@ question_other: Outro
 question_decline: Recusar
 interaction_submit: Enviar
 interaction_cancel: Cancelar
-approval_deny_reason: Negar com motivo
-approval_reason: Motivo
-approval_reason_cancel: Cancelar
 approval_receipt: Recibo de aprovação
 approval_busy: Aprovação pendente
 approval_ssh_trust: Confiar em %{host}:%{port} — %{algorithm} %{fingerprint}
@@ -1057,7 +1054,6 @@ telemetry_send_action: Enviar diagnóstico
 telemetry_support: Suporte
 telemetry_title: Diagnóstico e privacidade
 telemetry_unknown: Resultado desconhecido. Recarregue para verificar
-telemetry_welcome: Os diagnósticos anônimos vêm ativados. Você pode alterar isso nas configurações
 terminal_environment: Variáveis ambientais globais
 terminal_environment_add: Adicionar variável de ambiente
 terminal_input: Entrada

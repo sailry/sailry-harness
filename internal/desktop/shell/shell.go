@@ -780,9 +780,6 @@ func (x *actions) Decide(id string, d composer.Decision, reason string) {
 		return
 	}
 	preview.Decide(x.cv, id, d)
-	if d == composer.Deny && reason != "" && x.a.Demo() {
-		preview.Reason(x.cv, id, reason)
-	}
 	if !x.a.Demo() {
 		kit.Message(x.c, i18n.T(x.c, "approval_preview_result"))
 	}

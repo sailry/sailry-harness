@@ -135,11 +135,14 @@ func testHostMenu(t *testing.T) {
 	if revoked != 0 || tt.HasText(confirm) {
 		t.Fatalf("cancel: %d revoked %q", revoked, tt.Texts())
 	}
-	// The page's own button asks the same.
-	clickButton(t, tt, revoke)
-	tt.Frame()
+	// The page has no Remove pairing button (docs/removed-ui.md): the menu
+	// is the one way to ask.
+	if info, ok := tt.AccessByRole(ui.RoleButton, revoke); ok {
+		t.Errorf("the host page has a Remove pairing button at %v", info.Bounds)
+	}
+	choose(revoke)
 	if !tt.HasText(confirm) {
-		t.Fatalf("the page's Remove pairing: %q", tt.Texts())
+		t.Fatalf("Remove pairing again: %q", tt.Texts())
 	}
 	var last ui.Rect
 	for _, info := range tt.AccessAll() {
@@ -153,13 +156,10 @@ func testHostMenu(t *testing.T) {
 	if revoked != 1 || tt.HasText(confirm) {
 		t.Fatalf("confirm: %d revoked %q", revoked, tt.Texts())
 	}
-	// A removal that runs disables both.
+	// A removal that runs disables the item.
 	h, _ := a.hostPage()
 	h.Revoking = true
 	tt.Frame()
-	if info, ok := tt.AccessByRole(ui.RoleButton, revoke); !ok || !info.Disabled {
-		t.Errorf("Remove pairing while it runs: %+v", info)
-	}
 	menu()
 	if err := tt.ChooseMenuItem(revoke); err == nil {
 		t.Error("Remove pairing could be chosen while it runs")

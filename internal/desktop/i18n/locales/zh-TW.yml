@@ -174,9 +174,6 @@ question_other: 其他
 question_decline: 拒絕回答
 interaction_submit: 提交
 interaction_cancel: 取消
-approval_deny_reason: 附理由拒絕
-approval_reason: 理由
-approval_reason_cancel: 取消
 approval_receipt: 審批迴執
 approval_busy: 審批處理中
 approval_ssh_trust: 信任 %{host}:%{port} — %{algorithm} %{fingerprint}
@@ -1057,7 +1054,6 @@ telemetry_send_action: 傳送診斷資訊
 telemetry_support: 支援
 telemetry_title: 診斷與隱私
 telemetry_unknown: 結果未知，請重新載入確認
-telemetry_welcome: 匿名診斷預設開啟，可在設定中變更
 terminal_environment: 全域性環境變數
 terminal_environment_add: 新增環境變數
 terminal_input: 輸入

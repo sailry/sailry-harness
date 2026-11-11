@@ -128,6 +128,7 @@ func interactionKinds(t *testing.T) {
 		"link":   {{"link-search", "tool_search", string(selectTools)}, {"link-call", alias("authorize"), `{}`}},
 		"deny":   {{"deny-search", "tool_search", string(selectTools)}, {"deny-call", alias("write"), `{"text":"denied"}`}},
 		"allow":  {{"allow-search", "tool_search", string(selectTools)}, {"allow-call", alias("write"), `{"text":"allowed"}`}},
+		"reason": {{"reason-search", "tool_search", string(selectTools)}, {"reason-call", alias("write"), `{"text":"reasoned"}`}},
 	}}
 	elicited := make(chan *sdk.ElicitResult, 4)
 	written := make(chan string, 4)
@@ -540,25 +541,31 @@ func interactionKinds(t *testing.T) {
 		t.Fatalf("the link answered %s and opened %q", opened.Action, tester.OpenedURLs())
 	}
 
-	// Deny with a reason. The first send loses its outcome: the request
-	// stays for Retry, which sends that same request once while it travels.
+	// Deny takes no reason: the popover has no reason field and Deny no
+	// menu (docs/removed-ui.md). The first send loses its outcome: the
+	// request stays for Retry, which sends that same request once while it
+	// travels.
 	approvals := text("approval_live_count", "count", 1)
 	submit(session, "scenario:deny")
 	wait("the approval", func() bool { return tester.HasText(approvals) })
+	fields := func() (count int) {
+		for _, info := range tester.AccessAll() {
+			if info.Role == ui.RoleTextField {
+				count++
+			}
+		}
+		return count
+	}
+	closed := fields()
 	click(approvals)
 	wait("the approval's details", func() bool {
 		waiting := r.App.Sidebar.Data.Find(session.String()).Waiting.Approvals
 		return len(waiting) == 1 && tester.HasText(text("approval_allow_once")) && !button(text("approval_allow_once")).Disabled
 	})
 	shot("approval")
-	role(text("approval_deny_reason"), ui.RoleButton, ui.RoleMenuButton, ui.RolePopUpButton)
-	shot("approval-deny-menu")
-	role(text("approval_deny_reason"), ui.RoleMenuItem)
-	if !button(text("approval_reject")).Disabled || !tester.HasText(text("approval_reason_cancel")) {
-		t.Fatalf("Deny is enabled without a reason: %q", tester.Texts())
+	if open := fields(); open != closed {
+		t.Fatalf("the approval popover adds a field: %d text fields, %d without it", open, closed)
 	}
-	typed(text("approval_reason"), "Use the staging bucket")
-	shot("approval-deny-reason")
 	setHook(func(request protocol.Request) error {
 		if request.Command.Kind == "resolve_approval" {
 			return &link.FaultError{Fault: protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "the outcome is unknown"}}
@@ -608,7 +615,7 @@ func interactionKinds(t *testing.T) {
 	if len(requests) != 2 || requests[0].ID != requests[1].ID {
 		t.Fatalf("the decision was sent %d times, as one request: %v", len(requests), len(requests) == 2 && requests[0].ID == requests[1].ID)
 	}
-	if got := script.result("deny-call"); !strings.Contains(got, "Tool execution was denied. Reason: Use the staging bucket") {
+	if got := script.result("deny-call"); got == "" || strings.Contains(got, "Reason:") {
 		t.Fatalf("the model received %q for the denied call", got)
 	}
 	select {
@@ -631,6 +638,31 @@ func interactionKinds(t *testing.T) {
 	completed(session, 8)
 	if value := <-written; value != "allowed" || !strings.Contains(script.result("allow-call"), "wrote:allowed") {
 		t.Fatalf("the allowed tool wrote %q and returned %q", value, script.result("allow-call"))
+	}
+
+	// The window sends no reason, the Node still takes one from a client
+	// that does (deny_with_reason) and gives it to the model.
+	submit(session, "scenario:reason")
+	var pending protocol.ApprovalID
+	wait("the third approval", func() bool {
+		waiting := r.App.Sidebar.Data.Find(session.String()).Waiting.Approvals
+		if len(waiting) != 1 {
+			return false
+		}
+		id, err := protocol.ParseApprovalID(waiting[0].ID)
+		pending = id
+		return err == nil
+	})
+	do(protocol.Command{Kind: "resolve_approval", Data: protocol.CommandResolveApprovalPayload{Session: session, Approval: pending,
+		Decision: protocol.ConversationDecision{Kind: "deny_with_reason", Data: "Use the staging bucket"}}})
+	completed(session, 9)
+	if got := script.result("reason-call"); !strings.Contains(got, "Tool execution was denied. Reason: Use the staging bucket") {
+		t.Fatalf("the model received %q for the call denied with a reason", got)
+	}
+	select {
+	case value := <-written:
+		t.Fatalf("the denied tool ran with %q", value)
+	default:
 	}
 
 	// An SSH host key is asked for as its trust prompt.

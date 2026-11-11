@@ -208,8 +208,29 @@ func TestApprovalsAndQuestion(t *testing.T) {
 	if len(cv.Waiting.Approvals) != 2 {
 		t.Fatalf("%d approvals", len(cv.Waiting.Approvals))
 	}
+	fields := func() (n int) {
+		for _, e := range tt.AccessAll() {
+			if e.Role == ui.RoleTextField {
+				n++
+			}
+		}
+		return n
+	}
+	closed := fields()
 	clickButton(t, tt, i18n.In("en", "approval_live_count", "count", 2))
 	snapshot(t, tt, "approvals")
+	// Deny takes no reason (docs/removed-ui.md): the popover has no reason
+	// field and Deny no menu.
+	t.Run("no deny reason", func(t *testing.T) {
+		if open := fields(); open != closed {
+			t.Errorf("the approval popover adds a field: %d text fields, %d without it", open, closed)
+		}
+		for _, e := range tt.AccessAll() {
+			if e.Role != ui.RoleText && (e.Name == "Deny with reason" || e.Name == "Reason") {
+				t.Errorf("the approval popover has a %q control", e.Name)
+			}
+		}
+	})
 	// One request at a time, paged by its position.
 	if !tt.HasText("1/2") || !tt.HasText("internal/kit/loader.go") {
 		t.Fatalf("the approvals do not show the first request: %q", tt.Texts())
