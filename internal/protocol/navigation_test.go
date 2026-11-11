@@ -14,6 +14,9 @@ func TestNavigationValidation(t *testing.T) {
 	}{
 		{"catalog", PluginDesktopIcon{Kind: "Name", Data: "reicon:" + navigationIcons[0]}, true},
 		{"unknown", PluginDesktopIcon{Kind: "Name", Data: "reicon:missing"}, false},
+		{"emblem", PluginDesktopIcon{Kind: "Name", Data: "kubai:folder-plus"}, true},
+		{"unknown_emblem", PluginDesktopIcon{Kind: "Name", Data: "kubai:missing"}, false},
+		{"emblem_group", PluginDesktopIcon{Kind: "Name", Data: "kubai:files/folder"}, false},
 		{"shape", PluginDesktopIcon{Kind: "Svg", Data: PluginDesktopIconSvgPayload{Svg: `<svg viewBox="0 0 24 24"><path d="M4 12h16"/></svg>`}}, true},
 		{"script", PluginDesktopIcon{Kind: "Svg", Data: PluginDesktopIconSvgPayload{Svg: `<svg viewBox="0 0 24 24"><script/></svg>`}}, false},
 		{"external", PluginDesktopIcon{Kind: "Svg", Data: PluginDesktopIconSvgPayload{Svg: `<svg viewBox="0 0 24 24"><path fill="url(https://example.invalid)"/></svg>`}}, false},

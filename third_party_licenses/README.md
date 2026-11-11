@@ -13,6 +13,8 @@ single owning package, and this index lists every location.
 | OpenAI Codex patch format, adapted in `internal/node/files` | Apache-2.0 | [codex.md](codex.md), [codex-LICENSE](codex-LICENSE), [codex-NOTICE](codex-NOTICE) |
 | Agent Plugins schema in `schemas/agent-plugins` | Apache-2.0 | [agent-plugins.md](agent-plugins.md), [agent-plugins-Apache-2.0.txt](agent-plugins-Apache-2.0.txt) |
 | AI Logo brand marks, linked from `github.com/yldm-tech/ai-logo/mygo` and drawn through `internal/desktop/icons` | MIT, with per-brand terms | [ai-logo.md](ai-logo.md) |
+| Lobe Icons provider marks in `internal/desktop/icons/svg` | MIT | [lobe-icons.txt](lobe-icons.txt) |
+| Kubai Icons package emblems, drawn by `github.com/yldm-tech/mygo-kubai-icons` | MIT, BSD-3-Clause | [kubai-icons.md](kubai-icons.md), [kubai-icons-port-MIT.txt](kubai-icons-port-MIT.txt), [kubai-icons-MIT.txt](kubai-icons-MIT.txt), [kubai-icons-go-fonts.txt](kubai-icons-go-fonts.txt) |
 | libghostty-vt terminal engine, shipped by the MyGo terminal plugin | MIT | [ghostty-terminal.md](ghostty-terminal.md), [ghostty-MIT.txt](ghostty-MIT.txt) |
 | llama.cpp and ggml runtime | MIT | [llama.md](llama.md) |
 | LLVM OpenMP runtime in the Windows llama.cpp packages | Apache-2.0 with LLVM exceptions, MIT | [llvm-OpenMP-LICENSE](llvm-OpenMP-LICENSE) |

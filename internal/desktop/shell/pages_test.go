@@ -7,8 +7,10 @@ import (
 
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/sidebar"
+	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 )
 
@@ -290,6 +292,58 @@ func testLivePluginNavigation(t *testing.T) {
 	}
 	if _, ok := headerButton(tester, toggle); !ok || !sessionsShown(tester) || !tester.HasText("Listed session") {
 		t.Fatalf("the conversation came back without its sessions: %q", tester.Texts())
+	}
+	// A feature's rail button draws the glyph its package declares, in the
+	// rail's text color as the application's own, and not the puzzle piece;
+	// the window at rest asks for no frame.
+	var declared []Feature
+	for _, feature := range [][3]string{
+		{"activity-board", "活动看板", "reicon:ui/grid"}, {"databases", "数据库", "reicon:ui/database"},
+		{"reminders", "待办提醒", "reicon:notifications/bell"}, {"scheduled-tasks", "定时任务", "reicon:time/calendar"},
+		{"ssh", "SSH", "reicon:it/terminal-square"}, {"statistics", "统计", "reicon:business/chart-bar"},
+		{"task-plaza", "任务广场", "reicon:building/buildings"},
+	} {
+		icon, err := icons.Plugin(feature[2])
+		if err != nil || icon == icons.Puzzle {
+			t.Fatalf("%s: %v", feature[2], err)
+		}
+		declared = append(declared, Feature{ID: "plugin/local/" + feature[0], Label: feature[1], Icon: icon, DefaultPinned: true})
+	}
+	rail := NewLive(&viewmodel.Data{Workspace: &viewmodel.Workspace{}})
+	rail.SetPluginFeatures(declared)
+	tester = ui.NewTesterWith(rail.View, 1280, 820, opaque)
+	tester.SetLocale("zh-CN")
+	glyph := func(label string) string {
+		t.Helper()
+		settle(tester)
+		if tester.FramePending() {
+			t.Fatal("the rail at rest asks for frames")
+		}
+		button, found := tester.AccessByRole(ui.RoleButton, label)
+		if !found {
+			t.Fatalf("no rail button %q: %q", label, tester.Texts())
+		}
+		img, at := tester.Image(), button.Bounds
+		var pixels []byte
+		for y := int(at.Y); y < int(at.Y+at.H); y++ {
+			pixels = append(pixels, img.Pix[img.PixOffset(int(at.X), y):img.PixOffset(int(at.X+at.W), y)]...)
+		}
+		return string(pixels)
+	}
+	for _, mode := range []string{"dark", "light"} {
+		rail.Mode = map[string]theme.Mode{"dark": theme.Dark, "light": theme.Light}[mode]
+		tester.SetDark(mode == "dark")
+		settle(tester)
+		shot(t, tester, "rail-plugin-features-zh-CN-"+mode)
+	}
+	drawn, other := glyph("定时任务"), glyph("数据库")
+	if len(drawn) != len(other) || drawn == other {
+		t.Fatal("two packages' rail buttons draw the same glyph")
+	}
+	declared[3].Icon = icons.Puzzle
+	rail.SetPluginFeatures(declared)
+	if glyph("定时任务") == drawn {
+		t.Fatal("the rail button draws the placeholder for its declared icon")
 	}
 }
 

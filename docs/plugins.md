@@ -138,6 +138,20 @@ its previews. Status is produced by Node and observed through Client, including
 the source's scheduling, failure cooldown and retained disconnected snapshot.
 Intent resolution can reveal a hidden status popover without starting a model.
 
+A package's declared `display.icon` and `tint` reach every surface that shows
+the package. Live projection carries them on `viewmodel.Package` (`Icon` is the
+declared name or the package's own SVG markup) and on connector types and
+services. Market cards, Settings > Plugins cards, the details header, the
+updates dialog and connector service tiles draw the package emblem:
+`icons.Emblem` maps `kubai:<id>` directly and `reicon:<group>/<name>` through
+its alias table or leaf name to a Kubai icon, drawn in the declared tint (the
+name's hashed tint when none is declared) and animated while its card is
+hovered. A package's own SVG, or a name with no emblem, draws as a glyph on a
+tinted tile; an unknown name is the puzzle piece. Text-colored slots (rail
+feature buttons, settings sidebar entries, tool rows, menus and script `Icon`
+components) draw the monochrome glyph from `icons.Plugin`; `icons.ByName`
+falls back to it for tool rows.
+
 Native bridges expose scoped terminal, conversation, artifact, configuration and
 file owners. They preserve the captured workspace and action requirements.
 Services belonging to later phases return `Unavailable` until their owners
@@ -282,6 +296,14 @@ for that concept, at the same sizes and tokens:
   as the source host does, without its permission dialog: the system's
   Keychain prompt is the consent ([settings](settings.md#browser-page-wiring)).
 
+- Package emblems are Kubai Icons drawn by the pinned
+  `github.com/yldm-tech/mygo-kubai-icons` module; the source shows the Reicon
+  glyph on a tinted tile. Kubai has no monochrome form, so text-colored slots
+  keep the embedded Reicon outlines and none of them is removed. `kubai:<id>`
+  is an additional icon namespace of the v1 icon contract; in a text-colored
+  slot it draws as its static colored form.
+- The emblem's hover motion is the library's painter animation: it requests
+  frames only while moving and stays still under reduced motion.
 - The source GPUI element contract is adapted to MyGo and Kit; imported runtime
   resources retain their notices and source revision.
 - Cards with an embedded authorization browser use an isolated native MyGo page

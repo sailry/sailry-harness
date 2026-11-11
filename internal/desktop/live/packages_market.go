@@ -154,6 +154,10 @@ func catalogPackageView(entry protocol.PluginCatalogEntry, locale string, source
 	row := viewmodel.Package{ID: entry.ID, Name: entry.Name, Version: stringValue(entry.Version), Description: stringValue(entry.Description), Source: sourceKey, Official: source == 0}
 	if entry.Display != nil {
 		row.Name = pluginNavigation(*entry.Display, locale)
+		row.Icon = pluginIconSource(entry.Display.Icon)
+	}
+	if entry.Tint != nil {
+		row.Tint = string(*entry.Tint)
 	}
 	if text := entry.DescriptionLocales[i18n.Match(locale)]; text != "" {
 		row.Description = text

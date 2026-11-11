@@ -4,6 +4,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -12,6 +13,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
+	"github.com/yldm-tech/mygo-kubai-icons/kubai"
 )
 
 // The Plugins page (settings/plugins*, plugins/*): the inventory's
@@ -90,8 +92,49 @@ func compatibility(c *ui.Context, p *preview.Package) string {
 	return i18n.T(c, "plugins_requires_sailry", "version", p.Requires)
 }
 
-func pluginTile(c *ui.Context, p *preview.Package, size float32) {
-	ui.Row(c).Size(size, size).Center().Children(func() { kit.Tile(c, p.Name, icons.Puzzle) })
+// pluginTile is the package's emblem in a box size square: its declared icon
+// in its declared tint, the puzzle piece when it declares none.
+func pluginTile(c *ui.Context, p *preview.Package, size float32, hovered bool) {
+	box := ui.Row(c).Size(size, size).Center()
+	hovered = hovered || box.Hovered()
+	box.Children(func() { emblem(c, p.Name, p.Icon, p.Tint, icons.Puzzle, min(size, 48), hovered) })
+}
+
+// tints are the declared emblem colors in theme.Tints' order.
+var tints = []string{"blue", "violet", "teal", "amber", "gray"}
+
+// ownIcons are the icons declared as SVG markup, parsed once; nil for
+// markup in error.
+var ownIcons sync.Map
+
+// emblem is a record's mark from the icon it declares. An icon with a Kubai
+// emblem (icons.Emblem) is drawn by that library, size DIPs square in the
+// accent of the tint, and plays its motion while hovered. Any other is a
+// glyph on kit.Tile: the declared outline or the record's own SVG, or
+// fallback for none and for a name nothing draws.
+func emblem(c *ui.Context, name, icon, tint string, fallback *ui.SVG, size float32, hovered bool) {
+	if mark := icons.Emblem(icon); mark != nil {
+		accent := kit.Tint(name)
+		if i := slices.Index(tints, tint); i >= 0 {
+			accent = theme.Tints[i]
+		}
+		mark.View(c, kubai.Options{Size: size, Color: accent[1], Hovered: hovered, Still: true})
+		return
+	}
+	glyph := fallback
+	if strings.HasPrefix(icon, "<") {
+		parsed, known := ownIcons.Load(icon)
+		if !known {
+			svg, _ := ui.ParseSVG([]byte(icon))
+			parsed, _ = ownIcons.LoadOrStore(icon, svg)
+		}
+		if svg := parsed.(*ui.SVG); svg != nil {
+			glyph = svg
+		}
+	} else if svg, err := icons.Plugin(icon); err == nil {
+		glyph = svg
+	}
+	kit.Tile(c, name, glyph)
 }
 
 func plugins(c *ui.Context, s *State) {
@@ -198,7 +241,7 @@ func pluginCard(c *ui.Context, s *State, p *preview.Package) {
 	if msg := compatibility(c, p); msg != "" && Update(p) {
 		desc = msg
 	}
-	kit.ResourceCard(c, p.ID, p.Name, desc, func() { pluginTile(c, p, kit.TileSize) }, func() { s.ShowDetails(DetailPlugin, p.ID) }, func(bool) {
+	kit.ResourceCard(c, p.ID, p.Name, desc, func(hovered bool) { pluginTile(c, p, kit.TileSize, hovered) }, func() { s.ShowDetails(DetailPlugin, p.ID) }, func(bool) {
 		if Update(p) && p.Requires == "" {
 			kit.Action(c.Key("update"), icons.Download, t("plugins_update_available"), false).OnClick(func() {
 				if m.PackageActions != nil && m.PackageActions.Update != nil {
@@ -510,7 +553,7 @@ func pluginUpdatesDialog(c *ui.Context, m *Model) {
 						if ui.Checkbox(c.Key("check"), &on, "").Label(p.Name).Disabled(p.Requires != "").Changed() {
 							e.chosen[p.ID] = on
 						}
-						pluginTile(c, p, 28)
+						pluginTile(c, p, 28, false)
 						ui.Column(c).Grow(1).Gap(2).Children(func() {
 							ui.Text(c, p.Name).FontSize(14).FontWeight(500)
 							ui.Text(c, t("plugins_update_version", "version", p.Latest)).FontSize(12).TextColor(pal.MutedForeground)

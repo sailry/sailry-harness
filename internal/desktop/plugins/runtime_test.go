@@ -4,15 +4,21 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/egoist/mygo/ui"
 	"github.com/jonboulle/clockwork"
+	sailry "github.com/sailry/sailry-harness"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/protocol"
+	"github.com/yldm-tech/mygo-kubai-icons/all"
+	"github.com/yldm-tech/mygo-kubai-icons/kubai"
 )
 
 func TestRuntimeLifecycle(t *testing.T) {
@@ -477,6 +483,82 @@ export default class Example extends View {render(){return `+current.expression+
 		}
 		if !icons.Colored("ailogo:claude-color") || icons.Colored("ailogo:claude") || icons.Colored("ailogo:openai-color") || icons.Colored("settings") {
 			t.Fatal("the names of marks in their own colors are told apart wrongly")
+		}
+		if _, err := icons.Plugin("kubai:missing"); err == nil || icons.Emblem("kubai:missing") != nil || icons.Emblem("reicon:missing/icon") != nil || icons.Emblem("folder") != nil {
+			t.Fatal("unknown emblem was accepted")
+		}
+		// Every icon the bundled packages declare has its glyph, and each
+		// package's own icon has an emblem or is the package's SVG.
+		manifests, err := fs.Glob(sailry.Plugins, "plugins/*/plugin.json")
+		if err != nil || len(manifests) < 40 {
+			t.Fatalf("bundled manifests: %d, %v", len(manifests), err)
+		}
+		declared := map[string]bool{}
+		var walk func(value any)
+		walk = func(value any) {
+			switch value := value.(type) {
+			case map[string]any:
+				for key, child := range value {
+					if name, named := child.(string); named && key == "icon" && strings.Contains(name, ":") {
+						declared[name] = true
+					}
+					walk(child)
+				}
+			case []any:
+				for _, child := range value {
+					walk(child)
+				}
+			}
+		}
+		for _, name := range manifests {
+			data, err := fs.ReadFile(sailry.Plugins, name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var manifest struct {
+				Extensions map[string]struct {
+					Display struct {
+						Icon json.RawMessage `json:"icon"`
+					} `json:"display"`
+				} `json:"extensions"`
+			}
+			var document any
+			if json.Unmarshal(data, &manifest) != nil || json.Unmarshal(data, &document) != nil {
+				t.Fatalf("%s does not parse", name)
+			}
+			walk(document)
+			var own protocol.PluginDesktopIcon
+			if err := json.Unmarshal(manifest.Extensions["dev.sailry.platform"].Display.Icon, &own); err != nil || !own.Valid() {
+				t.Fatalf("%s declares no valid icon of its own: %v", name, err)
+			}
+			if title, named := own.Data.(*string); named && icons.Emblem(*title) == nil {
+				t.Errorf("%s: %q has no emblem", name, *title)
+			}
+		}
+		if len(declared) < 30 {
+			t.Fatalf("bundled manifests declare %d icon names", len(declared))
+		}
+		for name := range declared {
+			if icon, err := icons.Plugin(name); err != nil || icon == nil {
+				t.Errorf("bundled icon %q is unavailable: %v", name, err)
+			}
+		}
+		// A manifest may name every icon of the library, and only those.
+		listed, err := os.ReadFile(filepath.Join("..", "..", "protocol", "kubai_icon_names.txt"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := len(strings.Fields(string(listed))); got != len(all.Entries) || got != kubai.Count {
+			t.Fatalf("the protocol lists %d emblems, the library has %d", got, len(all.Entries))
+		}
+		for _, entry := range all.Entries {
+			name := "kubai:" + entry.Name
+			if !(protocol.PluginDesktopIcon{Kind: "Name", Data: name}).Valid() || icons.Emblem(name) != entry.Icon() {
+				t.Fatalf("emblem %q is not declarable or not drawn", name)
+			}
+		}
+		if icon, err := icons.Plugin("kubai:folder-plus"); err != nil || icon == nil || nativeIcon("kubai:folder-plus") != icon {
+			t.Fatalf("an emblem has no static form: %v", err)
 		}
 	})
 	t.Run("scope rejects foreign package", func(t *testing.T) {

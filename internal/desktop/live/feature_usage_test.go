@@ -7,7 +7,9 @@ import (
 	"testing"
 	"testing/synctest"
 
+	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
+	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
@@ -90,6 +92,39 @@ func testFeatureUsage(t *testing.T) {
 			if got := root.pluginPageFeature(id); got != want {
 				t.Errorf("package page %s is counted as %q, want %q", id, got, want)
 			}
+		}
+
+		// A package's views carry the icon and tint it declares: a rail
+		// feature its glyph, a card the name its emblem is found by. Only an
+		// unknown or missing declaration is the puzzle piece.
+		root.pluginViews.icons, root.pluginViews.iconFailures = map[string]*ui.SVG{}, map[string]bool{}
+		calendar, tint, category := "reicon:time/calendar", protocol.PluginTintAmber, protocol.PluginCategory("automation")
+		glyph, err := icons.Plugin(calendar)
+		if err != nil || glyph == icons.Puzzle {
+			t.Fatal(err)
+		}
+		if got := root.pluginNavigationIcon(nil, &protocol.PluginDesktopIcon{Kind: "Name", Data: &calendar}); got != glyph {
+			t.Error("a navigation entry does not draw its declared glyph")
+		}
+		missing := "reicon:missing/icon"
+		if root.pluginNavigationIcon(nil, &protocol.PluginDesktopIcon{Kind: "Name", Data: &missing}) != icons.Puzzle || root.pluginNavigationIcon(nil, nil) != icons.Puzzle {
+			t.Error("an unknown navigation icon is not the placeholder")
+		}
+		display := &protocol.PluginDesktopNavigation{Label: "Scheduled tasks", Icon: &protocol.PluginDesktopIcon{Kind: "Name", Data: &calendar}}
+		declared := protocol.PluginInfo{Extension: &protocol.PluginExtension{Display: display, Tint: &tint, Category: &category}}
+		declared.Summary.Name = "scheduled-tasks"
+		if view := packageView(declared, "en"); view.Icon != calendar || view.Tint != "amber" || view.Name != "Scheduled tasks" {
+			t.Errorf("an installed package's view lost its icon or tint: %q %q", view.Icon, view.Tint)
+		}
+		if view := catalogPackageView(protocol.PluginCatalogEntry{ID: "scheduled-tasks", Display: display, Tint: &tint}, "en", 0); view.Icon != calendar || view.Tint != "amber" {
+			t.Errorf("a catalog entry's view lost its icon or tint: %q %q", view.Icon, view.Tint)
+		}
+		own := protocol.PluginDesktopIconSvgPayload{Svg: `<svg viewBox="0 0 24 24"><path d="M4 12h16"/></svg>`}
+		if got := pluginIconSource(&protocol.PluginDesktopIcon{Kind: "Svg", Data: &own}); got != own.Svg || pluginIconSource(nil) != "" {
+			t.Errorf("a package's own SVG is carried as %q", got)
+		}
+		if view := packageView(unknown, "en"); view.Icon != "" || view.Tint != "" {
+			t.Error("a package declaring no icon has one")
 		}
 
 		actions := &conversationActions{r: root, cv: &viewmodel.Conversation{ID: planted}, comp: composer.New("")}
