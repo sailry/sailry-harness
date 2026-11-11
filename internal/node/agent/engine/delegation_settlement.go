@@ -54,12 +54,17 @@ func (r *Runtime) executeOwned(x *execution) {
 }
 
 // recoveredTurn runs the turn body. Its panic becomes an ordinary failed turn:
-// calls are settled, children cancelled and the run finished by execute.
+// calls are settled, children cancelled and the run finished by execute. A
+// stopped or failed turn cancels every child of its session at once; execute
+// waits for them in cancelForeground before the run is finished.
 func (r *Runtime) recoveredTurn(x *execution) (err error) {
 	defer func() {
 		if value := recover(); value != nil {
 			logPanic(x, "turn", "", value)
 			err = &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "turn failed unexpectedly; calls were not replayed"}
+		}
+		if err != nil || x.ctx.Err() != nil {
+			r.stopChildren(x)
 		}
 	}()
 	return r.turn(x)

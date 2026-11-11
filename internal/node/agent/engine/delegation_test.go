@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"charm.land/fantasy"
 	"github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
+	"github.com/sailry/sailry-harness/internal/node/agent/model"
 	"github.com/sailry/sailry-harness/internal/node/hooks"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -351,4 +353,170 @@ func TestDelegationHandoff(t *testing.T) {
 			}
 		}
 	})
+}
+
+// settled waits for a run to leave the active statuses, whatever its outcome.
+func (f *engineFixture) settled(turn protocol.TurnID) protocol.ConversationRun {
+	f.t.Helper()
+	for {
+		var run protocol.ConversationRun
+		err := f.db.Node.Read(f.ctx, func(db *sql.Conn) error { var err error; run, err = store.ReadAgentRun(f.ctx, db, turn); return err })
+		if err != nil {
+			f.t.Fatal(err)
+		}
+		if !childActive(run.Status) {
+			return run
+		}
+		select {
+		case <-f.changed:
+		case <-f.ctx.Done():
+			f.t.Fatalf("run did not settle: %+v", run)
+		}
+	}
+}
+
+func (f *engineFixture) childTurns() []protocol.TurnID {
+	f.t.Helper()
+	var turns []protocol.TurnID
+	err := f.db.Node.Read(f.ctx, func(db *sql.Conn) error {
+		rows, err := db.QueryContext(f.ctx, "SELECT d.turn FROM agent_delegations d JOIN turns t ON t.id=d.turn ORDER BY t.rowid")
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var id string
+			if err = rows.Scan(&id); err != nil {
+				return err
+			}
+			turn, err := protocol.ParseTurnID(id)
+			if err != nil {
+				return err
+			}
+			turns = append(turns, turn)
+		}
+		return rows.Err()
+	})
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	return turns
+}
+
+func TestParentEndSettlesChildren(t *testing.T) {
+	for _, ending := range []string{"user stop", "failed parent"} {
+		t.Run(ending, func(t *testing.T) {
+			childStarted, parentWaiting := make(chan struct{}), make(chan struct{})
+			var childOnce, parentOnce sync.Once
+			step := func(ctx context.Context, request fantasy.Call, yield func(fantasy.StreamPart) bool) {
+				prompt, results := "", 0
+				for _, message := range request.Prompt {
+					for _, part := range message.Content {
+						if value, ok := fantasy.AsMessagePart[fantasy.TextPart](part); ok {
+							prompt += value.Text + "\n"
+						}
+						if part.GetType() == fantasy.ContentTypeToolResult {
+							results++
+						}
+					}
+				}
+				switch {
+				case strings.Contains(prompt, "Follow-up"):
+					_ = yield(text("Follow-up answer")) && yield(finish())
+				case !strings.Contains(prompt, "Parent task"):
+					childOnce.Do(func() { close(childStarted) })
+					<-ctx.Done()
+				case results == 0:
+					_ = yield(call("first", "spawn_agent", `{"task":"First background child","background":true}`)) &&
+						yield(call("second", "spawn_agent", `{"task":"Second background child","background":true}`)) && yield(finish())
+				default:
+					parentOnce.Do(func() { close(parentWaiting) })
+					select {
+					case <-childStarted:
+					case <-ctx.Done():
+						return
+					}
+					if ending == "failed parent" {
+						yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &model.Failure{Kind: model.InvalidResponse, Message: "fixture failure"}})
+						return
+					}
+					<-ctx.Done()
+				}
+			}
+			language := &scriptedModel{scripts: []script{step, step, step, step, step}}
+			f := newFixture(t, language)
+			// One slot keeps the second child queued while the first runs.
+			if err := f.db.Node.Write(f.ctx, func(db *sql.Conn) error {
+				settings, err := store.ReadTeamSettings(f.ctx, db)
+				if err != nil {
+					return err
+				}
+				settings.ChildConcurrency = 1
+				_, _, err = store.ExecuteTeamCommand(f.ctx, db, f.node, protocol.Command{Kind: "save_team_settings", Data: &settings})
+				return err
+			}); err != nil {
+				t.Fatal(err)
+			}
+			f.start()
+			parent := f.submit("Parent task")
+			for _, signal := range []chan struct{}{childStarted, parentWaiting} {
+				select {
+				case <-signal:
+				case <-f.ctx.Done():
+					t.Fatal("parent and its background child did not both start")
+				}
+			}
+			children := f.childTurns()
+			if len(children) != 2 {
+				t.Fatalf("admitted children=%d", len(children))
+			}
+			if ending == "user stop" {
+				f.command("stop_turn", &protocol.CommandStopTurnPayload{Turn: parent})
+			}
+			ended := f.settled(parent)
+			if ending == "failed parent" && ended.Status != protocol.ConversationStatusFailed {
+				t.Fatalf("parent status=%s", ended.Status)
+			}
+			if ending == "user stop" && ended.Status == protocol.ConversationStatusCompleted {
+				t.Fatal("stopped parent completed")
+			}
+			// The parent finished, so every child must already be terminal.
+			for index, turn := range children {
+				var run protocol.ConversationRun
+				if err := f.db.Node.Read(f.ctx, func(db *sql.Conn) error { var err error; run, err = store.ReadAgentRun(f.ctx, db, turn); return err }); err != nil {
+					t.Fatal(err)
+				}
+				// The engine's finishing code names a cancelled owner's status; both
+				// stopped statuses are the cancelled outcome here, never a result.
+				if run.Status != protocol.ConversationStatusCancelled && run.Status != protocol.ConversationStatusInterrupted {
+					t.Fatalf("child %d outlived its parent or reported a result: %+v", index, run)
+				}
+				if run.FinishedMs == nil || ended.FinishedMs == nil || *run.FinishedMs > *ended.FinishedMs {
+					t.Fatalf("parent finished before child %d settled: %+v", index, run)
+				}
+				if index == 1 && (run.StartedMs != nil || run.Status != protocol.ConversationStatusCancelled) {
+					t.Fatalf("queued child was not cancelled unstarted: %+v", run)
+				}
+			}
+			if len(f.r.children) != 0 {
+				t.Fatal("cancelled children kept their owners")
+			}
+			if f.readQuery("SELECT count(*) FROM agent_background WHERE kind='agent' AND state!='consumed'") != 0 || f.readQuery("SELECT count(*) FROM agent_background WHERE kind='agent'") != 2 {
+				t.Fatal("cancelled children left unreported completion records")
+			}
+			// New input reopens the queue: nothing the user stopped comes back.
+			input := protocol.DefaultConversationInput()
+			input.Text = "Follow-up"
+			next := f.command("submit_turn", &protocol.CommandSubmitTurnPayload{Session: f.session.ID, ExpectedRevision: f.session.Revision, Message: input}).Data.(protocol.QueuedTurn).ID
+			if run := f.waitRun(next, protocol.ConversationStatusCompleted); len(run.Notices) != 0 {
+				t.Fatalf("stopped children were delivered again: %+v", run.Notices)
+			}
+			if f.readQuery("SELECT count(*) FROM agent_runs WHERE coalesce(json_extract(body,'$.notice'),0)=1") != 0 {
+				t.Fatal("a cancelled child started a notice turn")
+			}
+			if language.count() != 4 {
+				t.Fatalf("model requests=%d", language.count())
+			}
+		})
+	}
 }

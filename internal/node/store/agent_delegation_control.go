@@ -104,6 +104,49 @@ func FinishQueuedChild(ctx context.Context, db *sql.Conn, turn protocol.TurnID, 
 	_, events, err := FinishTurn(ctx, db, turn, status, failure, now)
 	return events, err
 }
+
+// ConsumeStoppedChildren consumes the completion records of the child turns a
+// stopped or failed parent turn cancelled. The parent's history already holds
+// their cancellation, so the records never join a later message or start a
+// notice turn.
+func ConsumeStoppedChildren(ctx context.Context, db *sql.Conn, parent protocol.TurnID, children []protocol.TurnID) ([]protocol.Event, error) {
+	owner, err := ReadAgentRun(ctx, db, parent)
+	if err != nil {
+		return nil, err
+	}
+	changed := false
+	for _, turn := range children {
+		run, err := ReadAgentRun(ctx, db, turn)
+		if err != nil {
+			return nil, err
+		}
+		origin, err := readDelegation(ctx, db, turn)
+		if err != nil {
+			return nil, err
+		}
+		if origin == nil || origin.Session != owner.Session {
+			return nil, fault(protocol.ErrorCodePermissionDenied, "child belongs to another parent session")
+		}
+		records, err := readBodies[BackgroundRecord](ctx, db, "SELECT body FROM agent_background WHERE kind='agent' AND source=?1 AND session=?2 AND state='pending' AND delivery IS NULL", run.Session.String(), owner.Session.String())
+		if err != nil {
+			return nil, err
+		}
+		for _, record := range records {
+			if kind, ok := processStatusData[protocol.ConversationBackgroundKindAgentPayload](record.Task.Kind.Data); !ok || kind.Turn != turn {
+				continue
+			}
+			record.Task.State = protocol.ConversationBackgroundStateConsumed
+			if err = saveBackgroundRecord(ctx, db, &record); err != nil {
+				return nil, err
+			}
+			changed = true
+		}
+	}
+	if changed {
+		return activityEvent(ctx, db, owner.Session)
+	}
+	return nil, nil
+}
 func ownedChild(ctx context.Context, db *sql.Conn, parent protocol.TurnID, child protocol.SessionID, exact *protocol.TurnID) (protocol.ConversationRun, error) {
 	parentRun, err := activeAgentRun(ctx, db, parent)
 	if err != nil {

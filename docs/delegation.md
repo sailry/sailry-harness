@@ -49,9 +49,20 @@ that remains unreleased until the parent's canonical tool batch is committed.
 
 Admission and its handoff remain Node-owned when the calling tool is cancelled.
 The parent's operation lease covers that handoff and ends before a detached
-background child's lifetime. Background children survive their parent's return;
-ordinary foreground children share parent cancellation. Child panic settlement
-drains admitted effects and records an uncertain outcome without replay.
+background child's lifetime. Background children survive their parent's normal
+return; ordinary foreground children share parent cancellation. Child panic
+settlement drains admitted effects and records an uncertain outcome without
+replay.
+
+A parent turn that is stopped or fails cancels every child of its session:
+foreground and background, running and queued, including background children
+earlier turns left running. Children cannot delegate, so this is the whole
+subtree. The parent waits until each of them has settled before its own run is
+finished, so no later turn starts beside a child that is still closing its
+tools. Their completion records are consumed with the parent: the cancelled
+work does not join the next message and never starts a notice turn. A child
+that finished before the stop keeps its pending result. Node shutdown is not
+waited for; it interrupts children through recovery.
 
 `wait_agent` observes existing owned work for 150 seconds through the injected
 clock. This window does not stop child execution. It returns the same session
@@ -75,3 +86,9 @@ with the captured conversation revision and the rule that catalog changes do
 not alter the running turn's roster. `list_roles` is among the operations a
 restricted child role may be granted. The role and team catalog tools are
 described in [Teams and roles](teams.md#agent-catalog-tools).
+
+## Differences from the Rust runtime
+
+- A failed parent turn cancels the session's children as a stopped one does,
+  as in Rust. A turn whose only failure is its completion hook does not: the
+  hook runs after children are settled and Go does not settle them twice.
