@@ -11,6 +11,7 @@ import (
 	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/cdproto/target"
 	"github.com/chromedp/chromedp"
+	"github.com/jonboulle/clockwork"
 	"github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -20,6 +21,8 @@ const (
 	viewportHeight = 900
 	pageTimeout    = 25 * time.Second
 	scriptTimeout  = 15 * time.Second
+	// stagedUploads is how many uploaded files a browser keeps for its pages.
+	stagedUploads = 16
 )
 
 // session is one conversation session's browser process tree.
@@ -30,6 +33,15 @@ type session struct {
 	temporary string // uploads and downloads, removed with the browser
 	group     *processGroup
 	closing   sync.Once
+	clock     clockwork.Clock
+	// resumed says the conversation already had a profile when this browser
+	// started, so it may have had pages open before.
+	resumed bool
+	// uploads are the staged upload directories, oldest first. A page reads
+	// a selected file when it submits or sends it, which is a later call, so
+	// the copies stay until the browser closes. Operations of a session run
+	// one at a time, so nothing else guards the list.
+	uploads []string
 
 	windows map[target.ID]*window
 	current *window
@@ -69,6 +81,7 @@ func (browsers *Browsers) start(ctx context.Context, id protocol.SessionID, exec
 		return nil, unavailable("managed browser startup failed: " + err.Error())
 	}
 	profile := filepath.Join(browsers.sessionsRoot(), id.String(), "profile")
+	_, absent := os.Stat(profile)
 	if err := core.PrivateDirectory(profile); err != nil {
 		return failed(err)
 	}
@@ -92,9 +105,10 @@ func (browsers *Browsers) start(ctx context.Context, id protocol.SessionID, exec
 		chromedp.ModifyCmdFunc(configureProcess),
 	)
 	// The browser lives as long as the Node, never as long as one call.
-	allocator, cancel := chromedp.NewExecAllocator(browsers.ctx, options...)
+	allocator, cancel := chromedp.NewExecAllocator(browsers.processes, options...)
 	root, _ := chromedp.NewContext(allocator)
-	started := &session{ctx: root, cancel: cancel, profile: profile, temporary: temporary, windows: map[target.ID]*window{}}
+	started := &session{ctx: root, cancel: cancel, profile: profile, temporary: temporary, windows: map[target.ID]*window{},
+		clock: browsers.clock, resumed: absent == nil}
 	ready := make(chan error, 1)
 	go func() { ready <- chromedp.Do(root) }()
 	select {
