@@ -13,6 +13,9 @@ import (
 )
 
 type delegatedChild struct {
+	// root is the main session that owns the child. A successor inherits its
+	// place through the chain of the child it follows.
+	root      protocol.SessionID
 	parent    protocol.TurnID
 	session   protocol.SessionID
 	turn      protocol.TurnID
@@ -41,7 +44,8 @@ func (r *Runtime) activitySignal() <-chan struct{} {
 
 // admitChild keeps the Node's existing operation lease until durable admission
 // and handoff finish, even if the calling tool stops waiting for the receipt.
-func (r *Runtime) admitChild(x *execution, call canonical.ToolRequest, background bool, admit func(context.Context, *sql.Conn) (*store.AgentInvocation, []protocol.Event, error)) ToolResult {
+// arguments are the ones that execute and name the child's workspace.
+func (r *Runtime) admitChild(x *execution, arguments json.RawMessage, background bool, admit func(context.Context, *sql.Conn) (*store.AgentInvocation, []protocol.Event, error)) ToolResult {
 	parent, release, ok := r.BeginOperation(x.inv.Run.Turn)
 	if !ok {
 		return invalidTool("parent execution has ended")
@@ -52,7 +56,7 @@ func (r *Runtime) admitChild(x *execution, call canonical.ToolRequest, backgroun
 		defer r.workers.Done()
 		defer release()
 		ctx := r.ctx
-		if err := r.preflightChildWorkspace(parent, x, call); err != nil {
+		if err := r.preflightChildWorkspace(parent, x, arguments); err != nil {
 			returned <- toolFault(err)
 			return
 		}
@@ -85,7 +89,7 @@ func (r *Runtime) admitChild(x *execution, call canonical.ToolRequest, backgroun
 			owner = r.ctx
 		}
 		childContext, cancel := context.WithCancel(owner)
-		child := &delegatedChild{parent: x.inv.Run.Turn, session: inv.Session.ID, turn: inv.Run.Turn, sequence: inv.Run.Sequence, ctx: childContext, cancel: cancel, released: background}
+		child := &delegatedChild{root: x.inv.Session.ID, parent: x.inv.Run.Turn, session: inv.Session.ID, turn: inv.Run.Turn, sequence: inv.Run.Sequence, ctx: childContext, cancel: cancel, released: background}
 		r.mu.Lock()
 		if r.children == nil {
 			r.children = map[protocol.TurnID]*delegatedChild{}
@@ -126,6 +130,13 @@ func (r *Runtime) claimInvocation(ctx context.Context, db *sql.Conn) (*store.Age
 	if err != nil || inv != nil {
 		return inv, events, err
 	}
+	// A queued child stopped by a controller is finished here; its owner is
+	// dropped below with every other child that is no longer active.
+	settled, err := store.SettleStoppedChildren(ctx, db, r.clock.Now())
+	if err != nil {
+		return nil, nil, err
+	}
+	events = append(events, settled...)
 	r.mu.Lock()
 	children := make([]*delegatedChild, 0, len(r.children))
 	for _, child := range r.children {
@@ -182,12 +193,15 @@ func (r *Runtime) claimInvocation(ctx context.Context, db *sql.Conn) (*store.Age
 	return nil, events, nil
 }
 
-func (r *Runtime) preflightChildWorkspace(ctx context.Context, x *execution, call canonical.ToolRequest) error {
+// preflightChildWorkspace checks the worktree the child will run in before it
+// is admitted. arguments are the prepared ones: a package tool bound to
+// agents.delegate or agents.guide chooses the child there, not in its own call.
+func (r *Runtime) preflightChildWorkspace(ctx context.Context, x *execution, arguments json.RawMessage) error {
 	var args struct {
 		Worktree *protocol.WorktreeID `json:"worktree"`
 		Session  *protocol.SessionID  `json:"session"`
 	}
-	if json.Unmarshal(call.Arguments, &args) != nil {
+	if json.Unmarshal(arguments, &args) != nil {
 		return &protocol.Fault{Code: protocol.ErrorCodeInvalidRequest, Message: "invalid child workspace arguments"}
 	}
 	id := x.inv.Run.Worktree
@@ -328,7 +342,7 @@ func (r *Runtime) foregroundStep(x *execution) (bool, error) {
 			if err != nil {
 				return false, err
 			}
-			if childActive(state.Run.Status) {
+			if childPending(state.Run) {
 				pending = true
 				continue
 			}
@@ -394,30 +408,170 @@ func (r *Runtime) consumeChild(x *execution, session protocol.SessionID, turn *p
 	return err
 }
 
+// stopChildren cancels every child of the turn's session, foreground or
+// background, including those earlier turns left running. Children cannot
+// delegate, so the session's children are its whole subtree.
+func (r *Runtime) stopChildren(x *execution) {
+	r.mu.Lock()
+	for _, child := range r.children {
+		if child.root == x.inv.Session.ID {
+			child.cancel()
+		}
+	}
+	r.mu.Unlock()
+}
+
+// cancelForeground ends the delegated work a finishing turn leaves behind.
+// Undelivered foreground children are cancelled and noted. A stopped or failed
+// turn has also cancelled every other child of its session. The turn waits
+// until all of them have settled, so it never finishes ahead of its children.
 func (r *Runtime) cancelForeground(x *execution) {
+	if x.ctx.Err() != nil {
+		r.stopChildren(x)
+	}
 	r.mu.Lock()
 	children := slices.Clone(x.foreground)
 	r.mu.Unlock()
 	var ids []string
+	var stopped []*delegatedChild
 	for _, child := range children {
 		if !child.delivered {
 			child.cancel()
 			ids = append(ids, child.session.String())
+			stopped = append(stopped, child)
 		}
 	}
-	if len(ids) == 0 {
+	if len(ids) > 0 {
+		text := ""
+		for _, id := range ids {
+			if text != "" {
+				text += "\n"
+			}
+			text += "Subagent " + id + " was cancelled before it finished."
+		}
+		record := canonical.NewRecord(x.inv.Run.Turn, "message", canonical.NewMessage(canonical.User, canonical.Text(0, text)), r.clock.Now())
+		record.Provenance.Author = "user"
+		record.Metadata.Runtime = &canonical.Runtime{AgentVisible: true, Notes: &canonical.OperationNotes{CancelledSubagents: ids}}
+		_ = r.save(context.WithoutCancel(x.ctx), x.inv.Session.ID, record)
+	}
+	r.settleChildren(x, stopped)
+	r.Wake()
+}
+
+// settleChildren waits for the session's cancelled children to finish, then
+// consumes their completion records: the stopped work is never reported again
+// with a later message or by a notice turn. Node shutdown settles children
+// through its own path and is not waited for.
+func (r *Runtime) settleChildren(x *execution, stopped []*delegatedChild) {
+	ctx := context.WithoutCancel(r.ctx)
+	for r.ctx.Err() == nil {
+		changed := r.activitySignal()
+		r.mu.Lock()
+		for _, child := range r.children {
+			if child.root == x.inv.Session.ID && child.ctx.Err() != nil && !slices.Contains(stopped, child) {
+				stopped = append(stopped, child)
+			}
+		}
+		var queued []*delegatedChild
+		running := false
+		for _, child := range stopped {
+			last := child.last()
+			if r.children[last.turn] != last {
+				continue
+			}
+			if last.started {
+				running = true
+			} else {
+				queued = append(queued, last)
+			}
+		}
+		r.mu.Unlock()
+		if len(queued) > 0 {
+			if r.finishQueued(ctx, queued) != nil {
+				return
+			}
+			continue
+		}
+		if !running {
+			break
+		}
+		select {
+		case <-changed:
+		case <-r.ctx.Done():
+		}
+	}
+	if r.ctx.Err() != nil || len(stopped) == 0 {
 		return
 	}
-	text := ""
-	for _, id := range ids {
-		if text != "" {
-			text += "\n"
-		}
-		text += "Subagent " + id + " was cancelled before it finished."
+	r.mu.Lock()
+	turns := make([]protocol.TurnID, 0, len(stopped))
+	for _, child := range stopped {
+		turns = append(turns, child.last().turn)
 	}
-	record := canonical.NewRecord(x.inv.Run.Turn, "message", canonical.NewMessage(canonical.User, canonical.Text(0, text)), r.clock.Now())
-	record.Provenance.Author = "user"
-	record.Metadata.Runtime = &canonical.Runtime{AgentVisible: true, Notes: &canonical.OperationNotes{CancelledSubagents: ids}}
-	_ = r.save(context.WithoutCancel(x.ctx), x.inv.Session.ID, record)
-	r.Wake()
+	r.mu.Unlock()
+	unlock := r.LockPublication()
+	defer unlock()
+	err := r.db.Write(ctx, func(db *sql.Conn) error {
+		events, err := store.ConsumeStoppedChildren(ctx, db, x.inv.Run.Turn, turns)
+		if err != nil {
+			return err
+		}
+		_, err = store.RecordEvents(ctx, db, r.node, events)
+		return err
+	})
+	if err == nil {
+		r.publish()
+		r.RefreshCommitted(x.inv.Session.ID)
+	}
+}
+
+// last is the end of the child's successor chain. The caller holds r.mu.
+func (c *delegatedChild) last() *delegatedChild {
+	for c.successor != nil {
+		c = c.successor
+	}
+	return c
+}
+
+// finishQueued finishes cancelled children that never started. Publication
+// ownership excludes the claim pass, so a child found unstarted here stays so.
+func (r *Runtime) finishQueued(ctx context.Context, children []*delegatedChild) error {
+	unlock := r.LockPublication()
+	defer unlock()
+	r.mu.Lock()
+	children = slices.DeleteFunc(children, func(child *delegatedChild) bool {
+		return r.children[child.turn] != child || child.started
+	})
+	r.mu.Unlock()
+	if len(children) == 0 {
+		return nil
+	}
+	err := r.db.Write(ctx, func(db *sql.Conn) error {
+		var events []protocol.Event
+		for _, child := range children {
+			changed, err := store.FinishQueuedChild(ctx, db, child.turn, protocol.ConversationStatusCancelled, nil, r.clock.Now())
+			if err != nil {
+				return err
+			}
+			events = append(events, changed...)
+		}
+		_, err := store.RecordEvents(ctx, db, r.node, events)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	r.mu.Lock()
+	for _, child := range children {
+		delete(r.children, child.turn)
+	}
+	r.mu.Unlock()
+	r.publish()
+	for _, child := range children {
+		r.RefreshCommitted(child.session)
+	}
+	if len(children) > 0 {
+		r.RefreshCommitted(children[0].root)
+	}
+	return nil
 }

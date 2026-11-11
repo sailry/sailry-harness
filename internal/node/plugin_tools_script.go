@@ -174,6 +174,10 @@ func (node *Node) scriptTools(ctx context.Context, invocation *store.AgentInvoca
 			SchemaJSON: handler.Parameters, ReadOnly: readOnly, Deferred: !declaration.Initial, Approval: !readOnly,
 			Binding:     &store.ApprovalBinding{Owner: owner.scope.Package, Tool: plugins.ToolAlias(info.Summary.Name, declaration.Name), Operation: handler.Operation},
 			Instruction: strings.TrimSpace(instruction)}
+		tool.Hosted = handler.Operation == nil && handler.Flow == nil
+		if handler.Flow != nil {
+			tool.Flow = handler.Flow.Operations
+		}
 		if handler.Operation != nil {
 			_, tool.Concurrent = operations.Policy(*handler.Operation)
 		} else if handler.Flow != nil && len(handler.Flow.Operations) != 0 {

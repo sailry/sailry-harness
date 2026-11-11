@@ -14,6 +14,13 @@ against the captured catalog. Role instructions and selected complete skill
 documents join the stable policy. Role action budgets retain the source prompt
 and termination behavior.
 
+A child without a role tool list keeps the standard catalog, as in Rust: the
+session reference and skill tools, package tools whose every declared
+operation (the bound one and a flow's) is a standard worktree, Git, command,
+web, artifact or code-index operation, and hosted script tools that are
+read-only by their handler or by the package's actions. MCP tools and other
+operations need an explicit role selection.
+
 A package tool bound to `agents.delegate` (the code-review package's
 `delegate_review`) admits a child through the same path. Its host script
 prepares the child's arguments from the ones the model sent. The recorded call
@@ -49,9 +56,30 @@ that remains unreleased until the parent's canonical tool batch is committed.
 
 Admission and its handoff remain Node-owned when the calling tool is cancelled.
 The parent's operation lease covers that handoff and ends before a detached
-background child's lifetime. Background children survive their parent's return;
-ordinary foreground children share parent cancellation. Child panic settlement
-drains admitted effects and records an uncertain outcome without replay.
+background child's lifetime. Background children survive their parent's normal
+return; ordinary foreground children share parent cancellation. Child panic
+settlement drains admitted effects and records an uncertain outcome without
+replay.
+
+A parent turn that is stopped or fails cancels every child of its session:
+foreground and background, running and queued, including background children
+earlier turns left running. Children cannot delegate, so this is the whole
+subtree. The parent waits until each of them has settled before its own run is
+finished, so no later turn starts beside a child that is still closing its
+tools. Their completion records are consumed with the parent: the cancelled
+work does not join the next message and never starts a notice turn. A child
+that finished before the stop keeps its pending result. Node shutdown is not
+waited for; it interrupts children through recovery.
+
+`stop_turn` on a child's turn stops that child only; its siblings and its
+parent keep running. A running child stops like any turn. A queued child that
+never started is marked cancelled without a finish time, and the next claim
+pass finishes it from the store, which closes its completion record and
+refreshes the parent; until then the child counts as busy and its result is
+not collected. Queued guidance for a child ends where it is stopped, because
+it shares its recipient's completion record. A foreground parent receives the
+ordinary cancellation note; a background child's cancelled result joins the
+parent's next message and never starts a notice turn by itself.
 
 `wait_agent` observes existing owned work for 150 seconds through the injected
 clock. This window does not stop child execution. It returns the same session
@@ -66,6 +94,37 @@ transaction. Optional automatic continuation reuses ordinary admission and
 preserves real completion when scheduling fails. Package callback execution is
 owned by its later runtime phase.
 
+Conversation statistics total a session's own usage and, apart from it in
+`delegated`, the tokens, cost and generation time of the child turns its turns
+delegated. Children are Sailry sessions, so this stays within Sailry's own
+usage. A fork inherits the delegated totals of the turns it inherits. The
+parent's statistics refresh when a child run starts, finishes or changes an
+interaction, not after each child response.
+
+The desktop draws child rows from the parent's page, which carries every child
+run. It subscribes to a child's own conversation only while that child's
+activity waits on approval, to present the pending cards in the parent's
+composer, or while its tab is open.
+
+When a child run ends in any status other than `continued`, the Node stops the
+child session's background commands through the process service. Background
+completions are never delivered to a delegated session and nothing hands a
+child's commands to its parent, so a command left running would have no reader.
+A child that needs a command's result reads it before it answers.
+
+The desktop's subagent capsule carries a Stop on each running child's row. It
+sends `stop_turn` for that child's turn, stays disabled while the request is
+in flight or the child is stopping, and reports failure, conflict and
+uncertain outcomes as toasts (`subagent_stop_failed`, `session_changed`,
+`subagent_stop_unknown`). A child's own tab stays read-only.
+
+The status of a stopped child that had started is named by the engine's
+finishing code shared by every turn, not by delegation; a child that never
+started is always `cancelled`, or `interrupted` at Node shutdown. Delegation
+treats `cancelled` and `interrupted` alike: neither starts an automatic notice
+turn, the parent receives the cancellation note, and the parent waits for the
+child to settle in both cases.
+
 Captured localized tool metadata uses the existing source locale keys. Native
 child approval and question updates also refresh the owning parent's shared
 conversation feed; ordinary approval ownership remains on the child session.
@@ -75,3 +134,20 @@ with the captured conversation revision and the rule that catalog changes do
 not alter the running turn's roster. `list_roles` is among the operations a
 restricted child role may be granted. The role and team catalog tools are
 described in [Teams and roles](teams.md#agent-catalog-tools).
+
+## Differences from the Rust runtime
+
+- A failed parent turn cancels the session's children as a stopped one does,
+  as in Rust. A turn whose only failure is its completion hook does not: the
+  hook runs after children are settled and Go does not settle them twice.
+- Rust refreshes a parent's statistics after every child event. Go refreshes
+  them with the parent's feed (child start, finish and interactions); the
+  totals are the same once the child settles.
+- Rust leaves a child's background commands running until the parent session
+  is deleted. Go stops them when the child's run ends.
+- Rust bounds the Node at 8 main-turn workers and 64 supervised tasks. Go has
+  neither, by decision. Children are bounded per parent conversation by the
+  Team `ChildConcurrency` setting (default 8, FIFO), enforced in `ClaimChild`;
+  children cannot delegate, so no deeper level exists.
+- Neither runtime's desktop could stop one child. Go adds Stop on the child's
+  capsule row.

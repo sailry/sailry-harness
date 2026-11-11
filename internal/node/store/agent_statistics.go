@@ -24,12 +24,13 @@ func ReadAgentStatistics(ctx context.Context, db *sql.Conn, session protocol.Ses
  WHERE h.session=?1 AND t.kind='task' AND EXISTS(SELECT 1 FROM agent_events e WHERE e.turn=h.turn)`, session.String()).Scan(&result.Turns); err != nil {
 		return result, err
 	}
-	metrics, err := agentStatisticsMetrics(ctx, db, session)
+	metrics, delegated, err := agentStatisticsMetrics(ctx, db, session)
 	if err != nil {
 		return result, err
 	}
 	result.Responses, result.Usage = metrics.Responses, metrics.Tokens
 	result.Cost, result.Generation = metrics.Cost, metrics.Generation
+	result.Delegated = delegated
 	if result.Observations, err = agentStatisticsObservations(ctx, db, session); err != nil {
 		return result, err
 	}
@@ -45,8 +46,15 @@ func ReadAgentStatistics(ctx context.Context, db *sql.Conn, session protocol.Ses
 
 // Frozen execution sources override the original turn's provider for helper
 // requests. Inherited turns keep their original capture, never the fork's model.
-const agentStatisticsUsageRows = `WITH responses AS (
- SELECT coalesce(json_extract(e.body,'$.usage'),json_extract(e.body,'$.summary.usage')) AS usage,
+// The selection is the session's own turns plus the child turns delegated from
+// them, which are Sailry's own sessions and are totalled apart.
+const agentStatisticsUsageRows = `WITH selected AS (
+ SELECT turn,0 AS delegated FROM conversation_turns WHERE session=?1
+ UNION
+ SELECT d.turn,1 FROM agent_delegations d JOIN conversation_turns h ON h.turn=d.parent_turn
+ WHERE h.session=?1 AND NOT EXISTS(SELECT 1 FROM conversation_turns own WHERE own.session=?1 AND own.turn=d.turn)),
+ responses AS (
+ SELECT h.delegated,coalesce(json_extract(e.body,'$.usage'),json_extract(e.body,'$.summary.usage')) AS usage,
  coalesce(json_extract(e.body,'$.metadata.execution.source.model'),
   CASE WHEN json_extract(e.body,'$.metadata.execution.media') IS NULL OR m.value IS NULL
    THEN json_extract(r.config,'$.model') ELSE json_extract(m.value,'$.model') END) AS model,
@@ -55,44 +63,47 @@ const agentStatisticsUsageRows = `WITH responses AS (
    THEN a.provider ELSE json_extract(m.value,'$.provider') END) AS provider,
  json_extract(e.body,'$.metadata.execution.timing.elapsed_us') AS elapsed,
  json_extract(e.body,'$.metadata.execution.media') AS media
- FROM conversation_turns h JOIN agent_events e ON e.turn=h.turn
+ FROM selected h JOIN agent_events e ON e.turn=h.turn
  JOIN turns t ON t.id=e.turn JOIN agent_runs a ON a.turn=t.id
  JOIN session_revisions r ON r.session=t.session AND r.revision=t.revision
  LEFT JOIN session_media media ON media.session=t.session
  LEFT JOIN json_each(media.body) m ON m.key=json_extract(e.body,'$.metadata.execution.media')
- WHERE h.session=?1 AND coalesce(json_type(e.body,'$.usage'),json_type(e.body,'$.summary.usage'))='object'
+ WHERE coalesce(json_type(e.body,'$.usage'),json_type(e.body,'$.summary.usage'))='object'
  AND coalesce(json_extract(e.body,'$.usage.input'),json_extract(e.body,'$.summary.usage.input'))>=0
  AND coalesce(json_extract(e.body,'$.usage.output'),json_extract(e.body,'$.summary.usage.output'))>=0)
- SELECT usage,model,json_extract(provider,'$.api'),elapsed,media FROM responses`
+ SELECT usage,model,json_extract(provider,'$.api'),elapsed,media,delegated FROM responses`
 
-func agentStatisticsMetrics(ctx context.Context, db *sql.Conn, session protocol.SessionID) (protocol.UsageMetrics, error) {
-	result := protocol.DefaultUsageMetrics()
+// agentStatisticsMetrics totals the session's own usage and, apart from it,
+// the usage of the children its turns delegated.
+func agentStatisticsMetrics(ctx context.Context, db *sql.Conn, session protocol.SessionID) (protocol.UsageMetrics, protocol.UsageMetrics, error) {
+	result, delegated := protocol.DefaultUsageMetrics(), protocol.DefaultUsageMetrics()
 	type row struct {
 		usage      canonical.Usage
 		model      string
 		api, media sql.NullString
 		elapsed    sql.NullInt64
+		delegated  bool
 	}
 	rows, err := db.QueryContext(ctx, agentStatisticsUsageRows, session.String())
 	if err != nil {
-		return result, err
+		return result, delegated, err
 	}
 	var records []row
 	for rows.Next() {
 		var value row
 		var body []byte
-		if err = rows.Scan(&body, &value.model, &value.api, &value.elapsed, &value.media); err != nil {
+		if err = rows.Scan(&body, &value.model, &value.api, &value.elapsed, &value.media, &value.delegated); err != nil {
 			rows.Close()
-			return result, err
+			return result, delegated, err
 		}
 		if err = json.Unmarshal(body, &value.usage); err != nil {
 			rows.Close()
-			return result, err
+			return result, delegated, err
 		}
 		records = append(records, value)
 	}
 	if err = errors.Join(rows.Err(), rows.Close()); err != nil {
-		return result, err
+		return result, delegated, err
 	}
 	prices := modelPrices{}
 	for _, row := range records {
@@ -100,7 +111,7 @@ func agentStatisticsMetrics(ctx context.Context, db *sql.Conn, session protocol.
 		if !row.media.Valid || row.media.String != "image" && row.media.String != "video" {
 			cost, err = estimateAgentCost(ctx, db, prices, row.api.String, row.model, row.usage)
 			if err != nil {
-				return result, err
+				return result, delegated, err
 			}
 		}
 		var elapsed *uint64
@@ -109,11 +120,15 @@ func agentStatisticsMetrics(ctx context.Context, db *sql.Conn, session protocol.
 			elapsed = &value
 		}
 		tokens := protocol.ConversationUsage{Input: optionalUint(row.usage.Input), Output: optionalUint(row.usage.Output), CachedInput: optionalUint(row.usage.CacheRead), Reasoning: optionalUint(row.usage.Reasoning)}
-		if err = addUsageMetrics(&result, tokens, cost, elapsed); err != nil {
-			return result, err
+		total := &result
+		if row.delegated {
+			total = &delegated
+		}
+		if err = addUsageMetrics(total, tokens, cost, elapsed); err != nil {
+			return result, delegated, err
 		}
 	}
-	return result, nil
+	return result, delegated, nil
 }
 
 // AgentCompactionBudget describes the same captured threshold used by execution.

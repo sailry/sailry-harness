@@ -105,6 +105,7 @@ type Runtime struct {
 	prefsRevision            uint64
 	conversationWatches      map[protocol.SessionID]func()
 	conversationSeen         map[protocol.SessionID]bool
+	childStops               map[protocol.TurnID]bool
 	composerInitialized      map[string]bool
 	composerObserved         map[string]string
 	readAloud                func(string, string, string)

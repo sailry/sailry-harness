@@ -202,3 +202,83 @@ func TestAgentStatistics(t *testing.T) {
 		}
 	})
 }
+
+func TestDelegatedStatistics(t *testing.T) {
+	t.Parallel()
+	storage, node, session, parent, now := agentHistoryFixture(t, protocol.WorkModeCode)
+	ctx := t.Context()
+	err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+		if _, err := db.ExecContext(ctx, `INSERT INTO model_catalog(provider,id,body) VALUES('openai','fixture',?1)`, []byte(`{"cost":{"input":2,"output":8}}`)); err != nil {
+			return err
+		}
+		respond := func(session protocol.SessionID, turn protocol.TurnID, input, output, elapsed uint64) error {
+			message := canonical.NewMessage(canonical.Assistant, canonical.Text(0, "Answer"))
+			message.Usage = &canonical.Usage{Input: ptr(input), Output: ptr(output)}
+			record := canonical.NewRecord(turn, "message", &message, now)
+			record.Provenance.Author = "assistant"
+			record.Metadata.Execution = &canonical.Execution{Timing: &canonical.Timing{ElapsedUs: ptr(elapsed)}}
+			_, _, err := AppendCanonical(ctx, db, session, record)
+			return err
+		}
+		if err := respond(session.ID, parent, 100, 20, 10); err != nil {
+			return err
+		}
+		var children []AgentInvocation
+		for index, responses := range []int{2, 1} {
+			call, err := delegationFixtureCall(ctx, db, parent, "spawn_agent", map[string]any{"task": fmt.Sprintf("Child %d", index), "background": true}, now)
+			if err != nil {
+				return err
+			}
+			child, _, err := DelegateAgent(ctx, db, node, parent, call, nil, true, now)
+			if err != nil {
+				return err
+			}
+			if inv, _, err := ClaimChild(ctx, db, child.Run.Turn, now); err != nil || inv == nil {
+				return fmt.Errorf("child was not claimed: %v", err)
+			}
+			for range responses {
+				if err = respond(child.Session.ID, child.Run.Turn, 1000, 300, 7); err != nil {
+					return err
+				}
+			}
+			children = append(children, child)
+		}
+		result, err := ReadAgentStatistics(ctx, db, session.ID)
+		if err != nil {
+			return err
+		}
+		if result.Turns != 1 || result.Responses != 1 || result.Usage == nil || result.Usage.Input != 100 || result.Usage.Output != 20 || result.Cost == nil || result.Cost.UsdMicros != 360 || result.Generation == nil || result.Generation.ElapsedUs != 10 {
+			t.Fatalf("child usage leaked into the parent's own totals: %#v", result)
+		}
+		delegated := result.Delegated
+		if delegated.Responses != 3 || delegated.Tokens == nil || delegated.Tokens.Input != 3000 || delegated.Tokens.Output != 900 || delegated.Cost == nil || delegated.Cost.UsdMicros != 13200 || delegated.Cost.Responses != 3 || delegated.Generation == nil || delegated.Generation.ElapsedUs != 21 {
+			t.Fatalf("delegated totals = %#v", delegated)
+		}
+		own, err := ReadAgentStatistics(ctx, db, children[0].Session.ID)
+		if err != nil {
+			return err
+		}
+		if own.Responses != 2 || own.Usage == nil || own.Usage.Input != 2000 || !reflect.DeepEqual(own.Delegated, protocol.DefaultUsageMetrics()) {
+			t.Fatalf("child statistics = %#v", own)
+		}
+		// A fork inherits the parent turn and therefore the children it delegated.
+		if _, _, err = FinishTurn(ctx, db, parent, protocol.ConversationStatusCompleted, nil, now); err != nil {
+			return err
+		}
+		fork, _, err := forkConversation(ctx, db, protocol.CommandForkConversationPayload{Session: session.ID, Through: parent, ExpectedRevision: session.Revision})
+		if err != nil {
+			return err
+		}
+		inherited, err := ReadAgentStatistics(ctx, db, fork.ID)
+		if err != nil {
+			return err
+		}
+		if !reflect.DeepEqual(inherited.Delegated, delegated) {
+			t.Fatalf("fork delegated totals = %#v", inherited.Delegated)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}

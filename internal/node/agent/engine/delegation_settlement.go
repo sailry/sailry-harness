@@ -51,15 +51,41 @@ func (r *Runtime) executeOwned(x *execution) {
 		}
 	}()
 	r.execute(x)
+	r.stopChildCommands(x)
+}
+
+// stopChildCommands ends the background commands of a child whose run has
+// ended. Their completion is never delivered to a delegated session and no
+// record hands them to the parent, so they would otherwise outlive every
+// reader. A continued run keeps them for its successor.
+func (r *Runtime) stopChildCommands(x *execution) {
+	if r.stopCommands == nil || r.ctx.Err() != nil || x.inv.Session.Delegation == nil || *x.inv.Session.Delegation == nil {
+		return
+	}
+	var run protocol.ConversationRun
+	err := r.db.Read(r.ctx, func(db *sql.Conn) error {
+		var err error
+		run, err = store.ReadAgentRun(r.ctx, db, x.inv.Run.Turn)
+		return err
+	})
+	if err != nil || childActive(run.Status) || run.Status == protocol.ConversationStatusContinued {
+		return
+	}
+	r.stopCommands(x.inv.Session.ID)
 }
 
 // recoveredTurn runs the turn body. Its panic becomes an ordinary failed turn:
-// calls are settled, children cancelled and the run finished by execute.
+// calls are settled, children cancelled and the run finished by execute. A
+// stopped or failed turn cancels every child of its session at once; execute
+// waits for them in cancelForeground before the run is finished.
 func (r *Runtime) recoveredTurn(x *execution) (err error) {
 	defer func() {
 		if value := recover(); value != nil {
 			logPanic(x, "turn", "", value)
 			err = &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "turn failed unexpectedly; calls were not replayed"}
+		}
+		if err != nil || x.ctx.Err() != nil {
+			r.stopChildren(x)
 		}
 	}()
 	return r.turn(x)
