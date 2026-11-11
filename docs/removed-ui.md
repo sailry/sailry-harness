@@ -36,6 +36,8 @@ Commits are in this repository. Dates are the removal's.
 | 16 | The score card or any tooltip over a score | The model picker's model rows and effort rows (`composer/models.go` `modelRow`, `effortColumn`) | The score is text at the row's end. The controls page keeps the card over its effort label (`scoreTip`), with the `model_score_*` copy | User decision, 2026-11-12 |
 | 17 | The host's name on a second line under the title | The file picker's heading (`picker/view.go` `heading`) | The heading is the title alone, level with the header bar. A host other than this device is named after the sidebar's first group heading, and after the title where the sidebar gives way; this device is not named ([files.md](files.md#host-file-picker)) | User decision, 2026-11-12 |
 | 18 | A wait reason on a queued row ("Held", "Paused", "Paused after stop", "Paused after interruption", "Not sent"), and held background results as rows in the queue ("Held at automatic limit", "Held after failure") | The composer's queue strip (`composer/queue.go`) | The strip lists queued input only, as plain rows. A queue the Node stopped sending is one toast when it happens (`queue_halt_interrupted`, `queue_halt_unsent`); the user's own Stop or pause is not reported. The Node and the protocol keep `pause_reason` and `hold`; a held result joins the user's next message and shows in the transcript with the turn that takes it ([composer.md](composer.md), [conversation.md](conversation.md)) | User decision, 2026-11-12 |
+| 19 | The size's value beside the message text size slider, and the stepped sizes (Small, Standard, Large, Extra large) the slider replaced | Settings › Conversation (`settings/conversation.go`) | The slider alone, one tick a pixel from 12 to 18; the transcript shows the size ([conversation.md](conversation.md)) | `b612a83`, `c8f0be4`, 2026-11-12 |
+| 20 | The toast that a language change applies after a restart | Settings › General (`settings/general.go`) | The window redraws in the language chosen at once, so nothing is said | `0b2988b`, 2026-11-12 |
 
 ## Guards
 
@@ -54,6 +56,7 @@ subtests of the feature's existing tests.
 | A score in the model picker opens no tooltip | `shell` `composerParity/model picker/scores open nothing` |
 | The file picker's heading is one line and names no local host | `picker` `TestModel/view/heading` |
 | The queue strip draws no wait reason, and no strip without queued input | `composer` `TestQueueTray`; `live` `TestQueueStates/held results are not rows`; the `queue_wait_*` keys in `i18n` `TestCatalogKeys/RemovedControls` |
+| The text size row has no value and no stepped sizes; a language change says nothing of a restart | The `message_text_*` and `settings_language_restart` keys in `i18n` `TestCatalogKeys/RemovedControls` |
 
 A key on the guard's list cannot be added to `keys.txt` without editing the
 test, which points here.

@@ -241,7 +241,6 @@ knowledge_denied: Knowledge access denied
 knowledge_page: Page %{page}
 knowledge_cells: '%{sheet} · %{start}:%{end}'
 knowledge_slide: Slide %{slide}
-recent_sessions: Recent
 workspace_archive: Archive session
 session_delete: Delete session
 session_delete_named: Delete session “%{name}” and its subagents permanently
@@ -511,7 +510,6 @@ browser_back: Back
 browser_forward: Forward
 browser_reload: Reload
 browser_address: Search or enter an address
-browser_new_tab: New tab
 browser_empty: Start browsing
 browser_stop: Stop
 browser_invalid_address: Invalid address
@@ -877,10 +875,6 @@ local_models_empty: No installed models
 local_models_status: Status
 message_display_compact: Compact
 message_display_detailed: Detailed
-message_text_extra_large: Extra large
-message_text_large: Large
-message_text_small: Small
-message_text_standard: Standard
 model_library_manage: Manage models
 model_library_select: Select
 model_library_selected: Selected
@@ -1488,7 +1482,6 @@ host_runtime_preview: UI snapshot only; existing values remain while loading or 
 workspace_runtime_preview: Live OS, runtime versions and host metrics require the shared Node
 workspace_running: Running Agents
 host_activity_hint: Session activity preview only; no real Agent or CLI process is started
-workspace_no_running: No Agent tasks started in preview
 host_runtime_error: 'Could not read runtime (preview): %{error}'
 update_idle: Not checked (preview)
 update_checking: Checking (preview)
@@ -1519,8 +1512,6 @@ metrics_download: Download
 metrics_upload: Upload
 metrics_disks: Disk
 metrics_no_disks: No disk data
-metrics_read: Total read
-metrics_written: Total written
 metrics_processes: Processes
 metrics_no_processes: No process data
 metrics_worker: Preview worker
@@ -1612,7 +1603,6 @@ workspace_no_terminal: No terminals in this worktree
 workspace_close_terminal: Close terminal
 workspace_terminal_preview: Terminal UI preview with project and worktree ownership; no PTY or shell is started
 pane_drag: Drag to split
-terminal_connecting: Connecting
 terminal_take_control: Take control
 terminal_other_controller: Controlled by another device
 terminal_unavailable: Terminal unavailable; check host connection
@@ -1643,7 +1633,6 @@ notification_all: All
 notification_copy_report: Copy report
 notification_report_copied: Report copied
 notification_duration: Duration
-notification_exit_code: Exit code
 notification_open_conversation: Open conversation
 notification_result: Result
 notification_seconds: '%{count} seconds'
@@ -1741,7 +1730,6 @@ files_block_task: Task list
 files_bold: Bold
 files_content_partial: Only the first 128 KiB of this large file is shown
 files_create: Create
-files_directory_failed: Could not load the folder; retry
 files_discard: Discard draft
 files_discard_description: Discard unsaved changes? Content being saved may still be written
 files_discard_title: Discard the unsaved draft
@@ -1843,11 +1831,8 @@ ssh_trust_title: Trust host key
 usage_duration_ms: '%{value} ms'
 live_host_runtime_loading: Loading Host runtime
 live_host_runtime_error: Could not read Host runtime
-live_host_no_running: No running sessions
 live_metrics_loading: Loading metrics
 live_metrics_error: Could not read Host metrics
-live_metrics_read: Read
-live_metrics_written: Written
 live_update_idle: Check for Host updates
 live_update_checking: Checking for updates
 live_update_current: Host is up to date
@@ -2089,7 +2074,6 @@ updates_save_first: Save open documents before updating
 notification_details: Details
 directory_action_failed: Operation failed; check path and permissions
 directory_address: Enter path
-directory_count_hidden: '%{count} hidden'
 directory_create: New folder
 directory_denied: No permission to open this folder
 directory_devices: Devices
@@ -2114,7 +2098,6 @@ directory_volume: Disk
 directory_yaml_kind: YAML file
 files_entry_name: Name
 files_paste_conflict: The destination exists or the path is unavailable
-files_trash_confirm: Delete “%{name}”
 live_request_failed: Request incomplete; check Node connection and directory. Retry keeps the original request ID.
 plugins_loading: Loading
 project_appearance: Project appearance
@@ -2191,7 +2174,6 @@ chat_provider_source: '%{name} · %{source}'
 chat_provider_session: '%{name} · Session'
 chat_provider_node: '%{name} · Host'
 chat_config_desktop: Desktop configuration
-usage_read_failed: Could not load usage, try again
 settings_experimental: Experimental
 settings_experimental_description: Development and debugging settings
 settings_demo_mode: Demo mode
