@@ -118,6 +118,25 @@ lies inside the scope's worktree if one is set. `store/plugin_authority.go`
 owns both rules; `TestScheduledTaskStart` fires the bundled scheduled-tasks
 callbacks through them.
 
+The same file carries the remaining scope rules of the source's plugin check:
+
+- `set_session_team`, the command behind the SDK's `setSessionExecution`, is a
+  `control_conversation` action.
+- Roles are listed and written only from a turn or the package's own settings
+  surface; `set_session_roles` only from a turn.
+- `read_project_catalog` and `stop_dispatch_turn` need a Node-wide scope.
+- A notification names only a session the caller may address, and a saved
+  dispatch handler's callback scope stays inside the scope that saves it.
+- A turn reads Git in any worktree of its captured worktree's project. Worktree
+  management requires a captured worktree with a project, names that project
+  and that source, and removes any worktree of the project.
+- Without a turn, a child conversation's scope does not write files, Git or
+  worktrees.
+
+Not compared with the source: role and local-model approval checks, the session
+an artifact read resolves to, and the per-call enabled check for browser,
+media and local-model commands outside controller settings.
+
 The callback engine has a 64 MiB allocation budget. Calls have a 60-second
 deadline and honor cancellation, including compilation and result conversion.
 The engine's own fixed call-depth bound handles recursion; it is not a physical

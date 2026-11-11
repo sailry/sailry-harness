@@ -236,9 +236,12 @@ func testPluginSessionAuthority(t *testing.T) {
 		info := pluginTestInfo("session-fixture", 'a')
 		info.Summary.Enabled = true
 		info.Extension = new(protocol.DefaultPluginExtension())
-		info.Extension.Actions = []protocol.PluginAction{protocol.PluginActionStartSessions, protocol.PluginActionReadConversation, protocol.PluginActionControlConversation}
+		info.Extension.Actions = []protocol.PluginAction{protocol.PluginActionStartSessions, protocol.PluginActionReadConversation, protocol.PluginActionControlConversation,
+			protocol.PluginActionReadRoles, protocol.PluginActionReadProjects, protocol.PluginActionDispatch, protocol.PluginActionNotify,
+			protocol.PluginActionReadGit, protocol.PluginActionWriteWorktrees}
 		scope := protocol.DefaultPluginContext()
 		scope.Package = plugins.PackageReference(info)
+		scope0 := scope
 		associated := func(namespace string) (protocol.Session, error) {
 			out, _, err := createSession(ctx, db, node, storage.Profile, protocol.CommandCreateSessionPayload{Config: &session.Config})
 			if err != nil {
@@ -274,6 +277,37 @@ func testPluginSessionAuthority(t *testing.T) {
 			return &value
 		}
 		other := protocol.NewWorktreeID()
+		// A sibling checkout of the session's project, and one of another project.
+		own, elsewhere, sibling, distant := protocol.NewProjectID(), protocol.NewProjectID(), protocol.NewWorktreeID(), protocol.NewWorktreeID()
+		for index, project := range []protocol.ProjectID{own, elsewhere} {
+			if _, err := db.ExecContext(ctx, "INSERT INTO projects(id,name,path,appearance) VALUES(?1,?2,?3,'{}')", project.String(), fmt.Sprint("Fixture ", index), fmt.Sprint("/fixture-project-", index)); err != nil {
+				return err
+			}
+		}
+		if _, err := db.ExecContext(ctx, "UPDATE worktrees SET project=?2 WHERE id=?1", session.Worktree.String(), own.String()); err != nil {
+			return err
+		}
+		for id, project := range map[protocol.WorktreeID]protocol.ProjectID{sibling: own, distant: elsewhere} {
+			if _, err := db.ExecContext(ctx, "INSERT INTO worktrees(id,project,path,main) VALUES(?1,?2,?3,0)", id.String(), project.String(), "/fixture-checkout/"+id.String()); err != nil {
+				return err
+			}
+		}
+		inSession := func(scope *protocol.PluginContext) { scope.Worktree, scope.Session = &session.Worktree, &session.ID }
+		inTurn := func(scope *protocol.PluginContext) {
+			scope.Worktree, scope.Session, scope.Turn = &session.Worktree, &session.ID, &turn
+		}
+		unexposed, outside := "command is not exposed to plugin software actions", "plugin action is outside the captured resource scope"
+		handler := func(scope protocol.DispatchScope) protocol.Command {
+			saved := protocol.DispatchHandler{Name: "fixture", Enabled: true, Source: protocol.DispatchSource{Package: scope0.Package.Name, Topic: "fixture"}, Queue: "fixture",
+				Callback: protocol.DispatchCallback{Scope: scope, Completion: protocol.DispatchCompletionCommand, Bindings: map[string]string{},
+					Command: &protocol.Command{Kind: "read_plugin_value", Data: protocol.CommandReadPluginValuePayload{Key: "fixture"}}}}
+			return protocol.Command{Kind: "dispatch", Data: &protocol.CommandDispatchPayload{Package: scope0.Package, Action: protocol.DispatchCommand{Kind: "save_handler", Data: &saved}}}
+		}
+		notify := func(target *protocol.SessionID) protocol.Command {
+			content := protocol.DefaultNotificationDraft()
+			content.Title, content.Kind, content.Session = "Fixture", protocol.NotificationKindInfo, target
+			return protocol.Command{Kind: "publish_notification", Data: &protocol.CommandPublishNotificationPayload{Package: scope0.Package, Content: content}}
+		}
 		for _, scenario := range []struct {
 			name    string
 			command protocol.Command
@@ -316,6 +350,36 @@ func testPluginSessionAuthority(t *testing.T) {
 				protocol.ErrorCodePermissionDenied, "plugin action is outside the captured resource scope"},
 			{"read a missing session", protocol.Command{Kind: "read_session", Data: &protocol.CommandReadSessionPayload{Session: protocol.NewSessionID()}}, nil,
 				protocol.ErrorCodePermissionDenied, "plugin action is outside the captured resource scope"},
+			{"choose a session's team", protocol.Command{Kind: "set_session_team", Data: &protocol.CommandSetSessionExecutionPayload{Session: session.ID, Execution: protocol.ConversationExecutionModel}},
+				inSession, "", ""},
+			{"list roles from a turn", protocol.Command{Kind: "list_roles"}, inTurn, "", ""},
+			{"list roles from a callback", protocol.Command{Kind: "list_roles"}, inSession, protocol.ErrorCodePermissionDenied, unexposed},
+			{"read the project catalog Node-wide", protocol.Command{Kind: "read_project_catalog"}, nil, "", ""},
+			{"read the project catalog from a worktree", protocol.Command{Kind: "read_project_catalog"},
+				func(scope *protocol.PluginContext) { scope.Worktree = &session.Worktree }, protocol.ErrorCodePermissionDenied, unexposed},
+			{"stop a job's turn Node-wide", protocol.Command{Kind: "stop_dispatch_turn", Data: &protocol.CommandStopDispatchTurnPayload{Package: scope.Package, Job: protocol.NewJobID()}}, nil, "", ""},
+			{"stop a job's turn from a session", protocol.Command{Kind: "stop_dispatch_turn", Data: &protocol.CommandStopDispatchTurnPayload{Package: scope.Package, Job: protocol.NewJobID()}},
+				inSession, protocol.ErrorCodePermissionDenied, unexposed},
+			{"notify without a session", notify(nil), nil, "", ""},
+			{"notify about an owned session", notify(&owned.ID), nil, "", ""},
+			{"notify about another package's session", notify(&foreign.ID), nil, protocol.ErrorCodePermissionDenied, outside},
+			{"save a handler in the caller's scope", handler(protocol.DispatchScope{Worktree: &session.Worktree, Session: &session.ID}), inSession, "", ""},
+			{"save a Node-wide handler", handler(protocol.DispatchScope{}), nil, "", ""},
+			{"save a handler for another worktree", handler(protocol.DispatchScope{Worktree: &sibling}), inSession, protocol.ErrorCodePermissionDenied, outside},
+			{"save a handler for another package's session", handler(protocol.DispatchScope{Session: &foreign.ID}), nil, protocol.ErrorCodePermissionDenied, outside},
+			{"a turn reads Git in a sibling checkout", protocol.Command{Kind: "read_git_log", Data: &protocol.CommandReadGitLogPayload{Worktree: sibling}}, inTurn, "", ""},
+			{"a callback reads Git in a sibling checkout", protocol.Command{Kind: "read_git_log", Data: &protocol.CommandReadGitLogPayload{Worktree: sibling}},
+				inSession, protocol.ErrorCodePermissionDenied, outside},
+			{"a turn reads Git in another project", protocol.Command{Kind: "read_git_log", Data: &protocol.CommandReadGitLogPayload{Worktree: distant}},
+				inTurn, protocol.ErrorCodePermissionDenied, outside},
+			{"remove a sibling checkout", protocol.Command{Kind: "remove_worktree", Data: &protocol.CommandRemoveWorktreePayload{Worktree: sibling}}, inSession, "", ""},
+			{"remove another project's checkout", protocol.Command{Kind: "remove_worktree", Data: &protocol.CommandRemoveWorktreePayload{Worktree: distant}},
+				inSession, protocol.ErrorCodePermissionDenied, outside},
+			{"create a checkout in the captured project", protocol.Command{Kind: "create_worktree", Data: &protocol.CommandCreateWorktreePayload{Project: own}}, inSession, "", ""},
+			{"create a checkout in another project", protocol.Command{Kind: "create_worktree", Data: &protocol.CommandCreateWorktreePayload{Project: elsewhere}},
+				inSession, protocol.ErrorCodePermissionDenied, "worktree action is outside the captured project"},
+			{"manage checkouts without a captured one", protocol.Command{Kind: "create_worktree", Data: &protocol.CommandCreateWorktreePayload{Project: own}},
+				nil, protocol.ErrorCodePermissionDenied, "repository action requires a worktree"},
 			{"read an owned session from a session scope", protocol.Command{Kind: "read_session", Data: &protocol.CommandReadSessionPayload{Session: owned.ID}},
 				func(scope *protocol.PluginContext) { scope.Worktree, scope.Session = &session.Worktree, &session.ID },
 				protocol.ErrorCodePermissionDenied, "plugin action is outside the captured resource scope"},
@@ -328,6 +392,21 @@ func testPluginSessionAuthority(t *testing.T) {
 			var rejected *protocol.Fault
 			if scenario.code == "" && err != nil || scenario.code != "" && (!errors.As(err, &rejected) || rejected.Code != scenario.code || scenario.message != "" && rejected.Message != scenario.message) {
 				return fmt.Errorf("%s: unexpected session authority result: %v", scenario.name, err)
+			}
+		}
+		// A child conversation is written only by its own turn.
+		body, _ := encode(protocol.Delegation{Session: session.ID, Turn: turn, Entry: "call"})
+		if _, err := db.ExecContext(ctx, "INSERT INTO agent_delegations(turn,parent_turn,entry,part,body) VALUES(?1,?1,'call',0,?2)", turn.String(), body); err != nil {
+			return err
+		}
+		remove := protocol.Command{Kind: "remove_worktree", Data: &protocol.CommandRemoveWorktreePayload{Worktree: sibling}}
+		for _, change := range []func(*protocol.PluginContext){inSession, inTurn} {
+			captured := scope
+			change(&captured)
+			err := CheckPluginRequest(ctx, db, protocol.Request{Plugin: &captured, Command: remove}, info)
+			var rejected *protocol.Fault
+			if captured.Turn != nil && err != nil || captured.Turn == nil && (!errors.As(err, &rejected) || rejected.Message != "child conversation is read-only") {
+				return fmt.Errorf("unexpected child conversation write result: %v", err)
 			}
 		}
 		return nil

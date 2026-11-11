@@ -119,7 +119,26 @@ func CheckPluginRequest(ctx context.Context, db *sql.Conn, request protocol.Requ
 	if !info.Summary.Enabled && !(settings && pluginSettingsAccess(request.Command.Kind)) {
 		return fault(protocol.ErrorCodeNotConfigured, "plugin is disabled")
 	}
+	unexposed := fault(protocol.ErrorCodePermissionDenied, "command is not exposed to plugin software actions")
 	switch request.Command.Kind {
+	case "list_roles", "put_role", "remove_role":
+		if scope.Turn == nil && !settings {
+			return unexposed
+		}
+	case "set_session_roles":
+		if scope.Turn == nil {
+			return unexposed
+		}
+	case "read_project_catalog", "stop_dispatch_turn":
+		// The catalog and a job's turn belong to the whole Node, so a scope
+		// captured for one worktree, session or turn does not reach them.
+		if scope.Worktree != nil || scope.Session != nil || scope.Turn != nil {
+			return unexposed
+		}
+	case "list_worktrees", "register_worktree", "create_worktree", "create_managed_worktree", "remove_worktree":
+		if err := checkPluginWorktreeManagement(ctx, db, request); err != nil {
+			return err
+		}
 	case "read_activity", "read_activity_catalog":
 		if scope.Worktree != nil || scope.Session != nil || scope.Turn != nil || scope.Invocation != nil {
 			return fault(protocol.ErrorCodePermissionDenied, "activity requires a Node-wide plugin scope")
@@ -225,10 +244,54 @@ func CheckPluginRequest(ctx context.Context, db *sql.Conn, request protocol.Requ
 			return fault(protocol.ErrorCodePermissionDenied, "plugin turn belongs to another session")
 		}
 	}
-	if request.Command.Kind == "start_session" {
+	switch request.Command.Kind {
+	case "start_session":
 		// The draft's worktree was confined by checkPluginSessionStart: a
 		// Node-wide scope may name any worktree for the session it creates.
 		target.Worktree = nil
+	case "publish_notification":
+		// A notification opens its session, so it names the caller's own.
+		var input struct {
+			Content struct {
+				Session *protocol.SessionID `json:"session"`
+			} `json:"content"`
+		}
+		if err := json.Unmarshal(body, &input); err != nil {
+			return err
+		}
+		target.Session = input.Content.Session
+	case "dispatch":
+		// A saved handler later runs in its callback scope, which therefore
+		// stays inside the scope that saves it.
+		var input struct {
+			Action struct {
+				Kind string          `json:"kind"`
+				Data json.RawMessage `json:"data"`
+			} `json:"action"`
+		}
+		if err := json.Unmarshal(body, &input); err != nil {
+			return err
+		}
+		if input.Action.Kind == "save_handler" {
+			var handler struct {
+				Callback struct {
+					Scope protocol.DispatchScope `json:"scope"`
+				} `json:"callback"`
+			}
+			if err := json.Unmarshal(input.Action.Data, &handler); err != nil {
+				return err
+			}
+			target.Worktree, target.Session = handler.Callback.Scope.Worktree, handler.Callback.Scope.Session
+		}
+	}
+	if target.Worktree != nil && !reflect.DeepEqual(target.Worktree, scope.Worktree) {
+		sibling, err := pluginProjectWorktree(ctx, db, *scope, request.Command.Kind, *target.Worktree)
+		if err != nil {
+			return err
+		}
+		if sibling {
+			target.Worktree = nil
+		}
 	}
 	if target.Package != nil && *target.Package != scope.Package || target.Worktree != nil && !reflect.DeepEqual(target.Worktree, scope.Worktree) {
 		return fault(protocol.ErrorCodePermissionDenied, "plugin action is outside the captured resource scope")
@@ -249,6 +312,10 @@ func CheckPluginRequest(ctx context.Context, db *sql.Conn, request protocol.Requ
 		}
 		if scope.Worktree == nil || session.Worktree != *scope.Worktree {
 			return fault(protocol.ErrorCodePermissionDenied, "plugin session belongs to another worktree")
+		}
+		if scope.Turn == nil && session.Delegation != nil &&
+			(action == protocol.PluginActionWriteFiles || action == protocol.PluginActionWriteGit || action == protocol.PluginActionWriteWorktrees) {
+			return fault(protocol.ErrorCodePermissionDenied, "child conversation is read-only")
 		}
 	}
 	if request.Command.Kind == "read_plugin_conversation_value" || request.Command.Kind == "write_plugin_conversation_value" || request.Command.Kind == "remove_plugin_conversation_value" {
@@ -298,6 +365,69 @@ func checkPluginPermissionSurface(request protocol.Request, info protocol.Plugin
 	}
 	if !allowed {
 		return fault(protocol.ErrorCodePermissionDenied, "command is not declared by a permission contribution")
+	}
+	return nil
+}
+
+// pluginSourceWorktree reads the captured checkout with the registered
+// worktrees a repository command may name beside it.
+func pluginSourceWorktree(ctx context.Context, db *sql.Conn, scope protocol.PluginContext) (protocol.Worktree, []protocol.Worktree, error) {
+	if scope.Worktree == nil {
+		return protocol.Worktree{}, nil, fault(protocol.ErrorCodePermissionDenied, "repository action requires a worktree")
+	}
+	entries, err := ReadWorktrees(ctx, db)
+	if err != nil {
+		return protocol.Worktree{}, nil, err
+	}
+	for _, entry := range entries {
+		if entry.ID == *scope.Worktree {
+			return entry, entries, nil
+		}
+	}
+	return protocol.Worktree{}, nil, fault(protocol.ErrorCodeNotFound, "captured worktree is unavailable")
+}
+
+// pluginProjectWorktree reports whether a command may name a worktree beside
+// the captured one: a turn reads Git anywhere in its project, and worktree
+// management removes any worktree of that project.
+func pluginProjectWorktree(ctx context.Context, db *sql.Conn, scope protocol.PluginContext, kind string, target protocol.WorktreeID) (bool, error) {
+	switch kind {
+	case "inspect_git", "read_git_head", "read_git_log", "read_git_show", "read_git_blame", "list_git_changes", "read_git_change", "read_git_context", "read_git_diff":
+		if scope.Turn == nil || scope.Worktree == nil {
+			return false, nil
+		}
+	case "remove_worktree":
+	default:
+		return false, nil
+	}
+	source, entries, err := pluginSourceWorktree(ctx, db, scope)
+	if err != nil {
+		return false, err
+	}
+	return source.Project != nil && slices.ContainsFunc(entries, func(entry protocol.Worktree) bool {
+		return entry.ID == target && entry.Project != nil && *entry.Project == *source.Project
+	}), nil
+}
+
+// checkPluginWorktreeManagement keeps worktree management inside the project
+// of the captured checkout.
+func checkPluginWorktreeManagement(ctx context.Context, db *sql.Conn, request protocol.Request) error {
+	source, _, err := pluginSourceWorktree(ctx, db, *request.Plugin)
+	if err != nil {
+		return err
+	}
+	if source.Project == nil {
+		return fault(protocol.ErrorCodePermissionDenied, "worktree management requires a project")
+	}
+	var input struct {
+		Project *protocol.ProjectID  `json:"project"`
+		Source  *protocol.WorktreeID `json:"source"`
+	}
+	if err := decodeProviderData(request.Command.Data, &input); err != nil {
+		return err
+	}
+	if input.Project != nil && *input.Project != *source.Project || input.Source != nil && *input.Source != source.ID {
+		return fault(protocol.ErrorCodePermissionDenied, "worktree action is outside the captured project")
 	}
 	return nil
 }
@@ -360,7 +490,7 @@ func pluginAction(kind string) (protocol.PluginAction, bool) {
 		return protocol.PluginActionControlCommands, true
 	case "read_session", "read_conversation", "read_conversation_runs", "read_conversation_run", "read_turn_capture", "read_turn", "read_tool_detail", "search_conversation", "list_conversation_assets", "list_associated_sessions", "read_queued_turn":
 		return protocol.PluginActionReadConversation, true
-	case "queue_turn", "submit_turn", "continue_turn", "set_session_config", "set_session_member_model", "set_queue_paused", "move_queued_turn", "stop_turn", "start_queued_turn", "edit_queued_turn", "remove_queued_turn", "withdraw_guidance", "send_queued_turn":
+	case "queue_turn", "submit_turn", "continue_turn", "set_session_config", "set_session_team", "set_session_member_model", "set_queue_paused", "move_queued_turn", "stop_turn", "start_queued_turn", "edit_queued_turn", "remove_queued_turn", "withdraw_guidance", "send_queued_turn":
 		return protocol.PluginActionControlConversation, true
 	case "start_session":
 		return protocol.PluginActionStartSessions, true
