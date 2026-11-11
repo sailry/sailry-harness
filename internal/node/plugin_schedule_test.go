@@ -23,7 +23,8 @@ import (
 )
 
 // scheduleScript answers with text, except that it first makes the one tool
-// call a test has queued, discovering the tool when the request defers it.
+// call a test has queued, discovering the tool when the request defers it. A
+// package tool is selected by its alias and called by its declared name.
 type scheduleScript struct {
 	fantasy.LanguageModel
 	mu      sync.Mutex
@@ -45,11 +46,12 @@ func (script *scheduleScript) Stream(_ context.Context, call fantasy.Call) (fant
 	}
 	part := fantasy.StreamPart{Type: fantasy.StreamPartTypeTextDelta, ID: "answer", Delta: "Done"}
 	if script.pending != nil {
-		name, arguments := script.pending[0], script.pending[1]
+		alias, arguments := script.pending[0], script.pending[1]
+		name := declaredToolName(alias)
 		if slices.ContainsFunc(call.Tools, func(tool fantasy.Tool) bool { return tool.GetName() == name }) {
 			part, script.pending = fantasy.StreamPart{Type: fantasy.StreamPartTypeToolCall, ID: "task", ToolCallName: name, ToolCallInput: arguments}, nil
 		} else {
-			part = fantasy.StreamPart{Type: fantasy.StreamPartTypeToolCall, ID: "discover", ToolCallName: "tool_search", ToolCallInput: `{"query":"select:` + name + `"}`}
+			part = fantasy.StreamPart{Type: fantasy.StreamPartTypeToolCall, ID: "discover", ToolCallName: "tool_search", ToolCallInput: `{"query":"select:` + alias + `"}`}
 		}
 	}
 	return func(yield func(fantasy.StreamPart) bool) {
