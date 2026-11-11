@@ -155,19 +155,32 @@ the write cannot leave its owner:
   browser capture with `save=true` (`engine.Tool.Confirm`).
 
 A flow step runs a read-only operation, the package's own storage
-(`storage.*`), `settings.read` or `http.request`. A step has no approval of its
-own, so a workspace change (`files.write`, `process.run` and the other writing
-operations) runs only as a handler's bound `operation`, under that tool's
-approval. A flow that declares one is refused before the user is asked, with
-`plugin flows cannot run <operation>: ...` (`pluginFlowRuns`).
+(`storage.*`) or `http.request`. A step has no approval of its own, so every
+other change (`files.write`, `files.delete`, `process.run`, a browser, a role,
+an agent and the rest) runs only as a handler's bound `operation`, under that
+tool's approval; `progress.update` and `settings.read` are the model's own. One
+rule, `plugins.FlowOperation`, decides both layers:
+
+- Installation refuses a manifest whose flow declares any other operation, with
+  `plugin flows cannot run <operation>`.
+- A record stored before that rule keeps its flow. The turn refuses it before
+  the user is asked, with `plugin flows cannot run <operation>: ...`, and
+  nothing in the workspace changes.
+
+The rule is the operation's action: the read actions of roles, artifacts, the
+code index, Git, worktrees, databases, SSH connections, files, the web,
+knowledge and commands, both storage actions and `http.request`.
+`operations.TestFlowOperationsNeedNoApproval` holds it to the read-only flag of
+the operation specifications.
 
 Deviations from Rust: a declared name that breaks the provider rule keeps its
 alias instead of being sent as declared; an MCP tool declared `initial` starts
 visible to the main agent, where Rust always defers MCP tools outside a selected
 mode; a child's MCP input request is refused, where Rust records a question the
 parent page never shows; Rust runs every declared operation as a flow step under
-the flow's one approval, including commands and file writes, which no bundled
-package uses.
+the flow's one approval, including commands, deletions and moves, and refuses
+at install only file writes and edits, delegation, progress and settings reads.
+No bundled package declares a flow operation outside the rule above.
 
 The task supervisor bounds Node work. The installation queue permits eight
 pending preparations and serializes each resource through durable publication.
@@ -580,8 +593,8 @@ empty so the text remains aligned.
 - Extension validation at install follows the source for the declarations
   that cross-reference each other: every tool, handler and flow operation
   needs its action declared; retired language-server operations and actions
-  are refused; a flow has one to eight distinct operations and none that
-  writes files, delegates, reports progress or reads settings; a handler tool
+  are refused; a flow has one to eight distinct operations, each one a
+  flow step can run (stricter than the source, see the flow rule above); a handler tool
   has a description and an object parameter schema of at most 16 KiB; an
   `initial` tool stays inside package storage; host handlers are 1 to 64
   exportable names, host resources are scripts, and `turn`, `commands` and UI

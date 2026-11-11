@@ -108,12 +108,15 @@ var (
 	retiredActions = []protocol.PluginAction{
 		protocol.PluginActionReadCode, protocol.PluginActionManageCode, protocol.PluginActionReadCodeSettings, protocol.PluginActionSaveCodeSettings,
 	}
-	// A flow checkpoint consumes one exact approved write, so a flow cannot
-	// run these itself.
-	flowExcluded = []protocol.ToolOperation{
-		protocol.ToolOperationProgress, protocol.ToolOperationDelegateAgent, protocol.ToolOperationGuideAgent, protocol.ToolOperationWaitAgent,
-		protocol.ToolOperationReadSettings, protocol.ToolOperationWriteFile, protocol.ToolOperationEditFile, protocol.ToolOperationEditNotebook,
-		protocol.ToolOperationApplyChanges,
+	// A flow step has no approval of its own, so it runs only the operations
+	// of these actions: reads, the package's own values and a declared
+	// request. Every other change runs as a handler's bound operation, under
+	// that tool's approval.
+	flowActions = []protocol.PluginAction{
+		protocol.PluginActionReadRoles, protocol.PluginActionReadArtifacts, protocol.PluginActionReadCodeIndex, protocol.PluginActionReadGit,
+		protocol.PluginActionReadWorktrees, protocol.PluginActionReadDatabases, protocol.PluginActionReadSsh, protocol.PluginActionReadFiles,
+		protocol.PluginActionReadWeb, protocol.PluginActionReadKnowledge, protocol.PluginActionReadCommands,
+		protocol.PluginActionReadStorage, protocol.PluginActionWriteStorage, protocol.PluginActionHttp,
 	}
 	// A handler may prepare a delegation or a guidance (docs/delegation.md);
 	// waiting, progress and settings reads are the model's own.
@@ -122,6 +125,13 @@ var (
 	}
 	toolPlatforms = []string{"macos", "windows", "linux"}
 )
+
+// FlowOperation reports whether a flow may declare an operation, which is
+// whether a flow step may run it. Installation and the turn share this rule.
+func FlowOperation(operation protocol.ToolOperation) bool {
+	action, required := operationAction(operation)
+	return required && slices.Contains(flowActions, action)
+}
 
 // validHandler is a callback name a script can export.
 func validHandler(name string) bool {
@@ -260,9 +270,13 @@ func validateTool(tool protocol.ToolDeclaration, extension protocol.PluginExtens
 		}
 		if flow := handler.Flow; flow != nil {
 			if handler.Operation != nil || handler.Result != nil || len(flow.Operations) == 0 || len(flow.Operations) > 8 || !unique(flow.Operations) ||
-				flow.MessageChars != nil && (*flow.MessageChars == 0 || *flow.MessageChars > 2*1024*1024/4) ||
-				slices.ContainsFunc(flow.Operations, func(operation protocol.ToolOperation) bool { return slices.Contains(flowExcluded, operation) }) {
+				flow.MessageChars != nil && (*flow.MessageChars == 0 || *flow.MessageChars > 2*1024*1024/4) {
 				return packageFault("invalid plugin tool flow")
+			}
+			for _, operation := range flow.Operations {
+				if !FlowOperation(operation) {
+					return packageFault("plugin flows cannot run " + string(operation))
+				}
 			}
 		}
 	}

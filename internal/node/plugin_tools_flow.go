@@ -30,21 +30,9 @@ func pluginStorageHandler(handler protocol.ToolHandler) bool {
 	})
 }
 
-// pluginFlowRuns reports whether a flow step may run an operation. A step has
-// no approval of its own, so it reads, writes its package's own values or
-// sends a declared request; a workspace change runs only as the bound
-// operation of a handler, under that tool's approval.
-func pluginFlowRuns(operation protocol.ToolOperation) bool {
-	switch operation {
-	case protocol.ToolOperationGetValue, protocol.ToolOperationListKeys, protocol.ToolOperationSetValue, protocol.ToolOperationDeleteValue,
-		protocol.ToolOperationStorageTransaction, protocol.ToolOperationReadSettings, protocol.ToolOperationHttp:
-		return true
-	}
-	readOnly, _ := operations.Policy(operation)
-	return readOnly
-}
-
-// pluginFlowLimit is the refusal for an operation a flow step cannot run.
+// pluginFlowLimit is the refusal for an operation a flow step cannot run
+// (plugins.FlowOperation). Installation refuses a manifest that declares one;
+// a record stored before that rule is refused here.
 func pluginFlowLimit(operation protocol.ToolOperation) *protocol.Fault {
 	return &protocol.Fault{Code: protocol.ErrorCodePermissionDenied, Message: "plugin flows cannot run " + string(operation) + ": a flow step reads, writes its package's storage or sends a declared request; bind a workspace change as the handler's operation"}
 }
@@ -67,7 +55,7 @@ func pluginOperationCommand(owner *pluginScriptTurn, operation protocol.ToolOper
 	case protocol.ToolOperationHttp:
 		kind = "request_plugin_http"
 	default:
-		if !pluginFlowRuns(operation) {
+		if !plugins.FlowOperation(operation) {
 			return protocol.Command{}, pluginFlowLimit(operation)
 		}
 		return operations.Command(operation, arguments, owner.invocation.Run.Worktree, owner.invocation.Session.ID, owner.invocation.Run.Turn, owner.invocation.Worktree.Project, true)

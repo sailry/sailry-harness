@@ -165,8 +165,8 @@ func fixtureS3Body(request *http.Request) ([]byte, error) {
 }
 
 func TestRemoteBackupTargets(t *testing.T) {
-	profile, _ := fixtureProfile(t)
-	passphrase := protocol.NewSecret("correct horse battery")
+	profile, files := fixtureProfile(t)
+	passphrase := protocol.NewSecret(fixturePassphrase)
 	identity, secret := protocol.NewSecret(fixtureIdentity), protocol.NewSecret(fixtureSecret)
 	auth := Auth{Identity: &identity, Secret: &secret, Passphrase: &passphrase}
 
@@ -174,6 +174,20 @@ func TestRemoteBackupTargets(t *testing.T) {
 	objects := &fixtureS3{bucket: "profile-backups", objects: map[string][]byte{}}
 	s3 := httptest.NewServer(objects)
 	t.Cleanup(s3.Close)
+
+	// One sealed archive serves every destination: publishing reads it and
+	// leaves it as it was. The plain archive exists only in memory.
+	snapshot := fixtureSnapshot(t, profile, files, fixtureRoots)
+	var archived bytes.Buffer
+	if err := snapshot.archive(t.Context(), &archived); err != nil {
+		t.Fatal(err)
+	}
+	plain := archived.Bytes()
+	packed := fixturePack(t, snapshot)
+	original, err := os.ReadFile(packed.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	for _, test := range []struct {
 		name        string
@@ -208,11 +222,6 @@ func TestRemoteBackupTargets(t *testing.T) {
 			if page, err := List(t.Context(), plan); err != nil || len(page.Records) != 0 || page.Partial {
 				t.Fatalf("empty destination = %#v %v", page, err)
 			}
-			packed := fixturePacked(t, profile)
-			plain, err := os.ReadFile(packed.Path)
-			if err != nil {
-				t.Fatal(err)
-			}
 			id := uuid.NewString()
 			record, err := Export(t.Context(), plan, packed, id)
 			if err != nil {
@@ -230,11 +239,16 @@ func TestRemoteBackupTargets(t *testing.T) {
 				t.Fatalf("fetch = %#v %v", fetched, err)
 			}
 			defer sealed.Close()
-			opened, err := Open(t.Context(), sealed, t.TempDir(), passphrase)
+			if downloaded, err := io.ReadAll(sealed); err != nil || !bytes.Equal(downloaded, original) {
+				t.Fatalf("fetched archive differs from the sealed one: %v", err)
+			}
+			if _, err := sealed.Seek(0, io.SeekStart); err != nil {
+				t.Fatal(err)
+			}
+			opened, err := Open(t.Context(), sealed, passphrase)
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer opened.Close()
 			if restored, err := io.ReadAll(opened); err != nil || !bytes.Equal(restored, plain) {
 				t.Fatalf("restored archive differs: %v", err)
 			}
@@ -287,7 +301,6 @@ func TestRemoteBackupTargets(t *testing.T) {
 			if code(err) != protocol.ErrorCodeUnavailable || err.Error() != (&protocol.Fault{Code: protocol.ErrorCodeUnavailable, Message: "backup storage request failed"}).Error() {
 				t.Errorf("%s: %v", test.name, err)
 			}
-			packed := fixturePacked(t, profile)
 			if _, err := Export(t.Context(), plan, packed, uuid.NewString()); err == nil || strings.Contains(err.Error(), fixtureSecret) {
 				t.Errorf("%s export: %v", test.name, err)
 			}
