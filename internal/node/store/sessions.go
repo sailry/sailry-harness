@@ -429,6 +429,9 @@ func removeSession(ctx context.Context, db *sql.Conn, id protocol.SessionID, exp
 		}
 	}
 	for _, id := range ids {
+		if err := dismissSessionBackground(ctx, db, id); err != nil {
+			return protocol.Output{}, nil, err
+		}
 		if _, err := db.ExecContext(ctx, "UPDATE sessions SET state='removed' WHERE id=?1", id.String()); err != nil {
 			return protocol.Output{}, nil, err
 		}

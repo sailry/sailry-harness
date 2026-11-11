@@ -54,6 +54,20 @@ byte totals, character-aligned retained ranges and an 8 KiB recent tail. Backgro
 snapshots additionally include an 8 KiB head; foreground results reuse their
 canonical prefix capture. Transcoded streams keep original byte offsets.
 
+## Session lifetime
+
+Removing a session dismisses its running and pending background evidence in the
+removing transaction, for the session and every delegated child, and after the
+commit the Node calls `Service.CloseSession` for each removed id: every command
+of that session is killed, awaited and dropped from the service. A late
+completion finds the dismissed row and records nothing. This matches the
+reference.
+
+Archiving leaves commands running, as the reference does: an archived session
+can be restored with its work intact, and removal is the action that ends it.
+The desktop closes an archived conversation's terminals because those belong to
+its panel; commands belong to the Node.
+
 ## Deviations and validation
 
 The required MyGo PTY import trial failed because its implementation is internal;

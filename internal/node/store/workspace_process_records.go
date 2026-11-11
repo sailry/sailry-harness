@@ -240,6 +240,23 @@ func ReadBackgroundTasks(ctx context.Context, db *sql.Conn, session protocol.Ses
 	return tasks, nil
 }
 
+// dismissSessionBackground closes the evidence of a removed session. The Node
+// stops the session's commands after the removal commits; their completion then
+// finds a dismissed row and records nothing.
+func dismissSessionBackground(ctx context.Context, db *sql.Conn, session protocol.SessionID) error {
+	records, err := readBodies[BackgroundRecord](ctx, db, "SELECT body FROM agent_background WHERE session=?1 AND state IN ('running','pending')", session.String())
+	if err != nil {
+		return err
+	}
+	for _, record := range records {
+		record.Task.State, record.Task.Delivery = protocol.ConversationBackgroundStateDismissed, nil
+		if err := saveBackgroundRecord(ctx, db, &record); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func RecoverCommands(ctx context.Context, db *sql.Conn, now time.Time) ([]protocol.Event, error) {
 	records, err := readBodies[BackgroundRecord](ctx, db, "SELECT body FROM agent_background WHERE state IN ('running','pending')")
 	if err != nil {
