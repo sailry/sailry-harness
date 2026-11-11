@@ -1,6 +1,7 @@
 package shell
 
 import (
+	"cmp"
 	"slices"
 	"testing"
 	"time"
@@ -41,8 +42,194 @@ func buttons(tt *ui.Tester, name string) int {
 	return n
 }
 
+// paneRows are the headers of a split's panes side by side, from left to
+// right: each one's buttons by name, those in line with its drag handle from
+// the pane before it to its close button.
+func paneRows(tt *ui.Tester) []map[string]ui.Rect {
+	var handles []ui.Rect
+	for _, e := range tt.AccessAll() {
+		if e.Role == ui.RoleButton && e.Name == i18n.In("en", "pane_drag") && e.Bounds.W > 0 {
+			handles = append(handles, e.Bounds)
+		}
+	}
+	slices.SortFunc(handles, func(x, y ui.Rect) int { return cmp.Compare(x.X, y.X) })
+	rows := make([]map[string]ui.Rect, len(handles))
+	from := float32(0)
+	for i, h := range handles {
+		// The close button ends the row, one gap after the handle.
+		to := h.X + 2*(h.W+4)
+		rows[i] = map[string]ui.Rect{}
+		for _, e := range tt.AccessAll() {
+			if b := e.Bounds; e.Role == ui.RoleButton && b.W > 0 && b.Y == h.Y && b.X >= from && b.X < to {
+				rows[i][e.Name] = b
+			}
+		}
+		from = to
+	}
+	return rows
+}
+
+// Find and the overview are one conversation's. Alone, the conversation has
+// them in the band. In a split the band has none: each conversation's pane
+// has its own in its header, before the drag handle and the close button,
+// acting on that pane's conversation with its own search bar and overview
+// popover; ⌘F is the focused pane's, and a terminal pane has none.
+func testPaneActions(t *testing.T) {
+	find, overview := i18n.In("en", "chat_search"), i18n.In("en", "chat_assets_title")
+	drag, shut := i18n.In("en", "pane_drag"), i18n.In("en", "close")
+	a, tt := newTester(t)
+	for _, name := range []string{find, overview} {
+		if _, ok := headerButton(tt, name); !ok || buttons(tt, name) != 1 {
+			t.Fatalf("alone: %q in the band %v, %d in the window", name, ok, buttons(tt, name))
+		}
+	}
+	splitTwo(t, a, tt)
+	for _, name := range []string{find, overview} {
+		if _, ok := headerButton(tt, name); ok || buttons(tt, name) != 2 {
+			t.Fatalf("split: %q in the band %v, %d in the window", name, ok, buttons(tt, name))
+		}
+	}
+	if _, shown := status(tt); !shown {
+		t.Error("the session status left the band over a split")
+	}
+	rows := paneRows(tt)
+	if len(rows) != 2 {
+		t.Fatalf("%d pane headers, want 2", len(rows))
+	}
+	for i, row := range rows {
+		f, o, d, x := row[find], row[overview], row[drag], row[shut]
+		if f.W != 28 || f.H != 28 || o.W != 28 || o.H != 28 || o.X != f.X+f.W+4 || d.X != o.X+o.W+4 || x.X != d.X+d.W+4 {
+			t.Errorf("pane %d: the header is not Find %v, the overview %v, the handle %v, close %v", i, f, o, d, x)
+		}
+	}
+	press := func(r ui.Rect) {
+		t.Helper()
+		if r.W == 0 {
+			t.Fatal("no such button in the pane's header")
+		}
+		tt.ClickAt(r.X+r.W/2, r.Y+r.H/2)
+		tt.Frame()
+		tt.Frame()
+	}
+	open := func() (big, theme bool) {
+		return a.Messages.SearchOpenIn(preview.Big), a.Messages.SearchOpenIn(themeChat)
+	}
+	// A pane's Find opens its own conversation's bar, whichever pane had the
+	// focus, and leaves the other's as it is.
+	press(rows[1][find])
+	if big, theme := open(); big || !theme {
+		t.Fatalf("the second pane's Find: the first's bar open %v, its own %v", big, theme)
+	}
+	press(paneRows(tt)[0][find])
+	if big, theme := open(); !big || !theme {
+		t.Fatalf("the first pane's Find: its own bar open %v, the second's %v", big, theme)
+	}
+	a.Messages.CloseSearchIn(preview.Big)
+	tt.Frame()
+	if big, theme := open(); big || !theme {
+		t.Fatalf("closing the first pane's bar: its own open %v, the second's %v", big, theme)
+	}
+	a.Messages.CloseSearch()
+	tt.Frame()
+	// ⌘F opens the focused pane's bar: the pane whose composer has the focus.
+	var inputs []ui.Rect
+	for _, e := range tt.AccessAll() {
+		if e.Role == ui.RoleTextField && e.Name == i18n.In("en", "composer") && e.Bounds.W > 0 {
+			inputs = append(inputs, e.Bounds)
+		}
+	}
+	slices.SortFunc(inputs, func(x, y ui.Rect) int { return cmp.Compare(x.X, y.X) })
+	if len(inputs) != 2 {
+		t.Fatalf("%d composers in the split, want 2", len(inputs))
+	}
+	for i, id := range []string{themeChat, preview.Big} {
+		press(inputs[1-i])
+		tt.Key(ui.Cmd, ui.KeyF)
+		tt.Frame()
+		tt.Frame()
+		if a.panes.Active != session(id) || !a.Messages.SearchOpenIn(id) || len(a.Messages.SearchSessions()) != 1 {
+			t.Fatalf("⌘F in %q: active %v, open %q", id, a.panes.Active, a.Messages.SearchSessions())
+		}
+		a.Messages.CloseSearch()
+		tt.Frame()
+	}
+	// A pane's overview is its conversation's own popover.
+	press(paneRows(tt)[1][overview])
+	if overviewOpen(a, preview.Big) || !overviewOpen(a, themeChat) {
+		t.Fatalf("the second pane's overview: the first's open %v, its own %v", overviewOpen(a, preview.Big), overviewOpen(a, themeChat))
+	}
+	// The press that opens the first pane's is outside the second's, which
+	// MyGo's popover closes for; the first's opens all the same.
+	press(paneRows(tt)[0][overview])
+	if !overviewOpen(a, preview.Big) {
+		t.Fatal("the first pane's overview did not open")
+	}
+	// Closing a pane leaves the conversation alone: its actions are the
+	// band's again, and the closed pane's popover is forgotten.
+	press(paneRows(tt)[1][shut])
+	tt.Frame()
+	if a.panes.Displayed() != nil {
+		t.Fatal("the second pane's close did not leave the split")
+	}
+	for _, name := range []string{find, overview} {
+		if _, ok := headerButton(tt, name); !ok || buttons(tt, name) != 1 {
+			t.Errorf("alone again: %q in the band %v, %d in the window", name, ok, buttons(tt, name))
+		}
+	}
+	if _, kept := a.overviews[themeChat]; kept {
+		t.Error("the closed pane's overview popover is kept")
+	}
+	// A terminal pane has neither: three panes, two conversations.
+	a, tt = newTester(t)
+	term := splitThree(t, a, tt)
+	if buttons(tt, drag) != 3 || buttons(tt, find) != 2 || buttons(tt, overview) != 2 {
+		t.Errorf("with a terminal pane: %d handles, %d Find, %d overviews", buttons(tt, drag), buttons(tt, find), buttons(tt, overview))
+	}
+	// Find with the terminal pane focused is no conversation's.
+	a.focusPane(term)
+	if id := a.findTarget(); id != "" {
+		t.Errorf("Find with the terminal pane focused targets %q", id)
+	}
+}
+
+// A conversation without a turn has nothing to find or to list: its pane's
+// header has neither button, the other pane keeping its own.
+func testPaneWithoutTurns(t *testing.T) {
+	find, overview := i18n.In("en", "chat_search"), i18n.In("en", "chat_assets_title")
+	a, tt := newTester(t)
+	a.Sidebar.NewChat()
+	empty := a.Sidebar.Selected
+	if cv := a.Data.Find(empty); cv == nil || empty == preview.Big || len(cv.Turns) != 0 {
+		t.Fatalf("no new chat without turns: %q", empty)
+	}
+	tt.Frame()
+	if _, ok := headerButton(tt, find); ok {
+		t.Error("a conversation without a turn has Find in the band")
+	}
+	if !a.panes.Drop(session(preview.Big), session(empty), panes.Right) {
+		t.Fatal("drop")
+	}
+	tt.Frame()
+	tt.Frame()
+	rows := paneRows(tt)
+	if len(rows) != 2 {
+		t.Fatalf("%d pane headers, want 2", len(rows))
+	}
+	if _, ok := rows[0][find]; !ok {
+		t.Error("the first pane's conversation has turns and no Find")
+	}
+	if _, ok := rows[0][overview]; !ok {
+		t.Error("the first pane's conversation has turns and no overview")
+	}
+	if buttons(tt, find) != 1 || buttons(tt, overview) != 1 {
+		t.Errorf("the pane without turns shows actions: %d Find, %d overviews", buttons(tt, find), buttons(tt, overview))
+	}
+}
+
 func TestPanesRender(t *testing.T) {
 	t.Run("live terminal pane", testLiveTerminalPane)
+	t.Run("conversation actions per pane", testPaneActions)
+	t.Run("pane without turns has no actions", testPaneWithoutTurns)
 	// Kit keeps a menu's open state by ID for the window: each composer of
 	// a split names its own menus, so one opens alone.
 	t.Run("a composer's menu opens in its pane alone", func(t *testing.T) {
