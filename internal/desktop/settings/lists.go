@@ -19,35 +19,32 @@ const (
 	rowDouble = 64
 )
 
-// modalList is an optional muted heading with a count, then one bordered box
-// of rows apart by dividers, a "+ label" action row at its end, or the empty
-// text in a dashed box. n is the rows' count; action may be nil.
+// modalList is a muted heading with a count and, at its end, the list's
+// compact add action; then one bordered box of rows apart by dividers, or
+// the empty text in a dashed box. n is the rows' count; action may be nil.
 func modalList(c *ui.Context, key any, heading, count, empty string, n int, rows func(), action func()) {
 	p := theme.Of(c)
 	ui.Column(c.Key(key)).Gap(8).FillWidth().Children(func() {
-		if heading != "" {
-			ui.Row(c).Gap(8).Children(func() {
-				ui.Text(c, heading).FontSize(12).Grow(1).SingleLine().TextColor(p.MutedForeground)
+		if heading != "" || action != nil {
+			ui.Row(c.Key("heading")).Gap(8).MinHeight(24).AlignItems(ui.Center).Children(func() {
+				ui.Text(c, heading).FontSize(12).Shrink(1).MinWidth(0).SingleLine().TextColor(p.MutedForeground)
 				if count != "" {
-					ui.Text(c, count).FontSize(12).TextColor(p.MutedForeground)
+					ui.Text(c, count).FontSize(12).Shrink(0).TextColor(p.MutedForeground)
+				}
+				ui.Spacer(c)
+				if action != nil {
+					action()
 				}
 			})
 		}
-		if n == 0 && empty != "" {
-			ui.Text(c, empty).FontSize(14).TextAlign(ui.Center).Padding(22, 16).FillWidth().
-				Border(1, p.Border).BorderStyle(ui.BorderDashed).Radius(p.RadiusLg).TextColor(p.MutedForeground)
-		}
-		if n == 0 && action == nil {
+		if n == 0 {
+			if empty != "" {
+				ui.Text(c, empty).FontSize(14).TextAlign(ui.Center).Padding(16).FillWidth().
+					Border(1, p.Border).BorderStyle(ui.BorderDashed).Radius(p.RadiusLg).TextColor(p.MutedForeground)
+			}
 			return
 		}
-		ui.Column(c.Key("frame")).Border(1, p.Border).Radius(p.RadiusLg).Dividers(1, p.Border).ClipX().Children(func() {
-			if n > 0 {
-				rows()
-			}
-			if action != nil {
-				action()
-			}
-		})
+		ui.Column(c.Key("frame")).Border(1, p.Border).Radius(p.RadiusLg).Dividers(1, p.Border).ClipX().Children(rows)
 	})
 }
 

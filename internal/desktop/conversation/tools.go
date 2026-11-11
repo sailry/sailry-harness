@@ -113,11 +113,14 @@ func summary(c *ui.Context, call Call, hovered, caret, open bool, sw *kit.Sweep)
 		if !quiet {
 			dc = color
 		}
-		d := ui.Text(c, detail).FontSize(14).SingleLine().Grow(1).Shrink(1).MinWidth(0).TextColor(dc)
 		span := ui.Span{Text: detail, Size: 14, Color: dc}
 		if code {
-			d.Font("monospace").FontSize(13).MaxWidth(detailMax)
 			span.Font, span.Size = "monospace", 13
+		}
+		// Laid out as the sweep draws it (kit.Sweep.Text).
+		d := ui.RichText(c, span).SingleLine().Grow(1).Shrink(1).MinWidth(0)
+		if code {
+			d.MaxWidth(detailMax)
 		}
 		if shimmer {
 			sw.Text(c, d, span)

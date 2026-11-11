@@ -34,7 +34,8 @@ func EaseOutCubic(t float32) float32 {
 // texts of one row share one with Sweep.Text.
 func Shimmer(c *ui.Context, text string, size float32, color ui.Color) ui.Element {
 	var sw Sweep
-	return sw.Text(c, ui.Text(c, text).FontSize(size).TextColor(color).SingleLine(), ui.Span{Text: text, Size: size, Color: color})
+	span := ui.Span{Text: text, Size: size, Color: color}
+	return sw.Text(c, ui.RichText(c, span).SingleLine(), span)
 }
 
 // Sweep is one shimmer band across a row (Kit's ShimmerText): 12 clipped
@@ -61,7 +62,11 @@ func (s *Sweep) Frame(row ui.Element) {
 }
 
 // Text draws the band over e, a single-line text of span's text, font,
-// size and color. Without a Frame, the band crosses e alone.
+// size and color. Without a Frame, the band crosses e alone. The band is
+// the span drawn again by the painter, whose line has the theme's font
+// size as its strut: a text in another size or font must be laid out the
+// same way, as ui.RichText of span, or its glyphs sit a fraction of a
+// pixel off the band's and the text looks heavier as the band passes.
 func (s *Sweep) Text(c *ui.Context, e ui.Element, span ui.Span) ui.Element {
 	if c.Preferences().ReduceMotion {
 		return e

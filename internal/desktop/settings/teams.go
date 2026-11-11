@@ -357,9 +357,9 @@ func teamDialog(c *ui.Context, m *Model) {
 					return
 				}
 				kit.MenuButton(c.Key("add-role"), "team-add-role", func(b ui.Element) {
-					kit.GhostLook(c, b.Label(t("team_add_role")), false).Radius(0).Height(rowSingle).PaddingX(16).Gap(6).FillWidth().Children(func() {
-						ui.Icon(c, icons.Plus).FontSize(16)
-						ui.Text(c, t("team_add_role")).FontSize(14)
+					kit.GhostLook(c, b.Label(t("team_add_role")), false).Height(24).PaddingX(6).Gap(4).Shrink(0).Children(func() {
+						ui.Icon(c, icons.Plus).FontSize(14)
+						ui.Text(c, t("team_add_role")).FontSize(13).SingleLine()
 					})
 				}, func(menu *Menu) {
 					for _, r := range m.Roles {
