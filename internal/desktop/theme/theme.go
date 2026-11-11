@@ -313,6 +313,22 @@ func (p *Palette) SidebarItem(selected, hovered bool) ui.Color {
 	return p.SidebarForeground.Alpha(a)
 }
 
+// Selected is the neutral fill of the chosen row of a list that marks its
+// choice by the fill alone, as the model picker's: Active laid over Hover.
+// It is therefore stronger than Hover, the fill of the row under the
+// pointer, in every theme; the built-in light theme's Active alone is
+// fainter than its Hover.
+func (p *Palette) Selected() ui.Color {
+	top, under := float32(p.Active.A)/255, float32(p.Hover.A)/255
+	alpha := top + under*(1-top)
+	if alpha <= 0 {
+		return ui.Transparent
+	}
+	fill := p.Active.Mix(p.Hover, under*(1-top)/alpha)
+	fill.A = uint8(alpha*255 + 0.5)
+	return fill
+}
+
 // Floating is the opaque fill of popovers and dialogs, the package's
 // popover.background at full opacity (DialogStyle::floating_surface).
 func (p *Palette) Floating() ui.Color { return p.Popover.Alpha(1) }
