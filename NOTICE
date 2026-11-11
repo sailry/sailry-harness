@@ -52,6 +52,13 @@ Retained ADK-Rust sandbox policy at commit
 third_party_licenses/adk-support.md, with its Apache-2.0 notice retained in
 third_party_licenses/adk-LICENSE.
 
+CrychicUI components
+Desktop links unmodified github.com/ELY-Open-Source/CrychicUI (MIT, Copyright
+2026 CrychicUI contributors) for the components listed in docs/crychic.md, with
+the Lucide icons it embeds (ISC). Provenance and the retained notices are in
+third_party_licenses/crychicui.md, third_party_licenses/crychicui-MIT.txt and
+third_party_licenses/crychicui-THIRD_PARTY_NOTICES.md.
+
 Ghostty terminal engine
 Desktop ships the unmodified libghostty-vt library pinned by the MyGo terminal
 plugin. Provenance and the retained MIT notice are in

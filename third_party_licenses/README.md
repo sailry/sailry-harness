@@ -15,6 +15,7 @@ single owning package, and this index lists every location.
 | AI Logo brand marks, linked from `github.com/yldm-tech/ai-logo/mygo` and drawn through `internal/desktop/icons` | MIT, with per-brand terms | [ai-logo.md](ai-logo.md) |
 | Lobe Icons provider marks in `internal/desktop/icons/svg` | MIT | [lobe-icons.txt](lobe-icons.txt) |
 | Kubai Icons package emblems, drawn by `github.com/yldm-tech/mygo-kubai-icons` | MIT, BSD-3-Clause | [kubai-icons.md](kubai-icons.md), [kubai-icons-port-MIT.txt](kubai-icons-port-MIT.txt), [kubai-icons-MIT.txt](kubai-icons-MIT.txt), [kubai-icons-go-fonts.txt](kubai-icons-go-fonts.txt) |
+| CrychicUI components and their bundled Lucide icons, linked into Desktop | MIT, ISC | [crychicui.md](crychicui.md), [crychicui-MIT.txt](crychicui-MIT.txt), [crychicui-THIRD_PARTY_NOTICES.md](crychicui-THIRD_PARTY_NOTICES.md) |
 | libghostty-vt terminal engine, shipped by the MyGo terminal plugin | MIT | [ghostty-terminal.md](ghostty-terminal.md), [ghostty-MIT.txt](ghostty-MIT.txt) |
 | llama.cpp and ggml runtime | MIT | [llama.md](llama.md) |
 | LLVM OpenMP runtime in the Windows llama.cpp packages | Apache-2.0 with LLVM exceptions, MIT | [llvm-OpenMP-LICENSE](llvm-OpenMP-LICENSE) |
