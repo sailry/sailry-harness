@@ -95,10 +95,11 @@ func testFeatureUsage(t *testing.T) {
 		}
 
 		// A package's views carry the icon and tint it declares: a rail
-		// feature its glyph, a card the name its emblem is found by. Only an
-		// unknown or missing declaration is the puzzle piece.
+		// feature its glyph in the text color (a brand's mark in one color),
+		// a card the name its tile is drawn from. Only an unknown or missing
+		// declaration is the puzzle piece.
 		root.pluginViews.icons, root.pluginViews.iconFailures = map[string]*ui.SVG{}, map[string]bool{}
-		calendar, tint, category := "reicon:time/calendar", protocol.PluginTintAmber, protocol.PluginCategory("automation")
+		calendar, tint, category := "phosphor:calendar-check", protocol.PluginTintAmber, protocol.PluginCategory("automation")
 		glyph, err := icons.Plugin(calendar)
 		if err != nil || glyph == icons.Puzzle {
 			t.Fatal(err)
@@ -106,9 +107,24 @@ func testFeatureUsage(t *testing.T) {
 		if got := root.pluginNavigationIcon(nil, &protocol.PluginDesktopIcon{Kind: "Name", Data: &calendar}); got != glyph {
 			t.Error("a navigation entry does not draw its declared glyph")
 		}
-		missing := "reicon:missing/icon"
-		if root.pluginNavigationIcon(nil, &protocol.PluginDesktopIcon{Kind: "Name", Data: &missing}) != icons.Puzzle || root.pluginNavigationIcon(nil, nil) != icons.Puzzle {
-			t.Error("an unknown navigation icon is not the placeholder")
+		for _, missing := range []string{"phosphor:missing", "reicon:missing/icon", "ailogo:missing-brand"} {
+			if root.pluginNavigationIcon(nil, &protocol.PluginDesktopIcon{Kind: "Name", Data: &missing}) != icons.Puzzle {
+				t.Errorf("the unknown navigation icon %q is not the placeholder", missing)
+			}
+		}
+		if root.pluginNavigationIcon(nil, nil) != icons.Puzzle {
+			t.Error("a navigation entry without an icon is not the placeholder")
+		}
+		for _, kept := range []string{"reicon:map/globe", "ailogo:github"} {
+			glyph, err := icons.Plugin(kept)
+			if err != nil || glyph == icons.Puzzle || root.pluginNavigationIcon(nil, &protocol.PluginDesktopIcon{Kind: "Name", Data: &kept}) != glyph {
+				t.Errorf("a navigation entry does not draw %q: %v", kept, err)
+			}
+		}
+		brand := "ailogo:github"
+		logo := &protocol.PluginDesktopNavigation{Label: "GitHub", Icon: &protocol.PluginDesktopIcon{Kind: "Name", Data: &brand}}
+		if view := catalogPackageView(protocol.PluginCatalogEntry{ID: "github", Display: logo}, "en", 0); view.Icon != brand || view.Tint != "" {
+			t.Errorf("a brand package's view carries %q %q", view.Icon, view.Tint)
 		}
 		display := &protocol.PluginDesktopNavigation{Label: "Scheduled tasks", Icon: &protocol.PluginDesktopIcon{Kind: "Name", Data: &calendar}}
 		declared := protocol.PluginInfo{Extension: &protocol.PluginExtension{Display: display, Tint: &tint, Category: &category}}

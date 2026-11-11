@@ -1,12 +1,15 @@
 package plugins
 
 import (
+	"archive/zip"
 	"context"
 	"encoding/json"
 	"errors"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -17,8 +20,6 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/protocol"
-	"github.com/yldm-tech/mygo-kubai-icons/all"
-	"github.com/yldm-tech/mygo-kubai-icons/kubai"
 )
 
 func TestRuntimeLifecycle(t *testing.T) {
@@ -457,16 +458,15 @@ export default class Example extends View {render(){return `+current.expression+
 			"reicon:arrows/arrow-up-right", "reicon:files/file-text", "reicon:it/terminal-square",
 			"reicon:map/pointer", "reicon:newicons/edit", "reicon:time/calendar", "reicon:time/clock",
 			"reicon:ui/alert-triangle", "reicon:ui/trash2", "reicon:video/play",
-			"reicon:it/hashtag", "reicon:users/user", "reicon:newicons/hierarchy2",
-			"reicon:building/buildings", "reicon:building/city", "reicon:business/chart-bar",
-			"reicon:folders/folder", "reicon:like/heart", "reicon:money/coins",
-			"reicon:newicons/cards", "reicon:newicons/grid2", "reicon:notifications/bell",
-			"reicon:ui/box", "reicon:ui/crown", "reicon:ui/dark-light", "reicon:ui/database",
+			"reicon:it/hashtag", "reicon:users/user", "reicon:newicons/hierarchy2", "reicon:money/coins",
+			"reicon:map/globe", "reicon:ui/magnifier", "reicon:users/users2", "reicon:newicons/hierarchy",
+			"reicon:business/diagram-tree", "reicon:video/image",
 			"icons/remix/progress-4-line.svg", "icons/remix/progress-2-line.svg",
 			"icons/remix/progress-6-line.svg", "icons/remix/close-circle-line.svg",
 			"icons/remix/checkbox-blank-circle-line.svg", "calendar", "database", "play", "sliders-horizontal",
 			"ailogo:openai", "ailogo:claude", "ailogo:claude-color", "ailogo:gemini-color", "ailogo:deepseek-text",
 			"ailogo:alibaba-text-cn", "ailogo:alibaba-brand-color", "ailogo:ollama",
+			"phosphor:database", "phosphor:puzzle-piece", "phosphor:slack-logo", "phosphor:git-pull-request",
 		} {
 			icon, err := icons.Plugin(name)
 			if err != nil || icon == nil {
@@ -476,7 +476,11 @@ export default class Example extends View {render(){return `+current.expression+
 				t.Fatalf("core and host resolve icon %q differently", name)
 			}
 		}
-		for _, unknown := range []string{"reicon:missing/icon", "ailogo:missing-brand", "ailogo:openai-color", "ailogo:"} {
+		// "reicon:ui/database" is a name of the catalog whose glyph is not
+		// embedded: nothing bundled names it since the packages' own icons
+		// are Phosphor's.
+		for _, unknown := range []string{"reicon:missing/icon", "reicon:ui/database", "ailogo:missing-brand", "ailogo:openai-color", "ailogo:",
+			"phosphor:missing", "phosphor:database-fill", "phosphor:", "phosphor:../database", "phosphor:Database"} {
 			if _, err := icons.Plugin(unknown); err == nil {
 				t.Fatalf("unknown plugin icon %q was accepted", unknown)
 			}
@@ -484,16 +488,26 @@ export default class Example extends View {render(){return `+current.expression+
 		if !icons.Colored("ailogo:claude-color") || icons.Colored("ailogo:claude") || icons.Colored("ailogo:openai-color") || icons.Colored("settings") {
 			t.Fatal("the names of marks in their own colors are told apart wrongly")
 		}
-		if _, err := icons.Plugin("kubai:missing"); err == nil || icons.Emblem("kubai:missing") != nil || icons.Emblem("reicon:missing/icon") != nil || icons.Emblem("folder") != nil {
-			t.Fatal("unknown emblem was accepted")
+		// A tile shows a brand in its own colors where the collection has
+		// them, whichever variant is named, and any other name has no mark.
+		for name, want := range map[string]bool{"ailogo:figma": true, "ailogo:claude": true, "ailogo:claude-color": true, "ailogo:github": false, "ailogo:openai": false} {
+			if mark, colored := icons.PluginBrand(name); mark == nil || colored != want {
+				t.Fatalf("the tile's mark of %q: found %v, colored %v", name, mark != nil, colored)
+			}
+		}
+		for _, name := range []string{"ailogo:missing-brand", "ailogo:", "phosphor:database", "reicon:time/calendar", "figma", ""} {
+			if mark, _ := icons.PluginBrand(name); mark != nil {
+				t.Fatalf("%q has a brand mark", name)
+			}
 		}
 		// Every icon the bundled packages declare has its glyph, and each
-		// package's own icon has an emblem or is the package's SVG.
+		// package's own icon is a declarable name, a brand's mark or the
+		// package's SVG.
 		manifests, err := fs.Glob(sailry.Plugins, "plugins/*/plugin.json")
 		if err != nil || len(manifests) < 40 {
 			t.Fatalf("bundled manifests: %d, %v", len(manifests), err)
 		}
-		declared := map[string]bool{}
+		declared, own := map[string]bool{}, map[string]string{}
 		var walk func(value any)
 		walk = func(value any) {
 			switch value := value.(type) {
@@ -527,12 +541,19 @@ export default class Example extends View {render(){return `+current.expression+
 				t.Fatalf("%s does not parse", name)
 			}
 			walk(document)
-			var own protocol.PluginDesktopIcon
-			if err := json.Unmarshal(manifest.Extensions["dev.sailry.platform"].Display.Icon, &own); err != nil || !own.Valid() {
-				t.Fatalf("%s declares no valid icon of its own: %v", name, err)
+			var icon protocol.PluginDesktopIcon
+			if err := json.Unmarshal(manifest.Extensions["dev.sailry.platform"].Display.Icon, &icon); err != nil {
+				t.Fatalf("%s declares no icon of its own: %v", name, err)
 			}
-			if title, named := own.Data.(*string); named && icons.Emblem(*title) == nil {
-				t.Errorf("%s: %q has no emblem", name, *title)
+			title, named := icon.Data.(*string)
+			if named {
+				own[path.Base(path.Dir(name))] = *title
+			}
+			if mark, _ := icons.PluginBrand(own[path.Base(path.Dir(name))]); mark == nil && !icon.Valid() {
+				t.Errorf("%s: its own icon is neither declarable nor a brand's mark", name)
+			}
+			if named && !strings.HasPrefix(*title, "phosphor:") && !strings.HasPrefix(*title, "ailogo:") {
+				t.Errorf("%s: its own icon %q is not a Phosphor icon or a brand's mark", name, *title)
 			}
 		}
 		if len(declared) < 30 {
@@ -543,22 +564,44 @@ export default class Example extends View {render(){return `+current.expression+
 				t.Errorf("bundled icon %q is unavailable: %v", name, err)
 			}
 		}
-		// A manifest may name every icon of the library, and only those.
-		listed, err := os.ReadFile(filepath.Join("..", "..", "protocol", "kubai_icon_names.txt"))
+		for brand, slug := range map[string]string{"github": "github", "notion": "notion", "figma": "figma", "linear": "linear",
+			"google-workspace": "google", "microsoft-365": "microsoft", "claude-auth": "claude", "openai-auth": "openai"} {
+			if own[brand] != "ailogo:"+slug {
+				t.Errorf("%s declares %q, not its brand's mark", brand, own[brand])
+			}
+		}
+		// A manifest may name every icon of the embedded Phosphor set, and
+		// only those: the protocol's list is the archive's names in order.
+		listed, err := os.ReadFile(filepath.Join("..", "..", "protocol", "phosphor_icon_names.txt"))
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got := len(strings.Fields(string(listed))); got != len(all.Entries) || got != kubai.Count {
-			t.Fatalf("the protocol lists %d emblems, the library has %d", got, len(all.Entries))
+		archive, err := zip.OpenReader(filepath.Join("..", "icons", "phosphor", "fill.zip"))
+		if err != nil {
+			t.Fatal(err)
 		}
-		for _, entry := range all.Entries {
-			name := "kubai:" + entry.Name
-			if !(protocol.PluginDesktopIcon{Kind: "Name", Data: name}).Valid() || icons.Emblem(name) != entry.Icon() {
-				t.Fatalf("emblem %q is not declarable or not drawn", name)
+		defer archive.Close()
+		var embedded []string
+		for _, file := range archive.File {
+			embedded = append(embedded, strings.TrimSuffix(file.Name, ".svg"))
+		}
+		if names := strings.Fields(string(listed)); len(names) != 1512 || !slices.IsSorted(names) || !slices.Equal(names, embedded) {
+			t.Fatalf("the protocol lists %d Phosphor icons, the archive has %d", len(names), len(embedded))
+		}
+		for _, glyph := range embedded {
+			name := "phosphor:" + glyph
+			icon, err := icons.Plugin(name)
+			if err != nil || icon == nil || nativeIcon(name) != icon || icons.ByName(name) != icon {
+				t.Fatalf("the Phosphor icon %q is not drawn: %v", name, err)
+			}
+			if !(protocol.PluginDesktopIcon{Kind: "Name", Data: name}).Valid() {
+				t.Fatalf("the Phosphor icon %q is not declarable", name)
 			}
 		}
-		if icon, err := icons.Plugin("kubai:folder-plus"); err != nil || icon == nil || nativeIcon("kubai:folder-plus") != icon {
-			t.Fatalf("an emblem has no static form: %v", err)
+		for _, unknown := range []string{"phosphor:missing", "phosphor:database-fill", "phosphor:", "ailogo:figma", "database"} {
+			if (protocol.PluginDesktopIcon{Kind: "Name", Data: unknown}).Valid() {
+				t.Fatalf("the protocol accepts the icon name %q", unknown)
+			}
 		}
 	})
 	t.Run("scope rejects foreign package", func(t *testing.T) {

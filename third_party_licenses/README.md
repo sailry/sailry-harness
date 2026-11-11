@@ -14,7 +14,7 @@ single owning package, and this index lists every location.
 | Agent Plugins schema in `schemas/agent-plugins` | Apache-2.0 | [agent-plugins.md](agent-plugins.md), [agent-plugins-Apache-2.0.txt](agent-plugins-Apache-2.0.txt) |
 | AI Logo brand marks, linked from `github.com/yldm-tech/ai-logo/mygo` and drawn through `internal/desktop/icons` | MIT, with per-brand terms | [ai-logo.md](ai-logo.md) |
 | Lobe Icons provider marks in `internal/desktop/icons/svg` | MIT | [lobe-icons.txt](lobe-icons.txt) |
-| Kubai Icons package emblems, drawn by `github.com/yldm-tech/mygo-kubai-icons` | MIT, BSD-3-Clause | [kubai-icons.md](kubai-icons.md), [kubai-icons-port-MIT.txt](kubai-icons-port-MIT.txt), [kubai-icons-MIT.txt](kubai-icons-MIT.txt), [kubai-icons-go-fonts.txt](kubai-icons-go-fonts.txt) |
+| Phosphor Icons fill set in `internal/desktop/icons/phosphor`, named by plugins as `phosphor:<name>` | MIT | [phosphor-icons.md](phosphor-icons.md), [phosphor-icons-MIT.txt](phosphor-icons-MIT.txt) |
 | CrychicUI components and their bundled Lucide icons, linked into Desktop | MIT, ISC | [crychicui.md](crychicui.md), [crychicui-MIT.txt](crychicui-MIT.txt), [crychicui-THIRD_PARTY_NOTICES.md](crychicui-THIRD_PARTY_NOTICES.md) |
 | libghostty-vt terminal engine, shipped by the MyGo terminal plugin | MIT | [ghostty-terminal.md](ghostty-terminal.md), [ghostty-MIT.txt](ghostty-MIT.txt) |
 | llama.cpp and ggml runtime | MIT | [llama.md](llama.md) |
@@ -36,6 +36,7 @@ single owning package, and this index lists every location.
 | GPUI Kit color names | `internal/desktop/theme/LICENSE.gpui-kit` |
 | GPUI shell plugin prelude | `internal/desktop/plugins/js/LICENSE.gpui-shell`, `internal/desktop/plugins/js/SOURCE` |
 | Reicon, Remix Icon, Lucide and Simple Icons platform logos | `internal/desktop/icons/svg/LICENSE-*` and `PLUGINS-SOURCE.md` in the same directory |
+| Phosphor Icons archive | `internal/desktop/icons/phosphor/SOURCE` |
 | Latin Modern Math font | `internal/desktop/conversation/LICENSE-LATIN-MODERN-MATH` |
 | html2canvas, ECharts, MathJax and Mermaid export assets | `internal/desktop/exporter/assets/*-LICENSE`, `echarts-NOTICE` and `provenance.json` in the same directory |
 | llama.cpp, ONNX Runtime and agent-desktop runtimes | `native/llama-LICENSE`, `native/onnxruntime-LICENSE`, `native/agent-desktop-LICENSE` and the lock files beside them |

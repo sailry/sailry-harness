@@ -1,9 +1,10 @@
 // Package icons holds Lucide icons (svg/LICENSE-LUCIDE), Reicon glyphs
 // (svg/LICENSE-REICON), Remix Icon status glyphs (svg/LICENSE-REMIX)
 // and Simple Icons platform logos (svg/LICENSE-OS). Plugin asset provenance
-// and upstream attributions are retained in svg/PLUGINS-SOURCE.md. ui.Icon
-// draws them in the text color. Brand marks come from the AI Logo collection
-// (brand.go).
+// and upstream attributions are retained in svg/PLUGINS-SOURCE.md. The
+// Phosphor fill set plugins name is one archive (phosphor.go,
+// phosphor/SOURCE). ui.Icon draws them in the text color. Brand marks come
+// from the AI Logo collection (brand.go).
 package icons
 
 import (

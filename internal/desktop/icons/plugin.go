@@ -26,10 +26,13 @@ var pluginAliases = map[string]string{
 }
 
 // Plugin resolves an icon a plugin names: a bundled icon by its file name,
-// alias or "reicon:<group>/<name>", or a brand mark of the AI Logo
-// collection as "ailogo:<slug>" with an optional variant suffix
-// ("ailogo:claude-color").
+// alias or "reicon:<group>/<name>", a Phosphor fill icon as
+// "phosphor:<name>", or a brand mark of the AI Logo collection as
+// "ailogo:<slug>" with an optional variant suffix ("ailogo:claude-color").
 func Plugin(name string) (*ui.SVG, error) {
+	if glyph, found := strings.CutPrefix(name, "phosphor:"); found {
+		return phosphor(glyph)
+	}
 	if brand, found := strings.CutPrefix(name, "ailogo:"); found {
 		if mark, _ := pluginLogo(brand); mark != nil {
 			return mark, nil
@@ -41,9 +44,6 @@ func Plugin(name string) (*ui.SVG, error) {
 		normalized = "reicon-" + strings.ReplaceAll(strings.TrimPrefix(normalized, "reicon:"), "/", "-")
 	} else if alias, exists := pluginAliases[normalized]; exists {
 		normalized = alias
-	}
-	if strings.HasPrefix(normalized, "kubai:") {
-		return kubaiSVG(normalized)
 	}
 	if cached, exists := pluginIcons.Load(normalized); exists {
 		return cached.(*ui.SVG), nil

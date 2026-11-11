@@ -47,7 +47,7 @@ func MediaRecord(c *ui.Context, title string, tile, badge, description func()) u
 	})
 }
 
-// Tint is the emblem colors of a record that declares none, chosen by its
+// Tint is the tile colors of a record that declares none, chosen by its
 // name's FNV hash.
 func Tint(name string) [2]ui.Color {
 	h := fnv.New32a()
