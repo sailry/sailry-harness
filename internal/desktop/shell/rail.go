@@ -156,7 +156,13 @@ func (a *App) rail(c *ui.Context) {
 		ui.Spacer(c)
 		a.bell(c)
 		if transfers.Visible(a.installs) {
-			transfers.Button(c, a.installs, &a.installsOpen, func(transfers.Entry) { a.notice(c) })
+			// Only the preview plays a retry itself; a live queue retries
+			// through its RetryAction, and offers no Retry without one.
+			var retry func(transfers.Entry)
+			if a.Preview {
+				retry = func(transfers.Entry) { a.notice(c) }
+			}
+			transfers.Button(c, a.installs, &a.installsOpen, retry)
 		}
 		a.hostPicker(c)
 		kit.IconButtonHint(c.Key("search"), icons.Search, i18n.T(c, "search"), a.hint("app.search"), RailButton, a.search.open).

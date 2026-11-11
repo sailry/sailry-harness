@@ -20,7 +20,8 @@ func Visible(q *Queue) bool { return q != nil && len(q.Entries) > 0 }
 // download arrow, smaller inside a progress ring while requests run, with a
 // danger dot while one ended without success; it opens the requests in a
 // popover 320 wide to its right. retry runs again a retried request's work
-// (preview_notice in the preview).
+// (preview_notice in the preview); without it and the queue's RetryAction
+// nothing can retry, and no row offers Retry.
 func Button(c *ui.Context, q *Queue, open *bool, retry func(e Entry)) {
 	p := theme.Of(c)
 	label := i18n.T(c, "installation_title")
@@ -60,6 +61,7 @@ func Button(c *ui.Context, q *Queue, open *bool, retry func(e Entry)) {
 		}
 		ui.Scroll(c.Key("list")).MaxHeight(min(h*0.55, 400)).Children(func() {
 			for _, e := range q.Entries {
+				e.Retryable = e.Retryable && (q.RetryAction != nil || retry != nil)
 				row(c, e, func() {
 					if q.Dismiss != nil {
 						q.Dismiss(e)
