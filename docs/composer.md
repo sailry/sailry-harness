@@ -74,7 +74,7 @@ rebuilt each frame from backend data.
 | `Context.MemberModels` | The models a team member may take; nil for `Models`. On another Node only that Node's own: a member's model is resolved there, and the local Node's providers reach it only as the lead of a forwarded session |
 | `Context.SelectModel` | Opens the Node's model settings from the Select model chip while `Models` is empty; nil disables that chip |
 | `Context.Interactions` | Approvals and the question (below) |
-| `State.Running`, `Searching`, `Metrics`, `Indicator` | Set by the page each frame; `Indicator` builds the preview's ring, a live session's are `Context.Indicators` |
+| `State.Running`, `Searching`, `Metrics`, `Indicator` | Set by the page each frame; `Metrics` builds the context bar's figures (Metrics, below), `Indicator` the preview's ring, a live session's are `Context.Indicators` |
 | `State.Draft`, `Model`, `Effort`, `Mode`, `Permission`, `Features`, `Team`, `Host`, `Project`, `Worktree`, `References` | Choices, read through `Message` on send |
 | `State.Attachments`, `Attachment{ID, Name, Mime, Size, Image, Path, Data, Status, Progress, Error}` | Draft files; the backend moves `Status` (`Preparing`, `Sending`, `Publishing`, `Ready`, `Failed`, `Uncertain`, `Removing`) and `Progress`; send waits for all `Ready`; at most `MaxAttachments` (8) |
 | `State.Dictation{Phase, Levels}` | `Idle`, `PreparingSpeech`, `Recording` (levels 0…1), `Transcribing` |
@@ -261,6 +261,38 @@ The context bar has one project control and at most one branch control:
   the caret 4 apart, at most 192 wide, side by side on one line at normal
   widths. Wide, the bar wraps; compact, it is
   one line; under 440 the location is in the settings popover.
+
+### Metrics
+
+The usage at the bar's end is `State.Metrics`, drawn by
+`conversation.UsageBar` (the reference's `conversation/usage.rs`,
+`usage/external.rs`, `usage/summary.rs` and `live/context.rs` `context_bar`):
+figures 12 apart, each a 14 icon and its value in muted 14, in their declared
+order.
+
+- A live session's figures are the packages' (`live/plugin_metrics.go`): the
+  footer slot's first, a provider's account status (`provider-status`
+  `usage`, `workbuddy` `credits`), then the statistics slot's, one group a
+  package (`statistics`: tokens, session average, cost, cache, turns). A
+  footer figure shows while its package publishes it visible and enabled. A
+  draft without a session has none.
+- A figure's hover card is Kit's floating surface over the figure's end, 300
+  wide or the declared `width`, 12 by 14 inside. It lists the label and the
+  value, then the published `details`: rows 26 high of a muted label and a
+  value, and after a divider those with a `progress` as meters (label, small
+  value, a 4 high `ui.Progress` named by the label). A statistics figure that
+  declares a handler shows its package's view in the card instead.
+- Compact, the statistics groups are one small round button, the chart icon
+  and the first figure, named `composer_statistics`. Hover shows every
+  group's cards in one, a click holds them in a popover; the groups are
+  divided and the list scrolls past 560 or the window's height less 80. The
+  footer's figures stay beside it.
+- The core draws the figures and their cards from what a package publishes;
+  the package decides what to publish and when. Neither slot draws controls
+  of its own.
+- The preview's figures are `conversation.Metrics` of the scene's usage, with
+  the label and the value in their cards. Demo mode shows the statistics
+  package's (`docs/shell.md`, Demo mode).
 
 ### Context ring
 
@@ -592,10 +624,13 @@ move the draft to a different Node or stop admitted work.
 
 ### Plugin contributions
 
-`live/plugin_controls.go` projects metadata-declared composer, model, context,
-statistics, footer and header contributions into their existing slots. Registry
-keys retain the Node, worktree, session and each unsent draft's presentation
-identity. Generations fence old callbacks and simultaneous drafts. Shared
+`live/plugin_controls.go` projects metadata-declared composer, model, context
+and header contributions into their existing slots. The statistics and footer
+slots' are the context bar's figures (`live/plugin_metrics.go`; Metrics,
+above); a header popover is opened by the window (`docs/shell.md`, Header).
+Registry keys retain the Node, worktree, session and each unsent draft's
+presentation identity; a demo conversation's is `demo/<id>`
+(`live/plugin_demo.go`). Generations fence old callbacks and simultaneous drafts. Shared
 assistant contributions follow the package's `ui_shared` and `ui_overlay`
 declarations.
 
@@ -748,7 +783,14 @@ The ring tooltip step also keeps an unknown ring drawn and without a tooltip.
 bundled packages mounted: one location control on a chat and on a plain
 folder, the project and its branch on one line in a Git project.
 `TestUsageCompact`: the small location buttons before the usage button between
-the two widths, and no location on the bar below 440.
+the two widths, and no location on the bar below 440; its `rows` step, the
+figures' cards with their rows and meters, wide and in the compact popover.
+`internal/desktop/live/plugin_views_test.go` (`declared slots draw their
+figures, ring and header popover`, in `TestAuthorizationProjectionAndCallbacks`):
+a manifest's statistics, footer, composer and header entries as figures with
+their cards, a ring and a header button.
+`internal/desktop/live/interactions_test.go` (in `TestComposerSendRouting`): a
+session with a turn publishes the statistics package's turns figure.
 `internal/desktop/conversation/bench_test.go` Scroll builds from scenes without
 pictures (`preview.PlainTurns`).
 `internal/desktop/live/dictation_test.go` (in `TestWorkspaceHookSettings`):
@@ -761,6 +803,8 @@ and every failure, over a fake microphone and recognizer.
 |---|---|
 | The worktrees package's `location` control is not drawn, and the native worktree menu gives way to the Git package's `branch` control (user decision 2026-11-11) | The reference draws the packages' controls only; here the project is native, so both showed the location twice |
 | An unknown indicator has no tooltip | The statistics package sends `0` as its hint, which read as a bare `0` |
+| A footer figure is not checked against its package's model context | The reference hides a footer figure whose package has no provider in the session's model context (`registered_footer`); here what the package publishes decides alone, and the official packages show theirs for their own provider only |
+| The preview's figures list their label and value on hover | The reference's preview cards read "UI preview"; the label says what the figure is |
 | A refused microphone is the `dictation_permission` toast | The reference's permission card is not part of the accepted composer |
 | The recording meter is the capture level the live owner computes | The reference's Kit speech state supplies it; MyGo has none |
 | Kit `DropdownButton` is a button and a chevron button with a menu | MyGo has no split button |
