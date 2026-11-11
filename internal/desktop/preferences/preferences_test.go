@@ -155,7 +155,7 @@ func TestPrefsRoundTrip(t *testing.T) {
 	})
 	t.Run("unreadable and failed save preserve data", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "preferences.json")
-		bad := bytes.Replace(fixture, []byte(`"message_text_size": 16`), []byte(`"message_text_size": 15`), 1)
+		bad := bytes.Replace(fixture, []byte(`"message_text_size": 16`), []byte(`"message_text_size": 19`), 1)
 		if err := os.WriteFile(path, bad, 0o600); err != nil {
 			t.Fatal(err)
 		}

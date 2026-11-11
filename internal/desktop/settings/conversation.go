@@ -4,12 +4,10 @@ import (
 	"github.com/egoist/mygo/ui"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
+	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
 var sandboxMessages = Messages{"sandbox_settings_saved", "sandbox_settings_failed", "sandbox_settings_conflict", "sandbox_settings_unknown"}
-
-// textSizes name the message text sizes, 12 to 18 by 2.
-var textSizes = []string{"message_text_small", "message_text_standard", "message_text_large", "message_text_extra_large"}
 
 // conversation is the host's command sandbox, the sessions' order, and how
 // messages show.
@@ -37,11 +35,12 @@ func conversation(c *ui.Context, m *Model) {
 				&m.MessageDisplay, i18n.T(c, "message_display_detailed"), i18n.T(c, "message_display_compact"))
 			title := i18n.T(c, "settings_message_text_size")
 			kit.WideRow(c, "text-size", title, "", func() {
-				// The four sizes are StepSlider's tick marks; its tooltip
-				// names the size, as the reference's does.
-				size := int(m.TextSize)
-				tip := i18n.T(c, textSizes[min(max((size-12)/2, 0), 3)]) + " · " + i18n.T(c, "message_text_size_value", "size", size)
-				kit.Tooltip(c, ui.StepSlider(c.Key("slider"), &m.TextSize, 12, 18, 2).Label(title).FillWidth(), tip)
+				// One tick a pixel, 12 to 18; the size chosen reads beside
+				// the slider.
+				value := i18n.T(c, "message_text_size_value", "size", int(m.TextSize))
+				ui.StepSlider(c.Key("slider"), &m.TextSize, 12, 18, 1).Label(title).Grow(1).Shrink(1).MinWidth(0)
+				ui.Text(c.Key("value"), value).FontSize(14).Font("monospace").SingleLine().Width(40).Shrink(0).TextAlign(ui.End).
+					TextColor(theme.Of(c).MutedForeground)
 			})
 		})
 	})

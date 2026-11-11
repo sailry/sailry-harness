@@ -165,7 +165,7 @@ type Model struct {
 	Sandbox        Stored[bool]
 	SessionOrder   int     // 0 created, 1 updated, 2 name: a sidebar.Sort
 	MessageDisplay int     // 0 detailed, 1 compact
-	TextSize       float64 // 12..18 by 2
+	TextSize       float64 // 12..18, a pixel a step
 
 	// Shortcuts.
 	Keys Keys
