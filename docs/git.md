@@ -114,6 +114,14 @@ service removes the staged file and leaves the directory's files to their own
 paths. Unstaging a path below a file that HEAD holds is still reported as a
 missing resource; unstaging that file restores it and displaces the path.
 
+`discard` restores paths from HEAD and, as the reference, refuses the whole
+selection when HEAD does not hold one of them: restoring would delete a staged
+new file that exists nowhere else. Unlike the reference's panel, which sends
+`discard` for any selection and lets the Node refuse it, Discard Changes on a
+selection with a new file (untracked or a staged addition) sends `discard_all`
+and shows its confirmation: the new files are unstaged and moved to Trash. Undo
+in the combined diff sends `discard_all`, as the reference.
+
 The page's chord is a key sequence, as the reference's: the key pressed after
 Ctrl+G completes it (Ctrl+G fetches, Down pulls, Shift+Down pulls with rebase)
 or drops it, so a later Down does not pull. Down is asked for only while the

@@ -481,6 +481,47 @@ func TestGitMutationMapping(t *testing.T) {
 		_, err = s.EditIndex(ctx, root, "file.txt", result.Revision, &commit, fmtHash(sum[:]), func(text string) (string, error) { t.Fatal("stale source ran transform"); return text, nil })
 		requireFault(t, err, protocol.ErrorCodeRevisionConflict)
 	})
+	t.Run("discard_refuses_paths_head_does_not_hold", func(t *testing.T) {
+		root, r, commit := fixture(t)
+		for name, body := range map[string]string{"staged.txt": "only copy\n", "untracked.txt": "draft\n", "file.txt": "edited\n"} {
+			if err := os.WriteFile(filepath.Join(root, name), []byte(body), 0644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		w, err := r.Worktree()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := w.Add("staged.txt"); err != nil {
+			t.Fatal(err)
+		}
+		index, err := indexRevision(root, r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var ran [][]string
+		s := New(Options{Run: func(_ context.Context, _ string, args []string, _ []byte) (CommandResult, error) {
+			ran = append(ran, args)
+			return CommandResult{}, nil
+		}})
+		discard := func(paths ...string) error {
+			return s.Action(ctx, root, protocol.CommandRunGitActionPayload{Action: protocol.GitAction{Kind: "discard", Data: protocol.GitActionDiscardPayload{Paths: paths}}, ExpectedIndex: index, ExpectedHead: &commit, ExpectedBranch: ptr("main")})
+		}
+		// One path HEAD does not hold refuses the whole selection before Git runs.
+		for _, paths := range [][]string{{"staged.txt"}, {"untracked.txt"}, {"file.txt", "staged.txt"}} {
+			requireFault(t, discard(paths...), protocol.ErrorCodeInvalidRequest)
+		}
+		if len(ran) != 0 {
+			t.Fatalf("refused discard ran Git: %q", ran)
+		}
+		if err := discard("file.txt"); err != nil {
+			t.Fatal(err)
+		}
+		want := []string{"restore", "--source=HEAD", "--staged", "--worktree", "--", ":(literal)file.txt"}
+		if len(ran) != 1 || !reflect.DeepEqual(ran[0], want) {
+			t.Fatalf("discard ran %q", ran)
+		}
+	})
 	t.Run("branch_create_no_native_process", func(t *testing.T) {
 		root, r, commit := fixture(t)
 		s := fixtureService()

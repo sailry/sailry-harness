@@ -438,7 +438,7 @@ git_delete_confirm: Delete? This cannot be undone
 git_delete_remote_branch: Delete remote branch
 git_delete_remote_branch_open: Delete remote branch…
 git_discard_all: Discard all changes
-git_discard_all_confirm: Discard all changes? This cannot be undone
+git_discard_all_confirm: Discard all changes, staged included? New files move to Trash
 git_discard_changes: Discard Changes
 git_discard_confirm: Discard changes? This cannot be undone
 git_expand_commit: Expand commit message

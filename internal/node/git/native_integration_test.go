@@ -79,6 +79,45 @@ func TestNativeGitIntegration(t *testing.T) {
 			t.Fatalf("go-git patch:\n%s\nnative patch:\n%s", actual.Text, capture.Stdout)
 		}
 	})
+	t.Run("discard_keeps_staged_new_file", func(t *testing.T) {
+		root, _, commit := fixture(t)
+		s := service(t)
+		for name, body := range map[string]string{"staged.txt": "only copy\n", "file.txt": "edited\n"} {
+			if err := os.WriteFile(filepath.Join(root, name), []byte(body), 0644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := s.command(ctx, root, []string{"add", "--", "staged.txt"}, nil, false); err != nil {
+			t.Fatal(err)
+		}
+		discard := func(paths ...string) error {
+			r, err := open(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			index, err := indexRevision(root, r)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return s.Action(ctx, root, protocol.CommandRunGitActionPayload{Action: protocol.GitAction{Kind: "discard", Data: protocol.GitActionDiscardPayload{Paths: paths}}, ExpectedIndex: index, ExpectedHead: &commit, ExpectedBranch: ptr("main")})
+		}
+		requireFault(t, discard("file.txt", "staged.txt"), protocol.ErrorCodeInvalidRequest)
+		for name, want := range map[string]string{"staged.txt": "only copy\n", "file.txt": "edited\n"} {
+			if body, err := os.ReadFile(filepath.Join(root, name)); err != nil || string(body) != want {
+				t.Fatalf("%s after a refused discard = %q %v", name, body, err)
+			}
+		}
+		if err := discard("file.txt"); err != nil {
+			t.Fatal(err)
+		}
+		if body, err := os.ReadFile(filepath.Join(root, "file.txt")); err != nil || string(body) != "one\ntwo\nthree\n" {
+			t.Fatalf("file.txt after discard = %q %v", body, err)
+		}
+		status, err := s.Status(ctx, root)
+		if err != nil || len(status.Entries) != 1 || status.Entries[0].Path != "staged.txt" || status.Entries[0].Staged == nil {
+			t.Fatal(status, err)
+		}
+	})
 	t.Run("managed_snapshot_and_targeted_removal", func(t *testing.T) {
 		root, r, commit := fixture(t)
 		s := service(t)

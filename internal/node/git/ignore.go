@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -136,6 +137,19 @@ func (s *Service) trash(ctx context.Context, root string, paths []string, untrac
 	}
 	return nil
 }
+
+// heldByHead reports whether the HEAD tree records an entry at path. It reads
+// no blob, so it costs the same for a large file. An unborn branch holds nothing.
+func heldByHead(tree *object.Tree, path string) (bool, error) {
+	if tree == nil {
+		return false, nil
+	}
+	_, err := tree.FindEntry(path)
+	if errors.Is(err, object.ErrEntryNotFound) || errors.Is(err, object.ErrFileNotFound) || errors.Is(err, object.ErrDirectoryNotFound) {
+		return false, nil
+	}
+	return err == nil, mapError(err)
+}
 func (s *Service) discardAll(ctx context.Context, root string, paths []string) error {
 	if err := pathsValid(paths); err != nil {
 		return err
@@ -153,9 +167,9 @@ func (s *Service) discardAll(ctx context.Context, root string, paths []string) e
 		if _, err := safePath(root, path); err != nil {
 			return err
 		}
-		if value, err := treeContent(r, tree, path, maxFile); err != nil {
+		if held, err := heldByHead(tree, path); err != nil {
 			return err
-		} else if value.exists {
+		} else if held {
 			tracked = append(tracked, path)
 		} else {
 			added = append(added, path)

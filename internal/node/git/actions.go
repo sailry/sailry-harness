@@ -300,6 +300,30 @@ func (s *Service) Action(ctx context.Context, root string, input protocol.Comman
 		return s.trash(ctx, root, data[protocol.GitActionTrashPayload](action.Data).Paths, true)
 	case "discard_all":
 		return s.discardAll(ctx, root, data[protocol.GitActionDiscardAllPayload](action.Data).Paths)
+	case "discard":
+		// Restoring from HEAD removes a path HEAD does not hold, and a staged
+		// new file exists nowhere else. Such paths are refused here; discard_all
+		// unstages them and moves the file to Trash.
+		v := data[protocol.GitActionDiscardPayload](action.Data)
+		if err := pathsValid(v.Paths); err != nil {
+			return err
+		}
+		tree, err := headTree(r)
+		if err != nil {
+			return err
+		}
+		for _, path := range v.Paths {
+			if _, err := safePath(root, path); err != nil {
+				return err
+			}
+			held, err := heldByHead(tree, path)
+			if err != nil {
+				return err
+			}
+			if !held {
+				return invalid("discard requires files that HEAD holds")
+			}
+		}
 	case "sync":
 		v := data[protocol.GitActionSyncPayload](action.Data)
 		flag := "--no-rebase"

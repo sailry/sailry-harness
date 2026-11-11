@@ -594,7 +594,7 @@ func (pr *Project) combined(c *ui.Context) {
 					})
 					stats(c, p, ch.Added, ch.Removed)
 					kit.IconButton(c.Key("undo"), icons.Undo, i18n.T(c, "turn_changes_undo"), 24, false).OnClick(func() {
-						v.confirm = confirm{open: true, title: i18n.T(c, "turn_changes_undo"), message: i18n.T(c, "git_discard_all_confirm"), target: ch.Path, run: func(c *ui.Context) { pr.gitAction(c, GitAction{Kind: "git_discard_changes", Paths: []string{ch.Path}}) }}
+						v.confirm = confirm{open: true, title: i18n.T(c, "turn_changes_undo"), message: i18n.T(c, "git_discard_all_confirm"), target: ch.Path, run: func(c *ui.Context) { pr.gitAction(c, GitAction{Kind: "git_discard_all", Paths: []string{ch.Path}}) }}
 					})
 				}).OnClick(func() { v.folded[ch.Path] = open })
 				if open {
