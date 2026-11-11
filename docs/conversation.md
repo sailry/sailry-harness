@@ -675,8 +675,10 @@ without an owner.
   background task marked consumed, as the reference collects it; the model
   was already told. When the child's end is stored first, the owning turn's
   settlement consumes it after the child has settled
-  (`store.ConsumeStoppedChildren`, see [delegation](delegation.md)). A child
-  cancelled any other way stays a pending task.
+  (`store.ConsumeStoppedChildren`, see [delegation](delegation.md)). The turn
+  keeps the children it cancelled, so one that finishes and leaves the runtime
+  before the turn settles them is consumed as well. A child cancelled any
+  other way stays a pending task.
 - **Plan review source.** The review offered after a completed Plan turn
   points at the turn's last assistant message that is visible to the user
   and has text, as in the reference, so a hidden runtime note recorded after
