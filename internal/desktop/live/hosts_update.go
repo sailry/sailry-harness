@@ -155,7 +155,11 @@ func (r *Runtime) hostUpdateFrame(c *ui.Context, state *liveHost) {
 			kit.Shimmer(c, i18n.T(c, stage), 14, theme.Of(c).MutedForeground)
 			ui.Progress(c.Key("progress"), -1).FillWidth().Height(4).Label(i18n.T(c, stage))
 		} else if !recovery {
-			r.sshCredentialFields(c, &update.draft)
+			var saved *protocol.SshProfile
+			if state.install != nil {
+				saved = state.install.profile
+			}
+			r.sshCredentialFields(c, &update.draft, saved)
 		}
 		ui.Row(c.Key("footer")).Gap(8).Justify(ui.End).Children(func() {
 			kit.Secondary(c.Key("cancel"), i18n.T(c, "settings_cancel")).OnClick(func() {
@@ -180,18 +184,19 @@ func (r *Runtime) hostUpdateFrame(c *ui.Context, state *liveHost) {
 					r.executeSSH(state.install, state.install.retry)
 					return
 				}
-				profile, credential, err := sshDraft(update.draft)
+				// The connection this Host was updated through is saved
+				// again at its revision, keeping a credential left blank.
+				var saved *protocol.SshProfile
+				if state.install != nil {
+					saved = state.install.profile
+				}
+				command, err := sshSaveCommand(update.draft, saved)
 				if err != nil {
 					r.reportSSH(c, err, true)
 					return
 				}
-				expectedRevision := uint64(0)
-				if state.install != nil && state.install.profile != nil {
-					profile.ID = state.install.profile.ID
-					expectedRevision = state.install.profile.Revision
-				}
 				node := state.node
-				operation := &sshInstallation{state: state, draft: update.draft, expected: &node, active: true, stage: "connecting", completed: func(ok bool) {
+				operation := &sshInstallation{state: state, draft: update.draft, profile: saved, expected: &node, active: true, stage: "connecting", completed: func(ok bool) {
 					if ok {
 						update.form = false
 						update.draft.Password, update.draft.Key, update.draft.Passphrase = "", "", ""
@@ -199,7 +204,7 @@ func (r *Runtime) hostUpdateFrame(c *ui.Context, state *liveHost) {
 				}}
 				state.install = operation
 				state.view.Update.Error = ""
-				r.executeSSH(operation, protocol.Command{Kind: "save_ssh", Data: protocol.CommandSaveSshPayload{Profile: profile, ExpectedRevision: expectedRevision, Credential: &credential}})
+				r.executeSSH(operation, command)
 			})
 		})
 	}).Width(min(520, width-48)).Gap(16).Label(title)

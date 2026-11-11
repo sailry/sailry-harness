@@ -1971,3 +1971,16 @@ media_load_failed: 无法读取媒体模型
 panel_history_empty: 暂无历史
 panel_documents_empty: 暂无文档
 connections_copy_id: 复制 ID
+host_check_status: 检查状态
+ssh_agent_short: SSH Agent
+ssh_keep_credential: 留空保留已保存的凭据
+ssh_busy: 正在处理其他连接，请稍后重试
+connection_scope: 使用范围
+connection_private: 私有使用
+connection_global: 全局共享
+connection_projects: 项目共享
+host_wsl: WSL
+host_wsl_distribution: 发行版
+host_wsl_requirement: 需要 WSL2、GNU Linux x64/arm64 和 systemd
+host_wsl_empty: 未安装 WSL2 发行版
+host_wsl_load_failed: 无法加载 WSL 发行版

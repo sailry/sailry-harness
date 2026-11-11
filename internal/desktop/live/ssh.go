@@ -47,7 +47,11 @@ func (r *Runtime) addSSHHost(draft settings.ConnectionDraft, completed func(bool
 		completed = func(bool) {}
 	}
 	if operation := local.install; operation != nil && (operation.active || operation.running) {
-		completed(false)
+		// A step cancelled here may still run on the Node; the next waits for it.
+		root.enqueue(func(c *ui.Context) {
+			kit.Toast(c, kit.Failed, i18n.T(c, "ssh_busy"))
+			completed(false)
+		})
 		return
 	}
 	selection, err := root.connectionSelection(draft)
@@ -58,9 +62,13 @@ func (r *Runtime) addSSHHost(draft settings.ConnectionDraft, completed func(bool
 		})
 		return
 	}
+	// A changed draft updates the connection this dialog already saved
+	// instead of saving another.
+	var saved *protocol.SshProfile
 	if operation := local.install; operation != nil {
+		saved = operation.profile
 		sameTarget := sameSSHHostDraft(operation.draft, draft) && sameConnectionNetwork(operation.network, &selection)
-		if operation.uncertain || operation.partial || operation.networkFix != nil {
+		if sshRecoverable(operation) {
 			if !sameTarget {
 				root.enqueue(func(c *ui.Context) {
 					root.reportSSH(c, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "The original Host installation must be checked before changing its target"}, false)
@@ -80,7 +88,13 @@ func (r *Runtime) addSSHHost(draft settings.ConnectionDraft, completed func(bool
 			return
 		}
 	}
-	profile, credential, err := sshDraft(draft)
+	// WSL installs in one step on this computer; SSH saves its connection first.
+	command := protocol.Command{Kind: "install_wsl_host", Data: protocol.CommandInstallWslHostPayload{Distribution: draft.Distribution, Network: &selection}}
+	if draft.Method == settings.ByWSL {
+		saved = nil
+	} else {
+		command, err = sshSaveCommand(draft, saved)
+	}
 	if err != nil {
 		root.enqueue(func(c *ui.Context) {
 			root.reportSSH(c, err, false)
@@ -88,10 +102,68 @@ func (r *Runtime) addSSHHost(draft settings.ConnectionDraft, completed func(bool
 		})
 		return
 	}
-	operation := &sshInstallation{state: local, draft: draft, network: &selection, completed: completed, active: true, stage: "connecting"}
+	operation := &sshInstallation{state: local, draft: draft, profile: saved, network: &selection, completed: completed, active: true, stage: "connecting"}
 	local.install = operation
 	root.App.Settings.ConnectionPending = true
-	root.executeSSH(operation, protocol.Command{Kind: "save_ssh", Data: protocol.CommandSaveSshPayload{Profile: profile, Credential: &credential}})
+	root.executeSSH(operation, command)
+}
+
+// checkSSHHost asks what became of the installation whose outcome is
+// uncertain: its receipt on the local Node, or the installed Host's network.
+// Admitted work is never sent again; a request the Node never admitted is
+// sent with its original identifier.
+func (r *Runtime) checkSSHHost(completed func(bool)) {
+	root := r.localRuntime()
+	local := root.hostState(root.controller.Target().String())
+	if completed == nil {
+		completed = func(bool) {}
+	}
+	if local == nil || local.install == nil || !sshRecoverable(local.install) {
+		completed(false)
+		return
+	}
+	operation := local.install
+	operation.completed, operation.active, operation.stage = completed, true, "connecting"
+	root.App.Settings.ConnectionPending = true
+	root.recoverSSH(operation)
+}
+
+// sshRecoverable is an idle installation whose outcome has to be checked
+// before anything else is sent for it.
+func sshRecoverable(operation *sshInstallation) bool {
+	return !operation.active && !operation.running && (operation.uncertain || operation.partial || operation.networkFix != nil)
+}
+
+// sshUncertain is whether a failure leaves its step's outcome unknown. A
+// connection test changes nothing, so its unreachable target, refused login
+// or missing agent is a plain failure.
+func sshUncertain(request *protocol.Request, err error) bool {
+	switch faultCode(err) {
+	case protocol.ErrorCodeOutcomeUnknown:
+		return true
+	case protocol.ErrorCodeUnavailable:
+		return request == nil || request.Command.Kind != "check_ssh"
+	}
+	return false
+}
+
+// sshSaveCommand saves the draft's connection: a new one, or the saved one at
+// its revision with its trusted host key. A secret left blank under the same
+// authentication keeps the saved credential.
+func sshSaveCommand(draft settings.ConnectionDraft, saved *protocol.SshProfile) (protocol.Command, error) {
+	profile, credential, err := sshDraft(draft)
+	if err != nil {
+		return protocol.Command{}, err
+	}
+	payload := protocol.CommandSaveSshPayload{Profile: profile, Credential: &credential}
+	if saved != nil {
+		payload.Profile.ID, payload.Profile.HostKey, payload.ExpectedRevision = saved.ID, saved.HostKey, saved.Revision
+		blank := draft.Method == settings.ByAgent || draft.Method == settings.ByPassword && draft.Password == "" || draft.Method != settings.ByPassword && draft.Key == ""
+		if saved.Authentication == profile.Authentication && blank {
+			payload.Credential = nil
+		}
+	}
+	return protocol.Command{Kind: "save_ssh", Data: payload}, nil
 }
 
 func sameSSHHostDraft(first, second settings.ConnectionDraft) bool {
@@ -111,6 +183,20 @@ func sshDraft(draft settings.ConnectionDraft) (protocol.SshProfile, protocol.Ssh
 		return protocol.SshProfile{}, protocol.SshCredential{}, errors.New("SSH port must be between 1 and 65535")
 	}
 	profile := protocol.SshProfile{ID: protocol.NewSshID(), Name: strings.TrimSpace(draft.Name), Host: strings.TrimSpace(draft.Host), Port: uint16(port), Username: strings.TrimSpace(draft.Username)}
+	switch draft.Scope {
+	case settings.ScopeGlobal:
+		profile.Sharing = &protocol.ConnectionSharing{Kind: "global"}
+	case settings.ScopeProjects:
+		var projects []protocol.ProjectID
+		for _, id := range strings.Split(draft.Projects, ",") {
+			project, err := protocol.ParseProjectID(id)
+			if err != nil {
+				return protocol.SshProfile{}, protocol.SshCredential{}, errors.New("SSH sharing needs a project")
+			}
+			projects = append(projects, project)
+		}
+		profile.Sharing = &protocol.ConnectionSharing{Kind: "projects", Data: projects}
+	}
 	var passphrase *protocol.Secret
 	if draft.Passphrase != "" {
 		value := protocol.NewSecret(draft.Passphrase)
@@ -127,6 +213,9 @@ func sshDraft(draft settings.ConnectionDraft) (protocol.SshProfile, protocol.Ssh
 	case settings.ByKeyFile:
 		profile.Authentication = protocol.SshAuthenticationKeyPath
 		credential.Kind, credential.Data = "key_path", protocol.SshCredentialKeyPathPayload{Path: protocol.NewSecret(draft.Key), Passphrase: passphrase}
+	case settings.ByAgent:
+		profile.Authentication = protocol.SshAuthenticationAgent
+		credential.Kind = "agent"
 	default:
 		return protocol.SshProfile{}, protocol.SshCredential{}, errors.New("SSH authentication is required")
 	}
@@ -151,6 +240,11 @@ func (r *Runtime) executeSSH(operation *sshInstallation, command protocol.Comman
 			operation.running = false
 			if !operation.active {
 				operation.uncertain = true
+				// The Add host dialog that cancelled it is gone, and
+				// with it what there was to check.
+				if operation.expected == nil && operation.state.install == operation {
+					operation.state.install = nil
+				}
 				return
 			}
 			r.completeSSH(c, operation, output, err)
@@ -160,18 +254,41 @@ func (r *Runtime) executeSSH(operation *sshInstallation, command protocol.Comman
 
 func (r *Runtime) completeSSH(c *ui.Context, operation *sshInstallation, output protocol.Output, err error) {
 	if err != nil {
-		code := faultCode(err)
-		if code == protocol.ErrorCodeOutcomeUnknown || code == protocol.ErrorCodeUnavailable {
-			operation.uncertain = true
-		} else {
+		uncertain := sshUncertain(operation.request, err)
+		if !uncertain {
+			// A saved connection that changed or went away answers with a
+			// conflict and is not updated again. Any other refusal, as of a
+			// shared project that went away, leaves it as saved.
+			if code := faultCode(err); operation.request != nil && operation.request.Command.Kind == "save_ssh" &&
+				(code == protocol.ErrorCodeRevisionConflict || code == protocol.ErrorCodeConflict) {
+				operation.profile, operation.retry = nil, protocol.Command{}
+			}
 			operation.request = nil
 		}
-		r.failSSH(c, operation, err)
+		r.endSSH(c, operation, err, uncertain)
 		return
 	}
 	trusted := operation.request != nil && operation.request.Command.Kind == "trust_ssh"
 	operation.request, operation.uncertain = nil, false
 	switch output.Kind {
+	case "host_installation":
+		// A WSL installation ends as an SSH one does.
+		outcome, ok := detail[protocol.HostInstallationOutcome](output.Data)
+		if !ok {
+			break
+		}
+		switch outcome.Kind {
+		case "installed":
+			if installed, ok := detail[protocol.HostInstallationOutcomeInstalledPayload](outcome.Data); ok {
+				r.completeSSH(c, operation, protocol.Output{Kind: "ssh_outcome", Data: protocol.SshOutcome{Kind: "host_installed", Data: protocol.SshOutcomeHostInstalledPayload{Node: installed.Node}}}, nil)
+				return
+			}
+		case "network_unconfirmed":
+			if network, ok := detail[protocol.HostInstallationOutcomeNetworkUnconfirmedPayload](outcome.Data); ok {
+				r.completeSSH(c, operation, protocol.Output{Kind: "ssh_outcome", Data: protocol.SshOutcome{Kind: "host_network_unconfirmed", Data: protocol.SshOutcomeHostNetworkUnconfirmedPayload{Node: network.Node, Selection: network.Selection}}}, nil)
+				return
+			}
+		}
 	case "ssh_profile":
 		profile, ok := detail[protocol.SshProfile](output.Data)
 		if !ok {
@@ -272,7 +389,13 @@ func (r *Runtime) trustSSH(operation *sshInstallation, required protocol.SshOutc
 }
 
 func (r *Runtime) failSSH(c *ui.Context, operation *sshInstallation, err error) {
-	if code := faultCode(err); code == protocol.ErrorCodeOutcomeUnknown || code == protocol.ErrorCodeUnavailable {
+	r.endSSH(c, operation, err, sshUncertain(operation.request, err))
+}
+
+// endSSH stops the operation on a failure, which leaves its outcome to be
+// checked when uncertain.
+func (r *Runtime) endSSH(c *ui.Context, operation *sshInstallation, err error, uncertain bool) {
+	if uncertain {
 		operation.uncertain = true
 	}
 	operation.active, operation.trusting = false, false
@@ -281,22 +404,31 @@ func (r *Runtime) failSSH(c *ui.Context, operation *sshInstallation, err error) 
 		update.Phase, update.Error, update.Retry, update.Progress = host.Staged, err.Error(), host.Apply, -1
 	} else {
 		r.App.Settings.ConnectionPending = false
+		// An outcome nothing can confirm is the user's to check on the
+		// host: the toast says so and the dialog takes a new draft.
+		if operation.partial && operation.state.install == operation {
+			operation.state.install = nil
+		}
 	}
-	r.reportSSH(c, err, operation.expected != nil)
+	r.toastSSH(c, err, operation.expected != nil, uncertain)
 	if operation.completed != nil {
 		operation.completed(false)
 	}
 }
 
 func (r *Runtime) reportSSH(c *ui.Context, err error, updating bool) {
+	r.toastSSH(c, err, updating, sshUncertain(nil, err))
+}
+
+func (r *Runtime) toastSSH(c *ui.Context, err error, updating, uncertain bool) {
 	key, tone := "host_install_failed", kit.Failed
 	if updating {
 		key = "live_update_failed"
 	}
-	switch faultCode(err) {
-	case protocol.ErrorCodeConflict, protocol.ErrorCodeRevisionConflict:
+	switch code := faultCode(err); {
+	case code == protocol.ErrorCodeConflict || code == protocol.ErrorCodeRevisionConflict:
 		key, tone = "host_network_conflict", kit.Conflict
-	case protocol.ErrorCodeOutcomeUnknown, protocol.ErrorCodeUnavailable:
+	case uncertain:
 		key, tone = "host_install_unknown", kit.Uncertain
 	}
 	kit.Toast(c, tone, i18n.T(c, key))
@@ -323,6 +455,14 @@ func sshProgressKey(stage string) string {
 }
 
 func (r *Runtime) sshFrame(c *ui.Context, operation *sshInstallation) {
+	// The Add host dialog owns its installation: closed, it leaves nothing
+	// to check or retry, and the next one starts anew.
+	if operation.expected == nil && !operation.active && !operation.running && !r.App.Settings.Adding() {
+		if operation.state.install == operation {
+			operation.state.install = nil
+		}
+		return
+	}
 	if !operation.active {
 		return
 	}
@@ -348,7 +488,7 @@ func (r *Runtime) sshFrame(c *ui.Context, operation *sshInstallation) {
 		return
 	}
 	switch operation.request.Command.Kind {
-	case "install_host", "update_ssh_host":
+	case "install_host", "update_ssh_host", "install_wsl_host":
 	default:
 		return
 	}
@@ -361,8 +501,12 @@ func (r *Runtime) sshFrame(c *ui.Context, operation *sshInstallation) {
 func (r *Runtime) pollSSH(operation *sshInstallation) {
 	request := operation.request.ID
 	operation.polling = true
+	read := protocol.Command{Kind: "read_host_install", Data: protocol.CommandReadHostInstallPayload{Request: request}}
+	if operation.request.Command.Kind == "install_wsl_host" {
+		read = protocol.Command{Kind: "read_wsl_host_install", Data: protocol.CommandReadWslHostInstallPayload{Request: request}}
+	}
 	r.async(func() {
-		output, err := r.controller.Do(r.ctx, protocol.Command{Kind: "read_host_install", Data: protocol.CommandReadHostInstallPayload{Request: request}})
+		output, err := r.controller.Do(r.ctx, read)
 		r.enqueue(func(c *ui.Context) {
 			operation.polling, operation.nextPoll = false, c.Now().Add(300*time.Millisecond)
 			if !operation.active || operation.request == nil || operation.request.ID != request || err != nil {
@@ -397,6 +541,10 @@ func (r *Runtime) cancelSSH(operation *sshInstallation) {
 	case "check_ssh", "install_host", "update_ssh_host":
 		r.async(func() {
 			_, _ = r.controller.Do(r.ctx, protocol.Command{Kind: "cancel_ssh", Data: protocol.CommandCancelSshPayload{Request: request.ID}})
+		})
+	case "install_wsl_host":
+		r.async(func() {
+			_, _ = r.controller.Do(r.ctx, protocol.Command{Kind: "cancel_wsl_host_install", Data: protocol.CommandCancelWslHostInstallPayload{Request: request.ID}})
 		})
 	}
 }
