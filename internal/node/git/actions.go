@@ -275,6 +275,7 @@ func (s *Service) Action(ctx context.Context, root string, input protocol.Comman
 	}
 	defer s.Invalidate(root)
 	run := func(args []string) error { _, err := s.command(ctx, root, args, nil, false); return err }
+	transfer := func(args []string) error { _, err := s.network(ctx, root, args); return err }
 	branch := ""
 	if input.ExpectedBranch != nil {
 		branch = *input.ExpectedBranch
@@ -330,10 +331,10 @@ func (s *Service) Action(ctx context.Context, root string, input protocol.Comman
 		if v.Rebase {
 			flag = "--rebase"
 		}
-		if err := run([]string{"pull", flag, "--no-edit"}); err != nil {
+		if err := transfer([]string{"pull", flag, "--no-edit"}); err != nil {
 			return err
 		}
-		return run([]string{"push"})
+		return transfer([]string{"push"})
 	case "start_branch":
 		if input.ExpectedHead != nil {
 			return conflict()
@@ -434,6 +435,11 @@ func (s *Service) Action(ctx context.Context, root string, input protocol.Comman
 	args, err := CLIArgs(action, branch, valueOr(operation(root, r)), position)
 	if err != nil {
 		return err
+	}
+	// fetch, pull and push talk to a remote; so do the pushes that delete a
+	// remote tag or branch.
+	if args[0] == "fetch" || args[0] == "pull" || args[0] == "push" {
+		return transfer(args)
 	}
 	return run(args)
 }

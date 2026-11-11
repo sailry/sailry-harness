@@ -2116,7 +2116,7 @@ files_trash_confirm: Delete “%{name}”
 live_request_failed: Request incomplete; check Node connection and directory. Retry keeps the original request ID.
 plugins_loading: Loading
 project_appearance: Project appearance
-project_clone_failed: Clone incomplete; check the destination
+project_clone_failed: Clone failed; check the URL, branch and network
 project_grant: Trust and continue
 project_grant_description: Project instructions and tools may run code in all worktrees
 project_grant_title: Trust this project

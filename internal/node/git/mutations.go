@@ -61,15 +61,15 @@ func (s *Service) CreateCommit(ctx context.Context, root string, input protocol.
 			if _, err := r.Remote(*input.Options.PushRemote); err != nil {
 				return mapError(err)
 			}
-			_, err := s.command(ctx, root, []string{"push", "--set-upstream", *input.Options.PushRemote, "HEAD:refs/heads/" + *input.ExpectedBranch}, nil, false)
+			_, err := s.network(ctx, root, []string{"push", "--set-upstream", *input.Options.PushRemote, "HEAD:refs/heads/" + *input.ExpectedBranch})
 			return err
 		}
 		if input.Options.After == protocol.GitAfterCommitSync {
-			if _, err := s.command(ctx, root, []string{"pull", "--no-rebase", "--no-edit"}, nil, false); err != nil {
+			if _, err := s.network(ctx, root, []string{"pull", "--no-rebase", "--no-edit"}); err != nil {
 				return err
 			}
 		}
-		_, err := s.command(ctx, root, []string{"push"}, nil, false)
+		_, err := s.network(ctx, root, []string{"push"})
 		return err
 	}
 	if err := follow(); err != nil {

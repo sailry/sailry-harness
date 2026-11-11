@@ -2116,7 +2116,7 @@ files_trash_confirm: 确认删除“%{name}”
 live_request_failed: 请求未完成，请检查节点连接和目录；重试会保留原请求标识
 plugins_loading: 正在读取
 project_appearance: 项目外观
-project_clone_failed: 克隆未完成，请检查目标目录
+project_clone_failed: 克隆失败，请检查地址、分支和网络
 project_grant: 信任并继续
 project_grant_description: 信任后，项目指令和工具可能执行代码，适用于所有 worktree
 project_grant_title: 信任此项目

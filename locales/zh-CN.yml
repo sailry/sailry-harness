@@ -248,7 +248,7 @@ project_branch: 分支
 project_branch_placeholder: 默认分支
 project_destination: 保存位置
 project_clone_required: 请填写名称、仓库和保存位置
-project_clone_failed: 克隆未完成，请检查目标目录
+project_clone_failed: 克隆失败，请检查地址、分支和网络
 project_outcome_unknown: 结果未确认，请先检查目标目录，重试将查询原请求
 project_appearance: 项目外观
 project_name_placeholder: 输入名称

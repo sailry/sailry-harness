@@ -49,6 +49,15 @@ children retain process-group or Windows Job ownership. Output is bounded,
 credential-redacted and ephemeral; durable receipts do not contain hook output
 or private remote URLs. A commit can succeed while its selected push or sync
 fails; the result preserves the commit ID and separate follow-up failure.
+Local native mutations keep the reference's two-minute limit, after which the
+outcome is unknown. Transfers with a remote (clone, fetch, pull, push, sync, the
+pushes that delete a remote tag or branch, and a commit's push or sync) have no
+total deadline, unlike the reference, whose command-line transfers share the
+two minutes: their duration follows the repository and the connection. They run
+with `--progress` and are stopped after two minutes without output, which is
+then an unknown outcome. The capture keeps what a terminal would show of the
+progress, so Git's final reason is not pushed out of the bounded output. A hook
+that stays silent for two minutes during a push is stopped the same way.
 Deleting a remote branch validates its remote name and requires a configured
 remote like every other remote action. A failed native command is reported busy
 only for Git's own lock failure (`Unable to create '….lock': File exists`), so a
