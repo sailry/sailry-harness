@@ -105,9 +105,12 @@ type State struct {
 	historyConfirm  confirm
 	Live            bool
 	HasProject      bool
-	Data            *preview.Workspace
-	Tabs            []Tab
-	Active          Tab
+	// Session reports that the live conversation shown has a session: an
+	// unsent draft has no checkpoints or documents to list (lists).
+	Session bool
+	Data    *preview.Workspace
+	Tabs    []Tab
+	Active  Tab
 	// Paged is the resource a page of the same project shows, "" for
 	// none: that page owns the resource's scrolling (Page).
 	Paged Kind
@@ -130,6 +133,9 @@ type State struct {
 	// Child builds a subagent's session in its tab, the transcript the shell
 	// owns.
 	Child func(c *ui.Context, id string)
+	// Focus puts the keyboard focus in the pane that hosts the panel, as
+	// the host sets it.
+	Focus func(c *ui.Context)
 }
 
 func New(w *preview.Workspace) *State {
@@ -154,10 +160,13 @@ func (s *State) Open(k Kind) {
 	}
 	switch k {
 	case Documents:
-		if len(s.Data.Documents) == 0 {
-			return
+		// Without a document the tab shows the empty state, and takes the
+		// first document once there is one (nameDocument).
+		t := Tab{Kind: Documents}
+		if len(s.Data.Documents) > 0 {
+			t.ID = s.Data.Documents[0].ID
 		}
-		s.Show(Tab{Documents, s.Data.Documents[0].ID})
+		s.Show(t)
 	case Browser, Terminal:
 		s.New(k)
 	default:
@@ -222,6 +231,33 @@ func (s *State) Close(t Tab) bool {
 	}
 	s.Tabs, s.Active = Closed(s.Tabs, t, s.Active)
 	return len(s.Tabs) > 0
+}
+
+// lists reports whether the launcher and the "+" menu offer k: the turns'
+// checkpoints and the documents belong to a session, which an unsent draft
+// of the live window does not have.
+func (s *State) lists(k Kind) bool {
+	return !s.Live || s.Session || k != History && k != Documents
+}
+
+// nameDocument gives the Documents tab opened without a document the first
+// one, once the session has any.
+func (s *State) nameDocument() {
+	blank := Tab{Kind: Documents}
+	i := slices.Index(s.Tabs, blank)
+	if i < 0 || len(s.Data.Documents) == 0 {
+		return
+	}
+	first := Tab{Documents, s.Data.Documents[0].ID}
+	if slices.Contains(s.Tabs, first) {
+		s.Tabs = slices.Delete(slices.Clone(s.Tabs), i, i+1)
+	} else {
+		s.Tabs = slices.Clone(s.Tabs)
+		s.Tabs[i] = first
+	}
+	if s.Active == blank {
+		s.Active = first
+	}
 }
 
 // item reports whether k's tabs are a project's files or diffs.

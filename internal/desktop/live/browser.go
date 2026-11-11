@@ -9,9 +9,11 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/icons"
+	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/panel"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
-	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -205,7 +207,8 @@ func (r *Runtime) browserView(c *ui.Context, id string) bool {
 		return false
 	}
 	if tab.view == nil || tab.view.IsDestroyed() {
-		ui.Column(c.Key("page")).Grow(1).Background(theme.Of(c).Background)
+		// No page yet: the address field above takes the first one.
+		kit.Result(c, kit.ResultProps{Icon: icons.Web, Title: i18n.T(c, "browser_address")}).Grow(1).Justify(ui.Center)
 		return true
 	}
 	// The user brought the tab forward.

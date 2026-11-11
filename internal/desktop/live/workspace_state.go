@@ -122,6 +122,8 @@ func (r *Runtime) workspaceFrame(c *ui.Context) {
 	}
 	r.projectWorkspaceLocations()
 	session, ok := r.session(r.App.Sidebar.Selected)
+	// An unsent draft has a worktree to show and no session.
+	r.App.Panel.Session = ok
 	if !ok {
 		session, ok = r.draftWorkspaceSession(r.App.Sidebar.Selected)
 	}
@@ -250,6 +252,7 @@ func (p *workspaceProject) actions() *panel.Actions {
 		Search: p.searchFiles, CancelSearch: p.cancelFileSearch, OpenFileAt: p.openFileAt, Pending: p.pendingWorkspaceOperations,
 		GitHistory: p.gitHistoryPage,
 		PendingGit: p.pendingGitOperations,
+		Loading:    p.resourcesLoading,
 		Upload:     func(directory string) { p.runtime.UploadWorkspaceFiles(p.owner.ID, directory) },
 		PasteReady: func() bool { return len(p.runtime.workspace.clipboard.paths) > 0 },
 	}
@@ -538,7 +541,9 @@ func (p *workspaceProject) projectStatus(value protocol.GitStatus) {
 		p.data.Repo.Branch = ""
 	}
 	if p.panel.Git.Change() == "" && len(p.data.Changes) > 0 {
-		p.panel.Git.Show(p.data.Changes[0].Path)
+		// The change a host shows first. Its diff opens with the host: a
+		// status read opens no tab, and a closed diff stays closed.
+		p.panel.Git.First(p.data.Changes[0].Path)
 	}
 }
 func workspaceChange(kind *protocol.GitChangeKind) string {

@@ -4,7 +4,11 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/i18n"
+	"github.com/sailry/sailry-harness/internal/desktop/kit"
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 )
 
 // TestTabsModel groups the pure tab and history model; each case keeps its own fixture.
@@ -14,6 +18,126 @@ func TestTabsModel(t *testing.T) {
 	t.Run("FlatTabs", testFlatTabs)
 	t.Run("ItemTabs", testItemTabs)
 	t.Run("BrowserHistory", testBrowserHistory)
+	t.Run("SessionResources", testSessionResources)
+	t.Run("EmptyStates", testEmptyStates)
+}
+
+// History and Documents belong to a session: the live launcher and "+" menu
+// offer them only with one, the preview always. Documents without a document
+// opens a tab that takes the first document once there is one, and a change
+// named as the one to show first opens no diff.
+func testSessionResources(t *testing.T) {
+	kinds := func(s *State) []Kind {
+		var out []Kind
+		for _, r := range Resources {
+			if s.lists(r.Kind) {
+				out = append(out, r.Kind)
+			}
+		}
+		return out
+	}
+	s := New(&viewmodel.Workspace{})
+	if got := kinds(s); len(got) != len(Resources) {
+		t.Fatalf("the preview lists %v", got)
+	}
+	s.Live = true
+	if got := kinds(s); !slices.Equal(got, []Kind{Browser, Terminal, Files, Changes}) {
+		t.Fatalf("a live draft lists %v", got)
+	}
+	s.Session = true
+	if got := kinds(s); len(got) != len(Resources) {
+		t.Fatalf("a live session lists %v", got)
+	}
+	s.Open(Documents)
+	blank := Tab{Kind: Documents}
+	if !slices.Equal(s.Tabs, []Tab{blank}) || s.Active != blank {
+		t.Fatalf("Documents without a document: tabs %v, active %v", s.Tabs, s.Active)
+	}
+	s.Open(History)
+	s.Data.Documents = []viewmodel.Document{{ID: "one", Title: "One"}, {ID: "two", Title: "Two"}}
+	s.Show(blank)
+	s.nameDocument()
+	first := Tab{Documents, "one"}
+	if !slices.Equal(s.Tabs, []Tab{first, {Kind: History}}) || s.Active != first {
+		t.Fatalf("the first document did not take the tab: %v, active %v", s.Tabs, s.Active)
+	}
+	// The blank tab beside the first document's leaves.
+	s.Tabs = append(s.Tabs, blank)
+	s.nameDocument()
+	if !slices.Equal(s.Tabs, []Tab{first, {Kind: History}}) {
+		t.Fatalf("a second tab for the first document: %v", s.Tabs)
+	}
+	if s.Close(first); slices.Contains(s.Tabs, first) || slices.Contains(s.Tabs, blank) {
+		t.Fatalf("the closed document tab is still open: %v", s.Tabs)
+	}
+
+	pr := NewLiveProject("worktree", &viewmodel.Workspace{}, &Actions{})
+	pr.Git.First("a.go")
+	pr.Git.First("b.go")
+	if pr.Git.Change() != "a.go" || len(pr.Git.Open()) != 0 {
+		t.Fatalf("the first change: shown %q, open %v", pr.Git.Change(), pr.Git.Open())
+	}
+	s = New(pr.Data)
+	s.Sync(pr)
+	if len(s.Tabs) != 0 {
+		t.Fatalf("a change to show first opened a tab: %v", s.Tabs)
+	}
+	s.Open(Changes)
+	s.Sync(pr)
+	diff := Tab{Changes, "a.go"}
+	if !slices.Equal(s.Tabs, []Tab{diff}) {
+		t.Fatalf("Git did not open on the first change: %v", s.Tabs)
+	}
+	s.Close(diff)
+	pr.Git.First("a.go")
+	s.Sync(pr)
+	if len(s.Tabs) != 0 {
+		t.Fatalf("the closed diff came back: %v", s.Tabs)
+	}
+}
+
+// A live tab without content shows the standard empty state, or a spinner
+// while its content is read: never a blank body.
+func testEmptyStates(t *testing.T) {
+	s := New(&viewmodel.Workspace{})
+	s.Live, s.Session = true, true
+	loading := false
+	s.Actions = &Actions{Loading: func(Kind) bool { return loading }}
+	live := NewLiveProject("worktree", &viewmodel.Workspace{Files: &viewmodel.FileNode{Name: "worktree"}}, &Actions{})
+	var pr *Project
+	tt := ui.NewTester(func(c *ui.Context) { View(c, s, pr, kit.KeyText) }, 560, 600)
+	text := func(key string) string { return i18n.In("en", key) }
+	for _, row := range []struct {
+		name    string
+		tab     Tab
+		project *Project
+		want    string
+	}{
+		{"History", Tab{Kind: History}, nil, "panel_history_empty"},
+		{"Documents", Tab{Kind: Documents}, nil, "panel_documents_empty"},
+		{"a document that is gone", Tab{Documents, "gone"}, nil, "panel_documents_empty"},
+		{"Files without a project", Tab{Kind: Files}, nil, "resource_project_empty"},
+		{"Git without a project", Tab{Kind: Changes}, nil, "resource_project_empty"},
+		{"Files without a file", Tab{Kind: Files}, live, "file_empty"},
+		{"a browser without a page owner", Tab{Browser, "1"}, nil, "unavailable"},
+		{"an artifact that is gone", Tab{Artifact, "gone"}, nil, "artifact_preview_failed"},
+		{"a subagent without a renderer", Tab{Subagent, "gone"}, nil, "chat_child_unavailable"},
+	} {
+		s.Tabs, s.Active, pr = []Tab{row.tab}, row.tab, row.project
+		tt.Frame()
+		tt.Frame()
+		if !tt.HasText(text(row.want)) {
+			t.Errorf("%s shows no %q: %q", row.name, row.want, tt.Texts())
+		}
+	}
+	// While the session's checkpoints are read the tab shows a spinner.
+	loading, pr = true, nil
+	s.Tabs, s.Active = []Tab{{Kind: History}}, Tab{Kind: History}
+	tt.Frame()
+	tt.Frame()
+	if _, spinner := tt.AccessByRole(ui.RoleProgress, text("git_view_history")); !spinner || tt.HasText(text("panel_history_empty")) {
+		t.Errorf("loading History shows no spinner: %q", tt.Texts())
+	}
 }
 
 func testOpenedAddsOnce(t *testing.T) {

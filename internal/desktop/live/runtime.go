@@ -389,6 +389,7 @@ func (r *Runtime) drain(c *ui.Context) {
 		}
 		r.App.Panel.Actions = nil
 		r.App.Panel.Data = &viewmodel.Workspace{}
+		r.App.Panel.Session = false
 	}
 	r.workspaceSettingsFrame()
 	r.terminalSettingsFrame()

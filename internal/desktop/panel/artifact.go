@@ -45,6 +45,7 @@ func (s *State) artifact(c *ui.Context, id string) {
 	p := theme.Of(c)
 	f, ok := s.artifacts[id]
 	if !ok {
+		empty(c, icons.File, "artifact_preview_failed")
 		return
 	}
 	open := func() {

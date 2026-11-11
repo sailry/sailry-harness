@@ -168,7 +168,17 @@ terminal, subagent and file-preview tabs are single-pane.
   strips draw the same tabs, without "+" and the chevron.
 - Launcher: `details`, then 40 DIP secondary rows up to 440 wide: icon,
   label, Kbd shortcut. Order: Browser ⌘T, Terminal ⌃`, Files ⌘P, Git ⌃⇧G,
-  History, Docs.
+  History, Docs. History and Docs belong to a session: the live launcher
+  and "+" menu leave them out on an unsent draft (`State.Session`).
+- Empty states: a tab with nothing to show draws `kit.Result` with its
+  resource's icon, centered, never a blank body: History
+  `panel_history_empty`, Documents `panel_documents_empty` (a spinner while
+  the session's are read, `Actions.Loading`), Files and Git without a
+  project `resource_project_empty`, Files without a file `file_empty`, a
+  browser tab before its first address `browser_address`, a preview or a
+  subagent that is gone `artifact_preview_failed` and
+  `chat_child_unavailable`. Documents opened without a document is one tab
+  that takes the first document once the session has one.
 - Files: the tab's file in the main area, the tree in the side list, in
   the page and a file tab alike. The tree has no title and starts at 8
   DIPs (rows 28, 16 per level from 8). It selects as the files plugin's
@@ -226,7 +236,7 @@ terminal, subagent and file-preview tabs are single-pane.
 
 | Action | Effect in the preview |
 |---|---|
-| Open, choose and close tabs | `State` |
+| Open, choose and close tabs | `State`. A tab's close button and ⌘W both close it; the focus stays in the panel. MyGo runs `OnClick` after the build, so the close acts in its callback |
 | Choose a file or a change | Opens or focuses its tab, in the panel and the page alike |
 | New tab, New terminal | Another browser or terminal tab |
 | Back, Forward | The tab's history |
@@ -262,7 +272,9 @@ entries confirmed again start from the first one. Native open, reveal, download 
 `WorkspaceNative`; execution-host paths never become controller-local paths.
 The window's transfer owner verifies downloaded content and owns native effects.
 
-Git status and branches project into the existing fields. Existing menus send
+Git status and branches project into the existing fields. A status read names
+the first change as the one shown while none is (`GitView.First`) and adds no
+open diff: a status read opens no diff tab, and a closed one stays closed. Existing menus send
 revision-aware index, commit, branch, remote, stash, tag and worktree commands;
 forms retain values after failures. Destructive operations name their target
 in the existing confirmation. Pickers preserve full stash and tag identifiers.
@@ -421,7 +433,18 @@ fallback selection, formatting boundaries, overflow ordering and close lifecycle
 checks. Notebook draft validation, output projection and bounded embedded images
 join the attachment projection group in `internal/desktop/live`.
 
-`internal/desktop/panel/model_test.go`: tabs open once, closing picks the next,
+`internal/desktop/live/panel_tabs_test.go`, a step of `TestPanelProjection`
+against a real Node in Chinese: on an unsent draft and on a session every kind
+of tab (Browser, Terminal, Files, Git, History, Documents, Artifact, Subagent,
+a file and a diff) closes by its close button and by ⌘W, stays closed over
+frames, the settings page and back, a Git refresh and a relaunch, the launcher
+and "+" list History and Documents only with a session, and each body shows
+its content or its empty state. `SAILRY_SNAPSHOTS` names a folder for the
+launcher and empty-state frames.
+
+`internal/desktop/panel/model_test.go`: the live launcher's kinds per state, the
+Documents tab without a document, the first change opening no diff, each empty
+state and the loading spinner; tabs open once, closing picks the next,
 items are flat tabs (new browser pages, retired kinds dropped), each file
 and diff its own tab shared with the project (closing on either side,
 another project swapping them), a browser tab's history (going drops the
@@ -435,7 +458,8 @@ Copy path, and its arrows, → and Enter.
 beside the tree, a file chosen in the tree its own tab, ⌃⇧G and a change
 a diff tab (read through the diff viewer's accessible text), choosing a
 tab shows its item beside its list, eight tabs show the overflow menu,
-the terminal has no Reset and ⌘F in it opens its find bar, ⌘W closes tabs
+the terminal has no Reset and ⌘F in it opens its find bar, a tab's close
+button closes the shown tab and one behind it, ⌘W closes tabs
 then the panel; collapsed, the header clears the traffic lights.
 `internal/desktop/shell/pages_test.go`: the rail's Files and Git open pages, the
 page's open files are the panel's file tabs, a change chosen in a tab
@@ -451,6 +475,7 @@ at its width.
 | Unsupported native rich-text structures edit in Source with Markdown preview | The pinned rich-text codec omits their structure; retaining source prevents data loss |
 | Every open item is a tab in one flat strip | The plan asks for tabs; the reference holds one resource and tabs only a resource's documents |
 | Checkpoints and documents are tabs | The reference restores checkpoints from a turn and draws documents in a plugin |
+| History and Documents are not offered on an unsent draft | They show a session's turns and documents; a draft has neither |
 | Files and Git keep their state per project | The reference keeps one and resets it when the project changes |
 | Each open file and diff is a tab, also on the pages' strips | The plan asks for several files and diffs open at once |
 | The split's list is a fixed column past our own drag handle | MyGo's `Split` sizes its first pane, so a first frame jumped |

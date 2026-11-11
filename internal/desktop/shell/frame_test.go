@@ -99,6 +99,33 @@ func TestPanelOpensWithShortcutsAndTabs(t *testing.T) {
 		t.Errorf("no terminal find bar, or the conversation's opened: %q", tt.Texts())
 	}
 	snapshot(t, tt, "panel-terminal")
+	// A tab's close button closes it, the shown one and one behind it: the
+	// button is the 20 DIP box at the tab's end, showing as it is hovered.
+	closeTab := func(title string) {
+		t.Helper()
+		for _, info := range tt.AccessAll() {
+			if info.Role != ui.RoleButton || info.Name != title || info.Bounds.H != 28 || info.Bounds.Y > HeaderHeight+40 || info.Bounds.X < 1280-a.PanelWidth {
+				continue
+			}
+			x, y := info.Bounds.X+info.Bounds.W-14, info.Bounds.Y+info.Bounds.H/2
+			tt.Move(x, y)
+			tt.Frame()
+			tt.ClickAt(x, y)
+			tt.Frame()
+			tt.Frame()
+			return
+		}
+		t.Fatalf("no tab %q in the strip: %q", title, tt.Texts())
+	}
+	terminal := a.Panel.Active
+	closeTab(i18n.In("en", "terminal"))
+	if len(a.Panel.Tabs) != 7 || slices.Contains(a.Panel.Tabs, terminal) || a.Panel.Active != a.Panel.Tabs[0] {
+		t.Fatalf("the close button left the shown tab: %v, active %v", a.Panel.Tabs, a.Panel.Active)
+	}
+	closeTab("go.mod")
+	if len(a.Panel.Tabs) != 6 || slices.Contains(a.Panel.Tabs, panel.Tab{Kind: panel.Files, ID: "sailry-go/go.mod"}) || a.Panel.Active != a.Panel.Tabs[0] {
+		t.Fatalf("the close button left a tab behind the shown one: %v, active %v", a.Panel.Tabs, a.Panel.Active)
+	}
 	// ⌘W in the panel closes the active tab, then the others, then the
 	// panel.
 	for range 10 {

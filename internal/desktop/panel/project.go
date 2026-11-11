@@ -149,6 +149,14 @@ func (v *GitView) Show(path string) {
 	}
 }
 
+// First names the change a host shows first while none is shown, as a new
+// project's first change: its diff opens when a host shows it, not before.
+func (v *GitView) First(path string) {
+	if v.change == "" {
+		v.change, v.scope = path, "all"
+	}
+}
+
 // Close closes a diff, as FileView.Close.
 func (v *GitView) Close(path string) {
 	v.open, v.change = closeItem(v.open, path, v.change)

@@ -34,6 +34,9 @@ type Actions struct {
 	Upload           func(string)
 	Pending          func() []PendingOperation
 	PendingGit       func() []PendingOperation
+	// Loading reports whether the session's checkpoints (History) or
+	// documents (Documents) are being read.
+	Loading func(Kind) bool
 }
 type SearchQuery struct {
 	Query, Filter        string

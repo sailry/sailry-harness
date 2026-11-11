@@ -427,6 +427,7 @@ func (a *App) details(c *ui.Context, f frame, fill ui.Color) {
 			if cv := a.Data.Find(a.Sidebar.Selected); cv != nil && cv.WorktreePath != "" {
 				a.Panel.Cwd = cv.WorktreePath
 			}
+			a.Panel.Focus = func(c *ui.Context) { a.panelPane.Focus(c) }
 			panel.View(c, a.Panel, a.project(), kit.KeyText)
 		})
 	})
