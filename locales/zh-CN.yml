@@ -2365,6 +2365,9 @@ background_recent_output: 仅显示近期输出
 background_unavailable: 暂时无法读取后台终端
 background_stop_failed: 停止失败，请重试
 background_stop_unknown: 停止结果未确认，请查看命令状态
+subagent_stop: 停止子代理
+subagent_stop_failed: 停止失败，请重试
+subagent_stop_unknown: 停止结果未确认，请查看子代理状态
 background_started: 已在后台运行
 background_read: 查看后台命令
 

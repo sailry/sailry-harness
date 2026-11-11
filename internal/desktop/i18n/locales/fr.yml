@@ -1702,6 +1702,9 @@ hooks_project_required: Sélectionner un projet
 workspace_worktree_remove_confirm: Remove this worktree and its files
 background_stop_failed: Arrêt échoué; réessayer
 background_stop_unknown: Arrêt non confirmé; vérifier l'état de la commande
+subagent_stop: Stop subagent
+subagent_stop_failed: Stop failed; retry
+subagent_stop_unknown: Stop unconfirmed; check subagent status
 background_unavailable: Impossible de lire le terminal en arrière-plan
 files_cancel_remaining: Cancel remaining
 files_check_result: Vérifiez le résultat

@@ -1702,6 +1702,9 @@ hooks_project_required: 프로젝트 선택
 workspace_worktree_remove_confirm: Remove this worktree and its files
 background_stop_failed: 중지 실패; 다시 시도
 background_stop_unknown: 명령 상태 확인
+subagent_stop: Stop subagent
+subagent_stop_failed: Stop failed; retry
+subagent_stop_unknown: Stop unconfirmed; check subagent status
 background_unavailable: 배경 터미널을 읽을 수 없음
 files_cancel_remaining: Cancel remaining
 files_check_result: 검사 결과

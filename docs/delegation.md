@@ -112,6 +112,18 @@ completions are never delivered to a delegated session and nothing hands a
 child's commands to its parent, so a command left running would have no reader.
 A child that needs a command's result reads it before it answers.
 
+The desktop's subagent capsule carries a Stop on each running child's row. It
+sends `stop_turn` for that child's turn, stays disabled while the request is
+in flight or the child is stopping, and reports failure, conflict and
+uncertain outcomes as toasts (`subagent_stop_failed`, `session_changed`,
+`subagent_stop_unknown`). A child's own tab stays read-only.
+
+A stopped child's status is named by the engine's finishing code for every
+turn: a stop the user or the parent asked for is the cancelled outcome and
+only a Node shutdown is interrupted. Delegation treats `cancelled` and
+`interrupted` alike: neither starts an automatic notice turn, and the parent
+waits for the child to settle in both cases.
+
 Captured localized tool metadata uses the existing source locale keys. Native
 child approval and question updates also refresh the owning parent's shared
 conversation feed; ordinary approval ownership remains on the child session.
@@ -136,3 +148,5 @@ described in [Teams and roles](teams.md#agent-catalog-tools).
   neither, by decision. Children are bounded per parent conversation by the
   Team `ChildConcurrency` setting (default 8, FIFO), enforced in `ClaimChild`;
   children cannot delegate, so no deeper level exists.
+- Neither runtime's desktop could stop one child. Go adds Stop on the child's
+  capsule row.

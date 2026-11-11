@@ -272,7 +272,7 @@ high, 16 in, 8 apart, wrapping when it is full. Left to right:
 | `reicon:ui/tasks` `composer_todo_count`, while steps remain | `Progress []conversation.Step` | popover 320 of `conversation.Steps` |
 | `background_one`/`background_count`, a spinner while `Connected` | `Commands []Command` (running and stopping) | popover 400: rows with the command (opens its `Output`), elapsed, Stop (`StopCommand`) |
 | A Globe capsule per service port | `Command.Ports` | `OpenService(port)` |
-| `composer_subagent_one`/`_count`, a spinner while `Connected`; hidden when `Readonly` | `Children []conversation.Child` (running) | popover 360, a row each: `OpenChild` |
+| `composer_subagent_one`/`_count`, a spinner while `Connected`; hidden when `Readonly` | `Children []conversation.Child` (running) | popover 360, a row each: `OpenChild`, and a 24 DIP `kit.IconButton` Stop (`subagent_stop`) bound by `ActivityCallbacks.StopChild`, disabled while `ChildBusy` or the child is stopping, absent without the callback |
 
 Then a spacer and the approvals and question. An empty strip keeps its
 row, so the composer does not move. Preview: Git totals are the Git
@@ -710,6 +710,7 @@ and every failure, over a fake microphone and recognizer.
 | The activity strip wraps when it is full | Rust keeps one row and lets capsules overflow |
 | Live service labels use additive activity callbacks | Forwarder state stays with the captured Client while the accepted command DTO and capsule layout remain unchanged |
 | Subagent elapsed uses an additive activity callback | Captured run timestamps remain outside the accepted `conversation.Child` fields |
+| A subagent row's Stop uses additive activity callbacks (`StopChild`, `ChildBusy`) | Stopping one child was missing in both runtimes; the `Actions` contract stays unchanged and the preview shows no Stop |
 | Modes are Code, Plan, Flagship (Rust `WorkMode`); explore/build/review/plan are only the welcome cards | Follows Rust |
 | Child identicons are not shown in approvals | Not in the view model |
 | Forms show no schema defaults or per-field messages | The question protocol carries no defaults; an invalid field disables Submit and a rejected answer toasts `question_invalid_answer`, as the reference does |

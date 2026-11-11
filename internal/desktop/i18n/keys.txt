@@ -1714,6 +1714,9 @@ hooks_project_required
 workspace_worktree_remove_confirm
 background_stop_failed
 background_stop_unknown
+subagent_stop
+subagent_stop_failed
+subagent_stop_unknown
 background_unavailable
 files_cancel_remaining
 files_check_result

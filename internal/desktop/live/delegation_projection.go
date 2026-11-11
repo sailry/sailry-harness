@@ -7,6 +7,8 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/protocol"
 	"time"
+
+	"github.com/egoist/mygo/ui"
 )
 
 func (r *Runtime) watchChild(id protocol.SessionID) {
@@ -21,7 +23,7 @@ func (r *Runtime) watchChild(id protocol.SessionID) {
 func (r *Runtime) projectChildComposer(cv *viewmodel.Conversation, comp *composer.State, ctx *composer.Context, language string) {
 	ctx.Activity.Children = nil
 	if comp.ActivityCallbacks != nil {
-		comp.ActivityCallbacks.ChildElapsed = nil
+		comp.ActivityCallbacks.ChildElapsed, comp.ActivityCallbacks.StopChild, comp.ActivityCallbacks.ChildBusy = nil, nil, nil
 	}
 	session, ok := r.session(cv.ID)
 	if !ok {
@@ -76,7 +78,32 @@ func (r *Runtime) projectChildComposer(cv *viewmodel.Conversation, comp *compose
 		}
 		return childElapsed(run, now)
 	}
+	comp.ActivityCallbacks.ChildBusy = func(id string) bool {
+		run, ok := runs[id]
+		return ok && r.childStops[run.Turn]
+	}
+	comp.ActivityCallbacks.StopChild = func(id string) {
+		if run, ok := runs[id]; ok {
+			r.stopChild(run)
+		}
+	}
 	enrichChildModels(cv, state.Snapshot.Page, r.snapshot(), language)
+}
+
+// stopChild stops one child run through stop_turn. Its parent and siblings
+// continue; the parent's page reports the child's stopping and final status.
+func (r *Runtime) stopChild(run protocol.ConversationRun) {
+	if r.childStops[run.Turn] || run.Status != protocol.ConversationStatusQueued && run.Status != protocol.ConversationStatusRunning {
+		return
+	}
+	if r.childStops == nil {
+		r.childStops = map[protocol.TurnID]bool{}
+	}
+	r.childStops[run.Turn] = true
+	r.execute(protocol.Command{Kind: "stop_turn", Data: protocol.CommandStopTurnPayload{Turn: run.Turn}}, func(c *ui.Context, _ protocol.Output, err error) {
+		delete(r.childStops, run.Turn)
+		r.reportKeys(c, err, "subagent_stop_failed", "session_changed", "subagent_stop_unknown")
+	})
 }
 
 func childElapsed(run protocol.ConversationRun, now time.Time) string {
