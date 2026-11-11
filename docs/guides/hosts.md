@@ -6,15 +6,19 @@ already accepted by that Host. Its projects, models and credentials stay there.
 ## Prevent sleep
 
 **Settings → General → Prevent sleep** controls the selected execution Node and
-is enabled by default. While enabled, that device stays awake even when no task
-is running. Turning it off or shutting down the Node releases the request.
+is enabled by default. While enabled, that device stays awake for as long as
+work runs on it: a task, a command, an installation, knowledge indexing, a code
+index query or a backup. An idle device may sleep, and an open terminal or a
+schedule that has not fired yet does not keep it awake; a scheduled task or
+reminder that came due during sleep runs shortly after the device wakes.
+Turning the setting off or shutting down the Node releases the request.
 Disconnecting a controller does not change the Node's setting.
 
 This prevents idle system sleep on macOS and Windows, while allowing the display
 to turn off. It does not prevent locking, lid-close sleep, or explicit sleep.
 Windows Modern Standby can limit requests on battery power. Linux sleep prevention
-is not implemented. If the system rejects a request, Sailry continues running and
-reports the failure once for that Node process.
+is not implemented. If the system rejects a request, Sailry continues running,
+reports the failure once for that Node process and asks again with the next work.
 
 ## Before connecting
 

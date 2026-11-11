@@ -102,11 +102,6 @@ func (notice Notice) Target() NoticeTarget {
 	if notice.Session != nil {
 		return NoticeTarget{Kind: "session", Session: *notice.Session}
 	}
-	if notice.Details != nil && notice.Details.Kind == "terminal" {
-		if terminal, err := payload[protocol.NotificationDetailsTerminal](notice.Details.Data); err == nil {
-			return NoticeTarget{Kind: "terminal", Terminal: terminal.ID}
-		}
-	}
 	return notice.ID.Target
 }
 
@@ -163,7 +158,7 @@ func (feed *activityFeed) observe(snapshot protocol.Snapshot) {
 		id := NoticeID{Node: snapshot.Node, Cursor: entry.Sequence, Target: NoticeTarget{Kind: "notification", Notification: entry.ID}}
 		existing := slices.IndexFunc(feed.notices, func(notice Notice) bool { return notice.ID == id })
 		if existing >= 0 {
-			feed.notices[existing].Read = entry.Read
+			feed.notices[existing].Read, feed.notices[existing].Details = entry.Read, entry.Content.Details
 			continue
 		}
 		notice := Notice{ID: id, Title: entry.Content.Title, Message: entry.Content.Message,
@@ -177,32 +172,21 @@ func (feed *activityFeed) observe(snapshot protocol.Snapshot) {
 				}
 			}
 		}
-		if entry.Content.Details != nil {
-			switch entry.Content.Details.Kind {
-			case "task":
-				if task, err := payload[protocol.NotificationDetailsTask](entry.Content.Details.Data); err == nil {
-					notice.Kind = "failed"
-					if task.Status == protocol.ConversationStatusCompleted {
-						notice.Kind = "completed"
-					}
-					if task.Error != nil {
-						notice.Error = &protocol.Fault{Code: *task.Error}
+		if entry.Content.Details != nil && entry.Content.Details.Kind == "task" {
+			if task, err := payload[protocol.NotificationDetailsTask](entry.Content.Details.Data); err == nil {
+				notice.Kind = "failed"
+				switch task.Status {
+				case protocol.ConversationStatusCompleted:
+					notice.Kind = "completed"
+				case protocol.ConversationStatusRunning:
+					// The Node's durable notice of a scheduled run that waits.
+					notice.Kind = "input"
+					if entry.Content.Kind == protocol.NotificationKindWarning {
+						notice.Kind = "approval"
 					}
 				}
-			case "terminal":
-				if terminal, err := payload[protocol.NotificationDetailsTerminal](entry.Content.Details.Data); err == nil {
-					notice.Kind = "completed"
-					if terminal.Failed {
-						notice.Kind = "failed"
-					}
-					if notice.Worktree == nil {
-						for _, info := range snapshot.Terminals {
-							if info.ID == terminal.ID {
-								notice.Worktree = info.Worktree
-								break
-							}
-						}
-					}
+				if task.Error != nil {
+					notice.Error = &protocol.Fault{Code: *task.Error}
 				}
 			}
 		}
@@ -240,6 +224,16 @@ func (feed *activityFeed) observe(snapshot protocol.Snapshot) {
 		kind := "input"
 		if *activity.Waiting == protocol.ActivityWaitingApproval {
 			kind = "approval"
+		}
+		// The Node already told this wait durably; one notice per wait.
+		if slices.ContainsFunc(feed.notices, func(notice Notice) bool {
+			if notice.ID.Target.Kind != "notification" || notice.Kind != kind || notice.Session == nil || *notice.Session != session.ID {
+				return false
+			}
+			task, err := payload[protocol.NotificationDetailsTask](notice.Details.Data)
+			return err == nil && task.FinishedMs == nil
+		}) {
+			continue
 		}
 		notice := Notice{ID: NoticeID{Node: snapshot.Node, Cursor: snapshot.Cursor, Target: NoticeTarget{Kind: "session", Session: session.ID}},
 			Project: session.Project, Worktree: &session.Worktree, Title: activity.Title, Kind: kind, Session: &session.ID}

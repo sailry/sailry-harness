@@ -137,11 +137,13 @@ func decodeDispatchReceipt(value sql.NullString) (protocol.Result[protocol.Outpu
 	return result, nil
 }
 
-func claimDispatchJobs(ctx context.Context, db *sql.Conn, node protocol.NodeID, timestamp int64) ([]dispatcher.Work, []string, error) {
+// claimDispatchJobs starts every queued job. A job whose package or callback
+// is no longer authorized fails here; its notices are the returned events.
+func claimDispatchJobs(ctx context.Context, db *sql.Conn, node protocol.NodeID, timestamp int64) ([]dispatcher.Work, []string, []protocol.Event, error) {
 	type record struct{ owner, identity string }
 	rows, err := db.QueryContext(ctx, "SELECT package,id FROM dispatch_jobs WHERE status='queued' ORDER BY sequence LIMIT 128")
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	records := []record{}
 	for rows.Next() {
@@ -154,14 +156,15 @@ func claimDispatchJobs(ctx context.Context, db *sql.Conn, node protocol.NodeID, 
 	readErr := rows.Err()
 	closeErr := rows.Close()
 	if err = errors.Join(err, readErr, closeErr); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	work := []dispatcher.Work{}
 	owners := []string{}
+	notices := []protocol.Event{}
 	for _, item := range records {
 		job, callback, reference, err := readDispatchInvocation(ctx, db, item.identity)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		var authorityErr error
 		if reference != nil {
@@ -181,15 +184,20 @@ func claimDispatchJobs(ctx context.Context, db *sql.Conn, node protocol.NodeID, 
 			job.Status, job.Error, job.FinishedMs = protocol.DispatchStatusFailed, dispatchFault(authorityErr), &timestamp
 		}
 		if err := putDispatchJob(ctx, db, job); err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
+		notice, err := dispatchNotice(ctx, db, job, reference, timestamp)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		notices = append(notices, notice...)
 	}
 	if len(owners) != 0 {
 		if err := pruneDispatchJobs(ctx, db); err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 	}
-	return work, owners, nil
+	return work, owners, notices, nil
 }
 
 func dispatchPackageVersion(ctx context.Context, db *sql.Conn, reference protocol.PluginReference) (protocol.PluginInfo, error) {
@@ -284,7 +292,15 @@ func FinishDispatch(ctx context.Context, db *sql.Conn, identity protocol.JobID, 
 	if err := pruneDispatchJobs(ctx, db); err != nil {
 		return nil, err
 	}
-	return []protocol.Event{dispatchChanged([]string{owner})}, nil
+	_, _, reference, err := readDispatchInvocation(ctx, db, identity.String())
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+	notices, err := dispatchNotice(ctx, db, job, reference, timestamp)
+	if err != nil {
+		return nil, err
+	}
+	return append([]protocol.Event{dispatchChanged([]string{owner})}, notices...), nil
 }
 
 func pruneDispatchJobs(ctx context.Context, db *sql.Conn) error {
@@ -292,27 +308,28 @@ func pruneDispatchJobs(ctx context.Context, db *sql.Conn) error {
 	return err
 }
 
-func recoverDispatchJobs(ctx context.Context, db *sql.Conn, node protocol.NodeID, timestamp int64) ([]string, error) {
+func recoverDispatchJobs(ctx context.Context, db *sql.Conn, node protocol.NodeID, timestamp int64) ([]string, []protocol.Event, error) {
 	jobs, err := readBodies[protocol.DispatchJob](ctx, db, "SELECT body FROM dispatch_jobs WHERE status='running'")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	owners := []string{}
+	notices := []protocol.Event{}
 	for _, job := range jobs {
 		_, callback, _, err := readDispatchInvocation(ctx, db, job.ID.String())
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		var stored sql.NullString
 		err = db.QueryRowContext(ctx, "SELECT result FROM requests WHERE id=?1 AND caller=?2", job.Request.String(), node[:]).Scan(&stored)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return nil, err
+			return nil, nil, err
 		}
 		var outcome error
 		if err == nil && stored.Valid {
 			result, err := decodeDispatchReceipt(stored)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			if result.Err != nil {
 				outcome = result.Err
@@ -322,7 +339,7 @@ func recoverDispatchJobs(ctx context.Context, db *sql.Conn, node protocol.NodeID
 				} else {
 					turn, ok := dispatchValue[protocol.QueuedTurn](result.Ok.Data)
 					if !ok {
-						return nil, fault(protocol.ErrorCodeInternal, "stored turn admission is invalid")
+						return nil, nil, fault(protocol.ErrorCodeInternal, "stored turn admission is invalid")
 					}
 					run, err := ReadAgentRun(ctx, db, turn.ID)
 					if err != nil {
@@ -341,13 +358,17 @@ func recoverDispatchJobs(ctx context.Context, db *sql.Conn, node protocol.NodeID
 		}
 		events, err := FinishDispatch(ctx, db, job.ID, outcome, timestamp)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		for _, event := range events {
-			owners = append(owners, event.Data.(protocol.EventDispatchChangedPayload).Packages...)
+			if changed, ok := event.Data.(protocol.EventDispatchChangedPayload); ok {
+				owners = append(owners, changed.Packages...)
+			} else {
+				notices = append(notices, event)
+			}
 		}
 	}
-	return owners, nil
+	return owners, notices, nil
 }
 
 func observeDispatchJobs(ctx context.Context, db *sql.Conn, node protocol.NodeID) ([]dispatcher.Work, error) {
@@ -382,12 +403,13 @@ func observeDispatchJobs(ctx context.Context, db *sql.Conn, node protocol.NodeID
 func DispatchTick(ctx context.Context, db *sql.Conn, node protocol.NodeID, timestamp int64, recovering bool) (dispatcher.Batch, []protocol.Event, error) {
 	batch := dispatcher.Batch{Work: []dispatcher.Work{}}
 	owners := []string{}
+	events := []protocol.Event{}
 	if recovering {
-		changed, err := recoverDispatchJobs(ctx, db, node, timestamp)
+		changed, notices, err := recoverDispatchJobs(ctx, db, node, timestamp)
 		if err != nil {
 			return batch, nil, err
 		}
-		owners = append(owners, changed...)
+		owners, events = append(owners, changed...), append(events, notices...)
 		observers, err := observeDispatchJobs(ctx, db, node)
 		if err != nil {
 			return batch, nil, err
@@ -399,10 +421,11 @@ func DispatchTick(ctx context.Context, db *sql.Conn, node protocol.NodeID, times
 		return batch, nil, err
 	}
 	owners = append(owners, due...)
-	work, changed, err := claimDispatchJobs(ctx, db, node, timestamp)
+	work, changed, notices, err := claimDispatchJobs(ctx, db, node, timestamp)
 	if err != nil {
 		return batch, nil, err
 	}
+	events = append(events, notices...)
 	batch.Work = append(batch.Work, work...)
 	owners = append(owners, changed...)
 	batch.NextMs, err = nextDispatchSchedule(ctx, db, timestamp)
@@ -412,7 +435,6 @@ func DispatchTick(ctx context.Context, db *sql.Conn, node protocol.NodeID, times
 	if err := db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM dispatch_jobs WHERE status='queued')").Scan(&batch.Pending); err != nil {
 		return batch, nil, err
 	}
-	events := []protocol.Event{}
 	if len(owners) != 0 {
 		events = append(events, dispatchChanged(owners))
 	}

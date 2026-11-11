@@ -46,6 +46,11 @@ func (node *Node) wakeDispatch() {
 	}
 }
 
+// CheckSchedules makes the runner read the wall clock now. The application
+// calls it when the system wakes; without that signal the runner's own
+// recheck finds a fire that became due during sleep.
+func (node *Node) CheckSchedules() { node.wakeDispatch() }
+
 func (node *Node) dispatchTick(ctx context.Context, recovering bool) (dispatcher.Batch, error) {
 	var batch dispatcher.Batch
 	var changes []protocol.Event

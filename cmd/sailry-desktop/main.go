@@ -59,10 +59,16 @@ func run() error {
 	}()
 	mygo.App.SetLanguages(i18n.Languages...)
 	crychic.Setup()
+	if backend.Node != nil {
+		// A schedule that became due during sleep fires at the wake.
+		mygo.Power.OnResume(backend.Node.CheckSchedules)
+	}
 	var notifier *live.Notifier
 	var notificationWindow *mygo.Window
 	if backend.Client != nil {
 		notifier = live.NewNotifier(backend.Client, backend.Preferences)
+		// Remote hosts' notices take the same channels as the local Node's.
+		notifier.SetNetwork(backend.Network)
 		defer notifier.Close()
 	}
 
@@ -244,6 +250,8 @@ func run() error {
 				go func() {
 					if err := notification.ShowContext(ctx); err != nil {
 						log.Printf("desktop notification: %v", err)
+						// The notice shows in the next focused window instead.
+						notifier.Undelivered(id)
 					}
 				}()
 			})
@@ -251,7 +259,13 @@ func run() error {
 		windows = append(windows, entry)
 		active = entry
 		backend.reports.watch(entry.window, app)
-		entry.window.OnFocus(func() { active = entry; refreshCommands() })
+		entry.window.OnFocus(func() {
+			active = entry
+			refreshCommands()
+			if notifier != nil {
+				notifier.Returned()
+			}
+		})
 		entry.window.OnBlur(entry.save)
 		entry.window.OnClose(func(e *mygo.CloseEvent) {
 			entry.save()

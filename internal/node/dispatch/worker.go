@@ -9,6 +9,12 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+// Recheck bounds the wait for the next due time. A timer counts monotonic
+// time, which stops while the system sleeps and ignores a wall-clock change,
+// so the runner reads the wall clock again at least this often: an occurrence
+// that became due during sleep runs within Recheck of the wake.
+const Recheck = 30 * time.Second
+
 type Work struct {
 	Job        protocol.JobID
 	Request    protocol.Request
@@ -77,10 +83,7 @@ func (runner Runner) Serve(ctx context.Context) {
 		var timer clockwork.Timer
 		var due <-chan time.Time
 		if batch.NextMs != nil {
-			delay := time.UnixMilli(*batch.NextMs).Sub(runner.Clock.Now())
-			if delay < time.Millisecond {
-				delay = time.Millisecond
-			}
+			delay := min(max(time.UnixMilli(*batch.NextMs).Sub(runner.Clock.Now()), time.Millisecond), Recheck)
 			timer = runner.Clock.NewTimer(delay)
 			due = timer.Chan()
 		}

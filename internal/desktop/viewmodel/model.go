@@ -136,6 +136,9 @@ type Notice struct {
 	Host       string
 	Time       time.Time
 	Read       bool
+
+	// Presentation is the publishing package's own heading and persistence.
+	Presentation *protocol.NotificationPresentation
 }
 
 // FileNode is a file or a folder of the project tree in the right panel.
