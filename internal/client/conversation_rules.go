@@ -19,13 +19,15 @@ type ModesView struct {
 	Choices  []string `json:"choices"`
 }
 
+// ProjectModesJSON and SelectModeJSON take a session's configuration and the
+// mode declarations as a controller holds them: both are a Node's report.
 func ProjectModesJSON(config, modes json.RawMessage) (json.RawMessage, error) {
 	var captured protocol.SessionConfig
 	var declarations []ConversationMode
-	if err := json.Unmarshal(config, &captured); err != nil {
+	if err := protocol.DecodeAs(protocol.PeerData, config, &captured); err != nil {
 		return nil, err
 	}
-	if err := json.Unmarshal(modes, &declarations); err != nil {
+	if err := protocol.DecodeAs(protocol.PeerData, modes, &declarations); err != nil {
 		return nil, err
 	}
 	return json.Marshal(ProjectModes(captured, declarations))
@@ -34,10 +36,10 @@ func ProjectModesJSON(config, modes json.RawMessage) (json.RawMessage, error) {
 func SelectModeJSON(config, modes json.RawMessage, key string) (json.RawMessage, error) {
 	var captured protocol.SessionConfig
 	var declarations []ConversationMode
-	if err := json.Unmarshal(config, &captured); err != nil {
+	if err := protocol.DecodeAs(protocol.PeerData, config, &captured); err != nil {
 		return nil, err
 	}
-	if err := json.Unmarshal(modes, &declarations); err != nil {
+	if err := protocol.DecodeAs(protocol.PeerData, modes, &declarations); err != nil {
 		return nil, err
 	}
 	selected := SelectMode(captured, declarations, key)

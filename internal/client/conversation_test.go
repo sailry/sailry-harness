@@ -109,6 +109,33 @@ func testConversationProjectionOrder(t *testing.T) {
 			}
 		})
 	}
+	t.Run("undeclared_changes_keep_the_sequence", func(t *testing.T) {
+		s := conversationFixture()
+		p := NewConversationProjection(s.Node, s.Page.Session, 1)
+		if _, err := p.Apply(1, protocol.Update{Kind: "conversation_snapshot", Data: s}); err != nil {
+			t.Fatal(err)
+		}
+		// A change and a streamed part of kinds a newer Node declares, as the
+		// wire reader decodes them.
+		later := protocol.UnknownVariant(`{"kind":"future_change","data":{"count":1}}`)
+		if got, err := p.Apply(1, conversationFrame(*p.Snapshot(), "future_change", later)); got != Applied || err != nil {
+			t.Fatalf("undeclared change: %v, %v", got, err)
+		}
+		draft := protocol.ConversationDraft{ID: "stream", Turn: s.Page.Runs[0].Turn, Author: "assistant", Parts: []protocol.ConversationPart{
+			{Kind: "future_part", Data: protocol.UnknownVariant(`{"kind":"future_part","data":1}`)},
+			{Kind: "text", Data: "Shown"},
+		}}
+		if got, err := p.Apply(1, conversationFrame(*p.Snapshot(), "delta", draft)); got != Applied || err != nil {
+			t.Fatalf("undeclared part: %v, %v", got, err)
+		}
+		if got := p.Snapshot(); got.Sequence != s.Sequence+2 || len(got.Drafts) != 1 {
+			t.Fatalf("sequence %d, drafts %d", got.Sequence, len(got.Drafts))
+		}
+		// The same kinds without a peer's content are a defect of this build.
+		if _, err := p.Apply(1, conversationFrame(*p.Snapshot(), "future_change", nil)); err == nil {
+			t.Fatal("a change this build cannot have decoded was applied")
+		}
+	})
 	t.Run("live_delta_terminal_and_reconnect", func(t *testing.T) {
 		s := conversationFixture()
 		p := NewConversationProjection(s.Node, s.Page.Session, 1)

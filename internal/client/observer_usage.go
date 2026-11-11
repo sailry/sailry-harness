@@ -213,8 +213,10 @@ func WatchOverview(ctx context.Context, clients []*Client, argument json.RawMess
 				if err != nil {
 					return
 				}
+				// A view carries what its Node reported, values this build
+				// does not declare included.
 				var value usageView
-				if json.Unmarshal(data, &value) != nil {
+				if protocol.DecodeAs(protocol.PeerData, data, &value) != nil {
 					return
 				}
 				observer.mu.Lock()

@@ -47,11 +47,14 @@ func validateConversationDraft(page protocol.ConversationPage, d protocol.Conver
 				Started *int64 `json:"started_ms"`
 			}
 			data, err := json.Marshal(part.Data)
-			if err != nil || json.Unmarshal(data, &raw) != nil || raw.Type != "compacting" || raw.Started == nil {
+			if err != nil || json.Unmarshal(data, &raw) != nil || raw.Type == "" || raw.Type == "compacting" && raw.Started == nil {
 				return fault(protocol.ErrorCodeInvalidRequest, "invalid streaming resource")
 			}
 		default:
-			return fault(protocol.ErrorCodeInvalidRequest, "invalid streaming part")
+			// A part of a kind a newer Node declares is carried and not shown.
+			if _, undeclared := part.Data.(protocol.UnknownVariant); !undeclared {
+				return fault(protocol.ErrorCodeInvalidRequest, "invalid streaming part")
+			}
 		}
 	}
 	return nil

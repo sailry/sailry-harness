@@ -110,8 +110,9 @@ func (c *Client) readConversationDetail(ctx context.Context, ref protocol.ToolDe
 			break
 		}
 	}
+	// The pages are the Node's own encoding of the detail: a peer's report.
 	var value protocol.ToolDetail
-	if json.Unmarshal(data, &value) != nil {
+	if protocol.DecodeAs(protocol.PeerData, data, &value) != nil {
 		return value, fault(protocol.ErrorCodeInvalidRequest, "tool detail JSON is invalid")
 	}
 	allocation := retainedDetailBytes(reflect.ValueOf(value)) + retainedDetailBytes(reflect.ValueOf(ref))

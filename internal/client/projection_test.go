@@ -2,6 +2,7 @@ package client
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -99,6 +100,30 @@ func TestProjectionOrder(t *testing.T) {
 		mustApply(t, projection, 1, projectionEvent(5, "notifications_dismissed", protocol.EventNotificationsDismissedPayload{IDs: []protocol.NotificationID{first.ID}}), Applied)
 		if got := projection.Snapshot().Notifications; len(got) != 1 || got[0].ID != second.ID {
 			t.Fatal("dismissed notice remained")
+		}
+	})
+	t.Run("undeclared_events_keep_the_sequence", func(t *testing.T) {
+		projection := NewProjection(protocol.NodeID{1}, 1)
+		mustApply(t, projection, 1, protocol.Update{Kind: "snapshot", Data: projectionSnapshot(0)}, Applied)
+		// What a newer Node of this protocol version sends, as the wire
+		// reader decodes it.
+		var update protocol.Update
+		data := `{"kind":"event","data":{"node":[1` + strings.Repeat(",0", 31) + `],"cursor":1,"event":{"kind":"future_changed","data":{"revision":3}}}}`
+		if err := protocol.DecodeAs(protocol.PeerData, []byte(data), &update); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		mustApply(t, projection, 1, update, Applied)
+		mustApply(t, projection, 1, projectionEvent(2, "power_settings_changed", protocol.EventPowerSettingsChangedPayload{Revision: 8}), Applied)
+		if state := projection.Snapshot(); state.Cursor != 2 || state.PowerSettingsRevision != 8 {
+			t.Fatalf("cursor %d after an undeclared event", state.Cursor)
+		}
+		if err := protocol.DecodeAs(protocol.PeerData, []byte(`{"kind":"future_update","data":{}}`), &update); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		mustApply(t, projection, 1, update, Ignored)
+		// An event this build declares and does not reduce is still a defect.
+		if _, err := projection.Apply(1, projectionEvent(3, "undeclared_here", nil)); err == nil {
+			t.Fatal("an event without a peer's content was applied")
 		}
 	})
 	t.Run("project_and_reserved_worktree_recovery", func(t *testing.T) {
