@@ -42,3 +42,24 @@ Deviation from Rust: Rust arms one `tokio::time::sleep` for the whole delay
 and has no recheck. The delay there is hidden by a wake of the runner on every
 admitted request and by a keep-awake that holds whenever its setting is on;
 neither holds for an idle Go Node, so the recheck replaces both.
+
+## Overlap
+
+A scheduled occurrence never overlaps the previous run of its own handler.
+While that handler still has a queued or running job, the occurrence is
+consumed and recorded as a job that never starts: status `cancelled`, fault
+code `busy`, `finished_ms` set and `started_ms` unset. An "every 5 minutes"
+task whose run takes 20 therefore runs once and records three skipped
+occurrences. Run now (`enqueue`) and published events are not schedule
+occurrences and always start. A skipped occurrence raises no notice; it shows
+in the package's job history.
+
+A handler's `queue` is a label for its package's own grouping. It is stored
+with each job and orders nothing: handlers never wait for each other. The
+official packages put every task in one queue (`default`, `reminders`), so a
+serial queue would let one run that waits for approval hold back every other
+task. The overlap rule is per handler instead. Removing the field needs a
+contract and SDK change and is not done here.
+
+Deviation from Rust: Rust starts every occurrence and has no overlap rule;
+its `queue` is the same unused label.

@@ -105,9 +105,18 @@ func TestDispatchContracts(test *testing.T) {
 			if err := putDispatchSchedule(ctx, db, fixture.reference.Name, item); err != nil {
 				return err
 			}
+			// Another handler fills the queue: the schedule's own handler is
+			// idle, so its occurrence waits for capacity instead of being skipped.
+			filler := fixture.handler
+			filler.Name, filler.Revision = "filler", 0
+			filler.Source.Topic = "filler"
+			filler, err = saveDispatchHandler(ctx, db, fixture.reference, filler)
+			if err != nil {
+				return err
+			}
 			var firstJob protocol.JobID
 			for index := 0; index < dispatchMaxPending; index++ {
-				job, err := enqueueDispatch(ctx, db, &fixture.reference, fixture.handler, fixture.event(), 100)
+				job, err := enqueueDispatch(ctx, db, &fixture.reference, filler, fixture.event(), 100)
 				if err != nil {
 					return err
 				}
@@ -243,6 +252,102 @@ func TestDispatchContracts(test *testing.T) {
 			stored, err := dispatchRequired[protocol.DispatchSchedule](ctx, db, "dispatch_schedules", fixture.reference.Name, "id", item.ID.String())
 			if err == nil && (stored.NextMs == nil || *stored.NextMs != 6000) {
 				return errors.New("interval cursor drifted from its anchor")
+			}
+			return err
+		})
+	})
+	test.Run("scheduled_occurrence_is_skipped_while_its_handler_runs", func(test *testing.T) {
+		fixture := newDispatchFixture(test, "every")
+		fixture.write(test, func(ctx context.Context, db *sql.Conn) error {
+			item := protocol.DispatchSchedule{ID: protocol.NewScheduleID(), Enabled: true, Topic: "every", Payload: json.RawMessage("null"),
+				Timing: protocol.DispatchTiming{Kind: "every", Data: protocol.DispatchTimingEveryPayload{AnchorMs: 1000, IntervalMs: 1000}}}
+			if _, err := saveDispatchSchedule(ctx, db, fixture.reference.Name, item, 0); err != nil {
+				return err
+			}
+			// A second handler shares the first one's queue name: the queue is a
+			// label and never makes one handler wait for another.
+			neighbour := fixture.handler
+			neighbour.Name, neighbour.Revision = "neighbour", 0
+			neighbour.Source.Topic = "neighbour"
+			neighbour, err := saveDispatchHandler(ctx, db, fixture.reference, neighbour)
+			if err != nil {
+				return err
+			}
+			jobs := func() ([]protocol.DispatchJob, error) {
+				page, err := listDispatchJobs(ctx, db, fixture.reference.Name, nil, 100)
+				return page.Jobs, err
+			}
+			skipped := func(job protocol.DispatchJob, scheduled int64) bool {
+				return job.Status == protocol.DispatchStatusCancelled && job.Error != nil && job.Error.Code == protocol.ErrorCodeBusy &&
+					job.FinishedMs != nil && job.StartedMs == nil && job.Event.ScheduledMs != nil && *job.Event.ScheduledMs == scheduled
+			}
+			// The first occurrence queues; the next one finds it still queued.
+			for _, observed := range []int64{1500, 2500} {
+				if _, err := dueDispatchSchedules(ctx, db, observed); err != nil {
+					return err
+				}
+			}
+			list, err := jobs()
+			if err != nil {
+				return err
+			}
+			if len(list) != 2 || !skipped(list[0], 2000) || list[1].Status != protocol.DispatchStatusQueued {
+				return fmt.Errorf("occurrence behind a queued run was not skipped: %+v", list)
+			}
+			running := list[1].ID
+			work, _, err := claimDispatchJobs(ctx, db, fixture.node, 2600)
+			if err != nil {
+				return err
+			}
+			if len(work) != 1 || work[0].Job != running {
+				return fmt.Errorf("a skipped occurrence was claimed: %+v", work)
+			}
+			if _, err := dueDispatchSchedules(ctx, db, 3500); err != nil {
+				return err
+			}
+			// Run now and another handler of the same queue are not schedule
+			// occurrences of this handler and still start.
+			manual, err := enqueueDispatch(ctx, db, &fixture.reference, fixture.handler, fixture.event(), 3600)
+			if err != nil {
+				return err
+			}
+			scheduled := fixture.event()
+			scheduled.Schedule, scheduled.ScheduledMs = &item.ID, &manual.CreatedMs
+			other, err := enqueueDispatch(ctx, db, &fixture.reference, neighbour, scheduled, 3600)
+			if err != nil {
+				return err
+			}
+			if manual.Status != protocol.DispatchStatusQueued || other.Status != protocol.DispatchStatusQueued {
+				return errors.New("the overlap rule skipped a run that is not this handler's schedule")
+			}
+			list, err = jobs()
+			if err != nil {
+				return err
+			}
+			if len(list) != 5 || !skipped(list[2], 3000) {
+				return fmt.Errorf("occurrence behind a running job was not skipped: %+v", list)
+			}
+			stored, err := dispatchRequired[protocol.DispatchSchedule](ctx, db, "dispatch_schedules", fixture.reference.Name, "id", item.ID.String())
+			if err != nil {
+				return err
+			}
+			if stored.NextMs == nil || *stored.NextMs != 4000 {
+				return errors.New("a skipped occurrence was not consumed")
+			}
+			for _, id := range []protocol.JobID{manual.ID, other.ID} {
+				if _, err := cancelDispatchJob(ctx, db, fixture.reference.Name, id, 3700); err != nil {
+					return err
+				}
+			}
+			if _, err := FinishDispatch(ctx, db, running, nil, 3800); err != nil {
+				return err
+			}
+			if _, err := dueDispatchSchedules(ctx, db, 4500); err != nil {
+				return err
+			}
+			list, err = jobs()
+			if err == nil && (len(list) != 6 || list[0].Status != protocol.DispatchStatusQueued || list[0].Event.ScheduledMs == nil || *list[0].Event.ScheduledMs != 4000) {
+				return fmt.Errorf("the occurrence after the run finished did not start: %+v", list)
 			}
 			return err
 		})
