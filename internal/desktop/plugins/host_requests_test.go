@@ -147,6 +147,40 @@ func testHostRequestFailures(t *testing.T) {
 	})
 }
 
+// testHostWebFetchCancellation covers a page fetch whose view closes: the
+// Node is told to stop that request, under the same plugin scope.
+func testHostWebFetchCancellation(t *testing.T) {
+	admitted := make(chan struct{})
+	owner, transport := newHostRequestFixture(t, func(request protocol.Request) (link.Admission, error) {
+		if request.Command.Kind == "cancel_web_fetch" {
+			input := request.Command.Data.(protocol.CommandCancelWebFetchPayload)
+			return hostRequestResponse(request, protocol.Output{Kind: "web_fetch_cancelled", Data: protocol.OutputWebFetchCancelledPayload{Request: input.Request}}), nil
+		}
+		// The page never arrives.
+		close(admitted)
+		return link.Admission{Receipt: protocol.Receipt{ID: request.ID}, Completion: make(chan link.Response)}, nil
+	})
+	ctx, cancel := context.WithCancel(t.Context())
+	finished := make(chan error, 1)
+	go func() {
+		_, err := owner.readData(ctx, "fetch_web", map[string]any{"url": "https://page.example.test/"})
+		finished <- err
+	}()
+	<-admitted
+	cancel()
+	if err := <-finished; err == nil {
+		t.Fatal("a fetch whose view closed returned a page")
+	}
+	requests := transport.snapshot()
+	if len(requests) != 2 || requests[0].Command.Kind != "fetch_web" || requests[1].Command.Kind != "cancel_web_fetch" {
+		t.Fatalf("requests sent: %+v", requests)
+	}
+	stopped := requests[1].Command.Data.(protocol.CommandCancelWebFetchPayload).Request
+	if stopped != requests[0].ID || requests[1].Plugin == nil || !reflect.DeepEqual(requests[1].Plugin, requests[0].Plugin) {
+		t.Fatalf("cancelled %v under %+v, fetch was %v under %+v", stopped, requests[1].Plugin, requests[0].ID, requests[0].Plugin)
+	}
+}
+
 func hostRequestReference() protocol.PluginReference {
 	return protocol.PluginReference{Name: "request-fixture", Digest: strings.Repeat("a", 64), SettingsRevision: 1}
 }

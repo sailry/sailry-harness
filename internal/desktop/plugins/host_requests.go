@@ -60,6 +60,12 @@ func (owner *Host) read(ctx context.Context, command protocol.Command) (json.Raw
 	scope := owner.scope()
 	request.Plugin = &scope
 	output, err := owner.binding.Client.Execute(ctx, request)
+	if err != nil && ctx.Err() != nil && command.Kind == "fetch_web" {
+		// The view closed on a page still loading: the Node stops fetching it.
+		cancellation := owner.binding.Client.Prepare(protocol.Command{Kind: "cancel_web_fetch", Data: protocol.CommandCancelWebFetchPayload{Request: request.ID}})
+		cancellation.Plugin = &scope
+		_, _ = owner.binding.Client.Execute(context.WithoutCancel(ctx), cancellation)
+	}
 	if err != nil {
 		failure := hostFault(err)
 		encoded, _ := json.Marshal(failure)
