@@ -409,6 +409,73 @@ func TestNativeGitIntegration(t *testing.T) {
 			t.Fatal("staging the resolved file left the conflict")
 		}
 	})
+	t.Run("a_path_below_a_file_of_head_is_not_held", func(t *testing.T) {
+		root, _, _ := fixture(t)
+		s := service(t)
+		// HEAD holds file.txt as a file; the worktree replaces it by a directory.
+		if err := os.Remove(filepath.Join(root, "file.txt")); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Mkdir(filepath.Join(root, "file.txt"), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, "file.txt", "inner"), []byte("new\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		update := func(operation protocol.GitIndexChange) {
+			t.Helper()
+			fresh, err := open(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			revision, err := indexRevision(root, fresh)
+			if err != nil {
+				t.Fatal(err)
+			}
+			current, err := head(fresh)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := s.UpdateIndex(ctx, root, protocol.CommandUpdateGitIndexPayload{Paths: []string{"file.txt/inner"}, Operation: operation, ExpectedIndex: revision, ExpectedHead: current.Head}); err != nil {
+				t.Fatal(operation, err)
+			}
+		}
+		staged := func() bool {
+			t.Helper()
+			fresh, err := open(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			idx, err := fresh.Storer.Index()
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = idx.Entry("file.txt/inner")
+			return err == nil
+		}
+		update(protocol.GitIndexChangeStage)
+		if !staged() {
+			t.Fatal("fixture did not stage the file below the replaced path")
+		}
+		fresh, err := open(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tree, err := headTree(fresh)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if held, err := heldByHead(tree, "file.txt/inner"); held || err != nil {
+			t.Fatalf("held = %v %v", held, err)
+		}
+		if before, err := treeContent(fresh, tree, "file.txt/inner", 1024); before.exists || err != nil {
+			t.Fatalf("HEAD content = %v %v", before.exists, err)
+		}
+		update(protocol.GitIndexChangeUnstage)
+		if staged() {
+			t.Fatal("unstaging left the entry")
+		}
+	})
 	t.Run("managed_snapshot_and_targeted_removal", func(t *testing.T) {
 		root, r, commit := fixture(t)
 		s := service(t)

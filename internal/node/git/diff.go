@@ -57,15 +57,9 @@ func blobContent(r *gogit.Repository, hash plumbing.Hash, mode filemode.FileMode
 	return content{data: data, hash: hash, mode: mode, exists: true}, nil
 }
 func treeContent(r *gogit.Repository, tree *object.Tree, path string, limit int) (content, error) {
-	if tree == nil {
-		return content{}, nil
-	}
-	entry, err := tree.FindEntry(path)
-	if errors.Is(err, object.ErrEntryNotFound) || errors.Is(err, object.ErrFileNotFound) || errors.Is(err, object.ErrDirectoryNotFound) {
-		return content{}, nil
-	}
-	if err != nil {
-		return content{}, mapError(err)
+	entry, err := headEntry(tree, path)
+	if entry == nil || err != nil {
+		return content{}, err
 	}
 	if entry.Mode == filemode.Dir {
 		return content{}, invalid("Git inspection requires a file")

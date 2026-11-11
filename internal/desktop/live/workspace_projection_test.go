@@ -48,6 +48,13 @@ func TestPanelProjection(t *testing.T) {
 		if local, collision := workspaceTrackingBranch(branches, "unknown/topic"); local != "" || collision {
 			t.Fatal("unrecognized remote was converted to local branch")
 		}
+		// Pull from names the same remote, not the text before the first slash.
+		if remote, branch, ok := workspaceRemoteBranch(branches.Sync.Remotes, "origin/team/topic"); remote != "origin/team" || branch != "topic" || !ok {
+			t.Fatalf("pull target = %q %q %v", remote, branch, ok)
+		}
+		if _, _, ok := workspaceRemoteBranch(branches.Sync.Remotes, "unknown/topic"); ok {
+			t.Fatal("unrecognized remote was accepted as a pull target")
+		}
 	})
 	t.Run("history projects actual page offset without mutating canonical head", func(t *testing.T) {
 		data := &viewmodel.Workspace{}

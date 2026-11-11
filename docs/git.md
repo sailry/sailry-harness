@@ -92,8 +92,11 @@ A pull is two native commands, `git fetch` and then `git pull`, so that the
 transfer does not hold the worktree's effect order
 ([Projects](projects.md)); the reference runs `git pull` alone under its
 Node-wide lock.
-Deleting a remote branch validates its remote name and requires a configured
-remote like every other remote action. A failed native command is reported busy
+A remote's name may hold a slash, so deleting a remote branch and Pull from
+split `remote/branch` at the longest configured remote that begins the name, as
+the reference does; a name no configured remote begins is refused as not
+configured. A path below what HEAD records as a file or a submodule is a path
+HEAD does not hold, for unstaging, discarding and the HEAD side of a diff. A failed native command is reported busy
 only for Git's own lock failure (`Unable to create '….lock': File exists`), so a
 conflict that names a file such as `Cargo.lock` stays a conflict.
 

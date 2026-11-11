@@ -147,10 +147,12 @@ func (p *workspaceProject) gitAction(c *ui.Context, a panel.GitAction) {
 	case "git_pull", "git_pull_rebase", "git_pull_from":
 		input := protocol.GitActionPullPayload{Rebase: a.Kind == "git_pull_rebase"}
 		if a.Target != "" {
-			remote, branch, ok := strings.Cut(a.Target, "/")
-			if ok {
-				input.Remote, input.Branch = &remote, &branch
+			remote, branch, ok := workspaceRemoteBranch(p.branches.Sync.Remotes, a.Target)
+			if !ok {
+				p.workspaceError(c, protocol.ErrorCodeNotConfigured, "remote branch has no configured remote")
+				return
 			}
+			input.Remote, input.Branch = &remote, &branch
 		}
 		run(protocol.GitAction{Kind: "pull", Data: input}, nil)
 	case "git_push", "git_force_push", "git_push_to":

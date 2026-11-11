@@ -207,17 +207,6 @@ func CLIArgs(action protocol.GitAction, branch, operation string, stashPosition 
 			return []string{"push", "--force-with-lease=" + ref + ":" + v.Commit, *v.Remote, ":" + ref}, name(*v.Remote)
 		}
 		return []string{"update-ref", "-d", ref, v.Commit}, nil
-	case "delete_remote_branch":
-		v := data[protocol.GitActionDeleteRemoteBranchPayload](action.Data)
-		remote, local, ok := strings.Cut(v.Branch, "/")
-		if !ok {
-			return nil, invalid("invalid remote branch")
-		}
-		if err := fullHash(v.Commit); err != nil {
-			return nil, err
-		}
-		ref := "refs/heads/" + local
-		return []string{"push", "--force-with-lease=" + ref + ":" + v.Commit, remote, ":" + ref}, name(remote)
 	case "push_tags":
 		v := data[protocol.GitActionPushTagsPayload](action.Data)
 		return []string{"push", "--tags", v.Remote}, name(v.Remote)
@@ -354,6 +343,20 @@ func (s *Service) Action(ctx context.Context, root string, input protocol.Comman
 				return invalid("discard requires files that HEAD holds")
 			}
 		}
+	case "delete_remote_branch":
+		v := data[protocol.GitActionDeleteRemoteBranchPayload](action.Data)
+		if err := name(v.Branch); err != nil {
+			return err
+		}
+		if err := fullHash(v.Commit); err != nil {
+			return err
+		}
+		remote, local, err := remoteBranch(r, v.Branch)
+		if err != nil {
+			return err
+		}
+		ref := "refs/heads/" + local
+		return transfer([]string{"push", "--force-with-lease=" + ref + ":" + v.Commit, remote, ":" + ref})
 	case "sync":
 		v := data[protocol.GitActionSyncPayload](action.Data)
 		flag := "--no-rebase"
@@ -475,6 +478,26 @@ func (s *Service) Action(ctx context.Context, root string, input protocol.Comman
 	}
 	return run(args)
 }
+
+// remoteBranch splits a remote-tracking branch into its remote and the branch
+// there. A remote's name may hold a slash, so the longest configured remote
+// that begins the name is the one meant.
+func remoteBranch(r *gogit.Repository, branch string) (string, string, error) {
+	config, err := r.Config()
+	if err != nil {
+		return "", "", mapError(err)
+	}
+	remote := ""
+	for name := range config.Remotes {
+		if strings.HasPrefix(branch, name+"/") && len(name) > len(remote) {
+			remote = name
+		}
+	}
+	if remote == "" {
+		return "", "", fault(protocol.ErrorCodeNotConfigured, "Git remote is not configured")
+	}
+	return remote, branch[len(remote)+1:], nil
+}
 func valueOr(value *string) string {
 	if value == nil {
 		return ""
@@ -512,10 +535,6 @@ func actionRemotes(action protocol.GitAction) []string {
 		return []string{data[protocol.GitActionRemoveRemotePayload](action.Data).Name}
 	case "delete_tag":
 		value = data[protocol.GitActionDeleteTagPayload](action.Data).Remote
-	case "delete_remote_branch":
-		if remote, _, ok := strings.Cut(data[protocol.GitActionDeleteRemoteBranchPayload](action.Data).Branch, "/"); ok {
-			return []string{remote}
-		}
 	}
 	if value != nil {
 		return []string{*value}

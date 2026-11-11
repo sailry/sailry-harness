@@ -270,14 +270,14 @@ func setIndexReference(idx *idxfmt.Index, tree *object.Tree, path string) error 
 		dropIndexEntries(idx, path, false)
 		return nil
 	}
-	entry, err := tree.FindEntry(path)
+	entry, err := headEntry(tree, path)
+	if err != nil {
+		return err
+	}
 	// A directory in HEAD is not a file to restore; its files are unstaged by their own paths.
-	if errors.Is(err, object.ErrEntryNotFound) || errors.Is(err, object.ErrFileNotFound) || errors.Is(err, object.ErrDirectoryNotFound) || err == nil && entry.Mode == filemode.Dir {
+	if entry == nil || entry.Mode == filemode.Dir {
 		dropIndexEntries(idx, path, false)
 		return nil
-	}
-	if err != nil {
-		return mapError(err)
 	}
 	dropIndexEntries(idx, path, true)
 	idx.Entries = append(idx.Entries, &idxfmt.Entry{Name: path, Hash: entry.Hash, Mode: entry.Mode})

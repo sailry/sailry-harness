@@ -12,6 +12,7 @@ import (
 	"time"
 
 	gogit "github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -477,6 +478,42 @@ func TestGitMutationMapping(t *testing.T) {
 			t.Fatalf("failed pull ran %q", log)
 		}
 	})
+	t.Run("remote_branch_deletion_names_the_longest_configured_remote", func(t *testing.T) {
+		root, r, commit := fixture(t)
+		for _, remote := range []string{"origin", "origin/team"} {
+			if _, err := r.CreateRemote(&config.RemoteConfig{Name: remote, URLs: []string{"https://example.invalid/" + remote + ".git"}}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		var log []string
+		s := New(Options{Run: func(_ context.Context, _ string, args []string, _ []byte) (CommandResult, error) {
+			log = append(log, strings.Join(args, " "))
+			return CommandResult{}, nil
+		}})
+		index, err := indexRevision(root, r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		remove := func(branch string) error {
+			return s.Action(ctx, root, protocol.CommandRunGitActionPayload{Action: protocol.GitAction{Kind: "delete_remote_branch", Data: protocol.GitActionDeleteRemoteBranchPayload{Branch: branch, Commit: commit}}, ExpectedIndex: index, ExpectedHead: &commit, ExpectedBranch: ptr("main")})
+		}
+		for branch, want := range map[string]string{
+			"origin/topic":      "push --progress --force-with-lease=refs/heads/topic:" + commit + " origin :refs/heads/topic",
+			"origin/team/topic": "push --progress --force-with-lease=refs/heads/topic:" + commit + " origin/team :refs/heads/topic",
+		} {
+			log = nil
+			if err := remove(branch); err != nil || !reflect.DeepEqual(log, []string{want}) {
+				t.Fatalf("%s = %q %v, want %q", branch, log, err, want)
+			}
+		}
+		log = nil
+		requireFault(t, remove("upstream/topic"), protocol.ErrorCodeNotConfigured)
+		for _, branch := range []string{"--receive-pack=tool/topic", "/topic"} {
+			if err := remove(branch); err == nil || len(log) != 0 {
+				t.Fatalf("%q ran %q %v", branch, log, err)
+			}
+		}
+	})
 	t.Run("discard_refuses_paths_head_does_not_hold", func(t *testing.T) {
 		root, r, commit := fixture(t)
 		for name, body := range map[string]string{"staged.txt": "only copy\n", "untracked.txt": "draft\n", "file.txt": "edited\n"} {
@@ -547,7 +584,6 @@ func TestCLIArgs(t *testing.T) {
 		{"discard_literal", protocol.GitAction{Kind: "discard", Data: protocol.GitActionDiscardPayload{Paths: []string{"space name.txt", "[literal].txt"}}}, []string{"restore", "--source=HEAD", "--staged", "--worktree", "--", ":(literal)space name.txt", ":(literal)[literal].txt"}},
 		{"continue", protocol.GitAction{Kind: "continue"}, []string{"rebase", "--continue"}},
 		{"remote", protocol.GitAction{Kind: "add_remote", Data: protocol.GitActionAddRemotePayload{Name: "origin", Url: "ssh://git@example.test/repo"}}, []string{"remote", "add", "--", "origin", "ssh://git@example.test/repo"}},
-		{"delete_remote_branch", protocol.GitAction{Kind: "delete_remote_branch", Data: protocol.GitActionDeleteRemoteBranchPayload{Branch: "origin/team/topic", Commit: strings.Repeat("a", 40)}}, []string{"push", "--force-with-lease=refs/heads/team/topic:" + strings.Repeat("a", 40), "origin", ":refs/heads/team/topic"}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -563,15 +599,6 @@ func TestCLIArgs(t *testing.T) {
 	}
 	if got := redact("https://user:password@example.test/repo?token=hidden password=secret"); strings.Contains(got, "password@") || strings.Contains(got, "hidden") || strings.Contains(got, "secret") {
 		t.Fatal(got)
-	}
-	for _, branch := range []string{"--receive-pack=tool/topic", "/topic"} {
-		action := protocol.GitAction{Kind: "delete_remote_branch", Data: protocol.GitActionDeleteRemoteBranchPayload{Branch: branch, Commit: strings.Repeat("a", 40)}}
-		_, err := CLIArgs(action, "main", "", 0)
-		requireFault(t, err, protocol.ErrorCodeInvalidRequest)
-	}
-	remote := protocol.GitAction{Kind: "delete_remote_branch", Data: protocol.GitActionDeleteRemoteBranchPayload{Branch: "origin/topic"}}
-	if got := actionRemotes(remote); !reflect.DeepEqual(got, []string{"origin"}) {
-		t.Fatal("remote branch deletion does not require its remote", got)
 	}
 	for stderr, code := range map[string]protocol.ErrorCode{
 		"error: Your local changes to the following files would be overwritten by checkout:\n\tCargo.lock\n": protocol.ErrorCodeConflict,
