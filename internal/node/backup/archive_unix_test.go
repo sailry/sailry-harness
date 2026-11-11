@@ -11,6 +11,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
@@ -54,33 +55,66 @@ func TestBackupAwkwardContent(t *testing.T) {
 		}
 		skipped = append(skipped, Skipped{Path: "artifacts/session/item/secret", Reason: skipUnreadable})
 	}
-	// A file under constant writes never reads the same twice.
-	growing, err := os.OpenFile(filepath.Join(item, "growing"), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := growing.Write(make([]byte, 8*1024*1024)); err != nil {
-		t.Fatal(err)
-	}
-	stop, stopped := make(chan struct{}), make(chan struct{})
-	go func() {
-		defer close(stopped)
-		for {
-			select {
-			case <-stop:
-				return
-			default:
-				_, _ = growing.Write([]byte{1})
-			}
+	// Three files are written while the snapshot copies them, each exactly
+	// between its copy and the copy's verification, at every attempt: one
+	// grows, one is rewritten in place a second later, and one is rewritten
+	// in place leaving its size and modification time as they were.
+	growing, later, same := filepath.Join(item, "growing"), filepath.Join(item, "later"), filepath.Join(item, "same")
+	for _, path := range []string{growing, later, same} {
+		if err := os.WriteFile(path, bytes.Repeat([]byte{0}, 300*1024), 0o600); err != nil {
+			t.Fatal(err)
 		}
-	}()
-	defer func() {
-		close(stop)
-		<-stopped
-		_ = growing.Close()
-	}()
+	}
+	// An old file is trusted by its timestamps, a recent one is read twice.
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(later, old, old); err != nil {
+		t.Fatal(err)
+	}
+	skipped = append(skipped,
+		Skipped{Path: "artifacts/session/item/later", Reason: skipChanged},
+		Skipped{Path: "artifacts/session/item/same", Reason: skipChanged})
+	copies := map[string]int{}
+	rewrite := func(path string, flag int, keep bool) {
+		t.Helper()
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		file, err := os.OpenFile(path, os.O_WRONLY|flag, 0o600)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = file.Write([]byte{byte(copies[path])})
+		if closeErr := file.Close(); err != nil || closeErr != nil {
+			t.Fatal(err, closeErr)
+		}
+		stamp := info.ModTime()
+		if !keep {
+			stamp = stamp.Add(time.Second)
+		}
+		if err := os.Chtimes(path, stamp, stamp); err != nil {
+			t.Fatal(err)
+		}
+	}
+	copied := func(relative string) {
+		path := filepath.Join(profile, filepath.FromSlash(relative))
+		copies[path]++
+		switch path {
+		case growing:
+			rewrite(path, os.O_APPEND, true)
+		case later:
+			rewrite(path, 0, false)
+		case same:
+			rewrite(path, 0, true)
+		}
+	}
 
-	snapshot := fixtureSnapshot(t, profile, files, append([]string{"attachments/gone"}, fixtureRoots...))
+	snapshot := fixtureSnapshotCopied(t, profile, files, append([]string{"attachments/gone"}, fixtureRoots...), copied)
+	for _, path := range []string{growing, later, same} {
+		if copies[path] != readAttempts {
+			t.Fatalf("%s was copied %d times, want %d", filepath.Base(path), copies[path], readAttempts)
+		}
+	}
 	manifest := snapshot.Manifest
 	slices.SortFunc(manifest.Skipped, func(left, right Skipped) int { return strings.Compare(left.Path, right.Path) })
 	slices.SortFunc(skipped, func(left, right Skipped) int { return strings.Compare(left.Path, right.Path) })
@@ -98,8 +132,10 @@ func TestBackupAwkwardContent(t *testing.T) {
 	if len(manifest.Files) != len(files) {
 		t.Fatalf("files = %d, want the %d ordinary files", len(manifest.Files), len(files))
 	}
-	if _, err := os.Lstat(filepath.Join(snapshot.Directory, "artifacts", "session", "item", "growing")); !os.IsNotExist(err) {
-		t.Fatalf("a skipped file stayed in the snapshot: %v", err)
+	for _, name := range []string{"growing", "later", "same"} {
+		if _, err := os.Lstat(filepath.Join(snapshot.Directory, "artifacts", "session", "item", name)); !os.IsNotExist(err) {
+			t.Fatalf("skipped %s stayed in the snapshot: %v", name, err)
+		}
 	}
 
 	t.Run("the identity is never skipped", func(t *testing.T) {

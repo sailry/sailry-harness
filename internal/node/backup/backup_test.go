@@ -69,10 +69,18 @@ func fixtureProfile(t *testing.T) (string, map[string][]byte) {
 // fixtureSnapshot captures the listed roots after both database copies.
 func fixtureSnapshot(t *testing.T, profile string, files map[string][]byte, roots []string) *Snapshot {
 	t.Helper()
+	return fixtureSnapshotCopied(t, profile, files, roots, nil)
+}
+
+// fixtureSnapshotCopied is fixtureSnapshot with a function the snapshot calls
+// after it copied a file and before it verifies the copy.
+func fixtureSnapshotCopied(t *testing.T, profile string, files map[string][]byte, roots []string, copied func(relative string)) *Snapshot {
+	t.Helper()
 	snapshot, err := NewSnapshot(profile, protocol.NodeID{1, 2, 3})
 	if err != nil {
 		t.Fatal(err)
 	}
+	snapshot.copied = copied
 	t.Cleanup(func() { _ = snapshot.Close() })
 	for _, name := range databaseNames {
 		write := func(_ context.Context, target string) error {

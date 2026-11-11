@@ -17,6 +17,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"filippo.io/age"
@@ -66,6 +67,10 @@ const (
 	// readAttempts is how often a file that changes under the copy is read
 	// before it is left out.
 	readAttempts = 3
+	// unsettled is how recent a file's modification time may be for a later
+	// write to leave it unchanged: the coarsest timestamp of a filesystem
+	// Sailry runs on (FAT keeps two seconds). Such a file is read twice.
+	unsettled = 2 * time.Second
 	// maxSkipped bounds the names a manifest lists; SkippedTotal counts all.
 	maxSkipped = 1000
 	maxNesting = 64
@@ -88,6 +93,9 @@ type Snapshot struct {
 	Manifest  Manifest
 	size      uint64
 	paths     map[string]bool
+	// copied is called in tests after a file was copied and before the copy
+	// is verified, with the file's path in the snapshot.
+	copied func(relative string)
 }
 
 func NewSnapshot(profile string, node protocol.NodeID) (*Snapshot, error) {
@@ -381,18 +389,34 @@ func (snapshot *Snapshot) stage(ctx context.Context, source *os.Root, name, rela
 	}
 	// The staged copy is read back into the archive and removed; only the
 	// archive is flushed to disk.
+	started := time.Now()
 	size, sum, err := copyHash(ctx, input, output, uint64(before.Size()))
 	if closeErr := output.Close(); err == nil {
 		err = wrapIO(closeErr)
 	}
-	if err == nil {
+	if err == nil && snapshot.copied != nil {
+		snapshot.copied(relative)
+	}
+	// A write during the copy changes the size or the modification time,
+	// unless the time was already this recent: a timestamp no finer than
+	// unsettled cannot tell that write from the one before the copy. Reading
+	// such a file again tells them apart by content.
+	if err == nil && !before.ModTime().Before(started.Add(-unsettled)) {
+		var again string
+		if _, seekErr := input.Seek(0, io.SeekStart); seekErr != nil {
+			err = &sourceError{cause: ioFault(seekErr)}
+		} else if _, again, err = copyHash(ctx, input, io.Discard, size); err == nil && again != sum {
+			reason = skipChanged
+		}
+	}
+	if err == nil && reason == "" {
 		after, statErr := input.Stat()
 		if statErr != nil {
 			reason = skipUnreadable
 		} else if before.Size() != after.Size() || !before.ModTime().Equal(after.ModTime()) {
 			reason = skipChanged
 		}
-	} else {
+	} else if err != nil {
 		var unreadable *sourceError
 		switch {
 		case code(err) == protocol.ErrorCodeCancelled:
