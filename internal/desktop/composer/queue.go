@@ -45,10 +45,15 @@ var queueMotion = ui.ElementTransition{
 	Exit:     &ui.Motion{Collapse: true, Opacity: 0},
 }
 
-// queueLabel is a row's text: a notice's title, the compaction's, the
-// preview, or the names of its files.
+// queueLabel is a row's text: a continuation's marker, a notice's title,
+// the compaction's, the preview, or the names of its files.
 func queueLabel(c *ui.Context, q Queued) string {
 	switch {
+	case q.Marker != nil:
+		if label := q.Marker.in(c); label != "" {
+			return label
+		}
+		return i18n.T(c, "turn_continued")
 	case q.Notice:
 		return i18n.T(c, "background_notice_title")
 	case q.Compaction:

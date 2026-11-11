@@ -199,6 +199,9 @@ type Queued struct {
 	// Notice is a background notice, Compaction a compaction request:
 	// neither is edited, sent ahead or dragged.
 	Notice, Compaction bool
+	// Marker names a turn a package continues by itself: an automatic row
+	// as a notice is, with the package's label for its text.
+	Marker *Text
 	// Guided is guidance pending (Pending.guidance): the running turn
 	// takes it at its next model boundary unless it is withdrawn.
 	Guided bool
