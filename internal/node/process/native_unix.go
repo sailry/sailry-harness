@@ -27,7 +27,7 @@ func launchNative(launch Launch, environment Environment, captureManaged func(st
 			return nil, err
 		}
 		device = slave.Name()
-		if err := pty.Setsize(master, &pty.Winsize{Rows: 24, Cols: 80}); err != nil {
+		if err := pty.Setsize(master, &pty.Winsize{Rows: ptyRows, Cols: ptyColumns}); err != nil {
 			master.Close()
 			slave.Close()
 			return nil, err
@@ -110,7 +110,7 @@ func launchNative(launch Launch, environment Environment, captureManaged func(st
 	}
 	var killOnce sync.Once
 	var killError error
-	return &nativeProcess{stdout: stdout, stderr: stderr, stdin: stdin, close: closeAll,
+	return &nativeProcess{stdout: stdout, stderr: stderr, stdin: stdin, close: closeAll, group: id,
 		kill:      func() error { killOnce.Do(func() { killError = signal(syscall.SIGKILL) }); return killError },
 		terminate: func() error { return signal(syscall.SIGTERM) },
 		settled:   func() bool { return errors.Is(syscall.Kill(-id, 0), syscall.ESRCH) || nativeGroupSettled(id) },

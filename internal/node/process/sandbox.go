@@ -45,6 +45,9 @@ func prepareCommand(launch Launch, environment Environment, directory, device st
 		}
 	}
 	values["PWD"] = directory
+	if launch.Pty {
+		values["TERM"] = ptyTerm
+	}
 	program, args := environment.Shell(), []string{"-c", launch.Command}
 	cleanup := func() {}
 	if launch.Access == protocol.ProcessAccessWorkspace {
