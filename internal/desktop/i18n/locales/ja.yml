@@ -446,6 +446,17 @@ browser_forward: 進む
 browser_reload: 再読み込み
 browser_address: アドレスを検索または入力
 browser_new_tab: 新しいタブ
+browser_empty: ブラウジングを開始
+browser_stop: 中止
+browser_invalid_address: 無効なアドレス
+browser_unavailable: ブラウザを起動できませんでした
+browser_load_failed: ページを読み込めませんでした
+browser_annotate: 要素を選択
+browser_cancel_selection: 選択をキャンセル
+browser_inspect: ウェブインスペクタ
+browser_annotation_stale: ページまたは会話が変更されました
+browser_annotation_invalid: 選択した要素を読み取れませんでした
+browser_annotation_unavailable: 選択した要素を撮影できませんでした
 content_document: 文書
 content_source: ソース
 resource_project_empty: プロジェクトを選択

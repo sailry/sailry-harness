@@ -446,6 +446,17 @@ browser_forward: Vorwärts
 browser_reload: Neu laden
 browser_address: Suchen oder Adresse eingeben
 browser_new_tab: Neue Registerkarte
+browser_empty: Starten Sie das Browsen
+browser_stop: Stopp
+browser_invalid_address: Ungültige Adresse
+browser_unavailable: Browser konnte nicht gestartet werden
+browser_load_failed: Die Seite konnte nicht gefunden werden
+browser_annotate: Element auswählen
+browser_cancel_selection: Auswahl abbrechen
+browser_inspect: Webinspektor
+browser_annotation_stale: Die Seite oder Unterhaltung wurde geändert
+browser_annotation_invalid: Das ausgewählte Element konnte nicht gelesen werden
+browser_annotation_unavailable: Das ausgewählte Element konnte nicht erfasst werden
 content_document: Dokument
 content_source: Quelle
 resource_project_empty: Projekt auswählen »

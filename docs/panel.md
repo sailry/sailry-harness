@@ -230,7 +230,7 @@ terminal, subagent and file-preview tabs are single-pane.
   `panel_history_empty`, Documents `panel_documents_empty` (a spinner while
   the session's are read, `Actions.Loading`), Files and Git without a
   project `resource_project_empty`, Files without a file `file_empty`, a
-  browser tab before its first address `browser_address`, a preview or a
+  browser tab before its first address `browser_empty`, a preview or a
   subagent that is gone `artifact_preview_failed` and
   `chat_child_unavailable`. Documents opened without a document is one tab
   that takes the first document once the session has one.
@@ -274,10 +274,12 @@ terminal, subagent and file-preview tabs are single-pane.
   `preview_notice`.
 - Browser (`browser/view.rs`, `browser/shortcuts.rs`), per tab: Back and
   Forward through the tab's history (disabled at its ends), Reload
-  (disabled before a first address), the address (`browser_address`; Enter
-  goes, `https://` is added when no scheme is given) and New tab with its
-  ⌘T hint, over `resource_browser_preview` under the address shown. ⌘T
-  (another tab) and ⌘R (reload) work while the focus is in the tab.
+  (disabled before a first address) and the address (`browser_address`; Enter
+  goes, `https://` is added when no scheme is given), over
+  `resource_browser_preview` under the address shown. ⌘T (another tab) and
+  ⌘R (reload) work while the focus is in the tab. The strip's "+" is the one
+  button that opens a tab; the toolbar has none. The live tab's chrome is
+  under [Live browser and documents](#live-browser-and-documents).
 - Terminal (`workspace/terminal.rs`, `terminal/search.rs`), per tab: the
   folder it starts in (the selected project's path, muted), Find, Close
   (`workspace_close_terminal`) and New terminal, over
@@ -293,7 +295,7 @@ terminal, subagent and file-preview tabs are single-pane.
 |---|---|
 | Open, choose and close tabs | `State`. A tab's close button, in the header band, and ⌘W both close it; the focus goes to the panel (`State.Focus`), where ⌘W closes the next tab. MyGo runs `OnClick` after the build, so the close acts in its callback |
 | Choose a file or a change | Opens or focuses its tab, in the panel and the page alike |
-| New tab, New terminal | Another browser or terminal tab |
+| New terminal, the strip's "+" and ⌘T | Another terminal or browser tab |
 | Back, Forward | The tab's history |
 | Close (terminal) | Closes the tab |
 | Find (terminal) | The find bar, nothing to match |
@@ -367,13 +369,63 @@ settings and split-terminal acceptance remain B10.
 A live Browser tab is a pinned MyGo `WebView` under the accepted chrome
 (`panel/browser_live.go`, `live/browser.go`). Back and Forward follow the
 page's history, Reload and ⌘R reload it and stay disabled before a first
-address, Enter loads the address with `https://` added when it names no scheme,
-and New tab and ⌘T open another tab. The page is untrusted: it has no host
-function, opens no window and stays on HTTP(S) addresses without embedded
-credentials. A workspace plugin that declares a browser resource still creates
-it; the core tab is the fallback. The WebView is created before the next frame
-builds and is destroyed with its tab. Where the system has no WebView the tab
-shows the `unavailable` result.
+address, and ⌘T and the strip's "+" open another tab, whose address field
+takes the keyboard. The page is untrusted: it has no host function, opens no
+window and stays on HTTP(S) addresses without embedded credentials. A
+workspace plugin that declares a browser resource still creates it; the core
+tab is the fallback. The WebView is created before the next frame builds and
+is destroyed with its tab. Where the system has no WebView the tab shows
+`browser_unavailable`.
+
+The toolbar, left to right, as the reference's `plugins/browser` view draws it:
+
+| Control | Behavior |
+| --- | --- |
+| Back, Forward | The page's history; disabled at its ends |
+| Reload / Stop | Reload (`browser_reload`, ⌘R); while the page loads the same button is Stop (`browser_stop`, the close icon), which stops the load and keeps what the page has |
+| Address | Enter goes to `panel.BrowserDestination`: text with `://` as typed, a host as `https://` (`http://` for `localhost`, `127.` and `[::1]`), anything else as a web search; nothing, `javascript:`, `file:` and `data:` toast `browser_invalid_address`. The field follows the page's address except while it has the focus |
+| Select element | `browser_annotate`, ⌘⇧C; `browser_cancel_selection` while selecting. Enabled on a loaded HTTP(S) page only |
+| More actions | A Kit menu: Web inspector (`browser_inspect`, ⌘⇧I, `Page.ToggleDevTools`) and Settings (the browser package's settings section) |
+
+Page state (`panel.BrowserPage`, written by the WebView's events in
+`live/browser.go`): `Loading` from `LoadURL`, Reload, Back, Forward or the
+page's own navigation until the load finishes, fails or is stopped; an
+indeterminate 2 DIP bar shows under the toolbar and a spinner stands for the
+tab's icon in the strip. MyGo reports no load fraction, so the bar is not a
+percentage. `Title` names the tab once the page has one. `Error` replaces the
+page with a `kit.Result` (`browser_load_failed`, or `browser_unavailable` when
+the WebView cannot be made) over the address with a Reload button: a failed
+page is never a blank body, and it is not repeated in a toast. A cancelled
+navigation (WebKit's -999) is not a failure. A load that ends without an event,
+as a step inside one document, is reconciled with `Page.IsLoading`.
+
+The WebView's own user agent gets the suffix `Safari/605.1.15 Sailry/<version>`.
+In native UI MyGo otherwise sends WebKit's bare agent, which sites such as
+Baidu answer with a blank page that ends "loaded" without a title or an
+error: the white body reported for `https://www.baidu.com/`.
+
+`browserSurface` places the page with `ui.WebView` as the rest of the tab's
+column under the toolbar. MyGo moves the native view to that element's box on
+every frame, so the page follows the panel's handle, the window, the panel's
+slide and the display's scale; nothing in the adapter keeps a size. The
+panel's resize handle lies over the first DIPs of the page's left edge and
+keeps the pointer there.
+
+Element selection (`live/browser_pick.go`, `live/browser_pick.js`, ported from
+the reference's `annotation` module): hover highlights, a click picks,
+Shift-click marks up to eight, Alt-click picks and ends the selection, the
+arrows walk the tree, Enter picks and Escape cancels; the selection stays on until it is cancelled, the page
+navigates, the tab closes or 120 seconds pass without a pick. The untrusted
+page cannot call the app, so the script queues its messages and the adapter
+reads each as the answer of an evaluation awaiting the next one. Every field
+of a picked element is bounded and checked against the reference's limits
+before use; the viewport capture is cropped to the element plus 8 CSS pixels
+as a JPEG, and the page context is the reference's `browser_element` JSON,
+marked as untrusted data and reduced to 16 KiB. Both go to the composer of the
+tab's conversation as `browser-element-N.jpg` and `browser-element-N.json`
+through `composer.State.Attach`, together or, over the attachment limit, not
+at all. A pick for a conversation no longer on screen toasts
+`browser_annotation_stale`.
 
 Browser tabs share one website data store (`live/browser_settings.go`). On
 macOS with `browser_persistent` on, the default, it is the MyGo session named
@@ -411,7 +463,14 @@ exists. The view is destroyed once a frame no longer places it.
 
 `go run -tags integration ./internal/desktop/live/browserprobe` checks page
 loading, the automation script, capture and the document sandbox on the
-current platform against a page it serves itself.
+current platform against pages it serves itself, then a browser tab of the
+real App: its history, the agent's calls, a slow page loading under Stop until
+it finishes or is stopped, a wide page whose `innerWidth` is the body's width
+through two resizes of the panel, an element picked in the page reaching the
+composer, and a refused connection ending in the failed state. Its windows
+must be visible: an occluded window draws no frame, and a navigation waits for
+the next one. It ends by loading `https://www.baidu.com/` and printing how
+that ended, as evidence when the network is there.
 
 ## Live file editing
 
@@ -505,6 +564,20 @@ and "+" list History and Documents only with a session, and each body shows
 its content or its empty state. `SAILRY_SNAPSHOTS` names a folder for the
 launcher and empty-state frames.
 
+`internal/desktop/live/browser_chrome_test.go`, a step of `TestPanelProjection`
+against a real Node in Chinese and dark, with a typed-nil WebView placed by
+`browserSurface`: the address policy, a new tab's empty state and focused
+address, the loading state (bar, Stop, no selection), Stop and Reload, the
+loaded state (the page's title in the strip), the page's frame equal to the
+tab's body after panel resizes, window resizes, display scales and on the
+frames of the panel's slide, the menu's items and their actions, a picked
+element's validation, crop and context, its two attachments in the composer,
+a stale pick's toast, and the failed state with its Reload. `SAILRY_SNAPSHOTS`
+takes `browser-empty`, `browser-loading`, `browser-loaded`, `browser-menu` and
+`browser-failed`; a native page never shows in a headless frame.
+`TestLiveBrowserTabIntegration` drives the same chrome states and the menu in
+English beside the Node's browser calls.
+
 `internal/desktop/panel/model_test.go`: the live launcher's kinds per state, the
 Documents tab without a document, the first change opening no diff, each empty
 state and the loading spinner; tabs open once, closing picks the next,
@@ -553,6 +626,11 @@ at its width.
 | The terminal's find field reads MyGo's "Find", not `terminal_search_placeholder` | MyGo's `FindBar` does not expose its field; the toolbar's Find action carries the key |
 | The in-memory browser store empties when its last tab closes | MyGo's ephemeral session ends with its last page; the reference keeps it until the app quits |
 | The browser's chrome is core | In the reference the browser plugin draws it; the preview has no plugin UI host |
+| The browser toolbar has a More actions menu and no Open or Settings button | The reference has a Go arrow and a gear and reaches the web inspector by ⌘⇧I only; Enter goes, and the menu holds the inspector and the settings |
+| Loading shows a bar under the toolbar | The reference shows only the tab's spinner; the bar is indeterminate because pinned MyGo reports no load fraction |
+| A failed page shows its error in the body, without a toast | The reference toasts `browser_load_failed` over the page WebKit leaves; an outcome is not shown twice |
+| A picked element is two attachments, without an inline chip or a note | The composer has no reference kind for an element with a hover card; Alt-click, the reference's annotated pick, picks and ends the selection |
+| A browser tab has no favicon | Pinned MyGo reports no favicon; the reference shows the globe as well |
 | Controller-native folder opening is unavailable for remote workspaces | A remote path grants no controller filesystem authority and there is no supported remote folder-open effect |
 
 ## Native workspace activity

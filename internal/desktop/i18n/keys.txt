@@ -461,6 +461,17 @@ browser_forward
 browser_reload
 browser_address
 browser_new_tab
+browser_empty
+browser_stop
+browser_invalid_address
+browser_unavailable
+browser_load_failed
+browser_annotate
+browser_cancel_selection
+browser_inspect
+browser_annotation_stale
+browser_annotation_invalid
+browser_annotation_unavailable
 content_document
 content_source
 resource_project_empty

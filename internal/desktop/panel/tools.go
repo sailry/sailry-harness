@@ -16,6 +16,8 @@ type page struct {
 	address string
 	history []string
 	at      int // the index in history shown, -1 for none
+	// field is the live tab's address field, for its focus.
+	field ui.Handle
 }
 
 // Go visits an address: the history after the one shown is dropped, as a
@@ -54,9 +56,9 @@ func (s *State) pageOf(id string) *page {
 }
 
 // browser is a browser tab: its toolbar, Back and Forward through the tab's
-// history, Reload, the address, which goes on Enter, and New tab, over the
-// page's placeholder. ⌘T opens another tab and ⌘R reloads while the focus is
-// in it. The preview loads nothing: going and reloading toast so.
+// history, Reload and the address, which goes on Enter, over the page's
+// placeholder. ⌘T opens another tab and ⌘R reloads while the focus is in it;
+// the panel's "+" is the one button that opens a tab. The preview loads nothing: going and reloading toast so.
 func (s *State) browser(c *ui.Context, t Tab) {
 	if s.Live && s.BrowserActions != nil {
 		s.liveBrowser(c, t)
@@ -83,8 +85,6 @@ func (s *State) browser(c *ui.Context, t Tab) {
 						notice(c)
 					}
 				})
-			kit.IconButtonHint(c.Key("new"), icons.Plus, i18n.T(c, "browser_new_tab"), kit.KeyText(ui.Cmd, ui.KeyT), 28, false).
-				OnClick(func() { s.New(Browser) })
 		})
 		text := i18n.T(c, "resource_browser_preview")
 		if b.at >= 0 {

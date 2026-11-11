@@ -144,9 +144,21 @@ func (s *State) look(c *ui.Context, t Tab) (*ui.SVG, string) {
 				return icons.FileText, d.Title
 			}
 		}
+	case Browser:
+		// A live page names its tab once it has a title.
+		if s.Live && s.BrowserActions != nil {
+			if title := s.BrowserActions.Page(t.ID).Title; title != "" {
+				return icons.Web, title
+			}
+		}
 	}
 	r := ResourceOf(t.Kind)
 	return r.Icon, i18n.T(c, r.Label)
+}
+
+// busy reports whether a tab's content is loading: a live browser page.
+func (s *State) busy(t Tab) bool {
+	return t.Kind == Browser && s.Live && s.BrowserActions != nil && s.BrowserActions.Page(t.ID).Loading
 }
 
 // Title is a tab's title, as its tab shows it.
@@ -207,7 +219,7 @@ func (pr *Project) strip(c *ui.Context, k Kind) {
 					if k == Changes {
 						label = pr.gitDocumentLabel(path, label)
 					}
-					tab(c, path, icon, label, path == pr.shown(k), nil, func() { pr.show(k, path) }, func() { pr.close(k, path) })
+					tab(c, path, icon, label, path == pr.shown(k), false, nil, func() { pr.show(k, path) }, func() { pr.close(k, path) })
 				}
 			})
 		})
@@ -219,7 +231,7 @@ func (pr *Project) strip(c *ui.Context, k Kind) {
 // active tab. A tab with drag drags it, wearing the drag preview's look while
 // it does. show and close run after the build, as MyGo runs OnClick: they act
 // themselves, as nothing set by them is read in the pass that built the tab.
-func tab(c *ui.Context, key any, icon *ui.SVG, label string, active bool, drag *panes.Drag, show, close func()) {
+func tab(c *ui.Context, key any, icon *ui.SVG, label string, active, busy bool, drag *panes.Drag, show, close func()) {
 	p := theme.Of(c)
 	b := ui.ButtonBase(c.Key(key)).Label(label).Height(tabHeight).MaxWidth(tabMax).PaddingStart(8).PaddingEnd(4).
 		Gap(6).Radius(p.Radius).Cursor(ui.CursorPointer).TextColor(p.MutedForeground)
@@ -237,7 +249,12 @@ func tab(c *ui.Context, key any, icon *ui.SVG, label string, active bool, drag *
 		}
 	}
 	b.Children(func() {
-		ui.Icon(c, icon).FontSize(14).Shrink(0)
+		if busy {
+			// The tab's content is loading: the spinner stands for its icon.
+			ui.Spinner(c).FontSize(14).Shrink(0)
+		} else {
+			ui.Icon(c, icon).FontSize(14).Shrink(0)
+		}
 		ui.Text(c, label).FontSize(14).SingleLine().Shrink(1)
 		x := kit.IconButton(c.Key("close"), icons.Close, i18n.T(c, "close"), 20, false).OnClick(close)
 		if !hovered && !active && !x.FocusVisible() {
@@ -317,7 +334,7 @@ func Strip(c *ui.Context, s *State, pr *Project, keys Shortcut) {
 					// A terminal drags onto the workspace to open in a split.
 					drag = &panes.Drag{Target: panes.Target{Kind: panes.Terminal, ID: t.ID}, Title: label}
 				}
-				tab(c, t, icon, label, t == s.Active, drag, func() { s.Show(t) }, func() {
+				tab(c, t, icon, label, t == s.Active, s.busy(t), drag, func() { s.Show(t) }, func() {
 					// The button that closed is in the header: the focus
 					// goes to the panel, where ⌘W closes the next tab.
 					s.Close(t)

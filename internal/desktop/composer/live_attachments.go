@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/icons"
 	"github.com/sailry/sailry-harness/internal/desktop/kit"
 )
@@ -32,6 +33,17 @@ func (s *State) SetReferencePickerOpen(open func()) {
 
 func (s *State) AttachPaths(c *ui.Context, paths []string, actions Actions) {
 	s.attachPaths(c, paths, actions)
+}
+
+// Attach adds attachments that belong together, such as an element picked in
+// the browser with its page context: all of them or, over the limit, none.
+func (s *State) Attach(c *ui.Context, list []*Attachment, actions Actions) bool {
+	if len(s.Attachments)+len(list) > MaxAttachments {
+		kit.Toast(c, kit.Failed, i18n.T(c, "chat_attachment_limit"))
+		return false
+	}
+	s.add(c, list, actions)
+	return true
 }
 
 // InsertFiles adds normal file-reference tokens; it never submits the draft.

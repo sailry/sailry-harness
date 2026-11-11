@@ -288,7 +288,7 @@ func browserLoaded(ctx context.Context, plan browserPlan, deadline time.Time) *p
 			if plan.view.IsDestroyed() {
 				return progress{failed: true}
 			}
-			return progress{failed: plan.tab.failed, loading: plan.view.Page().IsLoading()}
+			return progress{failed: plan.tab.failed(), loading: plan.view.Page().IsLoading()}
 		})
 		var failure protocol.BrowserResult
 		switch {

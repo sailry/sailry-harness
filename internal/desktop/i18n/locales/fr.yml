@@ -446,6 +446,17 @@ browser_forward: Suivant
 browser_reload: Recharger
 browser_address: Rechercher ou entrer une adresse
 browser_new_tab: Nouvel onglet
+browser_empty: Commencez à naviguer
+browser_stop: Arrêter
+browser_invalid_address: Adresse de messagerie invalide
+browser_unavailable: Le navigateur ne peut pas démarrer
+browser_load_failed: La page n'a pas pu être trouvée
+browser_annotate: Sélectionner un élément
+browser_cancel_selection: Annuler la sélection
+browser_inspect: Inspecteur Web
+browser_annotation_stale: La page ou la conversation a changé
+browser_annotation_invalid: Impossible de lire l’élément sélectionné
+browser_annotation_unavailable: Impossible de capturer l’élément sélectionné
 content_document: Document
 content_source: Source
 resource_project_empty: Sélectionner un projet
