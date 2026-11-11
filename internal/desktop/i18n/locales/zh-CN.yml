@@ -173,6 +173,24 @@ question_other: 其他
 question_decline: 拒绝回答
 interaction_submit: 提交
 interaction_cancel: 取消
+approval_deny_reason: 附理由拒绝
+approval_reason: 理由
+approval_reason_cancel: 取消
+approval_receipt: 审批回执
+approval_busy: 审批处理中
+approval_ssh_trust: 信任 %{host}:%{port} — %{algorithm} %{fingerprint}
+approval_ssh_replace: 替换 %{host}:%{port} 的密钥 — %{algorithm} %{fingerprint}
+question_open_url: 打开页面
+question_yes: 是
+question_no: 否
+question_optional: '%{field}（可选）'
+question_invalid_answer: 请检查回答内容
+plan_execute_confirm: 按此计划执行
+plan_config_changed: 配置已变化，请重新确认
+plan_coding_message: 按确认的计划开始编码
+interaction_continue: 继续
+interaction_start: 执行
+live_read_busy: 等待主机响应
 tool_load_skill: 加载技能
 tool_list_sessions: 查找会话
 tool_read_session: 读取会话

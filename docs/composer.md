@@ -82,7 +82,16 @@ rebuilt each frame from backend data.
 | `Approval.Changes` | A change set: `file_changes_approval(_one)`, per file the kind (`file_changes_added/modified/renamed/deleted`), path (`a → b` for renames), `+N −M`, `file_changes_shortened` |
 | `Approval.Remember`, `Prefix` | Offer `approval_allow_session`, and `approval_allow_prefix` |
 | `Approval.Unrestricted` | Allow's tooltip says `approval_unrestricted` |
-| `Ask{ID, Prompt, Options, Multi, Other, Declinable}` | Radio or checkbox choices, `question_other`, a free answer (`interaction_input`), and Decline for forms and links |
+| `Approval.Trust` | An SSH host key to trust: the card shows `approval_ssh_trust`, or `approval_ssh_replace` for a changed key |
+| `Approval.Loading`, `Failed`, `Reload` | Details being read (a spinner) or a failed read (`chat_retry`); Allow waits for the details, Deny does not |
+| `Approval.Disabled`, `Busy` | Not decidable now (host away, turn not running, a decision on its way); `Busy` marks the request being decided |
+| `Approval.Again`, `Receipt` | Resend a decision whose outcome is unknown; `Receipt` marks one the run no longer lists |
+| `Ask{ID, Prompt, Kind, Options, Multi, Other, Declinable}` | `AskChoice`: radio or checkbox choices, `question_other`, a free answer (`interaction_input`); Decline for forms and links |
+| `Ask.Kind == AskPlan` | A plan review: `plan_execute_confirm`, `interaction_continue` and `interaction_start` |
+| `Ask.Fields` (`AskForm`) | `Field{Name, Title, Description, Required, Kind}` with the bounds of its kind: text lengths, number `Integer`/`Minimum`/`Maximum`, choice `Options`/`Multi`/`MinItems`/`MaxItems` |
+| `Ask.URL` (`AskLink`) | The page `question_open_url` opens |
+| `Ask.Disabled`, `Busy`, `Retry` | Host away; an answer on its way; an answer whose outcome is unknown (Submit reads `chat_retry`) |
+| `Answer{Choices, Text, Start, Opened, Values}` | Options by index and the text; `Start` starts coding (an empty Answer continues planning); `Opened` for a link; `Values` by field name for a form |
 
 ## Interactions
 
@@ -91,11 +100,36 @@ rebuilt each frame from backend data.
 - Each opens a popover 320 wide anchored at its bottom right, 8 above:
   the floating fill, shadowed in light, outlined in dark.
 - Approvals show one request at a time, with previous/next controls for several.
-  **Deny** resolves without a reason. **Allow** has the session and prefix
-  choices permitted by the captured request. The removed reason form stays absent.
-- Question: the prompt (medium), choices 12 apart, the free answer, then
-  Decline (when `Declinable`), `interaction_cancel` and `interaction_submit`
-  (disabled until there is an answer). A new question ID starts a new draft.
+  **Deny** resolves without a reason; its menu's `approval_deny_reason` opens
+  a reason field (`approval_reason`) with `approval_reason_cancel` and Deny,
+  disabled until there is text. **Allow** has the session and prefix choices
+  permitted by the captured request, the only remembered scopes. An SSH host
+  key shows its trust prompt. Details being read show a spinner and a failed
+  read `chat_retry`; Allow waits for them.
+- A request is disabled while the host is away, its turn is not running or a
+  decision is on its way; the request being decided shows a spinner. One
+  decision travels at a time (`approval_busy`). A decision whose outcome is
+  unknown keeps its request: the toast and the request offer `chat_retry`,
+  which sends that same request, and the capsule reads `approval_receipt`
+  once the run lists no other request.
+- Question: the prompt (medium), the inputs of its kind, then Decline (when
+  `Declinable`), `interaction_cancel` and `interaction_submit` (disabled until
+  the answer is valid). A new question ID starts a new draft. The body
+  scrolls within half the window.
+  - Choice and text: choices 12 apart, `question_other`, the free answer.
+  - Plan review: `plan_execute_confirm`, then `interaction_continue` (keeps
+    planning) and `interaction_start` (starts coding). The plan is the reply
+    above it.
+  - Form: per field its title (`Title *` when required, a
+    `question_optional` checkbox that includes an optional one), its
+    description, and a text area, a single-line input (a format or a
+    number), `question_yes`/`question_no`, radios or checkboxes. Submit
+    stays disabled until each included field fits its bounds.
+  - Link: the URL, and `question_open_url`, which opens the system browser
+    and answers.
+- An answer on its way locks the inputs and shows a spinner in Submit; one
+  whose outcome is unknown keeps the draft locked and Submit reads
+  `chat_retry`, sending the same request. Cancel and Decline replace it.
 
 ## Toolbar and context bar
 
@@ -276,7 +310,7 @@ type Actions interface {
 | `Dictate` | Microphone (`StartDictation`), finish, cancel | Move `Dictation`; the transcript goes into `Draft` |
 | `Compact` | `/compact` | Compact the context |
 | `CreateWorktree`, `AddProject`, `ManageTeams` | Their menu rows | Open the respective flow |
-| `Decide`, `Answer`, `CancelQuestion`, `DeclineQuestion` | Interactions (above) | Resolve; conflicts toast |
+| `Decide`, `Answer`, `CancelQuestion`, `DeclineQuestion` | Interactions (above) | `live/interaction_flow.go` sends one `resolve_approval` and one `resolve_question` at a time per conversation. `Answer` sends the shape the question takes: `start_coding` with the session revision and `plan_coding_message`, or text for a plan; `form` values; `opened` after opening the link; `choices`; `text`. Toasts: closed `approval_closed`/`question_closed` (conflict), `plan_config_changed`, `question_invalid_answer`, `chat_action_unknown` with Retry (the request is kept), else `chat_action_failed`; refusals `approval_busy`, `chat_reconnecting`, `live_read_busy` |
 | `OpenChange`, `Badge`, `StopCommand`, `OpenService`, `OpenChild` | The activity strip (above) | Open Git, run the plugin's handler, stop the command, forward and open the port, open the subagent; failures toast |
 
 ## Keys and Escape
@@ -560,7 +594,9 @@ and every failure, over a fake microphone and recognizer.
 | Live service labels use additive activity callbacks | Forwarder state stays with the captured Client while the accepted command DTO and capsule layout remain unchanged |
 | Subagent elapsed uses an additive activity callback | Captured run timestamps remain outside the accepted `conversation.Child` fields |
 | Modes are Code, Plan, Flagship (Rust `WorkMode`); explore/build/review/plan are only the welcome cards | Follows Rust |
-| Approval details' loading and retry, SSH trust prompts and child identicons are not shown | Not in the view model of this UI-only prototype |
+| Child identicons are not shown in approvals | Not in the view model |
+| Forms show no schema defaults or per-field messages | The question protocol carries no defaults; an invalid field disables Submit and a rejected answer toasts `question_invalid_answer`, as the reference does |
+| The approvals popover stays open after a decision | The request shows its busy state there; the reference closes it |
 
 Live file references resolve the captured worktree through the existing shared
 Files owner. Opening an `@ Files` page loads that directory lazily; the open page

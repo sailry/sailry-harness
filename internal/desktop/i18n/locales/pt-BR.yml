@@ -173,6 +173,24 @@ question_other: Outro
 question_decline: Recusar
 interaction_submit: Enviar
 interaction_cancel: Cancelar
+approval_deny_reason: Negar com motivo
+approval_reason: Motivo
+approval_reason_cancel: Cancelar
+approval_receipt: Recibo de aprovação
+approval_busy: Aprovação pendente
+approval_ssh_trust: Confiar em %{host}:%{port} — %{algorithm} %{fingerprint}
+approval_ssh_replace: Substituir a chave de %{host}:%{port} — %{algorithm} %{fingerprint}
+question_open_url: Abrir a página
+question_yes: Sim
+question_no: Não
+question_optional: '%{field} (opcional)'
+question_invalid_answer: Verifique a sua resposta
+plan_execute_confirm: Executar este plano
+plan_config_changed: Configuração alterada; confirme novamente
+plan_coding_message: Comece a programar com o plano confirmado
+interaction_continue: Continuar
+interaction_start: Executar
+live_read_busy: Aguardando o host
 tool_load_skill: Habilidade de carga
 tool_list_sessions: Buscar conversas
 tool_read_session: Ler conversa

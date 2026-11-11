@@ -11,6 +11,9 @@ func projectApproval(approval protocol.ConversationApproval, call *protocol.Conv
 	if approval.Prefix != nil {
 		view.Prefix = *approval.Prefix
 	}
+	if trust := approval.Ssh; trust != nil {
+		view.Trust = &composer.Trust{Host: trust.Host, Port: int(trust.Port), Algorithm: trust.Key.Algorithm, Fingerprint: trust.Key.Fingerprint, Changed: trust.Changed}
+	}
 	if call != nil {
 		view.Title = call.Name
 		if call.Summary != nil && call.Summary.Resolved != nil {

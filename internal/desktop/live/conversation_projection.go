@@ -12,6 +12,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/conversation"
+	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -324,7 +325,7 @@ func Conversation(state client.ConversationState, locales ...string) ([]conversa
 		spec := **call.Summary.Question
 		if position, ok := positions[owners[q.Turn]]; ok {
 			reply := &turns[position].Reply
-			history := projectQuestion(q, spec, calls[toolCallKey(q.Entry, q.Index)], reply.Status)
+			history := projectQuestion(q, spec, calls[toolCallKey(q.Entry, q.Index)], reply.Status, language)
 			replaced := false
 			for i, block := range reply.Blocks {
 				if len(block.Calls) == 1 && block.Calls[0].ID == history.CallID {
@@ -340,13 +341,7 @@ func Conversation(state client.ConversationState, locales ...string) ([]conversa
 		if q.State.Kind != "pending" || interactions.Question != nil {
 			continue
 		}
-		ask := &composer.Ask{ID: q.ID.String(), Prompt: spec.Prompt, Other: spec.Input.Kind == "text", Declinable: spec.Input.Kind == "form" || spec.Input.Kind == "url"}
-		if choice, ok := detail[protocol.ConversationQuestionInputChoicePayload](spec.Input.Data); ok {
-			ask.Options = choice.Options
-			ask.Multi = choice.Multiple
-			ask.Other = choice.AllowOther
-		}
-		interactions.Question = ask
+		interactions.Question = projectAsk(q, spec)
 	}
 	ownedChildren := map[protocol.TurnID][]protocol.ConversationChild{}
 	for _, child := range page.Children {
@@ -713,7 +708,100 @@ func terminalInteraction(name string) bool {
 	return name == "ask_user" || name == "mcp_elicitation" || name == "plan_review"
 }
 
-func projectQuestion(q protocol.ConversationQuestion, spec protocol.ConversationQuestionSpec, call *conversation.Call, status conversation.RunStatus) conversation.Question {
+// projectAsk is the pending question as the composer asks it.
+func projectAsk(q protocol.ConversationQuestion, spec protocol.ConversationQuestionSpec) *composer.Ask {
+	ask := &composer.Ask{ID: q.ID.String(), Prompt: spec.Prompt, Other: spec.Input.Kind == "text", Declinable: spec.Input.Kind == "form" || spec.Input.Kind == "url"}
+	switch spec.Input.Kind {
+	case "choice":
+		if choice, ok := detail[protocol.ConversationQuestionInputChoicePayload](spec.Input.Data); ok {
+			ask.Options = choice.Options
+			ask.Multi = choice.Multiple
+			ask.Other = choice.AllowOther
+		}
+	case "plan":
+		ask.Kind = composer.AskPlan
+	case "url":
+		ask.Kind = composer.AskLink
+		if link, ok := detail[protocol.ConversationQuestionInputUrlPayload](spec.Input.Data); ok {
+			ask.URL = link.Url
+		}
+	case "form":
+		ask.Kind = composer.AskForm
+		form, _ := detail[protocol.ConversationQuestionInputFormPayload](spec.Input.Data)
+		for _, field := range form.Fields {
+			view := composer.Field{Name: field.Name, Title: field.Title, Required: field.Required}
+			if field.Description != nil {
+				view.Description = *field.Description
+			}
+			switch field.Input.Kind {
+			case "text":
+				if text, ok := detail[protocol.ConversationQuestionFormInputTextPayload](field.Input.Data); ok {
+					view.Multiline, view.MinLength, view.MaxLength = text.Format == nil, text.MinLength, text.MaxLength
+				}
+			case "number":
+				view.Kind = composer.FieldNumber
+				if number, ok := detail[protocol.ConversationQuestionFormInputNumberPayload](field.Input.Data); ok {
+					view.Integer = number.Integer
+					for bound, target := range map[*json.Number]**float64{number.Minimum: &view.Minimum, number.Maximum: &view.Maximum} {
+						if bound != nil {
+							if value, err := bound.Float64(); err == nil {
+								*target = &value
+							}
+						}
+					}
+				}
+			case "boolean":
+				view.Kind = composer.FieldBoolean
+			case "choice":
+				view.Kind = composer.FieldChoice
+				if choice, ok := detail[protocol.ConversationQuestionFormInputChoicePayload](field.Input.Data); ok {
+					view.Multi, view.MinItems, view.MaxItems = choice.Multiple, choice.MinItems, choice.MaxItems
+					for _, option := range choice.Options {
+						view.Options = append(view.Options, option.Title)
+					}
+				}
+			}
+			ask.Fields = append(ask.Fields, view)
+		}
+	}
+	return ask
+}
+
+// formDisplay is a form value as its history line shows it.
+func formDisplay(field protocol.ConversationQuestionFormField, raw json.RawMessage, locale string) string {
+	title := func(value string) string {
+		if choice, ok := detail[protocol.ConversationQuestionFormInputChoicePayload](field.Input.Data); ok {
+			for _, option := range choice.Options {
+				if option.Value == value {
+					return option.Title
+				}
+			}
+		}
+		return value
+	}
+	var flag bool
+	var text string
+	var list []string
+	switch {
+	case field.Input.Kind == "boolean" && json.Unmarshal(raw, &flag) == nil:
+		if flag {
+			return i18n.In(locale, "question_yes")
+		}
+		return i18n.In(locale, "question_no")
+	case json.Unmarshal(raw, &text) == nil:
+		return title(text)
+	case field.Input.Kind == "choice" && json.Unmarshal(raw, &list) == nil:
+		for i := range list {
+			list[i] = title(list[i])
+		}
+		return strings.Join(list, ", ")
+	}
+	return string(raw)
+}
+
+// projectQuestion is the question's history row. A plan review is titled as
+// the plan and holds the plan; a form answer lists its fields.
+func projectQuestion(q protocol.ConversationQuestion, spec protocol.ConversationQuestionSpec, call *conversation.Call, status conversation.RunStatus, locale string) conversation.Question {
 	v := conversation.Question{CallID: toolCallKey(q.Entry, q.Index), Prompt: spec.Prompt, State: conversation.QuestionPending}
 	if choice, ok := detail[protocol.ConversationQuestionInputChoicePayload](spec.Input.Data); spec.Input.Kind == "choice" && ok {
 		v.Options = choice.Options
@@ -732,6 +820,14 @@ func projectQuestion(q protocol.ConversationQuestion, spec protocol.Conversation
 			case "text":
 				if text, ok := detail[string](a.Data); ok {
 					v.Answers = []string{text}
+				}
+			case "form":
+				values, _ := detail[map[string]json.RawMessage](a.Data)
+				form, _ := detail[protocol.ConversationQuestionInputFormPayload](spec.Input.Data)
+				for _, field := range form.Fields {
+					if raw, ok := values[field.Name]; ok {
+						v.Answers = append(v.Answers, field.Title+": "+formDisplay(field, raw, locale))
+					}
 				}
 			case "choices":
 				if choices, ok := detail[protocol.ConversationQuestionAnswerChoicesPayload](a.Data); ok {
@@ -754,6 +850,12 @@ func projectQuestion(q protocol.ConversationQuestion, spec protocol.Conversation
 		v.State = conversation.QuestionInterrupted
 	case "timed_out":
 		v.State = conversation.QuestionTimedOut
+	}
+	if spec.Input.Kind == "plan" {
+		v.Prompt, v.Answers = i18n.In(locale, "composer_mode_plan"), nil
+		if spec.Prompt != "" {
+			v.Answers = []string{spec.Prompt}
+		}
 	}
 	return v
 }

@@ -173,6 +173,24 @@ question_other: Другое
 question_decline: Отклонить
 interaction_submit: Отправить
 interaction_cancel: Отмена
+approval_deny_reason: Отклонить с причиной
+approval_reason: Причина
+approval_reason_cancel: Отмена
+approval_receipt: Получение утверждения
+approval_busy: Ожидание подтверждения
+approval_ssh_trust: Доверять %{host}:%{port} — %{algorithm} %{fingerprint}
+approval_ssh_replace: Заменить ключ %{host}:%{port} — %{algorithm} %{fingerprint}
+question_open_url: Открыть страницу
+question_yes: Да
+question_no: Нет
+question_optional: '%{field} (факультативно)'
+question_invalid_answer: Проверьте свой ответ
+plan_execute_confirm: Выполнить этот план
+plan_config_changed: Конфигурация изменена; подтвердите еще раз
+plan_coding_message: Начать программирование с подтвержденного плана
+interaction_continue: Продолжить
+interaction_start: Выполнить
+live_read_busy: Ожидание хоста
 tool_load_skill: Навыки нагрузки
 tool_list_sessions: Найти беседы
 tool_read_session: Читать беседу

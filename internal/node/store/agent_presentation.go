@@ -123,8 +123,17 @@ func prepareCanonicalRecord(ctx context.Context, db *sql.Conn, record *canonical
 			return e
 		}
 		for _, block := range message.Content {
-			if response, ok := block.Data.(*canonical.ToolResponse); ok && response.Format == canonical.JSON && response.ID == request.ID && response.Name == request.Name {
-				body, e := encode(map[string]string{"error": fmt.Sprintf("Tool execution was denied. Reason: %s", *denial.Reason)})
+			if response, ok := block.Data.(*canonical.ToolResponse); ok && (response.Format == canonical.JSON || response.Format == canonical.MCPError) && response.ID == request.ID && response.Name == request.Name {
+				reason := fmt.Sprintf("Tool execution was denied. Reason: %s", *denial.Reason)
+				var value any = map[string]string{"error": reason}
+				if response.Format == canonical.MCPError {
+					// The engine reports a denial as a fault, which carries
+					// no reason: the model reads the reason as the call's
+					// error result instead.
+					value = map[string]any{"content": []map[string]string{{"type": "text", "text": reason}}, "isError": true}
+					response.Format = canonical.MCP
+				}
+				body, e := encode(value)
 				if e != nil {
 					return e
 				}
