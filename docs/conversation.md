@@ -556,6 +556,29 @@ without an owner.
   turns that never started neither count nor reset it. At the limit the
   remaining results are marked suppressed, logged (`status=held`), stay
   visible as pending background tasks and join the user's next message.
+- **Turn callbacks.** After a main task turn ends, whatever its status, and
+  once that end is stored and published, the Node calls the `after_turn`
+  handler of every package the turn captured, as in the reference. Child
+  turns, compaction and a stopping Node call none. The call is an ordinary
+  `call_plugin` request dispatched for the turn's caller with the session
+  and worktree as context, so the callback runtime's allocation budget,
+  deadline and cancellation apply. Its input is `turn`, `status`,
+  `automatic` (the turn was itself a continuation) and the package's tool
+  `names`. A package that was disabled, removed or changed since the turn
+  has no callback; any other failure is logged
+  (`area=plugins operation=after_turn`) and never changes the ended turn.
+  A handler that issues `continue_turn` admits a continuation turn, whose
+  input is captured at admission because a plugin transaction stores only
+  a digest of its request.
+- **Cancelled foreground children.** A child that ends `cancelled` or
+  `interrupted` after its owning turn recorded the cancellation note has its
+  background task marked consumed, as the reference collects it; the model
+  was already told. A child cancelled any other way stays a pending task.
+- **Plan review source.** The review offered after a completed Plan turn
+  points at the turn's last assistant message that is visible to the user
+  and has text, as in the reference, so a hidden runtime note recorded after
+  the answer does not suppress it. A source that carries an error, an
+  interrupted or failed finish, or a tool request still offers no review.
 
 ### Queue item states
 
@@ -595,6 +618,7 @@ and bumps the item or queue revision that its command checks.
 | Node restart | guiding to queued once, queue paused when it holds user input; queued notice turns cancelled | `store.TestQueueSettlement/guidance after restart waits for resume`, `restart cancels a queued notice turn without pausing` |
 | `compact_context` while running | compaction item waits its turn; not editable, not guidance | `store.TestGuidanceQueue/queue commands` |
 | Background result | notice turn admitted only into an empty running queue; cancelled at claim when user input is queued | `store.TestBackgroundDelivery`, `store.TestBackgroundSchedulingAndContinuationFence` |
+| Package `after_turn` issues `continue_turn` | continuation turn queued and started like any ready item; `automatic` on its own callback | `node.TestPluginAfterTurn` |
 | `remove_session` with waiting input | refused `busy` until the items are removed | `store.TestGuidanceQueue/queue commands` |
 | `set_session_archived` | queue unchanged | `store.TestGuidanceQueue/queue commands` |
 
@@ -612,6 +636,8 @@ and bumps the item or queue revision that its command checks.
 | Child runs raise no attention; the reference marks the child session unread | A child session is read through its parent, which gets its own turn or notice |
 | Guidance pending at a user Stop waits in the paused queue; the reference starts it as a successor turn at once | Stop means stop: nothing runs until the user sends or resumes, and the message stays visible and editable |
 | The ordinary claim skips guidance while its recipient runs, and every exit of the recipient releases it; the reference claims without looking at the recipient and repairs the tag on each exit path | One release point in `FinishTurn` and one in `RecoverRuns` cover Stop, failure, completion and restart |
+| A cancelled foreground child is consumed when it ends, keyed on the owner's recorded cancellation note; the reference collects it from the task that awaited the child | The store settles it in the child's own finishing write, so it does not depend on the owner turn still running |
+| A plan review whose chosen source has a tool request, an error or an unfinished answer is not offered; the reference checks only visibility and text | Existing Go validation; a review must point at a finished answer |
 | A stopped turn whose input was not recorded keeps that input as a retained queue item; the reference writes it into history | Nothing is lost and the user decides whether to send it again |
 
 ## UI state vs backend data

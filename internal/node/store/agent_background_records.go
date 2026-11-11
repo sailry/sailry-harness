@@ -117,6 +117,20 @@ func FinishChildBackground(ctx context.Context, db *sql.Conn, child protocol.Con
 		if err = terminalCommandRecord(ctx, db, &record, outcome, summary, now); err != nil {
 			return nil, err
 		}
+		if child.Status == protocol.ConversationStatusCancelled || child.Status == protocol.ConversationStatusInterrupted {
+			// The owning turn already told the model about a foreground
+			// child it cancelled, so the result is not delivered again.
+			var reported bool
+			if err = db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM agent_events e, json_each(e.body,'$.metadata.runtime.notes.cancelled_subagents') n WHERE e.turn=?1 AND n.value=?2)", record.Task.Turn.String(), child.Session.String()).Scan(&reported); err != nil {
+				return nil, err
+			}
+			if reported {
+				record.Task.State = protocol.ConversationBackgroundStateConsumed
+				if err = saveBackgroundRecord(ctx, db, &record); err != nil {
+					return nil, err
+				}
+			}
+		}
 		owners[record.Task.Session] = true
 	}
 	return backgroundOwnerEvents(ctx, db, owners)

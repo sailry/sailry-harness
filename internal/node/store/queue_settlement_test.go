@@ -392,7 +392,7 @@ func TestQueueSettlement(t *testing.T) {
 
 func TestBackgroundDelivery(t *testing.T) {
 	t.Parallel()
-	for _, name := range []string{"claim pass delivers once the queue resumes", "plan mode delivers", "automatic chain stops at its limit"} {
+	for _, name := range []string{"claim pass delivers once the queue resumes", "plan mode delivers", "automatic chain stops at its limit", "cancelled foreground child is consumed"} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			mode := protocol.WorkModeCode
@@ -447,6 +447,43 @@ func TestBackgroundDelivery(t *testing.T) {
 					}
 					if next, err := deliver("planned"); err != nil || next == nil {
 						return fmt.Errorf("Plan mode withheld the result: %v", err)
+					}
+				case "cancelled foreground child is consumed":
+					states := map[bool]protocol.ConversationBackgroundState{}
+					for _, reported := range []bool{true, false} {
+						call, err := delegationFixtureCall(ctx, db, turn, "spawn_agent", map[string]any{"task": "Foreground child"}, now)
+						if err != nil {
+							return err
+						}
+						child, _, err := DelegateAgent(ctx, db, node, turn, call, nil, true, now)
+						if err != nil {
+							return err
+						}
+						if next, _, err := ClaimChild(ctx, db, child.Run.Turn, now); err != nil || next == nil {
+							return fmt.Errorf("child did not start: %v", err)
+						}
+						if reported {
+							record := canonical.NewRecord(turn, "message", canonical.NewMessage(canonical.User, canonical.Text(0, "Subagent was cancelled before it finished.")), now)
+							record.Provenance.Author = "user"
+							record.Metadata.Runtime = &canonical.Runtime{AgentVisible: true, Notes: &canonical.OperationNotes{CancelledSubagents: []string{child.Session.ID.String()}}}
+							if _, _, err = AppendCanonical(ctx, db, session.ID, record); err != nil {
+								return err
+							}
+						}
+						if _, _, err = FinishTurn(ctx, db, child.Run.Turn, protocol.ConversationStatusCancelled, nil, now); err != nil {
+							return err
+						}
+						task, err := readBody[BackgroundRecord](ctx, db, "SELECT body FROM agent_background WHERE id=?1", "agent:"+child.Run.Turn.String())
+						if err != nil {
+							return err
+						}
+						if task == nil || task.Task.Outcome == nil || *task.Task.Outcome != protocol.ConversationBackgroundOutcomeCancelled {
+							return errors.New("cancelled child left no cancelled record")
+						}
+						states[reported] = task.Task.State
+					}
+					if states[true] != protocol.ConversationBackgroundStateConsumed || states[false] != protocol.ConversationBackgroundStatePending {
+						return fmt.Errorf("reported child is %s, unreported child is %s", states[true], states[false])
 					}
 				default:
 					if _, _, err := FinishTurn(ctx, db, turn, protocol.ConversationStatusCompleted, nil, now); err != nil {

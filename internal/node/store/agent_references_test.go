@@ -312,6 +312,57 @@ func TestAgentHistoryAndReview(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
+	for _, name := range []string{"hidden note after the answer keeps the review", "empty answer has no review"} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			storage, _, session, turn, now := agentHistoryFixture(t, protocol.WorkModePlan)
+			ctx := context.Background()
+			err := storage.Node.Write(ctx, func(db *sql.Conn) error {
+				text := "Completed plan"
+				if name == "empty answer has no review" {
+					text = ""
+				}
+				answer := canonical.NewRecord(turn, "message", ptr(canonical.NewMessage(canonical.Assistant, canonical.Text(0, text))), now)
+				answer.Provenance.Author = "assistant"
+				if _, _, err := AppendCanonical(ctx, db, session.ID, answer); err != nil {
+					return err
+				}
+				note := canonical.NewRecord(turn, "message", ptr(canonical.NewMessage(canonical.User, canonical.Text(0, "Subagent was cancelled before it finished."))), now)
+				note.Provenance.Author = "user"
+				note.Metadata.Runtime = &canonical.Runtime{AgentVisible: true}
+				if _, _, err := AppendCanonical(ctx, db, session.ID, note); err != nil {
+					return err
+				}
+				if _, _, err := FinishTurn(ctx, db, turn, protocol.ConversationStatusCompleted, nil, now); err != nil {
+					return err
+				}
+				entry, question, _, err := PublishPlanReview(ctx, db, turn, now)
+				if err != nil {
+					return err
+				}
+				if name == "empty answer has no review" {
+					if entry != nil || question != nil {
+						return errors.New("empty answer published a review")
+					}
+					return nil
+				}
+				if entry == nil || question == nil {
+					return errors.New("hidden note suppressed the review")
+				}
+				saved, err := readBody[canonical.Record](ctx, db, "SELECT body FROM agent_events WHERE turn=?1 AND id=?2", turn.String(), question.Entry)
+				if err != nil {
+					return err
+				}
+				if saved == nil || planReviewSpec(*saved) == nil || saved.Data.(*canonical.Notice).Data.(*canonical.PlanReview).Source != answer.ID {
+					return errors.New("review does not point at the visible answer")
+				}
+				return nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
 	for _, kind := range []string{"submit_turn", "queue_turn", "submit_task"} {
 		t.Run("new "+kind+" input supersedes completed review", func(t *testing.T) {
 			t.Parallel()
