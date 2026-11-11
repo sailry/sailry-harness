@@ -1702,6 +1702,9 @@ hooks_project_required: 選擇專案
 workspace_worktree_remove_confirm: Remove this worktree and its files
 background_stop_failed: 停止失敗，請重試
 background_stop_unknown: 停止結果未確認，請檢視命令狀態
+subagent_stop: Stop subagent
+subagent_stop_failed: Stop failed; retry
+subagent_stop_unknown: Stop unconfirmed; check subagent status
 background_unavailable: 暫時無法讀取後臺終端
 files_cancel_remaining: Cancel remaining
 files_check_result: 檢查結果

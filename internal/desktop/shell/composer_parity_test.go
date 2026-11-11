@@ -64,6 +64,13 @@ func composerWith(t *testing.T, width int, prepare func(*composer.State, *compos
 
 func zh(key string, args ...any) string { return i18n.In("zh-CN", key, args...) }
 
+// overviewOpen reports whether conversation id's overview popover is open:
+// each conversation shown keeps its own.
+func overviewOpen(a *App, id string) bool {
+	o := a.overviews[id]
+	return o != nil && o.state.Open()
+}
+
 // button is the enabled or disabled button named name, clicked at its centre.
 func pressButton(t *testing.T, tt *ui.Tester, name string) {
 	t.Helper()
@@ -436,6 +443,7 @@ func composerParity(t *testing.T) {
 	})
 
 	t.Run("choice menus", composerMenus)
+	t.Run("model picker", composerModels)
 }
 
 // headerParity are the conversation page's header actions and its own keys:
@@ -461,7 +469,7 @@ func headerParity(t *testing.T) {
 	}
 	tt.Advance(300 * time.Millisecond)
 	tt.Frame()
-	if !a.assets.Open() {
+	if !overviewOpen(a, preview.Big) {
 		t.Fatal("the overview is not open")
 	}
 	shot(t, tt, "parity-overview")
@@ -487,7 +495,7 @@ func headerParity(t *testing.T) {
 	if !a.PanelOpen || a.children[child.ID] == nil {
 		t.Errorf("a subagent's row did not open its session: panel %v", a.PanelOpen)
 	}
-	if a.assets.Open() {
+	if overviewOpen(a, preview.Big) {
 		t.Error("the overview stays open after a row was chosen")
 	}
 	// Search opens the conversation's find bar.

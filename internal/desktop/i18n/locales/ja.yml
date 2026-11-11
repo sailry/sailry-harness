@@ -1702,6 +1702,9 @@ hooks_project_required: プロジェクトを選択
 workspace_worktree_remove_confirm: Remove this worktree and its files
 background_stop_failed: 停止に失敗しました。やり直します
 background_stop_unknown: 確認なしに停止;コマンドの状態を確認
+subagent_stop: Stop subagent
+subagent_stop_failed: Stop failed; retry
+subagent_stop_unknown: Stop unconfirmed; check subagent status
 background_unavailable: バックグラウンドのターミナルを読み込めませんでした
 files_cancel_remaining: Cancel remaining
 files_check_result: チェック結果

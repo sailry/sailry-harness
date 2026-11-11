@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"charm.land/fantasy"
 	"github.com/sailry/sailry-harness/internal/core"
 	"github.com/sailry/sailry-harness/internal/node/agent/canonical"
+	"github.com/sailry/sailry-harness/internal/node/agent/model"
 	"github.com/sailry/sailry-harness/internal/node/hooks"
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -320,7 +322,7 @@ func TestDelegationHandoff(t *testing.T) {
 		t.Cleanup(unblock)
 		returned := make(chan ToolResult, 1)
 		go func() {
-			returned <- f.r.admitChild(x, call, false, func(ctx context.Context, db *sql.Conn) (*store.AgentInvocation, []protocol.Event, error) {
+			returned <- f.r.admitChild(x, call.Arguments, false, func(ctx context.Context, db *sql.Conn) (*store.AgentInvocation, []protocol.Event, error) {
 				inv, events, err := store.DelegateAgent(ctx, db, f.node, x.inv.Run.Turn, toolIdentity(call), nil, false, f.r.clock.Now())
 				if err != nil {
 					return nil, nil, err
@@ -349,6 +351,359 @@ func TestDelegationHandoff(t *testing.T) {
 			if child.ctx.Err() == nil {
 				t.Fatal("foreground handoff ignored parent cancellation")
 			}
+		}
+	})
+}
+
+// settled waits for a run to leave the active statuses, whatever its outcome.
+func (f *engineFixture) settled(turn protocol.TurnID) protocol.ConversationRun {
+	f.t.Helper()
+	for {
+		var run protocol.ConversationRun
+		err := f.db.Node.Read(f.ctx, func(db *sql.Conn) error { var err error; run, err = store.ReadAgentRun(f.ctx, db, turn); return err })
+		if err != nil {
+			f.t.Fatal(err)
+		}
+		if !childActive(run.Status) {
+			return run
+		}
+		select {
+		case <-f.changed:
+		case <-f.ctx.Done():
+			f.t.Fatalf("run did not settle: %+v", run)
+		}
+	}
+}
+
+func (f *engineFixture) childTurns() []protocol.TurnID {
+	f.t.Helper()
+	var turns []protocol.TurnID
+	err := f.db.Node.Read(f.ctx, func(db *sql.Conn) error {
+		rows, err := db.QueryContext(f.ctx, "SELECT d.turn FROM agent_delegations d JOIN turns t ON t.id=d.turn ORDER BY t.rowid")
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var id string
+			if err = rows.Scan(&id); err != nil {
+				return err
+			}
+			turn, err := protocol.ParseTurnID(id)
+			if err != nil {
+				return err
+			}
+			turns = append(turns, turn)
+		}
+		return rows.Err()
+	})
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	return turns
+}
+
+func TestParentEndSettlesChildren(t *testing.T) {
+	for _, ending := range []string{"user stop", "failed parent"} {
+		t.Run(ending, func(t *testing.T) {
+			childStarted, parentWaiting := make(chan struct{}), make(chan struct{})
+			var childOnce, parentOnce sync.Once
+			step := func(ctx context.Context, request fantasy.Call, yield func(fantasy.StreamPart) bool) {
+				prompt, results := "", 0
+				for _, message := range request.Prompt {
+					for _, part := range message.Content {
+						if value, ok := fantasy.AsMessagePart[fantasy.TextPart](part); ok {
+							prompt += value.Text + "\n"
+						}
+						if part.GetType() == fantasy.ContentTypeToolResult {
+							results++
+						}
+					}
+				}
+				switch {
+				case strings.Contains(prompt, "Follow-up"):
+					_ = yield(text("Follow-up answer")) && yield(finish())
+				case !strings.Contains(prompt, "Parent task"):
+					childOnce.Do(func() { close(childStarted) })
+					<-ctx.Done()
+				case results == 0:
+					_ = yield(call("first", "spawn_agent", `{"task":"First background child","background":true}`)) &&
+						yield(call("second", "spawn_agent", `{"task":"Second background child","background":true}`)) && yield(finish())
+				default:
+					parentOnce.Do(func() { close(parentWaiting) })
+					select {
+					case <-childStarted:
+					case <-ctx.Done():
+						return
+					}
+					if ending == "failed parent" {
+						yield(fantasy.StreamPart{Type: fantasy.StreamPartTypeError, Error: &model.Failure{Kind: model.InvalidResponse, Message: "fixture failure"}})
+						return
+					}
+					<-ctx.Done()
+				}
+			}
+			language := &scriptedModel{scripts: []script{step, step, step, step, step}}
+			f := newFixture(t, language)
+			// One slot keeps the second child queued while the first runs.
+			if err := f.db.Node.Write(f.ctx, func(db *sql.Conn) error {
+				settings, err := store.ReadTeamSettings(f.ctx, db)
+				if err != nil {
+					return err
+				}
+				settings.ChildConcurrency = 1
+				_, _, err = store.ExecuteTeamCommand(f.ctx, db, f.node, protocol.Command{Kind: "save_team_settings", Data: &settings})
+				return err
+			}); err != nil {
+				t.Fatal(err)
+			}
+			f.start()
+			parent := f.submit("Parent task")
+			for _, signal := range []chan struct{}{childStarted, parentWaiting} {
+				select {
+				case <-signal:
+				case <-f.ctx.Done():
+					t.Fatal("parent and its background child did not both start")
+				}
+			}
+			children := f.childTurns()
+			if len(children) != 2 {
+				t.Fatalf("admitted children=%d", len(children))
+			}
+			if ending == "user stop" {
+				f.command("stop_turn", &protocol.CommandStopTurnPayload{Turn: parent})
+			}
+			ended := f.settled(parent)
+			if ending == "failed parent" && ended.Status != protocol.ConversationStatusFailed {
+				t.Fatalf("parent status=%s", ended.Status)
+			}
+			if ending == "user stop" && ended.Status == protocol.ConversationStatusCompleted {
+				t.Fatal("stopped parent completed")
+			}
+			// The parent finished, so every child must already be terminal.
+			for index, turn := range children {
+				var run protocol.ConversationRun
+				if err := f.db.Node.Read(f.ctx, func(db *sql.Conn) error { var err error; run, err = store.ReadAgentRun(f.ctx, db, turn); return err }); err != nil {
+					t.Fatal(err)
+				}
+				// The engine's finishing code names a cancelled owner's status; both
+				// stopped statuses are the cancelled outcome here, never a result.
+				if run.Status != protocol.ConversationStatusCancelled && run.Status != protocol.ConversationStatusInterrupted {
+					t.Fatalf("child %d outlived its parent or reported a result: %+v", index, run)
+				}
+				if run.FinishedMs == nil || ended.FinishedMs == nil || *run.FinishedMs > *ended.FinishedMs {
+					t.Fatalf("parent finished before child %d settled: %+v", index, run)
+				}
+				if index == 1 && (run.StartedMs != nil || run.Status != protocol.ConversationStatusCancelled) {
+					t.Fatalf("queued child was not cancelled unstarted: %+v", run)
+				}
+			}
+			if len(f.r.children) != 0 {
+				t.Fatal("cancelled children kept their owners")
+			}
+			if f.readQuery("SELECT count(*) FROM agent_background WHERE kind='agent' AND state!='consumed'") != 0 || f.readQuery("SELECT count(*) FROM agent_background WHERE kind='agent'") != 2 {
+				t.Fatal("cancelled children left unreported completion records")
+			}
+			// New input reopens the queue: nothing the user stopped comes back.
+			input := protocol.DefaultConversationInput()
+			input.Text = "Follow-up"
+			next := f.command("submit_turn", &protocol.CommandSubmitTurnPayload{Session: f.session.ID, ExpectedRevision: f.session.Revision, Message: input}).Data.(protocol.QueuedTurn).ID
+			if run := f.waitRun(next, protocol.ConversationStatusCompleted); len(run.Notices) != 0 {
+				t.Fatalf("stopped children were delivered again: %+v", run.Notices)
+			}
+			if f.readQuery("SELECT count(*) FROM agent_runs WHERE coalesce(json_extract(body,'$.notice'),0)=1") != 0 {
+				t.Fatal("a cancelled child started a notice turn")
+			}
+			if language.count() != 4 {
+				t.Fatalf("model requests=%d", language.count())
+			}
+		})
+	}
+}
+
+func TestStopSingleChild(t *testing.T) {
+	childStarted := make(chan struct{})
+	var once sync.Once
+	step := func(ctx context.Context, request fantasy.Call, yield func(fantasy.StreamPart) bool) {
+		prompt, results := "", 0
+		for _, message := range request.Prompt {
+			for _, part := range message.Content {
+				if value, ok := fantasy.AsMessagePart[fantasy.TextPart](part); ok {
+					prompt += value.Text + "\n"
+				}
+				if part.GetType() == fantasy.ContentTypeToolResult {
+					results++
+				}
+			}
+		}
+		switch {
+		case !strings.Contains(prompt, "Parent task"):
+			once.Do(func() { close(childStarted) })
+			<-ctx.Done()
+		case results == 0:
+			_ = yield(call("first", "spawn_agent", `{"task":"First child"}`)) && yield(call("second", "spawn_agent", `{"task":"Second child"}`)) && yield(finish())
+		default:
+			_ = yield(text("Parent continued")) && yield(finish())
+		}
+	}
+	language := &scriptedModel{scripts: []script{step, step, step}}
+	f := newFixture(t, language)
+	// One slot keeps the second child queued while the first runs.
+	if err := f.db.Node.Write(f.ctx, func(db *sql.Conn) error {
+		settings, err := store.ReadTeamSettings(f.ctx, db)
+		if err != nil {
+			return err
+		}
+		settings.ChildConcurrency = 1
+		_, _, err = store.ExecuteTeamCommand(f.ctx, db, f.node, protocol.Command{Kind: "save_team_settings", Data: &settings})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	stopped := make(chan protocol.SessionID, 4)
+	f.r.stopCommands = func(session protocol.SessionID) { stopped <- session }
+	f.start()
+	parent := f.submit("Parent task")
+	select {
+	case <-childStarted:
+	case <-f.ctx.Done():
+		t.Fatal("first child did not start")
+	}
+	children := f.childTurns()
+	if len(children) != 2 {
+		t.Fatalf("admitted children=%d", len(children))
+	}
+	read := func(turn protocol.TurnID) protocol.ConversationRun {
+		t.Helper()
+		var run protocol.ConversationRun
+		if err := f.db.Node.Read(f.ctx, func(db *sql.Conn) error { var err error; run, err = store.ReadAgentRun(f.ctx, db, turn); return err }); err != nil {
+			t.Fatal(err)
+		}
+		return run
+	}
+	t.Run("a queued child is settled without starting", func(t *testing.T) {
+		f.command("stop_turn", &protocol.CommandStopTurnPayload{Turn: children[1]})
+		for {
+			run := read(children[1])
+			if run.FinishedMs != nil {
+				if run.Status != protocol.ConversationStatusCancelled || run.StartedMs != nil {
+					t.Fatalf("stopped queued child: %+v", run)
+				}
+				break
+			}
+			select {
+			case <-f.changed:
+			case <-f.ctx.Done():
+				t.Fatalf("stopped queued child was never settled: %+v", run)
+			}
+		}
+		if f.readQuery("SELECT count(*) FROM agent_background WHERE kind='agent' AND state='running'") != 1 {
+			t.Fatal("stopped queued child left its completion record running")
+		}
+		if read(children[0]).Status != protocol.ConversationStatusRunning || read(parent).Status != protocol.ConversationStatusRunning {
+			t.Fatal("stopping one child stopped its sibling or its parent")
+		}
+	})
+	t.Run("a running child stops alone and the parent continues", func(t *testing.T) {
+		f.command("stop_turn", &protocol.CommandStopTurnPayload{Turn: children[0]})
+		// The engine's finishing code names a stopped turn's status; either
+		// stopped status is the cancelled outcome for the parent.
+		if run := f.settled(children[0]); run.Status != protocol.ConversationStatusCancelled && run.Status != protocol.ConversationStatusInterrupted {
+			t.Fatalf("stopped running child: %+v", run)
+		}
+		f.waitRun(parent, protocol.ConversationStatusCompleted)
+		records := f.state().Records
+		for _, turn := range children {
+			mustHaveText(t, records, "Subagent "+read(turn).Session.String()+" was cancelled before it finished.")
+		}
+		mustHaveText(t, records, "Parent continued")
+		if f.readQuery("SELECT count(*) FROM agent_background WHERE kind='agent' AND state!='consumed'") != 0 {
+			t.Fatal("collected children left unreported completion records")
+		}
+		if language.count() != 3 {
+			t.Fatalf("model requests=%d", language.count())
+		}
+		// Only the child that ran can own commands; they end with its run.
+		select {
+		case session := <-stopped:
+			if session != read(children[0]).Session || len(stopped) != 0 {
+				t.Fatalf("commands stopped for %s and %d more sessions", session, len(stopped))
+			}
+		case <-f.ctx.Done():
+			t.Fatal("the ended child's commands were not stopped")
+		}
+	})
+}
+
+func TestChildWorkspacePreflight(t *testing.T) {
+	// A package tool bound to agents.delegate or agents.guide sends its own
+	// arguments; its host script prepares the ones that describe the child.
+	record := func(f *engineFixture) *[]protocol.WorktreeID {
+		var checked []protocol.WorktreeID
+		f.r.validateWorktree = func(_ context.Context, id protocol.WorktreeID) error {
+			checked = append(checked, id)
+			return nil
+		}
+		return &checked
+	}
+	packaged := func(t *testing.T, f *engineFixture, x *execution, id string, arguments string) canonical.ToolRequest {
+		t.Helper()
+		call := canonical.ToolRequest{ID: id, Name: "spawn_agent", Arguments: json.RawMessage(arguments)}
+		entry := canonical.NewRecord(x.inv.Run.Turn, "message", canonical.NewMessage(canonical.Assistant, canonical.Block{Index: 0, Kind: "tool_request", Data: &call}), f.r.clock.Now())
+		entry.Provenance.Author = "assistant"
+		if err := f.r.save(x.ctx, x.inv.Session.ID, entry); err != nil {
+			t.Fatal(err)
+		}
+		return call
+	}
+	t.Run("the model's own fields do not refuse the child", func(t *testing.T) {
+		f, x := delegationFixture(t)
+		checked := record(f)
+		call := packaged(t, f, x, "own schema", `{"session":"release branch","worktree":{"path":"src"}}`)
+		prepared, _ := json.Marshal(map[string]any{"task": "Review the release branch"})
+		result := f.r.spawnChild(x, call, prepared)
+		if result.Failure != nil {
+			t.Fatalf("prepared child was refused: %+v", result.Failure)
+		}
+		if len(*checked) != 1 || (*checked)[0] != x.inv.Run.Worktree {
+			t.Fatalf("checked worktrees=%v", *checked)
+		}
+	})
+	t.Run("the prepared worktree is the one checked", func(t *testing.T) {
+		f, x := delegationFixture(t)
+		checked := record(f)
+		other := protocol.NewWorktreeID()
+		call := packaged(t, f, x, "prepared worktree", `{"scope":"release"}`)
+		prepared, _ := json.Marshal(map[string]any{"task": "Review the release branch", "worktree": other})
+		// Admission then refuses the unregistered worktree; the preflight
+		// must already have looked at it rather than at the parent's.
+		f.r.spawnChild(x, call, prepared)
+		if len(*checked) != 1 || (*checked)[0] != other {
+			t.Fatalf("checked worktrees=%v, prepared %s", *checked, other)
+		}
+	})
+	t.Run("a prepared session resolves to the child's worktree", func(t *testing.T) {
+		f, x := delegationFixture(t)
+		spawn := saveDelegationCall(t, f, x, "existing", true)
+		if result := f.r.spawnChild(x, spawn, spawn.Arguments); result.Failure != nil {
+			t.Fatal(result.Failure)
+		}
+		f.r.workers.Wait()
+		var child *delegatedChild
+		for _, value := range f.r.children {
+			child = value
+		}
+		checked := record(f)
+		call := canonical.ToolRequest{ID: "guide", Name: "guide_agent", Arguments: json.RawMessage(`{"session":"the reviewer","note":"continue"}`)}
+		prepared, _ := json.Marshal(map[string]any{"session": child.session, "message": "Continue the review"})
+		if err := f.r.preflightChildWorkspace(x.ctx, x, prepared); err != nil {
+			t.Fatal(err)
+		}
+		if len(*checked) != 1 || (*checked)[0] != x.inv.Run.Worktree {
+			t.Fatalf("checked worktrees=%v", *checked)
+		}
+		if err := f.r.preflightChildWorkspace(x.ctx, x, call.Arguments); err == nil {
+			t.Fatal("the model's own guidance fields passed the workspace preflight")
 		}
 	})
 }

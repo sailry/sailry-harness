@@ -13,6 +13,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
+	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -278,9 +279,21 @@ func TestTeamsProjection(t *testing.T) {
 			})
 		}
 	})
-	t.Run("running capsule retains queued and stopping watches", func(t *testing.T) {
+	t.Run("capsule watches only children waiting on approval", func(t *testing.T) {
+		type row struct {
+			status  protocol.ConversationStatus
+			waiting *protocol.ActivityWaiting
+		}
+		var rows []row
 		for _, status := range []protocol.ConversationStatus{protocol.ConversationStatusQueued, protocol.ConversationStatusRunning, protocol.ConversationStatusStopping} {
-			t.Run(string(status), func(t *testing.T) {
+			rows = append(rows, row{status, nil}, row{status, new(protocol.ActivityWaitingInput)}, row{status, new(protocol.ActivityWaitingApproval)})
+		}
+		for _, row := range rows {
+			status, name := row.status, "working"
+			if row.waiting != nil {
+				name = string(*row.waiting)
+			}
+			t.Run(string(status)+"/"+name, func(t *testing.T) {
 				node, parent, childID, worktree := protocol.NodeID{1}, protocol.SessionID{1}, protocol.SessionID{2}, protocol.WorktreeID{1}
 				parentTurn := protocol.TurnID{1}
 				origin := &protocol.Delegation{Session: parent, Turn: parentTurn, Entry: "spawn"}
@@ -291,6 +304,7 @@ func TestTeamsProjection(t *testing.T) {
 				snapshot.Node = node
 				snapshot.Worktrees = []protocol.Worktree{{ID: worktree, Main: true}}
 				snapshot.Sessions = []protocol.Session{{ID: parent, Revision: 1, Worktree: worktree, Config: config, Roles: protocol.DefaultRoleSnapshot()}, {ID: childID, Revision: 1, Worktree: worktree, Config: config, Roles: protocol.DefaultRoleSnapshot(), Delegation: &origin}}
+				snapshot.Sessions[1].Activity.Waiting = row.waiting
 				history := protocol.DefaultConversationSnapshot()
 				history.Node, history.Page.Session, history.Page.Revision = node, parent, 1
 				history.Page.Runs = []protocol.ConversationRun{{Session: parent, Worktree: worktree, Turn: parentTurn, Sequence: 1, Revision: 1, Kind: protocol.ConversationRunKindTask, Status: protocol.ConversationStatusRunning}}
@@ -298,7 +312,11 @@ func TestTeamsProjection(t *testing.T) {
 				call.Name, call.Summary = "spawn_agent", &protocol.ToolDetailSummary{}
 				history.Page.Entries = []protocol.ConversationEntry{{ID: "spawn", Sequence: 1, Turn: parentTurn, Author: "assistant", Parts: []protocol.ConversationPart{{Kind: "tool_call", Data: call}}}}
 				history.Page.Children = []protocol.ConversationChild{{Run: protocol.ConversationRun{Session: childID, Worktree: worktree, Turn: protocol.TurnID{2}, Sequence: 2, Revision: 1, Kind: protocol.ConversationRunKindTask, Status: status}, Origin: *origin}}
-				controller := client.New(&conversationTestTransport{snapshot: snapshot, conversation: history})
+				transport := &conversationTestTransport{snapshot: snapshot, conversation: history}
+				transport.handle = func(request protocol.Request) (link.Response, bool) {
+					return link.Response{Output: protocol.Output{Kind: "accepted"}}, request.Command.Kind == "stop_turn"
+				}
+				controller := client.New(transport)
 				if err := controller.Start(t.Context()); err != nil {
 					t.Fatal(err)
 				}
@@ -328,15 +346,52 @@ func TestTeamsProjection(t *testing.T) {
 						t.Fatal(t.Context().Err())
 					}
 				}
-				runtime := &Runtime{controller: controller, ctx: t.Context(), conversationSeen: map[protocol.SessionID]bool{}, conversationWatches: map[protocol.SessionID]func(){childID: func() {}}}
+				runtime := &Runtime{controller: controller, ctx: t.Context(), busy: map[string]bool{}, conversationSeen: map[protocol.SessionID]bool{}, conversationWatches: map[protocol.SessionID]func(){childID: func() {}}}
 				context := &composer.Context{}
-				runtime.projectChildComposer(&viewmodel.Conversation{ID: parent.String()}, composer.New(""), context, "en")
+				comp := composer.New("")
+				runtime.projectChildComposer(&viewmodel.Conversation{ID: parent.String()}, comp, context, "en")
 				want := 0
 				if status == protocol.ConversationStatusRunning {
 					want = 1
 				}
-				if len(context.Activity.Children) != want || !runtime.conversationSeen[childID] {
-					t.Fatal("capsule status filtering changed child observation", context.Activity.Children, runtime.conversationSeen)
+				watched := row.waiting != nil && *row.waiting == protocol.ActivityWaitingApproval
+				if len(context.Activity.Children) != want || runtime.conversationSeen[childID] != watched {
+					t.Fatal("capsule rows or child observation changed", context.Activity.Children, runtime.conversationSeen)
+				}
+				// Stop reaches the child's own turn once; a stopping child is left alone.
+				stops := func() (turns []protocol.TurnID) {
+					transport.mu.Lock()
+					defer transport.mu.Unlock()
+					for _, request := range transport.requests {
+						if request.Command.Kind == "stop_turn" {
+							turns = append(turns, request.Command.Data.(protocol.CommandStopTurnPayload).Turn)
+						}
+					}
+					return turns
+				}
+				callbacks := comp.ActivityCallbacks
+				if callbacks.StopChild == nil || callbacks.ChildBusy == nil || callbacks.ChildBusy(childID.String()) {
+					t.Fatal("child stop was not bound idle")
+				}
+				callbacks.StopChild(childID.String())
+				callbacks.StopChild(childID.String())
+				sent := status != protocol.ConversationStatusStopping
+				if callbacks.ChildBusy(childID.String()) != sent {
+					t.Fatal("child stop busy state did not follow the request")
+				}
+				runtime.workers.Wait()
+				runtime.mu.Lock()
+				queue := runtime.queue
+				runtime.queue = nil
+				runtime.mu.Unlock()
+				for _, work := range queue {
+					work(nil)
+				}
+				if turns := stops(); sent && (len(turns) != 1 || turns[0] != (protocol.TurnID{2})) || !sent && len(turns) != 0 {
+					t.Fatalf("stop_turn requests = %v", turns)
+				}
+				if callbacks.ChildBusy(childID.String()) || stops() != nil && len(runtime.childStops) != 0 {
+					t.Fatal("child stop stayed busy after its outcome")
 				}
 			})
 		}

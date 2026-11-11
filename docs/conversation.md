@@ -22,7 +22,9 @@ Kit's `MessageScroller`.
 | `conversation.go` | `State`, `View`, turns, the reply's header, work region, phase row and footer |
 | `tools.go` | Tool rows, groups, sequences, outputs, diffs, tables, progress, question history, subagents |
 | `jump.go` | The jump-to-latest button |
-| `content.go` | File cards, thumbnails (Kit's `ImageGroup`), visuals, notices, grounding, retries, compaction turns, the changes card, `Cite`, `Kind`, `FileIcon` |
+| `content.go` | File cards, thumbnails (Kit's `ImageGroup`), notices, grounding, retries, compaction turns, the changes card, `Cite`, `Kind`, `FileIcon` |
+| `visuals.go` | Mermaid in a reply: the `mermaid` code block and `VisualBlock`, the parse and layout cache, limu's picture scaled to the reply, the caption |
+| `chart.go` | Data charts drawn natively from limu's parsed model: xychart (bars, lines, both orientations) and pie, their checks, hover and keyboard pick, tips and legends |
 | `viewer.go` | The image viewer: `Viewer` is `kit.Viewer[Image]` (zoom 0.25–8 by 1.25, pan, turn, flip, gallery and its counter) drawn by `kit.ImageViewer` |
 | `actions.go` | The reply and user footers, fork and export menus, rewind confirmation, `AnswerText`, `Resendable` |
 | `edit.go` | The inline editor of a sent message |
@@ -237,7 +239,7 @@ Kit `MessageScroller`, in `jump.go`:
 | `Compaction.Elapsed`, `CompactionInterrupted` | The compaction turn's label carries its duration; an interrupted one reads `chat_compact_interrupted` |
 | `Reply.PhaseElapsed` | The Compacting phase row carries how long it has run |
 | `File.Document`, `Exportable`, `Interactive` | A published document's More menu adds Export HTML and, unless it is an interactive preview, Export image; both disabled while `Exportable` is false |
-| `VisualBlock` / `Block.Visual` (`Title`, `Mermaid`) | The chart or diagram on the group box: limu (`github.com/firede/limu` and `limumygo` v0.5.0) lays the Mermaid source out to the card's width in the app's fonts, cached per source and width, and paints it in the palette (`ThemeOnly`); a source limu cannot read shows as code |
+| `VisualBlock` / `Block.Visual` (`Title`, `Mermaid`) | The chart or diagram in line with the reply's text, with no card: `Title` is one small muted caption above it and its accessible name. An xychart or pie is drawn natively and any other diagram by limu (`github.com/firede/limu` and `limumygo` v0.5.0), as [B10 visuals](#b10-visuals) describes; a source limu cannot read shows as code |
 | `File` (`Path`, `Mime`, `Kind`, `Text`, `Image`, `State`, `Editable`) | Card label/kind, the preview tab's content or state |
 | `Session.Older`, `LoadingOlder`, `OlderFailed` | Row before the first turn: loader (reaching it calls `LoadOlder`), failure with Retry |
 | `Session.Loading` | Loader and "Loading conversation" instead of the list |
@@ -452,14 +454,68 @@ These routes use additive Node identity without rewriting protocol SessionIDs.
 
 ### B10 visuals
 
-A fenced `mermaid` block inside a reply's Markdown is drawn in place by limu
-(`visuals.go`, the `mermaid` entry of the replies' `markdown.Options.Code`),
-with no WebView. It shares the layout cache of `VisualBlock`: one scene per
-source and reply width, at most 256, laid out again only when the width
-changes. The palette is applied at paint time (`ThemeOnly`), so a theme switch
-lays nothing out. The diagram is centered at its own size and scrolls sideways
-when it is wider than the reply. A block that is still streaming, is empty, is
-over 64 KiB, or that limu cannot read shows as the ordinary code block.
+A fenced `mermaid` block inside a reply's Markdown (the `mermaid` entry of the
+replies' `markdown.Options.Code`) and a `VisualBlock` are drawn in place by
+`showVisual` (`visuals.go`), with no WebView and no card: no border, fill or
+padding, the left edge in line with the text. limu parses each source once
+(at most 256 are kept). A block that is still streaming, is empty, is over
+64 KiB, or that limu cannot read shows as the ordinary code block; the chart
+replaces the code when the fence closes.
+
+**One title.** A `VisualBlock`'s `Title`, or else a data chart's Mermaid
+`title`, is one 12 DIP muted caption line above the visual and its accessible
+name; without either the name is the diagram's kind (`xychart`, `pie`,
+`flowchart`). Nothing is titled twice: a native chart never draws the
+Mermaid title inside itself, and a limu picture that draws its own title
+shows no caption.
+
+**Data charts** (`chart.go`). `xychart-beta` and `pie` are drawn natively
+from limu's parsed model (`Diagram.Model`) with MyGo's `ui/chart` scales,
+`Plot`, `Pie`, `Sector`, `SliceAt` and `Anchor`:
+
+| Mermaid | Drawn |
+|---|---|
+| `xychart-beta`: any mix of `bar` and `line` series, named or not; a category or numeric x-axis; an optional y-axis range; `horizontal`; the `xyChart.chartOrientation` config | Bars side by side per category (at most 40 DIP wide) and lines with points over them on one value axis. The source's y range is kept, otherwise bars start from zero on a rounded axis. A category without a value is a gap |
+| `pie`, `pie showData` | A 180 DIP pie with the legend beside it: label and share, and the value too with `showData`; two columns past six slices |
+
+The chart is as wide as the reply up to 560 DIP. A plot with its axis labels
+is 200 DIP tall; a horizontal chart takes 24 DIP per row between 120 and
+260. Axis labels are 11 DIP and muted, the grid is hairlines at the value
+ticks only, ticks share one unit (`k`, `M`, `B` from ten thousand), category
+labels that would overlap are left out and long ones are cut at 14
+characters. An axis title shows only when the source gives one, small and
+muted. The legend shows under the plot only for several series of which the
+source named at least one. Colors are `theme.Tints` (blue, violet, teal,
+amber, gray; the lighter end in dark mode), stepping toward the background
+from the sixth series.
+
+The mark under the pointer shows its value at once, on Kit's floating
+surface inside the plot: the category and value over a single series, the
+category and each series' value beside the category for several, the label,
+value and share on a pie slice; the other marks dim. The plot or pie is one
+Tab stop with role image: Left/Right (Up/Down), Home and End move the pick,
+Escape clears it, and each pick is the element's value and is announced.
+Nothing animates: there is no arrival animation, as the virtual list would
+replay it whenever a turn scrolls back in, and no frame is asked for at rest.
+
+**Hostile data** never panics and is never drawn wrong on purpose. `chartOf`
+returns no chart, and the source falls back to limu's picture (or to the
+code block when limu cannot lay it out), for: no series or more than 8; no
+category or more than 366; a value that is infinite; no finite value at all;
+series of different lengths on a numeric x-axis; a range a float64 cannot
+span; a pie with no slice, more than 12, a negative or non-finite value, or
+a sum of zero. Mermaid's own rules stay: a non-number is a syntax error
+(code block), series on a category axis are padded or cut to the
+categories, and repeated category labels are separate categories. Titles,
+labels and series names of any length are cut with an ellipsis (60
+characters read out and in legends, 20 in a tip, 14 on an axis).
+
+**Other diagrams** are limu's picture, laid out per reply width in the app's
+fonts (at most 32 widths per source, laid out again only when the width
+changes) and painted in the palette (`ThemeOnly`), so a theme switch lays
+nothing out. The picture keeps its natural size, scaled down to the reply's
+width and to 420 DIP of height; one that would shrink below 0.7 keeps that
+scale in a 420 DIP box that scrolls both ways.
 
 Math is bound by `bindMath`. The default build has no typesetter
 (`math_source.go`): formulas keep their source text, which is the documented
@@ -697,7 +753,7 @@ model fails it until a demo conversation shows it.
 | `lumen-web/onboarding` | Questions in every state, single and multiple choice; a plan review, a connector's form and its link; a declinable question with several choices waiting |
 | `lumen-web/audit` | A subagent's own session: read-only messages, no composer, the queue's read-only tray |
 | `lumen-web/tracker` | A connector's form: text with length bounds, multiline text, an integer with a range, yes or no, one choice and several, required and optional; declinable |
-| `lumen-web/metrics` | Search sources, citations and the search's suggestions; files of every kind and preview state, a published document and a published page; generated pictures; a tool's pictures, one of them gone; a reply's links as a file card and as pictures; a chart; math, a diagram and links; a draft with attachments in every status. The report is its last turn, so the session overview lists its cited pages and outputs |
+| `lumen-web/metrics` | Search sources, citations and the search's suggestions; files of every kind and preview state, a published document and a published page; generated pictures; a tool's pictures, one of them gone; a reply's links as a file card and as pictures; two charts (weekly active teams as bars, week-4 retention as a line); math, a diagram and links; a draft with attachments in every status. The report is its last turn, so the session overview lists its cited pages and outputs |
 | `growth-notes/sign-in` | A project that is a plain folder; a connector's authorization link, declinable |
 | `chat/hashing` (pinned) | Markdown: headings, lists, a table, code, a quote, math, a task list, links; its last message open in its editor |
 | `chat/handbook` | A built-in tool's label, a handoff summary, compaction turns in every state with their duration, a reply compacting with its elapsed time, a queued run |
@@ -760,6 +816,9 @@ destination, the rewind toast's backup action, and
 | Thinking figures (Orbits, Globe, Ribbon, Ring) approximate Rust's dot drawings | Drawn on the painter at 60 fps from the same states, not ported point for point |
 | Math shows as its TeX source in the default build | Untie is not in `go.mod` and no math font is chosen; the integration waits behind the `untie` build tag |
 | Mermaid is laid out on the UI goroutine and its unreadable sources show the code block without a notice | limu lays a 64 KiB bounded source out once per width; Rust prepares images off the UI thread |
+| Mermaid xychart and pie are drawn by our own painter (`chart.go`) on MyGo's `ui/chart`, not by limu's picture or a CrychicUI chart | Verified gap: limu's picture has no hover and draws its title; CrychicUI's `chart` components fail the conversation's rules ([docs/crychic.md](crychic.md#charts)): their value tips are MyGo's delayed opaque tooltip or an own surface outside the plot, their colors are the status tones, and they cannot draw Mermaid's shared-axis bar and line mix, a y range, gaps or horizontal series |
+| Radar, quadrant, sankey and treemap stay limu's picture | They are not category/value charts the painter draws; they get the card-free, capped presentation of every diagram |
+| Visuals have no card, and a diagram is left-aligned and scaled down rather than centered at its own size | The accepted minimal presentation of charts in a conversation |
 | ⌘F is a window shortcut, not an entry in the native menu | The shell's menu has no conversation commands yet |
 | Subagent tabs show Bot, not the identicon | `panel.look` returns an icon; the identicon is a drawing |
 | Older pages load when the first turn is built (near the start) | Rust asks on scrolling near the top; the list builds rows just outside the view |
@@ -788,6 +847,16 @@ their original content, structured result and error status in canonical history.
 An unavailable server contributes a bounded safe startup instruction and leaves
 the remaining tools available; cancellation and uncertain cleanup remain terminal.
 A reusable connection whose server ended is closed and replaced on its next use.
+
+Turn execution has no Node-wide worker pool or task cap. The Rust runtime ran
+main turns on 8 workers and refused work beyond 64 supervised tasks; both were
+removed by decision and are not to return. The governing limit for delegated
+work is the Team setting `ChildConcurrency` (default 8): at most that many
+children of one parent conversation run at once, counted across all of the
+parent's turns, and the rest stay queued and start in admission order (FIFO).
+A child cannot delegate, so there is no nested level for the limit to miss.
+Different conversations do not share a budget, so the total across the Node is
+unbounded. See [delegation.md](delegation.md).
 
 A stopped, failed or panicked turn settles every unanswered tool call with an
 interrupted response before its foreground cancellation notes. A call left

@@ -40,15 +40,15 @@ type State struct {
 	md            markdown.Options // the replies' (kit.Markdown fills the rest)
 	mdBase        *markdown.Theme
 	mdSize        float32
-	light         float32          // the welcome wordmark's beam, in window DIPs
-	lit           bool             // the pointer has moved over the welcome page
-	view          Viewer           // the image viewer
-	edits         map[string]*edit // the open message editor of each conversation
-	rewind        string           // the turn whose rewind waits to be confirmed
-	reading       string           // the turn read aloud
-	find          search           // the search bar
-	wantOlder     bool             // the start came into view this frame
-	nav           navigation       // the message navigation rail
+	light         float32            // the welcome wordmark's beam, in window DIPs
+	lit           bool               // the pointer has moved over the welcome page
+	view          Viewer             // the image viewer
+	edits         map[string]*edit   // the open message editor of each conversation
+	rewind        string             // the turn whose rewind waits to be confirmed
+	reading       string             // the turn read aloud
+	finds         map[string]*search // the search bar of each conversation
+	wantOlder     bool               // the start came into view this frame
+	nav           navigation         // the message navigation rail
 	// Split is whether the transcripts show in the panes of a split, which have
 	// no navigation rail.
 	Split            bool
@@ -159,7 +159,7 @@ func (s *State) turn(c *ui.Context, session string, i int, t *Turn, n int, sess 
 	if last {
 		bottom = 24
 	}
-	q, current, marked := s.highlight(i, t)
+	q, current, marked := s.highlight(session, i, t)
 	col := ui.Column(c).FillWidth().MaxWidth(theme.ContentWidth).Margin(0, ui.Auto).Padding(top, padX, bottom, padX).Gap(turnGap).Selectable()
 	col.Children(func() {
 		if first {

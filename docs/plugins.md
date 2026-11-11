@@ -155,12 +155,15 @@ radius 11 at 36 DIPs:
 - No declaration, or a name nothing draws, is the puzzle piece on the gradient
   tile (the plug for a connector service). It is not an error.
 
-The tile is still: nothing in it follows the pointer. Text-colored slots (rail
-feature buttons, settings sidebar entries, tool rows, menus and script `Icon`
-components) draw the same declared icon as a one-color glyph from
-`icons.Plugin`: a Phosphor fill icon follows the text color and a bare
-`ailogo:<slug>` is its mono variant. `icons.ByName` falls back to
-`icons.Plugin` for tool rows.
+The tile is still: nothing in it follows the pointer. The fill glyph and the
+brand mark are for the tile only: the package's own `display.icon` and a
+connector's. Text-colored slots (rail feature buttons, pages, panels, settings
+sidebar entries, tools and tool rows, menus, commands, status badges and script
+`Icon` components) draw the icon declared for that slot through `icons.Plugin`,
+and it should be an outline icon, `reicon:<group>/<name>`, as the
+application's own chrome icons are. A `phosphor:` name there still draws,
+solid, and a bare `ailogo:<slug>` draws its mono variant. `icons.ByName` falls
+back to `icons.Plugin` for tool rows.
 
 `icons.Plugin` resolves four kinds of name: `phosphor:<name>` from the embedded
 Phosphor fill archive (`internal/desktop/icons/phosphor`, the complete set of
@@ -171,8 +174,10 @@ validation in `internal/protocol/navigation.go` accepts a `phosphor:` name
 listed in `phosphor_icon_names.txt` and a `reicon:` name listed in
 `icon_names.txt` for navigation, panel and contribution icons; `ailogo:` names
 are for package, tool and connector `display` icons and view components, which
-that validation does not cover. Bundled packages declare a Phosphor icon; a
-package for one brand declares that brand's mark where AI Logo has it.
+that validation does not cover. Bundled packages declare a Phosphor icon of
+their own, or their brand's mark where AI Logo has it, and keep the source's
+Reicon outline icons everywhere else; `TestElementMapping/plugin icon catalog`
+holds every bundled manifest to that.
 
 Native bridges expose scoped terminal, conversation, artifact, configuration and
 file owners. They preserve the captured workspace and action requirements.
@@ -349,8 +354,10 @@ empty so the text remains aligned.
 - Package icons are Phosphor fill glyphs on tinted tiles, or AI Logo brand
   marks on neutral tiles; the source shows a Reicon glyph on a tinted tile.
   `phosphor:<name>` is an additional icon namespace of the v1 icon contract.
-  Reicon glyphs that no bundled package, SDK example or application icon names
-  are no longer embedded; such a name still validates and draws the placeholder.
+  Navigation, tool and other text-colored icons are the source's Reicon
+  outlines, unchanged. Reicon glyphs that no bundled package, SDK example or
+  application icon names are not embedded; such a name still validates and
+  draws the placeholder.
 - The source GPUI element contract is adapted to MyGo and Kit; imported runtime
   resources retain their notices and source revision.
 - Cards with an embedded authorization browser use an isolated native MyGo page

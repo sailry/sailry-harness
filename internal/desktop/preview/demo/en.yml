@@ -229,6 +229,7 @@ metrics.report: |-
   - Activation is above the B2B benchmark
   - Conversion needs a look before the pricing test
 metrics.chart.title: "Weekly active teams"
+metrics.retention.title: "Week-4 retention"
 metrics.1.user: "Explain the retention formula you used."
 metrics.1.think: "They want the definition, not the numbers. I should give the formula, say what each term counts, and show where the data comes from."
 metrics.1.answer: |-

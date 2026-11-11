@@ -212,10 +212,11 @@ func (s *State) permissionMenu(c *ui.Context, ctx *Context) {
 // a permission that changes files without asking. The danger color stays
 // for errors and destructive actions.
 func permissionColor(p *theme.Palette, m Permission) ui.Color {
-	if m == AskFirst {
-		return p.Foreground
+	// Only full access carries the warning, on the trigger as in the menu.
+	if m == FullAccess {
+		return p.Warning
 	}
-	return p.Warning
+	return p.Foreground
 }
 
 // project is the draft's project, nil for a chat without one.
@@ -524,7 +525,13 @@ func (s *State) settingsButton(c *ui.Context, ctx *Context, actions Actions) {
 		}
 	})
 	if panel != (ui.Element{}) {
-		panel.AttachTo(b, ui.AnchorTopStart, ui.AnchorBottomStart).Margin(0, 0, 8, 0).Padding(8).Width(312).Gap(4)
+		// As wide as the controls, which the model picker widens; clipped
+		// while it eases to their width.
+		width := float32(panelWidth)
+		if s.page == settingsMain && len(ctx.Models) > 0 {
+			width = s.controlsWidth(c)
+		}
+		panel.AttachTo(b, ui.AnchorTopStart, ui.AnchorBottomStart).Margin(0, 0, 8, 0).Padding(8).Width(width + 16).Gap(4).Clip()
 	}
 }
 

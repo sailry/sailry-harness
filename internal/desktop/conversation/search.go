@@ -1,6 +1,7 @@
 package conversation
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
@@ -185,7 +186,8 @@ func spans(text, q string, current int, p *theme.Palette) []ui.Span {
 	return append(out, ui.Span{Text: text[at:]})
 }
 
-// search is the bar's state for the conversation it searches.
+// search is a conversation's search bar: the state is kept by conversation,
+// closed or open, so its query is there when the bar opens again.
 type search struct {
 	open           bool
 	conv           string
@@ -201,16 +203,22 @@ type search struct {
 	revision       uint64
 }
 
-// OpenSearch opens the search bar on conversation id, or focuses it.
+// OpenSearch opens the search bar on conversation id, or focuses it. Each
+// conversation has its own bar: the panes of a split search side by side,
+// and opening one leaves the others as they are.
 func (s *State) OpenSearch(id string) {
-	if s.find.conv != id {
-		s.find.stop()
-		s.find = search{conv: id, generation: s.find.generation + 1, selected: -1}
+	f := s.finds[id]
+	if f == nil {
+		if s.finds == nil {
+			s.finds = map[string]*search{}
+		}
+		f = &search{conv: id, selected: -1}
+		s.finds[id] = f
 	}
-	if !s.find.open && s.Search != nil {
-		s.find.shown = ""
+	if !f.open && s.Search != nil {
+		f.shown = ""
 	}
-	s.find.open = true
+	f.open = true
 }
 
 func (f *search) stop() {
@@ -224,24 +232,58 @@ func (f *search) stop() {
 	}
 }
 
-// SearchOpen reports whether the search bar shows.
-func (s *State) SearchOpen() bool { return s.find.open }
+// SearchOpen reports whether a conversation's search bar is open.
+func (s *State) SearchOpen() bool { return len(s.SearchSessions()) > 0 }
+
+// SearchOpenIn reports whether conversation id's search bar is open.
+func (s *State) SearchOpenIn(id string) bool {
+	f := s.finds[id]
+	return f != nil && f.open
+}
 func (s *State) SyncSearch(id string, revision uint64) {
-	f := &s.find
-	if f.open && f.conv == id && f.revision != revision {
+	f := s.finds[id]
+	if f != nil && f.open && f.revision != revision {
 		f.stop()
 		f.generation++
 		f.revision = revision
 		f.shown = ""
 	}
 }
+
+// SearchSessions are the conversations whose search bar is open, in order.
+func (s *State) SearchSessions() []string {
+	var open []string
+	for id, f := range s.finds {
+		if f.open {
+			open = append(open, id)
+		}
+	}
+	slices.Sort(open)
+	return open
+}
+
+// SearchSession is the first of the conversations whose search bar is open.
 func (s *State) SearchSession() string {
-	if s.find.open {
-		return s.find.conv
+	if open := s.SearchSessions(); len(open) > 0 {
+		return open[0]
 	}
 	return ""
 }
-func (s *State) CloseSearch() { s.find.open = false; s.find.stop() }
+
+// CloseSearch closes every search bar.
+func (s *State) CloseSearch() {
+	for id := range s.finds {
+		s.CloseSearchIn(id)
+	}
+}
+
+// CloseSearchIn closes conversation id's search bar.
+func (s *State) CloseSearchIn(id string) {
+	if f := s.finds[id]; f != nil {
+		f.open = false
+		f.stop()
+	}
+}
 
 // current is the match revealed, if any.
 func (f *search) current() (Match, bool) {
@@ -256,12 +298,12 @@ func (f *search) current() (Match, bool) {
 // Enter, Shift+Enter, Cmd+G and Escape. The matches are this package's
 // (Find); a new query reveals the first, and stepping the one chosen.
 func (s *State) searchBar(c *ui.Context, id string, turns []Turn) {
-	f := &s.find
-	if !f.open {
-		f.stop()
+	f := s.finds[id]
+	if f == nil {
 		return
 	}
-	if f.conv != id {
+	if !f.open {
+		f.stop()
 		return
 	}
 	if r := []rune(f.query); len(r) > searchLimit {
@@ -326,8 +368,8 @@ func (s *State) searchBar(c *ui.Context, id string, turns []Turn) {
 }
 
 func (s *State) searchPage(id string) {
-	f := &s.find
-	if s.Search == nil || strings.TrimSpace(f.shown) == "" {
+	f := s.finds[id]
+	if f == nil || s.Search == nil || strings.TrimSpace(f.shown) == "" {
 		return
 	}
 	generation := f.generation
@@ -342,11 +384,12 @@ func (s *State) searchPage(id string) {
 	})
 }
 
-// highlight returns what turn i shows with the search's marks: its user
-// message's spans and its answer marked, or the turn unchanged.
-func (s *State) highlight(i int, t *Turn) (user string, current int, marked bool) {
-	f := &s.find
-	if !f.open || f.shown == "" || len(f.matches) == 0 {
+// highlight returns what turn i of conversation id shows with its search's
+// marks: its user message's spans and its answer marked, or the turn
+// unchanged.
+func (s *State) highlight(id string, i int, t *Turn) (user string, current int, marked bool) {
+	f := s.finds[id]
+	if f == nil || !f.open || f.shown == "" || len(f.matches) == 0 {
 		return "", -1, false
 	}
 	m, _ := f.current()

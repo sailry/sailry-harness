@@ -136,12 +136,12 @@ func Command(operation protocol.ToolOperation, arguments json.RawMessage, worktr
 	case "process.run":
 		kind = "run_command"
 		set("turn", turn)
-		if values["access"] == nil {
-			access := "unrestricted"
-			if sandbox {
-				access = "workspace"
-			}
-			set("access", access)
+		// With the sandbox setting off every command is unrestricted, a
+		// requested workspace access included.
+		if !sandbox {
+			set("access", "unrestricted")
+		} else if values["access"] == nil {
+			set("access", "workspace")
 		}
 		defaultValue("follow_up", false)
 		defaultValue("pty", false)

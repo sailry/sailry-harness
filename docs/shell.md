@@ -156,9 +156,11 @@ conversation in a project, breadcrumbs (`ui.Breadcrumbs`) of the project
 and the conversation, the project revealing its rows in the sidebar; on
 Files and Git, the project and the page, the project going back to the
 conversation with its rows revealed; on Activity and Market, its
-name. The page's own actions end that main region: on the conversation
-page Search (`chat_search`, the find bar ⌘F opens) and the session overview
-(`composer.OverviewButton`, `Hooks.Overview`; see `docs/composer.md`), then
+name. The main region ends, on the conversation page, with the activity
+strip (session status), then the conversation's own actions
+(`conversationActions`): Search (`chat_search`, the find bar ⌘F opens) and
+the session overview (`composer.OverviewButton`, `Hooks.Overview`; see
+`docs/composer.md`), then
 the plugins' header contributions (`Hooks.PluginHeader`) and the preview tag. A plugin's header
 contribution is the same `kit.IconLook` at `HeaderButton` as the shell's own
 buttons, `ButtonGap` apart, its popover under its end; an `indicator` or
@@ -169,15 +171,44 @@ The band is two regions, split at the right column's left edge
 
 | Region | Content |
 |---|---|
-| Main, any width | Sidebar toggle, title, then the page's own actions at its right end, left of the split |
-| Side, as wide as the column shows (`panelW × details`), at least its fixed cluster | The column's segment while the column shows, then the fixed cluster: the activity strip (session status) and the details toggle |
+| Main, any width | Sidebar toggle, title, then at its right end, left of the split: the activity strip (session status), Search and the session overview, the plugins' contributions and the preview tag |
+| Side, as wide as the column shows (`panelW × details`), at least the details toggle (`sideWidth`) | The column's segment while the column shows, then the details toggle alone |
 
 - The details toggle (`PanelRight`, selected while the column shows) is the
   last control of the window in both states, `HeaderInsets` from its edge:
   12 plus `c.TitleBar().Right`. Nothing but the system's caption buttons is
-  right of it. The activity strip is directly left of it, `ButtonGap` apart,
-  open or closed; without a group it takes no room and no gap, so the toggle
-  does not move.
+  right of it, and nothing but the column's segment is left of it in the
+  side region.
+- The activity strip is the main region's (user decision 2026-11-11,
+  replacing the same day's placement beside the toggle): directly left of
+  Search and the overview, `ButtonGap` apart, with the column open or
+  closed. Where the conversation has no such actions (no turn yet, or a
+  split) it ends the region before the plugins' contributions and the tag.
+  Without a group it takes no room and no gap.
+- The title and the strip share one row (`lead`) that takes what the
+  region's other controls leave. The title is at its start and gives way
+  first, shortening with an ellipsis and cut at its own edge, so it is never
+  under the strip. Once the title is down to `titleRoom` (96) the strip's
+  groups show fewer sessions, down to each group's +N alone; where even
+  that does not fit, the last groups leave (finished first, waiting last)
+  rather than cover the actions.
+- The strip must know its room in the frame it builds. The region's width
+  comes from the frame's columns and the known controls from their
+  constants; what the plugins' contributions and the tag take is read from
+  the last frame's layout (`band.room`). Only a frame built on a measure
+  that then changed asks for one more frame, so the header at rest asks for
+  none.
+- Search and the overview are one conversation's. A conversation shown
+  alone has them in the band. In a split the band has none, and each
+  conversation pane has its own in its header (`paneHeader`), 28 square and
+  4 apart before the drag handle and the close button, acting on that
+  pane's conversation; a terminal pane has none, and neither has a
+  conversation without a turn. The search bar's state is kept by
+  conversation (`conversation.State.finds`) and the overview popover's too
+  (`App.overviews`, forgotten once its button is no longer built), so two
+  panes can search at once and one pane's overview leaves another's as it
+  is. ⌘F and the menu's Find act on the focused pane's conversation
+  (`findTarget`), and on none while a terminal pane has the focus.
 - While the column shows, a 1 DIP line in `Border` continues the column's
   left border through the band. Both are placed from the same
   `panelW × details`, so they line up while the column opens, closes or is
@@ -340,7 +371,9 @@ color; the others take the lane's color with a 10 DIP badge (warning
 triangle, success check). A group shows three (two under 480 DIPs), or two
 and +N in the lane's color, which opens a 300 DIP popover of the group's
 rows. The pointer resting on one shows its title and project in a
-tooltip.
+tooltip. It sits in the header's main region, left of Search and the
+overview, and folds to fewer sessions per group, then to each group's +N,
+where the region is short (see Header).
 
 ## Knowledge
 
@@ -471,14 +504,26 @@ pages without a column and an earlier file (`testSideColumns`); the
 header's and the rail's icon buttons' boxes, gaps and hover fill and the
 disabled details toggle (`testIconButtons`); the header's two regions
 (`testHeaderSplit`, with a right title-bar inset of 0 and 138, a run active
-and none, the column open and closed): the toggle at the far right, the
-session status beside it, the page's actions left of the split, the band's
+and none, the column open and closed): the toggle alone at the far right,
+the session status then Search and the overview at the main region's end,
+left of the split, the band's
 line on the column's border also after a resize, the tabs in the band with
 no strip under it, the details and metrics titles in the band without a
 close button, and the toggle disabled with nothing to show
 (`SAILRY_UI_SHOTS=<directory>` saves its zh-CN dark frames); ⌘K search opening a conversation;
 the activity centre opening a conversation and the knowledge viewer
 paging; `ParseSource`, `Filter`, `Next`, `MoveFeature`.
+`internal/desktop/shell/strip_test.go` (`TestHeaderStrip`): the strip's
+groups and +N; its place left of Search with the column open and closed
+and at the region's end without those actions (`testStripPlace`); folding
+to +N beside the column without reaching over the title
+(`testStripFolds`); and the header alone and over a split asking for no
+frame at rest (`testStripAtRest`).
+`internal/desktop/shell/panes_test.go` (`TestPanesRender`): Search and the
+overview in the band for a conversation alone and in each conversation
+pane's header in a split, each acting on its own conversation, ⌘F on the
+focused pane's, none for a terminal pane (`testPaneActions`) or a
+conversation without a turn (`testPaneWithoutTurns`).
 `internal/desktop/shell/knowledge_live_test.go` (`testLiveKnowledge`, run by
 `TestActivityCentreReadsAndOpens`): an invalid link never reaches the hook, a
 notice is marked read and hands over its citation, the live page's texts, and Previous and Next
@@ -513,7 +558,10 @@ field, both catalogs have the same keys, and the models' names.
 | Header icon buttons are 28 with a 15 icon, the rail's icon is 15 | Kit's accepted small button (docs/components.md); the reference's header buttons are 24 with a 14 icon and its rail icon is 16 |
 | The details toggle is disabled while the window has no room for the panel | It cannot act then; it used to dim and still take clicks |
 | The right column's tabs or title are in the header band, and the details toggle is its only close control (user decision 2026-11-11) | The reference gives the column its own strip row and each details page a title row with a close button. One band keeps the toggle in one place and gives the column its full height |
-| The header's session status shows on the conversation page only, beside the toggle | Its existing rule; other pages keep the toggle alone |
+| The header's session status shows on the conversation page only, in the main region left of Search and the overview; the details toggle is alone at the far right (user decision 2026-11-11) | Its existing rule for the page; the status belongs with the page's actions, and the toggle keeps one place |
+| In a split, Search and the session overview are in each conversation pane's header and not in the band (user decision 2026-11-11) | They act on one conversation, and the band names none over a split |
+| The strip's room is computed, with the plugins' contributions and the tag measured from the last frame | A MyGo row cannot ask a child to show less before the title is cut; the strip must choose its own count for the room |
+| One pane's overview popover closes when another pane's button is pressed | `ui.PopoverBase` closes on a press outside it; the two states are separate and the pressed one still opens |
 | Window dragging over the band is not tested | The headless backend's `startDrag` does nothing; the segment and the side row carry no interactive flag |
 | Windows and Linux title-bar insets are simulated, not run | `ui.Tester.SetTitleBar`; only macOS was run |
 | The resize handles are drawn strips | `ui.Split` cannot close a pane to nothing |

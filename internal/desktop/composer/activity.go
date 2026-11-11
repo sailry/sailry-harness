@@ -48,7 +48,11 @@ type Changes struct {
 
 // ActivityCallbacks adds labels for host-owned worktree identities.
 type ActivityCallbacks struct {
-	ChildElapsed    func(string, time.Time) string
+	ChildElapsed func(string, time.Time) string
+	// StopChild stops that subagent only; ChildBusy is true while the stop
+	// is in flight. Without StopChild the rows carry no Stop.
+	StopChild       func(string)
+	ChildBusy       func(string) bool
 	CommandState    func() (bool, bool)
 	CommandError    func(string) bool
 	CommandBusy     func(string) bool
@@ -184,10 +188,12 @@ func (s *State) gitChanges(c *ui.Context, ch Changes, actions Actions) {
 		})
 	}).HasPopup(ui.PopupDialog).OnClick(func() { s.act.changes = !s.act.changes })
 	placeStart(kit.Popover(c, b, &s.act.changes, func() {
+		// The files' count leads; the totals end the line, over the rows'.
 		ui.Row(c.Key("totals")).Gap(8).Padding(0, 4, 4, 4).AlignItems(ui.Center).Children(func() {
-			ui.Textf(c, "+%d", ch.Added).FontSize(14).FontWeight(600).TextColor(p.Success)
-			ui.Textf(c, "-%d", ch.Removed).FontSize(14).FontWeight(600).TextColor(p.Danger)
-			ui.Text(c, i18n.T(c, "directory_count_files", "count", ch.Files)).FontSize(14).TextColor(p.MutedForeground)
+			ui.Text(c, i18n.T(c, "directory_count_files", "count", ch.Files)).FontSize(13).SingleLine().TextColor(p.MutedForeground)
+			ui.Spacer(c)
+			ui.Textf(c, "+%d", ch.Added).FontSize(13).FontWeight(600).SingleLine().TextColor(p.Success)
+			ui.Textf(c, "-%d", ch.Removed).FontSize(13).FontWeight(600).SingleLine().TextColor(p.Danger)
 		})
 		for _, f := range ch.Recent {
 			dir, base := path.Split(f.Path)
@@ -481,29 +487,46 @@ func (s *State) subagents(c *ui.Context, a Activity, actions Actions) {
 				if name == "" {
 					name = i18n.T(c, "chat_child")
 				}
-				row := kit.Ghost(c.Key(k.ID), name, false).FillWidth().Height(26).PaddingX(8).Gap(8).Justify(ui.Start).
-					Children(func() {
-						kit.Identicon(c, k.ID, k.Status.Active(), 16)
-						ui.Text(c, name).FontSize(14).SingleLine().Grow(1).Shrink(1).MinWidth(0)
-						if s.ActivityCallbacks != nil && s.ActivityCallbacks.ChildElapsed != nil {
-							if elapsed := s.ActivityCallbacks.ChildElapsed(k.ID, c.Now()); elapsed != "" {
-								ui.Text(c, elapsed).FontSize(12).Shrink(0).TextColor(theme.Of(c).MutedForeground)
-							}
-						}
-					}).OnClick(func() {
-					s.act.children = false
-					actions.OpenChild(k.ID)
-				})
-				status := "chat_running"
-				if k.Status == conversation.ChildQueued {
-					status = "turn_queued"
-				} else if k.Status == conversation.ChildStopping {
-					status = "chat_stopping"
+				stop := s.ActivityCallbacks != nil && s.ActivityCallbacks.StopChild != nil && (k.Status == conversation.ChildRunning || k.Status == conversation.ChildStopping)
+				if stop {
+					ui.Row(c.Key("row-" + k.ID)).Gap(2).AlignItems(ui.Center).Children(func() {
+						s.subagentRow(c, k, name, actions).Grow(1).Shrink(1).MinWidth(0)
+						busy := k.Status == conversation.ChildStopping || s.ActivityCallbacks.ChildBusy != nil && s.ActivityCallbacks.ChildBusy(k.ID)
+						kit.IconButton(c.Key("stop-"+k.ID), icons.Square, i18n.T(c, "subagent_stop"), 24, false).
+							Disabled(!a.Connected || busy).OnClick(func() { s.ActivityCallbacks.StopChild(k.ID) })
+					})
+					continue
 				}
-				kit.Tooltip(c, row, i18n.T(c, status))
+				s.subagentRow(c, k, name, actions).FillWidth()
 			}
 		})
 	}), trigger, 360, 8, 0)
+}
+
+// subagentRow is a subagent's identicon, title and running time; a click opens
+// its session.
+func (s *State) subagentRow(c *ui.Context, k conversation.Child, name string, actions Actions) ui.Element {
+	row := kit.Ghost(c.Key(k.ID), name, false).Height(26).PaddingX(8).Gap(8).Justify(ui.Start).
+		Children(func() {
+			kit.Identicon(c, k.ID, k.Status.Active(), 16)
+			ui.Text(c, name).FontSize(14).SingleLine().Grow(1).Shrink(1).MinWidth(0)
+			if s.ActivityCallbacks != nil && s.ActivityCallbacks.ChildElapsed != nil {
+				if elapsed := s.ActivityCallbacks.ChildElapsed(k.ID, c.Now()); elapsed != "" {
+					ui.Text(c, elapsed).FontSize(12).Shrink(0).TextColor(theme.Of(c).MutedForeground)
+				}
+			}
+		}).OnClick(func() {
+		s.act.children = false
+		actions.OpenChild(k.ID)
+	})
+	status := "chat_running"
+	if k.Status == conversation.ChildQueued {
+		status = "turn_queued"
+	} else if k.Status == conversation.ChildStopping {
+		status = "chat_stopping"
+	}
+	kit.Tooltip(c, row, i18n.T(c, status))
+	return row
 }
 
 // placeStart puts a strip popover above its capsule at its start, 8 DIPs

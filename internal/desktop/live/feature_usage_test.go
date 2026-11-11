@@ -94,17 +94,18 @@ func testFeatureUsage(t *testing.T) {
 			}
 		}
 
-		// A package's views carry the icon and tint it declares: a rail
-		// feature its glyph in the text color (a brand's mark in one color),
-		// a card the name its tile is drawn from. Only an unknown or missing
+		// A package's views carry the icons and tint it declares: a rail
+		// feature its navigation's outline glyph in the text color, a card
+		// the name its tile is drawn from. Only an unknown or missing
 		// declaration is the puzzle piece.
 		root.pluginViews.icons, root.pluginViews.iconFailures = map[string]*ui.SVG{}, map[string]bool{}
 		calendar, tint, category := "phosphor:calendar-check", protocol.PluginTintAmber, protocol.PluginCategory("automation")
-		glyph, err := icons.Plugin(calendar)
+		outline := "reicon:time/calendar"
+		glyph, err := icons.Plugin(outline)
 		if err != nil || glyph == icons.Puzzle {
 			t.Fatal(err)
 		}
-		if got := root.pluginNavigationIcon(nil, &protocol.PluginDesktopIcon{Kind: "Name", Data: &calendar}); got != glyph {
+		if got := root.pluginNavigationIcon(nil, &protocol.PluginDesktopIcon{Kind: "Name", Data: &outline}); got != glyph {
 			t.Error("a navigation entry does not draw its declared glyph")
 		}
 		for _, missing := range []string{"phosphor:missing", "reicon:missing/icon", "ailogo:missing-brand"} {
@@ -115,7 +116,9 @@ func testFeatureUsage(t *testing.T) {
 		if root.pluginNavigationIcon(nil, nil) != icons.Puzzle {
 			t.Error("a navigation entry without an icon is not the placeholder")
 		}
-		for _, kept := range []string{"reicon:map/globe", "ailogo:github"} {
+		// A tile's name in a navigation entry still draws: a Phosphor icon
+		// solid, a brand's mark in one color.
+		for _, kept := range []string{"reicon:map/globe", calendar, "ailogo:github"} {
 			glyph, err := icons.Plugin(kept)
 			if err != nil || glyph == icons.Puzzle || root.pluginNavigationIcon(nil, &protocol.PluginDesktopIcon{Kind: "Name", Data: &kept}) != glyph {
 				t.Errorf("a navigation entry does not draw %q: %v", kept, err)

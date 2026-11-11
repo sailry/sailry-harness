@@ -215,6 +215,8 @@ func composerMenus(t *testing.T) {
 			t.Fatalf("no settings button at the compact width: %q", tt.Texts())
 		}
 		tt.Frame()
+		// The popover fades in: read it once it rests.
+		tt.Advance(300 * time.Millisecond)
 		tt.Frame()
 		// The permission's row, in the warning color, opens its page.
 		page := p.row(full, ui.RoleButton)
@@ -226,8 +228,9 @@ func composerMenus(t *testing.T) {
 		tt.Advance(300 * time.Millisecond)
 		tt.Frame()
 		chosen, rest, other := p.row(full, ui.RoleButton), p.row(ask, ui.RoleButton), p.row(project, ui.RoleButton)
-		if !chosen.Selected || rest.Selected {
-			t.Errorf("selected: full %v, ask %v", chosen.Selected, rest.Selected)
+		// A choice row reports its choice as checked.
+		if !chosen.Checked || rest.Checked {
+			t.Errorf("checked: full %v, ask %v", chosen.Checked, rest.Checked)
 		}
 		if menuRow != 0 && rest.Bounds.H != menuRow {
 			t.Errorf("a popover row is %v high, the menu's %v", rest.Bounds.H, menuRow)

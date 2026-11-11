@@ -875,11 +875,12 @@ func still(tt *ui.Tester) {
 }
 
 // The header is two regions that meet at the right panel's left edge. The
-// session status and the fold toggle are fixed at the far right in both
-// states; the page's own actions end the main region, left of the split; the
-// band's divider is the column's; the panel's tabs and the details' titles
-// show in the band over the column, which has no strip row, title row or
-// close button of its own; the fold toggle is disabled with nothing to show.
+// fold toggle alone is fixed at the far right in both states; the session
+// status, then the page's own actions end the main region, left of the
+// split; the band's divider is the column's; the panel's tabs and the
+// details' titles show in the band over the column, which has no strip row,
+// title row or close button of its own; the fold toggle is disabled with
+// nothing to show.
 func testHeaderSplit(t *testing.T) {
 	a, tt := newTester(t)
 	en := func(k string) string { return i18n.In("en", k) }
@@ -934,20 +935,34 @@ func testHeaderSplit(t *testing.T) {
 				if shown != running {
 					t.Fatalf("%s: session status shown %v", name, shown)
 				}
-				// The cluster's left edge: the status, or the toggle alone
-				// with no doubled gap.
-				cluster := f.Bounds.X
-				if running {
-					if end(st) != f.Bounds.X-ButtonGap {
-						t.Errorf("%s: the session status %v does not end one gap before the toggle %v", name, st, f.Bounds)
-					}
-					cluster = st.X
+				// The main region's end: the session status, Find and the
+				// overview, each one gap before the next, then the page's
+				// tag. The status is the main region's in both states, with
+				// no doubled gap where it is absent.
+				find, found := headerButton(tt, en("chat_search"))
+				overview, ok := headerButton(tt, en("chat_assets_title"))
+				if !found || !ok {
+					t.Fatalf("%s: the band lacks Find (%v) or the overview (%v)", name, found, ok)
 				}
 				g := tag()
+				if running && end(st) != find.Bounds.X-ButtonGap {
+					t.Errorf("%s: the session status %v does not end one gap before Find %v", name, st, find.Bounds)
+				}
+				if overview.Bounds.X != end(find.Bounds)+ButtonGap || g.X != end(overview.Bounds)+ButtonGap {
+					t.Errorf("%s: the main region does not end with Find %v, the overview %v and the tag %v", name, find.Bounds, overview.Bounds, g)
+				}
 				line := headerLine(tt, split)
 				if !open {
-					if end(g) != cluster-ButtonGap {
-						t.Errorf("%s: the page's actions end at %v, the cluster starts at %v", name, end(g), cluster)
+					// The far-right cluster is the fold toggle alone, one
+					// gap after the main region: no other button of the
+					// band is right of the region's end.
+					if end(g) != f.Bounds.X-ButtonGap {
+						t.Errorf("%s: the page's actions end at %v, the fold toggle starts at %v", name, end(g), f.Bounds.X)
+					}
+					for _, info := range tt.AccessAll() {
+						if b := info.Bounds; info.Role == ui.RoleButton && b.W > 0 && b.Y >= 0 && b.Y+b.H <= HeaderHeight && b.X >= end(g) && info.Name != en("details") {
+							t.Errorf("%s: %q at %v is beside the fold toggle", name, info.Name, b)
+						}
 					}
 					if line >= 0 {
 						t.Errorf("%s: the closed panel leaves a divider at %v", name, line)
@@ -973,9 +988,9 @@ func testHeaderSplit(t *testing.T) {
 	}
 	a.PanelWidth = PanelWidth
 	still(tt)
-	// The panel's tabs show in the band over the panel: tabs, "+", the
-	// session status, the fold toggle; the column starts with the tab's
-	// content, not a second strip.
+	// The panel's tabs show in the band over the panel: tabs, "+", the fold
+	// toggle, the session status staying in the main region; the column
+	// starts with the tab's content, not a second strip.
 	tt.Key(ui.Cmd, ui.KeyP)
 	still(tt)
 	for _, k := range []panel.Kind{panel.History, panel.Browser, panel.Terminal, panel.Documents} {
@@ -995,7 +1010,7 @@ func testHeaderSplit(t *testing.T) {
 		tabs = append(tabs, b)
 		names[info.Name] = true
 	}
-	// Five tabs do not fit beside the cluster: the rest scroll.
+	// The tabs that do not fit beside the toggle scroll.
 	if len(tabs) < 2 || len(tabs) > len(a.Panel.Tabs) {
 		t.Fatalf("the band shows %d tabs of %v: %q", len(tabs), a.Panel.Tabs, tt.Texts())
 	}
@@ -1006,13 +1021,23 @@ func testHeaderSplit(t *testing.T) {
 	}
 	plus, ok := tt.AccessByRole(ui.RoleMenuButton, en("details"))
 	all, found := tt.AccessByRole(ui.RoleMenuButton, en("navigation_tabs"))
-	st, _ := status(tt)
+	st, shown := status(tt)
 	f := fold()
 	if !ok || !found || plus.Bounds.Y+plus.Bounds.H > HeaderHeight || all.Bounds.Y+all.Bounds.H > HeaderHeight {
 		t.Fatalf("the tabs' menus are not in the band: %+v %+v", plus.Bounds, all.Bounds)
 	}
-	if tabs[0].X != split+8 || !(end(tabs[0]) <= all.Bounds.X && end(all.Bounds) <= plus.Bounds.X && end(plus.Bounds) <= st.X && end(st) <= f.Bounds.X) {
-		t.Errorf("the band over the panel is not tabs, +, status, toggle: %v %v %v %v %v", tabs[0], all.Bounds, plus.Bounds, st, f.Bounds)
+	if tabs[0].X != split+8 || !(end(tabs[0]) <= all.Bounds.X && end(all.Bounds) <= plus.Bounds.X && end(plus.Bounds) <= f.Bounds.X) {
+		t.Errorf("the band over the panel is not tabs, +, toggle: %v %v %v %v", tabs[0], all.Bounds, plus.Bounds, f.Bounds)
+	}
+	// The session status is the main region's, left of Find, and nothing is
+	// between the "+" and the fold toggle.
+	if find, ok := headerButton(tt, en("chat_search")); !shown || !ok || end(st) != find.Bounds.X-ButtonGap || end(find.Bounds) > split {
+		t.Errorf("the session status %v (shown %v) is not one gap before Find %v in the main region", st, shown, find.Bounds)
+	}
+	for _, info := range tt.AccessAll() {
+		if b := info.Bounds; b.W > 0 && b.Y+b.H <= HeaderHeight && b.X >= end(plus.Bounds) && b.X < f.Bounds.X && info.Role == ui.RoleButton {
+			t.Errorf("%q at %v is between the tabs' + and the fold toggle", info.Name, b)
+		}
 	}
 	top := float32(820)
 	for _, info := range tt.AccessAll() {

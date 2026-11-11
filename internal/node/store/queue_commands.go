@@ -234,11 +234,13 @@ func stopAgentTurn(ctx context.Context, db *sql.Conn, turn protocol.TurnID, now 
 	if err != nil {
 		return run, err
 	}
-	var retained bool
+	var retained, child bool
 	if run.Status != protocol.ConversationStatusQueued {
 		if retained, err = retainedTurn(ctx, db, turn); err != nil {
 			return run, err
 		}
+	} else if child, err = unstartedChild(ctx, db, turn); err != nil {
+		return run, err
 	}
 	if run.Status == protocol.ConversationStatusQueued || retained {
 		if _, err = ReleaseBackground(ctx, db, turn, true); err != nil {
@@ -254,8 +256,12 @@ func stopAgentTurn(ctx context.Context, db *sql.Conn, turn protocol.TurnID, now 
 	switch run.Status {
 	case protocol.ConversationStatusQueued:
 		run.Status = protocol.ConversationStatusCancelled
-		ms := now.UnixMilli()
-		run.FinishedMs = &ms
+		// A stopped child that never started keeps its finish time unset: the
+		// claim pass finishes it, which closes its completion record.
+		if !child {
+			ms := now.UnixMilli()
+			run.FinishedMs = &ms
+		}
 	case protocol.ConversationStatusRunning:
 		run.Status = protocol.ConversationStatusStopping
 		if err = setQueuePaused(ctx, db, run.Session, true); err != nil {

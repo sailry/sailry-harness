@@ -37,6 +37,9 @@ root runtime; `live/terminal.go` owns the MyGo terminal of each tab.
 | Close terminal | `close_terminal`, or `close_ssh_terminal` for a terminal without a worktree; the tab leaves on success or `not_found`, any other outcome keeps it and toasts failure, conflict or uncertain |
 | Closing the tab in the strip, ⌘W | Asks first (`workspace_close_terminal` and the tab's title, Cancel or Close), then Close terminal: the shell ends on the Node and the tab leaves when it has |
 | Find | MyGo terminal search through `TerminalActions.Search` |
+| Typing and pasting | `input_terminal` at the terminal's revision, in commands of at most 64 KiB sent in order, so a paste of any size arrives whole. Only a closed tab ends the view's input: a refused command drops the rest of that write and toasts once until input is accepted again, so the tab keeps working after a revision race or a reconnect |
+| Control | The Node accepts input, size and appearance only from the terminal's owner. A running local terminal nobody owns is claimed when it is shown (`claim_terminal` at its revision, once per revision). One another controller owns is covered by `terminal_other_controller` with Take control (`terminal_take_control`), which claims it; a refusal toasts and leaves it with its controller. After a claim the view sends its size and appearance again. Input typed while not the owner is dropped without a command. SSH terminals are never claimed |
+| Failed attach | `unavailable` with Retry (`chat_retry`), which attaches again from the Node's current record of the terminal |
 | Saved tab after relaunch | The first frame that shows it subscribes again; a terminal that is not running is sent `open_terminal` first, which restarts a stored shell under the same ID |
 
 Each frame `terminalsFrame` ports the reference `prune`: a tab stays only while
@@ -125,6 +128,8 @@ Deviations:
 | A session's panel tabs come back after a relaunch | The reference keeps nothing of the panel. The accepted window state already restored the tabs; it restores them per session now |
 | A local terminal reports no activity (OSC 9;4, 133, 633) | MyGo's terminal view does not surface these sequences; SSH terminals report theirs |
 | An exited shell closes its terminal, tab and panes (user decision 2026-11-10) | The reference prunes only `closed` or missing terminals. The desktop closes an exited terminal once; a failed one stays to show its error, and a stopped one stays so it can be reopened |
+| A paste over 64 KiB is sent in several commands instead of being refused | The reference refuses it with `terminal_paste_too_large`. MyGo hands a paste to the connection as one write, and the connection already has to split it to stay inside the Node's bound, so the refusal and its key are unnecessary. The multi-line confirmation is unchanged |
+| The other-controller cover replaces only the screen's area and is drawn by the tab's own column | The reference overlays its own terminal element; MyGo's terminal view has no overlay slot |
 | A saved tab of a peer discovered after every known Node answered is dropped | A tab stores no Node; ownership is known only from snapshots |
 | Local terminals are core; a package's `terminal` renderer, creation contribution and shortcut are not mounted (user decision 2026-11-10) | The reference lets a package own terminals. Here local terminals are core, like Files and Git; SSH terminals remain package-owned through the Terminal component of the package's own page |
 

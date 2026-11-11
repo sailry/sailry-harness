@@ -159,7 +159,72 @@ func FinishCommand(ctx context.Context, db *sql.Conn, finished process.Finished,
 	if err := terminalCommandRecord(ctx, db, record, outcome, summary, now); err != nil {
 		return nil, err
 	}
+	// The completion supersedes stall evidence no turn has taken.
+	if err := settleStall(ctx, db, snapshot.Info.ID); err != nil {
+		return nil, err
+	}
 	return activityEvent(ctx, db, record.Task.Session)
+}
+
+// StallCommand records one silent period of a running background command as
+// evidence of its own, `stall:<request>`, with the outcome stalled. The
+// command's record stays running until it finishes. It reports whether
+// evidence was written.
+func StallCommand(ctx context.Context, db *sql.Conn, stalled process.Stalled, now time.Time) ([]protocol.Event, bool, error) {
+	snapshot := stalled.Snapshot
+	// A command outside an agent turn, or promoted before its receipt commits, has no record.
+	command, err := readBody[BackgroundRecord](ctx, db, "SELECT body FROM agent_background WHERE id=?1", "command:"+snapshot.Info.ID.String())
+	if err != nil || command == nil {
+		return nil, false, err
+	}
+	if command.Task.Session != snapshot.Info.Session || command.Task.Turn != snapshot.Info.Turn {
+		return nil, false, errors.New("background command ownership changed")
+	}
+	if command.Task.State != protocol.ConversationBackgroundStateRunning {
+		return nil, false, nil
+	}
+	id := "stall:" + snapshot.Info.ID.String()
+	record, err := readBody[BackgroundRecord](ctx, db, "SELECT body FROM agent_background WHERE id=?1", id)
+	if err != nil {
+		return nil, false, err
+	}
+	switch {
+	case record == nil:
+		record = &BackgroundRecord{Task: protocol.ConversationBackgroundTask{ID: id, Session: command.Task.Session, Turn: command.Task.Turn, Kind: command.Task.Kind, Title: command.Task.Title, State: protocol.ConversationBackgroundStateRunning, StartedMs: command.Task.StartedMs}}
+	case record.Task.State == protocol.ConversationBackgroundStatePending && record.Task.Delivery != nil:
+		// A reserved delivery keeps the evidence its notice was rendered from.
+		return nil, false, nil
+	case record.Task.State != protocol.ConversationBackgroundStatePending:
+		record.Task.Delivery, record.Task.Recovered, record.Task.Suppressed = nil, false, false
+	}
+	record.FollowUp = command.FollowUp
+	elapsed := stalled.ElapsedMs
+	stdout, stderr := processTail(snapshot.Stdout.Text, 2048), processTail(snapshot.Stderr.Text, 2048)
+	record.Stdout, record.Stderr, record.ElapsedMs = &stdout, &stderr, &elapsed
+	var summary *string
+	for _, text := range []string{snapshot.Stderr.Text, snapshot.Stdout.Text} {
+		if text != "" {
+			value := processTail(text, 512)
+			summary = &value
+			break
+		}
+	}
+	if err := terminalCommandRecord(ctx, db, record, protocol.ConversationBackgroundOutcomeStalled, summary, now); err != nil {
+		return nil, false, err
+	}
+	events, err := activityEvent(ctx, db, record.Task.Session)
+	return events, true, err
+}
+
+// settleStall dismisses a command's undelivered stall evidence. Delivered or
+// reserved evidence stays with the turn that received it.
+func settleStall(ctx context.Context, db *sql.Conn, command protocol.RequestID) error {
+	record, err := readBody[BackgroundRecord](ctx, db, "SELECT body FROM agent_background WHERE id=?1", "stall:"+command.String())
+	if err != nil || record == nil || record.Task.State != protocol.ConversationBackgroundStatePending || record.Task.Delivery != nil {
+		return err
+	}
+	record.Task.State = protocol.ConversationBackgroundStateDismissed
+	return saveBackgroundRecord(ctx, db, record)
 }
 
 func processStatusData[T any](value any) (T, bool) {
@@ -238,6 +303,23 @@ func ReadBackgroundTasks(ctx context.Context, db *sql.Conn, session protocol.Ses
 		tasks = append(tasks, record.Task)
 	}
 	return tasks, nil
+}
+
+// dismissSessionBackground closes the evidence of a removed session. The Node
+// stops the session's commands after the removal commits; their completion then
+// finds a dismissed row and records nothing.
+func dismissSessionBackground(ctx context.Context, db *sql.Conn, session protocol.SessionID) error {
+	records, err := readBodies[BackgroundRecord](ctx, db, "SELECT body FROM agent_background WHERE session=?1 AND state IN ('running','pending')", session.String())
+	if err != nil {
+		return err
+	}
+	for _, record := range records {
+		record.Task.State, record.Task.Delivery = protocol.ConversationBackgroundStateDismissed, nil
+		if err := saveBackgroundRecord(ctx, db, &record); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func RecoverCommands(ctx context.Context, db *sql.Conn, now time.Time) ([]protocol.Event, error) {

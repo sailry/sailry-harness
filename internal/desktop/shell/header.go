@@ -16,13 +16,15 @@ import (
 // header is the band above the rail and the columns: the app's name over the
 // sidebar, clear of the traffic lights, then two regions that meet at the
 // right panel's left edge. The main region is the page's: the sidebar toggle,
-// the title and, at its end, the page's own actions. The region over the
-// panel is the panel's: its tabs or its title. The session status and the
-// fold toggle are fixed at the window's far right, clear of the window
+// the title and, at its end, the session status and the page's own actions.
+// The region over the panel is the panel's: its tabs or its title. The fold
+// toggle alone is fixed at the window's far right, clear of the window
 // buttons, in both states. Its empty areas drag the window.
 func (a *App) header(c *ui.Context, f frame) {
 	p := theme.Of(c)
 	bar := c.TitleBar()
+	width, _ := c.Size()
+	end := HeaderInsets(bar)
 	left := RailWidth + f.navWidth*f.nav
 	ui.Row(c.Key("header")).Height(HeaderHeight).Shrink(0).DragWindow().Children(func() {
 		// The traffic lights' room, from MyGo's title bar: none in full screen or
@@ -43,9 +45,13 @@ func (a *App) header(c *ui.Context, f frame) {
 			}
 		})
 		pad := max(lights-left, 0) + 12
-		// The main region ends one gap before the fixed cluster, and 12 before
+		// The main region ends one gap before the fold toggle, and 12 before
 		// the split while the panel shows.
-		ui.Row(c.Key("module")).Grow(1).MinWidth(0).Height(HeaderHeight).PaddingStart(pad).PaddingEnd(ButtonGap + 4*f.details).Gap(ButtonGap).Children(func() {
+		padEnd := ButtonGap + 4*f.details
+		ui.Row(c.Key("module")).Grow(1).MinWidth(0).Height(HeaderHeight).PaddingStart(pad).PaddingEnd(padEnd).Gap(ButtonGap).Children(func() {
+			// What the region's controls of a known width take, each with
+			// the gap beside it.
+			known := float32(0)
 			// The toggle belongs to the side column: a page without one shows
 			// none, as the reference's module header.
 			if a.HasNavigation() {
@@ -55,11 +61,37 @@ func (a *App) header(c *ui.Context, f frame) {
 				}
 				kit.IconButtonHint(c.Key("toggle"), icon, i18n.T(c, "sidebar_toggle"), a.hint("sidebar.toggle"), HeaderButton, false).
 					OnClick(a.toggleNav)
+				known += HeaderButton + ButtonGap
 			}
-			a.trail(c)
-			ui.Spacer(c)
-			if a.Page == ConversationPage {
-				a.pageActions(c)
+			if a.Page != ConversationPage {
+				a.band = band{}
+				a.trail(c)
+				ui.Spacer(c)
+			} else {
+				// Find and the overview are one conversation's: the band
+				// has them while the conversation shows alone, and each
+				// pane of a split has its own (paneHeader).
+				var cv *preview.Conversation
+				if a.panes.Displayed() == nil {
+					cv = a.Data.Find(a.Sidebar.Selected)
+				}
+				if hasActions(cv) {
+					known += 2 * (HeaderButton + ButtonGap)
+				}
+				// The title and the session status share what the other
+				// controls leave: the title at its start, the status at its
+				// end, directly before the page's actions.
+				lead := ui.Row(c.Key("lead")).Grow(1).MinWidth(0).Height(HeaderHeight).Gap(ButtonGap)
+				room := a.band.room(c, lead, width-left-sideWidth(f, end)-pad-padEnd, known)
+				lead.Children(func() {
+					// The title gives way first and is cut at its own
+					// edge: breadcrumbs keep a least width per item, which
+					// must not show over the status.
+					ui.Row(c.Key("title")).Shrink(1).MinWidth(0).Height(HeaderHeight).ClipX().Children(func() { a.trail(c) })
+					ui.Spacer(c)
+					a.strip(c, room)
+				})
+				a.conversationActions(c, cv, HeaderButton)
 			}
 			// A demo conversation is no session a plugin could mount over.
 			if a.Hooks.PluginHeader != nil && !(a.Demo() && a.Page == ConversationPage) {
@@ -75,25 +107,106 @@ func (a *App) header(c *ui.Context, f frame) {
 				})
 			}
 		})
-		a.headerSide(c, f, HeaderInsets(bar))
+		a.headerSide(c, f, end)
 	})
 }
 
-// pageActions are the conversation page's own header actions, at the end of
-// the main region: Find in the conversation, then the session overview.
-func (a *App) pageActions(c *ui.Context) {
-	cv := a.Data.Find(a.Sidebar.Selected)
-	// A conversation without a turn has nothing to find or to list.
-	if cv == nil || len(cv.Turns) == 0 {
+// titleRoom is the width the title keeps before the session status folds:
+// the title shortens with an ellipsis first.
+const titleRoom = 96
+
+// band is the header's main region on the conversation page, as the
+// session status fits into it. The region's width is known as the frame
+// builds, from the columns; what its controls of no known width take (the
+// plugins' contributions, the preview tag) is read from the last frame's
+// layout.
+type band struct {
+	// built is whether the last frame laid the region out; inner and known
+	// are its content width and its known controls' then, and extras what
+	// the others took before that.
+	built                bool
+	inner, known, extras float32
+}
+
+// room is the width the title and the session status share in this frame:
+// lead's, which takes what the region's other controls leave of inner. A
+// frame built on a measure that has since changed asks for another, so the
+// status settles in the layout it is shown in; a region at rest asks for
+// none.
+func (b *band) room(c *ui.Context, lead ui.Element, inner, known float32) float32 {
+	extras := float32(0)
+	if b.built {
+		extras = max(b.inner-b.known-lead.LayoutBounds().W, 0)
+	}
+	if d := extras - b.extras; !b.built || d > 0.5 || d < -0.5 {
+		c.AnimationFrame()
+	}
+	*b = band{built: true, inner: inner, known: known, extras: extras}
+	return inner - known - extras
+}
+
+// sideWidth is the width of the header's side (headerSide): the column's
+// while it shows, and at least the fold toggle before the window's edge.
+func sideWidth(f frame, end float32) float32 {
+	least := HeaderButton + end
+	if f.details > 0.001 {
+		// The segment over the column, one gap before the toggle.
+		least += ButtonGap
+	}
+	return max(f.panelW*f.details, least)
+}
+
+// hasActions reports whether cv has its own actions: a conversation without
+// a turn has nothing to find or to list.
+func hasActions(cv *preview.Conversation) bool { return cv != nil && len(cv.Turns) > 0 }
+
+// conversationActions are a conversation's own actions, size square: Find
+// in it, then its session overview. They end the band's main region while
+// the conversation shows alone, and are in its pane's header in a split,
+// each pane's acting on its own conversation.
+func (a *App) conversationActions(c *ui.Context, cv *preview.Conversation, size float32) {
+	if !hasActions(cv) {
 		return
 	}
-	kit.IconButtonHint(c.Key("find"), icons.Search, i18n.T(c, "chat_search"), a.hint("conversation.find"), HeaderButton, a.Messages.SearchOpen()).
+	kit.IconButtonHint(c.Key("find"), icons.Search, i18n.T(c, "chat_search"), a.hint("conversation.find"), size, a.Messages.SearchOpenIn(cv.ID)).
 		OnClick(func() { a.Messages.OpenSearch(cv.ID) })
-	if a.assetsOf != cv.ID {
-		// The popover is one conversation's: another starts closed.
-		a.assets, a.assetsOf = composer.OverviewState{}, cv.ID
+	composer.OverviewButton(c, a.overviewOf(cv.ID), a.sessionOverview(c, cv), size)
+}
+
+// overviewPopover is a conversation's session overview popover, kept while
+// its button shows.
+type overviewPopover struct {
+	state composer.OverviewState
+	// shown is whether this frame built its button.
+	shown bool
+}
+
+// overviewOf is conversation id's overview popover: each conversation has
+// its own, so one opening in a pane leaves another pane's as it is.
+func (a *App) overviewOf(id string) *composer.OverviewState {
+	o := a.overviews[id]
+	if o == nil {
+		if a.overviews == nil {
+			a.overviews = map[string]*overviewPopover{}
+		}
+		o = &overviewPopover{}
+		a.overviews[id] = o
 	}
-	composer.OverviewButton(c, &a.assets, a.sessionOverview(c, cv), HeaderButton)
+	o.shown = true
+	return &o.state
+}
+
+// sweepOverviews forgets, at the start of a frame, the popovers whose
+// button the last frame did not build: a conversation that comes back
+// starts closed.
+func (a *App) sweepOverviews() {
+	for id, o := range a.overviews {
+		if !o.shown {
+			delete(a.overviews, id)
+			continue
+		}
+		o.shown = false
+	}
 }
 
 // sessionOverview is cv's overview: the live controller's, or the preview's
@@ -127,10 +240,11 @@ func (a *App) sessionOverview(c *ui.Context, cv *preview.Conversation) *composer
 func HeaderInsets(bar ui.TitleBar) float32 { return 12 + bar.Right }
 
 // headerSide is the header from the split to the window's right edge. It is
-// as wide as the panel shows, so its left edge is the panel's, and holds the
-// panel's own header content, then the fixed cluster: the session status and
-// the fold toggle, end clear of the window's right edge. With the panel
-// closed only the cluster is left, at the end of the main region.
+// as wide as the panel shows (sideWidth), so its left edge is the panel's,
+// and holds the panel's own header content, then the fold toggle alone, end
+// clear of the window's right edge. With the panel closed only the toggle is
+// left, at the end of the main region. The session status is the main
+// region's (strip).
 func (a *App) headerSide(c *ui.Context, f frame, end float32) {
 	p := theme.Of(c)
 	shown := f.panelW * f.details
@@ -141,13 +255,10 @@ func (a *App) headerSide(c *ui.Context, f frame, end float32) {
 			ui.Box(c.Key("split")).Absolute().Right(shown-1).Top((HeaderHeight-dividerHeight)/2).Size(1, dividerHeight).
 				Background(p.TitleBarBorder)
 			// The segment asks for no width of its own and takes what the
-			// column's width leaves beside the cluster, so the side is never
+			// column's width leaves beside the toggle, so the side is never
 			// wider than the column for its tabs.
 			seg := ui.Row(c.Key("segment")).Width(0).Grow(1).MinWidth(0).Height(HeaderHeight).ClipX().Gap(4)
 			seg.Children(func() { a.panelHeader(c, seg) })
-		}
-		if a.Page == ConversationPage {
-			a.strip(c)
 		}
 		// The fold toggle is the right column's only close control. It cannot
 		// act, and is disabled, while the page has nothing to show there or

@@ -35,6 +35,9 @@ type commandEntry struct {
 	lastOutput    time.Time
 	pending       bool
 	settling      bool
+	// activity is when the command started or last produced output.
+	activity  time.Time
+	promotion chan struct{}
 }
 
 type commandSubscriber struct {
@@ -69,6 +72,9 @@ func New(options Options) (*Service, error) {
 		options.Environment = NewEnvironment(os.Environ())
 	}
 	if options.Profile != "" {
+		if err := reapGroups(options.Profile); err != nil {
+			return nil, err
+		}
 		if err := clearOutput(options.Profile); err != nil {
 			return nil, err
 		}
@@ -145,7 +151,7 @@ func (s *Service) ExecutePromotable(ctx context.Context, launch Launch, promotio
 		<-entry.done
 		return protocol.Output{Kind: "command_result", Data: entry.completion}, entry.failure
 	}
-	entry.background, entry.promoted = true, true
+	s.promoteLocked(entry)
 	info := entry.info
 	s.publishLocked(info.Session)
 	s.mu.Unlock()
@@ -185,7 +191,9 @@ func (s *Service) begin(launch Launch, background bool) (*commandEntry, error) {
 		profile = launch.Root
 	}
 	ctx, cancel := context.WithCancel(s.ctx)
-	entry := &commandEntry{launch: launch, stop: cancel, done: make(chan struct{}), changed: make(chan struct{}), outputChanged: make(chan struct{}), background: background, accessed: s.options.Now()}
+	promotion := make(chan struct{})
+	launch.promoted = promotion
+	entry := &commandEntry{launch: launch, stop: cancel, done: make(chan struct{}), changed: make(chan struct{}), outputChanged: make(chan struct{}), background: background, accessed: s.options.Now(), activity: s.options.Now(), promotion: promotion}
 	entry.info = protocol.ProcessInfo{ID: launch.ID, Session: launch.Session, Turn: launch.Turn, Command: launch.Command, Access: launch.Access, Pty: launch.Pty, Cwd: launch.Cwd, StartedMs: uint64(max(s.options.Now().UnixMilli(), 0)), Status: protocol.ProcessStatus{Kind: "running"}, Services: []protocol.ProcessService{}}
 	entry.initial = entry.info
 	if background {
@@ -196,6 +204,9 @@ func (s *Service) begin(launch Launch, background bool) (*commandEntry, error) {
 	s.entries[launch.ID] = entry
 	s.workers.Add(1)
 	go s.run(ctx, entry)
+	if background {
+		s.watchStallLocked(entry)
+	}
 	s.publishLocked(launch.Session)
 	return entry, nil
 }
@@ -221,6 +232,13 @@ func (s *Service) run(ctx context.Context, entry *commandEntry) {
 		}()
 		return run(ctx, entry.launch, func(kind protocol.ProcessOutputOutputStream, value []byte) { s.append(entry, kind, value) }, entry.input)
 	}()
+	// The runner flags a stream it stopped reading before that stream closed.
+	if completion.Stdout.Truncated {
+		entry.stdout.cut()
+	}
+	if completion.Stderr.Truncated {
+		entry.stderr.cut()
+	}
 	entry.stdout.finish()
 	entry.stderr.finish()
 	completion.Stdout, completion.Stderr = entry.stdout.snapshot(false), entry.stderr.snapshot(false)
@@ -285,6 +303,7 @@ func (s *Service) append(entry *commandEntry, kind protocol.ProcessOutputOutputS
 		s.publishLocked(entry.info.Session)
 	}
 	now := s.options.Now()
+	entry.activity = now
 	if entry.lastOutput.IsZero() || now.Sub(entry.lastOutput) >= 100*time.Millisecond {
 		entry.lastOutput = now
 		s.outputLocked(entry)
@@ -322,9 +341,65 @@ func (s *Service) Promote(session protocol.SessionID, id protocol.RequestID) (pr
 	if entry.info.Status.Kind != "running" || entry.settling {
 		return protocol.ProcessInfo{}, &protocol.Fault{Code: protocol.ErrorCodeConflict, Message: "command has already completed"}
 	}
-	entry.background, entry.promoted = true, true
+	s.promoteLocked(entry)
 	s.publishLocked(session)
 	return entry.info, nil
+}
+
+// promoteLocked moves a running foreground command to session ownership. A
+// background command has no timeout, so the foreground deadline ends here.
+func (s *Service) promoteLocked(entry *commandEntry) {
+	if entry.promoted || entry.background {
+		return
+	}
+	entry.background, entry.promoted = true, true
+	close(entry.promotion)
+	s.watchStallLocked(entry)
+}
+
+// watchStallLocked reports each silent period of a running background command
+// once. Output after a report starts the next period.
+func (s *Service) watchStallLocked(entry *commandEntry) {
+	if s.options.Stalled == nil || s.closed {
+		return
+	}
+	s.workers.Add(1)
+	go func() {
+		defer s.workers.Done()
+		wait := StallWindow
+		for {
+			select {
+			case <-entry.done:
+				return
+			case <-s.ctx.Done():
+				return
+			case <-s.options.After(wait):
+			}
+			s.mu.Lock()
+			if entry.settling || entry.info.Status.Kind != "running" {
+				s.mu.Unlock()
+				return
+			}
+			if silent := s.options.Now().Sub(entry.activity); silent < StallWindow {
+				s.mu.Unlock()
+				wait = StallWindow - silent
+				continue
+			}
+			stalled := Stalled{Snapshot: protocol.ProcessSnapshot{Info: entry.info, Stdout: entry.stdout.snapshot(true), Stderr: entry.stderr.snapshot(true)}, ElapsedMs: uint64(max(s.options.Now().UnixMilli()-int64(entry.info.StartedMs), 0))}
+			resumed := entry.outputChanged
+			s.mu.Unlock()
+			// The command keeps running whether or not its session hears of the silence.
+			_ = s.options.Stalled(context.WithoutCancel(s.ctx), stalled)
+			select {
+			case <-entry.done:
+				return
+			case <-s.ctx.Done():
+				return
+			case <-resumed:
+				wait = StallWindow
+			}
+		}
+	}()
 }
 
 func (s *Service) List(session protocol.SessionID) []protocol.ProcessInfo {
