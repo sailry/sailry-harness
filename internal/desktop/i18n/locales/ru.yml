@@ -14,6 +14,7 @@ preview: Предварительный просмотр UI
 preview_notice: Предварительный просмотр содержимого; взаимодействия остаются в этом окне
 projects: Проекты
 project_add: Добавить проект
+project_new: Новый проект
 sidebar_pinned: Закреплённые
 sessions_unassigned: Чаты
 workspace_new_session: Создать сеанс
@@ -809,6 +810,7 @@ knowledge_installed: Установлена
 knowledge_missing: Не установлена
 knowledge_model_details: Подробности
 live_revoke: Удалить пары
+live_revoke_confirm: Отключить “%{name}” и удалить пары? Повторное подключение потребует повторной пары
 local_models_available: Доступные
 local_models_empty: Нет установленных моделей
 local_models_status: Статус
@@ -970,6 +972,7 @@ telemetry_send_action: Отправить диагностику
 telemetry_support: Поддержка
 telemetry_title: Диагностика и конфиденциальность
 telemetry_unknown: Результат неизвестен. Обновите для проверки
+telemetry_welcome: Анонимная диагностика включена по умолчанию. Это можно изменить в настройках
 terminal_environment: Глобальные экологические переменные
 terminal_environment_add: Добавить переменную среды
 terminal_input: Ввод
@@ -1459,6 +1462,7 @@ metrics_indexer: Индексатор предварительного прос�
 metrics_loading: Ожидание показателей (предварительный просмотр)
 metrics_error: Метрики недоступны (предварительный просмотр)
 port_title: Перенаправление портов
+port_mappings: Сопоставления портов
 port_add: Новый форвард
 port_create: Создать
 port_remote: Хост-порт

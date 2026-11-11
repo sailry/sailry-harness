@@ -40,6 +40,9 @@ func TestWelcomeGuide(t *testing.T) {
 		tt.Frame()
 	}
 	snapshot(t, tt, "welcome-guide")
+	if !tt.HasText(i18n.In("en", "telemetry_welcome")) {
+		t.Fatalf("no diagnostics note: %q", tt.Texts())
+	}
 	clickButton(t, tt, "DeepSeek")
 	tt.Frame()
 	tt.Advance(time.Second)
@@ -54,6 +57,17 @@ func TestWelcomeGuide(t *testing.T) {
 	}
 	if p := a.Prefs(); p.WelcomeSeen == nil || !*p.WelcomeSeen {
 		t.Error("the guide is not remembered as seen")
+	}
+	// The note's Settings closes the guide as seen and opens Settings ›
+	// General, where diagnostics are.
+	a.Welcome.Seen = false
+	tt.Frame()
+	clickButton(t, tt, i18n.In("en", "settings"))
+	tt.Frame()
+	tt.Advance(time.Second)
+	tt.Frame()
+	if a.Welcome.Open || !a.Welcome.Seen || a.Page != SettingsPage || a.Settings.Section != settings.General || tt.HasText(i18n.In("en", "onboarding_title")) {
+		t.Fatalf("Settings: %+v page %d %s", a.Welcome, a.Page, a.Settings.Section)
 	}
 }
 

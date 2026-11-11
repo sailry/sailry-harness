@@ -19,8 +19,7 @@ func (p *workspaceProject) showGitDocument(id string) {
 	// Captured reads may finish after navigation; keep their own project cache
 	// without selecting a different worktree's panel.
 	if p.runtime.workspace.selected == p.owner.ID {
-		p.runtime.App.PanelOpen = true
-		p.runtime.App.Panel.Show(panel.Tab{Kind: panel.Changes, ID: id})
+		p.showItem(panel.Changes, id)
 	}
 }
 

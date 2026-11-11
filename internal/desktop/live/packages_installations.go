@@ -126,12 +126,14 @@ func (r *Runtime) installationOwner(entry transfers.Entry) (*Runtime, protocol.R
 	return owner, id, valid && err == nil && owner != nil && owner.packages != nil
 }
 
+// dismissInstallation removes a request from the Node's queue; a failure
+// keeps the row and toasts installation_remove_failed.
 func (r *Runtime) dismissInstallation(entry transfers.Entry) {
 	owner, id, valid := r.installationOwner(entry)
 	if !valid {
 		return
 	}
-	owner.packageCommand(protocol.Command{Kind: "dismiss_installation", Data: protocol.CommandDismissInstallationPayload{Request: id}}, func(_ protocol.Output, ok bool) {
+	owner.packageCommandReport(protocol.Command{Kind: "dismiss_installation", Data: protocol.CommandDismissInstallationPayload{Request: id}}, "installation_remove_failed", func(_ protocol.Output, ok bool) {
 		if ok {
 			var tasks []protocol.InstallationTask
 			for _, task := range owner.packages.tasks {

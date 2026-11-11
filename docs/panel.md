@@ -231,6 +231,9 @@ terminal, subagent and file-preview tabs are single-pane.
   the session's are read, `Actions.Loading`), Files and Git without a
   project `resource_project_empty`, Files without a file `file_empty`, a
   browser tab before its first address `browser_empty`, a preview or a
+  project `resource_project_empty` (their pages add New project,
+  docs/shell.md), Files without a file `file_empty`, a
+  browser tab before its first address `browser_address`, a preview or a
   subagent that is gone `artifact_preview_failed` and
   `chat_child_unavailable`. Documents opened without a document is one tab
   that takes the first document once the session has one.

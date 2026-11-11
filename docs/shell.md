@@ -120,7 +120,12 @@ a pin (`feature_pin`/`feature_unpin`); rows drag to reorder
 (`MoveFeature`, a 4 DIP primary line). Every feature opens an
 independent page in the main column, as the reference's `Page`
 destinations do: Files and Git over the selected conversation's project
-(the same `panel.Project` the panel's tabs show, `docs/panel.md`),
+(the same `panel.Project` the panel's tabs show, `docs/panel.md`; in a
+live window `Hooks.WorkspaceProject`, the selected session's worktree read
+from its Node), `unavailable` while a project's worktree is not known, and
+without a project `resource_project_empty` over New project (`project_new`),
+which opens the project editor (`App.projectPrompt`; the page has no sidebar,
+so it builds `sidebar.Dialogs`),
 Activity and Market as the reference's preview shows them (`unavailable`).
 The panel shows on the conversation page only; selecting a conversation
 over a page goes back to it, and `ClosePage` closes the page shown. Hosts: a menu with the hosts (check on the chosen one, `App.Host`),
@@ -128,7 +133,12 @@ each opening its page (`HostPage`, docs/host.md, whose Update opens the
 update dialog; no trailing Update in the menu), `host_add` opening
 Settings › Connections' Add host; a dot when one has an update; its right-click menu
 is the system's (`workspace_host` opens the chosen host's page,
-`connection_action_edit`, `project_add`). The host page has the right
+`connection_action_edit`, `project_add`; then `App.hostMenu`: `port_mappings`,
+a submenu of the chosen host's forwards, each opening its address, over
+`port_title`, which opens the host page's port picker; `sidebar_host_update`
+with the name of every host that has an update, opening its page with the
+update dialog, since the approved picker rows carry no trailing Update; and,
+for a paired host, `live_revoke`, which opens the page's confirmation). The host page has the right
 column too: its metrics, toggled by the details button and ⌥⌘B.
 
 A host's name shows as it is (`App.hostName`): only the preview's hosts and
@@ -298,7 +308,9 @@ page was left, cancels the recording.
 
 ⌘K or the rail: a dialog 480 wide. Root rows: Chats,
 Projects, Hosts, Settings (folders) and the features. A folder lists its
-items with a check on the current one. `Filter` keeps rows whose label or
+items with a check on the current one; a project opens its page
+(`sidebar.Actions.Overview`, the sidebar's Project), and in the preview,
+which has no such page, its rows in the sidebar. `Filter` keeps rows whose label or
 keyword holds the query, case folded, in order, dropping empty groups;
 `Next` moves round. Enter opens a folder or runs a row, Escape clears the
 query then closes, Backspace on an empty query goes back, `reference_back`
@@ -430,7 +442,10 @@ and finds it read on the Node with the viewer on that chunk.
 `internal/desktop/shell/pages_test.go`: the rail opens pages, not tabs; a
 plugin's page has no session sidebar or toggle and starts at the rail; the
 Files and Git page and tab share a project's state, another project
-keeps its own.
+keeps its own; a live window's pages show the hook's project, are
+unavailable only without its worktree and offer New project without a
+project. `internal/desktop/live/rail_pages_test.go` drives both pages
+against a real Node.
 `internal/desktop/shell/sidebar_test.go` and `shell_test.go`: the sidebar and
 Phase 1–2 screens.
 
@@ -471,7 +486,10 @@ preview aliases retain the explicit preview constructor and its interactions.
 callbacks only enqueue work. `App.View` drains it on the UI thread; `SetUpdate`
 binds MyGo Window.Update to schedule the frame. The live path never constructs
 fixtures, advances preview streams or simulates transfers, dictation or host
-metrics. Models, tools, file/Git data and later-phase settings stay unavailable.
+metrics. Models, tools and later-phase settings stay unavailable. A file or
+diff the live workspace opens (`workspaceProject.showItem`: a search result, a
+new file, a commit) shows on the rail's Files or Git page when that page is
+shown, and in the panel's tab otherwise.
 
 Search, breadcrumbs, the local host overview, activity lanes and pane existence
 follow Client snapshots. Sync calls Client.Refresh, replacing the Node topic

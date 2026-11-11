@@ -16,6 +16,7 @@ preview_notice
 # Sidebar
 projects
 project_add
+project_new
 sidebar_pinned
 sessions_unassigned
 workspace_new_session
@@ -828,6 +829,7 @@ knowledge_installed
 knowledge_missing
 knowledge_model_details
 live_revoke
+live_revoke_confirm
 local_models_available
 local_models_empty
 local_models_status
@@ -989,6 +991,7 @@ telemetry_send_action
 telemetry_support
 telemetry_title
 telemetry_unknown
+telemetry_welcome
 terminal_environment
 terminal_environment_add
 terminal_input
@@ -1471,6 +1474,7 @@ metrics_indexer
 metrics_loading
 metrics_error
 port_title
+port_mappings
 port_add
 port_create
 port_remote

@@ -14,6 +14,7 @@ preview: UI 预览
 preview_notice: 所有内容均为示例，仅在当前窗口内交互
 projects: 项目
 project_add: 添加项目
+project_new: 新建项目
 sidebar_pinned: 置顶
 sessions_unassigned: 对话
 workspace_new_session: 创建会话
@@ -809,6 +810,7 @@ knowledge_installed: 已安装
 knowledge_missing: 未安装
 knowledge_model_details: 详情
 live_revoke: 移除配对
+live_revoke_confirm: 确认断开“%{name}”并取消配对？再次连接需重新配对
 local_models_available: 可安装
 local_models_empty: 暂无已安装模型
 local_models_status: 状态
@@ -970,6 +972,7 @@ telemetry_send_action: 发送诊断信息
 telemetry_support: 支持
 telemetry_title: 诊断与隐私
 telemetry_unknown: 结果未知，请重新加载确认
+telemetry_welcome: 匿名诊断默认开启，可在设置中更改
 terminal_environment: 全局环境变量
 terminal_environment_add: 添加环境变量
 terminal_input: 输入
@@ -1459,6 +1462,7 @@ metrics_indexer: 示例索引进程
 metrics_loading: 等待指标（示例）
 metrics_error: 指标暂不可用（示例）
 port_title: 端口转发
+port_mappings: 端口映射
 port_add: 新建转发
 port_create: 创建
 port_remote: 主机端口

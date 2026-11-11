@@ -13,6 +13,7 @@ import (
 func TestPanelProjection(t *testing.T) {
 	t.Run("panel tabs close, stay closed and never show a blank body", panelTabs)
 	t.Run("browser tab shows its page's state and fills its body", browserChrome)
+	t.Run("rail Files and Git pages show the selected project", railPages)
 	t.Run("manual hunk selection retains displayed coordinate identity", func(t *testing.T) {
 		patch := "@@ -1,2 +1,2 @@\n-before\n+after\n tail\n@@ -20,2 +20,2 @@\n-old\n+new\n end\n"
 		hunks := workspaceHunks(patch)

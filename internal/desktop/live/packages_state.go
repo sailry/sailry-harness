@@ -511,6 +511,12 @@ func packageCommandKey(command protocol.Command) string {
 }
 
 func (r *Runtime) packageCommand(command protocol.Command, done func(protocol.Output, bool)) {
+	r.packageCommandReport(command, "plugins_failed", done)
+}
+
+// packageCommandReport is packageCommand with the failure toast's key, for a
+// command whose failure has its own words.
+func (r *Runtime) packageCommandReport(command protocol.Command, failed string, done func(protocol.Output, bool)) {
 	key := packageCommandKey(command)
 	if r.busy["packages/"+key] {
 		// The command in flight answers its own caller; this one was not sent.
@@ -545,7 +551,7 @@ func (r *Runtime) packageCommand(command protocol.Command, done func(protocol.Ou
 					kit.Toast(c, kit.Done, i18n.T(c, "plugins_uninstalled"))
 				}
 			}
-			r.packageReport(c, err)
+			r.reportKeys(c, err, failed, "plugins_settings_conflict", "plugins_unknown")
 			if done != nil {
 				done(output, err == nil)
 			}

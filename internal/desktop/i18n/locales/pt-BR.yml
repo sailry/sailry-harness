@@ -14,6 +14,7 @@ preview: Visualização da UI
 preview_notice: Visualizar conteúdo; as interações permanecem nesta janela
 projects: Projetos
 project_add: Adicionar um projeto
+project_new: Um novo projeto
 sidebar_pinned: Fixados
 sessions_unassigned: Conversas
 workspace_new_session: Criar uma sessão
@@ -809,6 +810,7 @@ knowledge_installed: Instalado
 knowledge_missing: Não instalado
 knowledge_model_details: Detalhes
 live_revoke: Remover o emparelhamento
+live_revoke_confirm: Desconecte “%{name}” e remova o emparelhamento? A reconexão exigirá o emparelhamento novamente
 local_models_available: Disponíveis
 local_models_empty: Nenhum modelo instalado
 local_models_status: Status
@@ -970,6 +972,7 @@ telemetry_send_action: Enviar diagnóstico
 telemetry_support: Suporte
 telemetry_title: Diagnóstico e privacidade
 telemetry_unknown: Resultado desconhecido. Recarregue para verificar
+telemetry_welcome: Os diagnósticos anônimos vêm ativados. Você pode alterar isso nas configurações
 terminal_environment: Variáveis ambientais globais
 terminal_environment_add: Adicionar variável de ambiente
 terminal_input: Entrada
@@ -1459,6 +1462,7 @@ metrics_indexer: Preview indexer
 metrics_loading: À espera de métricas (visualização)
 metrics_error: Métricas indisponíveis (visualização)
 port_title: Encaminhamento de porta
+port_mappings: Mapeamentos de portas
 port_add: Novo avançado
 port_create: Criar
 port_remote: Porta do host

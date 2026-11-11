@@ -1161,6 +1161,7 @@ func TestComposerSendRouting(t *testing.T) {
 		})
 	}
 	t.Run("a session on another Node is forwarded by the local Node", testSessionForwarding)
+	t.Run("a failed installation removal keeps its row and toasts", testInstallationRemoval)
 	t.Run("projected_default_effort", func(t *testing.T) {
 		provider := protocol.ProviderID{1}
 		snapshot := protocol.DefaultSnapshot()

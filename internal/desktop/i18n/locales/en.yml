@@ -14,6 +14,7 @@ preview: UI preview
 preview_notice: Preview content; interactions stay in this window
 projects: Projects
 project_add: Add project
+project_new: New project
 sidebar_pinned: Pinned
 sessions_unassigned: Chats
 workspace_new_session: Create session
@@ -809,6 +810,7 @@ knowledge_installed: Installed
 knowledge_missing: Not installed
 knowledge_model_details: Details
 live_revoke: Remove pairing
+live_revoke_confirm: Disconnect “%{name}” and remove pairing? Reconnection will require pairing again
 local_models_available: Available
 local_models_empty: No installed models
 local_models_status: Status
@@ -970,6 +972,7 @@ telemetry_send_action: Send diagnostics
 telemetry_support: Support
 telemetry_title: Diagnostics and privacy
 telemetry_unknown: The result is unknown. Reload to check
+telemetry_welcome: Anonymous diagnostics are on by default. You can change this in Settings
 terminal_environment: Global environment variables
 terminal_environment_add: Add environment variable
 terminal_input: Input
@@ -1459,6 +1462,7 @@ metrics_indexer: Preview indexer
 metrics_loading: Waiting for metrics (preview)
 metrics_error: Metrics unavailable (preview)
 port_title: Port forwarding
+port_mappings: Port mappings
 port_add: New forward
 port_create: Create
 port_remote: Host port

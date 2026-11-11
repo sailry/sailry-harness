@@ -73,8 +73,7 @@ func (p *workspaceProject) searchFiles(query panel.SearchQuery, done func(panel.
 }
 func (p *workspaceProject) openFileAt(relative string, line int) {
 	p.panel.FileOpenAt(relative, line)
-	p.runtime.App.PanelOpen = true
-	p.runtime.App.Panel.Show(panel.Tab{Kind: panel.Files, ID: relative})
+	p.showItem(panel.Files, relative)
 }
 func (p *workspaceProject) openFileKind(relative string) bool {
 	media := mime.TypeByExtension(strings.ToLower(path.Ext(relative)))

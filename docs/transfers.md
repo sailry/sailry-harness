@@ -73,7 +73,11 @@ publishing, and Close when finished.
 ## Wiring a backend
 
 Fill `Queue` from `installations::Queue` (the Node's and the controller's
-installation views); Remove and Retry become the queue's remove and retry.
+installation views); Remove and Retry become the queue's remove and retry
+(`Queue.Dismiss`, `Queue.RetryAction`). A live queue without a `RetryAction`
+offers no Retry: only the preview plays one itself. A removal the Node
+refuses keeps its row and toasts `installation_remove_failed`, a conflict or
+an unconfirmed one their own toasts (`Runtime.dismissInstallation`).
 `Download` follows `downloads/transfer.rs` `Status` from the watch
 channel; before it, ask for the destination with the system's save panel,
 and on finishing toast files_download_done or the error key.
@@ -103,7 +107,10 @@ coordinator runs these with the Live category; they require no native window.
 `internal/desktop/transfers/transfers_test.go`: labels, measures, the overall
 progress, Remove and Retry, the download's status line.
 `internal/desktop/shell/transfers_test.go`: the rail's popover lists the requests
-and Remove drops one; Save as plays to its end and Close shuts it.
+and Remove drops one; Save as plays to its end and Close shuts it; a live
+queue shows Retry only with its action.
+`internal/desktop/live/installations_removal_test.go`: a refused removal keeps
+the row and toasts its failure.
 
 ## Deviations
 

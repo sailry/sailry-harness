@@ -14,6 +14,7 @@ preview: UI プレビュー
 preview_notice: コンテンツをプレビューします。インタラクションはこのウィンドウに残ります
 projects: プロジェクト
 project_add: プロジェクトを追加
+project_new: 新しいプロジェクト
 sidebar_pinned: ピン留め
 sessions_unassigned: チャット
 workspace_new_session: セッションを作成
@@ -809,6 +810,7 @@ knowledge_installed: インストール済み
 knowledge_missing: 未インストール
 knowledge_model_details: 詳細
 live_revoke: ペアを削除
+live_revoke_confirm: “%{name}” を切断してペアリングを削除しますか？再接続するとペアリングが必要になります
 local_models_available: インストール可能
 local_models_empty: インストール済みのモデルはありません
 local_models_status: 状態
@@ -970,6 +972,7 @@ telemetry_send_action: 診断情報を送信
 telemetry_support: サポート
 telemetry_title: 診断とプライバシー
 telemetry_unknown: 結果は不明です。再読み込みして確認してください
+telemetry_welcome: 匿名の診断は既定で有効です。設定で変更できます
 terminal_environment: 大域環境変数
 terminal_environment_add: 環境変数を追加
 terminal_input: 入力
@@ -1459,6 +1462,7 @@ metrics_indexer: プレビューインデクサ
 metrics_loading: メトリクスを待っています (プレビュー)
 metrics_error: メトリクスが利用できません (プレビュー)
 port_title: ポートフォワード
+port_mappings: ポートマッピング
 port_add: ニュー・フォワード
 port_create: 作成
 port_remote: ホストポート

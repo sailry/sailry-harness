@@ -14,6 +14,7 @@ preview: Aperçu de l'UI
 preview_notice: Prévisualiser le contenu; les interactions restent dans cette fenêtre
 projects: Projets
 project_add: Ajouter un projet
+project_new: Nouveau projet
 sidebar_pinned: Épinglés
 sessions_unassigned: Chats
 workspace_new_session: Créer une session
@@ -809,6 +810,7 @@ knowledge_installed: Installé
 knowledge_missing: Non installé
 knowledge_model_details: Détails
 live_revoke: Supprimer l'appairage
+live_revoke_confirm: Déconnecter « %{name} » et supprimer l’appairage? La reconnection nécessitera un nouvel appairage
 local_models_available: Disponibles
 local_models_empty: Aucun modèle installé
 local_models_status: État
@@ -970,6 +972,7 @@ telemetry_send_action: Envoyer un diagnostic
 telemetry_support: Assistance
 telemetry_title: Diagnostic et confidentialité
 telemetry_unknown: Résultat inconnu. Rechargez pour vérifier
+telemetry_welcome: Les diagnostics anonymes sont activés par défaut. Modifiez ce choix dans les paramètres
 terminal_environment: Variables environnementales mondiales
 terminal_environment_add: Ajouter une variable d'environnement
 terminal_input: Entrée
@@ -1459,6 +1462,7 @@ metrics_indexer: Indexeur de l’aperçu
 metrics_loading: Attente des métriques (aperçu)
 metrics_error: Metrics indisponible (aperçu)
 port_title: Redirection de port
+port_mappings: Mappings de ports
 port_add: Nouveau tunnel
 port_create: Créer
 port_remote: Port hôte
