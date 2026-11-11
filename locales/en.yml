@@ -255,26 +255,12 @@ artifact_request_edit: "Request edit"
 artifact_selection_context: "Selected text on preview page %{page}"
 artifact_edit_prompt: "Requested changes: "
 
-reference_group_context: "Add"
+reference_group_context: "Context"
 provider_key_hint: Enter API Key
 form_date_hint: Choose date
 form_time_hint: "HH:mm:ss"
 
 tool_raw_result: "View raw result"
-files_upload_failed: "Upload failed"
-files_upload_cancelled: "Upload cancelled"
-files_upload_changed: "The source changed; select it again"
-files_upload_too_large: "The file exceeds 64 MiB"
-files_upload_name: "Invalid file name"
-files_upload_source: "Could not read the selected file"
-files_download_failed: "Download failed"
-files_download_changed: "The source changed; download again"
-files_download_destination: "Could not save the download"
-files_download_conflict: "The destination changed; choose where to save again"
-files_download_done: Download complete
-files_download_cancelled: Download cancelled
-chat_attachment_remove_failed: "Removal failed"
-hooks_project_required: "Select a project"
 workspace_action_failed: "Workspace action failed"
 workspace_changed: "Workspace changed; reload before trying again"
 workspace_action_unknown: "Outcome uncertain; inspect before trying again"
@@ -286,20 +272,9 @@ files_reload: Reload
 files_overwrite: Overwrite
 workspace_completed: "Completed"
 workspace_restore_confirm: "Restore the previous file versions for this turn"
-background_stop_failed: "Stop failed; retry"
-background_stop_unknown: "Stop unconfirmed; check command status"
 subagent_stop: Stop subagent
 subagent_stop_failed: "Stop failed; retry"
 subagent_stop_unknown: "Stop unconfirmed; check subagent status"
-background_unavailable: "Could not read background terminal"
-files_check_result: "Check result"
-files_move_recycle: "After copying, move the source to Trash"
-files_paste_cancelled: "Paste cancelled"
-files_paste_copying: "Copying"
-files_paste_directory: "Destination folder"
-files_paste_source: "Source worktree"
-files_upload_retry: "Retry"
-files_worktree_root: "Worktree root"
 files_cancel_remaining: "Cancel remaining"
 content_preview: "Preview"
 files_block: "Text"
@@ -359,7 +334,6 @@ settings_experimental: Experimental
 settings_experimental_description: Development and debugging settings
 settings_demo_mode: Demo mode
 settings_demo_mode_description: Show sample conversations for review and screenshots
-provider_deepseek: DeepSeek
 settings_code_index: Code index
 settings_code_index_description: Index project code for the code search tools
 code_index_settings_saved: Saved
