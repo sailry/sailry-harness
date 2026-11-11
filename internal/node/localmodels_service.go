@@ -257,7 +257,7 @@ func (node *Node) configureLocalModels(caller protocol.NodeID, request protocol.
 		return admission.Complete(node.ctx, db, caller, request.ID, response(output, operationErr))
 	})
 	if err != nil {
-		return response(protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "local model configuration result could not be recorded; read the settings before retrying"})
+		return node.unapplied(caller, request.ID, err)
 	}
 	if prepared != nil {
 		controls.registry.Apply(prepared)
