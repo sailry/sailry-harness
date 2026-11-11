@@ -1147,6 +1147,17 @@ mcp_headers: 请求头
 mcp_add_header: 添加请求头
 mcp_slot_name: 名称
 mcp_keep_secret: 保留凭据
+mcp_clear_secret: 清除凭据
+mcp_secret_saved: 已保存凭据，留空保留
+mcp_secret_cleared: 保存时清除凭据
+mcp_show_secret: 显示凭据
+mcp_hide_secret: 隐藏凭据
+connector_no_auth: 无需认证
+connector_authentication: 身份验证
+connector_mcp_status: 状态
+connector_mcp_updated: 更新于 %{time}
+plugins_settings_reload: 重新读取
+plugins_settings_diagnostics: 详情
 mcp_slot_value: 值
 mcp_remove_slot: 移除此项
 mcp_install_stdio_help: 输入所选主机执行的命令和参数，私密值填写在凭据字段中

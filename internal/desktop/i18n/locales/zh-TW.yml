@@ -1147,6 +1147,17 @@ mcp_headers: 請求頭
 mcp_add_header: 新增請求頭
 mcp_slot_name: 名稱
 mcp_keep_secret: 保留憑據
+mcp_clear_secret: 清除憑據
+mcp_secret_saved: 已儲存憑據，留空保留
+mcp_secret_cleared: 儲存時清除憑據
+mcp_show_secret: Show credential
+mcp_hide_secret: Hide credential
+connector_no_auth: 無需驗證
+connector_authentication: 身分驗證
+connector_mcp_status: 狀態
+connector_mcp_updated: 更新於 %{time}
+plugins_settings_reload: 重新讀取
+plugins_settings_diagnostics: 詳情
 mcp_slot_value: 值
 mcp_remove_slot: 移除此項
 mcp_install_stdio_help: 輸入所選主機執行的命令和參數，私密值填寫於憑證欄位

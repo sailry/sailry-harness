@@ -602,6 +602,15 @@ func firstRunConnectors(t *testing.T, r *Runtime, tester *ui.Tester, settle func
 		tester.ClickAt(info.Bounds.X+info.Bounds.W/2, info.Bounds.Y+info.Bounds.H/2)
 		settle()
 	}
+	// field is the text of the last text field named name.
+	field := func(name string) (value string) {
+		for _, x := range tester.AccessAll() {
+			if x.Role == ui.RoleTextField && x.Name == name {
+				value = x.Value
+			}
+		}
+		return value
+	}
 	dismiss := func() {
 		for range 8 {
 			info, ok := tester.AccessByRole(ui.RoleButton, zh("close"))
@@ -660,6 +669,16 @@ func firstRunConnectors(t *testing.T, r *Runtime, tester *ui.Tester, settle func
 	if acted := sent()[before:]; len(acted) != 0 {
 		t.Errorf("opening details and editors sent %q", acted)
 	}
+	// The details of a plugin's own server lead to its editor, on the
+	// configuration read from the Node.
+	choose("context7", []string{"connector_add_credentials", "connector_mcp_reconnect", "connector_details"}, "connector_details")
+	press(zh("connector_configure"))
+	settle()
+	if _, ok := tester.AccessByRole(ui.RoleButton, zh("settings_save")); !ok || count("read_plugin_mcp") != 1 || !strings.HasPrefix(field(zh("mcp_url")), "https://") || tester.HasText(zh("connector_mcp_server")) {
+		t.Fatalf("Configure in context7's details did not open its configuration: %d reads, address %q: %q", count("read_plugin_mcp"), field(zh("mcp_url")), tester.Texts())
+	}
+	shots("connectors-package-configure")
+	press(zh("settings_cancel"))
 
 	// The enabled computer package without its helper is unavailable and
 	// says why; it has nothing to reconnect.
@@ -684,13 +703,32 @@ func firstRunConnectors(t *testing.T, r *Runtime, tester *ui.Tester, settle func
 			return &sdk.CallToolResult{}, nil, nil
 		})
 	}
-	endpoint := httptest.NewServer(sdk.NewStreamableHTTPHandler(func(*http.Request) *sdk.Server { return fixture }, nil))
+	// keys are the credentials new sessions were opened with since called
+	// last read them; closing a kept session still carries its old one.
+	var keysMu sync.Mutex
+	var keys []string
+	called := func() []string {
+		keysMu.Lock()
+		defer keysMu.Unlock()
+		seen := slices.Compact(keys)
+		keys = nil
+		return seen
+	}
+	handler := sdk.NewStreamableHTTPHandler(func(*http.Request) *sdk.Server { return fixture }, nil)
+	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Mcp-Session-Id") == "" {
+			keysMu.Lock()
+			keys = append(keys, request.Header.Get("X-Key"))
+			keysMu.Unlock()
+		}
+		handler.ServeHTTP(w, request)
+	}))
 	defer func() {
 		endpoint.CloseClientConnections()
 		endpoint.Close()
 	}()
 	saved := false
-	r.App.Settings.ConnectorActions.SaveMCP(settings.MCPDraft{Name: "fixture", Server: viewmodel.ConnectorServer{Name: "fixture", Transport: 1, URL: endpoint.URL}}, func(ok bool) { saved = ok })
+	r.App.Settings.ConnectorActions.SaveMCP(settings.MCPDraft{Name: "fixture", Server: viewmodel.ConnectorServer{Name: "fixture", Transport: 1, URL: endpoint.URL, Env: []viewmodel.EnvVar{{Key: "X-Key", Value: "first"}}}}, func(ok bool) { saved = ok })
 	settle()
 	settle()
 	if !saved || count("install_mcp") != 1 || count("check_plugin_mcp") != 1 {
@@ -699,6 +737,9 @@ func firstRunConnectors(t *testing.T, r *Runtime, tester *ui.Tester, settle func
 	connected := zh("connector_mcp_reconnected", "n", 2)
 	if st := service("fixture"); st.Tools != 2 || !tester.HasText(connected) {
 		t.Fatalf("the added server %+v: %q", *st, tester.Texts())
+	}
+	if seen := called(); !slices.Equal(seen, []string{"first"}) {
+		t.Errorf("the added server was called with %q", seen)
 	}
 	dismiss()
 	shots("connectors-connected")
@@ -716,6 +757,47 @@ func firstRunConnectors(t *testing.T, r *Runtime, tester *ui.Tester, settle func
 	}
 	dismiss()
 
+	// Configure reads the saved server into its editor: the definition and
+	// the slot that holds a credential, never the credential. Saving it
+	// untouched keeps the credential; Clear saves the slot empty.
+	choose("fixture", manual, "connector_configure")
+	settle()
+	if !tester.HasText(zh("mcp_secret_saved")) || tester.HasText("first") || count("read_plugin_settings") != 1 {
+		t.Fatalf("Configure did not load the saved server: %d reads, %q", count("read_plugin_settings"), tester.Texts())
+	}
+	if address, slot, value := field(zh("mcp_url")), field(zh("mcp_slot_name")), field(zh("mcp_slot_value")); address != endpoint.URL || slot != "X-Key" || value != "" {
+		t.Errorf("the editor shows %q with %q as %q", address, slot, value)
+	}
+	shots("connectors-configure")
+	called()
+	press(zh("settings_save"))
+	settle()
+	if seen := called(); count("install_mcp") != 2 || count("check_plugin_mcp") != 3 || !slices.Equal(seen, []string{"first"}) || service("fixture").Tools != 2 {
+		t.Fatalf("saving the untouched server: %d installs, %d checks, called with %q, %+v: %q", count("install_mcp"), count("check_plugin_mcp"), seen, *service("fixture"), tester.Texts())
+	}
+	dismiss()
+	choose("fixture", manual, "connector_configure")
+	settle()
+	if err := tester.Click(zh("mcp_clear_secret")); err != nil {
+		t.Fatal(err)
+	}
+	settle()
+	if !tester.HasText(zh("mcp_secret_cleared")) {
+		t.Errorf("Clear did not mark the slot: %q", tester.Texts())
+	}
+	press(zh("settings_save"))
+	settle()
+	if seen := called(); count("install_mcp") != 3 || count("check_plugin_mcp") != 4 || !slices.Equal(seen, []string{""}) {
+		t.Fatalf("saving the cleared slot: %d installs, %d checks, called with %q: %q", count("install_mcp"), count("check_plugin_mcp"), seen, tester.Texts())
+	}
+	dismiss()
+	choose("fixture", manual, "connector_configure")
+	settle()
+	if tester.HasText(zh("mcp_secret_saved")) {
+		t.Errorf("the cleared slot still holds a credential: %q", tester.Texts())
+	}
+	press(zh("settings_cancel"))
+
 	// With the endpoint gone the kept connection cannot be closed for sure:
 	// that Reconnect is uncertain, said as such, and the row has failed. The
 	// next one fails outright with its reason: in the toast, on the row and
@@ -724,14 +806,14 @@ func firstRunConnectors(t *testing.T, r *Runtime, tester *ui.Tester, settle func
 	endpoint.Close()
 	choose("fixture", manual, "connector_mcp_reconnect")
 	settle()
-	if st := service("fixture"); count("check_plugin_mcp") != 3 || !st.Failed || !tester.HasText(zh("connector_unknown")) {
+	if st := service("fixture"); count("check_plugin_mcp") != 5 || !st.Failed || !tester.HasText(zh("connector_unknown")) {
 		t.Fatalf("Reconnect over a lost connection: %d checks, %+v: %q", count("check_plugin_mcp"), *st, tester.Texts())
 	}
 	dismiss()
 	choose("fixture", manual, "connector_mcp_reconnect")
 	settle()
 	failed := service("fixture")
-	if count("check_plugin_mcp") != 4 || !failed.Failed || failed.Reason == "" {
+	if count("check_plugin_mcp") != 6 || !failed.Failed || failed.Reason == "" {
 		t.Fatalf("Reconnect to a closed endpoint: %d checks, %+v", count("check_plugin_mcp"), *failed)
 	}
 	if tester.HasText(zh("connector_unknown")) || !tester.HasText(failed.Reason) {

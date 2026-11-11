@@ -1147,6 +1147,17 @@ mcp_headers: 헤더
 mcp_add_header: 머릿말 추가
 mcp_slot_name: 이름
 mcp_keep_secret: 자격 증명 유지
+mcp_clear_secret: 자격 증명 지우기
+mcp_secret_saved: 자격 증명이 저장되었습니다. 유지하려면 비워두십시오
+mcp_secret_cleared: 저장할 때 자격 증명이 지워집니다
+mcp_show_secret: Show credential
+mcp_hide_secret: Hide credential
+connector_no_auth: 인증 불필요
+connector_authentication: 인증
+connector_mcp_status: 상태
+connector_mcp_updated: 업데이트 %{time}
+plugins_settings_reload: 새로고침
+plugins_settings_diagnostics: 상세 정보
 mcp_slot_value: 값
 mcp_remove_slot: 항목 제거
 mcp_install_stdio_help: 선택한 호스트의 명령과 인수를 입력하고 비밀 값은 자격 증명 필드에 입력하세요

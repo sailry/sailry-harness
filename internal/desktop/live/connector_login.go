@@ -69,7 +69,10 @@ func (r *Runtime) saveConnector(draft settings.ConnectorDraft, done func(bool)) 
 		}
 	}
 	connection, existing := r.authorizations.connections[draft.Service]
-	if existing && (method == protocol.PluginConnectorKindSecret || method == protocol.PluginConnectorKindApplication) && !draft.Registration {
+	// An existing connection saves its fields as they are. One whose method
+	// authorizes elsewhere does so only when asked to (draft.Update), and
+	// authorizes again when the Node drops its authorization for the change.
+	if existing && (method == protocol.PluginConnectorKindSecret || method == protocol.PluginConnectorKindApplication || draft.Update) && !draft.Registration {
 		r.execute(protocol.Command{Kind: "update_connection", Data: protocol.CommandUpdateConnectionPayload{Connection: connection.ID, ExpectedRevision: draft.ExpectedRevision, Input: input}}, func(c *ui.Context, output protocol.Output, err error) {
 			if err != nil {
 				r.connectorError(c, err)

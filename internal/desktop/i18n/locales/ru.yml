@@ -1147,6 +1147,17 @@ mcp_headers: Заголовки
 mcp_add_header: Добавить заголовок
 mcp_slot_name: Имя
 mcp_keep_secret: Сохранить учетные данные
+mcp_clear_secret: Ясные полномочия
+mcp_secret_saved: Учетные данные сохранены; оставьте пустыми для сохранения
+mcp_secret_cleared: Учетные данные будут очищены при сохранении
+mcp_show_secret: Show credential
+mcp_hide_secret: Hide credential
+connector_no_auth: Без аутентификации
+connector_authentication: Аутентификация
+connector_mcp_status: Статус
+connector_mcp_updated: Обновлено %{time}
+plugins_settings_reload: Перезагрузить
+plugins_settings_diagnostics: Подробности
 mcp_slot_value: Стоимость
 mcp_remove_slot: Удалить пункт
 mcp_install_stdio_help: Укажите команду и аргументы для выбранного хоста; секретные значения вводятся в полях учётных данных

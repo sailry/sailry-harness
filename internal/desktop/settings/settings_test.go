@@ -778,6 +778,396 @@ func TestConnectors(t *testing.T) {
 			t.Errorf("a saved connector left its editor %+v", m.connector)
 		}
 	})
+	en := func(key string, a ...any) string { return i18n.In("en", key, a...) }
+	page := func(m *Model) (*ui.Tester, func()) {
+		tt := ui.NewTesterWith(func(c *ui.Context) { connectors(c, m) }, 1000, 900, ui.TesterOptions{Preferences: ui.Preferences{ReduceTransparency: true}})
+		tt.SetLocale("en")
+		settle := func() {
+			tt.Frame()
+			tt.Advance(time.Second)
+		}
+		settle()
+		return tt, settle
+	}
+	// button is the last button of that name: a dialog's own comes after the
+	// page's, and its frame's close after its footer's.
+	button := func(t *testing.T, tt *ui.Tester, name string) (found ui.AccessInfo) {
+		t.Helper()
+		ok := false
+		for _, x := range tt.AccessAll() {
+			if x.Role == ui.RoleButton && x.Name == name {
+				found, ok = x, true
+			}
+		}
+		if !ok {
+			t.Fatalf("no %q button: %q", name, tt.Texts())
+		}
+		return found
+	}
+	press := func(tt *ui.Tester, b ui.AccessInfo) {
+		tt.ClickAt(b.Bounds.X+b.Bounds.W/2, b.Bounds.Y+b.Bounds.H/2)
+		tt.Frame()
+		tt.Advance(time.Second)
+	}
+	manual := func() (*Model, *[]string, *[]MCPDraft, *[]func(bool)) {
+		m := NewModel(preview.SettingsData())
+		m.Live = true
+		var asked []string
+		var drafts []MCPDraft
+		var done []func(bool)
+		m.ConnectorActions = &ConnectorActions{
+			ConfigureMCP: func(id string) { asked = append(asked, id) },
+			SaveMCP: func(draft MCPDraft, completed func(bool)) {
+				drafts, done = append(drafts, draft), append(done, completed)
+			},
+		}
+		// The live row of a server added by hand: its definition and slot
+		// names, with nothing about which slot holds a credential.
+		m.Services = []preview.Service{{ID: "mcp:mcp-files", Name: "files", Revision: 4, Manual: true, Servers: []preview.Server{{
+			Name: "server", Allowed: true, Command: "npx", Args: []string{"-y", "files"}, Env: []preview.EnvVar{{Key: "TOKEN"}, {Key: "REGION"}}}}}}
+		return m, &asked, &drafts, &done
+	}
+	saved := func(m *Model) MCPConfiguration {
+		return MCPConfiguration{Service: m.Services[0], Saved: []string{"TOKEN"}}
+	}
+	// Configure reads the saved server before its editor can save: the draft
+	// is the server's own, and a saved credential is kept unless typed over
+	// or cleared, never replaced by an empty value.
+	t.Run("configure loads the saved server", func(t *testing.T) {
+		m, asked, drafts, done := manual()
+		tt, settle := page(m)
+		m.serviceAction(nil, &m.Services[0], "connector_configure")
+		settle()
+		if !slices.Equal(*asked, []string{"mcp:mcp-files"}) || !m.mcp.open || !m.mcp.loading {
+			t.Fatalf("Configure asked for %v and opened %+v", *asked, m.mcp)
+		}
+		if save := button(t, tt, en("settings_save")); !save.Disabled {
+			t.Error("Save is available before the configuration is read")
+		}
+		press(tt, button(t, tt, en("settings_save")))
+		if len(*drafts) != 0 {
+			t.Fatal("an unread server was saved")
+		}
+		m.OpenMCPConfiguration(MCPConfiguration{Service: preview.Service{ID: "mcp:other", Servers: []preview.Server{{Command: "other"}}}})
+		if m.mcp.command != "npx" || !m.mcp.loading {
+			t.Errorf("another service's configuration filled the editor: %+v", m.mcp)
+		}
+		m.OpenMCPConfiguration(saved(m))
+		settle()
+		e := &m.mcp
+		if e.loading || e.name != "files" || e.command != "npx" || !slices.Equal(e.args, []string{"-y", "files"}) || len(e.slots) != 2 || e.revision != 4 {
+			t.Fatalf("the editor does not hold the saved server: %+v", *e)
+		}
+		if !tt.HasText(en("mcp_secret_saved")) || !e.kept(0) || e.kept(1) {
+			t.Errorf("saved slots: kept %v %v: %q", e.kept(0), e.kept(1), tt.Texts())
+		}
+		if name, ok := tt.AccessByRole(ui.RoleTextField, en("settings_name")); !ok || !name.Disabled {
+			t.Errorf("a saved server's name can be edited: %+v", name)
+		}
+		press(tt, button(t, tt, en("settings_save")))
+		if len(*drafts) != 1 {
+			t.Fatalf("%d saves", len(*drafts))
+		}
+		d := (*drafts)[0]
+		if d.Service != "mcp:mcp-files" || d.Revision != 4 || d.Server.Command != "npx" || !slices.Equal(d.Keep, []string{"TOKEN"}) ||
+			!slices.Equal(d.Server.Env, []preview.EnvVar{{Key: "TOKEN"}, {Key: "REGION"}}) {
+			t.Errorf("the untouched server saves as %+v", d)
+		}
+		(*done)[0](false)
+		settle()
+		// Clear and Keep toggle the saved credential; a typed value replaces
+		// it; another kind of transport does not carry it over.
+		press(tt, button(t, tt, en("mcp_clear_secret")))
+		if e.kept(0) || !tt.HasText(en("mcp_secret_cleared")) || len(e.draft().Keep) != 0 {
+			t.Errorf("Clear left the credential kept: %q", tt.Texts())
+		}
+		press(tt, button(t, tt, en("mcp_keep_secret")))
+		if !e.kept(0) || !tt.HasText(en("mcp_secret_saved")) {
+			t.Errorf("Keep did not keep the credential: %q", tt.Texts())
+		}
+		e.transport, e.url = 1, "https://example.test/mcp"
+		settle()
+		if e.kept(0) || !tt.HasText(en("mcp_secret_cleared")) {
+			t.Error("a credential saved for a command is kept for a URL")
+		}
+		if _, ok := tt.AccessByRole(ui.RoleButton, en("mcp_keep_secret")); ok {
+			t.Error("a credential of another transport can be kept")
+		}
+		e.transport = 0
+		e.slots[0].Value = "typed"
+		settle()
+		if d := e.draft(); len(d.Keep) != 0 || d.Server.Env[0].Value != "typed" || tt.HasText(en("mcp_secret_saved")) {
+			t.Errorf("a typed credential saves as %+v", d)
+		}
+		// A value is masked until shown: the last slot's here.
+		e.slots[1].Value = "plain"
+		settle()
+		if tt.HasText("typed") || tt.HasText("plain") {
+			t.Errorf("a credential shows while masked: %q", tt.Texts())
+		}
+		press(tt, button(t, tt, en("mcp_show_secret")))
+		if value, ok := tt.AccessByRole(ui.RoleTextField, en("mcp_slot_value")); !e.marks[1].shown || e.marks[0].shown || !ok {
+			t.Errorf("Show credential showed %+v: %+v", e.marks, value)
+		}
+		press(tt, button(t, tt, en("mcp_hide_secret")))
+		if e.marks[1].shown {
+			t.Error("Hide credential left it shown")
+		}
+		// The editor closed while it waited is not reopened by its answer.
+		m.serviceAction(nil, &m.Services[0], "connector_configure")
+		m.mcp.open = false
+		m.OpenMCPConfiguration(saved(m))
+		if m.mcp.open {
+			t.Error("a late configuration reopened the closed editor")
+		}
+	})
+	// A failed read leaves the editor locked with Reload and the reason
+	// behind Details; an uncertain save locks the draft and Save retries it.
+	t.Run("reload, diagnostics and retry", func(t *testing.T) {
+		m, asked, drafts, done := manual()
+		tt, settle := page(m)
+		m.serviceAction(nil, &m.Services[0], "connector_configure")
+		m.FailMCPConfiguration("mcp:mcp-files", "settings database is locked")
+		settle()
+		if save := button(t, tt, en("settings_save")); !save.Disabled || tt.HasText("settings database is locked") {
+			t.Errorf("after a failed read Save disabled is %v: %q", save.Disabled, tt.Texts())
+		}
+		press(tt, button(t, tt, en("plugins_settings_diagnostics")))
+		if !tt.HasText("settings database is locked") {
+			t.Errorf("Details does not show the reason: %q", tt.Texts())
+		}
+		press(tt, button(t, tt, en("plugins_settings_diagnostics")))
+		if tt.HasText("settings database is locked") {
+			t.Error("Details does not hide the reason again")
+		}
+		press(tt, button(t, tt, en("plugins_settings_reload")))
+		if len(*asked) != 2 || !m.mcp.loading {
+			t.Fatalf("Reload asked %d times, loading %v", len(*asked), m.mcp.loading)
+		}
+		m.OpenMCPConfiguration(saved(m))
+		settle()
+		if _, ok := tt.AccessByRole(ui.RoleButton, en("plugins_settings_reload")); ok || m.mcp.unread {
+			t.Error("Reload stays after the configuration was read")
+		}
+		press(tt, button(t, tt, en("settings_save")))
+		if len(*drafts) != 1 || !button(t, tt, en("settings_save")).Disabled {
+			t.Fatalf("%d saves; Save is pressable while one runs", len(*drafts))
+		}
+		(*drafts)[0].Failed(true, "connection lost")
+		(*done)[0](false)
+		settle()
+		retry := button(t, tt, en("plugins_retry"))
+		if _, ok := tt.AccessByRole(ui.RoleButton, en("settings_save")); ok || retry.Disabled {
+			t.Fatalf("after an uncertain save: %q", tt.Texts())
+		}
+		if command, ok := tt.AccessByRole(ui.RoleTextField, en("mcp_command")); !ok || !command.Disabled {
+			t.Error("the draft of an uncertain save can change")
+		}
+		press(tt, retry)
+		if len(*drafts) != 2 || (*drafts)[1].Server.Command != (*drafts)[0].Server.Command || !slices.Equal((*drafts)[1].Keep, (*drafts)[0].Keep) {
+			t.Fatalf("Retry sent %+v", *drafts)
+		}
+		(*drafts)[1].Failed(false, "invalid command")
+		(*done)[1](false)
+		settle()
+		if _, ok := tt.AccessByRole(ui.RoleButton, en("plugins_retry")); ok || m.mcp.uncertain || !m.mcp.open {
+			t.Error("a failed retry left the editor uncertain or closed")
+		}
+		press(tt, button(t, tt, en("settings_save")))
+		if (*done)[2](true); m.mcp.open {
+			t.Error("a saved server left its editor open")
+		}
+	})
+	// The page: the filter's No authentication, the row's right-click menu,
+	// a busy row, and the details dialog's Close and Configure.
+	t.Run("page", func(t *testing.T) {
+		m, asked, _, _ := manual()
+		busy := false
+		var reconnected []string
+		m.ConnectorActions.Busy = func(id string) bool { return busy && id == "mcp:mcp-files" }
+		m.ConnectorActions.Reconnect = func(id string) { reconnected = append(reconnected, id) }
+		m.ConnTypes = []preview.ConnectorType{{ID: "hub/hub", Package: "hub", Name: "Hub", Methods: []string{"connector_token"}, Enabled: true}}
+		m.Services = append(m.Services,
+			preview.Service{ID: "hub/hub", Type: "hub/hub", Name: "Hub", Method: "connector_token", Account: true, AccountOn: true, State: preview.Connected},
+			preview.Service{ID: "mcp:pair", Name: "pair", Servers: []preview.Server{
+				{Name: "first", Allowed: true, State: preview.ServerUp, Tools: 2, Updated: "2026-11-11 10:00:00"},
+				{Name: "second", Allowed: true, State: preview.ServerDown, Error: "dial refused", Updated: "2026-11-11 10:05:00"}}})
+		tt, settle := page(m)
+		m.ConnMethod = slices.Index(connectorMethods, "connector_no_auth")
+		settle()
+		if tt.HasText("Hub") || !tt.HasText("files") || !tt.HasText("pair") {
+			t.Errorf("No authentication shows %q", tt.Texts())
+		}
+		m.ConnMethod = slices.Index(connectorMethods, "connector_token")
+		settle()
+		if !tt.HasText("Hub") || tt.HasText("files") {
+			t.Errorf("Token shows %q", tt.Texts())
+		}
+		m.ConnMethod = 0
+		settle()
+		// Resting on a status shows its reason and when the server last
+		// reported.
+		box, ok := tt.Find(en("connector_mcp_failed"))
+		if !ok {
+			t.Fatalf("no failed status: %q", tt.Texts())
+		}
+		tt.Move(box.X+box.W/2, box.Y+box.H/2)
+		tt.Frame()
+		tt.Advance(2 * time.Second)
+		updated := en("connector_mcp_updated", "time", "2026-11-11 10:05:00")
+		if texts := strings.Join(tt.Texts(), "\n"); !strings.Contains(texts, "dial refused") || !strings.Contains(texts, updated) {
+			t.Errorf("the status does not show its reason and %q: %q", updated, tt.Texts())
+		}
+		tt.Move(1, 1)
+		settle()
+		if err := tt.RightClick("files"); err != nil {
+			t.Fatal(err)
+		}
+		want := []string{en("connector_configure"), en("connector_remove"), en("connector_mcp_reconnect"), en("connector_details")}
+		if got := tt.Menu(); !slices.Equal(got, want) {
+			t.Fatalf("the row's context menu is %q, want %q", got, want)
+		}
+		if err := tt.ChooseMenuItem(en("connector_mcp_reconnect")); err != nil {
+			t.Fatal(err)
+		}
+		settle()
+		if !slices.Equal(reconnected, []string{"mcp:mcp-files"}) {
+			t.Errorf("the context menu's Reconnect asked for %v", reconnected)
+		}
+		// A command of the row under way holds its menu and its switch.
+		busy = true
+		settle()
+		held := 0
+		for _, x := range tt.AccessAll() {
+			if x.Disabled && (x.Name == en("more") || x.Name == en("connector_server_allowed")+" files") {
+				held++
+			}
+		}
+		if held != 2 {
+			t.Errorf("a busy row holds %d of its menu and switch", held)
+		}
+		busy = false
+		// Details: a status for each of several servers, Close, and
+		// Configure for a plugin's own servers.
+		m.connDetails = "mcp:pair"
+		settle()
+		if !tt.HasText(en("connector_mcp_status")) || !tt.HasText(en("connector_mcp_tools", "n", 2)) {
+			t.Errorf("details of two servers: %q", tt.Texts())
+		}
+		var footer ui.AccessInfo
+		for _, x := range tt.AccessAll() {
+			// The footer's Close is below the frame's.
+			if x.Role == ui.RoleButton && x.Name == en("close") && x.Bounds.Y > footer.Bounds.Y {
+				footer = x
+			}
+		}
+		press(tt, footer)
+		if m.connDetails != "" {
+			t.Fatal("the details' Close button does not close them")
+		}
+		m.connDetails = "mcp:mcp-files"
+		settle()
+		if tt.HasText(en("connector_mcp_status")) {
+			t.Error("one server's details repeat its status")
+		}
+		for _, x := range tt.AccessAll() {
+			if x.Role == ui.RoleButton && x.Name == en("connector_configure") {
+				t.Error("a server added by hand has Configure in its details")
+			}
+		}
+		m.connDetails = "mcp:pair"
+		settle()
+		press(tt, button(t, tt, en("connector_configure")))
+		if !slices.Equal(*asked, []string{"mcp:pair"}) || m.connDetails != "" || m.mcp.open {
+			t.Fatalf("Configure asked for %v, details %q, editor open %v", *asked, m.connDetails, m.mcp.open)
+		}
+		m.OpenMCPConfiguration(MCPConfiguration{Declared: true, Saved: []string{"KEY"},
+			Service: preview.Service{ID: "mcp:pair", Name: "first", Revision: 2, Servers: []preview.Server{{Name: "first", Transport: 1, URL: "https://example.test/mcp", Env: []preview.EnvVar{{Key: "KEY"}}}}}})
+		settle()
+		if e := m.mcp; !e.open || !e.declared || e.url != "https://example.test/mcp" || !e.kept(0) {
+			t.Errorf("the plugin's server opened as %+v", e)
+		}
+	})
+	// The connector's editor: an existing OAuth connection saves its fields
+	// without authorizing again, the primary button waits for the required
+	// fields and for a save under way, and a CLI without an account retries.
+	t.Run("connector editor", func(t *testing.T) {
+		m := NewModel(preview.SettingsData())
+		m.Live = true
+		var drafts []ConnectorDraft
+		var done []func(bool)
+		inspected := 0
+		m.ConnectorActions = &ConnectorActions{
+			Save: func(draft ConnectorDraft, completed func(bool)) {
+				drafts, done = append(drafts, draft), append(done, completed)
+			},
+			InspectCLI: func(_ string, completed func([]string)) {
+				inspected++
+				if inspected > 1 {
+					completed([]string{"octocat"})
+				} else {
+					completed(nil)
+				}
+			},
+		}
+		m.ConnTypes = []preview.ConnectorType{
+			{ID: "hub/hub", Package: "hub", Name: "Hub", Methods: []string{"connector_oauth"}, Enabled: true, Fields: []preview.ConnectorField{{Name: "host", Title: "Host"}}},
+			{ID: "cli/cli", Package: "cli", Name: "Tool", Methods: []string{"connector_cli"}, Enabled: true},
+			{ID: "key/key", Package: "key", Name: "Keyed", Methods: []string{"connector_token"}, Enabled: true, Fields: []preview.ConnectorField{{Name: "token", Title: "Token", Secret: true}}},
+		}
+		m.Services = []preview.Service{{ID: "hub/hub", Type: "hub/hub", Name: "Hub", Method: "connector_oauth", Account: true, AccountOn: true, State: preview.Connected, Revision: 7, Fields: map[string]string{"host": "hub.test"}}}
+		tt, settle := page(m)
+		m.editService(&m.Services[0])
+		settle()
+		m.connector.fields["host"] = ""
+		settle()
+		if save := button(t, tt, en("settings_save")); !save.Disabled {
+			t.Error("Save is available without the required field")
+		}
+		m.connector.fields["host"] = "hub.example"
+		settle()
+		press(tt, button(t, tt, en("settings_save")))
+		if len(drafts) != 1 || !drafts[0].Update || drafts[0].Service != "hub/hub" || drafts[0].ExpectedRevision != 7 || drafts[0].Fields["host"] != "hub.example" {
+			t.Fatalf("an OAuth connection's changed field saves as %+v", drafts)
+		}
+		// While it runs the button is held and cannot fire again.
+		if save := button(t, tt, en("settings_save")); !save.Disabled {
+			t.Error("Save is pressable while the save runs")
+		}
+		press(tt, button(t, tt, en("settings_save")))
+		if len(drafts) != 1 {
+			t.Fatalf("%d saves for one press", len(drafts))
+		}
+		done[0](false)
+		settle()
+		press(tt, button(t, tt, en("connector_reauthorize")))
+		press(tt, button(t, tt, en("connector_reauthorize")))
+		if len(drafts) != 2 || drafts[1].Update {
+			t.Fatalf("Reauthorize sent %+v", drafts)
+		}
+		// A new token connector waits for its token.
+		m.connector = connectorEditor{open: true, kind: &m.ConnTypes[2], fields: map[string]string{}, direct: true}
+		settle()
+		if save := button(t, tt, en("settings_save")); !save.Disabled {
+			t.Error("Save is available without the token")
+		}
+		m.connector.fields["token"] = "secret"
+		settle()
+		if save := button(t, tt, en("settings_save")); save.Disabled {
+			t.Error("Save is held with the token typed")
+		}
+		// No local account: nothing to bind until Retry finds one.
+		m.connector = connectorEditor{open: true, kind: &m.ConnTypes[1], fields: map[string]string{}, direct: true}
+		settle()
+		if bind := button(t, tt, en("connector_bind")); !bind.Disabled || inspected != 1 {
+			t.Fatalf("Bind disabled %v after %d inspections", bind.Disabled, inspected)
+		}
+		press(tt, button(t, tt, en("chat_retry")))
+		settle()
+		if bind := button(t, tt, en("connector_bind")); bind.Disabled || inspected != 2 || !tt.HasText("octocat") {
+			t.Errorf("after Retry: Bind disabled %v, %d inspections: %q", bind.Disabled, inspected, tt.Texts())
+		}
+	})
 }
 
 // undoAfterRemove types "first" and "second" into the two rows of a dialog's

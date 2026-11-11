@@ -45,6 +45,7 @@ func (r *Runtime) initConnectorUI() {
 			}
 		},
 		ConfigureMCP: r.configureConnectorMCP,
+		Busy:         func(id string) bool { return r.authorizations.connectorBusy[id] },
 		Help: func(id, name string) string {
 			for _, field := range r.authorizations.types[id].Declaration.Fields {
 				if field.Name == name && field.Help != nil {
@@ -219,23 +220,33 @@ func (r *Runtime) projectConnectors() {
 		}
 		service := viewmodel.ConnectorService{ID: "mcp:" + name, Type: kind, Name: strings.TrimPrefix(name, "mcp-"), Revision: info.Summary.Revision, Manual: info.McpSource != nil, Servers: servers}
 		if info.McpSource != nil {
-			body, _ := detail[protocol.PluginMcpDefinitionStreamableHttpPayload](info.McpSource.Data)
-			if info.McpSource.Kind == "stdio" {
-				value, _ := detail[protocol.PluginMcpDefinitionStdioPayload](info.McpSource.Data)
-				service.Servers[0].Command, service.Servers[0].Args = value.Command, value.Args
-				for _, name := range value.Env {
-					service.Servers[0].Env = append(service.Servers[0].Env, viewmodel.EnvVar{Key: name})
-				}
-			} else {
-				service.Servers[0].URL = body.Url
-				for _, name := range body.Headers {
-					service.Servers[0].Env = append(service.Servers[0].Env, viewmodel.EnvVar{Key: name})
-				}
-			}
+			standaloneServer(&service.Servers[0], *info.McpSource)
 		}
 		services = append(services, service)
 	}
 	r.App.Settings.ConnTypes, r.App.Settings.Services = types, services
+}
+
+// standaloneServer fills the server with the definition it was added by
+// hand with: its transport, the command and arguments or the URL, and the
+// names of its credential slots, never their values.
+func standaloneServer(server *viewmodel.ConnectorServer, source protocol.PluginMcpDefinition) {
+	var slots []string
+	switch source.Kind {
+	case "stdio":
+		value, _ := detail[protocol.PluginMcpDefinitionStdioPayload](source.Data)
+		server.Transport, server.Command, server.Args, slots = 0, value.Command, slices.Clone(value.Args), value.Env
+	case "sse":
+		value, _ := detail[protocol.PluginMcpDefinitionSsePayload](source.Data)
+		server.Transport, server.URL, slots = 2, value.Url, value.Headers
+	default:
+		value, _ := detail[protocol.PluginMcpDefinitionStreamableHttpPayload](source.Data)
+		server.Transport, server.URL, slots = 1, value.Url, value.Headers
+	}
+	server.Env = nil
+	for _, name := range slots {
+		server.Env = append(server.Env, viewmodel.EnvVar{Key: name})
+	}
 }
 
 // connectorProblems are the availabilities that keep a server from
@@ -329,17 +340,33 @@ func (r *Runtime) connectorCommand(command protocol.Command, done func(bool)) {
 	})
 }
 
+// serviceCommand is connectorCommand for one service, which is busy until
+// the command returns: its row holds its controls meanwhile, and a second
+// command of the service is not sent.
+func (r *Runtime) serviceCommand(id string, command protocol.Command, done func(bool)) {
+	if r.authorizations.connectorBusy[id] {
+		return
+	}
+	r.authorizations.connectorBusy[id] = true
+	r.connectorCommand(command, func(ok bool) {
+		delete(r.authorizations.connectorBusy, id)
+		if done != nil {
+			done(ok)
+		}
+	})
+}
+
 func (r *Runtime) enableConnector(id string, enabled bool) {
 	connection, exists := r.authorizations.connections[id]
 	if !exists {
 		return
 	}
-	r.connectorCommand(protocol.Command{Kind: "set_connection_enabled", Data: protocol.CommandSetConnectionEnabledPayload{Connection: connection.ID, ExpectedRevision: connection.Revision, Enabled: enabled}}, nil)
+	r.serviceCommand(id, protocol.Command{Kind: "set_connection_enabled", Data: protocol.CommandSetConnectionEnabledPayload{Connection: connection.ID, ExpectedRevision: connection.Revision, Enabled: enabled}}, nil)
 }
 
 func (r *Runtime) removeConnector(id string) {
 	if connection, exists := r.authorizations.connections[id]; exists {
-		r.connectorCommand(protocol.Command{Kind: "remove_connection", Data: protocol.CommandRemoveConnectionPayload{Connection: connection.ID, ExpectedRevision: connection.Revision}}, func(ok bool) {
+		r.serviceCommand(id, protocol.Command{Kind: "remove_connection", Data: protocol.CommandRemoveConnectionPayload{Connection: connection.ID, ExpectedRevision: connection.Revision}}, func(ok bool) {
 			if ok {
 				delete(r.authorizations.connections, id)
 				r.enqueue(func(c *ui.Context) { kit.Toast(c, kit.Done, i18n.T(c, "connector_removed")) })
@@ -349,7 +376,7 @@ func (r *Runtime) removeConnector(id string) {
 	}
 	if name, exists := strings.CutPrefix(id, "mcp:"); exists {
 		info := r.authorizations.packages[name]
-		r.connectorCommand(protocol.Command{Kind: "remove_plugin", Data: protocol.CommandRemovePluginPayload{Name: name, ExpectedRevision: info.Summary.Revision}}, func(ok bool) {
+		r.serviceCommand(id, protocol.Command{Kind: "remove_plugin", Data: protocol.CommandRemovePluginPayload{Name: name, ExpectedRevision: info.Summary.Revision}}, func(ok bool) {
 			if ok {
 				delete(r.authorizations.packages, name)
 				r.enqueue(func(c *ui.Context) { kit.Toast(c, kit.Done, i18n.T(c, "connector_removed")) })
@@ -368,15 +395,58 @@ func (r *Runtime) confirmConnector(id string) {
 				}
 			}
 			r.App.Settings.ConfirmConnectorConsent(connection.Package.Name, changes, func(accept bool) {
-				r.connectorCommand(protocol.Command{Kind: "confirm_connector_consent", Data: protocol.CommandConfirmConnectorConsentPayload{Connection: connection.ID, ExpectedRevision: connection.Revision, Accept: accept}}, nil)
+				r.serviceCommand(id, protocol.Command{Kind: "confirm_connector_consent", Data: protocol.CommandConfirmConnectorConsentPayload{Connection: connection.ID, ExpectedRevision: connection.Revision, Accept: accept}}, nil)
 			})
 		})
 	}
 }
 
+// configureConnectorMCP answers the service's Configure. A server added by
+// hand opens its editor on the definition it was added with and the slots
+// that hold a credential; a plugin that declares a settings form opens that
+// form; any other plugin's server opens the editor on its MCP configuration.
+// A failed read is a toast and leaves the waiting editor to reload.
 func (r *Runtime) configureConnectorMCP(id string) {
+	view := r.App.Settings
+	fail := func(c *ui.Context, err error) {
+		r.connectorError(c, err)
+		view.FailMCPConfiguration(id, faultDetail(err))
+	}
 	info, exists := r.connectorPackage(id)
 	if !exists {
+		r.enqueue(func(c *ui.Context) {
+			fail(c, &protocol.Fault{Code: protocol.ErrorCodeNotFound, Message: "MCP package is not installed"})
+		})
+		return
+	}
+	reference := protocol.PluginReference{Name: info.Summary.Name, Digest: info.Summary.Digest, SettingsRevision: info.Summary.SettingsRevision}
+	if info.McpSource != nil {
+		r.execute(protocol.Command{Kind: "read_plugin_settings", Data: protocol.CommandReadPluginSettingsPayload{Package: reference}}, func(c *ui.Context, output protocol.Output, err error) {
+			state, ok := detail[protocol.PluginSettingsState](output.Data)
+			if err == nil && (!ok || state.Package != reference) {
+				err = &protocol.Fault{Code: protocol.ErrorCodeRevisionConflict, Message: "MCP configuration changed while reading"}
+			}
+			if err != nil {
+				fail(c, err)
+				return
+			}
+			server := viewmodel.ConnectorServer{Name: "server"}
+			if len(info.Mcp) > 0 {
+				server.Name = info.Mcp[0].Name
+			}
+			standaloneServer(&server, *info.McpSource)
+			// A slot's setting is titled with the slot's name.
+			var saved []string
+			if info.Settings != nil {
+				for _, field := range state.Configured {
+					if title := info.Settings.Properties[field].Title; title != nil {
+						saved = append(saved, *title)
+					}
+				}
+			}
+			view.OpenMCPConfiguration(settings.MCPConfiguration{Saved: saved,
+				Service: viewmodel.ConnectorService{ID: id, Revision: info.Summary.Revision, Name: strings.TrimPrefix(info.Summary.Name, "mcp-"), Servers: []viewmodel.ConnectorServer{server}}})
+		})
 		return
 	}
 	if info.Settings != nil {
@@ -384,51 +454,51 @@ func (r *Runtime) configureConnectorMCP(id string) {
 		r.configurePackage(info.Summary.Name)
 		return
 	}
-	reference := protocol.PluginReference{Name: info.Summary.Name, Digest: info.Summary.Digest, SettingsRevision: info.Summary.SettingsRevision}
 	r.execute(protocol.Command{Kind: "read_plugin_mcp", Data: protocol.CommandReadPluginMcpPayload{Package: reference}}, func(c *ui.Context, output protocol.Output, err error) {
-		r.connectorError(c, err)
-		if err != nil {
-			return
-		}
 		state, ok := detail[protocol.PluginMcpState](output.Data)
-		if !ok || state.Package != reference {
-			return
+		if err == nil && (!ok || state.Package != reference) {
+			err = &protocol.Fault{Code: protocol.ErrorCodeRevisionConflict, Message: "MCP configuration changed while reading"}
 		}
 		names := slices.Sorted(maps.Keys(state.Configuration.Servers))
-		if len(names) == 0 {
+		if err == nil && len(names) == 0 {
+			err = &protocol.Fault{Code: protocol.ErrorCodeNotConfigured, Message: "plugin has no MCP servers"}
+		}
+		if err != nil {
+			fail(c, err)
 			return
 		}
 		name := names[0]
 		server := state.Configuration.Servers[name]
 		view := viewmodel.ConnectorServer{Name: name}
+		var fields map[string]string
 		switch server.Kind {
 		case "stdio":
 			value, _ := detail[protocol.PluginMcpServerStdioPayload](server.Data)
-			view.Command, view.Args = value.Command, slices.Clone(value.Args)
-			for _, field := range slices.Sorted(maps.Keys(value.Env)) {
-				view.Env = append(view.Env, viewmodel.EnvVar{Key: field})
-			}
+			view.Command, view.Args, fields = value.Command, slices.Clone(value.Args), value.Env
 		case "sse":
 			value, _ := detail[protocol.PluginMcpServerSsePayload](server.Data)
-			view.Transport, view.URL = 2, value.Url
-			for _, field := range slices.Sorted(maps.Keys(value.Headers)) {
-				view.Env = append(view.Env, viewmodel.EnvVar{Key: field})
-			}
+			view.Transport, view.URL, fields = 2, value.Url, value.Headers
 		default:
 			value, _ := detail[protocol.PluginMcpServerHttpPayload](server.Data)
-			view.Transport, view.URL = 1, value.Url
-			for _, field := range slices.Sorted(maps.Keys(value.Headers)) {
-				view.Env = append(view.Env, viewmodel.EnvVar{Key: field})
+			view.Transport, view.URL, fields = 1, value.Url, value.Headers
+		}
+		// The values stay with the Node: the editor shows which are set.
+		var saved []string
+		for _, field := range slices.Sorted(maps.Keys(fields)) {
+			view.Env = append(view.Env, viewmodel.EnvVar{Key: field})
+			if fields[field] != "" {
+				saved = append(saved, field)
 			}
 		}
 		r.authorizations.mcpDrafts[id] = state
-		r.App.Settings.OpenMCPConfiguration(viewmodel.ConnectorService{ID: id, Revision: info.Summary.Revision, Name: name, Servers: []viewmodel.ConnectorServer{view}})
+		r.App.Settings.OpenMCPConfiguration(settings.MCPConfiguration{Saved: saved, Declared: true,
+			Service: viewmodel.ConnectorService{ID: id, Revision: info.Summary.Revision, Name: name, Servers: []viewmodel.ConnectorServer{view}}})
 	})
 }
 
 func (r *Runtime) probeConnection(id string) {
 	if connection, exists := r.authorizations.connections[id]; exists {
-		r.connectorCommand(protocol.Command{Kind: "probe_connection", Data: protocol.CommandProbeConnectionPayload{Connection: connection.ID}}, func(ok bool) {
+		r.serviceCommand(id, protocol.Command{Kind: "probe_connection", Data: protocol.CommandProbeConnectionPayload{Connection: connection.ID}}, func(ok bool) {
 			if ok {
 				r.enqueue(func(c *ui.Context) { kit.Toast(c, kit.Done, i18n.T(c, "connector_checked")) })
 			}
@@ -502,6 +572,15 @@ func connectorOutcome(err error) kit.Outcome {
 	return kit.Failed
 }
 
+// faultDetail is the reason an error gives for its diagnostics: the host's
+// for a fault, else the error's own text.
+func faultDetail(err error) string {
+	if reason := faultMessage(err); reason != "" {
+		return reason
+	}
+	return err.Error()
+}
+
 // faultMessage is the host's reason for a fault, "" for any other error.
 func faultMessage(err error) string {
 	var fault *link.FaultError
@@ -520,7 +599,7 @@ func (r *Runtime) allowMCP(id, server string, allowed bool) {
 	if !exists {
 		return
 	}
-	r.connectorCommand(protocol.Command{Kind: "set_plugin_mcp_allowed", Data: protocol.CommandSetPluginMcpAllowedPayload{Package: protocol.PluginReference{Name: info.Summary.Name, Digest: info.Summary.Digest, SettingsRevision: info.Summary.SettingsRevision}, Server: server, Allowed: allowed}}, func(ok bool) {
+	r.serviceCommand(id, protocol.Command{Kind: "set_plugin_mcp_allowed", Data: protocol.CommandSetPluginMcpAllowedPayload{Package: protocol.PluginReference{Name: info.Summary.Name, Digest: info.Summary.Digest, SettingsRevision: info.Summary.SettingsRevision}, Server: server, Allowed: allowed}}, func(ok bool) {
 		if ok {
 			r.enqueue(func(c *ui.Context) { kit.Toast(c, kit.Done, i18n.T(c, "connector_saved")) })
 		}
@@ -548,17 +627,30 @@ func (r *Runtime) inspectConnectorCLI(id string, done func([]string)) {
 	})
 }
 
+// saveMCP saves the server's editor. A slot with a value replaces its
+// credential, one the draft keeps stays as saved and any other is cleared;
+// an empty value is never sent as a replacement. A save that did not go
+// through tells the draft whether its outcome is uncertain, and why.
 func (r *Runtime) saveMCP(draft settings.MCPDraft, done func(bool)) {
+	fail := func(c *ui.Context, err error) {
+		r.connectorError(c, err)
+		if draft.Failed != nil {
+			draft.Failed(connectorOutcome(err) == kit.Uncertain, faultDetail(err))
+		}
+		done(false)
+	}
 	name := "mcp-" + strings.TrimPrefix(draft.Name, "mcp-")
 	if draft.Service != "" {
 		info, exists := r.connectorPackage(draft.Service)
 		if !exists {
-			done(false)
+			r.enqueue(func(c *ui.Context) {
+				fail(c, &protocol.Fault{Code: protocol.ErrorCodeRevisionConflict, Message: "MCP package changed while editing"})
+			})
 			return
 		}
 		name = info.Summary.Name
 		if info.McpSource == nil {
-			r.savePackageMCP(draft, info, done)
+			r.savePackageMCP(draft, info, done, fail)
 			return
 		}
 	}
@@ -566,11 +658,14 @@ func (r *Runtime) saveMCP(draft settings.MCPDraft, done func(bool)) {
 	secrets := map[string]protocol.PluginSettingsSecretUpdate{}
 	for _, field := range draft.Server.Env {
 		names = append(names, field.Key)
-		update := protocol.PluginSettingsSecretUpdate{Kind: "replace", Data: protocol.NewSecret(field.Value)}
-		if field.Value == "" && draft.Service != "" {
-			update = protocol.PluginSettingsSecretUpdate{Kind: "keep"}
+		switch {
+		case field.Value != "":
+			secrets[field.Key] = protocol.PluginSettingsSecretUpdate{Kind: "replace", Data: protocol.NewSecret(field.Value)}
+		case slices.Contains(draft.Keep, field.Key):
+			secrets[field.Key] = protocol.PluginSettingsSecretUpdate{Kind: "keep"}
+		default:
+			secrets[field.Key] = protocol.PluginSettingsSecretUpdate{Kind: "clear"}
 		}
-		secrets[field.Key] = update
 	}
 	definition := protocol.PluginMcpDefinition{Kind: "stdio", Data: protocol.PluginMcpDefinitionStdioPayload{Command: draft.Server.Command, Args: draft.Server.Args, Env: names}}
 	if draft.Server.Transport == 1 {
@@ -579,38 +674,34 @@ func (r *Runtime) saveMCP(draft settings.MCPDraft, done func(bool)) {
 		definition = protocol.PluginMcpDefinition{Kind: "sse", Data: protocol.PluginMcpDefinitionSsePayload{Url: draft.Server.URL, Headers: names}}
 	}
 	r.execute(protocol.Command{Kind: "install_mcp", Data: protocol.CommandInstallMcpPayload{Name: name, ExpectedRevision: draft.Revision, Definition: definition, Secrets: secrets}}, func(c *ui.Context, output protocol.Output, err error) {
-		r.connectorError(c, err)
-		done(err == nil)
-		if err == nil {
-			kit.Toast(c, kit.Done, i18n.T(c, "mcp_configuration_saved"))
-			if info, ok := detail[protocol.PluginInfo](output.Data); ok {
-				r.authorizations.packages[name] = info
-				r.reconnectMCP("mcp:" + name)
-			}
-			r.readConnectorPackages()
+		if err != nil {
+			fail(c, err)
+			return
 		}
+		done(true)
+		kit.Toast(c, kit.Done, i18n.T(c, "mcp_configuration_saved"))
+		if info, ok := detail[protocol.PluginInfo](output.Data); ok {
+			r.authorizations.packages[name] = info
+			r.reconnectMCP("mcp:" + name)
+		}
+		r.readConnectorPackages()
 	})
 }
 
-func (r *Runtime) savePackageMCP(draft settings.MCPDraft, info protocol.PluginInfo, done func(bool)) {
+func (r *Runtime) savePackageMCP(draft settings.MCPDraft, info protocol.PluginInfo, done func(bool), fail func(*ui.Context, error)) {
 	state, exists := r.authorizations.mcpDrafts[draft.Service]
-	if !exists || info.Summary.Revision != draft.Revision {
-		done(false)
+	server, declared := state.Configuration.Servers[draft.Server.Name]
+	if !exists || !declared || info.Summary.Revision != draft.Revision {
 		r.enqueue(func(c *ui.Context) {
-			r.connectorError(c, &protocol.Fault{Code: protocol.ErrorCodeRevisionConflict, Message: "MCP configuration changed while editing"})
+			fail(c, &protocol.Fault{Code: protocol.ErrorCodeRevisionConflict, Message: "MCP configuration changed while editing"})
 		})
-		return
-	}
-	server, exists := state.Configuration.Servers[draft.Server.Name]
-	if !exists {
-		done(false)
 		return
 	}
 	merge := func(previous map[string]string) map[string]string {
 		fields := map[string]string{}
 		for _, field := range draft.Server.Env {
 			fields[field.Key] = field.Value
-			if field.Value == "" {
+			if field.Value == "" && slices.Contains(draft.Keep, field.Key) {
 				fields[field.Key] = previous[field.Key]
 			}
 		}
@@ -634,16 +725,17 @@ func (r *Runtime) savePackageMCP(draft settings.MCPDraft, info protocol.PluginIn
 	configuration.Servers = maps.Clone(configuration.Servers)
 	configuration.Servers[draft.Server.Name] = server
 	r.execute(protocol.Command{Kind: "save_plugin_mcp", Data: protocol.CommandSavePluginMcpPayload{Package: state.Package, Configuration: configuration}}, func(c *ui.Context, output protocol.Output, err error) {
-		r.connectorError(c, err)
-		done(err == nil)
-		if err == nil {
-			delete(r.authorizations.mcpDrafts, draft.Service)
-			if updated, ok := detail[protocol.PluginInfo](output.Data); ok {
-				r.authorizations.packages[updated.Summary.Name] = updated
-			}
-			kit.Toast(c, kit.Done, i18n.T(c, "mcp_configuration_saved"))
-			r.reconnectMCP(draft.Service)
-			r.readConnectorPackages()
+		if err != nil {
+			fail(c, err)
+			return
 		}
+		done(true)
+		delete(r.authorizations.mcpDrafts, draft.Service)
+		if updated, ok := detail[protocol.PluginInfo](output.Data); ok {
+			r.authorizations.packages[updated.Summary.Name] = updated
+		}
+		kit.Toast(c, kit.Done, i18n.T(c, "mcp_configuration_saved"))
+		r.reconnectMCP(draft.Service)
+		r.readConnectorPackages()
 	})
 }

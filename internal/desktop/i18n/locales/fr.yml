@@ -1147,6 +1147,17 @@ mcp_headers: En-têtes
 mcp_add_header: Ajouter un en-tête
 mcp_slot_name: Nom
 mcp_keep_secret: Conserver les informations d &apos; identification
+mcp_clear_secret: Une référence claire
+mcp_secret_saved: Identifiant sauvegardé; laisser vide pour conserver
+mcp_secret_cleared: Les informations d'identification seront effacées lors de l'enregistrement
+mcp_show_secret: Show credential
+mcp_hide_secret: Hide credential
+connector_no_auth: Sans authentification
+connector_authentication: Authentification
+connector_mcp_status: Statut
+connector_mcp_updated: Mis à jour %{time}
+plugins_settings_reload: Recharger
+plugins_settings_diagnostics: Détails
 mcp_slot_value: Valeur
 mcp_remove_slot: Supprimer l'élément
 mcp_install_stdio_help: Saisissez la commande et les arguments de l’hôte sélectionné ; placez les valeurs privées dans les champs d’identifiants
