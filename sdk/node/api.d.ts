@@ -33,19 +33,26 @@ export type TurnInput = {
   continuation?: {marker: string | null};
 };
 export type TurnTokens = { input: number; output: number; cached_input: number; reasoning: number };
-/** Why continue_turn was refused, in the fault's details ({kind: "continuation", data}). count and limit accompany "limit". */
+/** Extra fields of a `continue` transaction operation. marker names a declared continuation_markers id; limit
+ * (1 to 100) is the automatic turn limit of the chain this continuation joins; user marks a continuation the
+ * user asked for, such as a Resume control, which starts a new chain. */
+export type ContinueOptions = { marker?: string; limit?: number; user?: boolean };
+/** Why continue_turn was refused: the fault's details. count and limit accompany "limit". */
 export type ContinuationRefusal = {
+  kind: "continuation";
   reason: "plan" | "child" | "archived" | "worktree" | "queue_paused" | "queued_input" | "running" | "interaction" | "limit" | "stale";
   count?: number; limit?: number;
 };
-/** host.turn.after_turn input for an ended main task turn. status is completed, failed, cancelled (the user's
+/** host.turn.after_turn input for an ended main task turn. Callbacks of consecutive turns can overlap, because a
+ * queued turn starts as soon as its predecessor ends: sequence orders the session's turns, so a loop can ignore
+ * the callback of a turn older than one it already handled. status is completed, failed, cancelled (the user's
  * Stop) or interrupted (the Node lost the turn); error is the stored fault code of a turn that did not complete.
  * tools counts the model's tool calls by the name in names or the core tool name; expired counts approvals and
  * questions that timed out unanswered. usage covers this turn and the children it delegated, session_usage every
  * turn of the session. background.running is work that starts a notice turn when it ends; background.pending is
  * ended results no turn has taken. chain is the run of automatic turns since the last user input and its limit. */
 export type TurnEnd = {
-  turn: string; status: "completed" | "failed" | "cancelled" | "interrupted"; error?: string;
+  turn: string; sequence: number; status: "completed" | "failed" | "cancelled" | "interrupted" | "continued"; error?: string;
   mode: "plan" | "code"; automatic: boolean; notice: boolean; continuation?: {marker: string | null};
   names: string[]; tool_calls: number; tools: Record<string, number>; expired: number;
   usage: TurnTokens; session_usage: TurnTokens;

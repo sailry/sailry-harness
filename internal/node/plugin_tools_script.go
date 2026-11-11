@@ -180,8 +180,9 @@ func (node *Node) scriptTools(ctx context.Context, invocation *store.AgentInvoca
 		if tool.Hosted {
 			// A plain handler acts only through its package's own grants, each
 			// checked when the script dispatches, so the call itself asks for
-			// nothing. A planning turn still refuses one that is not read-only.
-			tool.Approval = false
+			// nothing unless the package declares that it needs the user's
+			// consent. A planning turn still refuses one that is not read-only.
+			tool.Approval = handler.Approval && !readOnly
 		} else if pluginStorageHandler(handler) {
 			// Writes confined to the package's own values are authorized by
 			// the storage scope.

@@ -1969,6 +1969,11 @@
     "Handler": {
       "additionalProperties": false,
       "properties": {
+        "approval": {
+          "default": false,
+          "description": "A plain-script call asks for the ordinary tool approval; ignored for read-only handlers.",
+          "type": "boolean"
+        },
         "flow": {
           "anyOf": [
             {

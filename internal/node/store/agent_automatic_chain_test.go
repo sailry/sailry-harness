@@ -21,6 +21,7 @@ func TestAutomaticChain(t *testing.T) {
 		"default refuses the ninth automatic turn",
 		"declared limit owns the chain",
 		"user input resets the chain",
+		"a continuation the user asked for starts a new chain",
 		"notice turns share the declared limit",
 		"held result binds to the next continuation",
 		"refusals name their reason",
@@ -61,8 +62,9 @@ func TestAutomaticChain(t *testing.T) {
 					return err
 				}
 				// admit requests one continuation as the package would.
+				requested := false
 				admit := func(limit *uint32, marker *string) (protocol.TurnID, error) {
-					input := protocol.CommandContinueTurnPayload{Session: session.ID, Message: protocol.ConversationInput{Text: "Continue"}, Key: "loop", ExpectedRevision: value.Revision, Scope: protocol.PluginStorageScopeNode, Limit: limit, Marker: marker}
+					input := protocol.CommandContinueTurnPayload{Session: session.ID, Message: protocol.ConversationInput{Text: "Continue"}, Key: "loop", ExpectedRevision: value.Revision, Scope: protocol.PluginStorageScopeNode, Limit: limit, Marker: marker, User: requested}
 					request := protocol.NewRequest(node, protocol.Command{Kind: "continue_turn", Data: &input})
 					request.Plugin = &scope
 					body, err := encode(request)
@@ -209,6 +211,29 @@ func TestAutomaticChain(t *testing.T) {
 					}
 					if err = continued(1, nil); err != nil {
 						return err
+					}
+				case "a continuation the user asked for starts a new chain":
+					if err := continued(automaticLimit, nil); err != nil {
+						return err
+					}
+					if _, err := admit(nil, nil); !providerFixtureFault(err, protocol.ErrorCodeConflict) {
+						return fmt.Errorf("the chain passed its limit: %v", err)
+					}
+					requested = true
+					if err := continued(1, nil); err != nil {
+						return err
+					}
+					requested = false
+					chain, err := ReadAutomaticChain(ctx, db, session.ID)
+					if err != nil || chain.Count != 1 {
+						return fmt.Errorf("the requested continuation left the chain at %+v: %v", chain, err)
+					}
+					// It is the chain's first turn, so seven more follow it.
+					if err = continued(automaticLimit-1, nil); err != nil {
+						return err
+					}
+					if _, err = admit(nil, nil); !providerFixtureFault(err, protocol.ErrorCodeConflict) {
+						return fmt.Errorf("the new chain passed its limit: %v", err)
 					}
 				case "notice turns share the declared limit":
 					limit := uint32(11)

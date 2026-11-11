@@ -85,10 +85,14 @@ func activityTitle(ctx context.Context, db *sql.Conn, session protocol.SessionID
 	if err != nil {
 		return "", err
 	}
+	// A turn admitted inside a plugin transaction keeps only the digest of
+	// its request; its text is the input captured on the run.
 	var message sql.NullString
-	err = db.QueryRowContext(ctx, `SELECT coalesce(json_extract(r.body,'$.command.data.message.text'),
-		json_extract(r.body,'$.command.data.response.data.message.text'))
-		FROM turns t LEFT JOIN agent_pending p ON p.turn=t.id
+	err = db.QueryRowContext(ctx, `SELECT coalesce(CASE WHEN json_valid(r.body) THEN coalesce(
+		json_extract(r.body,'$.command.data.message.text'),
+		json_extract(r.body,'$.command.data.response.data.message.text')) END,
+		json_extract(a.input,'$.text'))
+		FROM turns t LEFT JOIN agent_pending p ON p.turn=t.id JOIN agent_runs a ON a.turn=t.id
 		JOIN requests r ON r.id=coalesce(p.request,t.request) AND r.caller=coalesce(p.caller,t.caller)
 		WHERE t.id=?1`, first).Scan(&message)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {

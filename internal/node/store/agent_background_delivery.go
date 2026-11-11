@@ -53,8 +53,10 @@ type AutomaticChain struct {
 
 // ReadAutomaticChain counts the notice turns and package continuations that
 // started since the session's last user input. Automatic turns that never
-// started neither count nor reset; joined guidance is user input. The limit
-// is the one the chain's latest continuation declared, or the default.
+// started neither count nor reset; joined guidance is user input, and so is
+// the request behind a continuation the user asked for, which is the first
+// turn of its chain. The limit is the one the chain's latest continuation
+// declared, or the default.
 func ReadAutomaticChain(ctx context.Context, db *sql.Conn, session protocol.SessionID) (AutomaticChain, error) {
 	chain := AutomaticChain{Limit: automaticLimit}
 	runs, err := readBodies[protocol.ConversationRun](ctx, db, "SELECT a.body FROM agent_runs a JOIN turns t ON t.id=a.turn WHERE t.session=?1 ORDER BY t.rowid DESC LIMIT 256", session.String())
@@ -75,6 +77,9 @@ func ReadAutomaticChain(ctx context.Context, db *sql.Conn, session protocol.Sess
 			if run.Continuation.Limit != nil {
 				chain.Limit = int(*run.Continuation.Limit)
 			}
+		}
+		if run.Continuation != nil && run.Continuation.User {
+			break
 		}
 	}
 	return chain, nil

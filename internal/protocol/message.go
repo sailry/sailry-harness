@@ -4344,6 +4344,7 @@ type CommandContinueTurnPayload struct {
 	Scope            PluginStorageScope `json:"scope"`
 	Marker           *string            `json:"marker,omitempty"`
 	Limit            *uint32            `json:"limit,omitempty"`
+	User             bool               `json:"user,omitempty"`
 }
 
 func DefaultCommandContinueTurnPayload() CommandContinueTurnPayload {
@@ -4356,6 +4357,7 @@ func DefaultCommandContinueTurnPayload() CommandContinueTurnPayload {
 		Scope:            PluginStorageScope(""),
 		Marker:           nil,
 		Limit:            nil,
+		User:             false,
 	}
 }
 func (value *CommandContinueTurnPayload) UnmarshalJSON(data []byte) error {
@@ -4363,6 +4365,7 @@ func (value *CommandContinueTurnPayload) UnmarshalJSON(data []byte) error {
 	decoded := plain{}
 	decoded.Marker = nil
 	decoded.Limit = nil
+	decoded.User = false
 	if err := DecodeObject(data, &decoded, []string{"session", "message", "key", "expected_revision", "scope"}, false); err != nil {
 		return err
 	}

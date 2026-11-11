@@ -20,7 +20,8 @@ import (
 // and the handler holds exactly the package's declared authority.
 //
 // The input states the turn's facts so a package loop need not page history
-// for them: how the turn ended, what started it, the tools the model called,
+// for them: its place in the session's order, how it ended, what started it,
+// the tools the model called,
 // the interactions that expired, its usage and the session's, the background
 // work still running or waiting, and the automatic chain.
 func (node *Node) afterTurn(ctx context.Context, inv *store.AgentInvocation, run protocol.ConversationRun, observed engine.TurnObservation) {
@@ -41,7 +42,7 @@ func (node *Node) afterTurn(ctx context.Context, inv *store.AgentInvocation, run
 		calls += count
 	}
 	base := map[string]any{
-		"turn": run.Turn, "status": run.Status, "automatic": run.Notice || run.Continuation != nil, "notice": run.Notice,
+		"turn": run.Turn, "sequence": run.Sequence, "status": run.Status, "automatic": run.Notice || run.Continuation != nil, "notice": run.Notice,
 		"mode": inv.Turn.Config.Mode, "tool_calls": calls, "tools": tools, "expired": observed.Expired,
 		"usage": facts.Usage, "session_usage": facts.SessionUsage,
 		"background": map[string]int{"running": facts.Running, "pending": facts.Pending},

@@ -115,7 +115,9 @@ func admitContinuation(ctx context.Context, db *sql.Conn, node, caller protocol.
 	if err != nil {
 		return protocol.Output{}, nil, err
 	}
-	if chain.Count >= limit {
+	// A continuation the user asked for starts a new chain. The package says
+	// so, as it may also submit a turn in the user's name.
+	if !input.User && chain.Count >= limit {
 		chain.Limit = limit
 		return protocol.Output{}, nil, continuationRefused(protocol.ErrorCodeConflict, protocol.ConversationContinuationRefusalLimit, "automatic turn limit reached", &chain)
 	}
@@ -123,7 +125,7 @@ func admitContinuation(ctx context.Context, db *sql.Conn, node, caller protocol.
 	if err != nil {
 		return protocol.Output{}, nil, err
 	}
-	continuation := &protocol.ConversationContinuation{Package: fence.Package, Limit: input.Limit}
+	continuation := &protocol.ConversationContinuation{Package: fence.Package, Limit: input.Limit, User: input.User}
 	if info != nil && info.Extension != nil {
 		continuation.Marker = info.Extension.ContinuationMarker
 		if input.Marker != nil {

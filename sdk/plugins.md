@@ -1068,11 +1068,19 @@ continuations in a row without user input; any user message, guidance included,
 starts a new count. A package that owns a loop declares its own bound with
 `limit` (1 to 100) on each `continue` operation: the continuation is admitted
 while the count is below that limit, and notice turns in the same chain follow
-the limit its latest continuation declared. A continuation also receives the
-session's waiting background results, held ones included, as a user turn does.
+the limit its latest continuation declared. A continuation the user asked for,
+such as a Resume control, sets `user: true`: it is admitted whatever the count
+and is the first turn of a new chain. A package states this as it may also
+submit a turn in the user's name; it must not set it from `after_turn`. A
+continuation also receives the session's waiting background results, held ones
+included, as a user turn does.
+
+A plain script tool handler may declare `"approval": true` to ask for the
+ordinary tool approval before each call; without it a plain handler asks for
+nothing, and a read-only handler never asks.
 
 A refused continuation fails the transaction with `details: {kind:
-"continuation", data: {reason, count?, limit?}}`. `reason` is `plan` (the session
+"continuation", reason, count?, limit?}`. `reason` is `plan` (the session
 is in Plan mode), `child`, `archived`, `worktree` (the worktree is gone),
 `queue_paused`, `queued_input`, `running`, `interaction` (an approval or question
 is pending), `limit` (with `count` and `limit`) or `stale` (the `after` turn is
@@ -1081,7 +1089,9 @@ no longer the latest completed turn). `queued_input`, `running` and
 need the user.
 
 `host.turn.after_turn` names a handler called after every main task turn ends,
-with `TurnEnd` (see `api.d.ts`): the turn's `status` (`cancelled` is the user's
+with `TurnEnd` (see `api.d.ts`): the turn's `sequence` in the session's order
+(a queued turn starts as soon as its predecessor ends, so two callbacks can
+overlap; ignore one older than a turn already handled), its `status` (`cancelled` is the user's
 Stop, `interrupted` a turn the Node lost, `failed` carries `error`), whether it
 was `automatic`, a `notice` turn or this package's own `continuation` and its
 marker, `tool_calls` and per-name `tools` counts, `expired` approvals and
