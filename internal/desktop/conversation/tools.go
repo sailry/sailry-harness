@@ -89,7 +89,7 @@ func summary(c *ui.Context, call Call, hovered, caret, open bool, sw *kit.Sweep)
 	}
 	ic := ui.Icon(c, icon).FontSize(rowIcon).Shrink(0).TextColor(color)
 	if call.wrap {
-		ic.Margin(wrapInset, 0, 0, 0)
+		ic.Margin((rowHeight-rowIcon)/2, 0, 0, 0)
 	}
 	label := call.Label
 	if label == "" && call.LabelKey != "" {
@@ -98,11 +98,11 @@ func summary(c *ui.Context, call Call, hovered, caret, open bool, sw *kit.Sweep)
 	shimmer := call.Running && quiet
 	switch {
 	case shimmer && label != "":
-		sw.Text(c, ui.Text(c, label).FontSize(14).SingleLine().Shrink(0).TextColor(color), ui.Span{Text: label, Size: 14, Color: color})
+		sw.Text(c, level(c, ui.Text(c, label).FontSize(14).SingleLine().Shrink(0).TextColor(color), call.wrap), ui.Span{Text: label, Size: 14, Color: color})
 	case call.wrap:
-		ui.Text(c, label).FontSize(14).Grow(1).Shrink(1).MinWidth(0).TextColor(color)
+		level(c, ui.Text(c, label).FontSize(14).Grow(1).Shrink(1).MinWidth(0).TextColor(color), true)
 	case label != "":
-		ui.Text(c, label).FontSize(14).SingleLine().Shrink(0).TextColor(color)
+		level(c, ui.Text(c, label).FontSize(14).SingleLine().Shrink(0).TextColor(color), false)
 	}
 	detail, code := call.Detail, call.Code
 	if (call.Failed || call.Warning) && call.State != Denied && call.Error != "" {
@@ -117,8 +117,9 @@ func summary(c *ui.Context, call Call, hovered, caret, open bool, sw *kit.Sweep)
 		if code {
 			span.Font, span.Size = "monospace", 13
 		}
-		// Laid out as the sweep draws it (kit.Sweep.Text).
-		d := ui.RichText(c, span).SingleLine().Grow(1).Shrink(1).MinWidth(0)
+		// Laid out as the sweep draws it (kit.Sweep.Text): its line has the
+		// theme's size as its strut, which levels it with the label.
+		d := level(c, ui.RichText(c, span).SingleLine().Grow(1).Shrink(1).MinWidth(0), call.wrap)
 		if code {
 			d.MaxWidth(detailMax)
 		}
@@ -131,7 +132,7 @@ func summary(c *ui.Context, call Call, hovered, caret, open bool, sw *kit.Sweep)
 		st = call.note
 	}
 	if st != "" {
-		ui.Text(c, st).FontSize(14).SingleLine().Shrink(0).TextColor(color)
+		level(c, ui.Text(c, st).FontSize(14).SingleLine().Shrink(0).TextColor(color), call.wrap)
 	}
 	if caret {
 		chevron := icons.ChevronRight
@@ -140,7 +141,7 @@ func summary(c *ui.Context, call Call, hovered, caret, open bool, sw *kit.Sweep)
 		}
 		ch := ui.Icon(c, chevron).FontSize(caretSize).Shrink(0).TextColor(color)
 		if call.wrap {
-			ch.Margin(wrapInset, 0, 0, 0)
+			ch.Margin((rowHeight-caretSize)/2, 0, 0, 0)
 		}
 		if !hovered {
 			ch.Opacity(0)
@@ -148,12 +149,19 @@ func summary(c *ui.Context, call Call, hovered, caret, open bool, sw *kit.Sweep)
 	}
 }
 
-// wrapInset drops a wrapping row's icon and caret to its first line.
-const wrapInset = 2
+// level puts a row's 14 DIP text level with its icon (kit.Level): centred
+// in the row, or on the first line of a row that wraps.
+func level(c *ui.Context, e ui.Element, wrap bool) ui.Element {
+	if wrap {
+		return kit.LevelTop(c, e, 14, rowHeight)
+	}
+	return kit.Level(c, e, 14)
+}
 
 // rowSize gives a row the summary's height: 24 DIPs, or, for a label that
-// wraps, the full width, at least 24 tall, with the icon, state and caret on
-// the first line.
+// wraps, the full width, at least 24 tall, with the icon, state and caret
+// where a row of one line has them, level with the first line
+// (kit.LevelTop).
 func rowSize(e ui.Element, wrap bool) ui.Element {
 	if wrap {
 		return e.FillWidth().MinHeight(rowHeight).AlignItems(ui.Start)
@@ -465,11 +473,11 @@ func Steps(c *ui.Context, steps []Step, active bool) {
 			ui.Icon(c, icon).FontSize(16).Shrink(0).TextColor(color)
 			switch {
 			case st.State == StepInProgress && active:
-				kit.Shimmer(c, st.Text, 14, p.Foreground)
+				level(c, kit.Shimmer(c, st.Text, 14, p.Foreground), false)
 			case st.State == StepCompleted || st.State == StepSkipped:
-				ui.Text(c, st.Text).FontSize(14).SingleLine().Strikethrough().TextColor(p.MutedForeground)
+				level(c, ui.Text(c, st.Text).FontSize(14).SingleLine().Strikethrough().TextColor(p.MutedForeground), false)
 			default:
-				ui.Text(c, st.Text).FontSize(14).SingleLine().TextColor(p.Foreground)
+				level(c, ui.Text(c, st.Text).FontSize(14).SingleLine().TextColor(p.Foreground), false)
 			}
 		})
 	}
@@ -528,7 +536,7 @@ func (s *State) children(c *ui.Context, kids []Child, actions Actions) {
 				kit.Identicon(c.Key(k.ID), k.ID, k.Status.Active(), 16)
 			}
 		})
-		t := ui.Text(c, label).FontSize(14).SingleLine().TextColor(color)
+		t := level(c, ui.Text(c, label).FontSize(14).SingleLine().TextColor(color), false)
 		if running {
 			sw.Text(c, t, ui.Span{Text: label, Size: 14, Color: color})
 		}
@@ -568,11 +576,11 @@ func child(c *ui.Context, k Child, actions Actions) {
 			kit.Identicon(c, k.ID, k.Status.Active(), 16)
 		}
 		if k.Status.Active() {
-			kit.Shimmer(c, title, 14, color)
+			level(c, kit.Shimmer(c, title, 14, color), false)
 		} else {
-			ui.Text(c, title).FontSize(14).SingleLine().TextColor(color)
+			level(c, ui.Text(c, title).FontSize(14).SingleLine().TextColor(color), false)
 		}
-		ui.Text(c, strings.TrimSpace(k.Model+" "+k.Effort)).FontSize(14).SingleLine().TextColor(p.MutedForeground.Alpha(0.65))
+		level(c, ui.Text(c, strings.TrimSpace(k.Model+" "+k.Effort)).FontSize(14).SingleLine().TextColor(p.MutedForeground.Alpha(0.65)), false)
 		ch := ui.Icon(c, icons.ChevronRight).FontSize(caretSize).TextColor(color)
 		if !hovered {
 			ch.Opacity(0)

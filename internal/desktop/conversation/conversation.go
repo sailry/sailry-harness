@@ -445,7 +445,8 @@ func showPhase(r *Reply, blocks []Block) bool {
 	return true
 }
 
-// phaseRow is the active run's last row: the orb and what it does.
+// phaseRow is the active run's last row: the phase's mark (kit.Indicator)
+// and what the run does.
 func phaseRow(c *ui.Context, r *Reply) {
 	p := theme.Of(c)
 	var label string
@@ -473,15 +474,15 @@ func phaseRow(c *ui.Context, r *Reply) {
 	row := ui.Row(c.Key("phase")).Gap(8).Height(rowHeight)
 	row.Children(func() {
 		kit.Indicator(c, Indicator(r.Phase), 16)
-		sw.Text(c, ui.Text(c, label).FontSize(14).SingleLine().TextColor(p.MutedForeground),
+		sw.Text(c, level(c, ui.Text(c, label).FontSize(14).SingleLine().TextColor(p.MutedForeground), false),
 			ui.Span{Text: label, Size: 14, Color: p.MutedForeground})
 	})
 	sw.Frame(row)
 }
 
-// Indicator is the thinking indicator's figure for a phase (ui/thinking
+// Indicator is the thinking indicator's mark for a phase (ui/thinking
 // state): searching while it thinks or waits, composing while it writes,
-// working while children run, a still ring otherwise.
+// working while children run, the still mark otherwise.
 func Indicator(ph Phase) kit.Thinking {
 	switch ph {
 	case Thinking, AwaitingResponse, PhaseNone:

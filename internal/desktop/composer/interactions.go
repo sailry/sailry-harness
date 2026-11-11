@@ -242,7 +242,7 @@ type fieldDraft struct {
 func capsule(c *ui.Context, label string, open bool) ui.Element {
 	return chip(c, label, open, func() {
 		ui.Icon(c, icons.CircleUser).FontSize(14)
-		ui.Text(c, label).FontSize(14).SingleLine()
+		chipText(c, label)
 	}).HasPopup(ui.PopupDialog)
 }
 
@@ -253,6 +253,12 @@ func chip(c *ui.Context, label string, open bool, children func()) ui.Element {
 	b := kit.Ghost(c, label, open).Height(28).PaddingX(12).Gap(6).Radius(14).Border(1, p.Border).
 		TextColor(p.MutedForeground).Shrink(0)
 	return b.Expanded(open).Children(children)
+}
+
+// chipText is a chip's text, 14 DIPs on one line, level with the chip's
+// icon (kit.Level).
+func chipText(c *ui.Context, text string) ui.Element {
+	return kit.Level(c, ui.Text(c, text).FontSize(14).SingleLine(), 14)
 }
 
 // place puts a capsule's popover (MyGo's, as it is) anchored at its bottom
@@ -352,7 +358,7 @@ func (s *State) approval(c *ui.Context, a Approval, actions Actions) {
 			outlined(c.Key("reload"), retry).Disabled(a.Reload == nil).OnClick(func() { a.Reload() })
 		})
 	case a.Loading:
-		ui.Row(c.Key("details")).Height(28).AlignItems(ui.Center).Children(func() { ui.Spinner(c).Size(14, 14) })
+		ui.Row(c.Key("details")).Height(28).AlignItems(ui.Center).Children(func() { kit.Busy(c) })
 	}
 	if a.Receipt || a.Again != nil {
 		ui.Row(c.Key("decision")).Gap(8).Padding(4, 0, 0, 0).Justify(ui.End).AlignItems(ui.Center).Children(func() {
@@ -382,7 +388,7 @@ func (s *State) approval(c *ui.Context, a Approval, actions Actions) {
 	}
 	ui.Row(c.Key("decision")).Gap(8).Padding(4, 0, 0, 0).Justify(ui.End).AlignItems(ui.Center).Children(func() {
 		if a.Busy {
-			ui.Spinner(c).Size(14, 14)
+			kit.Busy(c)
 		}
 		ui.Row(c.Key("deny-group")).Children(func() {
 			deny := i18n.T(c, "approval_reject")
@@ -434,7 +440,7 @@ func outlined(c *ui.Context, label string) ui.Element {
 // busyLabel is a button's label, behind a spinner while its action runs.
 func busyLabel(c *ui.Context, label string, busy bool) {
 	if busy {
-		ui.Spinner(c).Size(14, 14)
+		kit.Busy(c)
 	}
 	ui.Text(c, label).FontSize(14)
 }

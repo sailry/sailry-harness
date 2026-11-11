@@ -251,7 +251,7 @@ func ContextButton(c *ui.Context, b ui.Element, icon *ui.SVG, label string, sele
 	return kit.GhostLook(c, b, selected).Label(label).Height(24).PaddingX(8).Gap(4).Radius(12).MaxWidth(192).MinWidth(0).Shrink(1).
 		TextColor(theme.Of(c).MutedForeground).Children(func() {
 		ui.Icon(c, icon).FontSize(14).Shrink(0)
-		ui.Text(c, label).FontSize(14).SingleLine().Shrink(1).MinWidth(0)
+		kit.Level(c, ui.Text(c, label).FontSize(14).SingleLine().Shrink(1).MinWidth(0), 14)
 		if caret {
 			ui.Icon(c, icons.ChevronDown).FontSize(12).Shrink(0)
 		}
@@ -535,7 +535,7 @@ func (s *State) settingsButton(c *ui.Context, ctx *Context, actions Actions) {
 func MenuRow(c *ui.Context, b ui.Element, icon *ui.SVG, label string, color ui.Color, chevron *ui.SVG) ui.Element {
 	return b.FillWidth().MinWidth(0).Height(32).PaddingX(8).Gap(8).Justify(ui.Start).TextColor(color).Children(func() {
 		ui.Icon(c, icon).FontSize(16).Shrink(0)
-		ui.Text(c, label).FontSize(14).SingleLine().Grow(1).MinWidth(0)
+		kit.Level(c, ui.Text(c, label).FontSize(14).SingleLine().Grow(1).MinWidth(0), 14)
 		slot := ui.Box(c).Size(16, 16).Shrink(0)
 		if chevron != nil {
 			slot.Children(func() { ui.Icon(c, chevron).FontSize(16) })

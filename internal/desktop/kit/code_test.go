@@ -47,4 +47,5 @@ func TestCodeLooks(t *testing.T) {
 			t.Errorf("backgrounds: code %+v, message block %+v", bg, block)
 		}
 	})
+	t.Run("CopyIsAnIcon", testCodeCopy)
 }

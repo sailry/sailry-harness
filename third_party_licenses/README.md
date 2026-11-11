@@ -17,6 +17,7 @@ single owning package, and this index lists every location.
 | Phosphor Icons fill set in `internal/desktop/icons/phosphor`, named by plugins as `phosphor:<name>` | MIT | [phosphor-icons.md](phosphor-icons.md), [phosphor-icons-MIT.txt](phosphor-icons-MIT.txt) |
 | CrychicUI components and their bundled Lucide icons, linked into Desktop | MIT, ISC | [crychicui.md](crychicui.md), [crychicui-MIT.txt](crychicui-MIT.txt), [crychicui-THIRD_PARTY_NOTICES.md](crychicui-THIRD_PARTY_NOTICES.md) |
 | libghostty-vt terminal engine, shipped by the MyGo terminal plugin | MIT | [ghostty-terminal.md](ghostty-terminal.md), [ghostty-MIT.txt](ghostty-MIT.txt) |
+| loading-dev indicators, followed by the MyGo loading plugin that draws Desktop's loading marks | MIT | [loading-dev.md](loading-dev.md), [loading-dev-MIT.txt](loading-dev-MIT.txt) |
 | llama.cpp and ggml runtime | MIT | [llama.md](llama.md) |
 | LLVM OpenMP runtime in the Windows llama.cpp packages | Apache-2.0 with LLVM exceptions, MIT | [llvm-OpenMP-LICENSE](llvm-OpenMP-LICENSE) |
 | agent-desktop computer-use helper | Apache-2.0 | [agent-desktop.md](agent-desktop.md) |
