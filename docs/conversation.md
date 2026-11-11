@@ -657,6 +657,7 @@ destination, the rewind toast's backup action, and
 | Shimmer and identicon are approximations | Custom drawing (MyGo has no moving text highlight or procedural avatar); same timing and colours, not pixel-identical |
 | Diff rows have no syntax highlighting or line numbers | Not in the view model yet |
 | MCP forms and authorization links are answered in the composer's question popover | The Node binds each request to its exact active parent call and persists its answer without adding a second transcript row |
+| Live deltas keep flowing however many entries a turn commits | The reference stops streaming for the rest of a turn after 4096 committed entries; the Node remembers the 4096 most recent ones, which is all a late delta can name |
 | A plan review's history row shows its answers as plain lines, closed | The reference renders the plan as Markdown, open by default |
 | A jump across the transcript (scroll bar drag) costs ≈4.1 ms a frame, against ≈1.8 ms before tool rows | MyGo's `ListState.AtEnd` builds another frame whenever the rows in view change, not only the end; a jump re-measures rows until they settle. Steady (≈0.19 ms), hover (≈0.19 ms) and scroll (≈1.0 ms) frames are unaffected |
 
