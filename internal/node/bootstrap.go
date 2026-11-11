@@ -37,3 +37,10 @@ func OpenProfile(ctx context.Context, path string) (*Profile, error) {
 func (profile *Profile) Close() error {
 	return errors.Join(profile.Store.Close(), profile.Ownership.Close())
 }
+
+// Abandon releases the profile after a shutdown that passed its deadline. A
+// database that a worker still reads or writes is left open: the process is
+// about to exit and SQLite recovers its log at the next start.
+func (profile *Profile) Abandon() error {
+	return errors.Join(profile.Store.CloseIdle(), profile.Ownership.Close())
+}

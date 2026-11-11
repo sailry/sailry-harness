@@ -36,6 +36,18 @@ func (storage *Store) Close() error {
 	return errors.Join(knowledge, node)
 }
 
+// CloseIdle closes each database that no read or write is using.
+func (storage *Store) CloseIdle() error {
+	var knowledge, node error
+	if storage.Knowledge != nil {
+		knowledge = storage.Knowledge.closeIdle()
+	}
+	if storage.Node != nil {
+		node = storage.Node.closeIdle()
+	}
+	return errors.Join(knowledge, node)
+}
+
 // rustDatabases are the database files the Rust Node kept in storage. Each
 // name also covers its side files (name-wal, name-log and the like).
 var rustDatabases = [...]string{

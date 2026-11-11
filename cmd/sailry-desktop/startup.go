@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"io"
+	"log/slog"
 	"path/filepath"
 	"sync"
 
@@ -110,4 +111,16 @@ func (backend *desktopBackend) Close() error {
 		backend.err = errors.Join(network, controller, nodeErr)
 	})
 	return backend.err
+}
+
+// Stop closes the backend for the updater, which replaces or restarts the
+// application next. A shutdown that passed its deadline has released the
+// profile, and the exit that follows ends the work that did not stop.
+func (backend *desktopBackend) Stop() error {
+	err := backend.Close()
+	if errors.Is(err, core.ErrShutdownTimeout) {
+		slog.Error("Node shutdown", "error", err.Error())
+		return nil
+	}
+	return err
 }

@@ -96,7 +96,7 @@ func run() error {
 	if backend.Client != nil && backend.Preferences != nil {
 		// The updater quits after it replaced the application: nothing is
 		// left to ask about.
-		updates = live.NewUpdates(backend.Preferences, backend.Path, backend.Close, func() { mygo.RunOnMain(guard.pass) })
+		updates = live.NewUpdates(backend.Preferences, backend.Path, backend.Stop, func() { mygo.RunOnMain(guard.pass) })
 		defer updates.Service.Close()
 	}
 	var refreshCommands func()

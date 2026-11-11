@@ -220,6 +220,28 @@ with their owning backend phases. Connection and plugin assistant session
 creation is unavailable until those services land. Source-compatible captures
 and projections extend in those owning phases without adding another history.
 
+## Shutdown
+
+`Node.Stop` refuses new work, cancels every worker and closes the Node in
+dependency order: command lanes, plugin status, agent turns, logins, terminals,
+network, port forwards, supervised tasks, the knowledge index, local models,
+external browsers, plugins and MCP servers, requests in flight, telemetry,
+commands with transfers and watchers, then storage and the profile lock.
+
+The whole sequence has the Rust Node's five-second deadline. Supervised tasks
+(logins, plugin commands) may finish until that deadline and are cancelled at
+it. When the deadline passes, `Stop` logs the stage that did not stop and the
+stages it never reached, closes each database that no read or write still
+uses, releases the profile lock and returns `core.ErrShutdownTimeout` naming
+the stage. The caller exits; the Desktop updater continues with the
+installation, because the profile is released.
+
+| Deviation from Rust | Reason |
+|---|---|
+| The deadline covers the whole shutdown, not only supervised tasks | Rust aborts its tasks at the deadline and then closes the rest; a goroutine cannot be aborted, so every wait needs the bound or one worker that ignores cancellation keeps a windowless process holding the profile lock |
+| Stages after the one that did not stop are not run | They would wait for the same worker. What they would have released is what a crash leaves, and the next start clears it: terminals end with their pseudo-terminal, recorded command groups are killed, external browsers are closed, temporary files are removed |
+| A database still in use at the deadline is left open | Closing it would wait for the worker; SQLite recovers its log at the next start |
+
 ## Store
 
 `internal/node/store` has one writer goroutine that groups waiting jobs into one
