@@ -27,6 +27,7 @@ func TestSpeech(t *testing.T) {
 	t.Run("runtime absent", checkRuntimeAbsent)
 	t.Run("model index", checkModelIndex)
 	t.Run("model download", checkModelDownload)
+	t.Run("model leftovers", checkModelLeftovers)
 }
 
 func checkResampler(t *testing.T) {
@@ -425,5 +426,66 @@ func checkModelDownload(t *testing.T) {
 	manager.Wait()
 	if got := state(); got.Status != models.Missing {
 		t.Fatalf("download after shutdown = %+v", got)
+	}
+}
+
+// checkModelLeftovers covers what a crash leaves under the models directory
+// and the next Open clears.
+func checkModelLeftovers(t *testing.T) {
+	directory := t.TempDir()
+	manager, err := models.Open(t.Context(), models.Options{Directory: directory})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := manager.Register(definition("org/voice", []byte("graph"), []byte("tokens")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(directory, "models")
+	write := func(path string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("left"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A removal parked the model's files and stopped before the index
+	// without the model was saved.
+	interrupted := filepath.Join(root, "speech", ".speech-delete-"+id.String())
+	write(filepath.Join(interrupted, "model", "tokens.txt"))
+	// A removal saved the index and stopped before the files were deleted.
+	finished := filepath.Join(root, "speech", ".speech-delete-"+protocol.NewModelID().String())
+	write(filepath.Join(finished, "model", "tokens.txt"))
+	draft := filepath.Join(root, ".speech-123456.json")
+	write(draft)
+	stray := filepath.Join(root, "sensevoice-int8", ".other.bin-4-"+strings.Repeat("ab", 32)+".part")
+	write(stray)
+	temporary := filepath.Join(root, "speech", id.String()+"-unrelated")
+	write(filepath.Join(temporary, "kept.txt"))
+
+	manager, err = models.Open(t.Context(), models.Options{Directory: directory})
+	if err != nil || len(manager.Entries()) != 1 {
+		t.Fatalf("reopened index: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "speech", id.String(), "tokens.txt")); err != nil {
+		t.Fatalf("the listed model's files were not put back: %v", err)
+	}
+	for _, path := range []string{interrupted, finished, draft, stray} {
+		if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("%s stayed: %v", path, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(temporary, "kept.txt")); err != nil {
+		t.Fatalf("an unrelated directory was touched: %v", err)
+	}
+	// A removal leaves no holder behind.
+	if err := manager.Remove(id); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(filepath.Join(root, "speech"))
+	if err != nil || len(entries) != 1 || entries[0].Name() != filepath.Base(temporary) {
+		t.Fatalf("after the removal: %v, %v", entries, err)
 	}
 }

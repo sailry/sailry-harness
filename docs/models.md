@@ -281,6 +281,21 @@ model and no download from these packages.
   row and stay listed as not installed. The reference never deletes a
   registration, so every model ever tried counted against the limit for
   good. `TestLocalModelRuntime` covers the four cases.
+- **Interrupted downloads.** A cancelled or failed download keeps its
+  partial file (`.<name>-<size>-<sha256>.part`) and checkpoint (`….part.json`)
+  in the model's directory. It continues only under that checkpoint: a
+  missing or invalid one, a prefix whose hash differs, another address (a
+  changed mirror) or a changed response validator start the file over.
+  `Registry.Start` calls `assets.Sweep` for every registered model, which
+  removes `.tmp-*` drafts, partial files that are not a file of the model,
+  partial files without a usable checkpoint, and partial files not written
+  for `assets.PartRetention` (7 days). Deleting the model removes its
+  directory with them. The reference never removes a partial file except by
+  publishing it, discarding it or deleting the model, so an abandoned
+  multi-gigabyte download stayed on disk. Limits: the sweep runs at Node
+  start only, and the directory of a pinned embedding model's earlier
+  revision is not removed. `TestDownloadCancel` covers the sweep and the
+  restart under another address.
 - **Availability check.** Catalog availability checks that the runtime files
   exist; size and digest are verified when the first model loads.
 - **Image decoding.** Images are decoded by Go's `image` packages and

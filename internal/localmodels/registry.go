@@ -38,6 +38,7 @@ type Registry struct {
 	capabilities Capabilities
 	client       *http.Client
 	scheduler    *scheduler
+	clock        clockwork.Clock
 	stop         context.Context
 	cancel       context.CancelFunc
 
@@ -98,6 +99,7 @@ func New(options Options) *Registry {
 		capabilities: options.Capabilities,
 		client:       assets.Client(options.Transport),
 		scheduler:    newScheduler(stop, clock, options.Capabilities),
+		clock:        clock,
 		stop:         stop,
 		cancel:       cancel,
 		settings:     settings,
@@ -243,11 +245,13 @@ func (registry *Registry) List(kind protocol.ModelsKind) ([]protocol.ModelsLocal
 // Start accepts the files their receipts cover without reading contents and
 // hashes the others off the caller's thread, so a large model without a
 // receipt does not delay startup. Such a model is listed as missing until
-// its hash ends; operations that need it wait through Settle.
+// its hash ends; operations that need it wait through Settle. Start also
+// sweeps what interrupted downloads left behind and cannot be resumed.
 func (registry *Registry) Start() error {
 	if registry.profile == "" {
 		return nil
 	}
+	registry.sweep()
 	if err := registry.inspect(func(string, *protocol.ModelsDefinition) bool { return true }, known); err != nil {
 		return err
 	}
@@ -288,6 +292,24 @@ func (registry *Registry) Start() error {
 		registry.mu.Unlock()
 	}
 	return nil
+}
+
+// sweep clears the leftovers of interrupted downloads from the directory of
+// every registered model. No transfer runs before Start.
+func (registry *Registry) sweep() {
+	root, err := registry.Root()
+	if err != nil {
+		return
+	}
+	registry.mu.Lock()
+	definitions := maps.Clone(registry.definitions)
+	registry.mu.Unlock()
+	stale := registry.clock.Now().Add(-assets.PartRetention)
+	for id, definition := range definitions {
+		if path, err := directory(root, id, definition); err == nil {
+			assets.Sweep(path, files(definition), stale)
+		}
+	}
 }
 
 // Settle waits until the hashing Start left running for the given models

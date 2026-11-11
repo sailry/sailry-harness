@@ -13,7 +13,9 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/sailry/sailry-harness/internal/localmodels"
 	"github.com/sailry/sailry-harness/internal/localmodels/assets"
@@ -136,8 +138,51 @@ func Open(ctx context.Context, options Options) (*Manager, error) {
 		}
 		seen[record.ID] = true
 	}
-	return &Manager{options: options, client: assets.Client(options.Transport), ctx: ctx, records: records, jobs: map[string]*job{}, active: map[string]int{}}, nil
+	manager := &Manager{options: options, client: assets.Client(options.Transport), ctx: ctx, records: records, jobs: map[string]*job{}, active: map[string]int{}}
+	manager.sweep()
+	return manager, nil
 }
+
+// sweep clears what a crash left under the models directory: index drafts,
+// the holders of interrupted removals and the leftovers of interrupted
+// downloads that cannot be resumed. A removal that stopped before its index
+// was saved is undone, so that a model the index lists has its files.
+// Nothing downloads or is removed before Open returns.
+func (m *Manager) sweep() {
+	directory := filepath.Join(m.options.Directory, "models")
+	drafts, _ := os.ReadDir(directory)
+	for _, draft := range drafts {
+		if name := draft.Name(); strings.HasPrefix(name, ".speech-") && strings.HasSuffix(name, ".json") {
+			_ = os.Remove(filepath.Join(directory, name))
+		}
+	}
+	registered := map[string]bool{}
+	for _, record := range m.records {
+		registered[record.ID.String()] = true
+	}
+	holders, _ := os.ReadDir(filepath.Join(directory, "speech"))
+	for _, entry := range holders {
+		id, found := strings.CutPrefix(entry.Name(), holderPrefix)
+		if !found {
+			continue
+		}
+		holder, path := filepath.Join(directory, "speech", entry.Name()), filepath.Join(directory, "speech", id)
+		if _, err := os.Lstat(path); registered[id] && errors.Is(err, os.ErrNotExist) {
+			_ = os.Rename(filepath.Join(holder, "model"), path)
+		}
+		_ = os.RemoveAll(holder)
+	}
+	stale := time.Now().Add(-assets.PartRetention)
+	assets.Sweep(m.path(nil), recommendedFiles, stale)
+	for index := range m.records {
+		record := &m.records[index]
+		assets.Sweep(m.path(&record.ID), files(&record.Definition), stale)
+	}
+}
+
+// holderPrefix names the directory beside a model that keeps its files
+// while its removal is saved; the model's ID follows.
+const holderPrefix = ".speech-delete-"
 
 // Wait returns when every download started so far has ended.
 func (m *Manager) Wait() { m.workers.Wait() }
@@ -346,7 +391,13 @@ func (m *Manager) Remove(id protocol.ModelID) error {
 			m.mu.Unlock()
 			return fmt.Errorf("%w: model directory is not a directory", ErrStorage)
 		}
-		holder, err := os.MkdirTemp(filepath.Dir(path), ".speech-delete-")
+		// Named by the model, so that Open can undo a removal a crash
+		// interrupted before the index was saved.
+		holder := filepath.Join(filepath.Dir(path), holderPrefix+key)
+		err := os.RemoveAll(holder)
+		if err == nil {
+			err = os.Mkdir(holder, 0o700)
+		}
 		if err == nil {
 			parked = filepath.Join(holder, "model")
 			err = os.Rename(path, parked)

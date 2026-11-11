@@ -709,7 +709,13 @@ manager, not `ReadLocalModels`.
   (resume, size and SHA-256) over `netproxy.Transport()`, so they follow the
   desktop's proxy settings. A downloaded model counts as installed only after
   the recognizer was constructed over it. A model in use by a dictation is
-  neither removed nor downloaded again.
+  neither removed nor downloaded again. `Open` clears what a crash left:
+  index drafts (`models/.speech-*.json`), partial downloads that cannot be
+  resumed or were not written for 7 days (`assets.Sweep`,
+  [details](models.md#deviations-1)), and the holders of interrupted
+  removals (`models/speech/.speech-delete-<id>`). A holder whose model the
+  index still lists is the removal that stopped before the index was saved:
+  its files are put back; any other holder is deleted.
 - `live/settings_models_speech.go` owns the page (`dictationFrame`, called by
   `drain`):
   - SDICT-001: `Model.MicrophoneGranted` is `capture.Status()`, read on every
@@ -743,6 +749,7 @@ Deviations from the reference:
 | Outside macOS the access row always reads Allowed | Only macOS gates the microphone per application; the reference shows an inert Request on Windows |
 | A refused or restricted microphone is the `dictation_permission` toast | The reference's permission card with its system-settings link is not part of the accepted page |
 | A registered model is validated by constructing the recognizer, not by reading the graph's SenseVoice metadata | The ONNX binding exposes no model metadata; no control registers a model |
+| Leftovers of a crash are cleared when the manager opens, and an interrupted removal is undone or finished | The reference names its holder at random and sweeps nothing, so the files of a model stayed in a holder nothing could find |
 | Speech downloads are not listed among a Node's installation tasks | They are the controller's and the accepted UI has no controller task list |
 | The speech, ONNX Runtime and capture libraries load only from the executable's directory, or `Contents/Resources` of the macOS application bundle | B11 loader rule; without them dictation and the device list report `dictation_unavailable` and the picker offers the system default alone |
 
