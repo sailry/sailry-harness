@@ -248,8 +248,9 @@ func (index Index) Replace(ctx context.Context, binding Binding, document Docume
 	})
 }
 
-// Prune drops the sources a completed scan no longer found.
-func (index Index) Prune(ctx context.Context, binding Binding, locators []string) error {
+// Prune drops the sources a scan no longer found. Sources below a kept
+// prefix stay: the scan could not enter their directory.
+func (index Index) Prune(ctx context.Context, binding Binding, locators, kept []string) error {
 	return index.write(ctx, func(db *sql.Conn) error {
 		found, err := current(ctx, db, binding)
 		if err != nil {
@@ -258,7 +259,8 @@ func (index Index) Prune(ctx context.Context, binding Binding, locators []string
 		if !found {
 			return changedCollection()
 		}
-		_, err = db.ExecContext(ctx, "DELETE FROM sources WHERE collection=?1 AND locator NOT IN (SELECT value FROM json_each(?2))", binding.ID.String(), tagsJSON(locators))
+		_, err = db.ExecContext(ctx, "DELETE FROM sources WHERE collection=?1 AND locator NOT IN (SELECT value FROM json_each(?2)) AND NOT EXISTS (SELECT 1 FROM json_each(?3) kept WHERE substr(sources.locator,1,length(kept.value))=kept.value)",
+			binding.ID.String(), tagsJSON(locators), tagsJSON(kept))
 		return err
 	})
 }

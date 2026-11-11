@@ -47,9 +47,25 @@ and scope, scans the source and replaces what changed.
   model. Nothing is downloaded and no other model is substituted.
 - Scheduling: a pass runs on start, after a mutation, a plugin storage
   trigger, a watch event (250 ms quiet, 1 s at most) and every five minutes
-  while a watch backend failed. A
-  collection whose pass fails is reported paused and logged; the others
-  continue. Progress is published at most every 500 ms and at the end.
+  while a watch backend failed or a failure is still being retried. Progress
+  is published at most every 500 ms and at the end.
+- Failures: a file or directory that cannot be read now (a failed OCR, a
+  permission error, a file that changed while it was read, an embedding
+  fault) does not end the pass. It is recorded in the collection's progress
+  (`failed` counts them, `failures` names the first eight by path with their
+  reason), the scan continues, what was published from it stays, and the next
+  passes read it again: at most three times while its size, modification time
+  and OCR model are unchanged, five minutes apart when nothing else requests
+  a pass. After that it stays reported and is read again when it changes,
+  after a mutation of any collection, a changed model set (`Invalidate`) or a
+  restart. Sources below a directory that could not be entered are not
+  pruned. Content that can never be indexed (binary data, a file above
+  32 MiB, a directory nested deeper than 64 levels) is counted in `skipped`
+  instead.
+- A collection that fails as a whole (its root is gone, the index cannot be
+  written) is reported `paused` with one failure without a path that carries
+  the reason, the others continue, and it is retried on the same timer three
+  times.
 
 Reactions (`reactKnowledge`): a changed embedding choice or installed
 embedding set invalidates the pass, and saving the choice advances the
@@ -212,6 +228,7 @@ the embedding capabilities through the unexported `Options.knowledge` seam.
 | Keyword scores come from SQLite FTS5 `bm25` | The Go store is SQLite; the reference scores with its own engine's FTS |
 | Globs use the package's translator; chunk keys and scope hashes hash Go's JSON encoding | No byte compatibility with a reference index is required; indexes are derived data |
 | Directory entries are scanned in sorted order | Deterministic passes and tests |
+| A source that cannot be read is recorded in `progress.failed` and `progress.failures`, the pass continues and the source is retried a bounded number of times; an unreadable directory no longer fails the pass as incomplete, and a failed collection carries its reason | The reference ends the pass at the first fault other than `InvalidRequest`, so every later file stays unindexed, reports the collection paused with the reason only in its log and never retries |
 | Watches go through `internal/node/fswatch` ([files.md](files.md#file-watches)): on macOS one FSEvents stream per source root, filtered to the scanned directories; elsewhere one fsnotify watch per scanned directory | The reference watches each scanned directory; fsnotify on macOS would hold a descriptor per file. A failed backend falls back to the five-minute poll |
 | The OCR extractor signature is the hash of the selected OCR resource | It changes exactly when recognized text may change |
 | Durable knowledge mutations complete inside `Dispatch` | They are single short transactions |

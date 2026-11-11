@@ -362,6 +362,34 @@ func (value *KnowledgeStatus) UnmarshalText(data []byte) error {
 	return value.UnmarshalJSON(encoded)
 }
 
+// KnowledgeFailure is one source the last pass could not read or index. An
+// empty path names the collection itself.
+type KnowledgeFailure struct {
+	Path   string `json:"path"`
+	Reason string `json:"reason"`
+}
+
+func DefaultKnowledgeFailure() KnowledgeFailure {
+	return KnowledgeFailure{
+		Path:   "",
+		Reason: "",
+	}
+}
+func (value *KnowledgeFailure) UnmarshalJSON(data []byte) error {
+	type plain KnowledgeFailure
+	decoded := plain{}
+	if err := DecodeObject(data, &decoded, []string{"path", "reason"}, false); err != nil {
+		return err
+	}
+	*value = KnowledgeFailure(decoded)
+	return nil
+}
+func (value KnowledgeFailure) MarshalJSON() ([]byte, error) {
+	type plain KnowledgeFailure
+	encoded := plain(value)
+	return json.Marshal(encoded)
+}
+
 type KnowledgeProgress struct {
 	Status     KnowledgeStatus `json:"status"`
 	Sources    uint64          `json:"sources"`
@@ -370,6 +398,10 @@ type KnowledgeProgress struct {
 	Skipped    uint64          `json:"skipped"`
 	Model      *string         `json:"model"`
 	Generation uint64          `json:"generation"`
+	// Failed counts the sources the last pass could not read or index;
+	// Failures names the first of them.
+	Failed   uint64             `json:"failed"`
+	Failures []KnowledgeFailure `json:"failures"`
 }
 
 func DefaultKnowledgeProgress() KnowledgeProgress {
@@ -381,11 +413,15 @@ func DefaultKnowledgeProgress() KnowledgeProgress {
 		Skipped:    0,
 		Model:      nil,
 		Generation: 0,
+		Failed:     0,
+		Failures:   []KnowledgeFailure{},
 	}
 }
 func (value *KnowledgeProgress) UnmarshalJSON(data []byte) error {
 	type plain KnowledgeProgress
 	decoded := plain{}
+	decoded.Failed = 0
+	decoded.Failures = []KnowledgeFailure{}
 	if err := DecodeObject(data, &decoded, []string{"status", "sources", "completed", "chunks", "skipped", "generation"}, false); err != nil {
 		return err
 	}
@@ -395,6 +431,7 @@ func (value *KnowledgeProgress) UnmarshalJSON(data []byte) error {
 func (value KnowledgeProgress) MarshalJSON() ([]byte, error) {
 	type plain KnowledgeProgress
 	encoded := plain(value)
+	encoded.Failures = normalizeCollections(encoded.Failures)
 	return json.Marshal(encoded)
 }
 

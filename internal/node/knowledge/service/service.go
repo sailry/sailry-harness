@@ -4,6 +4,7 @@ import (
 	"context"
 	"slices"
 	"sync"
+	"sync/atomic"
 
 	"github.com/jonboulle/clockwork"
 	"lukechampine.com/blake3"
@@ -73,11 +74,17 @@ type Service struct {
 	mu     sync.Mutex
 	pass   context.Context
 	cancel context.CancelFunc
+
+	// failures and retry belong to the goroutine running passes. epoch
+	// advances with Invalidate, which forgets counted attempts.
+	failures map[protocol.KnowledgeID]*failures
+	retry    bool
+	epoch    atomic.Uint64
 }
 
 // New prepares a service; Start runs its worker.
 func New(options Options) *Service {
-	service := &Service{options: options, index: Index{options.Index}, wake: make(chan struct{}, 1), done: make(chan struct{})}
+	service := &Service{options: options, index: Index{options.Index}, wake: make(chan struct{}, 1), done: make(chan struct{}), failures: map[protocol.KnowledgeID]*failures{}}
 	service.stop, service.halt = context.WithCancel(context.Background())
 	service.pass, service.cancel = context.WithCancel(service.stop)
 	return service
@@ -106,8 +113,10 @@ func (service *Service) Refresh() {
 	}
 }
 
-// Invalidate cancels the running pass and asks for another one.
+// Invalidate cancels the running pass and asks for another one that tries
+// every failed source again.
 func (service *Service) Invalidate() {
+	service.epoch.Add(1)
 	service.mu.Lock()
 	service.cancel()
 	service.pass, service.cancel = context.WithCancel(service.stop)

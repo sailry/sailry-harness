@@ -166,6 +166,9 @@ func (service *Service) context(ctx context.Context, definition protocol.Knowled
 	if err != nil {
 		return "", err
 	}
+	if entry != nil && entry.Failed {
+		return "", newFault(protocol.ErrorCodeUnavailable, entry.Reason)
+	}
 	if entry == nil || entry.Document == nil || entry.Document.Path != citation.Path || entry.Document.Revision != citation.Revision {
 		return "", changedSource()
 	}
