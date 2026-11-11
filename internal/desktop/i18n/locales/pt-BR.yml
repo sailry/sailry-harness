@@ -1166,6 +1166,17 @@ mcp_headers: Cabeçalhos
 mcp_add_header: Adicionar cabeçalho
 mcp_slot_name: Nome
 mcp_keep_secret: Manter a credencial
+mcp_clear_secret: Limpar a credencial
+mcp_secret_saved: Credenciais salvas; deixe em branco para manter
+mcp_secret_cleared: As credenciais serão apagadas ao salvar
+mcp_show_secret: Show credential
+mcp_hide_secret: Hide credential
+connector_no_auth: Sem autenticação
+connector_authentication: Autenticação
+connector_mcp_status: Status
+connector_mcp_updated: Atualizado %{time}
+plugins_settings_reload: Recarregar
+plugins_settings_diagnostics: Detalhes
 mcp_slot_value: Valor
 mcp_remove_slot: Remover o item
 mcp_install_stdio_help: Informe o comando e os argumentos do host selecionado; coloque valores privados nos campos de credenciais

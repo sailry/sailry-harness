@@ -1166,6 +1166,17 @@ mcp_headers: ヘッダー
 mcp_add_header: ヘッダを追加
 mcp_slot_name: 名前
 mcp_keep_secret: クレジット情報を保持
+mcp_clear_secret: クレジット情報をクリア
+mcp_secret_saved: クレジット情報を保存しました。保持するには空にしてください
+mcp_secret_cleared: クレジット情報は保存時にクリアされます
+mcp_show_secret: Show credential
+mcp_hide_secret: Hide credential
+connector_no_auth: 認証不要
+connector_authentication: 認証
+connector_mcp_status: 状態
+connector_mcp_updated: 更新日時 %{time}
+plugins_settings_reload: 再読み込み
+plugins_settings_diagnostics: 詳細
 mcp_slot_value: 値
 mcp_remove_slot: アイテムを削除
 mcp_install_stdio_help: 選択中のホストのコマンドと引数を入力し、秘密の値は認証情報欄に入力します

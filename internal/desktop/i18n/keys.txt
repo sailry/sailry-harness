@@ -1185,6 +1185,17 @@ mcp_headers
 mcp_add_header
 mcp_slot_name
 mcp_keep_secret
+mcp_clear_secret
+mcp_secret_saved
+mcp_secret_cleared
+mcp_show_secret
+mcp_hide_secret
+connector_no_auth
+connector_authentication
+connector_mcp_status
+connector_mcp_updated
+plugins_settings_reload
+plugins_settings_diagnostics
 mcp_slot_value
 mcp_remove_slot
 mcp_install_stdio_help

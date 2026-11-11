@@ -326,6 +326,8 @@ git_switch_confirm: "Switch to %{branch}"
 git_switch_confirm_action: "Switch"
 git_switch_confirm_detail: "Sessions, terminals and open files in this worktree all move to this branch."
 connector_consent_effect: Allow the changed connection permissions
+mcp_show_secret: Show credential
+mcp_hide_secret: Hide credential
 provider_capabilities: Capabilities
 provider_cap_understands: Understands
 provider_cap_can: Can

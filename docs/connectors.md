@@ -60,13 +60,49 @@ remain outside SQL.
 Desktop projects live connector declarations, account state and MCP facts through
 Client subscriptions. Installed package declarations are read in one pass at a
 time; an update during a pass asks for one more pass, a failed read keeps the
-package's shown declaration and each pass reports its first failure once. Its editor retains its opening revision and masked secret
-slots. The `ConfigureMCP` action opens a declared settings form when present and
-otherwise edits plugin MCP configuration through `ReadPluginMcp` and
-`SavePluginMcp`; the row menu no longer calls it, as the reviewed menu has no
-such item. Standalone
-MCP definitions use `InstallMcp` for captured definition and secret-slot updates.
-This declaration-specific command choice preserves the accepted editor layout.
+package's shown declaration and each pass reports its first failure once.
+
+Configure always reads the saved configuration from the Node before the MCP
+editor can be edited or saved; the editor never opens blank on an existing
+server. The `ConfigureMCP` action answers by declaration:
+
+- a server added by hand opens the editor on the definition it was installed
+  with (`mcp_source`) and `ReadPluginSettings`, whose configured secrets mark
+  the slots that hold a credential. Values are never read back;
+- a plugin that declares a settings form opens that form, the same dialog as on
+  the Plugins page;
+- any other plugin's server opens the editor on `ReadPluginMcp` with the name
+  and transport fixed, and saves through `SavePluginMcp`. The editor shows the
+  package's first server by name.
+
+While the read is pending the editor is locked and shows a spinner. A failed
+read is a toast; the editor stays locked, offers Reload, and Details shows the
+Node's reason. The editor keeps its opening revision.
+
+A slot that holds a credential shows a saved note. Left empty it is kept
+(`keep`), a typed value replaces it (`replace`), and Clear credential saves it
+empty (`clear`); a new or renamed slot left empty is `clear`. A saved credential
+is therefore never overwritten by an empty value unless Clear was chosen. Saved
+credentials do not carry across a change between stdio and HTTP transports.
+The Node refuses to keep a credential whose destination changed and reports a
+conflict. Each value is masked with its own show toggle. Standalone definitions
+save through `InstallMcp`.
+
+An uncertain save keeps the draft locked and turns Save into Retry, which sends
+the identical command so the Node answers from the request it may already have
+recorded. Authentication in the editor opens the editor of the package's
+connector when it declares one with a method.
+
+An account that is already connected, or bound to a CLI account, saves changed
+fields through `UpdateConnection` without a new authorization; the Node drops
+the authorization only when a field that the authorization depends on changed.
+Reauthorize or Bind in that editor starts a new authorization instead. The
+primary action is disabled until required fields are filled and, for a CLI
+method, an account is found; Retry runs the CLI account lookup again.
+
+Each command of a service marks it busy until its outcome: the row shows a
+spinner, its switches and menu are disabled, and dialog actions show a spinner
+and cannot be sent twice.
 Saving a server starts its check, and reconnect, probe, consent and deletion report
 their actual result through toasts: a failure carries the Node's reason under its
 title, and a conflict and an uncertain outcome keep their own wording.
@@ -98,13 +134,15 @@ Desktop shows that state, never a failure that did not happen:
 | connected | its tool count |
 | failed | Connection failed |
 
-The reason of a failed or unavailable server is the tooltip of its status and a
-line of its details. The pool keeps no state for a server that never connected,
+The reason of a failed or unavailable server is the tooltip of its status,
+followed by the time of the server's last report, and a line of its details.
+The details of a service with several servers give each server's own status. The pool keeps no state for a server that never connected,
 so Desktop keeps the reason of the last failed check for the package content and
 settings it checked, until a check succeeds.
 
 The row menu lists only the actions the row has now, and the button is disabled
-when it has none:
+when it has none. A right click on the row opens the same actions as an
+OS-native context menu:
 
 - a server added by hand: Configure, Delete;
 - an account: its edit action (Confirm, Bind, Connect, Reauthorize or
@@ -116,8 +154,10 @@ when it has none:
   account, if any, is enabled;
 - Details while the service has servers.
 
-Package settings stay in the plugin's own settings form on the Plugins page; the
-Connectors row does not open it.
+The details of a plugin's servers carry Configure, which calls `ConfigureMCP`
+as above. The row menu has no such item, as the reviewed menu lists none.
+
+The method filter has No authentication for services without an account.
 
 `check_plugin_mcp` is a durable command answered from its recorded result: it
 connects outside SQL, lists the tools and stores the answer for the request. A
