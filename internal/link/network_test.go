@@ -676,4 +676,27 @@ func TestConnectionTelemetrySharesSampler(t *testing.T) {
 			}
 		}
 	})
+	t.Run("disconnect_drops_cached_connection", func(t *testing.T) {
+		link := newFixtureLink(t)
+		peer := protocol.NodeID{9}
+		ctx, cancel := context.WithCancel(link.ctx)
+		defer cancel()
+		joined := make(chan struct{})
+		slot := &outgoingSlot{ctx: ctx, cancel: cancel, dial: make(chan struct{}, 1)}
+		slot.telemetry = &connectionTelemetry{changed: make(chan struct{}), done: joined, cancel: func() { close(joined) }}
+		link.outgoing[peer] = slot
+		link.Disconnect(protocol.NodeID{8})
+		if slot.telemetry == nil {
+			t.Fatal("disconnecting another peer dropped this connection")
+		}
+		link.Disconnect(peer)
+		link.Disconnect(peer)
+		if !channelClosed(joined) || slot.telemetry != nil || slot.connection != nil {
+			t.Fatal("the cached connection outlived the disconnect")
+		}
+		// The peer stays paired and its slot stays usable: only the next use dials.
+		if link.outgoing[peer] != slot || slot.ctx.Err() != nil {
+			t.Fatal("disconnect removed the peer's slot")
+		}
+	})
 }

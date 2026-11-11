@@ -130,6 +130,18 @@ and reconnect confirmation. `ReadHostInstall` supplies connecting, detecting,
 installing and pairing stages. Only a confirmed matching Node result displays
 Current. Release catalog acquisition belongs to B14.
 
+An update whose result was not observed keeps its request and offers Check
+status, which asks the Node what became of that request
+([node.md](node.md#unobserved-outcomes)). A recorded success shows Current and
+a recorded failure is a plain failure. A result the Node recorded as
+unconfirmed, or lost to a restart, is final: asking again cannot change it, so
+the uncertain toast is shown once, the request is dropped and Check status
+reads the Host's version instead. The Host then shows Current, or the update
+is offered again under a new request. Before it confirms an update, the Node
+drops its cached connection to that Host (`Link.Disconnect`) and drops it
+again after every probe that did not confirm, so a connection to the replaced
+process is never the one that answers.
+
 Add host uses the local Node's `SaveSsh`, `CheckSsh`, explicit `TrustSsh` and
 `InstallHost` sequence. Passwords, inline private keys, key paths and passphrases
 are passed only to Node-owned configuration. A host-key prompt shows the exact
@@ -177,6 +189,17 @@ connection is closed at once, so the joiner sees a network fault instead of the
 invitation still receives that frame. A claimant whose trust could not be
 stored releases the invitation for another device. Pairing is bidirectional as
 in Rust: either paired side may command the other.
+
+Only the sharing side decides whether a ticket is still valid: it holds the
+60-second deadline and its token. The joining side does not compare the
+ticket's expiry with its own clock, and neither does it for a ticket the
+pairing service released for a PIN, because the two machines' clocks differ.
+An installation pairs with the Host it installed through the ticket the Host
+service publishes, and the Host replaces a ticket that expired. The service
+has only just started, so a refused or unreachable attempt reads the ticket
+again and pairs again, at most five times within the 90 seconds the
+installation waits; SSH and WSL installations do the same. A result that may
+have changed trust is not retried.
 
 Port actions are additive callbacks over the accepted picker. Each window owns
 its Client Forwarders, binds only a loopback listener, and releases its forwards
@@ -245,5 +268,9 @@ confirmation, cancel and busy state.
 | Choosing a host does not switch the sidebar's projects | The preview's sidebar lists every host's projects |
 | Update Download prepares the update instead of acquiring a release | The frozen protocol has a single install/update command. Apply runs it: the remote machine downloads and verifies the release feed's installer and archive, or the execution Node uploads `host-artifacts/<goos>-<goarch>/` when that directory holds a locally built `sailry-host` |
 | A port forward keeps its `node` subscription only as a liveness signal | The Rust forwarder also projected that subscription and recovered it after a reset, without reading the projection; the Client owns the Node projection, and a forward ends when its subscription ends |
+| The joining side does not check a pairing ticket's expiry | Rust rejects a ticket that its own clock finds expired or more than 60 seconds from expiry (`link/src/network/pairing.rs`, `rendezvous.rs`), so a correct ticket from a Host whose clock was 7.4 seconds ahead was refused. The sharing side enforces the lifetime and the token |
+| Installation pairing is tried up to five times | Rust pairs once (`ssh/install.rs`, `wsl/install.rs`) and one early refusal left an installed Host unpaired |
+| An update's unconfirmed result is released by Check status | Rust keeps offering the same request; a final unknown result cannot change, so the Host's version is read instead |
+| Update confirmation drops the cached connection after each unconfirmed probe as well as before the first | Rust disconnects once before probing; a probe that reached the old process would otherwise leave its connection for the next |
 | Remote timezone remains unknown | HostInfo and the Link handshake do not expose it; the controller does not substitute its own timezone |
 | Live metrics keep the accepted column and sidebar footer | B7 supplies real samples without restoring the Rust monitor's additional gauges, trends or process actions |

@@ -263,6 +263,30 @@ func (link *Link) SetTrust(ctx context.Context, peer protocol.NodeID, trusted bo
 	return nil
 }
 
+// Disconnect closes the cached connection to a paired peer; the next use
+// dials again. It is for a caller that knows the peer's process was replaced:
+// a connection to a process that is gone is otherwise noticed only when an
+// operation on it times out.
+func (link *Link) Disconnect(peer protocol.NodeID) {
+	link.mu.RLock()
+	slot := link.outgoing[peer]
+	link.mu.RUnlock()
+	if slot == nil {
+		return
+	}
+	slot.mu.Lock()
+	connection, telemetry := slot.connection, slot.telemetry
+	slot.connection, slot.telemetry = nil, nil
+	slot.mu.Unlock()
+	if telemetry != nil {
+		telemetry.close()
+		<-telemetry.done
+	}
+	if connection != nil {
+		_ = connection.Close(0, "peer restarted")
+	}
+}
+
 func (link *Link) applyTrust(peer protocol.NodeID, trusted bool) {
 	link.mu.Lock()
 	link.trusted[peer] = trusted
