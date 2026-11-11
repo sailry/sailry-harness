@@ -20,6 +20,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/composer"
 	"github.com/sailry/sailry-harness/internal/desktop/i18n"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
+	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node"
@@ -436,6 +437,50 @@ func interactionKinds(t *testing.T) {
 	role("Use the spinner", ui.RoleRadio)
 	click(submitLabel)
 	answered(session, 1, "choice-ask", "Use the spinner")
+
+	// The session has a turn now. The statistics package publishes its
+	// figures for the context bar, the turns among them with their row, and
+	// its context panel is a header button the window opens and closes
+	// while it stays enabled.
+	shown := r.App.Data.Find(session.String())
+	registry := r.pluginRegistry(composerPluginScope(r, shown, r.App.Composer(shown.ID)), shown.ID)
+	var turns string
+	wait("the statistics package's turns figure", func() bool {
+		for _, entry := range registry.Entries(protocol.PluginUiSlotStatistics) {
+			if entry.Key.Package.Name == pluginStatisticsPackage && entry.Key.ID == "composer_turns" && len(entry.State.Details) == 1 {
+				return json.Unmarshal(entry.State.Value, &turns) == nil && turns != ""
+			}
+		}
+		return false
+	})
+	if _, compact := tester.AccessByRole(ui.RoleButton, text("composer_statistics")); !compact && !slices.Contains(tester.Texts(), turns) {
+		t.Fatalf("the context bar shows neither the turns figure %q nor the statistics button: %q", turns, tester.Texts())
+	}
+	contextPanel := func() ui.AccessInfo {
+		t.Helper()
+		for _, info := range tester.AccessAll() {
+			// The statistics package's header control, as its manifest labels it.
+			if info.Role == ui.RoleButton && info.Name == "上下文" && info.Bounds.Y+info.Bounds.H <= shell.HeaderHeight {
+				return info
+			}
+		}
+		t.Fatalf("the header has no context panel button; visible text: %q", tester.Texts())
+		return ui.AccessInfo{}
+	}
+	for _, open := range []bool{true, false} {
+		at := contextPanel()
+		if at.Disabled || at.Expanded == open {
+			t.Fatalf("the context panel button before a press: disabled %v, expanded %v", at.Disabled, at.Expanded)
+		}
+		tester.ClickAt(at.Bounds.X+at.Bounds.W/2, at.Bounds.Y+at.Bounds.H/2)
+		settle()
+		if at = contextPanel(); at.Disabled || at.Expanded != open {
+			t.Fatalf("a press left the context panel button disabled %v, expanded %v, want expanded %v", at.Disabled, at.Expanded, open)
+		}
+		if open {
+			shot("context-panel")
+		}
+	}
 
 	// Other: the free answer of a single choice.
 	submit(session, "scenario:other")

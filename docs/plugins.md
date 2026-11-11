@@ -199,6 +199,26 @@ Navigation, settings, project renderers and contribution slots follow manifest
 metadata. Files and Git stay native core surfaces and are excluded from every
 desktop plugin slot. No package-specific renderer or workflow runs in core.
 
+A slot's entry is drawn from what its package publishes (`plugins.Registry`,
+`PluginUiState`); the core owns the trigger and the surface and the package
+its content:
+
+| Slot | Drawn by | Where |
+|---|---|---|
+| `statistics` (`metric`) | `live/plugin_metrics.go` into `conversation.UsageBar` | The composer's context bar: the declared icon and the published value; the hover card lists the label, the value and the published detail rows, a detail with a progress as a meter, or the package's own view where the entry declares a handler. A narrow bar folds every statistics figure into one button and panel |
+| `footer` (`metric`) | The same | Before the statistics figures, while the package publishes it visible and enabled: a provider's account status (`provider-status`, `workbuddy`) |
+| `composer` (`indicator`) | `live/plugin_controls.go` (`pluginIndicators`) | The context ring beside the send button |
+| `composer`, `context` (other kinds) | `live/plugin_controls.go` | The composer's control rows |
+| `header` (`button`, `popover`, `toggle`, `menu`) | `live/plugin_views_header.go` | The conversation header's right end. The window opens a `popover` itself; its panel is the package's handler |
+| `model` | `live/plugin_controls.go` | Beside the composer's model button |
+| `commands` | `plugins.Registry.Commands` | The composer's command list |
+| `status` | `live/plugin_status.go` | The activity strip's badges, from the Node's status feed |
+| `provider`, `project`, `project_menu` | Not mounted | The registry and the Node accept their surfaces; the desktop mounts neither (`docs/settings.md` records the provider's) |
+
+Figures need a session: a draft shows none. Demo mode mounts the statistics
+package alone over a demo conversation, with a composer state built from the
+conversation's own usage (`live/plugin_demo.go`; see `docs/shell.md`).
+
 The persistent moejs owner retains the View, callbacks, modules and Promise
 continuations across frames. Render and layout never execute arbitrary queued
 jobs. Host completions and timers return to that owner before the next render;
@@ -440,6 +460,12 @@ empty so the text remains aligned.
   explicit unavailable embedded-browser result.
 - Native Files and Git remain the accepted core pages. Their package desktop
   entries and Git Status contribution are deliberately not mounted.
+- The window opens a header `popover` on the press. The source also opens one
+  whose declaration sets `hover` while the pointer rests on it; no official
+  package declares it.
+- A footer figure shows while its package publishes it visible and enabled.
+  The source also requires the package's model context to name a provider;
+  the official packages publish theirs for their own provider only.
 - An SFTP change whose reply is lost reports `outcome_unknown`; the source
   reports every non-status SFTP error as `unavailable`.
 - SSH worktree transfers accept registered execution workspaces inside the

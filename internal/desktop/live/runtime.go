@@ -232,6 +232,7 @@ func NewWithPreferences(ctx context.Context, controller *client.Client, prefs *p
 	r.App.Settings.ResetTelemetry = r.resetTelemetry
 	r.App.Settings.SendDiagnostics = r.sendDiagnostics
 	r.App.Hooks.Conversation = r.conversation
+	r.App.Hooks.DemoConversation = r.demoConversation
 	r.App.Hooks.RenderChild = r.renderLiveChild
 	r.App.Hooks.Overview = r.sessionOverview
 	r.conversationWatches = map[protocol.SessionID]func(){}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -23,10 +24,20 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/preview"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
+	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
 	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/node"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
+
+// packageCount writes a count as the statistics package does (format.js
+// compact): from a thousand with one decimal and a k.
+func packageCount(n int) string {
+	if n < 1000 {
+		return strconv.Itoa(n)
+	}
+	return fmt.Sprintf("%.1fk", float64(n)/1000)
+}
 
 // Demo mode over a real Node on a new profile: the settings' order, the
 // switch, the demo in place of the window's own conversations and the way
@@ -143,10 +154,23 @@ func TestDemoMode(t *testing.T) {
 		}
 		return ""
 	}
+	// contextPanel is the statistics package's control among the header's
+	// buttons, named as its manifest labels it; contextPanelSection is the
+	// heading of the usage its panel lists.
+	contextPanelSection := map[string]string{"en": "Session usage", "zh-CN": "会话用量"}
+	contextPanel := func(locale string) (ui.AccessInfo, bool) {
+		name := map[string]string{"en": "Context", "zh-CN": "上下文"}[locale]
+		for _, info := range tester.AccessAll() {
+			if info.Role == ui.RoleButton && info.Name == name && info.Bounds.Y+info.Bounds.H <= shell.HeaderHeight {
+				return info, true
+			}
+		}
+		return ui.AccessInfo{}, false
+	}
 	// tour opens every demo conversation in the window's language and, on
 	// each, the mode menu, the permission menu, the model picker, the session
-	// overview and the panel tabs the demo offers, and fails on anything
-	// that names sample data.
+	// overview, the statistics package's panel and figures and the panel
+	// tabs the demo offers, and fails on anything that names sample data.
 	tour := func(t *testing.T, locale string) {
 		in := func(key string) string { return i18n.In(locale, key) }
 		// A frame of the whole window is costly to draw in software and the
@@ -219,6 +243,18 @@ func TestDemoMode(t *testing.T) {
 				return slices.ContainsFunc(keys, func(key string) bool { return name == in(key) })
 			}
 		}
+		// until draws frames until cond holds: a package's view is mounted
+		// and publishes over a few.
+		until := func(cond func() bool) bool {
+			for range 40 {
+				if cond() {
+					return true
+				}
+				tester.Advance(16 * time.Millisecond)
+				step()
+			}
+			return cond()
+		}
 		demo := r.App.Data
 		list := slices.Clone(demo.Unassigned)
 		for _, pr := range demo.Projects {
@@ -253,6 +289,36 @@ func TestDemoMode(t *testing.T) {
 			}
 			if !open(cv.ID, "overview", "", named("chat_assets_title")) {
 				t.Errorf("%s: no session overview button", cv.ID)
+			}
+			// The statistics package shows over a demo conversation as over
+			// a session: its context panel in the header and, beside a
+			// composer, its figures of the conversation's own usage, the
+			// speed to one decimal as the package writes it. The first
+			// conversation's panel and a figure's card are opened.
+			if !until(func() bool { _, ok := contextPanel(locale); return ok }) {
+				t.Errorf("%s: the header has no context panel button: %q", cv.ID, tester.Texts())
+			} else if cv == list[0] {
+				at, _ := contextPanel(locale)
+				tester.ClickAt(at.Bounds.X+at.Bounds.W/2, at.Bounds.Y+at.Bounds.H/2)
+				await(cv.ID, "context panel", contextPanelSection[locale])
+				if opened, _ := contextPanel(locale); !opened.Expanded || opened.Disabled {
+					t.Errorf("%s: the context panel button is expanded %v, disabled %v", cv.ID, opened.Expanded, opened.Disabled)
+				}
+				tester.Key(0, ui.KeyEscape)
+				step()
+			}
+			if usage := cv.Session.Usage; composed && usage != nil {
+				speed := fmt.Sprintf("%.1f/s", usage.Speed)
+				if !until(func() bool { return shows(packageCount(usage.Tokens)) && shows(speed) }) {
+					t.Errorf("%s: the context bar lacks the figures %s and %s: %q", cv.ID, packageCount(usage.Tokens), speed, tester.Texts())
+				} else if cv == list[0] {
+					at, _ := tester.Find(speed)
+					tester.Move(at.X+at.W/2, at.Y+at.H/2)
+					tester.Advance(time.Second)
+					await(cv.ID, "speed card", packageCount(usage.Tokens/demoOutputShare))
+					tester.Move(0, 0)
+					step()
+				}
 			}
 			// The context ring reads the tokens used of the model's window,
 			// as a measured indicator does. Its tooltip is the same text:
@@ -351,6 +417,39 @@ func TestDemoMode(t *testing.T) {
 		t.Fatalf("typing did not reach the draft: %q", got)
 	}
 
+	// A sample usage as the statistics a session records, which the
+	// statistics package reads over a demo conversation.
+	t.Run("statistics", func(t *testing.T) {
+		if demoStatistics(nil) != nil {
+			t.Error("a conversation without usage has statistics")
+		}
+		got := demoStatistics(&conversation.Usage{Tokens: 48200, Speed: 71.4, Cost: 0.0312, Cached: 36400, Turns: 2, Context: 0.24, Window: 200000})
+		if got.Turns != 2 || got.Responses != 2 || got.Usage == nil || got.Usage.Input != 42175 || got.Usage.Output != 6025 ||
+			got.Usage.CachedInput != 36400 || got.Observations.CacheRead == nil || *got.Observations.CacheRead != 36400 {
+			t.Errorf("the tokens are recorded as %+v, %+v", got, got.Usage)
+		}
+		if got.Cost == nil || got.Cost.UsdMicros != 31200 || got.Cost.Responses != 2 {
+			t.Errorf("the cost is recorded as %+v", got.Cost)
+		}
+		if generation := got.Generation; generation == nil || generation.OutputTokens != 6025 || generation.Responses != 2 ||
+			math.Abs(float64(generation.OutputTokens)*1_000_000/float64(generation.ElapsedUs)-71.4) > 0.001 {
+			t.Errorf("the speed is recorded as %+v", generation)
+		}
+		if got.ContextTokens == nil || *got.ContextTokens != 48000 || got.ContextLimit == nil || *got.ContextLimit != 200000 {
+			t.Errorf("the context is recorded as %v of %v", got.ContextTokens, got.ContextLimit)
+		}
+		// More cached than input is all of the input; without a speed or a
+		// window neither is recorded.
+		bare := demoStatistics(&conversation.Usage{Tokens: 800, Cached: 5000})
+		if bare.Usage.Input != 700 || bare.Usage.CachedInput != 700 || bare.Generation != nil || bare.ContextTokens != nil || bare.ContextLimit != nil {
+			t.Errorf("a bare usage is recorded as %+v, %+v", bare, bare.Usage)
+		}
+		body, err := demoComposer(&viewmodel.Conversation{ID: "sample", Session: conversation.Session{Usage: &conversation.Usage{Tokens: 800, Window: 1000}}}, true)
+		if err != nil || body["session"] != nil || body["connected"] != true || body["has_messages"] != false || body["sidebar"] != true || body["statistics"] == nil {
+			t.Errorf("the composer state of a demo conversation is %v, %v", body, err)
+		}
+	})
+
 	t.Run("settings", func(t *testing.T) {
 		// About ends the navigation and Experimental comes before it.
 		system := settings.Groups[len(settings.Groups)-1].Items
@@ -403,6 +502,7 @@ func TestDemoMode(t *testing.T) {
 		if tester.HasText(preview.DemoModel) || !tester.HasText(text("provider_empty_live")) {
 			t.Errorf("the providers' settings list the demo's provider: %q", tester.Texts())
 		}
+		visited := len(sent())
 		r.App.Navigate(shell.ConversationPage)
 		settle()
 
@@ -430,6 +530,78 @@ func TestDemoMode(t *testing.T) {
 		}
 		if shown := marked(); shown != "" {
 			t.Errorf("the demo is named on screen: %q", shown)
+		}
+		// The context bar's figures are the statistics package's, of the
+		// conversation's own usage: tokens, speed, cost, cache rate and
+		// turns, each with its rows on hover. The header has the package's
+		// context panel, which opens on the same usage. Nothing of it was
+		// asked of the Node: the package's view is the one the draft's
+		// composer already mounted.
+		usage := cv.Session.Usage
+		input, cents := usage.Tokens-usage.Tokens/demoOutputShare, int(math.Round(usage.Cost*1_000_000))/10_000
+		figures := []string{packageCount(usage.Tokens), fmt.Sprintf("%.1f/s", usage.Speed), fmt.Sprintf("%d.%02d", cents/100, cents%100),
+			fmt.Sprintf("%.0f%%", 100*float64(usage.Cached)/float64(input))}
+		for range 20 {
+			if tester.HasText(figures[1]) {
+				break
+			}
+			settle()
+		}
+		for _, figure := range figures {
+			if !tester.HasText(figure) {
+				t.Fatalf("the context bar lacks the figure %s of %q: %q", figure, figures, tester.Texts())
+			}
+		}
+		hover := func(figure string, rows ...string) {
+			t.Helper()
+			at, _ := tester.Find(figure)
+			tester.Move(at.X+at.W/2, at.Y+at.H/2)
+			tester.Advance(time.Second)
+			settle()
+			for _, row := range rows {
+				if !tester.HasText(row) {
+					t.Errorf("the card of %s lacks %q: %q", figure, row, tester.Texts())
+				}
+			}
+			if shown := marked(); shown != "" {
+				t.Errorf("the card of %s names the demo: %q", figure, shown)
+			}
+			tester.Move(0, 0)
+			tester.Advance(time.Second)
+			settle()
+		}
+		hover(figures[0], "Tokens", "This session", "Subagents")
+		hover(figures[1], "Session average", "Timed responses", "Timed output", packageCount(usage.Tokens/demoOutputShare), "TTFT")
+		hover(figures[2], "Cost", "This session", "$"+figures[2], "Subagents")
+		hover(figures[3], "Cache", "Cached input", packageCount(usage.Cached), "Uncached input", "Input tokens", packageCount(input))
+		// The turns, a bare number, are read where they are published.
+		published := r.demoPluginRegistry(cv).Entries(protocol.PluginUiSlotStatistics)
+		if len(published) != 5 || string(published[4].State.Value) != strconv.Quote(fmt.Sprint(usage.Turns)) ||
+			len(published[4].State.Details) != 1 || published[4].State.Details[0].Value != fmt.Sprint(usage.Turns) {
+			t.Errorf("the statistics slot over the demo publishes %+v", published)
+		}
+		panel, ok := contextPanel("en")
+		if !ok || panel.Disabled || panel.Expanded {
+			t.Fatalf("the header's context panel button: found %v, %+v", ok, panel)
+		}
+		tester.ClickAt(panel.Bounds.X+panel.Bounds.W/2, panel.Bounds.Y+panel.Bounds.H/2)
+		tester.Advance(time.Second)
+		settle()
+		if opened, _ := contextPanel("en"); !opened.Expanded || opened.Disabled || !tester.HasText(contextPanelSection["en"]) {
+			t.Errorf("the context panel: expanded %v, disabled %v, texts %q", opened.Expanded, opened.Disabled, tester.Texts())
+		}
+		if shown := marked(); shown != "" {
+			t.Errorf("the context panel names the demo: %q", shown)
+		}
+		tester.Key(0, ui.KeyEscape)
+		settle()
+		if closed, _ := contextPanel("en"); closed.Expanded {
+			t.Error("Escape left the context panel open")
+		}
+		for _, kind := range sent()[visited:] {
+			if kind == "read_plugin_view" || strings.HasPrefix(kind, pluginStatisticsPackage+":") {
+				t.Errorf("showing the statistics package over the demo sent %q to the Node", kind)
+			}
 		}
 		// The window state saved meanwhile is the window's own.
 		if saved := r.App.Prefs(); saved.PanelOf == preview.DemoStart || len(saved.Panels) != 0 && saved.Panels[preview.DemoStart].Tabs != nil {
@@ -585,6 +757,17 @@ func TestDemoMode(t *testing.T) {
 		}
 		if tester.HasText("harbor-api") || len(r.App.Sidebar.Order()) != 0 {
 			t.Errorf("the demo stayed in the sidebar: %v", r.App.Sidebar.Order())
+		}
+		// What the statistics package mounted over the demo left with it.
+		for _, owner := range r.pluginViews.registries {
+			if strings.HasPrefix(owner.draft, pluginDemoPresentation) {
+				t.Errorf("the contributions over %q outlived the demo", owner.draft)
+			}
+		}
+		for key := range r.pluginViews.mounts {
+			if strings.HasPrefix(key.scope.presentation, pluginDemoPresentation) {
+				t.Errorf("the view mounted over %q outlived the demo", key.scope.presentation)
+			}
 		}
 		if _, ok := tester.AccessByRole(ui.RoleButton, text("composer_select_model")); !ok {
 			t.Errorf("the profile without a provider offers a model: %q", tester.Texts())

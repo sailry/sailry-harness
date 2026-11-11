@@ -97,8 +97,10 @@ func (a *App) header(c *ui.Context, f frame) {
 				})
 				a.conversationActions(c, cv, HeaderButton)
 			}
-			// A demo conversation is no session a plugin could mount over.
-			if a.Hooks.PluginHeader != nil && !(a.Demo() && a.Page == ConversationPage) {
+			// Over a demo conversation the controller shows the statistics
+			// package's context panel alone, read from the conversation's
+			// own usage (live renderPluginHeader).
+			if a.Hooks.PluginHeader != nil {
 				a.Hooks.PluginHeader(c)
 			}
 			// Preview data is identified wherever it shows.
