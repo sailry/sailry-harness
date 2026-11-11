@@ -11,22 +11,42 @@ import (
 	"github.com/sailry/sailry-harness/internal/desktop/theme"
 )
 
-// Metric is a usage figure of the context bar: its label key, icon and
-// value as shown.
+// Metric is a figure of the context bar: its label, icon and value as shown,
+// and what its hover card lists under them (conversation/usage.rs Metric,
+// usage/external.rs). Rows without a meter come first, the meters after a
+// divider. Panel, a package's own details, takes the rows' place; Width is
+// the card's, 0 for usageWidth.
 type Metric struct {
+	// ID keys the figure among those of the bar.
+	ID    string
 	Label string
 	Icon  *ui.SVG
 	Value string
+	Rows  []Row
+	Width float32
+	Panel func(c *ui.Context)
 }
 
-// Metrics are tokens, speed, cost, cache and turns.
-func Metrics(u *Usage) []Metric {
+// Row is a line of a metric's card: a label and its value, and with Meter a
+// bar filled to Progress, 0 to 100.
+type Row struct {
+	Label, Value string
+	Meter        bool
+	Progress     float64
+}
+
+// Metrics are a sample conversation's tokens, speed, cost, cache and turns.
+// A live session's are the packages' (the statistics and footer slots).
+func Metrics(c *ui.Context, u *Usage) []Metric {
+	if u == nil {
+		return nil
+	}
 	return []Metric{
-		{"composer_tokens", icons.ChartPie, Count(u.Tokens)},
-		{"composer_speed", icons.Gauge, fmt.Sprintf("%.0f/s", u.Speed)},
-		{"composer_cost", icons.DollarSign, fmt.Sprintf("%.2f", u.Cost)},
-		{"composer_cache", icons.MemoryStick, Count(u.Cached)},
-		{"composer_turns", icons.MessagesSquare, fmt.Sprint(u.Turns)},
+		{ID: "composer_tokens", Label: i18n.T(c, "composer_tokens"), Icon: icons.ChartPie, Value: Count(u.Tokens)},
+		{ID: "composer_speed", Label: i18n.T(c, "composer_speed"), Icon: icons.Gauge, Value: fmt.Sprintf("%.0f/s", u.Speed)},
+		{ID: "composer_cost", Label: i18n.T(c, "composer_cost"), Icon: icons.DollarSign, Value: fmt.Sprintf("%.2f", u.Cost)},
+		{ID: "composer_cache", Label: i18n.T(c, "composer_cache"), Icon: icons.MemoryStick, Value: Count(u.Cached)},
+		{ID: "composer_turns", Label: i18n.T(c, "composer_turns"), Icon: icons.MessagesSquare, Value: fmt.Sprint(u.Turns)},
 	}
 }
 
@@ -48,78 +68,173 @@ func trim(s string) string {
 	return s
 }
 
-// UsageBar is the context bar's metrics: each a 14 DIP icon and its value in
-// muted 14, its label in a hover card. compact, below the composer's compact
-// width, makes them one button whose popover is open while *open is true.
-func UsageBar(c *ui.Context, u *Usage, compact bool, open *bool) {
-	if u == nil {
-		return
+// UsageBar is the context bar's metrics (conversation/live/context.rs
+// context_bar, usage.rs render_groups): each a 14 DIP icon and its value in
+// muted 14, with a hover card of its label, value and rows. lead, the
+// providers' figures, stay side by side at any width; groups, one owner's
+// figures each, are one button below the composer's compact width, whose
+// popover is open while *open is true and lists the groups divided.
+func UsageBar(c *ui.Context, lead []Metric, groups [][]Metric, compact bool, open *bool) {
+	total := len(lead)
+	for _, group := range groups {
+		total += len(group)
 	}
-	if compact {
-		usageButton(c, u, open)
+	if total == 0 {
 		return
 	}
 	p := theme.Of(c)
 	ui.Row(c.Key("usage")).Gap(12).AlignItems(ui.Center).TextColor(p.MutedForeground).Children(func() {
-		for _, m := range Metrics(u) {
-			item := ui.Row(c.Key(m.Label)).Gap(4).AlignItems(ui.Center)
-			item.Children(func() {
-				ui.Icon(c, m.Icon).FontSize(14)
-				ui.Text(c, m.Value).FontSize(14).SingleLine()
-			})
-			if kit.TipsHidden(c) {
-				continue
+		for _, m := range lead {
+			usageFigure(c.Key("lead/"+m.ID), m)
+		}
+		if compact {
+			usageButton(c, groups, open)
+			return
+		}
+		for _, group := range groups {
+			for _, m := range group {
+				usageFigure(c.Key(m.ID), m)
 			}
-			ui.TooltipBase(c, item, func(card ui.Element) {
-				kit.Anchored(card, item, kit.CardLayer)
-				kit.Floating(c, card).AttachTo(item, ui.AnchorTopEnd, ui.AnchorBottomEnd).Margin(0, 0, 6, 0).Padding(12, 14).Gap(4).
-					AttachedOrigin().Transition(kit.TipMotion(kit.Top))
-				card.Children(func() {
-					ui.Text(c, i18n.T(c, m.Label)).FontSize(12).TextColor(p.MutedForeground)
-					ui.Text(c, m.Value).FontSize(14).FontWeight(500)
-				})
-			})
 		}
 	})
 }
 
-// usageWidth is the figures panel's width.
-const usageWidth = 300
+// usageFigure is one figure and its hover card over its end.
+func usageFigure(c *ui.Context, m Metric) {
+	item := ui.Row(c.Key("figure")).Gap(4).AlignItems(ui.Center).Shrink(0)
+	item.Children(func() {
+		if m.Icon != nil {
+			ui.Icon(c, m.Icon).FontSize(14)
+		}
+		ui.Text(c, m.Value).FontSize(14).SingleLine()
+	})
+	if kit.TipsHidden(c) {
+		return
+	}
+	ui.TooltipBase(c, item, func(card ui.Element) {
+		kit.Anchored(card, item, kit.CardLayer)
+		kit.Floating(c, card).AttachTo(item, ui.AnchorTopEnd, ui.AnchorBottomEnd).Margin(0, 0, 6, 0).Padding(12, 14).
+			Width(usageCard(m)).AttachedOrigin().Transition(kit.TipMotion(kit.Top))
+		card.Children(func() { usageDetails(c, m) })
+	})
+}
+
+// usageWidth is the figures' card and panel width; usageInset the room at
+// their sides.
+const (
+	usageWidth = 300
+	usageInset = 14
+)
+
+// usageCard is a figure's card width: the one its package declares, or
+// usageWidth.
+func usageCard(m Metric) float32 {
+	if m.Width > 0 {
+		return m.Width
+	}
+	return usageWidth
+}
+
+// usageDetails is a figure's card: its package's own panel, or its label and
+// value, the rows under them and the meters after a divider.
+func usageDetails(c *ui.Context, m Metric) {
+	if m.Panel != nil {
+		m.Panel(c)
+		return
+	}
+	p := theme.Of(c)
+	line := func(c *ui.Context, label, value string) {
+		ui.Row(c).FillWidth().MinWidth(0).Height(26).Gap(16).AlignItems(ui.Center).Children(func() {
+			ui.Text(c, label).FontSize(14).SingleLine().Grow(1).MinWidth(0).TextColor(p.MutedForeground)
+			ui.Text(c, value).FontSize(14).SingleLine().Shrink(0).FontFeatures("tnum").TextColor(p.PopoverForeground)
+		})
+	}
+	ui.Column(c.Key(m.ID)).FillWidth().MinWidth(0).Children(func() {
+		line(c.Key("summary"), m.Label, m.Value)
+		meters := 0
+		for i, row := range m.Rows {
+			if row.Meter {
+				meters++
+				continue
+			}
+			line(c.Key(fmt.Sprint("row/", i)), row.Label, row.Value)
+		}
+		if meters == 0 {
+			return
+		}
+		ui.Divider(c.Key("divider")).Background(p.Border).Margin(10, 0, 12, 0)
+		ui.Column(c.Key("meters")).FillWidth().MinWidth(0).Gap(12).Children(func() {
+			for i, row := range m.Rows {
+				if !row.Meter {
+					continue
+				}
+				ui.Column(c.Key(fmt.Sprint("meter/", i))).FillWidth().MinWidth(0).Gap(6).Children(func() {
+					ui.Row(c).FillWidth().MinWidth(0).Gap(12).AlignItems(ui.Center).Children(func() {
+						ui.Text(c, row.Label).FontSize(14).SingleLine().Grow(1).MinWidth(0).TextColor(p.PopoverForeground)
+						ui.Text(c, row.Value).FontSize(12).SingleLine().Shrink(0).FontFeatures("tnum").TextColor(p.MutedForeground)
+					})
+					ui.Progress(c, math.Max(0, math.Min(100, row.Progress))/100).FillWidth().Height(4).Label(row.Label)
+				})
+			}
+		})
+	})
+}
 
 // usageButton is a small round button in muted text with the chart icon and
-// the first figure, the tokens. A hover shows every figure in a card; a click
-// holds them in a popover.
-func usageButton(c *ui.Context, u *Usage, open *bool) {
+// the first figure, the tokens. A hover shows every figure and its rows in a
+// card, group after group with a divider between; a click holds them in a
+// popover (conversation/usage/summary.rs).
+func usageButton(c *ui.Context, groups [][]Metric, open *bool) {
+	var first *Metric
+	for _, group := range groups {
+		if len(group) > 0 {
+			first = &group[0]
+			break
+		}
+	}
+	if first == nil {
+		return
+	}
 	p := theme.Of(c)
-	ms := Metrics(u)
 	b := kit.GhostLook(c, ui.ButtonBase(c.Key("usage")).Label(i18n.T(c, "composer_statistics")), *open).
 		Height(28).PaddingX(8).Gap(4).Radius(14).Shrink(0).TextColor(p.MutedForeground)
 	b.HasPopup(ui.PopupDialog).Expanded(*open).OnClick(func() { *open = !*open })
 	b.Children(func() {
 		ui.Icon(c, icons.ChartPie).FontSize(14)
-		ui.Text(c, ms[0].Value).FontSize(14).SingleLine()
+		ui.Text(c, first.Value).FontSize(14).SingleLine()
 	})
 	figures := func() {
-		for _, m := range ms {
-			ui.Row(c.Key(m.Label)).Gap(8).AlignItems(ui.Center).Children(func() {
-				ui.Icon(c, m.Icon).FontSize(14).TextColor(p.MutedForeground)
-				ui.Text(c, i18n.T(c, m.Label)).FontSize(14).TextColor(p.MutedForeground)
-				ui.Spacer(c)
-				ui.Text(c, m.Value).FontSize(14).FontWeight(500).SingleLine()
-			})
-		}
+		ui.Scroll(c.Key("figures")).FillWidth().MaxHeight(usagePanelHeight).Gap(12).Children(func() {
+			shown := 0
+			for _, group := range groups {
+				if len(group) == 0 {
+					continue
+				}
+				if shown > 0 {
+					ui.Divider(c.Key(fmt.Sprint("divider/", shown))).Background(p.Border)
+				}
+				shown++
+				for _, m := range group {
+					usageDetails(c, m)
+				}
+			}
+		})
 	}
+	width := usageCard(*first)
 	if !*open && !kit.TipsHidden(c) {
 		ui.TooltipBase(c, b, func(card ui.Element) {
 			kit.Anchored(card, b, kit.CardLayer)
-			kit.Floating(c, card).AttachTo(b, ui.AnchorTopEnd, ui.AnchorBottomEnd).Margin(0, 0, 6, 0).Padding(12, 14).Gap(6).
-				Width(usageWidth).AttachedOrigin().Transition(kit.TipMotion(kit.Top))
+			kit.Floating(c, card).AttachTo(b, ui.AnchorTopEnd, ui.AnchorBottomEnd).Margin(0, 0, 6, 0).Padding(12, usageInset).
+				Width(width).AttachedOrigin().Transition(kit.TipMotion(kit.Top))
 			card.Children(figures)
 		})
 	}
 	kit.Popover(c, b, open, figures).AttachTo(b, ui.AnchorTopEnd, ui.AnchorBottomEnd).Margin(0, 0, 6, 0).
-		Padding(12, 14).Gap(6).Width(usageWidth)
+		Padding(12, usageInset).Width(width)
 }
+
+// usagePanelHeight bounds the compact button's panel, which scrolls past it.
+const usagePanelHeight = 560
 
 // ContextRing is the composer's context indicator, left of the model chip:
 // Kit's ring with 4 on each side, the track and the part used, muted, with

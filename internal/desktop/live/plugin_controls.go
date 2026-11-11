@@ -92,9 +92,12 @@ func (r *Runtime) projectPluginComposer(view *ui.Context, cv *viewmodel.Conversa
 			context.PackageBranch = context.PackageBranch || pluginContextControl(entry, pluginGitPackage, pluginBranchControl)
 		}
 	}
-	// Indicators report a running conversation: a draft has no usage yet.
+	// Indicators and figures report a running conversation: a draft has no
+	// usage yet.
+	comp.Metrics = nil
 	if registry != nil && scope.Session != nil {
 		context.Indicators = append(context.Indicators, r.pluginIndicators(registry)...)
+		r.projectPluginMetrics(comp, registry)
 	}
 	r.projectPluginStatus(comp, context, scope, registry)
 	if registry == nil {
@@ -226,7 +229,9 @@ func (r *Runtime) pluginIndicators(registry *plugins.Registry) []composer.Indica
 // slot's are split by their alignment between the toolbar's groups, or are
 // all rows of the settings popover; its indicators are the toolbar's rings
 // (pluginIndicators) and the worktree actions the location menu already has
-// are left out. The header shows no indicator or metric.
+// are left out. The header shows no indicator or metric. The statistics and
+// footer slots are not controls: their figures are the context bar's
+// (projectPluginMetrics).
 func (r *Runtime) renderPluginControls(view *ui.Context, registry *plugins.Registry, slot protocol.PluginUiSlot, place composer.ControlPlace) {
 	for _, entry := range registry.Entries(slot) {
 		kind := entry.Declaration.Kind
@@ -245,6 +250,8 @@ func (r *Runtime) renderPluginControls(view *ui.Context, registry *plugins.Regis
 			if kind == "indicator" || kind == "metric" {
 				continue
 			}
+		case protocol.PluginUiSlotStatistics, protocol.PluginUiSlotFooter:
+			continue
 		case protocol.PluginUiSlotContext:
 			// The native project control is the bar's one location.
 			if pluginContextControl(entry, pluginWorktreesPackage, pluginLocationControl) {
