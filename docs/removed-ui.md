@@ -31,6 +31,9 @@ Commits are in this repository. Dates are the removal's.
 | 11 | A preview note in the provider editor; Add model as a footer row of the model list | Settings › Providers, the channel editor (`settings/`) | Add model is a button beside Refresh | `831c8a6`, 2026-11-09 |
 | 12 | A pane close that stops, closes or removes its session or terminal | The split workspace (`shell/panes.go`) | Closing a pane only detaches it from its split (`closePane` → `Detach`) and sends no command. A terminal pane's close confirmation stays. A terminal tab's own close in the right panel is a different control ([panel.md](panel.md)) | Split workspace decision |
 | 13 | The `git` plugin's Status-slot entry | The composer's activity strip (`live/plugin_status.go`) | The Git +/− badge is native core, from core Git status. The `files` and `git` packages are not mounted in the Status slot | Phase B5 |
+| 14 | The capability filters (vision, image and the others) and the line over them | The model picker's rail, under the families (`composer/models.go` `modelPicker`) | The rail is Back and a tile for each family. The capability marks at the end of a model's row stay, with their tooltips; `Model.Capabilities` and the Providers page's capability boxes stay ([composer.md](composer.md), [media.md](media.md#desktop)) | User decision, 2026-11-12 |
+| 15 | A check mark on the chosen row | The model picker's effort rows, model rows and family tiles (`composer/models.go`) | The neutral fill `Palette.Selected` alone marks the choice; each is still selected for assistive technology. The mode and permission menus keep their checks | User decision, 2026-11-12 |
+| 16 | The score card or any tooltip over a score | The model picker's model rows and effort rows (`composer/models.go` `modelRow`, `effortColumn`) | The score is text at the row's end. The controls page keeps the card over its effort label (`scoreTip`), with the `model_score_*` copy | User decision, 2026-11-12 |
 
 ## Guards
 
@@ -44,6 +47,9 @@ subtests of the feature's existing tests.
 | The approval popover has no reason field and no Deny menu | `shell` `TestApprovalsAndQuestion/no deny reason`; `live` `interactionKinds` |
 | The welcome guide has no diagnostics note and no Settings button | `shell` `TestWelcomeGuide/no diagnostics note or Settings` |
 | The host page has no Remove pairing button | `shell` `testHostMenu` |
+| The model picker's rail has no capability filter and no line under the families | `shell` `composerParity/model picker/rail` (`composerModels`) |
+| The model picker's chosen rows draw no check | `shell` `composerParity/model picker/selection dark` and `selection light` |
+| A score in the model picker opens no tooltip | `shell` `composerParity/model picker/scores open nothing` |
 
 A key on the guard's list cannot be added to `keys.txt` without editing the
 test, which points here.

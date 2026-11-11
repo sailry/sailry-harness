@@ -131,7 +131,7 @@ type Model struct {
 	// Features are its options beyond the effort, as Fast mode.
 	Features []Feature
 	// Capabilities are what it understands and generates beyond text, as
-	// the picker marks and filters them.
+	// the picker's rows mark them.
 	Capabilities []Capability
 }
 

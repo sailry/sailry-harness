@@ -26,7 +26,7 @@ permission, model controls, dictation, send/stop) and the context bar
 | `model.go` | **The view model**: `Context`, models, teams, queue, hosts, projects, references, files, attachments, dictation, `Message` |
 | `composer.go` | `State`, `View`, the surface, draft keys, toolbar, send/stop, context bar, Escape |
 | `options.go` | Mode and permission menus (with the packages' modes), project and worktree, compact settings popover. A menu's id is its composer state's (`State.menuID`), so the menus of two panes open apart |
-| `models.go` | Model chip and its popover: team row, features, effort, model picker with its effort column, score tooltip |
+| `models.go` | Model chip and its popover: team row, features, effort, model picker with its effort column, the controls' score tooltip |
 | `track.go` | The effort track (custom drawing on `SliderBase`) |
 | `queue.go` | Queue strip: rows in `kit.SortableList` (from Lobe MyGo; drag by the handle or Space and the arrows, a drop calls `MoveQueued` before the message now after it), edit, send now, remove; a guiding row shows the loader and Withdraw; the outgoing row; a child session's read-only tray |
 | `overview.go` | The session overview: `Overview`, `OverviewState` and `OverviewButton`, the conversation page's header button and its popover |
@@ -53,7 +53,7 @@ rebuilt each frame from backend data.
 | Type / field | Meaning |
 |---|---|
 | `Context.Models`, `Families` | Models offered and the picker's family rail |
-| `Model{ID, Name, Provider, Reasoning, Efforts, Family, Score, Features, Capabilities}` | `Reasoning` enables the effort track; `Efforts` replaces the default `composer.Efforts` levels; `Score` feeds the tooltip; `Features` are the feature buttons; `Capabilities` (`Capability{ID, Label, Icon}`) are the row's marks and the rail's capability filter ([media.md](media.md#desktop)) |
+| `Model{ID, Name, Provider, Reasoning, Efforts, Family, Score, Features, Capabilities}` | `Reasoning` enables the effort track; `Efforts` replaces the default `composer.Efforts` levels; `Score` is the picker's score and feeds the controls' tooltip; `Features` are the feature buttons; `Capabilities` (`Capability{ID, Label, Icon}`) are the row's marks ([media.md](media.md#desktop)) |
 | `Feature{ID, Name, Icon, Options}` | One option toggles; more open a menu with Off |
 | `Context.Teams`, `Team{ID, Name, Members}`, `Member.Overridden` | Team row and list; an overridden member is marked |
 | `Context.Queue`, `Queued{ID, Text, Attachments, Notice, Compaction, Guided, Joining}` | The queue strip, oldest first; `Guided` is guidance pending, `Joining` guidance aimed at the turn that takes guidance now |
@@ -198,16 +198,36 @@ The context bar has one project control and at most one branch control:
 - The model picker is a page of that popover (the controls' model opens it,
   Back returns): three columns the panel's height, 8 and a 1 DIP hairline
   (`Border`) and 8 between them.
-  - The rail, 48 wide: Back, the families, then the capability filter.
-  - The providers' groups and their models, 236 wide, scrolling. A row is 32
-    high, 8 inside, `RadiusLg`: the name, the capability marks, the score.
-    The chosen model's is filled with the primary color at 12%.
+  - The rail, 44 wide: Back and a tile for each family, nothing else
+    ([removed-ui.md](removed-ui.md)). Each is 32 square with `RadiusLg`, 6
+    from the rail's sides and 4 apart; a family's mark is 18. The tile of
+    the rail's family is filled as a chosen row and selected for assistive
+    technology; a tile's tooltip is the family's name. A tile shows its
+    family's groups; the rail has no "all" state, as in the reference, and
+    opens on the chosen model's family.
+  - The providers' groups and their models, 236 wide, scrolling. A group's
+    name is a disclosure: a click, Enter or Space folds and unfolds its
+    models, its chevron down while they show and to the right while folded,
+    and it reports expanded or collapsed. The folds are `State.open`, kept
+    while the page shows, across families too, and reset as the page opens,
+    on the chosen model's group; a family whose groups were neither opened
+    nor folded shows its first one open.
+  - A row is 32 high, 8 inside, `RadiusLg`: the name, then at the row's end
+    the capability marks and, last, the score, ending at the row's padding.
+    The score's place is 28 wide; where a listed model has a score, a row
+    with marks and no score keeps that place empty, so the marks are one
+    column. A score is text alone: nothing opens over it.
+  - What is chosen is told by its fill alone, with no check mark: the
+    neutral `Palette.Selected` ([theme](theme.md)) on the chosen model's
+    row, the effort's row and the family's tile, stronger than `Hover`. Each
+    is selected for assistive technology.
   - The efforts, 132 wide, a listbox named `composer_effort` under that
     heading (12, muted): the levels of one model as rows of the same shape,
     by their IDs, each with the score measured at it (`Model.Scores`, else
-    `Model.Score` at its `Tested` level) and a check on the one the model's
-    row would choose. A model without efforts shows `composer_effort_unavailable`
-    in the rows' place, so the panel keeps its width.
+    `Model.Score` at its `Tested` level) at the row's end; the one the
+    model's row would choose is filled. A model without efforts shows
+    `composer_effort_unavailable` in the rows' place, so the panel keeps its
+    width.
   - The column lists the chosen model's efforts until the pointer moves on
     another model's row or the focus comes to it; that row is then filled
     with `Hover` and stays so while the pointer or the focus is in the
@@ -217,16 +237,16 @@ The context bar has one project control and at most one branch control:
     keys, and not for a row the list opens under it. From the column's own
     row a pointer headed for the column, more rightwards than up or down
     (read every 6 DIPs), crosses the rows between without giving them the
-    column. Changing the family, the filter or a group gives the column back
-    to the chosen model.
+    column. Changing the family or folding a group gives the column back to
+    the chosen model.
   - A model's row chooses it at the effort chosen now where the model has a
     level of that name, else at its default (`DefaultEffort`, medium, the
     middle). An effort's row chooses the column's model at that effort.
     Either goes back to the controls with the popover open, as the efforts'
     menu did; no menu opens over the panel.
-  - The controls are 296 wide and the picker 450. The popover is the page,
-    its padding and, for the picker, its edge (`popoverWidth`): 320 and 476
-    from the chip, 312 and 468 as the compact settings popover. The picker's
+  - The controls are 296 wide and the picker 446. The popover is the page,
+    its padding and, for the picker, its edge (`popoverWidth`): 320 and 472
+    from the chip, 312 and 464 as the compact settings popover. The picker's
     page fills the popover, and the popover has the picker's size in the
     frame the page shows (`kit.Snapped`), not eased: a popover still on its
     way would have the columns and the last rows past its edge, where a
@@ -753,7 +773,15 @@ to; a pointer at rest under the keys and under a row the list opens, and
 its way to the column; the line and the unchanged panel for a model without
 efforts; an effort's row choosing its model and leaving the popover open on
 its controls; the scores by effort; Right, Tab, Left, Shift+Tab, Up, Down,
-Enter and Escape; the narrow window; and no frame asked for at rest.
+Enter and Escape; the narrow window; no frame asked for at rest; a group's
+name folding and unfolding its models by Space, Enter and a click, with one
+provider, and reporting expanded; the rail's two 32 DIP buttons, their
+places, no capability filter and no line under the families; a family's
+tile narrowing the list and a fold kept across families; the chosen model's
+row, effort's row and family's tile selected and filled one neutral gray,
+stronger than the row under the pointer, with no check, in dark and light by
+pixel; the scores ending at their rows' padding in one column and the
+capability marks in one; and no tooltip over a score at rest.
 The Kit menu's test (`kit/menu_test.go`, `choice rows`) checks the row alone
 and that an open menu at rest asks for no frame.
 The ring tooltip step also keeps an unknown ring drawn and without a tooltip.
@@ -782,7 +810,8 @@ and every failure, over a fake microphone and recognizer.
 | A model's efforts are a column of the picker's panel, not a menu beside its row (user decision 2026-11-11) | The menu floated over the list and left the panel's side empty; the column is the one place to choose an effort |
 | A model's row chooses it at once, at the effort chosen now or its default | With the menu gone a row no longer opens anything; the column shows that effort checked before the click |
 | The popover takes the picker's size at once (`kit.Snapped`) instead of easing to it | A popover easing to the picker's size (150 ms, and none of it on a clock that stands still) had the effort column and the last rows past its edge, where a press closed the popover without choosing |
-| The picker's rows are `ButtonBase` rows, the efforts with the option role in a listbox | A MyGo list or menu row has no place for the capability marks and the score with its tooltip, and the two columns share one row |
+| The picker's rows are `ButtonBase` rows, the efforts with the option role in a listbox | A MyGo list or menu row has no place for the capability marks and the score, and the two columns share one row |
+| The picker's chosen rows and family tile are filled with `Palette.Selected`, `Active` laid over `Hover`, not `Active` alone | The fill is the only mark of the choice and must be stronger than the row under the pointer; the built-in light theme's `Active` is fainter than its `Hover` |
 | `kit.Ring` draws the progress ring itself | Pinned MyGo has a progress bar and a spinner of spokes, no progress circle. The composer, `conversation.ContextRing` and the plugin controls share the one drawing |
 | A ring's value changes at once | Kit's `ProgressCircle` eases a changed value over its normal duration |
 | The preview's ring shows the scene's usage | The reference's preview ring is always empty; ours is the same `kit.Ring`, 15 across |
