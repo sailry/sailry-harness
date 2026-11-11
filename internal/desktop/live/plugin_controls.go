@@ -322,6 +322,18 @@ func (r *Runtime) renderPluginControl(view *ui.Context, registry *plugins.Regist
 			composer.MenuRow(view, kit.GhostLook(view, button, selected).Label(label), icon, label, palette.Foreground, nil)
 			return
 		}
+		if entry.Declaration.Slot == protocol.PluginUiSlotProject {
+			// The overview's own secondary button, as New terminal beside it.
+			kit.SecondaryLook(view, button.Label(label)).Children(func() {
+				if entry.State.Loading {
+					kit.Busy(view)
+				} else {
+					ui.Icon(view, icon).FontSize(16)
+				}
+				ui.Text(view, label).FontSize(14)
+			})
+			return
+		}
 		if entry.Declaration.Slot == protocol.PluginUiSlotContext && entry.Declaration.Kind != "indicator" {
 			// The context bar's own look, as the project and worktree beside it.
 			composer.ContextButton(view, button, icon, label, selected, entry.Declaration.Kind == "select" || entry.Declaration.Kind == "menu")

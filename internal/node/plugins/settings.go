@@ -320,3 +320,66 @@ func ValidateBinding(binding protocol.PluginSettingsBinding, servers map[string]
 	}
 	return "", packageFault("secret header binding must target an empty declaration")
 }
+
+// OptionSchema parses a package's conversation option schema: public scalar
+// values only, with distinct imports.
+func OptionSchema(raw json.RawMessage) (protocol.PluginSettingsSchema, error) {
+	schema, err := ValidateSettings(raw)
+	if err != nil {
+		return schema, err
+	}
+	imports := map[string]bool{}
+	for _, field := range schema.Properties {
+		if field.Secret != nil || field.Model || field.Time || field.Effort != nil || field.ChildConcurrency ||
+			field.Import != nil && !optionImport(*field.Import) {
+			return schema, packageFault("conversation options must be public scalar values")
+		}
+		if field.Import != nil {
+			if imports[*field.Import] {
+				return schema, packageFault("conversation option imports must be distinct")
+			}
+			imports[*field.Import] = true
+		}
+	}
+	return schema, nil
+}
+
+// CapturedOptions are the package's conversation options as the turn froze
+// them: the declared defaults overlaid with the saved values of declared keys.
+func CapturedOptions(info protocol.PluginInfo, config protocol.SessionConfig) (map[string]json.RawMessage, error) {
+	values := map[string]json.RawMessage{}
+	if info.Extension == nil || info.Extension.ConversationOptions == nil {
+		return values, nil
+	}
+	schema, err := OptionSchema(*info.Extension.ConversationOptions)
+	if err != nil {
+		return nil, err
+	}
+	for name, field := range schema.Properties {
+		if field.Default != nil {
+			values[name] = bytes.Clone(*field.Default)
+		}
+	}
+	for name, value := range config.Options[info.Summary.Name] {
+		if _, declared := schema.Properties[name]; declared {
+			values[name] = bytes.Clone(value)
+		}
+	}
+	if ValidatePublicSettings(schema, values) != nil {
+		return nil, packageFault("conversation options do not match their declared schema")
+	}
+	return values, nil
+}
+
+func optionImport(value string) bool {
+	if value == "" || len(value) > 128 {
+		return false
+	}
+	for _, character := range []byte(value) {
+		if !(character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' ||
+			character >= '0' && character <= '9' || character == '_' || character == '-' || character == '.') {
+			return false
+		}
+	}
+	return true
+}

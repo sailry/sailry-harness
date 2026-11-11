@@ -270,6 +270,7 @@ func StartWithOptions(ctx context.Context, path string, options Options) (*Node,
 	go value.pruneLedger()
 	value.initDispatch(options.DispatchClock)
 	value.initPluginStatus()
+	value.startMCP()
 	value.sweepSessionWorkspaces()
 	if options.Network != nil {
 		if err := value.bindNetwork(ctx, *options.Network); err != nil {
@@ -352,6 +353,8 @@ func (node *Node) shutdown(grace time.Duration) {
 		{"external browsers", quiet(node.externalBrowser.Shutdown)},
 		{"plugins and MCP servers", node.closePlugins},
 		{"requests in flight", quiet(node.work.Wait)},
+		// No request holds a package version or a settings revision any more.
+		{"plugin collection", quiet(func() { node.collectPlugins(context.Background()) })},
 		{"telemetry", quiet(func() {
 			node.detachLogging()
 			node.telemetry.Close()

@@ -21,6 +21,17 @@ uncertain exchanges. An OAuth connection with no refresh declaration or no
 refresh token sends nothing: it answers `expired` "connector authorization
 cannot be refreshed" and keeps no uncertain marker.
 
+A connector renewal marks its grant uncertain before the request and settles
+it by what happened, as a provider account's renewal does. A request that never
+left the Node (the connection could not be set up) removes the marker and
+answers `unavailable`; the next use renews again. A definite refusal (`401`, or
+an OAuth error such as `invalid_grant`) removes the marker and answers `expired`
+"connector authorization was refused; connect again". Anything else that left
+the Node (no answer, a `5xx`, an unreadable grant) keeps the marker, because the
+service may have replaced the renewal credential, and every later use answers
+`outcome_unknown` until the connection is signed in again. MCP OAuth sign-ins
+follow the same three outcomes.
+
 Public connection projections contain metadata, status and consent requirements.
 Credentials stay in Node configuration storage and are absent from public events,
 UI caches and MCP settings projections. HTTP/MCP resolve only declared
@@ -109,8 +120,17 @@ title, and a conflict and an uncertain outcome keep their own wording.
 
 ## Server status and row actions
 
-`read_plugin` reports each MCP server's availability and, once the pool holds a
-connection for it, its runtime. Availability follows the reviewed implementation:
+`read_plugin` reports each MCP server's availability and, once the server of the
+installed version was asked to connect, its runtime: `connecting`, `connected`
+with its tool count, or `failed` with the fault. The Node publishes
+`plugin_changed` for the package whenever a runtime changes, so a controller
+reads the new state without a turn or a manual check. An attempt that was
+cancelled or found the server busy returns to the runtime before it, and a
+server closed for being idle stays `connected`: it opens again on its next use.
+The Node connects the shared servers of enabled packages at start and when a
+package, its settings or its accounts change
+([details](plugins.md#mcp-servers-outside-a-turn)). Availability follows the
+reviewed implementation:
 an incompatible package is `unavailable`, a disabled one `package_disabled`, a
 withdrawn permission `server_disabled`, a missing required setting
 `configuration_required`; a server bound to a connector by its injection or its
@@ -136,9 +156,11 @@ Desktop shows that state, never a failure that did not happen:
 
 The reason of a failed or unavailable server is the tooltip of its status,
 followed by the time of the server's last report, and a line of its details.
-The details of a service with several servers give each server's own status. The pool keeps no state for a server that never connected,
-so Desktop keeps the reason of the last failed check for the package content and
-settings it checked, until a check succeeds.
+The details of a service with several servers give each server's own status. The
+pool reports a runtime only for an attempt that reached it, so a check that
+failed while its launch was prepared leaves none: Desktop keeps the reason of the
+last failed check for the package content and settings it checked, until a check
+succeeds.
 
 The row menu lists only the actions the row has now, and the button is disabled
 when it has none. A right click on the row opens the same actions as an
@@ -181,3 +203,7 @@ remain manual acceptance boundaries; source fixtures do not claim those results.
 results carry transport and credential slot names only, never values; an update
 must keep the transport and slots and may clear named slots. Approval and Plan
 behavior are in [Plugin packages](plugins.md#agent-management-tools).
+
+Removing a standalone MCP package deletes its connection records with their
+grants, since nothing else can use them; a package with declared connectors
+keeps its records for a later install.

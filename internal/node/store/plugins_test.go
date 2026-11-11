@@ -27,6 +27,8 @@ func pluginTestInfo(name string, digest byte) protocol.PluginInfo {
 func TestPluginInventoryAndSettings(t *testing.T) {
 	t.Parallel()
 	t.Run("controller authority", testPluginControllerAuthority)
+	t.Run("session authority", testPluginSessionAuthority)
+	t.Run("version collection", testPluginCollection)
 	t.Run("captured Plan actions", testPluginPlanActions)
 	t.Run("scoped Status contracts", testPluginStatusContracts)
 	t.Run("database profiles", testDatabaseProfiles)

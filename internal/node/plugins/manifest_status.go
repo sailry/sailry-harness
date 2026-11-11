@@ -6,6 +6,10 @@ import (
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
+// validateStatusExtension accepts every slot the contract names. Accepting a
+// declaration does not promise Desktop draws it: the provider slot and the
+// bundled project controls the application has natively are not mounted
+// (docs/plugins.md, Deviations).
 func validateStatusExtension(extension protocol.PluginExtension) error {
 	if !protocol.ValidPluginUiContributions(extension.Ui) {
 		return packageFault("invalid plugin UI declarations")

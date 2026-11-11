@@ -296,7 +296,16 @@ func (node *Node) executePlugin(ctx context.Context, caller protocol.NodeID, req
 	})
 	if err != nil {
 		node.authCommitted(caller, request, err)
-		return response(protocol.Output{}, &protocol.Fault{Code: protocol.ErrorCodeOutcomeUnknown, Message: "plugin operation result could not be recorded; inspect the resource before retrying"})
+		if operationErr == nil && (prepared.output == nil || connectorMutation(request.Command.Kind)) {
+			// The command's own change was in the transaction that failed.
+			return node.unapplied(caller, request.ID, err)
+		}
+		// A refusal changed nothing and an effect that ran before the
+		// transaction has ended: either result is what is stored.
+		if operationErr == nil {
+			output = *prepared.output
+		}
+		return node.settle(caller, request.ID, response(output, operationErr))
 	}
 	node.authCommitted(caller, request, operationErr)
 	node.pluginCommitted(changes)

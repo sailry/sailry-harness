@@ -23,6 +23,19 @@ removal record and captured versions stay, and its pages, tools and skills no
 longer appear ([media.md](media.md#retired-media-package)). Application version 0.1.6 is the first Go release; its ported
 sources and pinned packages match the reviewed 0.1.5 Desktop/Host; the protocol remains v1.
 
+Package versions and settings revisions are collected when the Node starts,
+before it admits a command, and when it stops, after its last work has ended
+(`store.CollectPlugins`, then `plugins.Manager.Collect`). A version stays
+while an installation, a queued or running dispatch job, an admitted turn, a
+saved or captured provider binding or a bound assistant names its digest; a
+settings revision stays while one of those names it. Everything else is
+deleted: first the `plugin_packages` and `plugin_settings` rows in one
+transaction, then the digest directories under `plugins/packages`. Only
+canonical digest directories are touched, an interrupted run leaves an orphan
+for the next one, and a failure is logged without blocking startup or
+shutdown. A retired or removed package therefore keeps exactly the versions
+that turns captured.
+
 Repository discovery freezes a Git commit before inspecting or installing files.
 One acquisition fetches a single revision at depth 1 into a temporary bare
 repository that is removed afterwards. A captured commit is fetched by its
@@ -167,6 +180,38 @@ Node admission, action checks, writer transactions and receipts. Read-only
 callbacks cannot admit durable effects. Tools retain the turn's exact packages,
 selected declarations, approvals, mode and role.
 
+A package scope confines every command to its own worktree and session, with
+two rules of their own. `start_session` creates a session rather than
+addressing one: it is admitted with no turn and no session in scope, the
+association must be filed under the package's own name, an assistant or
+resource configuration is refused, and the draft's worktree is compared only
+when the scope itself names one. A Node-wide callback, such as a scheduled
+task's, therefore starts its session in whichever worktree the task stored. A
+package scope without a turn or session may then address a session it started,
+recognised by that association, when the session is not a delegated child and
+lies inside the scope's worktree if one is set. `store/plugin_authority.go`
+owns both rules; `TestScheduledTaskStart` fires the bundled scheduled-tasks
+callbacks through them.
+
+The same file carries the remaining scope rules of the source's plugin check:
+
+- `set_session_team`, the command behind the SDK's `setSessionExecution`, is a
+  `control_conversation` action.
+- Roles are listed and written only from a turn or the package's own settings
+  surface; `set_session_roles` only from a turn.
+- `read_project_catalog` and `stop_dispatch_turn` need a Node-wide scope.
+- A notification names only a session the caller may address, and a saved
+  dispatch handler's callback scope stays inside the scope that saves it.
+- A turn reads Git in any worktree of its captured worktree's project. Worktree
+  management requires a captured worktree with a project, names that project
+  and that source, and removes any worktree of the project.
+- Without a turn, a child conversation's scope does not write files, Git or
+  worktrees.
+
+Not compared with the source: role and local-model approval checks, the session
+an artifact read resolves to, and the per-call enabled check for media and
+local-model commands outside controller settings.
+
 The callback engine has a 64 MiB allocation budget. Calls have a 60-second
 deadline and honor cancellation, including compilation and result conversion.
 The engine's own fixed call-depth bound handles recursion; it is not a physical
@@ -183,8 +228,33 @@ authorization identity. Changed captures retire old owners. Retained leases
 check current authorization, credentials and destination after acquiring their
 call locks and before each RPC. Connection, tool, descriptor and message sizes are bounded. The
 owner retains subprocess/Python resources until cleanup settles. Lost transport
-or unconfirmed cleanup returns `OutcomeUnknown`, without replay. Form and URL
+or unconfirmed cleanup returns `OutcomeUnknown`, without replay. Cleanup is
+confirmed by the transport's own close; the error a stream ends with when it is
+closed from this side is not a failed cleanup. Form and URL
 elicitation use canonical questions and pause only active elicitation time.
+
+### MCP servers outside a turn
+
+The pool owns three things a turn does not drive:
+
+- Idle servers. A shared connection without a lease for 30 minutes is closed by
+  the pool's one-minute timer, which ends a stdio server's process group. Node
+  shutdown closes every connection, leased or not.
+- Runtime. The pool keeps, per server of the installed package version, the
+  runtime its last attempt reached, and wakes the Node when it changes. The Node
+  records `plugin_changed` for that package. A changed version, a disabled or
+  removed package forgets the runtime.
+- Warm-up. `sailry-desktop` and `sailry-host` start the Node with
+  `mcp.Options.Warm`. The Node then connects, lists and releases every server
+  that is allowed, `available` and shared (`reuse`), at start and after a
+  package or account change. It remembers per package the version, the startable
+  servers and the accounts it last tried, so a server is tried once for each of
+  them and a failed one waits for a change. A Node started without the option
+  (every test that does not ask for it) contacts no server ahead of use.
+
+Opening is bounded to 20 seconds, a tool listing to 10, a call to 120 seconds of
+active time, and a stdio server's exit to 10 seconds of close, terminate and
+kill.
 
 Package behavior stays in the pinned plugin repository's tooling, which can use
 the production moejs test host. Core tests cover host boundaries and admission;
@@ -470,6 +540,21 @@ empty so the text remains aligned.
   outlines, unchanged. Reicon glyphs that no bundled package, SDK example or
   application icon names are not embedded; such a name still validates and
   draws the placeholder.
+- Collection keeps two things the source deletes. A removed package keeps its
+  latest settings revision, because reinstalling it restores that
+  configuration here (the source starts a reinstalled package from no
+  configuration). A version named by a saved provider's binding stays, so a
+  provider saved before a package update still starts a turn.
+- MCP outside a turn is simpler than the source in four places. Warm-up is
+  chosen by what changed for the package (version, startable servers,
+  accounts) instead of the source's separate set of authorized targets, and a
+  server that is not `available` is not tried. A server that ends its own
+  session reports `failed` at once; the source notices at the next package
+  change. A package change retires the connections of its other versions
+  without the source's ten-second validation of the ones it keeps: a lease
+  already validates its authority before each call. A failure before the pool
+  is reached (launch preparation) records no runtime; the source records it
+  as failed.
 - The source GPUI element contract is adapted to MyGo and Kit; imported runtime
   resources retain their notices and source revision.
 - Cards with an embedded authorization browser use an isolated native MyGo page
@@ -477,6 +562,60 @@ empty so the text remains aligned.
   explicit unavailable embedded-browser result.
 - Native Files and Git remain the accepted core pages. Their package desktop
   entries and Git Status contribution are deliberately not mounted.
+- The `project` and `project_menu` slots are drawn where the source draws
+  them: `project` controls follow the project overview's own actions as its
+  secondary buttons, and `project_menu` buttons and menus follow New terminal
+  and Records in the project's system menu as items and submenus of choices.
+  Both belong to one registry per project, scoped to its main worktree (the
+  overview's selected one). The application already draws six bundled
+  controls itself, so those declarations validate and are not mounted:
+  `commands` `terminal-new`, `terminal-cli`, `terminal-menu-new` and
+  `terminal-menu-cli` (the overview's and the menu's New terminal and AI CLI)
+  and `worktrees` `manage` (the menu's Worktrees); the Git package's `manage`
+  goes with its unmounted entry. A default installation therefore mounts
+  nothing for a project. The system menu is built when it is asked for, so
+  while an installed package declares a menu item of its own, every listed
+  project keeps its registry mounted; the source mounts on the click and
+  waits up to ten seconds before showing the menu.
+- Extension validation at install follows the source for the declarations
+  that cross-reference each other: every tool, handler and flow operation
+  needs its action declared; retired language-server operations and actions
+  are refused; a flow has one to eight distinct operations and none that
+  writes files, delegates, reports progress or reads settings; a handler tool
+  has a description and an object parameter schema of at most 16 KiB; an
+  `initial` tool stays inside package storage; host handlers are 1 to 64
+  exportable names, host resources are scripts, and `turn`, `commands` and UI
+  message commands name declared handlers and routes; model sign-ins,
+  resources, adapters and provider presets are distinct, reference each other
+  and carry their actions; `artifact_view` needs both artifact actions;
+  `enabled_service` is `code_index` on a host package with `code_index.read`;
+  `conversation_options` parses as an option schema; a permission
+  contribution names a read-only check, a declared request handler and the
+  package's own actions. Three rules differ on
+  purpose: a handler may be bound to `agents.guide`
+  ([delegation](delegation.md)), which the source refuses; a `display` icon
+  is not checked, because the tile accepts `ailogo:` names the source's icon
+  list lacks; and a server tool's name may be 512 bytes, as in the source,
+  where this validator allowed 128. Not ported to install time: the field
+  rules inside one model sign-in, model resource, model adapter, provider
+  preset, connector, conversation mode, artifact view and tool `display`.
+- Bundled packages are read from the embedded tree by
+  `agent/operations` (its own manifest tool decoding, digest and skill
+  reader) and installed packages by `plugins`; the source has one path. The
+  two skill readers accept the same documents: an empty `compatibility`, a
+  locale tag that is not ASCII subtags joined by hyphens and a control
+  character in a localized name are refused by both, and a display name is
+  trimmed and ignored above 256 bytes. The two readers are not yet one
+  function.
+- A request on the `permissions` surface is confined as in the source: it
+  carries no worktree, session or turn, reads only a contribution's `check`,
+  calls only its `request`, and inside those callbacks runs only commands
+  whose action a contribution lists.
+- The `provider` slot validates and is not drawn. Settings shows a channel's
+  5h and 7d quota from the Node's own `provider_quotas`
+  ([settings](settings.md)); the bundled `provider-status` `provider_usage`
+  metric repeats it. The bundled `workbuddy` `provider_credits` metric has no
+  native counterpart and is not shown.
 - The window opens a header `popover` on the press. The source also opens one
   whose declaration sets `hover` while the pointer rests on it; no official
   package declares it.

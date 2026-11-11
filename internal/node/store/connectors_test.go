@@ -101,6 +101,31 @@ func TestConnectorLifecycleAndConsent(t *testing.T) {
 		if err != nil || len(values) != 0 {
 			return fmt.Errorf("removed connector remained visible: %v", err)
 		}
+		// Removing a standalone MCP package takes the connection only it can use;
+		// a package with declared connectors keeps its own for a later install.
+		standalone := pluginTestInfo("mcp-standalone", 'b')
+		standalone.McpSource = &protocol.PluginMcpDefinition{Kind: "streamable-http", Data: protocol.PluginMcpDefinitionStreamableHttpPayload{Url: "https://mcp.example.test/mcp", Headers: []string{}}}
+		if standalone, err = InstallPlugin(ctx, db, standalone, 0, true); err != nil {
+			return err
+		}
+		kept, owned := after, after
+		owned.ID, owned.Plugin, owned.Connector = protocol.NewRequestID(), standalone.Summary.Name, "server"
+		for _, record := range []ConnectorRecord{kept, owned} {
+			if err := saveConnectorRecord(ctx, db, record); err != nil {
+				return err
+			}
+		}
+		for _, removed := range []protocol.PluginInfo{info, standalone} {
+			if _, err := RemovePlugin(ctx, db, removed.Summary.Name, removed.Summary.Revision); err != nil {
+				return err
+			}
+		}
+		if _, err := ReadConnectorRecord(ctx, db, kept.ID); err != nil {
+			return fmt.Errorf("a removed package lost the connection of its declared connector: %v", err)
+		}
+		if _, err := ReadConnectorRecord(ctx, db, owned.ID); !providerFixtureFault(err, protocol.ErrorCodeNotFound) {
+			return fmt.Errorf("a removed standalone MCP package kept its connection: %v", err)
+		}
 		return nil
 	})
 	if err != nil {

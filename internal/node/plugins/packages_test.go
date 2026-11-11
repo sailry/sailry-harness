@@ -44,6 +44,67 @@ func packageFixture(t *testing.T, directory, name, text string) {
 func TestPackageBoundaries(t *testing.T) {
 	t.Parallel()
 	t.Run("Status declarations", testStatusExtension)
+	t.Run("tool, host and model declarations", testToolDeclarations)
+	t.Run("unreferenced versions are collected", func(t *testing.T) {
+		manager := NewManager(t.TempDir())
+		if err := manager.Collect(nil); err != nil {
+			t.Fatalf("a profile without packages: %v", err)
+		}
+		source := t.TempDir()
+		write := func(version string) protocol.PluginInfo {
+			t.Helper()
+			if err := os.WriteFile(filepath.Join(source, "plugin.json"), []byte(`{"$schema":"`+ManifestSchema+`","name":"fixture","version":"`+version+`"}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			info, err := manager.Install(t.Context(), source, "", "fixture")
+			if err != nil {
+				t.Fatal(err)
+			}
+			return info
+		}
+		held, unused := write("0.1.0"), write("0.1.1")
+		packages := filepath.Join(manager.profile, "plugins", "packages")
+		// Only canonical digest directories belong to the collector.
+		foreign := []string{".staging-fixture", "notes", strings.Repeat("g", 64), strings.Repeat("a", 62)}
+		for _, name := range foreign {
+			if err := os.Mkdir(filepath.Join(packages, name), 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}
+		file := strings.Repeat("b", 64)
+		if err := os.WriteFile(filepath.Join(packages, file), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := manager.Collect(map[string]struct{}{held.Summary.Digest: {}}); err != nil {
+			t.Fatal(err)
+		}
+		entries, err := os.ReadDir(packages)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var names []string
+		for _, entry := range entries {
+			names = append(names, entry.Name())
+		}
+		expected := append([]string{held.Summary.Digest, file}, foreign...)
+		slices.Sort(expected)
+		if !slices.Equal(names, expected) {
+			t.Fatalf("package store after collection: %v", names)
+		}
+		if _, err := manager.PackageRoot(PackageReference(held)); err != nil {
+			t.Fatalf("the retained version: %v", err)
+		}
+		if _, err := manager.PackageRoot(PackageReference(unused)); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("the collected version: %v", err)
+		}
+		// A later installation publishes the collected version again.
+		if again := write("0.1.1"); again.Summary.Digest != unused.Summary.Digest {
+			t.Fatal("the same content produced another digest")
+		}
+		if _, err := manager.PackageRoot(PackageReference(unused)); err != nil {
+			t.Fatalf("the republished version: %v", err)
+		}
+	})
 	for _, name := range []string{"", "-plugin", "plugin-", "Plugin", "a--b", "a..b", "a/b", "a_b", strings.Repeat("a", 65)} {
 		if ValidateName(name) {
 			t.Errorf("accepted invalid package name %q", name)
@@ -300,7 +361,7 @@ func TestPackageSchemasAndSkills(t *testing.T) {
 			t.Fatalf("unsupported storage schema was accepted: %s", raw)
 		}
 	}
-	document := "\ufeff\n---\nname: review\ndescription: Review changes\nmetadata:\n  display-name: Code review\n  display-name.zh-CN: 代码审阅\nallowed-tools: [read, search]\n---\nRead all changes"
+	document := "\ufeff\n---\nname: review\ndescription: Review changes\nmetadata:\n  display-name: ' Code review '\n  display-name.zh-CN: 代码审阅\nallowed-tools: [read, search]\n---\nRead all changes"
 	skill, err := ParseSkill([]byte(document), "review")
 	if err != nil || skill.DisplayName == nil || *skill.DisplayName != "Code review" || skill.DisplayLocales["zh-CN"] != "代码审阅" {
 		t.Fatalf("skill metadata did not survive: %#v %v", skill, err)
@@ -309,6 +370,12 @@ func TestPackageSchemasAndSkills(t *testing.T) {
 		"---\nname: review\nname: duplicate\ndescription: Invalid\n---\nBody",
 		"---\nname: Uppercase\ndescription: Invalid\n---\nBody",
 		"---\nname: review\ndescription: ''\n---\nBody",
+		// The bundled catalog reads the same documents; both refuse these.
+		"---\nname: review\ndescription: Invalid\ncompatibility: ''\n---\nBody",
+		"---\nname: review\ndescription: Invalid\nmetadata:\n  display-name.zh_CN: 审阅\n---\nBody",
+		"---\nname: review\ndescription: Invalid\nmetadata:\n  display-name.zh-: 审阅\n---\nBody",
+		"---\nname: review\ndescription: Invalid\nmetadata:\n  display-name.中文: 审阅\n---\nBody",
+		"---\nname: review\ndescription: Invalid\nmetadata:\n  display-name.en: \"Re\\tview\"\n---\nBody",
 	} {
 		if _, err := ParseSkill([]byte(document), ""); err == nil {
 			t.Fatal("invalid skill frontmatter was accepted")

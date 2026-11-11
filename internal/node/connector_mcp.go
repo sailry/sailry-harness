@@ -384,7 +384,8 @@ func (source *connectorOAuthSource) Token() (*oauth2.Token, error) {
 	if source.value.Token.Valid() {
 		return &source.value.Token, nil
 	}
-	pending := *source.record.Grant
+	previous := *source.record.Grant
+	pending := previous
 	pending.Extra = maps.Clone(pending.Extra)
 	pending.Extra["renewal_pending"] = "true"
 	recording := context.WithoutCancel(source.node.ctx)
@@ -396,10 +397,23 @@ func (source *connectorOAuthSource) Token() (*oauth2.Token, error) {
 	if err != nil {
 		return nil, err
 	}
-	ctx := context.WithValue(source.node.ctx, oauth2.HTTPClient, authorization.HTTPClient())
+	transport := &renewalTransport{base: source.node.auth.client.Transport}
+	client := *source.node.auth.client
+	client.Transport = transport
+	ctx := context.WithValue(source.node.ctx, oauth2.HTTPClient, &client)
 	token, err := source.value.Config.TokenSource(ctx, &source.value.Token).Token()
 	if err != nil {
-		return nil, connectorUnavailable()
+		// The service's own refusal of the renewal credential is definite.
+		var refusal *oauth2.RetrieveError
+		if errors.As(err, &refusal) && refusal.Response != nil {
+			var document any
+			if refusal.ErrorCode != "" {
+				document = map[string]any{"error": refusal.ErrorCode}
+			}
+			err = authorization.Granted(refusal.Response.StatusCode, document)
+		}
+		source.record, err = source.node.connectorRenewalFailed(source.record, previous, transport.sent.Load(), err)
+		return nil, err
 	}
 	issued := connectorOAuthIssued(&source.value.Config, token)
 	var record store.ConnectorRecord

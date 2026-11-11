@@ -229,8 +229,8 @@ func validateExtension(extension protocol.PluginExtension) error {
 	}
 	actions := map[protocol.PluginAction]bool{}
 	for _, action := range extension.Actions {
-		if actions[action] {
-			return packageFault("duplicate plugin action")
+		if actions[action] || slices.Contains(retiredActions, action) {
+			return packageFault("invalid plugin action")
 		}
 		actions[action] = true
 	}
@@ -250,15 +250,18 @@ func validateExtension(extension protocol.PluginExtension) error {
 		return packageFault("plugin settings must belong to the platform namespace")
 	}
 	if host := extension.Host; host != nil {
-		if !namespacePath(host.Entry) || !slices.Contains(host.Resources, host.Entry) || len(host.Handlers) > 256 || len(host.Resources) > 256 {
+		if !namespacePath(host.Entry) || !slices.Contains(host.Resources, host.Entry) {
 			return packageFault("invalid plugin host resources")
 		}
 		seen := map[string]bool{}
 		for _, handler := range host.Handlers {
-			if handler == "" || len(handler) > 128 || seen[handler] || strings.ContainsRune(handler, 0) {
+			if seen[handler] {
 				return packageFault("invalid plugin host handler")
 			}
 			seen[handler] = true
+		}
+		if err := validateHostCallbacks(*host); err != nil {
+			return err
 		}
 		for _, resource := range host.Resources {
 			if !namespacePath(resource) {
@@ -291,18 +294,52 @@ func validateExtension(extension protocol.PluginExtension) error {
 			server = *tool.Server
 		}
 		identity := server + "\x00" + tool.Name
-		if tool.Name == "" || len(tool.Name) > 128 || tools[identity] {
+		if tools[identity] {
 			return packageFault("invalid plugin tool identity")
 		}
 		tools[identity] = true
-		if handler := tool.Handler; handler != nil {
-			if extension.Host == nil || !slices.Contains(extension.Host.Handlers, handler.Name) {
-				return packageFault("plugin tool handler is not declared")
-			}
-			if handler.Result != nil && !slices.Contains(extension.Host.Handlers, *handler.Result) {
-				return packageFault("plugin result handler is not declared")
+		if err := validateTool(tool, extension); err != nil {
+			return err
+		}
+	}
+	for _, entry := range extension.Ui {
+		if command := entry.Command; command != nil && command.Kind == protocol.PluginUiCommandKindMessage &&
+			(extension.Host == nil || !slices.ContainsFunc(extension.Host.Commands, func(route protocol.PluginHostCommand) bool { return route.Name == command.Name })) {
+			return packageFault("plugin message command has no host route")
+		}
+	}
+	if extension.ArtifactView != nil && (!actions[protocol.PluginActionReadArtifacts] || !actions[protocol.PluginActionWriteArtifacts]) {
+		return packageFault("plugin artifact view requires the artifact actions")
+	}
+	// A display icon is a name the tile resolves, and one nothing draws is
+	// the default tile, so only the texts are checked.
+	for _, navigation := range []*protocol.PluginDesktopNavigation{extension.Display, extension.Description} {
+		if navigation != nil {
+			texts := *navigation
+			texts.Icon = nil
+			if !texts.Valid() {
+				return packageFault("invalid plugin presentation")
 			}
 		}
+	}
+	if extension.Icon != nil && (!namespacePath(*extension.Icon) || !strings.HasSuffix(*extension.Icon, ".png")) {
+		return packageFault("invalid plugin presentation")
+	}
+	// The code index is the one service a package's enabled state may own.
+	if service := extension.EnabledService; service != nil &&
+		(*service != protocol.PluginServiceCodeIndex || extension.Scope != protocol.PluginScopeHost || !actions[protocol.PluginActionReadCodeIndex]) {
+		return packageFault("invalid plugin enabled service")
+	}
+	if extension.ConversationOptions != nil {
+		if _, err := OptionSchema(*extension.ConversationOptions); err != nil {
+			return err
+		}
+	}
+	if err := validateModels(extension); err != nil {
+		return err
+	}
+	if err := validatePermissions(extension); err != nil {
+		return err
 	}
 	if err := ValidateCards(extension); err != nil {
 		return err

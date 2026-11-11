@@ -143,6 +143,9 @@ func (s *State) projectMenu(c *ui.Context, m *ui.Menu, pr *preview.Project) {
 			}
 		}
 	}
+	if s.Actions != nil && s.Actions.ProjectMenu != nil {
+		s.Actions.ProjectMenu(c, m, pr)
+	}
 	if m.Item(t("project_edit")).Chosen() {
 		s.OpenEditor(pr)
 	}

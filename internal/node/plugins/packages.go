@@ -441,6 +441,41 @@ func (manager *Manager) PackageRoot(reference protocol.PluginReference) (string,
 	return directory, nil
 }
 
+// Collect removes the published package directories whose digest is not
+// retained. Only canonical content-addressed directories belong to it; staging
+// directories and foreign entries stay. An interrupted run leaves an orphan
+// for the next one.
+func (manager *Manager) Collect(retained map[string]struct{}) error {
+	packages := filepath.Join(manager.profile, "plugins", "packages")
+	for _, directory := range []string{filepath.Dir(packages), packages} {
+		metadata, err := os.Lstat(directory)
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if !metadata.IsDir() {
+			return packageFault("plugin package store is unavailable")
+		}
+	}
+	entries, err := os.ReadDir(packages)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		digest, err := hex.DecodeString(name)
+		if _, held := retained[name]; held || err != nil || len(digest) != 32 || hex.EncodeToString(digest) != name || !entry.IsDir() {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(packages, name)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (manager *Manager) ReadResource(ctx context.Context, reference protocol.PluginReference, name string, limit int) ([]byte, error) {
 	if !resourcePath(name) || limit < 0 || limit > MaxPackageBytes {
 		return nil, packageFault("invalid plugin resource request")

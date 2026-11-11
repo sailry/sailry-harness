@@ -13,6 +13,7 @@ import (
 
 func (r *Runtime) initSidebarNavigation() {
 	r.App.Sidebar.Actions.Overview = r.openProjectOverview
+	r.App.Sidebar.Actions.ProjectMenu = r.projectPluginMenu
 	r.App.Sidebar.Actions.OpenWorkspace = func(project *viewmodel.Project, session *viewmodel.Conversation) {
 		owner := session.Node
 		if owner == "" {
@@ -97,6 +98,7 @@ func (r *Runtime) openProjectOverviewAt(project *viewmodel.Project, selectedPath
 		NewTerminal:  func(current *viewmodel.Project) { root.newProjectTerminal(current, selectedPath) },
 		Terminals:    func() []shell.ProjectTerminal { return root.projectTerminals(project) },
 		OpenTerminal: root.showLiveTerminal,
+		Controls:     func(view *ui.Context) { root.renderProjectControls(view, project, selectedPath) },
 	}
 	if owner := root.projectOverviewRuntime(project); owner != nil {
 		if worktree, ok := owner.projectWorktree(project, selectedPath); ok {

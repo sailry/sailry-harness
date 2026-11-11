@@ -20,6 +20,7 @@ import (
 	"github.com/sailry/sailry-harness/internal/localmodels"
 	"github.com/sailry/sailry-harness/internal/node"
 	"github.com/sailry/sailry-harness/internal/node/logging"
+	"github.com/sailry/sailry-harness/internal/node/mcp"
 )
 
 type startupOptions struct {
@@ -83,6 +84,7 @@ func openBackend(ctx context.Context, options startupOptions) (*desktopBackend, 
 	backend.logs, _ = logging.Install(path, "desktop")
 	backend.reports = catchCrashes()
 	backend.Node, err = node.StartWithOptions(ctx, path, node.Options{
+		MCP:         &mcp.Options{Warm: true},
 		Network:     startupScope(options.Relays, backend.Preferences.Data.IrohRelays),
 		LocalModels: localmodels.Options{Capabilities: node.LocalModelCapabilities()},
 	})

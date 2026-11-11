@@ -1,12 +1,15 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"reflect"
 	"slices"
 
+	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -73,6 +76,14 @@ func CheckPluginRequest(ctx context.Context, db *sql.Conn, request protocol.Requ
 	if info.Summary.Compatibility.Kind != "compatible" || info.Extension == nil {
 		return fault(protocol.ErrorCodeNotConfigured, "plugin is incompatible")
 	}
+	if intrinsic, err := checkPluginConnectorRequest(ctx, db, request); err != nil {
+		return err
+	} else if intrinsic {
+		if !info.Summary.Enabled || plugins.PackageReference(info) != scope.Package {
+			return fault(protocol.ErrorCodePermissionDenied, "connector package is unavailable or changed")
+		}
+		return nil
+	}
 	action, allowed, err := PluginConnectionAction(ctx, db, request)
 	if err != nil {
 		return err
@@ -96,6 +107,11 @@ func CheckPluginRequest(ctx context.Context, db *sql.Conn, request protocol.Requ
 	if !declared {
 		return fault(protocol.ErrorCodePermissionDenied, "plugin does not declare this software action")
 	}
+	if scope.Surface.Kind == "permissions" {
+		if err := checkPluginPermissionSurface(request, info, action); err != nil {
+			return err
+		}
+	}
 	settings := scope.Surface.Kind == "settings"
 	if settings && info.Extension.SettingsPage == nil {
 		return fault(protocol.ErrorCodePermissionDenied, "plugin has no settings contribution")
@@ -103,7 +119,26 @@ func CheckPluginRequest(ctx context.Context, db *sql.Conn, request protocol.Requ
 	if !info.Summary.Enabled && !(settings && pluginSettingsAccess(request.Command.Kind)) {
 		return fault(protocol.ErrorCodeNotConfigured, "plugin is disabled")
 	}
+	unexposed := fault(protocol.ErrorCodePermissionDenied, "command is not exposed to plugin software actions")
 	switch request.Command.Kind {
+	case "list_roles", "put_role", "remove_role":
+		if scope.Turn == nil && !settings {
+			return unexposed
+		}
+	case "set_session_roles":
+		if scope.Turn == nil {
+			return unexposed
+		}
+	case "read_project_catalog", "stop_dispatch_turn":
+		// The catalog and a job's turn belong to the whole Node, so a scope
+		// captured for one worktree, session or turn does not reach them.
+		if scope.Worktree != nil || scope.Session != nil || scope.Turn != nil {
+			return unexposed
+		}
+	case "list_worktrees", "register_worktree", "create_worktree", "create_managed_worktree", "remove_worktree":
+		if err := checkPluginWorktreeManagement(ctx, db, request); err != nil {
+			return err
+		}
 	case "read_activity", "read_activity_catalog":
 		if scope.Worktree != nil || scope.Session != nil || scope.Turn != nil || scope.Invocation != nil {
 			return fault(protocol.ErrorCodePermissionDenied, "activity requires a Node-wide plugin scope")
@@ -134,6 +169,22 @@ func CheckPluginRequest(ctx context.Context, db *sql.Conn, request protocol.Requ
 		}
 		if association.Namespace != scope.Package.Name {
 			return fault(protocol.ErrorCodePermissionDenied, "session association belongs to another package")
+		}
+	case "start_session":
+		if err := checkPluginSessionStart(ctx, db, request); err != nil {
+			return err
+		}
+	case "set_session_config":
+		input, err := providerPayload[protocol.CommandSetSessionConfigPayload](request.Command)
+		if err != nil {
+			return err
+		}
+		session, err := ReadSession(ctx, db, input.Session)
+		if err != nil {
+			return err
+		}
+		if err := checkPluginSessionOptions(ctx, db, &session.Config, input.Config, scope.Package); err != nil {
+			return err
 		}
 	}
 	if action == protocol.PluginActionReadTerminals || action == protocol.PluginActionControlTerminals {
@@ -193,8 +244,66 @@ func CheckPluginRequest(ctx context.Context, db *sql.Conn, request protocol.Requ
 			return fault(protocol.ErrorCodePermissionDenied, "plugin turn belongs to another session")
 		}
 	}
-	if target.Package != nil && *target.Package != scope.Package || target.Worktree != nil && !reflect.DeepEqual(target.Worktree, scope.Worktree) || target.Session != nil && !reflect.DeepEqual(target.Session, scope.Session) {
+	switch request.Command.Kind {
+	case "start_session":
+		// The draft's worktree was confined by checkPluginSessionStart: a
+		// Node-wide scope may name any worktree for the session it creates.
+		target.Worktree = nil
+	case "publish_notification":
+		// A notification opens its session, so it names the caller's own.
+		var input struct {
+			Content struct {
+				Session *protocol.SessionID `json:"session"`
+			} `json:"content"`
+		}
+		if err := json.Unmarshal(body, &input); err != nil {
+			return err
+		}
+		target.Session = input.Content.Session
+	case "dispatch":
+		// A saved handler later runs in its callback scope, which therefore
+		// stays inside the scope that saves it.
+		var input struct {
+			Action struct {
+				Kind string          `json:"kind"`
+				Data json.RawMessage `json:"data"`
+			} `json:"action"`
+		}
+		if err := json.Unmarshal(body, &input); err != nil {
+			return err
+		}
+		if input.Action.Kind == "save_handler" {
+			var handler struct {
+				Callback struct {
+					Scope protocol.DispatchScope `json:"scope"`
+				} `json:"callback"`
+			}
+			if err := json.Unmarshal(input.Action.Data, &handler); err != nil {
+				return err
+			}
+			target.Worktree, target.Session = handler.Callback.Scope.Worktree, handler.Callback.Scope.Session
+		}
+	}
+	if target.Worktree != nil && !reflect.DeepEqual(target.Worktree, scope.Worktree) {
+		sibling, err := pluginProjectWorktree(ctx, db, *scope, request.Command.Kind, *target.Worktree)
+		if err != nil {
+			return err
+		}
+		if sibling {
+			target.Worktree = nil
+		}
+	}
+	if target.Package != nil && *target.Package != scope.Package || target.Worktree != nil && !reflect.DeepEqual(target.Worktree, scope.Worktree) {
 		return fault(protocol.ErrorCodePermissionDenied, "plugin action is outside the captured resource scope")
+	}
+	if target.Session != nil && !reflect.DeepEqual(target.Session, scope.Session) {
+		owned, err := pluginOwnsSession(ctx, db, *scope, *target.Session)
+		if err != nil {
+			return err
+		}
+		if !owned {
+			return fault(protocol.ErrorCodePermissionDenied, "plugin action is outside the captured resource scope")
+		}
 	}
 	if scope.Session != nil {
 		session, err := ReadSession(ctx, db, *scope.Session)
@@ -203,6 +312,10 @@ func CheckPluginRequest(ctx context.Context, db *sql.Conn, request protocol.Requ
 		}
 		if scope.Worktree == nil || session.Worktree != *scope.Worktree {
 			return fault(protocol.ErrorCodePermissionDenied, "plugin session belongs to another worktree")
+		}
+		if scope.Turn == nil && session.Delegation != nil &&
+			(action == protocol.PluginActionWriteFiles || action == protocol.PluginActionWriteGit || action == protocol.PluginActionWriteWorktrees) {
+			return fault(protocol.ErrorCodePermissionDenied, "child conversation is read-only")
 		}
 	}
 	if request.Command.Kind == "read_plugin_conversation_value" || request.Command.Kind == "write_plugin_conversation_value" || request.Command.Kind == "remove_plugin_conversation_value" {
@@ -213,6 +326,108 @@ func CheckPluginRequest(ctx context.Context, db *sql.Conn, request protocol.Requ
 		if scope.Session == nil || !slices.Contains(info.Extension.Actions, required) {
 			return fault(protocol.ErrorCodePermissionDenied, "plugin conversation storage is outside its declared actions")
 		}
+	}
+	return nil
+}
+
+// checkPluginPermissionSurface confines the permissions surface to what a
+// permission contribution names: its check and request callbacks, and inside
+// them the software actions the contribution lists.
+func checkPluginPermissionSurface(request protocol.Request, info protocol.PluginInfo, action protocol.PluginAction) error {
+	scope, entries := request.Plugin, info.Extension.Permissions
+	if !info.Summary.Enabled || len(entries) == 0 || scope.Turn != nil || scope.Worktree != nil || scope.Session != nil {
+		return fault(protocol.ErrorCodePermissionDenied, "permission contribution is unavailable")
+	}
+	named := func(handler func(protocol.PermissionsContribution) *string, name string) bool {
+		return slices.ContainsFunc(entries, func(entry protocol.PermissionsContribution) bool {
+			declared := handler(entry)
+			return declared != nil && *declared == name
+		})
+	}
+	allowed := false
+	switch request.Command.Kind {
+	case "read_plugin_callback":
+		input, err := providerPayload[protocol.CommandReadPluginCallbackPayload](request.Command)
+		if err != nil {
+			return err
+		}
+		allowed = named(func(entry protocol.PermissionsContribution) *string { return entry.Check }, input.Handler)
+	case "call_plugin":
+		input, err := providerPayload[protocol.CommandCallPluginPayload](request.Command)
+		if err != nil {
+			return err
+		}
+		allowed = named(func(entry protocol.PermissionsContribution) *string { return entry.Request }, input.Handler)
+	default:
+		allowed = action != "" && slices.ContainsFunc(entries, func(entry protocol.PermissionsContribution) bool {
+			return slices.Contains(entry.Actions, action)
+		})
+	}
+	if !allowed {
+		return fault(protocol.ErrorCodePermissionDenied, "command is not declared by a permission contribution")
+	}
+	return nil
+}
+
+// pluginSourceWorktree reads the captured checkout with the registered
+// worktrees a repository command may name beside it.
+func pluginSourceWorktree(ctx context.Context, db *sql.Conn, scope protocol.PluginContext) (protocol.Worktree, []protocol.Worktree, error) {
+	if scope.Worktree == nil {
+		return protocol.Worktree{}, nil, fault(protocol.ErrorCodePermissionDenied, "repository action requires a worktree")
+	}
+	entries, err := ReadWorktrees(ctx, db)
+	if err != nil {
+		return protocol.Worktree{}, nil, err
+	}
+	for _, entry := range entries {
+		if entry.ID == *scope.Worktree {
+			return entry, entries, nil
+		}
+	}
+	return protocol.Worktree{}, nil, fault(protocol.ErrorCodeNotFound, "captured worktree is unavailable")
+}
+
+// pluginProjectWorktree reports whether a command may name a worktree beside
+// the captured one: a turn reads Git anywhere in its project, and worktree
+// management removes any worktree of that project.
+func pluginProjectWorktree(ctx context.Context, db *sql.Conn, scope protocol.PluginContext, kind string, target protocol.WorktreeID) (bool, error) {
+	switch kind {
+	case "inspect_git", "read_git_head", "read_git_log", "read_git_show", "read_git_blame", "list_git_changes", "read_git_change", "read_git_context", "read_git_diff":
+		if scope.Turn == nil || scope.Worktree == nil {
+			return false, nil
+		}
+	case "remove_worktree":
+	default:
+		return false, nil
+	}
+	source, entries, err := pluginSourceWorktree(ctx, db, scope)
+	if err != nil {
+		return false, err
+	}
+	return source.Project != nil && slices.ContainsFunc(entries, func(entry protocol.Worktree) bool {
+		return entry.ID == target && entry.Project != nil && *entry.Project == *source.Project
+	}), nil
+}
+
+// checkPluginWorktreeManagement keeps worktree management inside the project
+// of the captured checkout.
+func checkPluginWorktreeManagement(ctx context.Context, db *sql.Conn, request protocol.Request) error {
+	source, _, err := pluginSourceWorktree(ctx, db, *request.Plugin)
+	if err != nil {
+		return err
+	}
+	if source.Project == nil {
+		return fault(protocol.ErrorCodePermissionDenied, "worktree management requires a project")
+	}
+	var input struct {
+		Project *protocol.ProjectID  `json:"project"`
+		Source  *protocol.WorktreeID `json:"source"`
+	}
+	if err := decodeProviderData(request.Command.Data, &input); err != nil {
+		return err
+	}
+	if input.Project != nil && *input.Project != *source.Project || input.Source != nil && *input.Source != source.ID {
+		return fault(protocol.ErrorCodePermissionDenied, "worktree action is outside the captured project")
 	}
 	return nil
 }
@@ -275,7 +490,7 @@ func pluginAction(kind string) (protocol.PluginAction, bool) {
 		return protocol.PluginActionControlCommands, true
 	case "read_session", "read_conversation", "read_conversation_runs", "read_conversation_run", "read_turn_capture", "read_turn", "read_tool_detail", "search_conversation", "list_conversation_assets", "list_associated_sessions", "read_queued_turn":
 		return protocol.PluginActionReadConversation, true
-	case "queue_turn", "submit_turn", "continue_turn", "set_session_config", "set_session_member_model", "set_queue_paused", "move_queued_turn", "stop_turn", "start_queued_turn", "edit_queued_turn", "remove_queued_turn", "withdraw_guidance", "send_queued_turn":
+	case "queue_turn", "submit_turn", "continue_turn", "set_session_config", "set_session_team", "set_session_member_model", "set_queue_paused", "move_queued_turn", "stop_turn", "start_queued_turn", "edit_queued_turn", "remove_queued_turn", "withdraw_guidance", "send_queued_turn":
 		return protocol.PluginActionControlConversation, true
 	case "start_session":
 		return protocol.PluginActionStartSessions, true
@@ -332,4 +547,169 @@ func pluginSettingsAccess(kind string) bool {
 		return true
 	}
 	return false
+}
+
+// checkPluginConnectorRequest reports whether the command is a connector
+// command every package may use without a declared action: its own public
+// connection state and its own browser login. The lists are filtered to the
+// calling package where they are answered; connection management stays with
+// the controller.
+func checkPluginConnectorRequest(ctx context.Context, db *sql.Conn, request protocol.Request) (bool, error) {
+	scope := request.Plugin
+	denied := func() error {
+		return fault(protocol.ErrorCodePermissionDenied, "connector belongs to another package or surface")
+	}
+	switch request.Command.Kind {
+	case "list_connector_types", "list_connections":
+		return true, nil
+	// The login owner binds input and cancellation to its original caller.
+	case "submit_connector_input", "cancel_connector_login":
+		return true, nil
+	case "start_connector_login":
+		input, err := providerPayload[protocol.CommandStartConnectorLoginPayload](request.Command)
+		if err != nil {
+			return false, err
+		}
+		if input.Package != scope.Package || scope.Turn != nil || scope.Invocation != nil || input.Input.Registration || len(input.Input.Secrets) != 0 ||
+			input.Method != protocol.PluginConnectorKindOauth2 && input.Method != protocol.PluginConnectorKindMcpOauth {
+			return false, denied()
+		}
+		if _, _, err := ConnectorDeclaration(ctx, db, input.Package, input.Connector); err != nil {
+			return false, err
+		}
+		if input.Connection != nil {
+			record, err := ReadConnectorRecord(ctx, db, *input.Connection)
+			if err != nil {
+				return false, err
+			}
+			if record.Plugin != input.Package.Name || record.Connector != input.Connector {
+				return false, denied()
+			}
+		}
+		return true, nil
+	case "inspect_connector_cli", "update_connection", "set_connection_enabled", "disconnect_connection", "remove_connection", "confirm_connector_consent", "probe_connection":
+		return false, denied()
+	}
+	return false, nil
+}
+
+// checkPluginSessionStart confines a package's start_session: outside a turn
+// and a session, under its own association namespace and conversation
+// options, inside its captured worktree, and never as an assistant or
+// connection conversation, which have their own resource commands.
+func checkPluginSessionStart(ctx context.Context, db *sql.Conn, request protocol.Request) error {
+	scope := request.Plugin
+	if scope.Turn != nil || scope.Session != nil {
+		return fault(protocol.ErrorCodePermissionDenied, "command is not exposed to plugin software actions")
+	}
+	draft, err := providerPayload[protocol.ConversationStart](request.Command)
+	if err != nil {
+		return err
+	}
+	if draft.Association != nil {
+		if err := validateSessionAssociation(*draft.Association); err != nil {
+			return err
+		}
+		if draft.Association.Namespace != scope.Package.Name {
+			return fault(protocol.ErrorCodePermissionDenied, "session association belongs to another package")
+		}
+	}
+	if draft.Config != nil {
+		if err := checkPluginSessionOptions(ctx, db, nil, *draft.Config, scope.Package); err != nil {
+			return err
+		}
+	}
+	if scope.Worktree != nil && (draft.Worktree == nil || *draft.Worktree != *scope.Worktree) {
+		return fault(protocol.ErrorCodePermissionDenied, "session creation is outside the captured worktree")
+	}
+	if draft.Config != nil && (draft.Config.Assistant != nil || draft.Config.Resource != nil) {
+		return fault(protocol.ErrorCodePermissionDenied, "session creation requires a project or unassigned scope")
+	}
+	return nil
+}
+
+// checkPluginSessionOptions lets a package change only its own conversation
+// options, to values its current declaration accepts.
+func checkPluginSessionOptions(ctx context.Context, db *sql.Conn, previous *protocol.SessionConfig, config protocol.SessionConfig, caller protocol.PluginReference) error {
+	names := map[string]bool{}
+	for name := range config.Options {
+		names[name] = true
+	}
+	if previous != nil {
+		for name := range previous.Options {
+			names[name] = true
+		}
+	}
+	for name := range names {
+		var before map[string]json.RawMessage
+		if previous != nil {
+			before = previous.Options[name]
+		}
+		after := config.Options[name]
+		if pluginOptionsEqual(before, after) {
+			continue
+		}
+		if caller.Name != name {
+			return fault(protocol.ErrorCodePermissionDenied, "conversation options belong to another package")
+		}
+		info, err := ReadPlugin(ctx, db, name)
+		if err != nil {
+			return err
+		}
+		if info == nil {
+			return fault(protocol.ErrorCodeNotConfigured, "conversation option package is unavailable")
+		}
+		if plugins.PackageReference(*info) != caller {
+			return fault(protocol.ErrorCodeRevisionConflict, "conversation option package changed")
+		}
+		if info.Extension == nil || info.Extension.ConversationOptions == nil {
+			return invalid("package has no conversation options")
+		}
+		schema, err := plugins.OptionSchema(*info.Extension.ConversationOptions)
+		if err != nil {
+			return err
+		}
+		for _, values := range []map[string]json.RawMessage{before, after} {
+			for key := range values {
+				if _, declared := schema.Properties[key]; !declared && !bytes.Equal(before[key], after[key]) {
+					return invalid("conversation option was not declared")
+				}
+			}
+		}
+		if _, err := plugins.CapturedOptions(*info, config); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func pluginOptionsEqual(before, after map[string]json.RawMessage) bool {
+	if len(before) != len(after) {
+		return false
+	}
+	for key, value := range before {
+		other, exists := after[key]
+		if !exists || !bytes.Equal(value, other) {
+			return false
+		}
+	}
+	return true
+}
+
+// pluginOwnsSession reports whether a scope without a turn or session may
+// address the session: only one it associated with itself at creation.
+func pluginOwnsSession(ctx context.Context, db *sql.Conn, scope protocol.PluginContext, id protocol.SessionID) (bool, error) {
+	if scope.Turn != nil || scope.Session != nil {
+		return false, nil
+	}
+	session, err := ReadSession(ctx, db, id)
+	if err != nil {
+		var missing *protocol.Fault
+		if errors.As(err, &missing) && missing.Code == protocol.ErrorCodeNotFound {
+			return false, nil
+		}
+		return false, err
+	}
+	return session.Delegation == nil && (scope.Worktree == nil || *scope.Worktree == session.Worktree) &&
+		session.Association != nil && session.Association.Namespace == scope.Package.Name, nil
 }

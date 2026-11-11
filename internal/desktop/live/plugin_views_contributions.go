@@ -43,10 +43,25 @@ func pluginViewAccepts(surface string, slot protocol.PluginUiSlot) bool {
 	}
 }
 
-func pluginViewDeclarations(declarations []protocol.PluginUiContribution, surface string) []protocol.PluginUiContribution {
+// nativeProjectControl reports whether the application draws a bundled
+// package's project control itself: the overview's New terminal and AI CLI
+// buttons, and the project menu's New terminal, AI CLI and Worktrees items.
+// Drawing the package's too would show each twice.
+func nativeProjectControl(name, id string) bool {
+	switch name {
+	case "commands":
+		return id == "terminal-new" || id == "terminal-cli" || id == "terminal-menu-new" || id == "terminal-menu-cli"
+	case pluginWorktreesPackage:
+		return id == "manage"
+	}
+	return false
+}
+
+// pluginViewDeclarations are the controls a package shows on a surface.
+func pluginViewDeclarations(name string, declarations []protocol.PluginUiContribution, surface string) []protocol.PluginUiContribution {
 	result := make([]protocol.PluginUiContribution, 0, len(declarations))
 	for _, declaration := range declarations {
-		if pluginViewAccepts(surface, declaration.Slot) {
+		if pluginViewAccepts(surface, declaration.Slot) && !(surface == "project" && nativeProjectControl(name, declaration.ID)) {
 			result = append(result, declaration)
 		}
 	}
@@ -174,7 +189,7 @@ func (r *Runtime) syncPluginRegistry(view *ui.Context, owner *pluginContribution
 		}
 		if extension == nil || extension.Desktop == nil || extension.Desktop.UiEntry == nil ||
 			unmountedPlugin(info.Summary.Name) || !info.Summary.Enabled || info.Summary.Compatibility.Kind != "compatible" ||
-			len(pluginViewDeclarations(extension.Ui, owner.scope.Surface.Kind)) == 0 {
+			len(pluginViewDeclarations(info.Summary.Name, extension.Ui, owner.scope.Surface.Kind)) == 0 {
 			continue
 		}
 		if assistant == nil {

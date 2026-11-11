@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"reflect"
 	"sync"
 	"time"
@@ -35,6 +36,7 @@ type pluginControls struct {
 	pythonWake    chan struct{}
 	preparations  []protocol.PythonPreparation
 	mcp           *mcp.Pool
+	warm          chan struct{}
 	installations *installations.Queue
 	mu            sync.Mutex
 	invocations   map[protocol.RequestID]*pluginInvocation
@@ -52,7 +54,11 @@ func (node *Node) initPlugins(ctx context.Context, configured *mcp.Options) erro
 		invocations:   map[protocol.RequestID]*pluginInvocation{},
 	}
 	controls.installations.Working = node.power.Hold
+	if options.Warm {
+		controls.warm = make(chan struct{}, 1)
+	}
 	node.plugins = controls
+	node.collectPlugins(ctx)
 	for _, entry := range plugins.BundledDefaults() {
 		var current *protocol.PluginInfo
 		var recorded bool
@@ -123,6 +129,25 @@ func (node *Node) initPlugins(ctx context.Context, configured *mcp.Options) erro
 		_, err := db.ExecContext(ctx, "UPDATE node SET plugin_defaults=1 WHERE singleton=1")
 		return err
 	})
+}
+
+// collectPlugins deletes the package versions and settings revisions nothing
+// refers to. It runs before the Node admits its first command and after its
+// last work has ended, so no installation or capture can race it. Maintenance
+// never blocks startup or shutdown.
+func (node *Node) collectPlugins(ctx context.Context) {
+	var retained map[string]struct{}
+	err := node.profile.Store.Node.Write(ctx, func(db *sql.Conn) error {
+		var err error
+		retained, err = store.CollectPlugins(ctx, db)
+		return err
+	})
+	if err == nil {
+		err = node.plugins.manager.Collect(retained)
+	}
+	if err != nil {
+		slog.Warn("plugin package collection failed", "code", nodeFault(err).(*protocol.Fault).Code)
+	}
 }
 
 func (node *Node) closePlugins() error {

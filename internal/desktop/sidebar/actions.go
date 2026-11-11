@@ -33,6 +33,8 @@ type Actions struct {
 	Overview      func(*viewmodel.Project)
 	CLI           func(*viewmodel.Project)
 	NewTerminal   func(*viewmodel.Project)
+	// ProjectMenu adds the items packages contribute to a project's menu.
+	ProjectMenu func(*ui.Context, *ui.Menu, *viewmodel.Project)
 }
 
 // removeLabel is the removal's confirming action: the preview names its

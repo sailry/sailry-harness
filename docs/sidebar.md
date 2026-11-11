@@ -241,7 +241,7 @@ none once no session runs.
 | Chats keep the 5-row limit | Phase 1's accepted behavior; the reference scrolls a 7.4 rem box |
 | No terminals in the tree | Terminals come with the terminal work |
 | The metrics footer is off by default | The existing controller preference enables B7's live CPU and memory display |
-| The live project menu keeps New terminal, Records, Worktrees and AI CLI | They were accepted with the page; the reference's live menu has Overview, Edit, New session, Copy path and Remove |
+| The live project menu keeps New terminal, Records, Worktrees and AI CLI | They were accepted with the page; the reference's live menu has Overview, Edit, New session, Copy path and Remove, then the items packages contribute. Contributed items follow Records here; the bundled ones these four replace are not repeated ([plugins](plugins.md#deviations)) |
 | The running row's loader is MyGo's `loading.Swirl` in one color | The user's decision; the dot matrix in the info, warning and danger colors is removed ([components.md](components.md#deviations)) |
 | The appearance popover lays the icons out six to a row | `kit.Popover` with Kit ghost buttons; the reference's popover wraps them freely |
 
