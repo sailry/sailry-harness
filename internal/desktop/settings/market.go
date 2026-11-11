@@ -151,14 +151,20 @@ func marketCard(c *ui.Context, key, title, desc string, tile func(hovered bool),
 				ui.Text(c, desc).FontSize(14).SingleLine().TextColor(p.MutedForeground)
 			})
 		})
+		// The action is an icon: install or update, the spinner while it
+		// runs, and a check that takes no press once installed.
 		label := i18n.T(c, action)
-		switch action {
-		case "market_installed", "market_theme_current":
-			ui.Text(c, label).FontSize(14).Shrink(0).TextColor(p.MutedForeground)
-		case "market_install":
-			kit.PrimaryBusy(c.Key("action"), label, act == nil, busy).Height(28).Shrink(0).OnClick(act)
+		switch {
+		case busy:
+			kit.BusyAction(c.Key("action"), label)
+		case action == "market_installed" || action == "market_theme_current":
+			kit.Action(c.Key("action"), icons.Check, label, true)
+		case action == "market_install":
+			kit.Action(c.Key("action"), icons.Download, label, act == nil).OnClick(act)
+		case action == "market_update":
+			kit.Action(c.Key("action"), icons.ArrowUp, label, act == nil).OnClick(act)
 		default:
-			kit.SecondaryBusy(c.Key("action"), label, busy).Height(28).Shrink(0).Disabled(act == nil || busy).OnClick(act)
+			kit.SecondaryBusy(c.Key("action"), label, busy).Height(28).Shrink(0).Disabled(act == nil).OnClick(act)
 		}
 	})
 }

@@ -82,7 +82,8 @@ func (a *App) header(c *ui.Context, f frame) {
 // the main region: Find in the conversation, then the session overview.
 func (a *App) pageActions(c *ui.Context) {
 	cv := a.Data.Find(a.Sidebar.Selected)
-	if cv == nil {
+	// A conversation without a turn has nothing to find or to list.
+	if cv == nil || len(cv.Turns) == 0 {
 		return
 	}
 	kit.IconButtonHint(c.Key("find"), icons.Search, i18n.T(c, "chat_search"), a.hint("conversation.find"), HeaderButton, a.Messages.SearchOpen()).
