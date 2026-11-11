@@ -131,6 +131,10 @@ type Runtime struct {
 	// composerOutgoing is a queued or guiding message on its way to the
 	// Host, by conversation: the queue tray's placeholder row.
 	composerOutgoing map[string]composer.Queued
+	// guidanceSent is the guidance this desktop sent from the composer and
+	// has not seen settled, by conversation and turn: a message that did not
+	// join its recipient is reported once.
+	guidanceSent map[string]map[protocol.TurnID]sentGuidance
 	// overviews are the asset inventories the overview popover read.
 	overviews map[protocol.SessionID]*overviewRead
 }

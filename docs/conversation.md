@@ -421,7 +421,14 @@ helpers select the latest relevant child run within that owner, preferring activ
 work to queued continuations. The waiting phase appears only after the parent's
 tool batch is committed and while its foreground wave remains unsettled; streamed
 output, consent and pending guidance take precedence. Background children do not
-hold this phase.
+hold this phase. Guidance is pending for the turn that takes it: the run's
+`joined` turn until its user record arrives, which for a batch that outlived
+its recipient is the successor rather than the `guidance` turn it was sent to.
+
+An approval that Stop closed (`cancelled`) leaves its call a plain row without
+state text or warning color, as part of a turn whose footer reads Stopped; an
+approval that lost its owner (`interrupted`) keeps the warning. A stopped
+session is idle in the sidebar, not failed.
 
 Child tabs subscribe to the real registered child session through the same Client
 cache. Their transcript and composer are read-only. The parent's composer presents
