@@ -115,6 +115,9 @@ type MediaOutput struct {
 	Usage     canonical.Usage
 	// Job identifies an accepted provider job that outlives a local stop.
 	Job string
+	// Ended reports that the provider ended Job without a video, so nothing
+	// remains to fetch.
+	Ended bool
 }
 
 type mediaCall struct {
@@ -569,6 +572,16 @@ func (call *mediaCall) gemini(ctx context.Context, prompt string) (MediaOutput, 
 // GenerateVideo submits one OpenAI-compatible video job, waits for it and
 // downloads the MP4. Stopping locally does not cancel an accepted job.
 func GenerateVideo(ctx context.Context, binding Binding, prompt string, poll time.Duration) (MediaOutput, error) {
+	return generateVideo(ctx, binding, prompt, "", poll)
+}
+
+// ResumeVideo waits for a job an earlier call submitted and downloads its
+// MP4. It never submits a job, so a prompt is not paid for twice.
+func ResumeVideo(ctx context.Context, binding Binding, job string, poll time.Duration) (MediaOutput, error) {
+	return generateVideo(ctx, binding, "", job, poll)
+}
+
+func generateVideo(ctx context.Context, binding Binding, prompt, resume string, poll time.Duration) (MediaOutput, error) {
 	call, err := newMediaCall(binding)
 	if err != nil {
 		return MediaOutput{}, err
@@ -583,13 +596,16 @@ func GenerateVideo(ctx context.Context, binding Binding, prompt string, poll tim
 			Message string `json:"message"`
 		} `json:"error"`
 	}
-	request, err := call.request(ctx, http.MethodPost, "/videos", map[string]any{"model": call.config.Model, "prompt": prompt})
-	if err != nil {
-		return MediaOutput{}, err
-	}
-	var current job
-	if err := call.json(request, mediaJSONBytes, &current); err != nil {
-		return MediaOutput{}, err
+	// A resumed job is read after the first interval like any queued one.
+	current := job{ID: resume, Status: "queued"}
+	if resume == "" {
+		request, err := call.request(ctx, http.MethodPost, "/videos", map[string]any{"model": call.config.Model, "prompt": prompt})
+		if err != nil {
+			return MediaOutput{}, err
+		}
+		if err := call.json(request, mediaJSONBytes, &current); err != nil {
+			return MediaOutput{}, err
+		}
 	}
 	id := current.ID
 	if !safeSegment(id) {
@@ -625,6 +641,7 @@ func GenerateVideo(ctx context.Context, binding Binding, prompt string, poll tim
 			if current.Error != nil {
 				detail = call.detail(current.Error.Message)
 			}
+			output.Ended = true
 			return output, &Failure{Kind: Unavailable, Message: "video generation " + current.Status + detail}
 		default:
 			return output, &Failure{Kind: InvalidResponse, Message: "media provider returned an unknown video status"}

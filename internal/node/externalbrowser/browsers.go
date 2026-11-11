@@ -12,12 +12,19 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jonboulle/clockwork"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 const (
 	maxSessions      = 4
 	operationTimeout = 45 * time.Second
+	// waitLimit is the longest one call waits for a page condition. It stays
+	// under operationTimeout, so a condition that never holds is an answer
+	// and not an interrupted call.
+	waitLimit = 30 * time.Second
+	// idleTimeout closes a browser that no call has used for this long.
+	idleTimeout = 10 * time.Minute
 )
 
 type Options struct {
@@ -27,6 +34,8 @@ type Options struct {
 	Node    protocol.NodeID
 	// Changed reports a worktree root that received a generated file.
 	Changed func(root string)
+	// Clock times idle browsers and plain waits. Nil is the real clock.
+	Clock clockwork.Clock
 }
 
 // Call is one admitted use_external_browser operation.
@@ -42,24 +51,46 @@ type Call struct {
 
 type Browsers struct {
 	options Options
-	ctx     context.Context
-	stop    context.CancelFunc
+	clock   clockwork.Clock
+	// ctx ends when the Node stops: calls are interrupted and none starts.
+	ctx  context.Context
+	stop context.CancelFunc
+	// processes parents every browser. It outlives ctx so that a stopping
+	// Node can still ask its idle browsers to exit and flush their profiles.
+	processes context.Context
+	kill      context.CancelFunc
 
 	mu       sync.Mutex
 	sessions map[protocol.SessionID]*slot
 
-	find func() string // the installed browser; tests replace it
+	find   func() string // the installed browser; tests replace it
+	launch func(ctx context.Context, id protocol.SessionID, executable string) (*session, error)
 }
 
-// slot serialises the operations of one conversation session.
+// slot serialises the operations of one conversation session. It exists
+// while a call uses it or its browser runs. Everything but lock is guarded by
+// Browsers.mu.
 type slot struct {
 	lock    chan struct{}
 	session *session
+	// starting reserves one of the Node's browsers while this one launches.
+	starting bool
+	// users counts the calls that hold or wait for lock. At zero the lock is
+	// free, which is what lets an idle browser be closed without waiting.
+	users int
+	used  time.Time       // when the last call ended
+	idle  clockwork.Timer // closes the browser after idleTimeout
 }
 
 func New(options Options) *Browsers {
-	ctx, stop := context.WithCancel(context.Background())
-	browsers := &Browsers{options: options, ctx: ctx, stop: stop, sessions: map[protocol.SessionID]*slot{}, find: Installed}
+	if options.Clock == nil {
+		options.Clock = clockwork.NewRealClock()
+	}
+	processes, kill := context.WithCancel(context.Background())
+	ctx, stop := context.WithCancel(processes)
+	browsers := &Browsers{options: options, clock: options.Clock, ctx: ctx, stop: stop, processes: processes, kill: kill,
+		sessions: map[protocol.SessionID]*slot{}, find: Installed}
+	browsers.launch = browsers.start
 	browsers.recover()
 	return browsers
 }
@@ -108,11 +139,11 @@ func (browsers *Browsers) Execute(ctx context.Context, call Call) (protocol.Outp
 		browsers.Close(call.Session)
 		return browsers.output(map[string]any{"closed": true, "execution_node": browsers.options.Node}), nil
 	}
-	slot, err := browsers.acquire(ctx, call.Session, executable)
+	slot, started, err := browsers.acquire(ctx, call.Session, executable)
 	if err != nil {
 		return protocol.Output{}, err
 	}
-	defer func() { slot.lock <- struct{}{} }()
+	defer browsers.release(call.Session, slot, true)
 	if err := check(); err != nil {
 		return protocol.Output{}, err
 	}
@@ -120,8 +151,8 @@ func (browsers *Browsers) Execute(ctx context.Context, call Call) (protocol.Outp
 	// browser itself belongs to the Node, so only this call is interrupted.
 	operation, cancel := context.WithTimeout(slot.session.ctx, operationTimeout)
 	defer cancel()
-	release := context.AfterFunc(ctx, cancel)
-	defer release()
+	defer context.AfterFunc(ctx, cancel)()
+	defer context.AfterFunc(browsers.ctx, cancel)()
 	type outcome struct {
 		value map[string]any
 		err   error
@@ -138,10 +169,17 @@ func (browsers *Browsers) Execute(ctx context.Context, call Call) (protocol.Outp
 			if result.err != nil {
 				return protocol.Output{}, result.err
 			}
+			if started && slot.session.resumed {
+				// The conversation had a browser before, and the model may
+				// still expect its pages.
+				result.value["notice"] = "a new browser was started for this call; pages opened earlier are closed and cookies are kept"
+			}
 			return browsers.output(result.value), nil
 		}
 	case <-operation.Done():
 	}
+	// Only a call that did not come back in time, a stopped turn or a
+	// stopping Node gets here. The browser's state is unknown, so it goes.
 	slot.session.close(false)
 	<-done
 	browsers.mu.Lock()
@@ -169,11 +207,10 @@ func (browsers *Browsers) run(ctx context.Context, session *session, call Call, 
 	}
 	original, uploading := arguments["file_path"]
 	if call.Action == protocol.ExternalBrowserActionFileUpload {
-		staged, cleanup, err := stageUpload(ctx, session, call.Root, arguments)
+		staged, err := session.stageUpload(ctx, call.Root, arguments)
 		if err != nil {
 			return nil, err
 		}
-		defer cleanup()
 		arguments["file_path"] = staged
 	}
 	result, err := session.execute(ctx, call.Action, arguments)
@@ -196,26 +233,93 @@ func (browsers *Browsers) run(ctx context.Context, session *session, call Call, 
 	return output, nil
 }
 
-// acquire locks the session's slot and starts its browser when none runs.
-func (browsers *Browsers) acquire(ctx context.Context, id protocol.SessionID, executable string) (*slot, error) {
+// retain finds or makes the session's slot for one more call. A browser in
+// use is not idle, so its timer stops.
+func (browsers *Browsers) retain(id protocol.SessionID) *slot {
 	browsers.mu.Lock()
+	defer browsers.mu.Unlock()
 	current := browsers.sessions[id]
 	if current == nil {
 		current = &slot{lock: make(chan struct{}, 1)}
 		current.lock <- struct{}{}
 		browsers.sessions[id] = current
 	}
+	current.users++
+	if current.idle != nil {
+		current.idle.Stop()
+		current.idle = nil
+	}
+	return current
+}
+
+// release ends one call's use of a slot. held says the call owns the lock.
+// The last call leaves either an idle browser, which starts its timer, or
+// nothing, and then the slot goes too.
+func (browsers *Browsers) release(id protocol.SessionID, current *slot, held bool) {
+	if held {
+		current.lock <- struct{}{}
+	}
+	browsers.mu.Lock()
+	defer browsers.mu.Unlock()
+	current.users--
+	if current.users > 0 {
+		return
+	}
+	if current.session == nil {
+		if browsers.sessions[id] == current {
+			delete(browsers.sessions, id)
+		}
+		return
+	}
+	current.used = browsers.clock.Now()
+	current.idle = browsers.clock.AfterFunc(idleTimeout, func() { browsers.expire(id, current) })
+}
+
+// detach takes an idle slot's browser away from it. The caller holds
+// Browsers.mu, closes the returned browser outside it and then releases the
+// slot it now holds.
+func (browsers *Browsers) detach(current *slot) *session {
+	<-current.lock // free, because no call uses the slot
+	current.users++
+	if current.idle != nil {
+		current.idle.Stop()
+		current.idle = nil
+	}
+	running := current.session
+	current.session = nil
+	return running
+}
+
+// expire closes a browser that stayed unused for idleTimeout. Its profile
+// stays, so the conversation keeps its cookies.
+func (browsers *Browsers) expire(id protocol.SessionID, current *slot) {
+	browsers.mu.Lock()
+	if browsers.sessions[id] != current || current.users != 0 || current.session == nil || browsers.clock.Since(current.used) < idleTimeout {
+		browsers.mu.Unlock()
+		return
+	}
+	running := browsers.detach(current)
 	browsers.mu.Unlock()
+	running.close(true)
+	browsers.release(id, current, true)
+}
+
+// acquire locks the session's slot and starts its browser when none runs. It
+// reports whether this call started the browser.
+func (browsers *Browsers) acquire(ctx context.Context, id protocol.SessionID, executable string) (*slot, bool, error) {
+	current := browsers.retain(id)
 	select {
 	case <-current.lock:
 	case <-ctx.Done():
-		return nil, fault(protocol.ErrorCodeCancelled, "external browser call cancelled")
+		browsers.release(id, current, false)
+		return nil, false, fault(protocol.ErrorCodeCancelled, "external browser call cancelled")
 	case <-browsers.ctx.Done():
-		return nil, fault(protocol.ErrorCodeUnavailable, "execution Node is shutting down")
+		browsers.release(id, current, false)
+		return nil, false, fault(protocol.ErrorCodeUnavailable, "execution Node is shutting down")
 	}
-	fail := func(err error) (*slot, error) {
-		current.lock <- struct{}{}
-		return nil, err
+	fail := func(err error) (*slot, bool, error) {
+		browsers.release(id, current, true)
+		return nil, false, err
 	}
 	browsers.mu.Lock()
 	if current.session != nil && current.session.ctx.Err() != nil {
@@ -226,41 +330,68 @@ func (browsers *Browsers) acquire(ctx context.Context, id protocol.SessionID, ex
 		exited.close(false)
 		browsers.mu.Lock()
 	}
-	running := 0
-	for _, other := range browsers.sessions {
-		if other.session != nil {
-			running++
-		}
-	}
-	live := current.session != nil
-	browsers.mu.Unlock()
-	if live {
-		return current, nil
+	if current.session != nil {
+		browsers.mu.Unlock()
+		return current, false, nil
 	}
 	if browsers.ctx.Err() != nil {
+		browsers.mu.Unlock()
 		return fail(fault(protocol.ErrorCodeUnavailable, "execution Node is shutting down"))
 	}
-	if running >= maxSessions {
-		return fail(fault(protocol.ErrorCodeBusy, "close an external browser session before starting another"))
+	// A new browser takes one of the Node's places while this lock still
+	// holds the count, so two sessions never take the last one together.
+	// When none is free, the browser that has been idle longest gives up its
+	// place: its conversation keeps its profile and starts again on demand.
+	running := 0
+	var idlest *slot
+	var evicted protocol.SessionID
+	for other, candidate := range browsers.sessions {
+		if candidate.session == nil && !candidate.starting {
+			continue
+		}
+		running++
+		if candidate.session != nil && candidate.users == 0 && (idlest == nil || candidate.used.Before(idlest.used)) {
+			idlest, evicted = candidate, other
+		}
 	}
-	started, err := browsers.start(ctx, id, executable)
+	var closing *session
+	if running >= maxSessions {
+		if idlest == nil {
+			browsers.mu.Unlock()
+			return fail(fault(protocol.ErrorCodeBusy, "every external browser session of this Node is in use; retry when one of them finishes its call"))
+		}
+		closing = browsers.detach(idlest)
+	}
+	current.starting = true
+	browsers.mu.Unlock()
+	if closing != nil {
+		closing.close(true)
+		browsers.release(evicted, idlest, true)
+	}
+	started, err := browsers.launch(ctx, id, executable)
+	browsers.mu.Lock()
+	current.starting = false
+	if err == nil {
+		current.session = started
+	}
+	browsers.mu.Unlock()
 	if err != nil {
 		return fail(err)
 	}
-	browsers.mu.Lock()
-	current.session = started
-	browsers.mu.Unlock()
-	return current, nil
+	return current, true, nil
 }
 
-// Close ends the session's browser and waits for its process tree.
-func (browsers *Browsers) Close(id protocol.SessionID) {
-	browsers.mu.Lock()
-	current := browsers.sessions[id]
-	browsers.mu.Unlock()
-	if current == nil {
-		return
-	}
+// Close ends the session's browser and waits for its process tree. The
+// session's profile stays for its next browser.
+func (browsers *Browsers) Close(id protocol.SessionID) { browsers.end(id, false) }
+
+// Remove ends the browser of a deleted conversation and deletes its profile,
+// which holds the cookies of the sites it signed in to.
+func (browsers *Browsers) Remove(id protocol.SessionID) { browsers.end(id, true) }
+
+func (browsers *Browsers) end(id protocol.SessionID, forget bool) {
+	// The slot is held while the profile goes, so no browser starts on it.
+	current := browsers.retain(id)
 	<-current.lock
 	browsers.mu.Lock()
 	running := current.session
@@ -269,10 +400,30 @@ func (browsers *Browsers) Close(id protocol.SessionID) {
 	if running != nil {
 		running.close(true)
 	}
-	current.lock <- struct{}{}
+	if forget && browsers.options.Profile != "" {
+		_ = os.RemoveAll(filepath.Join(browsers.sessionsRoot(), id.String()))
+	}
+	browsers.release(id, current, true)
 }
 
-// Shutdown interrupts every call and closes every browser. It is final.
+// Profiles lists the conversation sessions that have a browser profile on
+// disk, whether or not a browser runs.
+func (browsers *Browsers) Profiles() []protocol.SessionID {
+	if browsers.options.Profile == "" {
+		return nil
+	}
+	entries, _ := os.ReadDir(browsers.sessionsRoot())
+	var ids []protocol.SessionID
+	for _, entry := range entries {
+		if id, err := protocol.ParseSessionID(entry.Name()); err == nil && entry.IsDir() {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+// Shutdown interrupts every call and closes every browser. It is final. A
+// browser that was idle is asked to exit, so its profile is flushed.
 func (browsers *Browsers) Shutdown() {
 	browsers.stop()
 	browsers.mu.Lock()
@@ -286,6 +437,7 @@ func (browsers *Browsers) Shutdown() {
 		wait.Go(func() { browsers.Close(id) })
 	}
 	wait.Wait()
+	browsers.kill()
 }
 
 func (browsers *Browsers) sessionsRoot() string {
@@ -294,6 +446,9 @@ func (browsers *Browsers) sessionsRoot() string {
 
 // recover removes what a Node that did not stop cleanly left behind: browser
 // processes that still use a session profile, and session temporary files.
+// No process ID is recorded, so none can be mistaken after reuse: a process
+// is reaped only when its own command line names a profile below this Node's
+// private sessions directory, which nothing but a browser started here has.
 func (browsers *Browsers) recover() {
 	if browsers.options.Profile == "" {
 		return

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -825,6 +826,66 @@ func panelConversations(t *testing.T, f panelFixture) {
 		r.OpenSession(first)
 		return app.Sidebar.Selected == first && slices.Equal(app.Panel.Tabs, append(slices.Clone(firstTabs), opened...)) && app.Panel.Active == opened[1]
 	})
+
+	// A page that asks for a window gets a tab of its own conversation's
+	// panel instead: in front for a page in front, behind for a page the
+	// agent keeps in the background, in the hidden panel for a hidden
+	// conversation's page, and none for an address no tab opens.
+	source := r.browser.tabs[opened[1].ID]
+	browserTabOf := func(tab *browserTab) panel.Tab {
+		return panel.Tab{Kind: panel.Browser, ID: strconv.FormatUint(tab.id, 10)}
+	}
+	for _, address := range []string{"file:///etc/passwd", "javascript:alert(1)", "about:blank", "https://user:secret@example.com/"} {
+		if r.browserPopup(source, address, true) != nil {
+			t.Fatalf("a page opened a tab at %q", address)
+		}
+	}
+	front := r.browserPopup(source, "https://example.com/front", true)
+	if front == nil || front.conversation != first || front.node != source.node || front.background || app.Panel.Active != browserTabOf(front) {
+		t.Fatalf("a window asked for by the page in front: %+v, active %v", front, app.Panel.Active)
+	}
+	source.background = true
+	behind := r.browserPopup(source, "https://example.com/behind", false)
+	if behind == nil || !behind.background || behind.conversation != first || app.Panel.Active != browserTabOf(front) || !slices.Contains(app.Panel.Tabs, browserTabOf(behind)) {
+		t.Fatalf("a window asked for by a background page: %+v, active %v, tabs %v", behind, app.Panel.Active, app.Panel.Tabs)
+	}
+	source.background = false
+	hidden := r.browserPopup(r.browser.tabs[page.ID], "https://example.com/hidden", true)
+	if hidden == nil || hidden.conversation != second || slices.Contains(app.Panel.Tabs, browserTabOf(hidden)) || !slices.Contains(app.ConversationTabs(second), browserTabOf(hidden)) || app.Panel.Active != browserTabOf(front) {
+		t.Fatalf("a window asked for by a hidden conversation's page: %+v, shown tabs %v, its tabs %v", hidden, app.Panel.Tabs, app.ConversationTabs(second))
+	}
+	// Without a gesture the conversation's tabs are bounded; a user's click
+	// still opens one.
+	popups := []panel.Tab{browserTabOf(front), browserTabOf(behind)}
+	for {
+		added := r.browserPopup(source, "https://example.com/script", false)
+		if added == nil {
+			break
+		}
+		if popups = append(popups, browserTabOf(added)); len(popups) > browserPopupTabs {
+			t.Fatalf("scripts opened %d tabs", len(popups))
+		}
+	}
+	pages := 0
+	for _, tab := range app.Panel.Tabs {
+		if tab.Kind == panel.Browser {
+			pages++
+		}
+	}
+	clicked := r.browserPopup(source, "https://example.com/clicked", true)
+	if pages != browserPopupTabs || clicked == nil {
+		t.Fatalf("the conversation has %d browser tabs after its scripts' windows; a click opened %v", pages, clicked)
+	}
+	// A closed tab's page opens nothing.
+	app.Panel.Close(browserTabOf(clicked))
+	if r.browserPopup(clicked, "https://example.com/late", true) != nil {
+		t.Fatal("the page of a closed tab opened a tab")
+	}
+	for _, tab := range popups {
+		app.Panel.Close(tab)
+	}
+	app.DropPanelTab(browserTabOf(hidden))
+
 	app.Panel.Show(two)
 	for _, tab := range opened {
 		app.Panel.Close(tab)

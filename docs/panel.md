@@ -379,7 +379,14 @@ A live Browser tab is a pinned MyGo `WebView` under the accepted chrome
 page's history, Reload and ⌘R reload it and stay disabled before a first
 address, and ⌘T and the strip's "+" open another tab, whose address field
 takes the keyboard. The page is untrusted: it has no host function, opens no
-window and stays on HTTP(S) addresses without embedded credentials. A
+window and stays on HTTP(S) addresses without embedded credentials. A window
+the page asks for, by a link with a target or by `window.open`, becomes a tab
+of the same conversation's panel under the same address rules
+(`Runtime.browserPopup`): in front when its source tab is, behind when the
+agent keeps the source in the background, and in the hidden panel for a page
+of a conversation that is not on screen. A request without a user's gesture,
+which the agent's click is as well, adds no tab once the conversation has 8
+browser tabs. The new page has no `window.opener`. A
 workspace plugin that declares a browser resource still creates it; the core
 tab is the fallback. The WebView is created before the next frame builds and
 is destroyed with its tab. Where the system has no WebView the tab shows
@@ -446,16 +453,33 @@ preference changes, open tabs drop their pages and load their addresses again
 in the other store. The Browser settings page's Chrome import sets cookies in
 this store ([settings](settings.md#browser-page-wiring)).
 
+The store is one for every conversation, as in Rust, so a site the user is
+signed in to, by hand or through the import, is signed in for every
+conversation's tabs. Page content is model input: opening or navigating a tab
+is a control action and asks for approval, while reading or capturing a tab
+that is already open does not. Separate stores per conversation would undo the
+import and the user's own sign-ins, so the store stays shared.
+
 The agent's browser tool uses the same tabs. `internal/node/browser.go` routes
 `use_browser` to the controller that issued it as a `browser_call` update on
 the `browser` topic and settles it with `complete_browser`: one subscription
 per controller, a 30-second deadline, a retryable fault for unanswered reads
-and an unknown outcome for unanswered actions. The deadline is each call's
+and an unknown outcome for unanswered actions. A `use_browser` command is
+admitted only for a conversation of this Node together with that
+conversation's worktree (`Node.browserScope`, shared with
+`use_external_browser`): an unknown conversation is `not_found` and another
+worktree `permission_denied`. The deadline is each call's
 `expires_at_ms` and bounds every action: a `wait` may ask for a longer
 `timeout_ms`, but it ends with the call as an unanswered read, and the timed-out
 call leaves no pending entry for a late completion. `browser.read` and
 `browser.control` plugin tools reach it through the turn's native tools; control
-actions ask for workspace approval. `client.ServeBrowser` delivers each call
+actions ask for workspace approval. The tools are bound only for a turn whose
+controller is subscribed when the turn starts (`browserRegistry.available`):
+a turn started by Mobile, a Host or a schedule is offered none, and a
+package's declaration that is not bound becomes no script tool either. Each
+call first checks that its package is still enabled (`Node.pluginEnabled`,
+`not_configured` "plugin is disabled"), so a package disabled during a turn
+stops driving the browser. `client.ServeBrowser` delivers each call
 under a context that ends at the call's `expires_at_ms`, so a wait or a queued
 action that outlives the call is abandoned (the Node has settled it by then)
 and the next call is served; an action still queued for the UI thread when
@@ -600,13 +624,22 @@ takes `browser-empty`, `browser-loading`, `browser-loaded`, `browser-menu` and
 `TestLiveBrowserTabIntegration` drives the same chrome states and the menu in
 English beside the Node's browser calls.
 
+`internal/node/browser_tools_test.go`, `TestBrowserToolBinding`, real turns
+against a scripted model: a turn whose controller has no browser subscription
+is offered no browser tool, a subscribed controller's turn is and its call
+reaches the controller, and the next call of the same turn is refused once the
+package is disabled. A `use_browser` command for an unknown conversation or
+another worktree is refused and the conversation's own is admitted.
+
 `internal/desktop/panel/model_test.go`: the live launcher's kinds per state, the
 Documents tab without a document, the first change opening no diff, each empty
 state and the loading spinner; tabs open once, closing picks the next,
 items are flat tabs (new browser pages, retired kinds dropped), each file
 and diff its own tab shared with the project (closing on either side,
 another project swapping them), a browser tab's history (going drops the
-forward part).
+forward part). `panel_tabs_test.go` also covers a page's window request: the
+refused addresses, the tab in front, behind and in a hidden conversation's
+panel, the bound without a gesture and a closed tab's request.
 `internal/desktop/panel/git_test.go`: the grouped sections and the ⋯ menu's View
 options regrouping them, a folder's right-click menu and its
 confirmation, Commit's menu and amending, the history, All changes; the
@@ -643,7 +676,9 @@ at its width.
 | Preview browser and terminal are placeholders in their chrome | The preview loads no page and starts no process; live tabs render (MyGo WebView, libghostty-vt) |
 | Browser tabs belong to the conversation they were opened in and show in its panel only | The strip is the conversation's ([Tabs per conversation](#tabs-per-conversation)); the agent drives only its own conversation's tabs. A tab opened in a draft moves to the session that draft becomes, by the draft's exact ID when the session is created (`browserAdopt`); tabs of other drafts and tabs without a conversation are never taken over |
 | A page that changes its own address (`history.pushState`) may leave the address field behind | The field follows the WebView's navigation events; unverified for same-document changes |
-| Browser tools are listed without a connected browser | The turn catalog is frozen before a controller subscribes; a call then reports the disconnected controller |
+| Windows a page asks for without a user's gesture stop at 8 browser tabs per conversation, and the new tab has no `window.opener` | The reference opens every request as a tab. An untrusted page must not fill the panel with pages; the request is refused and its address loaded in a tab's own WebView |
+| A page cannot take its own tab to `about:blank` or `about:srcdoc` | The reference allows both in every frame. Pinned MyGo asks only for navigations of the main frame, so frames are not restricted; a blank main frame has no address for the tab to show |
+| A controller that subscribes to browser calls after its turn started gets no browser tools in that turn | As in the reference, the turn's tools are fixed when it starts. The Desktop subscribes from its first frame, so only a reconnect within that second is affected |
 | The terminal's find field reads MyGo's "Find", not `terminal_search_placeholder` | MyGo's `FindBar` does not expose its field; the toolbar's Find action carries the key |
 | The in-memory browser store empties when its last tab closes | MyGo's ephemeral session ends with its last page; the reference keeps it until the app quits |
 | The browser's chrome is core | In the reference the browser plugin draws it; the preview has no plugin UI host |

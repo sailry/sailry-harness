@@ -7,10 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -29,6 +31,7 @@ const integrationPage = `<!doctype html><html><head><title>Sailry fixture</title
 <a id="popup" href="/other" target="_blank">Popup</a>
 <a id="download" href="/file">Download</a>
 <input id="up" type="file" onchange="document.getElementById('uploaded').textContent=this.files[0].name+':'+this.files[0].size"><p id="uploaded"></p>
+<button id="send" onclick="var form=new FormData();form.append('file',document.getElementById('up').files[0]);var sent=document.getElementById('sent');sent.textContent='';fetch('/upload',{method:'POST',body:form}).then(function(r){return r.text()}).then(function(t){sent.textContent='received '+t},function(e){sent.textContent='failed '+e})">Send</button><p id="sent"></p>
 <button id="ask" onclick="document.getElementById('confirmed').textContent=String(confirm('Proceed?'))">Ask</button><p id="confirmed"></p>
 <div id="hover" onmouseover="this.textContent='hovered'">rest</div>
 <input id="keys" onkeydown="document.getElementById('key').textContent=event.key"><p id="key"></p>
@@ -91,6 +94,15 @@ func TestManagedBrowserIntegration(t *testing.T) {
 	mux.HandleFunc("/file", func(writer http.ResponseWriter, _ *http.Request) {
 		writer.Header().Set("Content-Disposition", `attachment; filename="report.txt"`)
 		fmt.Fprint(writer, "downloaded report")
+	})
+	mux.HandleFunc("/upload", func(writer http.ResponseWriter, request *http.Request) {
+		file, _, err := request.FormFile("file")
+		if err != nil {
+			http.Error(writer, err.Error(), http.StatusBadRequest)
+			return
+		}
+		defer file.Close()
+		_, _ = io.Copy(writer, file)
 	})
 	mux.HandleFunc("/slow", func(_ http.ResponseWriter, request *http.Request) {
 		select {
@@ -291,6 +303,52 @@ func TestManagedBrowserIntegration(t *testing.T) {
 		}
 	}
 	expect(text("#uploaded"), "upload.txt:5", "upload after refusals")
+	// The page reads the chosen file when it sends it, which is a later
+	// call than the one that chose it.
+	sent := func() string {
+		t.Helper()
+		do(protocol.ExternalBrowserActionClick, map[string]any{"selector": "#send"})
+		for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+			if answer := text("#sent"); answer != "" {
+				return answer
+			}
+		}
+		t.Fatal("the page did not finish sending its file")
+		return ""
+	}
+	expect(sent(), "received hello", "file sent after the upload call returned")
+	// Without the staged copy the same send fails: the browser holds a
+	// path, not the bytes. This is why the copy outlives its call.
+	browsers.mu.Lock()
+	staged := slices.Clone(browsers.sessions[conversation].session.uploads)
+	browsers.mu.Unlock()
+	expect(len(staged), 1, "staged uploads")
+	if err := os.RemoveAll(staged[0]); err != nil {
+		t.Fatal(err)
+	}
+	if answer := sent(); !strings.HasPrefix(answer, "failed ") {
+		t.Errorf("a file whose staged copy is gone was sent: %q", answer)
+	}
+
+	// A wait that runs out is an ordinary answer and the browser stays,
+	// however long the model asked to wait.
+	began := time.Now()
+	_, err = use(context.Background(), protocol.ExternalBrowserActionWaitForElement, map[string]any{"selector": "#absent", "timeout": 60})
+	var absent *protocol.Fault
+	if !errors.As(err, &absent) || absent.Code != protocol.ErrorCodeUnavailable || absent.Message != "Element not found after 30s: #absent" {
+		t.Fatalf("a wait for an absent element = %v", err)
+	}
+	if spent := time.Since(began); spent < waitLimit-time.Second || spent > operationTimeout-5*time.Second {
+		t.Fatalf("a wait of 60 seconds took %v", spent)
+	}
+	if _, err := use(context.Background(), protocol.ExternalBrowserActionWaitForText, map[string]any{"text": "never shown", "timeout": 1}); err == nil || !strings.Contains(err.Error(), "Text 'never shown' not found after 1s") {
+		t.Fatalf("a wait for absent text = %v", err)
+	}
+	if _, err := use(context.Background(), protocol.ExternalBrowserActionClick, map[string]any{"selector": "#absent", "wait_timeout": 1}); err == nil || !strings.Contains(err.Error(), "Element not found: #absent") {
+		t.Fatalf("a click on an absent element = %v", err)
+	}
+	expect(text("#uploaded"), "upload.txt:5", "page state after waits that ran out")
+	expect(len(browsers.Sessions()), 1, "sessions after waits that ran out")
 
 	// Downloads stay in the session's temporary directory until saved.
 	do(protocol.ExternalBrowserActionClick, map[string]any{"selector": "#download"})
@@ -361,8 +419,19 @@ func TestManagedBrowserIntegration(t *testing.T) {
 	do(protocol.ExternalBrowserActionRefresh, map[string]any{})
 
 	// Argument bounds are enforced before the browser is used.
-	if _, err := use(context.Background(), protocol.ExternalBrowserActionNavigate, map[string]any{"url": "file:///etc/passwd"}); err == nil {
-		t.Fatal("a file URL must be refused")
+	for _, action := range []protocol.ExternalBrowserAction{protocol.ExternalBrowserActionNavigate, protocol.ExternalBrowserActionNewTab, protocol.ExternalBrowserActionNewWindow} {
+		if _, err := use(context.Background(), action, map[string]any{"url": "file:///etc/passwd"}); err == nil {
+			t.Fatalf("%s to a file URL must be refused", action)
+		}
+	}
+	// A page cannot reach local files either: the browser refuses both a
+	// read and a navigation that a web page starts.
+	expect(do(protocol.ExternalBrowserActionEvaluateJs, map[string]any{"async": true,
+		"script": "var done = arguments[arguments.length - 1]; fetch('file:///etc/hosts').then(function () { done('read') }, function () { done('refused') })"})["result"], "refused", "page read of a local file")
+	do(protocol.ExternalBrowserActionEvaluateJs, map[string]any{"script": "window.location.href = 'file:///etc/hosts'; return 1"})
+	do(protocol.ExternalBrowserActionWait, map[string]any{"seconds": 0.5})
+	if address := fmt.Sprint(do(protocol.ExternalBrowserActionPageInfo, map[string]any{})["url"]); !strings.HasPrefix(address, server.URL) {
+		t.Fatalf("a page navigated itself to %s", address)
 	}
 
 	// Stopping a turn interrupts the call and closes the session's browser.
@@ -393,25 +462,56 @@ func TestManagedBrowserIntegration(t *testing.T) {
 		t.Fatalf("after an interrupted control action %d processes remain", running)
 	}
 
-	// The session limit, an explicit close and Node shutdown.
+	// At the session limit the browser idle longest gives up its place,
+	// and its conversation keeps its profile: a cookie set before is there
+	// when the conversation's next call starts a browser again.
 	do(protocol.ExternalBrowserActionNavigate, map[string]any{"url": server.URL + "/other"})
+	do(protocol.ExternalBrowserActionAddCookie, map[string]any{"name": "kept", "value": "yes", "expiry": float64(time.Now().Add(time.Hour).Unix())})
 	others := []protocol.SessionID{protocol.NewSessionID(), protocol.NewSessionID(), protocol.NewSessionID(), protocol.NewSessionID()}
-	for index, other := range others {
-		_, err := browsers.Execute(context.Background(), Call{Request: protocol.NewRequestID(), Session: other, Root: worktree, Action: protocol.ExternalBrowserActionPageInfo, Arguments: json.RawMessage(`{}`)})
-		if index < 3 && err != nil {
+	for _, other := range others {
+		if _, err := browsers.Execute(context.Background(), Call{Request: protocol.NewRequestID(), Session: other, Root: worktree, Action: protocol.ExternalBrowserActionPageInfo, Arguments: json.RawMessage(`{}`)}); err != nil {
 			t.Fatal(err)
 		}
-		if index == 3 && (!errors.As(err, &stopped) || stopped.Code != protocol.ErrorCodeBusy) {
-			t.Fatalf("fifth session = %v", err)
-		}
 	}
+	directory := filepath.Join(profile, "browser", "sessions", conversation.String())
+	if running := browsers.Sessions(); len(running) != maxSessions || slices.Contains(running, conversation) {
+		t.Fatalf("sessions at the limit = %v, want the four later ones", running)
+	}
+	if running := processesUsing(t, directory); running != 0 {
+		t.Fatalf("the browser that gave up its place keeps %d processes", running)
+	}
+	resumed, err := use(context.Background(), protocol.ExternalBrowserActionNavigate, map[string]any{"url": server.URL + "/other"})
+	if err != nil || !strings.Contains(fmt.Sprint(resumed["notice"]), "a new browser was started") {
+		t.Fatalf("resumed conversation = %v, %v", resumed["notice"], err)
+	}
+	expect(do(protocol.ExternalBrowserActionGetCookie, map[string]any{"name": "kept"})["cookie"].(map[string]any)["value"], "yes", "cookie kept across browsers")
+	if running := browsers.Sessions(); len(running) != maxSessions || slices.Contains(running, others[0]) {
+		t.Fatalf("sessions after the resumed conversation = %v", running)
+	}
+
+	// An explicit close keeps the profile, a removed conversation loses it,
+	// and Node shutdown closes the rest.
 	closed, err := use(context.Background(), protocol.ExternalBrowserActionCloseSession, map[string]any{})
 	if err != nil || closed["closed"] != true {
 		t.Fatalf("close session = %v, %v", closed, err)
 	}
 	expect(len(browsers.Sessions()), 3, "sessions after close")
-	if running := processesUsing(t, filepath.Join(profile, "browser", "sessions", conversation.String())); running != 0 {
+	if running := processesUsing(t, directory); running != 0 {
 		t.Fatalf("closed session keeps %d processes", running)
+	}
+	if _, err := os.Stat(filepath.Join(directory, "profile")); err != nil {
+		t.Fatalf("a closed session lost its profile: %v", err)
+	}
+	removed := filepath.Join(profile, "browser", "sessions", others[1].String())
+	browsers.Remove(conversation)
+	browsers.Remove(others[1])
+	for _, gone := range []string{directory, removed} {
+		if _, err := os.Stat(gone); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("the profile of a removed conversation remains at %s: %v", gone, err)
+		}
+	}
+	if running := processesUsing(t, removed); running != 0 || len(browsers.Sessions()) != 2 {
+		t.Fatalf("a removed conversation keeps %d processes; sessions %v", running, browsers.Sessions())
 	}
 	browsers.Shutdown()
 	if running := processesUsing(t, profile); running != 0 {

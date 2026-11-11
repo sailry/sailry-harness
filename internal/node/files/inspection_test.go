@@ -9,6 +9,7 @@ import (
 	"image/color"
 	"image/gif"
 	"image/png"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"testing"
@@ -160,4 +161,43 @@ func TestImagePreparation(t *testing.T) {
 	if _, _, _, err = PrepareImage([]byte("not an image")); err == nil {
 		t.Fatal("invalid image was accepted")
 	}
+	t.Run("a capture above the inspection limit is reduced", func(t *testing.T) {
+		// Noise does not compress, so this capture is larger than a file
+		// image may be and still too large after its side is bounded.
+		noise := image.NewNRGBA(image.Rect(0, 0, 2000, 1500))
+		random := rand.New(rand.NewPCG(1, 2))
+		for index := range noise.Pix {
+			noise.Pix[index] = byte(random.Uint32())
+			if index%4 == 3 {
+				noise.Pix[index] = 255
+			}
+		}
+		var capture bytes.Buffer
+		if err := png.Encode(&capture, noise); err != nil {
+			t.Fatal(err)
+		}
+		if capture.Len() <= protocol.MAX_IMAGE_BYTES || capture.Len() > MaxCaptureBytes {
+			t.Fatalf("fixture is %d bytes", capture.Len())
+		}
+		if _, _, _, err := PrepareImage(capture.Bytes()); err == nil {
+			t.Fatal("a file image above the inspection limit was accepted")
+		}
+		facts, sent, data, err := PrepareCapture(capture.Bytes())
+		if err != nil || sent == nil {
+			t.Fatalf("capture was refused: %+v %v", sent, err)
+		}
+		config, _, err := image.DecodeConfig(bytes.NewReader(data))
+		if err != nil || uint32(config.Width) != sent.Width || uint32(config.Height) != sent.Height {
+			t.Fatalf("reduced capture does not decode as reported: %+v %+v %v", config, sent, err)
+		}
+		if facts.Width != 2000 || facts.Height != 1500 || sent.Width > protocol.MAX_IMAGE_SIDE || sent.Width < minimumImageSide ||
+			sent.Width*3 != sent.Height*4 && sent.Width*3/4 != sent.Height || len(data) > sentImageBytes || sent.Size != uint64(len(data)) {
+			t.Fatalf("reduced capture: source %+v sent %+v, %d bytes", facts, sent, len(data))
+		}
+	})
+	t.Run("a capture above 20 MiB is refused", func(t *testing.T) {
+		if _, _, _, err := PrepareCapture(make([]byte, MaxCaptureBytes+1)); err == nil {
+			t.Fatal("an oversized capture was accepted")
+		}
+	})
 }
