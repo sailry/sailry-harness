@@ -19,8 +19,6 @@ import (
 )
 
 func (s *Service) UpdateIndex(ctx context.Context, root string, input protocol.CommandUpdateGitIndexPayload) (protocol.GitIndex, error) {
-	ctx, cancel := context.WithTimeout(ctx, readTimeout)
-	defer cancel()
 	if len(input.Paths) == 0 || len(input.Paths) > maxEntries {
 		return protocol.GitIndex{}, invalid("invalid Git index update")
 	}
@@ -29,33 +27,22 @@ func (s *Service) UpdateIndex(ctx context.Context, root string, input protocol.C
 			return protocol.GitIndex{}, err
 		}
 	}
-	// One ignore filter serves every untracked path of the update.
-	var filter *WatchFilter
-	ignored := func(path string, directory bool) (bool, error) {
-		if filter == nil {
-			var err error
-			if filter, err = NewWatchFilter(root); err != nil {
-				return false, err
-			}
-		}
-		return filter.matcher != nil && filter.matcher.Match(strings.Split(path, "/"), directory), nil
+	switch input.Operation {
+	case protocol.GitIndexChangeStage:
+		return s.stage(ctx, root, input)
+	case protocol.GitIndexChangeUnstage:
+	default:
+		return protocol.GitIndex{}, invalid("invalid Git index operation")
 	}
-	return s.publishIndex(ctx, root, input.ExpectedIndex, input.ExpectedHead, func(r *gogit.Repository, idx *idxfmt.Index, tree *object.Tree) error {
+	ctx, cancel := context.WithTimeout(ctx, readTimeout)
+	defer cancel()
+	return s.publishIndex(ctx, root, input.ExpectedIndex, input.ExpectedHead, func(_ *gogit.Repository, idx *idxfmt.Index, tree *object.Tree) error {
 		for _, path := range input.Paths {
 			if err := checkContext(ctx); err != nil {
 				return err
 			}
-			switch input.Operation {
-			case protocol.GitIndexChangeStage:
-				if err := stageIndexContent(ctx, root, r, idx, path, ignored); err != nil {
-					return err
-				}
-			case protocol.GitIndexChangeUnstage:
-				if err := setIndexReference(idx, tree, path); err != nil {
-					return err
-				}
-			default:
-				return invalid("invalid Git index operation")
+			if err := setIndexReference(idx, tree, path); err != nil {
+				return err
 			}
 		}
 		return nil
@@ -236,6 +223,9 @@ func (s *Service) EditIndex(ctx context.Context, root, path, expectedIndex strin
 	if err := verify(); err != nil {
 		return protocol.GitIndex{}, err
 	}
+	if err := s.requireUnfiltered(ctx, root, path); err != nil {
+		return protocol.GitIndex{}, err
+	}
 	return s.publishIndex(ctx, root, expectedIndex, expectedHead, func(r *gogit.Repository, idx *idxfmt.Index, _ *object.Tree) error {
 		source, err := indexContent(r, path, protocol.MAX_EDIT_BYTES)
 		if err != nil {
@@ -262,12 +252,16 @@ func (s *Service) EditIndex(ctx context.Context, root, path, expectedIndex strin
 		if err != nil {
 			return err
 		}
-		source.data = []byte(result)
-		source.exists = true
 		if source.mode == 0 {
 			source.mode = filemode.Regular
 		}
-		return setIndexContent(r, idx, path, source)
+		hash, err := s.cleanBlob(ctx, root, path, []byte(result))
+		if err != nil {
+			return err
+		}
+		dropIndexEntries(idx, path, true)
+		idx.Entries = append(idx.Entries, &idxfmt.Entry{Name: path, Hash: hash, Mode: source.mode, Size: uint32(len(result))})
+		return nil
 	}, verify)
 }
 

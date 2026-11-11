@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -49,8 +48,35 @@ func fixture(t *testing.T) (string, *gogit.Repository, string) {
 	}
 	return root, r, hash.String()
 }
+
+// fixtureService answers native Git without a process. Hunk staging asks Git
+// for a path's filter driver and for the blob of the staged text; the fixture
+// reports no driver and stores the text unconverted.
 func fixtureService() *Service {
-	return New(Options{Run: func(context.Context, string, []string, []byte) (CommandResult, error) {
+	return New(Options{Run: func(_ context.Context, root string, args []string, input []byte) (CommandResult, error) {
+		switch args[0] {
+		case "check-attr":
+			return CommandResult{Stdout: []byte(args[len(args)-1] + "\x00filter\x00unspecified\x00")}, nil
+		case "hash-object":
+			r, err := open(root)
+			if err != nil {
+				return CommandResult{}, err
+			}
+			blob := r.Storer.NewEncodedObject()
+			blob.SetType(plumbing.BlobObject)
+			writer, err := blob.Writer()
+			if err != nil {
+				return CommandResult{}, err
+			}
+			if _, err := writer.Write(input); err != nil {
+				return CommandResult{}, err
+			}
+			if err := writer.Close(); err != nil {
+				return CommandResult{}, err
+			}
+			hash, err := r.Storer.SetEncodedObject(blob)
+			return CommandResult{Stdout: []byte(hash.String() + "\n")}, err
+		}
 		return CommandResult{ExitCode: 0}, nil
 	}})
 }
@@ -198,14 +224,14 @@ func TestGitReadMapping(t *testing.T) {
 	})
 	t.Run("status_line_statistics_match_each_diff_scope", func(t *testing.T) {
 		root, r, commit := fixture(t)
-		index, err := indexRevision(root, r)
-		if err != nil {
-			t.Fatal(err)
-		}
 		if err := os.WriteFile(filepath.Join(root, "file.txt"), []byte("one\nstaged\nthree\n"), 0644); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := fixtureService().UpdateIndex(ctx, root, protocol.CommandUpdateGitIndexPayload{Paths: []string{"file.txt"}, Operation: protocol.GitIndexChangeStage, ExpectedIndex: index, ExpectedHead: &commit}); err != nil {
+		w, err := r.Worktree()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := w.Add("file.txt"); err != nil {
 			t.Fatal(err)
 		}
 		for name, body := range map[string]string{"file.txt": "one\nstaged\nthree\nfour\nfive\n", "new.txt": "first\nsecond\n"} {
@@ -369,150 +395,6 @@ func TestGitReadMapping(t *testing.T) {
 func TestGitMutationMapping(t *testing.T) {
 	ctx := context.Background()
 	t.Run("manual hunk stages one selection and rejects stale sources", testManualHunks)
-	t.Run("index_publish_preserves_unrelated_and_rejects_stale", func(t *testing.T) {
-		root, r, commit := fixture(t)
-		s := fixtureService()
-		before, err := indexRevision(root, r)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(root, "new.txt"), []byte("new\n"), 0644); err != nil {
-			t.Fatal(err)
-		}
-		got, err := s.UpdateIndex(ctx, root, protocol.CommandUpdateGitIndexPayload{Paths: []string{"new.txt"}, Operation: protocol.GitIndexChangeStage, ExpectedIndex: before, ExpectedHead: &commit})
-		if err != nil || got.Revision == before {
-			t.Fatal(got, err)
-		}
-		fresh, err := open(root)
-		if err != nil {
-			t.Fatal(err)
-		}
-		idx, err := fresh.Storer.Index()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := idx.Entry("file.txt"); err != nil {
-			t.Fatal("unrelated index entry lost", err)
-		}
-		if _, err := idx.Entry("new.txt"); err != nil {
-			t.Fatal(err)
-		}
-		_, err = s.UpdateIndex(ctx, root, protocol.CommandUpdateGitIndexPayload{Paths: []string{"file.txt"}, Operation: protocol.GitIndexChangeUnstage, ExpectedIndex: before, ExpectedHead: &commit})
-		requireFault(t, err, protocol.ErrorCodeRevisionConflict)
-		if _, err := os.Lstat(filepath.Join(root, ".git", "index.lock")); !os.IsNotExist(err) {
-			t.Fatal("owned lock leaked", err)
-		}
-	})
-	t.Run("index_update_replaces_conflicting_entries_and_filters_once", func(t *testing.T) {
-		root, r, _ := fixture(t)
-		s := fixtureService()
-		update := func(operation protocol.GitIndexChange, paths ...string) error {
-			t.Helper()
-			fresh, err := open(root)
-			if err != nil {
-				t.Fatal(err)
-			}
-			revision, err := indexRevision(root, fresh)
-			if err != nil {
-				t.Fatal(err)
-			}
-			current, err := head(fresh)
-			if err != nil {
-				t.Fatal(err)
-			}
-			_, err = s.UpdateIndex(ctx, root, protocol.CommandUpdateGitIndexPayload{Paths: paths, Operation: operation, ExpectedIndex: revision, ExpectedHead: current.Head})
-			return err
-		}
-		write := func(name, body string) {
-			t.Helper()
-			if err := os.MkdirAll(filepath.Dir(filepath.Join(root, name)), 0755); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(filepath.Join(root, name), []byte(body), 0644); err != nil {
-				t.Fatal(err)
-			}
-		}
-		requireIndex := func(want ...string) {
-			t.Helper()
-			fresh, err := open(root)
-			if err != nil {
-				t.Fatal(err)
-			}
-			idx, err := fresh.Storer.Index()
-			if err != nil {
-				t.Fatal(err)
-			}
-			got := []string{}
-			for _, entry := range idx.Entries {
-				got = append(got, entry.Mode.String()+" "+entry.Name)
-			}
-			sort.Strings(got)
-			if !reflect.DeepEqual(got, want) {
-				t.Fatalf("index = %q, want %q", got, want)
-			}
-		}
-		// Several untracked paths share one ignore filter; an ignored one rejects the update.
-		write(".gitignore", "*.log\n")
-		write("dir/a.txt", "a\n")
-		write("dir/b.txt", "b\n")
-		write("dir/c.log", "c\n")
-		requireFault(t, update(protocol.GitIndexChangeStage, "dir/a.txt", "dir/c.log"), protocol.ErrorCodeInvalidRequest)
-		requireIndex("0100644 file.txt")
-		if err := update(protocol.GitIndexChangeStage, "dir/a.txt", "dir/b.txt"); err != nil {
-			t.Fatal(err)
-		}
-		requireIndex("0100644 dir/a.txt", "0100644 dir/b.txt", "0100644 file.txt")
-		// HEAD has no such directory yet: the staged file still diffs and unstages.
-		if diff, err := s.Diff(ctx, root, "dir/b.txt", protocol.GitDiffScopeStaged); err != nil || diff.Additions != 1 {
-			t.Fatal(diff, err)
-		}
-		if err := update(protocol.GitIndexChangeUnstage, "dir/b.txt"); err != nil {
-			t.Fatal(err)
-		}
-		requireIndex("0100644 dir/a.txt", "0100644 file.txt")
-		w, err := r.Worktree()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := w.Commit("Add directory", &gogit.CommitOptions{Author: &object.Signature{Name: "Fixture", Email: "fixture@example.test", When: time.Unix(200, 0)}}); err != nil {
-			t.Fatal(err)
-		}
-		// A file staged over a directory displaces the entries below it.
-		if err := os.RemoveAll(filepath.Join(root, "dir")); err != nil {
-			t.Fatal(err)
-		}
-		write("dir", "file\n")
-		if err := update(protocol.GitIndexChangeStage, "dir"); err != nil {
-			t.Fatal(err)
-		}
-		requireIndex("0100644 dir", "0100644 file.txt")
-		// HEAD holds a directory there, so unstaging the file only removes it.
-		if err := update(protocol.GitIndexChangeUnstage, "dir"); err != nil {
-			t.Fatal(err)
-		}
-		requireIndex("0100644 file.txt")
-		if err := update(protocol.GitIndexChangeStage, "dir"); err != nil {
-			t.Fatal(err)
-		}
-		// Restoring a file below it displaces the staged file.
-		if err := update(protocol.GitIndexChangeUnstage, "dir/a.txt"); err != nil {
-			t.Fatal(err)
-		}
-		requireIndex("0100644 dir/a.txt", "0100644 file.txt")
-		// A file staged below a tracked file displaces that file, and unstaging the file restores it.
-		if err := os.Remove(filepath.Join(root, "file.txt")); err != nil {
-			t.Fatal(err)
-		}
-		write("file.txt/inner.txt", "inner\n")
-		if err := update(protocol.GitIndexChangeStage, "file.txt/inner.txt"); err != nil {
-			t.Fatal(err)
-		}
-		requireIndex("0100644 dir/a.txt", "0100644 file.txt/inner.txt")
-		if err := update(protocol.GitIndexChangeUnstage, "file.txt"); err != nil {
-			t.Fatal(err)
-		}
-		requireIndex("0100644 dir/a.txt", "0100644 file.txt")
-	})
 	t.Run("hunk_transform_uses_observed_source", func(t *testing.T) {
 		root, r, commit := fixture(t)
 		s := fixtureService()

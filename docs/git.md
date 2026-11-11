@@ -42,14 +42,35 @@ carry explicit skip reasons instead of incomplete review anchors. A worktree
 inventory accepts a tracked file as unchanged without reading it when its size
 and times (and on Unix its device and inode) still equal the stat data Git
 recorded in an index entry older than the index itself; any other file is hashed. File reads use
-the confined Core kernel. Index edits create a detached candidate, retain an
-exclusive owned `index.lock`, compare source HEAD/index again and atomically
-publish the candidate. One update evaluates ignore rules once for all of its
-untracked paths. An added entry displaces the entries it cannot coexist with,
-as `git add` does: those below its path and those that are one of its parent
+the confined Core kernel.
+
+Staging whole paths runs native `git add --all` on exactly those paths after
+comparing HEAD and the index revision, so the index holds what Git stores: the
+output of the path's clean filter (LFS) and of its line-ending conversion. The
+reference, and this service before, wrote the worktree bytes as the blob, which
+committed an LFS file's content instead of its pointer and CRLF where the
+repository stores LF, while Commit all (`git add --all`) was right. Three rules
+of the earlier operation stay: an ignored untracked path is refused, a
+directory is not a path to stage, and a path that is neither on disk nor in the
+index is skipped. One update evaluates ignore rules once for all of its
+untracked paths. Staging a conflicted path records its resolution, as
+`git add` does anywhere; the reference refuses every index update while a
+conflict exists, which left Abort as the panel's only way out of a conflicted
+merge.
+
+Unstaging and hunk staging create a detached candidate, retain an exclusive
+owned `index.lock`, compare source HEAD/index again and atomically publish the
+candidate. An added entry displaces the entries it cannot coexist with, as
+`git add` does: those below its path and those that are one of its parent
 directories. Unstaging restores the file HEAD records at the path and otherwise
-removes the entry. Hunk staging additionally compares the source content
-revision before applying its transform.
+removes the entry; it involves no filter. Hunk staging additionally compares
+the source content revision before applying its transform, and stores the
+result through `git hash-object -w --path`, which applies the path's
+line-ending conversion. A path with a `filter` attribute (LFS) has no hunk
+actions: its index content is the driver's output, not lines of the file, so
+staging and reverting a hunk are refused with a message that names the driver.
+Diffs still compare worktree bytes with stored content, so a file whose line
+endings are converted shows every line as changed.
 
 Commit, signing, hooks, remotes, transport, merge, rebase, cherry-pick and stash
 operations use the Node's native Git executable and environment. They pass argv
