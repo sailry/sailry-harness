@@ -78,6 +78,7 @@ type Node struct {
 	environment       process.Environment
 	processAfter      func(time.Duration) <-chan time.Time
 	locks             workspaceLocks
+	stored            storedFiles
 	profile           *Profile
 	ctx               context.Context
 	mu                sync.Mutex

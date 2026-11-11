@@ -108,9 +108,6 @@ plugins_configure: Configure
 plugins_uninstall: Uninstall
 plugins_install: Install
 plugins_information: Information
-plugins_actions: Plugin actions
-plugins_official: Official
-plugins_third_party: Third-party
 plugins_none: No plugins
 composer: Describe what you want to accomplish…
 composer_attachment: Add attachment
@@ -119,11 +116,8 @@ chat_stop: Stop
 composer_select_model: Select model
 composer_effort: Reasoning effort
 composer_effort_unavailable: Default
-composer_branch_main: main
-composer_branch_preview: preview/ui
 dictation_start: Voice input
 turn_reasoning: Reasoning
-turn_tools_count: '%{count} tool calls'
 turn_latest: Jump to latest response
 chat_navigation: Message navigation
 chat_new: New conversation
@@ -137,7 +131,6 @@ turn_thinking: Thinking
 tool_failed: Tool execution failed
 approval_pending: Waiting for approval
 content_copied: Copied
-turn_work: Work
 tool_copy: Copy
 tool_interrupted: Result unconfirmed
 tool_not_executed: Approval interrupted; not executed
@@ -195,9 +188,6 @@ tool_read_session: Read session
 tool_search_session: Search session
 tool_find_tools: Find tools
 tool_read_output: Read tool output
-question_answered: Answered
-interaction_cancelled: Cancelled
-question_url_accepted: Opening allowed
 approval_allow_prefix: Allow prefix "%{prefix}"
 approval_preview_result: Preview approval recorded. No files, commands or models were used.
 file_changes_shortened: Diff shortened
@@ -228,7 +218,6 @@ connection_search_empty: No matches
 connection_search: Search
 activity_completed: Completed
 activity_failed: Failed
-activity_idle: Idle
 activity_approval: Awaiting approval
 activity_input: Awaiting reply
 activity_no_project: Chats
@@ -254,7 +243,6 @@ knowledge_cells: '%{sheet} · %{start}:%{end}'
 knowledge_slide: Slide %{slide}
 recent_sessions: Recent
 workspace_archive: Archive session
-session_unarchive: Unarchive
 session_delete: Delete session
 session_delete_named: Delete session “%{name}” and its subagents permanently
 workspace_rename: Rename
@@ -275,7 +263,6 @@ session_fork_worktree: Fork in new worktree
 files_open: Open file
 session_new_window: Open in new window
 session_window_failed: Could not open window
-workspace_open_session: Open session
 project_edit: Edit project
 project_remove: Remove project
 workspace_new_terminal: Create terminal
@@ -379,7 +366,6 @@ connection_no_projects: No projects
 workspace_project: Project overview
 resource_browser: Browser
 terminal: Terminal
-resource_terminal_preview: Terminal UI preview; no shell or commands started
 resource_browser_preview: Browser preview; no pages or network requests are loaded
 file_tree: Project files
 file_empty: Open a file
@@ -517,11 +503,7 @@ git_untracked: Untracked
 git_view_changes: Changes
 git_view_diff: View diff
 git_view_options: View options
-hunks_reject: Reject
 hunks_stage: Stage
-hunks_accept: Accept
-hunks_accepted: Block accepted
-hunks_state_accepted: Accepted
 navigation_tabs: Open tabs
 market_category_documents: Docs
 turn_changes_undo_all: Undo changes
@@ -624,7 +606,6 @@ chat_rewind: Rewind to this turn
 chat_rewind_action: Rewind
 chat_rewind_confirm: Keep this turn and remove later messages? Files stay unchanged
 chat_search: Search conversation
-chat_search_query: Search text
 chat_search_result: Search results
 chat_status_unsynced: Status not synced
 compact_reason_unknown: No further details were recorded for this failure
@@ -663,14 +644,12 @@ composer_permission_full: Full access
 composer_permission_ask_description: Ask before editing files or running commands
 composer_permission_project_description: Edit project files automatically; ask before running commands
 composer_permission_full_description: Edit files and run commands automatically, including outside the project
-composer_permission_preview: Preview only; no permissions granted
 composer_host_local: Local device
 composer_host_remote: Remote
 composer_no_project: Chats
 composer_branch_none: No branch
 composer_settings: Session settings
 composer_back: Back
-location_search: Select working location
 location_create: New worktree
 git_no_matches: No matches
 composer_model_settings: Model and effort
@@ -682,7 +661,6 @@ composer_feature_fast: Fast
 composer_feature_fast_unsupported: Not supported by this model
 composer_execution_model: Model only
 composer_team_lead: Lead
-composer_team_default: Default team
 composer_team_manage: Manage teams
 model_score_overall: Overall
 model_score_tested: 'Tested: %{effort}'
@@ -722,7 +700,6 @@ reference_context: Workspace context
 reference_databases: Database
 reference_ssh: SSH connections
 reference_empty: No matching references
-reference_remove: Remove reference
 reference_host: Host
 reference_project: Project
 reference_worktree: Worktree
@@ -989,7 +966,6 @@ settings_language_german: Deutsch
 settings_language_japanese: 日本語
 settings_language_korean: 한국어
 settings_language_portuguese_brazil: Português (Brasil)
-settings_language_restart: Restart to apply language
 settings_language_russian: Русский
 settings_language_spanish: Español
 settings_language_system: Follow system
@@ -1529,12 +1505,10 @@ update_download: Preview download
 update_apply: Preview apply
 update_retry: Retry preview
 update_unavailable: Update unavailable (preview)
-update_unavailable_note: This preview host does not support automatic updates
 update_versions: '%{current} → %{target}'
 update_version: 'Current version: %{current}'
 update_preview: UI preview only; no network check, download, installation or host restart
 update_target_changed: Host unavailable; reopen the editor
-update_error_preview: Preview request failed; no real update was performed
 metrics_title: Host metrics
 metrics_preview: UI preview; no real host metrics or processes are collected
 metrics_cpu: CPU
@@ -1633,20 +1607,15 @@ selection_title: Selected text
 selection_unavailable: Could not read selected text
 selection_empty: No text selected
 terminal_search_placeholder: Search terminal
-terminal_match_previous: Previous match
-terminal_match_next: Next match
 workspace_no_terminal: No terminals in this worktree
 workspace_close_terminal: Close terminal
 workspace_terminal_preview: Terminal UI preview with project and worktree ownership; no PTY or shell is started
 pane_drag: Drag to split
 terminal_connecting: Connecting
-terminal_exited: Terminal exited
 terminal_take_control: Take control
 terminal_other_controller: Controlled by another device
 terminal_unavailable: Terminal unavailable; check host connection
-cli_preview: 'UI preview: creates a terminal preview only; no program detection or commands'
 updates_network_failed: Could not download the update; retry
-updates_preview_unavailable: Updates are unavailable in preview
 updates_completed: Sailry was updated
 port_exists: Port already added
 port_failed: Could not forward; check the port and connection
@@ -1730,12 +1699,9 @@ files_keep_editing: Keep editing
 files_reload: Reload
 files_overwrite: Overwrite
 workspace_completed: Completed
-workspace_native_unavailable: File action unavailable
-workspace_invalid: Check the entered values
 workspace_restore_confirm: Restore the previous file versions for this turn
 artifact_edit_prompt: 'Requested changes: '
 hooks_project_required: Select a project
-workspace_worktree_remove_confirm: Remove this worktree and its files
 background_stop_failed: Stop failed; retry
 background_stop_unknown: Stop unconfirmed; check command status
 subagent_stop: Stop subagent
@@ -1774,7 +1740,6 @@ files_block_task: Task list
 files_bold: Bold
 files_content_partial: Only the first 128 KiB of this large file is shown
 files_create: Create
-files_directory_changed: The folder changed; reload it
 files_directory_failed: Could not load the folder; retry
 files_discard: Discard draft
 files_discard_description: Discard unsaved changes? Content being saved may still be written
@@ -1822,7 +1787,6 @@ git_initialize: Initialize Git repository
 git_initialize_nested_confirm: The new repository will contain these repositories
 git_publish: Publish branch
 git_repositories: Contains %{count} Git repositories
-git_repository: Contains 1 Git repository
 git_stash_switch: Stash and switch
 git_switch_confirm: Switch to %{branch}
 git_switch_confirm_action: Switch
@@ -2227,12 +2191,17 @@ chat_provider_session: '%{name} · Session'
 chat_provider_node: '%{name} · Host'
 chat_config_desktop: Desktop configuration
 usage_read_failed: Could not load usage, try again
-queue_draft_changed: Queue changed; draft kept
 settings_experimental: Experimental
 settings_experimental_description: Development and debugging settings
 settings_demo_mode: Demo mode
 settings_demo_mode_description: Show sample conversations for review and screenshots
 provider_deepseek: DeepSeek
+settings_code_index: Code index
+settings_code_index_description: Index project code for the code search tools
+code_index_settings_saved: Saved
+code_index_settings_failed: Could not load or save code index settings
+code_index_settings_conflict: Code index settings changed; try again
+code_index_settings_unknown: Saving code index settings could not be confirmed
 directory_modified: Modified
 directory_modified_today: Today %{time}
 directory_modified_yesterday: Yesterday %{time}

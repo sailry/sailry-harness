@@ -108,9 +108,6 @@ plugins_configure: Configurar
 plugins_uninstall: Desinstalar
 plugins_install: Instalar
 plugins_information: Informações
-plugins_actions: Ações do plugin
-plugins_official: Oficial
-plugins_third_party: Terceiros
 plugins_none: Sem plugins
 composer: Descreva o que você quer alcançar…
 composer_attachment: Adicionar anexo
@@ -119,11 +116,8 @@ chat_stop: Parar
 composer_select_model: Selecione o modelo
 composer_effort: Esforço de raciocínio
 composer_effort_unavailable: Padrão
-composer_branch_main: main
-composer_branch_preview: preview/ui
 dictation_start: Entrada de voz
 turn_reasoning: Raciocínio
-turn_tools_count: '%{count} chamadas de ferramentas'
 turn_latest: Ir para a resposta mais recente
 chat_navigation: Navegação da mensagem
 chat_new: Criar nova conversa
@@ -137,7 +131,6 @@ turn_thinking: Pensamento
 tool_failed: A execução da ferramenta falhou
 approval_pending: À espera de aprovação
 content_copied: Copiado
-turn_work: Trabalho
 tool_copy: Copiar
 tool_interrupted: Resultado não confirmado
 tool_not_executed: Aprovação interrompida; não executada
@@ -195,9 +188,6 @@ tool_read_session: Ler conversa
 tool_search_session: Pesquisar na conversa
 tool_find_tools: Buscar ferramentas
 tool_read_output: Ler saída da ferramenta
-question_answered: Respondido
-interaction_cancelled: Cancelado
-question_url_accepted: Abertura permitida
 approval_allow_prefix: Permitir o prefixo "%{prefix}"
 approval_preview_result: Aprovação de visualização registrada. Nenhum arquivo, comando ou modelo foi usado.
 file_changes_shortened: Diff abreviado
@@ -228,7 +218,6 @@ connection_search_empty: Não há correspondências
 connection_search: Pesquisar
 activity_completed: Concluído
 activity_failed: Falhou
-activity_idle: Inativo
 activity_approval: A aguardar aprovação
 activity_input: Aguardando uma resposta
 activity_no_project: Conversas
@@ -254,7 +243,6 @@ knowledge_cells: '%{sheet} · %{start}:%{end}'
 knowledge_slide: Slide %{slide}
 recent_sessions: Recente
 workspace_archive: Arquivo de sessão
-session_unarchive: Descomprimir
 session_delete: Excluir a sessão
 session_delete_named: Excluir sessão “%{name}” e seus sub-agentes permanentemente
 workspace_rename: Mudar o nome
@@ -275,7 +263,6 @@ session_fork_worktree: Fork em nova árvore de trabalho
 files_open: Abrir arquivo
 session_new_window: Abrir em nova janela
 session_window_failed: Não foi possível abrir a janela
-workspace_open_session: Sessão em aberto
 project_edit: Editar o projeto
 project_remove: Remover o projeto
 workspace_new_terminal: Criar um terminal
@@ -379,7 +366,6 @@ connection_no_projects: Não há projetos
 workspace_project: Visão geral do projeto
 resource_browser: Navegador
 terminal: Terminal
-resource_terminal_preview: Visualização da interface do usuário do terminal; nenhum shell ou comandos iniciados
 resource_browser_preview: Visualização do navegador; nenhuma página ou solicitação de rede é carregada
 file_tree: Arquivos do projeto
 file_empty: Abrir um arquivo
@@ -517,11 +503,7 @@ git_untracked: Não rastreado
 git_view_changes: Alterações
 git_view_diff: Ver diferenças
 git_view_options: Ver as opções
-hunks_reject: Rejeitar
 hunks_stage: Preparar
-hunks_accept: Aceitar
-hunks_accepted: Bloco aceito
-hunks_state_accepted: Aceito
 navigation_tabs: Abrir abas
 market_category_documents: Documentos
 turn_changes_undo_all: Desfazer as alterações
@@ -624,7 +606,6 @@ chat_rewind: Rebobine para esta volta
 chat_rewind_action: Rebobinar
 chat_rewind_confirm: Manter este turno e remover as mensagens seguintes? Os arquivos não mudam
 chat_search: Pesquisar a conversa
-chat_search_query: Pesquisar o texto
 chat_search_result: Resultados da pesquisa
 chat_status_unsynced: Status não sincronizado
 compact_reason_unknown: Nenhum detalhe adicional foi registrado para esta falha
@@ -663,14 +644,12 @@ composer_permission_full: Acesso total
 composer_permission_ask_description: Perguntar antes de editar arquivos ou executar comandos
 composer_permission_project_description: Edite arquivos de projeto automaticamente; pergunte antes de executar comandos
 composer_permission_full_description: Edite arquivos e execute comandos automaticamente, inclusive fora do projeto
-composer_permission_preview: Apenas visualização; nenhuma permissão concedida
 composer_host_local: Dispositivo local
 composer_host_remote: Remoto
 composer_no_project: Conversas
 composer_branch_none: Sem ramo
 composer_settings: Configurações da sessão
 composer_back: Voltar
-location_search: Selecione local de trabalho
 location_create: Nova árvore de trabalho
 git_no_matches: Não há correspondências
 composer_model_settings: Modelo e esforço
@@ -682,7 +661,6 @@ composer_feature_fast: Rápido
 composer_feature_fast_unsupported: Não compatível com este modelo
 composer_execution_model: Apenas modelo
 composer_team_lead: Líder
-composer_team_default: Equipe padrão
 composer_team_manage: Gerenciar equipes
 model_score_overall: Pontuação geral
 model_score_tested: 'Avaliado: %{effort}'
@@ -722,7 +700,6 @@ reference_context: Contexto do espaço de trabalho
 reference_databases: Base de dados
 reference_ssh: SSH conexões
 reference_empty: Nenhuma referência correspondente
-reference_remove: Remover a referência
 reference_host: Host
 reference_project: Projeto
 reference_worktree: Árvore de trabalho
@@ -989,7 +966,6 @@ settings_language_german: Deutsch
 settings_language_japanese: 日本語
 settings_language_korean: 한국어
 settings_language_portuguese_brazil: Português (Brasil)
-settings_language_restart: Restart to apply language
 settings_language_russian: Русский
 settings_language_spanish: Español
 settings_language_system: Seguir o sistema
@@ -1529,12 +1505,10 @@ update_download: Baixar Preview download
 update_apply: Pré-visualização aplicar
 update_retry: Tente novamente preview
 update_unavailable: Atualização indisponível (preview)
-update_unavailable_note: Este host de visualização não suporta atualizações automáticas
 update_versions: '%{current} → %{target}'
 update_version: 'Versão atual: %{current}'
 update_preview: Apenas visualização da interface do usuário; sem verificação de rede, download, instalação ou reinicialização do host
 update_target_changed: Host indisponível; reabra o editor
-update_error_preview: A solicitação de visualização falhou; nenhuma atualização real foi realizada
 metrics_title: Métricas do host
 metrics_preview: Visualização da interface do usuário; nenhuma métrica ou processo real do host é coletado
 metrics_cpu: CPU
@@ -1633,20 +1607,15 @@ selection_title: Texto selecionado
 selection_unavailable: Não foi possível ler a seleção
 selection_empty: Nenhum texto selecionado
 terminal_search_placeholder: Pesquisar no terminal
-terminal_match_previous: Jogo anterior
-terminal_match_next: Próximo jogo
 workspace_no_terminal: Nenhum terminal nesta árvore de trabalho
 workspace_close_terminal: Fechar o terminal
 workspace_terminal_preview: Visualização da interface do usuário do terminal com propriedade do projeto e da árvore de trabalho; nenhum PTY ou shell é iniciado
 pane_drag: Arrastar para dividir
 terminal_connecting: Conectando
-terminal_exited: O terminal saiu
 terminal_take_control: Assuma o controle
 terminal_other_controller: Controlado por outro dispositivo
 terminal_unavailable: Terminal indisponível; verifique a conexão do host
-cli_preview: 'Visualização da interface do usuário: cria apenas uma visualização do terminal; sem detecção de programas ou comandos'
 updates_network_failed: Não foi possível baixar a atualização; tente novamente
-updates_preview_unavailable: As atualizações não estão disponíveis na visualização
 updates_completed: Sailry foi atualizado
 port_exists: Porto já adicionado
 port_failed: Não foi possível encaminhar; verifique a porta e a conexão
@@ -1730,12 +1699,9 @@ files_keep_editing: Keep editing
 files_reload: Reload
 files_overwrite: Overwrite
 workspace_completed: Completed
-workspace_native_unavailable: File action unavailable
-workspace_invalid: Check the entered values
 workspace_restore_confirm: Restore the previous file versions for this turn
 artifact_edit_prompt: 'Alterações solicitadas:'
 hooks_project_required: Selecione um projeto
-workspace_worktree_remove_confirm: Remove this worktree and its files
 background_stop_failed: Parar falhou; tente novamente
 background_stop_unknown: Parar não confirmado; verificar o status do comando
 subagent_stop: Stop subagent
@@ -1774,7 +1740,6 @@ files_block_task: Task list
 files_bold: Bold
 files_content_partial: Apenas os primeiros 128 KiB deste grande arquivo são mostrados
 files_create: Criar
-files_directory_changed: A pasta foi alterada; recarregue-a
 files_directory_failed: Não foi possível carregar a pasta; tente novamente
 files_discard: Descartar o rascunho
 files_discard_description: Descartar alterações não salvas? Conteúdo sendo salvo ainda pode ser gravado
@@ -1822,7 +1787,6 @@ git_initialize: Inicializar o repositório Git
 git_initialize_nested_confirm: The new repository will contain these repositories
 git_publish: Publicar ramo
 git_repositories: Contains %{count} Git repositories
-git_repository: Contains 1 Git repository
 git_stash_switch: Armazenamento e troca
 git_switch_confirm: Switch to %{branch}
 git_switch_confirm_action: Switch
@@ -2227,12 +2191,17 @@ chat_provider_session: '%{name} · Início de sessão'
 chat_provider_node: '%{name} · Anfitrião'
 chat_config_desktop: Configuração do desktop
 usage_read_failed: Não foi possível carregar o uso, tente novamente
-queue_draft_changed: Fila alterada; rascunho mantido
 settings_experimental: Experimental
 settings_experimental_description: Development and debugging settings
 settings_demo_mode: Demo mode
 settings_demo_mode_description: Show sample conversations for review and screenshots
 provider_deepseek: DeepSeek
+settings_code_index: Code index
+settings_code_index_description: Index project code for the code search tools
+code_index_settings_saved: Saved
+code_index_settings_failed: Could not load or save code index settings
+code_index_settings_conflict: Code index settings changed; try again
+code_index_settings_unknown: Saving code index settings could not be confirmed
 directory_modified: Modified
 directory_modified_today: Today %{time}
 directory_modified_yesterday: Yesterday %{time}

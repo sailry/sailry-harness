@@ -211,9 +211,16 @@ func (r *Runtime) loadPackageDetails(kind settings.DetailKind, id string, done f
 
 func (r *Runtime) checkPackageUpdates(kind viewmodel.PackageKind) {
 	var requests []protocol.PluginUpdatesRequest
+	directories := map[string]string{}
 	for name, info := range r.packages.infos {
 		if packageView(info, r.packageLocale()).Kind == kind {
 			requests = append(requests, protocol.PluginUpdatesRequest{Name: name, ExpectedRevision: info.Summary.Revision})
+			if r.Preferences == nil {
+				continue
+			}
+			if directory, known := r.Preferences.Data.PluginDirectory(r.controller.Target(), name, info.Summary.Digest); known {
+				directories[name] = directory
+			}
 		}
 	}
 	busy := settings.BusyPluginUpdates
@@ -226,12 +233,25 @@ func (r *Runtime) checkPackageUpdates(kind viewmodel.PackageKind) {
 	r.App.Settings.SetBusy(busy, true)
 	r.async(func() {
 		out, err := r.controller.Do(r.ctx, protocol.Command{Kind: "check_plugin_updates", Data: protocol.CommandCheckPluginUpdatesPayload{Packages: requests, Force: true}})
+		batch, valid := detail[protocol.PluginUpdatesBatch](out.Data)
+		if err == nil && (!valid || out.Kind != "plugin_updates") {
+			err = errors.New("unexpected plugin updates response")
+		}
+		local := map[string]*localPackage{}
+		if err == nil {
+			for index := range batch.Reports {
+				report := &batch.Reports[index]
+				name := report.Current.Name
+				if directory, known := directories[name]; known && report.Manual {
+					var failure error
+					if local[name], failure = r.directoryUpdate(report, directory); failure != nil {
+						batch.Failures = append(batch.Failures, protocol.PluginUpdatesFailure{Name: name, Error: protocol.Fault{Code: faultCode(failure), Message: failure.Error()}})
+					}
+				}
+			}
+		}
 		r.enqueue(func(c *ui.Context) {
 			r.App.Settings.SetBusy(busy, false)
-			batch, valid := detail[protocol.PluginUpdatesBatch](out.Data)
-			if err == nil && (!valid || out.Kind != "plugin_updates") {
-				err = errors.New("unexpected plugin updates response")
-			}
 			if err != nil {
 				r.packageReport(c, err)
 				return
@@ -239,6 +259,9 @@ func (r *Runtime) checkPackageUpdates(kind viewmodel.PackageKind) {
 			found := 0
 			for _, report := range batch.Reports {
 				r.packages.updates[report.Current.Name] = report
+				if delete(r.packages.directories, report.Current.Name); local[report.Current.Name] != nil {
+					r.packages.directories[report.Current.Name] = local[report.Current.Name]
+				}
 				if report.Available != nil || report.Blocked != nil {
 					found++
 				}
@@ -284,6 +307,15 @@ func (r *Runtime) updatePackage(id string, finish func()) {
 	}
 	if report.Available == nil || report.Blocked != nil {
 		finish()
+		return
+	}
+	if local := r.packages.directories[name]; local != nil {
+		r.installPackageUpload(*local, func(ok bool) {
+			finish()
+			if ok {
+				delete(r.packages.updates, name)
+			}
+		})
 		return
 	}
 	if report.Available.Kind == "official" {

@@ -80,6 +80,8 @@ go run ./cmd/sailry-desktop
 
 The desktop starts one local Node, Client and shared Network. `--preview` exits
 backend startup before opening any profile, including an explicit `--data-dir`.
+A Node without a saved network selection starts on the repeated `--relay` URLs,
+else on the `iroh_relays` of its desktop preferences, else on the public relays.
 Additional live windows share the process backend, remote Clients and profile
 preference authority. Each window closes its own observations and forwards;
 application shutdown closes Network before the local Client and Node. MyGo keeps

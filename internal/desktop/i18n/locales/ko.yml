@@ -108,9 +108,6 @@ plugins_configure: 설정
 plugins_uninstall: 제거
 plugins_install: 설치
 plugins_information: 정보
-plugins_actions: 플러그인 동작
-plugins_official: 공식
-plugins_third_party: 타사
 plugins_none: 플러그인 없음
 composer: 당신이 달성하고 싶은 것을 설명하십시오
 composer_attachment: 첨부 파일 추가
@@ -119,11 +116,8 @@ chat_stop: 중지
 composer_select_model: 모델 선택
 composer_effort: 추론 노력
 composer_effort_unavailable: 기본값
-composer_branch_main: main
-composer_branch_preview: preview/ui
 dictation_start: 음성 입력
 turn_reasoning: 추론
-turn_tools_count: '%{count} 도구 호출'
 turn_latest: 최신 응답으로 이동
 chat_navigation: 메시지 탐색
 chat_new: 새 대화
@@ -137,7 +131,6 @@ turn_thinking: 생각
 tool_failed: 도구 실행 실패
 approval_pending: 승인을 기다리는 중
 content_copied: 복사됨
-turn_work: 작업
 tool_copy: 복사
 tool_interrupted: 결과 확인되지 않음
 tool_not_executed: 승인 중단됨; 실행되지 않음Name
@@ -195,9 +188,6 @@ tool_read_session: 세션 읽기
 tool_search_session: 세션 검색
 tool_find_tools: 도구 찾기
 tool_read_output: 도구 출력 읽기
-question_answered: 답변됨
-interaction_cancelled: 취소됨
-question_url_accepted: 열기 허용됨
 approval_allow_prefix: 접두사 "%{prefix}" 허용
 approval_preview_result: 미리보기 승인 기록. 파일, 명령어 또는 모델이 사용되지 않았습니다.
 file_changes_shortened: 차이 일부 생략됨
@@ -228,7 +218,6 @@ connection_search_empty: 일치하지 않음
 connection_search: 검색
 activity_completed: 완료됨
 activity_failed: 실패
-activity_idle: 대기 중
 activity_approval: 승인을 기다리는 중
 activity_input: 응답 기다리는 중
 activity_no_project: 대화
@@ -254,7 +243,6 @@ knowledge_cells: '%{sheet} · %{start}:%{end}'
 knowledge_slide: 슬라이드 %{slide}
 recent_sessions: 최근
 workspace_archive: 세션 보관
-session_unarchive: 압축 해제
 session_delete: 세션 삭제
 session_delete_named: 영구적으로 세션 “%{name}” 및 그 하위 에이전트 삭제
 workspace_rename: 이름 바꾸기
@@ -275,7 +263,6 @@ session_fork_worktree: 새 작업 트리에서 포크하기
 files_open: 파일 열기
 session_new_window: 새 창으로 열기
 session_window_failed: 창을 열 수 없음Name
-workspace_open_session: 세션 열기
 project_edit: 프로젝트 편집
 project_remove: 프로젝트 삭제
 workspace_new_terminal: 터미널 만들기
@@ -379,7 +366,6 @@ connection_no_projects: 프로젝트 없음
 workspace_project: 프로젝트 개요
 resource_browser: 브라우저
 terminal: 터미널
-resource_terminal_preview: 터미널 UI 미리보기; 셸이나 명령이 시작되지 않음
 resource_browser_preview: 브라우저 미리보기; 페이지나 네트워크 요청이 로드되지 않음
 file_tree: 프로젝트 파일
 file_empty: 파일 열기
@@ -517,11 +503,7 @@ git_untracked: 추적되지 않음
 git_view_changes: 변경 사항
 git_view_diff: 차이 보기
 git_view_options: 보기 옵션
-hunks_reject: 거부
 hunks_stage: 스테이징
-hunks_accept: 수락
-hunks_accepted: 블록을 수락했어요
-hunks_state_accepted: 수락됨
 navigation_tabs: 탭 열기
 market_category_documents: 문서
 turn_changes_undo_all: 변경 사항 실행 취소
@@ -624,7 +606,6 @@ chat_rewind: 이번 턴으로 되감기
 chat_rewind_action: 뒤로 이동
 chat_rewind_confirm: 이 턴을 남기고 이후 메시지를 제거할까요? 파일은 바뀌지 않습니다
 chat_search: 대화 검색
-chat_search_query: 텍스트 검색
 chat_search_result: 검색 결과
 chat_status_unsynced: 상태가 동기화되지 않음
 compact_reason_unknown: 이 오류의 자세한 원인은 기록되지 않았습니다
@@ -663,14 +644,12 @@ composer_permission_full: 전체 액세스
 composer_permission_ask_description: 파일을 편집하거나 명령을 실행하기 전에 묻기
 composer_permission_project_description: 프로젝트 파일 자동 편집; 명령 실행 전에 묻기
 composer_permission_full_description: 프로젝트 외부에서도 파일을 편집하고 명령을 자동으로 실행
-composer_permission_preview: 미리 보기만; 권한 부여되지 않음
 composer_host_local: 로컬 장치
 composer_host_remote: 원격
 composer_no_project: 대화
 composer_branch_none: 브랜치 없음
 composer_settings: 세션 설정
 composer_back: 뒤로
-location_search: 작업 위치 선택
 location_create: 새 작업 트리
 git_no_matches: 일치하지 않음
 composer_model_settings: 모델과 노력
@@ -682,7 +661,6 @@ composer_feature_fast: 빠름
 composer_feature_fast_unsupported: 이 모델은 지원하지 않음
 composer_execution_model: 단일 모델
 composer_team_lead: 리더
-composer_team_default: 기본 팀
 composer_team_manage: 팀 관리
 model_score_overall: 종합 점수
 model_score_tested: '측정 강도: %{effort}'
@@ -722,7 +700,6 @@ reference_context: 작업 공간 컨텍스트
 reference_databases: 데이터베이스
 reference_ssh: SSH 연결
 reference_empty: 일치하는 참조가 없음
-reference_remove: 참조 제거
 reference_host: 호스트
 reference_project: 프로젝트
 reference_worktree: 작업 트리
@@ -989,7 +966,6 @@ settings_language_german: Deutsch
 settings_language_japanese: 日本語
 settings_language_korean: 한국어
 settings_language_portuguese_brazil: Português (Brasil)
-settings_language_restart: Restart to apply language
 settings_language_russian: Русский
 settings_language_spanish: Español
 settings_language_system: 시스템 설정 따르기
@@ -1529,12 +1505,10 @@ update_download: 미리보기 다운로드
 update_apply: 미리 보기 적용
 update_retry: 미리 보기 다시 시도하기
 update_unavailable: 업데이트를 사용할 수 없습니다 (미리보기)
-update_unavailable_note: 이 미리보기 호스트는 자동 업데이트를 지원하지 않습니다
 update_versions: '%{current} → %{target}'
 update_version: '현재 버전: %{current}'
 update_preview: UI 미리보기만; 네트워크 검사, 다운로드, 설치 또는 호스트 재시작 불가
 update_target_changed: 호스트를 사용할 수 없습니다. 편집기를 다시 엽니다
-update_error_preview: 미리보기 요청이 실패했습니다. 실제 업데이트가 수행되지 않았습니다
 metrics_title: 호스트 메트릭
 metrics_preview: UI 미리보기; 실제 호스트 메트릭 또는 프로세스가 수집되지 않음
 metrics_cpu: CPU
@@ -1633,20 +1607,15 @@ selection_title: 선택한 텍스트
 selection_unavailable: 선택한 텍스트를 읽을 수 없습니다
 selection_empty: 선택한 텍스트 없음
 terminal_search_placeholder: 검색 터미널
-terminal_match_previous: 이전 일치
-terminal_match_next: 다음 일치
 workspace_no_terminal: 이 작업 트리에 터미널이 없습니다
 workspace_close_terminal: 터미널 닫기
 workspace_terminal_preview: 프로젝트와 워크트리 소유권이 있는 터미널 UI 미리보기; PTY나 셸이 시작되지 않음
 pane_drag: 분할하려면 드래그
 terminal_connecting: 연결 중
-terminal_exited: 터미널이 종료됨
 terminal_take_control: 제어하세요
 terminal_other_controller: 다른 장치에서 제어됨
 terminal_unavailable: 터미널을 사용할 수 없습니다. 호스트 연결 확인
-cli_preview: 'UI 미리보기: 터미널 미리보기만 생성; 프로그램 감지 또는 명령 없음'
 updates_network_failed: 업데이트를 다운로드할 수 없습니다. 다시 시도하십시오
-updates_preview_unavailable: 미리보기에서 업데이트를 사용할 수 없음
 updates_completed: Sailry 업데이트되었습니다
 port_exists: 이미 추가된 포트
 port_failed: 전달할 수 없음; 포트와 연결 확인
@@ -1730,12 +1699,9 @@ files_keep_editing: Keep editing
 files_reload: Reload
 files_overwrite: Overwrite
 workspace_completed: Completed
-workspace_native_unavailable: File action unavailable
-workspace_invalid: Check the entered values
 workspace_restore_confirm: Restore the previous file versions for this turn
 artifact_edit_prompt: '요청된 변경 사항:'
 hooks_project_required: 프로젝트 선택
-workspace_worktree_remove_confirm: Remove this worktree and its files
 background_stop_failed: 중지 실패; 다시 시도
 background_stop_unknown: 명령 상태 확인
 subagent_stop: Stop subagent
@@ -1774,7 +1740,6 @@ files_block_task: Task list
 files_bold: Bold
 files_content_partial: 이 큰 파일의 처음 128 KiB만 표시됩니다
 files_create: 만들기
-files_directory_changed: 폴더가 변경되었습니다. 다시 불러옵니다
 files_directory_failed: 폴더를 불러올 수 없습니다. 다시 시도하십시오
 files_discard: 초안 버리기
 files_discard_description: 저장되지 않은 변경 사항을 버리시겠습니까? 저장 중인 내용은 여전히 기록될 수 있습니다
@@ -1822,7 +1787,6 @@ git_initialize: Git 저장소 초기화
 git_initialize_nested_confirm: The new repository will contain these repositories
 git_publish: 브랜치 게시
 git_repositories: Contains %{count} Git repositories
-git_repository: Contains 1 Git repository
 git_stash_switch: 스태시 앤 스위치
 git_switch_confirm: Switch to %{branch}
 git_switch_confirm_action: Switch
@@ -2227,12 +2191,17 @@ chat_provider_session: '%{name} · 세션'
 chat_provider_node: '%{name} · 호스트'
 chat_config_desktop: 데스크톱 설정
 usage_read_failed: 사용량을 불러올 수 없습니다. 다시 시도하십시오
-queue_draft_changed: 대기열 변경; 초안 유지
 settings_experimental: Experimental
 settings_experimental_description: Development and debugging settings
 settings_demo_mode: Demo mode
 settings_demo_mode_description: Show sample conversations for review and screenshots
 provider_deepseek: DeepSeek
+settings_code_index: Code index
+settings_code_index_description: Index project code for the code search tools
+code_index_settings_saved: Saved
+code_index_settings_failed: Could not load or save code index settings
+code_index_settings_conflict: Code index settings changed; try again
+code_index_settings_unknown: Saving code index settings could not be confirmed
 directory_modified: Modified
 directory_modified_today: Today %{time}
 directory_modified_yesterday: Yesterday %{time}

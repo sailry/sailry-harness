@@ -35,9 +35,7 @@ type Updates struct {
 // the bundle is swapped and quit ends the process for the relaunch.
 func NewUpdates(prefs *preferences.Store, profile string, stop func() error, quit func()) *Updates {
 	updates := &Updates{}
-	if prefs.Data.UpdateChannel != nil && *prefs.Data.UpdateChannel == "experience" {
-		updates.channel.Store(1)
-	}
+	updates.channel.Store(int32(updateChannel(prefs.Data.UpdateChannel, link.ProductVersion)))
 	updates.Service = updater.New(updater.Options{
 		Version: link.ProductVersion, Directory: filepath.Join(filepath.Dir(prefs.Path), "updater"), Profile: profile,
 		Channel: func() updater.Channel {

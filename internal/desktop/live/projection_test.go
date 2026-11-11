@@ -10,9 +10,11 @@ import (
 
 	"github.com/sailry/sailry-harness/internal/client"
 	"github.com/sailry/sailry-harness/internal/desktop/preferences"
+	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/desktop/shell"
 	"github.com/sailry/sailry-harness/internal/desktop/sidebar"
 	"github.com/sailry/sailry-harness/internal/desktop/viewmodel"
+	"github.com/sailry/sailry-harness/internal/link"
 	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
@@ -100,6 +102,42 @@ func TestSidebarProjection(t *testing.T) {
 			t.Fatalf("%q: sidebar order %v, want %v", c.preference, got, c.want)
 		}
 	}
+	t.Run("an unset update channel follows the running build", func(t *testing.T) {
+		stable, experience := "stable", "experience"
+		for _, current := range []struct {
+			saved   *string
+			version string
+			want    int
+		}{
+			{nil, "0.1.6", 0}, {nil, "0.2.0-beta.1", 1}, {nil, "not a version", 0},
+			{&stable, "0.2.0-beta.1", 0}, {&experience, "0.1.6", 1},
+		} {
+			if got := updateChannel(current.saved, current.version); got != current.want {
+				t.Errorf("saved %v on %s: channel %d, want %d", current.saved, current.version, got, current.want)
+			}
+		}
+		r := &Runtime{ctx: t.Context(), App: shell.NewLive(Sidebar(snapshot, preferences.Default())), Preferences: preferences.Open(filepath.Join(t.TempDir(), "preferences.json"))}
+		r.applyPreferences()
+		initial := updateChannel(nil, link.ProductVersion)
+		r.savePreferences()
+		r.workers.Wait()
+		if r.App.Settings.Model.Channel != initial || r.Preferences.Data.UpdateChannel != nil {
+			t.Fatalf("a profile that never chose shows channel %d and saved %v", r.App.Settings.Model.Channel, r.Preferences.Data.UpdateChannel)
+		}
+		// About shows the channel in use, which then stays this profile's.
+		r.App.Page, r.App.Settings.Section = shell.SettingsPage, settings.About
+		r.savePreferences()
+		r.workers.Wait()
+		if saved := r.Preferences.Data.UpdateChannel; saved == nil || *saved != updateChannels[initial] {
+			t.Fatalf("the channel About showed was saved as %v", saved)
+		}
+		r.App.Settings.Model.Channel = 1 - initial
+		r.savePreferences()
+		r.workers.Wait()
+		if saved := r.Preferences.Data.UpdateChannel; saved == nil || *saved != updateChannels[1-initial] {
+			t.Fatalf("the chosen channel was saved as %v", saved)
+		}
+	})
 	t.Run("order survives a restart", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "preferences.json")
 		start := func() *Runtime {

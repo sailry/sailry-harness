@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"sync/atomic"
 
@@ -25,6 +26,8 @@ import (
 type startupOptions struct {
 	Preview bool
 	DataDir string
+	// Relays are the --relay URLs, in the order given.
+	Relays []string
 }
 
 func parseOptions(args []string) (startupOptions, error) {
@@ -33,6 +36,10 @@ func parseOptions(args []string) (startupOptions, error) {
 	flags.SetOutput(io.Discard)
 	flags.BoolVar(&options.Preview, "preview", false, "Show the isolated preview without starting a Node")
 	flags.StringVar(&options.DataDir, "data-dir", "", "Use this Node profile directory")
+	flags.Func("relay", "Start on this relay instead of the public ones; repeat for more", func(value string) error {
+		options.Relays = append(options.Relays, value)
+		return nil
+	})
 	if err := flags.Parse(args); err != nil {
 		return options, err
 	}
@@ -78,7 +85,7 @@ func openBackend(ctx context.Context, options startupOptions) (*desktopBackend, 
 	backend.reports = catchCrashes()
 	backend.Node, err = node.StartWithOptions(ctx, path, node.Options{
 		MCP:         &mcp.Options{Warm: true},
-		Network:     &link.NetworkScope{Internet: true},
+		Network:     startupScope(options.Relays, backend.Preferences.Data.IrohRelays),
 		LocalModels: localmodels.Options{Capabilities: node.LocalModelCapabilities()},
 	})
 	if err != nil {
@@ -92,6 +99,21 @@ func openBackend(ctx context.Context, options startupOptions) (*desktopBackend, 
 	}
 	backend.Network = live.NewNetwork(ctx, backend.Client, backend.Node.Link())
 	return backend, nil
+}
+
+// startupScope is the network the Node starts on while it has no saved
+// selection of its own: the --relay URLs, else the relays the desktop's
+// preferences pin (iroh_relays), else the public relays. A selection saved
+// on the Node replaces it when the Node binds.
+func startupScope(explicit []string, stored *[]string) *link.NetworkScope {
+	relays := explicit
+	if len(relays) == 0 && stored != nil {
+		relays = *stored
+	}
+	if len(relays) == 0 {
+		return &link.NetworkScope{Internet: true}
+	}
+	return &link.NetworkScope{Relays: slices.Clone(relays)}
 }
 
 func (backend *desktopBackend) closeLogs() {

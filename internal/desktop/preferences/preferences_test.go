@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/sailry/sailry-harness/internal/protocol"
 )
 
 func TestPrefsRoundTrip(t *testing.T) {
@@ -151,6 +153,36 @@ func TestPrefsRoundTrip(t *testing.T) {
 			if json.Unmarshal(b, &d) == nil {
 				t.Fatal("duplicate controller field or pin alias was accepted")
 			}
+		}
+	})
+	t.Run("plugin directories follow the newest installation", func(t *testing.T) {
+		d := Default()
+		node, other := protocol.NodeID{1}, protocol.NodeID{2}
+		if _, known := d.PluginDirectory(node, "notes", "first"); known {
+			t.Fatal("an empty profile knew a directory")
+		}
+		d.ForgetPluginDirectory(node, "notes", 9)
+		d.RememberPluginDirectory(node, "notes", Directory{Digest: "second", InstallRevision: 4, Path: "/work/notes"})
+		d.RememberPluginDirectory(node, "notes", Directory{Digest: "first", InstallRevision: 3, Path: "/old/notes"})
+		if path, known := d.PluginDirectory(node, "notes", "second"); !known || path != "/work/notes" {
+			t.Fatalf("an older installation replaced the record: %q, %v", path, known)
+		}
+		if _, known := d.PluginDirectory(node, "notes", "third"); known {
+			t.Fatal("a directory was offered for content it did not install")
+		}
+		if _, known := d.PluginDirectory(other, "notes", "second"); known {
+			t.Fatal("another Node's package used the directory")
+		}
+		d.ForgetPluginDirectory(node, "notes", 3)
+		if _, known := d.PluginDirectory(node, "notes", "second"); !known {
+			t.Fatal("an older removal dropped a later installation's record")
+		}
+		if d.Validate() != nil {
+			t.Fatal("the record is not valid preference data")
+		}
+		d.ForgetPluginDirectory(node, "notes", 4)
+		if _, known := d.PluginDirectory(node, "notes", "second"); known {
+			t.Fatal("the record outlived its installation")
 		}
 	})
 	t.Run("unreadable and failed save preserve data", func(t *testing.T) {

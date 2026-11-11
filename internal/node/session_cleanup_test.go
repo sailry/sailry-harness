@@ -4,9 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/sailry/sailry-harness/internal/node/store"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -59,6 +61,72 @@ func TestStoredFileCollection(t *testing.T) {
 		t.Fatalf("fixture entries: %v, %v", entries, err)
 	}
 
+	t.Run("a finishing upload keeps its file until its row commits", func(t *testing.T) {
+		data := []byte("upload")
+		spec := protocol.AttachmentSpec{Worktree: session.Worktree, Name: "upload.txt", MediaType: "text/plain", Size: uint64(len(data)), Revision: fmt.Sprintf("%x", blake3.Sum256(data))}
+		upload := commandFixture(t, node, protocol.Command{Kind: "upload_attachment", Data: &spec}).Data.(protocol.AttachmentUpload)
+		stream, err := node.Open(context.Background(), node.ID(), upload.Stream)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer stream.Close()
+		if _, err = stream.Write(data); err == nil {
+			err = stream.CloseWrite()
+		}
+		if err == nil {
+			_, err = io.ReadFull(stream, make([]byte, 1))
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		// A finish takes the publication lock between its file and its row.
+		unlock := node.agent.LockPublication()
+		held := true
+		defer func() {
+			if held {
+				unlock()
+			}
+		}()
+		accepted, err := node.Dispatch(context.Background(), node.ID(), protocol.NewRequest(node.ID(), protocol.Command{Kind: "finish_attachment_upload", Data: &protocol.CommandFinishAttachmentUploadPayload{Worktree: session.Worktree, Stream: upload.Stream}}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+			if entries, err := os.ReadDir(directory); err != nil {
+				t.Fatal(err)
+			} else if len(entries) == 4 {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("the upload was not published")
+			}
+		}
+		collected := make(chan struct{})
+		go func() {
+			defer close(collected)
+			node.collectAttachments(context.Background())
+		}()
+		select {
+		case <-collected:
+			t.Fatal("a collection ran between an upload's file and its row")
+		case <-time.After(200 * time.Millisecond):
+		}
+		held = false
+		unlock()
+		result := <-accepted.Completion
+		if result.Fault != nil {
+			t.Fatal(result.Fault)
+		}
+		<-collected
+		published := result.Output.Data.(protocol.Attachment)
+		if !present(published.ID.String()) {
+			t.Fatal("a collection removed the file of a finished upload")
+		}
+		commandFixture(t, node, protocol.Command{Kind: "discard_attachment", Data: &protocol.CommandDiscardAttachmentPayload{Worktree: session.Worktree, Attachment: published.ID}})
+		if present(published.ID.String()) {
+			t.Fatal("a discarded upload kept its file")
+		}
+	})
 	t.Run("a discarded attachment loses its file at once", func(t *testing.T) {
 		other := protocol.Attachment{ID: protocol.NewAttachmentID(), Spec: attachment.Spec}
 		if err := node.profile.Store.Node.Write(context.Background(), func(db *sql.Conn) error {

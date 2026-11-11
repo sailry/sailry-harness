@@ -108,9 +108,6 @@ plugins_configure: 配置
 plugins_uninstall: 卸载
 plugins_install: 安装
 plugins_information: 信息
-plugins_actions: 插件操作
-plugins_official: 官方
-plugins_third_party: 三方
 plugins_none: 暂无插件
 composer: 描述你想完成的任务…
 composer_attachment: 添加附件
@@ -119,11 +116,8 @@ chat_stop: 停止
 composer_select_model: 选择模型
 composer_effort: 推理强度
 composer_effort_unavailable: 默认
-composer_branch_main: main
-composer_branch_preview: preview/ui
 dictation_start: 语音输入
 turn_reasoning: 思考过程
-turn_tools_count: '%{count} 个工具调用'
 turn_latest: 回到最新回复
 chat_navigation: 消息导航
 chat_new: 新建会话
@@ -137,7 +131,6 @@ turn_thinking: 正在思考
 tool_failed: 工具执行失败
 approval_pending: 等待审批
 content_copied: 已复制
-turn_work: 处理过程
 tool_copy: 复制
 tool_interrupted: 结果未确认
 tool_not_executed: 审批已中断，未执行
@@ -195,9 +188,6 @@ tool_read_session: 读取会话
 tool_search_session: 搜索会话
 tool_find_tools: 查找工具
 tool_read_output: 读取工具输出
-question_answered: 已回答
-interaction_cancelled: 已取消
-question_url_accepted: 已同意打开
 approval_allow_prefix: 允许前缀“%{prefix}”
 approval_preview_result: 已记录本回合的示例审批选择。未修改文件、执行命令或调用模型。
 file_changes_shortened: 差异已截断
@@ -228,7 +218,6 @@ connection_search_empty: 无匹配结果
 connection_search: 搜索
 activity_completed: 已完成
 activity_failed: 失败
-activity_idle: 空闲
 activity_approval: 待批准
 activity_input: 待回复
 activity_no_project: 对话
@@ -254,7 +243,6 @@ knowledge_cells: '%{sheet} · %{start}:%{end}'
 knowledge_slide: 第 %{slide} 张
 recent_sessions: 最近
 workspace_archive: 归档会话
-session_unarchive: 取消归档
 session_delete: 删除会话
 session_delete_named: 确认删除会话“%{name}”及其子代理？无法恢复
 workspace_rename: 重命名
@@ -275,7 +263,6 @@ session_fork_worktree: 在新工作树中创建聊天分支
 files_open: 打开文件
 session_new_window: 在新窗口中打开
 session_window_failed: 无法打开新窗口
-workspace_open_session: 打开会话
 project_edit: 编辑项目
 project_remove: 移除项目
 workspace_new_terminal: 创建终端
@@ -379,7 +366,6 @@ connection_no_projects: 暂无项目
 workspace_project: 项目概览
 resource_browser: 浏览器
 terminal: 终端
-resource_terminal_preview: 终端 UI 预览，未启动 Shell 或执行命令
 resource_browser_preview: 浏览器 UI 预览，未加载网页或访问网络
 file_tree: 项目文件
 file_empty: 打开文件
@@ -517,11 +503,7 @@ git_untracked: 未跟踪
 git_view_changes: 变更
 git_view_diff: 查看差异
 git_view_options: 视图与排序
-hunks_reject: 拒绝
 hunks_stage: 暂存
-hunks_accept: 接受
-hunks_accepted: 已接受此块
-hunks_state_accepted: 已接受
 navigation_tabs: 打开的标签
 market_category_documents: 文档
 turn_changes_undo_all: 撤销修改
@@ -624,7 +606,6 @@ chat_rewind: 回退到此回合
 chat_rewind_action: 回退
 chat_rewind_confirm: 保留此回合并移除后续消息？文件不变
 chat_search: 搜索对话
-chat_search_query: 搜索内容
 chat_search_result: 搜索结果
 chat_status_unsynced: 状态未同步
 compact_reason_unknown: 此次失败未记录具体原因
@@ -663,14 +644,12 @@ composer_permission_full: 完全权限
 composer_permission_ask_description: 修改文件和执行命令前询问
 composer_permission_project_description: 自动修改项目文件，执行命令前询问
 composer_permission_full_description: 自动修改文件和执行命令，可影响项目外文件
-composer_permission_preview: 仅预览，不授予权限
 composer_host_local: 本机
 composer_host_remote: 远程
 composer_no_project: 对话
 composer_branch_none: 无 worktree
 composer_settings: 会话设置
 composer_back: 返回
-location_search: 选择工作位置
 location_create: 新建工作树并继续
 git_no_matches: 无匹配项
 composer_model_settings: 模型与强度
@@ -682,7 +661,6 @@ composer_feature_fast: 快速
 composer_feature_fast_unsupported: 当前模型不支持
 composer_execution_model: 单模型
 composer_team_lead: 组长
-composer_team_default: 默认团队
 composer_team_manage: 管理团队
 model_score_overall: 综合分
 model_score_tested: 实测 %{effort} 档
@@ -722,7 +700,6 @@ reference_context: 工作区上下文
 reference_databases: 数据库
 reference_ssh: SSH 连接
 reference_empty: 没有匹配的引用
-reference_remove: 移除引用
 reference_host: 主机
 reference_project: 项目
 reference_worktree: worktree
@@ -989,7 +966,6 @@ settings_language_german: Deutsch
 settings_language_japanese: 日本語
 settings_language_korean: 한국어
 settings_language_portuguese_brazil: Português (Brasil)
-settings_language_restart: 重启后应用语言
 settings_language_russian: Русский
 settings_language_spanish: Español
 settings_language_system: 跟随系统
@@ -1529,12 +1505,10 @@ update_download: 预览下载
 update_apply: 预览应用
 update_retry: 重试预览
 update_unavailable: 当前不可更新（示例）
-update_unavailable_note: 此示例主机暂不支持自动更新
 update_versions: '%{current} → %{target}'
 update_version: 当前版本：%{current}
 update_preview: UI 状态预览，按钮仅切换示例快照；不会检查网络、下载、安装或重启主机
 update_target_changed: 目标主机已不可用，请关闭后重新打开
-update_error_preview: 示例请求失败，没有执行真实更新
 metrics_title: 主机指标
 metrics_preview: UI 示例数据，未采集真实主机指标或进程
 metrics_cpu: CPU
@@ -1633,20 +1607,15 @@ selection_title: 选中文字
 selection_unavailable: 无法读取选中文字
 selection_empty: 未选中文字
 terminal_search_placeholder: 搜索终端
-terminal_match_previous: 上一个匹配
-terminal_match_next: 下一个匹配
 workspace_no_terminal: 当前 worktree 没有终端
 workspace_close_terminal: 关闭终端
 workspace_terminal_preview: 终端 UI 预览。已保留项目和 worktree 归属，未启动 PTY 或 shell；真实终端绘制与输入在终端阶段接入。
 pane_drag: 拖动分屏
 terminal_connecting: 连接中
-terminal_exited: 终端已退出
 terminal_take_control: 接管
 terminal_other_controller: 由另一设备控制
 terminal_unavailable: 终端不可用，请检查主机连接
-cli_preview: UI 示例：仅创建终端预览，不检测程序、不执行命令
 updates_network_failed: 更新下载失败，请重试
-updates_preview_unavailable: 预览模式不可更新
 updates_completed: Sailry 已更新
 port_exists: 此端口已添加
 port_failed: 无法转发，请检查端口和连接
@@ -1730,12 +1699,9 @@ files_keep_editing: 继续编辑
 files_reload: 重新加载
 files_overwrite: 覆盖
 workspace_completed: 已完成
-workspace_native_unavailable: 文件操作不可用
-workspace_invalid: 请检查输入内容
 workspace_restore_confirm: 恢复此轮操作前的文件版本
 artifact_edit_prompt: 修改要求：
 hooks_project_required: 选择项目
-workspace_worktree_remove_confirm: 移除此工作树及其中的文件
 background_stop_failed: 停止失败，请重试
 background_stop_unknown: 停止结果未确认，请查看命令状态
 subagent_stop: 停止子代理
@@ -1774,7 +1740,6 @@ files_block_task: 任务列表
 files_bold: 粗体
 files_content_partial: 文件较大，仅显示前 128 KiB 的文本内容
 files_create: 新建
-files_directory_changed: 目录已变化，请重新加载
 files_directory_failed: 无法加载目录，请重试
 files_discard: 放弃草稿
 files_discard_description: 丢弃未保存修改？正在保存的内容仍可能写入
@@ -1822,7 +1787,6 @@ git_initialize: 初始化 Git
 git_initialize_nested_confirm: 新仓库会包含以下仓库
 git_publish: 发布分支
 git_repositories: 包含 %{count} 个 Git 仓库
-git_repository: 包含 1 个 Git 仓库
 git_stash_switch: 储藏更改并切换
 git_switch_confirm: 切换到 %{branch}
 git_switch_confirm_action: 切换
@@ -2227,12 +2191,17 @@ chat_provider_session: '%{name} · 会话'
 chat_provider_node: '%{name} · 主机'
 chat_config_desktop: 桌面配置
 usage_read_failed: 无法读取用量，请重试
-queue_draft_changed: 队列已改变，编辑草稿已保留
 settings_experimental: 实验
 settings_experimental_description: 开发与调试设置
 settings_demo_mode: 演示模式
 settings_demo_mode_description: 显示示例会话，用于验收与截图
 provider_deepseek: DeepSeek
+settings_code_index: 代码索引
+settings_code_index_description: 为代码搜索工具索引项目代码
+code_index_settings_saved: 已保存
+code_index_settings_failed: 无法读取或保存代码索引设置
+code_index_settings_conflict: 代码索引设置已更改，请重试
+code_index_settings_unknown: 无法确认是否已保存代码索引设置
 directory_modified: 修改时间
 directory_modified_today: 今天 %{time}
 directory_modified_yesterday: 昨天 %{time}

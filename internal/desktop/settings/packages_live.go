@@ -23,7 +23,6 @@ type PackageActions struct {
 	Download       func(string, string, string, func(bool))
 	CancelDownload func()
 	LoadDetails    func(DetailKind, string, func())
-	SearchMarket   func(int, int, string)
 	RetryMarket    func()
 	MarketPlugin   func(string)
 	MarketSkill    func(string)

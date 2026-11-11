@@ -3,10 +3,12 @@ package live
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"path/filepath"
 	"strings"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/sailry/sailry-harness/internal/desktop/preferences"
 	"github.com/sailry/sailry-harness/internal/desktop/settings"
 	"github.com/sailry/sailry-harness/internal/node/plugins"
 	"github.com/sailry/sailry-harness/internal/protocol"
@@ -79,34 +81,111 @@ func (r *Runtime) installLocalPlugin(selectedPath, workingDirectory string, done
 		}
 	}
 	r.async(func() {
-		data, format, kind, err := plugins.NewManager(filepath.Dir(filepath.Dir(r.Preferences.Path))).SnapshotSkills(r.ctx, selectedPath, workingDirectory)
-		if err == nil && format != protocol.PluginSkillsArchiveFormatZip {
-			err = errors.New("plugin packages require a directory or ZIP archive")
-		}
-		var upload protocol.PluginUpload
-		var info protocol.PluginInfo
-		if err == nil {
-			upload, err = r.uploadPackage(r.ctx, data)
-		}
-		if err == nil {
-			var out protocol.Output
-			out, err = r.controller.Do(r.ctx, protocol.Command{Kind: "inspect_plugin_upload", Data: protocol.CommandInspectPluginUploadPayload{Stream: upload.Stream}})
-			var valid bool
-			info, valid = detail[protocol.PluginInfo](out.Data)
-			if err == nil && (!valid || out.Kind != "plugin") {
-				err = errors.New("unexpected uploaded plugin response")
-			}
-		}
+		local, err := r.localPackage(selectedPath, workingDirectory)
 		r.enqueue(func(c *ui.Context) {
 			if err != nil {
 				r.packageReport(c, err)
 				done(false)
 				return
 			}
-			name := info.Summary.Name
-			r.packageCommand(protocol.Command{Kind: "install_plugin_upload", Data: protocol.CommandInstallPluginUploadPayload{Stream: upload.Stream, Source: kind, Name: name, ExpectedRevision: r.packages.infos[name].Summary.Revision}}, func(_ protocol.Output, ok bool) { done(ok) })
+			r.installPackageUpload(local, done)
 		})
 	})
+}
+
+// localPackage is a local directory or ZIP as the Node described its upload.
+type localPackage struct {
+	stream protocol.StreamID
+	source protocol.PluginUploadSource
+	info   protocol.PluginInfo
+	// directory is the absolute directory the package was read from; empty
+	// for an archive.
+	directory string
+}
+
+// localPackage snapshots a local directory or ZIP, uploads it and has the
+// Node describe it. It runs off the UI thread.
+func (r *Runtime) localPackage(selectedPath, workingDirectory string) (localPackage, error) {
+	data, format, kind, err := plugins.NewManager(filepath.Dir(filepath.Dir(r.Preferences.Path))).SnapshotSkills(r.ctx, selectedPath, workingDirectory)
+	if err == nil && format != protocol.PluginSkillsArchiveFormatZip {
+		err = errors.New("plugin packages require a directory or ZIP archive")
+	}
+	if err != nil {
+		return localPackage{}, err
+	}
+	local := localPackage{source: kind}
+	if kind == protocol.PluginUploadSourceDirectory {
+		if !filepath.IsAbs(selectedPath) {
+			selectedPath = filepath.Join(workingDirectory, selectedPath)
+		}
+		// A directory without an absolute path is installed and not remembered.
+		local.directory, _ = filepath.Abs(selectedPath)
+	}
+	upload, err := r.uploadPackage(r.ctx, data)
+	if err != nil {
+		return localPackage{}, err
+	}
+	local.stream = upload.Stream
+	out, err := r.controller.Do(r.ctx, protocol.Command{Kind: "inspect_plugin_upload", Data: protocol.CommandInspectPluginUploadPayload{Stream: upload.Stream}})
+	var valid bool
+	local.info, valid = detail[protocol.PluginInfo](out.Data)
+	if err == nil && (!valid || out.Kind != "plugin") {
+		err = errors.New("unexpected uploaded plugin response")
+	}
+	return local, err
+}
+
+// installPackageUpload installs an uploaded package and remembers the local
+// directory it came from, which a later update check reads again.
+func (r *Runtime) installPackageUpload(local localPackage, done func(bool)) {
+	name := local.info.Summary.Name
+	r.packageCommand(protocol.Command{Kind: "install_plugin_upload", Data: protocol.CommandInstallPluginUploadPayload{Stream: local.stream, Source: local.source, Name: name, ExpectedRevision: r.packages.infos[name].Summary.Revision}}, func(out protocol.Output, ok bool) {
+		if installed, valid := detail[protocol.PluginInfo](out.Data); ok && valid && local.directory != "" {
+			r.Preferences.Data.RememberPluginDirectory(r.controller.Target(), installed.Summary.Name, preferences.Directory{
+				Digest: installed.Summary.Digest, InstallRevision: installed.Summary.Revision, Path: local.directory,
+			})
+		}
+		done(ok)
+	})
+}
+
+// directoryUpdate reads again the local directory a package was installed
+// from and puts a strictly newer version found there in the report, since
+// the Node cannot check such a package itself. A directory that is gone
+// leaves the report as the Node gave it.
+func (r *Runtime) directoryUpdate(report *protocol.PluginUpdatesReport, directory string) (*localPackage, error) {
+	local, err := r.localPackage(directory, "")
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if offered, err := offerLocalUpdate(report, local); !offered {
+		// The Node keeps no upload that nothing will install.
+		r.cancelAttachmentStream(local.stream)
+		return nil, err
+	}
+	return &local, nil
+}
+
+// offerLocalUpdate fills the report from the package read in its directory
+// and reports whether that package can be installed as the update.
+func offerLocalUpdate(report *protocol.PluginUpdatesReport, local localPackage) (bool, error) {
+	candidate := local.info.Summary
+	if local.directory == "" || candidate.Name != report.Current.Name {
+		return false, errors.New("plugin update has a different identity")
+	}
+	report.Manual = false
+	if !plugins.IsNewer(report.Current.Version, candidate.Version) {
+		return false, nil
+	}
+	if required, blocked := detail[protocol.PluginCompatibilityRequiresNewerPayload](candidate.Compatibility.Data); blocked && candidate.Compatibility.Kind == "requires_newer" {
+		report.Blocked = &protocol.PluginUpdatesBlocked{Version: *candidate.Version, Required: required.Required, ReleaseNotes: local.info.ReleaseNotes}
+		return false, nil
+	}
+	report.Available = &protocol.PluginUpdatesCandidate{Kind: "package", Data: local.info}
+	return true, nil
 }
 
 func (r *Runtime) chooseSkillSource(source int, done func(string)) {

@@ -55,6 +55,8 @@ type Runtime struct {
 	workspace                *workspaceState
 	workspaceSettings        workspaceSettingsState
 	workspaceSettingsOwner   *Runtime
+	settingsShown            *Runtime // the Node the settings pages hold, once settingsTurned (settings_target.go)
+	settingsTurned           bool
 	terminalSettings         terminalSettingsState
 	backupSettings           backupSettingsState
 	localModels              localModelState
@@ -101,6 +103,7 @@ type Runtime struct {
 	lastFeatures             string
 	lastKeys                 string
 	powerObservedRevision    uint64
+	compactionObserved       uint64
 	updates                  *Updates
 	updatesFocused           func() bool
 	prefsRevision            uint64
@@ -228,7 +231,6 @@ func NewWithPreferences(ctx context.Context, controller *client.Client, prefs *p
 	r.initWorkspace()
 	r.App.Hooks.WorkspaceProject = r.workspaceProject
 	r.bindWorkspaceSettings()
-	r.App.Settings.SavePower = r.savePower
 	r.App.Settings.SaveTelemetry = r.saveTelemetry
 	r.App.Settings.ResetTelemetry = r.resetTelemetry
 	r.App.Settings.SendDiagnostics = r.sendDiagnostics
@@ -261,10 +263,11 @@ func NewWithPreferences(ctx context.Context, controller *client.Client, prefs *p
 		r.enqueue(func(c *ui.Context) { kit.Toast(c, kit.Failed, i18n.T(c, "preferences_read_failed")) })
 	}
 	r.prefsRevision = prefs.Revision()
-	r.readSettings()
+	r.readTelemetry()
+	r.readSandbox()
 	r.projectConversations()
-	r.initProviders()
 	r.initTeams()
+	r.initNodeSettings()
 	r.initConversationSearch()
 	r.initNetworkUI()
 	r.initB8Packages()
@@ -436,7 +439,7 @@ func (r *Runtime) drain(c *ui.Context) {
 	r.localModelsFrame()
 	r.dictationFrame(c)
 	r.permissionsFrame()
-	r.teamsFrame()
+	r.nodeSettingsFrame()
 	r.packagesFrame(c)
 	r.pluginViewsFrame(c)
 	r.terminalsFrame(c)
@@ -444,10 +447,6 @@ func (r *Runtime) drain(c *ui.Context) {
 	r.networkFrame(c)
 	r.browserFrame()
 	r.aboutFrame(c)
-	snapshot := r.snapshot()
-	if snapshot.PowerSettingsRevision != r.powerObservedRevision && !r.App.Settings.Power.Pending {
-		r.readPower()
-	}
 }
 
 func (r *Runtime) afterFrame() {
@@ -516,7 +515,9 @@ func (r *Runtime) project() {
 	r.selectPendingSession()
 	r.listSidebar()
 	r.projectConversations()
-	r.projectProviderSnapshot()
+	if owner := r.shownSettings(); owner != nil {
+		owner.projectProviderSnapshot()
+	}
 	r.prunePins(snapshot)
 	r.pruneSessions(snapshot)
 }
@@ -644,11 +645,7 @@ func (r *Runtime) Refresh() {
 			if err != nil {
 				r.report(c, err, "session_changed")
 			}
-			if r.parent == nil {
-				r.readSettings()
-			} else {
-				r.readSandbox()
-			}
+			r.readSettings()
 		})
 	})
 }
